@@ -287,10 +287,6 @@ impl PreparedLoad {
     /// One world restore for production resource loads and headless fixtures.
     /// The caller supplies the incoming bound resources and only lends the
     /// current process RNG owners; no fresh scenario construction is replayed.
-    #[expect(
-        clippy::too_many_arguments,
-        reason = "existing restore inputs and the loaded-cell asset phase"
-    )]
     fn prepare_snapshot(
         snapshot: GameSnapshot,
         process: crate::sim::world::SnapshotProcessState<'_>,

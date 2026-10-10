@@ -145,6 +145,10 @@ pub(crate) struct SavedMapMetadata {
 }
 
 impl SavedMapMetadata {
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "capture existing map, presentation, clock and Theme owners at one save boundary"
+    )]
     pub(crate) fn capture(
         map_hash: u64,
         source: &crate::map::source::LoadedMapSource,

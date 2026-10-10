@@ -811,7 +811,7 @@ impl ThemeRuntime {
             self.slots.retained = index;
             if physical.stream_exists() {
                 let stem = self.entry(index).map(|entry| entry.sound.clone());
-                match stem.as_deref().and_then(|stem| prepare(stem)) {
+                match stem.as_deref().and_then(prepare) {
                     Some(prepared) => {
                         action.start = Some(prepared);
                         action.theme_scale = Some(1.0);

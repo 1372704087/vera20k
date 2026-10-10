@@ -248,7 +248,7 @@ impl PreparedSavedGame {
                 .simulation
                 .playfield_bounds
                 .map(LocalBounds::from_playfield),
-            BridgeMiddleTiles::from_theater(&theater),
+            BridgeMiddleTiles::from_theater(theater),
         );
         let csf = Some(
             init::load_csf(assets)
@@ -269,7 +269,7 @@ impl PreparedSavedGame {
             gpu,
             batch,
             theater.extension,
-            &theater_name,
+            theater_name,
             Some(rules),
             &resources.overlay_registry,
             map.house_colors(),
@@ -291,7 +291,7 @@ impl PreparedSavedGame {
             gpu,
             batch,
             theater.extension,
-            &theater_name,
+            theater_name,
             processed_rules.ini(),
             rules,
             &resources.overlay_registry,

@@ -113,7 +113,8 @@ fn ready_and_place(
             type_id: type_id,
             cell: (rx, ry)
         },
-        None
+        None,
+        crate::sim::world::FrameEffects::default()
     ));
     sim.substrate
         .entities
@@ -654,6 +655,7 @@ fn an_unfinished_building_is_refused_until_its_factory_completes() {
                 cell: (12, 10),
             },
             None,
+            crate::sim::world::FrameEffects::default(),
         )
     };
 
@@ -787,7 +789,8 @@ fn place_ready_building_spawns_and_consumes_ready_item() {
             type_id: "GACNST",
             cell: (20, 20)
         },
-        None
+        None,
+        crate::sim::world::FrameEffects::default()
     ));
     assert_eq!(sim.scenario_rng.logical_state(), expected.logical_state());
     assert!(ready_buildings_for_owner(&sim, &rules, "Americans").is_empty());
@@ -1033,7 +1036,8 @@ fn place_ready_building_accepts_clear_mixed_height_footprint() {
             type_id: "GAPOWR",
             cell: (12, 10)
         },
-        None
+        None,
+        crate::sim::world::FrameEffects::default()
     ));
 
     assert!(sim.substrate.entities.values().any(|e| {
@@ -1075,7 +1079,8 @@ fn place_ready_building_rejects_blocked_cell_inside_mixed_height_footprint() {
             type_id: "GAPOWR",
             cell: (12, 10)
         },
-        None
+        None,
+        crate::sim::world::FrameEffects::default()
     ));
     assert_eq!(
         ready_buildings_for_owner(&sim, &rules, "Americans").len(),
@@ -1631,6 +1636,7 @@ fn place_ready_building_rejects_blocked_or_overlapping_cells() {
                 cell,
             },
             None,
+            crate::sim::world::FrameEffects::default(),
         )
     };
 
@@ -1681,6 +1687,7 @@ fn placement_command_rejects_marked_ground_mobiles_until_they_are_unmarked() {
                 blocker_id,
                 crate::sim::world::InfantryDeathSequence::Die1,
                 &rules,
+                crate::sim::world::FrameEffects::default(),
             );
         }
 
@@ -1915,7 +1922,8 @@ fn empty_cell_wall_placement_still_works_but_wall_on_overlay_rejects() {
                 type_id: "GAWALL",
                 cell: (12, 10)
             },
-            Some(&registry)
+            Some(&registry),
+            crate::sim::world::FrameEffects::default()
         ),
         "the ordinary empty-cell wall commit must remain accepted"
     );
@@ -1995,7 +2003,8 @@ fn empty_cell_wall_placement_still_works_but_wall_on_overlay_rejects() {
                 type_id: "GAWALL",
                 cell: (12, 10)
             },
-            Some(&registry)
+            Some(&registry),
+            crate::sim::world::FrameEffects::default()
         ),
         "the occupied primary wall commit must be rejected"
     );
@@ -2228,7 +2237,8 @@ fn gsi_04_07_regular_wall_autofill_is_cardinal_ordered_bounded_and_consumes_once
             type_id: "GAWALL",
             cell: (origin.0, origin.1)
         },
-        Some(&registry)
+        Some(&registry),
+        crate::sim::world::FrameEffects::default()
     ));
     assert!(
         ready_buildings_for_owner(&sim, &rules, "Americans").is_empty(),
@@ -2384,7 +2394,8 @@ fn gsi_04_07_regular_wall_autofill_rejects_out_of_range_and_foreign_endpoints() 
             type_id: "GAWALL",
             cell: (18, 18)
         },
-        Some(&registry)
+        Some(&registry),
+        crate::sim::world::FrameEffects::default()
     ));
     assert_eq!(
         foreign_blocker
@@ -2415,7 +2426,8 @@ fn gsi_04_07_wall_placement_resolves_art_tooverlay_not_building_id() {
             type_id: "WALLKIT",
             cell: (12, 10)
         },
-        Some(&registry)
+        Some(&registry),
+        crate::sim::world::FrameEffects::default()
     ));
     let wall = sim
         .overlay_grid
@@ -2466,7 +2478,8 @@ fn gsi_04_07_wall_execution_recomputes_preview_gap_after_a_blocker_appears() {
             type_id: "GAWALL",
             cell: (18, 18)
         },
-        Some(&registry)
+        Some(&registry),
+        crate::sim::world::FrameEffects::default()
     ));
     assert_eq!(
         sim.overlay_grid
@@ -2516,7 +2529,8 @@ fn gsi_04_07_wall_placement_publishes_connectivity_neighbor_auto_destruction() {
             type_id: "GAWALL",
             cell: (12, 10)
         },
-        Some(&registry)
+        Some(&registry),
+        crate::sim::world::FrameEffects::default()
     ));
     assert_eq!(
         sim.overlay_grid
@@ -2669,7 +2683,8 @@ fn gsi_04_07_wall_replacement_requires_damaged_same_type_and_owner_and_stays_loc
             type_id: "GAWALL",
             cell: (12, 10)
         },
-        Some(&registry)
+        Some(&registry),
+        crate::sim::world::FrameEffects::default()
     ));
 
     let overlay_grid = sim.overlay_grid.as_ref().unwrap();
@@ -2703,7 +2718,8 @@ fn place_ready_building_requires_base_normal_provider_within_adjacent_range() {
             type_id: "GAPOWR",
             cell: (12, 10)
         },
-        None
+        None,
+        crate::sim::world::FrameEffects::default()
     ));
 
     let mut far_sim = placement_sim();
@@ -2719,7 +2735,8 @@ fn place_ready_building_requires_base_normal_provider_within_adjacent_range() {
             type_id: "GAPOWR",
             cell: (20, 10)
         },
-        None
+        None,
+        crate::sim::world::FrameEffects::default()
     ));
 }
 
@@ -2753,7 +2770,8 @@ fn base_normal_false_structures_do_not_extend_build_area() {
             type_id: "GAPOWR",
             cell: (12, 10)
         },
-        None
+        None,
+        crate::sim::world::FrameEffects::default()
     ));
     assert!(
         place_production_with_overlays(
@@ -2764,7 +2782,8 @@ fn base_normal_false_structures_do_not_extend_build_area() {
                 type_id: "GAPOWR",
                 cell: (52, 50)
             },
-            None
+            None,
+            crate::sim::world::FrameEffects::default()
         ),
         "the yard's own area admits the same building"
     );
@@ -2790,7 +2809,8 @@ fn build_off_ally_enabled_accepts_allied_eligible_provider() {
             type_id: "GAPOWR",
             cell: (12, 10)
         },
-        None
+        None,
+        crate::sim::world::FrameEffects::default()
     ));
 }
 
@@ -2813,7 +2833,8 @@ fn build_off_ally_disabled_rejects_allied_eligible_provider() {
             type_id: "GAPOWR",
             cell: (12, 10)
         },
-        None
+        None,
+        crate::sim::world::FrameEffects::default()
     ));
 }
 
@@ -2835,7 +2856,8 @@ fn build_off_ally_requires_eligibile_for_ally_building() {
             type_id: "GAPOWR",
             cell: (12, 10)
         },
-        None
+        None,
+        crate::sim::world::FrameEffects::default()
     ));
 }
 
@@ -2856,7 +2878,8 @@ fn build_off_ally_off_keeps_own_base_provider() {
             type_id: "GAPOWR",
             cell: (12, 10)
         },
-        None
+        None,
+        crate::sim::world::FrameEffects::default()
     ));
 }
 
@@ -2934,7 +2957,8 @@ fn place_ready_building_rejects_bridge_deck_cells() {
             type_id: "GAPOWR",
             cell: (12, 10)
         },
-        None
+        None,
+        crate::sim::world::FrameEffects::default()
     ));
 
     let preview = placement_preview_for_owner_with_overlays(
@@ -3002,7 +3026,8 @@ fn place_ready_building_rejects_native_gap_restamp_cells() {
             type_id: "GAPOWR",
             cell: (12, 10)
         },
-        None
+        None,
+        crate::sim::world::FrameEffects::default()
     ));
 
     let preview = placement_preview_for_owner_with_overlays(
@@ -3046,7 +3071,8 @@ fn place_ready_building_rejects_canonical_ramp_cells() {
             type_id: "GAPOWR",
             cell: (12, 10)
         },
-        None
+        None,
+        crate::sim::world::FrameEffects::default()
     ));
 
     let preview = placement_preview_for_owner_with_overlays(
@@ -3116,7 +3142,8 @@ fn place_ready_building_rejects_destroyed_bridge_over_blocked_ground() {
             type_id: "GAPOWR",
             cell: (12, 10)
         },
-        None
+        None,
+        crate::sim::world::FrameEffects::default()
     ));
     assert!(
         place_production_with_overlays(
@@ -3127,7 +3154,8 @@ fn place_ready_building_rejects_destroyed_bridge_over_blocked_ground() {
                 type_id: "GAPOWR",
                 cell: (12, 12)
             },
-            None
+            None,
+            crate::sim::world::FrameEffects::default()
         ),
         "clear ground beside the destroyed deck admits the same building"
     );
@@ -3159,7 +3187,8 @@ fn gsi_04_04_water_bound_building_rejects_beach_zone() {
             type_id: "GAYARD",
             cell: (20, 20)
         },
-        None
+        None,
+        crate::sim::world::FrameEffects::default()
     ));
 
     let preview = placement_preview_for_owner_with_overlays(
@@ -3201,7 +3230,8 @@ fn gsi_04_04_water_bound_building_accepts_water_zone() {
             type_id: "GAYARD",
             cell: (20, 20)
         },
-        None
+        None,
+        crate::sim::world::FrameEffects::default()
     ));
 }
 
@@ -3308,6 +3338,7 @@ fn blocked_active_war_factory_does_not_spawn_from_second_factory() {
             category: ProductionCategory::Vehicle
         },
         None,
+        crate::sim::world::FrameEffects::default(),
     ));
     let produced = sim.substrate.entities.get(held).unwrap();
 
@@ -3361,6 +3392,7 @@ fn stock_war_factory_initial_exit_has_no_nearest_cell_fallback() {
             category: ProductionCategory::Vehicle
         },
         None,
+        crate::sim::world::FrameEffects::default(),
     ));
     let produced = sim.substrate.entities.get(held).unwrap();
 
@@ -3412,6 +3444,7 @@ fn stock_war_factory_clear_exitcoord_succeeds() {
             category: ProductionCategory::Vehicle
         },
         None,
+        crate::sim::world::FrameEffects::default(),
     ));
     let produced = sim.substrate.entities.get(held).unwrap();
 
@@ -3549,13 +3582,33 @@ fn sell_back_admits_by_control_buildup_and_firestorm_wall() {
     for order in [SellOrder::Player, SellOrder::Computer] {
         let mut sim = scene(&rules, "GAPOWR");
         assert!(!can_sell_building(&sim, &rules, 1));
-        assert!(!sell_back(&mut sim, &rules, 1, order, None), "{order:?}");
+        assert!(
+            !sell_back(
+                &mut sim,
+                &rules,
+                1,
+                order,
+                None,
+                crate::sim::world::FrameEffects::default()
+            ),
+            "{order:?}"
+        );
         assert!(!selling(&sim));
         assert_eq!(clicks(&sim), 0);
 
         let mut sim = scene(&rules, "GAFWLL");
         assert!(can_sell_building(&sim, &rules, 1));
-        assert!(sell_back(&mut sim, &rules, 1, order, None), "{order:?}");
+        assert!(
+            sell_back(
+                &mut sim,
+                &rules,
+                1,
+                order,
+                None,
+                crate::sim::world::FrameEffects::default()
+            ),
+            "{order:?}"
+        );
         sim.flush_pending_delete();
         assert!(!sim.substrate.entities.contains(1), "{order:?}: removed");
         assert_eq!(clicks(&sim), 0);
@@ -3565,7 +3618,14 @@ fn sell_back_admits_by_control_buildup_and_firestorm_wall() {
     rules.set_buildup_control_for_test("GAPOWR", [0, 25, 2]);
     let mut sim = scene(&rules, "GAPOWR");
     assert!(can_sell_building(&sim, &rules, 1));
-    assert!(sell_back(&mut sim, &rules, 1, SellOrder::Player, None));
+    assert!(sell_back(
+        &mut sim,
+        &rules,
+        1,
+        SellOrder::Player,
+        None,
+        crate::sim::world::FrameEffects::default()
+    ));
     assert!(selling(&sim));
     assert!(!can_sell_building(&sim, &rules, 1));
     let sale = sim
@@ -3575,7 +3635,14 @@ fn sell_back_admits_by_control_buildup_and_firestorm_wall() {
         .unwrap()
         .mission
         .dispatch_timer();
-    assert!(sell_back(&mut sim, &rules, 1, SellOrder::Player, None));
+    assert!(sell_back(
+        &mut sim,
+        &rules,
+        1,
+        SellOrder::Player,
+        None,
+        crate::sim::world::FrameEffects::default()
+    ));
     assert_eq!(clicks(&sim), 2, "the repeated order clicks");
     assert_eq!(
         sim.substrate
@@ -3587,11 +3654,25 @@ fn sell_back_admits_by_control_buildup_and_firestorm_wall() {
         sale,
         "the sale is not restarted"
     );
-    assert!(!sell_back(&mut sim, &rules, 1, SellOrder::Computer, None));
+    assert!(!sell_back(
+        &mut sim,
+        &rules,
+        1,
+        SellOrder::Computer,
+        None,
+        crate::sim::world::FrameEffects::default()
+    ));
     assert_eq!(clicks(&sim), 2);
 
     let mut sim = scene(&rules, "GAPOWR");
-    assert!(sell_back(&mut sim, &rules, 1, SellOrder::Computer, None));
+    assert!(sell_back(
+        &mut sim,
+        &rules,
+        1,
+        SellOrder::Computer,
+        None,
+        crate::sim::world::FrameEffects::default()
+    ));
     assert!(selling(&sim));
     assert_eq!(clicks(&sim), 1);
 
@@ -3604,11 +3685,25 @@ fn sell_back_admits_by_control_buildup_and_firestorm_wall() {
         timer: crate::sim::timer::CdTimer::started(0, 100),
         source_entity_id: None,
     });
-    assert!(!sell_back(&mut sim, &rules, 1, SellOrder::Computer, None));
+    assert!(!sell_back(
+        &mut sim,
+        &rules,
+        1,
+        SellOrder::Computer,
+        None,
+        crate::sim::world::FrameEffects::default()
+    ));
     assert!(!selling(&sim));
     assert_eq!(clicks(&sim), 0);
     assert!(can_sell_building(&sim, &rules, 1));
-    assert!(sell_back(&mut sim, &rules, 1, SellOrder::Player, None));
+    assert!(sell_back(
+        &mut sim,
+        &rules,
+        1,
+        SellOrder::Player,
+        None,
+        crate::sim::world::FrameEffects::default()
+    ));
     assert!(selling(&sim));
     assert_eq!(clicks(&sim), 1);
 }
@@ -3907,7 +4002,13 @@ fn stock_infantry_fallback_unit_ready_uses_producer_getcoords() {
     let center = ground_pose::object_get_coords(producer_entity, sim.resolved_terrain.as_ref());
     assert_eq!([center.x, center.y, center.z], [3968, 3840, 0]);
 
-    assert!(super::enqueue_by_type(&mut sim, &rules, "Americans", "E1"));
+    assert!(super::enqueue_by_type(
+        &mut sim,
+        &rules,
+        "Americans",
+        "E1",
+        crate::sim::world::FrameEffects::default()
+    ));
     let category = ProductionCategory::Infantry;
     let held = sim
         .production
@@ -3992,7 +4093,8 @@ fn successful_placement_requests_building_slam_once() {
         &rules,
         "Americans",
         far,
-        None
+        None,
+        crate::sim::world::FrameEffects::default()
     ));
     assert!(building_placed_owners(&sim).is_empty());
 
@@ -4005,7 +4107,8 @@ fn successful_placement_requests_building_slam_once() {
         &rules,
         "Americans",
         near,
-        None
+        None,
+        crate::sim::world::FrameEffects::default()
     ));
     assert_eq!(building_placed_owners(&sim), vec![americans]);
 
@@ -4023,7 +4126,8 @@ fn successful_placement_requests_building_slam_once() {
         &wall_rules,
         "Americans",
         wall,
-        Some(&registry)
+        Some(&registry),
+        crate::sim::world::FrameEffects::default()
     ));
     let wall_owner = wall_sim.interner.get("Americans").expect("owner");
     assert_eq!(building_placed_owners(&wall_sim), vec![wall_owner]);
@@ -4073,7 +4177,8 @@ fn an_airfield_puts_each_aircraft_it_builds_on_its_own_pad() {
             &mut sim,
             &rules,
             "Americans",
-            "ORCA"
+            "ORCA",
+            crate::sim::world::FrameEffects::default()
         ));
         let built = sim
             .production

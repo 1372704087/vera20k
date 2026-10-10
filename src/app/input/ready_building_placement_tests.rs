@@ -19,7 +19,9 @@ use crate::sim::command::{Command, CommandEnvelope};
 use crate::sim::house_state::HouseState;
 use crate::sim::intern::InternedId;
 use crate::sim::production::{self, BuildQueueState, ProductionCategory};
-use crate::sim::world::{LifecycleOutput, SimFrameOutput, SimSoundEvent, Simulation, TickLane};
+use crate::sim::world::{
+    FrameEffects, LifecycleOutput, SimFrameOutput, SimSoundEvent, Simulation, TickLane,
+};
 use crate::ui::gadget::focus::FocusState;
 use crate::ui::gadget::list::{GadgetList, GadgetSpec};
 use crate::ui::gadget::tick::{GadgetInput, TickOutput, tick};
@@ -70,13 +72,15 @@ fn paid_ready_fixture() -> Option<Fixture> {
         &mut sim,
         &rules,
         "Americans",
-        "GAPOWR"
+        "GAPOWR",
+        FrameEffects::default(),
     ));
     assert!(production::enqueue_by_type(
         &mut sim,
         &rules,
         "Americans",
-        "GAPILL"
+        "GAPILL",
+        FrameEffects::default(),
     ));
     // A fixture timeout, not an expected native completion frame. Both strips
     // run their real timers and charge the same House economy during these frames.
@@ -88,6 +92,7 @@ fn paid_ready_fixture() -> Option<Fixture> {
             67,
             TickLane::Ordinary,
             None,
+            FrameEffects::default(),
         )
         .expect("ordinary paid production frame");
         if production::ready_buildings_for_owner(&sim, &rules, "Americans").len() == 2 {
@@ -463,6 +468,7 @@ fn advance_commands(fixture: &mut Fixture, commands: &[CommandEnvelope]) -> SimF
             67,
             TickLane::Ordinary,
             None,
+            FrameEffects::default(),
         )
         .expect("ordinary authoritative command frame")
 }
@@ -821,6 +827,7 @@ fn queued_only_cameo_right_retains_pending_and_preview_before_abandon() {
                 &fixture.rules,
                 "Americans",
                 name,
+                FrameEffects::default(),
             ));
         }
         let engineer = fixture.sim.interner.get("ENGINEER").unwrap();
@@ -1194,9 +1201,12 @@ fn current_product_expiry_retains_type_and_preview_but_has_no_issuer() {
     let preview = arm_gapowr_with_preview(&mut fixture);
     let product = ready_product(&fixture, "GAPOWR");
     let defense_product = ready_product(&fixture, "GAPILL");
-    fixture
-        .sim
-        .detach_all_pointer_expired(product, &fixture.rules, Some(&fixture.overlays));
+    fixture.sim.detach_all_pointer_expired(
+        product,
+        &fixture.rules,
+        Some(&fixture.overlays),
+        FrameEffects::default(),
+    );
     let frame = advance_commands(&mut fixture, &[]);
     assert!(
         frame
@@ -1269,9 +1279,12 @@ fn null_product_cameo_right_retains_orphan_until_house_abandon() {
     let product = ready_product(&fixture, "GAPOWR");
     let defense_product = ready_product(&fixture, "GAPILL");
     let credits = production::credits_for_owner(&fixture.sim, "Americans");
-    fixture
-        .sim
-        .detach_all_pointer_expired(product, &fixture.rules, Some(&fixture.overlays));
+    fixture.sim.detach_all_pointer_expired(
+        product,
+        &fixture.rules,
+        Some(&fixture.overlays),
+        FrameEffects::default(),
+    );
     let frame = advance_commands(&mut fixture, &[]);
     let owner = fixture.owner;
     consume_frame_outputs(&mut fixture, &frame, Some(owner));
@@ -1367,9 +1380,12 @@ fn null_product_house_abandon_accepts_nonzero_buildcat_without_a_held_type() {
         arm_gapowr_with_preview(&mut fixture);
         let product = ready_product(&fixture, "GAPOWR");
         let credits = production::credits_for_owner(&fixture.sim, "Americans");
-        fixture
-            .sim
-            .detach_all_pointer_expired(product, &fixture.rules, Some(&fixture.overlays));
+        fixture.sim.detach_all_pointer_expired(
+            product,
+            &fixture.rules,
+            Some(&fixture.overlays),
+            FrameEffects::default(),
+        );
         let frame = advance_commands(&mut fixture, &[]);
         let owner = fixture.owner;
         consume_frame_outputs(&mut fixture, &frame, Some(owner));
@@ -1435,9 +1451,12 @@ fn defense_null_product_house_abandon_clears_only_its_live_factory() {
     let product = ready_product(&fixture, "GAPILL");
     let power = ready_product(&fixture, "GAPOWR");
     let credits = production::credits_for_owner(&fixture.sim, "Americans");
-    fixture
-        .sim
-        .detach_all_pointer_expired(product, &fixture.rules, Some(&fixture.overlays));
+    fixture.sim.detach_all_pointer_expired(
+        product,
+        &fixture.rules,
+        Some(&fixture.overlays),
+        FrameEffects::default(),
+    );
     let frame = advance_commands(&mut fixture, &[]);
     let owner = fixture.owner;
     consume_frame_outputs(&mut fixture, &frame, Some(owner));
@@ -1484,9 +1503,12 @@ fn same_factory_rearm_retains_the_old_cameos_factory_link_and_construction_order
     // A real admission is saved; its returned envelope is deliberately not
     // delivered before the supplied product-expiry notification.
     let _pending = submit_ready_building(&mut fixture, "GAPOWR", SidebarTab::Building, (8, 4));
-    fixture
-        .sim
-        .detach_all_pointer_expired(product, &fixture.rules, Some(&fixture.overlays));
+    fixture.sim.detach_all_pointer_expired(
+        product,
+        &fixture.rules,
+        Some(&fixture.overlays),
+        FrameEffects::default(),
+    );
     let frame = advance_commands(&mut fixture, &[]);
     let owner = fixture.owner;
     consume_frame_outputs(&mut fixture, &frame, Some(owner));
@@ -1499,7 +1521,8 @@ fn same_factory_rearm_retains_the_old_cameos_factory_link_and_construction_order
         &mut fixture.sim,
         &fixture.rules,
         "Americans",
-        "GAPILE"
+        "GAPILE",
+        FrameEffects::default(),
     ));
     let type_id = fixture.sim.interner.get("GAPILE").unwrap();
     for _ in 0..4096 {
@@ -1667,9 +1690,12 @@ fn saved_product_expiry_clears_backup_without_clearing_another_current_product()
         SidebarTab::Defense
     ));
     let pending = fixture.input.targeting_mode.clone();
-    fixture
-        .sim
-        .detach_all_pointer_expired(product, &fixture.rules, Some(&fixture.overlays));
+    fixture.sim.detach_all_pointer_expired(
+        product,
+        &fixture.rules,
+        Some(&fixture.overlays),
+        FrameEffects::default(),
+    );
     let frame = advance_commands(&mut fixture, &[submitted]);
     let owner = fixture.owner;
     assert_eq!(consume_frame_outputs(&mut fixture, &frame, Some(owner)), 0);

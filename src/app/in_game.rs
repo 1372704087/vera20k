@@ -471,11 +471,7 @@ impl App {
         let mut info = DevOverlayInfo {
             sim_speed_tps: state.match_state.sim_speed_tps,
             paused: state.match_state.paused(),
-            music_volume: state
-                .audio
-                .music_player
-                .as_ref()
-                .map_or(0.5, |p| p.volume()),
+            music_volume: f64::from(state.persistence.options_profile.score_volume),
             sfx_volume: state.audio.sfx_player.as_ref().map_or(0.7, |p| p.volume()),
             show_pathgrid: state.diag.debug_show_pathgrid,
             show_cell_grid: state.diag.debug_show_cell_grid,
@@ -540,9 +536,12 @@ impl App {
                 );
             }
             DevOverlayAction::SetMusicVolume(v) => {
-                if let Some(p) = &mut state.audio.music_player {
-                    p.set_volume(v);
-                }
+                crate::app::persistence::options::audio::apply_volume(
+                    state,
+                    crate::app::persistence::options::audio::AudioVolume::Score,
+                    v as f32,
+                    false,
+                );
             }
             DevOverlayAction::SetSfxVolume(v) => {
                 if let Some(p) = &mut state.audio.sfx_player {

@@ -64,6 +64,10 @@ mod recalc_catalog;
 use recalc_catalog::BridgeRecalcCatalog;
 pub(crate) use recalc_catalog::BridgeRecalcCatalogError;
 
+#[path = "saved_terrain.rs"]
+mod saved_terrain;
+pub(crate) use saved_terrain::{SavedTerrainError, SavedTerrainTemplate};
+
 #[cfg(test)]
 #[path = "terrain_pavement_catalog_tests.rs"]
 mod pavement_catalog_tests;
@@ -224,7 +228,7 @@ pub struct BridgeLayer {
     pub direction: BridgeDirection,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct ResolvedTerrainCell {
     pub rx: u16,
     pub ry: u16,
@@ -437,7 +441,7 @@ impl BridgeOracleCellFacts {
 /// This is the load-time descriptor only: the animation's frame set and cadence
 /// come from the named AnimType's `art(md).ini` row, and the spawner owns the
 /// AnimClass lifecycle.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct TerrainTileAnimation {
     pub rx: u16,
     pub ry: u16,
@@ -3360,7 +3364,7 @@ impl ResolvedTerrainGrid {
         state.apply(&mut self.cells[index]);
         if !same_entry {
             if let Some(before) = before {
-                if let Err(error) = self.refresh_resident_bridge_presentation(index) {
+                if let Err(error) = self.refresh_saved_cell_presentation(index) {
                     self.cells[index] = before;
                     log::error!("terrain snapshot presentation unavailable at {rx},{ry}: {error}");
                     return false;
@@ -4159,11 +4163,11 @@ impl ResolvedTerrainGrid {
         };
         let (width, height) = grid_dimensions(&raw_cells);
         if width == 0 || height == 0 {
-            return Self {
+            let mut grid = Self {
                 width: 0,
                 height: 0,
                 cells: Vec::new(),
-                land_speed_costs: land_speed_cost_profiles(terrain_rules),
+                land_speed_costs: land_speed_cost_profiles(None),
                 native_tmp_draw_heights: HashMap::new(),
                 shared_cell_dummy,
                 mutation_epoch: std::cell::Cell::new(0),
@@ -4173,30 +4177,28 @@ impl ResolvedTerrainGrid {
                 tube_facts: Vec::new(),
                 native_tube_indices: Vec::new(),
                 tube_native_ids: Vec::new(),
-                clear_tile_id,
-                water_tiles: theater_data.map_or_else(
-                    || crate::map::rmg::tiles::TileIds::from_keys(&Default::default()),
-                    crate::map::rmg::tiles::TileIds::resolve,
-                ),
-                tile_registry_len: theater_data.map(|td| td.lookup.len()),
-                dummy_accepts_smudge: theater_data
-                    .is_some_and(|td| current_tile_permissions(&td.lookup, 0xFFFF).0),
-                high_bridge_rim_tiles: theater_data
-                    .map(super::bridge_rim_tiles::HighBridgeRimTiles::from_theater),
-                bridge_set_start: theater_data.and_then(|td| {
-                    td.bridge_set
-                        .and_then(|set| td.lookup.bounds().get(set as usize))
-                        .map(|bounds| bounds.start)
-                }),
-                wood_bridge_set_start: theater_data.and_then(|td| {
-                    td.wood_bridge_set
-                        .and_then(|set| td.lookup.bounds().get(set as usize))
-                        .map(|bounds| bounds.start)
-                }),
+                clear_tile_id: 0,
+                water_tiles: crate::map::rmg::tiles::TileIds::from_keys(&Default::default()),
+                tile_registry_len: None,
+                dummy_accepts_smudge: false,
+                high_bridge_rim_tiles: None,
+                bridge_set_start: None,
+                wood_bridge_set_start: None,
                 tile_animations: Vec::new(),
                 destroyable_cliff_catalog: None,
                 bridge_recalc_catalog: None,
             };
+            grid.bind_asset_catalogs(
+                theater_data,
+                asset_manager,
+                terrain_rules,
+                lat_enabled,
+                cliff_back_impassability,
+                variant_selector
+                    .as_ref()
+                    .map_or_else(Default::default, |s| s.selector()),
+            );
+            return grid;
         }
 
         let mut final_cells: Vec<MapCell> = raw_cells.clone();
@@ -4897,12 +4899,12 @@ impl ResolvedTerrainGrid {
             })
             .collect();
 
-        let grid = Self {
+        let mut grid = Self {
             width,
             height,
             cells,
-            land_speed_costs: land_speed_cost_profiles(terrain_rules),
-            native_tmp_draw_heights: load_native_tmp_draw_heights(theater_data, asset_manager),
+            land_speed_costs: land_speed_cost_profiles(None),
+            native_tmp_draw_heights: HashMap::new(),
             shared_cell_dummy,
             mutation_epoch: std::cell::Cell::new(0),
             native_allocated,
@@ -4911,48 +4913,27 @@ impl ResolvedTerrainGrid {
             tube_facts,
             native_tube_indices,
             tube_native_ids,
-            clear_tile_id,
-            water_tiles: theater_data.map_or_else(
-                || crate::map::rmg::tiles::TileIds::from_keys(&Default::default()),
-                crate::map::rmg::tiles::TileIds::resolve,
-            ),
-            tile_registry_len: theater_data.map(|td| td.lookup.len()),
-            dummy_accepts_smudge: theater_data
-                .is_some_and(|td| current_tile_permissions(&td.lookup, 0xFFFF).0),
-            high_bridge_rim_tiles: theater_data
-                .map(super::bridge_rim_tiles::HighBridgeRimTiles::from_theater),
-            bridge_set_start: theater_data.and_then(|td| {
-                td.bridge_set
-                    .and_then(|set| td.lookup.bounds().get(set as usize))
-                    .map(|bounds| bounds.start)
-            }),
-            wood_bridge_set_start: theater_data.and_then(|td| {
-                td.wood_bridge_set
-                    .and_then(|set| td.lookup.bounds().get(set as usize))
-                    .map(|bounds| bounds.start)
-            }),
+            clear_tile_id: 0,
+            water_tiles: crate::map::rmg::tiles::TileIds::from_keys(&Default::default()),
+            tile_registry_len: None,
+            dummy_accepts_smudge: false,
+            high_bridge_rim_tiles: None,
+            bridge_set_start: None,
+            wood_bridge_set_start: None,
             tile_animations,
-            destroyable_cliff_catalog: build_destroyable_cliff_catalog(
-                theater_data,
-                asset_manager,
-                terrain_rules,
-            ),
-            bridge_recalc_catalog: match (theater_data, asset_manager, terrain_rules) {
-                (Some(theater), Some(assets), Some(rules)) => {
-                    Some(Arc::new(BridgeRecalcCatalog::for_runtime_bridges(
-                        theater,
-                        assets,
-                        rules,
-                        lat_enabled,
-                        cliff_back_impassability,
-                        variant_selector
-                            .as_ref()
-                            .and_then(|selector| selector.initialized_table()),
-                    )))
-                }
-                _ => None,
-            },
+            destroyable_cliff_catalog: None,
+            bridge_recalc_catalog: None,
         };
+        grid.bind_asset_catalogs(
+            theater_data,
+            asset_manager,
+            terrain_rules,
+            lat_enabled,
+            cliff_back_impassability,
+            variant_selector
+                .as_ref()
+                .map_or_else(Default::default, |s| s.selector()),
+        );
         grid
     }
 
@@ -10084,6 +10065,7 @@ NoUseTileLandType=no
     }
 
     include!("terrain_recalc_native_tests.rs");
+    include!("saved_terrain_tests.rs");
 
     #[test]
     fn authored_load_early_overlay_refreshes_tmp_slope_before_resource_clear() {

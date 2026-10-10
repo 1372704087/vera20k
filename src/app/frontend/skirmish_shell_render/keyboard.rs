@@ -228,6 +228,7 @@ pub(crate) fn render_keyboard_shell(
             },
             ShellFrameArt::Launcher,
             ShellFrameOverlay::default(),
+            in_game_shell::ShellFrameCursor::Visible,
         )?;
         state.platform.window.request_redraw();
         return Ok(());
@@ -517,6 +518,7 @@ pub(crate) fn render_keyboard_shell(
             ShellFrameArt::Launcher
         },
         overlay,
+        in_game_shell::ShellFrameCursor::Visible,
     )?;
     if let Some(dialog) = state.frontend.keyboard_dialog.as_mut() {
         dialog.title_receipt = receipt;

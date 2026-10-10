@@ -101,6 +101,19 @@ impl From<crate::map::lighting::LightingProfileUnits> for ScenarioLightProfileUn
     }
 }
 
+impl From<ScenarioLightProfileUnits> for crate::map::lighting::LightingProfileUnits {
+    fn from(units: ScenarioLightProfileUnits) -> Self {
+        Self {
+            ambient_percent: units.ambient_percent,
+            red_percent: units.red_percent,
+            green_percent: units.green_percent,
+            blue_percent: units.blue_percent,
+            ground_units: units.ground_units,
+            level_units: units.level_units,
+        }
+    }
+}
+
 impl Default for ScenarioLightProfileUnits {
     fn default() -> Self {
         Self::normal_default()

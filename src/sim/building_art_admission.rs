@@ -189,7 +189,7 @@ mod tests {
         let mut restored = crate::sim::snapshot::GameSnapshot::load(&bytes)
             .unwrap()
             .sim;
-        restored.retain_in_scenario_process_state_from(&sim);
+        restored.retain_process_state_for_load(crate::sim::world::SnapshotProcessState::Live(&sim));
         restored.restore_after_snapshot_load().unwrap();
         assert!(restored.entities().get(id).unwrap().building_has_engineer);
         assert_eq!(restored.state_hash(), sim.state_hash());
@@ -258,7 +258,7 @@ mod tests {
         let mut restored = crate::sim::snapshot::GameSnapshot::load(&bytes)
             .unwrap()
             .sim;
-        restored.retain_in_scenario_process_state_from(&sim);
+        restored.retain_process_state_for_load(crate::sim::world::SnapshotProcessState::Live(&sim));
         restored.restore_after_snapshot_load().unwrap();
         assert_eq!(
             restored.entities().get(id).unwrap().building_anim_slots[4],

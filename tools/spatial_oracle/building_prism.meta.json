@@ -79,12 +79,12 @@
   "source_normalized_lf_sha256": {
     "__main__": "a6699ac8baa8d643602834a2d9cb89b768790e376d5450927dfc95c821b236a8",
     "tools.bridge_click_oracle": "b2879a5172b5fe778fbc8f8d98374b124ea1120aefe5e960764bd27a99183026",
-    "tools.input_oracle.fast_scroll": "fc23d236ec33e0e60168e7c9174d8c52b7970dafee4ea071d018f780d2aeadc4",
+    "tools.input_oracle.fast_scroll": "18ffbf71bf1c11dbb8785714ae2ef436783b702b3607ff373dc867dbd419a089",
     "tools.native_oracle": "67a69b8e446a8134fbff1128c1fe15025350f329fc25585af29ea725746f2ceb",
     "tools.native_slope": "737b8294db419d298d362029825a255ae70df9945bef4c8b588369a53eaf13de",
     "tools.procedural_drawing_oracle.rally": "0168afa40ab7fa79a606116d117d24f634b00a37d3b38ec9121ec15f5636023d",
     "tools.projectile_oracle.flat_art": "2f663fbb2b8c88925dd8aa46e8be9216d580ec033bac3e08a138bcd0b272b7c6",
-    "tools.rmg_oracle.gen_rng_vectors": "c1e75b4eade453c1331ddc140365eb687a70e06d64852a9b786856fd5bb530ad",
+    "tools.rmg_oracle.gen_rng_vectors": "ea176f7040a39a9bc3578c6f7f68562f8dda1526001a0148f66ce4133b8ab3c4",
     "tools.rules_oracle.bridge_anim_inputs": "fc0d267d9c8453ba3090bfacd056af5207f47cb1170651cce5b0c41c80e90a2e",
     "tools.rules_oracle.bridge_anim_lists": "2a7a96ea1e24f1129161e8fe5608c0ab69ac584ee6ad78fa91c43bd3ad072045",
     "tools.rules_oracle.bridge_child_sound": "411fae85e38850208ce1c9dc8a5b411459fd0c043f2a20a6090bee0cbf92e7da",
@@ -104,13 +104,15 @@
     "tools.spatial_oracle.jumpjet_coordinates": "8e92cf2ad936306d7e6ed281eca6cadfe83043cb7a9d3df224f24093260d4555",
     "tools.spatial_oracle.jumpjet_entry_discovery": "78882a6434ffe2267f2c7b67e2a81aad295e3f749ea61911b5ec0e4488a6f21c",
     "tools.spatial_oracle.map_queries": "f1c798f50bf8a69ebe53c6d0e2327ce395ad99ba5c7017e74e353757770f4305",
+    "tools.spatial_oracle.native_id_snapshot": "15ac4e36de030cab396da482ce95146ceff5d1bedf651f7e112e56bfbd8acf1a",
     "tools.spatial_oracle.refinery_dock": "c8fb2b33edc7c3100986fb78d90e663b820e10c35d6e450fe5bf923ddb0b8408",
     "tools.spatial_oracle.slave_manager": "257ef2d170d2f5bf01e001f1e46561374677168a2d32a21181ef684c3bdb662d",
     "tools.spatial_oracle.track_destination": "db7ac918c743ce625bfaaa1c7a56f41d2336def4b42193cb1332fe0eb0d0912d",
     "tools.spatial_oracle.unit_entry": "18986785b9cc42d7c811aa0c37d352f5ddc9d8746bfa926b807e5f493e33f209",
     "tools.spatial_oracle.unit_scatter_state": "c8269a41294316c97f990051506c4a9d9dbe923d8143a54a1a92c69645d2a112",
     "tools.spatial_oracle.unit_source_scatter": "3384579566b40ebcc9d8d56d53a0736655eb3a15a6bf7f08730611b15852a009",
-    "tools.spatial_oracle.walk_head_occupation": "d888f824965dc41badb92827d9f4befdf06eb1dd33559a3f68eadc3b7c54f6c8"
+    "tools.spatial_oracle.walk_head_occupation": "d888f824965dc41badb92827d9f4befdf06eb1dd33559a3f68eadc3b7c54f6c8",
+    "tools.storage_oracle.shell_relayout": "99ebf87cedacfe83e6e8bc44cd3716b97230d37000c8cf28e9de8976fb93cc5a"
   },
   "payload_sha256": "80d91e3e3439d5918032abf3e38227ae559e6443f31a4b03d43282b6c4bbaab6"
 }

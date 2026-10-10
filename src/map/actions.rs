@@ -9,7 +9,7 @@ use std::collections::HashMap;
 use crate::rules::ini_parser::IniFile;
 use crate::rules::ini_value::{crt_atoi, strtok};
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct ActionEntry {
     pub kind: i32,
     pub params: Vec<String>,
@@ -44,7 +44,7 @@ impl ActionEntry {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct MapAction {
     pub id: String,
     pub fields: Vec<String>,

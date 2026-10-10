@@ -27,6 +27,7 @@ No retail executable is included. Help does not require retail configuration.
 | `message_cases` | 18 full tactical receiver calls at `0x006930A0`: right press/release, admission gates, capture change and inert middle-button messages; original cleanup `0x004AEAD0` and band-rectangle clearing `0x006DA160` execute |
 | `throttle_cases` | 37 calls from original throttle entry `0x0055E160` to `0x0055E33B`, before unrelated FPS bookkeeping: modes 0..6, remaining waits 0/6/10/11/20 and inactive-app/game-state gates |
 | `camera_sequences` | Ten retained-state request/commit/absolute-view sequences, including original full drag into `Scroll_Map` and the original directional request, clamp, Tactical AI and instant SetView bodies |
+| `camera_save_load` | Thirteen original Tactical Save/Load controls, including native matrix construction, center clamp, derived viewport projection, odd-size/normalized-field boundaries and one subsequent resize |
 
 The principal body executes original threshold tests, displacement arithmetic,
 edge boosts, Options getter `0x005FBF70`, direction helper `0x0075F230`, table
@@ -96,6 +97,53 @@ exceeds 10 and its active-state gates pass. The offline waiting interval cannot
 justify scrolling once per arbitrary render refresh. Clock units, timer setup
 and the caller's frame cadence require their separate caller evidence; the
 fixture supplies clock sequences and observes this original admission logic.
+
+## Saved view and current viewport
+
+`camera_save_load` executes actual Tactical Save `0x6DBE00 -> 0x410320` and
+Load `0x6DBD20 -> 0x410380`, with original no-init, clamp and derived viewport
+update `0x6D8B30`. Unlike the older camera-sequence controls, these rows execute
+the updater instead of recording a refresh sink. Original constructor matrix
+stores `0x6D1DC5..0x6D1E24` and the same original WinMain FPCW setup execute.
+
+Original SaveContent uses Tactical at `0x67D43F..0x67D447`; LoadContent restores
+Mouse/map geometry first and replaces Tactical at `0x67E8DD..0x67E8FF`. Its
+physical vtable `0x7F4348` selects these Save/Load bodies and Size `0x6DC460`
+returns `0xE18`. The fixture transfers all `0xE1C` IStream bytes, deliberately
+changes the outgoing center/request, then loads the actual saved payload.
+
+Load clamps the saved committed center `+0xD64/+0xD68` against the supplied
+restored map and current viewport, except for map-editor bypass `A8ED6B`.
+It writes the result to both committed and requested `+0xD74/+0xD78`, discarding
+the saved pending scroll. The original updater rebuilds top-left `+0xB0/+0xB4`
+and visible-cell bounds `+0xD80..+0xD8C`; stale saved derived values do not win.
+Native center coordinates must pass through the existing camera coordinate
+conversion, including its world-Y bias, before use as VERA top-left coordinates.
+
+The thirteen rows cover interior, west/north/southeast limits, an offset local
+rectangle, editor bypass, odd viewport sizes and subsequent resize. Inputs are
+in each row's `input`; `loaded` and optional `resized` directly expose
+`committed`, `requested`, `top_left`, `visible_cells`, `redraw` and refresh count.
+For the declared 100x100 map/640x480 viewport, the interior `(0,2500)` produces
+top-left `(-320,2260)`. West `(-9999,2500)` loads as `(-2680,2500)`; an original
+resize `0x6D5F60` to 1024x768 reclamps it to `(-2488,2500)`.
+Odd-size controls distinguish the integer halves used for near bounds from
+the full dimensions subtracted for far bounds; replacing the entire dimension
+with twice its integer half does not preserve the original clamp.
+Two additional north/south rows supply final LocalSize `(2,5,96,89)` in map
+width 100. These distinguish the native camera bound from the mode-zero
+playfield/radar cell extent: `0x6D867E` uses `map_width + 2*local_top - 5`.
+The fixture supplies final fields directly; it does not run normalization.
+
+The active postload video path `0x6842F0 -> 0x560BF0 -> 0x4A8960 -> 0x6D5F60`
+establishes that a changed viewport can apply this second clamp. These caller
+claims are instruction-level; the resize body itself is executed here.
+Supplied map geometry, exact IStream transport, accepted isolated identity
+registration and clock `0x6C8C40=123` are explicit fixture boundaries. The saved
+pointer region `+0xE0` is empty and is not identified as ordinary selection.
+No complete COM/world load, live UI, selection/Follow restoration or pixel
+equivalence follows. Scenario bookmark controls live with their
+[existing stream owner](../spatial_oracle/native_id_snapshot.md).
 
 ## Arithmetic and x87 state
 

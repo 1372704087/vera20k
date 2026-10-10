@@ -298,6 +298,10 @@ impl Default for MatchLighting {
 }
 
 impl MatchLighting {
+    pub(crate) fn saved_config(&self) -> &LightingConfig {
+        &self.config
+    }
+
     pub(crate) fn grid(&self) -> &CellLightGrid {
         &self.grid
     }

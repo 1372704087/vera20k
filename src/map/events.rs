@@ -9,7 +9,7 @@ use std::collections::HashMap;
 use crate::rules::ini_parser::IniFile;
 use crate::rules::ini_value::{crt_atoi, strtok};
 
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct EventCondition {
     pub kind: i32,
     /// Materialized TEvent+34, not the parameter-type discriminator.
@@ -21,7 +21,7 @@ pub struct EventCondition {
     pub team_name: Option<String>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct MapEvent {
     pub id: String,
     pub fields: Vec<String>,

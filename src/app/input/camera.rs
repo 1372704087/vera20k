@@ -90,10 +90,13 @@ impl PendingCameraScroll {
 /// An absolute view change replaces the committed and requested view together
 /// (SetViewToCoordInstant 0x6D6070, stores 0x6D613F..0x6D6153). Follow,
 /// bookmarks, minimap, loading and VERA zoom all enter through this owner.
-pub(crate) fn set_camera_position(state: &mut AppState, point: (f32, f32)) {
-    state.match_state.input.camera_x = point.0;
-    state.match_state.input.camera_y = point.1;
-    state.match_state.input.pending_camera_scroll.clear();
+pub(crate) fn set_camera_position(
+    input: &mut crate::app::input::state::MatchInputState,
+    point: (f32, f32),
+) {
+    input.camera_x = point.0;
+    input.camera_y = point.1;
+    input.pending_camera_scroll.clear();
 }
 
 /// Minimum zoom level — zoomed out enough to see a large portion of the map.
@@ -456,6 +459,16 @@ impl ViewBookmarks {
     pub(crate) fn get(&self, slot: usize) -> Option<(u16, u16)> {
         self.slots.get(slot).copied()
     }
+
+    /// ScenarioSave689310/Load689470 preserves all four raw CellStruct pairs.
+    /// The signed native words retain their bits in this owner's u16 storage.
+    pub(crate) fn saved_cells(&self) -> [[u16; 2]; VIEW_BOOKMARK_SLOTS] {
+        self.slots.map(|(rx, ry)| [rx, ry])
+    }
+
+    pub(crate) fn restore_saved_cells(&mut self, cells: [[u16; 2]; VIEW_BOOKMARK_SLOTS]) {
+        self.slots = cells.map(|[rx, ry]| (rx, ry));
+    }
 }
 
 /// The cell under the centre of the tactical viewport — the point `SetView`
@@ -465,10 +478,15 @@ impl ViewBookmarks {
 pub(crate) fn tactical_centre_cell(state: &AppState) -> (u16, u16) {
     let (tactical_w, tactical_h) =
         tactical_viewport_size_px(state.render_width(), state.render_height());
-    let world_x = state.match_state.input.camera_x
-        + tactical_w as f32 / (2.0 * state.match_state.input.zoom_level);
-    let world_y = state.match_state.input.camera_y
-        + tactical_h as f32 / (2.0 * state.match_state.input.zoom_level);
+    let (world_x, world_y) = tactical_camera_center(
+        (
+            state.match_state.input.camera_x,
+            state.match_state.input.camera_y,
+        ),
+        tactical_w as f32,
+        tactical_h as f32,
+        state.match_state.input.zoom_level,
+    );
     crate::app::match_runtime::sim_tick::world_point_to_cell(
         world_x,
         world_y,
@@ -1052,7 +1070,7 @@ pub(crate) fn animate_zoom(state: &mut AppState) {
         state.match_state.input.zoom_anchor_world[1]
             - state.match_state.input.zoom_anchor_screen[1] / state.match_state.input.zoom_level,
     );
-    set_camera_position(state, point);
+    set_camera_position(&mut state.match_state.input, point);
 
     let sw = state.render_width() as f32;
     let sh = state.render_height() as f32;
@@ -1062,18 +1080,69 @@ pub(crate) fn animate_zoom(state: &mut AppState) {
 /// Camera top-left, in world pixels, that puts `world` at the centre of the
 /// **tactical** viewport rather than the centre of the window.
 ///
-/// The tactical extents are window pixels, so their half-extents are divided by
-/// `zoom` to come back to world pixels.
+/// Original UpdateViewport6D8B30 truncates the integer viewport half before
+/// subtracting it (6D8B57..6D8B90). Preserve that odd-dimension behavior. VERA's
+/// presentation-only zoom divides those window-pixel half-extents into world
+/// pixels. Executed controls: fast_scroll.json/camera_save_load.
 pub(crate) fn tactical_camera_top_left(
     world: (f32, f32),
     tactical_w: f32,
     tactical_h: f32,
     zoom: f32,
 ) -> (f32, f32) {
+    let half = tactical_camera_half_extents(tactical_w, tactical_h, zoom);
+    (world.0 - half.0, world.1 - half.1)
+}
+
+fn tactical_camera_half_extents(tactical_w: f32, tactical_h: f32, zoom: f32) -> (f32, f32) {
     (
-        world.0 - tactical_w / (2.0 * zoom),
-        world.1 - tactical_h / (2.0 * zoom),
+        (tactical_w / 2.0).trunc() / zoom,
+        (tactical_h / 2.0).trunc() / zoom,
     )
+}
+
+fn tactical_camera_center(
+    top_left: (f32, f32),
+    tactical_w: f32,
+    tactical_h: f32,
+    zoom: f32,
+) -> (f32, f32) {
+    let half = tactical_camera_half_extents(tactical_w, tactical_h, zoom);
+    (top_left.0 + half.0, top_left.1 + half.1)
+}
+
+/// Save the committed tactical center, excluding outstanding scroll requests.
+/// This is the inverse of the same viewport conversion every camera move uses.
+pub(crate) fn saved_camera_center(
+    input: &crate::app::input::state::MatchInputState,
+    render_size: (u32, u32),
+) -> [f32; 2] {
+    let (width, height) = tactical_viewport_size_px(render_size.0, render_size.1);
+    tactical_camera_center(
+        (input.camera_x, input.camera_y),
+        width as f32,
+        height as f32,
+        input.zoom_level,
+    )
+    .into()
+}
+
+/// TacticalLoad6DBD20 restores committed center, replaces the pending request,
+/// clamps against the restored map and recomputes the current viewport. The
+/// caller installs new map geometry before this boundary. Saved pixels are in
+/// VERA's existing world frame, so no native-coordinate bias is added here.
+pub(crate) fn restore_saved_camera_center(state: &mut AppState, center: [f32; 2]) {
+    let render_size = (state.render_width(), state.render_height());
+    constrain_zoom_to_texture(state, render_size.0 as f32, render_size.1 as f32);
+    let viewport = tactical_viewport_size_px(render_size.0, render_size.1);
+    let point = tactical_camera_top_left(
+        center.into(),
+        viewport.0 as f32,
+        viewport.1 as f32,
+        state.match_state.input.zoom_level,
+    );
+    set_camera_position(&mut state.match_state.input, point);
+    clamp_camera_to_playable_area(state, render_size.0 as f32, render_size.1 as f32);
 }
 
 /// The tactical viewport, in render-target pixels, as `(x, y, w, h)`.
@@ -1217,7 +1286,7 @@ pub(crate) fn center_camera_on_lepton_point(
         tactical_h as f32,
         state.match_state.input.zoom_level,
     );
-    set_camera_position(state, (cx, cy));
+    set_camera_position(&mut state.match_state.input, (cx, cy));
     clamp_camera_to_playable_area(state, sw, sh);
 }
 
@@ -1343,21 +1412,12 @@ pub(crate) fn center_camera_on_cell(state: &mut AppState, rx: u16, ry: u16) {
         tactical_h as f32,
         state.match_state.input.zoom_level,
     );
-    set_camera_position(state, (cx, cy));
+    set_camera_position(&mut state.match_state.input, (cx, cy));
     clamp_camera_to_playable_area(state, sw, sh);
 }
 
 pub(crate) fn clamp_camera_to_playable_area(state: &mut AppState, sw: f32, sh: f32) {
-    // VERA-only zoom: the complete logical view must fit the one A source.
-    // A truncated texture would make its missing edge appear fully revealed.
-    // Native1x is unaffected: the render target itself already fits this limit.
-    let minimum_zoom = minimum_view_zoom(
-        [sw, sh],
-        state.renderer.gpu.device.limits().max_texture_dimension_2d,
-    );
-    let input = &mut state.match_state.input;
-    input.zoom_level = input.zoom_level.clamp(minimum_zoom, MAX_ZOOM);
-    input.zoom_target = input.zoom_target.clamp(minimum_zoom, MAX_ZOOM);
+    constrain_zoom_to_texture(state, sw, sh);
     sync_playfield_presentation_bounds(state);
     let (camera_x, camera_y) = clamp_camera_point_for_state(
         state,
@@ -1370,6 +1430,19 @@ pub(crate) fn clamp_camera_to_playable_area(state: &mut AppState, sw: f32, sh: f
     );
     state.match_state.input.camera_y = camera_y;
     state.match_state.input.camera_x = camera_x;
+}
+
+fn constrain_zoom_to_texture(state: &mut AppState, sw: f32, sh: f32) {
+    // VERA-only zoom: the complete logical view must fit the one A source.
+    // A truncated texture would make its missing edge appear fully revealed.
+    // Native1x is unaffected: the render target itself already fits this limit.
+    let minimum_zoom = minimum_view_zoom(
+        [sw, sh],
+        state.renderer.gpu.device.limits().max_texture_dimension_2d,
+    );
+    let input = &mut state.match_state.input;
+    input.zoom_level = input.zoom_level.clamp(minimum_zoom, MAX_ZOOM);
+    input.zoom_target = input.zoom_target.clamp(minimum_zoom, MAX_ZOOM);
 }
 
 fn minimum_view_zoom(extent: [f32; 2], texture_limit: u32) -> f32 {

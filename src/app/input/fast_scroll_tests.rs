@@ -232,52 +232,22 @@ struct CameraSequence {
     steps: Vec<serde_json::Value>,
 }
 
-/// Same terrain geometry owner used by the live camera, supplied with a flat
-/// fixture containing all packed cells needed by the oracle's map rectangle.
-fn camera_fixture_bounds(sequence: &CameraSequence) -> crate::map::terrain::LocalBounds {
-    use crate::map::terrain::{PlayfieldPresentationGeometry, TerrainCell, TerrainGrid};
-    let [left, top, width, height] = sequence.local_size;
+/// Same normalized MapClass geometry owner used by the live camera. Native
+/// clamp6D8640 reads these final fields; radar's enumerated tile extent is a
+/// separate consumer and must not supply the camera's vertical headroom.
+fn camera_fixture_bounds(
+    map_rect_width: i32,
+    local_size: [i32; 4],
+) -> crate::map::terrain::LocalBounds {
+    let [left, top, width, height] = local_size;
     let bounds = crate::map::playfield::PlayfieldBounds::from_normalized_local_size(
-        sequence.map_rect_width,
+        map_rect_width,
         left,
         top,
         width,
         height,
     );
-    assert!(sequence.map_rect_width + 2 * (top + height) < 512);
-    let mut cells = Vec::new();
-    for ry in 0..256 {
-        for rx in 0..256 {
-            let (screen_x, screen_y) = crate::map::terrain::iso_to_screen(rx, ry, 0);
-            cells.push(TerrainCell {
-                screen_x,
-                screen_y,
-                tile_id: 1,
-                sub_tile: 0,
-                z: 0,
-                rx,
-                ry,
-                is_water: false,
-                variant: 0,
-                tint: [1.0; 3],
-                radar_left: [0; 3],
-                radar_right: [0; 3],
-                has_damaged_data: false,
-            });
-        }
-    }
-    let grid = TerrainGrid {
-        cells,
-        world_width: 0.0,
-        world_height: 0.0,
-        origin_x: 0.0,
-        origin_y: 0.0,
-        local_bounds: None,
-        bridge_middle_tiles: None,
-    };
-    PlayfieldPresentationGeometry::from_grid(&grid, bounds)
-        .unwrap()
-        .camera_local_bounds()
+    crate::map::terrain::LocalBounds::from_playfield(bounds)
 }
 
 #[test]
@@ -290,7 +260,7 @@ fn pending_requests_commit_once_and_absolute_views_discard_them() {
     assert_eq!(sequences.len(), 10);
     let mut commits = 0;
     for sequence in sequences {
-        let bounds = camera_fixture_bounds(&sequence);
+        let bounds = camera_fixture_bounds(sequence.map_rect_width, sequence.local_size);
         let viewport = sequence.viewport.into();
         let clamp = |point| {
             clamp_camera_point_to_local_bounds(
@@ -393,4 +363,127 @@ fn pending_requests_commit_once_and_absolute_views_discard_them() {
         );
     }
     assert_eq!(commits, 13);
+}
+
+#[test]
+fn saved_camera_center_and_new_viewport_match_original_load_and_resize() {
+    use super::{
+        clamp_camera_point_to_local_bounds, saved_camera_center, set_camera_position,
+        tactical_camera_top_left,
+    };
+    let data = vectors();
+    let cases = data["camera_save_load"].as_array().unwrap();
+    assert_eq!(cases.len(), 13);
+    let world_bias = crate::util::lepton::absolute_leptons_to_screen(0, 0, 0);
+    let mut checked = 0;
+    for row in cases {
+        let source = &row["input"];
+        // The map-editor no-clamp gate remains characterization: ordinary
+        // production VERA has no editor-mode saved-game route.
+        if source["map_editor"].as_u64().unwrap() != 0 {
+            continue;
+        }
+        let name = source["name"].as_str().unwrap();
+        let viewport: [u32; 2] = serde_json::from_value(source["viewport"].clone()).unwrap();
+        let saved_center: [f32; 2] =
+            serde_json::from_value(source["saved_center"].clone()).unwrap();
+        let pending: [f32; 2] = serde_json::from_value(source["saved_requested"].clone()).unwrap();
+        let local_size = serde_json::from_value(source["local_size"].clone()).unwrap();
+        let bounds = camera_fixture_bounds(
+            source["map_rect_width"].as_i64().unwrap() as i32,
+            local_size,
+        );
+        let area = (
+            bounds.pixel_x,
+            bounds.pixel_y,
+            bounds.pixel_w,
+            bounds.pixel_h,
+        );
+        let center = (
+            saved_center[0] + world_bias.0,
+            saved_center[1] + world_bias.1,
+        );
+        let point = tactical_camera_top_left(center, viewport[0] as f32, viewport[1] as f32, 1.0);
+        let mut input = crate::app::input::state::MatchInputState::new(Default::default());
+        input.pending_camera_scroll.request(pending.into());
+        let clamped = clamp_camera_point_to_local_bounds(
+            point,
+            area,
+            (viewport[0] as f32, viewport[1] as f32),
+            1.0,
+        );
+        set_camera_position(&mut input, clamped);
+        for (expected, dimensions) in [
+            (&row["loaded"], viewport),
+            (
+                &row["resized"],
+                serde_json::from_value(source["resize"].clone()).unwrap_or(viewport),
+            ),
+        ] {
+            if expected.is_null() {
+                continue;
+            }
+            let center = saved_camera_center(&input, (viewport[0] + 168, viewport[1] + 32));
+            if dimensions != viewport {
+                let point = tactical_camera_top_left(
+                    center.into(),
+                    dimensions[0] as f32,
+                    dimensions[1] as f32,
+                    1.0,
+                );
+                set_camera_position(
+                    &mut input,
+                    clamp_camera_point_to_local_bounds(
+                        point,
+                        area,
+                        (dimensions[0] as f32, dimensions[1] as f32),
+                        1.0,
+                    ),
+                );
+            }
+            let native_top_left: [f32; 2] =
+                serde_json::from_value(expected["top_left"].clone()).unwrap();
+            assert_eq!(
+                (input.camera_x, input.camera_y),
+                (
+                    native_top_left[0] + world_bias.0,
+                    native_top_left[1] + world_bias.1
+                ),
+                "{name}"
+            );
+            let native_center: [f32; 2] =
+                serde_json::from_value(expected["committed"].clone()).unwrap();
+            assert_eq!(
+                saved_camera_center(&input, (dimensions[0] + 168, dimensions[1] + 32)),
+                [
+                    native_center[0] + world_bias.0,
+                    native_center[1] + world_bias.1
+                ],
+                "{name}"
+            );
+            assert_eq!(expected["committed"], expected["requested"], "{name}");
+            assert!(input.pending_camera_scroll.is_idle(), "{name}");
+            checked += 1;
+        }
+    }
+    assert_eq!(checked, 13);
+}
+
+#[test]
+fn saved_world_center_is_independent_of_the_current_vera_zoom_and_viewport() {
+    let mut input = crate::app::input::state::MatchInputState::new(Default::default());
+    input.camera_x = 100.25;
+    input.camera_y = 2_000.5;
+    input.zoom_level = 2.0;
+    let saved = super::saved_camera_center(&input, (809, 513));
+    let (width, height) = super::tactical_viewport_size_px(1_193, 801);
+    input.zoom_level = 0.5;
+    let point = super::tactical_camera_top_left(
+        saved.into(),
+        width as f32,
+        height as f32,
+        input.zoom_level,
+    );
+    super::set_camera_position(&mut input, point);
+    assert_eq!(super::saved_camera_center(&input, (1_193, 801)), saved);
 }

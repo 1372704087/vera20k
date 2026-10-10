@@ -5303,7 +5303,7 @@ fn test_bridge_collapse_is_deterministic_under_replay() {
     fn run_one(seed: u64) -> (u64, crate::sim::rng::SimRngLogicalState) {
         let (mut sim, rules, registry, native) =
             concrete_damage_fixture("concrete_220_across_0", 1500);
-        sim.reseed_scenario_and_main(seed);
+        sim.initialize_random_number_system(seed as u32);
         let before_hash = sim.state_hash();
         let scenario_before = sim.scenario_rng.logical_state();
         let main_before = sim.main_rng.logical_state();
@@ -5403,7 +5403,7 @@ fn test_bridge_dispatcher_consumes_one_path_gate_draw_per_non_ion_event() {
     let (mut sim, rules, registry, native) =
         concrete_damage_fixture("concrete_205_across_0", strength);
     // Seed31 and damage2000 are the saved harness defaults for direct_205.
-    sim.reseed_scenario_and_main(31);
+    sim.initialize_random_number_system(31);
     let before_hash = sim.state_hash();
     let main_before = sim.main_rng.logical_state();
     let mapgen_before = sim.mapgen_rng.logical_state();

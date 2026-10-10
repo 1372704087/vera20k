@@ -29,6 +29,8 @@ fn sinking_waterline_envelope_preserves_native_short_without_changing_simulation
         3,
         &waterlines,
         None,
+        None,
+        None,
     );
     let loaded = GameSnapshot::load_validated(&bytes, 1, 2, LOAD_FIXTURE_MAP_NAME).unwrap();
     assert_eq!(loaded.sinking_waterlines, waterlines);
@@ -63,6 +65,8 @@ fn sinking_waterline_load_replaces_presentation_only_after_commit() {
         "retained draw",
         1,
         &[(id, waterline), (u64::MAX, -7)],
+        None,
+        None,
         None,
     );
     let terrain = load_fixture_terrain();

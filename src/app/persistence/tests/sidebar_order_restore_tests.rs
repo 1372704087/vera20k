@@ -157,6 +157,8 @@ fn save(sim: &Simulation, rules: &RuleSet, order: Option<&SavedSidebarOrder>) ->
         1,
         &[(7, -12)],
         order,
+        None,
+        None,
     )
 }
 

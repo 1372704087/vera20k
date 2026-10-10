@@ -6441,7 +6441,7 @@ fn build_minimal_sim_with_gawall_seeded(
     seed: u64,
 ) -> (Simulation, RuleSet, OverlayTypeRegistry) {
     let (mut sim, rules, registry) = build_minimal_sim_with_gawall(rx, ry);
-    sim.reseed_scenario_and_main(seed);
+    sim.initialize_random_number_system(seed as u32);
     (sim, rules, registry)
 }
 

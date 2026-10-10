@@ -8,6 +8,79 @@
 use std::collections::HashSet;
 use winit::keyboard::{KeyCode, ModifiersState};
 
+use crate::sim::snapshot::saved_local_view::{
+    CONTROL_GROUP_SLOTS, SavedLocalView, SavedLocalViewError,
+};
+
+/// A saved view whose identities and selection timeline were checked against
+/// the prepared world. Commit performs no further admission or command work.
+#[derive(Debug)]
+pub(crate) struct PreparedSavedLocalView {
+    saved: SavedLocalView,
+}
+
+impl PreparedSavedLocalView {
+    /// Validate before replacing either the world or its input owner. Stable
+    /// IDs are resolved only against the incoming world, never the outgoing one.
+    pub(crate) fn new(
+        saved: SavedLocalView,
+        simulation: &crate::sim::world::Simulation,
+        rules: &crate::rules::ruleset::RuleSet,
+    ) -> Result<Self, SavedLocalViewError> {
+        saved.validate_structure()?;
+        let follow_target = saved.follow_target();
+        for (field, references) in [
+            ("selection", saved.selection_order()),
+            ("Follow", follow_target.as_slice()),
+        ] {
+            for &object_id in references {
+                if simulation.entities().get(object_id).is_none() {
+                    return Err(SavedLocalViewError::MissingEntityReference { field, object_id });
+                }
+            }
+        }
+        for &object_id in saved.control_groups().iter().flatten() {
+            if simulation.entities().get(object_id).is_none() {
+                return Err(SavedLocalViewError::MissingEntityReference {
+                    field: "control group",
+                    object_id,
+                });
+            }
+        }
+        let (order, pending) = crate::app::input::dispatch::selection_order_for_world(
+            simulation,
+            Some(rules),
+            saved.selection_order(),
+            saved.selection_order_pending(),
+        );
+        if order != saved.selection_order() || pending != saved.selection_order_pending() {
+            return Err(SavedLocalViewError::SelectionTimelineMismatch);
+        }
+        Ok(Self { saved })
+    }
+
+    /// Restore exactly the saved owners after navigation's world-replacement
+    /// invalidation. Apply the returned world-pixel center through
+    /// camera::restore_saved_camera_center once new geometry is installed.
+    pub(crate) fn commit_into(self, input: &mut MatchInputState) -> [f32; 2] {
+        let center = self.saved.camera_center_world_px();
+        input
+            .view_bookmarks
+            .restore_saved_cells(self.saved.view_bookmarks());
+        let (order, pending, groups, follow) = self.saved.into_local_input();
+        input.selection_order = order;
+        input.selection_order_pending = pending;
+        input.control_groups = groups.into();
+        input.follow_target = follow;
+        // ClearScene685640 and PostLoad6851D2 call734210, which resets the
+        // last team slot to -1 and rewinds both click clocks. None has the
+        // same next-press behavior without persisting a wall-clock Instant.
+        // Original reset witnesses: saved_game_layout.json/postload_clock_reset.
+        input.last_control_group_press = None;
+        center
+    }
+}
+
 pub(crate) struct MatchInputState {
     pub(crate) camera_x: f32,
     pub(crate) camera_y: f32,
@@ -85,7 +158,7 @@ impl MatchInputState {
             selection_order_pending: false,
             selection_voice_enabled: true,
             queued_order_mode: crate::app::types::OrderMode::Move,
-            control_groups: vec![Vec::new(); 10],
+            control_groups: vec![Vec::new(); CONTROL_GROUP_SLOTS],
             last_control_group_press: None,
             follow_target: None,
             targeting_mode: None,
@@ -117,4 +190,45 @@ impl MatchInputState {
     pub(crate) fn cursor_px(&self) -> (i32, i32) {
         (self.cursor_x.round() as i32, self.cursor_y.round() as i32)
     }
+
+    /// Capture the app-owned portion of a save at the same boundary as its
+    /// Simulation. The existing selection owner decides whether its local
+    /// order is provisional; this does not drain commands or alter selection.
+    pub(crate) fn capture_saved_local_view(
+        &self,
+        simulation: &crate::sim::world::Simulation,
+        rules: &crate::rules::ruleset::RuleSet,
+        render_size: (u32, u32),
+    ) -> Result<SavedLocalView, SavedLocalViewError> {
+        let (order, pending) = crate::app::input::dispatch::selection_order_for_world(
+            simulation,
+            Some(rules),
+            &self.selection_order,
+            self.selection_order_pending,
+        );
+        assert_eq!(self.control_groups.len(), CONTROL_GROUP_SLOTS);
+        // Native membership lives on each serialized Techno, not in a list
+        // retaining already-deleted objects. Project the existing app lists
+        // onto the same entity store being saved, preserving member order.
+        let groups = std::array::from_fn(|slot| {
+            self.control_groups[slot]
+                .iter()
+                .copied()
+                .filter(|id| simulation.entities().get(*id).is_some())
+                .collect()
+        });
+        SavedLocalView::new(
+            crate::app::input::camera::saved_camera_center(self, render_size),
+            self.view_bookmarks.saved_cells(),
+            order,
+            pending,
+            groups,
+            self.follow_target
+                .filter(|id| simulation.entities().get(*id).is_some()),
+        )
+    }
 }
+
+#[cfg(test)]
+#[path = "saved_local_view_tests.rs"]
+mod saved_local_view_tests;

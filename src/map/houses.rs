@@ -18,7 +18,7 @@ use crate::rules::ruleset::RuleSet;
 
 /// Ordered map-side BasePlan node, installed into House simulation state before
 /// map objects are spawned.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct ScenarioBasePlanNode {
     pub type_or_control: i32,
     pub packed_cell: u32,
@@ -26,7 +26,7 @@ pub struct ScenarioBasePlanNode {
     pub retry_count: i32,
 }
 
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct ScenarioBasePlanDefinition {
     pub percent_built: i32,
     pub nodes: Vec<ScenarioBasePlanNode>,
@@ -45,7 +45,7 @@ pub type HouseColorMap = HashMap<String, HouseColorIndex>;
 pub type HouseAllianceMap = BTreeMap<String, BTreeSet<String>>;
 
 /// Parsed metadata for one active house listed in `[Houses]`.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct HouseDefinition {
     /// House section name as referenced by entities and triggers.
     pub name: String,
@@ -74,7 +74,7 @@ impl HouseDefinition {
 }
 
 /// Ordered active-house list from the map's `[Houses]` section.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct HouseRoster {
     /// Houses in the same order they appear in `[Houses]`.
     pub houses: Vec<HouseDefinition>,

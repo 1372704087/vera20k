@@ -12,6 +12,8 @@
 pub(crate) mod commands;
 pub(crate) mod options;
 pub(crate) mod options_profile;
+mod resource_load;
+pub(crate) use resource_load::{PreparedSavedGame, SavedGamePreparationView};
 
 use std::path::{Path, PathBuf};
 #[cfg(any(feature = "dev-ui", test))]
@@ -136,6 +138,14 @@ pub(crate) enum PreparedLoadError {
     FactoryState(#[from] crate::sim::production::FactoryRestoreError),
     #[error("invalid saved sidebar order: {0}")]
     SidebarOrder(String),
+    #[error("saved game resources are unavailable: {0}")]
+    Resources(String),
+    #[error(transparent)]
+    Rules(#[from] crate::rules::error::RulesError),
+    #[error(transparent)]
+    Terrain(#[from] crate::map::resolved_terrain::SavedTerrainError),
+    #[error(transparent)]
+    LocalView(#[from] crate::sim::snapshot::saved_local_view::SavedLocalViewError),
 }
 
 /// Fully validated, cache-rebuilt replacement state ready for one infallible commit.
@@ -159,11 +169,12 @@ pub(crate) struct CommittedLoadPresentation {
     )>,
 }
 
-/// Immutable production input to an in-scenario load transaction.
+/// Fixture adapter for snapshots without a production resource record.
 ///
 /// Preparation can inspect only these references. App-owned screen, pacing,
 /// diagnostics, presentation, lighting, and panel state therefore remain
 /// structurally outside the fallible part of the transaction.
+#[cfg(test)]
 pub(crate) struct LoadPreparationView<'a> {
     repository: &'a SaveRepository,
     current_simulation: Option<&'a Simulation>,
@@ -173,6 +184,7 @@ pub(crate) struct LoadPreparationView<'a> {
     overlay_registry: Option<&'a OverlayTypeRegistry>,
 }
 
+#[cfg(test)]
 impl<'a> LoadPreparationView<'a> {
     /// Production inputs come from the one bound runtime, never shell fallback
     /// rules or a registry/terrain borrowed from a different match.
@@ -216,6 +228,7 @@ impl<'a> LoadPreparationView<'a> {
 impl PreparedLoad {
     /// Read and prepare a save while holding only immutable references.
     /// Startup admission is match-owned and outside this transaction.
+    #[cfg(test)]
     pub(crate) fn from_repository(
         view: LoadPreparationView<'_>,
         path: &Path,
@@ -237,6 +250,7 @@ impl PreparedLoad {
     /// Perform every fallible validation and restoration step against owned
     /// candidate state. The live simulation is borrowed only to retain the
     /// process-global seed/Main/MapGen continuation and skipped cache inputs.
+    #[cfg(test)]
     fn prepare_candidate(
         bytes: &[u8],
         current_simulation: Option<&Simulation>,
@@ -259,14 +273,38 @@ impl PreparedLoad {
             .cloned()
             .ok_or(PreparedLoadError::MissingTerrainTemplate)?;
 
-        let terrain_speed_config = current_simulation.terrain_speed_config.clone();
+        Self::prepare_snapshot(
+            snapshot,
+            crate::sim::world::SnapshotProcessState::Live(current_simulation),
+            rules,
+            terrain_template,
+            current_simulation.terrain_speed_config.clone(),
+            overlay_registry.ok_or(PreparedLoadError::MissingOverlayRegistry)?,
+            None,
+        )
+    }
 
+    /// One world restore for production resource loads and headless fixtures.
+    /// The caller supplies the incoming bound resources and only lends the
+    /// current process RNG owners; no fresh scenario construction is replayed.
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "existing restore inputs and the loaded-cell asset phase"
+    )]
+    fn prepare_snapshot(
+        snapshot: GameSnapshot,
+        process: crate::sim::world::SnapshotProcessState<'_>,
+        rules: &RuleSet,
+        terrain_template: ResolvedTerrainGrid,
+        terrain_speed_config: crate::sim::pathfinding::terrain_speed::TerrainSpeedConfig,
+        overlay_registry: &OverlayTypeRegistry,
+        prepare_terrain_assets: Option<
+            &mut crate::sim::snapshot::SnapshotTerrainAssetPreparation<'_>,
+        >,
+    ) -> Result<Self, PreparedLoadError> {
         let saved_sidebar_order = snapshot.sidebar_order().cloned();
         let mut simulation = snapshot.sim;
-        // This is the in-scenario Load Game route: native load reseeds
-        // Scenario->Random after reading ScenarioClass, while the process-global
-        // seed and Main/MapGen cursors retain their live values.
-        simulation.retain_in_scenario_process_state_from(current_simulation);
+        simulation.retain_process_state_for_load(process);
         // Native MouseLoad->Resize reconstructs the dummy before subsequent
         // LoadContent67E8CD hierarchy reads. The fallible candidate must see
         // that state without touching the running match's retained identity.
@@ -276,9 +314,11 @@ impl PreparedLoad {
         crate::sim::production::validate_restored_factory_state(&simulation, rules)?;
         simulation.rebuild_caches_after_load(terrain_template, terrain_speed_config, rules);
 
-        let overlay_registry = overlay_registry.ok_or(PreparedLoadError::MissingOverlayRegistry)?;
-        let map_restore =
-            simulation.restore_map_authority_after_snapshot_load(rules, overlay_registry)?;
+        let map_restore = simulation.restore_map_authority_after_snapshot_load(
+            rules,
+            overlay_registry,
+            prepare_terrain_assets,
+        )?;
         // Older headless saves may omit types that had never spawned. Add
         // those canonical names without changing any saved ID, then build
         // the handle table; a missing name must never become sidebar ID zero.
@@ -314,24 +354,33 @@ impl PreparedLoad {
         self.map_restore.native_tiberium_stats
     }
 
-    /// Commit into an existing runtime: immutable match resources cannot be
-    /// replaced or synthesized by a same-content load.
-    pub(crate) fn commit_into(
+    /// Publish prepared dummy fields onto the retained process identity. Both
+    /// fixture and production commits pass through this single world handoff.
+    fn into_committed(
         mut self,
-        runtime: &mut crate::sim::runtime::SimRuntime,
-    ) -> CommittedLoadPresentation {
-        // Commit the candidate's post-Resize fields and subsequent lookup
-        // effects onto the live process identity only after all checks pass.
-        // Resetting here would make its already-built hierarchy disagree.
-        let live_dummy = runtime.simulation.effective_shared_cell_dummy();
+        live_dummy: crate::map::resolved_terrain::SharedCellDummy,
+    ) -> (Simulation, CommittedLoadPresentation) {
         live_dummy.adopt_prepared_load_state(&self.simulation.effective_shared_cell_dummy());
         self.simulation.bind_shared_cell_dummy(live_dummy);
-        runtime.replace_simulation(self.simulation);
-        CommittedLoadPresentation {
-            occupied_overlays: self.map_restore.occupied_overlays,
-            sinking_waterlines: self.sinking_waterlines,
-            sidebar_order: self.sidebar_order,
-        }
+        (
+            self.simulation,
+            CommittedLoadPresentation {
+                occupied_overlays: self.map_restore.occupied_overlays,
+                sinking_waterlines: self.sinking_waterlines,
+                sidebar_order: self.sidebar_order,
+            },
+        )
+    }
+
+    #[cfg(test)]
+    pub(crate) fn commit_into(
+        self,
+        runtime: &mut crate::sim::runtime::SimRuntime,
+    ) -> CommittedLoadPresentation {
+        let (simulation, presentation) =
+            self.into_committed(runtime.simulation.effective_shared_cell_dummy());
+        runtime.replace_simulation(simulation);
+        presentation
     }
 }
 
@@ -547,10 +596,11 @@ impl SaveRepository {
         self.readable_entries().collect()
     }
 
-    /// Whether any save reads: the scan stops at the first one, like
+    /// Whether any compatible save reads: the scan stops at the first one, like
     /// `LoadOptionsClass__HasLoadableSave` `0x00559C20`.
     pub(crate) fn has_browser_entry(&self) -> bool {
-        self.readable_entries().next().is_some()
+        self.readable_entries()
+            .any(|(entry, _)| entry.header.is_current_version())
     }
 
     /// Saves whose header reads, with their file time, in directory order.
@@ -569,7 +619,7 @@ impl SaveRepository {
                     return None;
                 }
                 let bytes = self.read(&path).ok()?;
-                let header = GameSnapshot::read_header(&bytes).ok()?;
+                let header = GameSnapshot::read_metadata(&bytes).ok()?;
                 let ticks = crate::map::rmg::saved_seeds::system_time_to_file_time(
                     metadata.modified().ok()?,
                 );
@@ -844,7 +894,7 @@ mod tests {
         RuleSet::from_ini(&ini).expect("transaction fixture rules")
     }
 
-    fn load_fixture_simulation(with_overlay_grid: bool) -> Simulation {
+    pub(super) fn load_fixture_simulation(with_overlay_grid: bool) -> Simulation {
         let mut simulation = Simulation::with_seed(u64::from(LOAD_FIXTURE_SEED));
         simulation.session.map_name = LOAD_FIXTURE_MAP_NAME.to_string();
         simulation.overlay_grid = with_overlay_grid.then(|| OverlayGrid::new(0, 0));

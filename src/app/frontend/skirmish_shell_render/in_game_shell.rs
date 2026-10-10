@@ -268,12 +268,26 @@ pub(super) fn render_in_game_shell_frame(
         frame,
         ShellFrameArt::Sidebar,
         ShellFrameOverlay::default(),
+        ShellFrameCursor::Visible,
     )
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
 pub(super) enum ShellFrameArt {
     Sidebar,
     Launcher,
+    /// Original mode-2 overlays preserve the already composed backing.
+    Retained,
+    /// No compatible completed backing exists (for example, just after resize).
+    Clear,
+}
+
+/// Static native progress dialogs suppress the pointer while their caller
+/// blocks; ordinary interactive shell frames paint it last.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(super) enum ShellFrameCursor {
+    Visible,
+    Hidden,
 }
 
 #[derive(Default)]
@@ -291,13 +305,13 @@ pub(super) fn render_shell_frame(
     frame: InGameShellFrame,
     art: ShellFrameArt,
     overlay: ShellFrameOverlay,
+    cursor_policy: ShellFrameCursor,
 ) -> anyhow::Result<()> {
     // Entry itself must select the cursor; no subsequent pointer event is
     // required to undo the legacy pause menu's OS-cursor visibility.
-    state
-        .platform
-        .window
-        .set_cursor_visible(!state.use_software_cursor());
+    state.platform.window.set_cursor_visible(
+        cursor_policy == ShellFrameCursor::Visible && !state.use_software_cursor(),
+    );
     #[cfg(feature = "dev-ui")]
     state
         .renderer
@@ -306,19 +320,20 @@ pub(super) fn render_shell_frame(
     let width = state.renderer.gpu.config.width;
     let height = state.renderer.gpu.config.height;
     let background_texture = match art {
-        ShellFrameArt::Sidebar => {
+        ShellFrameArt::Sidebar => Some(
             &crate::app::presentation::sidebar_render::current_sidebar_chrome(state)
                 .expect("active side art")
-                .texture
-        }
-        ShellFrameArt::Launcher => {
+                .texture,
+        ),
+        ShellFrameArt::Launcher => Some(
             &state
                 .frontend
                 .skirmish_shell_chrome
                 .as_ref()
                 .expect("launcher art")
-                .texture
-        }
+                .texture,
+        ),
+        ShellFrameArt::Retained | ShellFrameArt::Clear => None,
     };
     let control_atlas = state.frontend.skirmish_shell_chrome.as_ref();
     let InGameShellFrame {
@@ -352,11 +367,14 @@ pub(super) fn render_shell_frame(
         .iter()
         .map(|d| batch.create_instance_buffer(gpu, &d.instances))
         .collect();
-    let mut cursor: Vec<_> =
+    let mut cursor: Vec<_> = if cursor_policy == ShellFrameCursor::Visible {
         crate::app::frontend::shell_pass::software_cursor(state, super::SHELL_CURSOR_DEPTH)
             .map(|(_, instance)| instance)
             .into_iter()
-            .collect();
+            .collect()
+    } else {
+        Vec::new()
+    };
     let (cursor_x, cursor_y) = state.window_cursor_position();
     for instance in &mut cursor {
         instance.position[0] += cursor_x - state.match_state.input.cursor_x;
@@ -379,7 +397,11 @@ pub(super) fn render_shell_frame(
             depth_slice: None,
             resolve_target: None,
             ops: wgpu::Operations {
-                load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+                load: if art == ShellFrameArt::Retained {
+                    wgpu::LoadOp::Load
+                } else {
+                    wgpu::LoadOp::Clear(wgpu::Color::BLACK)
+                },
                 store: wgpu::StoreOp::Store,
             },
         })],
@@ -394,7 +416,9 @@ pub(super) fn render_shell_frame(
         timestamp_writes: None,
         occlusion_query_set: None,
     });
-    if let Some((buffer, count)) = &background_buffer {
+    if let (Some((buffer, count)), Some(background_texture)) =
+        (&background_buffer, background_texture)
+    {
         batch.draw_with_buffer_passthrough(&mut pass, background_texture, buffer, *count);
     }
     if let (Some((buffer, count)), Some(control_atlas)) = (&control_buffer, control_atlas) {
@@ -440,11 +464,42 @@ pub(super) fn render_shell_frame(
             );
         }
     }
-    pass.set_scissor_rect(0, 0, width, height);
+    drop(pass);
+    if matches!(art, ShellFrameArt::Sidebar | ShellFrameArt::Launcher) {
+        state
+            .renderer
+            .shell_surface_presenter
+            .stage_cursor_free_composition(
+                &state.renderer.retail_screenshot_frame_cache,
+                &gpu.device,
+                encoder,
+            );
+    }
     if let (Some((buffer, count)), Some(texture)) = (&cursor_buffer, cursor_texture) {
+        let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+            label: Some("Shell cursor after retained composition"),
+            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                view: &color,
+                depth_slice: None,
+                resolve_target: None,
+                ops: wgpu::Operations {
+                    load: wgpu::LoadOp::Load,
+                    store: wgpu::StoreOp::Store,
+                },
+            })],
+            depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                view: &state.renderer.depth_view,
+                depth_ops: Some(wgpu::Operations {
+                    load: wgpu::LoadOp::Load,
+                    store: wgpu::StoreOp::Store,
+                }),
+                stencil_ops: None,
+            }),
+            timestamp_writes: None,
+            occlusion_query_set: None,
+        });
         batch.draw_with_buffer_passthrough(&mut pass, texture, buffer, *count);
     }
-    drop(pass);
     state
         .renderer
         .shell_surface_presenter

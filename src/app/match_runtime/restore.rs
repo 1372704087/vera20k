@@ -40,9 +40,9 @@ pub(crate) fn commit_prepared_load(
     // All preparation has succeeded. Surface allocation and saved camera
     // conversion now use the tactical upscaler dimensions on either route.
     state.frontend.screen = crate::ui::game_screen::GameScreen::InGame;
-    // Retire VERA's outgoing fresh-L0 admission evidence. A saved timeline is
-    // not that accepted startup; this changes no native gameplay state.
-    state.match_state.startup.clear();
+    // A validated saved timeline replaces the outgoing fresh-L0 evidence and
+    // remains available to the ordinary pump and exact diagnostic stepping.
+    state.match_state.startup.acknowledge_saved_load();
     if from_menu {
         crate::app::App::enter_game_window_mode(state);
         crate::app::loading::pump::present_game_mode_blank(state);

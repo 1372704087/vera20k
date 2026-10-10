@@ -363,7 +363,7 @@ fn loading_replacement_and_terminal_retirement_preserve_cache_and_admission_orde
 #[ignore = "requires RA2_DIR with verified retail gamemd.exe"]
 fn loading_preparation_consumes_real_source_and_returns_lease_on_initial_and_admission_failures() {
     let ra2_dir = PathBuf::from(std::env::var_os("RA2_DIR").expect("RA2_DIR"));
-    crate::map::retail_trig::install_from_dir(&ra2_dir);
+    crate::map::retail_trig::install_from_dir(&ra2_dir).expect("verified retail math tables");
     assert!(crate::map::retail_trig::wave_tables_available());
     let dir = std::env::temp_dir().join(format!(
         "vera20k-loading-preparation-{}",
@@ -1418,6 +1418,47 @@ fn replacing_loading_startup_retires_prior_admission() {
     assert!(authority.accepted().is_none());
     assert!(authority.admits_ordinary_tick());
     assert!(!authority.admits_exact_step());
+}
+
+#[test]
+fn saved_load_retires_fresh_receipt_and_admits_restored_exact_steps() {
+    use crate::app::match_runtime::startup::MatchStartup;
+    let mut next = 1;
+    let prior = prepared_startup(&mut next, 0x1111_2222);
+    let mut warm = MatchStartup::default();
+    warm.begin(Some(prior.correlation));
+    let simulation = crate::sim::world::Simulation::with_seed(u64::from(prior.seed.value));
+    warm.acknowledge(prior.clone(), Some(&simulation), true)
+        .unwrap();
+
+    // A cold menu and an outgoing accepted match reach the same successful
+    // saved-world commit. Neither may expose the prior map's L0 afterward.
+    for mut authority in [MatchStartup::default(), warm] {
+        authority.acknowledge_saved_load();
+        assert!(authority.startup().is_none());
+        assert!(authority.receipt().is_none());
+        assert!(authority.admits_ordinary_tick());
+        assert!(authority.admits_exact_step());
+
+        let restored = authority.clone();
+        assert!(
+            authority
+                .acknowledge(prior.clone(), Some(&simulation), true)
+                .is_err()
+        );
+        assert_eq!(
+            authority, restored,
+            "stale fresh-load completion cannot replace saved admission"
+        );
+        authority.clear();
+        assert!(!authority.admits_exact_step());
+        authority.acknowledge_saved_load();
+        authority.begin(Some(prior.correlation));
+        assert!(
+            !authority.admits_exact_step(),
+            "a new loading attempt retires saved admission"
+        );
+    }
 }
 
 #[test]

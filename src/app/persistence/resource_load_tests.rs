@@ -342,6 +342,10 @@ fn retail_saved_resources_prepare_cold_cross_map_and_roll_back_late_failure() {
     let cold = assets
         .prepare_saved_load(|assets| PreparedSavedGame::prepare_resources(&bytes, &view, assets))
         .unwrap();
+    assert!(
+        crate::map::retail_trig::wave_tables_available(),
+        "cold saved-resource admission must install the production math tables"
+    );
     assert_incoming_resources(&cold, &incoming, &map);
     assert_eq!(
         cold.world.simulation.main_rng.logical_state(),

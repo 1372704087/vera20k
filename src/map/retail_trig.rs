@@ -615,8 +615,9 @@ struct RetailMathTables {
 static TABLES: OnceLock<Option<RetailMathTables>> = OnceLock::new();
 
 /// Read the table out of `<ra2_dir>/gamemd.exe` and install it. Later calls are
-/// ignored; the first one wins.
-pub fn install_from_dir(ra2_dir: &Path) {
+/// ignored; the first one wins. Fresh, headless and saved-world admission all
+/// require this same verified process asset before any native math can run.
+pub fn install_from_dir(ra2_dir: &Path) -> Result<(), String> {
     TABLES.get_or_init(|| {
         let path = ra2_dir.join("gamemd.exe");
         match std::fs::read(&path) {
@@ -643,6 +644,14 @@ pub fn install_from_dir(ra2_dir: &Path) {
             }
         }
     });
+    if wave_tables_available() {
+        Ok(())
+    } else {
+        Err(format!(
+            "{} does not provide the verified gamemd sine/Acos tables required by simulation",
+            ra2_dir.join("gamemd.exe").display()
+        ))
+    }
 }
 
 /// The installed table, if there is one.

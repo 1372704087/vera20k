@@ -111,6 +111,11 @@ impl PreparedSavedGame {
                 "saved terrain and scenario dimensions disagree".into(),
             ));
         }
+        // Cold-menu loads have never entered fresh map initialization. Native
+        // sine/Acos consumers still need the exact process-resident executable
+        // tables; share the fresh/headless admission owner before publication.
+        crate::map::retail_trig::install_from_dir(assets.ra2_dir())
+            .map_err(PreparedLoadError::Resources)?;
         let theater_name = snapshot.sim.session.theater.clone();
         let theater = theater::load_theater(assets, &theater_name).ok_or_else(|| {
             PreparedLoadError::Resources(format!("cannot load theater {theater_name}"))

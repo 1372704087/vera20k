@@ -2317,13 +2317,7 @@ pub(crate) fn load_map_initial_with_assets(
     // sine/cosine table.  Install it before selecting the map source: explicit
     // `[Tubes]` are valid in ordinary .map/.mpr/.mmx content, not just .SED
     // random maps.  OnceLock keeps repeated map loads read-only and cheap.
-    crate::map::retail_trig::install_from_dir(&ra2_dir);
-    if !crate::map::retail_trig::wave_tables_available() {
-        anyhow::bail!(
-            "{} does not provide the verified gamemd sine/Acos tables required by stock Sonic Wave simulation",
-            ra2_dir.join("gamemd.exe").display()
-        );
-    }
+    crate::map::retail_trig::install_from_dir(&ra2_dir).map_err(anyhow::Error::msg)?;
 
     // Check RA2_QUICKPLAY env var: if it names a .map/.mpr file, load that directly.
     // UI-selected map name/path (requested_map) takes precedence.
@@ -3419,7 +3413,7 @@ mod random_map_retail_tests {
         };
         // The .SED lives in a scratch directory, while verified native tables
         // belong to the retail install, like the AssetManager supplied below.
-        crate::map::retail_trig::install_from_dir(&ra2);
+        crate::map::retail_trig::install_from_dir(&ra2).expect("verified retail math tables");
 
         let mut structures_placed = 0usize;
         let mut configurations = 0usize;

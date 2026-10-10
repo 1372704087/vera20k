@@ -1,5 +1,6 @@
-//! App-owned startup admission, from an accepted loading attempt through its
-//! running match. Same-content snapshot restoration never replaces this owner.
+//! App-owned admission for an accepted fresh startup or committed saved world.
+//! Restoring a save retires the outgoing startup's evidence without disabling
+//! diagnostic stepping of the validated replacement.
 //!
 //! VERA-internal admission protocol; gamemd equivalent UNCHECKED. Existing startup
 //! observation checks remain in `match_bootstrap::RustL0Observation`.
@@ -23,6 +24,7 @@ enum StartupPhase {
         startup: PreparedMatchStartup,
         receipt: RustL0Receipt,
     },
+    Restored,
 }
 
 impl MatchStartup {
@@ -33,6 +35,14 @@ impl MatchStartup {
 
     pub(crate) fn clear(&mut self) {
         self.phase = StartupPhase::Noncertifying;
+    }
+
+    /// Only the successful saved-world commit calls this, after resource and
+    /// snapshot validation. A restored timeline is admitted without claiming
+    /// the outgoing world's fresh-start receipt. Rejected preparation never
+    /// reaches this transition, so it preserves the current admission.
+    pub(crate) fn acknowledge_saved_load(&mut self) {
+        self.phase = StartupPhase::Restored;
     }
 
     /// Publish the startup and its receipt together, only after the existing L0
@@ -84,6 +94,7 @@ impl MatchStartup {
     }
 
     pub(crate) fn admits_exact_step(&self) -> bool {
-        self.accepted().is_some() && self.admits_ordinary_tick()
+        matches!(self.phase, StartupPhase::Restored)
+            || (self.accepted().is_some() && self.admits_ordinary_tick())
     }
 }

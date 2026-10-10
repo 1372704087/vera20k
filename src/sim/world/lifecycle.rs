@@ -297,6 +297,28 @@ pub(crate) enum ConcealOutcome {
 /// but the stream preserves the verified native relative ordering.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum LifecycleOutput {
+    /// Local HouseBegin4FA6AA→Sidebar6A6140 links the reached cameo to this
+    /// live Factory. Product expiry and a later rearm do not erase the link.
+    ProductionFactoryLinked {
+        owner: InternedId,
+        type_id: InternedId,
+        category: crate::sim::production::ProductionCategory,
+        construction_order: u64,
+    },
+    /// HousePlace4FB35F: actual building Unlimbo failed, after HELLO. The
+    /// local input owner restores its saved transaction, not the event type.
+    BuildingPlacementRetry {
+        owner: InternedId,
+    },
+    /// HousePlace4FB328 clears active and saved placement after BuildingSlam.
+    BuildingPlacementSucceeded {
+        owner: InternedId,
+    },
+    /// HouseAbandon4FAB79 clears the local building cursor before destroying
+    /// the matching active factory object; queued-only removal has no prefix.
+    BuildingProductionAbandoned {
+        owner: InternedId,
+    },
     /// Logic55AFB0 increments the process FPS sample even on terminal frames.
     LogicVisit,
     /// Logic55B5C3 updates existing lasers before the live object visits.
@@ -3860,6 +3882,10 @@ impl Simulation {
         // `TeamClass::PointerExpired @ 0x006EAE60`, each team a listener.
         self.team_script_vm
             .pointer_expired(expired_id, control == PointerExpiryControl::Uninit);
+        // FactoryClass::PointerExpired4CA580 is a control-insensitive
+        // listener in Dispatch7258D0. Its only mutation clears a matching
+        // held product; no entity listener consumes that factory pointer.
+        self.production.factories.pointer_expired(expired_id);
         let Some((
             expired_target_cell,
             expired_is_high_flying,

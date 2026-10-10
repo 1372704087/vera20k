@@ -20,6 +20,13 @@ use crate::sim::ai_unit_choice::UnitChoiceKind;
 use crate::sim::intern::InternedId;
 use crate::sim::world::{SimSoundEvent, Simulation};
 
+/// HouseAbandon4FAA10 clears local building placement before the Factory
+/// body; a direct FactoryAbandon4C9FF0 call does not have that prefix.
+pub(super) enum AbandonCaller {
+    House,
+    Factory,
+}
+
 /// The PRODUCE event for `type_id`: `HouseClass::Begin_Production @ 0x004FA350`.
 ///
 /// The build needs an online factory that may build it, `FindFactory(0,1,1)`
@@ -68,6 +75,7 @@ pub fn enqueue_by_type(sim: &mut Simulation, rules: &RuleSet, owner: &str, type_
         sim.production
             .factories
             .resume(owner_id, category, time_to_build, frame);
+        publish_cameo_factory_link(sim, owner_id, category, type_interned);
         return true;
     }
     let enqueue_order = sim.production.next_enqueue_order;
@@ -163,7 +171,34 @@ pub(super) fn start_active_production(
     sim.production
         .factories
         .start_rate(holder, time_to_build, frame);
+    if let FactoryHolder::House(owner, category) = holder {
+        publish_cameo_factory_link(sim, owner, category, type_id);
+    }
     Some(stable_id)
+}
+
+/// Transport the original reached local4FA6AA link to its app-owned strip.
+/// Queued/refused StartProduction never constructs here; same-type resume
+/// explicitly publishes the same link. Registry identity stays authoritative.
+fn publish_cameo_factory_link(
+    sim: &mut Simulation,
+    owner: InternedId,
+    category: ProductionCategory,
+    type_id: InternedId,
+) {
+    if sim.session.current_house != Some(owner) {
+        return;
+    }
+    if let Some(factory) = sim.production.factories.view(owner, category) {
+        sim.lifecycle_outputs.push(
+            crate::sim::world::LifecycleOutput::ProductionFactoryLinked {
+                owner,
+                type_id,
+                category,
+                construction_order: factory.construction_order(),
+            },
+        );
+    }
 }
 /// Finish `FactoryClass::AbandonProduction @ 0x004C9FF0` for an object the registry
 /// let go: refund it ([`refund_abandoned`]); a house no human controls then
@@ -176,12 +211,23 @@ pub(super) fn settle_abandoned(
     rules: &RuleSet,
     owner_id: InternedId,
     abandoned: AbandonedObject,
+    caller: AbandonCaller,
 ) {
-    refund_abandoned(sim, rules, owner_id, abandoned.type_id, abandoned.balance);
-    let game_mode_nonzero = sim.session.game_mode_nonzero;
     let category = sim
         .object_type(abandoned.type_id, rules)
         .map(|object| object.category);
+    if matches!(caller, AbandonCaller::House)
+        && category == Some(ObjectCategory::Building)
+        && abandoned.entity_id.is_some()
+    {
+        // The House caller admitted this matching held object before the
+        // registry let it go. Emit its4FAB79 prefix before refund/destruction.
+        sim.lifecycle_outputs.push(
+            crate::sim::world::LifecycleOutput::BuildingProductionAbandoned { owner: owner_id },
+        );
+    }
+    refund_abandoned(sim, rules, owner_id, abandoned.type_id, abandoned.balance);
+    let game_mode_nonzero = sim.session.game_mode_nonzero;
     if let Some(category) = category
         && let Some(house) = sim.houses.get_mut(&owner_id)
         && !house.is_controlled_by_human(game_mode_nonzero)
@@ -242,19 +288,27 @@ pub fn cancel_by_type_for_owner(
     let category = production_category_for_object(obj);
     let owner_id = sim.interner.intern(owner);
     let type_interned = sim.interner.intern(type_id);
-    let outcome = sim
-        .production
-        .factories
-        .cancel_one(owner_id, category, type_interned, all);
+    let outcome = sim.production.factories.cancel_one(
+        owner_id,
+        category,
+        type_interned,
+        all,
+        obj.build_cat
+            .filter(|_| obj.category == ObjectCategory::Building),
+    );
     match outcome {
         CancelOutcome::NoMatch => return false,
         CancelOutcome::QueuedRemoved => {}
+        CancelOutcome::ReleasedEmpty => {
+            sim.lifecycle_outputs.push(
+                crate::sim::world::LifecycleOutput::BuildingProductionAbandoned { owner: owner_id },
+            );
+        }
         CancelOutcome::AbandonedActive(object) => {
-            settle_abandoned(sim, rules, owner_id, object);
+            settle_abandoned(sim, rules, owner_id, object, AbandonCaller::House);
             advance_after_delivery(sim, rules, owner_id, category);
         }
     }
-    sim.production.factories.prune_all_idle();
     true
 }
 
@@ -477,6 +531,23 @@ pub(super) fn ready_object(
     })
 }
 
+/// Read-only identity of a completed building held by the existing House
+/// factory owner. Input uses the same ready-object lookup as placement; no
+/// app-side ready flag or copy of the factory is retained.
+pub(crate) fn ready_building_entity_for_owner(
+    sim: &Simulation,
+    rules: &RuleSet,
+    owner: InternedId,
+    type_id: InternedId,
+) -> Option<u64> {
+    let object_type = sim.object_type(type_id, rules)?;
+    if object_type.category != ObjectCategory::Building {
+        return None;
+    }
+    let category = production_category_for_object(object_type);
+    ready_object(sim, owner, category, type_id).map(|object| object.entity_id())
+}
+
 /// Fixture: `owner`'s `type_id` completed in its House factory and held there
 /// with its completion published, as a finished building waits for placement.
 /// Returns the held object's identity.
@@ -536,7 +607,9 @@ pub(in crate::sim) fn revalidate_and_step_factories(sim: &mut Simulation, rules:
     let reval_plan = registry.plan_revalidation(sim, rules);
     let lifecycle = registry.apply_revalidation(&reval_plan);
     for (owner, abandoned) in lifecycle.abandoned {
-        settle_abandoned(sim, rules, owner, abandoned);
+        // Update_Factory_Queue50921C calls FactoryAbandon4C9FF0 directly;
+        // it does not pass through the HouseAbandon4FAB79 placement prefix.
+        settle_abandoned(sim, rules, owner, abandoned, AbandonCaller::Factory);
     }
     sim.production.factories = registry;
     for (owner, category, type_id) in lifecycle.promoted {

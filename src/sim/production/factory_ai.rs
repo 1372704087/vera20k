@@ -61,7 +61,9 @@ use crate::sim::timer::CdTimer;
 use crate::sim::world::Simulation;
 
 use super::factory::{FactoryHolder, PRODUCTION_STEPS};
-use super::factory_lifecycle::{record_last_built, settle_abandoned, start_active_production};
+use super::factory_lifecycle::{
+    AbandonCaller, record_last_built, settle_abandoned, start_active_production,
+};
 use super::production_queue::exit_produced_object;
 use super::production_tech::production_category_for_object;
 
@@ -129,15 +131,11 @@ fn exit_finished_object(
     let Some(product_type) = sim.object_type(object.type_id, rules) else {
         return;
     };
-    let exit = if product_type.category == ObjectCategory::Building {
-        ai_base_building::exit_building(sim, rules, building, product, overlay_registry)
-    } else {
-        let exit = exit_produced_object(sim, rules, building, product, overlay_registry);
-        if exit == BuildingExit::Placed {
-            sim.mission_spawned_entities = true;
-        }
-        exit
-    };
+    let is_building = product_type.category == ObjectCategory::Building;
+    let exit = exit_produced_object(sim, rules, building, product, overlay_registry);
+    if !is_building && exit == BuildingExit::Placed {
+        sim.mission_spawned_entities = true;
+    }
     match exit {
         BuildingExit::Placed => {
             record_last_built(sim, rules, owner, object.type_id);
@@ -247,7 +245,7 @@ fn placement_wait_over(sim: &Simulation, building: u64) -> bool {
 /// owner is `owner` (the factory's house, `+0x6C`).
 fn abandon(sim: &mut Simulation, rules: &RuleSet, building: u64, owner: InternedId) {
     if let Some(abandoned) = sim.production.factories.abandon_building_factory(building) {
-        settle_abandoned(sim, rules, owner, abandoned);
+        settle_abandoned(sim, rules, owner, abandoned, AbandonCaller::Factory);
     }
 }
 

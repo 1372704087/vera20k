@@ -157,6 +157,27 @@ pub fn place_production_with_overlays(
     request: ProductionPlacement<'_>,
     overlay_registry: Option<&OverlayTypeRegistry>,
 ) -> bool {
+    // House4FB197..4FB1BE sends the CRT-initialized empty cell (0,0) and
+    // CellStruct(-1,-1) through the same producer exit as a mobile PLACE.
+    // They never enter tactical Unlimbo or its retry/EVA tail. Source:
+    // cameo_order.md, ordinary early-cell executed controls.
+    let request = match request {
+        ProductionPlacement::Building {
+            type_id,
+            cell: (0, 0) | (u16::MAX, u16::MAX),
+        } => {
+            let Some(object_type) = rules.object(type_id) else {
+                return false;
+            };
+            if object_type.category != ObjectCategory::Building {
+                return false;
+            }
+            ProductionPlacement::Mobile {
+                category: production_category_for_object(object_type),
+            }
+        }
+        request => request,
+    };
     let (type_id, (rx, ry)) = match request {
         ProductionPlacement::Building { type_id, cell } => (type_id, cell),
         ProductionPlacement::Mobile { category } => {
@@ -178,19 +199,18 @@ pub fn place_production_with_overlays(
             let Some(obj) = sim.object_type(object.type_id, rules) else {
                 return false;
             };
-            if obj.category == ObjectCategory::Building
-                || production_category_for_object(obj) != category
-            {
+            if production_category_for_object(obj) != category {
                 return false;
             }
+            let is_building = obj.category == ObjectCategory::Building;
             // Native wrapper5F5C20 -> TypeFindFactory5F7900 with (0,1); an
             // aircraft (`What_Am_I` 2) alone retries with the busy-airfield
             // gate skipped (1,1) (0x004FB524..0x004FB54C). A null producer
             // leaves the head and queue untouched.
-            let producer = super::find_factory(sim, rules, owner_id, obj, false, true, false)
-                .or_else(|| {
+            let producer =
+                super::object_find_factory(sim, rules, entity_id, false, true).or_else(|| {
                     (obj.category == ObjectCategory::Aircraft)
-                        .then(|| super::find_factory(sim, rules, owner_id, obj, true, true, false))
+                        .then(|| super::object_find_factory(sim, rules, entity_id, true, true))
                         .flatten()
                 });
             let Some(producer) = producer else {
@@ -236,6 +256,11 @@ pub fn place_production_with_overlays(
                         });
                 }
                 super::factory_lifecycle::release_delivered_mobile(sim, rules, owner_id, category);
+            } else if is_building {
+                // House4FB5BA returns immediately for a refused building
+                // exit (RTTI6). The completed product stays paid and held;
+                // only refused mobile products enter the refund tail.
+                return false;
             } else {
                 // Exit0 or Exit1 with producer+524zero: refund the actually
                 // charged complete object, destroy it and start the queued head.
@@ -260,25 +285,51 @@ pub fn place_production_with_overlays(
     else {
         return false;
     };
+    // Original PLACE4FB1DA keeps Object::FindFactory(0,0)'s yard through
+    // HELLO, Unlimbo (including the wall arm), the child's C message and the
+    // yard's FirstContact BREAK. The House factory owns the completed object.
+    let Some(yard) = super::object_find_factory(sim, rules, held.entity_id(), false, false) else {
+        return false;
+    };
+    crate::sim::radio::transmit(
+        sim,
+        yard,
+        held.entity_id(),
+        crate::sim::radio::RadioMessage::Hello,
+        crate::sim::radio::RadioPayload::default(),
+        Some(rules),
+    );
     if obj.wall {
         if evaluate_building_placement(sim, rules, owner, type_id, rx, ry, overlay_registry)
             .is_err()
         {
+            failed_building_unlimbo(sim, rules, owner_id, yard);
             return false;
         }
         let Some(registry) = overlay_registry else {
+            failed_building_unlimbo(sim, rules, owner_id, yard);
             return false;
         };
         if !wall_placement::stamp_wall_with_autofill(sim, rules, registry, obj, (rx, ry), owner_id)
         {
+            failed_building_unlimbo(sim, rules, owner_id, yard);
             return false;
         }
-        sim.sound_events
-            .push(crate::sim::world::SimSoundEvent::BuildingPlaced { owner: owner_id });
         // Wall placement consumes the factory-created BuildingClass into
         // overlay state; the constructor identity is destroyed, never
         // reconstructed at placement.
         held.consume_after_wall_stamp(sim, rules);
+        sim.sound_events
+            .push(crate::sim::world::SimSoundEvent::BuildingPlaced { owner: owner_id });
+        sim.lifecycle_outputs.push(
+            crate::sim::world::LifecycleOutput::BuildingPlacementSucceeded { owner: owner_id },
+        );
+        crate::sim::radio::transmit_to_contact(
+            sim,
+            yard,
+            crate::sim::radio::RadioMessage::Break,
+            Some(rules),
+        );
         return true;
     }
     let foundation_str: String = rules
@@ -294,30 +345,11 @@ pub fn place_production_with_overlays(
         z,
         foundation_str,
     );
-    // Original PLACE4FB1DA keeps Object::FindFactory(0,0)'s yard through
-    // HELLO, Unlimbo, the child's C message and the yard's FirstContact BREAK.
-    // The completed object is owned by the house factory, not by this yard.
-    let Some(yard) = super::find_factory(sim, rules, owner_id, obj, false, false, false) else {
-        return false;
-    };
-    crate::sim::radio::transmit(
-        sim,
-        yard,
-        held.entity_id(),
-        crate::sim::radio::RadioMessage::Hello,
-        crate::sim::radio::RadioPayload::default(),
-        Some(rules),
-    );
     // Event::Execute4C70E1..4C710B passes an admitted PLACE straight to
     // House4FB0E0. Its placement refusal occurs after HELLO4FB1F1, and
     // still reaches the yard's FirstContact BREAK4FB4A6.
     if evaluate_building_placement(sim, rules, owner, type_id, rx, ry, overlay_registry).is_err() {
-        crate::sim::radio::transmit_to_contact(
-            sim,
-            yard,
-            crate::sim::radio::RadioMessage::Break,
-            Some(rules),
-        );
+        failed_building_unlimbo(sim, rules, owner_id, yard);
         return false;
     }
     let Some(new_sid) = sim.reveal_constructed_object_at_height(
@@ -331,12 +363,7 @@ pub fn place_production_with_overlays(
     ) else {
         // The failed placement reaches the same4FB4A6 FirstContact teardown;
         // its retained limbo object remains in the house factory for retry.
-        crate::sim::radio::transmit_to_contact(
-            sim,
-            yard,
-            crate::sim::radio::RadioMessage::Break,
-            Some(rules),
-        );
+        failed_building_unlimbo(sim, rules, owner_id, yard);
         return false;
     };
     // `0x004452FA`/`0x004FB252`: a placed building's slave manager (a Slave
@@ -391,6 +418,8 @@ pub fn place_production_with_overlays(
     // Unlimbo, before the yard's FirstContact BREAK, whatever the release.
     sim.sound_events
         .push(crate::sim::world::SimSoundEvent::BuildingPlaced { owner: owner_id });
+    sim.lifecycle_outputs
+        .push(crate::sim::world::LifecycleOutput::BuildingPlacementSucceeded { owner: owner_id });
     crate::sim::radio::transmit_to_contact(
         sim,
         yard,
@@ -401,6 +430,23 @@ pub fn place_production_with_overlays(
     // not during CompletedProduction4FB2A1 or its C message4FB2AD.
     super::factory_lifecycle::record_last_built(sim, rules, owner_id, type_interned);
     true
+}
+
+/// The single failed-Unlimbo tail, HousePlace4FB35F..4FB4A6. Early null
+/// factory/product/builder guards never enter it. The local-client half of
+/// retry and EVA is consumed by existing app output owners.
+/// Source: tools/sidebar_oracle/cameo_order.md, ready-building histories.
+fn failed_building_unlimbo(sim: &mut Simulation, rules: &RuleSet, owner: InternedId, yard: u64) {
+    sim.sound_events
+        .push(crate::sim::world::SimSoundEvent::CannotDeployHere { owner });
+    sim.lifecycle_outputs
+        .push(crate::sim::world::LifecycleOutput::BuildingPlacementRetry { owner });
+    crate::sim::radio::transmit_to_contact(
+        sim,
+        yard,
+        crate::sim::radio::RadioMessage::Break,
+        Some(rules),
+    );
 }
 
 fn evaluate_building_placement(

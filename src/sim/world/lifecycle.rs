@@ -314,6 +314,22 @@ pub(crate) enum LifecycleOutput {
         category: crate::sim::production::ProductionCategory,
         construction_order: u64,
     },
+    /// Local HouseAbandon4FAB74 enters Sidebar6ABAD0. Its private strip
+    /// owner determines whether the cursor prefix precedes settlement (no
+    /// link) or follows the first linked FactoryAbandon/destructor.
+    ProductionFactoryAbandoning {
+        owner: InternedId,
+        category: crate::sim::production::ProductionCategory,
+        construction_order: u64,
+    },
+    /// Strip6ABBDF clears every matching link after the linked destructor,
+    /// before the House cursor prefix and successor Begin. Queued-only
+    /// removal and direct Factory/product expiry have neither House fact.
+    ProductionFactoryUnlinked {
+        owner: InternedId,
+        category: crate::sim::production::ProductionCategory,
+        construction_order: u64,
+    },
     /// HousePlace4FB35F: actual building Unlimbo failed, after HELLO. The
     /// local input owner restores its saved transaction, not the event type.
     BuildingPlacementRetry {
@@ -323,8 +339,9 @@ pub(crate) enum LifecycleOutput {
     BuildingPlacementSucceeded {
         owner: InternedId,
     },
-    /// HouseAbandon4FAB79 clears the local building cursor before destroying
-    /// the matching active factory object; queued-only removal has no prefix.
+    /// HouseAbandon4FAB83/4FAB9F clears the local current cursor. The app's
+    /// strip owner derives this effect from the admitted House begin/end
+    /// facts, preserving its link-dependent order around product expiry.
     BuildingProductionAbandoned {
         owner: InternedId,
     },

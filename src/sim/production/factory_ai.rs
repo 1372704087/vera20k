@@ -62,9 +62,7 @@ use crate::sim::world::FrameEffects;
 use crate::sim::world::Simulation;
 
 use super::factory::{FactoryHolder, PRODUCTION_STEPS};
-use super::factory_lifecycle::{
-    AbandonCaller, record_last_built, settle_abandoned, start_active_production,
-};
+use super::factory_lifecycle::{record_last_built, settle_abandoned, start_active_production};
 use super::production_queue::exit_produced_object;
 use super::production_tech::production_category_for_object;
 
@@ -264,14 +262,7 @@ fn abandon(
     effects: FrameEffects<'_>,
 ) {
     if let Some(abandoned) = sim.production.factories.abandon_building_factory(building) {
-        settle_abandoned(
-            sim,
-            rules,
-            owner,
-            abandoned,
-            AbandonCaller::Factory,
-            effects,
-        );
+        settle_abandoned(sim, rules, owner, abandoned, effects);
     }
 }
 

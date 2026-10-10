@@ -1137,6 +1137,22 @@ def ready_building_retained_factory_cases(m, common):
         m.step('preview_cell', lambda: m.preview((13, 18)), cell=[13, 18]),
         m.step('tactical_left_up', lambda: m.left_up((13, 18)), cell=[13, 18]),
         m.step('local_event_corridor', m.receive)]))
+    m.restore()
+    rows.append(dict(id='rearmed_factory_sidebar_abandon_unlinks_all_retains_factory', inputs=common, steps=[
+        m.step('dispatch_pointer_expired', lambda: m.expire(m.products['GAPOWR']),
+               target='product', control_dl=1, boundary='Whole7258D0; no fatal destructor'),
+        m.step('produce_GAPILE', lambda: m.produce('GAPILE', 0, 0x53BC), type='GAPILE'),
+        m.step('sidebar_abandon_factory',
+            lambda: m.invoke(0x6ABAD0, SIDEBAR, 6,
+                             m.get(m.f.types['GAPILE'] + 0xDF8), m.factories['GAPILE']),
+            type='GAPILE', kind=6, factory='GAPOWR_factory',
+            boundary='Whole original6ABAD0 ->6ABB60 direct owner boundary; not whole HouseAbandon or mobile delivery')]))
+    m.restore()
+    rows.append(dict(id='local_unlinked_strip_clear_active_abandon_order', inputs=common, steps=[
+        m.step('left_cameo', lambda: m.click('GAPOWR'), type='GAPOWR'),
+        m.step('strip_clear', lambda: m.invoke(0x6A81B0, STRIPS[0]), tab=0,
+               boundary='Whole original6A81B0 direct initialized helper; not whole UI/world reset'),
+        m.step('house_abandon', lambda: m.abandon('GAPOWR'), type='GAPOWR')]))
     return rows
 
 
@@ -1348,6 +1364,29 @@ def metadata():
             '4FA6AA occurs only for the local House after4FA61E; no-builder/Start-refused and '
             'queued-tail4FA5F8 returns bypass it. Same suspended-type shortcut passes it. The '
             'queued-tail guard is instruction-supported, not an executed forged building queue.',
+            'The additive rearmed_factory_sidebar_abandon_unlinks_all_retains_factory control '
+            'restores the executed paid baseline, expires GAPOWR through7258D0, and pays for '
+            'GAPILE in the same live Factory. Whole SidebarAbandon6ABAD0(6,GAPILE index,Factory) '
+            'executes Strip6ABB60 at a declared direct owner boundary, clearing both retained '
+            'GAPOWR/GAPILE links while preserving Factory identity/registry order and the '
+            'independent Defense GAPILL Factory/link. It refunds GAPILE once, destroys its '
+            'limbo product and dispatches expiry; all three RNG streams and zero draws/advances '
+            'are recorded. No queue or mobile state is forged, and mobile cancellation/delivery '
+            'caller reachability is instruction-supported rather than an executed mobile chain.',
+            'The additive local_unlinked_strip_clear_active_abandon_order control restores '
+            'the executed paid GAPOWR/GAPILL baseline, enters GAPOWR through whole Select, '
+            'then executes whole StripClear6A81B0(tab0) before whole HouseAbandon4FAA10. '
+            'This direct initialized helper clears Building-strip records without settling '
+            'the live Factory. It is not whole UI/scenario reset or mobile execution. '
+            'The zero-link Sidebar pass has no inner FactoryAbandon;4FAB83 retains current '
+            'product/type/foundation, whereas product expiry7258D0 sees the cleared cursor '
+            'after the House prefix and before core Factory deletion. Existing linked '
+            'cancellation instead refunds/destroys/expires before6ABBDF unlink and the '
+            'House cursor prefix. StripClear initializes75 slot clocks outside the existing '
+            'stage/building/action timer watch windows; no whole reset/timer claim. Its '
+            'raw EAX and opaque timer padding are observations. Complete three RNG states, '
+            'zero House-abandon draws/advances, the three stage-clock stores and reached '
+            'lifecycle calls are retained; no link, stage or expected result is authored.',
             'Old GAPOWR Left after same-Factory paid GAPILE rearm executes6AB2CC GetObject, '
             'ObjectFindFactory on the actual held GAPILE and ManualPlace(yard,GAPILE product). '
             'Current and saved cursor/event identity is GAPILE, not the requested old cameo type. '

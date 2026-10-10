@@ -473,18 +473,22 @@ fn advance_commands(fixture: &mut Fixture, commands: &[CommandEnvelope]) -> SimF
         .expect("ordinary authoritative command frame")
 }
 
+/// Admission summary, not an ordered cursor journal. The production cache
+/// owner supplies the link-dependent House prefix during output consumption.
 fn placement_facts(frame: &SimFrameOutput) -> Vec<LifecycleOutput> {
     frame
         .lifecycle_outputs
         .iter()
         .copied()
-        .filter(|output| {
-            matches!(
-                output,
-                LifecycleOutput::BuildingPlacementRetry { .. }
-                    | LifecycleOutput::BuildingPlacementSucceeded { .. }
-                    | LifecycleOutput::BuildingProductionAbandoned { .. }
-            )
+        .filter_map(|output| match output {
+            LifecycleOutput::BuildingPlacementRetry { .. }
+            | LifecycleOutput::BuildingPlacementSucceeded { .. } => Some(output),
+            LifecycleOutput::ProductionFactoryAbandoning {
+                owner,
+                category: ProductionCategory::Building | ProductionCategory::Defense,
+                ..
+            } => Some(LifecycleOutput::BuildingProductionAbandoned { owner }),
+            _ => None,
         })
         .collect()
 }
@@ -494,27 +498,268 @@ fn consume_frame_outputs(
     frame: &SimFrameOutput,
     local_house: Option<InternedId>,
 ) -> usize {
-    let mut retries = 0;
-    for output in &frame.lifecycle_outputs {
-        if let LifecycleOutput::ProductionFactoryLinked {
-            owner,
-            type_id,
-            category,
-            construction_order,
-        } = *output
-            && local_house == Some(owner)
-        {
-            fixture
-                .projection
-                .link_factory(owner, type_id, category, construction_order);
-        }
-        retries += usize::from(
-            fixture
-                .input
-                .apply_building_placement_output(output, local_house),
-        );
+    frame
+        .lifecycle_outputs
+        .iter()
+        .filter(|output| consume_lifecycle_output(fixture, output, local_house))
+        .count()
+}
+
+fn consume_lifecycle_output(
+    fixture: &mut Fixture,
+    output: &LifecycleOutput,
+    local_house: Option<InternedId>,
+) -> bool {
+    if let Some(cursor_clear) = fixture.projection.apply_factory_output(output, local_house) {
+        fixture
+            .input
+            .apply_building_placement_output(&cursor_clear, local_house);
     }
-    retries
+    fixture
+        .input
+        .apply_building_placement_output(output, local_house)
+}
+
+fn start_mixed_infantry_queue(fixture: &mut Fixture) -> (u64, u64) {
+    let commands: Vec<_> = ["E1", "ENGINEER"]
+        .map(|name| {
+            CommandEnvelope::new(
+                fixture.owner,
+                fixture.sim.session.tick + 1,
+                Command::QueueProduction {
+                    type_id: fixture.sim.interner.get(name).unwrap(),
+                },
+            )
+        })
+        .into();
+    let frame = advance_commands(fixture, &commands);
+    consume_frame_outputs(fixture, &frame, Some(fixture.owner));
+    // Seed the same retained projection used by gadget input and Draw.
+    let click = press_cameo(fixture, "E1", SidebarTab::Infantry, CameoPress::Left);
+    assert_eq!(click.order, Some(CameoOrder::Produce));
+    let factory = fixture
+        .sim
+        .production
+        .factories
+        .view(fixture.owner, ProductionCategory::Infantry)
+        .unwrap();
+    assert_eq!(fixture.sim.resolve(factory.object.unwrap().type_id), "E1");
+    (
+        factory.construction_order(),
+        factory.object.unwrap().entity_id.unwrap(),
+    )
+}
+
+fn assert_old_infantry_cameo_released(fixture: &mut Fixture, order: u64) {
+    let old_type = fixture.sim.interner.get("E1").unwrap();
+    let successor = fixture.sim.interner.get("ENGINEER").unwrap();
+    let factory = fixture
+        .projection
+        .cameo_factory(&fixture.sim, fixture.owner, successor)
+        .expect("Begin links the promoted ENGINEER to the retained Factory");
+    assert_eq!(factory.construction_order(), order);
+    assert_eq!(factory.object.unwrap().type_id, successor);
+    assert!(factory.is_running());
+    assert!(
+        fixture
+            .projection
+            .cameo_factory(&fixture.sim, fixture.owner, old_type)
+            .is_none(),
+        "HouseAbandon4FAB74→Strip6ABBDF clears E1 before successor promotion"
+    );
+    assert!(
+        fixture
+            .projection
+            .factory_statuses(&fixture.sim, fixture.owner)
+            .iter()
+            .all(|status| status.type_id != old_type),
+        "the old cameo must not draw the successor's clock or Hold"
+    );
+    let preview = arm_gapowr_with_preview(fixture);
+    let pending = fixture.input.targeting_mode.clone();
+    let click = press_cameo(
+        fixture,
+        "E1",
+        SidebarTab::Infantry,
+        CameoPress::Right { shift: false },
+    );
+    assert_eq!(click.order, None, "no E1 copy remains queued");
+    assert!(!click.sound);
+    assert!(!click.clear_building_placement);
+    assert_eq!(fixture.input.targeting_mode, pending);
+    let retained = fixture.input.building_placement_preview.as_ref().unwrap();
+    assert_same_preview(retained, &preview);
+}
+
+/// Local House4FAB74 unlinks the old cameo before4FAC96 promotes on the
+/// same Factory. The queued-only4FAAEE return must preserve its active link.
+#[test]
+fn mixed_infantry_cancel_clears_old_cameo_before_same_factory_promotion() {
+    let Some(mut fixture) = paid_ready_fixture() else {
+        return;
+    };
+    let (order, product) = start_mixed_infantry_queue(&mut fixture);
+    let owner = fixture.owner;
+    let queued_cancel = cancel_envelope(&fixture, "ENGINEER");
+    let frame = advance_commands(&mut fixture, &[queued_cancel]);
+    consume_frame_outputs(&mut fixture, &frame, Some(owner));
+    assert_eq!(
+        fixture
+            .projection
+            .cameo_factory(&fixture.sim, owner, fixture.sim.interner.get("E1").unwrap())
+            .unwrap()
+            .construction_order(),
+        order,
+        "queued-only removal keeps the active Factory link"
+    );
+    let enqueue = CommandEnvelope::new(
+        owner,
+        fixture.sim.session.tick + 1,
+        Command::QueueProduction {
+            type_id: fixture.sim.interner.get("ENGINEER").unwrap(),
+        },
+    );
+    let suspend = CommandEnvelope::new(
+        owner,
+        fixture.sim.session.tick + 1,
+        Command::SuspendProduction {
+            category: ProductionCategory::Infantry,
+        },
+    );
+    let frame = advance_commands(&mut fixture, &[enqueue, suspend]);
+    consume_frame_outputs(&mut fixture, &frame, Some(owner));
+    assert_eq!(
+        press_cameo(
+            &mut fixture,
+            "E1",
+            SidebarTab::Infantry,
+            CameoPress::Right { shift: false }
+        )
+        .order,
+        Some(CameoOrder::Abandon { all: false })
+    );
+    let cancel = cancel_envelope(&fixture, "E1");
+    let frame = advance_commands(&mut fixture, &[cancel]);
+    consume_frame_outputs(&mut fixture, &frame, Some(owner));
+    assert!(!fixture.sim.substrate.entities.contains(product));
+    assert_old_infantry_cameo_released(&mut fixture, order);
+}
+
+/// Accepted mobile HousePlace4FB663 reaches that same House unlink. Both
+/// units are actually charged; ordinary Strip completion queues the PLACE.
+#[test]
+fn mixed_infantry_delivery_clears_old_cameo_before_same_factory_promotion() {
+    let Some(mut fixture) = paid_ready_fixture() else {
+        return;
+    };
+    let (order, product) = start_mixed_infantry_queue(&mut fixture);
+    let owner = fixture.owner;
+    let successor = fixture.sim.interner.get("ENGINEER").unwrap();
+    for _ in 0..4096 {
+        let frame = advance_commands(&mut fixture, &[]);
+        consume_frame_outputs(&mut fixture, &frame, Some(owner));
+        if fixture
+            .sim
+            .production
+            .factories
+            .view(owner, ProductionCategory::Infantry)
+            .is_some_and(|factory| {
+                factory
+                    .object
+                    .is_some_and(|object| object.type_id == successor)
+            })
+        {
+            break;
+        }
+    }
+    let delivered = fixture
+        .sim
+        .substrate
+        .entities
+        .get(product)
+        .expect("successful delivery retains the E1");
+    assert!(!delivered.lifecycle.in_limbo);
+    assert!(delivered.lifecycle.cell_marked);
+    assert_old_infantry_cameo_released(&mut fixture, order);
+}
+
+/// Terminal mobile4FB5B5 also unlinks before refund/destruction/promotion.
+/// Supply an independent existing HELLO contact at delivery; this is not a
+/// native timing claim for how an ordinary barracks becomes occupied.
+#[test]
+fn mixed_infantry_terminal_delivery_clears_old_cameo_before_same_factory_promotion() {
+    let Some(mut fixture) = paid_ready_fixture() else {
+        return;
+    };
+    let (order, product) = start_mixed_infantry_queue(&mut fixture);
+    let owner = fixture.owner;
+    for _ in 0..4096 {
+        if fixture
+            .sim
+            .production
+            .factories
+            .view(owner, ProductionCategory::Infantry)
+            .is_some_and(|factory| factory.complete_object().is_some())
+        {
+            break;
+        }
+        let frame = advance_commands(&mut fixture, &[]);
+        consume_frame_outputs(&mut fixture, &frame, Some(owner));
+    }
+    let producer =
+        production::object_find_factory(&fixture.sim, &fixture.rules, product, false, true)
+            .expect("the actual paid E1 finds its barracks");
+    assert!(
+        fixture
+            .sim
+            .production
+            .factories
+            .building_factory(producer)
+            .is_none()
+    );
+    let contact = fixture
+        .sim
+        .spawn_object("E1", "Americans", 25, 25, 0, &fixture.rules)
+        .unwrap();
+    assert_eq!(
+        crate::sim::radio::transmit(
+            &mut fixture.sim,
+            contact,
+            producer,
+            crate::sim::radio::RadioMessage::Hello,
+            crate::sim::radio::RadioPayload::default(),
+            Some(&fixture.rules),
+            FrameEffects::default(),
+        )
+        .code(),
+        1
+    );
+    assert!(
+        fixture
+            .sim
+            .substrate
+            .entities
+            .get(producer)
+            .unwrap()
+            .radio_contacts
+            .first_free()
+            .is_none()
+    );
+    let credits = production::credits_for_owner(&fixture.sim, "Americans");
+    let frame = advance_commands(&mut fixture, &[]);
+    consume_frame_outputs(&mut fixture, &frame, Some(owner));
+    assert!(
+        !fixture.sim.substrate.entities.contains(product),
+        "the busy terminal refusal destroys the held E1"
+    );
+    assert!(
+        production::credits_for_owner(&fixture.sim, "Americans")
+            >= credits
+                + fixture
+                    .sim
+                    .cost_of(owner, fixture.rules.object("E1").unwrap(), &fixture.rules)
+    );
+    assert_old_infantry_cameo_released(&mut fixture, order);
 }
 
 fn install_late_stationary_blocker(fixture: &mut Fixture, cell: (u16, u16)) -> u64 {
@@ -528,7 +773,7 @@ fn install_late_stationary_blocker(fixture: &mut Fixture, cell: (u16, u16)) -> u
         .expect("independent stationary GAPILL blocks the admitted site")
 }
 
-fn native_after(history_id: &str, command: &str, occurrence: usize) -> &'static serde_json::Value {
+fn native_step(history_id: &str, command: &str, occurrence: usize) -> &'static serde_json::Value {
     static CORPUS: std::sync::OnceLock<serde_json::Value> = std::sync::OnceLock::new();
     let corpus = CORPUS.get_or_init(|| {
         serde_json::from_str(crate::test_fixture::text(
@@ -548,7 +793,11 @@ fn native_after(history_id: &str, command: &str, occurrence: usize) -> &'static 
         .iter()
         .filter(|step| step["command"].as_str() == Some(command))
         .nth(occurrence)
-        .unwrap_or_else(|| panic!("native {history_id} step {command}"))["after"]
+        .unwrap_or_else(|| panic!("native {history_id} step {command}"))
+}
+
+fn native_after(history_id: &str, command: &str, occurrence: usize) -> &'static serde_json::Value {
+    &native_step(history_id, command, occurrence)["after"]
 }
 
 fn native_placement_after(
@@ -994,9 +1243,14 @@ fn same_frame_success_then_failure_clears_backup_in_both_building_orders() {
 
         assert_eq!(frame.tick.executed_commands, 2);
         assert!(frame.tick.spawned_entities);
+        // Successful building HousePlace4FB2C7 also reaches HouseAbandon
+        // before4FB328 clears the current and saved placement transaction.
         assert_eq!(
             placement_facts(&frame),
             vec![
+                LifecycleOutput::BuildingProductionAbandoned {
+                    owner: fixture.owner
+                },
                 LifecycleOutput::BuildingPlacementSucceeded {
                     owner: fixture.owner
                 },
@@ -1043,7 +1297,7 @@ fn same_frame_success_then_failure_clears_backup_in_both_building_orders() {
 }
 
 #[test]
-fn retry_then_other_category_abandon_clears_before_product_expiry_in_the_same_batch() {
+fn retry_then_linked_abandon_preserves_current_until_product_expiry_in_the_same_batch() {
     let Some(mut fixture) = paid_ready_fixture() else {
         return;
     };
@@ -1067,16 +1321,6 @@ fn retry_then_other_category_abandon_clears_before_product_expiry_in_the_same_ba
             },
         ]
     );
-    let clear = frame
-        .lifecycle_outputs
-        .iter()
-        .position(|output| {
-            *output
-                == LifecycleOutput::BuildingProductionAbandoned {
-                    owner: fixture.owner,
-                }
-        })
-        .unwrap();
     let expiry = frame
         .lifecycle_outputs
         .iter()
@@ -1087,12 +1331,26 @@ fn retry_then_other_category_abandon_clears_before_product_expiry_in_the_same_ba
                 }
         })
         .unwrap();
-    assert!(
-        clear < expiry,
-        "Abandon's local clear precedes the held product destructor"
-    );
     let owner = fixture.owner;
-    assert_eq!(consume_frame_outputs(&mut fixture, &frame, Some(owner)), 1);
+    let native_calls =
+        native_step("queued_failure_then_abandon", "local_event_corridor", 0)["native_calls"]
+            .as_array()
+            .unwrap();
+    let native_clear = native_calls
+        .iter()
+        .find(|call| call["name"] == "abandon_clear_current")
+        .unwrap();
+    let mut retries = 0;
+    for output in &frame.lifecycle_outputs[..=expiry] {
+        retries += usize::from(consume_lifecycle_output(&mut fixture, output, Some(owner)));
+    }
+    // The original callback immediately before4FAB83 still has Power's
+    // current product/type/foundation after the linked Pill destructor.
+    assert_current_matches_native(&fixture, &native_clear["placement"]);
+    for output in &frame.lifecycle_outputs[expiry + 1..] {
+        retries += usize::from(consume_lifecycle_output(&mut fixture, output, Some(owner)));
+    }
+    assert_eq!(retries, 1);
     assert!(fixture.input.targeting_mode.is_none());
     assert!(fixture.input.building_placement_preview.is_none());
     assert!(fixture.input.saved_building_placement.is_none());
@@ -1105,6 +1363,119 @@ fn retry_then_other_category_abandon_clears_before_product_expiry_in_the_same_ba
         production::ready_buildings_for_owner(&fixture.sim, &fixture.rules, "Americans").len(),
         1
     );
+}
+
+#[test]
+fn unlinked_abandon_clears_current_before_product_expiry() {
+    let Some(mut fixture) = paid_ready_fixture() else {
+        return;
+    };
+    let owner = fixture.owner;
+    let power_type = fixture.sim.interner.get("GAPOWR").unwrap();
+    let power_product = ready_product(&fixture, "GAPOWR");
+    let pill_type = fixture.sim.interner.get("GAPILL").unwrap();
+    let pill_product = ready_product(&fixture, "GAPILL");
+    let pill_order = fixture
+        .sim
+        .production
+        .factories
+        .view(owner, ProductionCategory::Defense)
+        .unwrap()
+        .construction_order();
+    // Supply the executed StripClear6A81B0 helper boundary: no Building
+    // links, an independent Defense link, and the real completed product
+    // still current. This is not whole UI/scenario reset coverage. Other
+    // regressions cover actual gadget Select through the same input owner.
+    let _ = fixture.projection.apply_factory_output(
+        &LifecycleOutput::ProductionFactoryLinked {
+            owner,
+            type_id: pill_type,
+            category: ProductionCategory::Defense,
+            construction_order: pill_order,
+        },
+        Some(owner),
+    );
+    production::object_find_factory(&fixture.sim, &fixture.rules, power_product, false, false)
+        .expect("the real completed product finds its healthy builder");
+    assert!(
+        fixture
+            .input
+            .begin_building_placement("GAPOWR", power_product, owner)
+    );
+    assert!(
+        fixture
+            .projection
+            .cameo_factory(&fixture.sim, owner, power_type)
+            .is_none()
+    );
+    let history = "local_unlinked_strip_clear_active_abandon_order";
+    assert_current_matches_native(
+        &fixture,
+        &native_after(history, "strip_clear", 0)["placement"],
+    );
+
+    let cancel = cancel_envelope(&fixture, "GAPOWR");
+    let frame = advance_commands(&mut fixture, &[cancel]);
+    let expiry = frame
+        .lifecycle_outputs
+        .iter()
+        .position(|output| {
+            *output
+                == LifecycleOutput::ObjectPointerExpired {
+                    stable_id: power_product,
+                }
+        })
+        .unwrap();
+    let native_calls = native_step(history, "house_abandon", 0)["native_calls"]
+        .as_array()
+        .unwrap();
+    let native_expiry = native_calls
+        .iter()
+        .find(|call| call["name"] == "dispatch_pointer_expired")
+        .unwrap();
+    let mut clears = 0;
+    for (index, output) in frame.lifecycle_outputs.iter().enumerate() {
+        if let Some(cursor_clear) = fixture.projection.apply_factory_output(output, Some(owner)) {
+            clears += 1;
+            fixture
+                .input
+                .apply_building_placement_output(&cursor_clear, Some(owner));
+        }
+        fixture
+            .input
+            .apply_building_placement_output(output, Some(owner));
+        if index == expiry {
+            assert_current_matches_native(&fixture, &native_expiry["placement"]);
+            assert_eq!(clears, 1, "zero-link House prefix precedes product expiry");
+        }
+    }
+    assert_eq!(clears, 1, "the finish boundary must not clear twice");
+    assert_current_matches_native(
+        &fixture,
+        &native_after(history, "house_abandon", 0)["placement"],
+    );
+    assert_saved_matches_native(
+        &fixture,
+        &native_after(history, "house_abandon", 0)["placement"],
+    );
+    assert!(!fixture.sim.substrate.entities.contains(power_product));
+    assert!(
+        fixture
+            .sim
+            .production
+            .factories
+            .view(owner, ProductionCategory::Building)
+            .is_none()
+    );
+    assert_eq!(
+        fixture
+            .projection
+            .cameo_factory(&fixture.sim, owner, pill_type)
+            .unwrap()
+            .construction_order(),
+        pill_order
+    );
+    assert_eq!(ready_product(&fixture, "GAPILL"), pill_product);
 }
 
 #[test]
@@ -1651,7 +2022,10 @@ fn same_factory_rearm_retains_the_old_cameos_factory_link_and_construction_order
     let frame = advance_commands(&mut fixture, &[command]);
     assert_eq!(
         placement_facts(&frame),
-        vec![LifecycleOutput::BuildingPlacementSucceeded { owner }]
+        vec![
+            LifecycleOutput::BuildingProductionAbandoned { owner },
+            LifecycleOutput::BuildingPlacementSucceeded { owner },
+        ]
     );
     consume_frame_outputs(&mut fixture, &frame, Some(owner));
     let expected = native_placement_after(

@@ -1077,6 +1077,17 @@ fn advance_one_simulation_frame(
                 .get(&owner)
         });
         for output in drained_lifecycle_outputs {
+            if let Some(cursor_clear) = state
+                .match_state
+                .match_presentation
+                .sidebar_projection
+                .apply_factory_output(&output, local_house)
+            {
+                state
+                    .match_state
+                    .input
+                    .apply_building_placement_output(&cursor_clear, local_house);
+            }
             if state
                 .match_state
                 .input
@@ -1085,21 +1096,10 @@ fn advance_one_simulation_frame(
                 update_building_placement_preview(state);
             }
             match output {
-                LifecycleOutput::ProductionFactoryLinked {
-                    owner,
-                    type_id,
-                    category,
-                    construction_order,
-                } => {
-                    if local_house == Some(owner) {
-                        state
-                            .match_state
-                            .match_presentation
-                            .sidebar_projection
-                            .link_factory(owner, type_id, category, construction_order);
-                    }
-                }
-                LifecycleOutput::BuildingPlacementRetry { .. }
+                LifecycleOutput::ProductionFactoryLinked { .. }
+                | LifecycleOutput::ProductionFactoryAbandoning { .. }
+                | LifecycleOutput::ProductionFactoryUnlinked { .. }
+                | LifecycleOutput::BuildingPlacementRetry { .. }
                 | LifecycleOutput::BuildingPlacementSucceeded { .. }
                 | LifecycleOutput::BuildingProductionAbandoned { .. } => {}
                 LifecycleOutput::ObjectPointerExpired { stable_id } => {

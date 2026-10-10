@@ -379,8 +379,12 @@ product must match the requested index in these controls. Null held product
 with nonzero requested BuildCat admits through `0x4FABF6 -> 0x4FAB64` without
 that match; the direct GACNST BuildCat 0 control refuses while GAPILE's
 nonzero mismatched index and GAPILL's Defense category admit. Admitted local
-building cancellation clears any active cursor, clears the Factory's sidebar
-links, then abandons and removes the Factory when its queue is empty.
+building cancellation calls SidebarAbandon before its cursor prefix. Each
+matching link calls FactoryAbandon at `0x6ABBDA` before unlink stores
+`0x6ABBDF/0x6ABBE7`, so linked product refund/destructor/expiry precede the
+House cursor clear. With no matching link, the House cursor prefix instead
+precedes the core FactoryAbandon at `0x4FABA6`. The Factory is removed when
+its queue is empty.
 Null-held `Factory::Abandon 0x4C9FF0` immediately returns false without refund,
 timer write or RNG draw. Nonnull cancellation reaches the original refund,
 destructor and detach calls, without claiming every fatal path.
@@ -417,6 +421,37 @@ Select checks them before IsComplete, whereas Draw checks completion first.
 
 `HouseAbandon -> 0x6ABAD0 -> 0x6ABB60` clears all same-Factory-linked records
 in the category strip at `0x6ABBDF` and their request state at `0x6ABBE7`.
+
+The additive `rearmed_factory_sidebar_abandon_unlinks_all_retains_factory`
+control isolates that owner while the Factory survives: original GAPOWR
+product expiry and actual paid GAPILE rearm create two retained associations
+through `0x6A6140`, then direct whole `0x6ABAD0`/`0x6ABB60` clears both links.
+The target Factory keeps its live registry identity/order; the independent
+GAPILL Factory/link remain unchanged. Original FactoryAbandon refunds GAPILE
+once, writes its stage clock and destroys the limbo product; the second
+matching-entry call has no held object. Full three RNG states, zero draws and
+advances, timer writes and the reached destructor/expiry trace are recorded.
+This is an initialized direct owner control, not whole House/mobile delivery
+execution. Local HouseAbandon calls it at `0x4FAB74` before the building-only
+cursor prefix and before successor promotion at `0x4FAC96`; queued-copy-only
+removal bypasses it. Original mobile Place completion at `0x4FB649` reaches
+HouseAbandon at `0x4FB663`; terminal nonbuilding Exit refusal reaches it at
+`0x4FB5B5`. Those mobile caller bounds are instruction-supported.
+
+The additive `local_unlinked_strip_clear_active_abandon_order` history uses
+actual paid GAPOWR/GAPILL and real Select, then executes whole original
+`StripClear 0x6A81B0` on tab0 before whole HouseAbandon. StripClear removes
+that strip's records while leaving both live factories and the independent
+Defense link intact. This is a declared direct initialized helper boundary,
+not whole UI/scenario reset. At the zero-link House prefix `0x4FAB83`, current
+GAPOWR product/type/foundation remain; the first product expiry `0x7258D0`
+sees them cleared. Existing linked cancellation instead retains current
+product/type/foundation at its first product expiry; Tactical expiry clears
+only the product before the House prefix clears type/foundation. Full three
+RNG states, zero abandon draws/advances, three Factory-clock stores and
+reached lifecycle callbacks are recorded. StripClear's 75 slot clocks are
+outside the existing stage/building/action timer-watch windows; no whole
+reset/timer coverage is claimed. Raw EAX and timer padding are observations.
 
 Link publication is an actual reached call, not a successful Begin return.
 Instruction-level guards show no-builder, allocation failure, active kind-7
@@ -474,7 +509,7 @@ no executable Escape golden is asserted.
 
 ### New family schema
 
-The 33 histories contain 155 steps. Each row has stable `id`, explicit `inputs`
+The 35 histories contain 161 steps. Each row has stable `id`, explicit `inputs`
 and ordered `steps`. `paid_stock_ready` carries reader layers, hashes, type
 indices, physical ART/sound inputs, initializer boundaries and seeds. Other
 rows identify that executed baseline and supplied prior changes. Each step

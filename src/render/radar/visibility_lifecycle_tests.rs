@@ -112,7 +112,7 @@ fn radar_visibility_consumes_live_stock_cloak_and_sensor_lifecycle() {
         )
     };
     let evaluate = |sim: &Simulation| build_update(sim, sub).visibility.evaluate(false);
-    let mut tracker = crate::render::radar_tracker::RetainedRadarTracker::default();
+    let mut tracker = crate::render::radar::tracker::RetainedRadarTracker::default();
     assert_eq!(evaluate(&sim), RadarVisibilityResult::HIDDEN);
     assert_eq!(tracker.update_object(build_update(&sim, sub), false), None);
     assert!(!tracker.is_registered(sub));
@@ -196,11 +196,13 @@ fn radar_visibility_consumes_live_stock_cloak_and_sensor_lifecycle() {
     );
     assert_eq!(
         tracker.update_object(build_update(&sim, sub), false),
-        Some(crate::render::radar_tracker::RadarSensedPresentationEvent {
-            stable_id: sub,
-            out_code: 1,
-            cell,
-        })
+        Some(
+            crate::render::radar::tracker::RadarSensedPresentationEvent {
+                stable_id: sub,
+                out_code: 1,
+                cell,
+            }
+        )
     );
     assert!(tracker.is_registered(sub));
 

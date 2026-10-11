@@ -9,10 +9,8 @@
 use crate::render::batch::SpriteInstance;
 use crate::util::native_x87::{NativeF32Bits, X87Chop53, X87Value};
 
-use super::minimap_helpers::MINIMAP_DEPTH;
-use super::native_radar_surface::{
-    NativeRadarSurfaceGeometry, RADAR_APERTURE_HEIGHT, RADAR_APERTURE_WIDTH,
-};
+use super::geometry::{NativeRadarSurfaceGeometry, RADAR_APERTURE_HEIGHT, RADAR_APERTURE_WIDTH};
+use super::helpers::MINIMAP_DEPTH;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) struct NativeRadarRect {
@@ -282,7 +280,7 @@ fn native_radar_outline_instances(
     let clip_bottom = shader_pixel_round(sidebar_surface[1] + sidebar_surface[3]);
     let mut instances = Vec::with_capacity(4);
     for (from, to) in edges {
-        super::surface_line::solid_line(from, to, |[left, top, width, height]| {
+        crate::render::surface_line::solid_line(from, to, |[left, top, width, height]| {
             let source_x = source_content.0.wrapping_add(left);
             let source_y = source_content.1.wrapping_add(top);
             let Some((x, w)) = nearest_scaled_interval(
@@ -390,5 +388,5 @@ fn native_ftol(value: X87Value) -> i32 {
 }
 
 #[cfg(test)]
-#[path = "native_radar_viewport_tests.rs"]
+#[path = "viewport_tests.rs"]
 mod tests;

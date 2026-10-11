@@ -4,6 +4,9 @@
 //! retains the durable `[Skirmish]` snapshot, the process-continuity Scenario
 //! RNG, and Cooperative progress records across shell closes and matches.
 
+mod cooperative;
+mod persistence;
+
 use std::io;
 use std::path::{Path, PathBuf};
 
@@ -11,22 +14,22 @@ use crate::app::loading::init::MapMenuEntry;
 use crate::assets::asset_manager::AssetManager;
 use crate::rules::ini_parser::IniFile;
 use crate::sim::rng::SimRng;
-use crate::skirmish_cooperative::{
-    CooperativeCountryRole, CooperativeCountryRosterEntry, CooperativeError,
-    CooperativeProgressRecord, CooperativeProgressState, CooperativeRegistry,
-    draw_country_for_progress,
-};
 use crate::skirmish_launch::{
     LaunchCountry, RandomCountryRole, ShellRandomAssignmentState, SkirmishLaunchSession,
 };
 use crate::skirmish_modes::{SkirmishGameMode, mode_by_id};
-use crate::skirmish_persistence::{
-    SKIRMISH_PERSISTED_SLOT_COUNT, SkirmishGlobalDefaults, SkirmishPersistedSlot,
-    SkirmishPersistedSnapshot, read_skirmish_snapshot,
-};
 use crate::ui::skirmish_shell::{
     PlayerNameEditState, SkirmishAiRowType, SkirmishShellState, SkirmishTrackbarId,
     game_speed_from_visual_position, game_speed_visual_position,
+};
+use cooperative::{
+    CooperativeCountryRole, CooperativeCountryRosterEntry, CooperativeError,
+    CooperativeProgressRecord, CooperativeProgressState, CooperativeRegistry,
+    draw_country_for_progress,
+};
+use persistence::{
+    SKIRMISH_PERSISTED_SLOT_COUNT, SkirmishGlobalDefaults, SkirmishPersistedSlot,
+    SkirmishPersistedSnapshot, read_skirmish_snapshot,
 };
 
 const RA2MD_INI: &str = "RA2MD.INI";

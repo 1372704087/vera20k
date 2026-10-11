@@ -472,7 +472,7 @@ pub(crate) fn active_minimap_screen_rect(state: &AppState) -> crate::ui::sidebar
             state.match_state.match_presentation.sidebar_layout_spec,
         )
     } else {
-        let (x, y, w, h) = crate::render::minimap::default_minimap_rect(sh);
+        let (x, y, w, h) = crate::render::radar::minimap::default_minimap_rect(sh);
         crate::ui::sidebar::Rect { x, y, w, h }
     }
 }
@@ -601,7 +601,7 @@ fn refresh_radar_animation_source(state: &mut AppState) {
             presentation.radar_anim = None;
         }
     } else {
-        presentation.radar_anim = crate::render::radar_anim::RadarAnimState::new(
+        presentation.radar_anim = crate::render::radar::anim::RadarAnimState::new(
             &state.renderer.gpu,
             &state.renderer.batch_renderer,
             frames,

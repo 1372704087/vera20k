@@ -233,6 +233,9 @@ Before fixing a bug whose expected behavior is established, first make a focused
 - Asset binding, loader or rules-closure changes: a release-build retail map load
   before merge; the lib suite never runs the app loader against retail assets.
 - Docs/skills: validate content, links/examples and tooling; no Cargo suite.
+- Python tools and skills (`tools/`, `.agents/skills/`): one `python -m tools.run_tests`
+  on the final candidate, with `tools/requirements-test.txt` installed. It passes on
+  `main`, so treat any failure as a regression.
 - Every `cargo test` uses `--lib`.
 
 Run Cargo through `python -m tools.cargo_run -- <cargo arguments>` from the checkout.
@@ -244,7 +247,8 @@ Prefer release captures and retain debug tests selectively. Reference hashes, ma
 and results without extra executable copies. After each merge, dry-run retirement of
 superseded owned labels, preserving required binaries, dependencies and evidence.
 Resolve unmet minimum free space before another large build; follow the
-[retention procedure](tools/README.md#cargo-ownership-and-labeled-builds). Confirm fresh-worktree config/assets.
+[retention procedure](tools/README.md#cargo-ownership-and-labeled-builds). Run
+`python -m tools.prepare_checkout` in a new worktree or clone.
 Format edited leaf files only (`rustfmt --edition 2024 <file>`), never crate-wide
 or recursive `mod.rs`. Coordinate snapshot versions/rebaselines; exclude others' WIP.
 

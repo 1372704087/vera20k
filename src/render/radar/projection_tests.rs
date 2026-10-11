@@ -1,7 +1,7 @@
 use super::*;
 use crate::map::resolved_terrain::{ResolvedTerrainCell, ResolvedTerrainGrid};
 use crate::map::terrain::{TerrainGrid, build_terrain_grid_from_resolved};
-use crate::render::minimap_helpers::OverlayClassification;
+use crate::render::radar::helpers::OverlayClassification;
 use crate::util::native_x87::{NativeF32Bits, NativeF64Bits, X87Chop53, X87Value};
 use std::collections::{BTreeMap, HashMap};
 
@@ -388,11 +388,11 @@ fn reference_generate(raw: &[[u8; 3]], raw_size: (i32, i32), out: (i32, i32)) ->
                 ))
                 .min(255) as u8
             };
-            result.push(super::super::native_radar_terrain::pack_rgb565(
+            result.push(crate::render::native_surface_format::RGB565.pack_rgb8([
                 convert(accum[0]),
                 convert(accum[1]),
                 convert(accum[2]),
-            ));
+            ]));
             x0 = x1;
         }
         y0 = y1;

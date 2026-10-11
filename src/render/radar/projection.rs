@@ -5,28 +5,27 @@ use std::collections::{BTreeMap, BTreeSet, HashMap};
 use crate::map::playfield::PlayfieldBounds;
 use crate::map::terrain::{PlayfieldPresentationGeometry, TerrainGrid};
 
-use super::current_radar_cell::CurrentRadarCellAuthority;
+use super::current_cell::CurrentRadarCellAuthority;
+use super::geometry::NativeRadarSurfaceGeometry;
+use super::helpers::{
+    COLOR_SHROUD, MINIMAP_HEIGHT, MINIMAP_WIDTH, OverlayPixel, RadarSurfacePixel, TerrainPixel,
+    compute_aspect_fit, overlay_radar_color, radar_color_for_cell, radar_colors_for_cell,
+    set_pixel, structural_bridge_radar_color, terrain_brightness_for_theater,
+    world_to_minimap_pixel,
+};
 use super::minimap::{MinimapCellRadarSource, MinimapOverlayDatum};
-use super::minimap_helpers::{
-    COLOR_SHROUD, MINIMAP_HEIGHT, MINIMAP_WIDTH, OverlayPixel,
-    RadarSurfacePixel, TerrainPixel, compute_aspect_fit, overlay_radar_color,
-    radar_color_for_cell, radar_colors_for_cell, set_pixel, structural_bridge_radar_color,
-    terrain_brightness_for_theater, world_to_minimap_pixel,
-};
-use super::native_radar_surface::NativeRadarSurfaceGeometry;
-use super::native_radar_terrain::{
-    NativeRadarCellColors, NativeRadarTerrainSurface, unpack_rgb565,
-};
+use super::terrain::{NativeRadarCellColors, NativeRadarTerrainSurface};
+use crate::render::native_surface_format::RGB565;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
-pub(super) struct PrimaryRadarCopyFrame {
+pub(in crate::render) struct PrimaryRadarCopyFrame {
     pub offset: [f32; 2],
     pub size: [f32; 2],
     pub uv_origin: [f32; 2],
     pub uv_size: [f32; 2],
 }
 
-pub(super) fn generated_primary_copy_frame(
+pub(in crate::render) fn generated_primary_copy_frame(
     surface: NativeRadarSurfaceGeometry,
     aperture_width: f32,
     aperture_height: f32,
@@ -95,7 +94,8 @@ pub(super) fn rasterize_native_terrain(
     for (index, &packed) in surface.generated_rgb565().iter().enumerate() {
         let px = index as i32 % generated_size.0;
         let py = index as i32 / generated_size.0;
-        let color = unpack_rgb565(packed);
+        let [red, green, blue] = RGB565.unpack_rgb8(packed);
+        let color = [red, green, blue, 255];
         let (rx, ry) = geometry.surface_pixel_to_visibility_cell((px, py));
         if let Some((dest_x, dest_y)) = aperture_pixel(geometry.into(), (px as u32, py as u32)) {
             set_pixel(&mut rgba, MINIMAP_WIDTH, dest_x, dest_y, color);
@@ -203,7 +203,7 @@ impl MinimapPlayfieldProjection {
                 || resolved.is_some_and(|cell| cell.terrain_object_occupation.is_some());
             let structural_bridge =
                 resolved.is_some_and(|cell| cell.bridge_facts.has_structural_bridge());
-            super::minimap_helpers::current_cell_radar_source(
+            super::helpers::current_cell_radar_source(
                 terrain_object,
                 structural_bridge,
                 overlays_by_cell.get(&(cell.rx, cell.ry)).copied(),
@@ -365,7 +365,7 @@ impl MinimapPlayfieldProjection {
 }
 
 #[cfg(test)]
-#[path = "native_radar_projection_tests.rs"]
+#[path = "projection_tests.rs"]
 mod tests;
 
 #[allow(clippy::too_many_arguments)]

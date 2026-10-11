@@ -7,7 +7,7 @@ use super::*;
 use crate::map::houses::HouseAllianceMap;
 use crate::map::playfield::PlayfieldBounds;
 use crate::map::terrain::{PlayfieldPresentationGeometry, TerrainCell, TerrainGrid};
-use crate::render::minimap_helpers::*;
+use crate::render::radar::helpers::*;
 use crate::rules::color_scheme::ColorSchemeEntry;
 use crate::rules::house_colors::{HouseColorIndex, HouseColorRamps};
 use crate::sim::components::Position;

@@ -304,6 +304,7 @@ impl CooperativeProgressState {
         self.active.as_ref()
     }
 
+    #[cfg(test)]
     pub fn reserve(&self, campaign_index: usize) -> Option<&CooperativeProgressRecord> {
         self.reserves.get(campaign_index)?.as_ref()
     }
@@ -434,13 +435,6 @@ impl CooperativeCountryEligibility {
             return Err(CooperativeError::NoEligibleCountries { role: role.label() });
         }
         Ok(Self { accepted })
-    }
-
-    pub fn accepts(&self, global_country_index: usize) -> bool {
-        self.accepted
-            .get(global_country_index)
-            .copied()
-            .unwrap_or(false)
     }
 
     /// Draw against the full global roster bound until membership succeeds.

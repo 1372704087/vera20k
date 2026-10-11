@@ -213,11 +213,11 @@ impl App {
         let accepted_random_map = state
             .frontend.random_map_retention
             .take_acceptance_for_loading(session.selected_map_file.as_deref());
-        let request = match crate::match_bootstrap::classify_startup_session(&session) {
-            crate::match_bootstrap::StartupSessionClassification::AcceptedExplicitFixedBattle(
+        let request = match crate::app::match_bootstrap::classify_startup_session(&session) {
+            crate::app::match_bootstrap::StartupSessionClassification::AcceptedExplicitFixedBattle(
                 accepted,
             ) => {
-                let correlation = match crate::match_bootstrap::allocate_match_correlation(
+                let correlation = match crate::app::match_bootstrap::allocate_match_correlation(
                     &mut state.frontend.next_match_correlation,
                 ) {
                     Ok(correlation) => correlation,
@@ -226,18 +226,18 @@ impl App {
                         return;
                     }
                 };
-                let mut clock = crate::match_bootstrap::OrdinaryMatchSeedClock;
-                let startup = crate::match_bootstrap::prepare_match_startup(
+                let mut clock = crate::app::match_bootstrap::OrdinaryMatchSeedClock;
+                let startup = crate::app::match_bootstrap::prepare_match_startup(
                     correlation,
                     accepted,
                     &mut clock,
                 );
                 crate::app::loading::pump::LoadingRequest::accepted_skirmish(startup)
             }
-            crate::match_bootstrap::StartupSessionClassification::UnverifiedLegacy(reason) => {
+            crate::app::match_bootstrap::StartupSessionClassification::UnverifiedLegacy(reason) => {
                 log::warn!("Skirmish startup uses unverified compatibility path: {reason:?}");
-                let mut clock = crate::match_bootstrap::OrdinaryMatchSeedClock;
-                let seed = crate::match_bootstrap::read_match_seed(&mut clock);
+                let mut clock = crate::app::match_bootstrap::OrdinaryMatchSeedClock;
+                let seed = crate::app::match_bootstrap::read_match_seed(&mut clock);
                 crate::app::loading::pump::LoadingRequest::unverified_legacy_skirmish(session, seed)
             }
         }

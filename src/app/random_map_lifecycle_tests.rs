@@ -436,9 +436,9 @@ fn gsi_04_12_random_map_ui_to_sed_launch_lifecycle_converges() {
     let launch = launch_session(seed_name);
     let ui_request = LoadingRequest::unverified_legacy_skirmish(
         launch.clone(),
-        crate::match_bootstrap::MatchSeed {
+        crate::app::match_bootstrap::MatchSeed {
             value: MATCH_SEED,
-            source: crate::match_bootstrap::MatchSeedSource::Controlled,
+            source: crate::app::match_bootstrap::MatchSeedSource::Controlled,
             seed_authority_certifying: false,
         },
     )
@@ -470,9 +470,9 @@ fn gsi_04_12_random_map_ui_to_sed_launch_lifecycle_converges() {
         .expect("reference setup supplies accepted staging");
     let direct_request = LoadingRequest::unverified_legacy_skirmish(
         launch,
-        crate::match_bootstrap::MatchSeed {
+        crate::app::match_bootstrap::MatchSeed {
             value: MATCH_SEED,
-            source: crate::match_bootstrap::MatchSeedSource::Controlled,
+            source: crate::app::match_bootstrap::MatchSeedSource::Controlled,
             seed_authority_certifying: false,
         },
     )

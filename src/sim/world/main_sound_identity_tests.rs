@@ -11,7 +11,7 @@ use crate::rules::locomotor_type::LocomotorKind;
 use crate::rules::ruleset::RuleSet;
 use crate::rules::sound_ini::SoundRegistry;
 use crate::sim::combat::TargetKind;
-use crate::sim::combat::world_receiver::FireVisit;
+use crate::sim::combat::world_fire::FireVisit;
 use crate::sim::game_entity::GameEntity;
 use crate::sim::house_state::HouseState;
 use crate::sim::movement::locomotor::LocomotorState;

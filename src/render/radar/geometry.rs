@@ -23,7 +23,7 @@ const ONE_OVER_CELL_BITS: u32 = 0x3b80_0000;
 /// 0x00654490`, `GenerateTerrainSurface @ 0x006547C0`, and
 /// `RebuildRadarSurfaces @ 0x00654650`.
 #[derive(Debug, Clone, Copy, PartialEq)]
-pub(super) struct NativeRadarSurfaceGeometry {
+pub(in crate::render) struct NativeRadarSurfaceGeometry {
     raw_offset_x: i32,
     raw_offset_y: i32,
     raw_width: i32,
@@ -117,7 +117,7 @@ impl NativeRadarSurfaceGeometry {
         )
     }
 
-    pub(super) fn from_raw_rect(
+    pub(in crate::render) fn from_raw_rect(
         raw_offset_x: i32,
         raw_offset_y: i32,
         raw_width: i32,
@@ -328,5 +328,5 @@ fn native_ftol(value: X87Value) -> i32 {
 }
 
 #[cfg(test)]
-#[path = "native_radar_surface_tests.rs"]
+#[path = "geometry_tests.rs"]
 mod tests;

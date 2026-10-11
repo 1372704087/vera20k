@@ -12,7 +12,7 @@ use crate::rules::ruleset::RuleSet;
 use crate::sim::overlay_grid::OverlayGrid;
 use crate::sim::runtime::SimRuntime;
 
-use super::minimap_helpers::{
+use super::helpers::{
     OverlayClassification, current_cell_radar_source, minimap_overlay_datum,
     radar_colors_for_tmp_metadata,
 };
@@ -153,9 +153,9 @@ impl<'a> CurrentRadarCellAuthority<'a> {
 }
 
 #[cfg(test)]
-#[path = "current_radar_cell_tests.rs"]
+#[path = "current_cell_tests.rs"]
 mod tests;
 
 #[cfg(test)]
-#[path = "current_radar_damage_pipeline_tests.rs"]
+#[path = "current_cell_damage_pipeline_tests.rs"]
 mod damage_pipeline_tests;

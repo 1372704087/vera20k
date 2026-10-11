@@ -11112,7 +11112,7 @@ fn captured_events(
 /// goes through `CreateRadarEvent(10, cell)` and announces only when the
 /// client's radar array accepted the event, so the world publishes the type-10
 /// request with every such capture (the fourth tuple field). Row 10 of the
-/// `0x007F0998` type table is not unique; `render::radar_events` pins that a
+/// `0x007F0998` type table is not unique; `render::radar::events` pins that a
 /// second capture next to a live event is accepted too.
 #[test]
 fn engineer_capture_of_an_ordinary_building_requests_the_radar_event() {

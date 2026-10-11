@@ -4,7 +4,7 @@
 use super::{
     batch::{CameraUniform, SpriteInstance},
     frame_readback::PendingBgra8Readback,
-    radar_surface::RadarSurface,
+    radar::surface::RadarSurface,
 };
 use bytemuck::Zeroable;
 use std::{mem::size_of, time::Duration};
@@ -269,11 +269,11 @@ fn retained_radar_snapshot_matches_actual_gpu_crops_and_overlaps() {
         })
         .collect::<Vec<_>>();
         for (raw_w, raw_h) in [(300, 180), (180, 300), (173, 113), (140, 108)] {
-            let surface = super::native_radar_surface::NativeRadarSurfaceGeometry::from_raw_rect(
+            let surface = super::radar::geometry::NativeRadarSurfaceGeometry::from_raw_rect(
                 30, 20, raw_w, raw_h,
             )
             .unwrap();
-            let copy = super::minimap_projection::generated_primary_copy_frame(surface, 140., 108.);
+            let copy = super::radar::projection::generated_primary_copy_frame(surface, 140., 108.);
             cases.push((
                 [16. + copy.offset[0], 1. + copy.offset[1]],
                 copy.uv_origin,
@@ -423,7 +423,7 @@ fn retail_command_bar_atlas_and_production_append_match_native_capture() {
 #[test]
 #[ignore = "requires a wgpu adapter; checks production retained owner across availability changes"]
 fn production_radar_loss_and_reversal_preserve_final_gpu_pixels() {
-    use super::radar_anim::{RadarAnimPhase, RadarPresentation};
+    use super::radar::anim::{RadarAnimPhase, RadarPresentation};
     let gpu = Gpu::new();
     let origin = [632.25, -413.75];
     let frames: Vec<Vec<u8>> = (0..33)
@@ -446,9 +446,9 @@ fn production_radar_loss_and_reversal_preserve_final_gpu_pixels() {
         .collect();
     let housing = quad(origin, [168., 110.]);
     let geometry =
-        super::native_radar_surface::NativeRadarSurfaceGeometry::from_raw_rect(30, 20, 300, 180)
+        super::radar::geometry::NativeRadarSurfaceGeometry::from_raw_rect(30, 20, 300, 180)
             .unwrap();
-    let copy = super::minimap_projection::generated_primary_copy_frame(geometry, 140., 108.);
+    let copy = super::radar::projection::generated_primary_copy_frame(geometry, 140., 108.);
     let mut map = quad(
         [
             origin[0] + 16. + copy.offset[0],

@@ -45,13 +45,13 @@ pub(super) fn test_launch_session(country: LaunchCountry) -> SkirmishLaunchSessi
 
 struct TestClock(u32);
 
-impl crate::match_bootstrap::MatchSeedClock for TestClock {
+impl crate::app::match_bootstrap::MatchSeedClock for TestClock {
     fn low_u32(&mut self) -> u32 {
         self.0
     }
 
-    fn source(&self) -> crate::match_bootstrap::MatchSeedSource {
-        crate::match_bootstrap::MatchSeedSource::Controlled
+    fn source(&self) -> crate::app::match_bootstrap::MatchSeedSource {
+        crate::app::match_bootstrap::MatchSeedSource::Controlled
     }
 
     fn seed_authority_certifying(&self) -> bool {
@@ -59,25 +59,28 @@ impl crate::match_bootstrap::MatchSeedClock for TestClock {
     }
 }
 
-fn prepared_startup(next: &mut u64, seed: u32) -> crate::match_bootstrap::PreparedMatchStartup {
+fn prepared_startup(
+    next: &mut u64,
+    seed: u32,
+) -> crate::app::match_bootstrap::PreparedMatchStartup {
     let launch = test_launch_session(LaunchCountry::America);
-    let accepted = match crate::match_bootstrap::classify_startup_session(&launch) {
-        crate::match_bootstrap::StartupSessionClassification::AcceptedExplicitFixedBattle(
+    let accepted = match crate::app::match_bootstrap::classify_startup_session(&launch) {
+        crate::app::match_bootstrap::StartupSessionClassification::AcceptedExplicitFixedBattle(
             accepted,
         ) => accepted,
         other => panic!("fixture was not accepted: {other:?}"),
     };
-    let correlation = crate::match_bootstrap::allocate_match_correlation(next).unwrap();
-    crate::match_bootstrap::prepare_match_startup(correlation, accepted, &mut TestClock(seed))
+    let correlation = crate::app::match_bootstrap::allocate_match_correlation(next).unwrap();
+    crate::app::match_bootstrap::prepare_match_startup(correlation, accepted, &mut TestClock(seed))
 }
 
-fn prepared_campaign() -> crate::match_bootstrap::PreparedCampaignStartup {
+fn prepared_campaign() -> crate::app::match_bootstrap::PreparedCampaignStartup {
     let ini = crate::rules::ini_parser::IniFile::from_str(
         "[Battles]\n0=ALL1\n[ALL1]\nCD=2\nScenario=ALL01UMD.MAP\n",
     );
     let mut campaigns = crate::rules::campaigns::CampaignRegistry::default();
     campaigns.apply_ini(&ini, &crate::rules::movies::MovieRegistry::default(), None);
-    crate::match_bootstrap::prepare_campaign_startup(&campaigns, "ALL1", 1, &mut TestClock(31))
+    crate::app::match_bootstrap::prepare_campaign_startup(&campaigns, "ALL1", 1, &mut TestClock(31))
         .expect("synthetic campaign catalog admits a selected campaign")
 }
 
@@ -126,10 +129,10 @@ fn campaign_preparation_failure_retires_the_lease_with_shell_retry_policy() {
     }
 }
 
-pub(super) fn unverified_seed(value: u32) -> crate::match_bootstrap::MatchSeed {
-    crate::match_bootstrap::MatchSeed {
+pub(super) fn unverified_seed(value: u32) -> crate::app::match_bootstrap::MatchSeed {
+    crate::app::match_bootstrap::MatchSeed {
         value,
-        source: crate::match_bootstrap::MatchSeedSource::Controlled,
+        source: crate::app::match_bootstrap::MatchSeedSource::Controlled,
         seed_authority_certifying: false,
     }
 }
@@ -181,10 +184,10 @@ fn accepted_random_map_with_starts(
 }
 
 fn receipt_for(
-    startup: &crate::match_bootstrap::PreparedMatchStartup,
-) -> crate::match_bootstrap::RustL0Receipt {
+    startup: &crate::app::match_bootstrap::PreparedMatchStartup,
+) -> crate::app::match_bootstrap::RustL0Receipt {
     let simulation = crate::sim::world::Simulation::with_seed(u64::from(startup.seed.value));
-    crate::match_bootstrap::RustL0Observation {
+    crate::app::match_bootstrap::RustL0Observation {
         startup,
         simulation: &simulation,
         active_correlation: startup.correlation,
@@ -1404,13 +1407,13 @@ fn loading_session_starts_at_initial_map_selection_phase() {
 #[test]
 fn loading_request_moves_exact_startup_authority_once() {
     struct Clock;
-    impl crate::match_bootstrap::MatchSeedClock for Clock {
+    impl crate::app::match_bootstrap::MatchSeedClock for Clock {
         fn low_u32(&mut self) -> u32 {
             0x1234_5678
         }
 
-        fn source(&self) -> crate::match_bootstrap::MatchSeedSource {
-            crate::match_bootstrap::MatchSeedSource::Controlled
+        fn source(&self) -> crate::app::match_bootstrap::MatchSeedSource {
+            crate::app::match_bootstrap::MatchSeedSource::Controlled
         }
 
         fn seed_authority_certifying(&self) -> bool {
@@ -1419,16 +1422,17 @@ fn loading_request_moves_exact_startup_authority_once() {
     }
 
     let session = test_launch_session(LaunchCountry::America);
-    let accepted = match crate::match_bootstrap::classify_startup_session(&session) {
-        crate::match_bootstrap::StartupSessionClassification::AcceptedExplicitFixedBattle(
+    let accepted = match crate::app::match_bootstrap::classify_startup_session(&session) {
+        crate::app::match_bootstrap::StartupSessionClassification::AcceptedExplicitFixedBattle(
             accepted,
         ) => accepted,
         other => panic!("fixture was not accepted: {other:?}"),
     };
     let mut next = 1;
-    let correlation = crate::match_bootstrap::allocate_match_correlation(&mut next).unwrap();
+    let correlation = crate::app::match_bootstrap::allocate_match_correlation(&mut next).unwrap();
     let mut clock = Clock;
-    let prepared = crate::match_bootstrap::prepare_match_startup(correlation, accepted, &mut clock);
+    let prepared =
+        crate::app::match_bootstrap::prepare_match_startup(correlation, accepted, &mut clock);
     let request = LoadingRequest::accepted_skirmish(prepared.clone());
 
     assert_eq!(request.startup().accepted(), Some(&prepared));

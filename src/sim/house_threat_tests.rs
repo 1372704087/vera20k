@@ -683,7 +683,7 @@ fn real_garrison_append_and_complete_ejection_refresh_the_existing_building_cach
         .unwrap()
         .navigation
         .retain_threat_avoidance_after_unlimbo(crate::util::native_x87::NativeF64Bits::ONE);
-    crate::sim::production::sell_building_occupants(
+    crate::sim::passenger::garrison_eject::sell_building_occupants(
         &mut sim,
         &rules,
         Some(&registry),

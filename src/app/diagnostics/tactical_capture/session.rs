@@ -30,10 +30,10 @@ use crate::app::diagnostics::tactical_capture::script::{
     TacticalScriptConfig, TacticalScriptStage, TacticalStageBudgets,
 };
 use crate::app::frontend::launch::TacticalCaptureRequest;
+use crate::app::match_bootstrap::{MatchSeedClock, MatchSeedSource, StartupSessionClassification};
 use crate::app::presentation::render::GameRenderOutput;
 use crate::app::types::{CursorId, SIM_TICK_MS};
-use crate::match_bootstrap::{MatchSeedClock, MatchSeedSource, StartupSessionClassification};
-use crate::render::radar_anim::RadarAnimPhase;
+use crate::render::radar::anim::RadarAnimPhase;
 use crate::render::sidebar_chrome::SidebarTheme;
 use crate::sim::command::Command;
 use crate::sim::house_state::HouseDifficulty;
@@ -288,19 +288,19 @@ impl TacticalCaptureSession {
 
     fn begin_accepted_loading(&mut self, state: &mut AppState) -> Result<()> {
         let launch = self.request.launch_session();
-        let accepted = match crate::match_bootstrap::classify_startup_session(&launch) {
+        let accepted = match crate::app::match_bootstrap::classify_startup_session(&launch) {
             StartupSessionClassification::AcceptedExplicitFixedBattle(accepted) => accepted,
             StartupSessionClassification::UnverifiedLegacy(reason) => {
                 bail!("sealed tactical launch was not accepted: {reason:?}")
             }
         };
-        let correlation = crate::match_bootstrap::allocate_match_correlation(
+        let correlation = crate::app::match_bootstrap::allocate_match_correlation(
             &mut state.frontend.next_match_correlation,
         )
         .context("allocate tactical match correlation")?;
         let mut clock = ControlledSeedClock(self.request.seed());
         let startup =
-            crate::match_bootstrap::prepare_match_startup(correlation, accepted, &mut clock);
+            crate::app::match_bootstrap::prepare_match_startup(correlation, accepted, &mut clock);
         ensure!(
             startup.seed.value == self.request.seed()
                 && startup.seed.source == MatchSeedSource::Controlled
@@ -673,7 +673,7 @@ impl TacticalCaptureSession {
             .receipt()
             .context("Rust L0 receipt is absent")?;
         ensure!(
-            crate::match_bootstrap::accepted_tick_is_admitted(Some(startup), Some(receipt)),
+            crate::app::match_bootstrap::accepted_tick_is_admitted(Some(startup), Some(receipt)),
             "loaded startup and Rust L0 receipt do not admit ticks"
         );
         ensure!(
@@ -912,7 +912,7 @@ impl TacticalCaptureSession {
             total_sim_ms: sim.session.total_sim_ms,
             binary_frame: sim.session.binary_frame,
             wall_elapsed_ms,
-            accepted_rust_l0: crate::match_bootstrap::accepted_tick_is_admitted(
+            accepted_rust_l0: crate::app::match_bootstrap::accepted_tick_is_admitted(
                 state.match_state.startup.startup(),
                 state.match_state.startup.receipt(),
             ),

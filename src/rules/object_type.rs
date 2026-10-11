@@ -1774,7 +1774,6 @@ pub struct ObjectType {
     /// ReadINI0x715087..0x7150A2 reads exact key0x8436E0 through
     /// ReadBool0x5295F0 with the prior byte as its default on every rules pass.
     /// VXL shadow706BF3 and SHP shadow706052 consume the same type flag.
-    /// Original byte receipts: tools/procedural_drawing_oracle/validation/source-dependencies/.
     pub no_shadow: bool,
     /// `Cloakable=` — copied into Unit/Infantry runtime cloak ability.
     pub cloakable: bool,

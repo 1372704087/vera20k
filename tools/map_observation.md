@@ -1905,9 +1905,7 @@ starts 6869, the tank leaves the pad cell at 6876 and reaches (35,94) on Guard
 by 6900. Final cash is 160, spent credits 5990 and harvested credits 0.
 
 The capture and offline validator both returned `VALID`, retaining 99,286
-samples and 63,016,494 run-receipt bytes. The final Metal readback and executable,
-source, map, config, profile and validation identities are recorded in
-[the validation receipt](map_observation.depot-repair.validation.json).
+samples and 63,016,494 run-receipt bytes.
 [The native comparisons and coverage report](spatial_oracle/building_repair.depot_service.validation.md)
 separately establish the service arithmetic, timers, radio/arrival and animation
 dependencies. These measured runtime IDs/timings are Rust integration evidence;
@@ -1936,9 +1934,6 @@ share one goal `(34,92)`, then rest outside the footprint and both receive servi
 shared goals alone therefore do not establish a queue bug.
 
 Both profiles advance8,500 ordinary frames through the production retail loader.
-Their exact inputs, source/binary identities, validation and bounded observations
-are in the `allied_waiters` section of
-[the depot validation receipt](map_observation.depot-repair.validation.json).
 Numeric handles belong to this saved roster/seed; rediscover them for changed
 inputs. [Original executable comparisons](spatial_oracle/building_repair.depot_waiters.md)
 separately reproduce marked-cell admission, parking, nearby ally stop and

@@ -251,13 +251,25 @@ python -m tools.oracle_sources affected tools/native_inspect.py --replay
 python -m tools.oracle_sources stale --replay --timeout 1800
 ```
 
+It also lists pins that older producers keep in metadata fields of their own,
+such as `harness_sha256`, `sources` or `source_pins`. A refresh cannot record
+those. Where the producer compares its whole sidecar on `--check`, as
+`finish_vectors` does, an edit to such a source fails the corpus until a reviewed
+replay with `--write`, or until the producer declares `source_paths` instead.
+
 `--replay` runs each corpus's recorded (or declared, or same-named) producer with
-`--refresh-sources`, one at a time, and reports `REFRESHED`/`CURRENT`, `CHANGED`
-(native output or evidence metadata differs: review it), `BLOCKED` with the
-producer's own error (usually the missing input it needs), `TIMEOUT`, `ELSEWHERE`
-when the command compared some other corpus, or `UNKNOWN` when no replay command
-is recorded yet. Report changed and blocked corpora in the PR; replaying a corpus
-is never required to keep `--check` passing after an unrelated helper edit.
+`--refresh-sources`, one at a time, and reports one outcome per corpus:
+
+- `REFRESHED` or `CURRENT`: the payload, archive and evidence reproduced exactly.
+- `CHANGED`: the native output or evidence metadata differs; review it.
+- `ELSEWHERE`: the command compared some other corpus.
+- `PINNED`: not run, because another metadata field pins a changed source.
+- `UNSUPPORTED`: the producer publishes without `finish_vectors`' `--refresh-sources`.
+- `FAILED`: the producer stopped with its own error, most often a missing input.
+- `TIMEOUT`, or `UNKNOWN` when no replay command is recorded or inferable.
+
+It exits 1 on `CHANGED` or `ELSEWHERE`, 3 if any corpus could not be confirmed,
+and 0 otherwise. Report the changed and unconfirmed corpora in the PR.
 
 ## Add a comparison
 
@@ -286,8 +298,9 @@ branches and boundaries. Avoid a second Python implementation of the algorithm.
   through metadata construction before comparison/publication, and owns the
   `source_normalized_lf_sha256` field. List the producer and its relevant helpers;
   this is a run consistency check, not a source lock or an import-time attestation.
-  Do not list the Rust consumers: the native run executes no Rust, their own tests
-  compare them, and a pin on them only prompts replays after unrelated Rust edits.
+  Do not hash sources into other metadata fields: `--check` compares those as
+  evidence. Do not list the Rust consumers either: the native run executes no
+  Rust, and their own tests compare them with the corpus.
 * Consume native outputs in a focused Rust test of the actual production function.
   Assert case identity/coverage as well as output equality, and review the connection
   to callers independently. The HSV example checks 2,304 inputs, not all 256³ inputs

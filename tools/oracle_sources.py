@@ -16,6 +16,11 @@ so a later edit to a shared helper is drift, not a mismatch:
     python -m tools.oracle_sources affected [--since REF] [PATH ...] [--replay]
     python -m tools.oracle_sources stale [--replay]
 
+Older producers also hash sources into metadata fields of their own, such as
+`harness_sha256`, `sources` or `source_pins`. Those pins are listed too, but a
+refresh cannot record them, and a producer that compares its whole sidecar
+still fails `--check` when one of them changes.
+
 Listing needs only Git; replays run with this interpreter, which needs Unicorn.
 """
 
@@ -36,12 +41,23 @@ import time
 REPO = Path(__file__).resolve().parents[1]
 SOURCE_FIELD = 'source_normalized_lf_sha256'
 REPLAY_FIELD = 'replay_command'
-SOURCE_PROVENANCE = frozenset((SOURCE_FIELD, REPLAY_FIELD))
+SOURCE_PROVENANCE = (SOURCE_FIELD, REPLAY_FIELD)
 MODE_FLAGS = frozenset(('--check', '--write', '--refresh-sources'))
+# finish_vectors' staging target. A replay regenerates the corpus where it lives.
+OUTPUT_FLAG = '--output'
 # Producer labels for the producer's own file, from before pins were keyed by path.
 ROLE_LABELS = frozenset(('producer', 'generator', 'oracle', 'caller', 'query', '__main__'))
-OUTPUT_CHANGED = ('Reference mismatch', 'Provenance mismatch', 'Full raw archive')
 MAIN_GUARD = re.compile(r'''__name__\s*==\s*['"]__main__['"]''')
+DIGEST = re.compile(r'[0-9a-f]{64}')
+CODE_SUFFIXES = ('.py', '.rs')
+# A bare digest in another field pins a source only if it equals a source's
+# content. Only fields named like these are looked up in history, which keeps
+# payload, input and executable digests out of that slower search.
+SOURCE_DIGEST_NAME = re.compile(r'(harness|runner|source|owner|projection|probe|fixture).*sha256$')
+CONFIRMED = ('REFRESHED', 'CURRENT')
+# The replay ran and its evidence differs, or the command compared another corpus.
+REJECTED = ('CHANGED', 'ELSEWHERE')
+UNCONFIRMED = ('PINNED', 'UNSUPPORTED', 'FAILED', 'TIMEOUT', 'UNKNOWN')
 
 
 def source_sha256(path: Path) -> str:
@@ -97,7 +113,8 @@ def describe_drift(drift: dict) -> str:
 def refreshed(recorded: dict, current: dict) -> dict:
     """The recorded sidecar with only its source provenance replaced.
 
-    Evidence fields keep their recorded order. A run whose command cannot be
+    Evidence fields keep their recorded order, and newly recorded provenance
+    follows them in SOURCE_PROVENANCE order. A run whose command cannot be
     derived keeps the recorded replay command.
     """
     result = {}
@@ -107,13 +124,14 @@ def refreshed(recorded: dict, current: dict) -> dict:
                 result[key] = current[key]
         else:
             result[key] = current.get(key, value) if key == REPLAY_FIELD else value
-    result.update({key: current[key] for key in SOURCE_PROVENANCE
-                   if key in current and key not in result})
+    for key in SOURCE_PROVENANCE:
+        if key in current and key not in result:
+            result[key] = current[key]
     return result
 
 
 def replay_command(argv=None, main=None) -> str | None:
-    """The `python -m tools...` invocation running now, without its mode flag."""
+    """The `python -m tools...` invocation running now, without its mode or output."""
     main = sys.modules.get('__main__') if main is None else main
     spec = getattr(main, '__spec__', None)
     module = spec.name.removesuffix('.__main__') if spec is not None and spec.name else None
@@ -123,7 +141,14 @@ def replay_command(argv=None, main=None) -> str | None:
             module = '.'.join(path.relative_to(REPO).with_suffix('').parts)
     if not module or not module.startswith('tools.'):
         return None
-    arguments = [value for value in (sys.argv[1:] if argv is None else argv) if value not in MODE_FLAGS]
+    arguments, output = [], False
+    for value in sys.argv[1:] if argv is None else argv:
+        if output:
+            output = False
+        elif value == OUTPUT_FLAG:
+            output = True
+        elif value not in MODE_FLAGS and not value.startswith(OUTPUT_FLAG + '='):
+            arguments.append(value)
     return shlex.join(['python', '-m', module, *arguments])
 
 
@@ -201,6 +226,10 @@ class Pin:
     recorded: str
     path: str | None = None
     current: str | None = None
+    # The metadata field holding the pin; any but SOURCE_FIELD is compared as evidence.
+    field: str = SOURCE_FIELD
+    # How the path was found: 'path', 'content', 'history' or 'name' (a guess).
+    found_by: str | None = None
 
     @property
     def state(self) -> str:
@@ -223,26 +252,34 @@ class Corpus:
     def stale(self) -> list[Pin]:
         return [pin for pin in self.pins if pin.state != 'current']
 
+    def pinned_fields(self) -> list[str]:
+        """Fields other than source provenance that pin a source the checkout changed."""
+        return sorted({pin.field for pin in self.stale() if pin.field != SOURCE_FIELD})
+
 
 class History:
     """Tool sources as of the commit that last wrote each sidecar.
 
-    A legacy label whose content no longer exists is resolved by the file that
-    had that content when its sidecar was committed.
+    A pin whose content no longer exists is resolved by the file that had that
+    content when its sidecar was committed.
     """
 
-    def __init__(self):
+    def __init__(self, root: Path = REPO):
+        self.root = root
+        self.last = {}
         self.commits = {}
 
     def digests(self, sidecar: str) -> dict[str, str]:
-        commit = git('log', '-1', '--format=%H', '--', sidecar).strip()
+        if sidecar not in self.last:
+            self.last[sidecar] = git('log', '-1', '--format=%H', '--', sidecar, root=self.root).strip()
+        commit = self.last[sidecar]
         if not commit:
             return {}
         if commit not in self.commits:
-            listing = git('ls-tree', '-r', '-z', commit, '--', 'tools').split('\0')
+            listing = git('ls-tree', '-r', '-z', commit, '--', 'tools', root=self.root).split('\0')
             blobs = [(entry.split('\t', 1)[1], entry.split()[2]) for entry in listing
                      if entry.endswith('.py') and ' blob ' in entry]
-            batch = subprocess.run(['git', 'cat-file', '--batch'], cwd=REPO, check=True,
+            batch = subprocess.run(['git', 'cat-file', '--batch'], cwd=self.root, check=True,
                                    capture_output=True,
                                    input=''.join(f'{blob}\n' for _, blob in blobs).encode()).stdout
             found, offset = {}, 0
@@ -289,32 +326,56 @@ def inspect(sidecar: str, metadata: dict, sources: Sources, history: History | N
     replay, origin = declared_replay(sidecar, metadata, sources)
     producer = producer_file(replay, sources)
     near = Path(sidecar).parent.as_posix()
-    pins = []
-    for key, recorded in metadata.get(SOURCE_FIELD, {}).items():
-        pin = Pin(key, recorded)
-        if '/' in key:
-            pin.path = key
+
+    def earlier(digest):
+        return history.digests(sidecar).get(digest) if history else None
+
+    def pin(name, digest, where=SOURCE_FIELD):
+        found = Pin(name, digest, field=where)
+        local = f'{near}/{name}'
+        if '/' in name:
+            found.path, found.found_by = name, 'path'
+        elif where != SOURCE_FIELD and local in sources.digests:
+            found.path, found.found_by = local, 'path'
         else:
             # Matching content proves the file; a name is only a plausible guess.
-            named = sources.named(key, near, producer)
-            if matches := sources.by_digest.get(recorded):
-                pin.path = named if named in matches else matches[0]
-            else:
-                pin.path = (history.digests(sidecar).get(recorded) if history else None) or named
-        if pin.path is not None:
-            pin.current = sources.digests.get(pin.path)
-            if pin.current is None and (REPO / pin.path).is_file():
-                pin.current = source_sha256(REPO / pin.path)
-        pins.append(pin)
+            named = sources.named(name, near, producer)
+            if matches := sources.by_digest.get(digest):
+                found.path, found.found_by = named if named in matches else matches[0], 'content'
+            elif path := earlier(digest):
+                found.path, found.found_by = path, 'history'
+            elif named:
+                found.path, found.found_by = named, 'name'
+        if found.path is not None:
+            found.current = sources.digests.get(found.path)
+            if found.current is None and (REPO / found.path).is_file():
+                found.current = source_sha256(REPO / found.path)
+        return found
+
+    pins = [pin(key, digest) for key, digest in metadata.get(SOURCE_FIELD, {}).items()]
+    for where, value in metadata.items():
+        if where in SOURCE_PROVENANCE:
+            continue
+        if isinstance(value, dict):
+            pins += [pin(name, digest, where) for name, digest in value.items()
+                     if name.endswith(CODE_SUFFIXES) and isinstance(digest, str)
+                     and DIGEST.fullmatch(digest)]
+        elif isinstance(value, str) and DIGEST.fullmatch(value):
+            path, found_by = next(iter(sources.by_digest.get(value, ())), None), 'content'
+            if path is None and SOURCE_DIGEST_NAME.search(where):
+                path, found_by = earlier(value), 'history'
+            if path is not None:
+                pins.append(Pin(where, value, path, sources.digests.get(path), where, found_by))
     payload = payload_name(sidecar)
     # Without a command, name the tools that mention the payload file.
-    producers = [] if replay else [name for name in sorted(sources.digests) if name.endswith('.py')
-                                   and Path(payload).name in sources.text(name)]
+    producers = [] if replay or not pins else [name for name in sorted(sources.digests)
+                                               if name.endswith('.py')
+                                               and Path(payload).name in sources.text(name)]
     return Corpus(sidecar, payload, pins, replay, origin, producers)
 
 
 def corpora(sources: Sources) -> list[Corpus]:
-    """Every tracked sidecar that records source pins (a raw archive's main one)."""
+    """Every tracked sidecar that pins a source (a raw archive's main one)."""
     result = []
     history = History()
     for sidecar in tracked('*.meta.json'):
@@ -324,23 +385,32 @@ def corpora(sources: Sources) -> list[Corpus]:
             metadata = json.loads((REPO / sidecar).read_text(encoding='utf-8'))
         except (OSError, ValueError):
             continue
-        if isinstance(metadata, dict) and metadata.get(SOURCE_FIELD):
-            result.append(inspect(sidecar, metadata, sources, history))
+        if isinstance(metadata, dict) and (corpus := inspect(sidecar, metadata, sources, history)).pins:
+            result.append(corpus)
     return result
 
 
-def changed_since(reference: str) -> tuple[set[str], set[str]]:
-    """Changed tool/Rust paths since REF (working tree included) and their old digests."""
-    paths = {name for name in git('diff', '--name-only', '-z', reference, '--').split('\0')
-             if name.startswith(('tools/', 'src/')) and name.endswith(('.py', '.rs'))}
+def old_digests(reference: str, paths: set[str], root: Path = REPO) -> set[str]:
+    """Digests of PATHS at REF, which legacy pins recorded before the edit."""
     old = set()
     for name in paths:
         try:
-            old.add(text_sha256(subprocess.run(['git', 'show', f'{reference}:{name}'], cwd=REPO,
+            old.add(text_sha256(subprocess.run(['git', 'show', f'{reference}:{name}'], cwd=root,
                                                check=True, capture_output=True).stdout))
         except (subprocess.CalledProcessError, UnicodeDecodeError):
             continue
-    return paths, old
+    return old
+
+
+def changed_since(reference: str, root: Path = REPO) -> tuple[set[str], set[str]]:
+    """Changed tool/Rust paths since REF (working tree included) and their old digests.
+
+    A rename lists both paths: pins name the old one.
+    """
+    paths = {name for name in git('diff', '--name-only', '--no-renames', '-z', reference, '--',
+                                  root=root).split('\0')
+             if name.startswith(('tools/', 'src/')) and name.endswith(CODE_SUFFIXES)}
+    return paths, old_digests(reference, paths, root)
 
 
 def affected(corpora_: list[Corpus], paths: set[str], digests: set[str]) -> list[tuple[Corpus, list[Pin]]]:
@@ -354,17 +424,20 @@ def affected(corpora_: list[Corpus], paths: set[str], digests: set[str]) -> list
 
 
 def describe(corpus: Corpus, pins: list[Pin], heading: str) -> list[str]:
-    def name(pin):
-        return pin.path or f'{pin.key} (unresolved label)'
     lines = [corpus.sidecar]
-    by_state = defaultdict(list)
+    groups = defaultdict(list)
     for pin in pins:
-        by_state[pin.state].append(name(pin))
-    for state in ('changed', 'missing', 'unresolved', 'current'):
-        if by_state[state]:
-            names = sorted(by_state[state])
-            more = f' and {len(names) - 6} more' if len(names) > 6 else ''
-            lines.append(f'  {heading} {state} ({len(names)}): {", ".join(names[:6])}{more}')
+        name = pin.path or f'{pin.key} (unresolved label)'
+        other = pin.field != SOURCE_FIELD
+        groups[other, pin.state].append(f'{pin.field}: {name}' if other else name)
+    for other in (False, True):
+        for state in ('changed', 'missing', 'unresolved', 'current'):
+            if names := sorted(groups[other, state]):
+                more = f' and {len(names) - 6} more' if len(names) > 6 else ''
+                kind = f'{heading} in other fields' if other else heading
+                lines.append(f'  {kind} {state} ({len(names)}): {", ".join(names[:6])}{more}')
+    if fields := corpus.pinned_fields():
+        lines.append(f'  {", ".join(fields)} also pin sources; a refresh cannot record those')
     if corpus.replay:
         lines.append(f'  replay: {shlex.join(["python", *corpus.replay, "--refresh-sources"])}'
                      f'  [{corpus.replay_origin}]')
@@ -375,8 +448,23 @@ def describe(corpus: Corpus, pins: list[Pin], heading: str) -> list[str]:
     return lines
 
 
+def failure(stderr: str) -> str:
+    """The exception a failed producer raised, else its last error line.
+
+    Output after a traceback (a shutdown warning, say) does not hide it.
+    """
+    lines = [line for line in stderr.splitlines() if line.strip()]
+    starts = [index for index, line in enumerate(lines)
+              if line.startswith('Traceback (most recent call last):')]
+    if starts:
+        return next((line for line in lines[starts[-1] + 1:] if not line.startswith(' ')), lines[-1])
+    return lines[-1] if lines else ''
+
+
 def replay(corpus: Corpus, timeout: float | None) -> tuple[str, str]:
     """Run one recorded replay with --refresh-sources; classify the outcome."""
+    if fields := corpus.pinned_fields():
+        return 'PINNED', f'{", ".join(fields)} pin changed sources; --refresh-sources cannot record those'
     if not corpus.replay:
         return 'UNKNOWN', 'no replay command recorded or inferable'
     command = [sys.executable, *corpus.replay, '--refresh-sources']
@@ -387,18 +475,26 @@ def replay(corpus: Corpus, timeout: float | None) -> tuple[str, str]:
     except subprocess.TimeoutExpired:
         return 'TIMEOUT', f'no result after {timeout:.0f} s'
     elapsed = f'{time.monotonic() - started:.1f} s'
-    output = (done.stdout + done.stderr).replace('\\', '/')
     if done.returncode:
-        last = next((line for line in reversed(output.splitlines()) if line.strip()), '')
-        return ('CHANGED' if any(text in last for text in OUTPUT_CHANGED) else 'BLOCKED'), last
+        reason = failure(done.stderr).replace('\\', '/')
+        if reason.split(':', 1)[0].endswith('OracleMismatch'):
+            return 'CHANGED', reason
+        if 'unrecognized arguments' in reason and '--refresh-sources' in reason:
+            return 'UNSUPPORTED', 'the producer does not take --refresh-sources'
+        return 'FAILED', reason or f'exit status {done.returncode}'
     # Producers print their payload or sidecar path, absolute or relative.
-    if corpus.payload not in output and corpus.sidecar not in output:
+    lines = [line for line in done.stdout.replace('\\', '/').splitlines()
+             if corpus.payload in line or corpus.sidecar in line]
+    if not lines:
         return 'ELSEWHERE', f'the command did not compare this corpus ({elapsed})'
-    return ('REFRESHED' if 'REFRESHED' in output else 'CURRENT'), elapsed
+    return ('REFRESHED' if any(line.startswith('REFRESHED') for line in lines) else 'CURRENT'), elapsed
 
 
 def main(argv=None) -> int:
-    parser = argparse.ArgumentParser(description=__doc__.split('\n\n')[0])
+    parser = argparse.ArgumentParser(
+        description=__doc__.split('\n\n')[0],
+        epilog='With --replay, exits 1 if a replay changed or compared another corpus, '
+               '3 if any corpus could not be confirmed, else 0.')
     commands = parser.add_subparsers(dest='command', required=True)
     found = commands.add_parser('affected', help='corpora whose recorded sources include PATHS')
     found.add_argument('paths', nargs='*', help='repository paths; default: changes since --since')
@@ -418,7 +514,7 @@ def main(argv=None) -> int:
     else:
         if args.paths:
             paths = {(Path.cwd() / path).resolve().relative_to(REPO).as_posix() for path in args.paths}
-            digests = set()
+            digests = old_digests('HEAD', paths)
         else:
             reference = args.since or git('merge-base', 'HEAD', 'origin/main').strip()
             paths, digests = changed_since(reference)
@@ -427,7 +523,9 @@ def main(argv=None) -> int:
     for corpus, pins in selected:
         print('\n'.join(describe(corpus, pins, heading)))
     known = sum(1 for corpus, _ in selected if corpus.replay)
-    print(f'{len(selected)} of {len(every)} source-pinned corpora; {known} with a known replay command.')
+    pinned = sum(1 for corpus, _ in selected if corpus.pinned_fields())
+    print(f'{len(selected)} of {len(every)} source-pinned corpora; {known} with a known replay command; '
+          f'{pinned} pin changed sources in other fields.')
     if not args.replay:
         return 0
     outcomes = defaultdict(int)
@@ -435,9 +533,12 @@ def main(argv=None) -> int:
         print(f'replaying {corpus.sidecar} ...', flush=True)
         outcome, detail = replay(corpus, args.timeout)
         outcomes[outcome] += 1
-        print(f'{outcome:9} {corpus.sidecar}: {detail}', flush=True)
-    print(', '.join(f'{count} {outcome.lower()}' for outcome, count in sorted(outcomes.items())))
-    return 1 if outcomes['CHANGED'] or outcomes['ELSEWHERE'] else 0
+        print(f'{outcome:11} {corpus.sidecar}: {detail}', flush=True)
+    print(', '.join(f'{outcomes[outcome]} {outcome.lower()}'
+                    for outcome in CONFIRMED + REJECTED + UNCONFIRMED if outcomes[outcome]))
+    if any(outcomes[outcome] for outcome in REJECTED):
+        return 1
+    return 3 if any(outcomes[outcome] for outcome in UNCONFIRMED) else 0
 
 
 if __name__ == '__main__':

@@ -516,9 +516,9 @@ class IdentityAndReferenceTests(unittest.TestCase):
         self.assertIn('recorded sources differ (changed: helper)', output)
         self.assertIn('PASS', output)
         self.assertEqual(before, self.files())
-        with self.assertRaisesRegex(oracle.OracleError, 'Reference mismatch'):
+        with self.assertRaisesRegex(oracle.OracleMismatch, 'Reference mismatch'):
             self.finish({'value': 43}, source_paths={'helper': source})
-        with self.assertRaisesRegex(oracle.OracleError, 'Provenance mismatch'):
+        with self.assertRaisesRegex(oracle.OracleMismatch, 'Provenance mismatch'):
             self.finish({'value': 42}, source_paths={'helper': source},
                         provenance=dict(self.metadata, unicorn_core=[2, 2, 0]))
         self.assertEqual(before, self.files())
@@ -550,15 +550,16 @@ class IdentityAndReferenceTests(unittest.TestCase):
         self.finish({'value': 42}, '--write', source_paths={'helper': source})
         source.write_text('# helper edited\n', encoding='utf-8')
         before = self.files()
-        with self.assertRaisesRegex(oracle.OracleError, r'Reference mismatch.*expected 42, got 43'):
+        with self.assertRaisesRegex(oracle.OracleMismatch, r'Reference mismatch.*expected 42, got 43'):
             self.finish({'value': 43}, '--refresh-sources', source_paths={'helper': source})
-        with self.assertRaisesRegex(oracle.OracleError, 'Provenance mismatch'):
+        with self.assertRaisesRegex(oracle.OracleMismatch, 'Provenance mismatch'):
             self.finish({'value': 42}, '--refresh-sources', source_paths={'helper': source},
                         provenance=dict(self.metadata, scope='a different claim'))
         self.assertEqual(before, self.files())
         self.target.with_suffix('.meta.json').unlink()
-        with self.assertRaisesRegex(oracle.OracleError, 'No provenance sidecar to refresh'):
+        with self.assertRaisesRegex(oracle.OracleError, 'No provenance sidecar to refresh') as refused:
             self.finish({'value': 42}, '--refresh-sources', source_paths={'helper': source})
+        self.assertNotIsInstance(refused.exception, oracle.OracleMismatch)
         self.assertFalse(self.target.with_suffix('.meta.json').exists())
 
     def test_refresh_sources_checks_the_archive_before_refreshing_both_sidecars(self):
@@ -572,7 +573,7 @@ class IdentityAndReferenceTests(unittest.TestCase):
         archive = self.target.with_suffix('.raw.json.gz')
         archive.write_bytes(gzip.compress(b'{"value":42,"raw":[1,2,4]}', mtime=0))
         tampered = self.files()
-        with self.assertRaisesRegex(oracle.OracleError, 'Full raw archive mismatch'):
+        with self.assertRaisesRegex(oracle.OracleMismatch, 'Full raw archive mismatch'):
             self.finish(data, '--refresh-sources', projection=projection, source_paths={'helper': source})
         self.assertEqual(tampered, self.files())
         archive.write_bytes(before['vectors.raw.json.gz'])

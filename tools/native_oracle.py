@@ -53,6 +53,10 @@ class OracleError(RuntimeError):
     """No trustworthy result was obtained; do not publish reference outputs."""
 
 
+class OracleMismatch(OracleError):
+    """A comparison ran, and its native output or evidence differs from the reference."""
+
+
 class NativeCallTrace:
     """Observe nested x86 returns by caller PC and the callee-cleaned ESP.
 
@@ -551,7 +555,7 @@ def finish_vectors(data, default_path: Path, *, provenance: dict, argv=None,
     sources = source_identity()
     data = data() if callable(data) else data
     provenance = provenance() if callable(provenance) else provenance
-    if oracle_sources.SOURCE_PROVENANCE.intersection(provenance):
+    if any(key in provenance for key in oracle_sources.SOURCE_PROVENANCE):
         raise OracleError("Source provenance must be supplied through source_paths")
     if source_paths is not None:
         provenance = dict(provenance, source_normalized_lf_sha256=sources)
@@ -568,7 +572,7 @@ def finish_vectors(data, default_path: Path, *, provenance: dict, argv=None,
         raw_archive = (json.dumps(normalized, indent=2, allow_nan=False) + "\n").encode("utf-8")
         digest = hashlib.sha256(raw_archive).hexdigest()
         if raw_archive_sha256 is not None and digest != raw_archive_sha256:
-            raise OracleError(f"Full raw evidence changed before projection: expected {raw_archive_sha256}, got {digest}")
+            raise OracleMismatch(f"Full raw evidence changed before projection: expected {raw_archive_sha256}, got {digest}")
         buffer = io.BytesIO()
         with gzip.GzipFile(filename="", fileobj=buffer, mode="wb", compresslevel=9, mtime=0) as output:
             output.write(raw_archive)
@@ -607,7 +611,7 @@ def finish_vectors(data, default_path: Path, *, provenance: dict, argv=None,
         raise OracleError(f"Reference missing: {target}; use --write to deliberately create it")
     expected = json.loads(target.read_text(encoding="utf-8"))
     if difference := first_difference(expected, normalized):
-        raise OracleError(f"Reference mismatch in {target}: {difference}")
+        raise OracleMismatch(f"Reference mismatch in {target}: {difference}")
     # Every sidecar is compared before any is refreshed, so a refresh never
     # follows an unchecked archive.
     refreshes = {}
@@ -616,7 +620,7 @@ def finish_vectors(data, default_path: Path, *, provenance: dict, argv=None,
         expected_metadata = json.loads(sidecar.read_text(encoding="utf-8"))
         if difference := first_difference(oracle_sources.evidence(expected_metadata),
                                            oracle_sources.evidence(metadata)):
-            raise OracleError(f"Provenance mismatch in {sidecar}: {difference}")
+            raise OracleMismatch(f"Provenance mismatch in {sidecar}: {difference}")
         drift = oracle_sources.describe_drift(
             oracle_sources.source_drift(expected_metadata, metadata, source_paths))
         refreshes[sidecar] = oracle_sources.refreshed(expected_metadata, metadata)
@@ -629,11 +633,11 @@ def finish_vectors(data, default_path: Path, *, provenance: dict, argv=None,
             raise OracleError(f"Full raw archive or provenance missing: {archive_path}")
         expected_archive = archive_path.read_bytes()
         if expected_archive != archive_bytes or gzip.decompress(expected_archive) != raw_archive:
-            raise OracleError(f"Full raw archive mismatch: {archive_path}")
+            raise OracleMismatch(f"Full raw archive mismatch: {archive_path}")
         expected_archive_metadata = json.loads(archive_sidecar.read_text(encoding="utf-8"))
         if difference := first_difference(oracle_sources.evidence(expected_archive_metadata),
                                            oracle_sources.evidence(archive_metadata)):
-            raise OracleError(f"Full raw archive provenance mismatch: {difference}")
+            raise OracleMismatch(f"Full raw archive provenance mismatch: {difference}")
         refreshes[archive_sidecar] = oracle_sources.refreshed(expected_archive_metadata, archive_metadata)
     if args.refresh_sources:
         written = []

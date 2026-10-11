@@ -1844,7 +1844,7 @@ impl Simulation {
                             .is_some_and(|object| object.infantry_absorb || object.unit_absorb)
                     });
                 if let Some(event) = garrison {
-                    production::eject_destruction_garrison_with_context(
+                    passenger::garrison_eject::eject_destruction_garrison_with_context(
                         self,
                         rules,
                         &event,

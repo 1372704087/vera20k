@@ -317,7 +317,7 @@ fn mission_unload(
     rules: &RuleSet,
     ctx: ObjectAiCtx<'_>,
 ) -> Option<i32> {
-    crate::sim::production::sell_building_occupants(
+    crate::sim::passenger::garrison_eject::sell_building_occupants(
         sim,
         rules,
         ctx.overlay_registry,

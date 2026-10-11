@@ -8,6 +8,7 @@ use std::collections::BTreeMap;
 use crate::util::native_x87::{NativeF32Bits, NativeF64Bits, X87Chop53, X87Value};
 
 use super::native_radar_surface::NativeRadarSurfaceGeometry;
+use super::native_surface_format::RGB565;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) struct NativeRadarCellColors {
@@ -234,11 +235,12 @@ fn generate_rgb565(raw: &[[u8; 3]], raw_size: (i32, i32), generated_size: (i32, 
                     }
                 }
             }
-            output.push(pack_rgb565(
+            // The local active DDrawCompat R5G6B5 store (`0x004BABBE..0x004BABD9`).
+            output.push(RGB565.pack_rgb8([
                 channel_to_u8(accum[0]),
                 channel_to_u8(accum[1]),
                 channel_to_u8(accum[2]),
-            ));
+            ]));
             x_start = x_end;
         }
         y_start = store_f32(y_end_extended);
@@ -251,27 +253,11 @@ fn channel_to_u8(accum: X87Value) -> u8 {
     native_ftol(biased).min(255) as u8
 }
 
-/// Local active DDrawCompat runtime: R5G6B5 (`0x004BABBE..0x004BABD9`).
-pub(super) const fn pack_rgb565(red: u8, green: u8, blue: u8) -> u16 {
-    ((red as u16 >> 3) << 11) | ((green as u16 >> 2) << 5) | (blue as u16 >> 3)
-}
-
-pub(super) const fn unpack_rgb565(pixel: u16) -> [u8; 4] {
-    [
-        (((pixel >> 11) & 0x1f) << 3) as u8,
-        (((pixel >> 5) & 0x3f) << 2) as u8,
-        ((pixel & 0x1f) << 3) as u8,
-        255,
-    ]
-}
-
-pub(super) const fn half_bright_rgb565(pixel: u16) -> [u8; 4] {
-    let expanded = unpack_rgb565(pixel);
-    unpack_rgb565(pack_rgb565(
-        expanded[0] >> 1,
-        expanded[1] >> 1,
-        expanded[2] >> 1,
-    ))
+pub(super) fn half_bright_rgb565(pixel: u16) -> [u8; 4] {
+    let [red, green, blue] = RGB565.unpack_rgb8(pixel);
+    let [red, green, blue] =
+        RGB565.unpack_rgb8(RGB565.pack_rgb8([red >> 1, green >> 1, blue >> 1]));
+    [red, green, blue, 255]
 }
 
 fn load_f32(value: f32) -> X87Value {

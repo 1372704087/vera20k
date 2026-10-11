@@ -388,11 +388,11 @@ fn reference_generate(raw: &[[u8; 3]], raw_size: (i32, i32), out: (i32, i32)) ->
                 ))
                 .min(255) as u8
             };
-            result.push(super::super::native_radar_terrain::pack_rgb565(
+            result.push(super::super::native_surface_format::RGB565.pack_rgb8([
                 convert(accum[0]),
                 convert(accum[1]),
                 convert(accum[2]),
-            ));
+            ]));
             x0 = x1;
         }
         y0 = y1;

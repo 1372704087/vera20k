@@ -14,9 +14,8 @@ use super::minimap_helpers::{
     terrain_brightness_for_theater, world_to_minimap_pixel,
 };
 use super::native_radar_surface::NativeRadarSurfaceGeometry;
-use super::native_radar_terrain::{
-    NativeRadarCellColors, NativeRadarTerrainSurface, unpack_rgb565,
-};
+use super::native_radar_terrain::{NativeRadarCellColors, NativeRadarTerrainSurface};
+use super::native_surface_format::RGB565;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(super) struct PrimaryRadarCopyFrame {
@@ -95,7 +94,8 @@ pub(super) fn rasterize_native_terrain(
     for (index, &packed) in surface.generated_rgb565().iter().enumerate() {
         let px = index as i32 % generated_size.0;
         let py = index as i32 / generated_size.0;
-        let color = unpack_rgb565(packed);
+        let [red, green, blue] = RGB565.unpack_rgb8(packed);
+        let color = [red, green, blue, 255];
         let (rx, ry) = geometry.surface_pixel_to_visibility_cell((px, py));
         if let Some((dest_x, dest_y)) = aperture_pixel(geometry.into(), (px as u32, py as u32)) {
             set_pixel(&mut rgba, MINIMAP_WIDTH, dest_x, dest_y, color);

@@ -34,12 +34,9 @@ pub fn side_highlight_color(theme: SidebarTheme) -> [f32; 3] {
 pub fn native_radar_outline_color(theme: SidebarTheme) -> [f32; 3] {
     let source = side_highlight_color(theme);
     let to_byte = |channel: f32| (channel * 255.0).round() as u8;
-    let packed = super::native_radar_terrain::pack_rgb565(
-        to_byte(source[0]),
-        to_byte(source[1]),
-        to_byte(source[2]),
-    );
-    let expanded = super::native_radar_terrain::unpack_rgb565(packed);
+    let format = super::native_surface_format::RGB565;
+    let [red, green, blue] = format.unpack_rgb8(format.pack_rgb8(source.map(to_byte)));
+    let expanded = [red, green, blue, 255];
     // Batch's Legacy palette path multiplies encoded RGB, then decodes for
     // the sRGB target. Feed the same enrolled packed-word presentation used
     // by chrome art; decoding this tint a second time darkens Allied outlines.

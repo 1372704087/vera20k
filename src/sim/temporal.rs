@@ -279,9 +279,10 @@ impl GameEntity {
     /// release (`0x00452210`, from LetGo). Read by `Is_Operational @
     /// 0x004555D0`, GetPowerDrain `0x0044E88F`, the radar scan `0x00508EA3`
     /// and the Super hold pass's provider test (`0x0050B020`, `0x0050B04F`).
-    /// VERA represents only this writer: the player and trigger power toggle
-    /// (`GoOffline @ 0x00452360`, `GoOnline @ 0x00452260`) is not ported, and
-    /// a corrupt-head release (ClearLinkedList) that natively leaves the latch
+    /// VERA represents only this writer: the map and trigger power toggle
+    /// (`GoOffline @ 0x00452360`, `GoOnline @ 0x00452260`) is not ported (no
+    /// player input reaches it: `superweapon::offline_only_supers`), and a
+    /// corrupt-head release (ClearLinkedList) that natively leaves the latch
     /// cleared cannot arise here.
     pub fn building_online(&self) -> bool {
         !self.temporal.is_warped()

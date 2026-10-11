@@ -942,14 +942,17 @@ fn provided_supers<'r>(
 /// RESIDUAL: a warp is VERA's only way offline
 /// ([`GameEntity::building_online`](crate::sim::game_entity::GameEntity::building_online)).
 /// `BuildingClass::GoOffline @ 0x00452360`, which also sets the owner's
-/// `+0x1FC` (`0x004523B8`), is not ported, nor its callers: the power
-/// toggle event (`0x004C6D9A`), trigger action 61 (`0x006DDFB9`) and a
-/// map's powered-down building (`0x0044FD23`). Trigger: a player powers
-/// down every building that provides a powered Super. Effect: native holds
-/// the Super until one is powered up; VERA has no toggle. Frequency:
-/// a player's choice. No retail map powers a superweapon building down:
-/// its 338 map texts hold one powered-down `[Structures]` entry and one
-/// action 61, neither on one.
+/// `+0x1FC` (`0x004523B8`), is not ported, nor its callers: trigger action
+/// 61 (`0x006DDFB9`), a map's powered-down building (`0x0044FD23`) and the
+/// power toggle event (`0x004C6D9A`). No player input reaches the event:
+/// BandBox_LeftUp queues it for the TogglePower action (`0x004ABFB3`), which
+/// DetermineAction returns only in power-toggle mode (`DisplayClass+0x11B2`,
+/// `0x00692815`), and `SetTogglePowerMode @ 0x004AC820`, the mode's only
+/// writer of 1, is called with 0 by all six of its callers. Trigger: a map
+/// powers down every building that provides a powered Super. Effect: native
+/// holds the Super until one is powered up. Dormant: the 338 retail map
+/// texts hold one powered-down `[Structures]` entry and one action 61,
+/// neither on a superweapon building.
 fn offline_only_supers(
     sim: &Simulation,
     rules: &RuleSet,

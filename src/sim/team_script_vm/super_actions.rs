@@ -15,8 +15,15 @@
 //! - A team without a centre (`+0x34` NULL: no live joined member in the
 //!   playfield) faults natively once its action fires, reading the centre's
 //!   vtable (`0x006EFD6D`, `0x006F026F`). VERA fires nothing and finishes
-//!   the action. Trigger: a charged Super with full power while the team's
-//!   members have all left the playfield or not yet joined.
+//!   the action. A team with members always holds a joined one (`+0x689`):
+//!   Add_Member joins the first recruit and only it
+//!   (`0x006EA554..0x006EA55C`), Remove_Member joins the head once no joined
+//!   member is left (`0x006EAA69`), and no other writer clears the flag. So
+//!   the centre is missing only while every joined member is dead, in limbo
+//!   or outside the playfield. Trigger: a charged Super with full power
+//!   then. Retail AIMD's four scripts with 55 or 57 hold besides only
+//!   gather, guard, success and attack actions: none loads, enters or
+//!   deploys its members.
 //! - Fire_SW takes the Super's `Type=` value as its Supers index (see
 //!   [`Simulation::team_fire_super`]). A `[SuperWeaponTypes]` list shorter
 //!   than that value makes Fire_SW read past the Supers vector natively;

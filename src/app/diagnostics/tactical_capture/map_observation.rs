@@ -5386,15 +5386,47 @@ mod tests {
 
     #[test]
     fn iron_curtain_example_curtains_a_tank_under_fire() {
+        use crate::map::entities::EntityCategory;
+        use crate::rules::{ini_parser::IniFile, ruleset::RuleSet};
+        use crate::sim::{components::Health, game_entity::GameEntity, world::Simulation};
+
         let profile: MapCaptureProfile = serde_json::from_str(crate::test_fixture::text(
             "tools/map_observation.iron-curtain.example.json",
         ))
         .unwrap();
         profile.validate().unwrap();
         assert_eq!(profile.observe_super_weapons, Some(true));
-        // The second HTNK (id 2) fires on the first (id 1); the Iron Curtain,
-        // charged for 4500 frames from the first step, then curtains the
-        // first and kills the E2 beside it.
+        // Resolve the example's named actors and weapon through the same owner
+        // as input scheduling, independently of entity/interner allocation order.
+        let rules = RuleSet::from_ini(&IniFile::from_str(
+            "[VehicleTypes]\n0=HTNK\n[HTNK]\nStrength=400\n\
+             [SuperWeaponTypes]\n0=IronCurtainSpecial\n\
+             [IronCurtainSpecial]\nType=IronCurtain\n",
+        ))
+        .unwrap();
+        let mut sim = Simulation::new();
+        sim.interner.intern("earlier-loaded-type");
+        sim.intern_rule_type_ids(&rules);
+        let owner = sim.interner.intern("VERA-OBSERVER");
+        let type_ref = sim.interner.get("HTNK").unwrap();
+        for (id, ry) in [(71, 54), (93, 58)] {
+            let mut entity = GameEntity::new_at_frame_zero_for_test(
+                id,
+                44,
+                ry,
+                0,
+                0,
+                owner,
+                Health { current: 400 },
+                type_ref,
+                EntityCategory::Unit,
+                0,
+                4,
+                true,
+            );
+            entity.lifecycle.in_limbo = false;
+            sim.entities_mut().insert(entity);
+        }
         let [attack, launch] = profile.commands() else {
             panic!("an attack and a launch");
         };
@@ -5402,21 +5434,21 @@ mod tests {
             (attack.issue_after_step, launch.issue_after_step),
             (4440, 4510)
         );
-        assert!(matches!(
-            attack.payload,
+        assert_eq!(
+            attack.resolve(&sim, &rules).unwrap().0,
             Command::ForceAttack {
-                attacker_id: 2,
-                target_id: 1
+                attacker_id: 93,
+                target_id: 71
             }
-        ));
-        assert!(matches!(
-            launch.payload,
+        );
+        assert_eq!(
+            launch.resolve(&sim, &rules).unwrap().0,
             Command::LaunchSuperWeapon {
+                sw_type_id: sim.interner.get("IronCurtainSpecial").unwrap(),
                 target_rx: 44,
                 target_ry: 54,
-                ..
             }
-        ));
+        );
     }
 
     #[test]

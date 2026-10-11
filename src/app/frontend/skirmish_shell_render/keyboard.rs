@@ -196,11 +196,11 @@ pub(crate) fn render_keyboard_shell(
         push_slide_column(
             &mut art,
             atlas,
-            &if layout.scale.is_retail() {
-                super::compute_layout(width as u32, height as u32)
-            } else {
-                crate::ui::skirmish_shell::compute_responsive_layout(width as u32, height as u32)
-            },
+            &crate::ui::skirmish_shell::compute_layout_on(
+                layout.scale,
+                width as u32,
+                height as u32,
+            ),
             &wave.button_draws(),
             SHELL_CONTROL_DEPTH,
         );
@@ -260,7 +260,7 @@ pub(crate) fn render_keyboard_shell(
         layout.scale,
     );
     let font = &state.renderer.bit_font;
-    let glyph_scale = layout.scale.uniform();
+    let glyph_scale = layout.scale.factor();
     let text = |font: &BitFont,
                 value: &str,
                 rect: RectPx,

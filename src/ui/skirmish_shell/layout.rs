@@ -44,12 +44,12 @@ pub struct DropdownMetrics {
 
 impl DropdownMetrics {
     pub fn scaled(scale: ShellScale) -> Self {
-        let grow = |px: i32, factor: f32| (px as f32 * factor).round() as i32;
+        let grow = |px: i32, factor: f32| ((px as f32 * factor).round() as i32).max(1);
         Self {
-            row_h: grow(COMBO_DROPDOWN_ROW_H, scale.y()),
-            scrollbar_w: grow(COMBO_DROPDOWN_SCROLLBAR_W, scale.x()),
-            button_h: grow(COMBO_DROPDOWN_SCROLLBAR_BUTTON_H, scale.y()),
-            min_thumb_h: grow(COMBO_DROPDOWN_SCROLLBAR_MIN_THUMB_H, scale.y()),
+            row_h: grow(COMBO_DROPDOWN_ROW_H, scale.factor()),
+            scrollbar_w: grow(COMBO_DROPDOWN_SCROLLBAR_W, scale.factor()),
+            button_h: grow(COMBO_DROPDOWN_SCROLLBAR_BUTTON_H, scale.factor()),
+            min_thumb_h: grow(COMBO_DROPDOWN_SCROLLBAR_MIN_THUMB_H, scale.factor()),
         }
     }
 }
@@ -213,8 +213,9 @@ pub struct SkirmishShellLayout {
 
 impl SkirmishShellLayout {
     /// Where the shell's own art sits: gamemd's [`dialog_origin`] on the retail
-    /// layout, and the window's top-left once the 800x600 space is stretched
-    /// over it — every child rect already carries that stretch.
+    /// layout, and the scaled dialog's top-left (its `screen` rect) once the
+    /// 800x600 space is scaled into the window — every child rect already
+    /// carries that scale.
     pub fn shell_origin(&self) -> (i32, i32) {
         if self.scale.is_retail() {
             let (x, y) = dialog_origin(self.screen.w, self.screen.h);
@@ -225,7 +226,7 @@ impl SkirmishShellLayout {
     }
 
     /// The live height of the shell space: the authored 600 rows letterboxed
-    /// below the strip on the retail layout, the whole window once stretched.
+    /// below the strip on the retail layout, the scaled dialog's once scaled.
     pub fn shell_height(&self) -> i32 {
         if self.scale.is_retail() {
             if self.screen.h > 767 {
@@ -1055,9 +1056,9 @@ pub fn compute_saved_seed_layout(
 
 // --- Responsive (window-filling) variants -------------------------------
 //
-// Each layout stretches the verified 800x600 dialog into the live window. The
+// Each layout scales the verified 800x600 dialog to fit the live window. The
 // `ScaledRects` impls below are exhaustive struct literals, so a rect field
-// added to a layout must be stretched too or the crate stops building.
+// added to a layout must be scaled too or the crate stops building.
 
 impl ScaledRects for SkirmishRightPanelTextRects {
     fn scaled_rects(&self, scale: ShellScale) -> Self {
@@ -1209,10 +1210,22 @@ impl ScaledRects for SavedSeedLayout {
 }
 
 /// The responsive variant of [`compute_layout`]: the verified 800x600 `0x102`
-/// stretched to fill the window. Identity at the base size.
+/// scaled to fit the window, keeping its shape. Identity at the base size.
 pub fn compute_responsive_layout(screen_w: u32, screen_h: u32) -> SkirmishShellLayout {
     let scale = ShellScale::from_screen(screen_w as i32, screen_h as i32);
     compute_layout(SHELL_BASE_W as u32, SHELL_BASE_H as u32).scaled_rects(scale)
+}
+
+/// The `0x102` common shell on the mapping a page already holds: the retail
+/// layout for [`ShellScale::RETAIL`], the responsive one otherwise. Pages drawn
+/// over the common shell (Launcher Options, Keyboard) rebuild it through this,
+/// so they cannot pick a different mapping than their own rects use.
+pub fn compute_layout_on(scale: ShellScale, screen_w: u32, screen_h: u32) -> SkirmishShellLayout {
+    if scale.is_retail() {
+        compute_layout(screen_w, screen_h)
+    } else {
+        compute_responsive_layout(screen_w, screen_h)
+    }
 }
 
 /// The responsive variant of [`compute_choose_map_modal_layout`].

@@ -175,7 +175,7 @@ pub(super) fn push_button_label_draw(
         button_label_color(),
         ShellAlign::H_CENTER | ShellAlign::V_CENTER,
         depth,
-        scale.uniform(),
+        scale.factor(),
     );
 }
 
@@ -287,7 +287,7 @@ pub(super) fn combo_dropdown_text_rect_for_current_renderer(
         base.w,
         COMBO_DROPDOWN_ROW_H,
     ));
-    let inset_x = (COMBODROPWIN_TEXT_INSET_X as f32 * scale.x()).round() as i32;
+    let inset_x = (COMBODROPWIN_TEXT_INSET_X as f32 * scale.factor()).round() as i32;
     TextRect {
         x: row.x + inset_x,
         y: row.y,
@@ -299,15 +299,16 @@ pub(super) fn combo_dropdown_text_rect_for_current_renderer(
 pub(super) fn combo_dropdown_text_fit_width(content: RectPx, scale: ShellScale) -> u32 {
     // As on the combo face: the truncation test runs on gamemd's glyph metrics,
     // so the stretched row's width goes back to the units the caption draws in.
-    let reserve = (COMBODROPWIN_TEXT_TRUNCATION_SCROLLBAR_RESERVE_PX as f32 * scale.x()) as i32;
-    ((content.w - reserve).max(0) as f32 / scale.uniform())
+    let reserve =
+        (COMBODROPWIN_TEXT_TRUNCATION_SCROLLBAR_RESERVE_PX as f32 * scale.factor()) as i32;
+    ((content.w - reserve).max(0) as f32 / scale.factor())
         .round()
         .max(0.0) as u32
 }
 
 /// A list row's text inset from its left edge, grown with the page.
 fn list_text_inset(scale: ShellScale) -> i32 {
-    (LIST_TEXT_INSET as f32 * scale.x()).round() as i32
+    (LIST_TEXT_INSET as f32 * scale.factor()).round() as i32
 }
 
 const LIST_TEXT_INSET: i32 = 2;
@@ -316,7 +317,7 @@ pub(super) fn combo_face_text_fit_width(rect: RectPx, scale: ShellScale) -> u32 
     // The truncation test runs on gamemd's glyph metrics, so the stretched face's
     // width is taken back to the units the caption is centred in.
     let text = combo_text_rect(rect, scale);
-    (text.w as f32 / scale.uniform()).round().max(0.0) as u32
+    (text.w as f32 / scale.factor()).round().max(0.0) as u32
 }
 
 pub(super) fn combo_face_text_draw_rect(rect: RectPx, scale: ShellScale) -> RectPx {
@@ -476,7 +477,7 @@ fn push_combo_face_label_draw_with_color(
         color,
         ShellAlign::V_CENTER,
         SHELL_CONTROL_TEXT_DEPTH,
-        scale.uniform(),
+        scale.factor(),
     );
 }
 
@@ -579,7 +580,7 @@ pub(super) fn push_player_name_edit_text_draw(
     shell: &SkirmishShellState,
     layout: &SkirmishShellLayout,
 ) {
-    let scale = layout.scale.uniform();
+    let scale = layout.scale.factor();
     let rect = player_name_edit_text_rect(layout.player_name, layout.scale);
     let scissor = shell_text::ScissorRect {
         x: rect.x.max(0) as u32,
@@ -641,7 +642,7 @@ pub(super) fn build_shell_text_draws(
         &state.renderer.bit_font,
         statics,
         SHELL_CONTROL_TEXT_DEPTH,
-        scale.uniform(),
+        scale.factor(),
     ));
 
     for (key, fallback, rect) in [
@@ -658,7 +659,7 @@ pub(super) fn build_shell_text_draws(
             &label,
             rect,
             SHELL_CONTROL_TEXT_DEPTH,
-            scale.uniform(),
+            scale.factor(),
         );
     }
 
@@ -673,7 +674,7 @@ pub(super) fn build_shell_text_draws(
             &label,
             checkbox_text_rect(checkbox.rect, scale),
             SHELL_CONTROL_TEXT_DEPTH,
-            scale.uniform(),
+            scale.factor(),
         );
     }
 
@@ -689,7 +690,7 @@ pub(super) fn build_shell_text_draws(
             &label,
             trackbar_label_rect_for_id(layout, id),
             SHELL_CONTROL_TEXT_DEPTH,
-            scale.uniform(),
+            scale.factor(),
         );
 
         let value = trackbar_display_value(shell, id);
@@ -701,7 +702,7 @@ pub(super) fn build_shell_text_draws(
             trackbar_value_text_color(),
             ShellAlign::H_CENTER | ShellAlign::V_CENTER,
             SHELL_CONTROL_TEXT_DEPTH,
-            scale.uniform(),
+            scale.factor(),
         );
     }
 
@@ -835,7 +836,7 @@ pub(super) fn build_shell_text_draws(
                 ShellAlign::V_CENTER,
                 SHELL_DROPDOWN_TEXT_DEPTH,
                 // The rows stretch, so their captions grow with them.
-                layout.scale.uniform(),
+                layout.scale.factor(),
             );
         }
     }
@@ -932,7 +933,7 @@ pub(super) fn push_random_map_setup_modal_text_draws(
             SHELL_LABEL_TEXT_RGB,
             ShellAlign::V_CENTER,
             SHELL_DROPDOWN_TEXT_DEPTH - 0.00008,
-            scale.uniform(),
+            scale.factor(),
         );
     }
 
@@ -958,7 +959,7 @@ pub(super) fn push_random_map_setup_modal_text_draws(
             button_label_color_for_disabled(!modal.is_enabled(control)),
             ShellAlign::H_CENTER | ShellAlign::V_CENTER,
             SHELL_DROPDOWN_TEXT_DEPTH - 0.00009,
-            scale.uniform(),
+            scale.factor(),
         );
     }
     // The column's owner-draw type-1 captions, as on `0x102` and `0x6B`.
@@ -1005,7 +1006,7 @@ pub(super) fn push_random_map_setup_modal_text_draws(
             button_label_color_for_disabled(!modal.is_enabled(control)),
             ShellAlign::H_CENTER | ShellAlign::V_CENTER,
             SHELL_DROPDOWN_TEXT_DEPTH - 0.00009,
-            scale.uniform(),
+            scale.factor(),
         );
     }
 
@@ -1040,7 +1041,7 @@ pub(super) fn push_random_map_setup_modal_text_draws(
             SHELL_LABEL_TEXT_RGB,
             ShellAlign::V_CENTER,
             SHELL_DROPDOWN_TEXT_DEPTH - 0.00009,
-            scale.uniform(),
+            scale.factor(),
         );
     }
 
@@ -1055,7 +1056,7 @@ pub(super) fn push_random_map_setup_modal_text_draws(
             SHELL_LABEL_TEXT_RGB,
             ShellAlign::H_CENTER | ShellAlign::V_CENTER,
             SHELL_DROPDOWN_TEXT_DEPTH - 0.00009,
-            scale.uniform(),
+            scale.factor(),
         );
     }
 
@@ -1068,7 +1069,7 @@ pub(super) fn push_random_map_setup_modal_text_draws(
             SHELL_LABEL_TEXT_RGB,
             ShellAlign::V_CENTER,
             SHELL_DROPDOWN_TEXT_DEPTH - 0.0001,
-            scale.uniform(),
+            scale.factor(),
         );
     }
 
@@ -1078,7 +1079,7 @@ pub(super) fn push_random_map_setup_modal_text_draws(
         let items = setup_combo_items(combo);
         let list = random_map_setup_dropdown_rect(layout, row, items.len());
         let metrics = DropdownMetrics::scaled(scale);
-        let inset = (COMBO_TEXT_LEFT_INSET as f32 * scale.x()).round() as i32;
+        let inset = (COMBO_TEXT_LEFT_INSET as f32 * scale.factor()).round() as i32;
         for (index, entry) in items.iter().enumerate() {
             let row_rect = RectPx::new(
                 list.x + inset,
@@ -1094,7 +1095,7 @@ pub(super) fn push_random_map_setup_modal_text_draws(
                 SHELL_LABEL_TEXT_RGB,
                 ShellAlign::V_CENTER,
                 SHELL_DROPDOWN_TEXT_DEPTH - 0.00011,
-                scale.uniform(),
+                scale.factor(),
             );
         }
     }
@@ -1137,7 +1138,7 @@ pub(super) fn push_choose_map_modal_text_draws(
             SHELL_LABEL_TEXT_RGB,
             ShellAlign::H_CENTER | ShellAlign::V_CENTER,
             SHELL_DROPDOWN_TEXT_DEPTH - 0.00008,
-            scale.uniform(),
+            scale.factor(),
         );
     }
     if !sliding {
@@ -1167,7 +1168,7 @@ pub(super) fn push_choose_map_modal_text_draws(
                 button_label_color_for_disabled(disabled),
                 ShellAlign::H_CENTER | ShellAlign::V_CENTER,
                 SHELL_DROPDOWN_TEXT_DEPTH - 0.00009,
-                scale.uniform(),
+                scale.factor(),
             );
         }
     }
@@ -1197,7 +1198,7 @@ pub(super) fn push_choose_map_modal_text_draws(
             SHELL_LABEL_TEXT_RGB,
             ShellAlign::V_CENTER,
             SHELL_DROPDOWN_TEXT_DEPTH - 0.00009,
-            scale.uniform(),
+            scale.factor(),
         );
     }
     let geometry = modal.map_geometry(layout);
@@ -1225,7 +1226,7 @@ pub(super) fn push_choose_map_modal_text_draws(
             SHELL_LABEL_TEXT_RGB,
             ShellAlign::V_CENTER,
             SHELL_DROPDOWN_TEXT_DEPTH - 0.00009,
-            scale.uniform(),
+            scale.factor(),
         );
     }
 }
@@ -1284,7 +1285,7 @@ pub(super) fn push_start_marker_labels(
             &label,
             label_x as f32,
             label_y as f32,
-            scale.uniform(),
+            scale.factor(),
             depth,
             start_marker_label_color(),
             [0.0, 0.0],
@@ -1304,8 +1305,8 @@ pub(super) fn start_marker_label_origin(
     scale: ShellScale,
 ) -> (i32, i32) {
     (
-        anchor_x + (START_MARKER_LABEL_OFFSET_X as f32 * scale.x()).round() as i32,
-        anchor_y + (START_MARKER_LABEL_OFFSET_Y as f32 * scale.y()).round() as i32,
+        anchor_x + (START_MARKER_LABEL_OFFSET_X as f32 * scale.factor()).round() as i32,
+        anchor_y + (START_MARKER_LABEL_OFFSET_Y as f32 * scale.factor()).round() as i32,
     )
 }
 
@@ -1346,7 +1347,7 @@ pub(super) fn push_saved_seed_modal_text_draws(
         SHELL_LABEL_TEXT_RGB,
         ShellAlign::H_CENTER | ShellAlign::V_CENTER,
         SHELL_DROPDOWN_TEXT_DEPTH - 0.00008,
-        scale.uniform(),
+        scale.factor(),
     );
     // Ordinary pre-match saved seeds hide40C; the active saved-game caller
     // paints its resource prompt separately.
@@ -1365,7 +1366,7 @@ pub(super) fn push_saved_seed_modal_text_draws(
             SHELL_LABEL_TEXT_RGB,
             ShellAlign::H_CENTER | ShellAlign::V_CENTER,
             SHELL_DROPDOWN_TEXT_DEPTH - 0.00012,
-            scale.uniform(),
+            scale.factor(),
         );
     }
     push_saved_browser_prompt_text(out, state, layout, browser);
@@ -1434,7 +1435,7 @@ pub(super) fn push_saved_browser_contents_text<I>(
                 SHELL_LABEL_TEXT_RGB,
                 ShellAlign::NONE,
                 SHELL_DROPDOWN_TEXT_DEPTH - 0.00011,
-                scale.uniform(),
+                scale.factor(),
             );
         }
         // Native559A07 attempts an x200 marker, but the4A8 setter61B0D4
@@ -1455,7 +1456,7 @@ pub(super) fn push_saved_browser_contents_text<I>(
             SHELL_LABEL_TEXT_RGB,
             ShellAlign::V_CENTER,
             SHELL_DROPDOWN_TEXT_DEPTH - 0.00011,
-            scale.uniform(),
+            scale.factor(),
         );
     }
 }

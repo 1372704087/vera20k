@@ -134,9 +134,34 @@ pub fn push_entry_native(
 }
 
 /// One chrome atlas entry authored for the 800x600 dialog, placed at the
-/// authored `(x, y)` and grown by `scale`. Identity at [`ShellScale::RETAIL`],
-/// so an unscaled page emits the same native-size sprite at the same point.
+/// authored `(x, y)` and grown by `scale`: the point maps through the scale like
+/// any authored rect, so it lands inside the centred dialog. Identity at
+/// [`ShellScale::RETAIL`], so an unscaled page emits the same native-size
+/// sprite at the same point. [`push_entry_grown`] takes a window-space point.
 pub fn push_entry_scaled(
+    out: &mut Vec<SpriteInstance>,
+    entry: MainMenuShellChromeEntry,
+    x: i32,
+    y: i32,
+    scale: ShellScale,
+    depth: f32,
+) {
+    let [w, h] = scale.art_size(entry.pixel_size[0], entry.pixel_size[1]);
+    let [x, y] = scale.scale_point([x, y]);
+    push_entry_sized(
+        out,
+        entry,
+        x as f32,
+        y as f32,
+        [w.round(), h.round()],
+        depth,
+    );
+}
+
+/// [`push_entry_scaled`] for art whose window-space top-left the caller
+/// already holds, such as a point inside a scaled rect: only the native size
+/// grows, so the point is not mapped a second time.
+pub fn push_entry_grown(
     out: &mut Vec<SpriteInstance>,
     entry: MainMenuShellChromeEntry,
     x: i32,
@@ -148,8 +173,8 @@ pub fn push_entry_scaled(
     push_entry_sized(
         out,
         entry,
-        (x as f32 * scale.x()).round(),
-        (y as f32 * scale.y()).round(),
+        x as f32,
+        y as f32,
         [w.round(), h.round()],
         depth,
     );
@@ -186,22 +211,22 @@ pub fn push_entry_crop_scaled(
     }
 }
 
-/// The part of a backdrop whose whole canvas is stretched over the window:
-/// `rect`'s position in the window selects the texels, so an inset drawn
-/// through this lines up with the stretched background it sits on.
+/// The part of a backdrop whose whole canvas is scaled over `area` (a scaled
+/// page's dialog rect): `rect`'s position in that area selects the texels, so an
+/// inset drawn through this lines up with the scaled background it sits on.
 /// [`push_entry_crop`] is the 1:1 form of the same idea.
 pub fn push_entry_window_crop(
     out: &mut Vec<SpriteInstance>,
     entry: MainMenuShellChromeEntry,
-    window: (i32, i32),
+    area: RectPx,
     rect: RectPx,
     depth: f32,
 ) {
-    let (screen_w, screen_h) = (window.0.max(1), window.1.max(1));
-    let left = rect.x.clamp(0, screen_w);
-    let top = rect.y.clamp(0, screen_h);
-    let right = (rect.x + rect.w).clamp(0, screen_w);
-    let bottom = (rect.y + rect.h).clamp(0, screen_h);
+    let (area_w, area_h) = (area.w.max(1), area.h.max(1));
+    let left = rect.x.clamp(area.x, area.x + area_w);
+    let top = rect.y.clamp(area.y, area.y + area_h);
+    let right = (rect.x + rect.w).clamp(area.x, area.x + area_w);
+    let bottom = (rect.y + rect.h).clamp(area.y, area.y + area_h);
     if right <= left || bottom <= top {
         return;
     }
@@ -210,12 +235,12 @@ pub fn push_entry_window_crop(
         position: [left as f32, top as f32],
         size: [(right - left) as f32, (bottom - top) as f32],
         uv_origin: [
-            entry.uv_origin[0] + u(left, screen_w) * entry.uv_size[0],
-            entry.uv_origin[1] + u(top, screen_h) * entry.uv_size[1],
+            entry.uv_origin[0] + u(left - area.x, area_w) * entry.uv_size[0],
+            entry.uv_origin[1] + u(top - area.y, area_h) * entry.uv_size[1],
         ],
         uv_size: [
-            u(right - left, screen_w) * entry.uv_size[0],
-            u(bottom - top, screen_h) * entry.uv_size[1],
+            u(right - left, area_w) * entry.uv_size[0],
+            u(bottom - top, area_h) * entry.uv_size[1],
         ],
         depth,
         tint: [1.0, 1.0, 1.0],
@@ -423,8 +448,8 @@ fn monitor_sprite(
     monitor: RectPx,
     scale: ShellScale,
 ) -> Option<SpriteInstance> {
-    let shape_w = (entry.pixel_size[0] * scale.x()).round() as i32;
-    let shape_h = (entry.pixel_size[1] * scale.y()).round() as i32;
+    let shape_w = (entry.pixel_size[0] * scale.factor()).round() as i32;
+    let shape_h = (entry.pixel_size[1] * scale.factor()).round() as i32;
     if shape_w <= 0 || shape_h <= 0 {
         return None;
     }
@@ -797,21 +822,24 @@ mod tests {
     }
 
     /// The panel's drift factor is read off its own top cap: 199 native rows at
-    /// every retail screen size, the stretched row count on a responsive panel.
+    /// every retail screen size, the scaled row count on a responsive panel.
     #[test]
     fn panel_stretch_reads_the_layout_not_the_screen() {
         // 1024x768 is 1.28x the 800x600 art, but a retail panel is letterboxed
-        // beside that scale, not stretched by it.
+        // beside that scale, not scaled by it.
         let retail = crate::ui::shell::geom::right_panel_rects(1024, 768);
         assert_eq!(retail.stretch(), (1.0, 1.0));
 
-        let tall = ShellScale::from_screen(800, 1200).scale_panel(retail);
-        assert_eq!(tall.stretch().1, 2.0);
+        let double = ShellScale::from_screen(1600, 1200).scale_panel(retail);
+        assert_eq!(double.stretch(), (2.0, 2.0));
 
-        // Width alone never moves the vertical factor.
-        let wide = ShellScale::from_screen(1600, 600).scale_panel(retail);
-        assert_eq!(wide.stretch().1, 1.0);
-        assert_eq!(wide.tile.w, RIGHT_PANEL_WIDTH * 2);
+        // The shell keeps its shape, so a window only taller or only wider than
+        // 800x600 leaves the panel at its native size.
+        for (w, h) in [(800, 1200), (1600, 600)] {
+            let panel = ShellScale::from_screen(w, h).scale_panel(retail);
+            assert_eq!(panel.stretch(), (1.0, 1.0), "{w}x{h}");
+            assert_eq!(panel.tile.w, RIGHT_PANEL_WIDTH, "{w}x{h}");
+        }
     }
 
     /// SDBTM is a 168x65 SHP whose bottom cap shows 23 rows. Stretching the cap

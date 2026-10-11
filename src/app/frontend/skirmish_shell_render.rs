@@ -50,8 +50,7 @@ use crate::ui::skirmish_shell::{
 };
 use crate::ui::skirmish_shell::{
     ChooseMapModalLayout, OwnerDrawButton, RandomMapSetupLayout, RectPx, SavedSeedLayout,
-    SkirmishShellAction, SkirmishShellLayout, SkirmishShellState, compute_layout,
-    player_row_visible,
+    SkirmishShellAction, SkirmishShellLayout, SkirmishShellState, player_row_visible,
 };
 
 use self::chrome::*;
@@ -329,7 +328,7 @@ fn build_skirmish_shell_instances(
 
     // The RA2 skirmish skin shares the common shell's art and SHELL.PAL.
     if let Some(background) = generic_shell_background_entry(atlas, layout) {
-        push_entry_scaled(
+        push_entry_grown(
             &mut instances,
             background,
             layout.screen.x,

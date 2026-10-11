@@ -21,7 +21,7 @@ use crate::app::frontend::shell_pass::{
 use crate::app::frontend::shell_transition::ShellSlideKind;
 use crate::render::shell_paint::{
     self, CURSOR_DEPTH, PARENT_BACKGROUND_DEPTH, PaintButton, PaintLabel, SHELL_TEXT_RGB_ENABLED,
-    STATIC_IMAGE_DEPTH, push_entry_crop, push_entry_native, push_entry_scaled, push_entry_sized,
+    STATIC_IMAGE_DEPTH, push_entry_crop, push_entry_native, push_entry_scaled,
     push_entry_window_crop,
 };
 use crate::render::shell_text::ShellAlign;
@@ -178,12 +178,12 @@ pub(crate) fn render_score_page(
                 PARENT_BACKGROUND_DEPTH,
             );
         } else {
-            push_entry_sized(
+            push_entry_scaled(
                 &mut art_sprites,
                 background,
-                0.0,
-                0.0,
-                [screen.w as f32, screen.h as f32],
+                0,
+                0,
+                scale,
                 PARENT_BACKGROUND_DEPTH,
             );
         }
@@ -200,7 +200,7 @@ pub(crate) fn render_score_page(
             push_entry_window_crop(
                 &mut art_sprites,
                 shaded,
-                (screen.w, screen.h),
+                scale.dialog_rect(),
                 rect,
                 SHADE_DEPTH,
             );
@@ -271,7 +271,7 @@ pub(crate) fn render_score_page(
             path_a_reveal: None,
         });
     }
-    let text = shell_paint::paint_labels_scaled(&state.renderer.bit_font, &labels, scale.uniform());
+    let text = shell_paint::paint_labels_scaled(&state.renderer.bit_font, &labels, scale.factor());
 
     let draws = [
         TexturedDraw {

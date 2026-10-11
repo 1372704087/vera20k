@@ -64,8 +64,8 @@ pub struct RightPanelRects {
 impl RightPanelRects {
     /// How far these rects sit from the 168x199 SDTP canvas the panel art is
     /// authored against: `(1.0, 1.0)` on the retail layout at every screen size,
-    /// above one once the 800x600 dialog is stretched into the window. Both
-    /// axes clamp at one, so an unscaled panel never shrinks its art.
+    /// the shell's scale factor once the 800x600 dialog is scaled into the
+    /// window. Both axes clamp at one, so an unscaled panel never shrinks its art.
     pub fn stretch(&self) -> (f32, f32) {
         (
             (self.tile.w as f32 / RIGHT_PANEL_WIDTH as f32).max(1.0),
@@ -128,17 +128,19 @@ pub fn center_offset(screen: i32, base: i32) -> i32 {
     ((screen - base) / 2).max(0)
 }
 
-/// The logical shell is authored at 800x600; the responsive pass maps that
-/// rectangle space onto the live window on both axes.
+/// The logical shell is authored at 800x600; the fill-window pass scales that
+/// rectangle into the live window, keeping its 4:3 shape.
 pub const SHELL_BASE_W: i32 = 800;
 pub const SHELL_BASE_H: i32 = 600;
 
-/// Corner-rounded non-uniform mapping from the 800x600 logical shell space to
-/// a live window size. Identity at the base size, so a responsive layout equals
-/// the retail layout there.
+/// Corner-rounded uniform mapping from the 800x600 logical shell space into a
+/// live window: one factor on both axes, the largest that fits the window, with
+/// the scaled shell centred and the spare width or height left to the window's
+/// black clear. Identity at the base size, so a fill-window layout equals the
+/// retail layout there.
 ///
-/// Holds the window it maps onto, not the float factors, so a layout carrying
-/// one stays `Eq` for the shell structs that compare it.
+/// Holds the window it maps into, not the derived factor and origin, so a
+/// layout carrying one stays `Eq` for the shell structs that compare it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ShellScale {
     screen_w: i32,
@@ -147,8 +149,8 @@ pub struct ShellScale {
 
 impl ShellScale {
     /// The retail mapping: the 800x600 dialog is placed in the window by
-    /// [`dialog_origin`], never stretched. Every art fit keyed on this scale is
-    /// then a no-op, so the responsive path is the only source of drift.
+    /// [`dialog_origin`], never scaled. Every art fit keyed on this scale is
+    /// then a no-op, so the fill-window path is the only source of drift.
     pub const RETAIL: Self = Self {
         screen_w: SHELL_BASE_W,
         screen_h: SHELL_BASE_H,
@@ -158,33 +160,39 @@ impl ShellScale {
         Self { screen_w, screen_h }
     }
 
-    pub const fn x(self) -> f32 {
-        self.screen_w as f32 / SHELL_BASE_W as f32
+    /// The one factor both axes scale by: the largest at which the 800x600
+    /// shell still fits the window. Glyphs, the software cursor and every
+    /// rect use it, so the shell keeps its authored proportions.
+    pub fn factor(self) -> f32 {
+        let fit_w = self.screen_w as f32 / SHELL_BASE_W as f32;
+        let fit_h = self.screen_h as f32 / SHELL_BASE_H as f32;
+        fit_w.min(fit_h)
     }
 
-    pub const fn y(self) -> f32 {
-        self.screen_h as f32 / SHELL_BASE_H as f32
-    }
-
-    /// The single factor for work the two axes cannot stretch independently:
-    /// glyph pixels and the software cursor. The height drives legibility.
-    pub const fn uniform(self) -> f32 {
-        self.y()
+    /// Where the scaled 800x600 shell sits in the window: centred, the spare
+    /// width or height split between the two sides.
+    pub fn dialog_rect(self) -> RectPx {
+        let factor = self.factor();
+        let w = (SHELL_BASE_W as f32 * factor).round() as i32;
+        let h = (SHELL_BASE_H as f32 * factor).round() as i32;
+        RectPx::new((self.screen_w - w) / 2, (self.screen_h - h) / 2, w, h)
     }
 
     /// Is this the retail mapping — place the 800x600 shell in the window, never
-    /// stretch it? Callers that keep a native-size draw for the retail layout
+    /// scale it? Callers that keep a native-size draw for the retail layout
     /// test this instead of inferring it from a rect.
     pub fn is_retail(self) -> bool {
         self.screen_w == SHELL_BASE_W && self.screen_h == SHELL_BASE_H
     }
 
     pub fn scale_rect(self, rect: RectPx) -> RectPx {
-        let (scale_x, scale_y) = (self.x(), self.y());
-        let x0 = (rect.x as f32 * scale_x).round() as i32;
-        let y0 = (rect.y as f32 * scale_y).round() as i32;
-        let x1 = ((rect.x + rect.w) as f32 * scale_x).round() as i32;
-        let y1 = ((rect.y + rect.h) as f32 * scale_y).round() as i32;
+        let factor = self.factor();
+        let origin = self.dialog_rect();
+        let edge = |authored: i32| (authored as f32 * factor).round() as i32;
+        let x0 = origin.x + edge(rect.x);
+        let y0 = origin.y + edge(rect.y);
+        let x1 = origin.x + edge(rect.x + rect.w);
+        let y1 = origin.y + edge(rect.y + rect.h);
         RectPx::new(x0, y0, (x1 - x0).max(0), (y1 - y0).max(0))
     }
 
@@ -208,47 +216,39 @@ impl ShellScale {
     /// Chrome art authored at `(w, h)` pixels in the 800x600 dialog, in window
     /// space. Identity on the retail mapping.
     pub fn art_size(self, w: f32, h: f32) -> [f32; 2] {
-        [w * self.x(), h * self.y()]
+        let factor = self.factor();
+        [w * factor, h * factor]
     }
 
-    /// The authored width a stretched device width came from. Art selected by
-    /// exact retail size (the combo faces, the trackbar frames) keys on this, so
-    /// a stretched control keeps the glyph its base rect would have chosen.
-    pub fn base_width(self, device_w: i32) -> i32 {
-        (device_w as f32 / self.x()).round() as i32
-    }
-
-    /// [`Self::base_width`] along the vertical axis.
-    pub fn base_height(self, device_h: i32) -> i32 {
-        (device_h as f32 / self.y()).round() as i32
-    }
-
-    /// The 800x600-space point a stretched device point came from: the point
+    /// The 800x600-space point a scaled device point came from: the point
     /// form of [`Self::base_rect`]. A cursor mapped through it lets pointer
     /// arithmetic run on the authored pixels the paint path used.
     pub fn base_point(self, x: i32, y: i32) -> (i32, i32) {
-        (
-            (x as f32 / self.x()).round() as i32,
-            (y as f32 / self.y()).round() as i32,
-        )
+        let origin = self.dialog_rect();
+        let factor = self.factor();
+        let back = |offset: i32| (offset as f32 / factor).round() as i32;
+        (back(x - origin.x), back(y - origin.y))
     }
 
-    /// The 800x600-space rect a stretched device rect came from: the inverse of
-    /// [`Self::scale_rect`] up to rounding. Control geometry derived from a
-    /// device rect maps through this first, so the insets and row counts run on
-    /// the authored numbers the paint and input paths agree on.
+    /// The 800x600-space rect a scaled device rect came from: the inverse of
+    /// [`Self::scale_rect`]. Control geometry derived from a device rect maps
+    /// through this first, so the insets and row counts run on the authored
+    /// numbers the paint and input paths agree on.
+    ///
+    /// Each edge is mapped back on its own, as `scale_rect` rounded it: a device
+    /// edge is within half a pixel of the authored edge times the factor, so
+    /// from 1x up every edge, and therefore every authored size an exact-size
+    /// art lookup keys on, comes back exactly. Dividing the rounded device
+    /// width instead can miss by one below 2x.
     pub fn base_rect(self, rect: RectPx) -> RectPx {
-        RectPx::new(
-            (rect.x as f32 / self.x()).round() as i32,
-            (rect.y as f32 / self.y()).round() as i32,
-            self.base_width(rect.w),
-            self.base_height(rect.h),
-        )
+        let (x0, y0) = self.base_point(rect.x, rect.y);
+        let (x1, y1) = self.base_point(rect.x + rect.w, rect.y + rect.h);
+        RectPx::new(x0, y0, x1 - x0, y1 - y0)
     }
 
     /// Derive a control's sub-rect from its device rect: map back to the
-    /// authored numbers, apply `derive` there, then stretch the result. Paint
-    /// and hit-testing both go through this, so a stretched control's drawn art
+    /// authored numbers, apply `derive` there, then scale the result. Paint
+    /// and hit-testing both go through this, so a scaled control's drawn art
     /// and its clickable area are the same rect. The retail mapping hands the
     /// rect to `derive` untouched, keeping every unscaled page byte-identical.
     pub fn derive_rect(self, rect: RectPx, derive: impl FnOnce(RectPx) -> RectPx) -> RectPx {
@@ -535,6 +535,63 @@ mod tests {
         assert_eq!(lower_strip_rect(800, 600), RectPx::new(0, 568, 632, 32));
         assert_eq!(lower_strip_rect(1024, 768), RectPx::new(112, 652, 632, 32));
         assert_eq!(lower_strip_rect(640, 480), RectPx::new(0, 448, 472, 32));
+    }
+
+    #[test]
+    fn fill_window_scale_keeps_the_shell_shape_and_centres_it() {
+        // 21:9: the height limits the factor to 2.4, and the 1920-wide shell is
+        // centred with 760 px of window on either side.
+        let wide = ShellScale::from_screen(3440, 1440);
+        assert_eq!(wide.factor(), 2.4);
+        assert_eq!(wide.dialog_rect(), RectPx::new(760, 0, 1920, 1440));
+        assert_eq!(
+            wide.scale_rect(RectPx::new(644, 199, 156, 42)),
+            RectPx::new(2306, 478, 374, 100)
+        );
+        assert_eq!(wide.base_point(2306, 478), (644, 199));
+
+        // A window taller than 4:3 centres the shell vertically instead.
+        let tall = ShellScale::from_screen(1200, 1200);
+        assert_eq!(tall.factor(), 1.5);
+        assert_eq!(tall.dialog_rect(), RectPx::new(0, 150, 1200, 900));
+
+        // A 4:3 window is filled exactly, and 800x600 is the identity.
+        assert_eq!(
+            ShellScale::from_screen(1600, 1200).dialog_rect(),
+            RectPx::new(0, 0, 1600, 1200)
+        );
+        assert_eq!(
+            ShellScale::RETAIL.dialog_rect(),
+            RectPx::new(0, 0, SHELL_BASE_W, SHELL_BASE_H)
+        );
+    }
+
+    #[test]
+    fn base_rect_recovers_every_authored_rect_from_1x_up() {
+        // Exact-size art (the combo faces, the trackbar frames) is looked up by
+        // the authored size read back from a device rect. Dividing the rounded
+        // device width missed by one below 2x (480 of these at 1024x768).
+        let windows = [
+            (1024, 768),
+            (1280, 720),
+            (1366, 768),
+            (1600, 600),
+            (1920, 1080),
+            (3440, 1440),
+        ];
+        for (w, h) in windows {
+            let scale = ShellScale::from_screen(w, h);
+            for x in 0..SHELL_BASE_W {
+                for width in [38, 44, 117, 150, 180, 207] {
+                    let authored = RectPx::new(x, x % SHELL_BASE_H, width, 23);
+                    assert_eq!(
+                        scale.base_rect(scale.scale_rect(authored)),
+                        authored,
+                        "{w}x{h}"
+                    );
+                }
+            }
+        }
     }
 
     #[test]

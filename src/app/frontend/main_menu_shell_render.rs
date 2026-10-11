@@ -15,7 +15,7 @@ use crate::render::batch::SpriteInstance;
 use crate::render::main_menu_shell_chrome::{MainMenuShellChromeAtlas, MainMenuShellChromeEntry};
 use crate::render::shell_paint::{
     self, ArtFit, ButtonPolicy, CURSOR_DEPTH, MOVIE_DEPTH, PARENT_BACKGROUND_DEPTH, PaintButton,
-    PaintLabel, SHELL_TEXT_RGB_ENABLED,
+    PaintLabel, SHELL_TEXT_RGB_ENABLED, push_entry_scaled,
 };
 use crate::render::shell_text::ShellAlign;
 use crate::render::shell_text_reveal::PathAReveal;
@@ -107,26 +107,6 @@ pub(crate) fn clear_ra2ts_movie_session(state: &mut AppState) {
     state.frontend.main_menu_movie = None;
     state.frontend.main_menu_movie_identity = None;
     state.frontend.main_menu_movie_last_step = Instant::now();
-}
-
-fn push_entry_sized(
-    out: &mut Vec<SpriteInstance>,
-    entry: MainMenuShellChromeEntry,
-    x: f32,
-    y: f32,
-    size: [f32; 2],
-    depth: f32,
-) {
-    out.push(SpriteInstance {
-        position: [x, y],
-        size,
-        uv_origin: entry.uv_origin,
-        uv_size: entry.uv_size,
-        depth,
-        tint: [1.0, 1.0, 1.0],
-        alpha: 1.0,
-        ..Default::default()
-    });
 }
 
 /// The slide a painted `0xE2` frame belongs to.
@@ -249,7 +229,7 @@ fn select_parent_background(
 
 /// The MNSCRN parent background of a right-panel shell at `screen_w` x
 /// `screen_h`: native SHP canvas at the centered shell origin on the retail
-/// layout, stretched over the whole window when the layout stretches the shell.
+/// layout, scaled with the dialog when the layout scales the shell.
 /// Behind the `0xE2` movie and chrome, and in the RA2TS area of the menu pages
 /// while no movie is drawn.
 pub(crate) fn shell_parent_background_instances(
@@ -265,23 +245,15 @@ pub(crate) fn shell_parent_background_instances(
     ) else {
         return Vec::new();
     };
-    let (size, (x, y)) = if scale.is_retail() {
-        (
-            entry.pixel_size,
-            crate::ui::shell::geom::dialog_origin(screen_w, screen_h),
-        )
+    // The retail dialog is centred by gamemd's origin; a scaled one starts at
+    // its authored origin, which the scale places in the window.
+    let (x, y) = if scale.is_retail() {
+        crate::ui::shell::geom::dialog_origin(screen_w, screen_h)
     } else {
-        ([screen_w as f32, screen_h as f32], (0, 0))
+        (0, 0)
     };
     let mut out = Vec::new();
-    push_entry_sized(
-        &mut out,
-        entry,
-        x as f32,
-        y as f32,
-        size,
-        PARENT_BACKGROUND_DEPTH,
-    );
+    push_entry_scaled(&mut out, entry, x, y, scale, PARENT_BACKGROUND_DEPTH);
     out
 }
 
@@ -627,7 +599,7 @@ fn render_main_menu_shell_to_target_inner(
     };
     labels.extend(status_label);
     let text_draws =
-        shell_paint::paint_labels_scaled(&state.renderer.bit_font, &labels, layout.scale.uniform());
+        shell_paint::paint_labels_scaled(&state.renderer.bit_font, &labels, layout.scale.factor());
 
     // Quit-confirm SHP modal overlay (blocking; drawn over the menu, under the
     // cursor). `None` when the modal is closed or the skirmish atlas (which holds

@@ -187,19 +187,19 @@ pub struct KeyboardLayout {
     pub error: RectPx,
     pub labels: [(&'static str, RectPx, bool); 6],
     /// The mapping the control rects were placed in: retail centers the authored
-    /// 800x600 dialog, the responsive page stretches it into the window.
+    /// 800x600 dialog, the responsive page scales it to fit the window.
     pub scale: ShellScale,
 }
 impl KeyboardLayout {
     /// Gamemd's A3: the authored dialog centered in the window at its native
-    /// size. Also the frame the in-game page sits in, which never stretches.
+    /// size. Also the frame the in-game page sits in, which never scales.
     pub fn new(width: i32, height: i32, shell: Option<(InGameShellLayout, [i32; 2])>) -> Self {
         Self::build(width, height, shell, ShellScale::RETAIL)
     }
 
     /// The responsive variant of [`Self::new`] for the front-end family page: the
-    /// verified 800x600 controls stretched to fill the window, with the family
-    /// chrome where every other stretched family page puts it. Identity at the
+    /// verified 800x600 controls scaled to fit the window, with the family
+    /// chrome where every other scaled family page puts it. Identity at the
     /// base size. The in-game frame keeps its own layout, so it takes `new`.
     pub fn responsive(width: i32, height: i32) -> Self {
         Self::build(width, height, None, ShellScale::from_screen(width, height))
@@ -246,7 +246,8 @@ impl KeyboardLayout {
             (page.title, page.buttons[0].rect, page.status_help)
         };
         let mut category = dlu(63, 83, 138, 146);
-        category.h = (crate::ui::skirmish_shell::COMBO_FACE_H as f32 * scale.y()).round() as i32;
+        category.h =
+            (crate::ui::skirmish_shell::COMBO_FACE_H as f32 * scale.factor()).round() as i32;
         Self {
             title,
             back,

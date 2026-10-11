@@ -217,7 +217,7 @@ fn build_native_loading_text_draws(
                 ShellAlign::NONE,
                 None,
                 CAMPAIGN_TITLE_TEXT_DEPTH,
-                scale.uniform(),
+                scale.factor(),
             );
             draw.text.scissor = ScissorRect {
                 x: 0,
@@ -237,7 +237,7 @@ fn build_native_loading_text_draws(
             );
             // The measured box is authored; the draw divides its rect back by the
             // glyph scale, so the stretched copy lands in the same box.
-            let grow = |px: i32| (px as f32 * scale.uniform()).round() as i32;
+            let grow = |px: i32| (px as f32 * scale.factor()).round() as i32;
             draws.push(build_native_loading_text_draw(
                 font,
                 solid_texel,
@@ -252,7 +252,7 @@ fn build_native_loading_text_draws(
                 ShellAlign::V_CENTER,
                 Some(CampaignLoadingPresentation::BRIEFING_BACKING_PADDING as f32),
                 TEXT_DEPTH,
-                scale.uniform(),
+                scale.factor(),
             ));
         }
         return draws;
@@ -268,7 +268,7 @@ fn build_native_loading_text_draws(
                 ShellAlign::H_RIGHT,
                 Some(TEXT_BACKING_PADDING),
                 TEXT_DEPTH,
-                scale.uniform(),
+                scale.factor(),
             ));
         }
         if let Some(text) = composition.text.special_unit.as_deref() {
@@ -281,7 +281,7 @@ fn build_native_loading_text_draws(
                 ShellAlign::NONE,
                 None,
                 TEXT_DEPTH,
-                scale.uniform(),
+                scale.factor(),
             ));
         }
         if let Some(text) = composition.text.load_brief.as_deref() {
@@ -294,7 +294,7 @@ fn build_native_loading_text_draws(
                 ShellAlign::NONE,
                 Some(TEXT_BACKING_PADDING),
                 TEXT_DEPTH,
-                scale.uniform(),
+                scale.factor(),
             ));
         }
         if let Some(text) = composition.text.loading.as_deref() {
@@ -307,7 +307,7 @@ fn build_native_loading_text_draws(
                 ShellAlign::NONE,
                 Some(TEXT_BACKING_PADDING),
                 TEXT_DEPTH,
-                scale.uniform(),
+                scale.factor(),
             ));
         }
     }
@@ -325,7 +325,7 @@ fn build_native_loading_text_draws(
             ShellAlign::NONE,
             None,
             ROW_LABEL_DEPTH,
-            scale.uniform(),
+            scale.factor(),
         ));
     }
     draws

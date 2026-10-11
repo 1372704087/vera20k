@@ -171,10 +171,10 @@ impl MenuPageLayout {
             .map(|button| button.rect)
     }
 
-    /// Map the verified 800x600 page into the live window by stretching X/Y
-    /// independently. Identity at the base size, so the responsive page equals
+    /// Map the verified 800x600 page into the live window through one uniform
+    /// scale, centred. Identity at the base size, so the responsive page equals
     /// the retail page there. The 640-wide asset switch belongs to the unscaled
-    /// layout; a stretched area always uses the large loop.
+    /// layout; a scaled page always uses the large loop.
     fn scaled_to_window(mut self, screen_w: u32, screen_h: u32) -> Self {
         let scale = ShellScale::from_screen(screen_w as i32, screen_h as i32);
         self.scale = scale;
@@ -194,7 +194,7 @@ impl MenuPageLayout {
 }
 
 /// The responsive variant of [`compute_layout`]: the verified 800x600 page
-/// stretched to fill the window.
+/// scaled to fit the window, keeping its shape.
 pub fn compute_responsive_layout(
     spec: &MenuPageSpec,
     screen_w: u32,

@@ -42,12 +42,12 @@ impl ListMetrics {
         if scale.is_retail() {
             return Self::RETAIL;
         }
-        let grow = |px: i32, factor: f32| (px as f32 * factor).round() as i32;
+        let grow = |px: i32, factor: f32| ((px as f32 * factor).round() as i32).max(1);
         Self {
-            row_h: grow(ROW_HEIGHT, scale.y()),
-            scrollbar_w: grow(SCROLLBAR_WIDTH, scale.x()),
-            arrow_h: grow(ARROW_HEIGHT, scale.y()),
-            min_thumb_h: grow(MIN_THUMB_HEIGHT, scale.y()),
+            row_h: grow(ROW_HEIGHT, scale.factor()),
+            scrollbar_w: grow(SCROLLBAR_WIDTH, scale.factor()),
+            arrow_h: grow(ARROW_HEIGHT, scale.factor()),
+            min_thumb_h: grow(MIN_THUMB_HEIGHT, scale.factor()),
         }
     }
 }

@@ -87,14 +87,14 @@ impl LauncherOptionsLayout {
         Self::build(width, height, ShellScale::RETAIL)
     }
 
-    /// The same dialog stretched over the window (`menu_fill_window`).
+    /// The same dialog scaled to fit the window (`menu_fill_window`).
     pub(crate) fn responsive(width: i32, height: i32) -> Self {
         Self::build(width, height, ShellScale::from_screen(width, height))
     }
 
     fn build(width: i32, height: i32, scale: ShellScale) -> Self {
-        // A stretched page fills the window, so it has no centring offset and
-        // every authored rect goes through the one scale.
+        // The scale centres a scaled page itself, so it takes no centring
+        // offset of its own and every authored rect goes through the one scale.
         let stretch = !scale.is_retail();
         let offset_x = if stretch {
             0
@@ -618,7 +618,7 @@ mod tests {
         let scale = ShellScale::from_screen(1600, 1200);
         let wide = LauncherOptionsLayout::responsive(1600, 1200);
         assert_eq!(wide.scale, scale);
-        // No centring offset: the dialog fills the window.
+        // No centring offset of its own: at 4:3 the scale fills the window.
         assert_eq!((wide.offset_x, wide.offset_y), (0, 0));
         assert_eq!(wide.title, RectPx::new(1270, 18, 326, 36));
         assert_eq!(wide.status_help, RectPx::new(20, 1156, 912, 42));
@@ -658,7 +658,7 @@ mod tests {
         );
         let wide_thumb =
             dialog.shell_trackbar_thumb_left(LauncherTrackbarId::Score, stretched, scale);
-        assert_eq!(wide_thumb, (thumb as f32 * scale.x()).round() as i32);
+        assert_eq!(wide_thumb, (thumb as f32 * scale.factor()).round() as i32);
         // The same authored point addressed on either page takes the same
         // thumb and the same position.
         let press = (authored.x + thumb + 5, authored.y + authored.h - 3);

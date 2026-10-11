@@ -442,7 +442,7 @@ pub(crate) fn render_menu_page(
     let mut labels = paint_labels(state, &view, &layout, input, title_window, !sliding);
     labels.extend(status_label);
     let text =
-        shell_paint::paint_labels_scaled(&state.renderer.bit_font, &labels, layout.scale.uniform());
+        shell_paint::paint_labels_scaled(&state.renderer.bit_font, &labels, layout.scale.factor());
     let draws = [
         TexturedDraw {
             texture: movie_texture,

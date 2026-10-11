@@ -20,7 +20,7 @@ use crate::app::frontend::shell_pass::{
 use crate::app::frontend::shell_transition::ShellSlideKind;
 use crate::render::shell_paint::{
     self, CHROME_DEPTH, CURSOR_DEPTH, PARENT_BACKGROUND_DEPTH, PaintButton, PaintLabel,
-    SHELL_TEXT_RGB_ENABLED, push_entry_scaled, push_entry_sized,
+    SHELL_TEXT_RGB_ENABLED, push_entry_scaled,
 };
 use crate::render::shell_text::ShellAlign;
 use crate::ui::shell::geom::{ShellScale, centred_in_window};
@@ -114,18 +114,14 @@ pub(crate) fn render_wol_welcome_page(
         .filter(|_| api_missing.is_none());
     let mut background_sprites = Vec::new();
     match dialog_background {
-        // The background canvas is the authored 800x600 dialog; a stretched
-        // page grows it over the whole window, as the parent backdrop does.
-        Some(entry) => push_entry_sized(
+        // The background canvas is the authored 800x600 dialog; a scaled
+        // page scales it with the dialog, as the parent backdrop does.
+        Some(entry) => push_entry_scaled(
             &mut background_sprites,
             entry,
-            0.0,
-            0.0,
-            if scale.is_retail() {
-                entry.pixel_size
-            } else {
-                [screen_w as f32, screen_h as f32]
-            },
+            0,
+            0,
+            scale,
             PARENT_BACKGROUND_DEPTH,
         ),
         None => sprites.extend(
@@ -250,7 +246,7 @@ pub(crate) fn render_wol_welcome_page(
     }
     labels.extend(status_label);
     let mut text =
-        shell_paint::paint_labels_scaled(&state.renderer.bit_font, &labels, scale.uniform());
+        shell_paint::paint_labels_scaled(&state.renderer.bit_font, &labels, scale.factor());
 
     // The TXT_APIMISSING box `0xD0`: PUDLGBGN with one MNBTTN OK.
     let mut box_sprites = Vec::new();

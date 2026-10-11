@@ -1,10 +1,10 @@
 //! The one place the shell family picks its layout: gamemd's centered,
-//! unscaled 800x600 dialog, or the same dialog stretched into the live window
-//! (`[graphics] menu_fill_window`).
+//! unscaled 800x600 dialog, or the same dialog scaled to fit the live window
+//! at its own shape (`[graphics] menu_fill_window`).
 //!
 //! Every shell route that both paints and hit-tests must take its rects from
 //! here; a render path computing one layout and an input handler the other
-//! misaligns clicks by the stretch factor.
+//! misaligns clicks by the scale factor.
 
 use crate::app::AppState;
 use crate::ui::main_menu_shell::{MainMenuShellLayout, compute_layout, compute_responsive_layout};
@@ -141,7 +141,7 @@ pub(crate) fn launcher_options_layout(
     }
 }
 
-/// The width a page's art set is keyed on. With the stretch switch the
+/// The width a page's art set is keyed on. With the fill-window switch the
 /// authored 800x600 is the space the layout maps from, so the page takes the
 /// art it would show there: the large score SHP (gamemd swaps to the small one
 /// only at exactly 640) and the Westwood Online background (loaded only at 800

@@ -147,7 +147,7 @@ pub fn thumb_left_at(
     scale: ShellScale,
 ) -> i32 {
     let base = scale.base_rect(window);
-    (thumb_left(position, base.w, reserve, range) as f32 * scale.x()).round() as i32
+    (thumb_left(position, base.w, reserve, range) as f32 * scale.factor()).round() as i32
 }
 
 /// A plaque trackbar's range as its owner sets it: `TBM_SETRANGE` (`0x406`)

@@ -1826,7 +1826,7 @@ fn normalize_rgb(rgb: [u8; 3]) -> [f32; 3] {
 }
 
 /// The mapping the loading screen composes and paints in: gamemd's centered,
-/// 1:1 art viewport, or the fill-window stretch of that same authored dialog.
+/// 1:1 art viewport, or that same authored dialog scaled to fit the window.
 fn loading_scale(state: &AppState) -> ShellScale {
     loading_screen_scale(
         state.platform.menu_fill_window,

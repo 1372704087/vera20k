@@ -12,7 +12,7 @@ use crate::render::batch::SpriteInstance;
 use crate::render::main_menu_shell_chrome::{MainMenuShellChromeAtlas, MainMenuShellChromeEntry};
 use crate::render::shell_paint::{
     self, CHROME_DEPTH, CURSOR_DEPTH, PARENT_BACKGROUND_DEPTH, PaintButton, PaintLabel,
-    SHELL_TEXT_RGB_ENABLED, push_entry_crop, push_entry_scaled, push_entry_window_crop,
+    SHELL_TEXT_RGB_ENABLED, push_entry_crop, push_entry_grown, push_entry_window_crop,
 };
 use crate::render::shell_surface_present::SurfaceEffects;
 use crate::render::shell_text::{ShellAlign, ShellTextDraw};
@@ -143,7 +143,7 @@ fn push_list_scrollbar(
             released
         };
         if let Some(entry) = entry {
-            push_entry_scaled(out, entry, x, y, scale, LIST_DEPTH - 0.00001);
+            push_entry_grown(out, entry, x, y, scale, LIST_DEPTH - 0.00001);
         }
     }
     if let Some(mid) = art.grip_mid {
@@ -163,11 +163,11 @@ fn push_list_scrollbar(
         }
     }
     if let Some(top) = art.grip_top {
-        push_entry_scaled(out, top, x, thumb.y, scale, LIST_DEPTH - 0.00002);
+        push_entry_grown(out, top, x, thumb.y, scale, LIST_DEPTH - 0.00002);
     }
     if let Some(bottom) = art.grip_bottom {
         let h = scale.art_size(bottom.pixel_size[0], bottom.pixel_size[1])[1].round() as i32;
-        push_entry_scaled(
+        push_entry_grown(
             out,
             bottom,
             x,
@@ -180,8 +180,8 @@ fn push_list_scrollbar(
 
 /// The family pages' parent background (`0x0060D20B`: MNSCRNL, MNSCRNS at
 /// 640 wide) with its darkened copy for list interiors, at its origin: the
-/// native canvas at the centered dialog origin on the retail layout, stretched
-/// over the whole window on a page that stretches the shell.
+/// native canvas at the centered dialog origin on the retail layout, scaled
+/// over the page's dialog rect on a page that scales the shell.
 pub(crate) struct FamilyBackdrop {
     background: Option<MainMenuShellChromeEntry>,
     darkened: Option<MainMenuShellChromeEntry>,
@@ -223,8 +223,8 @@ pub(crate) fn family_backdrop(
 impl FamilyBackdrop {
     /// The backdrop's own pixels behind `rect`, taken with the mapping the
     /// backdrop is drawn with: 1:1 from the centered dialog canvas on the
-    /// retail layout, and, on a stretched page, proportionally from the canvas
-    /// stretched over the whole window. The list's darkened interior and the
+    /// retail layout, and, on a scaled page, proportionally from the canvas
+    /// scaled over the page's dialog rect. The list's darkened interior and the
     /// scrollbar track go through this, so they match what lies behind them.
     fn push_pixels(
         &self,
@@ -239,7 +239,7 @@ impl FamilyBackdrop {
         if self.scale.is_retail() {
             push_entry_crop(out, entry, self.origin, rect, depth);
         } else {
-            push_entry_window_crop(out, entry, self.screen, rect, depth);
+            push_entry_window_crop(out, entry, self.scale.dialog_rect(), rect, depth);
         }
     }
 }
@@ -513,7 +513,7 @@ pub(crate) fn render_movie_list(
     let text = shell_paint::paint_labels_scaled(
         &state.renderer.bit_font,
         &labels,
-        layout.page.scale.uniform(),
+        layout.page.scale.factor(),
     );
     let draws = [
         TexturedDraw {

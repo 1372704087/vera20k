@@ -247,7 +247,8 @@ Prefer release captures and retain debug tests selectively. Reference hashes, ma
 and results without extra executable copies. After each merge, dry-run retirement of
 superseded owned labels, preserving required binaries, dependencies and evidence.
 Resolve unmet minimum free space before another large build; follow the
-[retention procedure](tools/README.md#cargo-ownership-and-labeled-builds). Confirm fresh-worktree config/assets.
+[retention procedure](tools/README.md#cargo-ownership-and-labeled-builds). Run
+`python -m tools.prepare_checkout` in a new worktree or clone.
 Format edited leaf files only (`rustfmt --edition 2024 <file>`), never crate-wide
 or recursive `mod.rs`. Coordinate snapshot versions/rebaselines; exclude others' WIP.
 

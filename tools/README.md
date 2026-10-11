@@ -7,6 +7,7 @@ points; the exhaustive oracle/tool inventory remains tracked in issue #746.
 
 | Job | Owner / entry point |
 | --- | --- |
+| Give a new worktree its ignored `ini/` and `config.toml`, or a clone its `config.toml`; report what the game, retail tests and oracles still need | `python -m tools.prepare_checkout` |
 | Run all Python tool and source-skill tests | `python -m tools.run_tests` (below) |
 | Inspect scenario ART ownership, native checks and retail load validation | [ART registry owner](art_registry_owner.md) |
 | Inspect process audio definitions, sample sources and retention evidence | [Process audio catalog owner](audio_catalog_owner.md), `asset sound` |
@@ -102,8 +103,8 @@ The first build compiles dependencies into this namespace, costing time and disk
 subsequent builds reuse it. Existing shared caches are neither deleted nor trusted.
 `--target-dir`, `--manifest-path`, `--config` and `--message-format` are reserved
 by the runner. Other Cargo/test arguments and the caller's environment pass through.
-Tests must select `--lib`. Confirm ignored `ini/`, config and retail assets in a new
-worktree as usual; the runner does not copy them from someone else's checkout.
+Tests must select `--lib`. The runner does not give a new worktree the ignored `ini/`
+and `config.toml`; `python -m tools.prepare_checkout` does.
 
 A label preserves every executable reported by **that Cargo invocation**, including
 fresh cache hits, under `<git-common-dir>/owned-builds/artifacts/<label>`.

@@ -1683,7 +1683,7 @@ fn fireat_estimate_debit(
     if marked || inaccurate {
         return;
     }
-    let estimate = super::estimated_damage_on(world, rules, firer_id, target_id, weapon);
+    let estimate = estimated_damage_on(world, rules, firer_id, target_id, weapon);
     if let Some(target) = world.substrate.entities.get_mut(target_id) {
         target.estimated_health.debit(estimate);
     }
@@ -2513,3 +2513,135 @@ mod reveal_on_fire_tests {
 #[cfg(test)]
 #[path = "fire_once_tests.rs"]
 mod fire_once_tests;
+
+/// Infantry52083E..520904: deployment uses actual Doing27..30; secondary
+/// action availability is its signed native count, never a discharge-frame
+/// comparison. Jumpjet's earlier class arm is resolved by the live caller.
+fn infantry_fire_action(
+    sequences: Option<&SequenceSet>,
+    weapon_index: i32,
+    is_prone: bool,
+    deploying: bool,
+) -> i32 {
+    if deploying {
+        return 29;
+    }
+    let has = |action| {
+        sequences
+            .and_then(|set| set.infantry_action(action))
+            .is_some_and(|record| record.frames_per_facing != 0)
+    };
+    if weapon_index != 0 {
+        if is_prone && has(41) {
+            return 41;
+        }
+        if has(40) {
+            return 40;
+        }
+    }
+    if is_prone { 8 } else { 4 }
+}
+
+/// Infantry52094C..5209A0: signed live type fields; a deployed action does
+/// not imply prone. An absent secondary sequence falls back to the matching
+/// primary discharge frame, independently of action admission.
+fn infantry_fire_frame(
+    obj: &ObjectType,
+    sequences: Option<&SequenceSet>,
+    weapon_index: i32,
+    is_prone: bool,
+) -> i32 {
+    let mut frame = if is_prone {
+        obj.fire_prone_frame
+    } else {
+        obj.fire_up_frame
+    };
+    if weapon_index != 0 {
+        let action = if is_prone { 41 } else { 40 };
+        if sequences
+            .and_then(|set| set.infantry_action(action))
+            .is_some_and(|record| record.frames_per_facing != 0)
+        {
+            frame = if is_prone {
+                obj.secondary_prone_frame
+            } else {
+                obj.secondary_fire_frame
+            };
+        }
+    }
+    frame
+}
+
+/// `TechnoClass::EstimateDamage @ 0x006FDB80` for `attacker_id` shooting
+/// `target_id` with `weapon` (see [`damage::estimate`]): the target house's
+/// category multiplier for the attacker's type, the attacker's
+/// `ArmorMultiplier`, the attacker's FIREPOWER and the target's STRONGER ranks.
+///
+/// House+188 comes from the shared SetDifficulty owner, as in FireAt's
+/// damage build; Techno+160 is the attacker's live firepower_multiplier.
+pub(crate) fn estimated_damage_on(
+    sim: &crate::sim::world::Simulation,
+    rules: &RuleSet,
+    attacker_id: u64,
+    target_id: u64,
+    weapon: &crate::rules::weapon_type::WeaponType,
+) -> i32 {
+    use crate::rules::object_type::Ability;
+    use crate::util::native_x87::{NativeF32Bits, NativeF64Bits};
+    let entities = &sim.substrate.entities;
+    let (Some(attacker), Some(target)) = (entities.get(attacker_id), entities.get(target_id))
+    else {
+        return 0;
+    };
+    let Some(attacker_obj) = rules.object(sim.interner.resolve(attacker.type_ref())) else {
+        return 0;
+    };
+    let target_obj = rules.object(sim.interner.resolve(target.type_ref()));
+    let house_type_armor = sim.houses.get(&target.owner()).map_or(1.0, |house| {
+        rules.country_armor_mult_for_type(sim.interner.resolve(house.house_type_id()), attacker_obj)
+    });
+    let rank_firepower = super::veterancy::has_weapon_ability(
+        super::veterancy::rank_from_u16(attacker.veterancy()),
+        attacker_obj,
+        Ability::Firepower,
+    )
+    .then(|| NativeF64Bits::from_bits(rules.general.veteran_combat.to_bits()));
+    let rank_armor = target_obj
+        .is_some_and(|object| {
+            super::veterancy::has_weapon_ability(
+                super::veterancy::rank_from_u16(target.veterancy()),
+                object,
+                Ability::Stronger,
+            )
+        })
+        .then(|| NativeF64Bits::from_bits(rules.general.veteran_armor.to_bits()));
+    let warhead = combat_weapon::warhead_of(rules, weapon);
+    damage::estimate::estimated_damage(&damage::estimate::EstimateInputs {
+        damage: weapon.damage,
+        zeroed: weapon.is_sonic || weapon.use_fire_particles,
+        stages: damage::attacker::FireDamageStages {
+            house_firepower: sim
+                .houses
+                .get(&attacker.owner())
+                .map_or(NativeF64Bits::ONE, |house| house.firepower_bias()),
+            unit_firepower: attacker.firepower_multiplier,
+            rank_firepower,
+            occupied: None,
+            bunkered: None,
+            open_topped: None,
+        },
+        divisors: damage::DefenceDivisors {
+            house_type_armor: NativeF32Bits::from_bits(house_type_armor.to_bits()),
+            unit_armor: attacker.armor_multiplier,
+            rank_armor,
+        },
+        warhead: warhead.map(|warhead| damage::estimate::EstimateWarhead {
+            cell_spread: warhead.cell_spread_f64,
+            percent_at_max: warhead.percent_at_max_f64,
+            verses: &warhead.verses_f64,
+        }),
+        armor: damage::ArmorClass(target_obj.map_or(0, |object| armor_index(&object.armor) as u8)),
+        scenario_no_damage: sim.session.no_damage,
+        max_damage: rules.combat_damage.max_damage,
+    })
+}

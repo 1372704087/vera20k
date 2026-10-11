@@ -2411,3 +2411,26 @@ mod ifv_area_receipt_tests;
 #[cfg(test)]
 #[path = "nuke_maker_tests.rs"]
 mod nuke_maker_tests;
+
+/// Return the active wall-overlay flags at a cell, if available.
+fn wall_overlay_flags_at<'a>(
+    overlay_grid: Option<&OverlayGrid>,
+    overlay_registry: Option<&'a OverlayTypeRegistry>,
+    rx: u16,
+    ry: u16,
+) -> Option<&'a crate::rules::overlay_types::OverlayTypeFlags> {
+    let (Some(grid), Some(registry)) = (overlay_grid, overlay_registry) else {
+        return None;
+    };
+    grid.cell(rx, ry)
+        .overlay_id
+        .and_then(|id| registry.flags(id))
+        .filter(|flags| flags.wall)
+}
+
+fn warhead_damages_wall(
+    warhead: &WarheadType,
+    wall_flags: &crate::rules::overlay_types::OverlayTypeFlags,
+) -> bool {
+    warhead.wall || warhead.wall_absolute_destroyer || (warhead.wood && wall_flags.armor_is_wood)
+}

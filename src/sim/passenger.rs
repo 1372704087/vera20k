@@ -2755,9 +2755,8 @@ ConditionYellow=50%
                 .expect("type exists");
             let (foundation_w, foundation_h) =
                 crate::rules::foundation::foundation_dimensions(&obj.foundation);
-            crate::sim::combat::DestroyedGarrisonBuilding {
+            crate::sim::passenger::garrison_eject::DestroyedGarrisonBuilding {
                 building_id,
-                type_id: bldg.type_ref,
                 owner: bldg.owner,
                 rx: bldg.position.rx,
                 ry: bldg.position.ry,

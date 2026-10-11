@@ -1,4 +1,6 @@
-//! Shared `SelectAnim @ 0x0048A4F0`, after the caller's land/height decision.
+//! Shared `SelectAnim @ 0x0048A4F0`, after the caller's land/height decision,
+//! and where the chosen animation is placed: the impact's cell
+//! ([`projectile_impact_cell`]) and its height byte ([`impact_z_byte`]).
 //!
 //! Native comparisons: tools/projectile_oracle/ifv_select_anim.{py,json,md}.
 //! Selection coordinates and constructor coordinates are separate: Bullet
@@ -9,6 +11,7 @@ use super::{ExplosionEffect, ProjectileCoord, RuleSet, WarheadType};
 use crate::sim::cell_rect::{CellRef, get_cellclass_fallback_leptons};
 use crate::sim::intern::InternedId;
 use crate::sim::world::Simulation;
+use crate::util::fixed_math::SimFixed;
 
 fn cell_at(world: &Simulation, coord: ProjectileCoord) -> CellRef<'_> {
     if world.resolved_terrain.is_some() {
@@ -164,17 +167,47 @@ pub(crate) fn effect(
 }
 
 pub(crate) fn placed_effect(shp_name: InternedId, placement: ProjectileCoord) -> ExplosionEffect {
-    let (rx, ry, sub_x, sub_y, world_z) = super::projectile_impact_cell(placement);
+    let (rx, ry, sub_x, sub_y, world_z) = projectile_impact_cell(placement);
     ExplosionEffect {
         shp_name,
         rx,
         ry,
         sub_x,
         sub_y,
-        z: super::impact_z_byte(world_z.div_euclid(crate::util::lepton::LEPTONS_PER_LEVEL as i32)),
+        z: impact_z_byte(world_z.div_euclid(crate::util::lepton::LEPTONS_PER_LEVEL as i32)),
         world_z,
         death: None,
     }
+}
+
+/// Narrow an impact z into the byte the presentation path carries it in.
+///
+/// The projection that turns that byte into a pixel decodes it with `as i8`
+/// (`util::lepton::lepton_to_screen`), so the byte is a *signed* level count
+/// and the only correct saturation is into `i8` range: clamping into `u8`
+/// range instead would let 200 through, which decodes as -56 levels and throws
+/// the sprite most of a screen away.
+///
+/// Known mismatch, outside this file: the sprite depth key reads the same byte
+/// as unsigned. The two readings agree over 0..=127, which covers every map
+/// height, so it is latent — but a negative impact z would sort by one rule
+/// and draw by the other.
+pub(crate) fn impact_z_byte(impact_z: i32) -> u8 {
+    impact_z.clamp(i32::from(i8::MIN), i32::from(i8::MAX)) as i8 as u8
+}
+
+pub(crate) fn projectile_impact_cell(
+    impact: ProjectileCoord,
+) -> (u16, u16, SimFixed, SimFixed, i32) {
+    let rx = crate::util::lepton::lepton_to_cell(impact.x).clamp(0, i32::from(u16::MAX)) as u16;
+    let ry = crate::util::lepton::lepton_to_cell(impact.y).clamp(0, i32::from(u16::MAX)) as u16;
+    (
+        rx,
+        ry,
+        SimFixed::from_num(impact.x.rem_euclid(256)),
+        SimFixed::from_num(impact.y.rem_euclid(256)),
+        impact.z,
+    )
 }
 
 #[cfg(test)]

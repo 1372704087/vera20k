@@ -1819,17 +1819,18 @@ impl Simulation {
                     }
                     let (foundation_w, foundation_h) =
                         crate::rules::foundation::foundation_dimensions(&object.foundation);
-                    Some(crate::sim::combat::DestroyedGarrisonBuilding {
-                        building_id: stable_id,
-                        type_id: entity.type_ref(),
-                        owner: entity.owner(),
-                        rx: entity.position.rx,
-                        ry: entity.position.ry,
-                        z: entity.position.z,
-                        foundation_w,
-                        foundation_h,
-                        passenger_ids,
-                    })
+                    Some(
+                        crate::sim::passenger::garrison_eject::DestroyedGarrisonBuilding {
+                            building_id: stable_id,
+                            owner: entity.owner(),
+                            rx: entity.position.rx,
+                            ry: entity.position.ry,
+                            z: entity.position.z,
+                            foundation_w,
+                            foundation_h,
+                            passenger_ids,
+                        },
+                    )
                 });
                 // An absorbing building's passengers leave through
                 // SpawnSurvivors' Phase A; its KillPassengers (`0x00441F27`)

@@ -81,7 +81,7 @@ cover. `IniSection::read_double` documents VERA's choice for that case.
   (`ini_value::PERCENT_SCALE`). `rules/read_double_percent_tests.rs` replays
   every reader row, and replays the retail tokens through
   `IniSection::read_double` as well.
-- `sim::combat::infantry_prone_area_raw_damage` owns the prone head.
+- `sim::combat::receiver_call::infantry_prone_raw_damage` owns the prone head.
   `sim/combat/prone_damage_tests.rs` replays every prone row through
   `WarheadType::from_ini_section`. With the retail `rulesmd.ini`, it also
   checks that each of the 58 allocated warheads that set ProneDamage reads

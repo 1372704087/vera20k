@@ -2838,8 +2838,8 @@ impl Simulation {
                     entity.category,
                     entity.destruction_recorded,
                     // A Temporal erase leaves at full health with its kill
-                    // already booked (`combat::record_kill_credit`); a
-                    // crashing infantryman falls at Health 1 (`0x0051BC57`)
+                    // already booked (`combat::record_kill::record_kill_credit`);
+                    // a crashing infantryman falls at Health 1 (`0x0051BC57`)
                     // after the kill that booked its loss.
                     entity.health.current == 0 || entity.killed_by.is_some() || entity.crashing,
                     entity.dont_score,
@@ -2880,8 +2880,8 @@ impl Simulation {
     /// and virtual Destroy/reference notification before TechnoClass arms the
     /// timer and restores Alive/Health=1. This deliberately does not call
     /// UnInit, Limbo, record the destruction, or enqueue physical deletion.
-    /// The kill callback ([`crate::sim::combat::record_the_kill`]) has already
-    /// booked its House statistics before these Destroy callbacks.
+    /// The kill callback ([`crate::sim::combat::record_kill::record_the_kill`])
+    /// has already booked its House statistics before these Destroy callbacks.
     pub(crate) fn postmortem_exact_zero_callbacks(
         &mut self,
         stable_id: u64,

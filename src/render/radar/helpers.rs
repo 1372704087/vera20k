@@ -14,8 +14,8 @@ use crate::sim::intern::InternedId;
 use crate::sim::vision::FogState;
 use std::collections::HashMap;
 
+use super::geometry::{RADAR_APERTURE_HEIGHT, RADAR_APERTURE_WIDTH};
 use super::minimap::{MinimapCellRadarSource, MinimapOverlayDatum};
-use super::native_radar_surface::{RADAR_APERTURE_HEIGHT, RADAR_APERTURE_WIDTH};
 
 pub(super) const MINIMAP_WIDTH: u32 = RADAR_APERTURE_WIDTH;
 pub(super) const MINIMAP_HEIGHT: u32 = RADAR_APERTURE_HEIGHT;
@@ -334,8 +334,9 @@ pub(super) fn owner_dot_color(
     // Unknown owner → NO_REMAP, which ramp() resolves to the default scheme
     // (matching the producers' DEFAULT_SCHEME_ENTRY fallback), not entry 0.
     let index: HouseColorIndex = house_colors.get(owner).copied().unwrap_or(NO_REMAP);
-    let [r, g, b] = super::palette_light::house_color_rgb(ramps, index);
-    super::native_surface_format::ACTIVE_RETAIL_RGB565_PRESENTATION.quantize_rgba8([r, g, b, 255])
+    let [r, g, b] = crate::render::palette_light::house_color_rgb(ramps, index);
+    crate::render::native_surface_format::ACTIVE_RETAIL_RGB565_PRESENTATION
+        .quantize_rgba8([r, g, b, 255])
 }
 
 /// Get the terrain color for a pixel based on fog-of-war visibility.
@@ -425,9 +426,7 @@ pub(super) fn surface_visibility_color(
         return Some(COLOR_SHROUD);
     }
     if fog.is_cell_gap_fog(local_owner, pixel.rx, pixel.ry) {
-        return Some(super::native_radar_terrain::half_bright_rgb565(
-            pixel.packed_rgb565,
-        ));
+        return Some(super::terrain::half_bright_rgb565(pixel.packed_rgb565));
     }
     fog.is_cell_revealed(local_owner, pixel.rx, pixel.ry)
         .then_some(pixel.color)

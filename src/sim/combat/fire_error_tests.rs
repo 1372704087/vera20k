@@ -474,6 +474,28 @@ impl FireQuery for RowQuery<'_> {
     }
 }
 
+/// One resolved row through the port: its code and query log.
+fn evaluate(input: &Value) -> (i32, Vec<&'static str>) {
+    let facts = facts(input);
+    let mut query = RowQuery {
+        input,
+        weapons: input["weapons"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|slot| weapon(slot, input))
+            .collect(),
+        calls: Vec::new(),
+    };
+    // T61 reads only the low byte of `check_range`.
+    let check_range = match &input["check_range"] {
+        Value::Bool(flag) => *flag,
+        value => value.as_i64().unwrap() & 0xFF != 0,
+    };
+    let code = get_fire_error(&facts, &mut query, check_range) as i32;
+    (code, query.calls)
+}
+
 /// `tools/spatial_oracle/fire_error.json`: the original class entries run
 /// with each row's fields, the substituted queries logged in call order.
 /// Every row's code and query log must match. Building GetWeapon's own
@@ -491,23 +513,7 @@ fn original_fire_error_rows() {
     let mut failures = Vec::new();
     for row in rows {
         let input = resolve(&corpus["defaults"], &row["input"]);
-        let facts = facts(&input);
-        let mut query = RowQuery {
-            input: &input,
-            weapons: input["weapons"]
-                .as_array()
-                .unwrap()
-                .iter()
-                .map(|slot| weapon(slot, &input))
-                .collect(),
-            calls: Vec::new(),
-        };
-        // T61 reads only the low byte of `check_range`.
-        let check_range = match &input["check_range"] {
-            Value::Bool(flag) => *flag,
-            value => value.as_i64().unwrap() & 0xFF != 0,
-        };
-        let code = get_fire_error(&facts, &mut query, check_range) as i32;
+        let (code, calls) = evaluate(&input);
         let native_calls: Vec<&str> = row["calls"]
             .as_array()
             .unwrap()
@@ -515,10 +521,10 @@ fn original_fire_error_rows() {
             .map(|call| call.as_str().unwrap())
             .filter(|call| *call != "occupants_via_get_weapon")
             .collect();
-        if code != int(&row["code"]) || query.calls != native_calls {
+        if code != int(&row["code"]) || calls != native_calls {
             failures.push(format!(
                 "{}: code {} vs native {}, calls {:?} vs native {:?}",
-                row["input"]["name"], code, row["code"], query.calls, native_calls
+                row["input"]["name"], code, row["code"], calls, native_calls
             ));
         }
     }
@@ -529,6 +535,45 @@ fn original_fire_error_rows() {
         rows.len(),
         failures.join("\n")
     );
+}
+
+/// `tools/spatial_oracle/aircraft_attack_release.json` runs the original's
+/// Ammo check (T47, `0x006FCA0D`) alone over signed counts. Each count, put
+/// in the otherwise passing `T47.twin.ammo_1.aircraft` row, answers the
+/// `T47.no_ammo.aircraft` code where the original blocks and the twin's code
+/// elsewhere.
+#[test]
+fn original_signed_ammo_check() {
+    let corpus: Value = serde_json::from_str(crate::test_fixture::text(
+        "tools/spatial_oracle/fire_error.json",
+    ))
+    .unwrap();
+    let row = |name: &str| {
+        corpus["rows"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|row| row["input"]["name"] == name)
+            .unwrap()
+    };
+    let twin = row("T47.twin.ammo_1.aircraft");
+    let blocked_code = int(&row("T47.no_ammo.aircraft")["code"]);
+    let release: Value = serde_json::from_str(crate::test_fixture::text(
+        "tools/spatial_oracle/aircraft_attack_release.json",
+    ))
+    .unwrap();
+    let counts = release["fire_error_ammo"].as_array().unwrap();
+    assert_eq!(counts.len(), 7);
+    for count in counts {
+        let mut input = resolve(&corpus["defaults"], &twin["input"]);
+        input["firer"]["ammo"] = count["ammo"].clone();
+        let expected = if count["blocked"].as_bool().unwrap() {
+            blocked_code
+        } else {
+            int(&twin["code"])
+        };
+        assert_eq!(evaluate(&input).0, expected, "{count}");
+    }
 }
 
 /// Retail `rulesmd.ini` through the production reader: the type flags and the

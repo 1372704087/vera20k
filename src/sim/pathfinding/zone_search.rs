@@ -79,6 +79,8 @@
 //! - Part of sim/ — depends on sim/zone_map, sim/pathfinding, sim/locomotor.
 //! - sim/ NEVER depends on render/, ui/, audio/, net/.
 
+pub(crate) mod native_path_entry;
+
 use std::collections::BTreeSet;
 
 use super::{BlockerNeighborCounts, LayeredEntityBlockMap, MoverSearchFacts, SearchMarkerOverlay};
@@ -95,8 +97,9 @@ use super::{
 use crate::map::resolved_terrain::ResolvedTerrainGrid;
 use crate::map::tube_facts::TubeSource;
 use crate::rules::locomotor_type::MovementZone;
-use crate::sim::cell_rect::{PlayfieldBounds, cell_is_in_playfield_height_aware};
+use crate::sim::cell_rect::PlayfieldBounds;
 use crate::sim::movement::locomotor::MovementLayer;
+use native_path_entry::{NativePathEntry, prepare_native_path_entry};
 
 /// Provenance of a returned path failure. The Foot wrapper must not turn
 /// unavailable caches or compatibility-only rejection into a native core NULL.
@@ -205,7 +208,6 @@ fn native_path_zone_equality(
     )
 }
 
-include!("native_path_entry.rs");
 
 /// The level-0 corridor a passed `Zone_precheck` hands the cell A*
 /// (`AStar_main_loop @ 0x00429A90`'s last argument, `allowHS`).

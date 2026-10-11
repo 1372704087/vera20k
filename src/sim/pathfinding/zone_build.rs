@@ -7,11 +7,13 @@
 //! - Part of sim/ — depends on sim/pathfinding, sim/terrain_cost, sim/locomotor.
 //! - sim/ NEVER depends on render/, ui/, audio/, net/.
 
+pub(crate) mod hierarchy;
+
 use std::collections::VecDeque;
 
 use super::PathGrid;
 use super::passability;
-use super::zone_hierarchy::{ZoneEdgeRecord, ZoneHierarchy, ZoneLevelGraph, ZoneRecord};
+use super::zone_hierarchy::{ZoneEdgeRecord, ZoneLevelGraph};
 use super::zone_map::{ZONE_INVALID, ZoneId, ZoneMap};
 use crate::map::resolved_terrain::{ResolvedTerrainGrid, zone_class};
 use crate::rules::locomotor_type::MovementZone;
@@ -200,15 +202,6 @@ pub(crate) fn rebuild_base_zone_topology(
         raw_zone_ids_by_row,
     }
 }
-
-// Build the one three-level hierarchy shared by every MovementZone row.
-//
-// `BuildZoneLevel` constructs levels coarse-to-fine (2, 1, 0), and
-// `FloodFillScanline` partitions each level by copied base-node
-// identity inside aligned blocks. This is deliberately separate from the base
-// topology flood fill: its height thresholds, scan history, fringe flags, and
-// temporary-edge ordering differ.
-include!("hierarchy_build.rs");
 
 /// Project the shared base topology through one exact MovementZone matrix row.
 pub(crate) fn build_zone_map_from_base_topology(
@@ -832,6 +825,8 @@ pub(crate) use tests::{
 
 #[cfg(test)]
 mod tests {
+    use super::hierarchy::*;
+    use crate::sim::pathfinding::zone_hierarchy::{ZoneHierarchy, ZoneRecord};
     include!("bridge_hierarchy_native_tests.rs");
     include!("tube_hierarchy_native_tests.rs");
     use super::*;
@@ -854,7 +849,7 @@ mod tests {
             i32::from(query.0 as i16),
             i32::from(query.1 as i16),
         );
-        crate::sim::pathfinding::zone_search::live_hierarchy_projection(
+        crate::sim::pathfinding::zone_search::native_path_entry::live_hierarchy_projection(
             terrain, records, &cell, enabled, None,
         )
         .expect("fixture has an addressable terminating projection")

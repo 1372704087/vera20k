@@ -17,6 +17,7 @@
 //! - sim/ NEVER depends on render/, ui/, audio/, net/.
 
 mod departure;
+pub(crate) mod garrison_eject;
 pub(crate) use departure::{
     DepartureFailure, DepartureRoute, depart_cargo_head, reveal_unloaded_passenger,
 };
@@ -639,6 +640,29 @@ fn process_boarding_passenger(
         if sim.techno_limbo_with_context(pax_id, context) != ConcealOutcome::Concealed {
             return;
         }
+        // PerCellProcess clears OnBridge in both Unit arms (`0x0073A297`,
+        // `0x0073A6F5`) and the Infantry transport arm (`0x0051A407`), not the
+        // Infantry building arm (`0x0051A27F..`), so a transport's passenger
+        // leaves on the ground.
+        //
+        // RESIDUAL: native clears it before Limbo (`0x0051A441`), whose
+        // Pick_Up unlinks from the list OnBridge names (`0x005687F0` ->
+        // RemoveContent `0x0047EA90`), so a passenger boarding from a cell's
+        // bridge list stays linked there. VERA clears it after Limbo, which
+        // unlinks it. Trigger: boarding with OnBridge set, from a bridge deck
+        // or as a trooper Paradrop refused over a bridge. Effect: native
+        // leaves the passenger in that cell's bridge list. Frequency: rare.
+        // Risk: a later pass over that list meets the passenger.
+        let building_arm = sim
+            .substrate
+            .entities
+            .get(transport_id)
+            .is_some_and(|transport| transport.category == EntityCategory::Structure);
+        if let Some(pax) = sim.substrate.entities.get_mut(pax_id)
+            && !(building_arm && pax.category == EntityCategory::Infantry)
+        {
+            pax.on_bridge = false;
+        }
         let boarded = sim
             .substrate
             .entities
@@ -728,10 +752,6 @@ fn process_boarding_passenger(
             // their spot, under half a cell apart. Frequency: every boarding.
             // Risk: a target at the edge of a parked rider's reach is in range
             // one frame early or late.
-            //
-            // RESIDUAL: native clears OnBridge (`+0x8C`, `0x0051A407`) on
-            // every boarding; VERA keeps the boarding value because its unload
-            // Reveal reads it to place the passenger on a bridge deck.
             if let Some(position) = sim
                 .substrate
                 .entities
@@ -918,7 +938,7 @@ pub(crate) fn reconcile_civilian_garrison_owner_for_building(
         object.strength,
         rules.general.condition_red,
     ) {
-        crate::sim::production::sell_building_occupants(sim, rules, registry, building_id, effects);
+        garrison_eject::sell_building_occupants(sim, rules, registry, building_id, effects);
     }
     //458265/4582F2 re-read the live vector after ejection.
     let Some(building) = sim.substrate.entities.get(building_id) else {
@@ -1850,6 +1870,57 @@ ConditionYellow=50%
         sim.debug_assert_logic_membership_consistent();
     }
 
+    /// PerCellProcess clears OnBridge when infantry boards a transport
+    /// (`0x0051A407`) and when a unit boards (`0x0073A297`, `0x0073A6F5`);
+    /// its infantry building arm (`0x0051A27F..`) keeps it. A trooper that
+    /// Paradrop refused over a bridge boards with it set.
+    #[test]
+    fn boarding_a_transport_clears_on_bridge_and_a_garrison_keeps_it() {
+        // The passenger's category picks the arm; E1 is the fixture's Size 1
+        // type for both.
+        let board = |category: EntityCategory| {
+            let rules = open_topped_test_rules();
+            let mut sim = Simulation::new();
+            let transport = spawn_transport(&mut sim, &rules, "BFRT", "Americans", 10, 10);
+            let rider =
+                spawn_boarding_occupier(&mut sim, &rules, "E1", "Americans", transport, 10, 11);
+            let entity = sim.substrate.entities.get_mut(rider).unwrap();
+            entity.category = category;
+            entity.on_bridge = true;
+            tick_passenger_system(
+                &mut sim,
+                &rules,
+                None,
+                crate::sim::world::FrameEffects::default(),
+            );
+            let entity = sim.substrate.entities.get(rider).unwrap();
+            assert!(matches!(
+                entity.passenger_role,
+                PassengerRole::Inside { transport_id, .. } if transport_id == transport
+            ));
+            entity.on_bridge
+        };
+        assert!(!board(EntityCategory::Infantry));
+        assert!(!board(EntityCategory::Unit));
+
+        let rules = garrison_test_rules();
+        let mut sim = Simulation::new();
+        let building = spawn_garrison_building(&mut sim, &rules, "CAGAS01", "Neutral", 10, 10);
+        let occupant =
+            spawn_boarding_occupier(&mut sim, &rules, "E1", "Americans", building, 10, 10);
+        sim.substrate.entities.get_mut(occupant).unwrap().on_bridge = true;
+        tick_boarding(&mut sim, &rules);
+        let occupant = sim.substrate.entities.get(occupant).unwrap();
+        assert!(matches!(
+            occupant.passenger_role,
+            PassengerRole::Inside { .. }
+        ));
+        assert!(
+            occupant.on_bridge,
+            "the infantry building arm keeps OnBridge"
+        );
+    }
+
     /// Ejecting a garrison occupant reveals it: it re-enters the active order.
     #[test]
     fn garrison_eject_reveals_passenger_into_active_order() {
@@ -2560,7 +2631,7 @@ ConditionYellow=50%
             }
         };
         let survivor_ids = event.passenger_ids.clone();
-        crate::sim::production::eject_destruction_garrison(sim, rules, &event);
+        super::garrison_eject::eject_destruction_garrison(sim, rules, &event);
         sim.uninit(building_id);
         sim.process_pending_delete();
         survivor_ids

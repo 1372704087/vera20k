@@ -10,7 +10,7 @@ The [Jumpjet owner](../../../src/sim/movement/jumpjet_movement.rs) keeps its six
 instance fields private and owns the nested flight kernel. The
 [world host](../../../src/sim/world/jumpjet_cruise.rs) delegates through that
 instance instead of recording effects for later replay or committing individual
-fields from an older copy. [Foot air ownership](../../../src/sim/movement/foot_air.rs)
+fields from an older copy. [Foot air ownership](../../../src/sim/game_entity/foot_air.rs)
 keeps independent native `+560` tracker and `+564` slot caches, spatial enter
 order, Cell slot notification and selected destruction cleanup. Same-bucket
 crossing updates the cached cell while retaining list order. Slot replacement

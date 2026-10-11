@@ -1,6 +1,6 @@
 //! Tests for the zone map: native base topology, row projection and repair.
 
-use super::zone_build::{
+use super::zone_build::hierarchy::{
     LocalHierarchyPatchResult, incremental_rebuild_zone_hierarchy_around_cell,
 };
 use super::zone_hierarchy::{ZoneEdgeRecord, ZoneHierarchy, ZoneLevelGraph, ZoneRecord};

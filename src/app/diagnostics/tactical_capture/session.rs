@@ -33,7 +33,7 @@ use crate::app::frontend::launch::TacticalCaptureRequest;
 use crate::app::match_bootstrap::{MatchSeedClock, MatchSeedSource, StartupSessionClassification};
 use crate::app::presentation::render::GameRenderOutput;
 use crate::app::types::{CursorId, SIM_TICK_MS};
-use crate::render::radar_anim::RadarAnimPhase;
+use crate::render::radar::anim::RadarAnimPhase;
 use crate::render::sidebar_chrome::SidebarTheme;
 use crate::sim::command::Command;
 use crate::sim::house_state::HouseDifficulty;

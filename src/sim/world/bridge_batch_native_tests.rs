@@ -1,8 +1,8 @@
 // Actual LivePublication callbacks against original586990 +47D2B0 snapshots.
 // Supplied retained planes/Cells match the native corpus; no Recalc substitution.
+use crate::sim::pathfinding::zone_build::hierarchy::build_zone_hierarchy_with_query;
 use crate::sim::pathfinding::zone_build::{
-    assert_native_hierarchy_graphs, build_zone_hierarchy_with_query, hierarchy_native_bounds,
-    hierarchy_native_fixture,
+    assert_native_hierarchy_graphs, hierarchy_native_bounds, hierarchy_native_fixture,
 };
 
 struct BatchTrace<'a, 'world> {

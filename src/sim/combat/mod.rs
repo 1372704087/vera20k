@@ -22,7 +22,6 @@ pub(crate) mod base_defense_response;
 pub mod burst;
 pub(crate) mod cell_spread;
 pub(crate) mod combat_aoe;
-pub(crate) mod combat_fire_gate;
 pub(crate) mod combat_targeting;
 pub(crate) mod combat_weapon;
 pub(crate) mod damage;
@@ -62,6 +61,7 @@ mod threat_posed;
 pub(crate) use threat_posed::live_threat_posed;
 pub(crate) mod threat_range;
 pub(crate) mod veterancy;
+pub(crate) mod world_fire;
 pub(crate) mod world_receiver;
 
 #[cfg(test)]

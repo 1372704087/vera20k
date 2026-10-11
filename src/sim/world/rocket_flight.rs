@@ -173,7 +173,7 @@ impl RocketHost for RocketProcessHost<'_> {
         let cells = NativeCellQuery::canonical(terrain);
         let [x, y, _] = self.location();
         let cell = cells.lookup_world(x, y);
-        if cells.flags(cell) & 0x100 == 0 {
+        if cells.flags(cell) & crate::map::bridge_facts::BRIDGE_FLAG_STRUCTURAL == 0 {
             return None;
         }
         crate::sim::cell_kernel::native_cell_own_coords(cell, &cells).map(|(_, _, z)| z as i32)

@@ -14,9 +14,9 @@ use crate::rules::ruleset::RuleSet;
 use crate::sim::intern::InternedId;
 use crate::sim::vision::FogState;
 
-use super::minimap_helpers::owner_dot_color;
-use super::native_radar_surface::NativeRadarSurfaceGeometry;
-use super::radar_visibility::{RadarRegistrationVisibilityFacts, radar_owner_is_human_player};
+use super::geometry::NativeRadarSurfaceGeometry;
+use super::helpers::owner_dot_color;
+use super::visibility::{RadarRegistrationVisibilityFacts, radar_owner_is_human_player};
 
 const TRACKER_BUCKET_COUNT: usize = 256;
 
@@ -111,8 +111,8 @@ pub(super) fn radar_entity_owner_color(
         // directly. Constructor68C769..68C7DC writes palette index16 there;
         // the admitted pixel suffix stores WORD0010, not that scheme's RGB.
         // Executed source/pixel controls: spatial_oracle/mirage_disguise.json.
-        let rgb = super::native_surface_format::RGB565.unpack_rgb8(16);
-        return super::native_surface_format::ACTIVE_RETAIL_RGB565_PRESENTATION
+        let rgb = crate::render::native_surface_format::RGB565.unpack_rgb8(16);
+        return crate::render::native_surface_format::ACTIVE_RETAIL_RGB565_PRESENTATION
             .quantize_rgba8([rgb[0], rgb[1], rgb[2], 255]);
     };
     let owner_str = interner.map_or("", |interner| interner.resolve(color_owner));
@@ -504,7 +504,7 @@ pub(super) fn radar_foundation_brush(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::render::radar_visibility::RadarMobileVisibilityFacts;
+    use crate::render::radar::visibility::RadarMobileVisibilityFacts;
     use crate::sim::intern::test_intern;
 
     fn visible_mobile_facts() -> RadarMobileVisibilityFacts {

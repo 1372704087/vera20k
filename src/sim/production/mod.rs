@@ -58,14 +58,13 @@ pub(crate) use self::production_repair::{
     can_repair_building, engineer_repair, repair_step_cost, update_repair_and_power,
 };
 pub(crate) use self::production_sell::sell_back;
+#[cfg(test)]
+pub(crate) use self::production_sell::sell_building_now_for_test;
 pub use self::production_sell::{SellOrder, can_sell_building};
 pub(crate) use self::production_sell::{
-    archive_less_sale, begin_selling, eject_destruction_garrison_with_context,
-    sell_building_occupants, sell_complete, sell_stage_one, sell_stage_zero, type_refund,
+    archive_less_sale, begin_selling, sell_complete, sell_stage_one, sell_stage_zero, type_refund,
     undeploy_target,
 };
-#[cfg(test)]
-pub(crate) use self::production_sell::{eject_destruction_garrison, sell_building_now_for_test};
 pub(crate) use self::production_tech::all_build_options_for_owner;
 pub use self::production_tech::{
     building_base_foundation_cells, building_movement_blocking_cells, is_matching_factory,

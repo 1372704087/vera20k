@@ -12,8 +12,8 @@ use crate::sim::combat::veterancy::{has_weapon_ability, rank_of};
 use crate::sim::intern::InternedId;
 use crate::sim::vision::FogState;
 
-use super::minimap_helpers::{parse_foundation_size, world_to_minimap_pixel};
-use super::radar_tracker::{RadarObjectUpdate, RadarProjectionFacts};
+use super::helpers::{parse_foundation_size, world_to_minimap_pixel};
+use super::tracker::{RadarObjectUpdate, RadarProjectionFacts};
 
 pub(super) fn radar_owner_is_human_player(
     owner: InternedId,
@@ -283,7 +283,7 @@ pub(super) fn build_radar_object_update(
     let [raw_x, raw_y] = crate::sim::movement::ground_pose::position_world_xy(&entity.position);
     let origin = projection.native_surface.map_or_else(
         || {
-            let (screen_x, screen_y) = super::locomotor_visual::screen_position(entity);
+            let (screen_x, screen_y) = crate::render::locomotor_visual::screen_position(entity);
             let screen_y = screen_y - crate::map::terrain::TILE_HEIGHT / 2.0;
             let (x, y) = world_to_minimap_pixel(
                 screen_x,
@@ -407,7 +407,7 @@ pub(super) fn build_radar_object_update(
 }
 
 #[cfg(test)]
-#[path = "radar_visibility_lifecycle_tests.rs"]
+#[path = "visibility_lifecycle_tests.rs"]
 mod lifecycle_tests;
 
 #[cfg(test)]
@@ -499,11 +499,10 @@ mod tests {
 
     #[test]
     fn radar_object_update_uses_native_world_projection_shared_with_cell_events() {
-        let surface =
-            crate::render::native_radar_surface::NativeRadarSurfaceGeometry::from_raw_rect(
-                0, 0, 300, 180,
-            )
-            .expect("wide generated surface");
+        let surface = crate::render::radar::geometry::NativeRadarSurfaceGeometry::from_raw_rect(
+            0, 0, 300, 180,
+        )
+        .expect("wide generated surface");
         let mut entity =
             crate::sim::game_entity::GameEntity::test_default(1, "MTNK", "Enemy", 120, 30);
         entity.position.sub_x = crate::util::fixed_math::SimFixed::from_num(0);
@@ -563,7 +562,7 @@ mod tests {
                 None,
             )
         };
-        let mut tracker = super::super::radar_tracker::RetainedRadarTracker::default();
+        let mut tracker = super::super::tracker::RetainedRadarTracker::default();
         tracker.update_object(update(&sim), false);
         assert!(tracker.is_registered(id));
         sim.begin_ship_sinking(id, &rules, crate::sim::world::FrameEffects::default());

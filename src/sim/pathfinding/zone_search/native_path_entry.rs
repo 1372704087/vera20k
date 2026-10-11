@@ -1,13 +1,21 @@
 // Active42C927..42CB22 entry order and583180/5835D0 projection.
 // Evidence: PHASE3_TUBE_HIERARCHY_20260910.md; bounded native prefix oracle.
-use crate::sim::cell_rect::{CellRef, get_cellclass_fallback};
+use std::collections::BTreeSet;
 
-struct NativePathEntry {
-    raw_equal: Option<bool>,
-    goal_bridge: bool,
-    hierarchy_start: (u16, u16),
-    hierarchy_goal: (u16, u16),
-    endpoints_in_playfield: bool,
+use crate::map::resolved_terrain::ResolvedTerrainGrid;
+use crate::rules::locomotor_type::MovementZone;
+use crate::sim::cell_rect::{
+    CellRef, PlayfieldBounds, cell_is_in_playfield_height_aware, get_cellclass_fallback,
+};
+use crate::sim::pathfinding::zone_build;
+use crate::sim::pathfinding::zone_map::ZoneGrid;
+
+pub(super) struct NativePathEntry {
+    pub(super) raw_equal: Option<bool>,
+    pub(super) goal_bridge: bool,
+    pub(super) hierarchy_start: (u16, u16),
+    pub(super) hierarchy_goal: (u16, u16),
+    pub(super) endpoints_in_playfield: bool,
 }
 
 // Projection also reads real Cell.Flags800, outside the narrower1180
@@ -120,8 +128,8 @@ fn live_no_record_projection(
     let mut selected = if positive_inside { pc } else { (0, 0) };
     if negative_inside
         && (selected == (0, 0)
-            || super::zone_build::native_packed_cell_distance(live_cell_coord(original), pc)
-                > super::zone_build::native_packed_cell_distance(live_cell_coord(original), nc))
+            || zone_build::native_packed_cell_distance(live_cell_coord(original), pc)
+                > zone_build::native_packed_cell_distance(live_cell_coord(original), nc))
     {
         selected = nc;
     }
@@ -144,7 +152,7 @@ pub(crate) fn live_hierarchy_projection(
     if !enabled || flags & 0x100 == 0 {
         return Ok(c);
     }
-    let Some(record) = super::zone_build::find_high_bridge_record(records, 0, c, 2) else {
+    let Some(record) = zone_build::find_high_bridge_record(records, 0, c, 2) else {
         return live_no_record_projection(terrain, original, bounds);
     };
     let offset = if flags & 0x800 != 0 {
@@ -157,8 +165,8 @@ pub(crate) fn live_hierarchy_projection(
         let a = project(record.endpoint_a);
         let b = project(record.endpoint_b);
         return Ok(
-            if super::zone_build::native_packed_cell_distance(c, a)
-                < super::zone_build::native_packed_cell_distance(c, b)
+            if zone_build::native_packed_cell_distance(c, a)
+                < zone_build::native_packed_cell_distance(c, b)
             {
                 a
             } else {
@@ -187,7 +195,7 @@ pub(crate) fn live_hierarchy_projection(
 }
 
 #[allow(clippy::too_many_arguments)]
-fn prepare_native_path_entry(
+pub(super) fn prepare_native_path_entry(
     zones: Option<&ZoneGrid>,
     terrain: Option<&ResolvedTerrainGrid>,
     movement: MovementZone,

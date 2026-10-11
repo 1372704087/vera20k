@@ -3,7 +3,7 @@
 use super::*;
 use crate::rules::ini_parser::IniSection;
 use crate::rules::object_type::ObjectCategory;
-use crate::sim::combat::world_receiver::fireat_rearm_frames;
+use crate::sim::combat::world_fire::fireat_rearm_frames;
 use crate::sim::timer::CdTimer;
 use serde_json::Value;
 

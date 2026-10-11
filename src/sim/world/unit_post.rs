@@ -1,6 +1,6 @@
 //! The write half of UnitClass's live post-Foot Facing slot.
 //!
-//! `combat::world_receiver::visit_fire` reads and writes this slot
+//! `combat::world_fire::visit_fire` reads and writes this slot
 //! immediately after the same Unit's Fire_At_Target (`7365E1`, `7365E8`),
 //! before the second Ready/Commence checkpoint and the next Logic object.
 //! The current target and selected weapon are read after FireAt's mutations;

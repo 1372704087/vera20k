@@ -226,6 +226,18 @@ mod tests {
     }
 
     #[test]
+    fn rgb565_pack_and_unpack_match_local_active_directdraw_format() {
+        assert_eq!(RGB565.pack_rgb8([255, 255, 255]), 0xffff);
+        assert_eq!(RGB565.pack_rgb8([255, 0, 0]), 0xf800);
+        assert_eq!(RGB565.pack_rgb8([0, 255, 0]), 0x07e0);
+        assert_eq!(RGB565.pack_rgb8([0, 0, 255]), 0x001f);
+        assert_eq!(
+            RGB565.unpack_rgb8(RGB565.pack_rgb8([77, 88, 99])),
+            [72, 88, 96]
+        );
+    }
+
+    #[test]
     fn rgb565_storage_roundtrip_zero_fills_discarded_channel_bits() {
         assert_eq!(
             ACTIVE_RETAIL_RGB565_PRESENTATION.storage_roundtrip_rgb8([17, 101, 249]),

@@ -7,6 +7,7 @@ points; the exhaustive oracle/tool inventory remains tracked in issue #746.
 
 | Job | Owner / entry point |
 | --- | --- |
+| Give a new worktree its ignored `ini/` and `config.toml`, or a clone its `config.toml`; report what the game, retail tests and oracles still need | `python -m tools.prepare_checkout` |
 | Run all Python tool and source-skill tests | `python -m tools.run_tests` (below) |
 | Inspect scenario ART ownership, native checks and retail load validation | [ART registry owner](art_registry_owner.md) |
 | Inspect process audio definitions, sample sources and retention evidence | [Process audio catalog owner](audio_catalog_owner.md), `asset sound` |
@@ -102,8 +103,8 @@ The first build compiles dependencies into this namespace, costing time and disk
 subsequent builds reuse it. Existing shared caches are neither deleted nor trusted.
 `--target-dir`, `--manifest-path`, `--config` and `--message-format` are reserved
 by the runner. Other Cargo/test arguments and the caller's environment pass through.
-Tests must select `--lib`. Confirm ignored `ini/`, config and retail assets in a new
-worktree as usual; the runner does not copy them from someone else's checkout.
+Tests must select `--lib`. The runner does not give a new worktree the ignored `ini/`
+and `config.toml`; `python -m tools.prepare_checkout` does.
 
 A label preserves every executable reported by **that Cargo invocation**, including
 fresh cache hits, under `<git-common-dir>/owned-builds/artifacts/<label>`.
@@ -303,9 +304,10 @@ folders without `__init__.py`; it excludes generated `.claude` mirrors and the
 machine-local `ghidra-up` skill. It prints every module and its test count, fails
 on import errors or empty test modules, and propagates test failures. Focus a
 module with ordinary `python -m unittest <module> -v` when investigating a failure.
-The same complete synthetic suite and skill-mirror check run on Linux, macOS and
-Windows for every PR and push to main. No Cargo, game executable, GPU or retail
-install is needed; Unicorn exercises synthetic x86 in the runner failure tests.
+Agents run it before every PR that changes tools or skills (AGENTS.md). The
+`python-tools` workflow runs the same suite and the skill-mirror check on Linux,
+macOS and Windows when a maintainer dispatches it. No Cargo, game executable, GPU
+or retail install is needed; Unicorn exercises synthetic x86 in the runner failure tests.
 This protects native execution contracts; it does not reproduce retail goldens.
 
 Two existing checks require private sealed evidence and are explicitly skipped

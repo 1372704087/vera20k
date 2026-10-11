@@ -33,33 +33,29 @@ use crate::sim::intern::InternedId;
 use crate::sim::vision::FogState;
 use std::collections::{BTreeMap, HashMap};
 
-use super::current_radar_cell::CurrentRadarCellAuthority;
-pub(crate) use super::minimap_helpers::minimap_overlay_datum;
-use super::minimap_helpers::{
+use super::current_cell::CurrentRadarCellAuthority;
+use super::events::{ClientRadarEvents, RadarEventSource};
+use super::geometry::NativeRadarSurfaceGeometry;
+pub(crate) use super::helpers::minimap_overlay_datum;
+use super::helpers::{
     COLOR_SHROUD, MINIMAP_DEPTH, MINIMAP_HEIGHT, MINIMAP_WIDTH, RadarSurfacePixel,
     cell_visibility_color, dim_color, set_pixel, surface_visibility_color,
 };
-pub use super::minimap_helpers::{OverlayClassification, default_minimap_rect};
-use super::minimap_helpers::{OverlayPixel, TerrainPixel};
+pub use super::helpers::{OverlayClassification, default_minimap_rect};
+use super::helpers::{OverlayPixel, TerrainPixel};
 #[cfg(test)]
-use super::minimap_projection::minimap_screen_point_to_camera_top_left;
-use super::minimap_projection::{
-    MinimapPlayfieldProjection, aperture_pixel, generated_primary_copy_frame,
-};
-use super::native_radar_surface::NativeRadarSurfaceGeometry;
-use super::native_radar_terrain::NativeRadarTerrainSurface;
-use super::native_radar_viewport::NativeRadarViewportState;
-use super::radar_events::{ClientRadarEvents, RadarEventSource};
-use super::radar_terrain_updates::{
-    RadarTerrainUpdateLayers, stage_radar_terrain_dirty_generation,
-};
+use super::projection::minimap_screen_point_to_camera_top_left;
+use super::projection::{MinimapPlayfieldProjection, aperture_pixel, generated_primary_copy_frame};
+use super::terrain::NativeRadarTerrainSurface;
+use super::terrain_updates::{RadarTerrainUpdateLayers, stage_radar_terrain_dirty_generation};
 #[cfg(test)]
-use super::radar_tracker::RadarTrackerEntry;
-use super::radar_tracker::{
+use super::tracker::RadarTrackerEntry;
+use super::tracker::{
     RadarProjectionFacts, RetainedRadarTracker, radar_entity_owner_color,
     radar_pixel_candidate_eligible,
 };
-use super::radar_visibility::build_radar_object_update;
+use super::viewport::NativeRadarViewportState;
+use super::visibility::build_radar_object_update;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum MinimapCellRadarSource {
@@ -214,7 +210,7 @@ impl MinimapRenderer {
             map_pixel_h: projection.map_pixel_h,
             native_radar_surface: projection.native_radar_surface,
             native_radar_terrain: projection.native_radar_terrain,
-            structural_bridge_radar_color: super::minimap_helpers::structural_bridge_radar_color(
+            structural_bridge_radar_color: super::helpers::structural_bridge_radar_color(
                 overlay_radar_colors,
             ),
             last_sim_tick: u64::MAX,
@@ -286,7 +282,7 @@ impl MinimapRenderer {
         self.native_radar_surface = projection.native_radar_surface;
         self.native_radar_terrain = projection.native_radar_terrain;
         self.structural_bridge_radar_color =
-            super::minimap_helpers::structural_bridge_radar_color(overlay_radar_colors);
+            super::helpers::structural_bridge_radar_color(overlay_radar_colors);
         self.playfield_bounds = playfield_bounds;
         self.installed_playfield_authority = Some(authority);
         self.rgba_scratch.resize(self.base_terrain_rgba.len(), 0);
@@ -670,7 +666,7 @@ impl MinimapRenderer {
 
     fn create_enemy_sensed_event(
         &mut self,
-        event: super::radar_tracker::RadarSensedPresentationEvent,
+        event: super::tracker::RadarSensedPresentationEvent,
         sim_tick: u64,
         rules: Option<&RuleSet>,
     ) {

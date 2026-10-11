@@ -444,7 +444,7 @@ pub(crate) fn dispatch_foot_mission(
                             // or Fire_At_Target action admission runs here.
                             bridge_changed |= sim
                                 .commit_fire_visit(
-                                    crate::sim::combat::world_receiver::FireVisit::Direct {
+                                    crate::sim::combat::world_fire::FireVisit::Direct {
                                         id,
                                         target,
                                         weapon_index: 1,

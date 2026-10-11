@@ -436,7 +436,7 @@ fn retail_radar_histories_match_original_4912b0_stores() {
         );
         for seq in c.sequences {
             let mut radar =
-                crate::render::radar_anim::RadarPresentation::new(frames.clone(), 168, 110)
+                crate::render::radar::anim::RadarPresentation::new(frames.clone(), 168, 110)
                     .unwrap();
             for (step, (&frame, expected)) in
                 seq.frames.iter().zip(&seq.output_rgb565_sha256).enumerate()

@@ -107,7 +107,7 @@ fn pick_border_cell(rng: &mut RmgRng, count: i32) -> usize {
                 .mul(scale)
                 .to_f64(),
         );
-        if v <= count - 1 {
+        if v < count {
             return v as usize;
         }
     }

@@ -219,7 +219,7 @@ fn track1_y_step_is_consistent() {
     for i in 1..points.len() {
         let step = points[i - 1].y - points[i].y;
         assert!(
-            step >= 10 && step <= 12,
+            (10..=12).contains(&step),
             "Track1 step {} has Y delta={}, expected ~11",
             i,
             step
@@ -259,9 +259,9 @@ fn raw_track_3_is_north_to_ne_curve() {
     let points = raw_track_points(3);
     assert_eq!(points.len(), 54);
     // Phase 1 (0-13): straight north, x=-256, face=0
-    for i in 0..=13 {
-        assert_eq!(points[i].x, -256, "Track3 phase1 point {} x", i);
-        assert_eq!(points[i].facing, 0, "Track3 phase1 point {} face", i);
+    for (i, point) in points.iter().enumerate().take(14) {
+        assert_eq!(point.x, -256, "Track3 phase1 point {} x", i);
+        assert_eq!(point.facing, 0, "Track3 phase1 point {} face", i);
     }
     // Entry index is 12: vehicle starts here
     assert_eq!(points[12].y, 373);
@@ -273,8 +273,8 @@ fn raw_track_3_is_north_to_ne_curve() {
     assert_eq!(points[37].x, -136);
     assert_eq!(points[37].y, 136);
     // Phase 3 (37-53): straight NE exit, face=32
-    for i in 37..=53 {
-        assert_eq!(points[i].facing, 32, "Track3 phase3 point {} face", i);
+    for (i, point) in points.iter().enumerate().take(54).skip(37) {
+        assert_eq!(point.facing, 32, "Track3 phase3 point {} face", i);
     }
     // Final point near origin (sentinel removed, last real point is index 53)
     assert_eq!(points[53].x, -8);
@@ -296,8 +296,7 @@ fn select_drive_track_ne_diagonal_gives_track_2() {
 #[test]
 fn gsi_04_05_turning_tracks_preserve_valid_occupation_handoff_metadata() {
     // RawTrack +0x0C is the occupation handoff point, not object-list crossing.
-    for idx in 3..=6 {
-        let track = &RAW_TRACKS[idx];
+    for (idx, track) in RAW_TRACKS.iter().enumerate().take(7).skip(3) {
         assert!(
             track.occupation_handoff_point_index >= 0,
             "RawTrack[{}] should have a non-negative occupation handoff point, got {}",
@@ -442,19 +441,14 @@ fn raw_track_4_is_north_to_east_90_degree() {
     // Jump at point 26: face near 64 (east)
     assert_eq!(points[26].facing, 60);
     // Phase 3 exit: face=64 (east), y≈0
-    for i in 29..=37 {
+    for (i, point) in points.iter().enumerate().take(38).skip(29) {
         assert!(
-            points[i].facing >= 64,
+            point.facing >= 64,
             "Track4 exit point {} face={}",
             i,
-            points[i].facing
+            point.facing
         );
-        assert!(
-            points[i].y <= 9,
-            "Track4 exit point {} y={}",
-            i,
-            points[i].y
-        );
+        assert!(point.y <= 9, "Track4 exit point {} y={}", i, point.y);
     }
 }
 

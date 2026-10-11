@@ -1702,10 +1702,10 @@ fn validate_fresh_transport_before_effects(
     Ok(())
 }
 
-fn construction_trace_after_fill<'a>(
+fn construction_trace_after_fill(
     materialization: FreshMapMaterialization,
-    trace: Option<&'a crate::map::rmg::RmgConstructionTrace>,
-) -> anyhow::Result<Option<&'a crate::map::rmg::RmgConstructionTrace>> {
+    trace: Option<&crate::map::rmg::RmgConstructionTrace>,
+) -> anyhow::Result<Option<&crate::map::rmg::RmgConstructionTrace>> {
     match materialization {
         FreshMapMaterialization::Authored => Ok(None),
         FreshMapMaterialization::AcceptedGenerated => trace.map(Some).ok_or_else(|| {
@@ -1832,6 +1832,9 @@ pub(crate) struct RandomMapStartupCrateProjection {
 }
 
 #[cfg(test)]
+type StartupCrateSlot = (usize, crate::sim::crates::CrateSlot, Option<(u8, u8)>);
+
+#[cfg(test)]
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) struct RandomMapLaunchSnapshot {
     pub(crate) map: RandomMapProjection,
@@ -1842,7 +1845,7 @@ pub(crate) struct RandomMapLaunchSnapshot {
     pub(crate) mapgen_continuation: crate::sim::rng::SimRngLogicalState,
     pub(crate) final_rng: crate::sim::world::SimulationRngState,
     pub(crate) post_map_output: crate::sim::scenario_post_map::ScenarioPostMapOutput,
-    pub(crate) startup_crate_slots: Vec<(usize, crate::sim::crates::CrateSlot, Option<(u8, u8)>)>,
+    pub(crate) startup_crate_slots: Vec<StartupCrateSlot>,
     pub(crate) startup_crate: RandomMapStartupCrateProjection,
 }
 
@@ -2094,10 +2097,7 @@ impl MapLoadInitial {
             &map_data.header.theater,
         );
         rules.bind_animation_sequences(&infantry_sequences);
-        drop(variant_selector);
         drop(variant_draw);
-        drop(scenario_fill_ranged);
-        drop(scenario_fill_rng);
         // The native-id reservations the match load makes at this point: the
         // `[Tubes]` rows, then the launch branch's post-load particle system.
         simulation
@@ -2355,14 +2355,13 @@ pub(crate) fn load_map_initial_with_assets(
     requested_map: Option<&str>,
     progress: &mut dyn crate::app::loading::pump::LoadingProgressSink,
 ) -> Result<MapLoadInitial> {
-    // TubeMovement and random-map geometry share the retail executable's
-    // sine/cosine table.  Install it before selecting the map source: explicit
-    // `[Tubes]` are valid in ordinary .map/.mpr/.mmx content, not just .SED
-    // random maps.  OnceLock keeps repeated map loads read-only and cheap.
+    // Sonic Wave and arcing FireAt read `Acos_lookup`'s table out of the
+    // retail executable (the sine table is checked in). Install it before any
+    // map source is selected; OnceLock keeps repeated map loads read-only.
     crate::map::retail_trig::install_from_dir(&ra2_dir);
     if !crate::map::retail_trig::wave_tables_available() {
         anyhow::bail!(
-            "{} does not provide the verified gamemd sine/Acos tables required by stock Sonic Wave simulation",
+            "{} does not provide the verified gamemd Acos table required by stock arcing projectile and Sonic Wave simulation",
             ra2_dir.join("gamemd.exe").display()
         );
     }
@@ -2416,11 +2415,8 @@ pub(crate) fn load_map_initial_with_assets(
                 crate::rules::terrain_rules::TerrainRules::from_ini(owner.selected_rules_root())
             })
             .unwrap_or_default();
-        let resolved = crate::map::rmg::build::ResolvedTheaterInputs::from_theater(
-            &theater,
-            &terrain_rules,
-            crate::map::retail_trig::global().cloned(),
-        );
+        let resolved =
+            crate::map::rmg::build::ResolvedTheaterInputs::from_theater(&theater, &terrain_rules);
 
         // Tile-block layouts (sub-cell height/terrain grids) from the theater's
         // real TMP data — the shore tiler and zone classifier read these.
@@ -2475,9 +2471,9 @@ pub(crate) fn load_map_initial_with_assets(
 
     let loaded_map: LoadedMap =
         if let Some(map_name) = requested_map.filter(|m| !m.eq_ignore_ascii_case("auto")) {
-            load_map_by_name_or_path_with_assets(&ra2_dir, map_name, &asset_manager)?
+            load_map_by_name_or_path_with_assets(&ra2_dir, map_name, asset_manager)?
         } else if let Some(ref map_name) = quickplay_map {
-            load_map_by_name_or_path_with_assets(&ra2_dir, map_name, &asset_manager)?
+            load_map_by_name_or_path_with_assets(&ra2_dir, map_name, asset_manager)?
         } else if Path::new("testmap1.map").exists() {
             let bytes: Vec<u8> = std::fs::read("testmap1.map")?;
             log::info!("Loading default map: testmap1.map");
@@ -2654,7 +2650,7 @@ pub(crate) fn load_map_from_initial(
             None
         } else {
             Some(
-                crate::rules::retail_sources::select_ini(&asset_manager, override_file)
+                crate::rules::retail_sources::select_ini(asset_manager, override_file)
                     .map_err(anyhow::Error::msg)?
                     .ini,
             )
@@ -2701,7 +2697,7 @@ pub(crate) fn load_map_from_initial(
     rules.install_art_data(ArtRegistry::from_ini(&fixed_art_ini));
     // Preserve the load phase: marking dimensions precede scheduler binding.
     let (populated, fallback) =
-        rules.populate_anim_frame_dims(&asset_manager, theater_ext, &map_data.header.theater);
+        rules.populate_anim_frame_dims(asset_manager, theater_ext, &map_data.header.theater);
     log::info!(
         "Anim frame dims: {} populated, {} fallback (defaults to 30x30)",
         populated,
@@ -2714,7 +2710,7 @@ pub(crate) fn load_map_from_initial(
     progress.milestone(31);
     progress.milestone(35);
     progress.milestone(45);
-    let csf = Some(load_csf(&asset_manager)?);
+    let csf = Some(load_csf(asset_manager)?);
     let overlay_registry: OverlayTypeRegistry =
         OverlayTypeRegistry::from_ini(&rules_ini, Some(&fixed_art_ini));
     // Campaign House construction and its map reads precede Map Resize/Fill.
@@ -2819,7 +2815,7 @@ pub(crate) fn load_map_from_initial(
                 ResolvedTerrainGrid::build_pending_authored_with_variant_selector_and_shared_dummy(
                     &map_data,
                     theater_result.as_ref(),
-                    Some(&asset_manager),
+                    Some(asset_manager),
                     Some(&rules.terrain_rules),
                     Some(&overlay_registry),
                     lat_enabled,
@@ -2835,7 +2831,7 @@ pub(crate) fn load_map_from_initial(
                 ResolvedTerrainGrid::build_with_variant_selector_and_shared_dummy(
                     &map_data,
                     theater_result.as_ref(),
-                    Some(&asset_manager),
+                    Some(asset_manager),
                     Some(&rules.terrain_rules),
                     Some(&overlay_registry),
                     Some(&rules.terrain_object_types),
@@ -2870,10 +2866,7 @@ pub(crate) fn load_map_from_initial(
     let variant_table_generated = variant_selector.generated_table();
     let map_fill_scenario_advances = variant_selector.map_fill_scenario_advance_count();
     let variant_table_draws = variant_selector.raw_draw_count();
-    drop(variant_selector);
     drop(variant_draw);
-    drop(scenario_fill_ranged);
-    drop(scenario_fill_rng);
     // Bind the complete scheduler closure only after theater Tile##Anim rows
     // have resolved, but before any atlas or AnimClass construction. Missing
     // tile art is a load error rather than a silently invisible map feature.
@@ -2886,30 +2879,25 @@ pub(crate) fn load_map_from_initial(
                 .as_ref()
                 .map_or(&[], |terrain| terrain.tile_animations()),
         );
-        r.bind_scheduler_anim_assets(
-            &roots,
-            &asset_manager,
-            theater_ext,
-            &map_data.header.theater,
-        )?;
+        r.bind_scheduler_anim_assets(&roots, asset_manager, theater_ext, &map_data.header.theater)?;
         // Every other AnimClass producer and the building animations need the
         // same loader-derived End/LoopEnd. Tolerant by design; must follow the
         // strict pass, which rewrites the scheduler-owned set wholesale.
         let tolerant_roots = crate::app::loading::init_helpers::tolerant_anim_class_roots(r);
         let unbound_explosion_roots = r.bind_anim_class_assets(
             &tolerant_roots,
-            &asset_manager,
+            asset_manager,
             theater_ext,
             &map_data.header.theater,
         );
         crate::rules::effect_asset_catalog::log_unbound_combat_explosion_roots(
             unbound_explosion_roots,
         );
-        r.bind_effect_assets(&asset_manager, theater_ext, &map_data.header.theater);
+        r.bind_effect_assets(asset_manager, theater_ext, &map_data.header.theater);
         r.bind_building_buildup_assets(asset_manager, &map_data.header.theater);
         r.bind_terrain_spawner_assets(
             &rules_ini,
-            &asset_manager,
+            asset_manager,
             theater_ext,
             &map_data.header.theater,
         );
@@ -2966,7 +2954,7 @@ pub(crate) fn load_map_from_initial(
         &overlay_registry,
         &rules_ini,
         rules.art(),
-        &asset_manager,
+        asset_manager,
         theater_ext,
         &map_data.header.theater,
     );
@@ -2993,7 +2981,7 @@ pub(crate) fn load_map_from_initial(
                 &mut map_data,
                 fill,
                 theater,
-                &asset_manager,
+                asset_manager,
                 &mut rules,
                 &overlay_registry,
                 &overlay_shp_ids,
@@ -3138,7 +3126,7 @@ pub(crate) fn load_map_from_initial(
     progress.milestone(60);
     let tile_atlas: Option<TileAtlas> = match &theater_result {
         Some(td) => build_tile_atlas(
-            &asset_manager,
+            asset_manager,
             &td.lookup,
             &td.iso_palette,
             td.extension,
@@ -3176,7 +3164,7 @@ pub(crate) fn load_map_from_initial(
 
     crate::app::loading::init_helpers::bind_staged_app_scenario_metadata(
         &mut staged_simulation,
-        &asset_manager,
+        asset_manager,
         Some(&rules),
     );
     // Terrain/tiberium + units/infantry/buildings created from the map
@@ -3303,7 +3291,7 @@ pub(crate) fn load_map_from_initial(
     // arrivals grow it.
     let manifest = crate::app::loading::init_helpers::build_presentation_manifest(
         &staged_simulation,
-        &asset_manager,
+        asset_manager,
         gpu,
         batch,
         theater_ext,
@@ -3330,7 +3318,7 @@ pub(crate) fn load_map_from_initial(
         overlay_radar_colors,
     ) = build_overlay_atlas_from_map(
         &map_data,
-        &asset_manager,
+        asset_manager,
         gpu,
         batch,
         theater_ext,
@@ -3460,20 +3448,20 @@ pub(crate) fn load_map_from_initial(
             Err(_) => log::debug!("{cameo_mix} not found (optional)"),
         }
     }
-    let sidebar_cameo_atlas = build_sidebar_cameo_atlas(gpu, batch, &asset_manager, Some(&rules));
+    let sidebar_cameo_atlas = build_sidebar_cameo_atlas(gpu, batch, asset_manager, Some(&rules));
     let sidebar_chrome =
-        crate::render::sidebar_chrome::build_sidebar_chrome_set(gpu, batch, &asset_manager);
+        crate::render::sidebar_chrome::build_sidebar_chrome_set(gpu, batch, asset_manager);
     let fnt_file = asset_manager.get_ref("GAME.FNT").and_then(|data| {
         crate::assets::fnt_file::FntFile::from_bytes(data)
             .map_err(|e| log::warn!("Failed to parse GAME.FNT: {e}"))
             .ok()
     });
     let building_zshape =
-        crate::render::building_zshape::BuildingZShape::load(gpu, batch, &asset_manager);
+        crate::render::building_zshape::BuildingZShape::load(gpu, batch, asset_manager);
     if building_zshape.is_none() {
         log::warn!("BUILDNGZ.SHA not loaded: building bodies write flat depth");
     }
-    let software_cursor = cursor_atlas::build_software_cursor(gpu, batch, &asset_manager);
+    let software_cursor = cursor_atlas::build_software_cursor(gpu, batch, asset_manager);
     if software_cursor.is_some() {
         log::info!("Software cursor loaded from mouse.sha — OS cursor will be hidden");
     } else {
@@ -3553,7 +3541,6 @@ pub(crate) fn load_map_from_initial(
     })
 }
 
-/// Register non-local playable houses as AI opponents.
 #[cfg(test)]
 mod random_map_retail_tests {
     //! Retail-input pass over the real `.SED` load path.
@@ -3620,8 +3607,8 @@ mod random_map_retail_tests {
         let Some(ra2) = retail_dir() else {
             panic!("set RA2_DIR to the retail RA2/YR install directory");
         };
-        // The .SED lives in a scratch directory, while verified native tables
-        // belong to the retail install, like the AssetManager supplied below.
+        // The .SED lives in a scratch directory, while the verified Acos table
+        // belongs to the retail install, like the AssetManager supplied below.
         crate::map::retail_trig::install_from_dir(&ra2);
 
         let mut structures_placed = 0usize;

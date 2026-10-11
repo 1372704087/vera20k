@@ -133,7 +133,6 @@ pub fn draw_in_rect(
 
 /// Path-A counterpart to [`draw_in_rect`]: the kind-1 statics' UTF-16 unit
 /// reveal and tint.
-#[allow(clippy::too_many_arguments)]
 pub fn draw_in_rect_path_a(
     font: &BitFont,
     text: &str,

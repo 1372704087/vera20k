@@ -267,7 +267,6 @@ fn encoded_surface_format(surface_format: wgpu::TextureFormat) -> Result<wgpu::T
     }
 }
 
-#[allow(clippy::too_many_arguments)]
 fn create_targets(
     device: &wgpu::Device,
     bind_group_layout: &wgpu::BindGroupLayout,

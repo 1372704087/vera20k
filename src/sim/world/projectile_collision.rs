@@ -23,6 +23,645 @@ pub(super) struct ProjectileCollisionWorld<'a> {
     pub map_size: Option<(i32, i32)>,
 }
 
+impl ProjectileCollisionWorld<'_> {
+    fn cell(&self, coord: ProjectileCoord) -> CellRef<'_> {
+        if self.terrain.is_some() {
+            get_cellclass_fallback_leptons(self.terrain, coord.x, coord.y)
+        } else {
+            self.dummy.stamp_coord(coord.x / 256, coord.y / 256);
+            CellRef::Dummy {
+                cell: self.dummy.clone(),
+            }
+        }
+    }
+
+    fn packed_cell(&self, coord: ProjectileCoord) -> CellRef<'_> {
+        if self.terrain.is_some() {
+            get_cellclass_fallback(self.terrain, coord.x / 256, coord.y / 256)
+        } else {
+            self.cell(coord)
+        }
+    }
+
+    fn ground(&self, coord: ProjectileCoord) -> i32 {
+        projectile_ground_z(self.terrain, self.dummy, coord)
+    }
+
+    fn building(&self, cell: &CellRef<'_>) -> Option<u64> {
+        let CellRef::Real(cell) = cell else {
+            return None;
+        };
+        self.occupancy
+            .first_building_on_layer(cell.rx, cell.ry, MovementLayer::Ground)
+    }
+
+    /// The object's Location (+0x9C).
+    fn raw_location(&self, object: &crate::sim::game_entity::GameEntity) -> ProjectileCoord {
+        let coord = crate::sim::movement::ground_pose::object_location(object, self.terrain);
+        ProjectileCoord::new(coord.x, coord.y, coord.z)
+    }
+
+    /// The object's GetCoords (vt+0x48).
+    fn location(&self, object: &crate::sim::game_entity::GameEntity) -> ProjectileCoord {
+        let coord = crate::sim::movement::ground_pose::object_get_coords(object, self.terrain);
+        ProjectileCoord::new(coord.x, coord.y, coord.z)
+    }
+
+    fn allied(&self, source: Option<u64>, other: u64) -> bool {
+        let Some(source) = source.and_then(|id| self.entities.get(id)) else {
+            return false;
+        };
+        let Some(other) = self.entities.get(other) else {
+            return false;
+        };
+        crate::map::houses::is_allied_with(
+            self.alliances,
+            self.interner.resolve(source.owner()),
+            self.interner.resolve(other.owner()),
+        )
+    }
+
+    fn overlay(&self, cell: &CellRef<'_>) -> (Option<u8>, Option<crate::sim::intern::InternedId>) {
+        match cell {
+            CellRef::Real(cell) => self.overlays.map_or((None, None), |grid| {
+                let overlay = grid.cell(cell.rx, cell.ry);
+                (overlay.overlay_id, overlay.wall_owner)
+            }),
+            CellRef::Dummy { cell } => (cell.overlay_fields().0, None),
+        }
+    }
+
+    fn level(cell: &CellRef<'_>) -> i32 {
+        match cell {
+            CellRef::Real(c) => i32::from(c.level as i8),
+            CellRef::Dummy { cell } => i32::from(cell.snapshot().level),
+        }
+    }
+
+    fn effective_level(cell: &CellRef<'_>) -> i32 {
+        Self::level(cell)
+            + if cell.bridge_flags_0x1180() & 0x80 != 0 {
+                4
+            } else {
+                0
+            }
+    }
+
+    /// 47C3D0(0,0,ground,null) chooses minimum truncated distance of low-byte
+    /// XY, with strict ties retaining E4 list order. Nonbuilding Techno
+    /// insertions prepend; Building insertions append (47E8A0).
+    fn nearest(&self, cell: &CellRef<'_>) -> Option<(u64, ProjectileCoord)> {
+        let CellRef::Real(cell) = cell else {
+            return None;
+        };
+        // 47C427 tests Techno identity, set only by6F322F. Terrain's
+        // Object base sets bit1 (5F3B37), so Terrain is not eligible.
+        let objects = self
+            .occupancy
+            .get(cell.rx, cell.ry)
+            .into_iter()
+            .flat_map(|occupants| occupants.iter_layer(MovementLayer::Ground))
+            .filter_map(|occupant| self.entities.get(occupant.entity_id))
+            .map(|object| {
+                let location = self.location(object);
+                (
+                    object.stable_id(),
+                    true,
+                    crate::sim::cell_kernel::CellQueryPoint {
+                        x: location.x,
+                        y: location.y,
+                    },
+                )
+            });
+        let id = crate::sim::cell_kernel::nearest_eligible_in_order(
+            crate::sim::cell_kernel::CellQueryPoint { x: 0, y: 0 },
+            objects,
+        )?;
+        Some((id, self.raw_location(self.entities.get(id)?)))
+    }
+
+    pub fn collide(
+        &self,
+        projectile: &Projectile,
+        candidate: ProjectileCoord,
+        phase: ProjectileCollisionPhase,
+    ) -> Option<ProjectileCollisionResponse> {
+        match phase {
+            ProjectileCollisionPhase::Ordinary {
+                persistent_velocity,
+                motion,
+            } => Some(self.ordinary(projectile, motion, persistent_velocity)),
+            ProjectileCollisionPhase::Shared => self
+                .shared(projectile, candidate)
+                .then_some(ProjectileCollisionResponse::TargetZClamp(candidate)),
+            ProjectileCollisionPhase::TargetLocation => match projectile.target {
+                ProjectileTarget::Entity(id) => self
+                    .entities
+                    .get(id)
+                    .map(|target| ProjectileCollisionResponse::TargetZClamp(self.location(target))),
+                _ => None,
+            },
+            ProjectileCollisionPhase::ImpactLadder => {
+                Some(ProjectileCollisionResponse::ImpactLadder(
+                    self.impact_ladder(projectile, candidate),
+                ))
+            }
+        }
+    }
+
+    /// The Target and warhead facts `0x00468D80` reads, with the bullet at
+    /// `location`.
+    /// RESIDUAL: a Building's vt+0xA4 (`0x004500A0`, TargetCoordOffset
+    /// `+0xEBC`) is its centre: `TargetCoordOffset=` is unparsed (the
+    /// shipyards). Trigger: a shell landing near a naval yard. Effect: it
+    /// detonates at the centre instead of the offset point.
+    fn impact_ladder(
+        &self,
+        projectile: &Projectile,
+        location: ProjectileCoord,
+    ) -> ImpactLadderWorld {
+        let em_effect = self.rules.is_some_and(|rules| {
+            rules
+                .warhead(self.interner.resolve(projectile.payload.warhead))
+                .is_some_and(|warhead| warhead.em_effect)
+        });
+        let target = match projectile.target {
+            ProjectileTarget::Entity(id) => self.entities.get(id).map(|target| {
+                let coords = self.location(target);
+                ImpactLadderTarget {
+                    coords,
+                    aim: coords,
+                    offset_coords: coords,
+                    in_air: self.high_flying(target),
+                    ground_layer: super::display_registry::entity_layer(
+                        target,
+                        self.terrain,
+                        self.rules,
+                    ) == super::display_layers::DisplayLayer::GROUND,
+                    distance: self.target_distance(location, target),
+                    building_offset: false,
+                }
+            }),
+            cell @ (ProjectileTarget::Cell { .. } | ProjectileTarget::DummyCell) => {
+                // 468DEA/468E88 and DistanceTo468F71 use Cell+48 ground.
+                // Only the last replacement468F88 reads the +58 deck aim.
+                // Conflating them moves the 32/42-lepton admission sphere
+                // from the ground to the deck and changes the final impact.
+                let coords = match cell {
+                    ProjectileTarget::Cell { rx, ry } => {
+                        crate::sim::projectile::cell_ground_coord(self.terrain, rx, ry)
+                    }
+                    ProjectileTarget::DummyCell => {
+                        crate::sim::projectile::dummy_cell_ground_coord(self.dummy)
+                    }
+                    _ => unreachable!("Cell impact target"),
+                };
+                self.target_aim(cell).map(|aim| ImpactLadderTarget {
+                    coords,
+                    aim,
+                    offset_coords: coords,
+                    in_air: false,
+                    ground_layer: true,
+                    distance: crate::util::native_x87::object_distance(
+                        [location.x, location.y, location.z],
+                        [coords.x, coords.y, coords.z],
+                        None,
+                    ),
+                    building_offset: false,
+                })
+            }
+            ProjectileTarget::None => None,
+        };
+        ImpactLadderWorld { target, em_effect }
+    }
+
+    fn ordinary(
+        &self,
+        projectile: &Projectile,
+        motion: ProjectileCollisionMotion,
+        persistent_velocity: ProjectileVelocity,
+    ) -> ProjectileCollisionResponse {
+        let (motion, impact) = self.ordinary_geometry(projectile, motion);
+        self.ordinary_tail(
+            projectile,
+            motion.candidate_coord(),
+            persistent_velocity,
+            ProjectileVelocity::from_native(motion.velocity),
+            motion.velocity,
+            impact,
+        )
+    }
+
+    fn ordinary_geometry(
+        &self,
+        projectile: &Projectile,
+        mut motion: ProjectileCollisionMotion,
+    ) -> (ProjectileCollisionMotion, bool) {
+        use crate::util::native_x87::NativeF64Bits;
+        let candidate = motion.candidate_coord();
+        let mut candidate_z = f64::from_bits(motion.candidate[2].bits());
+        let vertical = matches!(projectile.trajectory, ProjectileTrajectory::Vertical { .. });
+        let source = self
+            .entities
+            .get(projectile.source_id)
+            .map(|_| projectile.source_id);
+        let mut impact = false;
+        if !vertical {
+            let floor = self.ground(candidate);
+            let deck = floor.wrapping_add(crate::util::lepton::BRIDGE_DECK_HEIGHT_LEPTONS);
+            let cell = self.cell(candidate);
+            let structural = cell.bridge_flags_0x1180() & 0x100 != 0
+                || self.cell(projectile.position).bridge_flags_0x1180() & 0x100 != 0;
+            let crossing = if structural {
+                projectile_bridge_crossing(projectile.position.z, candidate.z, deck)
+            } else {
+                ProjectileBridgeCrossing::None
+            };
+            let mut obstacle = false;
+            if crossing == ProjectileBridgeCrossing::None
+                && candidate_z >= f64::from(floor)
+                && candidate_z < f64::from(floor) + 150.0
+            {
+                let building = self.building(&cell);
+                obstacle = building.is_some()
+                    || self
+                        .overlay(&cell)
+                        .0
+                        .is_some_and(|id| matches!(id, 2 | 26 | 243));
+                if let Some(id) = building {
+                    let exempt = self
+                        .entities
+                        .get(id)
+                        .and_then(|object| {
+                            self.rules.and_then(|rules| {
+                                rules.object(self.interner.resolve(object.type_ref()))
+                            })
+                        })
+                        .is_some_and(|kind| {
+                            kind.is_1x1_with_undeploy()
+                                && kind.undeploys_into.as_deref().is_some_and(|name| {
+                                    self.rules.is_some_and(|rules| rules.object(name).is_some())
+                                })
+                        });
+                    // LaserFence+stage>=8 has no active retail type/data writer.
+                    obstacle &= Some(id) != source && !exempt && !self.allied(source, id);
+                }
+            }
+            if candidate_z < f64::from(floor)
+                || crossing != ProjectileBridgeCrossing::None
+                || obstacle
+            {
+                if source.is_none() {
+                    match crossing {
+                        ProjectileBridgeCrossing::Down => candidate_z = f64::from(deck),
+                        ProjectileBridgeCrossing::Up => {
+                            candidate_z = f64::from(deck.wrapping_sub(20))
+                        }
+                        ProjectileBridgeCrossing::None
+                            if candidate_z > f64::from(floor.wrapping_sub(100)) =>
+                        {
+                            candidate_z = f64::from(floor)
+                        }
+                        ProjectileBridgeCrossing::None => {}
+                    }
+                    let slope = match self.cell(candidate) {
+                        CellRef::Real(c) => c.slope_type,
+                        CellRef::Dummy { cell } => cell.snapshot().slope_type,
+                    };
+                    motion.velocity = crate::sim::projectile::projectile_slope_reflect_double(
+                        motion.velocity,
+                        slope,
+                        projectile.collision.elasticity_bits,
+                    )
+                    .expect("supported native Bullet slope matrix");
+                    impact = true;
+                } else if crossing != ProjectileBridgeCrossing::None {
+                    candidate_z = f64::from(if crossing == ProjectileBridgeCrossing::Down {
+                        deck
+                    } else {
+                        deck.wrapping_sub(20)
+                    });
+                    impact = true;
+                }
+            }
+        }
+        motion.candidate[2] = NativeF64Bits::from_bits(candidate_z.to_bits());
+        (motion, impact)
+    }
+
+    fn ordinary_tail(
+        &self,
+        projectile: &Projectile,
+        mut candidate: ProjectileCoord,
+        persistent_velocity: ProjectileVelocity,
+        mut velocity: ProjectileVelocity,
+        native_velocity: [crate::util::native_x87::NativeF64Bits; 3],
+        mut impact: bool,
+    ) -> ProjectileCollisionResponse {
+        let vertical = matches!(projectile.trajectory, ProjectileTrajectory::Vertical { .. });
+        let source = self
+            .entities
+            .get(projectile.source_id)
+            .map(|_| projectile.source_id);
+        let mut near_target = false;
+        let mut left_map = false;
+        let target_cell_coord = (
+            (projectile.launch_target.x / 256) as i16,
+            (projectile.launch_target.y / 256) as i16,
+        );
+        let same_cell =
+            ((candidate.x / 256) as i16, (candidate.y / 256) as i16) == target_cell_coord;
+        // `ObjectClass::GetHeight @ 0x005F5F40` on the pre-move coordinate,
+        // from the bridge deck for an OnBridge bullet.
+        let old_height = || {
+            projectile
+                .position
+                .z
+                .wrapping_sub(self.ground(projectile.position))
+                .wrapping_sub(if projectile.on_bridge {
+                    crate::util::lepton::BRIDGE_DECK_HEIGHT_LEPTONS
+                } else {
+                    0
+                })
+        };
+        if !vertical && same_cell && old_height() < 208 {
+            impact = true;
+            near_target = true;
+            velocity = persistent_velocity;
+        } else {
+            let candidate_cell = self.packed_cell(candidate);
+            let target_cell = self.packed_cell(projectile.launch_target);
+            let candidate_building = self.building(&candidate_cell);
+            let target_building = self.building(&target_cell);
+            if !vertical
+                && candidate_building.is_some()
+                && candidate_building == target_building
+                && old_height() < 208
+            {
+                impact = true;
+                near_target = true;
+                velocity = persistent_velocity;
+            } else {
+                let nearest = self.nearest(&self.cell(candidate));
+                if let Some((id, position)) = nearest.filter(|(id, position)| {
+                    Some(*id) != source
+                        && !self.allied(source, *id)
+                        && coord_distance(candidate, *position) < 128
+                }) {
+                    let _ = id;
+                    impact = true;
+                    if !projectile.collision.inaccurate {
+                        candidate = position;
+                    }
+                    velocity = persistent_velocity;
+                } else if !self.inside_map(candidate) {
+                    impact = true;
+                    left_map = true;
+                    candidate = projectile.position;
+                    velocity = persistent_velocity;
+                } else {
+                    if vertical {
+                        velocity = persistent_velocity;
+                    }
+                    if crate::sim::projectile::projectile_velocity_magnitude_double(if vertical {
+                        ProjectileCollisionMotion::from_coordinate(candidate, persistent_velocity)
+                            .velocity
+                    } else {
+                        native_velocity
+                    }) < 10.0
+                        && old_height() < 10
+                    {
+                        impact = true;
+                    }
+                }
+            }
+        }
+        ProjectileCollisionResponse::Ordinary {
+            candidate,
+            velocity,
+            impact,
+            near_target,
+            left_map,
+        }
+    }
+
+    fn inside_map(&self, candidate: ProjectileCoord) -> bool {
+        if let Some((width, height)) = self.map_size {
+            let x = i32::from((candidate.x / 256) as i16);
+            let y = i32::from((candidate.y / 256) as i16);
+            let sum = x.wrapping_add(y);
+            width < sum
+                && x.wrapping_sub(y) < width
+                && y.wrapping_sub(x) < width
+                && sum <= width.wrapping_add(height.wrapping_mul(2))
+        } else {
+            self.terrain.is_none() || matches!(self.cell(candidate), CellRef::Real(_))
+        }
+    }
+
+    fn shared(&self, projectile: &Projectile, candidate: ProjectileCoord) -> bool {
+        let cell = self.cell(candidate);
+        if (projectile.collision.subject_to_cliffs || projectile.collision.subject_to_walls)
+            && self.cliff_wall(projectile, candidate)
+        {
+            return true;
+        }
+        let height = candidate.z.wrapping_sub(self.ground(candidate));
+        if height <= -crate::util::lepton::BRIDGE_DECK_HEIGHT_LEPTONS {
+            return true;
+        }
+        if projectile.collision.flak_scatter
+            && self
+                .target_aim(projectile.target)
+                .is_some_and(|target| candidate.z < target.z)
+            && candidate.z.wrapping_sub(self.ground(candidate)) < 0
+        {
+            return true;
+        }
+        if projectile.collision.level {
+            // Cell ctor47BC11 stores DWORD 0xFFFF; ordinary IsoMap loading
+            // rejects/reconstructs the dummy, and Recalc skips it entirely.
+            let tile = match &cell {
+                CellRef::Real(c) => c.final_tile_index,
+                CellRef::Dummy { .. } => 0xFFFF,
+            };
+            // Cell vt+0x50 (`0x004867E0`): outside the WaterSet window. Without
+            // a map the cell is the dummy, whose tile is outside every window.
+            if !self
+                .terrain
+                .is_some_and(|terrain| terrain.tile_is_water_set(tile))
+            {
+                return true;
+            }
+        }
+        if projectile.collision.anti_air
+            && let ProjectileTarget::Entity(id) = projectile.target
+            && let Some(target) = self.entities.get(id)
+            && self.high_flying(target)
+            && self.target_distance(candidate, target) < 128
+        {
+            return true;
+        }
+        false
+    }
+
+    fn target_distance(
+        &self,
+        candidate: ProjectileCoord,
+        target: &crate::sim::game_entity::GameEntity,
+    ) -> i32 {
+        // ObjectClass::Distance 5F6360 between the virtual +48 positions,
+        // with a building target's foundation term.
+        let building = self
+            .rules
+            .filter(|_| target.category == EntityCategory::Structure)
+            .and_then(|rules| rules.object(self.interner.resolve(target.type_ref())))
+            .map(|kind| {
+                let (width, height) =
+                    crate::rules::foundation::foundation_dimensions(&kind.foundation);
+                (i32::from(width), i32::from(height))
+            });
+        let location = self.location(target);
+        crate::util::native_x87::object_distance(
+            [candidate.x, candidate.y, candidate.z],
+            [location.x, location.y, location.z],
+            building,
+        )
+    }
+
+    fn cell_location(cell: &CellRef<'_>) -> ProjectileCoord {
+        let (x, y, level, slope) = match cell {
+            CellRef::Real(c) => (
+                i32::from(c.rx as i16),
+                i32::from(c.ry as i16),
+                c.level,
+                c.slope_type,
+            ),
+            CellRef::Dummy { cell } => {
+                let c = cell.snapshot();
+                (c.coord.0, c.coord.1, c.level as u8, c.slope_type)
+            }
+        };
+        let x = x * 256 + 128;
+        let y = y * 256 + 128;
+        let z = crate::util::lepton::ground_height_leptons(level, slope, x, y)
+            .expect("native Cell +48 slope");
+        ProjectileCoord::new(x, y, z)
+    }
+
+    fn cliff_wall(&self, projectile: &Projectile, candidate: ProjectileCoord) -> bool {
+        let source = self.cell(projectile.launch_origin);
+        let target = self.cell(projectile.launch_target);
+        let previous = if self.terrain.is_some() {
+            get_cellclass_fallback(
+                self.terrain,
+                i32::from(projectile.previous_cell.0),
+                i32::from(projectile.previous_cell.1),
+            )
+        } else {
+            self.dummy.stamp_coord(
+                i32::from(projectile.previous_cell.0),
+                i32::from(projectile.previous_cell.1),
+            );
+            CellRef::Dummy {
+                cell: self.dummy.clone(),
+            }
+        };
+        let cell = self.packed_cell(candidate);
+        if !self.cell_blocks(projectile, &source, &target, &previous, &cell) {
+            return false;
+        }
+        // 4CC489..4CC671 retains each Cell pointer, observes +48 in this
+        // order, and may requery the SAME packed candidate. Dummy identities
+        // remain live through all queries; never snapshot them at fetch time.
+        let center = Self::cell_location(&cell);
+        if coord_distance(candidate, center) <= 85 {
+            return true;
+        }
+        let launch = Self::cell_location(&source);
+        let destination = Self::cell_location(&target);
+        let major_x = launch.x.wrapping_sub(destination.x).wrapping_abs();
+        let major_y = launch.y.wrapping_sub(destination.y).wrapping_abs();
+        let off_x = candidate.x.wrapping_sub(center.x).wrapping_abs();
+        let off_y = candidate.y.wrapping_sub(center.y).wrapping_abs();
+        if (major_x > major_y && off_y > off_x) || (major_y > major_x && off_x > off_y) {
+            let second = self.packed_cell(candidate);
+            self.cell_blocks(projectile, &source, &target, &previous, &second)
+        } else {
+            true
+        }
+    }
+
+    fn cell_blocks(
+        &self,
+        projectile: &Projectile,
+        source: &CellRef<'_>,
+        target: &CellRef<'_>,
+        previous: &CellRef<'_>,
+        cell: &CellRef<'_>,
+    ) -> bool {
+        if projectile.collision.subject_to_cliffs
+            && Self::effective_level(cell) - Self::effective_level(previous) >= 4
+            && Self::effective_level(cell) > Self::effective_level(source)
+        {
+            return true;
+        }
+        if !projectile.collision.subject_to_walls
+            || cell == target
+            || Self::level(source) > Self::level(target)
+        {
+            return false;
+        }
+        let (overlay, owner) = self.overlay(cell);
+        if !overlay.is_some_and(|id| {
+            self.overlay_registry
+                .and_then(|registry| registry.flags(id))
+                .is_some_and(|flags| flags.wall)
+        }) {
+            return false;
+        }
+        if self
+            .rules
+            .is_some_and(|rules| rules.allied_wall_transparency)
+            && let (Some(owner), Some(source)) = (owner, self.entities.get(projectile.source_id))
+            && crate::map::houses::is_allied_with(
+                self.alliances,
+                self.interner.resolve(owner),
+                self.interner.resolve(source.owner()),
+            )
+        {
+            return false;
+        }
+        true
+    }
+
+    pub(super) fn target_aim(&self, target: ProjectileTarget) -> Option<ProjectileCoord> {
+        match target {
+            ProjectileTarget::Entity(id) => {
+                self.entities.get(id).map(|target| self.location(target))
+            }
+            ProjectileTarget::Cell { rx, ry } => Some(crate::sim::projectile::cell_target_coord(
+                self.terrain,
+                rx,
+                ry,
+            )),
+            ProjectileTarget::DummyCell => {
+                Some(crate::sim::projectile::dummy_cell_target_coord(self.dummy))
+            }
+            ProjectileTarget::None => None,
+        }
+    }
+
+    /// The target's vt+0x54, IsInAir.
+    fn high_flying(&self, target: &crate::sim::game_entity::GameEntity) -> bool {
+        crate::sim::movement::air_movement::is_high_flying(
+            target,
+            self.terrain,
+            self.rules.map(|rules| (rules, self.interner)),
+        )
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::super::lifecycle_tests::{
@@ -877,14 +1516,16 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "requires RA2_DIR with verified gamemd.exe math tables"]
     fn runtime_fireat_fractional_velocity_survives_live_gravity_and_snapshot() {
         use crate::rules::ini_parser::IniFile;
         use crate::sim::combat::AttackTarget;
         use crate::sim::runtime::SimRuntime;
         use crate::sim::snapshot::GameSnapshot;
-        let tables = crate::map::retail_trig::required_math_tables();
-        assert!(tables.0.matches_retail() && tables.1.matches_retail());
+        if crate::map::retail_trig::verified_acos_table_or_skip("native FireAt runtime motion")
+            .is_none()
+        {
+            return;
+        }
         let native: Vec<Value> = serde_json::from_str(crate::test_fixture::text(
             "tools/projectile_oracle/fireat_runtime.json",
         ))
@@ -1406,644 +2047,5 @@ mod tests {
                 "native reflection{index}: {row}"
             );
         }
-    }
-}
-
-impl ProjectileCollisionWorld<'_> {
-    fn cell(&self, coord: ProjectileCoord) -> CellRef<'_> {
-        if self.terrain.is_some() {
-            get_cellclass_fallback_leptons(self.terrain, coord.x, coord.y)
-        } else {
-            self.dummy.stamp_coord(coord.x / 256, coord.y / 256);
-            CellRef::Dummy {
-                cell: self.dummy.clone(),
-            }
-        }
-    }
-
-    fn packed_cell(&self, coord: ProjectileCoord) -> CellRef<'_> {
-        if self.terrain.is_some() {
-            get_cellclass_fallback(self.terrain, coord.x / 256, coord.y / 256)
-        } else {
-            self.cell(coord)
-        }
-    }
-
-    fn ground(&self, coord: ProjectileCoord) -> i32 {
-        projectile_ground_z(self.terrain, self.dummy, coord)
-    }
-
-    fn building(&self, cell: &CellRef<'_>) -> Option<u64> {
-        let CellRef::Real(cell) = cell else {
-            return None;
-        };
-        self.occupancy
-            .first_building_on_layer(cell.rx, cell.ry, MovementLayer::Ground)
-    }
-
-    /// The object's Location (+0x9C).
-    fn raw_location(&self, object: &crate::sim::game_entity::GameEntity) -> ProjectileCoord {
-        let coord = crate::sim::movement::ground_pose::object_location(object, self.terrain);
-        ProjectileCoord::new(coord.x, coord.y, coord.z)
-    }
-
-    /// The object's GetCoords (vt+0x48).
-    fn location(&self, object: &crate::sim::game_entity::GameEntity) -> ProjectileCoord {
-        let coord = crate::sim::movement::ground_pose::object_get_coords(object, self.terrain);
-        ProjectileCoord::new(coord.x, coord.y, coord.z)
-    }
-
-    fn allied(&self, source: Option<u64>, other: u64) -> bool {
-        let Some(source) = source.and_then(|id| self.entities.get(id)) else {
-            return false;
-        };
-        let Some(other) = self.entities.get(other) else {
-            return false;
-        };
-        crate::map::houses::is_allied_with(
-            self.alliances,
-            self.interner.resolve(source.owner()),
-            self.interner.resolve(other.owner()),
-        )
-    }
-
-    fn overlay(&self, cell: &CellRef<'_>) -> (Option<u8>, Option<crate::sim::intern::InternedId>) {
-        match cell {
-            CellRef::Real(cell) => self.overlays.map_or((None, None), |grid| {
-                let overlay = grid.cell(cell.rx, cell.ry);
-                (overlay.overlay_id, overlay.wall_owner)
-            }),
-            CellRef::Dummy { cell } => (cell.overlay_fields().0, None),
-        }
-    }
-
-    fn level(cell: &CellRef<'_>) -> i32 {
-        match cell {
-            CellRef::Real(c) => i32::from(c.level as i8),
-            CellRef::Dummy { cell } => i32::from(cell.snapshot().level),
-        }
-    }
-
-    fn effective_level(cell: &CellRef<'_>) -> i32 {
-        Self::level(cell)
-            + if cell.bridge_flags_0x1180() & 0x80 != 0 {
-                4
-            } else {
-                0
-            }
-    }
-
-    /// 47C3D0(0,0,ground,null) chooses minimum truncated distance of low-byte
-    /// XY, with strict ties retaining E4 list order. Nonbuilding Techno
-    /// insertions prepend; Building insertions append (47E8A0).
-    fn nearest(&self, cell: &CellRef<'_>) -> Option<(u64, ProjectileCoord)> {
-        let CellRef::Real(cell) = cell else {
-            return None;
-        };
-        // 47C427 tests Techno identity, set only by6F322F. Terrain's
-        // Object base sets bit1 (5F3B37), so Terrain is not eligible.
-        let objects = self
-            .occupancy
-            .get(cell.rx, cell.ry)
-            .into_iter()
-            .flat_map(|occupants| occupants.iter_layer(MovementLayer::Ground))
-            .filter_map(|occupant| self.entities.get(occupant.entity_id))
-            .map(|object| {
-                let location = self.location(object);
-                (
-                    object.stable_id(),
-                    true,
-                    crate::sim::cell_kernel::CellQueryPoint {
-                        x: location.x,
-                        y: location.y,
-                    },
-                )
-            });
-        let id = crate::sim::cell_kernel::nearest_eligible_in_order(
-            crate::sim::cell_kernel::CellQueryPoint { x: 0, y: 0 },
-            objects,
-        )?;
-        Some((id, self.raw_location(self.entities.get(id)?)))
-    }
-
-    pub fn collide(
-        &self,
-        projectile: &Projectile,
-        candidate: ProjectileCoord,
-        phase: ProjectileCollisionPhase,
-    ) -> Option<ProjectileCollisionResponse> {
-        match phase {
-            ProjectileCollisionPhase::Ordinary {
-                persistent_velocity,
-                motion,
-            } => Some(self.ordinary(projectile, motion, persistent_velocity)),
-            ProjectileCollisionPhase::Shared => self
-                .shared(projectile, candidate)
-                .then_some(ProjectileCollisionResponse::TargetZClamp(candidate)),
-            ProjectileCollisionPhase::TargetLocation => match projectile.target {
-                ProjectileTarget::Entity(id) => self
-                    .entities
-                    .get(id)
-                    .map(|target| ProjectileCollisionResponse::TargetZClamp(self.location(target))),
-                _ => None,
-            },
-            ProjectileCollisionPhase::ImpactLadder => {
-                Some(ProjectileCollisionResponse::ImpactLadder(
-                    self.impact_ladder(projectile, candidate),
-                ))
-            }
-        }
-    }
-
-    /// The Target and warhead facts `0x00468D80` reads, with the bullet at
-    /// `location`.
-    /// RESIDUAL: a Building's vt+0xA4 (`0x004500A0`, TargetCoordOffset
-    /// `+0xEBC`) is its centre: `TargetCoordOffset=` is unparsed (the
-    /// shipyards). Trigger: a shell landing near a naval yard. Effect: it
-    /// detonates at the centre instead of the offset point.
-    fn impact_ladder(
-        &self,
-        projectile: &Projectile,
-        location: ProjectileCoord,
-    ) -> ImpactLadderWorld {
-        let em_effect = self.rules.is_some_and(|rules| {
-            rules
-                .warhead(self.interner.resolve(projectile.payload.warhead))
-                .is_some_and(|warhead| warhead.em_effect)
-        });
-        let target = match projectile.target {
-            ProjectileTarget::Entity(id) => self.entities.get(id).map(|target| {
-                let coords = self.location(target);
-                ImpactLadderTarget {
-                    coords,
-                    aim: coords,
-                    offset_coords: coords,
-                    in_air: self.high_flying(target),
-                    ground_layer: super::display_registry::entity_layer(
-                        target,
-                        self.terrain,
-                        self.rules,
-                    ) == super::display_layers::DisplayLayer::GROUND,
-                    distance: self.target_distance(location, target),
-                    building_offset: false,
-                }
-            }),
-            cell @ (ProjectileTarget::Cell { .. } | ProjectileTarget::DummyCell) => {
-                // 468DEA/468E88 and DistanceTo468F71 use Cell+48 ground.
-                // Only the last replacement468F88 reads the +58 deck aim.
-                // Conflating them moves the 32/42-lepton admission sphere
-                // from the ground to the deck and changes the final impact.
-                let coords = match cell {
-                    ProjectileTarget::Cell { rx, ry } => {
-                        crate::sim::projectile::cell_ground_coord(self.terrain, rx, ry)
-                    }
-                    ProjectileTarget::DummyCell => {
-                        crate::sim::projectile::dummy_cell_ground_coord(self.dummy)
-                    }
-                    _ => unreachable!("Cell impact target"),
-                };
-                self.target_aim(cell).map(|aim| ImpactLadderTarget {
-                    coords,
-                    aim,
-                    offset_coords: coords,
-                    in_air: false,
-                    ground_layer: true,
-                    distance: crate::util::native_x87::object_distance(
-                        [location.x, location.y, location.z],
-                        [coords.x, coords.y, coords.z],
-                        None,
-                    ),
-                    building_offset: false,
-                })
-            }
-            ProjectileTarget::None => None,
-        };
-        ImpactLadderWorld { target, em_effect }
-    }
-
-    fn ordinary(
-        &self,
-        projectile: &Projectile,
-        motion: ProjectileCollisionMotion,
-        persistent_velocity: ProjectileVelocity,
-    ) -> ProjectileCollisionResponse {
-        let (motion, impact) = self.ordinary_geometry(projectile, motion);
-        self.ordinary_tail(
-            projectile,
-            motion.candidate_coord(),
-            persistent_velocity,
-            ProjectileVelocity::from_native(motion.velocity),
-            motion.velocity,
-            impact,
-        )
-    }
-
-    fn ordinary_geometry(
-        &self,
-        projectile: &Projectile,
-        mut motion: ProjectileCollisionMotion,
-    ) -> (ProjectileCollisionMotion, bool) {
-        use crate::util::native_x87::NativeF64Bits;
-        let candidate = motion.candidate_coord();
-        let mut candidate_z = f64::from_bits(motion.candidate[2].bits());
-        let vertical = matches!(projectile.trajectory, ProjectileTrajectory::Vertical { .. });
-        let source = self
-            .entities
-            .get(projectile.source_id)
-            .map(|_| projectile.source_id);
-        let mut impact = false;
-        if !vertical {
-            let floor = self.ground(candidate);
-            let deck = floor.wrapping_add(crate::util::lepton::BRIDGE_DECK_HEIGHT_LEPTONS);
-            let cell = self.cell(candidate);
-            let structural = cell.bridge_flags_0x1180() & 0x100 != 0
-                || self.cell(projectile.position).bridge_flags_0x1180() & 0x100 != 0;
-            let crossing = if structural {
-                projectile_bridge_crossing(projectile.position.z, candidate.z, deck)
-            } else {
-                ProjectileBridgeCrossing::None
-            };
-            let mut obstacle = false;
-            if crossing == ProjectileBridgeCrossing::None
-                && candidate_z >= f64::from(floor)
-                && candidate_z < f64::from(floor) + 150.0
-            {
-                let building = self.building(&cell);
-                obstacle = building.is_some()
-                    || self
-                        .overlay(&cell)
-                        .0
-                        .is_some_and(|id| matches!(id, 2 | 26 | 243));
-                if let Some(id) = building {
-                    let exempt = self
-                        .entities
-                        .get(id)
-                        .and_then(|object| {
-                            self.rules.and_then(|rules| {
-                                rules.object(self.interner.resolve(object.type_ref()))
-                            })
-                        })
-                        .is_some_and(|kind| {
-                            kind.is_1x1_with_undeploy()
-                                && kind.undeploys_into.as_deref().is_some_and(|name| {
-                                    self.rules.is_some_and(|rules| rules.object(name).is_some())
-                                })
-                        });
-                    // LaserFence+stage>=8 has no active retail type/data writer.
-                    obstacle &= Some(id) != source && !exempt && !self.allied(source, id);
-                }
-            }
-            if candidate_z < f64::from(floor)
-                || crossing != ProjectileBridgeCrossing::None
-                || obstacle
-            {
-                if source.is_none() {
-                    match crossing {
-                        ProjectileBridgeCrossing::Down => candidate_z = f64::from(deck),
-                        ProjectileBridgeCrossing::Up => {
-                            candidate_z = f64::from(deck.wrapping_sub(20))
-                        }
-                        ProjectileBridgeCrossing::None
-                            if candidate_z > f64::from(floor.wrapping_sub(100)) =>
-                        {
-                            candidate_z = f64::from(floor)
-                        }
-                        ProjectileBridgeCrossing::None => {}
-                    }
-                    let slope = match self.cell(candidate) {
-                        CellRef::Real(c) => c.slope_type,
-                        CellRef::Dummy { cell } => cell.snapshot().slope_type,
-                    };
-                    motion.velocity = crate::sim::projectile::projectile_slope_reflect_double(
-                        motion.velocity,
-                        slope,
-                        projectile.collision.elasticity_bits,
-                    )
-                    .expect("supported native Bullet slope matrix");
-                    impact = true;
-                } else if crossing != ProjectileBridgeCrossing::None {
-                    candidate_z = f64::from(if crossing == ProjectileBridgeCrossing::Down {
-                        deck
-                    } else {
-                        deck.wrapping_sub(20)
-                    });
-                    impact = true;
-                }
-            }
-        }
-        motion.candidate[2] = NativeF64Bits::from_bits(candidate_z.to_bits());
-        (motion, impact)
-    }
-
-    fn ordinary_tail(
-        &self,
-        projectile: &Projectile,
-        mut candidate: ProjectileCoord,
-        persistent_velocity: ProjectileVelocity,
-        mut velocity: ProjectileVelocity,
-        native_velocity: [crate::util::native_x87::NativeF64Bits; 3],
-        mut impact: bool,
-    ) -> ProjectileCollisionResponse {
-        let vertical = matches!(projectile.trajectory, ProjectileTrajectory::Vertical { .. });
-        let source = self
-            .entities
-            .get(projectile.source_id)
-            .map(|_| projectile.source_id);
-        let mut near_target = false;
-        let mut left_map = false;
-        let target_cell_coord = (
-            (projectile.launch_target.x / 256) as i16,
-            (projectile.launch_target.y / 256) as i16,
-        );
-        let same_cell =
-            ((candidate.x / 256) as i16, (candidate.y / 256) as i16) == target_cell_coord;
-        // `ObjectClass::GetHeight @ 0x005F5F40` on the pre-move coordinate,
-        // from the bridge deck for an OnBridge bullet.
-        let old_height = || {
-            projectile
-                .position
-                .z
-                .wrapping_sub(self.ground(projectile.position))
-                .wrapping_sub(if projectile.on_bridge {
-                    crate::util::lepton::BRIDGE_DECK_HEIGHT_LEPTONS
-                } else {
-                    0
-                })
-        };
-        if !vertical && same_cell && old_height() < 208 {
-            impact = true;
-            near_target = true;
-            velocity = persistent_velocity;
-        } else {
-            let candidate_cell = self.packed_cell(candidate);
-            let target_cell = self.packed_cell(projectile.launch_target);
-            let candidate_building = self.building(&candidate_cell);
-            let target_building = self.building(&target_cell);
-            if !vertical
-                && candidate_building.is_some()
-                && candidate_building == target_building
-                && old_height() < 208
-            {
-                impact = true;
-                near_target = true;
-                velocity = persistent_velocity;
-            } else {
-                let nearest = self.nearest(&self.cell(candidate));
-                if let Some((id, position)) = nearest.filter(|(id, position)| {
-                    Some(*id) != source
-                        && !self.allied(source, *id)
-                        && coord_distance(candidate, *position) < 128
-                }) {
-                    let _ = id;
-                    impact = true;
-                    if !projectile.collision.inaccurate {
-                        candidate = position;
-                    }
-                    velocity = persistent_velocity;
-                } else if !self.inside_map(candidate) {
-                    impact = true;
-                    left_map = true;
-                    candidate = projectile.position;
-                    velocity = persistent_velocity;
-                } else {
-                    if vertical {
-                        velocity = persistent_velocity;
-                    }
-                    if crate::sim::projectile::projectile_velocity_magnitude_double(if vertical {
-                        ProjectileCollisionMotion::from_coordinate(candidate, persistent_velocity)
-                            .velocity
-                    } else {
-                        native_velocity
-                    }) < 10.0
-                        && old_height() < 10
-                    {
-                        impact = true;
-                    }
-                }
-            }
-        }
-        ProjectileCollisionResponse::Ordinary {
-            candidate,
-            velocity,
-            impact,
-            near_target,
-            left_map,
-        }
-    }
-
-    fn inside_map(&self, candidate: ProjectileCoord) -> bool {
-        if let Some((width, height)) = self.map_size {
-            let x = i32::from((candidate.x / 256) as i16);
-            let y = i32::from((candidate.y / 256) as i16);
-            let sum = x.wrapping_add(y);
-            width < sum
-                && x.wrapping_sub(y) < width
-                && y.wrapping_sub(x) < width
-                && sum <= width.wrapping_add(height.wrapping_mul(2))
-        } else {
-            self.terrain.is_none() || matches!(self.cell(candidate), CellRef::Real(_))
-        }
-    }
-
-    fn shared(&self, projectile: &Projectile, candidate: ProjectileCoord) -> bool {
-        let cell = self.cell(candidate);
-        if (projectile.collision.subject_to_cliffs || projectile.collision.subject_to_walls)
-            && self.cliff_wall(projectile, candidate)
-        {
-            return true;
-        }
-        let height = candidate.z.wrapping_sub(self.ground(candidate));
-        if height <= -crate::util::lepton::BRIDGE_DECK_HEIGHT_LEPTONS {
-            return true;
-        }
-        if projectile.collision.flak_scatter
-            && self
-                .target_aim(projectile.target)
-                .is_some_and(|target| candidate.z < target.z)
-            && candidate.z.wrapping_sub(self.ground(candidate)) < 0
-        {
-            return true;
-        }
-        if projectile.collision.level {
-            // Cell ctor47BC11 stores DWORD 0xFFFF; ordinary IsoMap loading
-            // rejects/reconstructs the dummy, and Recalc skips it entirely.
-            let tile = match &cell {
-                CellRef::Real(c) => c.final_tile_index,
-                CellRef::Dummy { .. } => 0xFFFF,
-            };
-            // Cell vt+0x50 (`0x004867E0`): outside the WaterSet window. Without
-            // a map the cell is the dummy, whose tile is outside every window.
-            if !self
-                .terrain
-                .is_some_and(|terrain| terrain.tile_is_water_set(tile))
-            {
-                return true;
-            }
-        }
-        if projectile.collision.anti_air
-            && let ProjectileTarget::Entity(id) = projectile.target
-            && let Some(target) = self.entities.get(id)
-            && self.high_flying(target)
-            && self.target_distance(candidate, target) < 128
-        {
-            return true;
-        }
-        false
-    }
-
-    fn target_distance(
-        &self,
-        candidate: ProjectileCoord,
-        target: &crate::sim::game_entity::GameEntity,
-    ) -> i32 {
-        // ObjectClass::Distance 5F6360 between the virtual +48 positions,
-        // with a building target's foundation term.
-        let building = self
-            .rules
-            .filter(|_| target.category == EntityCategory::Structure)
-            .and_then(|rules| rules.object(self.interner.resolve(target.type_ref())))
-            .map(|kind| {
-                let (width, height) =
-                    crate::rules::foundation::foundation_dimensions(&kind.foundation);
-                (i32::from(width), i32::from(height))
-            });
-        let location = self.location(target);
-        crate::util::native_x87::object_distance(
-            [candidate.x, candidate.y, candidate.z],
-            [location.x, location.y, location.z],
-            building,
-        )
-    }
-
-    fn cell_location(cell: &CellRef<'_>) -> ProjectileCoord {
-        let (x, y, level, slope) = match cell {
-            CellRef::Real(c) => (
-                i32::from(c.rx as i16),
-                i32::from(c.ry as i16),
-                c.level,
-                c.slope_type,
-            ),
-            CellRef::Dummy { cell } => {
-                let c = cell.snapshot();
-                (c.coord.0, c.coord.1, c.level as u8, c.slope_type)
-            }
-        };
-        let x = x * 256 + 128;
-        let y = y * 256 + 128;
-        let z = crate::util::lepton::ground_height_leptons(level, slope, x, y)
-            .expect("native Cell +48 slope");
-        ProjectileCoord::new(x, y, z)
-    }
-
-    fn cliff_wall(&self, projectile: &Projectile, candidate: ProjectileCoord) -> bool {
-        let source = self.cell(projectile.launch_origin);
-        let target = self.cell(projectile.launch_target);
-        let previous = if self.terrain.is_some() {
-            get_cellclass_fallback(
-                self.terrain,
-                i32::from(projectile.previous_cell.0),
-                i32::from(projectile.previous_cell.1),
-            )
-        } else {
-            self.dummy.stamp_coord(
-                i32::from(projectile.previous_cell.0),
-                i32::from(projectile.previous_cell.1),
-            );
-            CellRef::Dummy {
-                cell: self.dummy.clone(),
-            }
-        };
-        let cell = self.packed_cell(candidate);
-        if !self.cell_blocks(projectile, &source, &target, &previous, &cell) {
-            return false;
-        }
-        // 4CC489..4CC671 retains each Cell pointer, observes +48 in this
-        // order, and may requery the SAME packed candidate. Dummy identities
-        // remain live through all queries; never snapshot them at fetch time.
-        let center = Self::cell_location(&cell);
-        if coord_distance(candidate, center) <= 85 {
-            return true;
-        }
-        let launch = Self::cell_location(&source);
-        let destination = Self::cell_location(&target);
-        let major_x = launch.x.wrapping_sub(destination.x).wrapping_abs();
-        let major_y = launch.y.wrapping_sub(destination.y).wrapping_abs();
-        let off_x = candidate.x.wrapping_sub(center.x).wrapping_abs();
-        let off_y = candidate.y.wrapping_sub(center.y).wrapping_abs();
-        if (major_x > major_y && off_y > off_x) || (major_y > major_x && off_x > off_y) {
-            let second = self.packed_cell(candidate);
-            self.cell_blocks(projectile, &source, &target, &previous, &second)
-        } else {
-            true
-        }
-    }
-
-    fn cell_blocks(
-        &self,
-        projectile: &Projectile,
-        source: &CellRef<'_>,
-        target: &CellRef<'_>,
-        previous: &CellRef<'_>,
-        cell: &CellRef<'_>,
-    ) -> bool {
-        if projectile.collision.subject_to_cliffs
-            && Self::effective_level(cell) - Self::effective_level(previous) >= 4
-            && Self::effective_level(cell) > Self::effective_level(source)
-        {
-            return true;
-        }
-        if !projectile.collision.subject_to_walls
-            || cell == target
-            || Self::level(source) > Self::level(target)
-        {
-            return false;
-        }
-        let (overlay, owner) = self.overlay(cell);
-        if !overlay.is_some_and(|id| {
-            self.overlay_registry
-                .and_then(|registry| registry.flags(id))
-                .is_some_and(|flags| flags.wall)
-        }) {
-            return false;
-        }
-        if self
-            .rules
-            .is_some_and(|rules| rules.allied_wall_transparency)
-            && let (Some(owner), Some(source)) = (owner, self.entities.get(projectile.source_id))
-            && crate::map::houses::is_allied_with(
-                self.alliances,
-                self.interner.resolve(owner),
-                self.interner.resolve(source.owner()),
-            )
-        {
-            return false;
-        }
-        true
-    }
-
-    pub(super) fn target_aim(&self, target: ProjectileTarget) -> Option<ProjectileCoord> {
-        match target {
-            ProjectileTarget::Entity(id) => {
-                self.entities.get(id).map(|target| self.location(target))
-            }
-            ProjectileTarget::Cell { rx, ry } => Some(crate::sim::projectile::cell_target_coord(
-                self.terrain,
-                rx,
-                ry,
-            )),
-            ProjectileTarget::DummyCell => {
-                Some(crate::sim::projectile::dummy_cell_target_coord(self.dummy))
-            }
-            ProjectileTarget::None => None,
-        }
-    }
-
-    /// The target's vt+0x54, IsInAir.
-    fn high_flying(&self, target: &crate::sim::game_entity::GameEntity) -> bool {
-        crate::sim::movement::air_movement::is_high_flying(
-            target,
-            self.terrain,
-            self.rules.map(|rules| (rules, self.interner)),
-        )
     }
 }

@@ -84,7 +84,6 @@ fn live_shot<'r>(
 }
 
 /// One strike visit (states 4..9) for an aircraft whose dispatch asked for it.
-#[allow(clippy::too_many_arguments)]
 pub(super) fn visit(
     world: &mut Simulation,
     run: &mut ReceiverRun,

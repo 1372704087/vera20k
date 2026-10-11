@@ -797,9 +797,8 @@ fn draw_swatch_grid(
         canvas::draw_text(&mut image, i64::from(GRID_MARGIN), y, text, HEADER_COLOR);
     }
 
-    for index in 0..PAL_COLORS {
+    for (index, (&color, mark)) in palette.colors.iter().zip(marks.iter()).enumerate() {
         let (x, y) = swatch_origin(index, header.len());
-        let color = palette.colors[index];
         let swatch = Rgba::new_filled(SWATCH_SIZE, SWATCH_SIZE, [color.r, color.g, color.b, 255]);
         canvas::blit_over(&mut image, &swatch, x, y);
         canvas::draw_text(
@@ -809,7 +808,7 @@ fn draw_swatch_grid(
             &index.to_string(),
             label_color_for(color),
         );
-        if let Some(marker) = marks[index].marker_color() {
+        if let Some(marker) = mark.marker_color() {
             canvas::draw_rect_outline(
                 &mut image,
                 x - 1,
@@ -1754,7 +1753,7 @@ mod tests {
         assert_eq!(clamp_scale(999), MAX_SCALE);
         assert_eq!(fit_scale(60, 30, 8), Some(8));
         let fitted = fit_scale(4000, 4000, 16).unwrap();
-        assert!(fitted >= MIN_SCALE && fitted < 16, "{fitted}");
+        assert!((MIN_SCALE..16).contains(&fitted), "{fitted}");
         assert!(
             u64::from(4000_u32) * u64::from(4000_u32) * u64::from(fitted) * u64::from(fitted)
                 <= MAX_OUTPUT_PIXELS

@@ -92,8 +92,10 @@ fn rng_input(hex: &Value) -> SimRng {
     let raw = bytes(hex.as_str().unwrap());
     assert_eq!(raw.len(), 0x3f4);
     let words: Vec<u32> = raw[12..]
-        .chunks_exact(4)
-        .map(|word| u32::from_le_bytes(word.try_into().unwrap()))
+        .as_chunks::<4>()
+        .0
+        .iter()
+        .map(|word| u32::from_le_bytes(*word))
         .collect();
     serde_json::from_value(json!({
         "disabled": dword(&raw, 0),
@@ -353,8 +355,8 @@ fn fixture(rules: &RuleSet, ini: &IniFile) -> Fixture {
                 cell.yr_cell_land_type = 1;
                 cell.terrain_class = road.terrain_class;
                 cell.base_terrain_class = road.terrain_class;
-                cell.speed_costs = road.speed_costs.clone();
-                cell.base_speed_costs = road.speed_costs.clone();
+                cell.speed_costs = road.speed_costs;
+                cell.base_speed_costs = road.speed_costs;
                 cell
             })
         })

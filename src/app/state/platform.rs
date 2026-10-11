@@ -23,30 +23,6 @@ pub(super) fn render_dimensions(
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn gameplay_upscaling_never_changes_frontend_projection() {
-        let window = (800, 600);
-        let source = (640, 480);
-        for screen in [
-            GameScreen::MainMenu,
-            GameScreen::MissionResult {
-                title: String::new(),
-                detail: String::new(),
-            },
-        ] {
-            assert_eq!(render_dimensions(&screen, window, Some(source)), window);
-        }
-        for screen in [GameScreen::Loading, GameScreen::InGame] {
-            assert_eq!(render_dimensions(&screen, window, Some(source)), source);
-            assert_eq!(render_dimensions(&screen, window, None), window);
-        }
-    }
-}
-
 /// Window lifecycle and wall-clock pacing owned by the platform layer.
 ///
 /// This state is process-local: it is never serialized, hashed, or read by the
@@ -129,5 +105,29 @@ impl PlatformState {
     /// the focus-edge audio stop.
     pub(crate) fn focus_freeze_active(&self) -> bool {
         self.pause_on_focus_loss && !self.window_active
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn gameplay_upscaling_never_changes_frontend_projection() {
+        let window = (800, 600);
+        let source = (640, 480);
+        for screen in [
+            GameScreen::MainMenu,
+            GameScreen::MissionResult {
+                title: String::new(),
+                detail: String::new(),
+            },
+        ] {
+            assert_eq!(render_dimensions(&screen, window, Some(source)), window);
+        }
+        for screen in [GameScreen::Loading, GameScreen::InGame] {
+            assert_eq!(render_dimensions(&screen, window, Some(source)), source);
+            assert_eq!(render_dimensions(&screen, window, None), window);
+        }
     }
 }

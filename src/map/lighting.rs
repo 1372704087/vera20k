@@ -1417,10 +1417,12 @@ mod tests {
         let bytes =
             crate::test_fixture::bytes("tools/palette_oracle/fixtures/cell-light-finalization.bin");
         assert_eq!(bytes.len() % 60, 0);
-        for record in bytes.chunks_exact(60) {
+        for record in bytes.as_chunks::<60>().0 {
             let row: Vec<i32> = record
-                .chunks_exact(4)
-                .map(|v| i32::from_le_bytes(v.try_into().unwrap()))
+                .as_chunks::<4>()
+                .0
+                .iter()
+                .map(|v| i32::from_le_bytes(*v))
                 .collect();
             let mut profiles = LightProfileCache::new();
             let light = build_cell_light_from_raw(
@@ -2284,7 +2286,7 @@ mod tests {
         let light = point_light_from_object(5, 4, 512, 0.2, [0.1, 0.0, 0.0]).expect("light");
         let immediate = {
             let mut grid = build_cell_light_grid_from_heights(heights, &config);
-            accumulate_point_lights(&mut grid, &[light.clone()]);
+            accumulate_point_lights(&mut grid, std::slice::from_ref(&light));
             grid
         };
 

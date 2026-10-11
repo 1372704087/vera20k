@@ -61,12 +61,7 @@ pub fn wheel_impassable_from_rules(rules: &TerrainRules) -> [bool; LAND_TYPES] {
 }
 
 /// The facts the generator needs, snapshotted so the run does not borrow
-/// `TheaterData`.
-///
-/// Mostly theater and rules, plus one thing that is neither: the sine table,
-/// which comes out of the retail executable. It rides here because this is
-/// already the "everything a run needs, resolved once" bundle, and threading a
-/// second parameter through every entry point would say less.
+/// `TheaterData`: theater and rules, plus the river's sine table.
 #[derive(Debug, Clone)]
 pub struct ResolvedTheaterInputs {
     pub ids: TileIds,
@@ -74,19 +69,14 @@ pub struct ResolvedTheaterInputs {
     pub wheel_impassable: [bool; LAND_TYPES],
     /// Per-tile `Morphable=` flag, indexed by flat tile id.
     pub morphable: Vec<bool>,
-    /// The generator's sine table, read from `gamemd.exe`. `None` when the
-    /// install could not supply one — rivers are then skipped rather than
-    /// carved from a table this build does not recognise.
-    pub trig: Option<TrigTable>,
+    /// The generator's sine table: always the retail table in production.
+    /// Unit tests of other phases pass `None`, which skips river carving.
+    pub trig: Option<&'static TrigTable>,
 }
 
 impl ResolvedTheaterInputs {
     /// Snapshot a theater + rules into the resolved input set.
-    pub fn from_theater(
-        theater: &TheaterData,
-        rules: &TerrainRules,
-        trig: Option<TrigTable>,
-    ) -> Self {
+    pub fn from_theater(theater: &TheaterData, rules: &TerrainRules) -> Self {
         let morphable = (0..theater.lookup.len())
             .map(|tile| theater.lookup.is_morphable(tile as u16))
             .collect();
@@ -95,7 +85,7 @@ impl ResolvedTheaterInputs {
             cliff: theater.cliff_ranges,
             wheel_impassable: wheel_impassable_from_rules(rules),
             morphable,
-            trig,
+            trig: Some(TrigTable::embedded()),
         }
     }
 
@@ -224,7 +214,7 @@ pub fn generate_map_observed(
         morphable: &morphable,
         wheel_impassable: resolved.wheel_impassable,
         tech_types,
-        trig: resolved.trig.as_ref(),
+        trig: resolved.trig,
         map_type: options.map_type,
         accessibility: options.accessibility,
         theater: options.theater,
@@ -502,11 +492,11 @@ mod tests {
         }
     }
 
+    type Projection = (Vec<i32>, Vec<(u16, u16, u8, u8)>, Vec<(u8, u16, u16)>);
+
     /// The comparable content of a generated map: what the emitter projected
     /// plus the start positions.
-    fn projection(
-        generated: &GeneratedMap,
-    ) -> (Vec<i32>, Vec<(u16, u16, u8, u8)>, Vec<(u8, u16, u16)>) {
+    fn projection(generated: &GeneratedMap) -> Projection {
         let tiles = generated
             .map_file
             .cells
@@ -845,9 +835,7 @@ mod tests {
         }
     }
 
-    fn snapshot_projection(
-        snapshot: &GenerationSnapshot,
-    ) -> (Vec<i32>, Vec<(u16, u16, u8, u8)>, Vec<(u8, u16, u16)>) {
+    fn snapshot_projection(snapshot: &GenerationSnapshot) -> Projection {
         let tiles = snapshot
             .map_file
             .cells

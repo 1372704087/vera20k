@@ -603,7 +603,9 @@ mod tests {
                     .as_str()
                     .unwrap()
                     .as_bytes()
-                    .chunks_exact(2)
+                    .as_chunks::<2>()
+                    .0
+                    .iter()
                     .map(|pair| u8::from_str_radix(std::str::from_utf8(pair).unwrap(), 16).unwrap())
                     .collect();
                 let actual = &atlas[index * stride..(index + 1) * stride];
@@ -714,7 +716,9 @@ mod tests {
                     // RGB8 levels. Compare the complete original word domain.
                     assert_eq!(output[0].len(), expected.len() * 4);
                     let different: Vec<_> = output[0]
-                        .chunks_exact(4)
+                        .as_chunks::<4>()
+                        .0
+                        .iter()
                         .zip(&expected)
                         .enumerate()
                         .filter_map(|(offset, (actual, &expected))| {
@@ -749,11 +753,11 @@ mod tests {
             destination & 0xf8
         };
         let transformed = if flags & 1 != 0 {
-            (u16::from(quantized) * (256 - u16::from(mask)) >> 8) as u8
+            ((u16::from(quantized) * (256 - u16::from(mask))) >> 8) as u8
         } else if flags & disable_bit != 0 {
             quantized
         } else {
-            (u16::from(quantized) * (256 + u16::from(mask)) >> 8).min(255) as u8
+            ((u16::from(quantized) * (256 + u16::from(mask))) >> 8).min(255) as u8
         };
         if disable_bit == 4 {
             transformed & 0xfc

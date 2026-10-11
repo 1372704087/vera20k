@@ -620,7 +620,7 @@ impl Probe {
             std::fs::create_dir_all(&path).unwrap();
             for (phase, bgra) in self.readbacks {
                 let mut rgba = bgra;
-                for pixel in rgba.chunks_exact_mut(4) {
+                for pixel in rgba.as_chunks_mut::<4>().0 {
                     pixel.swap(0, 2);
                 }
                 image::save_buffer(

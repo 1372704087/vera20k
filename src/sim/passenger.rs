@@ -362,7 +362,6 @@ pub fn can_enter_transport(
 /// path grid's bounds; the `Assaulter=` arm (`0x00457DAD..0x00457DD3`: an
 /// assaulter may enter an occupied building of a house it is not allied
 /// with) is not represented. No retail infantry is an assaulter.
-#[allow(clippy::too_many_arguments)]
 pub fn can_dock_occupier_garrison(
     passenger: &GameEntity,
     building: &GameEntity,
@@ -379,10 +378,10 @@ pub fn can_dock_occupier_garrison(
     if building.building_up() || building.building_down() {
         return false;
     }
-    if let Some(grid) = path_grid {
-        if building.position.rx >= grid.width() || building.position.ry >= grid.height() {
-            return false;
-        }
+    if let Some(grid) = path_grid
+        && (building.position.rx >= grid.width() || building.position.ry >= grid.height())
+    {
+        return false;
     }
     // `BuildingClass::CanDock @ 0x00457D3E`: a building being warped out
     // admits nobody.
@@ -2494,10 +2493,10 @@ ConditionYellow=50%
         let bldg = spawn_garrison_building(&mut sim, &rules, "CAGAS01", "Americans", 10, 10);
 
         // Pre-populate with one occupant (simulating a previous successful board).
-        if let Some(t) = sim.substrate.entities.get_mut(bldg) {
-            if let Some(cargo) = t.passenger_role.cargo_mut() {
-                cargo.board(9999, 1);
-            }
+        if let Some(t) = sim.substrate.entities.get_mut(bldg)
+            && let Some(cargo) = t.passenger_role.cargo_mut()
+        {
+            cargo.board(9999, 1);
         }
         let _pax = spawn_boarding_occupier(&mut sim, &rules, "E1", "Americans", bldg, 10, 10);
 
@@ -2722,11 +2721,11 @@ ConditionYellow=50%
         };
         sim.substrate.entities.insert(ge);
         // Add to building's cargo.
-        if let Some(bldg) = sim.substrate.entities.get_mut(building_id) {
-            if let Some(cargo) = bldg.passenger_role.cargo_mut() {
-                let obj = rules.object(type_ref).expect("type exists");
-                cargo.board(stable_id, obj.size.max(1));
-            }
+        if let Some(bldg) = sim.substrate.entities.get_mut(building_id)
+            && let Some(cargo) = bldg.passenger_role.cargo_mut()
+        {
+            let obj = rules.object(type_ref).expect("type exists");
+            cargo.board(stable_id, obj.size.max(1));
         }
         // Supplied first-board ownership precedes the native AddOccupant's
         // threat-refresh tail. The building helper already constructs the

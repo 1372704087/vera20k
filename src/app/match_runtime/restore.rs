@@ -30,6 +30,7 @@ pub(crate) fn commit_prepared_load(
     crate::app::input::dispatch::selection_navigation::reset_for_world_replacement(
         &mut state.match_state.input,
     );
+    state.match_state.input.reset_targeting_for_new_world();
     // F10 lifecycle: a successful in-scenario load closes the outgoing
     // timeline's diagnostic segment BEFORE the restored simulation commits;
     // the restored timeline lazily opens its own segment on the next frame.
@@ -115,15 +116,14 @@ pub(crate) fn commit_prepared_load(
     // tactical render (the owner query derives from the committed simulation),
     // and invalidate the render dirty-gates: the view generation restarts from
     // zero, so an equal counter no longer proves an unchanged view.
-    if let Some(owner) = crate::app::input::commands::preferred_local_owner_name(state) {
-        if let Some(sim) = state
+    if let Some(owner) = crate::app::input::commands::preferred_local_owner_name(state)
+        && let Some(sim) = state
             .match_state
             .sim_runtime
             .as_mut()
             .map(|rt| &mut rt.simulation)
-        {
-            sim.prepare_fog_view_for(&owner);
-        }
+    {
+        sim.prepare_fog_view_for(&owner);
     }
     if let Some(shroud) = state.match_state.match_presentation.shroud_buffer.as_mut() {
         shroud.mark_stale();

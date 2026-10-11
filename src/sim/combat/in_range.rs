@@ -96,16 +96,15 @@ fn initial_range_leptons(
 ) -> i64 {
     let mut range_lep: i64 = i64::from(weapon.range_leptons);
 
-    if let TargetKind::Entity(target_id) = *target {
-        if let Some(target_entity) = entities.get(target_id) {
-            // AirRange bonus when target is high-flying.
-            if is_high_flying_in_query(target_entity, cells, Some((rules, interner))) {
-                if let Some(attacker_obj) = rules.object(interner.resolve(attacker.type_ref())) {
-                    if let Some(air_bonus) = attacker_obj.air_range_bonus {
-                        range_lep += cells_fixed_to_leptons(air_bonus);
-                    }
-                }
-            }
+    if let TargetKind::Entity(target_id) = *target
+        && let Some(target_entity) = entities.get(target_id)
+    {
+        // AirRange bonus when target is high-flying.
+        if is_high_flying_in_query(target_entity, cells, Some((rules, interner)))
+            && let Some(attacker_obj) = rules.object(interner.resolve(attacker.type_ref()))
+            && let Some(air_bonus) = attacker_obj.air_range_bonus
+        {
+            range_lep += cells_fixed_to_leptons(air_bonus);
         }
     }
 
@@ -294,7 +293,6 @@ pub(crate) fn inside_minimum_range(
 ///
 /// `src` is caller-supplied as `(attacker_x_lep, attacker_y_lep,
 /// object_world_z_leptons(attacker, Some(terrain)))`.
-#[allow(clippy::too_many_arguments)]
 pub(crate) fn compute_in_range(
     attacker: &GameEntity,
     src: (i64, i64, i64),
@@ -322,7 +320,6 @@ pub(crate) fn compute_in_range(
 /// Run the shared range decision in the caller's cell-query domain. Cursor
 /// probing supplies one isolated domain across source construction and range;
 /// simulation wrappers retain canonical lookup order and Dummy side effects.
-#[allow(clippy::too_many_arguments)]
 pub(crate) fn compute_in_range_in_query(
     attacker: &GameEntity,
     src: (i64, i64, i64),
@@ -366,7 +363,6 @@ impl<'a> RangeTarget<'a> {
 /// height queries may restamp the same Dummy before InRange reads its target.
 /// tools/spatial_oracle/walk_cell_range executes the complete non-arcing
 /// source/Cell/range path, with the selected weapon supplied independently.
-#[allow(clippy::too_many_arguments)]
 pub(crate) fn cell_target_in_range(
     attacker: &GameEntity,
     target: NativeCellIdentity,
@@ -392,7 +388,6 @@ pub(crate) fn cell_target_in_range(
     ))
 }
 
-#[allow(clippy::too_many_arguments)]
 fn compute_range_target(
     attacker: &GameEntity,
     src: (i64, i64, i64),
@@ -566,7 +561,6 @@ fn compute_range_target(
 /// `CALL 0x004CC310` at 0x006F7642 with `InRange`'s own source and target
 /// coordinates, the weapon from `[EBP+0x10]`, and the firer's house from
 /// `this->+0x21C` (loaded at 0x006F7631 / 0x006F7511).
-#[allow(clippy::too_many_arguments)]
 fn line_of_fire_clear(
     attacker: &GameEntity,
     src: (i64, i64, i64),
@@ -1987,7 +1981,7 @@ mod tests {
             weapon,
             &entities,
             &terrain,
-            (&rules, &test_interner()),
+            (rules, &test_interner()),
         )
         .expect("source coords");
         compute_in_range(

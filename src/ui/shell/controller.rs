@@ -85,10 +85,10 @@ impl DialogController {
     /// Focus implicitly returns to the new top (or the game window if empty).
     pub fn pop(&mut self) -> Option<DialogId> {
         let inst = self.stack.pop()?;
-        if inst.accepts_keys {
-            if let Some(pos) = self.kbd_route.iter().rposition(|d| *d == inst.id) {
-                self.kbd_route.remove(pos);
-            }
+        if inst.accepts_keys
+            && let Some(pos) = self.kbd_route.iter().rposition(|d| *d == inst.id)
+        {
+            self.kbd_route.remove(pos);
         }
         Some(inst.id)
     }

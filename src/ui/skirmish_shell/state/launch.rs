@@ -2,9 +2,9 @@
 
 use crate::map::scenario_menu::MapMenuEntry;
 use crate::skirmish_launch::{
-    HOUSE_COLOR_COUNT, LaunchCountry, LaunchStartPosition, LaunchTeam, LaunchValidationError,
-    PreFillAiHouseSlot, PreFillHouseRoster, PreFillHumanHouse, SKIRMISH_PLAYER_SLOT_COUNT,
-    SkirmishAiSlot, SkirmishLaunchMode, SkirmishLaunchSession, SkirmishLocalSlot,
+    HOUSE_COLOR_COUNT, LaunchStartPosition, LaunchTeam, LaunchValidationError, PreFillAiHouseSlot,
+    PreFillHouseRoster, PreFillHumanHouse, SKIRMISH_PLAYER_SLOT_COUNT, SkirmishAiSlot,
+    SkirmishLaunchMode, SkirmishLaunchSession, SkirmishLocalSlot,
 };
 use crate::skirmish_modes::{SkirmishGameMode, mode_by_id};
 

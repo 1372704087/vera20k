@@ -268,10 +268,9 @@ fn original_direct_fireat_keeps_argument_speed_separate_from_live_tarcom_aim() {
         .iter()
         .map(|component| u64::from_str_radix(component.as_str().unwrap(), 16).unwrap())
         .collect::<Vec<_>>();
-    // The direction is FireAt's sine-table lookups (`0x004CACB0`), so its
-    // bits are exact only against the retail table.
-    if crate::map::retail_trig::verified_math_tables_or_skip("native FireAt velocity bits")
-        .is_some()
+    // The level Cannon arc takes its pitch from the Acos table (48A9D0), so
+    // its bits are exact only against the retail Acos table.
+    if crate::map::retail_trig::verified_acos_table_or_skip("native FireAt velocity bits").is_some()
     {
         assert_eq!(
             bullet
@@ -664,7 +663,7 @@ impl Duel {
             .substrate
             .entities
             .get(id)
-            .map_or(0, |entity| i32::from(entity.health.current))
+            .map_or(0, |entity| entity.health.current)
     }
 
     fn location(&self, id: u64) -> ProjectileCoord {

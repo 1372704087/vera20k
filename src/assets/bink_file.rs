@@ -357,7 +357,7 @@ impl BinkFile {
         let entry = self
             .frame_index
             .get(i)
-            .ok_or_else(|| AssetError::BinkFrameOutOfRange {
+            .ok_or(AssetError::BinkFrameOutOfRange {
                 index: i,
                 count: self.frame_index.len(),
             })?;
@@ -396,7 +396,7 @@ impl BinkFile {
         let entry = self
             .frame_index
             .get(i)
-            .ok_or_else(|| AssetError::BinkFrameOutOfRange {
+            .ok_or(AssetError::BinkFrameOutOfRange {
                 index: i,
                 count: self.frame_index.len(),
             })?;

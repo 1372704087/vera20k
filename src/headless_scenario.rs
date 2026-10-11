@@ -120,7 +120,7 @@ pub(crate) fn load_with_launch(
     crate::map::retail_trig::install_from_dir(retail_dir);
     if !crate::map::retail_trig::wave_tables_available() {
         return Err(format!(
-            "{} does not provide the verified gamemd sine/Acos tables required by stock Sonic Wave simulation",
+            "{} does not provide the verified gamemd Acos table required by stock arcing projectile and Sonic Wave simulation",
             retail_dir.join("gamemd.exe").display()
         ));
     }
@@ -241,10 +241,7 @@ pub(crate) fn load_with_launch(
             &mut variant_selector,
             shared_cell_dummy,
         );
-    drop(variant_selector);
     drop(variant_draw);
-    drop(scenario_fill_ranged);
-    drop(scenario_fill_rng);
 
     // Pending authored Fill has no eager Tile##Anim list. Bind damage-fire
     // roots now and let the authored host bind each actually reached map Anim

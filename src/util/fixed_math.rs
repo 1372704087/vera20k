@@ -137,7 +137,7 @@ pub fn isqrt_i64(val: i64) -> i64 {
     // Initial guess: use bit-length to pick a reasonable start.
     // guess = 1 << ((bit_length(val) + 1) / 2)
     let bits: u32 = 64 - (val as u64).leading_zeros();
-    let mut guess: i64 = 1i64 << ((bits + 1) / 2);
+    let mut guess: i64 = 1i64 << bits.div_ceil(2);
     for _ in 0..32 {
         let next: i64 = (guess + val / guess) / 2;
         if next >= guess {

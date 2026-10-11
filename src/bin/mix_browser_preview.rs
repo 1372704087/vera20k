@@ -338,83 +338,81 @@ pub fn preview_from_bytes(
         .unwrap_or_else(|| format!("??? ({:#010X})", entry_hash));
 
     // PAL: 768 bytes → render as 16x16 color grid.
-    if data.len() == 768 {
-        if let Ok(palette) = Palette::from_bytes(&data) {
-            let image = mix_browser_renderers::render_palette_grid(&palette);
+    if data.len() == 768
+        && let Ok(palette) = Palette::from_bytes(&data)
+    {
+        let image = mix_browser_renderers::render_palette_grid(&palette);
+        let texture = ctx.load_texture(
+            format!("pal_preview_{}", entry_hash),
+            image,
+            egui::TextureOptions::NEAREST,
+        );
+        let pal_name = resolved_name.clone();
+        return PreviewState {
+            entry_hash,
+            source_name: source_label.to_string(),
+            resolved_name,
+            current_frame: 0,
+            frame_count: 0,
+            dimensions: "256 colors (16x16 grid)".to_string(),
+            texture: Some(texture),
+            error: None,
+            file_type,
+            shp: None,
+            palette: Some(palette),
+            palette_name: Some(pal_name),
+            raw_bytes: Some(data),
+            is_playing: false,
+            play_speed_fps: 15.0,
+            last_frame_time: 0.0,
+            house_color_index: 0,
+        };
+    }
+
+    // TMP: detect by file_type string (set by detect_file_type).
+    if file_type.starts_with("TMP")
+        && let Ok(tmp) = TmpFile::from_bytes(&data)
+    {
+        // Find a theater palette for rendering.
+        let (palette, palette_name) = find_palette_for_asset(
+            asset_manager,
+            dict,
+            art_registry,
+            Some(&resolved_name),
+            palette_source_archive,
+            palette_override,
+        );
+        if let Some(pal) = &palette
+            && let Some((image, tile_count)) = mix_browser_renderers::render_tmp_preview(&tmp, pal)
+        {
+            let total_cells = (tmp.template_width * tmp.template_height) as usize;
             let texture = ctx.load_texture(
-                format!("pal_preview_{}", entry_hash),
+                format!("tmp_preview_{}", entry_hash),
                 image,
                 egui::TextureOptions::NEAREST,
             );
-            let pal_name = resolved_name.clone();
             return PreviewState {
                 entry_hash,
                 source_name: source_label.to_string(),
                 resolved_name,
                 current_frame: 0,
                 frame_count: 0,
-                dimensions: "256 colors (16x16 grid)".to_string(),
+                dimensions: format!(
+                    "{}x{} template, {}/{} tiles",
+                    tmp.template_width, tmp.template_height, tile_count, total_cells
+                ),
                 texture: Some(texture),
                 error: None,
                 file_type,
                 shp: None,
-                palette: Some(palette),
-                palette_name: Some(pal_name),
+                palette,
+                palette_name,
                 raw_bytes: Some(data),
                 is_playing: false,
                 play_speed_fps: 15.0,
                 last_frame_time: 0.0,
                 house_color_index: 0,
             };
-        }
-    }
-
-    // TMP: detect by file_type string (set by detect_file_type).
-    if file_type.starts_with("TMP") {
-        if let Ok(tmp) = TmpFile::from_bytes(&data) {
-            // Find a theater palette for rendering.
-            let (palette, palette_name) = find_palette_for_asset(
-                asset_manager,
-                dict,
-                art_registry,
-                Some(&resolved_name),
-                palette_source_archive,
-                palette_override,
-            );
-            if let Some(pal) = &palette {
-                if let Some((image, tile_count)) =
-                    mix_browser_renderers::render_tmp_preview(&tmp, pal)
-                {
-                    let total_cells = (tmp.template_width * tmp.template_height) as usize;
-                    let texture = ctx.load_texture(
-                        format!("tmp_preview_{}", entry_hash),
-                        image,
-                        egui::TextureOptions::NEAREST,
-                    );
-                    return PreviewState {
-                        entry_hash,
-                        source_name: source_label.to_string(),
-                        resolved_name,
-                        current_frame: 0,
-                        frame_count: 0,
-                        dimensions: format!(
-                            "{}x{} template, {}/{} tiles",
-                            tmp.template_width, tmp.template_height, tile_count, total_cells
-                        ),
-                        texture: Some(texture),
-                        error: None,
-                        file_type,
-                        shp: None,
-                        palette,
-                        palette_name,
-                        raw_bytes: Some(data),
-                        is_playing: false,
-                        play_speed_fps: 15.0,
-                        last_frame_time: 0.0,
-                        house_color_index: 0,
-                    };
-                }
-            }
         }
     }
 

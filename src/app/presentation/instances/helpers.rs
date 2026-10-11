@@ -52,7 +52,7 @@ pub(crate) fn observer_draw_context(
         .disguise
         .as_ref()
         .filter(|disguise| disguise.is_disguised())
-        .and_then(|_| sim.resolved_terrain.as_ref())
+        .and(sim.resolved_terrain.as_ref())
         .map(|terrain| {
             // Presentation queries isolate Dummy and never change lockstep state.
             let cells = crate::map::resolved_terrain::NativeCellQuery::isolated(terrain);
@@ -125,7 +125,6 @@ pub(crate) fn drawn_type_uses_voxel(
 /// DrawIt entries without querying anchor shroud. Screen selection retains its
 /// exploration gate; lifecycle and DrawState still own transport/cloak admission.
 /// Native controls: tools/procedural_drawing_oracle/{building_reveal,entity_reveal}.md.
-#[allow(clippy::too_many_arguments)]
 pub(crate) fn tactical_entity_admission(
     purpose: TacticalEntityPurpose,
     entity: &GameEntity,
@@ -217,7 +216,6 @@ fn tactical_bounded_entity_encounter_order(
     )
 }
 
-#[allow(clippy::too_many_arguments)]
 fn compose_tactical_screen_entity_encounter_order(
     sim: &crate::sim::world::Simulation,
     bounds: (f32, f32, f32, f32),

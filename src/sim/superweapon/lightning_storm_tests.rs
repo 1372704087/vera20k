@@ -933,9 +933,7 @@ fn a_zero_deferment_storm_starts_on_the_launch_frame() {
     let rules = lighting_timing_rules(0, 2, ".2");
     let mut sim = Simulation::with_seed(0x423);
     launch(&mut sim, &rules);
-    let position = |wanted: fn(&SimSoundEvent) -> bool| {
-        sim.sound_events.iter().position(|event| wanted(event))
-    };
+    let position = |wanted: fn(&SimSoundEvent) -> bool| sim.sound_events.iter().position(&wanted);
     assert!(position(began).unwrap() < position(launched).unwrap());
 }
 

@@ -417,7 +417,7 @@ impl MinimapRenderer {
 
             // Fill scratch buffer: either shroud + fog-aware terrain, or base terrain copy.
             if let Some(local_owner) = local_owner.filter(|_| !full_visibility) {
-                for pixel in rgba.chunks_exact_mut(4) {
+                for pixel in rgba.as_chunks_mut::<4>().0 {
                     pixel.copy_from_slice(&COLOR_SHROUD);
                 }
                 let pixels: &[RadarSurfacePixel] = if self.native_radar_terrain.is_some() {
@@ -598,12 +598,12 @@ impl MinimapRenderer {
                 local_owner,
                 owner_allied_with_observer,
             );
-            if entry.x >= 0 && entry.y >= 0 {
-                if let Some((x, y)) =
+            if entry.x >= 0
+                && entry.y >= 0
+                && let Some((x, y)) =
                     aperture_pixel(self.native_radar_surface, (entry.x as u32, entry.y as u32))
-                {
-                    set_pixel(rgba, size, x, y, color);
-                }
+            {
+                set_pixel(rgba, size, x, y, color);
             }
         }
 

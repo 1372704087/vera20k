@@ -30,7 +30,9 @@ fn decode_hex_fixture(text: &str) -> Vec<u8> {
     }
     assert_eq!(nibbles.len() % 2, 0, "fixture has an odd hex digit count");
     nibbles
-        .chunks_exact(2)
+        .as_chunks::<2>()
+        .0
+        .iter()
         .map(|pair| (pair[0] << 4) | pair[1])
         .collect()
 }
@@ -433,18 +435,14 @@ fn mapgen_fresh_state_matches_native_seed_zero_full_object() {
     assert_eq!(&raw[4..8], &mapgen.index_a.to_le_bytes());
     assert_eq!(&raw[8..12], &mapgen.index_b.to_le_bytes());
 
-    let native_words = raw[0x0C..0x3F4].chunks_exact(4);
+    let (native_words, _) = raw[0x0C..0x3F4].as_chunks::<4>();
     assert_eq!(
         native_words.len(),
         mapgen.words.len(),
         "native fixture must contain all 250 logical words"
     );
-    for (index, (native_word, rust_word)) in native_words.zip(mapgen.words).enumerate() {
-        let native_word = u32::from_le_bytes(
-            native_word
-                .try_into()
-                .expect("chunks_exact(4) yields four bytes"),
-        );
+    for (index, (native_word, rust_word)) in native_words.iter().zip(mapgen.words).enumerate() {
+        let native_word = u32::from_le_bytes(*native_word);
         assert_eq!(
             native_word, *rust_word,
             "fresh MapGen logical word {index} must match the native fixture"

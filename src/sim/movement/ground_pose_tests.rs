@@ -34,7 +34,6 @@ fn mover(sim: &mut Simulation, kind: LocomotorKind) -> GameEntity {
         // fixed-point frame product (60 * fixed(1/15) truncates to3).
         speed: SimFixed::from_num(61),
         final_goal: Some((3, 1)),
-        ..Default::default()
     });
     match kind {
         LocomotorKind::Drive => {
@@ -617,7 +616,6 @@ fn fresh_walk_refusal_preserves_xyz_before_head_selection() {
     blocker.movement_target = Some(MovementTarget {
         speed: SimFixed::from_num(61),
         final_goal: Some((4, 2)),
-        ..Default::default()
     });
     // Moving: its Foot+5E0 head word steps east from (3,2).
     blocker.navigation.path_replay = crate::sim::movement::fixture_path_replay(&[(3, 2), (4, 2)]);
@@ -1091,7 +1089,6 @@ fn chained_mover(sim: &mut Simulation, kind: LocomotorKind) -> (GameEntity, Driv
     entity.movement_target = Some(MovementTarget {
         speed: SimFixed::from_num(128),
         final_goal: Some((5, 1)),
-        ..Default::default()
     });
     (entity, head)
 }

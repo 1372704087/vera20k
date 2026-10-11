@@ -1020,7 +1020,7 @@ mod tests {
     #[test]
     fn parent_background_renders_behind_movie() {
         // Background depth must be greater (farther back) than the movie's.
-        assert!(PARENT_BACKGROUND_DEPTH > MOVIE_DEPTH);
+        const { assert!(PARENT_BACKGROUND_DEPTH > MOVIE_DEPTH) };
     }
 
     #[test]

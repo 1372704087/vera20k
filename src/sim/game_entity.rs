@@ -69,6 +69,12 @@ pub struct InfantryRuntime {
     pub cell_entry_blocked: bool,
 }
 
+impl Default for InfantryRuntime {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl InfantryRuntime {
     pub fn new() -> Self {
         Self {

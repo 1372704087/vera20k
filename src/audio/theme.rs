@@ -283,6 +283,10 @@ impl ThemeRuntime {
 
     /// `ThemeClass__From_Name @ 0x00721210`: case-insensitive section-key
     /// match (`0x007C8D20`); -1 for null, empty, or unknown names.
+    #[expect(
+        clippy::wrong_self_convention,
+        reason = "named after the native ThemeClass::From_Name lookup"
+    )]
     pub(crate) fn from_name(&self, name: &str) -> i32 {
         if name.is_empty() {
             return THEME_NONE;
@@ -737,7 +741,7 @@ impl ThemeRuntime {
             self.slots.retained = index;
             if physical.stream_exists() {
                 let stem = self.entry(index).map(|entry| entry.sound.clone());
-                match stem.as_deref().and_then(|stem| prepare(stem)) {
+                match stem.as_deref().and_then(prepare) {
                     Some(prepared) => {
                         action.start = Some(prepared);
                         action.theme_scale = Some(1.0);

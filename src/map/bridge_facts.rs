@@ -146,6 +146,8 @@ pub struct BridgeFlagStamp {
     pub set: bool,
 }
 
+type BridgeStampSlots = [(BridgeStampSlot, Option<(i32, i32)>); 6];
+
 impl BridgeFlagStamp {
     pub const fn new(anchor: (u16, u16), direction: u8, set: bool) -> Self {
         Self {
@@ -157,7 +159,7 @@ impl BridgeFlagStamp {
 
     /// Exact setter visitation order: anchor, three forward cells, opposite,
     /// then the direction-6 extra cell.
-    pub(crate) fn slots(self) -> Option<[(BridgeStampSlot, Option<(i32, i32)>); 6]> {
+    pub(crate) fn slots(self) -> Option<BridgeStampSlots> {
         let _ = crate::util::direction::direction_delta(self.direction)?;
         let anchor = self.anchor;
         let f1 = packed_step(anchor, self.direction)?;

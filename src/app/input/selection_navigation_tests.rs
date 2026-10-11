@@ -488,10 +488,6 @@ fn apply_history_selection(
     requests
 }
 
-#[expect(
-    clippy::too_many_arguments,
-    reason = "Native feedback comparison binds the selection transaction and retail language input"
-)]
 fn compare_category_feedback(
     sim: &Simulation,
     rules: &RuleSet,

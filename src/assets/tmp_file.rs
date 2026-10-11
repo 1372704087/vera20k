@@ -539,7 +539,7 @@ mod tests {
 
     #[test]
     fn test_reject_too_small() {
-        assert!(TmpFile::from_bytes(&vec![0; 8]).is_err());
+        assert!(TmpFile::from_bytes(&[0; 8]).is_err());
     }
 
     #[test]

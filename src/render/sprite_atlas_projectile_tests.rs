@@ -164,7 +164,9 @@ fn bullet_frame_lookup_preserves_native_stencil_and_rejects_out_of_range() {
     let hex = corpus["physical_image"]["hex"].as_str().unwrap();
     let bytes: Vec<_> = hex
         .as_bytes()
-        .chunks_exact(2)
+        .as_chunks::<2>()
+        .0
+        .iter()
         .map(|c| u8::from_str_radix(std::str::from_utf8(c).unwrap(), 16).unwrap())
         .collect();
     let source = ShpSource::decode(&bytes, "120MM.SHP".to_string(), (0, 0)).unwrap();
@@ -350,7 +352,7 @@ fn retail_hills_projectile_assets_match_original_reader_and_physical_bytes() {
     .unwrap();
     assert_eq!(sprite.frame, 0);
     let sprite_rgba = palettes.rgba(&sprite);
-    for (index, rgba) in sprite.indices().iter().zip(sprite_rgba.chunks_exact(4)) {
+    for (index, rgba) in sprite.indices().iter().zip(sprite_rgba.as_chunks::<4>().0) {
         let c = corpus["palettes"][0]["colors"]
             .as_array()
             .unwrap()
@@ -399,7 +401,9 @@ fn projectile_asset_binding_uses_native_last_load_not_current_image_text() {
         .as_str()
         .unwrap()
         .as_bytes()
-        .chunks_exact(2)
+        .as_chunks::<2>()
+        .0
+        .iter()
         .map(|pair| u8::from_str_radix(std::str::from_utf8(pair).unwrap(), 16).unwrap())
         .collect::<Vec<_>>();
     let directory = ProjectileAssetDirectory::new();

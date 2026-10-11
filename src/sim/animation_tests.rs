@@ -719,8 +719,10 @@ fn normalized_action_delay_uses_session_game_speed() {
     let mut def = test_def(0, 6, 1, 3, LoopMode::Loop);
     def.normalized = true;
 
-    let mut slow = GameOptions::default();
-    slow.game_speed = 0;
+    let slow = GameOptions {
+        game_speed: 0,
+        ..Default::default()
+    };
     let mut slow_anim = Animation::new(SequenceKind::Idle1);
     for _ in 0..4 {
         advance_animation(&mut slow_anim, &def, &slow);
@@ -729,8 +731,10 @@ fn normalized_action_delay_uses_session_game_speed() {
     advance_animation(&mut slow_anim, &def, &slow);
     assert_eq!(slow_anim.frame_index, 1);
 
-    let mut fast = GameOptions::default();
-    fast.game_speed = 7;
+    let fast = GameOptions {
+        game_speed: 7,
+        ..Default::default()
+    };
     let mut fast_anim = Animation::new(SequenceKind::Idle1);
     advance_animation(&mut fast_anim, &def, &fast);
     assert_eq!(fast_anim.frame_index, 1);

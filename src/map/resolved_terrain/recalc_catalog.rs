@@ -4,6 +4,11 @@
 //! terrain below/alongside bridges. Retain registered pristine heads plus
 //! independent presentation files; missing sources never become sparse entries.
 
+use super::build::{
+    TileMetadata, merge_tmp_file_metadata, metadata_from_set_name,
+    ordinary_variant_selection_enabled,
+};
+use super::tubes::auto_tube_direction_from_bases;
 use super::*;
 
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
@@ -106,9 +111,11 @@ fn read_resident_tmp(
     // Retain the words following the actual table as well, so a missing
     // selected-file entry is not automatically misclassified as a null one.
     let raw_pointer_words = bytes[16..]
-        .chunks_exact(4)
+        .as_chunks::<4>()
+        .0
+        .iter()
         .take(256)
-        .map(|word| u32::from_le_bytes(word.try_into().unwrap()))
+        .map(|word| u32::from_le_bytes(*word))
         .collect();
     Ok(ResidentBridgeTmp {
         entries,

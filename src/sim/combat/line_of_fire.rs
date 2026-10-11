@@ -166,11 +166,11 @@ fn walk_cell(
     let mut wall_owner = None;
     if let (Some(grid), Some(registry)) = (los.overlay_grid, los.overlay_registry) {
         let overlay_cell = grid.cell(rx, ry);
-        if let Some(id) = overlay_cell.overlay_id {
-            if registry.flags(id).is_some_and(|flags| flags.wall) {
-                wall_overlay_id = Some(id);
-                wall_owner = overlay_cell.wall_owner;
-            }
+        if let Some(id) = overlay_cell.overlay_id
+            && registry.flags(id).is_some_and(|flags| flags.wall)
+        {
+            wall_overlay_id = Some(id);
+            wall_owner = overlay_cell.wall_owner;
         }
     }
 
@@ -260,12 +260,11 @@ fn cell_blocks_line_of_fire(
     // wall belonging to a house allied with the firer does not block.
     // 4CC470 installs the wall-owner House;4CC477 pushes the firing House
     // to4F9A50. Only the wall owner's current mask grants transparency.
-    if allied_wall_transparency {
-        if let (Some(owner), Some(alliances)) = (step.wall_owner, los.alliances) {
-            if is_allied_with(alliances, interner.resolve(owner), firing_house) {
-                return None;
-            }
-        }
+    if allied_wall_transparency
+        && let (Some(owner), Some(alliances)) = (step.wall_owner, los.alliances)
+        && is_allied_with(alliances, interner.resolve(owner), firing_house)
+    {
+        return None;
     }
 
     Some((step.rx, step.ry))
@@ -285,7 +284,6 @@ fn cell_blocks_line_of_fire(
 /// the cell of sample `i-1` — it starts as the source cell (0x004CC22F) and is
 /// re-fetched from the sample just tested at 0x004CC2C2, *before* the
 /// accumulators advance.
-#[allow(clippy::too_many_arguments)]
 fn walk_line_for_blocking_cell(
     src: (i64, i64),
     tgt: (i64, i64),
@@ -342,14 +340,12 @@ fn walk_line_for_blocking_cell(
         ) {
             return Some(hit);
         }
-        let Some(next) = walk_cell(
+        let next = walk_cell(
             terrain,
             los,
             (x / LEPTONS_PER_CELL) as i32,
             (y / LEPTONS_PER_CELL) as i32,
-        ) else {
-            return None;
-        };
+        )?;
         prev_cell = next;
     }
     None

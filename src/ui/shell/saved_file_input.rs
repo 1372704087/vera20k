@@ -351,7 +351,7 @@ mod tests {
             BrowserInputResult::None
         ));
         assert!(
-            matches!(mouse_down(&mut browser, &layout, (800,600), pointer, now+Duration::from_millis(100), limits), BrowserInputResult::Outcome(SavedSeedOutcome::Load(path)) if path == PathBuf::from("save1.bin"))
+            matches!(mouse_down(&mut browser, &layout, (800,600), pointer, now+Duration::from_millis(100), limits), BrowserInputResult::Outcome(SavedSeedOutcome::Load(path)) if path == *"save1.bin")
         );
         assert!(matches!(
             mouse_up(&mut browser, &layout, (800, 600), pointer),
@@ -381,7 +381,7 @@ mod tests {
                 now + Duration::from_millis(100),
                 limits
             ),
-            BrowserInputResult::Outcome(SavedSeedOutcome::Load(path)) if path == PathBuf::from("save0.bin")
+            BrowserInputResult::Outcome(SavedSeedOutcome::Load(path)) if path == *"save0.bin"
         ));
         assert_eq!(browser.selected, Some(0));
     }

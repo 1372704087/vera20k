@@ -134,7 +134,7 @@ pub(crate) enum LoadOverlayLifecycleError {
 /// to these objects; their partitioned destruction commutes with gameplay
 /// finalization at the same admitted725C70 boundary. Revisit that separation
 /// before publishing Overlay handles or adding cross-owner destructor effects.
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub(crate) struct LoadObjectLifecycle {
     objects: BTreeMap<LoadOverlayHandle, LoadOverlayObject>,
     object_registry: Vec<LoadOverlayHandle>,
@@ -149,26 +149,6 @@ pub(crate) struct LoadObjectLifecycle {
     fail_next_registry: Option<LoadObjectRegistryKind>,
     #[cfg(test)]
     fail_next_queue: bool,
-}
-
-impl Default for LoadObjectLifecycle {
-    fn default() -> Self {
-        Self {
-            objects: BTreeMap::new(),
-            object_registry: Vec::new(),
-            pointer_expiration_registry: Vec::new(),
-            all_abstract_registry: Vec::new(),
-            tag_removal_registry: Vec::new(),
-            overlay_registry: Vec::new(),
-            deferred: Vec::new(),
-            #[cfg(test)]
-            events: Vec::new(),
-            #[cfg(test)]
-            fail_next_registry: None,
-            #[cfg(test)]
-            fail_next_queue: false,
-        }
-    }
 }
 
 impl LoadObjectLifecycle {

@@ -296,7 +296,7 @@ fn test_diag_asset_manager_total_entries() {
         if entry.size < 1000 {
             continue;
         }
-        if biggest_entry.map_or(true, |b| entry.size > b.size) {
+        if biggest_entry.is_none_or(|b| entry.size > b.size) {
             biggest_entry = Some(entry);
         }
     }

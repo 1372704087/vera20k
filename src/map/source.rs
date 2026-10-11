@@ -80,7 +80,7 @@ pub(crate) fn load_map_by_name_or_path_with_assets(
     assets: &AssetManager,
 ) -> Result<LoadedMap> {
     match load_map_by_name_or_path(ra2_dir, map_name) {
-        Ok(map) => return Ok(map),
+        Ok(map) => Ok(map),
         Err(local_err) => {
             for candidate in asset_map_candidates(map_name) {
                 if let Some(resolved) = assets.resolve_ref(&candidate) {

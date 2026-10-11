@@ -44,7 +44,9 @@ pub struct MapWallOwnerCandidate {
 }
 
 /// Per-cell mutable overlay state — mirrors CellClass +0x44 / +0x11E.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize, Default,
+)]
 pub struct OverlayCell {
     /// Overlay type index into OverlayTypeRegistry. None = no overlay.
     pub overlay_id: Option<u8>,
@@ -61,16 +63,6 @@ pub struct OverlayCell {
     /// isolated-neighbor cleanup. It is inert while `overlay_id` is `None` and
     /// is overwritten by the next placement.
     pub wall_owner: Option<InternedId>,
-}
-
-impl Default for OverlayCell {
-    fn default() -> Self {
-        Self {
-            overlay_id: None,
-            overlay_data: 0,
-            wall_owner: None,
-        }
-    }
 }
 
 /// Mutable overlay state grid — seeded from map [OverlayPack] at init,
@@ -845,11 +837,11 @@ impl OverlayGrid {
     /// No-op if out-of-bounds or cell has no overlay.
     pub fn set_overlay_data(&mut self, rx: u16, ry: u16, data: u8) {
         self.mutation_epoch = self.mutation_epoch.wrapping_add(1);
-        if let Some(idx) = index_of(self.width, self.height, rx, ry) {
-            if self.cells[idx].overlay_id.is_some() {
-                self.cells[idx].overlay_data = data;
-                self.dirty_cells.push((rx, ry));
-            }
+        if let Some(idx) = index_of(self.width, self.height, rx, ry)
+            && self.cells[idx].overlay_id.is_some()
+        {
+            self.cells[idx].overlay_data = data;
+            self.dirty_cells.push((rx, ry));
         }
     }
 
@@ -1232,7 +1224,6 @@ pub(crate) fn damage_wall_overlay_with_terrain(
     )
 }
 
-#[allow(clippy::too_many_arguments)]
 pub(crate) fn damage_wall_overlay_with_runtime_host(
     overlay_grid: &mut OverlayGrid,
     registry: &OverlayTypeRegistry,
@@ -1682,7 +1673,7 @@ pub(crate) fn runtime_wall_cleanup_visit_at(
         RecomputeResult::NoChange
     };
     if recomputed == RecomputeResult::Destroyed
-        && let Some(host) = host.as_deref_mut()
+        && let Some(host) = host
     {
         host.pointer_expired(target.into());
     }
@@ -3192,8 +3183,10 @@ NoUseTileLandType=yes
 ",
         );
         let registry = OverlayTypeRegistry::from_ini(&ini, None);
-        let mut water_costs = SpeedCostProfile::default();
-        water_costs.wheel = Some(0);
+        let water_costs = SpeedCostProfile {
+            wheel: Some(0),
+            ..Default::default()
+        };
 
         let mut terrain = single_cell_terrain(LandType::Water.as_index(), water_costs, true, true);
         let mut overlay_grid = OverlayGrid::new(1, 1);
@@ -3230,8 +3223,10 @@ NoUseTileLandType=yes
 
         let registry = OverlayTypeRegistry::empty();
         let mut overlay_grid = OverlayGrid::new(1, 1);
-        let mut zero_wheel = SpeedCostProfile::default();
-        zero_wheel.wheel = Some(0);
+        let zero_wheel = SpeedCostProfile {
+            wheel: Some(0),
+            ..Default::default()
+        };
 
         let mut water = single_cell_terrain(LandType::Water.as_index(), zero_wheel, true, true);
         recalc_overlay_passability(&mut overlay_grid, &mut water, &registry, 0, 0);
@@ -3253,8 +3248,10 @@ NoUseTileLandType=yes
 
         let registry = gsi_04_04_registry();
         let clear = LandType::Clear.as_index();
-        let mut clear_speed = SpeedCostProfile::default();
-        clear_speed.wheel = Some(100);
+        let clear_speed = SpeedCostProfile {
+            wheel: Some(100),
+            ..Default::default()
+        };
 
         for (overlay_id, expected_zone, expected_blocks) in [
             (0, zone_class::CRUSHABLE, false),
@@ -3274,8 +3271,10 @@ NoUseTileLandType=yes
             assert_eq!(cell.overlay_blocks, expected_blocks, "overlay {overlay_id}");
         }
 
-        let mut zero_wheel = SpeedCostProfile::default();
-        zero_wheel.wheel = Some(0);
+        let zero_wheel = SpeedCostProfile {
+            wheel: Some(0),
+            ..Default::default()
+        };
         let mut overlay_grid = OverlayGrid::new(1, 1);
         overlay_grid.place_overlay(0, 0, 4, 0);
         let mut rubble_on_water =
@@ -3311,8 +3310,10 @@ NoUseTileLandType=yes
             (1, zone_class::IMPASSABLE),
             (2, zone_class::GROUND),
         ] {
-            let mut speed = SpeedCostProfile::default();
-            speed.wheel = Some(wheel);
+            let speed = SpeedCostProfile {
+                wheel: Some(wheel),
+                ..Default::default()
+            };
             let mut terrain = single_cell_terrain(clear, speed, false, false);
             recalc_overlay_passability(&mut empty_grid, &mut terrain, &registry, 0, 0);
             assert_eq!(
@@ -3349,8 +3350,10 @@ NoUseTileLandType=yes
         use crate::rules::terrain_rules::{LandType, SpeedCostProfile, TerrainClass};
 
         let registry = gsi_04_04_registry();
-        let mut base_speed = SpeedCostProfile::default();
-        base_speed.wheel = Some(100);
+        let base_speed = SpeedCostProfile {
+            wheel: Some(100),
+            ..Default::default()
+        };
 
         for (overlay_id, land, class) in [
             (7, LandType::Road, TerrainClass::Road),
@@ -3413,8 +3416,10 @@ NoUseTileLandType=yes
         use crate::rules::terrain_rules::{LandType, SpeedCostProfile};
 
         let registry = gsi_04_04_registry();
-        let mut base_speed = SpeedCostProfile::default();
-        base_speed.wheel = Some(100);
+        let base_speed = SpeedCostProfile {
+            wheel: Some(100),
+            ..Default::default()
+        };
         let ordinary_ore_speed = registry
             .flags(11)
             .expect("ordinary ore flags")

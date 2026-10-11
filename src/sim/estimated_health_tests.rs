@@ -83,10 +83,7 @@ fn actual_object_ai_recovers_each_category_on_binary_frame_mask() {
 fn reservations_are_initialized_and_hash_independently_of_actual_health() {
     let mut sim = Simulation::new();
     let entity = GameEntity::test_default(1, "ESTIMATE", "Americans", 2, 2);
-    assert_eq!(
-        entity.estimated_health.get(),
-        i32::from(entity.health.current)
-    );
+    assert_eq!(entity.estimated_health.get(), entity.health.current);
     sim.substrate.entities.insert(entity);
     let baseline = sim.state_hash();
     sim.substrate.entities.get_mut(1).unwrap().estimated_health = EstimatedHealth::from_raw(-1);

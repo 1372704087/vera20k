@@ -95,24 +95,24 @@ fn test_load_real_rules_ini() {
     }
 
     // Spot-check a weapon if E1 has one.
-    if let Some(weapon_id) = e1.primary() {
-        if let Some(weapon) = rules.weapon(weapon_id) {
-            println!(
-                "\nWeapon '{}': damage={}, range={:.1}, rof={}, warhead={:?}",
-                weapon.id, weapon.damage, weapon.range, weapon.rof, weapon.warhead
-            );
+    if let Some(weapon_id) = e1.primary()
+        && let Some(weapon) = rules.weapon(weapon_id)
+    {
+        println!(
+            "\nWeapon '{}': damage={}, range={:.1}, rof={}, warhead={:?}",
+            weapon.id, weapon.damage, weapon.range, weapon.rof, weapon.warhead
+        );
 
-            // Check the warhead chain.
-            if let Some(ref wh_id) = weapon.warhead {
-                if let Some(wh) = rules.warhead(wh_id) {
-                    println!(
-                        "Warhead '{}': {} armor multipliers, spread={:.1}",
-                        wh.id,
-                        wh.verses_f64.len(),
-                        wh.cell_spread_f64
-                    );
-                }
-            }
+        // Check the warhead chain.
+        if let Some(ref wh_id) = weapon.warhead
+            && let Some(wh) = rules.warhead(wh_id)
+        {
+            println!(
+                "Warhead '{}': {} armor multipliers, spread={:.1}",
+                wh.id,
+                wh.verses_f64.len(),
+                wh.cell_spread_f64
+            );
         }
     }
 

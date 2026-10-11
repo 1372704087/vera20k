@@ -110,7 +110,7 @@ mod tests {
         for i in 0..DIAMOND_PIXELS {
             data.push(i as u8 + 1); // diamond pixels
         }
-        data.extend_from_slice(&vec![0u8; DIAMOND_PIXELS]); // depth
+        data.extend_from_slice(&[0u8; DIAMOND_PIXELS]); // depth
     }
 
     /// A `width × 1` TMP with a distinct `(height, terrain, ramp)` per cell.

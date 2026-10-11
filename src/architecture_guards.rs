@@ -410,10 +410,10 @@ fn strip_test_items(text: &str) -> String {
         }
 
         depth += opens - closes;
-        if let Some(above) = skip_above {
-            if depth <= above {
-                skip_above = None;
-            }
+        if let Some(above) = skip_above
+            && depth <= above
+        {
+            skip_above = None;
         }
         if emit {
             out.push_str(line);

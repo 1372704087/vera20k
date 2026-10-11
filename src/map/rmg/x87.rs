@@ -82,6 +82,10 @@ impl TruncF64 {
         f64::from_bits(bits)
     }
 
+    #[expect(
+        clippy::should_implement_trait,
+        reason = "named calls keep the FPU operation sequence explicit at ~200 call sites"
+    )]
     pub fn neg(self) -> Self {
         Self {
             sign: !self.sign,
@@ -117,6 +121,10 @@ impl TruncF64 {
         }
     }
 
+    #[expect(
+        clippy::should_implement_trait,
+        reason = "named calls keep the FPU operation sequence explicit at ~200 call sites"
+    )]
     pub fn mul(self, rhs: Self) -> Self {
         if self.is_zero() || rhs.is_zero() {
             return Self {
@@ -136,6 +144,10 @@ impl TruncF64 {
         )
     }
 
+    #[expect(
+        clippy::should_implement_trait,
+        reason = "named calls keep the FPU operation sequence explicit at ~200 call sites"
+    )]
     pub fn div(self, rhs: Self) -> Self {
         if self.is_zero() || rhs.is_zero() {
             return Self {
@@ -155,6 +167,10 @@ impl TruncF64 {
         )
     }
 
+    #[expect(
+        clippy::should_implement_trait,
+        reason = "named calls keep the FPU operation sequence explicit at ~200 call sites"
+    )]
     pub fn add(self, rhs: Self) -> Self {
         if self.is_zero() {
             return rhs;
@@ -192,6 +208,10 @@ impl TruncF64 {
         }
     }
 
+    #[expect(
+        clippy::should_implement_trait,
+        reason = "named calls keep the FPU operation sequence explicit at ~200 call sites"
+    )]
     pub fn sub(self, rhs: Self) -> Self {
         self.add(rhs.neg())
     }

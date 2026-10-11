@@ -1694,7 +1694,7 @@ const DAMAGE_SPARK_ROLL_COUNT: u32 = 0x7fff_ffff;
 /// boundary tick → desync, so the two stock thresholds are pinned by test.
 pub(crate) fn damage_spark_spawn_threshold(band: f64) -> u32 {
     // band <= 0 (or NaN): no roll passes. band >= 1: every roll passes.
-    if !(band > 0.0) {
+    if band.partial_cmp(&0.0) != Some(std::cmp::Ordering::Greater) {
         return 0;
     }
     if band >= 1.0 {
@@ -2972,7 +2972,7 @@ impl GeneralRules {
                 .unwrap_or_else(|| defaults.base_unit_types),
             multiplayer_ai_cm: general
                 .read_int_list("MultiplayerAICM")
-                .unwrap_or_else(|| defaults.multiplayer_ai_cm),
+                .unwrap_or(defaults.multiplayer_ai_cm),
             pad_aircraft_types: general
                 .read_list("PadAircraft", 0x80)
                 .map(|tokens| tokens.into_iter().map(str::to_ascii_uppercase).collect())
@@ -5127,7 +5127,7 @@ impl RuleSet {
     /// Whether a country/house type may claim nearby map walls. Native default is true.
     pub fn country_wall_owner(&self, id: &str) -> bool {
         self.country_rules(id)
-            .map_or(true, |country| country.wall_owner)
+            .is_none_or(|country| country.wall_owner)
     }
 
     /// A country's `IncomeMult` as parts-per-million (default `INCOME_PPM_SCALE` = 1.0×).
@@ -5494,13 +5494,13 @@ impl RuleSet {
         );
         let mut terrain_foundations_patched: u32 = 0;
         for terrain in self.terrain_object_types.values_mut() {
-            if let Some(entry) = art.get(&terrain.name) {
-                if let Some(foundation) = entry.foundation {
-                    terrain.merge_art_foundation(
-                        crate::rules::foundation::FOUNDATION_TABLE[usize::from(foundation)].name,
-                    );
-                    terrain_foundations_patched += 1;
-                }
+            if let Some(entry) = art.get(&terrain.name)
+                && let Some(foundation) = entry.foundation
+            {
+                terrain.merge_art_foundation(
+                    crate::rules::foundation::FOUNDATION_TABLE[usize::from(foundation)].name,
+                );
+                terrain_foundations_patched += 1;
             }
         }
         log::trace!(
@@ -8547,7 +8547,7 @@ DefaultSparkSystem=SparkSys
                 "roll=t-1 must pass for band {band}"
             );
             assert!(
-                !((t as f64) * scale < band),
+                ((t as f64) * scale).partial_cmp(&band) != Some(std::cmp::Ordering::Less),
                 "roll=t must fail for band {band}"
             );
         }

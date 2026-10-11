@@ -519,7 +519,6 @@ fn replay_peer_path(
     }
 }
 
-#[allow(clippy::too_many_arguments)]
 pub(super) fn build_bridge_passability_search(
     enabled: bool,
     peers: &impl BridgeMarkerPeerLookup,
@@ -1392,7 +1391,7 @@ mod tests {
         let mut overlay = SearchMarkerOverlay::new();
         replay_peer_path(
             &mut overlay,
-            &peer(EntityCategory::Unit, peer_type, 1, (0, 0), &vec![2; 25]),
+            &peer(EntityCategory::Unit, peer_type, 1, (0, 0), &[2; 25]),
             None,
         );
         assert!(overlay.contains((24, 0)));

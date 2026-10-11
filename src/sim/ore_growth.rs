@@ -586,7 +586,6 @@ impl OreGrowthState {
     /// `TiberiumClass::AddToGrowthQueue7235A0`: explicit receiver class,
     /// no overlay/type gate or dedupe, density-gated, one RNG on insert.
     /// The receiver survives Overlay construction refusal (tibtre.json).
-    #[allow(clippy::too_many_arguments)]
     pub fn add_native_growth_queue_cell(
         &mut self,
         overlay_grid: &OverlayGrid,
@@ -640,7 +639,6 @@ impl OreGrowthState {
     /// `Reduce_Tiberium @ 0x00480A80` calls the REMOVED class's
     /// `AddToSpreadQueue` on every in-bounds neighbour, so a store may hold a
     /// cell of another class (a harvested gem queues its ore neighbours).
-    #[allow(clippy::too_many_arguments)]
     pub fn add_native_spread_queue_cell(
         &mut self,
         store_type: TiberiumTypeId,
@@ -702,7 +700,6 @@ impl OreGrowthState {
     }
 
     /// Process all due native growth queues through the shared cell mutation boundary.
-    #[allow(clippy::too_many_arguments)]
     pub fn tick_native_growth_driver(
         &mut self,
         overlay_grid: &mut OverlayGrid,
@@ -801,7 +798,6 @@ impl OreGrowthState {
         )
     }
 
-    #[allow(clippy::too_many_arguments)]
     fn process_native_growth_for_type_with_placement(
         &mut self,
         type_id: TiberiumTypeId,
@@ -983,7 +979,6 @@ impl OreGrowthState {
     }
 
     /// Process all due native spread queues.
-    #[allow(clippy::too_many_arguments)]
     pub fn tick_native_spread_driver(
         &mut self,
         overlay_grid: &mut OverlayGrid,
@@ -1053,7 +1048,6 @@ impl OreGrowthState {
         stats
     }
 
-    #[allow(clippy::too_many_arguments)]
     fn process_native_spread_for_type_with_placement(
         &mut self,
         type_id: TiberiumTypeId,
@@ -1221,7 +1215,6 @@ impl OreGrowthState {
     /// 0x007228B0`, which walk every real cell in `CellIterator` order.
     /// `occupied_cells` is the set of cells whose `CellClass+0xE4 FirstObject`
     /// is non-null (terrain objects and every ground-list Techno).
-    #[allow(clippy::too_many_arguments)]
     pub fn rebuild_native_tiberium_queues_from_overlays(
         &mut self,
         overlay_grid: &OverlayGrid,
@@ -1268,7 +1261,6 @@ impl OreGrowthState {
     /// growth store, then push every real cell of this type that
     /// `CellClass::CanGrowTiberium @ 0x00483620` admits, priority 0, in
     /// `CellIterator` order.
-    #[allow(clippy::too_many_arguments)]
     fn rebuild_growth_queue_for_type(
         &mut self,
         type_id: TiberiumTypeId,
@@ -1315,7 +1307,6 @@ impl OreGrowthState {
 
     /// `TiberiumClass::RebuildSpreadQueue @ 0x007228B0`: the spread twin,
     /// admitting through `CellClass::CanSpreadTiberium @ 0x00483690`.
-    #[allow(clippy::too_many_arguments)]
     fn rebuild_spread_queue_for_type(
         &mut self,
         type_id: TiberiumTypeId,
@@ -1394,7 +1385,6 @@ impl OreGrowthState {
     /// REMOVED class's `AddToSpreadQueue` for each in-bounds neighbour, which
     /// admits the neighbour on its own class. Existing heap entries are
     /// intentionally left stale.
-    #[allow(clippy::too_many_arguments)]
     pub fn reseed_native_spread_neighbors_after_reduction(
         &mut self,
         removed_type: TiberiumTypeId,
@@ -1553,7 +1543,7 @@ fn native_can_grow_tiberium(
 fn cell_is_flat(resolved_terrain: Option<&ResolvedTerrainGrid>, rx: u16, ry: u16) -> bool {
     resolved_terrain
         .and_then(|grid| grid.cell(rx, ry))
-        .map_or(true, |cell| cell.slope_type == 0)
+        .is_none_or(|cell| cell.slope_type == 0)
 }
 
 fn priority_f32(entry: &NativeTiberiumQueueEntry) -> f32 {

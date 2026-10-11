@@ -65,7 +65,9 @@ fn decodes_fixture_audio_within_tolerance() {
         "oracle file length not multiple of 4"
     );
     let oracle: Vec<f32> = oracle_bytes
-        .chunks_exact(4)
+        .as_chunks::<4>()
+        .0
+        .iter()
         .map(|c| f32::from_le_bytes([c[0], c[1], c[2], c[3]]))
         .collect();
 

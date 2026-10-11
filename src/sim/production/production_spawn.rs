@@ -232,7 +232,6 @@ fn infantry_exit_coordinate_and_facing(
 
 /// ExitObject4445D6/4445E3 calls the shared radio owners for HELLO and
 /// TETHER. Their reciprocal contacts and flags also use radio-owned cleanup.
-
 pub fn mark_war_factory_spawn_contact(
     sim: &mut Simulation,
     rules: &RuleSet,
@@ -294,7 +293,6 @@ fn exact_naval_vehicle_exit_factory(rules: &RuleSet, structure_id: &str) -> bool
 /// its own ArchiveTarget/rally cell, and otherwise invokes the one shared FNPC
 /// call at `0x004443DC`. FNPC failure is the literal zero cell; the caller still
 /// performs one normal Unlimbo attempt against that result.
-#[allow(clippy::too_many_arguments)]
 fn find_naval_unit_delivery_cell(
     producer_id: u64,
     base_rx: u16,
@@ -363,7 +361,6 @@ fn producer_get_coords_cell(entities: &EntityStore, producer_id: u64) -> Option<
     cell(x).zip(cell(y))
 }
 
-#[allow(clippy::too_many_arguments)]
 fn naval_rally_fast_path_cell(
     producer_id: u64,
     producer_nw: (u16, u16),
@@ -436,7 +433,6 @@ fn naval_rally_walk_candidate(
     candidate
 }
 
-#[allow(clippy::too_many_arguments)]
 fn nearby_query_for_naval_unit_delivery<'a>(
     speed_type: SpeedType,
     grid: &'a crate::sim::pathfinding::PathGrid,
@@ -558,7 +554,6 @@ pub(super) fn unlimbo_held_naval_unit(
     )
 }
 
-#[allow(clippy::too_many_arguments)]
 fn find_spawn_cell_near_structure(
     base_rx: u16,
     base_ry: u16,
@@ -660,7 +655,6 @@ fn find_spawn_cell_near_structure(
 /// Search radius comes independently from the retained signed MapClass `Size`
 /// pair; missing size authority rejects the fallback instead of reviving a
 /// caller-owned radius.
-#[allow(clippy::too_many_arguments)]
 fn nearby_query_for_spawn<'a>(
     movement_profile: SpawnMovementProfile,
     grid: &'a crate::sim::pathfinding::PathGrid,
@@ -766,7 +760,7 @@ fn cell_available_for_spawn(
 ) -> bool {
     // Terrain type filter: naval units need water, land units avoid water.
     if let Some(terrain) = resolved_terrain {
-        let is_water = terrain.cell(cell.0, cell.1).map_or(false, |c| c.is_water);
+        let is_water = terrain.cell(cell.0, cell.1).is_some_and(|c| c.is_water);
         if require_water && !is_water {
             return false;
         }

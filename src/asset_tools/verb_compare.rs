@@ -386,7 +386,9 @@ fn variant_fields(format: &str, data: &[u8], size: u32) -> (BTreeMap<String, Str
 /// Distinct RGB triplets in a palette's source bytes. Mirrors `verb_scan`.
 fn unique_palette_colors(data: &[u8]) -> usize {
     let mut colors: Vec<[u8; 3]> = data
-        .chunks_exact(3)
+        .as_chunks::<3>()
+        .0
+        .iter()
         .take(PAL_ENTRY_COUNT)
         .map(|rgb| [rgb[0], rgb[1], rgb[2]])
         .collect();
@@ -550,7 +552,6 @@ fn sheet_header(
 /// Non-SHP variants keep `png: None` — their structural diff is already in the
 /// report, and inventing a render for a format this verb cannot draw would be
 /// worse than saying so.
-#[allow(clippy::too_many_arguments)]
 fn render_variants(
     asset_manager: &AssetManager,
     dict: &NameDict,

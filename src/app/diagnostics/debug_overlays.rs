@@ -425,7 +425,7 @@ mod tests {
     #[test]
     fn overlay_alpha_is_reasonable() {
         // Alpha should be between 0 and 1, and visibly translucent.
-        assert!(OVERLAY_ALPHA > 0.1);
-        assert!(OVERLAY_ALPHA < 0.8);
+        const { assert!(OVERLAY_ALPHA > 0.1) };
+        const { assert!(OVERLAY_ALPHA < 0.8) };
     }
 }

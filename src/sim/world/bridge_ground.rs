@@ -47,7 +47,7 @@ pub(super) fn apply(
                     // see bridge_health_alias.py and the report's open residual.
                     let event = EntityDamageEvent::direct_receiver(
                         stable_id,
-                        i32::from(entity.health.current),
+                        entity.health.current,
                         0,
                         RAD_NO_ATTACKER,
                         None,

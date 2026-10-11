@@ -152,8 +152,8 @@ mod tests {
 
             let raw = hex_bytes(case["state_hex"].as_str().unwrap());
             assert_eq!(raw.len(), STATE_LEN * 4, "seed {seed}: state length");
-            for (index, chunk) in raw.chunks_exact(4).enumerate() {
-                let expected = u32::from_le_bytes(chunk.try_into().unwrap());
+            for (index, chunk) in raw.as_chunks::<4>().0.iter().enumerate() {
+                let expected = u32::from_le_bytes(*chunk);
                 assert_eq!(
                     rng.state_word(index),
                     expected,

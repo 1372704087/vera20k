@@ -6,11 +6,11 @@
 //! is the kill-on-tipover path.
 //!
 //! In retail play this almost never fires — the impulse/decay constants are
-//! tuned to keep angles inside ±π/4. A faithful port still needs it so that:
+//! tuned to keep angles inside ±π/4. A faithful port still needs it so that
+//! these all produce identical observable behavior to the reference engine:
 //!   - sustained EMP on a type without the ship-rock clamp,
 //!   - modded warheads with extreme impulses,
-//!   - external angle writes,
-//! all produce identical observable behavior to the reference engine.
+//!   - external angle writes.
 
 use crate::sim::game_entity::GameEntity;
 use crate::util::fixed_math::SimFixed;

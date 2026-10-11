@@ -205,13 +205,18 @@ fn malformed_pe_offsets_and_non_pe32_headers_are_errors() {
 }
 
 #[test]
-fn production_sine_loader_accepts_a_relocated_native_table() {
+fn a_relocated_native_table_is_found_whole() {
     // Reuse the existing native fixture; no additional retail data is stored.
-    let image = pe_with_sections(&[(0x1000, crate::util::native_trig::RETAIL_SINE_TABLE)]);
-    let table = TrigTable::from_executable(&image).unwrap();
-    assert!(table.matches_retail());
-    assert_eq!(table.entry(0), 0.0);
-    assert_eq!(table.entry(2048), 1.0);
+    let sine = crate::util::native_trig::RETAIL_SINE_TABLE;
+    let image = pe_with_sections(&[(0x1000, sine)]);
+    let table = find_table_bytes(
+        &image,
+        TABLE_VA,
+        TABLE_LEN * 4,
+        TABLE_PREFIX,
+        RETAIL_FNV1A64,
+    );
+    assert_eq!(table.unwrap(), sine.as_slice());
 }
 
 #[test]
@@ -239,10 +244,15 @@ fn all_retail_tables_can_be_repacked_into_different_sections() {
     }
     let mut relocated = pe_with_sections(&sections);
     put32(&mut relocated, OPTIONAL + 28, 0x1000_0000);
-    assert!(
-        TrigTable::from_executable(&relocated)
-            .unwrap()
-            .matches_retail()
+    assert_eq!(
+        find_table_bytes(
+            &relocated,
+            TABLE_VA,
+            TABLE_LEN * 4,
+            TABLE_PREFIX,
+            RETAIL_FNV1A64
+        ),
+        Ok(crate::util::native_trig::RETAIL_SINE_TABLE.as_slice())
     );
     assert!(
         AcosTable::from_executable(&relocated)

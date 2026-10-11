@@ -94,10 +94,12 @@ impl Simulation {
         map_width: u16,
         map_height: u16,
     ) -> OreTwinkleReceipt {
-        let mut receipt = OreTwinkleReceipt::default();
         // `DAT_00A8ED78 == 0` gate at `0x00684FF0`: a generated launch already
         // constructed the object inside the synthetic `Full_Init`'s setup.
-        receipt.particle_system_id_consumed = self.construct_post_load_particle_system_id();
+        let mut receipt = OreTwinkleReceipt {
+            particle_system_id_consumed: self.construct_post_load_particle_system_id(),
+            ..Default::default()
+        };
         let Some(anim_name) = rules.general.ore_twinkle.as_deref() else {
             return receipt;
         };

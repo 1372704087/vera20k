@@ -94,7 +94,9 @@ pub(crate) fn dispatch_foot_mission(
             // The destination slot alone, NOT the wider "is this object in
             // motion" test above: the idle-mode selector branches on exactly
             // that one field.
+            #[cfg(test)]
             has_destination: entity.navigation.nav_com.is_some(),
+            #[cfg(test)]
             effective_mission: entity.mission.effective().known(),
             // Infantry Mission_Attack51F4D3 and Guard shim521320 read
             // the native Doing27..30 family. Undeploy31 is outside it.
@@ -462,24 +464,24 @@ pub(crate) fn dispatch_foot_mission(
                         weapon_index: 1,
                     }
                     .fire_error(true);
-                    if error == crate::sim::combat::fire_error::FireError::Ok {
-                        if let Some(target) = actual_target {
-                            //52143D calls51DF60 directly: no Stage equality
-                            // or Fire_At_Target action admission runs here.
-                            bridge_changed |= sim
-                                .commit_fire_visit(
-                                    crate::sim::combat::world_fire::FireVisit::Direct {
-                                        id,
-                                        target,
-                                        weapon_index: 1,
-                                    },
-                                    rules,
-                                    ctx.overlay_registry,
-                                    ctx.effects,
-                                )
-                                .bridge_state_changed;
-                            fired = true;
-                        }
+                    if error == crate::sim::combat::fire_error::FireError::Ok
+                        && let Some(target) = actual_target
+                    {
+                        //52143D calls51DF60 directly: no Stage equality
+                        // or Fire_At_Target action admission runs here.
+                        bridge_changed |= sim
+                            .commit_fire_visit(
+                                crate::sim::combat::world_fire::FireVisit::Direct {
+                                    id,
+                                    target,
+                                    weapon_index: 1,
+                                },
+                                rules,
+                                ctx.overlay_registry,
+                                ctx.effects,
+                            )
+                            .bridge_state_changed;
+                        fired = true;
                     }
                     //521449/52147E: only the attempted-fire arms clear TarCom.
                     let _ = sim.assign_target_represented(id, None, Some(rules));
@@ -786,9 +788,11 @@ pub(super) struct MissionHandlerInput {
     pub(super) has_attack_target: bool,
     /// The destination slot on its own. The idle-mode selector reads this one
     /// field, not the broader in-motion test [`Self::moving_or_queued`] uses.
+    #[cfg(test)]
     pub(super) has_destination: bool,
     /// Current when present, otherwise queued — the selector the idle-mode
     /// early returns and the control-entry lookups read.
+    #[cfg(test)]
     pub(super) effective_mission: Option<MissionType>,
     /// This is an infantryman whose DoType sits in native's deployed set, so
     /// its Attack slot takes `InfantryClass::Mission_Attack`'s own override
@@ -1218,6 +1222,7 @@ pub(crate) fn foot_enter_idle_mode_selection(
 ///   Frequency: rare, same reason.
 /// - `VehicleThief` (`+0xEC6`, `0x004D546C`) → `Queue_Mission(Capture)`.
 ///   Frequency: **zero on stock data** — no retail section sets the key.
+///
 /// Player effect while they are absent: such a unit shoots what it found
 /// instead of walking in to capture or plant. Downstream risk: closing them
 /// means giving Sabotage a real handler arm, which is the terrorist mission
@@ -1248,7 +1253,6 @@ pub(crate) fn foot_enter_idle_mode_selection(
 /// infantryman scans and fights where retail captures or undeploys.
 /// Frequency: every Hunt dispatch of those infantry. Downstream risk: one RNG
 /// draw per dispatch that retail does not make.
-
 fn evaluate_foot_hunt(
     sim: &mut Simulation,
     id: u64,

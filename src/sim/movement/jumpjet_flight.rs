@@ -1192,7 +1192,6 @@ pub(crate) fn cell_top_height(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::map::retail_trig::required_math_tables;
     use crate::sim::components::DriveCoord;
     use crate::sim::movement::jumpjet_movement::{JumpjetOrderHost, JumpjetRuntime};
     use crate::util::fixed_math::SimFixed;
@@ -1432,16 +1431,7 @@ mod tests {
     /// `0x0054D0F0` then State3 `0x0054BFF0` per frame, every field bit-exact.
     #[test]
     fn flight_matches_the_native_update_and_translate_corpus() {
-        let (trig, _) = required_math_tables();
-        if !trig.matches_retail() {
-            // With RA2_DIR set, a mismatched table is a failure, not a skip.
-            assert!(
-                std::env::var_os("RA2_DIR").is_none(),
-                "RA2_DIR is set but the retail sine table does not match"
-            );
-            eprintln!("skipped: set RA2_DIR to the retail install to run this");
-            return;
-        }
+        let trig = TrigTable::embedded();
         let rows: Value = serde_json::from_str(crate::test_fixture::text(
             "tools/spatial_oracle/jumpjet_flight.json",
         ))
@@ -1907,15 +1897,7 @@ mod tests {
     /// re-targets through FNPC.
     #[test]
     fn states_match_the_native_process_corpus() {
-        let (trig, _) = required_math_tables();
-        if !trig.matches_retail() {
-            assert!(
-                std::env::var_os("RA2_DIR").is_none(),
-                "RA2_DIR is set but the retail sine table does not match"
-            );
-            eprintln!("skipped: set RA2_DIR to the retail install to run this");
-            return;
-        }
+        let trig = TrigTable::embedded();
         let rows: Value = serde_json::from_str(crate::test_fixture::text(
             "tools/spatial_oracle/jumpjet_states.json",
         ))
@@ -2170,15 +2152,7 @@ mod tests {
     /// outside `In_Bounds`.
     #[test]
     fn a_crashing_jumpjet_falls_like_the_native_state5() {
-        let (trig, _) = required_math_tables();
-        if !trig.matches_retail() {
-            assert!(
-                std::env::var_os("RA2_DIR").is_none(),
-                "RA2_DIR is set but the retail sine table does not match"
-            );
-            eprintln!("skipped: set RA2_DIR to the retail install to run this");
-            return;
-        }
+        let trig = TrigTable::embedded();
         let corpus: Value = serde_json::from_str(crate::test_fixture::text(
             "tools/spatial_oracle/jumpjet_crash.json",
         ))
@@ -2428,12 +2402,12 @@ mod tests {
     /// flat cell ahead then averages with it.
     #[test]
     fn a_bridge_ahead_raises_the_current_reference_sample() {
-        let (trig, _) = required_math_tables();
+        let trig = TrigTable::embedded();
         let host = edge_host(trig, Vec::new(), vec![(4, 3)]);
         let location = host.location;
         assert_eq!(
             reference_height(&eastbound_flight(4.0), &host, location),
-            (0 + BRIDGE_DECK_HEIGHT_LEPTONS) / 2
+            BRIDGE_DECK_HEIGHT_LEPTONS / 2
         );
         // Stationary: no look-ahead, and the current cell has no bridge.
         assert_eq!(reference_height(&eastbound_flight(0.0), &host, location), 0);
@@ -2442,7 +2416,7 @@ mod tests {
     /// While moving, a higher cell one step ahead along the facing wins.
     #[test]
     fn a_higher_cell_ahead_sets_the_reference() {
-        let (trig, _) = required_math_tables();
+        let trig = TrigTable::embedded();
         let host = edge_host(trig, vec![((4, 3), 300)], Vec::new());
         let location = host.location;
         assert_eq!(

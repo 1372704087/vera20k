@@ -88,12 +88,8 @@ fn lcw_vs_lzo_on_real_overlay_pack() {
     }
 
     // The correct decompressor must produce exactly EXPECTED_SIZE bytes
-    let lcw_ok = lcw_result
-        .as_ref()
-        .map_or(false, |d| d.len() == EXPECTED_SIZE);
-    let lzo_ok = lzo_result
-        .as_ref()
-        .map_or(false, |d| d.len() == EXPECTED_SIZE);
+    let lcw_ok = lcw_result.as_ref().is_ok_and(|d| d.len() == EXPECTED_SIZE);
+    let lzo_ok = lzo_result.as_ref().is_ok_and(|d| d.len() == EXPECTED_SIZE);
     println!("\nLCW produces 262144 bytes: {}", lcw_ok);
     println!("LZO produces 262144 bytes: {}", lzo_ok);
 

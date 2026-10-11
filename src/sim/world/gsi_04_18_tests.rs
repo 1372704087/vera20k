@@ -525,7 +525,7 @@ fn shroud_current_sight_psychic_never_gapped_and_mixed_views_are_nontransitive()
             }
         }
         let bytes = crate::sim::snapshot::GameSnapshot::save(&sim, 0, 0, "viewer-knowledge", 0);
-        let mut restored = crate::sim::snapshot::GameSnapshot::load(&bytes)
+        let restored = crate::sim::snapshot::GameSnapshot::load(&bytes)
             .unwrap()
             .sim;
         assert!(!restored.fog.is_cell_revealed(c, 20, 12));

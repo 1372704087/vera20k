@@ -152,7 +152,7 @@ pub(super) fn print_replay_summary(name: &str, sim: &Simulation) {
     );
 }
 
-const HARNESS_SEED: u64 = 0xC0FFEE_1234;
+const HARNESS_SEED: u64 = 0xC0FFEE1234;
 const HARNESS_TICKS: u64 = 600;
 const HARNESS_TICK_MS: u32 = 67;
 const HARNESS_MAP_SIZE: u16 = 64;
@@ -1151,7 +1151,7 @@ fn global_skirmish_replay_is_deterministic_and_baseline_stable() {
     );
 }
 
-const DENSE_SEED: u64 = 0x00BA771E_5EED;
+const DENSE_SEED: u64 = 0x00BA771E5EED;
 const DENSE_TICKS: u64 = 300;
 const DENSE_ROWS: u16 = 10;
 

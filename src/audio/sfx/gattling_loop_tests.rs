@@ -130,9 +130,11 @@ fn fixture_clip(name: &str) -> Option<DecodedAudio> {
     assert_eq!(clip["native_format"][4], 2);
     let pcm = bytes_from_hex(clip["pcm_hex"].as_str().unwrap());
     let samples = pcm
-        .chunks_exact(2)
+        .as_chunks::<2>()
+        .0
+        .iter()
         .flat_map(|pair| {
-            let value = f32::from(i16::from_le_bytes(pair.try_into().unwrap())) / 32768.0;
+            let value = f32::from(i16::from_le_bytes(*pair)) / 32768.0;
             [value, value]
         })
         .collect();
@@ -148,7 +150,9 @@ fn mono_bytes(samples: impl Iterator<Item = f32>) -> Vec<u8> {
     let samples: Vec<_> = samples.collect();
     assert_eq!(samples.len() % 2, 0);
     samples
-        .chunks_exact(2)
+        .as_chunks::<2>()
+        .0
+        .iter()
         .flat_map(|pair| {
             assert_eq!(pair[0].to_bits(), pair[1].to_bits(), "mono upmix");
             let scaled = pair[0] * 32768.0;

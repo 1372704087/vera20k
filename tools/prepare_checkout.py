@@ -46,7 +46,7 @@ CONFIG = 'config.toml'
 INI = 'ini'
 # Yuri's Revenge's own archive; its presence identifies the game folder.
 GAME_ARCHIVE = 'ra2md.mix'
-# The game and retail tests read the math tables from it (retail_trig::install_from_dir).
+# The game reads its Acos table from it (retail_trig::install_from_dir).
 GAME_EXECUTABLE = 'gamemd.exe'
 EXTRACT_INI = 'python -m tools.cargo_run -- run --bin extract-ini'
 # The pinned packages of tool tests and native oracles; sidecars record the Unicorn version.

@@ -78,7 +78,9 @@ impl Gpu {
         size: [u32; 2],
     ) -> Vec<u8> {
         self.load_texels(view, origin, size, "texture_2d<u32>", "")
-            .chunks_exact(4)
+            .as_chunks::<4>()
+            .0
+            .iter()
             .map(|texel| texel[0] as u8)
             .collect()
     }
@@ -91,7 +93,9 @@ impl Gpu {
         size: [u32; 2],
     ) -> Vec<[f32; 4]> {
         self.load_texels(view, origin, size, "texture_2d<f32>", "bitcast<vec4<u32>>")
-            .chunks_exact(4)
+            .as_chunks::<4>()
+            .0
+            .iter()
             .map(|texel| std::array::from_fn(|channel| f32::from_bits(texel[channel])))
             .collect()
     }
@@ -167,8 +171,10 @@ impl Gpu {
             .unwrap();
         rx.recv().unwrap().unwrap();
         let data = read.slice(..).get_mapped_range();
-        data.chunks_exact(4)
-            .map(|word| u32::from_le_bytes(word.try_into().unwrap()))
+        data.as_chunks::<4>()
+            .0
+            .iter()
+            .map(|word| u32::from_le_bytes(*word))
             .collect()
     }
 
@@ -823,8 +829,10 @@ fn production_tree_camera_zoom_matches_unscissored_shp_coverage() {
             assert_eq!(outputs[0], outputs[1], "zoom{zoom}, camera{raw_camera:?}");
             assert!(
                 outputs[1][0]
-                    .chunks_exact(4)
-                    .any(|p| p == encoded(0x55aa, format)),
+                    .as_chunks::<4>()
+                    .0
+                    .iter()
+                    .any(|p| *p == encoded(0x55aa, format)),
                 "empty comparison"
             );
         }
@@ -949,8 +957,10 @@ fn production_batch_stamp_bracket_and_ui_keep_near_equal_and_map_edge_policies()
             let output = gpu.finish(encoder, &reads, size);
             assert!(
                 output[0]
-                    .chunks_exact(4)
-                    .all(|p| p == encoded(0xf800, format)),
+                    .as_chunks::<4>()
+                    .0
+                    .iter()
+                    .all(|p| *p == encoded(0xf800, format)),
                 "UI equality row{row}"
             );
         }
@@ -1106,11 +1116,14 @@ fn production_mixed_destination_waves_preserve_pixels_depth_and_atlas_order() {
                     ];
                     outputs.push(gpu.finish(encoder, &reads, size));
                 }
-                for attachment in 0..2 {
-                    assert_eq!(outputs[0][attachment].len(), outputs[1][attachment].len());
-                    let mismatches = outputs[0][attachment]
-                        .chunks_exact(4)
-                        .zip(outputs[1][attachment].chunks_exact(4))
+                for (attachment, (first, second)) in outputs[0].iter().zip(&outputs[1]).enumerate()
+                {
+                    assert_eq!(first.len(), second.len());
+                    let mismatches = first
+                        .as_chunks::<4>()
+                        .0
+                        .iter()
+                        .zip(second.as_chunks::<4>().0)
                         .enumerate()
                         .filter(|(_, (a, b))| a != b)
                         .take(8)
@@ -1160,16 +1173,17 @@ fn production_mixed_destination_waves_preserve_pixels_depth_and_atlas_order() {
         let output = gpu.finish(encoder, &reads, size);
         assert!(
             output[0]
-                .chunks_exact(4)
-                .all(|p| p == encoded(0xffff, format))
+                .as_chunks::<4>()
+                .0
+                .iter()
+                .all(|p| *p == encoded(0xffff, format))
         );
         assert!(
             output[1]
-                .chunks_exact(4)
-                .all(
-                    |p| super::native_z::stored_z(f32::from_le_bytes(p.try_into().unwrap()))
-                        == 65535
-                )
+                .as_chunks::<4>()
+                .0
+                .iter()
+                .all(|p| super::native_z::stored_z(f32::from_le_bytes(*p)) == 65535)
         );
     }
     eprintln!(

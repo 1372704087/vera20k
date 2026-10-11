@@ -238,7 +238,6 @@ pub(crate) fn force_fire_action(
 /// either slot's longest range. The query domain is private to input, across
 /// target flight, fire source and InRange, so nested misses never stamp the
 /// simulation's canonical Dummy.
-#[allow(clippy::too_many_arguments)]
 pub(crate) fn resolved_unit_in_range(
     sim: &crate::sim::world::Simulation,
     actor_id: u64,
@@ -599,7 +598,7 @@ fn emit_entity_order_voice(state: &mut AppState, speaker_id: u64, voice_field: &
     else {
         return;
     };
-    let Some(rules) = state.rules().map(|r| r) else {
+    let Some(rules) = state.rules() else {
         return;
     };
     let Some(entity) = sim.entities().get(speaker_id) else {
@@ -1397,7 +1396,7 @@ pub(crate) fn try_queue_context_order_at_screen_point(
                                 e.category == EntityCategory::Infantry
                                     && Some(&resources.rules)
                                         .and_then(|r| r.object(sim.interner.resolve(e.type_ref())))
-                                        .map_or(false, |o| o.c4)
+                                        .is_some_and(|o| o.c4)
                             })
                         })
                         .collect();

@@ -195,15 +195,15 @@ pub fn build_message_box_descriptor(kind: ModalKind, rects: &MessageBoxRects) ->
         modal_control(control::BODY_STATIC, ControlKind::Static, rects.body),
         modal_control(control::OK, ControlKind::Button, rects.ok),
     ];
-    if includes_cancel(kind) {
-        if let Some(rect) = rects.cancel {
-            controls.push(modal_control(control::CANCEL, ControlKind::Button, rect));
-        }
+    if includes_cancel(kind)
+        && let Some(rect) = rects.cancel
+    {
+        controls.push(modal_control(control::CANCEL, ControlKind::Button, rect));
     }
-    if includes_third(kind) {
-        if let Some(rect) = rects.third {
-            controls.push(modal_control(control::THIRD, ControlKind::Button, rect));
-        }
+    if includes_third(kind)
+        && let Some(rect) = rects.third
+    {
+        controls.push(modal_control(control::THIRD, ControlKind::Button, rect));
     }
     DialogDescriptor {
         // in_active_game is irrelevant for message-box ids (only InGameOptions

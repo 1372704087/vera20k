@@ -133,7 +133,9 @@ fn loader_uses_stored_shp_rect_for_depth_but_retains_logical_canvas_for_picking(
             assert_eq!(rendered.extended, frame == 1, "dispatch from format bit 1");
             assert_eq!(rendered_rgba.len(), (size[0] * size[1] * 4) as usize);
             let colored: Vec<_> = rendered_rgba
-                .chunks_exact(4)
+                .as_chunks::<4>()
+                .0
+                .iter()
                 .enumerate()
                 .filter(|(_, rgba)| rgba[3] != 0)
                 .map(|(index, rgba)| {

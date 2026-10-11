@@ -359,8 +359,7 @@ pub(crate) fn apply_map_load_result(state: &mut AppState, result: init::MapLoadR
     if let Some(manager) = result.asset_manager {
         state.process_assets.return_from_loading(manager);
     }
-    state.match_state.input.targeting_mode = None;
-    state.match_state.input.building_placement_preview = None;
+    state.match_state.input.reset_targeting_for_new_world();
     state.match_state.match_presentation.active_sidebar_tab = SidebarTab::default_active_tab();
     // Re-init the message surface per scenario (the native list is
     // re-initialized at scenario start): drops stale rows from the previous
@@ -446,33 +445,29 @@ pub(crate) fn apply_map_load_result(state: &mut AppState, result: init::MapLoadR
 
     // Create GPU ABuffer for per-pixel shroud darkening.
     // Loads SHROUD.SHP brightness data and the 256-byte edge LUT.
-    if let Some(am) = state.process_assets.manager() {
-        if let Some(grid) = state
+    if let Some(am) = state.process_assets.manager()
+        && let Some(grid) = state
             .match_state
             .sim_runtime
             .as_ref()
             .map(|rt| &rt.simulation)
             .and_then(crate::sim::world::Simulation::path_grid)
-        {
-            if let Some(shp_data) = am.get_ref("shroud.shp") {
-                if let Ok(shp) = crate::assets::shp_file::ShpFile::from_bytes(shp_data) {
-                    let (frame_pixels, cw, ch) =
-                        crate::render::shroud_buffer::extract_shp_brightness(&shp);
-                    state.match_state.match_presentation.shroud_buffer =
-                        Some(crate::render::shroud_buffer::ShroudBuffer::new(
-                            &state.renderer.gpu,
-                            state.render_width(),
-                            state.render_height(),
-                            grid.width(),
-                            grid.height(),
-                            frame_pixels,
-                            cw,
-                            ch,
-                            crate::render::shroud_buffer::SHROUD_EDGE_LUT,
-                        ));
-                }
-            }
-        }
+        && let Some(shp_data) = am.get_ref("shroud.shp")
+        && let Ok(shp) = crate::assets::shp_file::ShpFile::from_bytes(shp_data)
+    {
+        let (frame_pixels, cw, ch) = crate::render::shroud_buffer::extract_shp_brightness(&shp);
+        state.match_state.match_presentation.shroud_buffer =
+            Some(crate::render::shroud_buffer::ShroudBuffer::new(
+                &state.renderer.gpu,
+                state.render_width(),
+                state.render_height(),
+                grid.width(),
+                grid.height(),
+                frame_pixels,
+                cw,
+                ch,
+                crate::render::shroud_buffer::SHROUD_EDGE_LUT,
+            ));
     }
 
     state.platform.frame_pacer.reset_for_immediate_frame();

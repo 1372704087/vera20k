@@ -168,7 +168,6 @@ impl Simulation {
     /// gamemd does not take, which desyncs. The `Smoke` producer below is a
     /// different function (`TechnoClass::ReceiveDamage @ 0x00701900`) and is
     /// not affected.
-    #[allow(clippy::too_many_arguments)]
     pub fn spawn_particle_system(
         &mut self,
         type_id: ParticleSystemTypeId,

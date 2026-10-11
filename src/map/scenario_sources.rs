@@ -50,10 +50,10 @@ pub fn list_available_maps() -> Result<Vec<MapMenuEntry>> {
             continue;
         };
         let ext = ext.to_ascii_lowercase();
-        if matches!(ext.as_str(), "mmx" | "yro" | "map" | "mpr" | "yrm") {
-            if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
-                maps.push(read_map_menu_entry(&path, name));
-            }
+        if matches!(ext.as_str(), "mmx" | "yro" | "map" | "mpr" | "yrm")
+            && let Some(name) = path.file_name().and_then(|n| n.to_str())
+        {
+            maps.push(read_map_menu_entry(&path, name));
         }
     }
     // No sort: the original game displays maps in source-enumeration order and
@@ -76,33 +76,32 @@ pub(crate) fn list_skirmish_scenario_records_with_assets(
 
 fn list_skirmish_scenario_records_from_sources(
     ra2_dir: &Path,
-    mut assets: Option<&mut AssetManager>,
+    assets: Option<&mut AssetManager>,
     csf: Option<&CsfFile>,
 ) -> Result<Vec<SkirmishScenarioRecord>> {
     let mut records = Vec::new();
 
-    if let Some(assets) = assets.as_deref() {
-        if let Some(pkt) = assets
+    if let Some(assets) = assets.as_deref()
+        && let Some(pkt) = assets
             .get_ref("MISSIONSMD.PKT")
             .and_then(|bytes| IniFile::from_bytes(bytes).ok())
-        {
-            append_pkt_records(
-                &mut records,
-                &pkt,
-                SkirmishScenarioSource::MissionsMdPkt,
-                csf,
-                PktTitleStyle::Verbatim,
-                |file_name| {
-                    assets
-                        .get_ref(file_name)
-                        .and_then(|bytes| IniFile::from_bytes(bytes).ok())
-                },
-            );
-        }
+    {
+        append_pkt_records(
+            &mut records,
+            &pkt,
+            SkirmishScenarioSource::MissionsMdPkt,
+            csf,
+            PktTitleStyle::Verbatim,
+            |file_name| {
+                assets
+                    .get_ref(file_name)
+                    .and_then(|bytes| IniFile::from_bytes(bytes).ok())
+            },
+        );
     }
 
     append_loose_pkt_records(&mut records, ra2_dir, assets.as_deref(), csf)?;
-    append_loose_yro_records(&mut records, ra2_dir, assets.as_deref_mut(), csf)?;
+    append_loose_yro_records(&mut records, ra2_dir, assets, csf)?;
     append_loose_yrm_records(&mut records, ra2_dir)?;
 
     Ok(records)
@@ -239,7 +238,7 @@ fn append_loose_yrm_records(
 fn loose_files_with_extension(ra2_dir: &Path, extension: &str) -> Result<Vec<(PathBuf, String)>> {
     let mut files = Vec::new();
 
-    for entry in std::fs::read_dir(&ra2_dir)? {
+    for entry in std::fs::read_dir(ra2_dir)? {
         let entry = match entry {
             Ok(e) => e,
             Err(_) => continue,

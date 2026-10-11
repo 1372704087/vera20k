@@ -218,17 +218,9 @@ impl OfflineSkirmishRuntime {
             &crate::util::native_string::acp_decode(&self.local_preferences.handle_bytes),
         );
         state.player_country = self.local_preferences.country;
-        if self.local_preferences.side_ex == RANDOM_ITEM_DATA {
-            state.player_country_random = true;
-        } else {
-            state.player_country_random = false;
-        }
+        state.player_country_random = self.local_preferences.side_ex == RANDOM_ITEM_DATA;
         state.player_color_index = self.local_preferences.color_index;
-        if self.local_preferences.color_ex == RANDOM_ITEM_DATA {
-            state.player_color_claimed = false;
-        } else {
-            state.player_color_claimed = true;
-        }
+        state.player_color_claimed = self.local_preferences.color_ex != RANDOM_ITEM_DATA;
 
         for (opponent, persisted) in state.opponents.iter_mut().zip(self.snapshot.slots) {
             opponent.row_type = ai_row_type_from_persisted(persisted.row_type);
@@ -292,10 +284,11 @@ impl OfflineSkirmishRuntime {
             options: session.options.clone(),
         };
         let cooperative = is_cooperative_mode(session);
-        if cooperative && let Some(map) = session.selected_map_file.as_deref() {
-            if let Some(chosen_map) = self.ensure_cooperative_selection(map, maps)? {
-                staged_session.selected_map_file = Some(chosen_map);
-            }
+        if cooperative
+            && let Some(map) = session.selected_map_file.as_deref()
+            && let Some(chosen_map) = self.ensure_cooperative_selection(map, maps)?
+        {
+            staged_session.selected_map_file = Some(chosen_map);
         }
 
         let progress = cooperative.then(|| {
@@ -369,10 +362,10 @@ impl OfflineSkirmishRuntime {
         }
 
         let mut cooperative_session = session.clone();
-        if let Some(map) = session.selected_map_file.as_deref() {
-            if let Some(chosen_map) = self.ensure_cooperative_selection(map, maps)? {
-                cooperative_session.selected_map_file = Some(chosen_map);
-            }
+        if let Some(map) = session.selected_map_file.as_deref()
+            && let Some(chosen_map) = self.ensure_cooperative_selection(map, maps)?
+        {
+            cooperative_session.selected_map_file = Some(chosen_map);
         }
         let progress = self
             .cooperative_progress
@@ -1115,8 +1108,10 @@ Credits=12345\r\n";
             snapshot.unit_count = units;
             snapshot.game_speed = speed;
             let mut runtime = runtime(snapshot, 7);
-            let mut shell = SkirmishShellState::default();
-            shell.trackbar_bounds = bounds;
+            let mut shell = SkirmishShellState {
+                trackbar_bounds: bounds,
+                ..Default::default()
+            };
             runtime.hydrate_shell(&mut shell, &[map()], &[mode()]);
             assert_eq!(
                 (
@@ -1237,10 +1232,12 @@ Credits=12345\r\n";
             SkirmishPersistedSnapshot::from_global_defaults(defaults()),
             0x1234,
         );
-        let mut shell = SkirmishShellState::default();
-        shell.player_name_edit = PlayerNameEditState::with_name("12345678901234567890");
-        shell.player_country_random = true;
-        shell.player_color_claimed = false;
+        let shell = SkirmishShellState {
+            player_name_edit: PlayerNameEditState::with_name("12345678901234567890"),
+            player_country_random: true,
+            player_color_claimed: false,
+            ..Default::default()
+        };
         let session = random_session();
 
         let resolved = active_runtime
@@ -1285,11 +1282,13 @@ Credits=12345\r\n";
             SkirmishPersistedSnapshot::from_global_defaults(defaults()),
             0x5678,
         );
-        let mut shell = SkirmishShellState::default();
-        shell.player_country = LaunchCountry::Yuri;
-        shell.player_country_random = false;
-        shell.player_color_index = 7;
-        shell.player_color_claimed = true;
+        let shell = SkirmishShellState {
+            player_country: LaunchCountry::Yuri,
+            player_country_random: false,
+            player_color_index: 7,
+            player_color_claimed: true,
+            ..Default::default()
+        };
         let mut session = random_session();
         session.local.country = LaunchCountry::Yuri;
         session.local.country_random = false;
@@ -1536,8 +1535,10 @@ Credits=12345\r\n";
         let snapshot = SkirmishPersistedSnapshot::from_global_defaults(defaults());
         let runtime = runtime(snapshot.clone(), 0x5678);
         let rng_before = runtime.scenario_rng_state();
-        let mut shell = SkirmishShellState::default();
-        shell.selected_mode_id = mode().id;
+        let mut shell = SkirmishShellState {
+            selected_mode_id: mode().id,
+            ..Default::default()
+        };
         for opponent in &mut shell.opponents {
             opponent.row_type = SkirmishAiRowType::None;
             opponent.enabled = false;
@@ -1724,8 +1725,10 @@ Credits=12345\r\n";
         snapshot.game_mode = 999;
         snapshot.scenario_index = 999;
         let runtime = runtime(snapshot, 3);
-        let mut shell = SkirmishShellState::default();
-        shell.player_start_position = LaunchStartPosition::Auto;
+        let mut shell = SkirmishShellState {
+            player_start_position: LaunchStartPosition::Auto,
+            ..Default::default()
+        };
 
         runtime.hydrate_shell(&mut shell, &[map()], &[mode()]);
 

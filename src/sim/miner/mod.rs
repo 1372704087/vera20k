@@ -332,7 +332,8 @@ mod tests {
 
     #[test]
     fn vera_internal_cursors_sit_above_the_native_ceiling() {
-        for state in [MinerState::ForcedReturn] {
+        {
+            let state = MinerState::ForcedReturn;
             assert!(
                 state.cursor() > MinerState::NATIVE_CURSOR_CEILING,
                 "{state:?} must not collide with a cursor gamemd writes"
@@ -441,7 +442,7 @@ mod tests {
     fn miner_kind_detection_is_data_driven() {
         let mut war = ObjectType::from_ini_section(
             "MODHARV",
-            &crate::rules::ini_parser::IniFile::from_str("[MODHARV]\nHarvester=yes\n")
+            crate::rules::ini_parser::IniFile::from_str("[MODHARV]\nHarvester=yes\n")
                 .section("MODHARV")
                 .expect("section"),
             crate::rules::object_type::ObjectCategory::Vehicle,
@@ -453,7 +454,7 @@ mod tests {
 
         let non_harvester = ObjectType::from_ini_section(
             "E1",
-            &crate::rules::ini_parser::IniFile::from_str("[E1]\nFixtureOnly=1\n")
+            crate::rules::ini_parser::IniFile::from_str("[E1]\nFixtureOnly=1\n")
                 .section("E1")
                 .expect("section"),
             crate::rules::object_type::ObjectCategory::Infantry,

@@ -924,7 +924,6 @@ impl Simulation {
     /// one through 583180, preserving real aliases and shared-Dummy ordering.
     /// Evidence: tools/spatial_oracle/fv_cell_attack/{pursuit,zone_cost}.json.
     /// No RNG, timer, destination or detach effect belongs to this function.
-    #[allow(clippy::too_many_arguments)]
     pub(crate) fn estimate_zone_cost(
         &self,
         id: u64,

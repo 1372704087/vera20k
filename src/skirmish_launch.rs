@@ -257,7 +257,9 @@ impl LaunchTeam {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
+#[derive(Default)]
 pub enum AiDifficulty {
+    #[default]
     Easy,
     Normal,
     Hard,
@@ -270,12 +272,6 @@ impl AiDifficulty {
             Self::Normal => 1,
             Self::Easy => 2,
         }
-    }
-}
-
-impl Default for AiDifficulty {
-    fn default() -> Self {
-        Self::Easy
     }
 }
 
@@ -643,17 +639,19 @@ mod tests {
         // dialog does not expose (tech level, bases, shroud, …) reach the
         // launched match. Build a base from modded options and confirm those
         // fields survive the round-trip through to_game_options.
-        let mut parsed = GameOptions::default();
-        parsed.tech_level = 3;
-        parsed.bases = false;
-        parsed.shroud = false;
-        parsed.tiberium_grows = false;
-        parsed.harvester_truce = true;
-        parsed.multi_engineer = true;
-        parsed.bridges_destroyable = false;
-        parsed.ally_change_allowed = false;
-        parsed.fog_of_war = true;
-        parsed.ai_difficulty = 2;
+        let parsed = GameOptions {
+            tech_level: 3,
+            bases: false,
+            shroud: false,
+            tiberium_grows: false,
+            harvester_truce: true,
+            multi_engineer: true,
+            bridges_destroyable: false,
+            ally_change_allowed: false,
+            fog_of_war: true,
+            ai_difficulty: 2,
+            ..Default::default()
+        };
 
         let base = SkirmishLaunchOptions::from_game_options(&parsed);
         let launched = base.to_game_options(2);

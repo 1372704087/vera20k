@@ -361,7 +361,6 @@ impl SmudgeGrid {
     /// not traced). Effect: native refuses a non-forced mark touching the
     /// dummy; here it passes. Frequency: such a building plus a mark over one
     /// cell wide or tall on the diamond's right or bottom edge.
-    #[allow(clippy::too_many_arguments)]
     fn passes_placement_gates(
         &self,
         origin: (i16, i16),
@@ -469,7 +468,7 @@ fn cell_has_building(occupancy: &OccupancyGrid, rx: u16, ry: u16) -> bool {
     use crate::sim::movement::locomotor::MovementLayer;
     occupancy
         .get(rx, ry)
-        .map_or(false, |c| c.has_building_on(MovementLayer::Ground))
+        .is_some_and(|c| c.has_building_on(MovementLayer::Ground))
 }
 
 impl SmudgeGrid {
@@ -503,7 +502,6 @@ impl SmudgeGrid {
     /// reduces tiberium before its crater attempt, even on placement failure;
     /// direct `BuildingClass::DestructionEffects @ 0x004415F0` and
     /// `BuildingClass::SpawnSurvivors @ 0x00442D90` callers do not.
-    #[allow(clippy::too_many_arguments)]
     pub(crate) fn try_place(
         &mut self,
         kind: SmudgeKind,

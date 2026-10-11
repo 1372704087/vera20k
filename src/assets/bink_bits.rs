@@ -180,7 +180,7 @@ impl VlcTable {
 
         // Any entry still u32::MAX is an unreachable code-space hole and is a
         // table-build error.
-        if entries.iter().any(|&e| e == u32::MAX) {
+        if entries.contains(&u32::MAX) {
             return Err(AssetError::BinkError {
                 reason: "VLC table has gaps — codes do not tile the code space".to_string(),
             });
@@ -241,14 +241,14 @@ mod tests {
         // 0b_1010_0011 = 0xA3. LSB-first reads: 1,1,0,0,0,1,0,1.
         let data = [0xA3u8];
         let mut r = BitReader::from_bytes(&data);
-        assert_eq!(r.read_bit().unwrap(), true);
-        assert_eq!(r.read_bit().unwrap(), true);
-        assert_eq!(r.read_bit().unwrap(), false);
-        assert_eq!(r.read_bit().unwrap(), false);
-        assert_eq!(r.read_bit().unwrap(), false);
-        assert_eq!(r.read_bit().unwrap(), true);
-        assert_eq!(r.read_bit().unwrap(), false);
-        assert_eq!(r.read_bit().unwrap(), true);
+        assert!(r.read_bit().unwrap());
+        assert!(r.read_bit().unwrap());
+        assert!(!r.read_bit().unwrap());
+        assert!(!r.read_bit().unwrap());
+        assert!(!r.read_bit().unwrap());
+        assert!(r.read_bit().unwrap());
+        assert!(!r.read_bit().unwrap());
+        assert!(r.read_bit().unwrap());
     }
 
     #[test]

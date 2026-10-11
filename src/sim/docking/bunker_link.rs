@@ -92,6 +92,7 @@ pub fn install_bunker_link(sim: &mut Simulation, building_id: u64, unit_id: u64,
 
 /// Clear BOTH sides of the link and send the radio BREAK. Returns the unit id
 /// that was installed (for callers that re-place it). Does NOT reveal/place/anim.
+#[cfg(test)]
 pub(crate) fn break_bunker_link(
     sim: &mut Simulation,
     building_id: u64,
@@ -359,17 +360,17 @@ pub fn break_links_on_despawn(sim: &mut Simulation, id: u64) {
     };
     let occupant = e.bunker_occupant;
     let host = e.bunker_link.installed_in();
-    if let Some(unit_id) = occupant {
-        if let Some(u) = sim.substrate.entities.get_mut(unit_id) {
-            u.bunker_link = BunkerLink::None;
-        }
+    if let Some(unit_id) = occupant
+        && let Some(u) = sim.substrate.entities.get_mut(unit_id)
+    {
+        u.bunker_link = BunkerLink::None;
     }
-    if let Some(building_id) = host {
-        if let Some(b) = sim.substrate.entities.get_mut(building_id) {
-            b.bunker_occupant = None;
-            if let Some(rt) = b.bunker_runtime.as_mut() {
-                *rt = BunkerRuntime::idle();
-            }
+    if let Some(building_id) = host
+        && let Some(b) = sim.substrate.entities.get_mut(building_id)
+    {
+        b.bunker_occupant = None;
+        if let Some(rt) = b.bunker_runtime.as_mut() {
+            *rt = BunkerRuntime::idle();
         }
     }
 }
@@ -378,10 +379,10 @@ pub fn break_links_on_despawn(sim: &mut Simulation, id: u64) {
 /// used to track install in this model (`bunker_runtime.state` is the machine),
 /// so only the runtime needs resetting on release.
 fn reset_bunker_idle(sim: &mut Simulation, building_id: u64) {
-    if let Some(b) = sim.substrate.entities.get_mut(building_id) {
-        if let Some(rt) = b.bunker_runtime.as_mut() {
-            *rt = BunkerRuntime::idle();
-        }
+    if let Some(b) = sim.substrate.entities.get_mut(building_id)
+        && let Some(rt) = b.bunker_runtime.as_mut()
+    {
+        *rt = BunkerRuntime::idle();
     }
 }
 

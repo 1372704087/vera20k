@@ -765,7 +765,7 @@ fn render_flag_pcx_entry(assets: &AssetManager, file_name: &str) -> Option<Rende
 
 fn render_solid_entry(label: &str, width: u32, height: u32, color: [u8; 4]) -> RenderedShellEntry {
     let mut rgba = vec![0u8; (width * height * 4) as usize];
-    for px in rgba.chunks_exact_mut(4) {
+    for px in rgba.as_chunks_mut::<4>().0 {
         px.copy_from_slice(&color);
     }
     RenderedShellEntry {

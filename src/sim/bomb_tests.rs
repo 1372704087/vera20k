@@ -183,7 +183,7 @@ fn place(sim: &mut Simulation, rules: &RuleSet, id: u64, (x, y): (i32, i32)) {
 
 /// Kill `id` with one sourceless hit.
 fn kill(sim: &mut Simulation, rules: &RuleSet, id: u64) {
-    let strength = i32::from(entity(sim, id).health.current);
+    let strength = entity(sim, id).health.current;
     let super_wh = sim.interner.intern("Super");
     let hit = crate::sim::combat::EntityDamageEvent::direct_receiver(
         id,

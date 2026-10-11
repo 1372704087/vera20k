@@ -344,8 +344,8 @@ mod tests {
     fn ra2_normal_table_has_native_boundary_and_tail() {
         assert_eq!(RA2_NORMALS.len(), 245);
         assert_eq!(RA2_NORMALS[240], [-0.328188, 0.140251, 0.934143]);
-        for index in 241..=244 {
-            assert_eq!(RA2_NORMALS[index], RA2_NORMALS[240], "index {index}");
+        for (index, normal) in RA2_NORMALS.iter().enumerate().skip(241) {
+            assert_eq!(*normal, RA2_NORMALS[240], "index {index}");
         }
 
         let final_native = Vec3::from_array(RA2_NORMALS[240]);

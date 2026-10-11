@@ -227,7 +227,7 @@ pub struct ShroudBuffer {
 
 /// Align `n` up to the next multiple of `align`.
 fn align_up(n: u32, align: u32) -> u32 {
-    (n + align - 1) / align * align
+    n.div_ceil(align) * align
 }
 
 /// Same virtual-pixel coverage as the camera projection; no arbitrary4096

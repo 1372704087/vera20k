@@ -184,7 +184,7 @@ fn recalc_pristine_metadata_and_level_override_match_original_instructions() {
         map.header.local_top = 0;
         map.header.local_width = 16;
         map.header.local_height = 16;
-        let mut grid = crate::map::resolved_terrain::test_grid(33, 33, |x, y| make_test_cell(x, y));
+        let mut grid = crate::map::resolved_terrain::test_grid(33, 33, make_test_cell);
         let index = 16 * 33 + 16;
         grid.cells[index].final_tile_index = if flag("invalid") {
             2
@@ -630,7 +630,9 @@ fn resident_bridge_recalc_and_presentation_match_original_execution() {
                 file.as_str()
                     .unwrap()
                     .as_bytes()
-                    .chunks_exact(2)
+                    .as_chunks::<2>()
+                    .0
+                    .iter()
                     .map(|pair| u8::from_str_radix(std::str::from_utf8(pair).unwrap(), 16).unwrap())
                     .collect()
             })

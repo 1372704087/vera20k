@@ -21,6 +21,7 @@ use crate::render::sidebar_cameo_atlas::{self, SidebarCameoAtlas};
 use crate::render::sprite_atlas::{self, SpriteAtlas};
 use crate::render::tile_atlas::{self, TileAtlas};
 use crate::render::unit_atlas::{self, UnitAtlas};
+#[cfg(test)]
 use crate::rules::ini_parser::IniFile;
 use crate::rules::process_owner::NativeRulesProcessOwner;
 #[cfg(test)]
@@ -84,11 +85,11 @@ pub(crate) fn load_sidebar_cameo_palette(asset_manager: &AssetManager) -> Option
         "temperat.pal",
     ];
     for name in palette_names {
-        if let Some(data) = asset_manager.get_ref(name) {
-            if let Ok(palette) = Palette::from_bytes(data) {
-                log::info!("Sidebar cameos using palette {}", name);
-                return Some(palette);
-            }
+        if let Some(data) = asset_manager.get_ref(name)
+            && let Ok(palette) = Palette::from_bytes(data)
+        {
+            log::info!("Sidebar cameos using palette {}", name);
+            return Some(palette);
         }
     }
     log::warn!("Sidebar cameo palette not found");
@@ -408,7 +409,6 @@ pub(crate) struct PresentationManifest {
 /// The caller creates this exact Simulation before Fill and keeps it through
 /// authored overlay finalization.  This helper deliberately cannot construct a
 /// replacement owner.
-#[allow(clippy::too_many_arguments)]
 pub(crate) fn populate_staged_app_scenario<F>(
     sim: &mut Simulation,
     map_data: &MapFile,
@@ -461,7 +461,6 @@ pub(crate) fn bind_staged_app_scenario_metadata(
 /// Build the voxel and SHP sprite atlases, and the palette set, for a fully
 /// constructed simulation. A load builds them once; sprites the world needs
 /// later go onto the atlases' growth pages.
-#[allow(clippy::too_many_arguments)]
 pub(crate) fn build_presentation_manifest(
     sim: &Simulation,
     asset_manager: &AssetManager,

@@ -34,7 +34,6 @@ pub(crate) fn defence_divides(damage: i32, divisors: &DefenceDivisors) -> i32 {
 /// `cell_spread`/`percent_at_max`/`verses_f64` are the warhead's decoded kernel
 /// inputs (see kernel::apply_warhead_damage). `distance_leptons` is the impact
 /// distance in the kernel lepton unit (256 leptons/cell).
-#[allow(clippy::too_many_arguments)]
 pub(crate) fn receive_damage(
     incoming: i32,
     cell_spread: f64,

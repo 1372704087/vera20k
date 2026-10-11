@@ -97,8 +97,8 @@ fn retail_world(rules: &RuleSet, terrain_rules: &TerrainRules) -> Simulation {
                 cell.yr_cell_land_type = 1;
                 cell.terrain_class = road.terrain_class;
                 cell.base_terrain_class = road.terrain_class;
-                cell.speed_costs = road.speed_costs.clone();
-                cell.base_speed_costs = road.speed_costs.clone();
+                cell.speed_costs = road.speed_costs;
+                cell.base_speed_costs = road.speed_costs;
                 cell.final_tile_index = 294;
                 cell.final_sub_tile = 1;
                 cell
@@ -1129,8 +1129,8 @@ fn retail_land_factory_delivery_matches_original_unit_unlimbo_suffix() {
             target.zone_type = native["zone_type"].as_u64().unwrap() as u8;
             target.terrain_class = semantics.terrain_class;
             target.base_terrain_class = semantics.terrain_class;
-            target.speed_costs = semantics.speed_costs.clone();
-            target.base_speed_costs = semantics.speed_costs.clone();
+            target.speed_costs = semantics.speed_costs;
+            target.base_speed_costs = semantics.speed_costs;
             target.final_tile_index = int(&native["tile"]);
             target.final_sub_tile = native["subtile"].as_u64().unwrap() as u8;
             target.bridge_facts.raw_flags = native["flags"].as_u64().unwrap() as u32;

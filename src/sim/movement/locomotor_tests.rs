@@ -47,9 +47,10 @@ fn walk_destination_and_cell_producer_match_original_startup_conversion() {
             crate::sim::movement::navcom::target_cell_coord(
                 10,
                 10,
-                Some(&terrain)
-                    .map(crate::map::resolved_terrain::NativeCellQuery::canonical)
-                    .as_ref(),
+                Some(crate::map::resolved_terrain::NativeCellQuery::canonical(
+                    &terrain,
+                ))
+                .as_ref(),
             )
         } else {
             let c = &input["coord"];

@@ -185,11 +185,11 @@ fn step_install(
 }
 
 fn set_state(sim: &mut Simulation, building_id: u64, state: BunkerState, unit: Option<u64>) {
-    if let Some(b) = sim.substrate.entities.get_mut(building_id) {
-        if let Some(rt) = b.bunker_runtime.as_mut() {
-            rt.state = state;
-            rt.installing_unit = unit;
-        }
+    if let Some(b) = sim.substrate.entities.get_mut(building_id)
+        && let Some(rt) = b.bunker_runtime.as_mut()
+    {
+        rt.state = state;
+        rt.installing_unit = unit;
     }
 }
 

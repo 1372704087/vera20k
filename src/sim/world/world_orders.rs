@@ -763,12 +763,12 @@ impl Simulation {
             if turn_suppressed.contains(&sid) {
                 continue;
             }
-            if let Some(e) = self.substrate.entities.get(sid) {
-                if let Some(plant) = e.c4_plant {
-                    // A warped planter's mission does not run (`ai_frozen`).
-                    if !e.dying && !e.ai_frozen() {
-                        walkup.push((sid, plant.target_building_id));
-                    }
+            if let Some(e) = self.substrate.entities.get(sid)
+                && let Some(plant) = e.c4_plant
+            {
+                // A warped planter's mission does not run (`ai_frozen`).
+                if !e.dying && !e.ai_frozen() {
+                    walkup.push((sid, plant.target_building_id));
                 }
             }
         }
@@ -903,7 +903,7 @@ impl Simulation {
                 .substrate
                 .entities
                 .get(building_id)
-                .map(|b| b.health.current as i32)
+                .map(|b| b.health.current)
                 .unwrap_or(0);
             if dmg <= 0 {
                 continue;
@@ -937,13 +937,11 @@ impl Simulation {
                 }
                 if let Some(attacker_id) = pending.source_entity_id
                     && let Some(attacker) = self.substrate.entities.get_mut(attacker_id)
-                {
-                    if attacker
+                    && attacker
                         .c4_plant
                         .is_some_and(|plant| plant.target_building_id == building_id)
-                    {
-                        attacker.c4_plant = None;
-                    }
+                {
+                    attacker.c4_plant = None;
                 }
             }
         }
@@ -971,11 +969,7 @@ impl Simulation {
             .and_then(|building| {
                 let pending = building.pending_c4_detonation?;
                 let object = rules.object(self.interner.resolve(building.type_ref()))?;
-                Some((
-                    pending,
-                    i32::from(building.health.current),
-                    object.bridge_repair_hut,
-                ))
+                Some((pending, building.health.current, object.bridge_repair_hut))
             })
         else {
             return;
@@ -1050,15 +1044,14 @@ impl Simulation {
         // Collect attackers on this cell with c4_plant on this building.
         let mut scatterers: Vec<u64> = Vec::new();
         for sid in self.substrate.entities.keys_sorted() {
-            if let Some(e) = self.substrate.entities.get(sid) {
-                if !e.dying
-                    && e.position.rx == brx
-                    && e.position.ry == bry
-                    && e.c4_plant
-                        .map_or(false, |p| p.target_building_id == dead_building_id)
-                {
-                    scatterers.push(sid);
-                }
+            if let Some(e) = self.substrate.entities.get(sid)
+                && !e.dying
+                && e.position.rx == brx
+                && e.position.ry == bry
+                && e.c4_plant
+                    .is_some_and(|p| p.target_building_id == dead_building_id)
+            {
+                scatterers.push(sid);
             }
         }
 

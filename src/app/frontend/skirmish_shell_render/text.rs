@@ -741,34 +741,32 @@ pub(super) fn build_shell_text_draws(
     if let Some(open) = shell
         .open_combo_dropdown
         .filter(|open| combo_enabled(shell, maps, open.id))
+        && let Some(dropdown) = combo_dropdown_rect(shell, layout, maps, open.id)
     {
-        if let Some(dropdown) = combo_dropdown_rect(shell, layout, maps, open.id) {
-            let content =
-                combo_dropdown_content_rect(shell, layout, maps, open.id).unwrap_or(dropdown);
-            let visible_rows = combo_dropdown_visible_row_count(shell, maps, open.id);
-            for (idx, item) in combo_items(shell, maps, open.id)
-                .into_iter()
-                .skip(open.top_index)
-                .take(visible_rows)
-                .enumerate()
-            {
-                let label = combo_item_label(state, item);
-                if label.is_empty() {
-                    continue;
-                }
-                let rect = combo_dropdown_text_rect_for_current_renderer(content, idx);
-                let fit_width = combo_dropdown_text_fit_width(content);
-                let label = truncate_combo_dropdown_label(&state.renderer.bit_font, &label, fit_width);
-                push_text_draw(
-                    &mut shell_draws,
-                    state,
-                    label.as_ref(),
-                    rect,
-                    SHELL_LABEL_TEXT_RGB,
-                    ShellAlign::V_CENTER,
-                    SHELL_DROPDOWN_TEXT_DEPTH,
-                );
+        let content = combo_dropdown_content_rect(shell, layout, maps, open.id).unwrap_or(dropdown);
+        let visible_rows = combo_dropdown_visible_row_count(shell, maps, open.id);
+        for (idx, item) in combo_items(shell, maps, open.id)
+            .into_iter()
+            .skip(open.top_index)
+            .take(visible_rows)
+            .enumerate()
+        {
+            let label = combo_item_label(state, item);
+            if label.is_empty() {
+                continue;
             }
+            let rect = combo_dropdown_text_rect_for_current_renderer(content, idx);
+            let fit_width = combo_dropdown_text_fit_width(content);
+            let label = truncate_combo_dropdown_label(&state.renderer.bit_font, &label, fit_width);
+            push_text_draw(
+                &mut shell_draws,
+                state,
+                label.as_ref(),
+                rect,
+                SHELL_LABEL_TEXT_RGB,
+                ShellAlign::V_CENTER,
+                SHELL_DROPDOWN_TEXT_DEPTH,
+            );
         }
     }
 
@@ -1199,199 +1197,6 @@ pub(super) fn build_start_marker_label_instances(
     instances
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn combo_face_text_under_open_dropdown_is_suppressed() {
-        let dropdown = RectPx::new(23, 96, 149, 92);
-        let covered_combo_text = RectPx::new(25, 123, 129, 24);
-        let clear_combo_text = RectPx::new(25, 71, 129, 24);
-
-        assert!(text_covered_by_overlay(covered_combo_text, &[dropdown]));
-        assert!(!text_covered_by_overlay(clear_combo_text, &[dropdown]));
-        assert!(!text_covered_by_overlay(covered_combo_text, &[]));
-    }
-
-    /// `0x105` hides a text an open list touches; that is exact only while
-    /// every list ends in the gap between rows.
-    #[test]
-    fn every_random_map_list_covers_the_texts_under_it_whole() {
-        for (width, height) in [(640, 480), (800, 600), (1024, 768)] {
-            let layout = crate::ui::skirmish_shell::compute_random_map_setup_layout(width, height);
-            // The Players window has the runtime growth (226 wide) the
-            // combos do not have yet (225), so its value text runs one
-            // column past the lists.
-            let mut players_value = value_text_rect(layout.control_rects[PLAYERS_ROW]);
-            players_value.w -= 1;
-            let texts: Vec<RectPx> = (0..PLAYERS_ROW)
-                .map(|row| combo_text_rect(layout.control_rects[row]))
-                .chain([players_value])
-                .collect();
-            for combo in SETUP_COMBO_ROWS {
-                let list = random_map_setup_dropdown_rect(
-                    &layout,
-                    combo.row(),
-                    setup_combo_items(combo).len(),
-                );
-                for text in &texts {
-                    let inside = text.x >= list.x
-                        && text.y >= list.y
-                        && text.x + text.w <= list.x + list.w
-                        && text.y + text.h <= list.y + list.h;
-                    assert!(
-                        !text_covered_by_overlay(*text, &[list]) || inside,
-                        "{width}x{height}: {combo:?}'s list {list:?} cuts {text:?}"
-                    );
-                }
-            }
-        }
-    }
-
-    #[test]
-    fn text_under_validation_dialog_is_suppressed_like_dropdown_text() {
-        let dialog = RectPx::new(220, 239, 360, 122);
-        let covered_combo_text = RectPx::new(260, 260, 100, 24);
-        let clear_combo_text = RectPx::new(25, 71, 129, 24);
-
-        assert!(text_covered_by_overlay(covered_combo_text, &[dialog]));
-        assert!(!text_covered_by_overlay(clear_combo_text, &[dialog]));
-    }
-
-    #[test]
-    fn adjacent_rects_do_not_count_as_dropdown_coverage() {
-        let dropdown = RectPx::new(10, 20, 100, 50);
-        let above = RectPx::new(10, 0, 100, 20);
-        let below = RectPx::new(10, 70, 100, 20);
-
-        assert!(!text_covered_by_overlay(above, &[dropdown]));
-        assert!(!text_covered_by_overlay(below, &[dropdown]));
-    }
-
-    #[test]
-    fn team_label_uses_native_sentinel_values() {
-        assert_eq!(team_label_spec(-2), ("GUI:NoneAsSymbols", "None"));
-        assert_eq!(team_label_spec(0), ("LETTER_A", "A"));
-        assert_eq!(team_label_spec(1), ("LETTER_B", "B"));
-        assert_eq!(team_label_spec(2), ("LETTER_C", "C"));
-        assert_eq!(team_label_spec(3), ("LETTER_D", "D"));
-    }
-
-    #[test]
-    fn trackbar_value_text_uses_normal_shell_yellow_source() {
-        assert_eq!(trackbar_value_text_color(), SHELL_LABEL_TEXT_RGB);
-    }
-
-    #[test]
-    fn combo_face_text_color_uses_disabled_source_for_inactive_siblings() {
-        let shell = SkirmishShellState::default();
-
-        assert_eq!(combo_face_text_color(false), SHELL_LABEL_TEXT_RGB);
-        assert_eq!(
-            combo_face_text_color(true),
-            SHELL_DISABLED_TEXT_RGB_FROM_PACKED_0000009F
-        );
-        assert_eq!(
-            opponent_sibling_combo_text_color(&shell.opponents[0]),
-            SHELL_LABEL_TEXT_RGB
-        );
-        assert_eq!(
-            opponent_sibling_combo_text_color(&shell.opponents[1]),
-            SHELL_DISABLED_TEXT_RGB_FROM_PACKED_0000009F
-        );
-    }
-
-    #[test]
-    fn combodropwin_row_text_pretruncates_without_using_clip_width_as_rect_width() {
-        let font = crate::render::bit_font::tests::make_test_font(
-            &[
-                (b'a' as u16, 6),
-                (b'b' as u16, 6),
-                (b'c' as u16, 6),
-                (b'd' as u16, 6),
-                (b' ' as u16, 4),
-            ],
-            4,
-        );
-        let content = RectPx::new(100, 50, 40, COMBO_DROPDOWN_ROW_H);
-
-        let rect = combo_dropdown_text_rect_for_current_renderer(content, 0);
-        assert_eq!(rect.x, 103);
-        assert_eq!(rect.w, 37);
-        assert_eq!(combo_dropdown_text_fit_width(content), 20);
-
-        let label = truncate_combo_dropdown_label(&font, "ab cd", 20);
-        assert_eq!(label.as_ref(), "ab ");
-        assert!(font.text_width(label.as_ref()) <= 20);
-    }
-
-    #[test]
-    fn owner_draw_label_truncates_ascii_by_utf16_code_unit() {
-        let font = crate::render::bit_font::tests::make_test_font(
-            &[
-                (b'a' as u16, 6),
-                (b'b' as u16, 6),
-                (b'c' as u16, 6),
-                (b'd' as u16, 6),
-            ],
-            4,
-        );
-
-        let label = truncate_owner_draw_label(&font, "abcd", 14);
-
-        assert_eq!(label.as_ref(), "ab");
-        assert!(font.text_width(label.as_ref()) <= 14);
-    }
-
-    #[test]
-    fn owner_draw_label_truncates_latin1_by_utf16_code_unit() {
-        let font = crate::render::bit_font::tests::make_test_font(
-            &[(b'a' as u16, 6), (0x00e9, 8), (b'b' as u16, 6)],
-            4,
-        );
-
-        let label = truncate_owner_draw_label(&font, "aéb", 16);
-
-        assert_eq!(label.as_ref(), "aé");
-        assert!(font.text_width(label.as_ref()) <= 16);
-    }
-
-    #[test]
-    fn owner_draw_label_truncates_non_bmp_by_utf16_code_unit() {
-        let font = crate::render::bit_font::tests::make_test_font(&[(b'a' as u16, 6)], 4);
-
-        let label = truncate_combo_dropdown_label(&font, "a😀", 13);
-
-        assert_eq!(label.as_ref(), "a\u{fffd}");
-        assert_ne!(label.as_ref(), "a");
-        assert!(font.text_width(label.as_ref()) <= 13);
-    }
-
-    #[test]
-    fn collapsed_combo_face_text_pretruncates_to_arrow_reserved_width() {
-        let font = crate::render::bit_font::tests::make_test_font(
-            &[
-                (b'a' as u16, 6),
-                (b'b' as u16, 6),
-                (b'c' as u16, 6),
-                (b'd' as u16, 6),
-                (b' ' as u16, 4),
-            ],
-            4,
-        );
-        let combo = RectPx::new(423, 59, 44, 24);
-
-        let draw_rect = combo_face_text_draw_rect(combo);
-        assert_eq!(draw_rect, RectPx::new(425, 59, 42, 24));
-        assert_eq!(combo_face_text_fit_width(combo), 24);
-        let label = truncate_owner_draw_label(&font, "ab cd", combo_face_text_fit_width(combo));
-
-        assert_eq!(label.as_ref(), "ab ");
-        assert!(font.text_width(label.as_ref()) <= combo_face_text_fit_width(combo));
-    }
-}
-
 pub(super) fn push_saved_seed_modal_text_draws(
     out: &mut Vec<ShellTextDraw>,
     state: &AppState,
@@ -1603,4 +1408,197 @@ pub(super) fn push_saved_browser_prompt_text<I>(
             SHELL_DROPDOWN_TEXT_DEPTH - 0.00013));
     }
 
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn combo_face_text_under_open_dropdown_is_suppressed() {
+        let dropdown = RectPx::new(23, 96, 149, 92);
+        let covered_combo_text = RectPx::new(25, 123, 129, 24);
+        let clear_combo_text = RectPx::new(25, 71, 129, 24);
+
+        assert!(text_covered_by_overlay(covered_combo_text, &[dropdown]));
+        assert!(!text_covered_by_overlay(clear_combo_text, &[dropdown]));
+        assert!(!text_covered_by_overlay(covered_combo_text, &[]));
+    }
+
+    /// `0x105` hides a text an open list touches; that is exact only while
+    /// every list ends in the gap between rows.
+    #[test]
+    fn every_random_map_list_covers_the_texts_under_it_whole() {
+        for (width, height) in [(640, 480), (800, 600), (1024, 768)] {
+            let layout = crate::ui::skirmish_shell::compute_random_map_setup_layout(width, height);
+            // The Players window has the runtime growth (226 wide) the
+            // combos do not have yet (225), so its value text runs one
+            // column past the lists.
+            let mut players_value = value_text_rect(layout.control_rects[PLAYERS_ROW]);
+            players_value.w -= 1;
+            let texts: Vec<RectPx> = (0..PLAYERS_ROW)
+                .map(|row| combo_text_rect(layout.control_rects[row]))
+                .chain([players_value])
+                .collect();
+            for combo in SETUP_COMBO_ROWS {
+                let list = random_map_setup_dropdown_rect(
+                    &layout,
+                    combo.row(),
+                    setup_combo_items(combo).len(),
+                );
+                for text in &texts {
+                    let inside = text.x >= list.x
+                        && text.y >= list.y
+                        && text.x + text.w <= list.x + list.w
+                        && text.y + text.h <= list.y + list.h;
+                    assert!(
+                        !text_covered_by_overlay(*text, &[list]) || inside,
+                        "{width}x{height}: {combo:?}'s list {list:?} cuts {text:?}"
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn text_under_validation_dialog_is_suppressed_like_dropdown_text() {
+        let dialog = RectPx::new(220, 239, 360, 122);
+        let covered_combo_text = RectPx::new(260, 260, 100, 24);
+        let clear_combo_text = RectPx::new(25, 71, 129, 24);
+
+        assert!(text_covered_by_overlay(covered_combo_text, &[dialog]));
+        assert!(!text_covered_by_overlay(clear_combo_text, &[dialog]));
+    }
+
+    #[test]
+    fn adjacent_rects_do_not_count_as_dropdown_coverage() {
+        let dropdown = RectPx::new(10, 20, 100, 50);
+        let above = RectPx::new(10, 0, 100, 20);
+        let below = RectPx::new(10, 70, 100, 20);
+
+        assert!(!text_covered_by_overlay(above, &[dropdown]));
+        assert!(!text_covered_by_overlay(below, &[dropdown]));
+    }
+
+    #[test]
+    fn team_label_uses_native_sentinel_values() {
+        assert_eq!(team_label_spec(-2), ("GUI:NoneAsSymbols", "None"));
+        assert_eq!(team_label_spec(0), ("LETTER_A", "A"));
+        assert_eq!(team_label_spec(1), ("LETTER_B", "B"));
+        assert_eq!(team_label_spec(2), ("LETTER_C", "C"));
+        assert_eq!(team_label_spec(3), ("LETTER_D", "D"));
+    }
+
+    #[test]
+    fn trackbar_value_text_uses_normal_shell_yellow_source() {
+        assert_eq!(trackbar_value_text_color(), SHELL_LABEL_TEXT_RGB);
+    }
+
+    #[test]
+    fn combo_face_text_color_uses_disabled_source_for_inactive_siblings() {
+        let shell = SkirmishShellState::default();
+
+        assert_eq!(combo_face_text_color(false), SHELL_LABEL_TEXT_RGB);
+        assert_eq!(
+            combo_face_text_color(true),
+            SHELL_DISABLED_TEXT_RGB_FROM_PACKED_0000009F
+        );
+        assert_eq!(
+            opponent_sibling_combo_text_color(&shell.opponents[0]),
+            SHELL_LABEL_TEXT_RGB
+        );
+        assert_eq!(
+            opponent_sibling_combo_text_color(&shell.opponents[1]),
+            SHELL_DISABLED_TEXT_RGB_FROM_PACKED_0000009F
+        );
+    }
+
+    #[test]
+    fn combodropwin_row_text_pretruncates_without_using_clip_width_as_rect_width() {
+        let font = crate::render::bit_font::tests::make_test_font(
+            &[
+                (b'a' as u16, 6),
+                (b'b' as u16, 6),
+                (b'c' as u16, 6),
+                (b'd' as u16, 6),
+                (b' ' as u16, 4),
+            ],
+            4,
+        );
+        let content = RectPx::new(100, 50, 40, COMBO_DROPDOWN_ROW_H);
+
+        let rect = combo_dropdown_text_rect_for_current_renderer(content, 0);
+        assert_eq!(rect.x, 103);
+        assert_eq!(rect.w, 37);
+        assert_eq!(combo_dropdown_text_fit_width(content), 20);
+
+        let label = truncate_combo_dropdown_label(&font, "ab cd", 20);
+        assert_eq!(label.as_ref(), "ab ");
+        assert!(font.text_width(label.as_ref()) <= 20);
+    }
+
+    #[test]
+    fn owner_draw_label_truncates_ascii_by_utf16_code_unit() {
+        let font = crate::render::bit_font::tests::make_test_font(
+            &[
+                (b'a' as u16, 6),
+                (b'b' as u16, 6),
+                (b'c' as u16, 6),
+                (b'd' as u16, 6),
+            ],
+            4,
+        );
+
+        let label = truncate_owner_draw_label(&font, "abcd", 14);
+
+        assert_eq!(label.as_ref(), "ab");
+        assert!(font.text_width(label.as_ref()) <= 14);
+    }
+
+    #[test]
+    fn owner_draw_label_truncates_latin1_by_utf16_code_unit() {
+        let font = crate::render::bit_font::tests::make_test_font(
+            &[(b'a' as u16, 6), (0x00e9, 8), (b'b' as u16, 6)],
+            4,
+        );
+
+        let label = truncate_owner_draw_label(&font, "aéb", 16);
+
+        assert_eq!(label.as_ref(), "aé");
+        assert!(font.text_width(label.as_ref()) <= 16);
+    }
+
+    #[test]
+    fn owner_draw_label_truncates_non_bmp_by_utf16_code_unit() {
+        let font = crate::render::bit_font::tests::make_test_font(&[(b'a' as u16, 6)], 4);
+
+        let label = truncate_combo_dropdown_label(&font, "a😀", 13);
+
+        assert_eq!(label.as_ref(), "a\u{fffd}");
+        assert_ne!(label.as_ref(), "a");
+        assert!(font.text_width(label.as_ref()) <= 13);
+    }
+
+    #[test]
+    fn collapsed_combo_face_text_pretruncates_to_arrow_reserved_width() {
+        let font = crate::render::bit_font::tests::make_test_font(
+            &[
+                (b'a' as u16, 6),
+                (b'b' as u16, 6),
+                (b'c' as u16, 6),
+                (b'd' as u16, 6),
+                (b' ' as u16, 4),
+            ],
+            4,
+        );
+        let combo = RectPx::new(423, 59, 44, 24);
+
+        let draw_rect = combo_face_text_draw_rect(combo);
+        assert_eq!(draw_rect, RectPx::new(425, 59, 42, 24));
+        assert_eq!(combo_face_text_fit_width(combo), 24);
+        let label = truncate_owner_draw_label(&font, "ab cd", combo_face_text_fit_width(combo));
+
+        assert_eq!(label.as_ref(), "ab ");
+        assert!(font.text_width(label.as_ref()) <= combo_face_text_fit_width(combo));
+    }
 }

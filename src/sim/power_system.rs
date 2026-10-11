@@ -467,7 +467,6 @@ fn radar_provider_available(
 /// House508DF0: a running radar outage (`0x00508E07..0x00508E31`, any
 /// remaining time) denies radar before Scenario FreeRadar (`+0x34A4`), power
 /// and the providers are asked.
-#[allow(clippy::too_many_arguments)]
 pub(crate) fn assess_house_radar_projection(
     state: &mut PowerState,
     entities: &EntityStore,
@@ -570,9 +569,11 @@ mod tests {
         let owner = generator.owner();
         assert_eq!(corpus["predicate_rows"].as_array().unwrap().len(), 121);
         for row in corpus["predicate_rows"].as_array().unwrap() {
-            let mut state = PowerState::default();
-            state.total_output = row["output"].as_i64().unwrap() as i32;
-            state.total_drain = row["drain"].as_i64().unwrap() as i32;
+            let state = PowerState {
+                total_output: row["output"].as_i64().unwrap() as i32,
+                total_drain: row["drain"].as_i64().unwrap() as i32,
+                ..Default::default()
+            };
             assert_eq!(
                 state.has_full_power(),
                 row["operational"].as_bool().unwrap(),
@@ -858,9 +859,11 @@ BuildSpeed=0.02
                 "empty" | "null" => {}
                 other => panic!("unexpected native member fixture {other}"),
             }
-            let mut state = PowerState::default();
-            state.total_output = input["prior_output"].as_i64().unwrap() as i32;
-            state.total_drain = input["prior_drain"].as_i64().unwrap() as i32;
+            let state = PowerState {
+                total_output: input["prior_output"].as_i64().unwrap() as i32,
+                total_drain: input["prior_drain"].as_i64().unwrap() as i32,
+                ..Default::default()
+            };
             let mut states = BTreeMap::from([(owner, state)]);
             tick_power_states(&mut states, &mut store, &rules, &test_interner(), 0);
             assert_eq!(
@@ -1061,9 +1064,11 @@ BuildSpeed=0.02
         // Get interner AFTER all strings are interned (make_building interns type_ref).
         let interner = test_interner();
         let mut states: BTreeMap<InternedId, PowerState> = BTreeMap::new();
-        let mut power_state = PowerState::default();
-        power_state.total_drain = 100;
-        power_state.is_low_power = true;
+        let power_state = PowerState {
+            total_drain: 100,
+            is_low_power: true,
+            ..Default::default()
+        };
         states.insert(allies, power_state);
 
         assert!(
@@ -1081,9 +1086,11 @@ BuildSpeed=0.02
         // Get interner AFTER all strings are interned.
         let interner = test_interner();
         let mut states: BTreeMap<InternedId, PowerState> = BTreeMap::new();
-        let mut power_state = PowerState::default();
-        power_state.total_drain = 100;
-        power_state.is_low_power = true;
+        let power_state = PowerState {
+            total_drain: 100,
+            is_low_power: true,
+            ..Default::default()
+        };
         states.insert(soviet, power_state);
 
         assert!(
@@ -1101,8 +1108,10 @@ BuildSpeed=0.02
         // Get interner AFTER all strings are interned.
         let interner = test_interner();
         let mut states: BTreeMap<InternedId, PowerState> = BTreeMap::new();
-        let mut power_state = PowerState::default();
-        power_state.is_low_power = false;
+        let power_state = PowerState {
+            is_low_power: false,
+            ..Default::default()
+        };
         states.insert(soviet, power_state);
 
         assert!(

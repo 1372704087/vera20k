@@ -1045,7 +1045,7 @@ mod tests {
             })
             .collect();
         assert_eq!(placed_cells.len(), 1);
-        assert_eq!(placed_cells[0].1, SPAWN_DENSITY_LEVELS as u8);
+        assert_eq!(placed_cells[0].1, SPAWN_DENSITY_LEVELS);
         assert!(placed_cells[0].0 < 12, "a registry TIB01..TIB12 variant");
     }
 
@@ -1108,7 +1108,7 @@ mod tests {
 
         let placed = world.placed();
         assert_eq!(placed.len(), 1);
-        assert_eq!(placed[0].1, SPAWN_DENSITY_LEVELS as u8);
+        assert_eq!(placed[0].1, SPAWN_DENSITY_LEVELS);
     }
 
     #[test]
@@ -1135,7 +1135,7 @@ mod tests {
 
         assert_eq!(
             world.overlay_grid.cell(11, 11).overlay_data,
-            SPAWN_DENSITY_LEVELS as u8
+            SPAWN_DENSITY_LEVELS
         );
         let grown_existing = world
             .placed()

@@ -222,9 +222,11 @@ pub(crate) fn build_zone_map_from_base_topology(
                 return ZONE_INVALID;
             }
             let derived = derived_by_base[base_id as usize];
-            (derived > 1 && derived != u16::MAX)
-                .then_some(derived)
-                .unwrap_or(ZONE_INVALID)
+            if derived > 1 && derived != u16::MAX {
+                derived
+            } else {
+                ZONE_INVALID
+            }
         })
         .collect();
     // Exact derived IDs already are the reachability components; no graph
@@ -321,10 +323,7 @@ fn flood_fill_node_index(
     // Horizontal scans overwrite prior zone IDs; only vertical recursion tests
     // for an unassigned candidate.
     let mut left = seed_x;
-    loop {
-        let Some(index) = base_record_index(left, seed_y, width, height) else {
-            break;
-        };
+    while let Some(index) = base_record_index(left, seed_y, width, height) {
         if movement_classes[index] != movement_class {
             break;
         }
@@ -355,10 +354,7 @@ fn flood_fill_node_index(
     // Right starts at the seed but retains the level carried out of the left
     // scan. The retail comparison is strictly <4.
     let mut right = seed_x;
-    loop {
-        let Some(index) = base_record_index(right, seed_y, width, height) else {
-            break;
-        };
+    while let Some(index) = base_record_index(right, seed_y, width, height) {
         if movement_classes[index] != movement_class {
             break;
         }
@@ -478,7 +474,6 @@ fn base_level_at(levels: &[u8], x: i32, y: i32, width: u16, height: u16) -> Opti
     levels.get(base_record_index(x, y, width, height)?).copied()
 }
 
-#[allow(clippy::too_many_arguments)]
 fn register_scanline_edge(
     edge_buckets: &mut BaseEdgeBuckets,
     candidate_x: i32,
@@ -724,9 +719,7 @@ pub(crate) fn build_bridge_redirect(
     width: u16,
     height: u16,
 ) -> Option<Vec<Option<(u16, u16)>>> {
-    let Some(terrain) = resolved_terrain else {
-        return None;
-    };
+    let terrain = resolved_terrain?;
 
     let total = width as usize * height as usize;
     let mut redirect: Vec<Option<(u16, u16)>> = vec![None; total];

@@ -560,8 +560,8 @@ fn ready_guard_precedence_is_stable_across_insertion_order() {
 
     let forward = InfantrySequenceDef {
         entries: std::collections::HashMap::from([
-            ("READY".to_string(), ready.clone()),
-            ("GUARD".to_string(), guard.clone()),
+            ("READY".to_string(), ready),
+            ("GUARD".to_string(), guard),
         ]),
     };
     let reverse = InfantrySequenceDef {

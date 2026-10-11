@@ -25,10 +25,11 @@ pub(crate) use mission_handlers::dispatch_foot_mission;
 pub(crate) use mission_handlers::enter_idle_mode;
 pub(crate) use mission_handlers::foot_enter_idle_mode_selection;
 pub(crate) use mission_handlers::foot_unlimbo_idle_mode;
+#[cfg(test)]
+use mission_handlers::*;
 pub(crate) use target_scan::direct_greatest_threat;
 pub(crate) use target_scan::passive_target_acquire;
 
-use mission_handlers::*;
 use target_scan::{can_acquire_target, passive_acquire_step};
 
 use super::{FrameEffects, Simulation};
@@ -55,6 +56,7 @@ pub(crate) struct ObjectAiCtx<'a> {
 /// Ephemeral outputs of a single live AI visit, forwarded to the frame result.
 #[derive(Default)]
 pub(super) struct ObjectAiOutcome {
+    #[cfg(test)]
     pub(super) visited: bool,
     pub(super) bridge_state_changed: bool,
     ownership_changed: bool,
@@ -63,6 +65,7 @@ pub(super) struct ObjectAiOutcome {
 impl ObjectAiOutcome {
     pub(super) fn visited() -> Self {
         Self {
+            #[cfg(test)]
             visited: true,
             ..Default::default()
         }
@@ -224,10 +227,11 @@ impl Simulation {
         let Some(entity) = self.substrate.entities.get_mut(id) else {
             return;
         };
-        if entity.category == EntityCategory::Aircraft && entity.mission.current().raw() != 1 {
-            if let Some(ammo) = entity.aircraft_ammo.as_mut() {
-                ammo.consume_release(false);
-            }
+        if entity.category == EntityCategory::Aircraft
+            && entity.mission.current().raw() != 1
+            && let Some(ammo) = entity.aircraft_ammo.as_mut()
+        {
+            ammo.consume_release(false);
         }
     }
 
@@ -417,18 +421,10 @@ impl Simulation {
                     .zip(self.playfield_size_height)
                     .map(|(bounds, height)| (bounds.base, height)),
             };
-            let anims = &self.substrate.anims;
-            let pending_delete = &self.substrate.pending_delete;
-            let anim_live = |anim: u64| anims.contains_key(anim) && !pending_delete.contains(&anim);
             let nuke_ball_type =
                 || rules.is_some_and(crate::sim::superweapon::nuke::nuke_ball_type);
-            let nuke = rules.map(|_| {
-                crate::sim::projectile::NukeImpactContext::new(
-                    interner,
-                    &nuke_ball_type,
-                    &anim_live,
-                )
-            });
+            let nuke = rules
+                .map(|_| crate::sim::projectile::NukeImpactContext::new(interner, &nuke_ball_type));
             let result = self
                 .projectiles
                 .advance_after_head(
@@ -678,7 +674,7 @@ fn techno_ai_shell(
     if let Some(entity) = sim.substrate.entities.get_mut(id) {
         entity
             .estimated_health
-            .recover(i32::from(entity.health.current), sim.session.binary_frame);
+            .recover(entity.health.current, sim.session.binary_frame);
     }
     match category {
         EntityCategory::Unit => {
@@ -1800,10 +1796,10 @@ fn techno_common_post(sim: &mut Simulation, id: u64, rules: Option<&RuleSet>) {
     }
 
     // Commit the (possibly cleared or freshly-armed) live-system state.
-    if live_until != live_until_in {
-        if let Some(entity) = sim.substrate.entities.get_mut(id) {
-            entity.damage_particle_live_until = live_until;
-        }
+    if live_until != live_until_in
+        && let Some(entity) = sim.substrate.entities.get_mut(id)
+    {
+        entity.damage_particle_live_until = live_until;
     }
 }
 
@@ -1845,10 +1841,10 @@ fn unit_techno_bracket(
     // timer-gated, ending with the verified post-handler epilogue write
     // (start = current frame, delay = handler return). One committed-selector
     // match routes Harvest, Attack and the other represented Foot handlers.
-    if mission_handlers_run(sim, id) {
-        if let Some(rules) = rules {
-            *bridge_state_changed |= dispatch_foot_mission(sim, id, rules, ctx);
-        }
+    if mission_handlers_run(sim, id)
+        && let Some(rules) = rules
+    {
+        *bridge_state_changed |= dispatch_foot_mission(sim, id, rules, ctx);
     }
     // `UnitClass::AI @ 0x007361A9..0x007361E9`: a draining Floating Disc
     // re-checks the building under it every 16th frame and drops the link

@@ -1,7 +1,8 @@
-//! Shared retail sine/cosine table, read from the retail executable.
+//! Retail math tables: the shared sine/cosine table and `Acos_lookup`'s
+//! arcsine table.
 //!
 //! The river carver steers by a floating-point heading and resolves it through
-//! two table lookups every step. The table is **not reproducible from a
+//! two table lookups every step. The sine table is **not reproducible from a
 //! formula**: computing `sin` in double precision and rounding disagrees with it
 //! on 4997 of its first 10240 indexed entries, and so does the correctly-rounded
 //! true sine, by up to one unit in the last place. It is an artifact of whatever
@@ -10,11 +11,16 @@
 //! wrap-around pairs disagrees, which is what an accumulating recurrence looks
 //! like and what a per-index evaluation does not.
 //!
-//! So the bytes have to come from the retail install. They are read out of
-//! `gamemd.exe` the same way the rest of the engine reads retail `.mix` assets:
-//! from the player's own copy, at load time. Executable versions may place them
-//! at different addresses: compatibility depends on the tables' contents, not
-//! the executable's checksum, language, signature or other unrelated bytes.
+//! So the bytes have to be the retail ones, and each table has one source. The
+//! sine table's is the repository's checked copy of the retail bytes
+//! ([`crate::util::native_trig::RETAIL_SINE_TABLE`], hashed whole against
+//! [`RETAIL_FNV1A64`] by this module's tests), so the game, headless runs and
+//! tests all read the exact entries without an install. The Acos table has no
+//! checked copy: [`install_from_dir`] reads it out of the player's `gamemd.exe`
+//! at load time, the same way the rest of the engine reads retail `.mix`
+//! assets. Executable versions may place it at a different address:
+//! compatibility depends on the table's contents, not the executable's
+//! checksum, language, signature or other unrelated bytes.
 //!
 //! Both trig functions share one table. Cosine is the same data read a quarter
 //! period further along, so there is a single array and two index derivations.
@@ -25,7 +31,8 @@ use crate::util::native_x87::{NativeF32Bits, X87Chop53, X87Value};
 use std::path::Path;
 use std::sync::OnceLock;
 
-/// Virtual address of the table in the retail image.
+/// Virtual address of the sine table in the retail image.
+#[cfg(test)]
 const TABLE_VA: u32 = 0x0084_F084;
 /// Entries. The extra quarter period past a full turn is what lets the cosine
 /// offset run past the end of the sine range without wrapping; the final exact
@@ -53,6 +60,7 @@ pub const UNITS_PER_TURN: f64 = (2 * PERIOD) as f64;
 pub const RETAIL_FNV1A64: u64 = 0x74ac_b749_b33d_5aa7;
 // First four entries read from the reference table at TABLE_VA. These prefixes
 // only locate candidates; the complete table must still pass its FNV check.
+#[cfg(test)]
 const TABLE_PREFIX: &[u8] = &[
     0x00, 0x00, 0x00, 0x00, 0xd9, 0x0f, 0x49, 0x3a, 0xd5, 0x0f, 0xc9, 0x3a, 0xdb, 0xcb, 0x16, 0x3b,
 ];
@@ -102,7 +110,8 @@ impl fmt::Display for TrigTableError {
 
 impl std::error::Error for TrigTableError {}
 
-/// The retail sine table.
+/// The retail sine table at `0x0084F084`, read by `Math::SinFromTable` and
+/// `Math::CosFromTable`.
 #[derive(Debug, Clone)]
 pub struct TrigTable {
     entries: Vec<f32>,
@@ -172,7 +181,7 @@ impl<'a> PeSections<'a> {
             .and_then(|tail| tail.get(..section_count * 40))
             .ok_or(TrigTableError::NotPeFile)?;
         let mut sections = Vec::with_capacity(section_count);
-        for header in headers.chunks_exact(40) {
+        for header in headers.as_chunks::<40>().0 {
             let virtual_size = u32_at(header, 8)? as usize;
             let rva = u32_at(header, 12)?;
             let raw_size = u32_at(header, 16)? as usize;
@@ -257,10 +266,9 @@ fn find_table_bytes<'a>(
 }
 
 impl TrigTable {
-    /// The repository's checked copy of the retail table
-    /// (`util::native_trig`, verified by `walk_direction_table.py --check`),
-    /// for simulation readers that must not depend on an installed game.
-    /// Hover's altitude bob (0x00513E4F) reads `Math__SinFromTable` here.
+    /// The retail table, from the repository's checked copy
+    /// (`util::native_trig`, verified by `walk_direction_table.py --check`).
+    /// It is the only sine source: no reader depends on an installed game.
     pub(crate) fn embedded() -> &'static Self {
         static TABLE: OnceLock<TrigTable> = OnceLock::new();
         TABLE.get_or_init(|| Self {
@@ -271,31 +279,6 @@ impl TrigTable {
                 .map(|&c| f32::from_le_bytes(c))
                 .collect(),
         })
-    }
-
-    /// Read the table out of a retail `gamemd.exe` image.
-    pub fn from_executable(image: &[u8]) -> Result<Self, TrigTableError> {
-        let bytes = find_table_bytes(image, TABLE_VA, TABLE_LEN * 4, TABLE_PREFIX, RETAIL_FNV1A64)?;
-        let entries = bytes
-            .chunks_exact(4)
-            .map(|c| f32::from_le_bytes([c[0], c[1], c[2], c[3]]))
-            .collect();
-        Ok(Self { entries })
-    }
-
-    /// FNV-1a over the raw little-endian bytes, for comparison against
-    /// [`RETAIL_FNV1A64`].
-    pub fn fnv1a64(&self) -> u64 {
-        let mut hash = crate::util::fnv::FNV1A64_OFFSET_BASIS;
-        for entry in &self.entries {
-            hash = crate::util::fnv::fnv1a64_fold_bytes(hash, &entry.to_le_bytes());
-        }
-        hash
-    }
-
-    /// Is this the table the retail build shipped?
-    pub fn matches_retail(&self) -> bool {
-        self.entries.len() == TABLE_LEN && self.fnv1a64() == RETAIL_FNV1A64
     }
 
     pub fn entry(&self, index: usize) -> f32 {
@@ -345,17 +328,6 @@ impl TrigTable {
     pub fn cos_from_table(&self, radians: X87Value) -> X87Value {
         table_value(self.cos(from_table_units(radians)))
     }
-
-    /// A table of the right shape but not the retail contents, for tests that
-    /// need geometry rather than exactness.
-    #[cfg(test)]
-    pub fn synthetic() -> Self {
-        Self {
-            entries: (0..TABLE_LEN)
-                .map(|i| (i as f64 * std::f64::consts::TAU / PERIOD as f64).sin() as f32)
-                .collect(),
-        }
-    }
 }
 
 impl AcosTable {
@@ -369,7 +341,9 @@ impl AcosTable {
             ACOS_RETAIL_FNV1A64,
         )?;
         let entries = bytes
-            .chunks_exact(4)
+            .as_chunks::<4>()
+            .0
+            .iter()
             .map(|c| f32::from_le_bytes([c[0], c[1], c[2], c[3]]))
             .collect();
         Ok(Self { entries })
@@ -393,7 +367,7 @@ impl AcosTable {
 
     /// A shape-compatible table used only by unit tests that exercise Wave
     /// lifetime/cell mechanics without a retail installation. Exact geometry
-    /// fixtures always load the executable-backed table.
+    /// fixtures gate on [`verified_acos_table_or_skip`].
     #[cfg(test)]
     pub fn synthetic() -> Self {
         Self {
@@ -478,6 +452,95 @@ pub fn radians_to_units(radians: f64) -> f64 {
 #[cfg(test)]
 mod executable_tests;
 
+/// Process-wide Acos table, installed once from the retail install.
+///
+/// A global because consumers sit at different engine layers and only startup
+/// knows where the retail install is. It is written once and read-only
+/// thereafter, so it cannot make a run non-deterministic.
+static ACOS_TABLE: OnceLock<Option<AcosTable>> = OnceLock::new();
+
+/// Read the Acos table out of `<ra2_dir>/gamemd.exe` and install it. Later
+/// calls are ignored; the first one wins.
+pub fn install_from_dir(ra2_dir: &Path) {
+    ACOS_TABLE.get_or_init(|| {
+        let path = ra2_dir.join("gamemd.exe");
+        match std::fs::read(&path) {
+            Ok(image) => match AcosTable::from_executable(&image) {
+                Ok(acos) => Some(acos),
+                Err(err) => {
+                    log::warn!(
+                        "retail Acos table {}: {err}; Acos consumers will be disabled",
+                        path.display()
+                    );
+                    None
+                }
+            },
+            Err(err) => {
+                log::warn!(
+                    "cannot read the retail Acos table from {}: {err}; \
+                     Acos consumers will be disabled",
+                    path.display()
+                );
+                None
+            }
+        }
+    });
+}
+
+fn installed_acos_table() -> Option<&'static AcosTable> {
+    ACOS_TABLE.get().and_then(Option::as_ref)
+}
+
+/// Stock Sonic Wave geometry is active, so a match may start only when the
+/// executable-backed Acos table is installed. The sine table never needs one.
+pub fn wave_tables_available() -> bool {
+    installed_acos_table().is_some()
+}
+
+/// Shared exact production Acos access for Wave and FireAt arc math. Tests
+/// without an installed table read `RA2_DIR`'s `gamemd.exe`, else fall back to
+/// the shape-only synthetic table; exact comparisons gate on
+/// [`verified_acos_table_or_skip`].
+pub(crate) fn required_acos_table() -> &'static AcosTable {
+    if let Some(acos) = installed_acos_table() {
+        return acos;
+    }
+
+    #[cfg(test)]
+    {
+        static TEST_TABLE: OnceLock<AcosTable> = OnceLock::new();
+        TEST_TABLE.get_or_init(|| {
+            std::env::var_os("RA2_DIR")
+                .and_then(|dir| {
+                    std::fs::read(std::path::PathBuf::from(dir).join("gamemd.exe")).ok()
+                })
+                .and_then(|image| AcosTable::from_executable(&image).ok())
+                .unwrap_or_else(AcosTable::synthetic)
+        })
+    }
+
+    #[cfg(not(test))]
+    panic!("the verified gamemd Acos table was not installed before native math");
+}
+
+/// The exact retail Acos table for a native-bit comparison, or `None` after a
+/// `SKIPPED` line when the test fallback is synthetic. A readiness run
+/// (`VERA20K_REQUIRE_RETAIL_INI` set) fails instead of skipping, so it also
+/// needs `RA2_DIR` to name a verified `gamemd.exe`.
+#[cfg(test)]
+pub(crate) fn verified_acos_table_or_skip(comparison: &str) -> Option<&'static AcosTable> {
+    let acos = required_acos_table();
+    if acos.matches_retail() {
+        return Some(acos);
+    }
+    assert!(
+        !crate::rules::retail_ini_fixture::require_retail_ini(),
+        "{comparison} requires RA2_DIR with a verified gamemd.exe Acos table"
+    );
+    eprintln!("SKIPPED: {comparison} needs RA2_DIR with a verified gamemd.exe Acos table");
+    None
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -545,24 +608,46 @@ mod tests {
         assert_eq!(sin_index(-7997) - sin_index(-7997 + turn), 1);
     }
 
-    /// The exhaustive check. Not a sample: every one of the 40964 bytes feeds
-    /// the hash, and the expected value was derived by reading them out of the
-    /// binary rather than computed by hand.
+    /// The exhaustive check of the sine source. Not a sample: every one of the
+    /// 40964 checked-in bytes feeds the hash, and the expected value was
+    /// derived by reading them out of the binary rather than computed by hand.
     #[test]
-    fn the_table_matches_the_retail_image_byte_for_byte() {
+    fn the_checked_sine_copy_is_the_retail_table() {
+        let bytes = crate::util::native_trig::RETAIL_SINE_TABLE;
+        assert_eq!(bytes.len(), TABLE_LEN * 4);
+        assert_eq!(
+            crate::util::fnv::fnv1a64_fold_bytes(crate::util::fnv::FNV1A64_OFFSET_BASIS, bytes),
+            RETAIL_FNV1A64
+        );
+        let table = TrigTable::embedded();
+        assert_eq!(table.entries.len(), TABLE_LEN);
+        assert!(
+            table
+                .entries
+                .iter()
+                .zip(bytes.as_chunks::<4>().0)
+                .all(|(entry, raw)| entry.to_bits() == u32::from_le_bytes(*raw)),
+            "decoding changed a checked table entry"
+        );
+    }
+
+    /// The installed image carries the same sine bytes and the Acos table this
+    /// port was written against.
+    #[test]
+    fn the_retail_image_matches_the_checked_tables_byte_for_byte() {
         let Some(image) = retail_executable() else {
             eprintln!("skipped: set RA2_DIR to the retail install to run this");
             return;
         };
-        let table = TrigTable::from_executable(&image).expect("read the table");
-        assert_eq!(table.entries.len(), TABLE_LEN);
-        assert_eq!(
-            table.fnv1a64(),
+        let sine = find_table_bytes(
+            &image,
+            TABLE_VA,
+            TABLE_LEN * 4,
+            TABLE_PREFIX,
             RETAIL_FNV1A64,
-            "the table read out of gamemd.exe is not the one this port was \
-             written against"
-        );
-        assert!(table.matches_retail());
+        )
+        .expect("read the sine table");
+        assert_eq!(sine, crate::util::native_trig::RETAIL_SINE_TABLE.as_slice());
         let acos = AcosTable::from_executable(&image).expect("read the Acos table");
         assert_eq!(acos.entries.len(), ACOS_TABLE_LEN);
         assert_eq!(acos.fnv1a64(), ACOS_RETAIL_FNV1A64);
@@ -571,11 +656,7 @@ mod tests {
 
     #[test]
     fn the_table_has_the_shape_of_a_sine() {
-        let Some(image) = retail_executable() else {
-            eprintln!("skipped: set RA2_DIR to the retail install to run this");
-            return;
-        };
-        let table = TrigTable::from_executable(&image).expect("read the table");
+        let table = TrigTable::embedded();
         assert_eq!(table.entry(0), 0.0, "sine starts at zero");
         assert_eq!(table.entry(PERIOD as usize / 4), 1.0, "quarter turn is one");
         assert!(
@@ -595,127 +676,8 @@ mod tests {
     #[test]
     fn a_non_pe_input_is_refused_rather_than_misread() {
         assert_eq!(
-            TrigTable::from_executable(b"not an executable").unwrap_err(),
+            AcosTable::from_executable(b"not an executable").unwrap_err(),
             TrigTableError::NotPeFile
         );
     }
-}
-
-/// Process-wide table bundle, installed once from the retail install.
-///
-/// A global because consumers sit at different engine layers and only startup
-/// knows where the retail install is. It is written once and read-only
-/// thereafter, so it cannot make a run non-deterministic.
-#[derive(Debug)]
-struct RetailMathTables {
-    trig: TrigTable,
-    acos: AcosTable,
-}
-
-static TABLES: OnceLock<Option<RetailMathTables>> = OnceLock::new();
-
-/// Read the table out of `<ra2_dir>/gamemd.exe` and install it. Later calls are
-/// ignored; the first one wins.
-pub fn install_from_dir(ra2_dir: &Path) {
-    TABLES.get_or_init(|| {
-        let path = ra2_dir.join("gamemd.exe");
-        match std::fs::read(&path) {
-            Ok(image) => match (
-                TrigTable::from_executable(&image),
-                AcosTable::from_executable(&image),
-            ) {
-                (Ok(trig), Ok(acos)) => Some(RetailMathTables { trig, acos }),
-                (Err(err), _) | (_, Err(err)) => {
-                    log::warn!(
-                        "retail math tables {}: {err}; retail-table consumers will be disabled",
-                        path.display()
-                    );
-                    None
-                }
-            },
-            Err(err) => {
-                log::warn!(
-                    "cannot read retail math tables from {}: {err}; \
-                     retail-table consumers will be disabled",
-                    path.display()
-                );
-                None
-            }
-        }
-    });
-}
-
-/// The installed table, if there is one.
-pub fn global() -> Option<&'static TrigTable> {
-    TABLES
-        .get()
-        .and_then(|slot| slot.as_ref())
-        .map(|tables| &tables.trig)
-}
-
-/// The installed table consumed by `Acos_lookup`, if there is one.
-pub fn global_acos() -> Option<&'static AcosTable> {
-    TABLES
-        .get()
-        .and_then(|slot| slot.as_ref())
-        .map(|tables| &tables.acos)
-}
-
-/// Stock Sonic Wave geometry is active, so a match may start only when both
-/// exact executable-backed math tables are available.
-pub fn wave_tables_available() -> bool {
-    global().is_some() && global_acos().is_some()
-}
-
-/// Shared exact production sine/Acos access for Wave and projectile math.
-/// Headless tests retain the existing Wave synthetic fixture fallback; parity
-/// fixtures must install/load the retail tables and verify their hashes.
-pub(crate) fn required_math_tables() -> (&'static TrigTable, &'static AcosTable) {
-    if let (Some(trig), Some(acos)) = (global(), global_acos()) {
-        return (trig, acos);
-    }
-
-    #[cfg(test)]
-    {
-        use std::sync::OnceLock;
-        static TEST_TABLES: OnceLock<(TrigTable, AcosTable)> = OnceLock::new();
-        let tables = TEST_TABLES.get_or_init(|| {
-            let exact = std::env::var_os("RA2_DIR")
-                .and_then(|dir| {
-                    std::fs::read(std::path::PathBuf::from(dir).join("gamemd.exe")).ok()
-                })
-                .and_then(|image| {
-                    let trig = TrigTable::from_executable(&image).ok()?;
-                    let acos = AcosTable::from_executable(&image).ok()?;
-                    Some((trig, acos))
-                });
-            exact.unwrap_or_else(|| (TrigTable::synthetic(), AcosTable::synthetic()))
-        });
-        return (&tables.0, &tables.1);
-    }
-
-    #[cfg(not(test))]
-    panic!("verified gamemd sine/Acos tables were not installed before native math");
-}
-
-/// The exact retail sine and Acos tables for a native-bit comparison, or
-/// `None` after a `SKIPPED` line when the test fallback is synthetic. Bit-exact
-/// goldens need the retail entries: the synthetic sine disagrees with the
-/// retail table on 4997 of 10240 entries by one binary32 ulp. A readiness run
-/// (`VERA20K_REQUIRE_RETAIL_INI` set) fails instead of skipping, so it also
-/// needs `RA2_DIR` to name a verified `gamemd.exe`.
-#[cfg(test)]
-pub(crate) fn verified_math_tables_or_skip(
-    comparison: &str,
-) -> Option<(&'static TrigTable, &'static AcosTable)> {
-    let (trig, acos) = required_math_tables();
-    if trig.matches_retail() && acos.matches_retail() {
-        return Some((trig, acos));
-    }
-    assert!(
-        !crate::rules::retail_ini_fixture::require_retail_ini(),
-        "{comparison} requires RA2_DIR with verified gamemd.exe math tables"
-    );
-    eprintln!("SKIPPED: {comparison} needs RA2_DIR with verified gamemd.exe math tables");
-    None
 }

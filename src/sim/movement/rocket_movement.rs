@@ -681,7 +681,6 @@ fn store_f64(value: X87Value) -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::map::retail_trig::required_math_tables;
     use crate::rules::missile_spawn::MissileSpawnRules;
     use crate::sim::movement::facing_class::FacingClass;
     use serde_json::{Value, json};
@@ -903,15 +902,7 @@ mod tests {
     /// field and seam call bit-exact.
     #[test]
     fn flights_match_the_native_move_to_process_and_detonate_corpus() {
-        let (trig, _) = required_math_tables();
-        if !trig.matches_retail() {
-            assert!(
-                std::env::var_os("RA2_DIR").is_none(),
-                "RA2_DIR is set but the retail sine table does not match"
-            );
-            eprintln!("skipped: set RA2_DIR to the retail install to run this");
-            return;
-        }
+        let trig = TrigTable::embedded();
         let rows: Value =
             serde_json::from_str(crate::test_fixture::text("tools/rocket_oracle/flight.json"))
                 .expect("corpus parses");

@@ -14,10 +14,9 @@ impl Simulation {
             if self
                 .building_anim_power_flags(id, slot as u8, rules)
                 .powered
+                && let Some(anim) = anim_id.and_then(|id| self.substrate.anims.get_mut(id))
             {
-                if let Some(anim) = anim_id.and_then(|id| self.substrate.anims.get_mut(id)) {
-                    anim.runtime.paused = !enabled;
-                }
+                anim.runtime.paused = !enabled;
             }
         }
     }
@@ -47,13 +46,12 @@ impl Simulation {
             return;
         }
         entity.building_has_engineer = true;
-        if let Some(rules) = rules {
-            if rules
+        if let Some(rules) = rules
+            && rules
                 .object(self.interner.resolve(entity.type_ref()))
                 .is_some_and(|o| o.needs_engineer)
-            {
-                self.set_building_stuff_enabled(id, true, rules);
-            }
+        {
+            self.set_building_stuff_enabled(id, true, rules);
         }
     }
 

@@ -288,10 +288,10 @@ impl Simulation {
                 }
             }
 
-            if let Some(linked_trigger_id) = &trigger.linked_trigger_id {
-                if triggers.contains_key(linked_trigger_id) {
-                    enqueue_trigger(&mut queue, &mut queued, linked_trigger_id.clone());
-                }
+            if let Some(linked_trigger_id) = &trigger.linked_trigger_id
+                && triggers.contains_key(linked_trigger_id)
+            {
+                enqueue_trigger(&mut queue, &mut queued, linked_trigger_id.clone());
             }
 
             if !trigger.repeating {

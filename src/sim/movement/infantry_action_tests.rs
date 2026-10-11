@@ -237,12 +237,14 @@ fn jumpjet_infantry_actions_match_the_native_bodies() {
         // (`set_speed_fraction_native_bits`): the tail reads it as a hover
         // where native flies. The corpus probes that boundary on purpose.
         let fraction = input["fraction"].as_f64().unwrap_or(0.0);
-        if kind == "movement" && fraction > 0.8 && fraction * 65536.0 < 52429.0 {
-            if native_doing == DO_FLY {
-                assert_eq!(doing(&sim, id), DO_HOVER, "{name}: truncated fraction");
-                truncated += 1;
-                continue;
-            }
+        if kind == "movement"
+            && fraction > 0.8
+            && fraction * 65536.0 < 52429.0
+            && native_doing == DO_FLY
+        {
+            assert_eq!(doing(&sim, id), DO_HOVER, "{name}: truncated fraction");
+            truncated += 1;
+            continue;
         }
         assert_eq!(doing(&sim, id), native_doing, "{name}");
         assert_stage(&sim, id, output, &name);

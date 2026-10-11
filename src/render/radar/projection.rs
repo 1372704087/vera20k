@@ -85,7 +85,7 @@ pub(super) fn rasterize_native_terrain(
     surface: &NativeRadarTerrainSurface,
 ) -> (Vec<u8>, Vec<RadarSurfacePixel>) {
     let mut rgba = vec![0u8; (MINIMAP_WIDTH * MINIMAP_HEIGHT * 4) as usize];
-    for pixel in rgba.chunks_exact_mut(4) {
+    for pixel in rgba.as_chunks_mut::<4>().0 {
         pixel.copy_from_slice(&COLOR_SHROUD);
     }
     let geometry = surface.geometry();
@@ -128,7 +128,7 @@ impl MinimapPlayfieldProjection {
         current_cell_authority: Option<CurrentRadarCellAuthority<'_>>,
     ) -> Self {
         let mut base_rgba = vec![0u8; (MINIMAP_WIDTH * MINIMAP_HEIGHT * 4) as usize];
-        for pixel in base_rgba.chunks_exact_mut(4) {
+        for pixel in base_rgba.as_chunks_mut::<4>().0 {
             pixel.copy_from_slice(&COLOR_SHROUD);
         }
 
@@ -368,7 +368,6 @@ impl MinimapPlayfieldProjection {
 #[path = "projection_tests.rs"]
 mod tests;
 
-#[allow(clippy::too_many_arguments)]
 pub(super) fn minimap_screen_point_to_camera_top_left(
     screen_x: f32,
     screen_y: f32,

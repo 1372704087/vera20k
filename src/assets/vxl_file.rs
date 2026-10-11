@@ -463,7 +463,7 @@ mod tests {
 
     #[test]
     fn test_reject_too_small() {
-        assert!(VxlFile::from_bytes(&vec![0u8; 100]).is_err());
+        assert!(VxlFile::from_bytes(&[0u8; 100]).is_err());
     }
 
     #[test]

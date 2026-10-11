@@ -808,7 +808,7 @@ fn run_combat_death_handoff(
     let mut main_rng = SimRng::new(0);
     let mut scenario_rng = SimRng::new(0);
     let mut handled_deaths = Vec::new();
-    let handles = crate::sim::type_handle_table::ResolvedRuleHandles::resolve(&rules, interner);
+    let handles = crate::sim::type_handle_table::ResolvedRuleHandles::resolve(rules, interner);
     handle_entity_deaths(
         entities,
         &mut occupancy,
@@ -4455,8 +4455,7 @@ fn selected_death_sounds_for(
     )]);
     let mut scenario_rng = SimRng::new(0);
     let mut handled_deaths = Vec::new();
-    let handles =
-        crate::sim::type_handle_table::ResolvedRuleHandles::resolve(&rules, &mut interner);
+    let handles = crate::sim::type_handle_table::ResolvedRuleHandles::resolve(rules, &mut interner);
     let effects = handle_entity_deaths(
         &mut entities,
         &mut OccupancyGrid::new(),
@@ -6409,15 +6408,13 @@ fn build_minimal_sim_with_gawall_row(
     let mut grid = OverlayGrid::new(10, 10);
     let owner_id = sim.interner.intern("Test");
     let type_id = sim.interner.intern("GAWALL");
-    let mut next_id: u64 = 1;
-    for rx in rx_range {
+    for (next_id, rx) in (1u64..).zip(rx_range) {
         grid.place_overlay(rx, ry, 2, 0);
         let mut entity = GameEntity::test_default(next_id, "GAWALL", "Test", rx, ry);
         entity.owner = owner_id;
         entity.type_ref = type_id;
         entity.health = Health { current: 400 };
         sim.substrate.entities.insert(entity);
-        next_id += 1;
     }
     sim.overlay_grid = Some(grid);
     sim.resolved_terrain = Some(crate::sim::tiberium::test_support::flat_terrain(10, 10));

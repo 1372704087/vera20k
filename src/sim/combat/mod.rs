@@ -420,7 +420,6 @@ impl FiredBullet {
     /// target, which native dereferences.
     ///
     /// [`cell_target_coord`]: crate::sim::projectile::cell_target_coord
-    #[allow(clippy::too_many_arguments)]
     pub(crate) fn launched(
         world: &Simulation,
         native_unique_id: i32,
@@ -975,9 +974,9 @@ fn infantry_fire_frame(
     is_prone: bool,
 ) -> i32 {
     let mut frame = if is_prone {
-        obj.fire_prone_frame as i32
+        obj.fire_prone_frame
     } else {
-        obj.fire_up_frame as i32
+        obj.fire_up_frame
     };
     if weapon_index != 0 {
         let action = if is_prone { 41 } else { 40 };
@@ -986,9 +985,9 @@ fn infantry_fire_frame(
             .is_some_and(|record| record.frames_per_facing != 0)
         {
             frame = if is_prone {
-                obj.secondary_prone_frame as i32
+                obj.secondary_prone_frame
             } else {
-                obj.secondary_fire_frame as i32
+                obj.secondary_fire_frame
             };
         }
     }
@@ -1129,7 +1128,6 @@ pub(crate) fn can_fire_at_target(
 /// Ordinary callers select against `Some(target)`; the deployed Unit action
 /// wrappers (740793/7403AA) explicitly select against NULL before measuring
 /// their original target. The range itself remains one owner.
-#[allow(clippy::too_many_arguments)]
 pub(crate) fn can_fire_at_target_in_query(
     entities: &EntityStore,
     rules: &RuleSet,
@@ -1282,7 +1280,6 @@ pub(crate) enum PursuitRangeVerdict {
 /// Using the 2-D twin here instead would let pursuit believe it had arrived
 /// while `resolve_attacker_fire` refuses the shot, and the unit would stand
 /// still under a standing order forever.
-#[allow(clippy::too_many_arguments)]
 pub(crate) fn pursuit_in_range(
     entity: &GameEntity,
     target: &TargetKind,
@@ -2234,10 +2231,11 @@ fn append_selected_death_sounds(
     }
     append_choice(&object_type.die_sounds);
 
-    if category == EntityCategory::Structure && object_type.die_sounds.is_empty() {
-        if let Some(sound_id) = building_die_sound.filter(|id| !id.is_empty()) {
-            death_sounds.push((sound_id.to_owned(), rx, ry));
-        }
+    if category == EntityCategory::Structure
+        && object_type.die_sounds.is_empty()
+        && let Some(sound_id) = building_die_sound.filter(|id| !id.is_empty())
+    {
+        death_sounds.push((sound_id.to_owned(), rx, ry));
     }
 }
 
@@ -2307,12 +2305,13 @@ fn apply_building_receive_prelude(
     if event.attacker_id == event.target_id && !target_type.damage_self {
         return BuildingReceivePrelude::ReturnZero;
     }
-    if event.attacker_id != RAD_NO_ATTACKER && !target_type.is_1x1_with_undeploy() {
-        if let Some(owner) = houses.get_mut(&target.owner()) {
-            owner
-                .strategy_emergency
-                .note_building_attack(current_tick as u32 as i32);
-        }
+    if event.attacker_id != RAD_NO_ATTACKER
+        && !target_type.is_1x1_with_undeploy()
+        && let Some(owner) = houses.get_mut(&target.owner())
+    {
+        owner
+            .strategy_emergency
+            .note_building_attack(current_tick as u32 as i32);
     }
 
     BuildingReceivePrelude::Respond
@@ -2377,7 +2376,7 @@ fn resolve_receive_damage(
                 .map(|object| armor_index(&object.armor))
                 .unwrap_or(0) as u8,
         ),
-        current_hp: i32::from(target.health.current),
+        current_hp: target.health.current,
         object_immune: target_type.is_some_and(|object| object.immune),
     };
     let type_immune = target_type.is_some_and(|object| object.type_immune)
@@ -2493,7 +2492,6 @@ fn resolve_receive_damage(
 /// following this call runs the same pure ABI resolver against the same live
 /// state; exposing the pointer result here avoids fabricating immutable damage
 /// inputs for later occupants.
-#[allow(clippy::too_many_arguments)]
 pub(crate) fn wave_post_object_damage(
     event: &EntityDamageEvent,
     entities: &EntityStore,
@@ -3145,7 +3143,6 @@ pub(crate) enum KillCallback {
 /// infantry kills, aircraft self-destruct, passengers dying with their
 /// transport (`world::lifecycle`) or with a collapsing bridge, and passengers
 /// ejected by a sell. Those victims book a Loss with no matching Kill.
-#[allow(clippy::too_many_arguments)]
 pub(crate) fn record_the_kill(
     entities: &mut EntityStore,
     houses: &mut BTreeMap<InternedId, HouseState>,

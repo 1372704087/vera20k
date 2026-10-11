@@ -227,7 +227,10 @@ pub enum FacingHint {
 }
 
 /// One animation entry parsed from an INI value like `"8,6,6"` or `"56,15,0,S"`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+/// `Default` is the InfantryType constructor52392C..523970, all42 records.
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize, Default,
+)]
 pub struct InfantrySequenceEntry {
     /// First SHP frame index for this animation.
     pub start_frame: i32,
@@ -237,18 +240,6 @@ pub struct InfantrySequenceEntry {
     pub facings: i32,
     /// Optional facing direction hint for non-directional animations.
     pub facing_hint: Option<FacingHint>,
-}
-
-impl Default for InfantrySequenceEntry {
-    fn default() -> Self {
-        // InfantryType constructor52392C..523970, all42 records.
-        Self {
-            start_frame: 0,
-            frames_per_facing: 0,
-            facings: 0,
-            facing_hint: None,
-        }
-    }
 }
 
 /// Original action-name table8255C8..825670. Guard is its own action1.
@@ -658,7 +649,7 @@ pub fn build_sequence_set(def: &InfantrySequenceDef) -> SequenceSet {
             .collect(),
     );
     let mut entries: Vec<(&String, &InfantrySequenceEntry)> = def.entries.iter().collect();
-    entries.sort_unstable_by(|(left, _), (right, _)| left.cmp(right));
+    entries.sort_unstable_by_key(|(left, _)| *left);
 
     for (key, entry) in entries {
         // Stand projects Ready0. Guard1 remains independent in the signed bank.

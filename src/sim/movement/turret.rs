@@ -412,12 +412,12 @@ pub fn tick_turret_rotation(
             )
             .map(|obj| obj.turret_rot)
             .unwrap_or(5);
-        if let Some(entity) = entities.get_mut(update.id) {
-            if let Some(ref mut barrel) = entity.barrel_facing {
-                // Refresh ROT in case rules changed (cheap; idempotent).
-                barrel.set_rot(rot);
-                barrel.set(update.target_facing, native_frame);
-            }
+        if let Some(entity) = entities.get_mut(update.id)
+            && let Some(ref mut barrel) = entity.barrel_facing
+        {
+            // Refresh ROT in case rules changed (cheap; idempotent).
+            barrel.set_rot(rot);
+            barrel.set(update.target_facing, native_frame);
         }
     }
 }

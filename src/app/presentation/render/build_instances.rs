@@ -749,7 +749,7 @@ pub(super) fn build_sidebar_instances(state: &mut AppState) -> SidebarInstances 
         .match_presentation
         .radar_anim
         .as_ref()
-        .map_or(true, |ra| ra.is_minimap_visible());
+        .is_none_or(|ra| ra.is_minimap_visible());
 
     let (minimap, viewport_rect, content_boundary) = if minimap_visible {
         match &mut state.match_state.match_presentation.minimap {

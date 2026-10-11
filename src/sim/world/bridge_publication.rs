@@ -255,10 +255,10 @@ impl BridgePublicationHost for LivePublication<'_> {
             .as_mut()
             .unwrap()
             .clear_native_cell_overlay(cell);
-        if let Some((x, y)) = self.real_coord(cell) {
-            if let Some(grid) = self.sim.overlay_grid.as_mut() {
-                grid.clear_literal_bridge_identity(x, y);
-            }
+        if let Some((x, y)) = self.real_coord(cell)
+            && let Some(grid) = self.sim.overlay_grid.as_mut()
+        {
+            grid.clear_literal_bridge_identity(x, y);
         }
         self.retain_real_write(cell);
     }

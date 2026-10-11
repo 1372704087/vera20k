@@ -262,7 +262,7 @@ pub fn decode_blocks(data: &[u8], channels: u16, block_align: u32) -> Vec<i16> {
         let block_out_start = out.len();
 
         // Preambles: predictor, step index, reserved — per channel, in order.
-        let mut rejected = (block.len() - preamble) % group != 0;
+        let mut rejected = !(block.len() - preamble).is_multiple_of(group);
         for (ch, state) in states.iter_mut().enumerate() {
             if rejected {
                 break;
@@ -357,7 +357,9 @@ mod tests {
 
     fn as_i32_le(bytes: &[u8]) -> Vec<i32> {
         bytes
-            .chunks_exact(4)
+            .as_chunks::<4>()
+            .0
+            .iter()
             .map(|c| i32::from_le_bytes([c[0], c[1], c[2], c[3]]))
             .collect()
     }
@@ -492,7 +494,7 @@ mod tests {
         assert_eq!(out[1], i16::from_le_bytes([aligned[4], aligned[5]]));
         // Left and right differ in every frame here, so a swapped or collapsed
         // interleave cannot pass.
-        assert!(out.chunks_exact(2).all(|f| f[0] != f[1]));
+        assert!(out.as_chunks::<2>().0.iter().all(|f| f[0] != f[1]));
         assert_eq!(out.as_slice(), GTIMESHI_STEREO_SAMPLES);
         // The negative saturation clamp is exercised by these retail bytes.
         assert!(out.contains(&-32768));

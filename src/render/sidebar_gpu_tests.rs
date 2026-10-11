@@ -214,7 +214,9 @@ impl Gpu {
         readback
             .finish(&self.device, submission, Duration::from_secs(20))
             .unwrap()
-            .chunks_exact(4)
+            .as_chunks::<4>()
+            .0
+            .iter()
             .flat_map(|p| [p[2], p[1], p[0], p[3]])
             .collect()
     }
@@ -316,8 +318,10 @@ fn retained_radar_snapshot_matches_actual_gpu_crops_and_overlaps() {
                 );
             }
             let differences: Vec<_> = actual
-                .chunks_exact(4)
-                .zip(cpu.rgba.chunks_exact(4))
+                .as_chunks::<4>()
+                .0
+                .iter()
+                .zip(cpu.rgba.as_chunks::<4>().0)
                 .enumerate()
                 .filter(|(_, (a, b))| a != b)
                 .collect();
@@ -334,8 +338,10 @@ fn retained_radar_snapshot_matches_actual_gpu_crops_and_overlaps() {
 fn assert_pixels(actual: &[u8], expected: &[u8], label: &str) {
     assert_eq!(actual.len(), expected.len());
     let differences: Vec<_> = actual
-        .chunks_exact(4)
-        .zip(expected.chunks_exact(4))
+        .as_chunks::<4>()
+        .0
+        .iter()
+        .zip(expected.as_chunks::<4>().0)
         .enumerate()
         .filter(|(_, (a, b))| a != b)
         .collect();
@@ -403,8 +409,8 @@ fn retail_command_bar_atlas_and_production_append_match_native_capture() {
     let expected =
         crate::test_fixture::bytes("tools/sidebar_oracle/command_bar/neutral-bar-rgb565.bin");
     let mut differences = 0;
-    for (i, word) in expected.chunks_exact(2).enumerate() {
-        let word = u16::from_le_bytes(word.try_into().unwrap());
+    for (i, word) in expected.as_chunks::<2>().0.iter().enumerate() {
+        let word = u16::from_le_bytes(*word);
         let p = ((568 + i / 632) * 800 + i % 632) * 4;
         // The native PCX stores zero-filled RGB565 components (7B05C0),
         // whereas live GPU output uses the independently enrolled presentation

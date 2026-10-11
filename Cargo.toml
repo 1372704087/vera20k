@@ -148,6 +148,9 @@ objc2-foundation = { version = "0.3", default-features = false, features = ["std
 # A side effect inside `debug_assert!` vanishes from release builds. This
 # hid every scheduler anim (wakes, explosions) in shipped binaries for weeks.
 debug_assert_with_mut_call = "deny"
+# Native ports keep gamemd's inputs explicit (the object, its rules and the
+# world state the body reads) instead of bundling them into one-use structs.
+too_many_arguments = "allow"
 
 # --- Build speed ---
 # Optimize all code at opt-level 1 in dev builds. The game rebuilds sprite

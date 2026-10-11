@@ -585,7 +585,6 @@ fn compose_frame_image(
 
 /// Header lines printed above the contact sheet. An agent that only looks at the
 /// image must still know which palette produced these colours.
-#[allow(clippy::too_many_arguments)]
 fn sheet_header(
     name: &str,
     source_archive: &str,
@@ -955,7 +954,7 @@ mod tests {
         assert_eq!(fit_scale(60, 30, 8), Some(8));
         // Large canvas is reduced rather than refused.
         let fitted = fit_scale(4000, 4000, 16).unwrap();
-        assert!(fitted >= MIN_SCALE && fitted < 16, "{fitted}");
+        assert!((MIN_SCALE..16).contains(&fitted), "{fitted}");
         assert!(
             u64::from(4000_u32) * u64::from(4000_u32) * u64::from(fitted) * u64::from(fitted)
                 <= MAX_OUTPUT_PIXELS

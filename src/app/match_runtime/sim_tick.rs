@@ -956,20 +956,20 @@ fn advance_one_simulation_frame(
                             .match_state
                             .match_presentation
                             .in_game_options
-                            .detail_level as u32,
+                            .detail_level,
                     );
             }
             // Parity capture, if requested. The sim has already finalized all
             // authoritative animation and particle work, so this observes the
             // exact state covered by the returned frame hash.
-            if tick_result.frame_committed {
-                if let Some(sink) = state.diag.parity_digest_sink.as_mut() {
-                    let digest = sim.parity_digest();
-                    if let Err(error) = sink.write(&digest) {
-                        // A failing diagnostic must never take the game down with it.
-                        log::error!("parity digest write failed, disabling capture: {error}");
-                        state.diag.parity_digest_sink = None;
-                    }
+            if tick_result.frame_committed
+                && let Some(sink) = state.diag.parity_digest_sink.as_mut()
+            {
+                let digest = sim.parity_digest();
+                if let Err(error) = sink.write(&digest) {
+                    // A failing diagnostic must never take the game down with it.
+                    log::error!("parity digest write failed, disabling capture: {error}");
+                    state.diag.parity_digest_sink = None;
                 }
             }
             census_tick = tick_result.frame_committed.then_some(tick_result.tick);
@@ -1072,8 +1072,41 @@ fn advance_one_simulation_frame(
         // Rendering is rebuilt from lifecycle facts every frame. Replay the
         // app-owned transactions in native emission order for state that has a
         // direct attachment or retained audio handle.
+        let local_house = preferred_local_owner_name(state).and_then(|owner| {
+            state
+                .match_state
+                .sim_runtime
+                .as_ref()?
+                .simulation
+                .interner
+                .get(&owner)
+        });
         for output in drained_lifecycle_outputs {
+            if let Some(cursor_clear) = state
+                .match_state
+                .match_presentation
+                .sidebar_projection
+                .apply_factory_output(&output, local_house)
+            {
+                state
+                    .match_state
+                    .input
+                    .apply_building_placement_output(&cursor_clear, local_house);
+            }
+            if state
+                .match_state
+                .input
+                .apply_building_placement_output(&output, local_house)
+            {
+                update_building_placement_preview(state);
+            }
             match output {
+                LifecycleOutput::ProductionFactoryLinked { .. }
+                | LifecycleOutput::ProductionFactoryAbandoning { .. }
+                | LifecycleOutput::ProductionFactoryUnlinked { .. }
+                | LifecycleOutput::BuildingPlacementRetry { .. }
+                | LifecycleOutput::BuildingPlacementSucceeded { .. }
+                | LifecycleOutput::BuildingProductionAbandoned { .. } => {}
                 LifecycleOutput::ObjectPointerExpired { stable_id } => {
                     state
                         .match_state
@@ -1285,6 +1318,16 @@ pub(crate) fn update_building_placement_preview(state: &mut AppState) {
         state.match_state.input.building_placement_preview = None;
         return;
     };
+    if state
+        .match_state
+        .input
+        .building_placement_issuer()
+        .is_none()
+    {
+        // Product-only pointer expiry retains the current type/foundation;
+        // it is neither an abandon nor a permission to emit another PLACE.
+        return;
+    }
     let owner: String = preferred_local_owner(state).unwrap_or_else(|| "Americans".to_string());
     let (Some(sim), Some(rules)) = (
         state
@@ -1292,7 +1335,7 @@ pub(crate) fn update_building_placement_preview(state: &mut AppState) {
             .sim_runtime
             .as_ref()
             .map(|rt| &rt.simulation),
-        state.rules().map(|r| r),
+        state.rules(),
     ) else {
         state.match_state.input.building_placement_preview = None;
         return;
@@ -1616,7 +1659,7 @@ pub(crate) fn screen_point_to_world_cell(
     world_point_to_cell(
         world_x,
         world_y,
-        &state.height_map(),
+        state.height_map(),
         state.sim_view().and_then(|view| {
             crate::app::match_runtime::sim_tick::tactical_bridge_cells(view.simulation())
         }),

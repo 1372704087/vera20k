@@ -621,7 +621,7 @@ mod tests {
 
     #[test]
     fn scenario_records_retain_explicit_source_ordinals() {
-        let records = vec![
+        let records = [
             record(10, "From Missions", "standard"),
             record(11, "From Loose Pkt", "standard"),
             record(12, "From Yro", "standard"),

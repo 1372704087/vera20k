@@ -649,58 +649,58 @@ pub(super) fn handle_combo_mouse_down(
     y: i32,
 ) -> bool {
     if let Some(open) = state.open_combo_dropdown {
-        if let Some(scrollbar) = combo_dropdown_scrollbar_rect(state, layout, maps, open.id) {
-            if scrollbar.contains(x, y) {
-                if y < scrollbar.y + COMBO_DROPDOWN_SCROLLBAR_BUTTON_H {
+        if let Some(scrollbar) = combo_dropdown_scrollbar_rect(state, layout, maps, open.id)
+            && scrollbar.contains(x, y)
+        {
+            if y < scrollbar.y + COMBO_DROPDOWN_SCROLLBAR_BUTTON_H {
+                state.dropdown_scroll_press = Some(DropdownScrollbarPressState {
+                    id: open.id,
+                    part: DropdownScrollbarPart::UpArrow,
+                });
+                scroll_open_combo_by_rows(state, maps, open.id, -1);
+            } else if y >= scrollbar.y + scrollbar.h - COMBO_DROPDOWN_SCROLLBAR_BUTTON_H {
+                state.dropdown_scroll_press = Some(DropdownScrollbarPressState {
+                    id: open.id,
+                    part: DropdownScrollbarPart::DownArrow,
+                });
+                scroll_open_combo_by_rows(state, maps, open.id, 1);
+            } else if let Some(thumb) =
+                combo_dropdown_scroll_thumb_rect(state, layout, maps, open.id)
+            {
+                if thumb.contains(x, y) {
                     state.dropdown_scroll_press = Some(DropdownScrollbarPressState {
                         id: open.id,
-                        part: DropdownScrollbarPart::UpArrow,
+                        part: DropdownScrollbarPart::Thumb,
                     });
-                    scroll_open_combo_by_rows(state, maps, open.id, -1);
-                } else if y >= scrollbar.y + scrollbar.h - COMBO_DROPDOWN_SCROLLBAR_BUTTON_H {
-                    state.dropdown_scroll_press = Some(DropdownScrollbarPressState {
+                    state.dropdown_scroll_drag = Some(DropdownScrollDragState {
                         id: open.id,
-                        part: DropdownScrollbarPart::DownArrow,
+                        grab_offset_y: y - thumb.y,
                     });
-                    scroll_open_combo_by_rows(state, maps, open.id, 1);
-                } else if let Some(thumb) =
-                    combo_dropdown_scroll_thumb_rect(state, layout, maps, open.id)
+                } else if let Some(top_index) =
+                    top_index_from_scrollbar_track_click(state, layout, maps, open.id, y)
                 {
-                    if thumb.contains(x, y) {
-                        state.dropdown_scroll_press = Some(DropdownScrollbarPressState {
-                            id: open.id,
-                            part: DropdownScrollbarPart::Thumb,
-                        });
-                        state.dropdown_scroll_drag = Some(DropdownScrollDragState {
-                            id: open.id,
-                            grab_offset_y: y - thumb.y,
-                        });
-                    } else if let Some(top_index) =
-                        top_index_from_scrollbar_track_click(state, layout, maps, open.id, y)
-                    {
-                        state.dropdown_scroll_press = Some(DropdownScrollbarPressState {
-                            id: open.id,
-                            part: DropdownScrollbarPart::Track,
-                        });
-                        set_open_combo_top_index(state, maps, open.id, top_index);
-                    }
+                    state.dropdown_scroll_press = Some(DropdownScrollbarPressState {
+                        id: open.id,
+                        part: DropdownScrollbarPart::Track,
+                    });
+                    set_open_combo_top_index(state, maps, open.id, top_index);
                 }
-                return true;
             }
+            return true;
         }
         if let Some(dropdown) = combo_dropdown_rect(state, layout, maps, open.id) {
-            if let Some(content) = combo_dropdown_content_rect(state, layout, maps, open.id) {
-                if content.contains(x, y) {
-                    let row = open.top_index + ((y - content.y) / COMBO_DROPDOWN_ROW_H) as usize;
-                    if let Some(item) = combo_items(state, maps, open.id).get(row).copied() {
-                        apply_combo_selection(state, open.id, item);
-                    }
-                    state.open_combo_dropdown = None;
-                    state.dropdown_scroll_drag = None;
-                    state.dropdown_scroll_press = None;
-                    state.push_ui_sound(SkirmishShellUiSound::GuiComboCloseSound);
-                    return true;
+            if let Some(content) = combo_dropdown_content_rect(state, layout, maps, open.id)
+                && content.contains(x, y)
+            {
+                let row = open.top_index + ((y - content.y) / COMBO_DROPDOWN_ROW_H) as usize;
+                if let Some(item) = combo_items(state, maps, open.id).get(row).copied() {
+                    apply_combo_selection(state, open.id, item);
                 }
+                state.open_combo_dropdown = None;
+                state.dropdown_scroll_drag = None;
+                state.dropdown_scroll_press = None;
+                state.push_ui_sound(SkirmishShellUiSound::GuiComboCloseSound);
+                return true;
             }
             if dropdown.contains(x, y) {
                 // The click landed in popup chrome rather than a row; native

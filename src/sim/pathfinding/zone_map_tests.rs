@@ -534,9 +534,11 @@ fn base_repair_fixture(
     let flat_ids: Vec<ZoneId> = clusters
         .iter()
         .map(|&cluster| {
-            (cluster != ZONE_INVALID)
-                .then_some(cluster + 1)
-                .unwrap_or(ZONE_INVALID)
+            if cluster != ZONE_INVALID {
+                cluster + 1
+            } else {
+                ZONE_INVALID
+            }
         })
         .collect();
     for &movement_zone in MovementZone::all_ground() {

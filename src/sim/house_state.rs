@@ -22,18 +22,23 @@ use crate::util::native_x87::{NativeF32Bits, NativeF64Bits};
 /// `AIVirtualPurifiers=4,2,0` is indexed directly in Hard/Normal/Easy order.
 #[repr(i32)]
 #[derive(
-    Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, serde::Serialize, serde::Deserialize,
+    Debug,
+    Clone,
+    Copy,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    Hash,
+    serde::Serialize,
+    serde::Deserialize,
+    Default,
 )]
 pub enum HouseDifficulty {
     Hard = 0,
+    #[default]
     Normal = 1,
     Easy = 2,
-}
-
-impl Default for HouseDifficulty {
-    fn default() -> Self {
-        Self::Normal
-    }
 }
 
 impl HouseDifficulty {
@@ -839,6 +844,7 @@ impl HouseState {
     }
 
     /// Retained input to original TEvent kind3, not current building ownership.
+    #[cfg(test)]
     pub(crate) fn building_capture_notified(&self) -> bool {
         self.building_capture_notified
     }
@@ -847,6 +853,7 @@ impl HouseState {
         self.discovered_by_current_house = true;
     }
 
+    #[cfg(test)]
     pub(crate) fn discovered_by_current_house(&self) -> bool {
         self.discovered_by_current_house
     }
@@ -1332,10 +1339,10 @@ impl MatchStatistics {
 }
 
 /// Look up a HouseState by interned owner ID (O(1) BTreeMap lookup).
-pub fn house_state_for_owner_id<'a>(
-    houses: &'a std::collections::BTreeMap<InternedId, HouseState>,
+pub fn house_state_for_owner_id(
+    houses: &std::collections::BTreeMap<InternedId, HouseState>,
     owner_id: InternedId,
-) -> Option<&'a HouseState> {
+) -> Option<&HouseState> {
     houses.get(&owner_id)
 }
 
@@ -1438,7 +1445,7 @@ pub fn resolve_wall_owner(
         return true;
     };
     let key = rules.scenario_country_name(country);
-    key.map_or(true, |key| rules.country_wall_owner(key))
+    key.is_none_or(|key| rules.country_wall_owner(key))
 }
 
 /// Cell-space distance through the native Sqrt_Approx/Math::ftol pipeline.

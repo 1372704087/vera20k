@@ -943,10 +943,10 @@ pub fn compute_saved_seed_layout(
 
 /// Topmost saved-seed control at `(x, y)`, or `None`.
 pub fn saved_seed_control_at(layout: &SavedSeedLayout, x: i32, y: i32) -> Option<SavedSeedControl> {
-    if let Some(edit) = layout.name_edit {
-        if edit.contains(x, y) {
-            return Some(SavedSeedControl::NameEdit0x526);
-        }
+    if let Some(edit) = layout.name_edit
+        && edit.contains(x, y)
+    {
+        return Some(SavedSeedControl::NameEdit0x526);
     }
     if layout.list.contains(x, y) {
         return Some(SavedSeedControl::List);

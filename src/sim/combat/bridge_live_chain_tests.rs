@@ -629,13 +629,13 @@ fn retail_bridge_forcefire_chain(vehicle_name: &str, weapon_name: &str, projecti
             cell.bridge_facts.state_byte,
             cell.final_tile_index,
         );
-        if let Some(previous) = last_state {
-            if previous != state {
-                bridge_change_observed = true;
-                println!(
-                    "frame {frame}, shots {shots}, ended bullets {disappeared}: bridge {previous:?} -> {state:?}"
-                );
-            }
+        if let Some(previous) = last_state
+            && previous != state
+        {
+            bridge_change_observed = true;
+            println!(
+                "frame {frame}, shots {shots}, ended bullets {disappeared}: bridge {previous:?} -> {state:?}"
+            );
         }
         last_state = Some(state);
         if !cell.bridge_facts.has_structural_bridge() {

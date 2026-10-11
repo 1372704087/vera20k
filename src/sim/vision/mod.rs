@@ -140,7 +140,7 @@ fn entity_height_leptons(entity: &crate::sim::game_entity::GameEntity) -> i32 {
 /// Indexed by `ry * width + rx`. Each byte holds public visibility plus
 /// sustained-sight, current hostile coverage and pending-conceal provenance. This gives O(1) per-cell lookups instead of O(log n)
 /// with the previous BTreeSet design.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct OwnerVisibility {
     cells: Vec<u8>,
     width: u16,
@@ -148,18 +148,6 @@ pub struct OwnerVisibility {
     /// [`GROUND_VISIBLE`] / [`GROUND_OPEN`] per cell, aligned with `cells`.
     ground_flags: Vec<u8>,
     shroud_knowledge: Vec<ShroudKnowledge>,
-}
-
-impl Default for OwnerVisibility {
-    fn default() -> Self {
-        Self {
-            cells: Vec::new(),
-            width: 0,
-            height: 0,
-            ground_flags: Vec::new(),
-            shroud_knowledge: Vec::new(),
-        }
-    }
 }
 
 impl OwnerVisibility {
@@ -187,25 +175,25 @@ impl OwnerVisibility {
     /// Returns true if the cell is currently visible (in line of sight).
     pub fn is_visible(&self, rx: u16, ry: u16) -> bool {
         self.index(rx, ry)
-            .map_or(false, |i| self.cells[i] & FLAG_VISIBLE != 0)
+            .is_some_and(|i| self.cells[i] & FLAG_VISIBLE != 0)
     }
 
     /// Returns true if the cell has been revealed at least once.
     pub fn is_revealed(&self, rx: u16, ry: u16) -> bool {
         self.index(rx, ry)
-            .map_or(false, |i| self.cells[i] & FLAG_REVEALED != 0)
+            .is_some_and(|i| self.cells[i] & FLAG_REVEALED != 0)
     }
 
     /// Returns true if the cell is covered by an enemy gap generator this tick.
     pub fn is_gap_covered(&self, rx: u16, ry: u16) -> bool {
         self.index(rx, ry)
-            .map_or(false, |i| self.cells[i] & FLAG_GAP_COVERED != 0)
+            .is_some_and(|i| self.cells[i] & FLAG_GAP_COVERED != 0)
     }
 
     /// Returns true if the cell is covered by a friendly gap generator this tick.
     pub fn is_gap_fog(&self, rx: u16, ry: u16) -> bool {
         self.index(rx, ry)
-            .map_or(false, |i| self.cells[i] & FLAG_GAP_FOG != 0)
+            .is_some_and(|i| self.cells[i] & FLAG_GAP_FOG != 0)
     }
 
     /// Mark a cell as both visible and revealed.
@@ -354,10 +342,10 @@ impl OwnerVisibility {
             let overlap_h: u16 = self.height.min(other.height);
             for ry in 0..overlap_h {
                 for rx in 0..overlap_w {
-                    if other.is_revealed(rx, ry) {
-                        if let Some(i) = self.index(rx, ry) {
-                            self.cells[i] |= FLAG_REVEALED;
-                        }
+                    if other.is_revealed(rx, ry)
+                        && let Some(i) = self.index(rx, ry)
+                    {
+                        self.cells[i] |= FLAG_REVEALED;
                     }
                 }
             }
@@ -1554,7 +1542,6 @@ fn resolve_bounds(entities: &EntityStore, path_grid: Option<&PathGrid>) -> (u16,
 // Geometry-only adapter for existing kernel fixtures; production owns mapping
 // events in the source/fire/Psychic writers above, never in this test adapter.
 #[cfg(test)]
-#[allow(clippy::too_many_arguments)]
 fn reveal_radius_into(
     vis: &mut OwnerVisibility,
     rx: u16,
@@ -1621,7 +1608,6 @@ fn reveal_radius_into(
 /// - With `RevealByHeight=` off, a caller's outline argument (arg 3, the
 ///   Techno sight callers') walks only the outer three rings
 ///   (`0x00567A77..0x00567AA5`); retail rules leave the key on.
-#[allow(clippy::too_many_arguments)]
 fn collect_reveal_cells(
     center_rx: u16,
     center_ry: u16,
@@ -1669,16 +1655,14 @@ fn collect_reveal_cells(
             // raw foot cell, so we add `z_shift` back to undo the spiral's Z-shift
             // (in the original this cancellation is implicit). If that cell's Level
             // exceeds viewer_level + 3, the target is not revealed (LOS blocked).
-            if reveal_by_height {
-                if let Some(hg) = height_grid {
-                    let (mdx, mdy) = REVEAL_MIRROR[i];
-                    let obs_x = rx + mdx as i32 + 2 + z_shift;
-                    let obs_y = ry + mdy as i32 + 2 + z_shift;
-                    if obs_x >= 0 && obs_x < w && obs_y >= 0 && obs_y < h {
-                        let obs_level = hg[(obs_y * w + obs_x) as usize] as i32;
-                        if viewer_level + 3 < obs_level {
-                            continue; // terrain blocks LOS
-                        }
+            if reveal_by_height && let Some(hg) = height_grid {
+                let (mdx, mdy) = REVEAL_MIRROR[i];
+                let obs_x = rx + mdx as i32 + 2 + z_shift;
+                let obs_y = ry + mdy as i32 + 2 + z_shift;
+                if obs_x >= 0 && obs_x < w && obs_y >= 0 && obs_y < h {
+                    let obs_level = hg[(obs_y * w + obs_x) as usize] as i32;
+                    if viewer_level + 3 < obs_level {
+                        continue; // terrain blocks LOS
                     }
                 }
             }
@@ -2053,7 +2037,6 @@ pub(crate) fn allied_viewers(
 /// `0x00653830` -> `0x004A9CA0`, final 0 reduces each cell's shroud counter
 /// and final 1 raises it again, so a call of each leaves the cells mapped
 /// with no lasting sight source.
-#[allow(clippy::too_many_arguments)]
 pub(crate) fn reveal_area(
     fog: &mut FogState,
     viewers: &[InternedId],

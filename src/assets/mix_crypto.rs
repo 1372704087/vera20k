@@ -158,7 +158,7 @@ pub fn blowfish_decrypt_ecb(key: &[u8], data: &mut [u8]) -> Result<(), AssetErro
 
     // Process each 8-byte block independently (ECB mode).
     // Standard Blowfish: no endianness manipulation needed.
-    for chunk in data.chunks_exact_mut(BLOWFISH_BLOCK_SIZE) {
+    for chunk in data.as_chunks_mut::<BLOWFISH_BLOCK_SIZE>().0 {
         let block: &mut blowfish::cipher::Block<Blowfish> =
             blowfish::cipher::Block::<Blowfish>::from_mut_slice(chunk);
         cipher.decrypt_block(block);
@@ -228,7 +228,7 @@ mod tests {
 
         // Encrypt with standard Blowfish.
         let cipher: Blowfish = Blowfish::new_from_slice(key).expect("Valid key");
-        for chunk in data.chunks_exact_mut(BLOWFISH_BLOCK_SIZE) {
+        for chunk in data.as_chunks_mut::<BLOWFISH_BLOCK_SIZE>().0 {
             let block = blowfish::cipher::Block::<Blowfish>::from_mut_slice(chunk);
             cipher.encrypt_block(block);
         }

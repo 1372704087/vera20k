@@ -271,7 +271,6 @@ pub(crate) fn admit_new_tiberium_target(
 
 /// CellClass::CanSpreadTiberium483690 source admission, shared by queues
 /// and the non-forced483780 caller. FirstObject includes non-Techno terrain.
-#[allow(clippy::too_many_arguments)]
 pub(crate) fn can_spread_tiberium(
     overlay_grid: &OverlayGrid,
     overlay_registry: &OverlayTypeRegistry,

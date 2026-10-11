@@ -1184,7 +1184,7 @@ mod tests {
     #[test]
     fn find_nearby_sparse_edge_uses_one_live_dummy_view_for_level_and_flags() {
         let mut terrain = flat_terrain(3, 3);
-        terrain.cells[1 * 3 + 1].bridge_facts.raw_flags = BRIDGE_FLAG_FORWARD_SIDE;
+        terrain.cells[3 + 1].bridge_facts.raw_flags = BRIDGE_FLAG_FORWARD_SIDE;
         terrain.test_set_native_allocated_cells(&[(1, 1)]);
         let dummy = terrain.shared_cell_dummy();
         dummy.set_level_slope(-3, 0);
@@ -1575,7 +1575,7 @@ mod tests {
     fn find_nearby_allow_bridge_filters_after_passability() {
         // A passable bridge cell at the seed is dropped when bridges are disallowed.
         let mut terrain = flat_terrain(3, 3);
-        terrain.cells[1 * 3 + 1].bridge_facts.raw_flags = BRIDGE_FLAG_STRUCTURAL;
+        terrain.cells[3 + 1].bridge_facts.raw_flags = BRIDGE_FLAG_STRUCTURAL;
         let path_grid = PathGrid::from_resolved_terrain(&terrain);
 
         let mut q = base_query(&terrain, &path_grid);
@@ -1644,7 +1644,7 @@ mod tests {
         // with the gate on, while the level-1 cell at (1,2) survives either way.
         let mut terrain = flat_terrain(5, 5);
         terrain.cells[2 * 5 + 2].zone_type = zone_class::WALL; // seed rejected
-        terrain.cells[1 * 5 + 2].level = 3; // (2,1): three levels above the seed
+        terrain.cells[5 + 2].level = 3; // (2,1): three levels above the seed
         terrain.cells[2 * 5 + 1].level = 1; // (1,2): one level above the seed
         let path_grid = PathGrid::from_resolved_terrain(&terrain);
         let mut q = base_query(&terrain, &path_grid);

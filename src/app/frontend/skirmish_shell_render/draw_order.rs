@@ -88,15 +88,15 @@ fn push_base_shell_roles(
     overlay_frame10_active: bool,
 ) {
     roles.push(SkirmishShellDrawRole::RightPanelTopSdtp);
-    roles.extend(
-        std::iter::repeat(SkirmishShellDrawRole::RightPanelTileSdbtnbkgd)
-            .take(layout.right_panel.tile_count.max(0) as usize),
-    );
+    roles.extend(std::iter::repeat_n(
+        SkirmishShellDrawRole::RightPanelTileSdbtnbkgd,
+        layout.right_panel.tile_count.max(0) as usize,
+    ));
     if overlay_frame10_active {
-        roles.extend(
-            std::iter::repeat(SkirmishShellDrawRole::RightPanelOverlaySdbtnanmFrame10)
-                .take(layout.right_panel.tile_count.max(0) as usize),
-        );
+        roles.extend(std::iter::repeat_n(
+            SkirmishShellDrawRole::RightPanelOverlaySdbtnanmFrame10,
+            layout.right_panel.tile_count.max(0) as usize,
+        ));
     }
     roles.push(SkirmishShellDrawRole::RightPanelBottomSdbtm);
     roles.push(match lower_strip_role(layout) {
@@ -133,7 +133,10 @@ pub fn skirmish_shell_semantic_draw_order(
         GenericBackgroundRole::MnscrnlLarge => SkirmishShellDrawRole::ParentBackgroundMnscrnlLarge,
     });
     push_steady_optional_roles(&mut roles, ShellDialogChromeProfile::SkirmishSetup0x102);
-    roles.extend(std::iter::repeat(SkirmishShellDrawRole::OwnerDrawButton).take(3));
+    roles.extend(std::iter::repeat_n(
+        SkirmishShellDrawRole::OwnerDrawButton,
+        3,
+    ));
     if preview_surface_available {
         roles.push(SkirmishShellDrawRole::PreviewSurface);
     }
@@ -141,7 +144,7 @@ pub fn skirmish_shell_semantic_draw_order(
         roles.push(SkirmishShellDrawRole::StartMarker);
         roles.push(SkirmishShellDrawRole::StartMarkerLabel);
     }
-    roles.extend(std::iter::repeat(SkirmishShellDrawRole::Flag).take(flag_count));
+    roles.extend(std::iter::repeat_n(SkirmishShellDrawRole::Flag, flag_count));
     roles
 }
 
@@ -158,8 +161,14 @@ pub fn choose_map_modal_semantic_draw_order(
         roles.push(SkirmishShellDrawRole::ChooseMapModalBackdrop);
     }
     push_steady_optional_roles(&mut roles, ShellDialogChromeProfile::ChooseMap0x6b);
-    roles.extend(std::iter::repeat(SkirmishShellDrawRole::ChooseMapListbox).take(2));
-    roles.extend(std::iter::repeat(SkirmishShellDrawRole::ChooseMapOwnerDrawButton).take(3));
+    roles.extend(std::iter::repeat_n(
+        SkirmishShellDrawRole::ChooseMapListbox,
+        2,
+    ));
+    roles.extend(std::iter::repeat_n(
+        SkirmishShellDrawRole::ChooseMapOwnerDrawButton,
+        3,
+    ));
     roles.push(SkirmishShellDrawRole::ChooseMapPreviewStatic);
     roles
 }
@@ -184,8 +193,14 @@ pub fn random_map_setup_semantic_draw_order(
         roles.push(SkirmishShellDrawRole::RandomMapModalBackdrop);
     }
     push_steady_optional_roles(&mut roles, ShellDialogChromeProfile::RandomMapSetup0x105);
-    roles.extend(std::iter::repeat(SkirmishShellDrawRole::RandomMapOptionControl).take(6));
-    roles.extend(std::iter::repeat(SkirmishShellDrawRole::RandomMapOwnerDrawButton).take(7));
+    roles.extend(std::iter::repeat_n(
+        SkirmishShellDrawRole::RandomMapOptionControl,
+        6,
+    ));
+    roles.extend(std::iter::repeat_n(
+        SkirmishShellDrawRole::RandomMapOwnerDrawButton,
+        7,
+    ));
     roles.push(SkirmishShellDrawRole::RandomMapPreviewStatic);
     roles
 }

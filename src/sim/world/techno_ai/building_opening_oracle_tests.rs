@@ -433,7 +433,7 @@ fn stock_opening_matches_original_building_and_same_pass_anim_visits() {
             None
         };
         let rules = control_rules.as_ref().unwrap_or(&stock_rules);
-        let (mut sim, id) = joined_fixture(&rules, row);
+        let (mut sim, id) = joined_fixture(rules, row);
         let context = format!("{} {} control={control}", input["name"], input["route"]);
         assert_joined_frame(&sim, id, &row["creation"], &format!("{context} creation"));
         for frame in row["frames"].as_array().unwrap() {
@@ -445,7 +445,7 @@ fn stock_opening_matches_original_building_and_same_pass_anim_visits() {
                     if sim.anim(stable_id).is_some() {
                         sim.visit_anim(
                             stable_id,
-                            &rules,
+                            rules,
                             None,
                             crate::sim::world::FrameEffects::default(),
                         );
@@ -457,16 +457,16 @@ fn stock_opening_matches_original_building_and_same_pass_anim_visits() {
                         // separate normal-match production capture.
                         sim.visit_building_operational(
                             stable_id,
-                            &rules,
+                            rules,
                             None,
                             crate::sim::world::FrameEffects::default(),
                         );
-                        update_animation(sim, stable_id, Some(&rules));
+                        update_animation(sim, stable_id, Some(rules));
                         ready_commence(sim, stable_id, true);
                         dispatch(
                             sim,
                             stable_id,
-                            Some(&rules),
+                            Some(rules),
                             ObjectAiCtx::default(),
                             &mut false,
                         );

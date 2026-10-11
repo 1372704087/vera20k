@@ -1250,10 +1250,10 @@ fn release_contact(
         &LiveReadyInputProvider { rules },
     );
     sim.set_unit_destination(unit, destination, rules, true, frame_effects);
-    if state1 || ai_archive.is_some() {
-        if let Some(contact) = sim.substrate.entities.get_mut(unit) {
-            contact.set_archive_target(None);
-        }
+    if (state1 || ai_archive.is_some())
+        && let Some(contact) = sim.substrate.entities.get_mut(unit)
+    {
+        contact.set_archive_target(None);
     }
     // State1's AI archive branch clears +500 before BREAK44C3D6;
     // the other release branches clear it after the radio return.

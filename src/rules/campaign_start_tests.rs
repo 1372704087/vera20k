@@ -34,13 +34,17 @@ fn cache_ini(sections: &Value) -> IniFile {
 fn terminated_wide_string(hex: &str) -> String {
     let bytes: Vec<u8> = hex
         .as_bytes()
-        .chunks_exact(2)
+        .as_chunks::<2>()
+        .0
+        .iter()
         .map(|pair| {
             u8::from_str_radix(std::str::from_utf8(pair).unwrap(), 16).expect("native UTF16 byte")
         })
         .collect();
     let units: Vec<u16> = bytes
-        .chunks_exact(2)
+        .as_chunks::<2>()
+        .0
+        .iter()
         .map(|pair| u16::from_le_bytes([pair[0], pair[1]]))
         .take_while(|unit| *unit != 0)
         .collect();

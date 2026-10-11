@@ -507,7 +507,9 @@ fn scan_one_label(data: &[u8], offset: usize) -> Option<(RawLabel, usize)> {
 /// the file stores it. A trailing odd byte is dropped, matching the parser.
 fn decode_stored(encoded: &[u8]) -> String {
     let units: Vec<u16> = encoded
-        .chunks_exact(2)
+        .as_chunks::<2>()
+        .0
+        .iter()
         .map(|pair| u16::from_le_bytes([!pair[0], !pair[1]]))
         .collect();
     String::from_utf16_lossy(&units)

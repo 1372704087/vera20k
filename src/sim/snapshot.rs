@@ -2168,10 +2168,10 @@ impl Simulation {
     /// weak/derived identities, and reconstructs skipped indexes in dependency
     /// order.
     pub(crate) fn restore_after_snapshot_load(&mut self) -> Result<(), SnapshotRestoreError> {
-        if let Some(owner) = self.session.current_house {
-            if !self.houses.contains_key(&owner) || !self.session.house_order.contains(&owner) {
-                return Err(SnapshotRestoreError::InvalidCurrentHouse { owner });
-            }
+        if let Some(owner) = self.session.current_house
+            && (!self.houses.contains_key(&owner) || !self.session.house_order.contains(&owner))
+        {
+            return Err(SnapshotRestoreError::InvalidCurrentHouse { owner });
         }
         // VERA-internal terminal admission invariant. UnInit clears the policy
         // before marking the object dead; pending deletion needs no new visit.
@@ -7802,10 +7802,10 @@ mod tests {
         leaves[5].set_infantry_water_state(true);
 
         let mut sim = Simulation::new();
-        for index in 0..6 {
+        for (index, &leaf) in leaves.iter().enumerate() {
             let id = index as u64 + 1;
             let mut entity = GameEntity::test_default(id, "MTNK", "Americans", 5, 5);
-            entity.mission_leaf = leaves[index];
+            entity.mission_leaf = leaf;
             entity.suspended_attack_target = Some(if index & 1 == 0 {
                 TargetKind::Entity(100 + id)
             } else {
@@ -7831,7 +7831,7 @@ mod tests {
         let bytes = GameSnapshot::save(&sim, 1, 2, "mission-schema", 3);
         let loaded = GameSnapshot::load(&bytes).expect("load exact Mission schema");
 
-        for index in 0..6 {
+        for (index, &leaf) in leaves.iter().enumerate() {
             let entity = loaded
                 .sim
                 .substrate
@@ -7844,7 +7844,7 @@ mod tests {
             } else {
                 TargetKind::Cell(index as u16, (index + 1) as u16)
             });
-            assert_eq!(entity.mission_leaf, leaves[index]);
+            assert_eq!(entity.mission_leaf, leaf);
             assert_eq!(
                 entity.suspended_attack_target, expected_suspended_target,
                 "suspended TargetKind variant and payload must round-trip"

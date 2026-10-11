@@ -144,10 +144,9 @@ fn cell(value: &Value) -> (i16, i16) {
     )
 }
 
-fn hierarchy(
-    graphs: &Value,
-    endpoints: Option<((u16, u16), (u16, u16), [u16; 3], [u16; 3])>,
-) -> ZoneHierarchy {
+type HierarchyEndpoints = ((u16, u16), (u16, u16), [u16; 3], [u16; 3]);
+
+fn hierarchy(graphs: &Value, endpoints: Option<HierarchyEndpoints>) -> ZoneHierarchy {
     let levels: [ZoneLevelGraph; 3] = graphs
         .as_array()
         .unwrap()

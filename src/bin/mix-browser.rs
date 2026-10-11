@@ -148,10 +148,10 @@ impl MixBrowserApp {
         let Ok(mut art_ini) = IniFile::from_bytes(&art_data) else {
             return ArtRegistry::empty();
         };
-        if let Some(artmd_data) = asset_manager.get("artmd.ini") {
-            if let Ok(artmd) = IniFile::from_bytes(&artmd_data) {
-                art_ini.merge(&artmd);
-            }
+        if let Some(artmd_data) = asset_manager.get("artmd.ini")
+            && let Ok(artmd) = IniFile::from_bytes(&artmd_data)
+        {
+            art_ini.merge(&artmd);
         }
         let registry = ArtRegistry::from_ini(&art_ini);
         log::info!(
@@ -189,10 +189,10 @@ impl MixBrowserApp {
         // and a broad list of known RA2/YR palette naming patterns.
         let extra_candidates = Self::palette_name_candidates(asset_manager);
         for candidate in extra_candidates {
-            if let Some(data) = asset_manager.get(&candidate) {
-                if data.len() == 768 {
-                    names.push(candidate);
-                }
+            if let Some(data) = asset_manager.get(&candidate)
+                && data.len() == 768
+            {
+                names.push(candidate);
             }
         }
 
@@ -216,13 +216,13 @@ impl MixBrowserApp {
             let text = String::from_utf8_lossy(&data);
             for line in text.lines() {
                 let trimmed = line.trim();
-                if let Some((key, value)) = trimmed.split_once('=') {
-                    if key.trim().eq_ignore_ascii_case("Palette") {
-                        let val = value.trim();
-                        if !val.is_empty() {
-                            // art.ini Palette= stores base name without extension.
-                            candidates.push(format!("{}.pal", val.to_ascii_lowercase()));
-                        }
+                if let Some((key, value)) = trimmed.split_once('=')
+                    && key.trim().eq_ignore_ascii_case("Palette")
+                {
+                    let val = value.trim();
+                    if !val.is_empty() {
+                        // art.ini Palette= stores base name without extension.
+                        candidates.push(format!("{}.pal", val.to_ascii_lowercase()));
                     }
                 }
             }
@@ -345,10 +345,11 @@ impl MixBrowserApp {
         ctx: &egui::Context,
     ) {
         // Skip if already previewing this exact entry.
-        if let Some(preview) = &self.preview {
-            if preview.entry_hash == entry_hash && preview.source_name == source_archive {
-                return;
-            }
+        if let Some(preview) = &self.preview
+            && preview.entry_hash == entry_hash
+            && preview.source_name == source_archive
+        {
+            return;
         }
 
         let Some(data) = self
@@ -365,19 +366,19 @@ impl MixBrowserApp {
         };
 
         // Try CSF first — if it parses, show the string browser.
-        if data.len() >= 24 && data[0..4] == [0x20, 0x53, 0x43, 0x46] {
-            if let Some(csf) =
+        if data.len() >= 24
+            && data[0..4] == [0x20, 0x53, 0x43, 0x46]
+            && let Some(csf) =
                 mix_browser_csf::CsfBrowserState::from_bytes(&data, hinted_name.unwrap_or("csf"))
-            {
-                self.csf_state = Some(csf);
-                self.preview = Some(PreviewState::error(
-                    entry_hash,
-                    source_archive,
-                    hinted_name.unwrap_or("csf"),
-                    String::new(),
-                ));
-                return;
-            }
+        {
+            self.csf_state = Some(csf);
+            self.preview = Some(PreviewState::error(
+                entry_hash,
+                source_archive,
+                hinted_name.unwrap_or("csf"),
+                String::new(),
+            ));
+            return;
         }
         self.csf_state = None;
 
@@ -477,18 +478,16 @@ impl MixBrowserApp {
             );
         } else if let Some(raw) = &preview.raw_bytes {
             // TMP re-render.
-            if preview.file_type.starts_with("TMP") {
-                if let Ok(tmp) = vera20k::assets::tmp_file::TmpFile::from_bytes(raw) {
-                    if let Some((image, _)) =
-                        mix_browser_renderers::render_tmp_preview(&tmp, &new_palette)
-                    {
-                        preview.texture = Some(ctx.load_texture(
-                            format!("tmp_preview_{}", preview.entry_hash),
-                            image,
-                            egui::TextureOptions::NEAREST,
-                        ));
-                    }
-                }
+            if preview.file_type.starts_with("TMP")
+                && let Ok(tmp) = vera20k::assets::tmp_file::TmpFile::from_bytes(raw)
+                && let Some((image, _)) =
+                    mix_browser_renderers::render_tmp_preview(&tmp, &new_palette)
+            {
+                preview.texture = Some(ctx.load_texture(
+                    format!("tmp_preview_{}", preview.entry_hash),
+                    image,
+                    egui::TextureOptions::NEAREST,
+                ));
             }
         }
     }
@@ -629,23 +628,23 @@ impl eframe::App for MixBrowserApp {
             &self.available_palettes,
             ctx,
         );
-        if let Some(frame) = panel.pending_frame {
-            if let Some(preview) = &mut self.preview {
-                mix_browser_preview::set_preview_frame(preview, frame, ctx);
+        if let Some(frame) = panel.pending_frame
+            && let Some(preview) = &mut self.preview
+        {
+            mix_browser_preview::set_preview_frame(preview, frame, ctx);
+        }
+        if panel.toggle_play
+            && let Some(preview) = &mut self.preview
+        {
+            preview.is_playing = !preview.is_playing;
+            if preview.is_playing {
+                preview.last_frame_time = ctx.input(|i| i.time);
             }
         }
-        if panel.toggle_play {
-            if let Some(preview) = &mut self.preview {
-                preview.is_playing = !preview.is_playing;
-                if preview.is_playing {
-                    preview.last_frame_time = ctx.input(|i| i.time);
-                }
-            }
-        }
-        if let Some(fps) = panel.new_fps {
-            if let Some(preview) = &mut self.preview {
-                preview.play_speed_fps = fps;
-            }
+        if let Some(fps) = panel.new_fps
+            && let Some(preview) = &mut self.preview
+        {
+            preview.play_speed_fps = fps;
         }
         if let Some(color_idx) = panel.house_color_changed {
             self.apply_house_color(color_idx, ctx);

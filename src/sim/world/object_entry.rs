@@ -217,761 +217,6 @@ fn infantry_target_admission(
     Ok(InfantryTargetAdmission::Ordinary)
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn impassable(
-        live: &EntryReadContext<'_>,
-        object: CellObjectMember,
-        cell: Cell,
-    ) -> Result<bool, String> {
-        classify_entry(
-            live,
-            object,
-            cell,
-            crate::sim::movement::infantry_entry::InfantryEntryArgs::REPAIR,
-        )
-        .map(|code| code == 7)
-    }
-
-    #[test]
-    fn aircraft_entry_answers_as_the_owner_after_the_team_arm() {
-        for kind in [
-            LocomotorKind::Fly,
-            LocomotorKind::Jumpjet,
-            LocomotorKind::Rocket,
-            LocomotorKind::Teleport,
-        ] {
-            let (mut sim, rules, _) = crate::sim::world::entry_test_fixture::fixture();
-            let id = sim
-                .spawn_object("HORNET", "Americans", 17, 15, 0, &rules)
-                .unwrap();
-            let mut entity = sim.substrate.entities.get(id).unwrap().clone();
-            let mut object = rules.object("HORNET").unwrap().clone();
-            object.locomotor = kind;
-            entity.locomotor =
-                Some(crate::sim::movement::locomotor::LocomotorState::from_object_type(&object, 0));
-            // The answer is the one Aircraft owner's; canonical lookups
-            // reproduce the shared-dummy stamps, so a dummy cell is readable.
-            let probe = |sim: &mut Simulation| {
-                aircraft_entry(
-                    &EntryReadContext {
-                        sim,
-                        rules: &rules,
-                        registry: None,
-                    },
-                    &entity,
-                    Cell::Dummy,
-                )
-            };
-            sim.session.game_mode_nonzero = false;
-            assert_eq!(
-                probe(&mut sim),
-                Ok(sim.aircraft_can_enter_cell(id, Cell::Dummy))
-            );
-            sim.session.game_mode_nonzero = true;
-            assert_eq!(probe(&mut sim), Ok(0));
-            let script_id = sim.intern("REPAIR_WAYPOINT_EFFECT");
-            sim.team_script_vm
-                .register_script(crate::sim::team_script_vm::TeamScriptDefinition {
-                    id: script_id,
-                    actions: vec![crate::sim::team_script_vm::TeamScriptAction {
-                        action_id: 3,
-                        argument: 0,
-                    }],
-                    source: crate::rules::team_ai_ini::TeamAiDefinitionSource::FixedAimd,
-                });
-            sim.team_script_vm.create_team(
-                entity.owner(),
-                script_id,
-                vec![id],
-                sim.session.binary_frame as i32,
-            );
-            assert!(
-                probe(&mut sim).unwrap_err().contains("action3"),
-                "mode cannot bypass the earlier Team receiver"
-            );
-        }
-    }
-
-    #[test]
-    fn aircraft_quotient_requires_one_of_the_four_proved_interfaces() {
-        let (mut sim, rules, _) = crate::sim::world::entry_test_fixture::fixture();
-        sim.session.game_mode_nonzero = true;
-        for kind in [
-            None,
-            Some(LocomotorKind::Walk),
-            Some(LocomotorKind::Drive),
-            Some(LocomotorKind::Ship),
-            Some(LocomotorKind::Hover),
-        ] {
-            let mut entity = GameEntity::test_default(90, "HORNET", "Americans", 17, 15);
-            entity.locomotor = kind.map(|kind| {
-                let mut object = rules.object("HORNET").unwrap().clone();
-                object.locomotor = kind;
-                crate::sim::movement::locomotor::LocomotorState::from_object_type(&object, 0)
-            });
-            let result = aircraft_entry(
-                &EntryReadContext {
-                    sim: &sim,
-                    rules: &rules,
-                    registry: None,
-                },
-                &entity,
-                Cell::Dummy,
-            );
-            assert!(
-                result.unwrap_err().contains("constant-false AtCoord"),
-                "{kind:?}"
-            );
-        }
-    }
-
-    fn unit_fixture(flags: &str, blocker_category: EntityCategory) -> (Simulation, RuleSet, Cell) {
-        let (mut sim, _, _) = crate::sim::world::entry_test_fixture::fixture();
-        let rules=RuleSet::from_ini(&crate::rules::ini_parser::IniFile::from_str(&format!(
-            "[VehicleTypes]\n0=MOVER\n1=BLOCKER\n[MOVER]\nSpeedType=Track\n[BuildingTypes]\n0=BUILDING\n1=HIDDEN\n[HIDDEN]\nInvisibleInGame=yes\n[BLOCKER]\nSpeedType=Track\n[BUILDING]\nFoundation=1x1\n{flags}\n"
-        ))).unwrap();
-        for (id, name, category, cell) in [
-            (90, "MOVER", EntityCategory::Unit, (15, 15)),
-            (
-                91,
-                if blocker_category == EntityCategory::Structure {
-                    "BUILDING"
-                } else {
-                    "BLOCKER"
-                },
-                blocker_category,
-                (16, 15),
-            ),
-        ] {
-            let mut e = GameEntity::test_default(id, name, "Americans", cell.0, cell.1);
-            e.owner = sim.intern("Americans");
-            e.type_ref = sim.intern(name);
-            e.category = category;
-            sim.substrate.entities.insert(e);
-        }
-        sim.substrate.occupancy.add(
-            16,
-            15,
-            91,
-            MovementLayer::Ground,
-            None,
-            crate::sim::occupancy::CellListInsertion::from_category(blocker_category),
-        );
-        let cell = sim
-            .resolved_terrain
-            .as_ref()
-            .unwrap()
-            .native_cell_identity((16, 15));
-        (sim, rules, cell)
-    }
-
-    #[test]
-    fn infantry_usable_area_admission_is_independent_of_game_mode() {
-        // Original51BF90 has no A8B238 read. Executed counter0/mode0/1
-        // controls both return7 for this otherwise-clear unusable rim.
-        let (mut sim, rules, _) = crate::sim::world::entry_test_fixture::fixture();
-        let mut mover = GameEntity::test_default(90, "ENGINEER", "Americans", 15, 15);
-        mover.owner = sim.intern("Americans");
-        mover.type_ref = sim.intern("ENGINEER");
-        mover.category = EntityCategory::Infantry;
-        mover.in_playfield = true;
-        sim.substrate.entities.insert(mover);
-        sim.playfield_bounds = Some(
-            crate::map::playfield::PlayfieldBounds::from_normalized_local_size(16, 0, 0, 1, 1),
-        );
-        let cell = sim
-            .resolved_terrain
-            .as_ref()
-            .unwrap()
-            .native_cell_identity((16, 15));
-        for mode in [false, true] {
-            sim.session.game_mode_nonzero = mode;
-            assert_eq!(
-                sim.foot_entry_receiver(90, &rules, None)
-                    .unwrap()
-                    .can_enter(
-                        cell,
-                        crate::sim::movement::infantry_entry::InfantryEntryArgs::REPAIR,
-                    ),
-                Ok(7),
-                "mode {mode} cannot bypass Infantry51C13A..51C161",
-            );
-        }
-    }
-
-    #[test]
-    fn nested_escape_priority_restores_the_callers_cell_admission() {
-        let (mut sim, rules, _) = crate::sim::world::entry_test_fixture::fixture();
-        let mut mover = GameEntity::test_default(90, "ENGINEER", "Americans", 15, 15);
-        mover.owner = sim.intern("Americans");
-        mover.type_ref = sim.intern("ENGINEER");
-        mover.category = EntityCategory::Infantry;
-        mover.in_playfield = true;
-        sim.substrate.entities.insert(mover);
-        sim.playfield_bounds = Some(
-            crate::map::playfield::PlayfieldBounds::from_normalized_local_size(16, 0, 0, 1, 1),
-        );
-        let cell = sim
-            .resolved_terrain
-            .as_ref()
-            .unwrap()
-            .native_cell_identity((16, 15));
-        let probe = |sim: &Simulation| {
-            sim.foot_entry_receiver(90, &rules, None)
-                .unwrap()
-                .can_enter(
-                    cell,
-                    crate::sim::movement::infantry_entry::InfantryEntryArgs::REPAIR,
-                )
-        };
-        let rng_before = [
-            sim.scenario_rng.logical_state(),
-            sim.main_rng.logical_state(),
-            sim.mapgen_rng.logical_state(),
-        ];
-        assert_eq!(probe(&sim), Ok(7));
-        sim.with_object_placement_scope(|sim| {
-            assert_eq!(probe(sim), Ok(0));
-            sim.with_object_placement_scope(|sim| assert_eq!(probe(sim), Ok(0)));
-            assert_eq!(probe(sim), Ok(0), "nested return retains the outer bracket");
-        });
-        assert_eq!(
-            probe(&sim),
-            Ok(7),
-            "outer return restores ordinary admission"
-        );
-        assert_eq!(
-            [
-                sim.scenario_rng.logical_state(),
-                sim.main_rng.logical_state(),
-                sim.mapgen_rng.logical_state(),
-            ],
-            rng_before,
-        );
-    }
-
-    fn unit_probe(
-        sim: &mut Simulation,
-        rules: &RuleSet,
-        cell: Cell,
-        mission: MissionType,
-        nav: Option<NavTargetRef>,
-    ) -> bool {
-        sim.mission_assign_exact(
-            90,
-            crate::sim::mission::MissionId::from_known(mission),
-            sim.session.binary_frame,
-        )
-        .unwrap();
-        sim.substrate
-            .entities
-            .get_mut(90)
-            .unwrap()
-            .navigation
-            .nav_com = nav;
-        impassable(
-            &EntryReadContext {
-                sim,
-                rules,
-                registry: None,
-            },
-            CellObjectMember::Entity(90),
-            cell,
-        )
-        .unwrap()
-    }
-
-    #[test]
-    fn unit_absorb_and_grinding_keep_distinct_missions_and_object_targets() {
-        let target = Some(NavTargetRef::Building { id: 91 });
-        let (mut sim, rules, cell) = unit_fixture("UnitAbsorb=yes", EntityCategory::Structure);
-        assert!(!unit_probe(
-            &mut sim,
-            &rules,
-            cell,
-            MissionType::Enter,
-            target
-        ));
-        assert!(unit_probe(
-            &mut sim,
-            &rules,
-            cell,
-            MissionType::Eaten,
-            target
-        ));
-        assert!(
-            unit_probe(
-                &mut sim,
-                &rules,
-                cell,
-                MissionType::Enter,
-                Some(NavTargetRef::Cell { rx: 16, ry: 15 })
-            ),
-            "a Cell is not the Unit's object NavCom"
-        );
-        let (mut sim, rules, cell) = unit_fixture("Grinding=yes", EntityCategory::Structure);
-        assert!(!unit_probe(
-            &mut sim,
-            &rules,
-            cell,
-            MissionType::Eaten,
-            target
-        ));
-        assert!(unit_probe(
-            &mut sim,
-            &rules,
-            cell,
-            MissionType::Enter,
-            target
-        ));
-        // Supplied list topology isolates the later current-ground check.
-        // It does not claim a stock grinder/repair footprint scene.
-        sim.substrate.occupancy.add(
-            15,
-            15,
-            91,
-            MovementLayer::Ground,
-            None,
-            crate::sim::occupancy::CellListInsertion::AppendBuilding,
-        );
-        assert!(
-            !unit_probe(&mut sim, &rules, cell, MissionType::Move, None),
-            "current-ground Grinding arm has no mission/NavCom gate"
-        );
-    }
-
-    #[test]
-    fn exact_enter_unit_target_returns_before_a_later_hard_building() {
-        let (mut sim, rules, cell) = unit_fixture("", EntityCategory::Unit);
-        let mut b = GameEntity::test_default_of_category(
-            92,
-            "BUILDING",
-            "Americans",
-            16,
-            15,
-            EntityCategory::Structure,
-        );
-        b.owner = sim.intern("Americans");
-        b.type_ref = sim.intern("BUILDING");
-        sim.substrate.entities.insert(b);
-        sim.substrate.occupancy.add(
-            16,
-            15,
-            92,
-            MovementLayer::Ground,
-            None,
-            crate::sim::occupancy::CellListInsertion::AppendBuilding,
-        );
-        assert!(!unit_probe(
-            &mut sim,
-            &rules,
-            cell,
-            MissionType::Enter,
-            Some(NavTargetRef::Entity { id: 91 })
-        ));
-        assert!(unit_probe(
-            &mut sim,
-            &rules,
-            cell,
-            MissionType::Enter,
-            Some(NavTargetRef::Cell { rx: 16, ry: 15 })
-        ));
-    }
-
-    #[test]
-    fn contacted_building_skips_when_a_different_building_is_first() {
-        let (mut sim, rules, cell) =
-            unit_fixture("NumberImpassableRows=-1", EntityCategory::Structure);
-        let mut b = GameEntity::test_default_of_category(
-            92,
-            "HIDDEN",
-            "Americans",
-            16,
-            15,
-            EntityCategory::Structure,
-        );
-        assert!(rules.object("HIDDEN").unwrap().invisible_in_game);
-        b.owner = sim.intern("Americans");
-        b.type_ref = sim.intern("HIDDEN");
-        sim.substrate.entities.insert(b);
-        sim.substrate.occupancy.remove(16, 15, 91);
-        for id in [92, 91] {
-            sim.substrate.occupancy.add(
-                16,
-                15,
-                id,
-                MovementLayer::Ground,
-                None,
-                crate::sim::occupancy::CellListInsertion::AppendBuilding,
-            );
-        }
-        assert!(unit_probe(&mut sim, &rules, cell, MissionType::Move, None));
-        sim.substrate
-            .entities
-            .get_mut(90)
-            .unwrap()
-            .mark_live_contact_with(91);
-        assert!(
-            !unit_probe(&mut sim, &rules, cell, MissionType::Move, None),
-            "radio false row receiver skips only its checked Building"
-        );
-    }
-
-    fn infantry_fallback_fixture() -> (Simulation, RuleSet, Cell) {
-        let (mut sim, _, _) = crate::sim::world::entry_test_fixture::fixture();
-        let rules = RuleSet::from_ini(&crate::rules::ini_parser::IniFile::from_str(
-            "[InfantryTypes]\n0=MOVER\n1=BLOCKER\n[BuildingTypes]\n0=TARGET\n[MOVER]\nEngineer=yes\nSpeedType=Foot\n[BLOCKER]\nSpeedType=Foot\n[TARGET]\nFoundation=2x2\n",
-        )).unwrap();
-        // Supplied overlap isolates the literal ordered +1AC receiver; this
-        // is not a retail footprint/construction or complete capture scene.
-        for (id, name, owner, category, p) in [
-            (70, "MOVER", "Americans", EntityCategory::Infantry, (15, 15)),
-            (
-                71,
-                "TARGET",
-                "Americans",
-                EntityCategory::Structure,
-                (16, 15),
-            ),
-            (
-                72,
-                "BLOCKER",
-                "Russians",
-                EntityCategory::Infantry,
-                (16, 15),
-            ),
-        ] {
-            let mut entity = GameEntity::test_default(id, name, owner, p.0, p.1);
-            entity.owner = sim.intern(owner);
-            entity.type_ref = sim.intern(name);
-            entity.category = category;
-            if category == EntityCategory::Structure {
-                // Construction stamps the type's `Foundation=2x2`.
-                entity.foundation = "2x2".to_string();
-            }
-            entity.position.sub_x = crate::util::fixed_math::SimFixed::from_num(128);
-            entity.position.sub_y = crate::util::fixed_math::SimFixed::from_num(128);
-            sim.substrate.entities.insert(entity);
-        }
-        for (id, insertion) in [
-            (71, crate::sim::occupancy::CellListInsertion::AppendBuilding),
-            (
-                72,
-                crate::sim::occupancy::CellListInsertion::PrependNonBuilding,
-            ),
-        ] {
-            sim.substrate
-                .occupancy
-                .add(16, 15, id, MovementLayer::Ground, None, insertion);
-        }
-        sim.mission_assign_exact(
-            70,
-            crate::sim::mission::MissionId::from_known(MissionType::Capture),
-            sim.session.binary_frame,
-        )
-        .unwrap();
-        let cell = sim
-            .resolved_terrain
-            .as_ref()
-            .unwrap()
-            .native_cell_identity((16, 15));
-        (sim, rules, cell)
-    }
-
-    #[test]
-    fn infantry_first_building_skip_preserves_a_later_target_refusal() {
-        let (mut sim, rules, cell) = infantry_fallback_fixture();
-        let probe = |sim: &mut Simulation| {
-            impassable(
-                &EntryReadContext {
-                    sim,
-                    rules: &rules,
-                    registry: None,
-                },
-                CellObjectMember::Entity(70),
-                cell,
-            )
-            .unwrap()
-        };
-        assert!(
-            probe(&mut sim),
-            "unarmed mover cannot pass the ordinary enemy blocker"
-        );
-        sim.substrate
-            .entities
-            .get_mut(70)
-            .unwrap()
-            .navigation
-            .nav_com = Some(NavTargetRef::Building { id: 71 });
-        assert!(
-            !probe(&mut sim),
-            "first-Building target skips the earlier enemy blocker"
-        );
-        let frame = sim.session.binary_frame;
-        crate::sim::superweapon::invulnerability::apply_invulnerability(
-            sim.substrate.entities.get_mut(71).unwrap(),
-            frame,
-            30,
-            crate::sim::superweapon::invulnerability::InvulnKind::ForceShield,
-        );
-        assert!(
-            probe(&mut sim),
-            "skip-current must continue into the protected target's refusal"
-        );
-    }
-
-    #[test]
-    fn infantry_first_building_lookup_uses_center_then_attack_identity() {
-        let (mut sim, rules, cell) = infantry_fallback_fixture();
-        let probe = |sim: &mut Simulation, blocker| {
-            let live = EntryReadContext {
-                sim,
-                rules: &rules,
-                registry: None,
-            };
-            infantry_target_admission(
-                &live,
-                live.sim.substrate.entities.get(70).unwrap(),
-                rules.object("MOVER").unwrap(),
-                live.sim.substrate.entities.get(blocker).unwrap(),
-                cell,
-            )
-            .unwrap()
-        };
-        sim.substrate
-            .entities
-            .get_mut(70)
-            .unwrap()
-            .navigation
-            .nav_com = Some(NavTargetRef::Cell { rx: 17, ry: 16 });
-        assert_eq!(
-            probe(&mut sim, 72),
-            InfantryTargetAdmission::SkipCurrent,
-            "first Building+48 center differs from its raw anchor"
-        );
-        assert_eq!(
-            probe(&mut sim, 71),
-            InfantryTargetAdmission::Ordinary,
-            "the first Building cannot skip itself via its own center"
-        );
-        sim.substrate
-            .entities
-            .get_mut(70)
-            .unwrap()
-            .navigation
-            .nav_com = None;
-        sim.substrate.entities.get_mut(70).unwrap().attack_target =
-            Some(crate::sim::combat::AttackTarget {
-                target: crate::sim::combat::TargetKind::Entity(71),
-            });
-        // Raw blocker lookup stamps(60,60), then first Building+48 stamps
-        //(62,62). Attack-target identity is deliberately evaluated last.
-        for (id, p) in [(72, (60, 60)), (71, (61, 61))] {
-            let position = &mut sim.substrate.entities.get_mut(id).unwrap().position;
-            position.rx = p.0;
-            position.ry = p.1;
-        }
-        assert_eq!(probe(&mut sim, 72), InfantryTargetAdmission::SkipCurrent);
-        assert_eq!(
-            sim.resolved_terrain
-                .as_ref()
-                .unwrap()
-                .dummy_cell_requested_coord(),
-            (62, 62)
-        );
-    }
-
-    #[test]
-    fn infantry_target_lookup_obeys_gates_and_retains_cell_identity() {
-        let (mut sim, rules, registry) = crate::sim::world::entry_test_fixture::fixture();
-        let hut = sim
-            .spawn_object("CABHUT", "Americans", 16, 15, 0, &rules)
-            .unwrap();
-        let infantry = sim
-            .spawn_object("ENGINEER", "Americans", 15, 15, 0, &rules)
-            .unwrap();
-        // Supplied query coordinates isolate the effectful51C3B1 boundary.
-        sim.substrate.entities.get_mut(hut).unwrap().position.rx = 60;
-        sim.substrate.entities.get_mut(hut).unwrap().position.ry = 60;
-        let probe = |sim: &mut Simulation| {
-            let live = EntryReadContext {
-                sim,
-                rules: &rules,
-                registry: Some(&registry),
-            };
-            infantry_target_admission(
-                &live,
-                live.sim.substrate.entities.get(infantry).unwrap(),
-                rules.object("ENGINEER").unwrap(),
-                live.sim.substrate.entities.get(hut).unwrap(),
-                live.terrain().native_cell_identity((16, 15)),
-            )
-            .unwrap()
-                == InfantryTargetAdmission::DirectTarget
-        };
-        sim.resolved_terrain
-            .as_ref()
-            .unwrap()
-            .stamp_dummy_cell_requested_coord(7, 8);
-        sim.mission_assign_exact(
-            infantry,
-            crate::sim::mission::MissionId::from_known(MissionType::Move),
-            sim.session.binary_frame,
-        )
-        .unwrap();
-        assert!(!probe(&mut sim));
-        assert_eq!(
-            sim.resolved_terrain
-                .as_ref()
-                .unwrap()
-                .dummy_cell_requested_coord(),
-            (7, 8)
-        );
-        sim.mission_assign_exact(
-            infantry,
-            crate::sim::mission::MissionId::from_known(MissionType::Capture),
-            sim.session.binary_frame,
-        )
-        .unwrap();
-        sim.substrate
-            .entities
-            .get_mut(infantry)
-            .unwrap()
-            .navigation
-            .nav_com = Some(NavTargetRef::Building { id: hut });
-        assert!(probe(&mut sim));
-        assert_eq!(
-            sim.resolved_terrain
-                .as_ref()
-                .unwrap()
-                .dummy_cell_requested_coord(),
-            (7, 8),
-            "exact object match precedes map lookup"
-        );
-        sim.substrate
-            .entities
-            .get_mut(infantry)
-            .unwrap()
-            .navigation
-            .nav_com = Some(NavTargetRef::Cell { rx: 61, ry: 61 });
-        assert!(
-            probe(&mut sim),
-            "two absent coordinates denote the same retained native Dummy Cell"
-        );
-        assert_eq!(
-            sim.resolved_terrain
-                .as_ref()
-                .unwrap()
-                .dummy_cell_requested_coord(),
-            (60, 60)
-        );
-        sim.substrate
-            .entities
-            .get_mut(infantry)
-            .unwrap()
-            .navigation
-            .nav_com = None;
-        sim.substrate
-            .entities
-            .get_mut(infantry)
-            .unwrap()
-            .attack_target = Some(crate::sim::combat::AttackTarget {
-            target: crate::sim::combat::TargetKind::Entity(hut),
-        });
-        sim.resolved_terrain
-            .as_ref()
-            .unwrap()
-            .stamp_dummy_cell_requested_coord(7, 8);
-        assert!(probe(&mut sim));
-        assert_eq!(
-            sim.resolved_terrain
-                .as_ref()
-                .unwrap()
-                .dummy_cell_requested_coord(),
-            (60, 60),
-            "attack target is checked after the map lookup"
-        );
-    }
-
-    #[test]
-    fn slave_deposit_skip_keeps_later_building_refusal_and_raw_history() {
-        let (mut sim, rules, registry) = crate::sim::world::entry_test_fixture::fixture();
-        let hut = sim
-            .spawn_object("CABHUT", "Americans", 16, 15, 0, &rules)
-            .unwrap();
-        let slave = sim
-            .spawn_object("ENGINEER", "Americans", 15, 15, 0, &rules)
-            .unwrap();
-        sim.substrate.entities.get_mut(slave).unwrap().slave =
-            crate::sim::slave_manager::SlaveLink::for_test(Some(hut), Vec::new());
-        let slav = sim.intern("SLAV");
-        let manager = |slaves: &[u64]| {
-            Some(crate::sim::slave_manager::SlaveManager::new(
-                slav,
-                slaves.iter().copied().map(Some),
-                0,
-                0,
-                0,
-            ))
-        };
-        sim.substrate.entities.get_mut(hut).unwrap().slave_manager = manager(&[slave]);
-        sim.substrate.raw_cell_occupation.mark_ground(16, 15, 0x20);
-        let cell = sim
-            .resolved_terrain
-            .as_ref()
-            .unwrap()
-            .native_cell_identity((16, 15));
-        let probe = |sim: &mut Simulation| {
-            let live = EntryReadContext {
-                sim,
-                rules: &rules,
-                registry: Some(&registry),
-            };
-            impassable(&live, CellObjectMember::Entity(slave), cell).unwrap()
-        };
-        assert!(
-            !probe(&mut sim),
-            "master membership admits this deposit cell"
-        );
-        assert_ne!(
-            sim.substrate.raw_cell_occupation.ground_bits(16, 15) & 0x20,
-            0,
-            "receiver clears only a local latch"
-        );
-        sim.substrate.entities.get_mut(hut).unwrap().slave_manager = manager(&[]);
-        assert!(probe(&mut sim), "empty manager cannot skip the blocker");
-        sim.substrate.entities.get_mut(hut).unwrap().slave_manager = manager(&[slave]);
-        // Supplied overlapping Building list tests native continuation, not
-        // ordinary construction legality or a retail repair footprint scene.
-        let mut later = GameEntity::test_default_of_category(
-            100,
-            "CABHUT",
-            "Americans",
-            16,
-            15,
-            EntityCategory::Structure,
-        );
-        later.owner = sim.intern("Americans");
-        later.type_ref = sim.intern("CABHUT");
-        sim.substrate.entities.insert(later);
-        sim.substrate.occupancy.add(
-            16,
-            15,
-            100,
-            MovementLayer::Ground,
-            None,
-            crate::sim::occupancy::CellListInsertion::AppendBuilding,
-        );
-        assert!(
-            probe(&mut sim),
-            "true6B0880 continues into the later hard blocker"
-        );
-    }
-}
-
 fn moving(e: &GameEntity) -> bool {
     crate::sim::movement::motion_query::is_moving(e).unwrap_or(e.movement_target.is_some())
 }
@@ -1989,4 +1234,759 @@ fn building_impassable(
         )
     };
     Ok(!admitted)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn impassable(
+        live: &EntryReadContext<'_>,
+        object: CellObjectMember,
+        cell: Cell,
+    ) -> Result<bool, String> {
+        classify_entry(
+            live,
+            object,
+            cell,
+            crate::sim::movement::infantry_entry::InfantryEntryArgs::REPAIR,
+        )
+        .map(|code| code == 7)
+    }
+
+    #[test]
+    fn aircraft_entry_answers_as_the_owner_after_the_team_arm() {
+        for kind in [
+            LocomotorKind::Fly,
+            LocomotorKind::Jumpjet,
+            LocomotorKind::Rocket,
+            LocomotorKind::Teleport,
+        ] {
+            let (mut sim, rules, _) = crate::sim::world::entry_test_fixture::fixture();
+            let id = sim
+                .spawn_object("HORNET", "Americans", 17, 15, 0, &rules)
+                .unwrap();
+            let mut entity = sim.substrate.entities.get(id).unwrap().clone();
+            let mut object = rules.object("HORNET").unwrap().clone();
+            object.locomotor = kind;
+            entity.locomotor =
+                Some(crate::sim::movement::locomotor::LocomotorState::from_object_type(&object, 0));
+            // The answer is the one Aircraft owner's; canonical lookups
+            // reproduce the shared-dummy stamps, so a dummy cell is readable.
+            let probe = |sim: &mut Simulation| {
+                aircraft_entry(
+                    &EntryReadContext {
+                        sim,
+                        rules: &rules,
+                        registry: None,
+                    },
+                    &entity,
+                    Cell::Dummy,
+                )
+            };
+            sim.session.game_mode_nonzero = false;
+            assert_eq!(
+                probe(&mut sim),
+                Ok(sim.aircraft_can_enter_cell(id, Cell::Dummy))
+            );
+            sim.session.game_mode_nonzero = true;
+            assert_eq!(probe(&mut sim), Ok(0));
+            let script_id = sim.intern("REPAIR_WAYPOINT_EFFECT");
+            sim.team_script_vm
+                .register_script(crate::sim::team_script_vm::TeamScriptDefinition {
+                    id: script_id,
+                    actions: vec![crate::sim::team_script_vm::TeamScriptAction {
+                        action_id: 3,
+                        argument: 0,
+                    }],
+                    source: crate::rules::team_ai_ini::TeamAiDefinitionSource::FixedAimd,
+                });
+            sim.team_script_vm.create_team(
+                entity.owner(),
+                script_id,
+                vec![id],
+                sim.session.binary_frame as i32,
+            );
+            assert!(
+                probe(&mut sim).unwrap_err().contains("action3"),
+                "mode cannot bypass the earlier Team receiver"
+            );
+        }
+    }
+
+    #[test]
+    fn aircraft_quotient_requires_one_of_the_four_proved_interfaces() {
+        let (mut sim, rules, _) = crate::sim::world::entry_test_fixture::fixture();
+        sim.session.game_mode_nonzero = true;
+        for kind in [
+            None,
+            Some(LocomotorKind::Walk),
+            Some(LocomotorKind::Drive),
+            Some(LocomotorKind::Ship),
+            Some(LocomotorKind::Hover),
+        ] {
+            let mut entity = GameEntity::test_default(90, "HORNET", "Americans", 17, 15);
+            entity.locomotor = kind.map(|kind| {
+                let mut object = rules.object("HORNET").unwrap().clone();
+                object.locomotor = kind;
+                crate::sim::movement::locomotor::LocomotorState::from_object_type(&object, 0)
+            });
+            let result = aircraft_entry(
+                &EntryReadContext {
+                    sim: &sim,
+                    rules: &rules,
+                    registry: None,
+                },
+                &entity,
+                Cell::Dummy,
+            );
+            assert!(
+                result.unwrap_err().contains("constant-false AtCoord"),
+                "{kind:?}"
+            );
+        }
+    }
+
+    fn unit_fixture(flags: &str, blocker_category: EntityCategory) -> (Simulation, RuleSet, Cell) {
+        let (mut sim, _, _) = crate::sim::world::entry_test_fixture::fixture();
+        let rules=RuleSet::from_ini(&crate::rules::ini_parser::IniFile::from_str(&format!(
+            "[VehicleTypes]\n0=MOVER\n1=BLOCKER\n[MOVER]\nSpeedType=Track\n[BuildingTypes]\n0=BUILDING\n1=HIDDEN\n[HIDDEN]\nInvisibleInGame=yes\n[BLOCKER]\nSpeedType=Track\n[BUILDING]\nFoundation=1x1\n{flags}\n"
+        ))).unwrap();
+        for (id, name, category, cell) in [
+            (90, "MOVER", EntityCategory::Unit, (15, 15)),
+            (
+                91,
+                if blocker_category == EntityCategory::Structure {
+                    "BUILDING"
+                } else {
+                    "BLOCKER"
+                },
+                blocker_category,
+                (16, 15),
+            ),
+        ] {
+            let mut e = GameEntity::test_default(id, name, "Americans", cell.0, cell.1);
+            e.owner = sim.intern("Americans");
+            e.type_ref = sim.intern(name);
+            e.category = category;
+            sim.substrate.entities.insert(e);
+        }
+        sim.substrate.occupancy.add(
+            16,
+            15,
+            91,
+            MovementLayer::Ground,
+            None,
+            crate::sim::occupancy::CellListInsertion::from_category(blocker_category),
+        );
+        let cell = sim
+            .resolved_terrain
+            .as_ref()
+            .unwrap()
+            .native_cell_identity((16, 15));
+        (sim, rules, cell)
+    }
+
+    #[test]
+    fn infantry_usable_area_admission_is_independent_of_game_mode() {
+        // Original51BF90 has no A8B238 read. Executed counter0/mode0/1
+        // controls both return7 for this otherwise-clear unusable rim.
+        let (mut sim, rules, _) = crate::sim::world::entry_test_fixture::fixture();
+        let mut mover = GameEntity::test_default(90, "ENGINEER", "Americans", 15, 15);
+        mover.owner = sim.intern("Americans");
+        mover.type_ref = sim.intern("ENGINEER");
+        mover.category = EntityCategory::Infantry;
+        mover.in_playfield = true;
+        sim.substrate.entities.insert(mover);
+        sim.playfield_bounds = Some(
+            crate::map::playfield::PlayfieldBounds::from_normalized_local_size(16, 0, 0, 1, 1),
+        );
+        let cell = sim
+            .resolved_terrain
+            .as_ref()
+            .unwrap()
+            .native_cell_identity((16, 15));
+        for mode in [false, true] {
+            sim.session.game_mode_nonzero = mode;
+            assert_eq!(
+                sim.foot_entry_receiver(90, &rules, None)
+                    .unwrap()
+                    .can_enter(
+                        cell,
+                        crate::sim::movement::infantry_entry::InfantryEntryArgs::REPAIR,
+                    ),
+                Ok(7),
+                "mode {mode} cannot bypass Infantry51C13A..51C161",
+            );
+        }
+    }
+
+    #[test]
+    fn nested_escape_priority_restores_the_callers_cell_admission() {
+        let (mut sim, rules, _) = crate::sim::world::entry_test_fixture::fixture();
+        let mut mover = GameEntity::test_default(90, "ENGINEER", "Americans", 15, 15);
+        mover.owner = sim.intern("Americans");
+        mover.type_ref = sim.intern("ENGINEER");
+        mover.category = EntityCategory::Infantry;
+        mover.in_playfield = true;
+        sim.substrate.entities.insert(mover);
+        sim.playfield_bounds = Some(
+            crate::map::playfield::PlayfieldBounds::from_normalized_local_size(16, 0, 0, 1, 1),
+        );
+        let cell = sim
+            .resolved_terrain
+            .as_ref()
+            .unwrap()
+            .native_cell_identity((16, 15));
+        let probe = |sim: &Simulation| {
+            sim.foot_entry_receiver(90, &rules, None)
+                .unwrap()
+                .can_enter(
+                    cell,
+                    crate::sim::movement::infantry_entry::InfantryEntryArgs::REPAIR,
+                )
+        };
+        let rng_before = [
+            sim.scenario_rng.logical_state(),
+            sim.main_rng.logical_state(),
+            sim.mapgen_rng.logical_state(),
+        ];
+        assert_eq!(probe(&sim), Ok(7));
+        sim.with_object_placement_scope(|sim| {
+            assert_eq!(probe(sim), Ok(0));
+            sim.with_object_placement_scope(|sim| assert_eq!(probe(sim), Ok(0)));
+            assert_eq!(probe(sim), Ok(0), "nested return retains the outer bracket");
+        });
+        assert_eq!(
+            probe(&sim),
+            Ok(7),
+            "outer return restores ordinary admission"
+        );
+        assert_eq!(
+            [
+                sim.scenario_rng.logical_state(),
+                sim.main_rng.logical_state(),
+                sim.mapgen_rng.logical_state(),
+            ],
+            rng_before,
+        );
+    }
+
+    fn unit_probe(
+        sim: &mut Simulation,
+        rules: &RuleSet,
+        cell: Cell,
+        mission: MissionType,
+        nav: Option<NavTargetRef>,
+    ) -> bool {
+        sim.mission_assign_exact(
+            90,
+            crate::sim::mission::MissionId::from_known(mission),
+            sim.session.binary_frame,
+        )
+        .unwrap();
+        sim.substrate
+            .entities
+            .get_mut(90)
+            .unwrap()
+            .navigation
+            .nav_com = nav;
+        impassable(
+            &EntryReadContext {
+                sim,
+                rules,
+                registry: None,
+            },
+            CellObjectMember::Entity(90),
+            cell,
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn unit_absorb_and_grinding_keep_distinct_missions_and_object_targets() {
+        let target = Some(NavTargetRef::Building { id: 91 });
+        let (mut sim, rules, cell) = unit_fixture("UnitAbsorb=yes", EntityCategory::Structure);
+        assert!(!unit_probe(
+            &mut sim,
+            &rules,
+            cell,
+            MissionType::Enter,
+            target
+        ));
+        assert!(unit_probe(
+            &mut sim,
+            &rules,
+            cell,
+            MissionType::Eaten,
+            target
+        ));
+        assert!(
+            unit_probe(
+                &mut sim,
+                &rules,
+                cell,
+                MissionType::Enter,
+                Some(NavTargetRef::Cell { rx: 16, ry: 15 })
+            ),
+            "a Cell is not the Unit's object NavCom"
+        );
+        let (mut sim, rules, cell) = unit_fixture("Grinding=yes", EntityCategory::Structure);
+        assert!(!unit_probe(
+            &mut sim,
+            &rules,
+            cell,
+            MissionType::Eaten,
+            target
+        ));
+        assert!(unit_probe(
+            &mut sim,
+            &rules,
+            cell,
+            MissionType::Enter,
+            target
+        ));
+        // Supplied list topology isolates the later current-ground check.
+        // It does not claim a stock grinder/repair footprint scene.
+        sim.substrate.occupancy.add(
+            15,
+            15,
+            91,
+            MovementLayer::Ground,
+            None,
+            crate::sim::occupancy::CellListInsertion::AppendBuilding,
+        );
+        assert!(
+            !unit_probe(&mut sim, &rules, cell, MissionType::Move, None),
+            "current-ground Grinding arm has no mission/NavCom gate"
+        );
+    }
+
+    #[test]
+    fn exact_enter_unit_target_returns_before_a_later_hard_building() {
+        let (mut sim, rules, cell) = unit_fixture("", EntityCategory::Unit);
+        let mut b = GameEntity::test_default_of_category(
+            92,
+            "BUILDING",
+            "Americans",
+            16,
+            15,
+            EntityCategory::Structure,
+        );
+        b.owner = sim.intern("Americans");
+        b.type_ref = sim.intern("BUILDING");
+        sim.substrate.entities.insert(b);
+        sim.substrate.occupancy.add(
+            16,
+            15,
+            92,
+            MovementLayer::Ground,
+            None,
+            crate::sim::occupancy::CellListInsertion::AppendBuilding,
+        );
+        assert!(!unit_probe(
+            &mut sim,
+            &rules,
+            cell,
+            MissionType::Enter,
+            Some(NavTargetRef::Entity { id: 91 })
+        ));
+        assert!(unit_probe(
+            &mut sim,
+            &rules,
+            cell,
+            MissionType::Enter,
+            Some(NavTargetRef::Cell { rx: 16, ry: 15 })
+        ));
+    }
+
+    #[test]
+    fn contacted_building_skips_when_a_different_building_is_first() {
+        let (mut sim, rules, cell) =
+            unit_fixture("NumberImpassableRows=-1", EntityCategory::Structure);
+        let mut b = GameEntity::test_default_of_category(
+            92,
+            "HIDDEN",
+            "Americans",
+            16,
+            15,
+            EntityCategory::Structure,
+        );
+        assert!(rules.object("HIDDEN").unwrap().invisible_in_game);
+        b.owner = sim.intern("Americans");
+        b.type_ref = sim.intern("HIDDEN");
+        sim.substrate.entities.insert(b);
+        sim.substrate.occupancy.remove(16, 15, 91);
+        for id in [92, 91] {
+            sim.substrate.occupancy.add(
+                16,
+                15,
+                id,
+                MovementLayer::Ground,
+                None,
+                crate::sim::occupancy::CellListInsertion::AppendBuilding,
+            );
+        }
+        assert!(unit_probe(&mut sim, &rules, cell, MissionType::Move, None));
+        sim.substrate
+            .entities
+            .get_mut(90)
+            .unwrap()
+            .mark_live_contact_with(91);
+        assert!(
+            !unit_probe(&mut sim, &rules, cell, MissionType::Move, None),
+            "radio false row receiver skips only its checked Building"
+        );
+    }
+
+    fn infantry_fallback_fixture() -> (Simulation, RuleSet, Cell) {
+        let (mut sim, _, _) = crate::sim::world::entry_test_fixture::fixture();
+        let rules = RuleSet::from_ini(&crate::rules::ini_parser::IniFile::from_str(
+            "[InfantryTypes]\n0=MOVER\n1=BLOCKER\n[BuildingTypes]\n0=TARGET\n[MOVER]\nEngineer=yes\nSpeedType=Foot\n[BLOCKER]\nSpeedType=Foot\n[TARGET]\nFoundation=2x2\n",
+        )).unwrap();
+        // Supplied overlap isolates the literal ordered +1AC receiver; this
+        // is not a retail footprint/construction or complete capture scene.
+        for (id, name, owner, category, p) in [
+            (70, "MOVER", "Americans", EntityCategory::Infantry, (15, 15)),
+            (
+                71,
+                "TARGET",
+                "Americans",
+                EntityCategory::Structure,
+                (16, 15),
+            ),
+            (
+                72,
+                "BLOCKER",
+                "Russians",
+                EntityCategory::Infantry,
+                (16, 15),
+            ),
+        ] {
+            let mut entity = GameEntity::test_default(id, name, owner, p.0, p.1);
+            entity.owner = sim.intern(owner);
+            entity.type_ref = sim.intern(name);
+            entity.category = category;
+            if category == EntityCategory::Structure {
+                // Construction stamps the type's `Foundation=2x2`.
+                entity.foundation = "2x2".to_string();
+            }
+            entity.position.sub_x = crate::util::fixed_math::SimFixed::from_num(128);
+            entity.position.sub_y = crate::util::fixed_math::SimFixed::from_num(128);
+            sim.substrate.entities.insert(entity);
+        }
+        for (id, insertion) in [
+            (71, crate::sim::occupancy::CellListInsertion::AppendBuilding),
+            (
+                72,
+                crate::sim::occupancy::CellListInsertion::PrependNonBuilding,
+            ),
+        ] {
+            sim.substrate
+                .occupancy
+                .add(16, 15, id, MovementLayer::Ground, None, insertion);
+        }
+        sim.mission_assign_exact(
+            70,
+            crate::sim::mission::MissionId::from_known(MissionType::Capture),
+            sim.session.binary_frame,
+        )
+        .unwrap();
+        let cell = sim
+            .resolved_terrain
+            .as_ref()
+            .unwrap()
+            .native_cell_identity((16, 15));
+        (sim, rules, cell)
+    }
+
+    #[test]
+    fn infantry_first_building_skip_preserves_a_later_target_refusal() {
+        let (mut sim, rules, cell) = infantry_fallback_fixture();
+        let probe = |sim: &mut Simulation| {
+            impassable(
+                &EntryReadContext {
+                    sim,
+                    rules: &rules,
+                    registry: None,
+                },
+                CellObjectMember::Entity(70),
+                cell,
+            )
+            .unwrap()
+        };
+        assert!(
+            probe(&mut sim),
+            "unarmed mover cannot pass the ordinary enemy blocker"
+        );
+        sim.substrate
+            .entities
+            .get_mut(70)
+            .unwrap()
+            .navigation
+            .nav_com = Some(NavTargetRef::Building { id: 71 });
+        assert!(
+            !probe(&mut sim),
+            "first-Building target skips the earlier enemy blocker"
+        );
+        let frame = sim.session.binary_frame;
+        crate::sim::superweapon::invulnerability::apply_invulnerability(
+            sim.substrate.entities.get_mut(71).unwrap(),
+            frame,
+            30,
+            crate::sim::superweapon::invulnerability::InvulnKind::ForceShield,
+        );
+        assert!(
+            probe(&mut sim),
+            "skip-current must continue into the protected target's refusal"
+        );
+    }
+
+    #[test]
+    fn infantry_first_building_lookup_uses_center_then_attack_identity() {
+        let (mut sim, rules, cell) = infantry_fallback_fixture();
+        let probe = |sim: &mut Simulation, blocker| {
+            let live = EntryReadContext {
+                sim,
+                rules: &rules,
+                registry: None,
+            };
+            infantry_target_admission(
+                &live,
+                live.sim.substrate.entities.get(70).unwrap(),
+                rules.object("MOVER").unwrap(),
+                live.sim.substrate.entities.get(blocker).unwrap(),
+                cell,
+            )
+            .unwrap()
+        };
+        sim.substrate
+            .entities
+            .get_mut(70)
+            .unwrap()
+            .navigation
+            .nav_com = Some(NavTargetRef::Cell { rx: 17, ry: 16 });
+        assert_eq!(
+            probe(&mut sim, 72),
+            InfantryTargetAdmission::SkipCurrent,
+            "first Building+48 center differs from its raw anchor"
+        );
+        assert_eq!(
+            probe(&mut sim, 71),
+            InfantryTargetAdmission::Ordinary,
+            "the first Building cannot skip itself via its own center"
+        );
+        sim.substrate
+            .entities
+            .get_mut(70)
+            .unwrap()
+            .navigation
+            .nav_com = None;
+        sim.substrate.entities.get_mut(70).unwrap().attack_target =
+            Some(crate::sim::combat::AttackTarget {
+                target: crate::sim::combat::TargetKind::Entity(71),
+            });
+        // Raw blocker lookup stamps(60,60), then first Building+48 stamps
+        //(62,62). Attack-target identity is deliberately evaluated last.
+        for (id, p) in [(72, (60, 60)), (71, (61, 61))] {
+            let position = &mut sim.substrate.entities.get_mut(id).unwrap().position;
+            position.rx = p.0;
+            position.ry = p.1;
+        }
+        assert_eq!(probe(&mut sim, 72), InfantryTargetAdmission::SkipCurrent);
+        assert_eq!(
+            sim.resolved_terrain
+                .as_ref()
+                .unwrap()
+                .dummy_cell_requested_coord(),
+            (62, 62)
+        );
+    }
+
+    #[test]
+    fn infantry_target_lookup_obeys_gates_and_retains_cell_identity() {
+        let (mut sim, rules, registry) = crate::sim::world::entry_test_fixture::fixture();
+        let hut = sim
+            .spawn_object("CABHUT", "Americans", 16, 15, 0, &rules)
+            .unwrap();
+        let infantry = sim
+            .spawn_object("ENGINEER", "Americans", 15, 15, 0, &rules)
+            .unwrap();
+        // Supplied query coordinates isolate the effectful51C3B1 boundary.
+        sim.substrate.entities.get_mut(hut).unwrap().position.rx = 60;
+        sim.substrate.entities.get_mut(hut).unwrap().position.ry = 60;
+        let probe = |sim: &mut Simulation| {
+            let live = EntryReadContext {
+                sim,
+                rules: &rules,
+                registry: Some(&registry),
+            };
+            infantry_target_admission(
+                &live,
+                live.sim.substrate.entities.get(infantry).unwrap(),
+                rules.object("ENGINEER").unwrap(),
+                live.sim.substrate.entities.get(hut).unwrap(),
+                live.terrain().native_cell_identity((16, 15)),
+            )
+            .unwrap()
+                == InfantryTargetAdmission::DirectTarget
+        };
+        sim.resolved_terrain
+            .as_ref()
+            .unwrap()
+            .stamp_dummy_cell_requested_coord(7, 8);
+        sim.mission_assign_exact(
+            infantry,
+            crate::sim::mission::MissionId::from_known(MissionType::Move),
+            sim.session.binary_frame,
+        )
+        .unwrap();
+        assert!(!probe(&mut sim));
+        assert_eq!(
+            sim.resolved_terrain
+                .as_ref()
+                .unwrap()
+                .dummy_cell_requested_coord(),
+            (7, 8)
+        );
+        sim.mission_assign_exact(
+            infantry,
+            crate::sim::mission::MissionId::from_known(MissionType::Capture),
+            sim.session.binary_frame,
+        )
+        .unwrap();
+        sim.substrate
+            .entities
+            .get_mut(infantry)
+            .unwrap()
+            .navigation
+            .nav_com = Some(NavTargetRef::Building { id: hut });
+        assert!(probe(&mut sim));
+        assert_eq!(
+            sim.resolved_terrain
+                .as_ref()
+                .unwrap()
+                .dummy_cell_requested_coord(),
+            (7, 8),
+            "exact object match precedes map lookup"
+        );
+        sim.substrate
+            .entities
+            .get_mut(infantry)
+            .unwrap()
+            .navigation
+            .nav_com = Some(NavTargetRef::Cell { rx: 61, ry: 61 });
+        assert!(
+            probe(&mut sim),
+            "two absent coordinates denote the same retained native Dummy Cell"
+        );
+        assert_eq!(
+            sim.resolved_terrain
+                .as_ref()
+                .unwrap()
+                .dummy_cell_requested_coord(),
+            (60, 60)
+        );
+        sim.substrate
+            .entities
+            .get_mut(infantry)
+            .unwrap()
+            .navigation
+            .nav_com = None;
+        sim.substrate
+            .entities
+            .get_mut(infantry)
+            .unwrap()
+            .attack_target = Some(crate::sim::combat::AttackTarget {
+            target: crate::sim::combat::TargetKind::Entity(hut),
+        });
+        sim.resolved_terrain
+            .as_ref()
+            .unwrap()
+            .stamp_dummy_cell_requested_coord(7, 8);
+        assert!(probe(&mut sim));
+        assert_eq!(
+            sim.resolved_terrain
+                .as_ref()
+                .unwrap()
+                .dummy_cell_requested_coord(),
+            (60, 60),
+            "attack target is checked after the map lookup"
+        );
+    }
+
+    #[test]
+    fn slave_deposit_skip_keeps_later_building_refusal_and_raw_history() {
+        let (mut sim, rules, registry) = crate::sim::world::entry_test_fixture::fixture();
+        let hut = sim
+            .spawn_object("CABHUT", "Americans", 16, 15, 0, &rules)
+            .unwrap();
+        let slave = sim
+            .spawn_object("ENGINEER", "Americans", 15, 15, 0, &rules)
+            .unwrap();
+        sim.substrate.entities.get_mut(slave).unwrap().slave =
+            crate::sim::slave_manager::SlaveLink::for_test(Some(hut), Vec::new());
+        let slav = sim.intern("SLAV");
+        let manager = |slaves: &[u64]| {
+            Some(crate::sim::slave_manager::SlaveManager::new(
+                slav,
+                slaves.iter().copied().map(Some),
+                0,
+                0,
+                0,
+            ))
+        };
+        sim.substrate.entities.get_mut(hut).unwrap().slave_manager = manager(&[slave]);
+        sim.substrate.raw_cell_occupation.mark_ground(16, 15, 0x20);
+        let cell = sim
+            .resolved_terrain
+            .as_ref()
+            .unwrap()
+            .native_cell_identity((16, 15));
+        let probe = |sim: &mut Simulation| {
+            let live = EntryReadContext {
+                sim,
+                rules: &rules,
+                registry: Some(&registry),
+            };
+            impassable(&live, CellObjectMember::Entity(slave), cell).unwrap()
+        };
+        assert!(
+            !probe(&mut sim),
+            "master membership admits this deposit cell"
+        );
+        assert_ne!(
+            sim.substrate.raw_cell_occupation.ground_bits(16, 15) & 0x20,
+            0,
+            "receiver clears only a local latch"
+        );
+        sim.substrate.entities.get_mut(hut).unwrap().slave_manager = manager(&[]);
+        assert!(probe(&mut sim), "empty manager cannot skip the blocker");
+        sim.substrate.entities.get_mut(hut).unwrap().slave_manager = manager(&[slave]);
+        // Supplied overlapping Building list tests native continuation, not
+        // ordinary construction legality or a retail repair footprint scene.
+        let mut later = GameEntity::test_default_of_category(
+            100,
+            "CABHUT",
+            "Americans",
+            16,
+            15,
+            EntityCategory::Structure,
+        );
+        later.owner = sim.intern("Americans");
+        later.type_ref = sim.intern("CABHUT");
+        sim.substrate.entities.insert(later);
+        sim.substrate.occupancy.add(
+            16,
+            15,
+            100,
+            MovementLayer::Ground,
+            None,
+            crate::sim::occupancy::CellListInsertion::AppendBuilding,
+        );
+        assert!(
+            probe(&mut sim),
+            "true6B0880 continues into the later hard blocker"
+        );
+    }
 }

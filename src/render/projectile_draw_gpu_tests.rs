@@ -228,10 +228,10 @@ fn production_bullet_shadow_matches_every_original_destination_word() {
             gpu.read(&mut encoder, &depth),
         ];
         let output = gpu.finish(encoder, &reads, size);
-        for (index, word) in words.chunks_exact(2).enumerate() {
+        for (index, word) in words.as_chunks::<2>().0.iter().enumerate() {
             assert_eq!(
                 output[0][index * 4..index * 4 + 4],
-                encoded(u16::from_le_bytes(word.try_into().unwrap()), format),
+                encoded(u16::from_le_bytes(*word), format),
                 "{format:?} word{index:04X}"
             );
             assert_eq!(

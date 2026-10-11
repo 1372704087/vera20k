@@ -405,32 +405,27 @@ impl OptionsDialogState {
             return;
         }
         if self.resolution_popup_open {
-            if let Some(popup) = self.shell_popup(&layout) {
-                if let Some(scrollbar) = popup.scrollbar.filter(|rect| rect.contains(x, y)) {
-                    let max_top = self
-                        .resolution_rows
-                        .len()
-                        .saturating_sub(popup.visible_rows);
-                    if y < scrollbar.y + COMBO_DROPDOWN_SCROLLBAR_BUTTON_H {
-                        self.shell_interaction.popup_top = popup.first_row.saturating_sub(1);
-                    } else if y >= scrollbar.y + scrollbar.h - COMBO_DROPDOWN_SCROLLBAR_BUTTON_H {
-                        self.shell_interaction.popup_top = (popup.first_row + 1).min(max_top);
-                    } else if let Some(thumb) = popup.thumb {
-                        if thumb.contains(x, y) {
-                            self.shell_interaction.popup_scroll_grab = Some(y - thumb.y);
-                        } else {
-                            self.shell_interaction.popup_top = ScrollModel::combo(5)
-                                .top_index_from_thumb_top(
-                                    scrollbar,
-                                    thumb.h,
-                                    max_top,
-                                    y - thumb.h / 2,
-                                );
-                        }
+            if let Some(popup) = self.shell_popup(&layout)
+                && let Some(scrollbar) = popup.scrollbar.filter(|rect| rect.contains(x, y))
+            {
+                let max_top = self
+                    .resolution_rows
+                    .len()
+                    .saturating_sub(popup.visible_rows);
+                if y < scrollbar.y + COMBO_DROPDOWN_SCROLLBAR_BUTTON_H {
+                    self.shell_interaction.popup_top = popup.first_row.saturating_sub(1);
+                } else if y >= scrollbar.y + scrollbar.h - COMBO_DROPDOWN_SCROLLBAR_BUTTON_H {
+                    self.shell_interaction.popup_top = (popup.first_row + 1).min(max_top);
+                } else if let Some(thumb) = popup.thumb {
+                    if thumb.contains(x, y) {
+                        self.shell_interaction.popup_scroll_grab = Some(y - thumb.y);
+                    } else {
+                        self.shell_interaction.popup_top = ScrollModel::combo(5)
+                            .top_index_from_thumb_top(scrollbar, thumb.h, max_top, y - thumb.h / 2);
                     }
-                    self.shell_interaction.popup_hovered = None;
-                    return;
                 }
+                self.shell_interaction.popup_hovered = None;
+                return;
             }
             // ComboDropWin 0x0060E4E9..0x0060E500 plays Rules+0x1A8
             // (GUIComboCloseSound) before selection or outside dismissal;
@@ -490,15 +485,15 @@ impl OptionsDialogState {
         }
         if self.resolution_popup_open {
             if let Some(grab) = self.shell_interaction.popup_scroll_grab {
-                if let Some(popup) = self.shell_popup(&layout) {
-                    if let (Some(scrollbar), Some(thumb)) = (popup.scrollbar, popup.thumb) {
-                        let max_top = self
-                            .resolution_rows
-                            .len()
-                            .saturating_sub(popup.visible_rows);
-                        self.shell_interaction.popup_top = ScrollModel::combo(5)
-                            .top_index_from_thumb_top(scrollbar, thumb.h, max_top, y - grab);
-                    }
+                if let Some(popup) = self.shell_popup(&layout)
+                    && let (Some(scrollbar), Some(thumb)) = (popup.scrollbar, popup.thumb)
+                {
+                    let max_top = self
+                        .resolution_rows
+                        .len()
+                        .saturating_sub(popup.visible_rows);
+                    self.shell_interaction.popup_top = ScrollModel::combo(5)
+                        .top_index_from_thumb_top(scrollbar, thumb.h, max_top, y - grab);
                 }
                 self.shell_interaction.popup_hovered = None;
                 return;
@@ -522,10 +517,11 @@ impl OptionsDialogState {
             self.trackbar_mouse_up(hold.id);
         }
         self.shell_mouse_move(x, y, width, height);
-        if let Some(id) = self.shell_interaction.pressed_button.take() {
-            if self.shell_interaction.hovered_button == Some(id) && !self.resolution_popup_open {
-                self.request_result(id);
-            }
+        if let Some(id) = self.shell_interaction.pressed_button.take()
+            && self.shell_interaction.hovered_button == Some(id)
+            && !self.resolution_popup_open
+        {
+            self.request_result(id);
         }
     }
 }

@@ -58,6 +58,7 @@ impl Default for DetailState {
 }
 
 impl DetailState {
+    #[cfg(test)]
     pub(crate) fn new() -> Self {
         Self::default()
     }

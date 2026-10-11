@@ -610,8 +610,7 @@ impl Simulation {
             },
             self.session.binary_frame,
         )
-        .filter(|cell| *cell != (0, 0))
-        .map(|(x, y)| (x as u16, y as u16)))
+        .filter(|cell| *cell != (0, 0)))
     }
 }
 

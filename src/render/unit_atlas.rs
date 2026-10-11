@@ -729,6 +729,8 @@ fn seed_unit_variant_keys(
     }
 }
 
+type UnitFrameCounts = BTreeMap<(String, VxlLayer, i32), u32>;
+
 /// Every unit sprite key the voxel models in `demand` can draw, with their
 /// HVA frame counts.
 ///
@@ -738,12 +740,9 @@ fn needed_unit_keys(
     demand: &UnitAtlasDemand,
     asset_manager: &AssetManager,
     rules: Option<&RuleSet>,
-) -> (
-    HashSet<UnitSpriteKey>,
-    BTreeMap<(String, VxlLayer, i32), u32>,
-) {
+) -> (HashSet<UnitSpriteKey>, UnitFrameCounts) {
     let mut needed: HashSet<UnitSpriteKey> = HashSet::new();
-    let mut frame_counts: BTreeMap<(String, VxlLayer, i32), u32> = BTreeMap::new();
+    let mut frame_counts: UnitFrameCounts = BTreeMap::new();
     for (types, is_ground_vehicle) in [(&demand.ground, true), (&demand.air, false)] {
         for type_str in types {
             for variant in unit_atlas_variants(type_str, rules) {

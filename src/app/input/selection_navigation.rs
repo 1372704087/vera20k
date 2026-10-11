@@ -436,10 +436,6 @@ struct CategorySelection {
     has_candidates: bool,
 }
 
-#[expect(
-    clippy::too_many_arguments,
-    reason = "One native navigation transaction binds world, input owner and source orders"
-)]
 fn category_selection(
     sim: &crate::sim::world::Simulation,
     rules: &crate::rules::ruleset::RuleSet,

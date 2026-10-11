@@ -121,7 +121,6 @@ pub(super) fn radar_entity_owner_color(
     owner_dot_color(owner_str, house_colors, ramps)
 }
 
-#[allow(clippy::too_many_arguments)]
 pub(super) fn radar_pixel_candidate_eligible(
     entry: RadarTrackerEntry,
     entities: &crate::sim::entity_store::EntityStore,
@@ -363,7 +362,7 @@ impl RetainedRadarTracker {
     /// local player's object at bucket front, append every non-local object.
     fn add(&mut self, entry: RadarTrackerEntry, local_front: bool) -> bool {
         let bucket = &mut self.buckets[tracker_bucket(entry.x, entry.y)];
-        if bucket.iter().any(|candidate| *candidate == entry) {
+        if bucket.contains(&entry) {
             return false;
         }
         if local_front {

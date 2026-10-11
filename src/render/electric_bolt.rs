@@ -155,7 +155,7 @@ impl ElectricBoltDraw {
                 }
                 // Every split makes nine inclusive requests from process
                 // Main. Rejection sampling remains solely in its RNG owner.
-                for axis in 0..3 {
+                for coord in &mut middle[0] {
                     let shift = if current.length <= 128 {
                         main.ranged(-1, 1)
                             .wrapping_mul(current.displacement)
@@ -163,16 +163,17 @@ impl ElectricBoltDraw {
                     } else {
                         main.ranged(current.displacement.wrapping_neg(), current.displacement)
                     };
-                    middle[0][axis] = middle[0][axis].wrapping_add(shift);
+                    *coord = coord.wrapping_add(shift);
                 }
-                for strand in 1..3 {
-                    for axis in 0..3 {
+                let center = middle[0];
+                for point in &mut middle[1..3] {
+                    for (coord, center_coord) in point.iter_mut().zip(center) {
                         let shift =
                             main.ranged(current.displacement.wrapping_neg(), current.displacement);
-                        middle[strand][axis] = if current.length > side_threshold {
-                            middle[0][axis].wrapping_add(shift >> 1)
+                        *coord = if current.length > side_threshold {
+                            center_coord.wrapping_add(shift >> 1)
                         } else {
-                            middle[strand][axis].wrapping_add(shift)
+                            coord.wrapping_add(shift)
                         };
                     }
                 }

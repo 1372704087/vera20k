@@ -492,6 +492,10 @@ impl WaveStore {
         self.waves.len()
     }
 
+    pub fn is_empty(&self) -> bool {
+        self.waves.is_empty()
+    }
+
     pub fn iter(&self) -> impl Iterator<Item = (&u64, &Wave)> {
         self.waves.iter()
     }
@@ -900,7 +904,10 @@ fn type0_nonmagnetic_geometry_with_tables(
 }
 
 fn installed_wave_math_tables() -> (&'static TrigTable, &'static AcosTable) {
-    crate::map::retail_trig::required_math_tables()
+    (
+        TrigTable::embedded(),
+        crate::map::retail_trig::required_acos_table(),
+    )
 }
 
 fn type0_nonmagnetic_geometry(
@@ -969,12 +976,9 @@ mod tests {
         }
     }
 
-    fn exact_retail_wave_tables() -> Option<(TrigTable, AcosTable)> {
-        let dir = std::env::var_os("RA2_DIR")?;
-        let image = std::fs::read(std::path::PathBuf::from(dir).join("gamemd.exe")).ok()?;
-        let trig = TrigTable::from_executable(&image).ok()?;
-        let acos = AcosTable::from_executable(&image).ok()?;
-        (trig.matches_retail() && acos.matches_retail()).then_some((trig, acos))
+    fn exact_retail_wave_tables() -> Option<(&'static TrigTable, &'static AcosTable)> {
+        crate::map::retail_trig::verified_acos_table_or_skip("exact Wave fixtures")
+            .map(|acos| (TrigTable::embedded(), acos))
     }
 
     #[test]
@@ -986,7 +990,6 @@ mod tests {
     #[test]
     fn type0_nonmagnetic_geometry_matches_all_eight_machine_octants() {
         let Some((trig, acos)) = exact_retail_wave_tables() else {
-            eprintln!("skipped: set RA2_DIR to the retail install to run exact Wave fixtures");
             return;
         };
         struct Fixture {
@@ -1117,8 +1120,8 @@ mod tests {
             let geometry = type0_nonmagnetic_geometry_with_tables(
                 point(4096, 4096, 0),
                 point(fixture.target.0, fixture.target.1, 0),
-                &trig,
-                &acos,
+                trig,
+                acos,
             );
             assert_eq!(
                 geometry.horizontal, fixture.horizontal,
@@ -1160,7 +1163,6 @@ mod tests {
     #[test]
     fn type0_nonmagnetic_geometry_matches_signed_edges_and_nonflat_z() {
         let Some((trig, acos)) = exact_retail_wave_tables() else {
-            eprintln!("skipped: set RA2_DIR to the retail install to run exact Wave fixtures");
             return;
         };
         let fixtures = [
@@ -1236,7 +1238,7 @@ mod tests {
             ),
         ];
         for (source, target, horizontal, sqrt_bits, expected, cells, direction) in fixtures {
-            let geometry = type0_nonmagnetic_geometry_with_tables(source, target, &trig, &acos);
+            let geometry = type0_nonmagnetic_geometry_with_tables(source, target, trig, acos);
             let edges = [
                 geometry.edges.firer_a,
                 geometry.edges.firer_b,
@@ -1254,14 +1256,13 @@ mod tests {
     #[test]
     fn converged_live_type0_geometry_keeps_native_exceptional_quad() {
         let Some((trig, acos)) = exact_retail_wave_tables() else {
-            eprintln!("skipped: set RA2_DIR to the retail install to run exact Wave fixtures");
             return;
         };
         let geometry = type0_nonmagnetic_geometry_with_tables(
             point(4096, 4096, 0),
             point(4096, 4096, 0),
-            &trig,
-            &acos,
+            trig,
+            acos,
         );
         let edges = [
             geometry.edges.firer_a,

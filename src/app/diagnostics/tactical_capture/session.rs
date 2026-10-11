@@ -47,7 +47,7 @@ use map_observation::MapObservation;
 
 enum CaptureController {
     Radar(Option<Box<TacticalScript>>),
-    Map(MapObservation),
+    Map(Box<MapObservation>),
 }
 
 impl CaptureController {
@@ -124,7 +124,7 @@ pub(crate) struct TacticalCaptureSession {
 impl TacticalCaptureSession {
     pub(crate) fn new(request: TacticalCaptureRequest) -> Self {
         let controller = if request.map_profile().is_some() {
-            CaptureController::Map(MapObservation::default())
+            CaptureController::Map(Box::default())
         } else {
             CaptureController::Radar(None)
         };
@@ -289,7 +289,7 @@ impl TacticalCaptureSession {
     fn begin_accepted_loading(&mut self, state: &mut AppState) -> Result<()> {
         let launch = self.request.launch_session();
         let accepted = match crate::app::match_bootstrap::classify_startup_session(&launch) {
-            StartupSessionClassification::AcceptedExplicitFixedBattle(accepted) => accepted,
+            StartupSessionClassification::AcceptedExplicitFixedBattle(accepted) => *accepted,
             StartupSessionClassification::UnverifiedLegacy(reason) => {
                 bail!("sealed tactical launch was not accepted: {reason:?}")
             }

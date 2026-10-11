@@ -39,7 +39,7 @@ pub(crate) fn read_map_menu_entry_from_ini(ini: &IniFile, file_name: &str) -> Ma
         file_name: file_name.to_string(),
         display_name,
         author: basic.author,
-        preview: crate::map::preview::parse_preview_section(&ini),
+        preview: crate::map::preview::parse_preview_section(ini),
         multiplayer_start_waypoints: multiplayer_start_waypoints(&parse_waypoints(ini)),
         player_capacity: skirmish_player_capacity(ini),
         preview_source_bounds: preview_source_bounds_from_verified_source(ini),

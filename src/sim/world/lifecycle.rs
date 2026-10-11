@@ -306,6 +306,45 @@ pub(crate) enum ConcealOutcome {
 /// but the stream preserves the verified native relative ordering.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum LifecycleOutput {
+    /// Local HouseBegin4FA6AA→Sidebar6A6140 links the reached cameo to this
+    /// live Factory. Product expiry and a later rearm do not erase the link.
+    ProductionFactoryLinked {
+        owner: InternedId,
+        type_id: InternedId,
+        category: crate::sim::production::ProductionCategory,
+        construction_order: u64,
+    },
+    /// Local HouseAbandon4FAB74 enters Sidebar6ABAD0. Its private strip
+    /// owner determines whether the cursor prefix precedes settlement (no
+    /// link) or follows the first linked FactoryAbandon/destructor.
+    ProductionFactoryAbandoning {
+        owner: InternedId,
+        category: crate::sim::production::ProductionCategory,
+        construction_order: u64,
+    },
+    /// Strip6ABBDF clears every matching link after the linked destructor,
+    /// before the House cursor prefix and successor Begin. Queued-only
+    /// removal and direct Factory/product expiry have neither House fact.
+    ProductionFactoryUnlinked {
+        owner: InternedId,
+        category: crate::sim::production::ProductionCategory,
+        construction_order: u64,
+    },
+    /// HousePlace4FB35F: actual building Unlimbo failed, after HELLO. The
+    /// local input owner restores its saved transaction, not the event type.
+    BuildingPlacementRetry {
+        owner: InternedId,
+    },
+    /// HousePlace4FB328 clears active and saved placement after BuildingSlam.
+    BuildingPlacementSucceeded {
+        owner: InternedId,
+    },
+    /// HouseAbandon4FAB83/4FAB9F clears the local current cursor. The app's
+    /// strip owner derives this effect from the admitted House begin/end
+    /// facts, preserving its link-dependent order around product expiry.
+    BuildingProductionAbandoned {
+        owner: InternedId,
+    },
     /// Logic55AFB0 increments the process FPS sample even on terminal frames.
     LogicVisit,
     /// Logic55B5C3 updates existing lasers before the live object visits.
@@ -708,6 +747,7 @@ impl Simulation {
 
     /// ObjectClass::Reveal: clear limbo for the attempt, commit coordinates,
     /// Mark(PUT), expose display, then append eligible LogicClass membership.
+    #[cfg(test)]
     pub(crate) fn try_reveal_entity(
         &mut self,
         stable_id: u64,
@@ -2212,10 +2252,10 @@ impl Simulation {
     /// sets the flag only after insertion succeeds.
     fn register_logic_object(&mut self, stable_id: u64) -> bool {
         let kind = self.classify_object(stable_id);
-        if let Some(kind) = kind {
-            if self.logic_membership_flag(stable_id, kind) {
-                return true;
-            }
+        if let Some(kind) = kind
+            && self.logic_membership_flag(stable_id, kind)
+        {
+            return true;
         }
         let Some(kind) = kind else {
             return false;
@@ -3569,7 +3609,6 @@ impl Simulation {
     /// The broadcast passes over listeners that
     /// [`Self::entity_expiry_listener_acts`] rejects, so a field compared here
     /// must be tested there too.
-    #[allow(clippy::too_many_arguments)]
     pub(super) fn notify_entity_pointer_expired(
         &mut self,
         listener_id: u64,
@@ -3943,6 +3982,10 @@ impl Simulation {
         // `TeamClass::PointerExpired @ 0x006EAE60`, each team a listener.
         self.team_script_vm
             .pointer_expired(expired_id, control == PointerExpiryControl::Uninit);
+        // FactoryClass::PointerExpired4CA580 is a control-insensitive
+        // listener in Dispatch7258D0. Its only mutation clears a matching
+        // held product; no entity listener consumes that factory pointer.
+        self.production.factories.pointer_expired(expired_id);
         let Some((
             expired_target_cell,
             expired_is_high_flying,
@@ -4188,14 +4231,11 @@ impl Simulation {
                 let target_matches = self.projectiles.get(listener_id).is_some_and(|projectile| {
                     projectile.target == ProjectileTarget::Entity(expired_id)
                 });
-                let projectile_replacement_target = if !target_matches
-                    || expired_is_high_flying
-                    || expired_target_cell.is_none()
-                    || expired_target_cell == Some(NULL_TARGET_CELL_SENTINEL)
+                let projectile_replacement_target = if let Some((rx, ry)) = expired_target_cell
+                    && target_matches
+                    && !expired_is_high_flying
+                    && (rx, ry) != NULL_TARGET_CELL_SENTINEL
                 {
-                    ProjectileTarget::None
-                } else {
-                    let (rx, ry) = expired_target_cell.expect("checked target cell");
                     match context.terrain().or(self.resolved_terrain.as_ref()) {
                         Some(terrain) => match crate::sim::cell_rect::get_cellclass_fallback(
                             Some(terrain),
@@ -4213,6 +4253,8 @@ impl Simulation {
                         // stable-cell fallback. Production is terrain-backed.
                         None => ProjectileTarget::Cell { rx, ry },
                     }
+                } else {
+                    ProjectileTarget::None
                 };
                 let present = self.projectiles.pointer_expired(
                     listener_id,
@@ -4273,6 +4315,7 @@ impl Simulation {
         self.uninit_with_context(stable_id, UninitContext::default());
     }
 
+    #[cfg(test)]
     pub(crate) fn uninit_with_rules(&mut self, stable_id: u64, rules: &RuleSet) {
         self.uninit_with_context(stable_id, UninitContext::with_rules(rules));
     }

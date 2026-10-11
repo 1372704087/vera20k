@@ -1459,12 +1459,7 @@ fn retail_dustbowl_crews_scatter_off_their_wrecks() {
             .map(|id| {
                 let entity = sim.substrate.entities.get(id).unwrap();
                 let spawn = (entity.position.rx, entity.position.ry);
-                (
-                    id,
-                    spawn != mcv_cell,
-                    spawn,
-                    entity.navigation.nav_com.clone(),
-                )
+                (id, spawn != mcv_cell, spawn, entity.navigation.nav_com)
             })
             .collect();
         for _ in 0..45 {
@@ -1546,7 +1541,8 @@ fn retail_dustbowl_passengers_leave_their_destroyed_transports() {
     // owner for the entire neighborhood: fresh Unit +3D5=false admission can
     // succeed outside it (original73F34C; unit_entry_boundary rows24/30), so
     // transport placement does not establish that its GIs can reveal there.
-    let mut loads: Vec<(&str, u64, (u16, u16), Vec<u64>)> = Vec::new();
+    type TransportLoad = (&'static str, u64, (u16, u16), Vec<u64>);
+    let mut loads: Vec<TransportLoad> = Vec::new();
     for (kind, count) in [("BFRT", 5_u16), ("FV", 1), ("HTK", 3)] {
         let mut placed = None;
         for (x, y) in (40..100_u16).flat_map(|y| (40..100_u16).map(move |x| (x, y))) {
@@ -1643,8 +1639,7 @@ fn retail_dustbowl_passengers_leave_their_destroyed_transports() {
                 *cell,
                 "{kind}: out on its cell"
             );
-            let Some(crate::sim::components::NavTargetRef::Cell { rx, ry }) =
-                gi.navigation.nav_com.clone()
+            let Some(crate::sim::components::NavTargetRef::Cell { rx, ry }) = gi.navigation.nav_com
             else {
                 panic!("{kind}: GI {id} has no Scatter destination");
             };

@@ -61,7 +61,7 @@ Rust consumers:
 
 - `sim::projectile::launch::tests::original_fireat_and_fire_preserve_exact_launch_bits`
   consumes all five corpora (388 rows) and compares launch success and successful
-  binary64 velocity bits using verified retail math tables.
+  binary64 velocity bits using the retail sine and Acos tables.
 - `sim::world::projectile_collision::tests::runtime_fireat_fractional_velocity_survives_live_gravity_and_snapshot`
   consumes `fireat_runtime.json`: a composition of the existing native Rules
   Process, GetSpeed, shared launch and motion fixtures. It checks production
@@ -81,8 +81,9 @@ numeric components; it supplies the connections and admitted collision commits.
 The Rust runtime test establishes that integration only for these two fixtures;
 it does not certify the whole native scheduler or collisions.
 
-These are ignored retail tests; set `RA2_DIR` to the verified install and run each
-with `python -m tools.cargo_run -- test -p vera20k --lib <test-name> -- --ignored`.
+Both run in the lib suite. Their comparisons need the Acos table from a verified
+`gamemd.exe`, so they print `SKIPPED` unless `RA2_DIR` names that install, and a
+readiness run (`VERA20K_REQUIRE_RETAIL_INI=1`) fails instead of skipping.
 Python import/help regression tests run in `python -m tools.run_tests` without
 retail files. Native comparison and Rust regression are separate evidence levels.
 
@@ -190,11 +191,12 @@ Negative and zero inputs characterize solver boundaries; they are not claims
 about values admitted by retail weapon rules. No upstream FireAt/type/INI loading,
 trajectory, timer, RNG or detach equivalence is established. The word results are
 retained native observations without a direct Rust consumer. The angle consumer
-checks native failure predicates and successful raw binary64 values; it is ignored
-by default because it requires the verified retail math tables. Run it explicitly:
+checks native failure predicates and successful raw binary64 values. It needs the
+Acos table from a verified `gamemd.exe`, so it skips unless `RA2_DIR` names that
+install. Run it alone with:
 
 ```sh
-python -m tools.cargo_run -- test -p vera20k --lib original_arc_solver_domain_and_failure_predicates -- --ignored
+python -m tools.cargo_run -- test -p vera20k --lib original_arc_solver_domain_and_failure_predicates
 ```
 
 [The validation record](arc_domain.validation.json) records the native replay,

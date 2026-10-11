@@ -80,21 +80,20 @@ pub(super) fn tick_system(sys: &mut ParticleSystem, sim: &mut Simulation, rules:
     // Phase 3 — spawn a new particle if conditions allow.
     if !sys.done_spawning && pst.spawns {
         let timer_int = sys.spawn_timer.to_num::<i32>().max(1) as u64;
-        if tick % timer_int == 0 {
-            if let Some(holds) = pst.holds_what {
-                if sys.particles.len() < cap {
-                    let pt = rules.particle_type(holds);
-                    let r = pst.spawn_radius.max(0) as u32;
-                    let off_x = sim.particle_rng().next_raw_modulo_signed(r + 1);
-                    let off_y = sim.particle_rng().next_raw_modulo_signed(r + 1);
-                    let spawn_pos = IVec3::new(
-                        sys.coords.x + off_x,
-                        sys.coords.y + off_y,
-                        sys.coords.z + 10,
-                    );
-                    sys.particles.push(Particle::new(holds, spawn_pos, pt, sim));
-                }
-            }
+        if tick % timer_int == 0
+            && let Some(holds) = pst.holds_what
+            && sys.particles.len() < cap
+        {
+            let pt = rules.particle_type(holds);
+            let r = pst.spawn_radius.max(0) as u32;
+            let off_x = sim.particle_rng().next_raw_modulo_signed(r + 1);
+            let off_y = sim.particle_rng().next_raw_modulo_signed(r + 1);
+            let spawn_pos = IVec3::new(
+                sys.coords.x + off_x,
+                sys.coords.y + off_y,
+                sys.coords.z + 10,
+            );
+            sys.particles.push(Particle::new(holds, spawn_pos, pt, sim));
         }
     }
 
@@ -169,6 +168,7 @@ fn make_child(spec: ChildSpec, pt: &ParticleType, sim: &mut Simulation) -> Parti
 /// `raw` in `[-(r-1), r-1]` (one raw draw, no abs):
 ///   - `raw <= 0` returns `raw - r` (a value in `[-(2r-1), -r]`)
 ///   - `raw >= 1` returns `raw + r` (a value in `[r+1, 2r-1]`)
+///
 /// The sign-split matches the original two-child spawn path.
 fn symmetric_offset(r: i32, rng: &mut SimRng) -> i32 {
     if r <= 0 {

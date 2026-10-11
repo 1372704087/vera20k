@@ -374,6 +374,10 @@ pub(crate) struct BoundStockOfflineFreshPrefixPlan {
 /// Family-specific inputs to the one pre-Fill Simulation handoff. Campaigns
 /// construct the authored House array on this owner; they never synthesize an
 /// offline start assignment or a draw-free projection of that assignment.
+#[allow(
+    clippy::large_enum_variant,
+    reason = "built once per scenario load and consumed immediately"
+)]
 pub(crate) enum FreshScenarioPrefix<'a> {
     StockOffline(BoundStockOfflineFreshPrefixPlan),
     Campaign {
@@ -879,7 +883,7 @@ fn native_assign_launch_starts_from_preassignment(
 
     // Unlike generic AssignStartingPoints, standard Battle walks every
     // non-special House once and honors table ownership for AI houses too.
-    for slot in 0..requested.len() {
+    for (slot, assigned_start) in assigned.iter_mut().enumerate() {
         let explicit = explicit_owner
             .iter()
             .rposition(|owner| *owner == Some(slot));
@@ -887,7 +891,7 @@ fn native_assign_launch_starts_from_preassignment(
             explicit.unwrap_or_else(|| choose_battle_automatic_start(starts, &occupied, rng));
         occupied[start_index] = true;
         explicit_owner[start_index] = Some(slot);
-        assigned[slot] = Some(starts[start_index]);
+        *assigned_start = Some(starts[start_index]);
     }
 
     NativeStartAssignment {
@@ -946,7 +950,7 @@ fn native_assign_cooperative_starts_from_preassignment(
     let human_start_spots = human_start_spots.min(starts.len());
     let mut assigned = vec![None; requested.len()];
 
-    for slot in 0..requested.len() {
+    for (slot, assigned_start) in assigned.iter_mut().enumerate() {
         let explicit = explicit_owner.iter().position(|owner| *owner == Some(slot));
         let start_index = if let Some(explicit) = explicit {
             explicit
@@ -968,7 +972,7 @@ fn native_assign_cooperative_starts_from_preassignment(
         };
         occupied[start_index] = true;
         explicit_owner[start_index] = Some(slot);
-        assigned[slot] = Some(starts[start_index]);
+        *assigned_start = Some(starts[start_index]);
     }
 
     NativeStartAssignment {
@@ -1227,7 +1231,6 @@ pub(crate) fn apply_pre_fill_scenario_prefix_launch_session(
     )
 }
 
-#[allow(clippy::too_many_arguments)]
 pub(crate) fn apply_pre_fill_scenario_prefix_launch_session_with_overlay_registry(
     sim: &mut Simulation,
     map_data: &MapFile,
@@ -1799,8 +1802,8 @@ fn place_starting_object_near_base(
     let stable_id = sim.construct_object_limbo_at_height(
         type_id, owner, base_rx, base_ry, facing, initial_z, rules,
     )?;
-    if starting_object_cell_placeable(sim, resolved_terrain, base_rx, base_ry, category) {
-        if sim
+    if starting_object_cell_placeable(sim, resolved_terrain, base_rx, base_ry, category)
+        && sim
             .reveal_constructed_object_at_height_with_overlay_context(
                 stable_id,
                 base_rx,
@@ -1813,9 +1816,8 @@ fn place_starting_object_near_base(
                 crate::sim::world::FrameEffects::default(),
             )
             .is_some()
-        {
-            return Some(stable_id);
-        }
+    {
+        return Some(stable_id);
     }
 
     for radius in start_radius..=STARTING_MCV_FALLBACK_MAX_RADIUS {
@@ -1913,7 +1915,6 @@ pub(crate) fn seed_starting_extra_units(
     )
 }
 
-#[allow(clippy::too_many_arguments)]
 fn seed_starting_extra_units_with_overlay_registry(
     sim: &mut Simulation,
     slots: &[NormalizedSkirmishSlot],
@@ -2000,10 +2001,8 @@ fn seed_starting_extra_units_with_overlay_registry(
             // 0x007500B0` on the unit — 2.0f, ELITE, with no `Trainable=`
             // gate. Seeding the raw accumulator too is what keeps the unit
             // elite through its first kill instead of demoting it.
-            if initial_veteran {
-                if let Some(entity) = sim.entities_mut().get_mut(stable_id) {
-                    crate::sim::combat::veterancy::set_elite(entity);
-                }
+            if initial_veteran && let Some(entity) = sim.entities_mut().get_mut(stable_id) {
+                crate::sim::combat::veterancy::set_elite(entity);
             }
             let mission = if slot.is_human {
                 MissionType::Guard
@@ -2210,10 +2209,7 @@ fn starting_object_cell_placeable(
     cell.zone_type == crate::map::resolved_terrain::zone_class::GROUND
 }
 
-pub(crate) fn launch_mcv_type_for_country<'a>(
-    country: LaunchCountry,
-    rules: &'a RuleSet,
-) -> &'a str {
+pub(crate) fn launch_mcv_type_for_country(country: LaunchCountry, rules: &RuleSet) -> &str {
     rules
         .general
         .base_unit_types
@@ -2748,24 +2744,24 @@ pub(crate) fn initialize_map_roster_houses(
             |rules| house.scenario_current_iq(rules.general.max_iq_levels),
         );
         house_state.authored_iq = house_state.current_iq;
-        if let Some(rules) = rules {
-            if let Some((player, computer)) = campaign_difficulties {
-                let difficulty = if house_state.is_controlled_by_human(false) {
-                    player
-                } else {
-                    computer
-                };
-                house_state.set_difficulty(
-                    difficulty,
-                    &rules.general,
-                    country_name.map_or_else(Default::default, |name| {
-                        rules.country_difficulty_biases(name)
-                    }),
-                    false,
-                    index as i32,
-                    frame,
-                );
-            }
+        if let Some(rules) = rules
+            && let Some((player, computer)) = campaign_difficulties
+        {
+            let difficulty = if house_state.is_controlled_by_human(false) {
+                player
+            } else {
+                computer
+            };
+            house_state.set_difficulty(
+                difficulty,
+                &rules.general,
+                country_name.map_or_else(Default::default, |name| {
+                    rules.country_difficulty_biases(name)
+                }),
+                false,
+                index as i32,
+                frame,
+            );
         }
     }
     if campaign_difficulties.is_some() {
@@ -3481,9 +3477,8 @@ mod tests {
         let seed = 0x51C0_1002;
         let mut sim = ScenarioBootstrapRng::new(seed).into_simulation(&descriptor(seed));
         {
-            let (scenario, main) = sim.terrain_load_draws();
+            let (_, main) = sim.terrain_load_draws();
             let _ = main.next_u32();
-            drop(scenario);
         }
         let actual = sim.rng_state();
         let mut expected_main = SimRng::new(u64::from(seed));

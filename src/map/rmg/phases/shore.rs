@@ -572,7 +572,6 @@ fn stamp(
     true
 }
 
-#[expect(clippy::too_many_arguments)]
 fn write_subtile(
     ctx: &mut ShoreCtx<'_>,
     tx: i32,

@@ -45,7 +45,7 @@ impl FinalizedOverlayCell {
     }
 
     pub(crate) const fn overlay_id(self) -> Option<u8> {
-        if self.identity >= 0 && self.identity <= u8::MAX as i32 - 1 {
+        if self.identity >= 0 && self.identity < u8::MAX as i32 {
             Some(self.identity as u8)
         } else {
             None
@@ -457,7 +457,7 @@ fn mirror_real_overlay_pair(
 enum LoadRecalcOwner<'load, 'resources> {
     Borrowed(&'load mut LoadCellRecalcState<'resources>),
     #[cfg(test)]
-    Synthetic(LoadCellRecalcState<'resources>),
+    Synthetic(Box<LoadCellRecalcState<'resources>>),
 }
 
 impl<'load, 'resources> LoadRecalcOwner<'load, 'resources> {
@@ -484,7 +484,6 @@ pub(crate) struct AuthoredOverlayFinalizer<'load, 'resources, H> {
 }
 
 impl<'load, 'resources, H: AuthoredOverlayLoadHost> AuthoredOverlayFinalizer<'load, 'resources, H> {
-    #[allow(clippy::too_many_arguments)]
     pub(crate) fn with_recalc(
         terrain: &'load mut ResolvedTerrainGrid,
         recalc: &'load mut LoadCellRecalcState<'resources>,
@@ -512,7 +511,6 @@ impl<'load, 'resources, H: AuthoredOverlayLoadHost> AuthoredOverlayFinalizer<'lo
     }
 
     #[cfg(test)]
-    #[allow(clippy::too_many_arguments)]
     pub(crate) fn new(
         terrain: &'load mut ResolvedTerrainGrid,
         shape: NativeOverlayMapShape,
@@ -527,7 +525,7 @@ impl<'load, 'resources, H: AuthoredOverlayLoadHost> AuthoredOverlayFinalizer<'lo
         let recalc = LoadCellRecalcState::synthetic(overlay_types, terrain.cells.len());
         Self {
             terrain,
-            recalc: LoadRecalcOwner::Synthetic(recalc),
+            recalc: LoadRecalcOwner::Synthetic(Box::new(recalc)),
             cells,
             shape,
             overlay_types,

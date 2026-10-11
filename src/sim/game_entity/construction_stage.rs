@@ -4,7 +4,9 @@
 use super::GameEntity;
 use crate::sim::building_construction::{BuildingBodyMode, BuildingDown, BuildingUp, PackUpFrame};
 use crate::sim::game_options::GameOptions;
-use crate::sim::mission::{MissionId, MissionType};
+#[cfg(test)]
+use crate::sim::mission::MissionId;
+use crate::sim::mission::MissionType;
 
 impl GameEntity {
     pub(crate) fn bind_building_construction_control(&mut self, control: [i32; 3]) {

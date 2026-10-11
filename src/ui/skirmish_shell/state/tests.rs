@@ -107,8 +107,10 @@ fn hit_test_uses_exclusive_bottom_right_edges() {
 #[test]
 fn choose_map_action_bubbles_without_cycling_selected_map() {
     let maps = [test_map_entry("a.mmx"), test_map_entry("b.mmx")];
-    let mut shell = SkirmishShellState::default();
-    shell.selected_map_idx = 0;
+    let mut shell = SkirmishShellState {
+        selected_map_idx: 0,
+        ..Default::default()
+    };
 
     assert_eq!(
         apply_action(&mut shell, SkirmishShellAction::ChooseMap, &maps),
@@ -255,8 +257,10 @@ fn first_admitted_row(rect: RectPx) -> i32 {
 /// production reader, or `None` without the retail INIs.
 fn retail_ranges_shell() -> Option<SkirmishShellState> {
     let rules = crate::rules::retail_ini_fixture::retail_ini("rulesmd.ini")?;
-    let mut shell = SkirmishShellState::default();
-    shell.trackbar_bounds = SkirmishTrackbarBounds::from_multiplayer_dialog_settings(&rules);
+    let shell = SkirmishShellState {
+        trackbar_bounds: SkirmishTrackbarBounds::from_multiplayer_dialog_settings(&rules),
+        ..Default::default()
+    };
     Some(shell)
 }
 
@@ -929,8 +933,10 @@ fn trackbar_outside_thumb_click_remaps_value_and_keeps_capture() {
 fn a_zero_money_increment_slides_credits_in_ones() {
     // Every message turns a zero step into 1 (`0x0061DB94..0x0061DBAD`).
     let ini = IniFile::from_str("[MultiplayerDialogSettings]\nMoneyIncrement=0\n");
-    let mut shell = SkirmishShellState::default();
-    shell.trackbar_bounds = SkirmishTrackbarBounds::from_multiplayer_dialog_settings(&ini);
+    let mut shell = SkirmishShellState {
+        trackbar_bounds: SkirmishTrackbarBounds::from_multiplayer_dialog_settings(&ini),
+        ..Default::default()
+    };
     let layout = compute_layout(800, 600);
     let rect = layout.trackbars.credits;
     handle_option_mouse_down(
@@ -1085,8 +1091,10 @@ fn ai_row_type_uses_verified_item_data_order() {
 
 #[test]
 fn launch_session_packs_selected_map_and_enabled_slots() {
-    let mut shell = SkirmishShellState::default();
-    shell.selected_map_idx = 1;
+    let mut shell = SkirmishShellState {
+        selected_map_idx: 1,
+        ..Default::default()
+    };
     shell.player_name_edit.text = "Commander".to_string();
     shell.player_country = LaunchCountry::Korea;
     shell.player_color_index = 3;
@@ -1235,10 +1243,12 @@ fn skirmish_launch_random_country_succeeds_and_flags_slot_for_resolution() {
 
 #[test]
 fn skirmish_concrete_country_color_launch_session_still_succeeds() {
-    let mut shell = SkirmishShellState::default();
-    shell.player_country_random = false;
-    shell.player_country = LaunchCountry::Germany;
-    shell.player_color_index = 2;
+    let mut shell = SkirmishShellState {
+        player_country_random: false,
+        player_country: LaunchCountry::Germany,
+        player_color_index: 2,
+        ..Default::default()
+    };
     shell.opponents[0].country_random = false;
     shell.opponents[0].country = LaunchCountry::Iraq;
     shell.opponents[0].color_index = 4;
@@ -1337,8 +1347,10 @@ fn launch_session_rejects_no_active_opponents() {
 
 #[test]
 fn launch_session_rejects_same_explicit_team() {
-    let mut shell = SkirmishShellState::default();
-    shell.player_team = 0;
+    let mut shell = SkirmishShellState {
+        player_team: 0,
+        ..Default::default()
+    };
     shell.opponents[0].team = 0;
     let maps = [test_map_entry("map.mmx")];
 
@@ -1472,8 +1484,10 @@ fn accepted_map_shrink_resets_and_hides_complete_opponent_rows_atomically() {
         test_map_entry_with_starts("eight.mmx", 8),
         test_map_entry_with_starts("two.mmx", 2),
     ];
-    let mut shell = SkirmishShellState::default();
-    shell.selected_map_idx = 0;
+    let mut shell = SkirmishShellState {
+        selected_map_idx: 0,
+        ..Default::default()
+    };
     for opponent in shell.opponents.iter_mut().take(4) {
         opponent.row_type = SkirmishAiRowType::Hard;
         opponent.enabled = true;
@@ -1510,8 +1524,10 @@ fn accepted_map_growth_reveals_rows_without_reactivating_hidden_state() {
         test_map_entry_with_starts("two.mmx", 2),
         test_map_entry_with_starts("eight.mmx", 8),
     ];
-    let mut shell = SkirmishShellState::default();
-    shell.selected_map_idx = 0;
+    let mut shell = SkirmishShellState {
+        selected_map_idx: 0,
+        ..Default::default()
+    };
     initialize_rows_for_selected_map(&mut shell, &maps);
 
     assert!(accept_selected_map(&mut shell, &maps, 1));
@@ -2000,8 +2016,10 @@ fn combo_arrow_opens_dropdown_and_selects_color_row() {
 
 #[test]
 fn skirmish_color_dropdown_normal_population_omits_initialized_row_8() {
-    let mut shell = SkirmishShellState::default();
-    shell.player_color_index = 8;
+    let mut shell = SkirmishShellState {
+        player_color_index: 8,
+        ..Default::default()
+    };
     // Deactivate all AI rows so the filter sees no other claimants and the
     // dropdown matches the historical unfiltered set.
     for opponent in &mut shell.opponents {
@@ -2143,8 +2161,10 @@ fn switching_combos_closes_first_without_opening_second() {
 
 #[test]
 fn start_dropdown_omits_starts_reserved_by_other_rows() {
-    let mut shell = SkirmishShellState::default();
-    shell.player_start_position = LaunchStartPosition::Position(0);
+    let mut shell = SkirmishShellState {
+        player_start_position: LaunchStartPosition::Position(0),
+        ..Default::default()
+    };
     shell.opponents[0].start_position = LaunchStartPosition::Position(1);
     let maps = [test_map_entry_with_starts("map.mmx", 4)];
 
@@ -2228,9 +2248,11 @@ fn color_default_state_each_row_excludes_other_claimed_colors() {
 #[test]
 fn color_claim_excludes_color_from_other_rows_dropdown() {
     // Player claims color 4; AI row 1's filter loses color 4.
-    let mut shell = SkirmishShellState::default();
-    shell.player_color_index = 4;
-    shell.player_color_claimed = true;
+    let mut shell = SkirmishShellState {
+        player_color_index: 4,
+        player_color_claimed: true,
+        ..Default::default()
+    };
     // Deactivate AI row 1 so its own default claim doesn't confound the
     // assertion.
     shell.opponents[0].row_type = SkirmishAiRowType::None;
@@ -2254,9 +2276,11 @@ fn color_selection_evicts_prior_claimant() {
     // from slot 0 (since slot 1 owns it), so the test drives
     // apply_combo_selection directly — same entry point the mouse handler
     // uses, just bypassing the row-index lookup.
-    let mut shell = SkirmishShellState::default();
-    shell.player_color_index = 0;
-    shell.player_color_claimed = true;
+    let mut shell = SkirmishShellState {
+        player_color_index: 0,
+        player_color_claimed: true,
+        ..Default::default()
+    };
     shell.opponents[0].row_type = SkirmishAiRowType::Easy;
     shell.opponents[0].color_index = 5;
     shell.opponents[0].color_claimed = true;
@@ -2282,9 +2306,11 @@ fn color_selection_evicts_prior_claimant() {
 fn sentinel_release_makes_color_available_to_other_rows() {
     // AI row 1 claims color 3; AI row 1 selects sentinel; AI row 2 can now
     // see color 3 in its dropdown.
-    let mut shell = SkirmishShellState::default();
-    shell.player_color_index = 0;
-    shell.player_color_claimed = true;
+    let mut shell = SkirmishShellState {
+        player_color_index: 0,
+        player_color_claimed: true,
+        ..Default::default()
+    };
     shell.opponents[0].row_type = SkirmishAiRowType::Easy;
     shell.opponents[0].color_index = 3;
     shell.opponents[0].color_claimed = true;
@@ -2312,9 +2338,11 @@ fn sentinel_release_makes_color_available_to_other_rows() {
 fn ai_type_none_releases_color() {
     // AI row 1 (Easy, color 4) → None. color_claimed clears and AI row 2's
     // filter regains color 4.
-    let mut shell = SkirmishShellState::default();
-    shell.player_color_index = 0;
-    shell.player_color_claimed = true;
+    let mut shell = SkirmishShellState {
+        player_color_index: 0,
+        player_color_claimed: true,
+        ..Default::default()
+    };
     shell.opponents[0].row_type = SkirmishAiRowType::Easy;
     shell.opponents[0].color_index = 4;
     shell.opponents[0].color_claimed = true;
@@ -2367,9 +2395,11 @@ fn ai_type_reactivate_does_not_auto_claim() {
 fn color_filter_keeps_self_selection_visible_per_row() {
     // Every active row sees its own claimed color in its own dropdown,
     // even though every other row's filter would exclude it.
-    let mut shell = SkirmishShellState::default();
-    shell.player_color_index = 2;
-    shell.player_color_claimed = true;
+    let mut shell = SkirmishShellState {
+        player_color_index: 2,
+        player_color_claimed: true,
+        ..Default::default()
+    };
     shell.opponents[0].row_type = SkirmishAiRowType::Easy;
     shell.opponents[0].color_index = 5;
     shell.opponents[0].color_claimed = true;
@@ -2386,9 +2416,11 @@ fn color_filter_keeps_self_selection_visible_per_row() {
 
 #[test]
 fn random_color_remains_the_selected_visible_sentinel() {
-    let mut shell = SkirmishShellState::default();
-    shell.player_color_index = 3;
-    shell.player_color_claimed = false;
+    let mut shell = SkirmishShellState {
+        player_color_index: 3,
+        player_color_claimed: false,
+        ..Default::default()
+    };
     shell.opponents[0].color_index = 6;
     shell.opponents[0].color_claimed = false;
     let maps = [test_map_entry("map.mmx")];
@@ -2411,9 +2443,11 @@ fn random_color_remains_the_selected_visible_sentinel() {
 fn launch_session_carries_random_color_marker_and_cached_placeholder() {
     // The shell retains its cached concrete index behind the visible sentinel;
     // the launch copy carries both that placeholder and the raw Random marker.
-    let mut shell = SkirmishShellState::default();
-    shell.player_color_index = 3;
-    shell.player_color_claimed = false;
+    let mut shell = SkirmishShellState {
+        player_color_index: 3,
+        player_color_claimed: false,
+        ..Default::default()
+    };
     shell.opponents[0].row_type = SkirmishAiRowType::Easy;
     shell.opponents[0].color_index = 6;
     shell.opponents[0].color_claimed = false;
@@ -2433,9 +2467,11 @@ fn all_colors_claimed_activation_leaves_row_without_claim() {
     // Defensive Ledger #11. Claim all 8 colors across 8 active rows,
     // deactivate one, give its color to another slot, reactivate it.
     // Activating must NOT re-grab a color or steal another row's.
-    let mut shell = SkirmishShellState::default();
-    shell.player_color_index = 0;
-    shell.player_color_claimed = true;
+    let mut shell = SkirmishShellState {
+        player_color_index: 0,
+        player_color_claimed: true,
+        ..Default::default()
+    };
     for (idx, opponent) in shell.opponents.iter_mut().enumerate() {
         opponent.row_type = SkirmishAiRowType::Easy;
         opponent.color_index = idx + 1; // colors 1..7

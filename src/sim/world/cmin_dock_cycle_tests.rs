@@ -220,11 +220,14 @@ fn tethered(s: &Scene, id: u64) -> bool {
         .is_some()
 }
 
+/// `(miner id, frame)` dock edges in order.
+type DockLog = Vec<(u64, usize)>;
+
 /// Run both miners' visits to the one dock until both loads are paid and
 /// both have left. Returns each miner's (id, frame) tether and untether
 /// edges in order. No HELLO to the refinery is refused on the way: the
 /// narrow pass admits only a bay with a free slot (`0x004DEF09`).
-fn run_two_visits(s: &mut Scene, second: u64) -> (Vec<(u64, usize)>, Vec<(u64, usize)>) {
+fn run_two_visits(s: &mut Scene, second: u64) -> (DockLog, DockLog) {
     let paid_before = credits(s);
     let miners = [s.miner, second];
     let mut docked = Vec::new();

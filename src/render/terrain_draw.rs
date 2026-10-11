@@ -485,7 +485,6 @@ impl TerrainDrawRenderer {
     /// ReadWrite overlaps retain dependency waves. A maximal ReadOnly interval
     /// reduces admitted bodies/shadows against one immutable Z snapshot in four
     /// passes; command sequence, never instance/atlas index, selects its order.
-    #[allow(clippy::too_many_arguments)]
     pub(crate) fn draw_span<'a>(
         &mut self,
         encoder: &mut wgpu::CommandEncoder,
@@ -565,7 +564,6 @@ impl TerrainDrawRenderer {
         stats
     }
 
-    #[allow(clippy::too_many_arguments)]
     fn draw_scheduled<'a>(
         &mut self,
         encoder: &mut wgpu::CommandEncoder,
@@ -588,7 +586,6 @@ impl TerrainDrawRenderer {
     /// snapshot when there was no body). No depth/ordering authority is added.
     /// Capacity bands reuse bounded scratch for large attachments; separate
     /// pixels are independent, so bands cannot reorder a pixel's operations.
-    #[allow(clippy::too_many_arguments)]
     fn draw_read_only<'texture>(
         &mut self,
         encoder: &mut wgpu::CommandEncoder,
@@ -721,7 +718,6 @@ impl TerrainDrawRenderer {
     /// Sequential validation reference shares the exact clip and pipelines
     /// with batching; native leaf goldens exercise these shaders.
     #[cfg(test)]
-    #[allow(clippy::too_many_arguments)]
     pub(crate) fn draw_piece(
         &mut self,
         encoder: &mut wgpu::CommandEncoder,
@@ -753,7 +749,6 @@ impl TerrainDrawRenderer {
     /// Every rectangle is freshly snapped before any member edits the live
     /// attachments. Snapshot/edit use the identical cached absolute scissor;
     /// clipping never resets the SHP row/gradient origin.
-    #[allow(clippy::too_many_arguments)]
     fn draw_wave<'a, 'texture>(
         &self,
         encoder: &mut wgpu::CommandEncoder,

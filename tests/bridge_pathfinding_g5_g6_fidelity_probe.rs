@@ -376,7 +376,6 @@ fn probe_g5_g6_against_retail_maps() {
     }
 }
 
-#[allow(clippy::too_many_arguments)]
 fn process_map(
     name: &str,
     map: MapFile,
@@ -423,16 +422,16 @@ fn process_map(
         g6.bridgehead_cells,
         g6.deck_cells,
     );
-    if g5.rust_permits_gamemd_blocks_trusted > 0 {
-        if let Some(first) = g5.examples.into_iter().next() {
-            maps_with_g5_fire.push((
-                name.to_string(),
-                g5.rust_permits_gamemd_blocks,
-                g5.rust_permits_gamemd_blocks_trusted,
-                meta.resolved_fraction,
-                first,
-            ));
-        }
+    if g5.rust_permits_gamemd_blocks_trusted > 0
+        && let Some(first) = g5.examples.into_iter().next()
+    {
+        maps_with_g5_fire.push((
+            name.to_string(),
+            g5.rust_permits_gamemd_blocks,
+            g5.rust_permits_gamemd_blocks_trusted,
+            meta.resolved_fraction,
+            first,
+        ));
     }
 }
 
@@ -494,7 +493,8 @@ fn probe_g5_astar_rejects_all_trusted_firing_pairs() {
 
     let mut total_pairs = 0u32;
     let mut rejected_pairs = 0u32;
-    let mut leaked_pairs: Vec<(String, (u16, u16), (u16, u16))> = Vec::new();
+    type LeakedPair = (String, (u16, u16), (u16, u16));
+    let mut leaked_pairs: Vec<LeakedPair> = Vec::new();
     let mut maps_scanned = 0u32;
 
     for name in &candidates {

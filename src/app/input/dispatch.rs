@@ -369,7 +369,7 @@ pub(crate) fn tactical_mouse(state: &mut AppState, button: MouseButton, btn_stat
                                     CLICK_SELECT_RADIUS,
                                     state.rules(),
                                     Some(&sim.houses),
-                                    &state.height_map(),
+                                    state.height_map(),
                                     crate::app::match_runtime::sim_tick::tactical_bridge_cells(sim),
                                     Some(&sim.interner),
                                 );
@@ -398,7 +398,7 @@ pub(crate) fn tactical_mouse(state: &mut AppState, button: MouseButton, btn_stat
                                         shift,
                                         state.rules(),
                                         Some(&sim.houses),
-                                        &state.height_map(),
+                                        state.height_map(),
                                         crate::app::match_runtime::sim_tick::tactical_bridge_cells(
                                             sim,
                                         ),
@@ -420,7 +420,7 @@ pub(crate) fn tactical_mouse(state: &mut AppState, button: MouseButton, btn_stat
                                     shift,
                                     state.rules(),
                                     Some(&sim.houses),
-                                    &state.height_map(),
+                                    state.height_map(),
                                     crate::app::match_runtime::sim_tick::tactical_bridge_cells(sim),
                                     Some(&sim.interner),
                                     sim.playfield_bounds.is_some(),
@@ -562,7 +562,17 @@ pub(crate) fn tactical_mouse(state: &mut AppState, button: MouseButton, btn_stat
 /// the repair/sell cursor). The final rung — clear the selection — is retail
 /// behaviour, not a VERA deviation.
 fn right_click_cancel_ladder(state: &mut AppState) {
-    if state.match_state.input.targeting_mode.is_some() {
+    if state.match_state.input.cancel_building_placement() {
+        return;
+    }
+    if state
+        .match_state
+        .input
+        .targeting_mode
+        .as_ref()
+        .and_then(crate::app::types::TargetingMode::as_super_weapon)
+        .is_some()
+    {
         state.match_state.input.targeting_mode = None;
         state.match_state.input.building_placement_preview = None;
         return;
@@ -643,15 +653,14 @@ pub(crate) fn minimap_mouse(state: &mut AppState, button: MouseButton, btn_state
                 state.match_state.input.minimap_dragging = false;
             }
         }
-        MouseButton::Right => {
+        MouseButton::Right
             // A right-press centers the view on the clicked cell (no command);
             // right-release just releases the gadget's sticky capture.
             if btn_state.is_pressed()
                 && crate::app::presentation::sidebar_render::is_cursor_over_minimap(state)
-            {
+            => {
                 crate::app::presentation::sidebar_render::update_camera_from_minimap_cursor(state);
             }
-        }
         _ => {}
     }
 }
@@ -1046,7 +1055,31 @@ fn sidebar_cameo_press(
     };
     let queue = local_queue_view(state);
     let type_iid = local_interned(state, type_id);
-    let click = sidebar_eva::cameo_click(&queue, category, type_iid, press, at_build_limit);
+    let linked_factory = preferred_local_owner_name(state).and_then(|owner| {
+        let sim = &state.match_state.sim_runtime.as_ref()?.simulation;
+        state
+            .match_state
+            .match_presentation
+            .sidebar_projection
+            .cameo_factory(sim, sim.interner.get(&owner)?, type_iid?)
+            .map(|factory| {
+                (
+                    factory.cameo_state(),
+                    factory.complete_object().map(|object| object.type_id),
+                )
+            })
+    });
+    let click = sidebar_eva::cameo_click(
+        &queue,
+        category,
+        type_iid,
+        linked_factory.map(|(status, _)| status),
+        press,
+        at_build_limit,
+    );
+    if click.clear_building_placement {
+        state.match_state.input.cancel_building_placement();
+    }
     if click.sound {
         let sound = state
             .rules()
@@ -1063,24 +1096,49 @@ fn sidebar_cameo_press(
         Some(sidebar_eva::CameoOrder::Abandon { all }) => {
             cancel_build_by_type(state, type_id, all);
         }
-        // Residual (building path): `HouseClass::Manual_Place @ 0x004FB840`
-        // ignores the click while any placement is pending (`0x004FB852..
-        // 0x004FB859`); VERA's click leaves placement mode for the same
-        // building and switches it to another finished one.
+        // ManualPlace4FB852 refuses while any building placement is pending.
         Some(sidebar_eva::CameoOrder::Place) => {
-            let armed = state
-                .armed_building_type()
-                .is_some_and(|armed| armed.eq_ignore_ascii_case(type_id));
-            if armed {
-                state.match_state.input.targeting_mode = None;
-                state.match_state.input.building_placement_preview = None;
-            } else {
-                state.match_state.input.targeting_mode = Some(
-                    crate::app::types::TargetingMode::BuildingPlacement(type_id.to_string()),
-                );
+            // Select6AB30D plays GUIBuildSound before ObjectFindFactory5F5C20
+            // (0,0) at6AB31A, including repeated pending clicks. A null builder
+            // instead queues ABANDON16 before EVA_UnableToComply6AB3A9.
+            let ready_target = preferred_local_owner_name(state).and_then(|owner| {
+                let runtime = state.match_state.sim_runtime.as_ref()?;
+                let sim = &runtime.simulation;
+                let rules = &runtime.resources.rules;
+                let owner_id = sim.interner.get(&owner)?;
+                // Select6AB2CC reads this linked Factory's actual product;
+                // an older cameo can still refer to a rearmed Factory.
+                let held_type = linked_factory?.1?;
+                let held = crate::sim::production::ready_building_entity_for_owner(
+                    sim, rules, owner_id, held_type,
+                )?;
+                Some((
+                    owner_id,
+                    held,
+                    sim.interner.resolve(held_type).to_string(),
+                    crate::sim::production::object_find_factory(sim, rules, held, false, false),
+                ))
+            });
+            let Some((owner_id, held, held_type, builder)) = ready_target else {
+                return;
+            };
+            let Some(_builder) = builder else {
+                cancel_build_by_type(state, type_id, false);
+                push_local_eva(state, sidebar_eva::EVA_UNABLE_TO_COMPLY);
+                return;
+            };
+            if state
+                .match_state
+                .input
+                .begin_building_placement(&held_type, held, owner_id)
+            {
+                // ManualPlace4FB881 calls UnselectAll48DC90 only on entry.
+                // This existing owner clears immediate selection/follow and
+                // schedules the authoritative membership commit. A clear has
+                // no additions, so its effects do not depend on cursor mode.
+                queue_selection_snapshot_command(state, Vec::new(), false);
                 let gadgets = &mut state.match_state.match_presentation.sidebar_gadget_state;
-                gadgets.repair_mode_on = false;
-                gadgets.sell_mode_on = false;
+                gadgets.disable_selection_modes(false);
             }
         }
     }
@@ -1235,15 +1293,15 @@ pub(crate) fn report_black_cell_causes(state: &mut AppState) {
                 missing_tile_anywhere += 1;
             }
         }
-        if let Some((id, fog_state)) = fog {
-            if !fog_state.is_cell_revealed(id, cell.rx, cell.ry) {
-                unrevealed += 1;
-                if unrevealed_samples.len() < 12 {
-                    unrevealed_samples.push((cell.rx, cell.ry));
-                }
-                // An unrevealed cell is never drawn, so its tile is irrelevant.
-                continue;
+        if let Some((id, fog_state)) = fog
+            && !fog_state.is_cell_revealed(id, cell.rx, cell.ry)
+        {
+            unrevealed += 1;
+            if unrevealed_samples.len() < 12 {
+                unrevealed_samples.push((cell.rx, cell.ry));
             }
+            // An unrevealed cell is never drawn, so its tile is irrelevant.
+            continue;
         }
         if let Some(atlas) = state.match_state.match_presentation.tile_atlas.as_ref() {
             let key = crate::map::theater::TileKey {
@@ -1663,7 +1721,7 @@ pub(crate) fn dispatch_command_bar(state: &mut AppState, command: usize, right: 
 }
 
 // Native 653952 -> GameState1 -> 48C9BA/4F10E0 opens the pause menu.
-// The button calls this directly; Escape's cancel/resume priority is separate.
+// The button and ordinary Options hotkey share this modal entry.
 fn open_pause_menu(state: &mut AppState) {
     crate::app::App::enter_in_game_menu_state(state, crate::ui::pause_menu::InGameMenuState::Menu);
     log::info!("Game paused");
@@ -1691,31 +1749,11 @@ fn handle_options_hotkey(state: &mut AppState) {
             state.platform.window.set_cursor_visible(false);
         }
         log::info!("Game resumed");
-    } else if state.match_state.input.targeting_mode.is_some() {
-        state.match_state.input.targeting_mode = None;
-        state.match_state.input.building_placement_preview = None;
-    } else if state
-        .match_state
-        .match_presentation
-        .sidebar_gadget_state
-        .repair_mode_on
-        || state
-            .match_state
-            .match_presentation
-            .sidebar_gadget_state
-            .sell_mode_on
-    {
-        state
-            .match_state
-            .match_presentation
-            .sidebar_gadget_state
-            .repair_mode_on = false;
-        state
-            .match_state
-            .match_presentation
-            .sidebar_gadget_state
-            .sell_mode_on = false;
     } else {
+        // Options535BE0/5372D0 and unconsumed Escape55E079 both request
+        // GameState1. Deactivate683EB0/4AEAD0 tears down drag/capture without
+        // dropping current building placement or repair/sell. Source:
+        // tools/sidebar_oracle/cameo_order.md, ready-building histories.
         open_pause_menu(state);
     }
 }
@@ -1816,10 +1854,8 @@ fn handle_dev_hotkey_pressed(state: &mut AppState, code: winit::keyboard::KeyCod
         KeyCode::KeyJ => {
             toggle_debug_pause(state);
         }
-        KeyCode::Period => {
-            if state.match_state.paused() {
-                state.diag.debug_frame_step_requested = true;
-            }
+        KeyCode::Period if state.match_state.paused() => {
+            state.diag.debug_frame_step_requested = true;
         }
         _ => {}
     }
@@ -1947,10 +1983,10 @@ pub(crate) fn selected_stable_ids_in_order(
     };
     let mut ordered = Vec::new();
     for &id in selection_order {
-        if let Some(entity) = sim.entities().get(id) {
-            if selection_order_pending || entity.selected {
-                ordered.push(id);
-            }
+        if let Some(entity) = sim.entities().get(id)
+            && (selection_order_pending || entity.selected)
+        {
+            ordered.push(id);
         }
     }
     if selection_order_pending {
@@ -2892,12 +2928,11 @@ fn jump_camera_to_base(state: &mut AppState) {
             // First pass: look for a ConYard (structure with UndeploysInto=).
             let conyard = sim.entities().values().find(|e| {
                 e.category == EntityCategory::Structure
-                    && owner_name.map_or(true, |o| {
-                        sim.interner.resolve(e.owner()).eq_ignore_ascii_case(o)
-                    })
+                    && owner_name
+                        .is_none_or(|o| sim.interner.resolve(e.owner()).eq_ignore_ascii_case(o))
                     && rules
                         .and_then(|r| r.object(sim.interner.resolve(e.type_ref())))
-                        .map_or(false, |o| o.undeploys_into.is_some())
+                        .is_some_and(|o| o.undeploys_into.is_some())
             });
             if let Some(entity) = conyard {
                 log::info!(
@@ -2911,12 +2946,11 @@ fn jump_camera_to_base(state: &mut AppState) {
             // Second pass: look for an MCV (unit with DeploysInto=).
             let mcv = sim.entities().values().find(|e| {
                 e.category != EntityCategory::Structure
-                    && owner_name.map_or(true, |o| {
-                        sim.interner.resolve(e.owner()).eq_ignore_ascii_case(o)
-                    })
+                    && owner_name
+                        .is_none_or(|o| sim.interner.resolve(e.owner()).eq_ignore_ascii_case(o))
                     && rules
                         .and_then(|r| r.object(sim.interner.resolve(e.type_ref())))
-                        .map_or(false, |o| o.deploys_into.is_some())
+                        .is_some_and(|o| o.deploys_into.is_some())
             });
             if let Some(entity) = mcv {
                 log::info!(

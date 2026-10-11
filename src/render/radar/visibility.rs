@@ -264,7 +264,6 @@ impl RadarRegistrationVisibilityFacts {
     }
 }
 
-#[allow(clippy::too_many_arguments)]
 pub(super) fn build_radar_object_update(
     entity: &crate::sim::game_entity::GameEntity,
     houses: &BTreeMap<InternedId, crate::sim::house_state::HouseState>,

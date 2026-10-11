@@ -416,6 +416,7 @@ fn diagnose_rejected_order(
         );
         let (blocks, block_map) = crate::sim::movement::block_index::build_owner_block_set(
             sim.entities(),
+            sim.resolved_terrain.as_ref(),
             owner_name,
             &sim.house_alliances,
             &sim.interner,

@@ -464,7 +464,7 @@ mod tests {
         let (old_rx, old_ry) = (entity.position.rx, entity.position.ry);
         entity.position.rx = rx;
         entity.position.ry = ry;
-        let layer = entity.occupancy_list_layer();
+        let layer = sim.substrate.occupancy.listed_layer(old_rx, old_ry, disk);
         if let Some(layer) = layer {
             sim.substrate.occupancy.move_entity(
                 old_rx,

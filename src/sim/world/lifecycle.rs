@@ -1949,11 +1949,6 @@ impl Simulation {
         if let Some(loco) = entity.locomotor.as_mut() {
             loco.layer = MovementLayer::Ground;
         }
-        // Rebuild only the derived vehicle projection: serialized head-to,
-        // handoff and current-cleared facts retain their existing owners.
-        self.substrate
-            .cell_occupation
-            .reconcile_entity(entity, &self.substrate.occupancy);
         for &(rx, ry) in &cells {
             self.substrate.occupancy.add(
                 rx,
@@ -1964,6 +1959,17 @@ impl Simulation {
                 insertion,
             );
         }
+        // Rebuild only the derived vehicle projection, from the list the
+        // member is now in: serialized head-to, handoff and current-cleared
+        // facts retain their existing owners.
+        let entity = self
+            .substrate
+            .entities
+            .get(stable_id)
+            .expect("member remains represented");
+        self.substrate
+            .cell_occupation
+            .reconcile_entity(entity, &self.substrate.occupancy);
     }
 
     /// Fixture boundary: puts a fixture object on the map and marks it

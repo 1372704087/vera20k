@@ -38,15 +38,21 @@
 //! - Recalc runs only when the caller passes an overlay registry. Reveal and
 //!   Limbo pass none, as before this owner existed.
 //!
-//! Readers of list membership follow the lists themselves: list walks
+//! Mark's list choice is `occupancy::cell_list_layer_for_entity`. Readers of
+//! list membership follow the lists themselves: list walks
 //! (`Simulation::cell_object_list_location`) and the vehicle plane
 //! (`CellOccupationGrid::reconcile_entity`). The A* caches
-//! (`block_index::contribution`, `bump_crush::blocker_plane_source`) still
-//! take a Jumpjet's Air path layer as unlisted (RESIDUAL). Trigger: a landed
-//! or low Jumpjet in a route. Effect: A* plans through a cell whose
-//! `Can_Enter_Cell` refuses, so the mover waits or repaths at the boundary.
-//! Frequency: occasional. Risk: detours differ from native A*, which asks
-//! `Can_Enter_Cell` per neighbour.
+//! (`block_index::contribution`, `bump_crush::blocker_plane_source`) derive it
+//! from the object through the same choice and `cell_marked`.
+//!
+//! RESIDUAL: a Jumpjet's hold and cruise leave its lists alone
+//! (`0x0054D0FF..0x0054D134`), so one that sinks below two levels there counts
+//! as listed in the A* caches before its next Mark lists it, and
+//! `Simulation::debug_assert_lifecycle_consistent` reports it. Trigger: a
+//! Jumpjet below two levels while it holds or cruises; at a cruise height of
+//! 500 that needs ground three levels higher beneath it before it climbs.
+//! Effect: A* costs its cell as occupied before native does. Frequency:
+//! unmeasured. Risk: a different detour, no other state.
 
 use super::{ground_pose, locomotor::MovementLayer};
 use crate::map::entities::EntityCategory;
@@ -184,7 +190,7 @@ impl Simulation {
         rules: Option<&RuleSet>,
         registry: Option<&OverlayTypeRegistry>,
     ) {
-        let Some((cell, layer)) = self.foot_mark_cell(id, rules) else {
+        let Some((cell, layer)) = self.foot_mark_cell(id) else {
             return;
         };
         self.substrate
@@ -247,7 +253,7 @@ impl Simulation {
         registry: Option<&OverlayTypeRegistry>,
         receive: &mut impl FnMut(&mut Simulation, u64),
     ) {
-        let Some((cell, layer)) = self.foot_mark_cell(id, rules) else {
+        let Some((cell, layer)) = self.foot_mark_cell(id) else {
             return;
         };
         let (sub_cell, insertion) = {
@@ -277,19 +283,13 @@ impl Simulation {
 
     /// The Cell Pick_Up/Place_Down address and the OnBridge list, or `None`
     /// when the layer query (`0x004D37A6`) is not Ground or the Location's
-    /// Cell is not a real one (`0x00568471..0x0056848E`). `rules` only tells
-    /// Air from Top, so a Ground answer does not depend on it.
-    pub(crate) fn foot_mark_cell(
-        &self,
-        id: u64,
-        rules: Option<&RuleSet>,
-    ) -> Option<((u16, u16), MovementLayer)> {
-        if self.entity_display_layer(id, rules)
-            != Some(crate::sim::world::display_layers::DisplayLayer::GROUND)
-        {
-            return None;
-        }
+    /// Cell is not a real one (`0x00568471..0x0056848E`).
+    pub(crate) fn foot_mark_cell(&self, id: u64) -> Option<((u16, u16), MovementLayer)> {
         let entity = self.substrate.entities.get(id)?;
+        let layer = crate::sim::occupancy::cell_list_layer_for_entity(
+            entity,
+            self.resolved_terrain.as_ref(),
+        )?;
         let cell = (entity.position.rx, entity.position.ry);
         if self.resolved_terrain.as_ref().is_some_and(|terrain| {
             terrain
@@ -298,14 +298,7 @@ impl Simulation {
         }) {
             return None;
         }
-        Some((
-            cell,
-            if entity.on_bridge {
-                MovementLayer::Bridge
-            } else {
-                MovementLayer::Ground
-            },
-        ))
+        Some((cell, layer))
     }
 
     /// Remove/AddContent's receiver tail: Infantry returns first

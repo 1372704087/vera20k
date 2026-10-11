@@ -303,9 +303,10 @@ folders without `__init__.py`; it excludes generated `.claude` mirrors and the
 machine-local `ghidra-up` skill. It prints every module and its test count, fails
 on import errors or empty test modules, and propagates test failures. Focus a
 module with ordinary `python -m unittest <module> -v` when investigating a failure.
-The same complete synthetic suite and skill-mirror check run on Linux, macOS and
-Windows for every PR and push to main. No Cargo, game executable, GPU or retail
-install is needed; Unicorn exercises synthetic x86 in the runner failure tests.
+Agents run it before every PR that changes tools or skills (AGENTS.md). The
+`python-tools` workflow runs the same suite and the skill-mirror check on Linux,
+macOS and Windows when a maintainer dispatches it. No Cargo, game executable, GPU
+or retail install is needed; Unicorn exercises synthetic x86 in the runner failure tests.
 This protects native execution contracts; it does not reproduce retail goldens.
 
 Two existing checks require private sealed evidence and are explicitly skipped

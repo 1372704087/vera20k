@@ -2941,6 +2941,7 @@ mod tests {
         let delay = crate::sim::mission::enter::mission_enter(
             &mut sim,
             &rules,
+            None,
             1,
             crate::sim::world::FrameEffects::default(),
         );
@@ -3282,6 +3283,7 @@ mod tests {
         crate::sim::mission::enter::mission_enter(
             &mut sim,
             &rules,
+            None,
             1,
             crate::sim::world::FrameEffects::default(),
         );
@@ -3298,6 +3300,7 @@ mod tests {
         crate::sim::mission::enter::mission_enter(
             &mut sim,
             &rules,
+            None,
             1,
             crate::sim::world::FrameEffects::default(),
         );

@@ -15,18 +15,31 @@ use crate::sim::team_script_vm::{TeamScriptAction, TeamScriptDefinition};
 const RULES: &str = "\
 [InfantryTypes]
 0=INIT
+1=OVERSIZE
 [VehicleTypes]
 0=LTNK
+1=TRNS
 [BuildingTypes]
 0=YAPOWR
 1=GAPOWR
+2=UABSORB
 [INIT]
 Strength=100
 Speed=4
 Locomotor={4A582744-9839-11D1-B709-00A024DDAFD1}
+[OVERSIZE]
+Strength=100
+Speed=4
+Size=16
+Locomotor={4A582744-9839-11D1-B709-00A024DDAFD1}
 [LTNK]
 Strength=300
 Speed=6
+Locomotor={4A582741-9839-11D1-B709-00A024DDAFD1}
+[TRNS]
+Strength=300
+Speed=6
+Passengers=2
 Locomotor={4A582741-9839-11D1-B709-00A024DDAFD1}
 [YAPOWR]
 Strength=700
@@ -35,9 +48,14 @@ Passengers=5
 SizeLimit=15
 [GAPOWR]
 Strength=750
+[UABSORB]
+Strength=700
+UnitAbsorb=yes
+Passengers=5
+SizeLimit=15
 ";
 
-const ART: &str = "[YAPOWR]\nFoundation=2x2\n[GAPOWR]\nFoundation=2x2\n";
+const ART: &str = "[YAPOWR]\nFoundation=2x2\n[GAPOWR]\nFoundation=2x2\n[UABSORB]\nFoundation=2x2\n";
 
 fn rules() -> RuleSet {
     RuleSet::from_ini_with_fixed_art_for_test(&IniFile::from_str(RULES), &IniFile::from_str(ART))
@@ -97,6 +115,29 @@ fn seek(sim: &mut Simulation, rules: &RuleSet, id: u64) -> bool {
     sim.foot_enter_bio_reactor(id, rules, None, FrameEffects::default())
 }
 
+fn entity(sim: &Simulation, id: u64) -> &GameEntity {
+    sim.substrate.entities.get(id).unwrap()
+}
+
+/// Runs the production frame until `done` holds, for at most `frames`
+/// frames; answers whether it held.
+fn run_until(
+    sim: &mut Simulation,
+    rules: &RuleSet,
+    grid: &PathGrid,
+    frames: usize,
+    done: impl Fn(&Simulation) -> bool,
+) -> bool {
+    for _ in 0..frames {
+        if done(sim) {
+            return true;
+        }
+        let commands = sim.take_due_commands();
+        sim.advance_tick(&commands, Some(rules), Some(grid), None, 33);
+    }
+    done(sim)
+}
+
 /// A team running script action 62, then 49, of `members`.
 fn bio_reactor_team(sim: &mut Simulation, members: Vec<u64>) -> u64 {
     let script = sim.interner.intern("BIO SCRIPT");
@@ -121,7 +162,7 @@ fn bio_reactor_team(sim: &mut Simulation, members: Vec<u64>) -> u64 {
 /// Native EnterBioReactor (`0x004DFB70`), its CAN_LOAD answers supplied:
 /// each absorber is asked from the list's last, and the pick, its reissue
 /// (Queue_Mission(Enter, 0) and Assign_Destination(pick, 1)), the answer
-/// and the latch are [`pick_bio_reactor`]'s over [`bio_reactor_distance`]:
+/// and the latch are [`pick_bio_reactor`]'s over [`object_distance`]:
 /// strictly nearer wins, ties to the later absorber, distances that differ
 /// below a lepton tie, and a pick already the first radio contact or the
 /// pending entry is not reissued.
@@ -165,7 +206,7 @@ fn the_bio_reactor_pick_matches_native() {
                 let absorber = &absorbers[index as usize];
                 let roger = absorber["answer"] == RadioResponse::Roger.code();
                 let distance = if roger {
-                    bio_reactor_distance(foot, xyz(&absorber["xyz"]))
+                    object_distance(foot, xyz(&absorber["xyz"]), None)
                 } else {
                     i32::MAX
                 };
@@ -207,14 +248,16 @@ fn the_bio_reactor_pick_matches_native() {
 
 /// `BuildingClass::Receive_Radio`'s CAN_LOAD absorber arm
 /// (`0x0043C43B..0x0043C4F2`): ROGER while a slot is free, the later arms'
-/// STATIC when full, NEGATORY to a class the absorber does not take.
+/// STATIC to a sender above `SizeLimit=` or when full, NEGATORY to a class
+/// the absorber does not take.
 #[test]
-fn an_absorber_answers_can_load_by_room_and_class() {
+fn an_absorber_answers_can_load_by_room_size_and_class() {
     let rules = rules();
     let (mut sim, _) = arena(&rules);
     let reactor = spawn(&mut sim, &rules, "YAPOWR", "YuriCountry", 16, 10);
     let infantry = spawn(&mut sim, &rules, "INIT", "YuriCountry", 10, 10);
     let tank = spawn(&mut sim, &rules, "LTNK", "YuriCountry", 10, 12);
+    let oversize = spawn(&mut sim, &rules, "OVERSIZE", "YuriCountry", 10, 14);
 
     absorb(&mut sim, &rules, reactor, 4);
     assert_eq!(
@@ -225,10 +268,46 @@ fn an_absorber_answers_can_load_by_room_and_class() {
         can_load(&mut sim, &rules, tank, reactor),
         RadioResponse::Negatory
     );
+    assert_eq!(
+        can_load(&mut sim, &rules, oversize, reactor),
+        RadioResponse::None
+    );
     absorb(&mut sim, &rules, reactor, 1);
     assert_eq!(
         can_load(&mut sim, &rules, infantry, reactor),
         RadioResponse::None
+    );
+}
+
+/// The CAN_LOAD absorber arm refuses a sender controlling a captive
+/// (`0x004722C0`), though a slot is free.
+#[test]
+fn an_absorber_refuses_a_controller() {
+    let rules = rules();
+    let (mut sim, _) = arena(&rules);
+    let reactor = spawn(&mut sim, &rules, "YAPOWR", "YuriCountry", 16, 10);
+    let controller = spawn(&mut sim, &rules, "INIT", "YuriCountry", 10, 10);
+    let captive = spawn(&mut sim, &rules, "INIT", "Americans", 10, 12);
+    assert_eq!(
+        can_load(&mut sim, &rules, controller, reactor),
+        RadioResponse::Roger
+    );
+
+    sim.substrate
+        .entities
+        .get_mut(controller)
+        .unwrap()
+        .capture_manager = Some(
+        crate::sim::capture_manager::CaptureManagerState::with_victims_for_test(
+            1,
+            false,
+            &[captive],
+        ),
+    );
+
+    assert_eq!(
+        can_load(&mut sim, &rules, controller, reactor),
+        RadioResponse::Negatory
     );
 }
 
@@ -261,6 +340,62 @@ fn the_nearest_own_reactor_with_room_takes_the_foot() {
         entity.passenger_role,
         PassengerRole::Boarding { target_transport_id } if target_transport_id == room
     ));
+}
+
+/// Equidistant absorbers through the production walk: the house's list is
+/// walked from its last and only a strictly nearer absorber replaces the
+/// pick, so the one built later takes the Foot, whichever side it stands.
+/// The seeker is a vehicle, which stands at its cell's centre (an
+/// infantryman's sub-cell spot would break the mirror).
+#[test]
+fn of_equidistant_absorbers_the_later_built_takes_the_foot() {
+    let rules = rules();
+    for cells in [[(13, 8), (8, 13)], [(8, 13), (13, 8)]] {
+        let (mut sim, _) = arena(&rules);
+        let foot = spawn(&mut sim, &rules, "LTNK", "YuriCountry", 10, 10);
+        let reactors =
+            cells.map(|(rx, ry)| spawn(&mut sim, &rules, "UABSORB", "YuriCountry", rx, ry));
+        let coords = |id| {
+            let coords = object_get_coords(entity(&sim, id), sim.resolved_terrain.as_ref());
+            [coords.x, coords.y, coords.z]
+        };
+        let [first, later] =
+            reactors.map(|reactor| object_distance(coords(foot), coords(reactor), None));
+        assert_eq!(first, later, "the absorbers stand equally far");
+
+        assert!(seek(&mut sim, &rules, foot));
+
+        assert_eq!(
+            entity(&sim, foot).navigation.nav_com,
+            Some(NavTargetRef::object(reactors[1]))
+        );
+    }
+}
+
+/// A Foot that is a transport keeps its cargo: the seek orders it to the
+/// absorber, but the Boarding adapter, which keeps one role per object, is
+/// not given it (module residual).
+#[test]
+fn a_transport_sent_to_an_absorber_keeps_its_cargo() {
+    let rules = rules();
+    let (mut sim, _) = arena(&rules);
+    let absorber = spawn(&mut sim, &rules, "UABSORB", "YuriCountry", 16, 10);
+    let transport = spawn(&mut sim, &rules, "TRNS", "YuriCountry", 10, 10);
+    assert!(entity(&sim, transport).passenger_role.cargo().is_some());
+
+    assert!(seek(&mut sim, &rules, transport));
+
+    let entity = entity(&sim, transport);
+    assert!(entity.building_entry.should_enter_absorber());
+    assert_eq!(
+        entity.mission.queued(),
+        MissionId::from_known(MissionType::Enter)
+    );
+    assert_eq!(
+        entity.navigation.nav_com,
+        Some(NavTargetRef::object(absorber))
+    );
+    assert!(entity.passenger_role.cargo().is_some());
 }
 
 /// The latch is saved and, while set, hashed.
@@ -364,24 +499,84 @@ fn a_bio_reactor_team_member_walks_into_the_reactor() {
     let infantry = spawn(&mut sim, &rules, "INIT", "YuriCountry", 10, 10);
     let team = bio_reactor_team(&mut sim, vec![infantry]);
 
-    for _ in 0..300 {
-        let commands = sim.take_due_commands();
-        sim.advance_tick(&commands, Some(&rules), Some(&grid), None, 33);
-        if sim
-            .substrate
-            .entities
-            .get(infantry)
-            .is_some_and(|entity| entity.passenger_role.inside_transport_id() == Some(reactor))
-        {
-            break;
-        }
-    }
+    assert!(run_until(&mut sim, &rules, &grid, 300, |sim| {
+        entity(sim, infantry).passenger_role.inside_transport_id() == Some(reactor)
+    }));
 
-    let entity = sim.substrate.entities.get(infantry).unwrap();
-    assert_eq!(entity.passenger_role.inside_transport_id(), Some(reactor));
-    let cargo = sim.substrate.entities.get(reactor).unwrap();
-    assert_eq!(cargo.passenger_role.cargo().unwrap().count(), 1);
+    let cargo = entity(&sim, reactor).passenger_role.cargo().unwrap();
+    assert_eq!(cargo.count(), 1);
     assert!(sim.team_script_vm.team(team).is_none());
+}
+
+/// A reactor destroyed while the Foot walks to it: the adapter lets the
+/// Foot go, Mission_Enter's no-target arm idles it (`0x004D9425..
+/// 0x004D9466`), and its Guard head seeks again, finds no taker and clears
+/// the latch, so a team may recruit it again.
+#[test]
+fn a_seeker_whose_reactor_dies_gives_up_and_can_be_recruited() {
+    let rules = rules();
+    let (mut sim, grid) = arena(&rules);
+    let reactor = spawn(&mut sim, &rules, "YAPOWR", "YuriCountry", 24, 10);
+    let infantry = spawn(&mut sim, &rules, "INIT", "YuriCountry", 10, 10);
+    let _team = bio_reactor_team(&mut sim, vec![infantry]);
+    assert!(run_until(&mut sim, &rules, &grid, 30, |sim| {
+        matches!(
+            entity(sim, infantry).passenger_role,
+            PassengerRole::Boarding { target_transport_id } if target_transport_id == reactor
+        )
+    }));
+
+    sim.despawn_entity(reactor);
+
+    assert!(run_until(&mut sim, &rules, &grid, 300, |sim| {
+        !entity(sim, infantry).building_entry.seeking()
+    }));
+    let foot = entity(&sim, infantry);
+    assert!(matches!(foot.passenger_role, PassengerRole::None));
+    assert_ne!(
+        foot.mission.current(),
+        MissionId::from_known(MissionType::Enter)
+    );
+    let team = bio_reactor_team(&mut sim, Vec::new());
+    assert!(sim.team_can_add(team, infantry, true, &rules).is_some());
+}
+
+/// Two seekers for a reactor's last slot: the first in takes it, the
+/// adapter turns the other away on arrival (module residual), Mission_Enter
+/// idles it, and its Guard head finds no taker and clears the latch.
+#[test]
+fn a_seeker_beaten_to_the_last_slot_gives_up() {
+    let rules = rules();
+    let (mut sim, grid) = arena(&rules);
+    let reactor = spawn(&mut sim, &rules, "YAPOWR", "YuriCountry", 16, 10);
+    absorb(&mut sim, &rules, reactor, 4);
+    let near = spawn(&mut sim, &rules, "INIT", "YuriCountry", 12, 10);
+    let far = spawn(&mut sim, &rules, "INIT", "YuriCountry", 8, 10);
+    let _team = bio_reactor_team(&mut sim, vec![near, far]);
+    assert!(run_until(&mut sim, &rules, &grid, 30, |sim| {
+        [near, far]
+            .iter()
+            .all(|&id| entity(sim, id).building_entry.seeking())
+    }));
+
+    assert!(run_until(&mut sim, &rules, &grid, 900, |sim| {
+        entity(sim, near).passenger_role.inside_transport_id() == Some(reactor)
+            && !entity(sim, far).building_entry.seeking()
+    }));
+    assert_eq!(
+        entity(&sim, reactor)
+            .passenger_role
+            .cargo()
+            .unwrap()
+            .count(),
+        5
+    );
+    let foot = entity(&sim, far);
+    assert!(matches!(foot.passenger_role, PassengerRole::None));
+    assert_ne!(
+        foot.mission.current(),
+        MissionId::from_known(MissionType::Enter)
+    );
 }
 
 /// Retail rules (every layer, gamemd-exact): the Bio Reactor takes a Yuri

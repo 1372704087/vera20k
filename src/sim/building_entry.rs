@@ -23,11 +23,20 @@
 //!   (`passenger::tick_passenger_system`), as a player's Enter order does:
 //!   the class setter's Enter arm (radio HELLO and DOCKING,
 //!   `0x0051AC25..0x0051AD17`) and InfantryClass::PerCellProcess's DOCK_NOW
-//!   to that contact (`0x0051A298..0x0051A2A7`) are not represented, so the
-//!   reissue test below never finds the absorber as a radio contact, and a
-//!   Foot that arrives at an absorber filled meanwhile is turned away
-//!   (DOCK_NOW, which an absorber answers ROGER, would let it in). Trigger:
-//!   every seek. Frequency: AI Yuri games with Bio Reactors.
+//!   to that contact (`0x0051A298..0x0051A2A7`) are not represented. The
+//!   reissue test below never finds the absorber as a radio contact; while
+//!   the adapter walks the Foot, Mission_Enter (`0x004D9290`) is not run, so
+//!   its DOCKING probe and its Rate epilogue draw (RandomRanged(0, 2) on the
+//!   Scenario stream) are skipped each dispatch; and a Foot that arrives at
+//!   an absorber filled meanwhile is turned away, where DOCK_NOW, which an
+//!   absorber answers ROGER, would let it in. Mission_Enter then idles it
+//!   and its Guard head seeks again. Trigger: every seek. Frequency: AI Yuri
+//!   games with Bio Reactors.
+//! - A Foot that is itself a transport or a passenger is not handed to the
+//!   adapter, which keeps one role per object; it takes the Enter order and
+//!   the destination only. Trigger: a transport seeking a `UnitAbsorb=`
+//!   building (retail has none), or an open-topped rider whose Guard head
+//!   runs with the latch set.
 //! - Mission_Unload's eject clears the latch of a human house's passenger
 //!   (`0x0044DBEA`); VERA's absorbers do not eject on Unload
 //!   (`techno_ai::building_missions`), so nothing clears it there.
@@ -44,8 +53,11 @@ use crate::sim::components::NavTargetRef;
 use crate::sim::game_entity::GameEntity;
 use crate::sim::mission::authority::LiveReadyInputProvider;
 use crate::sim::mission::{MissionId, MissionType};
+use crate::sim::movement::ground_pose::object_get_coords;
+use crate::sim::passenger::PassengerRole;
 use crate::sim::radio::{RadioMessage, RadioPayload, RadioResponse, transmit};
 use crate::sim::world::{FrameEffects, Simulation};
+use crate::util::native_x87::object_distance;
 
 /// A Foot's building-entry latches. Only this module writes them.
 #[derive(
@@ -91,20 +103,6 @@ fn pick_bio_reactor(
     (best, reissue)
 }
 
-/// The `(dx²+dz²)+dy²` Sqrt_Approx distance from the Foot's GetCoords
-/// (vt+0x48) to the absorber's, each `[x, y, z]` (`0x004DFBC4..0x004DFC30`).
-fn bio_reactor_distance(foot: [i32; 3], absorber: [i32; 3]) -> i32 {
-    let [fx, fy, fz] = foot;
-    let [ax, ay, az] = absorber;
-    crate::util::native_x87::distance_3d_leptons([fx, fz, fy], [ax, az, ay])
-}
-
-fn get_coords(sim: &Simulation, entity: &GameEntity) -> [i32; 3] {
-    let coords =
-        crate::sim::movement::ground_pose::object_get_coords(entity, sim.resolved_terrain.as_ref());
-    [coords.x, coords.y, coords.z]
-}
-
 impl Simulation {
     /// `FootClass::EnterBioReactor @ 0x004DFB70`. Each of the house's
     /// absorbers (House+0xB0, [`Self::house_absorbers`]), from the last, is
@@ -141,7 +139,12 @@ impl Simulation {
                 self.substrate.entities.get(absorber),
             ) {
                 (Some(foot), Some(building)) if roger => {
-                    bio_reactor_distance(get_coords(self, foot), get_coords(self, building))
+                    // Distance's arithmetic between the two GetCoords (vt+0x48),
+                    // inlined without its building trim (`0x004DFBC4..0x004DFC30`).
+                    let terrain = self.resolved_terrain.as_ref();
+                    let from = object_get_coords(foot, terrain);
+                    let to = object_get_coords(building, terrain);
+                    object_distance([from.x, from.y, from.z], [to.x, to.y, to.z], None)
                 }
                 _ => i32::MAX,
             };
@@ -184,8 +187,12 @@ impl Simulation {
                 foot.category,
                 EntityCategory::Infantry | EntityCategory::Unit
             )
+            && matches!(
+                foot.passenger_role,
+                PassengerRole::None | PassengerRole::Boarding { .. }
+            )
         {
-            foot.passenger_role = crate::sim::passenger::PassengerRole::Boarding {
+            foot.passenger_role = PassengerRole::Boarding {
                 target_transport_id: best,
             };
         }

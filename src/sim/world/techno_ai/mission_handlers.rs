@@ -206,6 +206,30 @@ pub(crate) fn dispatch_foot_mission(
             MissionHandlerEvaluation::cadence(crate::sim::mission::enter::mission_enter(
                 sim,
                 rules,
+                ctx.overlay_registry,
+                id,
+                ctx.effects,
+            ))
+        }
+        // Infantry inherit Foot Enter too (InfantryClass vt+0x240 is
+        // `0x004D9290`). Their entries, an Enter order or a building-entry
+        // seek (`sim::building_entry`), run through the Boarding adapter
+        // (`passenger::tick_passenger_system`), which carries the walk without
+        // the native radio route; while it does, the body is not run. Once the
+        // adapter has let the Foot go (its target died, or was full on
+        // arrival), the body's no-target arm idles it (`0x004D9425..0x004D9466`).
+        (EntityCategory::Infantry, Some(MissionType::Enter))
+            if !sim.substrate.entities.get(id).is_some_and(|entity| {
+                matches!(
+                    entity.passenger_role,
+                    crate::sim::passenger::PassengerRole::Boarding { .. }
+                )
+            }) =>
+        {
+            MissionHandlerEvaluation::cadence(crate::sim::mission::enter::mission_enter(
+                sim,
+                rules,
+                ctx.overlay_registry,
                 id,
                 ctx.effects,
             ))

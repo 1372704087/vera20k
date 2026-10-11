@@ -126,7 +126,11 @@ fn removal_past_the_map_matches_native() {
             .lifecycle
             .object_alive;
         assert_eq!(alive, !removed, "{row}");
-        assert_eq!(sim.substrate.pending_delete.contains(&1), removed, "{row}");
+        assert_eq!(
+            sim.substrate.pending_delete.contains_object(&1),
+            removed,
+            "{row}"
+        );
     }
 }
 

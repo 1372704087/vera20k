@@ -108,7 +108,9 @@ fn recalc_fixture(row: &Value) -> (Simulation, RuleSet, u64) {
     let metadata = vm.team_type_ini.get_mut(&team_type).unwrap();
     metadata.reinforce = flag(&row["reinforce"]);
     metadata.guard_slower = flag(&row["guard_slower"]);
-    let team_id = vm.construct_team(team_type, owner, true, 0).unwrap();
+    let team_id = vm
+        .construct_team(team_type, owner, true, 0, false, None)
+        .unwrap();
     let team = vm.teams.get_mut(&team_id).unwrap();
     team.members = (1..=index(&row["total"]))
         .map(|id| TeamMember {
@@ -204,6 +206,7 @@ fn calc_center_matches_the_original() {
                     flag(&member["initiated"]),
                     guard_slower && flag(&member["weight"]),
                     int(&member["passengers"]) > 0 && flag(&member["naval"]),
+                    false,
                 )
             })
             .collect();

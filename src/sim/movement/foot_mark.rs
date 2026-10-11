@@ -260,7 +260,11 @@ impl Simulation {
         self.substrate
             .occupancy
             .add(cell.0, cell.1, id, layer, sub_cell, insertion);
-        self.discover_cell_put_object(id, cell);
+        self.discover_cell_put_object(
+            id,
+            cell,
+            crate::sim::world::UninitContext::new(rules, registry),
+        );
         #[cfg(test)]
         self.trace_lifecycle_for_test(LifecycleTestEvent::RawOccupationListLinked);
         receive(self, id);

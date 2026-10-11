@@ -244,7 +244,10 @@ fn immediate_bullet_commits_before_return_with_its_original_sound_order() {
         sim.live_object_order_snapshot(),
         [vec![attacker], ids.clone()].concat()
     );
-    assert_eq!(sim.substrate.pending_delete, vec![victim, projectile]);
+    assert_eq!(
+        sim.substrate.pending_delete.object_ids(),
+        vec![victim, projectile]
+    );
     assert!(
         !sim.substrate
             .entities

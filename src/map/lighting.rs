@@ -2267,6 +2267,7 @@ mod tests {
             structure_upgrades: [None, None, None],
             structure_ai_sellable: false,
             structure_ai_repairable: false,
+            trigger_tag: None,
         }
     }
 

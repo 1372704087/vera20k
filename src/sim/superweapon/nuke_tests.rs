@@ -903,7 +903,7 @@ fn retail_nuclear_missile_rises_falls_and_strikes_its_target() {
     // 20-frame life comes from its owner (a Rust regression check, not a
     // native run).
     let ball_live = |sim: &Simulation| {
-        sim.anim(ball).is_some() && !sim.substrate.pending_delete.contains(&ball)
+        sim.anim(ball).is_some() && !sim.substrate.pending_delete.contains_object(&ball)
     };
     let mut flash_changes = Vec::new();
     let mut last = lighting.nuke_flash_for_test().0;

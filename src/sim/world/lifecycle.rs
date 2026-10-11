@@ -21,7 +21,7 @@ use crate::util::lepton::BRIDGE_DECK_HEIGHT_LEPTONS;
 use crate::util::lepton::LEPTONS_PER_LEVEL;
 
 use super::display_layers::DisplayLayer;
-use super::substrate::ObjectKind;
+use super::substrate::{DeferredDeleteTicket, ObjectKind};
 use super::{FrameEffects, Simulation};
 
 /// The control value `DispatchPointerExpiredCleanup @ 0x007258D0` forwards to
@@ -535,6 +535,9 @@ pub(crate) enum LifecycleTestEvent {
     },
     BinaryFrameCommitted,
     PendingDeleteDrainStarted,
+    DeferredDeleteSelected {
+        ticket: DeferredDeleteTicket,
+    },
     FinalizedCommon {
         stable_id: u64,
     },
@@ -961,7 +964,7 @@ impl Simulation {
         if let Some(entity) = self.substrate.entities.get(stable_id)
             && entity.category != EntityCategory::Structure
         {
-            self.record_techno_discovery(stable_id, entity.owner());
+            self.discover_techno(stable_id, entity.owner(), context);
         }
         let high_flight = self.foot_neighbors_after_unlimbo(stable_id, context.rules);
         // Foot4D72B2/+54 requires high flight, then Type ConsideredAircraft
@@ -1160,6 +1163,9 @@ impl Simulation {
             }
             self.refresh_waypoint_edge_from_committed_structure(stable_id);
             self.mark_building_base_reservation_with_arg(stable_id, false, context);
+            self.discover_building_owner_after_unlimbo(stable_id, context);
+            //440E76's virtual discovery precedes the successful BasePlan
+            // tail at44159D..4415B3, including a reached first opening.
             self.fill_base_plan_from_successful_building_unlimbo(stable_id);
         }
         self.submit_entity_display(stable_id, context.rules, context.terrain());
@@ -1196,31 +1202,63 @@ impl Simulation {
         }
     }
 
+    /// Building440E5C..440E7C, after registration: owner50B730 alone
+    /// admits the owner virtual+198 callback. This establishes41C for AI
+    /// map buildings before a subsequent campaign reveal discovers them
+    /// for PlayerPtr. Construction/radio are checked by the override.
+    pub(crate) fn discover_building_owner_after_unlimbo(
+        &mut self,
+        id: u64,
+        context: UninitContext<'_>,
+    ) {
+        let Some(owner) = self
+            .substrate
+            .entities
+            .get(id)
+            .filter(|entity| entity.category == EntityCategory::Structure)
+            .map(|entity| entity.owner())
+        else {
+            return;
+        };
+        if self
+            .houses
+            .get(&owner)
+            .is_some_and(|house| !house.is_controlled_by_human(self.session.game_mode_nonzero))
+        {
+            self.discover_techno(id, owner, context);
+        }
+    }
+
     /// Shared TechnoDiscovered6F4960, called by CellAddContent47E9DC with
     /// PlayerPtr and FootUnlimbo4D722F with the object's owner. The queried
     /// House50B730 is the VIEWER; dirty flags and the1F4 notification belong
     /// to the object's owner at the time of the callback. The whole native
     /// capture comparison exercises this before the701735 owner swap.
     /// ObjectDiscovered5F5930 accepts a nonnull House without mutation.
-    /// Live attached Tag event4 at6F4A18 remains a trigger residual; the
-    /// ordinary joined Engineer route carries NULL Tags. Missing House state
+    /// Live attached Tag event4 at6F4A18 enters the shared Tag dispatcher;
+    /// the ordinary joined Engineer route carries NULL Tags. Missing House state
     /// is an unavailable headless boundary, not an invented native identity.
-    pub(super) fn record_techno_discovery(&mut self, stable_id: u64, viewer: InternedId) {
-        let Some(current_house) = self.session.current_house else {
-            return;
-        };
+    fn record_techno_discovery(
+        &mut self,
+        stable_id: u64,
+        viewer: InternedId,
+        context: UninitContext<'_>,
+    ) -> bool {
         let Some(entity) = self.substrate.entities.get(stable_id) else {
-            return;
+            return false;
         };
-        let current = viewer == current_house;
+        //6F4960..6F4972 compares the nonnull viewer against PlayerPtr;
+        //there is no null-Player guard. A headless owner callback therefore
+        //takes the ordinary other-house arm when no local player is bound.
+        let current = Some(viewer) == self.session.current_house;
         let history = entity.discovery;
         if (current && history.discovered_by_current_house)
             || (!current && history.discovered_by_other_house)
         {
-            return;
+            return false;
         }
         let Some(house) = self.houses.get(&viewer) else {
-            return;
+            return false;
         };
         let controlled = house.is_controlled_by_human(self.session.game_mode_nonzero);
         let owner = entity.owner();
@@ -1250,33 +1288,111 @@ impl Simulation {
             //Building's repaired health can therefore become visible before
             //its next own health sample, through this independent writer.
             self.invalidate_house_power(owner, true);
-            if !history.owned_by_current_house
-                && let Some(house) = self.houses.get_mut(&owner)
-            {
-                house.notify_discovered_by_current_house();
+            if !history.owned_by_current_house {
+                if !self.object_placement_scope_active() {
+                    //6F4A03..6F4A18: the attachment owner resolves the Tag,
+                    // including an Event48-only chain's no-match traversal.
+                    self.dispatch_object_discovery(stable_id, context);
+                }
+                //6F4A1D reloads owner AFTER synchronous Tag actions.
+                if let Some(owner) = self
+                    .substrate
+                    .entities
+                    .get(stable_id)
+                    .map(|entity| entity.owner())
+                    && let Some(house) = self.houses.get_mut(&owner)
+                {
+                    house.notify_discovered_by_current_house();
+                }
             }
         }
+        true
+    }
+
+    /// The Techno virtual DiscoveredBy slot (+198): Foot uses6F4960;
+    /// Building44D5D0 calls that same base before its own admission. A
+    /// repeated base callback returns false before any Building tail.
+    /// Original execution controls: trigger_action_values.py's discovery
+    /// aggregate, including owner-entry/current/repeat and6E4 fast return.
+    pub(crate) fn discover_techno(
+        &mut self,
+        id: u64,
+        viewer: InternedId,
+        context: UninitContext<'_>,
+    ) -> bool {
+        if !self.record_techno_discovery(id, viewer, context) {
+            return false;
+        }
+        let Some(entity) = self.substrate.entities.get(id) else {
+            return true;
+        };
+        if entity.category != EntityCategory::Structure {
+            return true;
+        }
+        let owner = entity.owner();
+        let no_radio = entity.radio_contacts.is_empty();
+        let construction = Some(crate::rules::mission_data::MissionType::Construction);
+        let current_construction = entity.mission.current().known() == construction;
+        let queued_construction = entity.mission.queued().known() == construction;
+        let controlled = self
+            .houses
+            .get(&owner)
+            .is_some_and(|house| house.is_controlled_by_human(self.session.game_mode_nonzero));
+        //44D632/44D664 query OWNER; shared6F4960 queries VIEWER.
+        // A foreign viewer therefore does not open an AI building.
+        // ScenarioInit affects the House notification writes,
+        // independently of this Grand_Opening admission.
+        let grand_admitted = if controlled {
+            !current_construction && !queued_construction
+        } else {
+            viewer == owner && !current_construction
+        };
+        if no_radio
+            && grand_admitted
+            && let Some(rules) = context.rules()
+        {
+            self.grand_opening(
+                id,
+                false,
+                self.object_placement_scope_active(),
+                rules,
+                context.registry(),
+                context.effects(),
+            );
+        }
+        //44D5ED..44D63C also writes House26C/246/1FC. The retained
+        // built-type Event19 and90-frame notification consumers remain
+        // the large separate mechanism documented in ai_base_building.
+        // Existing placement/opening owns the Super recheck; stock SOV01
+        // has no Russian Structures or Event19, and foreign GTGCAN
+        // discovery cannot grant a player Super. Do not add unread copies.
+        true
     }
 
     /// CellAddContent47E953..47E9DC's discovery gate. In active YR the
     /// IsFogged5865E0 body always returns false. Any noncampaign CellPUT
     /// therefore calls DiscoveredBy(PlayerPtr); campaigns do so only when
-    /// the height-projected Cell coordinate is shrouded. Reuse the existing
+    /// the height-projected Cell coordinate is unshrouded. Reuse the existing
     ///586360 and Fog authority instead of a presentation visibility cache.
-    pub(crate) fn discover_cell_put_object(&mut self, id: u64, cell: (u16, u16)) {
+    pub(crate) fn discover_cell_put_object(
+        &mut self,
+        id: u64,
+        cell: (u16, u16),
+        context: UninitContext<'_>,
+    ) {
         let Some(viewer) = self.session.current_house else {
             return;
         };
         if !self.session.game_mode_nonzero {
-            let Some(terrain) = self.resolved_terrain.as_ref() else {
+            let Some(terrain) = context.terrain().or(self.resolved_terrain.as_ref()) else {
                 return;
             };
             let cells = crate::map::resolved_terrain::NativeCellQuery::canonical(terrain);
-            if !crate::sim::vision::cell_is_shrouded(&self.fog, &cells, viewer, cell) {
+            if crate::sim::vision::cell_is_shrouded(&self.fog, &cells, viewer, cell) {
                 return;
             }
         }
-        self.record_techno_discovery(id, viewer);
+        self.discover_techno(id, viewer, context);
     }
 
     /// `BuildingClass::Unlimbo @ 0x00440580` calls
@@ -1424,7 +1540,7 @@ impl Simulation {
                 self.substrate
                     .occupancy
                     .add(rx, ry, stable_id, layer, None, insertion);
-                self.discover_cell_put_object(stable_id, (rx, ry));
+                self.discover_cell_put_object(stable_id, (rx, ry), context);
             }
             #[cfg(test)]
             self.trace_lifecycle_for_test(LifecycleTestEvent::RawOccupationListLinked);
@@ -2307,7 +2423,7 @@ impl Simulation {
         // A physically retained Destroy/UnInit object has already left Logic
         // and Display. Its independent19B byte can still be zero, so it cannot
         // be resurrected through Reveal before the common deferred drain.
-        if self.substrate.pending_delete.contains(&stable_id)
+        if self.substrate.pending_delete.contains_object(&stable_id)
             || !self
                 .substrate
                 .anims
@@ -2424,7 +2540,7 @@ impl Simulation {
             self.expire_anim_attached_bullet(stable_id, None);
         }
         let _ = self.unregister_non_entity_object(stable_id);
-        self.substrate.pending_delete.push(stable_id);
+        self.substrate.pending_delete.queue_object(stable_id);
         #[cfg(test)]
         self.trace_lifecycle_for_test(LifecycleTestEvent::PendingDeleteQueued { stable_id });
         true
@@ -2838,8 +2954,8 @@ impl Simulation {
                     entity.category,
                     entity.destruction_recorded,
                     // A Temporal erase leaves at full health with its kill
-                    // already booked (`combat::record_kill_credit`); a
-                    // crashing infantryman falls at Health 1 (`0x0051BC57`)
+                    // already booked (`combat::record_kill::record_kill_credit`);
+                    // a crashing infantryman falls at Health 1 (`0x0051BC57`)
                     // after the kill that booked its loss.
                     entity.health.current == 0 || entity.killed_by.is_some() || entity.crashing,
                     entity.dont_score,
@@ -2880,8 +2996,8 @@ impl Simulation {
     /// and virtual Destroy/reference notification before TechnoClass arms the
     /// timer and restores Alive/Health=1. This deliberately does not call
     /// UnInit, Limbo, record the destruction, or enqueue physical deletion.
-    /// The kill callback ([`crate::sim::combat::record_the_kill`]) has already
-    /// booked its House statistics before these Destroy callbacks.
+    /// The kill callback ([`crate::sim::combat::record_kill::record_the_kill`])
+    /// has already booked its House statistics before these Destroy callbacks.
     pub(crate) fn postmortem_exact_zero_callbacks(
         &mut self,
         stable_id: u64,
@@ -4053,7 +4169,7 @@ impl Simulation {
                 in_limbo: smudge.in_limbo(),
                 health: smudge.health(),
                 location: [location.x, location.y, location.z],
-                pending: self.substrate.pending_delete.clone(),
+                pending: self.substrate.pending_delete.object_ids(),
                 generic_objects: self
                     .removal_listener_order()
                     .into_iter()
@@ -4338,7 +4454,7 @@ impl Simulation {
             self.notify_pointer_expired(stable_id, context);
             self.notify_pointer_expired(stable_id, context);
             self.smudge_grid.as_mut().unwrap().finish_uninit(stable_id);
-            self.substrate.pending_delete.push(stable_id);
+            self.substrate.pending_delete.queue_object(stable_id);
             #[cfg(test)]
             self.trace_lifecycle_for_test(LifecycleTestEvent::PendingDeleteQueued { stable_id });
             return;
@@ -4399,7 +4515,7 @@ impl Simulation {
 
         // Native append has no duplicate suppression.  The drain collapses all
         // occurrences when this dead object becomes the selected ready entry.
-        self.substrate.pending_delete.push(stable_id);
+        self.substrate.pending_delete.queue_object(stable_id);
         #[cfg(test)]
         self.trace_lifecycle_for_test(LifecycleTestEvent::PendingDeleteQueued { stable_id });
     }
@@ -4422,7 +4538,7 @@ impl Simulation {
         }
 
         self.conceal_particle_system(stable_id);
-        self.substrate.pending_delete.push(stable_id);
+        self.substrate.pending_delete.queue_object(stable_id);
         #[cfg(test)]
         self.trace_lifecycle_for_test(LifecycleTestEvent::PendingDeleteQueued { stable_id });
     }
@@ -4466,7 +4582,24 @@ impl Simulation {
         &mut self,
         stable_id: u64,
         context: UninitContext<'_>,
+        game_state: i32,
     ) {
+        let foot = self
+            .substrate
+            .entities
+            .get(stable_id)
+            .is_some_and(|entity| entity.category != EntityCategory::Structure);
+        // Constructor-complete Unit7357F6..735809, Infantry517DF2..517E05
+        // and Aircraft4140EB..4140FE leave their Team before Remove_Tracking.
+        // Their gate is the low byte of GameState[A8E9A0], independently of
+        // ScenarioStarted[A8ED5C]. Foot4D3597..4D35C8 repeats the same shared
+        // RemoveMember6EA870 when a class destructor retained the reference.
+        // Source: original gamemd SHA256
+        // 1cdd1180e49024fbda8ad568caac2e86e856063ff67ab38f62b7d2c7bb84298c;
+        // executed composed action7 cleanup: spatial_oracle/team_creation.
+        if foot && (game_state as u8) != 0 {
+            self.leave_team(stable_id, false, context.rules(), context.effects());
+        }
         if self
             .smudge_grid
             .as_ref()
@@ -4515,16 +4648,30 @@ impl Simulation {
                     .filter(|sample| *sample != entity.health.current)
                     .map(|_| entity.owner())
             });
-            if let Some(owner) = unsampled_owner {
+            if (game_state as u8) != 0
+                && let Some(owner) = unsampled_owner
+            {
                 self.invalidate_house_power(owner, false);
             }
         }
         // The Techno destructors (`0x0041410B`, `0x0043BF34`, `0x00517E2E`,
-        // `0x00735816`) call Remove_Tracking.
-        self.update_house_tracking(
-            stable_id,
-            crate::sim::house_tracking::HouseTracking::remove_tracking,
-        );
+        // `0x00735816`) call Remove_Tracking under GameState's low-byte gate.
+        // The admitted entity store contains constructor-complete concrete
+        // types; the native null-Type branch is outside that representation.
+        if (game_state as u8) != 0 {
+            self.update_house_tracking(
+                stable_id,
+                crate::sim::house_tracking::HouseTracking::remove_tracking,
+            );
+        }
+        if foot {
+            // Class scalar destructors dispatch removed=true independently of
+            // the active-state gate, after class tracking/Limbo and before the
+            // delegated Foot cached-cell/sound tail: Unit735892,
+            // Infantry517E75 and Aircraft414125 -> original7258D0. This also
+            // repairs observers of a rejected constructor that never UnInits.
+            self.notify_pointer_expired(stable_id, context);
+        }
         // The ObjectClass destructor's defensive Defuse (`0x005F3BA6`).
         self.bomb_defuse(stable_id);
         self.team_script_vm.object_deleted(stable_id);
@@ -4632,7 +4779,13 @@ impl Simulation {
     /// [`Self::process_pending_delete_with`]).
     #[cfg(test)]
     pub(crate) fn process_pending_delete(&mut self) {
-        self.process_pending_delete_with(None, None, FrameEffects::default());
+        self.process_pending_delete_with(
+            None,
+            None,
+            FrameEffects::default(),
+            1,
+            self.session.started(),
+        );
     }
 
     /// Native-shaped pending-delete drain: preserve alive entries, collapse all
@@ -4648,25 +4801,45 @@ impl Simulation {
         rules: Option<&RuleSet>,
         registry: Option<&crate::rules::overlay_types::OverlayTypeRegistry>,
         effects: FrameEffects<'_>,
+        game_state: i32,
+        started: bool,
     ) {
         #[cfg(test)]
         self.trace_lifecycle_for_test(LifecycleTestEvent::PendingDeleteDrainStarted);
         let mut index = 0;
-        while index < self.substrate.pending_delete.len() {
-            let stable_id = self.substrate.pending_delete[index];
-            if !self.pending_object_is_ready(stable_id) {
+        while let Some(ticket) = self.substrate.pending_delete.ticket(index) {
+            let ready = match ticket {
+                DeferredDeleteTicket::Object(id) => self.pending_object_is_ready(id),
+                DeferredDeleteTicket::Overlay(id) => self.load_objects.queued_overlay_is_ready(id),
+                // Abstract410440's +44 returns true for both live families.
+                DeferredDeleteTicket::Tag(_) | DeferredDeleteTicket::Trigger(_) => true,
+            };
+            if !ready {
                 index += 1;
                 continue;
             }
-            self.substrate
-                .pending_delete
-                .retain(|&queued| queued != stable_id);
-            self.release_slave_links_at_destruction(stable_id, rules, registry, effects);
-            self.finalize_and_remove_common(
-                stable_id,
-                UninitContext::new(rules, registry).with_effects(effects),
-            );
+            //725C9A..725CE1 removes every selected duplicate BEFORE virtual
+            // destruction, then reexamines the same live logical index.
+            self.substrate.pending_delete.remove(ticket);
+            #[cfg(test)]
+            self.trace_lifecycle_for_test(LifecycleTestEvent::DeferredDeleteSelected { ticket });
+            match ticket {
+                DeferredDeleteTicket::Object(id) => {
+                    self.release_slave_links_at_destruction(id, rules, registry, effects);
+                    self.finalize_and_remove_common(
+                        id,
+                        UninitContext::new(rules, registry).with_effects(effects),
+                        game_state,
+                    );
+                }
+                DeferredDeleteTicket::Overlay(id) => self.load_objects.destroy_queued_overlay(id),
+                DeferredDeleteTicket::Tag(id) => {
+                    self.delete_live_tag(id, rules, game_state, started)
+                }
+                DeferredDeleteTicket::Trigger(id) => self.delete_live_trigger(id),
+            }
         }
+        self.substrate.pending_delete.finish_drain();
     }
 
     /// Test compatibility only.  Production has one ordinary tail drain.

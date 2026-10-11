@@ -378,10 +378,10 @@ fn gap_operational_events_invalidate_map_reveal_latch_including_friendly_reentry
     let (mut sim, rules, viewer, owner, _) = fixture();
     sim.session.game_options.shroud = false;
     crate::sim::scenario_bootstrap::apply_launch_shroud_option(&mut sim, Some("Americans"));
-    assert!(sim.fog.whole_map_revealed_owners.contains(&viewer));
+    assert!(sim.fog.whole_map_revealed_for_owner(viewer));
     insert(&mut sim, 1, owner, "GAGAP", 12, 12);
     sim.visit_building_operational(1, &rules, None, crate::sim::world::FrameEffects::default());
-    assert!(!sim.fog.whole_map_revealed_owners.contains(&viewer));
+    assert!(!sim.fog.whole_map_revealed_for_owner(viewer));
     assert!(!sim.fog.is_cell_revealed(viewer, 12, 12));
     power(&mut sim, &rules); // low power, but no Building turn has removed it
     insert(&mut sim, 2, viewer, "GASPYSAT", 1, 1);
@@ -389,7 +389,7 @@ fn gap_operational_events_invalidate_map_reveal_latch_including_friendly_reentry
     assert!(sim.fog.is_cell_revealed(viewer, 12, 12));
     assert!(!sim.substrate.entities.get(1).unwrap().gap_generator.viewers[&viewer].active);
     assert!(
-        sim.fog.whole_map_revealed_owners.contains(&viewer),
+        sim.fog.whole_map_revealed_for_owner(viewer),
         "rejected post-bulk add must not clear the new mapping latch"
     );
 
@@ -399,14 +399,14 @@ fn gap_operational_events_invalidate_map_reveal_latch_including_friendly_reentry
     insert(&mut sim, 1, viewer, "GAGAP", 12, 12);
     sim.visit_building_operational(1, &rules, None, crate::sim::world::FrameEffects::default());
     assert!(
-        !sim.fog.whole_map_revealed_owners.contains(&viewer),
+        !sim.fog.whole_map_revealed_for_owner(viewer),
         "friendly admitted add clears240 without a hostile receipt"
     );
     insert(&mut sim, 2, viewer, "GASPYSAT", 1, 1);
     sim.reconcile_active_vision_structures(&rules);
     assert!(sim.substrate.entities.get(1).unwrap().gap_generator.viewers[&viewer].active);
     assert!(
-        !sim.fog.whole_map_revealed_owners.contains(&viewer),
+        !sim.fog.whole_map_revealed_for_owner(viewer),
         "successful friendly re-admission follows the bulk240=true store"
     );
 }

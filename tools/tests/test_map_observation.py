@@ -692,6 +692,65 @@ class MapObservationTests(unittest.TestCase):
         legacy['outputs'][0].pop('owner_role', None)
         observation._audio_observation(legacy, self.profile)
 
+    def test_coordinate_owner_and_optional_pool_count_are_read_only_and_bounded(self):
+        self.audio_profile()
+        for count in (None, 0, 200):
+            receipt = deepcopy(self.audio_receipt)
+            receipt['coordinate_request_count_at_finish'] = count
+            receipt['outputs'][0]['owner_role'] = 'coordinate_request'
+            retained = deepcopy(receipt)
+            observation._audio_observation(receipt, self.profile)
+            self.assertEqual(receipt, retained)
+        for count in (-1, 201, True):
+            receipt = deepcopy(self.audio_receipt)
+            receipt['coordinate_request_count_at_finish'] = count
+            with self.assertRaises(observation.ValidationError):
+                observation._audio_observation(receipt, self.profile)
+
+    def test_coordinate_request_rows_preserve_optional_observation_and_sample_budget(self):
+        # Protocol fixtures, not native coordinates or lifetime goldens.
+        state = {'main_rng_cursor': [0, 103], 'scenario_rng_cursor': [0, 103], 'actors': []}
+        self.assertEqual(observation._sound_state(state, 'sound'), 2)
+        request = {'request_id': 1, 'sound_id': 'Cue', 'source_world_pixels': [30.0, -15.0],
+                   'source_cell': [0, 65535], 'suspend_depth': 0}
+        for rows in (None, [], [request, dict(request, request_id=2)],
+                     [dict(request, request_id=index + 1) for index in range(200)]):
+            with self.subTest(count=None if rows is None else len(rows)):
+                observed = dict(state, coordinate_requests=rows)
+                retained = deepcopy(observed)
+                self.assertEqual(observation._sound_state(observed, 'sound'),
+                                 2 + (len(rows) if rows is not None else 0))
+                self.assertEqual(observed, retained, 'validation must not drive or rewrite requests')
+
+    def test_coordinate_request_rows_reject_forged_owners_coordinates_and_depths(self):
+        request = {'request_id': 1, 'sound_id': 'Cue', 'source_world_pixels': [30.0, -15.0],
+                   'source_cell': [0, 65535], 'suspend_depth': 0}
+        bad = [[deepcopy(request), deepcopy(request)], [request] * 201, False, {}]
+        for key, values in (
+                ('request_id', (0, -1, True, 1 << 64)),
+                ('sound_id', ('', True)),
+                ('source_world_pixels', ([1], [1, 2, 3], [True, 0], [None, 0],
+                                         [float('nan'), 0], [0, float('inf')], [10 ** 400, 0])),
+                ('source_cell', ([0], [False, 0], [-1, 0], [0, 65536])),
+                ('suspend_depth', (None, False, 1.0, -(1 << 31) - 1, 1 << 31))):
+            bad.extend([dict(request, **{key: value})] for value in values)
+        bad.append([{key: value for key, value in request.items() if key != 'sound_id'}])
+        for rows in bad:
+            with self.subTest(rows=rows), self.assertRaises(ValidationError):
+                observation._sound_state({'main_rng_cursor': [0, 103], 'scenario_rng_cursor': [0, 103],
+                                          'actors': [], 'coordinate_requests': rows}, 'sound')
+
+    def test_audio_export_retains_coordinate_owner_and_observed_pool_count(self):
+        self.audio_profile()
+        self.audio_receipt['coordinate_request_count_at_finish'] = 0
+        self.audio_receipt['outputs'][0]['owner_role'] = 'coordinate_request'
+        report = self.run_capture()
+        self.assertEqual(report['status'], 'VALID', report['errors'])
+        exported = observation.export_audio(self.output, self.root / 'coordinate-export')
+        self.assertEqual(exported['coordinate_request_count_at_finish'], 0)
+        self.assertEqual(exported['files'][0]['owner'], 7)
+        self.assertEqual(exported['files'][0]['owner_role'], 'coordinate_request')
+
     def test_audio_actor_gattling_pair_preserves_historical_rows_and_shared_budget(self):
         state = {'main_rng_cursor': [0, 103], 'scenario_rng_cursor': [0, 103],
                  'actors': [{'stable_id': 1, 'body_counter': 7, 'active': False, 'countdown': 0}]}

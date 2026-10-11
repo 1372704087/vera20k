@@ -1330,11 +1330,13 @@ fn completed_infantry_death_is_removed_by_the_class_sequencer() {
     let retired = sim.substrate.entities.get(id).unwrap();
     assert!(!retired.lifecycle.object_alive);
     assert!(retired.lifecycle.in_limbo);
-    assert!(sim.substrate.pending_delete.contains(&id));
+    assert!(sim.substrate.pending_delete.contains_object(&id));
     sim.process_pending_delete_with(
         Some(&rules),
         None,
         crate::sim::world::FrameEffects::default(),
+        1,
+        false,
     );
     assert!(sim.substrate.entities.get(id).is_none());
 }
@@ -1382,11 +1384,13 @@ fn infantry_death_finishes_at_its_sequence_count_and_not_one_frame_early() {
     let retired = sim.substrate.entities.get(id).unwrap();
     assert!(!retired.lifecycle.object_alive);
     assert!(retired.lifecycle.in_limbo);
-    assert!(sim.substrate.pending_delete.contains(&id));
+    assert!(sim.substrate.pending_delete.contains_object(&id));
     sim.process_pending_delete_with(
         Some(&rules),
         None,
         crate::sim::world::FrameEffects::default(),
+        1,
+        false,
     );
     assert!(sim.substrate.entities.get(id).is_none());
 }

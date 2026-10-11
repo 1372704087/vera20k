@@ -200,6 +200,17 @@ pub(crate) fn retail_assets() -> Option<(PathBuf, AssetManager)> {
     result
 }
 
+/// One file's bytes from that same archive stack (for example a campaign map
+/// in MAPSMD03.MIX), or `None` when [`retail_assets`] skips. An opened install
+/// that lacks the file fails.
+pub(crate) fn retail_archive_bytes(name: &str) -> Option<Vec<u8>> {
+    let (_, assets) = retail_assets()?;
+    let bytes = assets
+        .get_ref(name)
+        .unwrap_or_else(|| panic!("retail archives lack {name}"));
+    Some(bytes.to_vec())
+}
+
 /// Authored root text and final scenario fields are deliberately separate.
 pub(crate) struct RetailBattleRules {
     pub(crate) authored_rules: IniFile,

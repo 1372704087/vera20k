@@ -12,7 +12,6 @@ use crate::map::entities::EntityCategory;
 use crate::map::resolved_terrain::NativeCellQuery;
 use crate::rules::foundation::foundation_dimensions;
 use crate::rules::ruleset::RuleSet;
-use crate::sim::combat::DestroyedGarrisonBuilding;
 use crate::sim::intern::InternedId;
 use crate::sim::movement::infantry_entry::{InfantryEntryArgs, InfantryEntryClass};
 use crate::sim::world::{
@@ -377,6 +376,24 @@ pub(crate) fn eject_garrison_occupants(
     sim.refresh_spatial_threat(building_id, rules, None);
 
     ejected
+}
+
+/// A `CanBeOccupied` building destroyed in combat with live occupants —
+/// gamemd routes this through `BuildingClass::SellBuilding @ 0x00457DE0`, the
+/// same occupant-eject helper used by sell. The world fatal prelude consumes
+/// this plan synchronously, before the nested death weapon and carrier UnInit.
+pub struct DestroyedGarrisonBuilding {
+    pub building_id: u64,
+    /// Building's owner at time of death — ejected infantry inherit this.
+    pub owner: InternedId,
+    pub rx: u16,
+    pub ry: u16,
+    pub z: u8,
+    pub foundation_w: u16,
+    pub foundation_h: u16,
+    /// Snapshot of `cargo.passengers` at time of death, in admission order
+    /// (the eject helper walks it last to first).
+    pub passenger_ids: Vec<u64>,
 }
 
 /// Eject garrison occupants from a building destroyed in combat.
@@ -839,7 +856,6 @@ pub(crate) mod tests {
 
         let event = DestroyedGarrisonBuilding {
             building_id,
-            type_id: sim.interner.intern("CAGAS01"),
             owner,
             rx: 10,
             ry: 10,
@@ -912,7 +928,6 @@ pub(crate) mod tests {
         let owner = sim.interner.intern("Americans");
         let event = DestroyedGarrisonBuilding {
             building_id,
-            type_id: sim.interner.intern("CAGAS01"),
             owner,
             rx: 10,
             ry: 10,
@@ -1005,7 +1020,6 @@ pub(crate) mod tests {
 
         let event = DestroyedGarrisonBuilding {
             building_id,
-            type_id: sim.interner.intern("CAGAS01"),
             owner,
             rx: 10,
             ry: 10,
@@ -1051,7 +1065,6 @@ pub(crate) mod tests {
 
         let event = DestroyedGarrisonBuilding {
             building_id,
-            type_id: sim.interner.intern("CAGAS01"),
             owner,
             rx: 10,
             ry: 10,
@@ -1074,7 +1087,7 @@ pub(crate) mod tests {
         assert!(matches!(passenger.passenger_role, PassengerRole::None));
         assert!(!passenger.lifecycle.object_alive);
         assert!(passenger.lifecycle.in_limbo);
-        assert!(sim.substrate.pending_delete.contains(&passenger_id));
+        assert!(sim.substrate.pending_delete.contains_object(&passenger_id));
 
         sim.flush_pending_delete();
         assert!(sim.substrate.entities.get(passenger_id).is_none());

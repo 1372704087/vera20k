@@ -74,6 +74,7 @@ fn save(
         .match_presentation
         .sidebar_projection
         .saved_order();
+    let tactical_view = crate::app::input::camera::saved_tactical_view(state);
     let bytes = crate::sim::snapshot::GameSnapshot::save_validated_with_presentation(
         sim,
         map_hash,
@@ -82,6 +83,7 @@ fn save(
         now,
         &sinking_waterlines,
         sidebar_order.as_ref(),
+        Some(&tactical_view),
     );
     let tick = sim.session.tick;
     if let Some(path) = overwrite {
@@ -196,7 +198,7 @@ fn log_prepared_load_error(
         PreparedLoadError::Restore(source) => {
             log::error!("Load: restoration validation failed: {source}")
         }
-        PreparedLoadError::SidebarOrder(source) => {
+        PreparedLoadError::SidebarOrder(source) | PreparedLoadError::TacticalView(source) => {
             log::error!("Load: restoration validation failed: {source}")
         }
         PreparedLoadError::FactoryState(source) => {

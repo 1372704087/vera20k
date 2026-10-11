@@ -27,7 +27,7 @@ else is data in the case.
 
 Rust consumers: src/sim/combat/damage/attacker.rs (fire_damage) and
 src/sim/combat/damage/receive.rs (the defence divides) through
-src/sim/combat/world_receiver.rs and src/sim/combat/mod.rs.
+src/sim/combat/world_fire.rs and src/sim/combat/receiver_call.rs.
 """
 import struct
 from pathlib import Path

@@ -653,11 +653,7 @@ mod tests {
             if input.get("is_fogged").is_some() || input.get("rectangle").is_some() {
                 continue;
             }
-            let mut fog = FogState {
-                width: 32,
-                height: 32,
-                ..Default::default()
-            };
+            let mut fog = FogState::new(32, 32);
             fog.mark_visible_for_owner(local, 1, 1);
             for (cell, key) in [(top, "top_revealed"), (center, "center_revealed")] {
                 if input[key].as_bool().unwrap_or(false) {
@@ -777,11 +773,7 @@ mod tests {
                 serde_json::json!([coord.x, coord.y, coord.z]),
                 native["object_coords"]
             );
-            let mut fog = FogState {
-                width: 32,
-                height: 32,
-                ..Default::default()
-            };
+            let mut fog = FogState::new(32, 32);
             fog.mark_visible_for_owner(local, 1, 1);
             // Only raw native flag controls0/0x18 map to the ordinary Rust
             // unrevealed/revealed inputs. Partial0x08 is not a reveal producer.

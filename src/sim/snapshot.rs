@@ -936,7 +936,11 @@ use crate::sim::world::Simulation;
 // 325 -> 326: each overlay cell retains the destroyed building type its rubble
 // draws (CellClass+0x40). Serialized but NOT hashed: only the draw and rect
 // code read it. Version 325 records lack this field.
-const SNAPSHOT_VERSION: u32 = 326;
+// 326 -> 327: live Tag/Trigger and typed deletion owners, retained LoadObject
+// registry, neutral Tactical view/focus metadata, and per-plane native map-cell
+// edge cache/canonical Dummy visibility survive campaign load.
+// Prior bincode records cannot resume these lifecycle and camera authorities.
+const SNAPSHOT_VERSION: u32 = 327;
 
 const SNAPSHOT_PRODUCT_MAGIC: [u8; 8] = *b"VERA20K\0";
 const SNAPSHOT_ENVELOPE_VERSION: u32 = 1;
@@ -992,6 +996,21 @@ impl SavedSidebarOrder {
     }
 }
 
+/// TacticalSave6DBE00 writes the raw Tactical object; Load6DBD20 retains its
+/// focus fields and LastAIFrame through NoInit6D1E30. Load re-applies the
+/// clamped view and overwrites RequestedViewPosition with that view, so pending
+/// scroll is deliberately absent from this neutral presentation transport.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub(crate) struct SavedTacticalView {
+    pub(crate) view_world_pixels: [f32; 2],
+    pub(crate) zoom: f32,
+    pub(crate) focus_start: [i32; 2],
+    pub(crate) focus_target: [i32; 2],
+    pub(crate) focus_rate_bits: u32,
+    pub(crate) focus_progress_bits: u32,
+    pub(crate) last_ai_frame: u32,
+}
+
 /// Binary snapshot envelope — wraps the full `Simulation` state plus
 /// compatibility hashes for the map and rules that were active at save time.
 #[derive(Serialize, Deserialize)]
@@ -1024,6 +1043,7 @@ pub struct GameSnapshot {
     /// Retained local sidebar order is presentation state, outside the lockstep
     /// simulation hash. The app validates/hydrates it before committing a load.
     sidebar_order: Option<SavedSidebarOrder>,
+    tactical_view: Option<SavedTacticalView>,
 }
 
 /// Lightweight header extracted from a save file without deserializing the
@@ -1162,6 +1182,13 @@ pub enum SnapshotRestoreError {
         registry: &'static str,
         object_id: u64,
     },
+    #[error("PendingDeleteList {registry} identity {identity} has no restored owner")]
+    UnresolvedDeferredDeleteTicket {
+        registry: &'static str,
+        identity: u64,
+    },
+    #[error("restored trigger runtime is inconsistent: {reason}")]
+    InvalidTriggerRuntime { reason: String },
     #[error(
         "{source_registry} object {source_id} field {field} references missing {target_registry} object {target_id}"
     )]
@@ -1239,6 +1266,7 @@ struct GameSnapshotRef<'a> {
     sim: &'a Simulation,
     sinking_waterlines: &'a [(u64, i16)],
     sidebar_order: Option<&'a SavedSidebarOrder>,
+    tactical_view: Option<&'a SavedTacticalView>,
 }
 
 impl GameSnapshot {
@@ -1249,7 +1277,11 @@ impl GameSnapshot {
         map_name: &str,
         description: &str,
         save_timestamp: u64,
-        presentation: (&[(u64, i16)], Option<&SavedSidebarOrder>),
+        presentation: (
+            &[(u64, i16)],
+            Option<&SavedSidebarOrder>,
+            Option<&SavedTacticalView>,
+        ),
     ) -> Vec<u8> {
         // Retail provenance: Save_Game_To_File @ 0x0067CEF0 supplies a distinct
         // outer file identity; Write_Savegame_Metadata_To_Storage @ 0x006812E0
@@ -1257,7 +1289,7 @@ impl GameSnapshot {
         // Description. The active list admits only an exact internal-version
         // match at 0x00559ED0..0x0055A04A. VERA keeps its Rust-native bincode
         // body while making the same load-bearing envelope identities explicit.
-        let (sinking_waterlines, sidebar_order) = presentation;
+        let (sinking_waterlines, sidebar_order, tactical_view) = presentation;
         let snapshot = GameSnapshotRef {
             product_magic: SNAPSHOT_PRODUCT_MAGIC,
             envelope_version: SNAPSHOT_ENVELOPE_VERSION,
@@ -1271,6 +1303,7 @@ impl GameSnapshot {
             sim,
             sinking_waterlines,
             sidebar_order,
+            tactical_view,
         };
         bincode::serialize(&snapshot).expect("snapshot serialization should not fail")
     }
@@ -1296,6 +1329,7 @@ impl GameSnapshot {
             save_timestamp,
             &[],
             None,
+            None,
         )
     }
 
@@ -1309,6 +1343,7 @@ impl GameSnapshot {
         save_timestamp: u64,
         sinking_waterlines: &[(u64, i16)],
         sidebar_order: Option<&SavedSidebarOrder>,
+        tactical_view: Option<&SavedTacticalView>,
     ) -> Vec<u8> {
         Self::serialize(
             sim,
@@ -1317,12 +1352,16 @@ impl GameSnapshot {
             &sim.session.map_name,
             description,
             save_timestamp,
-            (sinking_waterlines, sidebar_order),
+            (sinking_waterlines, sidebar_order, tactical_view),
         )
     }
 
     pub(crate) fn sidebar_order(&self) -> Option<&SavedSidebarOrder> {
         self.sidebar_order.as_ref()
+    }
+
+    pub(crate) fn tactical_view(&self) -> Option<&SavedTacticalView> {
+        self.tactical_view.as_ref()
     }
 
     /// Test-only constructor for deliberately synthetic envelope metadata.
@@ -1341,7 +1380,7 @@ impl GameSnapshot {
             map_name,
             map_name,
             save_timestamp,
-            (&[], None),
+            (&[], None, None),
         )
     }
 
@@ -1514,6 +1553,15 @@ impl RestoredObjectIndex {
                 )?;
                 highest_id = highest_id.max(registry_id);
             }
+        }
+        for registry_id in sim.load_objects.retained_overlay_ids() {
+            Self::register(
+                &mut identities,
+                "LoadObjectLifecycle",
+                registry_id,
+                registry_id,
+            )?;
+            highest_id = highest_id.max(registry_id);
         }
 
         Ok((Self { highest_id }, identities))
@@ -2121,7 +2169,7 @@ fn restore_object_references(
         )?;
     }
 
-    for &object_id in &sim.substrate.pending_delete {
+    for object_id in sim.substrate.pending_delete.object_tickets() {
         require_resolved_reference(
             identities.contains_key(&object_id),
             "PendingDeleteList",
@@ -2249,9 +2297,31 @@ impl Simulation {
         let pending_delete_ids = self
             .substrate
             .pending_delete
-            .iter()
-            .copied()
+            .object_tickets()
             .collect::<BTreeSet<_>>();
+        for ticket in self.substrate.pending_delete.retained_tickets() {
+            use crate::sim::world::DeferredDeleteTicket;
+            let (registry, identity, resolves) = match ticket {
+                DeferredDeleteTicket::Object(id) => ("Object", id, identities.contains_key(&id)),
+                DeferredDeleteTicket::Overlay(id) => {
+                    ("Overlay", id, self.load_objects.has_overlay(id))
+                }
+                DeferredDeleteTicket::Tag(id) => {
+                    ("Tag", id as u64, self.trigger_runtime.has_live_tag(id))
+                }
+                DeferredDeleteTicket::Trigger(id) => (
+                    "Trigger",
+                    id as u64,
+                    self.trigger_runtime.has_live_trigger(id),
+                ),
+            };
+            if !resolves {
+                return Err(SnapshotRestoreError::UnresolvedDeferredDeleteTicket {
+                    registry,
+                    identity,
+                });
+            }
+        }
         if let Some(grid) = &self.smudge_grid {
             for (object_id, object) in grid.objects() {
                 if object.object_alive() || !object.in_limbo() {
@@ -2517,6 +2587,11 @@ impl Simulation {
             .collect();
         let native_tiberium_stats =
             self.rebuild_native_tiberium_queues_after_snapshot_load(rules, overlay_registry)?;
+        // CellTag identities are meaningful only after the canonical Cell
+        // allocation is restored. Keep their final owner validation in this
+        // shared admission seam, before an app can publish the candidate.
+        self.validate_restored_trigger_runtime()
+            .map_err(|reason| SnapshotRestoreError::InvalidTriggerRuntime { reason })?;
         Ok(SnapshotMapRestoreOutput {
             occupied_overlays,
             native_tiberium_stats,
@@ -3993,7 +4068,9 @@ mod tests {
         // 323 -> 324: the +0x690 latch and garrison admission order.
         // 324 -> 325: each entity's turret rotation-sound control latch.
         // 325 -> 326: each overlay cell's rubble building type.
-        assert_eq!(super::SNAPSHOT_VERSION, 326);
+        // 326 -> 327: live Tag/Trigger and typed deletion owners, retained
+        // LoadObject registry, and neutral Tactical view/focus metadata.
+        assert_eq!(super::SNAPSHOT_VERSION, 327);
     }
 
     #[test]
@@ -5199,7 +5276,7 @@ mod tests {
             .unwrap();
         assert!(sim.anim(anim).unwrap().owner_entity.is_none());
         sim.destroy_anim(anim, &rules);
-        assert!(sim.substrate.pending_delete.contains(&anim));
+        assert!(sim.substrate.pending_delete.contains_object(&anim));
         // Anim UnInit4255B0 broadcasts before deferred physical deletion;
         // Building451B40 clears slot3 immediately but retains Anim+118.
         assert_eq!(
@@ -5217,7 +5294,7 @@ mod tests {
         restored.restore_after_snapshot_load().unwrap();
         assert_eq!(restored.anim(anim).unwrap().building_slot, None);
         assert!(restored.anim(anim).unwrap().is_building_anim());
-        assert!(restored.substrate.pending_delete.contains(&anim));
+        assert!(restored.substrate.pending_delete.contains_object(&anim));
         assert_eq!(restored.state_hash(), hash);
     }
 
@@ -6396,7 +6473,7 @@ mod tests {
         assert_eq!(actor.air_tracker_cell(), (0, 0));
         assert_eq!(actor.air_slot_cell(), (10, 10));
         assert_eq!(restored.substrate.air_slots.holder(10, 10), Some(1));
-        assert_eq!(restored.substrate.pending_delete, vec![1]);
+        assert_eq!(restored.substrate.pending_delete.object_ids(), vec![1]);
         assert_eq!(restored.state_hash(), retired_hash);
 
         // This exercises the existing Rust drain and shared finalization
@@ -8070,7 +8147,9 @@ mod tests {
         entity.dirty_rect_eligible = true;
         entity.destruction_recorded = true;
         sim.substrate.entities.insert(entity);
-        sim.substrate.pending_delete.extend([7, 3, 7]);
+        for id in [7, 3, 7] {
+            sim.substrate.pending_delete.queue_object(id);
+        }
         // Native in-scenario load restarts Scenario RNG from Seed0; isolate
         // lifecycle-boundary persistence on that same post-load cursor.
         sim.scenario_rng = crate::sim::rng::SimRng::new(0);
@@ -8087,7 +8166,10 @@ mod tests {
         assert!(restored_entity.dying);
         assert!(restored_entity.dirty_rect_eligible);
         assert!(restored_entity.destruction_recorded);
-        assert_eq!(restored.substrate.pending_delete, vec![7, 3, 7]);
+        assert_eq!(
+            restored.substrate.pending_delete.object_ids(),
+            vec![7, 3, 7]
+        );
         assert_eq!(restored.state_hash(), hash_before);
     }
 
@@ -8359,7 +8441,7 @@ mod tests {
         );
         assert_eq!(result, TerrainDamageResult::Destroyed);
         assert!(sim.unregister_non_entity_object(destroyed_id));
-        sim.substrate.pending_delete.push(destroyed_id);
+        sim.substrate.pending_delete.queue_object(destroyed_id);
         sim.terrain_costs =
             crate::sim::pathfinding::terrain_cost::build_canonical_terrain_cost_grids(
                 sim.resolved_terrain

@@ -444,6 +444,52 @@ fn review_ring_holds_every_accepted_type_in_creation_order() {
     );
 }
 
+#[test]
+fn reinforcement_cells_share_review_order_without_creating_or_deduping_events() {
+    let mut queue = queue_ready();
+    let config = configured();
+    assert!(queue.create(
+        RadarEventType::BaseUnderAttack,
+        source((70, 70), (70, 70)),
+        0,
+        (200, 200),
+        &config,
+    ));
+    queue.remember_event_cell((70, 70));
+    queue.remember_event_cell((71, 70));
+    assert_eq!(
+        queue.len(),
+        1,
+        "remembering a cell does not admit an outlined event"
+    );
+    let now = Instant::now();
+    assert_eq!(queue.cycle_cell(now), Some((71, 70)));
+    assert_eq!(
+        queue.cycle_cell(now + Duration::from_millis(1)),
+        Some((70, 70))
+    );
+    assert_eq!(
+        queue.cycle_cell(now + Duration::from_millis(2)),
+        Some((70, 70))
+    );
+
+    // A successful arrival writes every cell, including repeats; eight-cell
+    // retention is independent of live radar-event uniqueness and cleanup.
+    for cell in 0..10_i16 {
+        queue.remember_event_cell((cell, 20));
+    }
+    queue.events.clear();
+    let restart = now + CYCLE_RESTART + Duration::from_millis(10);
+    for (step, cell) in (2..10_u16).rev().enumerate() {
+        assert_eq!(
+            queue.cycle_cell(restart + Duration::from_millis(step as u64)),
+            Some((cell, 20)),
+        );
+    }
+    queue.reset_for_load_or_view();
+    assert_eq!(queue.cycle_cell(restart), None);
+}
+
 fn request(event_type: RadarEventType, rx: u16, ry: u16) -> crate::sim::radar::RadarEventRequest {
     crate::sim::radar::RadarEventRequest::new(event_type, rx, ry)
 }

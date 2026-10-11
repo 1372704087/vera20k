@@ -5,7 +5,8 @@
 //! observation checks remain in `match_bootstrap::RustL0Observation`.
 
 use crate::app::match_bootstrap::{
-    MatchCorrelationId, PreparedMatchStartup, RustL0Observation, RustL0Receipt,
+    MatchCorrelationId, PreparedCampaignStartup, PreparedMatchStartup, RustL0Observation,
+    RustL0Receipt,
 };
 use crate::sim::world::Simulation;
 
@@ -23,6 +24,9 @@ enum StartupPhase {
         startup: Box<PreparedMatchStartup>,
         receipt: Box<RustL0Receipt>,
     },
+    /// The ordinary campaign load installed its selected Scenario. Session
+    /// remains the authority for campaign state; this token owns admission only.
+    CampaignInstalled,
 }
 
 impl MatchStartup {
@@ -65,6 +69,46 @@ impl MatchStartup {
         Ok(())
     }
 
+    pub(crate) fn acknowledge_campaign(
+        &mut self,
+        startup: &PreparedCampaignStartup,
+        simulation: Option<&Simulation>,
+        screen_is_loading: bool,
+    ) -> Result<(), String> {
+        let simulation =
+            simulation.ok_or_else(|| "campaign map load produced no Simulation".to_string())?;
+        let session = &simulation.session;
+        if !matches!(self.phase, StartupPhase::Noncertifying) || !screen_is_loading {
+            return Err("campaign map load lost its loading admission".to_string());
+        }
+        if !session.started()
+            || session.game_mode_nonzero
+            || session.tick != 0
+            || session.binary_frame != 0
+            || session.seed != u64::from(startup.seed.value)
+            || !session
+                .map_name
+                .eq_ignore_ascii_case(startup.campaign().scenario())
+            || session.campaign_mission_counter().is_none()
+            || session
+                .campaign_house_difficulties()
+                .is_none_or(|(player, computer)| {
+                    player as i32 != startup.difficulty()
+                        || computer as i32 != 2 - startup.difficulty()
+                })
+        {
+            return Err(
+                "campaign map load did not install its selected tick-zero Scenario".to_string(),
+            );
+        }
+        self.phase = StartupPhase::CampaignInstalled;
+        Ok(())
+    }
+
+    pub(crate) fn campaign_installed(&self) -> bool {
+        matches!(self.phase, StartupPhase::CampaignInstalled)
+    }
+
     pub(crate) fn accepted(&self) -> Option<(&PreparedMatchStartup, &RustL0Receipt)> {
         match &self.phase {
             StartupPhase::Accepted { startup, receipt } => {
@@ -89,6 +133,6 @@ impl MatchStartup {
     }
 
     pub(crate) fn admits_exact_step(&self) -> bool {
-        self.accepted().is_some() && self.admits_ordinary_tick()
+        (self.accepted().is_some() || self.campaign_installed()) && self.admits_ordinary_tick()
     }
 }

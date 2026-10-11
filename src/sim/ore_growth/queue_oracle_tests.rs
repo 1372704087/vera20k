@@ -688,7 +688,13 @@ fn compare_case(row: &Value) {
         }
         if let Some(expected) = row["after_drains"].get(step) {
             compare_dummy(&terrain, &expected["state"], name);
-            constructors.load_objects.drain_deferred().unwrap();
+            constructors.process_pending_delete_with(
+                None,
+                None,
+                crate::sim::world::FrameEffects::default(),
+                1,
+                false,
+            );
             compare_overlay_state(&constructors, &expected["state"], name);
             compare_cells(&grid, &terrain, &expected["cells"], name);
         }
@@ -747,7 +753,7 @@ pub(crate) fn compare_overlay_state(sim: &Simulation, expected: &Value, name: &s
         "{name}: registered Overlay constructors",
     );
     assert_eq!(
-        json!(sim.load_objects.queue_count()),
+        json!(sim.substrate.pending_delete.overlay_count()),
         expected["pending_deletes"],
         "{name}: deferred Overlay retirement",
     );

@@ -1517,7 +1517,7 @@ pub(crate) fn static_default_cursor(state: &AppState) -> bool {
 }
 
 pub(crate) fn build_software_cursor_instances(state: &AppState) -> Vec<SpriteInstance> {
-    if !state.use_software_cursor() {
+    if !state.use_software_cursor() || !state.match_state.input.cursor_visibility.is_visible() {
         return Vec::new();
     }
     let Some((id, sequence)) = active_cursor_sequence(state) else {
@@ -1548,6 +1548,9 @@ pub(crate) fn build_software_cursor_instances(state: &AppState) -> Vec<SpriteIns
 }
 
 pub(crate) fn current_software_cursor_texture(state: &AppState) -> Option<&BatchTexture> {
+    if !state.match_state.input.cursor_visibility.is_visible() {
+        return None;
+    }
     let (id, sequence) = active_cursor_sequence(state)?;
     Some(&software_cursor_frame_for(id, sequence)?.texture)
 }

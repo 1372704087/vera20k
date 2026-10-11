@@ -80,6 +80,7 @@ fn unit(owner: &str, type_id: &str, cx: u16, cy: u16, cat: EntityCategory) -> Ma
         structure_upgrades: [None, None, None],
         structure_ai_sellable: false,
         structure_ai_repairable: false,
+        trigger_tag: None,
     }
 }
 
@@ -317,7 +318,11 @@ fn unit(owner: &str, type_id: &str, cx: u16, cy: u16, cat: EntityCategory) -> Ma
 // Snapshot320 retains native Techno constructor disguise identity/timer state
 // for every actor, replacing the absent component. These fixtures acquire no
 // disguise; their gameplay and absolute RNG pins remain the independent gates.
-const SLICE6_BASELINE_HASH: u64 = 0x8C85_319B_7E81_7B48;
+// Snapshot324 replaces the disabled/fired trigger-latch fold with retained
+// definition/live-instance/registration/attachment/dispatch state. This fixture
+// has no authored Tags; replay, retasking and all three RNG gates precede this
+// structural Rust hash pin and remain unchanged.
+const SLICE6_BASELINE_HASH: u64 = 0xFB3D_5699_26A8_EF08;
 
 #[test]
 fn replay_hash_stable_through_slice6() {

@@ -257,7 +257,10 @@ fn retail_hills_layered_bridge_landing_inputs_match_original_readers() {
     )
     .unwrap();
     let (mut rules, _, art, _) = owner
-        .load_scenario(crate::rules::process_owner::NativeScenarioRulesPrefix::NonCampaign(Some(&mode)), &map.ini)
+        .load_scenario(
+            crate::rules::process_owner::NativeScenarioRulesPrefix::NonCampaign(Some(&mode)),
+            &map.ini,
+        )
         .unwrap()
         .into_parts();
     let registry = crate::rules::art_data::ArtRegistry::from_ini(&art);
@@ -444,7 +447,7 @@ fn native_bridge_producer_primary_flight_landing_and_rng_continuation() {
                 "{context}: native19B"
             );
             assert_eq!(
-                !sim.substrate.pending_delete.contains(&id),
+                !sim.substrate.pending_delete.contains_object(&id),
                 tick["alive"] == 1,
                 "{context}: retained logical Alive"
             );
@@ -534,7 +537,7 @@ fn native_bridge_producer_primary_flight_landing_and_rng_continuation() {
             "{input}: trailer/landing constructor order"
         );
         let anim = sim.anim(id).unwrap();
-        assert!(sim.substrate.pending_delete.contains(&id), "{input}");
+        assert!(sim.substrate.pending_delete.contains_object(&id), "{input}");
         assert!(!anim.in_logic_vector, "{input}");
         assert!(
             sim.display_layers().layer_of(id).is_none(),
@@ -542,7 +545,7 @@ fn native_bridge_producer_primary_flight_landing_and_rng_continuation() {
         );
         assert_eq!(row["limbo"], 1);
         assert_eq!(row["in_logic"], 0);
-        assert!(sim.substrate.pending_delete.contains(&id), "{input}");
+        assert!(sim.substrate.pending_delete.contains_object(&id), "{input}");
         // Native may queue the pointer twice (Stopped before/after landing).
         // Rust queues once. This assertion bounds logical destruction; it does
         // not assert equal observer calls or pending-list multiplicity.

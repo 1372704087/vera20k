@@ -60,6 +60,11 @@ pub(crate) fn handle_mouse_input(
 ) {
     use crate::app::input::gadget_input::GadgetConsume;
     let pressed = btn_state.is_pressed();
+    state
+        .match_state
+        .input
+        .tactical_mouse
+        .record_physical_button(button, pressed);
     if state.frontend.keyboard_dialog.is_some() {
         crate::app::input::keyboard::mouse(state, button, pressed);
         return;
@@ -73,8 +78,6 @@ pub(crate) fn handle_mouse_input(
         // never reaches the tactical body, so the capture is dropped here.
         // Leaving it set would freeze edge auto-scroll for the rest of the match.
         if !pressed {
-            state.match_state.input.tactical_mouse.left_held = false;
-            state.match_state.input.tactical_mouse.right_held = false;
             state.match_state.input.tactical_mouse.release();
         }
         if state.match_state.match_presentation.in_game_menu
@@ -103,6 +106,11 @@ pub(crate) fn handle_mouse_input(
         } else {
             crate::app::input::in_game_options::in_game_options_mouse(state, button, pressed);
         }
+        return;
+    }
+    // ScrollHandleMouse6930A0 refuses ordinary pointer messages while the
+    // Scenario input lock is active; capture cancellation already ran in46.
+    if crate::app::input::campaign_input::is_locked(state) {
         return;
     }
     // The stock tactical handler has no middle-button case.
@@ -173,6 +181,9 @@ fn route_click_action_before_type_select<T>(
 /// the minimap-drag-end and minimap-begin checks moved to `minimap_mouse`. The
 /// stock tactical path has no middle-button case, so the Rust dispatcher ignores it.
 pub(crate) fn tactical_mouse(state: &mut AppState, button: MouseButton, btn_state: ElementState) {
+    if crate::app::input::campaign_input::is_locked(state) {
+        return;
+    }
     match button {
         MouseButton::Left => {
             if btn_state.is_pressed() {
@@ -526,7 +537,6 @@ pub(crate) fn tactical_mouse(state: &mut AppState, button: MouseButton, btn_stat
         }
         MouseButton::Right => {
             if btn_state.is_pressed() {
-                state.match_state.input.tactical_mouse.right_held = true;
                 // The native right press has no game effect at all: it records
                 // the pan anchor and takes the capture, and only does that when
                 // no other button already holds it. Everything the player sees
@@ -645,6 +655,9 @@ fn band_caught_drawn_object(
 /// edges (left OR right) and IGNORES held motion — there is no continuous
 /// camera-follow (the held branch is dropped in `handle_cursor_moved_in_game`).
 pub(crate) fn minimap_mouse(state: &mut AppState, button: MouseButton, btn_state: ElementState) {
+    if crate::app::input::campaign_input::is_locked(state) {
+        return;
+    }
     match button {
         MouseButton::Left => {
             if btn_state.is_pressed() {
@@ -725,6 +738,9 @@ pub(crate) fn handle_cursor_moved_in_game(state: &mut AppState) {
         return;
     }
     // Clamp drag position to the tactical viewport (exclude sidebar area).
+    if crate::app::input::campaign_input::is_locked(state) {
+        return;
+    }
     let (tactical_width, tactical_height) = crate::app::input::camera::tactical_viewport_size_px(
         state.render_width(),
         state.render_height(),
@@ -961,6 +977,9 @@ pub(crate) fn wheel_scrolled_row(current: usize, max_rows: usize, action: WheelA
 /// wheel scrolls the sidebar from anywhere on the screen — and there is no world
 /// zoom in gamemd for the wheel to reach instead.
 pub(crate) fn sidebar_wheel_scroll(state: &mut AppState, delta_lines: f32) {
+    if crate::app::input::campaign_input::is_locked(state) {
+        return;
+    }
     let Some(view) = current_sidebar_view(state).cloned() else {
         return;
     };
@@ -1145,6 +1164,9 @@ fn sidebar_cameo_press(
 }
 
 pub(crate) fn apply_sidebar_action(state: &mut AppState, action: SidebarAction) {
+    if crate::app::input::campaign_input::is_locked(state) {
+        return;
+    }
     match action {
         SidebarAction::None => {}
         SidebarAction::OpenPauseMenu => open_pause_menu(state),
@@ -1417,6 +1439,9 @@ pub(crate) fn handle_type_select_key_edge(
     element_state: ElementState,
     repeat: bool,
 ) -> bool {
+    if crate::app::input::campaign_input::is_locked(state) {
+        return false;
+    }
     let is_type_select = resolution == HotkeyResolution::Command(HotkeyCommand::TypeSelect);
     if element_state.is_pressed() {
         if !is_type_select {
@@ -1501,6 +1526,11 @@ pub(crate) fn handle_hotkey_pressed(
     resolution: HotkeyResolution,
     physical_code: winit::keyboard::KeyCode,
 ) {
+    if crate::app::input::campaign_input::is_locked(state)
+        && resolution != HotkeyResolution::Command(HotkeyCommand::Options)
+    {
+        return;
+    }
     match resolution {
         HotkeyResolution::Command(command) => dispatch_retail_hotkey(state, command),
         HotkeyResolution::Fallback(HotkeyFallback::DiplomacyDialog) => {
@@ -1690,6 +1720,9 @@ fn dispatch_retail_hotkey(state: &mut AppState, command: HotkeyCommand) {
 /// Team right-click clears its group (6D0660); the other source actions reuse
 /// the existing input owners rather than introducing a second gameplay path.
 pub(crate) fn dispatch_command_bar(state: &mut AppState, command: usize, right: bool) {
+    if crate::app::input::campaign_input::is_locked(state) {
+        return;
+    }
     let action = match command {
         0..=2 => {
             let group = command + 1;
@@ -2980,7 +3013,7 @@ fn jump_camera_to_base(state: &mut AppState) {
         .match_state
         .sim_runtime
         .as_ref()
-        .and_then(|rt| crate::map::waypoints::first_multiplayer_start(&rt.resources.waypoints))
+        .and_then(|rt| rt.simulation.session.first_multiplayer_start())
     {
         log::info!(
             "H: falling back to start waypoint at ({}, {})",

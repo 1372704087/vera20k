@@ -517,7 +517,7 @@ fn reveal_crate_reveals_the_whole_map_for_the_owner() {
     let rules = effect_rules("[AudioVisual]\nCrateRevealSound=CrateReveal\n");
     sim.fog.width = sim.session.map_width;
     sim.fog.height = sim.session.map_height;
-    assert!(!sim.fog.whole_map_revealed_owners.contains(&owner));
+    assert!(!sim.fog.whole_map_revealed_for_owner(owner));
 
     assert!(pickup_crate(
         &mut sim,
@@ -528,7 +528,7 @@ fn reveal_crate_reveals_the_whole_map_for_the_owner() {
         crate::sim::world::FrameEffects::default()
     ));
 
-    assert!(sim.fog.whole_map_revealed_owners.contains(&owner));
+    assert!(sim.fog.whole_map_revealed_for_owner(owner));
     // `0x0048202D..0x0048203C`: the one arm without the local-player test.
     assert_eq!(sounds(&sim), vec![("CrateReveal".to_string(), None)]);
 }

@@ -313,6 +313,8 @@ fn live_null_crash_books_one_loss_through_impact_and_retirement() {
         Some(&rules),
         None,
         crate::sim::world::FrameEffects::default(),
+        1,
+        false,
     );
     assert!(!sim.substrate.entities.contains(1));
     assert_eq!(sim.houses[&owner].stats.units_lost(), callbacks);

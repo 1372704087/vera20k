@@ -458,8 +458,7 @@ impl FireAtHost for AircraftFireAt<'_, '_, '_, '_> {
                     .map(crate::sim::pathfinding::PathGrid::ground_height_grid)
             })
             .flatten();
-        crate::sim::vision::reveal_area(
-            &mut world.fog,
+        world.reveal_area(
             &[owner],
             (
                 location.x.div_euclid(256) as u16,
@@ -470,6 +469,8 @@ impl FireAtHost for AircraftFireAt<'_, '_, '_, '_> {
             heights.as_deref(),
             final_pass,
             &config,
+            crate::sim::world::UninitContext::new(Some(strike.rules), strike.overlay_registry)
+                .with_effects(strike.run.effects()),
         );
     }
 

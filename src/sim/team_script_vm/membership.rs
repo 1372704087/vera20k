@@ -19,11 +19,6 @@
 //!   (`0x006F1870`) and `Recruit` filters and penalises by, is not
 //!   represented: every object reads -1, the constructor value, as every
 //!   retail TeamType and TaskForce leaves `Group=` at -1.
-//! - The TeamType's `Waypoint=` (`+0xD4`), which overrides the recruiting
-//!   origin (`0x006EAAD8..0x006EAB20`), is not read; no retail AIMD TeamType
-//!   sets one.
-//! - The team Tag (`+0x70`) attach and detach (`0x005F5B50`) are not
-//!   ported; no retail TeamType names a Tag.
 //! - `Remove_Member` sets `+0x6B8` on every object it is called for; only a
 //!   `Weeder=` unit's Mission_Guard reads it (`0x00740A60`), and VERA's
 //!   Weeder takes its own guard arm.
@@ -150,7 +145,7 @@ impl Simulation {
         let entity = self.substrate.entities.get(entity_id)?;
         if !entity.lifecycle.object_alive
             || entity.health.current == 0
-            || entity.lifecycle.in_limbo
+            || (entity.lifecycle.in_limbo && !self.object_placement_scope_active())
             || entity.owner() != team.owner
         {
             return None;
@@ -233,12 +228,17 @@ impl Simulation {
             self.team_remove_member(old_team, entity_id, false, Some(rules), frame_effects);
         }
         let vm = &mut self.team_script_vm;
-        let recruitable = vm
+        let (recruitable, on_trans_only) = vm
             .teams
             .get(&team_id)
             .and_then(|team| team.team_type_id)
             .and_then(|id| vm.team_type_ini.get(&id))
-            .is_none_or(|metadata| metadata.are_team_members_recruitable);
+            .map_or((true, false), |metadata| {
+                (
+                    metadata.are_team_members_recruitable,
+                    metadata.on_trans_only,
+                )
+            });
         let Some(team) = vm.teams.get_mut(&team_id) else {
             return false;
         };
@@ -254,6 +254,20 @@ impl Simulation {
                 initiated,
             },
         );
+        //6EA58C..6EA5B0: B3=0 inherits a nonNULL Team Tag on every member;
+        //B3=1 requires signed Type+5E0 Passengers>0. The Tag owner preserves
+        //the Object attachment when Team+70 is NULL (6EA582..6EA587).
+        //Executed eight-way controls: tools/spatial_oracle/team_creation.
+        if !on_trans_only
+            || self
+                .substrate
+                .entities
+                .get(entity_id)
+                .and_then(|entity| self.object_type(entity.type_ref(), rules))
+                .is_some_and(|object| object.passengers > 0)
+        {
+            self.attach_team_member_trigger_tag(team_id, entity_id);
+        }
         if centreless {
             self.team_calc_center(team_id, rules, registry);
         }
@@ -286,6 +300,17 @@ impl Simulation {
     ) {
         if self.team_script_vm.member_team.get(&entity_id) != Some(&team_id) {
             return;
+        }
+        //6EA892..6EA8B5 clears only this Team's Tag and only when the
+        //member has a House that IsControlledByHuman50B730 refuses.
+        if self
+            .substrate
+            .entities
+            .get(entity_id)
+            .and_then(|entity| self.houses.get(&entity.owner()))
+            .is_some_and(|house| !house.is_controlled_by_human(self.session.game_mode_nonzero))
+        {
+            self.clear_team_member_trigger_tag(team_id, entity_id);
         }
         let member_type = self
             .substrate
@@ -417,7 +442,19 @@ impl Simulation {
         let Some(team) = vm.teams.get(&team_id) else {
             return false;
         };
-        let origin = team.zone.map_or([0, 0], |zone| self.team_target_xy(zone));
+        let waypoint = team
+            .team_type_id
+            .and_then(|id| vm.team_type_ini.get(&id))
+            .map_or(-1, |metadata| metadata.waypoint);
+        let origin = if waypoint >= 0 {
+            self.session
+                .waypoint_cell(waypoint)
+                .map_or([0, 0], |(x, y)| {
+                    self.team_target_xy(super::TeamTarget::Cell { x, y })
+                })
+        } else {
+            team.zone.map_or([0, 0], |zone| self.team_target_xy(zone))
+        };
         let entries = vm.task_force_entries(team);
         let Some(&entry) = entries.get(slot) else {
             return false;
@@ -476,6 +513,7 @@ impl Simulation {
         self.team_script_vm
             .record_trigger_outcome(team_id, &team_rules);
         self.team_remove_all_members(team_id, rules, frame_effects);
+        self.clear_team_trigger_tag(team_id);
         self.team_script_vm.teams.remove(&team_id);
         self.team_script_vm.forget_team_to_rejoin(team_id);
     }

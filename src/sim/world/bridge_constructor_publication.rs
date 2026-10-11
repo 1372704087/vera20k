@@ -149,7 +149,7 @@ impl LivePublication<'_> {
         self.recalc_cell(cell, -1)?;
         self.sim
             .load_objects
-            .finish_common(handle)
+            .finish_common(handle, &mut self.sim.substrate.pending_delete)
             .map_err(|error| error.to_string())?;
         Ok(handle)
     }

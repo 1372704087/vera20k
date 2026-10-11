@@ -22,6 +22,8 @@ use crate::sim::projectile::ProjectileDetonationReason;
 use crate::sim::rng::{MainRng, SimRng};
 use crate::sim::vision::FogState;
 
+#[path = "building_damage_sound_tests.rs"]
+mod building_damage_sound_tests;
 #[path = "infantry_fire_facing_tests.rs"]
 mod infantry_fire_facing_tests;
 #[path = "voice_feedback_tests.rs"]
@@ -3919,7 +3921,7 @@ fn gsi_04_07_damage_postmortem_stock_barrel_delay_and_nested_order() {
     assert!(expired.dying && !expired.lifecycle.object_alive);
     assert!(!expired.in_logic_vector);
     assert!(!sim.substrate.occupancy.contains_entity(8, 5, center));
-    assert!(sim.substrate.pending_delete.contains(&center));
+    assert!(sim.substrate.pending_delete.contains_object(&center));
     assert_eq!(
         sim.overlay_grid.as_ref().unwrap().cell(8, 5).overlay_id,
         None,
@@ -4019,7 +4021,7 @@ fn gsi_04_07_damage_postmortem_exact_zero_callbacks_precede_restore() {
         "ObjectClass::Detach_All(1) deselects before detach"
     );
     assert!(sim.substrate.occupancy.contains_entity(8, 5, target_id));
-    assert!(!sim.substrate.pending_delete.contains(&target_id));
+    assert!(!sim.substrate.pending_delete.contains_object(&target_id));
     assert_eq!(
         target.killed_by, None,
         "the synchronous callback consumes attribution before HP1 restore"
@@ -4110,7 +4112,7 @@ fn gsi_04_07_damage_postmortem_exact_zero_callbacks_precede_restore() {
     assert_eq!(target.pending_c4_detonation, Some(original_pending));
     assert!(target.lifecycle.object_alive && target.in_logic_vector);
     assert!(sim.substrate.occupancy.contains_entity(8, 5, target_id));
-    assert!(!sim.substrate.pending_delete.contains(&target_id));
+    assert!(!sim.substrate.pending_delete.contains_object(&target_id));
     assert_eq!(sim.houses[&victim_owner].stats.buildings_lost(), 2);
     assert_eq!(sim.houses[&source_owner].stats.buildings_killed(), 2);
     assert_eq!(sim.houses[&source_owner].economy.score(), 1_400);
@@ -4232,7 +4234,7 @@ fn gsi_04_07_damage_postmortem_fresh_null_expiry_does_not_recredit_initial_kille
     let expired = sim.substrate.entities.get(expiry_target).unwrap();
     assert_eq!(expired.health.current, 0);
     assert_eq!(expired.killed_by, None);
-    assert!(sim.substrate.pending_delete.contains(&expiry_target));
+    assert!(sim.substrate.pending_delete.contains_object(&expiry_target));
     assert_eq!(
         (
             sim.houses[&owner_a].stats.buildings_killed(),
@@ -4591,28 +4593,43 @@ fn a_building_with_no_die_sound_falls_back_to_the_global_building_die_sound() {
 /// (`ObjectClass::IsAlive`) skips the whole dispatch for a corpse.
 #[test]
 fn a_struck_building_sounds_the_global_damage_cue_only_on_a_state_crossing() {
-    let rules = RuleSet::from_ini(&IniFile::from_str(
+    let ini = IniFile::from_str(
         "\
 [General]\nFlightLevel=500\n\n\
 [AudioVisual]\nBuildingDamageSound=BuildingDamaged\nConditionRed=25%\n\n\
 [InfantryTypes]\n0=E1\n\n\
 [VehicleTypes]\n0=MTNK\n\n\
 [AircraftTypes]\n\n\
-[BuildingTypes]\n0=GAPOWR\n1=GAWEAP\n\n\
+[BuildingTypes]\n0=GAPOWR\n1=GAWEAP\n2=CABAD\n\n\
 [E1]\nStrength=100\nArmor=none\n\n\
 [MTNK]\nStrength=300\nArmor=none\nSpeed=6\nPrimary=Plain\n\n\
 [GAPOWR]\nStrength=100\nArmor=none\n\n\
 [GAWEAP]\nStrength=100\nArmor=none\nDamageSound=BuildingMetalDamaged\n\n\
+[CABAD]\nStrength=100\nArmor=none\nDamageSound=UnknownDamage\n\n\
 [Plain]\nDamage=10\nROF=20\nRange=6\nWarhead=PlainWH\n\n\
 [PlainWH]\nVerses=100%,100%,100%,100%,100%,100%,100%,100%,100%,100%,100%\n",
-    ))
-    .expect("building damage-sound rules parse");
+    );
+    let mut rules = RuleSet::from_ini(&ini).expect("building damage-sound rules parse");
+    rules.bind_type_sound_references(
+        &ini,
+        &crate::rules::sound_ini::SoundRegistry::from_ini(&IniFile::from_str(
+            "[SoundList]\n0=BuildingDamaged\n1=BuildingMetalDamaged\n",
+        )),
+    );
+    // Authored receiver inputs exercise the integration; these health values
+    // and coordinates are not claimed as executed native receiver goldens.
+    let coordinate = crate::sim::components::DriveCoord {
+        x: 1057,
+        y: 1859,
+        z: 42,
+    };
 
     // One `commit_damage_events` transaction: entity 1 (MTNK) hits entity 2
     // for `damage`. `victim_type`/`victim_category` shape the receiver.
     let hit = |victim_type: &str,
                victim_category: EntityCategory,
-               damage: i32|
+               damage: i32,
+               ignore_defenses: bool|
      -> (Vec<SimSoundEvent>, i32) {
         // `GameEntity::test_default` interns through the thread-local test
         // interner, and `test_interner()` snapshots it — so the entities must
@@ -4626,6 +4643,7 @@ fn a_struck_building_sounds_the_global_damage_cue_only_on_a_state_crossing() {
         let mut victim = GameEntity::test_default(2, victim_type, "Soviet", 4, 7);
         victim.category = victim_category;
         victim.health = Health { current: 100 };
+        crate::sim::movement::ground_pose::put_location(&mut victim.position, coordinate);
         victim.lifecycle.in_limbo = false;
         victim.in_playfield = true;
         entities.insert(victim);
@@ -4648,13 +4666,17 @@ fn a_struck_building_sounds_the_global_damage_cue_only_on_a_state_crossing() {
         let mut collected: Vec<SimSoundEvent> = Vec::new();
         let mut sound_sink: Option<&mut Vec<SimSoundEvent>> = Some(&mut collected);
 
-        let records = [EntityDamageEvent::area(
+        let records = [EntityDamageEvent::direct_receiver(
             2,
             damage,
             0,
             1,
             Some(allies),
             warhead_ref,
+            ReceiverCallFlags {
+                ignore_defenses,
+                arg6: false,
+            },
         )];
         let _ = commit_damage_events(
             &records,
@@ -4679,43 +4701,91 @@ fn a_struck_building_sounds_the_global_damage_cue_only_on_a_state_crossing() {
         (collected, hp)
     };
 
-    let damage_cues = |sounds: &[SimSoundEvent]| -> Vec<(u16, u16)> {
+    let damage_cues = |sounds: &[SimSoundEvent]| -> Vec<crate::sim::components::DriveCoord> {
         sounds
             .iter()
             .filter_map(|sound| match sound {
-                SimSoundEvent::BuildingDamagedSfx { rx, ry } => Some((*rx, *ry)),
+                SimSoundEvent::VocAtCoord {
+                    sound_id,
+                    coordinate,
+                } if sound_id == "BuildingDamaged" => Some(*coordinate),
+                _ => None,
+            })
+            .collect()
+    };
+    let type_cues = |sounds: &[SimSoundEvent]| -> Vec<crate::sim::components::DriveCoord> {
+        sounds
+            .iter()
+            .filter_map(|sound| match sound {
+                SimSoundEvent::VocAtCoord {
+                    sound_id,
+                    coordinate,
+                } if sound_id == "BuildingMetalDamaged" => Some(*coordinate),
                 _ => None,
             })
             .collect()
     };
 
     // 100 -> 40 crosses `Strength >> 1` = 50: result 2, entry 0 of the table,
-    // and the cue plays at the building's own cell.
-    let (sounds, hp) = hit("GAPOWR", EntityCategory::Structure, 60);
+    // and the cue retains direct Location+9C, including subcell X/Y and Z.
+    let (sounds, hp) = hit("GAPOWR", EntityCategory::Structure, 60, false);
     assert_eq!(hp, 40);
-    assert_eq!(damage_cues(&sounds), [(4, 7)]);
+    assert_eq!(damage_cues(&sounds), [coordinate]);
+
+    // A crossing straight into red selects result3 and the same global slot.
+    let (sounds, hp) = hit("GAPOWR", EntityCategory::Structure, 80, false);
+    assert_eq!(hp, 20);
+    assert_eq!(damage_cues(&sounds), [coordinate]);
 
     // 100 -> 80 crosses nothing: result 1, which the `CMP EAX,3 ; JA` bound at
     // `0x0044246D` rejects, so the damage-sound arm is never entered.
-    let (sounds, hp) = hit("GAPOWR", EntityCategory::Structure, 20);
+    let (sounds, hp) = hit("GAPOWR", EntityCategory::Structure, 20, false);
     assert_eq!(hp, 80);
+    assert!(damage_cues(&sounds).is_empty());
+
+    // Result1 has two distinct retained-coordinate requests for a resolved
+    // type sound; it neither substitutes the global nor collapses duplicates.
+    let (sounds, hp) = hit("GAWEAP", EntityCategory::Structure, 20, false);
+    assert_eq!(hp, 80);
+    assert_eq!(type_cues(&sounds), [coordinate, coordinate]);
     assert!(damage_cues(&sounds).is_empty());
 
     // 100 -> 0 is result 4: entry 2 of the table (`0x004424A2`), which never
     // reaches `0x004426D2`. A dying building gets its crumble cue instead.
-    let (sounds, _) = hit("GAPOWR", EntityCategory::Structure, 100);
+    let (sounds, _) = hit("GAPOWR", EntityCategory::Structure, 100, false);
     assert!(damage_cues(&sounds).is_empty());
 
     // `[GAWEAP] DamageSound=` is the `0x004426D2` gate: the type's own cue
     // wins and the global is skipped.
-    let (sounds, hp) = hit("GAWEAP", EntityCategory::Structure, 60);
+    let (sounds, hp) = hit("GAWEAP", EntityCategory::Structure, 60, false);
     assert_eq!(hp, 40);
     assert!(damage_cues(&sounds).is_empty());
+    assert!(type_cues(&sounds).is_empty());
+
+    // Unknown cold names resolve to -1 and therefore permit the global.
+    let (sounds, hp) = hit("CABAD", EntityCategory::Structure, 60, false);
+    assert_eq!(hp, 40);
+    assert_eq!(damage_cues(&sounds), [coordinate]);
+
+    // Original7019D8 raises defended zero to1 before Object's Verses kernel.
+    // The executed retail AP/concrete control reduces that1 back to0; this
+    // authored PlainWH100% fixture does not. Use the executed raw-zero entry
+    // (ignoreDefenses) here; the joined corpus compares defended retail zero.
+    let (sounds, hp) = hit("GAWEAP", EntityCategory::Structure, 0, true);
+    assert_eq!(hp, 100);
+    assert!(type_cues(&sounds).is_empty());
+    assert!(damage_cues(&sounds).is_empty());
+
+    for damage in [-20, 80, 100] {
+        let (sounds, _) = hit("GAWEAP", EntityCategory::Structure, damage, false);
+        assert!(type_cues(&sounds).is_empty(), "packet={damage}");
+        assert!(damage_cues(&sounds).is_empty(), "packet={damage}");
+    }
 
     // The arm is BuildingClass-only — an infantryman crossing the same
     // threshold returns through `TechnoClass::ReceiveDamage`, never
     // `0x00442476`.
-    let (sounds, hp) = hit("E1", EntityCategory::Infantry, 60);
+    let (sounds, hp) = hit("E1", EntityCategory::Infantry, 60, false);
     assert_eq!(hp, 40);
     assert!(damage_cues(&sounds).is_empty());
 }
@@ -4726,7 +4796,7 @@ fn a_struck_building_sounds_the_global_damage_cue_only_on_a_state_crossing() {
 /// and unlike it, result 3 does NOT (index 3 is `0x007027F7`, the tail).
 #[test]
 fn a_techno_speaks_its_voice_feedback_only_on_the_half_strength_crossing() {
-    let rules = RuleSet::from_ini(&IniFile::from_str(
+    let ini = IniFile::from_str(
         "\
 [General]\nFlightLevel=500\n\n\
 [AudioVisual]\nBuildingDamageSound=BuildingDamaged\nConditionRed=25%\n\n\
@@ -4740,8 +4810,14 @@ fn a_techno_speaks_its_voice_feedback_only_on_the_half_strength_crossing() {
 [GAPOWR]\nStrength=100\nArmor=none\nVoiceFeedback=StructureFear\n\n\
 [Plain]\nDamage=10\nROF=20\nRange=6\nWarhead=PlainWH\n\n\
 [PlainWH]\nVerses=100%,100%,100%,100%,100%,100%,100%,100%,100%,100%,100%\n",
-    ))
-    .expect("voice-feedback rules parse");
+    );
+    let mut rules = RuleSet::from_ini(&ini).expect("voice-feedback rules parse");
+    rules.bind_type_sound_references(
+        &ini,
+        &crate::rules::sound_ini::SoundRegistry::from_ini(&IniFile::from_str(
+            "[SoundList]\n0=BuildingDamaged\n1=GIFear\n2=StructureFear\n",
+        )),
+    );
 
     let hit = |victim_type: &str,
                victim_category: EntityCategory,
@@ -4886,7 +4962,9 @@ fn a_techno_speaks_its_voice_feedback_only_on_the_half_strength_crossing() {
         .iter()
         .filter_map(|sound| match sound {
             SimSoundEvent::VocAt { sound_id, .. } if sound_id == "StructureFear" => Some("voice"),
-            SimSoundEvent::BuildingDamagedSfx { .. } => Some("building"),
+            SimSoundEvent::VocAtCoord { sound_id, .. } if sound_id == "BuildingDamaged" => {
+                Some("building")
+            }
             _ => None,
         })
         .collect();

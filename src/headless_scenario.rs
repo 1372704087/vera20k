@@ -215,6 +215,8 @@ pub(crate) fn load_with_launch(
     let shared_cell_dummy = crate::map::resolved_terrain::SharedCellDummy::fresh();
     shared_cell_dummy.reconstruct_for_map_resize();
     sim.bind_shared_cell_dummy(shared_cell_dummy.clone());
+    sim.session.install_waypoints(&map.waypoints);
+    sim.initialize_trigger_definitions(&map, &team_ai_registry, Some(audio_definitions.eva()));
     let (mut scenario_fill_rng, variant_main_rng) = sim.terrain_load_draws();
     let mut scenario_fill_ranged =
         |low, high| scenario_fill_rng.next_range_u32_inclusive(low, high);
@@ -239,8 +241,12 @@ pub(crate) fn load_with_launch(
     // Pending authored Fill has no eager Tile##Anim list. Bind damage-fire
     // roots now and let the authored host bind each actually reached map Anim
     // synchronously before its native constructor spends an ID.
-    let scheduler_roots =
+    let mut scheduler_roots =
         crate::app::loading::init_helpers::scheduler_anim_roots(&rules, &overlay_registry, &[]);
+    scheduler_roots.extend(crate::app::loading::init_helpers::trigger_anim_class_roots(
+        &rules,
+        &map.actions,
+    ));
     rules
         .bind_scheduler_anim_assets(
             &scheduler_roots,
@@ -351,6 +357,7 @@ pub(crate) fn load_with_launch(
     if sim.path_grid().is_none() {
         return Err("headless post-map navigation is unavailable".to_string());
     }
+    sim.session.set_started(true);
     Ok(HeadlessScenario {
         runtime: crate::sim::runtime::SimRuntime {
             simulation: sim,
@@ -362,7 +369,6 @@ pub(crate) fn load_with_launch(
                 triggers: map.triggers.clone(),
                 events: map.events.clone(),
                 actions: map.actions.clone(),
-                waypoints: map.waypoints.clone(),
             },
         },
         map,
@@ -999,7 +1005,6 @@ mod retail_construction_tests {
                 .interner
                 .resolve(sim.entities().get(id).unwrap().type_ref()))
         );
-        let frame = sim.session.binary_frame as i32;
         let teams: Vec<u64> = ["05FFB46C-G", "08B95EFC-G"]
             .into_iter()
             .map(|team_type| {
@@ -1007,8 +1012,7 @@ mod retail_construction_tests {
                     .interner
                     .get(team_type)
                     .expect("retail TeamType interned");
-                sim.team_script_vm
-                    .construct_team(id, yuri, true, frame)
+                sim.create_team(id, Some(yuri), &resources.rules)
                     .expect("under the TeamType's Max=")
             })
             .collect();

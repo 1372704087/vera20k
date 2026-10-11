@@ -20,7 +20,6 @@ pub(super) struct ReceiverHealthCommit {
     pub(super) healing_only: bool,
     pub(super) latch_hostile_hit: bool,
     pub(super) uncloak_after_damage: bool,
-    pub(super) building_damage_cue: Option<(u16, u16)>,
     pub(super) threat_feedback: Option<(InternedId, InternedId, i32, i32, i32)>,
 }
 
@@ -50,9 +49,6 @@ pub(super) fn commit_receiver_health(
     let mut healing_only = false;
     let mut latch_hostile_hit = false;
     let mut uncloak_after_damage = false;
-    // `BuildingClass::ReceiveDamage`'s damage-state dispatch result: the
-    // building coordinate to sound the global struck cue at, or `None`.
-    let mut building_damage_cue: Option<(u16, u16)> = None;
     let mut threat_feedback: Option<(InternedId, InternedId, i32, i32, i32)> = None;
     if let Some(target) = entities.get_mut(target_id) {
         let receive_outcome = receiver_outcome?.outcome;
@@ -102,7 +98,6 @@ pub(super) fn commit_receiver_health(
                 }
             },
         );
-        let receive_state = Some(state);
         // Object owns CanC4 rewriting and the overkill cap. Every subsequent
         // Techno reader consumes this same final packet, never the authored hit.
         let final_packet = if receive_outcome.apply_object_damage {
@@ -172,50 +167,6 @@ pub(super) fn commit_receiver_health(
             smoke_maintenance = None;
             latch_hostile_hit = false;
         }
-
-        // gamemd-derived: `BuildingClass::ReceiveDamage @ 0x00442230`'s
-        // damage-state dispatch, latched here and emitted below so it
-        // lands after the shared Techno receiver's own consequences —
-        // native only reaches it once `TechnoClass::ReceiveDamage`
-        // (`0x00442425`) has returned.
-        //
-        // `0x0044242C MOV AL,[ESI+0x90]` is `ObjectClass::IsAlive`: a dead
-        // building skips the dispatch and the function returns. Otherwise
-        // `0x00442476 JMP [EAX*4 + 0x00442C18]` with `EAX = result - 2`
-        // enters `{0x004426AC, 0x004426C8, 0x004424A2, 0x0044247D}`.
-        // Entry 0 (result 2) multiplies the `float` at `+0xE8` of the
-        // object pointed to by `BuildingClass+0x30C` by `1.5f`
-        // (`0x007E4460`) when that pointer is non-null, then falls
-        // through into entry 1 (result 3). That object's identity is
-        // UNCHECKED — it is written once by `BuildingClass::Unlimbo @
-        // 0x00440F5B` from `CALL 0x0062DC50` on `[BuildingTypeClass
-        // +0x764]`, and read and rewritten by
-        // `BuildingClass::UpdateGapGenerator_Tick` (`0x00454E7F`,
-        // `0x0045500C`). Both entries reach
-        // `0x004426D2 CMP [type+0x538],-1`, so only a type with **no**
-        // `DamageSound=` of its own continues to
-        // `0x00442700 MOV ECX,[Rules+0x714]` and `0x00442706 CALL
-        // VocClass::PlayAtCoord @ 0x00750E20` at the building's own
-        // coordinate (`0x004426DB LEA ECX,[ESI+0x9C]`). Not owner-gated,
-        // draws no RNG.
-        //
-        // Results 2/3 are `DamageState::Yellow`/`Red` — the threshold
-        // crossings `ObjectClass::ReceiveDamage @ 0x005F5390` computes
-        // (2: HP went from `>= Strength >> 1` to below it; 3: from above
-        // `Strength * Rules+0x1708` to below it). A hit that crosses
-        // nothing returns 1 and is silent, so this is a per-crossing cue,
-        // not a per-hit one.
-        if matches!(
-            receive_state,
-            Some(damage::DamageState::Yellow | damage::DamageState::Red)
-        ) && target.category == EntityCategory::Structure
-            && target.lifecycle.object_alive
-            && rules
-                .object(interner.resolve(target.type_ref()))
-                .is_some_and(|object| object.damage_sound.is_none())
-        {
-            building_damage_cue = Some((target.position.rx, target.position.ry));
-        }
     }
 
     Some(ReceiverHealthCommit {
@@ -232,7 +183,6 @@ pub(super) fn commit_receiver_health(
         healing_only,
         latch_hostile_hit,
         uncloak_after_damage,
-        building_damage_cue,
         threat_feedback,
     })
 }

@@ -2780,9 +2780,8 @@ ConditionYellow=50%
                 .expect("type exists");
             let (foundation_w, foundation_h) =
                 crate::rules::foundation::foundation_dimensions(&obj.foundation);
-            crate::sim::combat::DestroyedGarrisonBuilding {
+            crate::sim::passenger::garrison_eject::DestroyedGarrisonBuilding {
                 building_id,
-                type_id: bldg.type_ref,
                 owner: bldg.owner,
                 rx: bldg.position.rx,
                 ry: bldg.position.ry,
@@ -2885,7 +2884,7 @@ ConditionYellow=50%
             !sim.substrate.entities.contains(pax),
             "blocked occupant must reach UnInit and the shared test drain"
         );
-        assert!(!sim.substrate.pending_delete.contains(&pax));
+        assert!(!sim.substrate.pending_delete.contains_object(&pax));
     }
     /// A failed unload re-attaches an open-topped rider at the head it left,
     /// with its recorded size and `+0x82` still set: only a successful unload

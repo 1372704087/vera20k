@@ -2,15 +2,18 @@
 //! point a shot is measured FROM, `TechnoClass::InRange` 0x006F7220 decides
 //! whether the target sits inside the weapon's reach from there.
 //!
-//! Replaces the 2D `lepton_distance_sq_raw` + `is_within_range_leptons` pair
-//! at the four targeting/cursor sites. Implements 3D distance, IsLowFlying
-//! ground-snap, AirRange bonus, bunker and open-topped range bonuses, the
-//! elevation bonus for a shot fired downhill (`0x006F6F60`, `0x006F70E0`), the
-//! arcing arm's 2-D distance, foundation bonus, the InRange bridge gate
-//! (0x006F75FB), the verified boundary semantics (<= max inclusive, < min
-//! strict, -512 lep sentinel), and the two caller-side source substitutions —
-//! `CellRangefinding=` and the high-flying attacker's target-Z swap — that let
-//! a Kirov reach the ground below it.
+//! `TechnoClass::CanFireAtTarget` 0x006F7780 ([`can_fire_at_target`]) asks both
+//! for the weapon it selects. The 2D [`lepton_distance_sq_raw`] +
+//! [`is_within_range_leptons`] twin remains only as the fallback of the fire
+//! gate, the threat scan, pursuit and the cursor for a world without resolved
+//! terrain. Implements 3D distance, IsLowFlying ground-snap, AirRange bonus,
+//! bunker and open-topped range bonuses, the elevation bonus for a shot fired
+//! downhill (`0x006F6F60`, `0x006F70E0`), the arcing arm's 2-D distance,
+//! foundation bonus, the InRange bridge gate (0x006F75FB), the verified
+//! boundary semantics (<= max inclusive, < min strict, -512 lep sentinel), and
+//! the two caller-side source substitutions — `CellRangefinding=` and the
+//! high-flying attacker's target-Z swap — that let a Kirov reach the ground
+//! below it.
 //!
 //! Ranges are compared in LEPTONS throughout: `CCINIClass::ReadRange`
 //! 0x00474620 scales `Range=` by 256 before truncating, so the fraction on 60
@@ -38,6 +41,7 @@
 
 use crate::map::cell_index::NativeCellIdentity;
 use crate::map::entities::EntityCategory;
+use crate::map::houses::HouseAllianceMap;
 use crate::map::resolved_terrain::{NativeCellQuery, ResolvedTerrainGrid};
 use crate::rules::foundation::foundation_dimensions;
 use crate::rules::ruleset::RuleSet;
@@ -830,6 +834,158 @@ pub(crate) fn is_on_bridge_for_firing(entity: &GameEntity, terrain: &ResolvedTer
 #[cfg(test)]
 #[path = "in_range_cell_tests.rs"]
 mod cell_query_tests;
+
+/// Whether the attacker's normally selected weapon can currently reach this
+/// target through the authoritative 3D `InRange` path.
+///
+/// gamemd-derived: SpawnManager mode 0 in `SpawnManagerClass::AI` @
+/// `0x006B7230` calls the Unit owner's `TechnoClass::CanFireAtTarget` vslot
+/// `0x006F7780`, which is `CanFireAt(target, SelectWeapon(target))`
+/// (`0x006F77B0`) and ordinary `TechnoClass::InRange` @ `0x006F7220`. It asks
+/// no legality: a target the weapon may not fire at is still in range.
+pub(crate) fn can_fire_at_target(
+    entities: &EntityStore,
+    rules: &RuleSet,
+    interner: &StringInterner,
+    attacker_id: u64,
+    target: &TargetKind,
+    terrain: &ResolvedTerrainGrid,
+    alliances: Option<&HouseAllianceMap>,
+    los: &line_of_fire::LineOfFireInputs<'_>,
+) -> bool {
+    let cells = crate::map::resolved_terrain::NativeCellQuery::canonical(terrain);
+    can_fire_at_target_in_query(
+        entities,
+        rules,
+        interner,
+        attacker_id,
+        target,
+        &cells,
+        alliances,
+        los,
+        Some(target),
+    )
+}
+
+/// CanFireAtTarget6F7780 with an explicit native map-query identity. This is
+/// the same selected-weapon/source/InRange chain for simulation and input.
+/// Ordinary callers select against `Some(target)`; the deployed Unit action
+/// wrappers (740793/7403AA) explicitly select against NULL before measuring
+/// their original target. The range itself remains one owner.
+pub(crate) fn can_fire_at_target_in_query(
+    entities: &EntityStore,
+    rules: &RuleSet,
+    interner: &StringInterner,
+    attacker_id: u64,
+    target: &TargetKind,
+    cells: &crate::map::resolved_terrain::NativeCellQuery<'_>,
+    alliances: Option<&HouseAllianceMap>,
+    los: &line_of_fire::LineOfFireInputs<'_>,
+    selection_target: Option<&TargetKind>,
+) -> bool {
+    let Some(attacker) = entities.get(attacker_id) else {
+        return false;
+    };
+    let Some(attacker_obj) = rules.object(interner.resolve(attacker.type_ref())) else {
+        return false;
+    };
+    let Some((index, _)) = combat_weapon::select_weapon_against_in_query(
+        rules,
+        attacker,
+        attacker_obj,
+        &combat_weapon::attacker_facts(attacker, attacker_obj),
+        selection_target,
+        entities,
+        interner,
+        Some(cells),
+        alliances,
+    ) else {
+        return false;
+    };
+    // CanFireAt6F77B0 reads GetWeapon(index), not a Warhead pointer. Keep
+    // selection's index even when the selected slot has no resolved warhead.
+    let Some(weapon) =
+        combat_weapon::get_weapon(attacker, attacker_obj, index, entities, rules, interner)
+    else {
+        return false;
+    };
+    let Some(source) =
+        fire_source_coords_in_query(attacker, target, weapon, entities, cells, (rules, interner))
+    else {
+        return false;
+    };
+    compute_in_range_in_query(
+        attacker, source, target, weapon, rules, interner, entities, cells, los,
+    )
+}
+
+/// Squared distance in leptons from raw coordinates.
+///
+/// Takes individual fields rather than a `&Position`, for use with snapshots
+/// where positions are destructured.
+pub(crate) fn lepton_distance_sq_raw(
+    ax_cell: u16,
+    ay_cell: u16,
+    ax_sub: SimFixed,
+    ay_sub: SimFixed,
+    bx_cell: u16,
+    by_cell: u16,
+    bx_sub: SimFixed,
+    by_sub: SimFixed,
+) -> i64 {
+    let ax: i64 = ax_cell as i64 * 256 + ax_sub.to_num::<i64>();
+    let ay: i64 = ay_cell as i64 * 256 + ay_sub.to_num::<i64>();
+    let bx: i64 = bx_cell as i64 * 256 + bx_sub.to_num::<i64>();
+    let by: i64 = by_cell as i64 * 256 + by_sub.to_num::<i64>();
+    let dx: i64 = ax - bx;
+    let dy: i64 = ay - by;
+    dx * dx + dy * dy
+}
+
+/// Check if a squared lepton distance is within weapon range.
+///
+/// Converts weapon range from cells to leptons (×256) before squaring.
+/// Uses i64 to match `lepton_distance_sq_raw()` output.
+///
+/// The scale runs on the fixed-point bits, not through `to_num`, because
+/// `CCINIClass::ReadRange` 0x00474620 multiplies BEFORE truncating: a
+/// `Range=1.5` weapon reaches 384 leptons, and truncating to whole cells first
+/// cost it a third of its reach.
+///
+/// RESIDUAL — this 2-D twin does NOT honour the `-512` always-in-range
+/// sentinel that `compute_in_range` does. `TechnoClass::InRange`
+/// 0x006F7220 tests it first of all (`CMP EDI,0xFFFFFE00` at 0x006F724E) and
+/// returns true; here `Range=-2` scales to `-512` leptons, squares to a
+/// positive `262144`, and reads as a two-cell reach.
+///
+/// - Trigger: any consumer of this function firing a `Range=-2` weapon —
+///   `ASWLauncher` (`[DEST]`/`[CDEST]` Destroyer secondary), `MakeupKit`
+///   (`[SPY]` primary), and the unreferenced `TankMakeupKit`/`CRMakeupKit`.
+/// - Player effect: a Destroyer's anti-submarine weapon reads as in range only
+///   within two cells, where gamemd is always in range.
+/// - Frequency: only the no-resolved-terrain fallbacks listed under RESIDUAL 2
+///   reach this predicate.
+/// - Downstream risk: those fallbacks agree with each other, so the drift is
+///   consistent rather than self-correcting.
+///
+/// RESIDUAL 2 — this twin also has no line-of-fire walk, no elevation bonus
+/// and no occupied arm. `TechnoClass::InRange` ends in `CALL 0x004CC310` at
+/// 0x006F7642 and refuses the shot when a wall or a cliff sits on the line, it
+/// adds `0x006F6F60`'s bonus for a `SubjectToElevation=` projectile fired down
+/// at a lower target, and it measures an occupied building with its reach
+/// (`0x006F727E`); `compute_in_range` does all three (see
+/// `sim::combat::line_of_fire`, `elevation_bonus_leptons` and
+/// `combat_weapon::occupied_reach_cells`) and this function does none.
+///
+/// Every reader is a fallback for a world without resolved terrain (headless
+/// fixtures, pre-map bring-up): the fire gate, the threat scan, pursuit and
+/// the cursor. None of them can run a walk, so they agree with each other
+/// rather than diverging.
+pub(crate) fn is_within_range_leptons(dist_sq_leptons: i64, range_cells: SimFixed) -> bool {
+    let range_leptons: i64 = (i64::from(range_cells.to_bits()) * 256) >> 16;
+    let range_sq: i64 = range_leptons * range_leptons;
+    dist_sq_leptons <= range_sq
+}
 
 #[cfg(test)]
 mod tests {
@@ -2621,17 +2777,17 @@ mod tests {
     // thing `TechnoClass::InRange` tests.
     //
     // `compute_in_range` honours the `-512` always-in-range sentinel;
-    // `combat::is_within_range_leptons`, the 2-D twin the other range call
-    // sites still use, does not — `Range=-2` squares to a positive `262144`
-    // there and reads as a two-cell reach. Full trigger / effect / frequency /
-    // downstream note sits on that function in `sim/combat/mod.rs`; the short
-    // of it is that a Destroyer's `ASWLauncher` closes to two cells where
-    // gamemd is always in range.
+    // `is_within_range_leptons`, the 2-D twin the other range call sites
+    // still use, does not — `Range=-2` squares to a positive `262144` there
+    // and reads as a two-cell reach. Full trigger / effect / frequency /
+    // downstream note sits on that function above; the short of it is that
+    // a Destroyer's `ASWLauncher` closes to two cells where gamemd is always
+    // in range.
     //
     // Pre-existing, and recorded here rather than fixed because the cure is
     // migrating those call sites onto `compute_in_range`, not adding a second
     // sentinel test to the twin.
-    // Residual (formerly an ignored placeholder test): gamemd 0x006F724E -512 always-in-range sentinel is unhandled in combat::is_within_range_leptons.
+    // Residual (formerly an ignored placeholder test): gamemd 0x006F724E -512 always-in-range sentinel is unhandled in is_within_range_leptons.
     // Unimplemented: is_within_range_leptons has no InRange 0x006F724E -512 sentinel.
 
     /// Guards the INCLUSIVE half of the gate's boundary pair (`JGE` at

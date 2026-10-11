@@ -17,17 +17,18 @@
 //! (actions 14, 43 and 8) in `transport_tests`.
 //!
 //! RESIDUALS:
-//! - Actions other than 0, 2, 5, 6, 8, 11, 14, 19, 21, 24, 43, 46, 47, 49,
-//!   53, 54, 55, 57, 58, 62 and 63 are not ported. A team that reaches one
-//!   stays on it, as a native handler that has not finished does, and
-//!   records the first as its refusal; the rest of its update runs.
-//!   Trigger: 14 of the 163 retail AIMD TeamTypes reach one; the first they
-//!   reach is 61 (9 TeamTypes) or 9 (5). Effect: the team idles on that
-//!   action for good, keeping its members and its TeamType's `Max=` slot,
-//!   and nothing else sends those units out. Action 56 (`0x006EFE60`), the
-//!   Chronosphere's other script action, picks its building with
-//!   [`target_building_pick`] too; no AIMD script names it, but four scripts
-//!   of the retail campaign map SOV02SMD.MAP do, whose teams idle on it.
+//! - Actions other than 0, 2, 3, 5, 6, 8, 11, 14, 19, 21, 24, 43, 46, 47,
+//!   49, 50, 53, 54, 55, 57, 58, 62 and 63 are not ported. A team that
+//!   reaches one stays on it, as a native handler that has not finished
+//!   does, and records the first as its refusal; the rest of its update
+//!   runs. Trigger: 14 of the 163 retail AIMD TeamTypes reach one; the
+//!   first they reach is 61 (9 TeamTypes) or 9 (5). Effect: the team idles
+//!   on that action for good, keeping its members and its TeamType's `Max=`
+//!   slot, and nothing else sends those units out. Action 56
+//!   (`0x006EFE60`), the Chronosphere's other script action, picks its
+//!   building with [`target_building_pick`] too; no AIMD script names it,
+//!   but four scripts of the retail campaign map SOV02SMD.MAP do, whose
+//!   teams idle on it.
 //! - Actions 46 and 47 give their members a building to attack or near. A
 //!   spy (`Infiltrate=`) acts on such a target in arms VERA lacks:
 //!   `Assign_Target`'s `Infiltrate=` arm (`0x0051B2B1..0x0051B33F`), which
@@ -111,6 +112,7 @@ pub(super) const fn action_is_ported(action_id: i32) -> bool {
     matches!(
         action_id,
         0 | 2
+            | 3
             | 5
             | 6
             | 8
@@ -123,6 +125,7 @@ pub(super) const fn action_is_ported(action_id: i32) -> bool {
             | 46
             | 47
             | 49
+            | 50
             | 53
             | 54
             | 55
@@ -285,6 +288,14 @@ impl Simulation {
             ),
             // `0x006E95AB`: returns; the team stays on the action.
             2 => {}
+            3 => self.team_action_move_to_waypoint(
+                team_id,
+                action.argument,
+                first,
+                rules,
+                registry,
+                frame_effects,
+            ),
             // `0x006E97CE`: the guard timer starts on the first frame at
             // `argument * 15` frames; each frame the team regroups (the result
             // is ignored) and moves on once the timer has run out.
@@ -394,6 +405,26 @@ impl Simulation {
                     team.succeeded |= action.action_id == 49;
                 }
             }
+            // Original6E9CF7..6E9D12: signed operand goes straight to each
+            // member's existing Techno+F0, head first, without an alive gate.
+            50 => {
+                if first {
+                    let members: Vec<_> = self
+                        .team_script_vm
+                        .teams
+                        .get(&team_id)
+                        .map(|team| team.members().collect())
+                        .unwrap_or_default();
+                    for member in members {
+                        if let Some(entity) = self.substrate.entities.get_mut(member) {
+                            entity.elite_flash_frames = action.argument;
+                        }
+                    }
+                    if let Some(team) = self.team_script_vm.teams.get_mut(&team_id) {
+                        team.advance_pending = true;
+                    }
+                }
+            }
             53 => self.team_action_gather_at_enemy_base(
                 team_id,
                 first,
@@ -460,6 +491,99 @@ impl Simulation {
         }
     }
 
+    /// Sole IsMovingToWaypointOutsidePlayfield6EC300 port. All Foot and
+    /// Aircraft consumers use the same Team cursor, Scenario waypoint owner
+    /// and height-aware Map578460(mode1) lookup, including shared Dummy writes.
+    fn team_is_moving_outside_playfield(&self, team_id: u64) -> bool {
+        self.team_script_vm
+            .team_step_waypoint(team_id)
+            .and_then(|index| self.session.waypoint_cell(index))
+            .is_some_and(|(x, y)| {
+                !crate::sim::cell_rect::cell_is_in_playfield_height_aware(
+                    (i32::from(x), i32::from(y)),
+                    self.playfield_bounds,
+                    self.resolved_terrain.as_ref(),
+                )
+            })
+    }
+
+    pub(crate) fn member_team_is_moving_outside_playfield(&self, member: u64) -> bool {
+        self.team_script_vm
+            .member_team
+            .get(&member)
+            .is_some_and(|&team| self.team_is_moving_outside_playfield(team))
+    }
+
+    /// Script3 / original6EC7D0. The established leader and CoordinateMove
+    /// owners are shared with the other move actions. FNPC uses native MZ0
+    /// and no zone constraint, a1x1 footprint and the frame-counter pick.
+    fn team_action_move_to_waypoint(
+        &mut self,
+        team_id: u64,
+        waypoint: i32,
+        first: bool,
+        rules: &RuleSet,
+        registry: Option<&OverlayTypeRegistry>,
+        effects: FrameEffects<'_>,
+    ) {
+        if first {
+            let Some(leader) = self.team_leader(team_id, rules) else {
+                return;
+            };
+            let Some(mut cell) = self.session.waypoint_cell(waypoint) else {
+                log::warn!("Team {team_id} script3 names invalid waypoint {waypoint}");
+                return;
+            };
+            let target = self.canonical_team_cell(cell);
+            self.team_assign_mission_target(team_id, Some(target), rules, registry, effects);
+            if !self.team_is_moving_outside_playfield(team_id) {
+                use crate::sim::movement::infantry_entry::{EntryQueryMode, InfantryEntryArgs};
+                let entry = self
+                    .mover_can_enter(
+                        leader,
+                        cell,
+                        InfantryEntryArgs::REPAIR,
+                        EntryQueryMode::SkipLocomotor,
+                        rules,
+                        registry,
+                    )
+                    .expect("Team script3 uses its member's shared class entry receiver");
+                if entry != 0 {
+                    let speed = self
+                        .substrate
+                        .entities
+                        .get(leader)
+                        .and_then(|entity| self.object_type(entity.type_ref(), rules))
+                        .expect("Team leader has its resolved TechnoType")
+                        .speed_type;
+                    cell = self
+                        .find_plain_passable_cell(
+                            (i32::from(cell.0), i32::from(cell.1)),
+                            speed,
+                            None,
+                            crate::rules::locomotor_type::MovementZone::Normal,
+                            (1, 1),
+                        )
+                        .map_or((0, 0), |(x, y)| (x as i16, y as i16));
+                }
+            }
+            let target = (cell != (0, 0)).then(|| self.canonical_team_cell(cell));
+            self.team_assign_mission_target(team_id, target, rules, registry, effects);
+        }
+        self.team_coordinate_move(team_id, rules, registry, effects);
+    }
+
+    /// Preserve Map5657A0 canonical slot aliasing and Dummy stamping before
+    /// a Team takes a Cell target. Storage of the retained Dummy identity is
+    /// still a separate residual in TeamTarget; real stock opening cells use
+    /// their exact map-owned coordinates.
+    pub(super) fn canonical_team_cell(&self, (x, y): (i16, i16)) -> TeamTarget {
+        let (x, y) = self.resolved_terrain.as_ref().map_or((x, y), |terrain| {
+            terrain.native_cell_coord(terrain.native_cell_identity((x, y)))
+        });
+        TeamTarget::Cell { x, y }
+    }
+
     /// Script action 11 (`0x006ED7E0`, `first` unread): each live member
     /// joins up as in `Regroup`; each live joined member not fighting takes
     /// mission `mission` (clearing its archive target, target and
@@ -498,8 +622,11 @@ impl Simulation {
             let Some(entity) = self.substrate.entities.get(member) else {
                 continue;
             };
-            if !member_is_live_joined(entity, self.team_member_initiated(team_id, member))
-                || entity.attack_target.is_some()
+            if !member_is_live_joined(
+                entity,
+                self.team_member_initiated(team_id, member),
+                self.object_placement_scope_active(),
+            ) || entity.attack_target.is_some()
             {
                 continue;
             }
@@ -823,7 +950,12 @@ impl Simulation {
             let rating = self
                 .object_type(entity.type_ref(), rules)
                 .map_or(0, |object| object.leadership_rating);
-            if member_is_live_joined(entity, member.initiated) && rating > best {
+            if member_is_live_joined(
+                entity,
+                member.initiated,
+                self.object_placement_scope_active(),
+            ) && rating > best
+            {
                 leader = member.id;
                 best = rating;
             }
@@ -1310,7 +1442,11 @@ impl Simulation {
                 finished = false;
             }
             if unloading
-                || !member_is_live_joined(entity, self.team_member_initiated(team_id, member))
+                || !member_is_live_joined(
+                    entity,
+                    self.team_member_initiated(team_id, member),
+                    self.object_placement_scope_active(),
+                )
             {
                 continue;
             }
@@ -1777,7 +1913,11 @@ impl Simulation {
             let Some(entity) = self.substrate.entities.get(member) else {
                 continue;
             };
-            if !member_is_live_joined(entity, self.team_member_initiated(team_id, member)) {
+            if !member_is_live_joined(
+                entity,
+                self.team_member_initiated(team_id, member),
+                self.object_placement_scope_active(),
+            ) {
                 busy |= droppod && entity.lifecycle.in_limbo;
                 continue;
             }

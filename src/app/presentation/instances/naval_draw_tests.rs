@@ -113,6 +113,7 @@ fn offscreen_first_sinking_draw_survives_descent_camera_pan_and_save_load() {
             3,
             &cache.saved(),
             None,
+            None,
         );
         let loaded = GameSnapshot::load_validated(&bytes, 1, 2, "DRAW-ADMISSION.MAP").unwrap();
         assert_eq!(loaded.sim.state_hash(), hash);

@@ -82,7 +82,7 @@ fn one_team(
         .collect();
     let owner = interner.intern("OWNER");
     let team = vm
-        .construct_team(team_types[0], owner, game_mode_nonzero, frame)
+        .construct_team(team_types[0], owner, game_mode_nonzero, frame, false, None)
         .unwrap();
     (vm, team, team_types)
 }

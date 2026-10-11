@@ -138,7 +138,13 @@ pub(crate) fn anim_palette_light(
     }
 }
 
-/// TechnoClass's curtain arm on a draw's intensity: while time is left on
+/// TechnoClass's flash and curtain arms on a draw's intensity. The signed
+/// flash countdown's bit 1 selects the flash at vt+0x464: TechnoClass
+/// `0x0070D190` chooses 2000/500; BuildingClass `0x00456F80` adds/subtracts
+/// 500. Both test the incoming intensity against 1500. Original executed
+/// draw controls, including their ordering, are in
+/// `tools/superweapon_oracle.json` and its metadata sidecar.
+/// While time is left on
 /// the curtain (`IsIronCurtained @ 0x0041BF40`, vt+0x160), GetEffectTintIntensity
 /// (`0x0070E360`) scales it before the blit picks its LightConvert row.
 /// UnitClass::DrawVoxelBody (`0x0073BF9C..0x0073BFB8`), TechnoClass::DrawSHP
@@ -151,25 +157,23 @@ pub(crate) fn anim_palette_light(
 /// committed `binary_frame`. VERA's compatibility tint, for translucent and
 /// effect draws, is linear in the intensity and takes the same ratio.
 ///
-/// RESIDUAL: each draw's flash arm ahead of the curtain's (vt+0x464: a
-/// building's `0x00456F80`, other Technos' `0x0070D190`) reads
-/// TechnoClass+0xF0 (GSI-08.12 in `sim/game_entity.rs`). DrawSHP and
-/// TechnoClass::Draw also scale a building an airstrike aims at that is off
+/// RESIDUAL: DrawSHP and TechnoClass::Draw also scale a building an airstrike
+/// aims at that is off
 /// the curtain (`0x0070633E..0x00706375`), with the airstrike's tint
 /// (`sim/superweapon/invulnerability.rs`).
-pub(crate) fn curtain_light(
+pub(crate) fn techno_effect_light(
     entity: &crate::sim::game_entity::GameEntity,
     tint: [f32; 3],
     light: crate::render::palette_light::PaletteLight,
     sim: &Simulation,
 ) -> ([f32; 3], crate::render::palette_light::PaletteLight) {
-    curtain_light_at(entity, tint, light, sim.session.binary_frame)
+    techno_effect_light_at(entity, tint, light, sim.session.binary_frame)
 }
 
 /// The light BuildingClass::UpdateAnimation gives a building's slot anims
 /// whose type has ShouldUseCellDrawer= (`0x00450A47..0x00450A77`): the cell's
 /// intensity through the building's arm (`0x00456FB0`: the flash arm, then
-/// [`curtain_light`]'s) and cut to 16 bits (`0x00450A69`), which AnimClass::
+/// [`techno_effect_light`]'s) and cut to 16 bits (`0x00450A69`), which AnimClass::
 /// DrawIt then draws them at unless their type has UseNormalLight=
 /// (`0x004232A3..0x004232C5`). The update runs in the logic before the draw,
 /// at the frame before `sim`'s committed one, and ahead of the frame's
@@ -194,7 +198,7 @@ pub(crate) fn building_anim_light(
     light: crate::render::palette_light::PaletteLight,
     sim: &Simulation,
 ) -> ([f32; 3], crate::render::palette_light::PaletteLight) {
-    let (tint, light) = curtain_light_at(
+    let (tint, light) = techno_effect_light_at(
         building,
         tint,
         light,
@@ -203,19 +207,32 @@ pub(crate) fn building_anim_light(
     (tint, light.with_brightness(light.brightness() & 0xFFFF))
 }
 
-fn curtain_light_at(
+fn techno_effect_light_at(
     entity: &crate::sim::game_entity::GameEntity,
     tint: [f32; 3],
     light: crate::render::palette_light::PaletteLight,
     frame: u32,
 ) -> ([f32; 3], crate::render::palette_light::PaletteLight) {
-    let Some(curtain) = entity.invulnerability.as_ref().filter(|curtain| {
-        crate::sim::superweapon::invulnerability::is_invulnerable(Some(curtain), frame)
-    }) else {
-        return (tint, light);
-    };
     let intensity = light.brightness();
-    let tinted = curtain.effect_tint_intensity(intensity, frame as i32);
+    let flashed = if entity.elite_flash_frames & 2 == 0 {
+        intensity
+    } else if entity.category == crate::map::entities::EntityCategory::Structure {
+        if intensity <= 1500 {
+            intensity.wrapping_add(500)
+        } else {
+            intensity.wrapping_sub(500)
+        }
+    } else if intensity <= 1500 {
+        2000
+    } else {
+        500
+    };
+    let curtain = entity.invulnerability.as_ref().filter(|curtain| {
+        crate::sim::superweapon::invulnerability::is_invulnerable(Some(curtain), frame)
+    });
+    let tinted = curtain.map_or(flashed, |curtain| {
+        curtain.effect_tint_intensity(flashed, frame as i32)
+    });
     let ratio = if intensity == 0 {
         1.0
     } else {

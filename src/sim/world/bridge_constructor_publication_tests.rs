@@ -174,7 +174,10 @@ fn live_bridge_constructor_matches_original_and_drains_at_admitted_tick() {
                 -1,
             )
             .unwrap();
-        let snapshot = sim.load_objects.snapshot(handle).unwrap();
+        let snapshot = sim
+            .load_objects
+            .snapshot(handle, &sim.substrate.pending_delete)
+            .unwrap();
         assert_eq!(
             json!(snapshot.world),
             original["object_world"],
@@ -197,7 +200,7 @@ fn live_bridge_constructor_matches_original_and_drains_at_admitted_tick() {
             original["registry_counts"]
         );
         assert_eq!(
-            json!(sim.load_objects.queue_count()),
+            json!(sim.substrate.pending_delete.overlay_count()),
             original["queue_count"]
         );
         assert_eq!(json!(snapshot.native_id.unwrap()), original["native_id"]);
@@ -212,7 +215,7 @@ fn live_bridge_constructor_matches_original_and_drains_at_admitted_tick() {
             original["after_drain"]["registry_counts"]
         );
         assert_eq!(
-            json!(sim.load_objects.queue_count()),
+            json!(sim.substrate.pending_delete.overlay_count()),
             original["after_drain"]["queue_count"]
         );
         assert_eq!(cells(&sim), original["after_drain"]["cells"]);
@@ -475,25 +478,25 @@ fn live_bridge_constructor_queue_respects_terminal_admission_and_other_objects()
         if index == 0 {
             sim.uninit(id);
         } else {
-            sim.substrate.pending_delete.push(id);
+            sim.substrate.pending_delete.queue_object(id);
         }
     }
     let retained_cells = cells(&sim);
     let retained_dummy = dummy(&sim);
     sim.quit_requested = true;
     sim.advance_tick(&[], None, None, None, 67);
-    assert_eq!(sim.load_objects.queue_count(), 2);
+    assert_eq!(sim.substrate.pending_delete.overlay_count(), 2);
     assert_eq!(sim.load_objects.registry_counts(), [2; 5]);
     assert!(sim.substrate.entities.get(100).is_some());
-    assert!(sim.substrate.pending_delete.contains(&100));
-    assert!(sim.substrate.pending_delete.contains(&101));
+    assert!(sim.substrate.pending_delete.contains_object(&100));
+    assert!(sim.substrate.pending_delete.contains_object(&101));
     sim.quit_requested = false;
     sim.advance_tick(&[], None, None, None, 67);
-    assert_eq!(sim.load_objects.queue_count(), 0);
+    assert_eq!(sim.substrate.pending_delete.overlay_count(), 0);
     assert_eq!(sim.load_objects.registry_counts(), [0; 5]);
     assert!(sim.substrate.entities.get(100).is_none());
     assert!(sim.substrate.entities.get(101).is_some());
-    assert_eq!(sim.substrate.pending_delete, vec![101]);
+    assert_eq!(sim.substrate.pending_delete.object_ids(), vec![101]);
     assert_eq!(cells(&sim), retained_cells);
     assert_eq!(dummy(&sim), retained_dummy);
     assert_eq!(sim.native_unique_ids.as_ref().unwrap().current_raw(), 1002);

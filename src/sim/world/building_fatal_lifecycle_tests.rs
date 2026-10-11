@@ -567,8 +567,7 @@ impl Fixture {
             .sim
             .substrate
             .pending_delete
-            .iter()
-            .copied()
+            .object_tickets()
             .map(native_id)
             .collect();
         assert_eq!(
@@ -774,7 +773,10 @@ impl Fixture {
             "{boundary}: cell mark"
         );
         assert_eq!(
-            self.sim.substrate.pending_delete.contains(&self.building),
+            self.sim
+                .substrate
+                .pending_delete
+                .contains_object(&self.building),
             !native["pending"].as_array().unwrap().is_empty(),
             "{boundary}: pending retirement"
         );
@@ -1124,7 +1126,7 @@ impl Fixture {
                 native["type_name"]
             );
             assert!(!self.sim.logic_order().contains(&id));
-            assert!(self.sim.substrate.pending_delete.contains(&id));
+            assert!(self.sim.substrate.pending_delete.contains_object(&id));
         }
         self.assert_stock_marks(&stock["final"]);
 
@@ -1169,10 +1171,7 @@ impl Fixture {
         assert_ne!(removed_hash.finish(), original_hash.finish());
 
         let mut missing_queue = GameSnapshot::load_unchecked(&bytes).unwrap().sim;
-        missing_queue
-            .substrate
-            .pending_delete
-            .retain(|id| *id != first);
+        missing_queue.substrate.pending_delete.remove_object(first);
         assert_eq!(
             missing_queue.restore_after_snapshot_load(),
             Err(SnapshotRestoreError::MissingDeferredDeleteIdentity {
@@ -1194,6 +1193,8 @@ impl Fixture {
             Some(&self.rules),
             Some(&self.registry),
             crate::sim::world::FrameEffects::default(),
+            1,
+            false,
         );
         let actor = restored.substrate.entities.get(self.unit).unwrap();
         assert_eq!(
@@ -1402,6 +1403,8 @@ fn assert_ready_fatal_routes(corpus: &Value) {
                 Some(&fixture.rules),
                 Some(&fixture.registry),
                 crate::sim::world::FrameEffects::default(),
+                1,
+                false,
             );
         }
         let retained_slot = fixture
@@ -1419,6 +1422,8 @@ fn assert_ready_fatal_routes(corpus: &Value) {
             Some(&fixture.rules),
             Some(&fixture.registry),
             crate::sim::world::FrameEffects::default(),
+            1,
+            false,
         );
         assert!(
             fixture
@@ -1513,6 +1518,8 @@ fn original_direct_ap_receivers_join_debris_crew_uninit_power_and_deferred_destr
         Some(&fixture.rules),
         Some(&fixture.registry),
         crate::sim::world::FrameEffects::default(),
+        1,
+        false,
     );
     assert!(
         fixture

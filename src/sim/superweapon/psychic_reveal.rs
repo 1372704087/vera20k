@@ -6,7 +6,7 @@
 //! `MapClass::RevealArea @ 0x005678E0` around it twice, with `[CombatDamage]
 //! PsychicRevealRadius=` (`Rules+0xFEC`), the Super's house and no outline,
 //! unreveal or line of sight: final 0 (`0x006CD773`), then final 1
-//! (`0x006CD79C`) — [`vision::psychic_reveal`]. It then plays
+//! (`0x006CD79C`) — [`Simulation::reveal_area`]. It then plays
 //! `[AudioVisual] PsychicRevealActivateSound=` at the cell's coordinate
 //! (`0x006CD7BF`). No EVA line, anim or radar event.
 //!
@@ -31,11 +31,6 @@
 //! - The activate sound plays at the cell's ground-level centre (the launch
 //!   event carries the cell); native's coordinate has the cell's height.
 //!   Presentation only.
-//! - The leaf's CellChangeNotify (`0x004A9D94` -> `0x005865F0`) calls
-//!   DiscoveredBy (vt+0x198) on the objects of each cell it changes; VERA
-//!   drops it for every reveal. Skirmish objects are discovered when placed
-//!   (`discover_cell_put_object`); a campaign's objects that a reveal
-//!   uncovers are not discovered by it.
 //!
 //! Ledger: no Scenario draws, timer writes or detach calls.
 //!
@@ -99,15 +94,19 @@ pub fn launch(
     observe(Observed::RevealArea(coord, radius));
     sim.fog.alliances = sim.house_alliances.clone();
     let config = sim.sight_reveal_config(Some(rules));
-    vision::psychic_reveal(
-        &mut sim.fog,
-        owner,
-        (target_rx, target_ry),
-        coord[2],
-        radius,
-        &config,
-        &sim.interner,
-    );
+    let viewers = vision::direct_reveal_viewers(&sim.fog, owner, &config, &sim.interner);
+    for final_pass in [false, true] {
+        sim.reveal_area(
+            &viewers,
+            (target_rx, target_ry),
+            coord[2],
+            radius,
+            None,
+            final_pass,
+            &config,
+            crate::sim::world::UninitContext::with_rules(rules),
+        );
+    }
     sim.sound_events.push(SimSoundEvent::SuperWeaponLaunched {
         owner,
         sw_type,

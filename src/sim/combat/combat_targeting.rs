@@ -32,10 +32,11 @@
 //! - Part of sim/ — depends on rules/ (RuleSet) and sim/components.
 //! - sim/ NEVER depends on render/, ui/, audio/, net/.
 
+use super::TargetKind;
 use super::combat_weapon::{
     attacker_facts, is_ally_by_object, techno_target_facts, what_weapon_should_i_use,
 };
-use super::threat_range::ScanMission;
+use super::threat_range::{self, ScanMission};
 use crate::map::entities::EntityCategory;
 use crate::map::houses::HouseAllianceMap;
 use crate::map::resolved_terrain::ResolvedTerrainGrid;
@@ -71,7 +72,7 @@ pub(crate) struct AttackerSnapshot {
     /// What the attacker is firing at — entity ID or cell coord.
     /// Cell targets skip friendly-fire checks (the player explicitly chose
     /// this cell).
-    pub target: super::TargetKind,
+    pub target: TargetKind,
     pub pos_rx: u16,
     pub pos_ry: u16,
     pub pos_z: u8,
@@ -203,7 +204,7 @@ pub(crate) fn greatest_threat_for_entity(
     // Dummy target: no current target when acquiring fresh.
     let snapshot = AttackerSnapshot {
         scan_mission: mask,
-        ..super::build_attacker_snapshot(entity, super::TargetKind::Entity(0), None)
+        ..build_attacker_snapshot(entity, TargetKind::Entity(0), None)
     };
     acquire_best_target(
         entities,
@@ -447,7 +448,7 @@ pub(crate) fn should_retaliate(
         fog: Some(&world.fog),
         firer: victim,
         obj: victim_type,
-        target: Some(super::TargetKind::Entity(source_id)),
+        target: Some(TargetKind::Entity(source_id)),
         weapon_index: 0,
     };
     // `0x007088A7` GetWeaponDamageValue(-1) > 0 (a healer never retaliates);
@@ -519,7 +520,7 @@ pub(crate) fn should_retaliate(
         .get(&victim.owner())
         .and_then(|house| house.enemy_house);
     if !human
-        && let Some(super::TargetKind::Entity(current_id)) =
+        && let Some(TargetKind::Entity(current_id)) =
             victim.attack_target.as_ref().map(|target| target.target)
         && let (Some(current_score), Some(source_score)) = (
             calculate_ai_threat_score(
@@ -570,6 +571,37 @@ pub(super) fn retaliation_score_refuses(current: MaskedX87Value, attacker: Maske
         X87Chop53::compare(attacker, current),
         X87Ordering::Less | X87Ordering::Unordered
     )
+}
+
+/// Build the per-attacker fire snapshot from current entity state. PURE READ —
+/// the caller has already decremented cooldown/burst-delay for this tick and
+/// read any garrison's fire state. Single source of the snapshot field-reads so
+/// non-Unit class hosts and the Unit live Fire→Facing host use the same
+/// field reads.
+pub(crate) fn build_attacker_snapshot(
+    entity: &GameEntity,
+    target: TargetKind,
+    garrison: Option<GarrisonSnapshot>,
+) -> AttackerSnapshot {
+    AttackerSnapshot {
+        stable_id: entity.stable_id(),
+        owner: entity.owner(),
+        category: entity.category,
+        target,
+        pos_rx: entity.position.rx,
+        pos_ry: entity.position.ry,
+        pos_z: entity.position.z,
+        pos_exact_z_leptons: entity.position.exact_z_leptons,
+        sub_x: entity.position.sub_x,
+        sub_y: entity.position.sub_y,
+        type_id: entity.type_ref(),
+        veterancy: entity.veterancy(),
+        barrel_facing: entity.barrel_facing,
+        hull_facing: entity.body_facing,
+        garrison,
+        scan_mission: threat_range::scan_mission_for(entity),
+        building_shot: None,
+    }
 }
 
 #[cfg(test)]

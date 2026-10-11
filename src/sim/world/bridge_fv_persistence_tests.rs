@@ -33,7 +33,7 @@ fn authority(sim: &Simulation, source: u64, expected_load: bool) -> Value {
                 "building_slot":anim.building_slot,"damage_fire_slot":anim.damage_fire_slot})
         ).collect::<Vec<_>>(),
         "logic":sim.substrate.logic.snapshot(),"display":sim.substrate.display,
-        "pending_delete":sim.substrate.pending_delete,
+        "pending_delete":sim.substrate.pending_delete.object_ids(),
         "native_id_cursor":sim.native_unique_ids.as_ref().unwrap().current_raw(),
         "next_stable_id":sim.substrate.next_stable_object_id,
         "clock":[sim.session.tick, u64::from(sim.session.binary_frame)],
@@ -282,7 +282,7 @@ fn retail_fv_pursuit_missiles_collapse_and_guard_survive_restore() {
             assert!(scene.sim().projectiles.get(id).is_none());
             assert!(scene.sim().substrate.anims.get(id).is_none());
             assert!(!scene.sim().substrate.logic.snapshot().contains(&id));
-            assert!(!scene.sim().substrate.pending_delete.contains(&id));
+            assert!(!scene.sim().substrate.pending_delete.contains_object(&id));
         }
         if saved.collapsed {
             assert!(

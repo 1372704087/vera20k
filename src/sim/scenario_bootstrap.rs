@@ -3936,6 +3936,7 @@ mod tests {
             structure_upgrades: [None, None, None],
             structure_ai_sellable: false,
             structure_ai_repairable: false,
+            trigger_tag: None,
         });
         let launch = one_player_battle_launch("payload.mmx");
         let plan_a =

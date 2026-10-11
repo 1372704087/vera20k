@@ -33,8 +33,6 @@ pub struct SimResources {
     pub triggers: crate::map::triggers::TriggerMap,
     pub events: crate::map::events::EventMap,
     pub actions: crate::map::actions::ActionMap,
-    /// Complete immutable scenario waypoint table used by trigger actions.
-    pub waypoints: std::collections::HashMap<u32, crate::map::waypoints::Waypoint>,
 }
 
 impl SimResources {
@@ -51,7 +49,6 @@ impl SimResources {
             triggers: Default::default(),
             events: Default::default(),
             actions: Default::default(),
-            waypoints: Default::default(),
         }
     }
 }
@@ -211,11 +208,10 @@ impl SimRuntime {
             tick_ms,
             lane,
             Some(crate::sim::world::TriggerInputs {
-                graph: &self.resources.trigger_graph,
-                triggers: &self.resources.triggers,
+                #[cfg(test)]
                 events: &self.resources.events,
+                #[cfg(test)]
                 actions: &self.resources.actions,
-                waypoints: &self.resources.waypoints,
                 rules: Some(&self.resources.rules),
             }),
             effects,
@@ -246,8 +242,9 @@ mod tests {
               [IsoMapPack5]\n1=CAAEABUAAAAAEQAA\n\
               [VariableNames]\n9=Ready,1\n\
               [Triggers]\nREADY=Neutral,<none>,Ready,0,1,1,1,0\nDISABLED=Neutral,<none>,Disabled,1,1,1,1,0\n\
+              [Tags]\nTREADY=0,Ready,READY\nTDISABLED=0,Disabled,DISABLED\n\
               [Events]\nREADY=1,36,0,9\nDISABLED=1,47,0,0\n\
-              [Actions]\nREADY=1,112,0,0,0,0,0,0,A\nDISABLED=1,112,0,0,0,0,0,0,B\n",
+              [Actions]\nREADY=1,46,0,0,0,0,0,0,A\nDISABLED=1,46,0,0,0,0,0,0,B\n",
         ).expect("authored trigger map");
         let mut sim = Simulation::new();
         let terrain =
@@ -287,9 +284,9 @@ mod tests {
                 .expect("bound production frame")
                 .trigger_effects
         };
-        let expected = vec![TriggerEffect::CenterCameraAtWaypoint {
-            waypoint: 0,
-            immediate: true,
+        let expected = vec![TriggerEffect::InputLockChanged {
+            locked: true,
+            was_locked: false,
         }];
         assert_eq!(run(&mut runtime), expected);
         let after_first_frame = GameSnapshot::save(&runtime.simulation, 0, 0, "trigger_owner", 0);
@@ -353,8 +350,9 @@ mod tests {
     /// rebind empty ones.
     #[test]
     fn runtime_always_uses_bound_navigation_and_resources() {
-        let mut resources = SimResources::empty();
-        resources.waypoints.insert(
+        let mut saved = Simulation::new();
+        let mut waypoints = std::collections::HashMap::new();
+        waypoints.insert(
             0,
             crate::map::waypoints::Waypoint {
                 index: 0,
@@ -362,7 +360,7 @@ mod tests {
                 ry: 106,
             },
         );
-        resources.waypoints.insert(
+        waypoints.insert(
             701,
             crate::map::waypoints::Waypoint {
                 index: 701,
@@ -370,17 +368,22 @@ mod tests {
                 ry: 135,
             },
         );
-        let expected_waypoints = resources.waypoints.clone();
+        saved.session.install_waypoints(&waypoints);
         let mut original = SimRuntime {
             simulation: Simulation::new(),
-            resources,
+            resources: SimResources::empty(),
         };
 
-        original.replace_simulation(Simulation::new());
+        original.replace_simulation(saved);
         let rebound = original;
         assert_eq!(
-            rebound.resources.waypoints, expected_waypoints,
-            "restore must carry the match resources, never rebind empty"
+            rebound.simulation.session.waypoint_cell(0),
+            Some((93, 106)),
+            "restore must retain the saved Scenario waypoint authority"
+        );
+        assert_eq!(
+            rebound.simulation.session.waypoint_cell(701),
+            Some((122, 135))
         );
     }
 
@@ -458,6 +461,7 @@ mod tests {
             structure_upgrades: [None, None, None],
             structure_ai_sellable: false,
             structure_ai_repairable: false,
+            trigger_tag: None,
         };
         let inits = GeneratedTechnoInitTable::try_new([GeneratedTechnoInit {
             entity_index: 0,
@@ -654,6 +658,17 @@ fn populate_staged_scenario_inner<F>(
 where
     F: FnOnce(&mut Simulation),
 {
+    if !sim.trigger_definitions_prepared() {
+        // Generated/compatibility callers have no process asset ingress.
+        // Prepare their actual map definitions before the first attachment;
+        // ordinary/headless loading already bound fixed AIMD and EVA here.
+        let teams = crate::rules::team_ai_ini::TeamAiIniRegistry::from_sources(
+            &crate::rules::ini_parser::IniFile::empty(),
+            &map_data.ini,
+            descriptor.game_mode_nonzero,
+        );
+        sim.initialize_trigger_definitions(map_data, &teams, None);
+    }
     // Active YR `ScenarioClass__Full_Init @ 0x00686B20` calls
     // `ScenarioClass__Create_Houses @ 0x00687F10` before
     // `TerrainClass__Read_Map_Section @ 0x0071CA70` and every Techno section.
@@ -661,7 +676,7 @@ where
     // order an explicit prerequisite of the shared object-construction funnel.
     // Keep scenario state on the staged owner throughout construction and
     // handoff. Later live Tag construction can safely publish into this owner.
-    sim.initialize_map_triggers(&map_data.triggers, &map_data.local_variables);
+    sim.session.install_waypoints(&map_data.waypoints);
     initialize_houses_before_objects(sim);
     // Frame tripwire: every MP start waypoint must sit inside the session
     // bounds (= the fog window, cell-array frame). A start outside means the
@@ -702,6 +717,7 @@ where
     // `MapClass::Set_Clipped_LocalSize @ 0x00567230`; every playfield consumer
     // then shares those stored fields and the same isometric-diamond test.
     sim.install_playfield_from_map_header(&map_data.header);
+    sim.install_authored_cell_trigger_tags(map_data);
     let bridge_destroyable = map_data
         .special_flags
         .effective_destroyable_bridges(bridge_destroyability_mode);
@@ -798,6 +814,7 @@ where
             spawned.len()
         );
     }
+    sim.classify_map_triggers(rules);
     Ok(())
 }
 

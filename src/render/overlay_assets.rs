@@ -4,6 +4,7 @@
 //! consumer may depend on the env-var debug remaps here.
 
 use std::borrow::Cow;
+use std::collections::BTreeMap;
 use std::sync::OnceLock;
 
 use crate::rules::overlay_types::OverlayTypeRegistry;
@@ -86,9 +87,47 @@ pub fn resolve_overlay_name_for_render(
         .map(|n| remap_overlay_name_for_debug(n).into_owned())
 }
 
+/// The render name of every registered overlay type, keyed by its
+/// `[OverlayTypes]` index. `CellClass::DrawOverlay_Body @ 0x0047F6A0` and
+/// `DrawOverlay_Shadow @ 0x0047F510` take the type straight from
+/// `OverlayTypeClass::Array[Cell+0x44]`, so every identity a cell can hold,
+/// authored or written at runtime, resolves here; nothing is pre-selected.
+pub fn render_overlay_names(reg: &OverlayTypeRegistry) -> BTreeMap<u8, String> {
+    (0..=u8::MAX)
+        .filter_map(|overlay_id| {
+            Some((
+                overlay_id,
+                resolve_overlay_name_for_render(reg, overlay_id)?,
+            ))
+        })
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn render_overlay_names_cover_every_registered_type() {
+        // No kind or map entry pre-selects an identity: walls, crates, ore
+        // variants and rubble written after load are named like any other.
+        let mut text = String::from("[OverlayTypes]\n");
+        for overlay_id in 0..=0xEFu8 {
+            text.push_str(&format!("{overlay_id}=TYPE{overlay_id}\n"));
+        }
+        let reg = OverlayTypeRegistry::from_ini(
+            &crate::rules::ini_parser::IniFile::from_str(&text),
+            None,
+        );
+
+        let names = render_overlay_names(&reg);
+
+        assert_eq!(names.len(), 0xF0);
+        for (&overlay_id, name) in &names {
+            assert_eq!(Some(name.as_str()), reg.name(overlay_id));
+        }
+        assert!(!names.contains_key(&0xF0), "unregistered index");
+    }
 
     #[test]
     fn test_shp_candidates() {

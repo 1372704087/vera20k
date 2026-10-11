@@ -184,22 +184,7 @@ impl Probe {
         }
         let rules = &scene.runtime.resources.rules;
         let registry = &scene.runtime.resources.overlay_registry;
-        let mut names = BTreeMap::new();
-        for entry in &entries {
-            names.insert(
-                entry.overlay_id,
-                crate::render::overlay_assets::resolve_overlay_name_for_render(
-                    registry,
-                    entry.overlay_id,
-                )
-                .unwrap(),
-            );
-        }
-        crate::app::frontend::skirmish::preregister_runtime_overlay_names(
-            registry,
-            &rules.crate_rules,
-            &mut names,
-        );
+        let names = crate::render::overlay_assets::render_overlay_names(registry);
         let gpu = Gpu::new();
         let batch = BatchRenderer::new_with_device(&gpu.device, &gpu.queue, FORMAT);
         let atlas = build_overlay_atlas_on_device(

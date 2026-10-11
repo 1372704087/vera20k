@@ -127,7 +127,6 @@ fn bridge_shadow_submission_matches_native_color_depth_and_repeat() {
 
 use crate::app::presentation::instances::bridges::build_bridge_shadow_instances_inner;
 use crate::assets::asset_manager::{AssetManager, MediaArchiveMode};
-use crate::map::overlay::OverlayEntry;
 use crate::map::resolved_terrain::{test_flat_cell, test_grid};
 use crate::render::batch::{CameraUniform, SpriteInstance};
 use crate::render::bridge_atlas::{BridgeAtlas, build_bridge_atlas};
@@ -144,7 +143,6 @@ struct RetailBridgeFixture {
     rules_ini: IniFile,
     registry: OverlayTypeRegistry,
     names: BTreeMap<u8, String>,
-    overlays: Vec<OverlayEntry>,
 }
 
 impl RetailBridgeFixture {
@@ -181,15 +179,6 @@ impl RetailBridgeFixture {
             .into_iter()
             .map(|name| (registry.id_for_name(name).unwrap(), name.to_owned()))
             .collect();
-        let overlays = names
-            .keys()
-            .map(|&overlay_id| OverlayEntry {
-                rx: 10,
-                ry: 20,
-                overlay_id,
-                frame: 0,
-            })
-            .collect();
         Self {
             assets,
             theater,
@@ -197,7 +186,6 @@ impl RetailBridgeFixture {
             rules_ini,
             registry,
             names,
-            overlays,
         }
     }
 
@@ -206,7 +194,6 @@ impl RetailBridgeFixture {
             &gpu.device,
             &gpu.queue,
             batch,
-            &self.overlays,
             &self.names,
             &self.assets,
             &self.theater.iso_palette,
@@ -214,7 +201,6 @@ impl RetailBridgeFixture {
             self.theater.extension,
             "TEMPERATE",
             &self.registry,
-            &self.rules.crate_rules,
             &self.rules_ini,
             self.rules.art(),
         )

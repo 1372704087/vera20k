@@ -576,18 +576,6 @@ fn gsi_04_12_random_map_ui_to_sed_launch_lifecycle_converges() {
         .expect("installed WCRATE overlay identity");
     assert_ne!(wood_id, water_id);
     assert_eq!(ui_launch.startup_crate.body_frame, 0);
-    assert!(
-        ui_launch
-            .startup_crate
-            .runtime_names
-            .contains(&(wood_id, "CRATE".to_string()))
-    );
-    assert!(
-        ui_launch
-            .startup_crate
-            .runtime_names
-            .contains(&(water_id, "WCRATE".to_string()))
-    );
     assert_eq!(ui_launch.startup_crate.presented.len(), 1);
     assert_eq!(
         ui_launch.startup_crate.presented[0],

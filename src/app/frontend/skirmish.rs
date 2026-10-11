@@ -13,15 +13,13 @@ use crate::render::batch::BatchRenderer;
 use crate::render::bridge_atlas::{self, BridgeAtlas};
 use crate::render::bridge_railing_atlas::{self, BridgeRailingAtlas, BridgeRailingTileBases};
 use crate::render::gpu::GpuContext;
-use crate::render::overlay_assets::resolve_overlay_name_for_render;
+use crate::render::overlay_assets::{render_overlay_names, resolve_overlay_name_for_render};
 use crate::render::overlay_atlas::{self, OverlayAtlas};
 use crate::rules::art_data::ArtRegistry;
 use crate::rules::color_scheme::scheme_entry_for_priority;
 use crate::rules::house_colors::HouseColorIndex;
 use crate::rules::ini_parser::IniFile;
-use crate::rules::overlay_types::{
-    OverlayTypeRegistry, is_bridge_overlay_index, is_high_bridge_index,
-};
+use crate::rules::overlay_types::OverlayTypeRegistry;
 use crate::rules::ruleset::RuleSet;
 use crate::rules::tiberium_type::TiberiumTypeRegistry;
 use crate::sim::scenario_bootstrap::normalized_launch_slots;
@@ -77,65 +75,6 @@ pub fn deployable_building_types(rules: Option<&RuleSet>) -> Vec<&str> {
         }
     }
     result
-}
-
-pub(crate) fn preregister_runtime_overlay_names(
-    overlay_registry: &OverlayTypeRegistry,
-    crate_rules: &crate::rules::crate_rules::CrateRules,
-    overlay_names: &mut BTreeMap<u8, String>,
-) -> (u32, u32, u32) {
-    let selected_crate_ids = [
-        crate_rules
-            .wood_crate_img
-            .as_deref()
-            .and_then(|name| overlay_registry.id_for_name(name)),
-        crate_rules
-            .crate_img
-            .as_deref()
-            .and_then(|name| overlay_registry.id_for_name(name)),
-        crate_rules
-            .water_crate_img
-            .as_deref()
-            .and_then(|name| overlay_registry.id_for_name(name)),
-    ];
-    let mut wall_ids_added: u32 = 0;
-    let mut low_bridge_ids_added: u32 = 0;
-    let mut crate_ids_added: u32 = 0;
-    for overlay_id in 0u8..=u8::MAX {
-        let flags = overlay_registry.flags(overlay_id);
-        let is_wall = flags.is_some_and(|flags| flags.wall);
-        // Place487190 selects any flat resource variant after map load,
-        // including a map with no authored ore. The atlas already preloads
-        // these shapes; its draw-name projection must cover the same IDs.
-        let is_tiberium = flags.is_some_and(|flags| flags.tiberium);
-        let is_crate = flags.is_some_and(|flags| flags.crate_type)
-            || selected_crate_ids.contains(&Some(overlay_id));
-        let is_low_bridge =
-            is_bridge_overlay_index(overlay_id) && !is_high_bridge_index(overlay_id);
-        // BuildingClass::AfterDestruction @ 0x00441F60 writes the IsRubble
-        // overlay onto a LeaveRubble foundation; the draw swaps in the
-        // building's art, but the overlay pass still admits the cell by name.
-        let is_rubble = flags.is_some_and(|flags| flags.is_rubble);
-        if !is_wall && !is_low_bridge && !is_crate && !is_tiberium && !is_rubble {
-            continue;
-        }
-        let Some(name) = resolve_overlay_name_for_render(overlay_registry, overlay_id) else {
-            continue;
-        };
-        if let std::collections::btree_map::Entry::Vacant(entry) = overlay_names.entry(overlay_id) {
-            entry.insert(name);
-            if is_wall {
-                wall_ids_added += 1;
-            }
-            if is_low_bridge {
-                low_bridge_ids_added += 1;
-            }
-            if is_crate {
-                crate_ids_added += 1;
-            }
-        }
-    }
-    (wall_ids_added, low_bridge_ids_added, crate_ids_added)
 }
 
 type OverlayAtlasBuild = (
@@ -218,53 +157,21 @@ pub(crate) fn build_overlay_atlas_from_map(
         }
     }
 
-    // Build ID → name mapping for render-time lookups.
-    let mut overlay_names: BTreeMap<u8, String> = BTreeMap::new();
-    let mut unmapped_count: u32 = 0;
-    let mut unmapped_ids: std::collections::HashSet<u8> = std::collections::HashSet::new();
-    for entry in &map_data.overlays {
-        if let Some(mapped_name) =
-            resolve_overlay_name_for_render(&overlay_registry, entry.overlay_id)
-        {
-            overlay_names.entry(entry.overlay_id).or_insert(mapped_name);
-        } else {
-            unmapped_count += 1;
-            unmapped_ids.insert(entry.overlay_id);
-        }
-    }
+    // Every registered type is named: a cell draws whichever identity it holds,
+    // whether the map authored it or the simulation wrote it after load.
+    let overlay_names: BTreeMap<u8, String> = render_overlay_names(&overlay_registry);
+    let mut unmapped_ids: Vec<u8> = map_data
+        .overlays
+        .iter()
+        .map(|entry| entry.overlay_id)
+        .filter(|overlay_id| !overlay_names.contains_key(overlay_id))
+        .collect();
     if !unmapped_ids.is_empty() {
-        let mut ids: Vec<u8> = unmapped_ids.into_iter().collect();
-        ids.sort();
-        log::warn!("Unmapped overlay IDs (not in registry): {:?}", ids,);
-    }
-    log::info!(
-        "Overlay name mapping: {} IDs mapped, {} unmapped entries",
-        overlay_names.len(),
-        unmapped_count,
-    );
-    // Register overlay identities the sim can create after map load. Walls can
-    // be placed by production; low bridges replace their CellClass identity as
-    // damage/collapse/repair advances while the map-pack entry stays fixed.
-    // TIBTRE and natural spreading allocate new resource variants as well,
-    // and a destroyed LeaveRubble building marks the rubble overlay.
-    let (wall_ids_added, low_bridge_ids_added, crate_ids_added) =
-        preregister_runtime_overlay_names(&overlay_registry, crate_rules, &mut overlay_names);
-    if wall_ids_added > 0 {
-        log::info!(
-            "Pre-registered {} wall overlay type(s) in overlay_names for player placement",
-            wall_ids_added
-        );
-    }
-    if low_bridge_ids_added > 0 {
-        log::info!(
-            "Pre-registered {} low-bridge overlay variant(s) in overlay_names",
-            low_bridge_ids_added
-        );
-    }
-    if crate_ids_added > 0 {
-        log::info!(
-            "Pre-registered {} crate overlay type(s) in overlay_names for startup/runtime placement",
-            crate_ids_added
+        let unmapped_entries = unmapped_ids.len();
+        unmapped_ids.sort_unstable();
+        unmapped_ids.dedup();
+        log::warn!(
+            "Unmapped overlay IDs (not in registry): {unmapped_ids:?} ({unmapped_entries} entries)"
         );
     }
 
@@ -345,7 +252,6 @@ pub(crate) fn build_overlay_atlas_from_map(
             &gpu.device,
             &gpu.queue,
             batch,
-            &wall_overlays,
             &overlay_names,
             asset_manager,
             theater_pal,
@@ -353,7 +259,6 @@ pub(crate) fn build_overlay_atlas_from_map(
             theater_ext,
             &map_data.header.theater,
             &overlay_registry,
-            crate_rules,
             rules_ini,
             art_registry,
         )
@@ -2781,121 +2686,6 @@ mod tests {
         assert_eq!(
             launch_mcv_type_for_country(LaunchCountry::America, &rules),
             "CUSTOMMCV"
-        );
-    }
-
-    #[test]
-    fn gsi_04_13_overlay_names_include_every_runtime_low_bridge_variant() {
-        let mut text = String::from("[OverlayTypes]\n");
-        for overlay_id in 0u16..=238 {
-            let name = match overlay_id {
-                24 => "BRIDGE1".to_string(),
-                25 => "BRIDGE2".to_string(),
-                74..=101 => format!("LOBRDG{:02}", overlay_id - 73),
-                122..=125 => format!("LOBRDGE{}", overlay_id - 121),
-                205..=232 => format!("LOBRDB{:02}", overlay_id - 204),
-                233..=236 => format!("LOBRDGB{}", overlay_id - 232),
-                237 => "BRIDGEB1".to_string(),
-                238 => "BRIDGEB2".to_string(),
-                _ => format!("DUMMY{overlay_id}"),
-            };
-            text.push_str(&format!("{overlay_id}={name}\n"));
-        }
-        let registry = OverlayTypeRegistry::from_ini(&IniFile::from_str(&text), None);
-        let mut names = BTreeMap::new();
-
-        let (wall_count, low_bridge_count, crate_count) = preregister_runtime_overlay_names(
-            &registry,
-            &crate::rules::crate_rules::CrateRules::default(),
-            &mut names,
-        );
-
-        assert_eq!(wall_count, 0);
-        assert_eq!(low_bridge_count, 64);
-        assert_eq!(crate_count, 0);
-        assert_eq!(names.get(&0x50).map(String::as_str), Some("LOBRDG07"));
-        assert_eq!(names.get(&0x64).map(String::as_str), Some("LOBRDG27"));
-        assert_eq!(names.get(&0xE7).map(String::as_str), Some("LOBRDB27"));
-        assert!(
-            !names.contains_key(&24) && !names.contains_key(&237),
-            "high bridges remain owned by the dedicated bridge renderer"
-        );
-    }
-
-    #[test]
-    fn runtime_overlay_names_include_tibtre_variants_absent_from_the_map() {
-        let mut text = String::from("[OverlayTypes]\n");
-        for id in 0..12 {
-            text.push_str(&format!("{id}=TIB{:02}\n", id + 1));
-        }
-        for number in 1..=12 {
-            text.push_str(&format!("[TIB{number:02}]\nTiberium=yes\n"));
-        }
-        let registry = OverlayTypeRegistry::from_ini(&IniFile::from_str(&text), None);
-        // A map can contain only TIB01, or no authored ore at all. Original
-        // Place487190 can subsequently allocate any of its12 flat variants
-        // (tools/spatial_oracle/tibtre.json); each must reach the draw lookup.
-        for mut names in [BTreeMap::new(), BTreeMap::from([(0, "TIB01".into())])] {
-            preregister_runtime_overlay_names(
-                &registry,
-                &crate::rules::crate_rules::CrateRules::default(),
-                &mut names,
-            );
-            for id in 0..12 {
-                assert_eq!(names.get(&id).map(String::as_str), registry.name(id));
-            }
-        }
-    }
-
-    #[test]
-    fn runtime_overlay_names_include_the_rubble_overlay_absent_from_the_map() {
-        // BuildingClass::AfterDestruction @ 0x00441F60 writes overlay 0xEF
-        // onto a LeaveRubble foundation at runtime; a map with no authored
-        // rubble must still name it, or the overlay pass drops the cell
-        // before its IsRubble arm draws the building's rubble frame.
-        let mut text = String::from("[OverlayTypes]\n");
-        for overlay_id in 0..=0xEFu8 {
-            text.push_str(&format!("{overlay_id}=DUMMY{overlay_id}\n"));
-        }
-        text.push_str("[DUMMY239]\nIsRubble=yes\n");
-        let registry = OverlayTypeRegistry::from_ini(&IniFile::from_str(&text), None);
-        let mut names = BTreeMap::new();
-
-        preregister_runtime_overlay_names(
-            &registry,
-            &crate::rules::crate_rules::CrateRules::default(),
-            &mut names,
-        );
-
-        assert_eq!(names.get(&0xEF).map(String::as_str), Some("DUMMY239"));
-    }
-
-    #[test]
-    fn runtime_overlay_names_include_every_crate_identity_before_startup_scatter() {
-        let registry = OverlayTypeRegistry::from_ini(
-            &IniFile::from_str(
-                "[OverlayTypes]\n0=CRATE\n1=WCRATE\n2=PLAIN\n\
-                 [CRATE]\nCrate=yes\n[WCRATE]\nCrate=yes\n[PLAIN]\n",
-            ),
-            None,
-        );
-        let mut names = BTreeMap::new();
-
-        let crate_rules = crate::rules::crate_rules::CrateRules {
-            wood_crate_img: Some("CRATE".to_owned()),
-            crate_img: Some("PLAIN".to_owned()),
-            water_crate_img: Some("WCRATE".to_owned()),
-            ..crate::rules::crate_rules::CrateRules::default()
-        };
-        let counts = preregister_runtime_overlay_names(&registry, &crate_rules, &mut names);
-
-        assert_eq!(counts, (0, 0, 3));
-        assert_eq!(names.get(&0).map(String::as_str), Some("CRATE"));
-        assert_eq!(names.get(&1).map(String::as_str), Some("WCRATE"));
-        assert_eq!(
-            names.get(&2).map(String::as_str),
-            Some("PLAIN"),
-            "late-allocated configured identity registers even with Crate=false"
         );
     }
 }

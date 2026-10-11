@@ -1058,22 +1058,9 @@ pub fn compute_overlay_radar_colors(
     rules_ini: &IniFile,
     art_registry: &ArtRegistry,
 ) -> HashMap<(u8, u8), [u8; 3]> {
-    let ids: HashSet<u8> = (0..overlay_registry.len())
-        .filter_map(|id| u8::try_from(id).ok())
-        .chain(overlay_names.keys().copied())
-        .chain(std::iter::once(24))
-        .collect();
-
     // Cache: overlay_id -> loaded ShpFile
     let mut shp_cache: HashMap<u8, ShpFile> = HashMap::new();
-    for &overlay_id in &ids {
-        let Some(name) = overlay_names
-            .get(&overlay_id)
-            .map(String::as_str)
-            .or_else(|| overlay_registry.name(overlay_id))
-        else {
-            continue;
-        };
+    for (&overlay_id, name) in overlay_names {
         let load = |candidates: Vec<String>| {
             candidates.iter().find_map(|candidate| {
                 asset_manager
@@ -1124,7 +1111,7 @@ pub fn compute_overlay_radar_colors(
     log::info!(
         "Loaded overlay SHP-header radar colors: {} entries from {} overlay IDs",
         result.len(),
-        ids.len(),
+        overlay_names.len(),
     );
 
     result

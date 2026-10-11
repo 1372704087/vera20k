@@ -95,6 +95,14 @@ fn ordinary_overlay_accepts_identity(overlay_id: u8, name: &str) -> bool {
     !is_high_bridge_body_identity(overlay_id, name)
 }
 
+/// `CellClass::DrawOverlay_Body @ 0x0047F6A0` returns before drawing for two
+/// literal live identities (`CMP [Cell+0x44],0xA7` at `0x0047F6AC`, `0xB2` at
+/// `0x0047F6B7`); retail `[OverlayTypes]` declares `USELESS` and
+/// `VEINHOLEDUMMY` there.
+fn body_draw_skips_live_identity(overlay_id: u8) -> bool {
+    matches!(overlay_id, 0xA7 | 0xB2)
+}
+
 /// Ordinary overlay bodies are SHP draws, not TMP tiles. The active path is
 /// `Cell_ContentRendering @ 0x006D6D10 -> DrawOverlay_Body @ 0x0047F6A0`.
 /// Every body requests 0x4E00; selector 0x00490B90's +0xBC family tests and
@@ -599,6 +607,9 @@ fn build_cell_overlay_instances(
         else {
             continue;
         };
+        if body_draw_skips_live_identity(live_overlay_id) {
+            continue;
+        }
         let overlay_registry = input.registry;
         let overlay_flags = overlay_registry.and_then(|reg| reg.flags(live_overlay_id));
         let slope_type = input
@@ -1289,8 +1300,9 @@ mod tests {
 
     use super::{
         ANIM_DRAW_DEPTH_BIAS_PX, CRATE_BODY_FRAME, anim_instance_alpha, apply_shape_z_adjust,
-        ordinary_overlay_accepts_identity, ordinary_overlay_z, overlay_body_frame,
-        overlay_display_identity, overlay_render_identity, terrain_object_is_render_visible,
+        body_draw_skips_live_identity, ordinary_overlay_accepts_identity, ordinary_overlay_z,
+        overlay_body_frame, overlay_display_identity, overlay_render_identity,
+        terrain_object_is_render_visible,
     };
     use crate::map::overlay::TerrainObject;
     use crate::render::native_z::ZGradient;
@@ -1305,6 +1317,23 @@ mod tests {
     use crate::sim::overlay_grid::OverlayCell;
     use crate::sim::production::ProductionState;
     use crate::sim::terrain_object::{TerrainObjectLifecycle, TerrainObjectState};
+
+    /// The two identities 0047F6A0 never draws, read from retail through the
+    /// production registry.
+    #[test]
+    fn body_draw_skips_the_two_retail_dummy_identities() {
+        let Some((ini, art_ini)) = crate::rules::retail_ini_fixture::retail_rules_and_art() else {
+            return;
+        };
+        let registry = OverlayTypeRegistry::from_ini(&ini, Some(&art_ini));
+        for (overlay_id, name) in [(0xA7, "USELESS"), (0xB2, "VEINHOLEDUMMY")] {
+            assert_eq!(registry.name(overlay_id), Some(name));
+            assert!(body_draw_skips_live_identity(overlay_id), "{name}");
+        }
+        for drawn in [0xA6, 0xA8, 0xB1, 0xB3, 0xEF] {
+            assert!(!body_draw_skips_live_identity(drawn), "{drawn:#x}");
+        }
+    }
 
     #[test]
     fn numeric_high_bridge_identity_has_no_ordinary_overlay_instance_route() {

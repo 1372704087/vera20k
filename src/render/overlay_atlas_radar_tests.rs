@@ -3,7 +3,6 @@ use crate::assets::asset_manager::AssetManager;
 use crate::rules::art_data::ArtRegistry;
 use crate::rules::ini_parser::IniFile;
 use crate::rules::overlay_types::OverlayTypeRegistry;
-use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 
@@ -66,6 +65,8 @@ fn overlay_radar_loader_separates_cell_anim_from_overlay_own_shp() {
     let rules = IniFile::from_str(
         "[OverlayTypes]\n\
          0=TIB01\n1=TIBANIM\n2=TIBMISSING\n3=PLAIN\n4=PLAINFALLBACKOVL\n5=TIBUNKNOWN\n\
+         6=F6\n7=F7\n8=F8\n9=F9\n10=F10\n11=F11\n12=F12\n13=F13\n14=F14\n15=F15\n\
+         16=F16\n17=F17\n18=F18\n19=F19\n20=F20\n21=F21\n22=F22\n23=F23\n24=BRIDGE1\n\
          [Animations]\n0=TWNK1\n1=MISSINGANIM\n2=PLAINFALLBACK\n\
          [TIB01]\nTiberium=yes\n\
          [TIBANIM]\nTiberium=yes\nCellAnim=TWNK1\n\
@@ -75,7 +76,7 @@ fn overlay_radar_loader_separates_cell_anim_from_overlay_own_shp() {
     );
     let registry = OverlayTypeRegistry::from_ini(&rules, None);
     let art = ArtRegistry::from_ini(&rules);
-    let names = BTreeMap::from([(24, "BRIDGE1".to_string())]);
+    let names = crate::render::overlay_assets::render_overlay_names(&registry);
     let colors =
         compute_overlay_radar_colors(&assets, &registry, &names, "tem", "TEMPERATE", &rules, &art);
 

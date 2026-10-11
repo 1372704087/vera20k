@@ -4764,8 +4764,9 @@ pub(crate) fn tick_combat(
         }
     }
 
-    // Push the synchronously selected death sounds to the presentation sink;
-    // entity UnInit itself remains the world-owned deferred handoff.
+    // Push the synchronously selected death sounds to the presentation sink.
+    // Infantry, units and buildings UnInit inside their receivers;
+    // DamageConsequences UnInits only grounded aircraft and fixture victims.
     if sound_enabled {
         let sink = &mut world.sound_events;
         for (die_id, rx, ry) in effects.death_sounds.drain(..) {

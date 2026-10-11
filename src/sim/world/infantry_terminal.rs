@@ -77,11 +77,12 @@ impl InfantryDeathPostlude {
     /// inline (e.g. InfDeath 3 at `0x00518693`, 9 at `0x00518A8B`), the
     /// death producers' constructor ([`Simulation::emit_death_anim`]); then
     /// UnInit for an anim arm (`0x005185F1`, the `Crashable=` test, then
-    /// `0x00518B9A`) and for an InfDeath with neither anim nor sequence.
+    /// `0x00518B9A`, or `0x0051861D` after a refused Crash) and for an
+    /// InfDeath with neither anim nor sequence.
     ///
     /// The UnInit runs here, inside the receiver, as natively: the next
-    /// record of the same Apply_area_damage finds this infantryman off its
-    /// cell spot and its team. A later InfDeath 9 victim in the cell can then
+    /// record of the same Apply_area_damage finds this infantryman unmarked
+    /// from its cell spot. A later InfDeath 9 victim in the cell can then
     /// take the spot (PlaceInfantryInCell in its admission). `uninit` is
     /// `None` only for a callback-disabled receiver fixture, which leaves the
     /// UnInit to DamageConsequences (`immediate_uninit_ids`).
@@ -190,6 +191,16 @@ impl Simulation {
     /// (`0x00518434..0x0051845B`), and a type with `DeathAnims=` (`+0xE7C`)
     /// builds the list's InfDeath entry, else its first
     /// (`0x00518460..0x005184F2`). Retail sets neither key.
+    ///
+    /// RESIDUAL: three rungs ahead of the JumpJet one are not ported, none
+    /// reachable in VERA. An ignoreDefenses kill of a `Cyborg=` (`+0xEAC`)
+    /// type raises a flag (`0x0051815B`) that takes the Die1, Die2,
+    /// NotHuman and refused InfDeath 9 arms on to UnInit (`0x005185E5`); a
+    /// prone Cyborg builds InfantryExplode (`0x005182B4`); and a DropIn
+    /// faller (`+0x8F`) below height 11 over water builds `Wake=` and the
+    /// first `SplashList=` anim, then UnInits (`0x005181B5..0x005182AF`).
+    /// Retail sets no `Cyborg=`, and VERA sets no `+0x8F`
+    /// ([`Simulation::drop_in_bridge_member`]'s DRIFT).
     ///
     /// RESIDUAL: a `NotHuman=` infantryman killed with InfDeath 8 natively
     /// also builds InfantryVirus at its Location, spawns one gas particle

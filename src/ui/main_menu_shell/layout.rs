@@ -8,12 +8,11 @@ use crate::ui::shell::descriptor::{
 use crate::ui::shell::geom::SDBTNANM_CELL_W_NARROW;
 pub use crate::ui::shell::geom::{RIGHT_PANEL_TILE_H, RIGHT_PANEL_WIDTH};
 pub use crate::ui::shell::geom::{RectPx, RightPanelRects};
-use crate::ui::shell::geom::{dlu_rect, lower_strip_rect, right_panel_rects};
+pub use crate::ui::shell::geom::{SHELL_BASE_H, SHELL_BASE_W};
+use crate::ui::shell::geom::{ShellScale, dlu_rect, lower_strip_rect, right_panel_rects};
 use crate::ui::shell::layout::{LaidOutControl, layout_pass};
 use crate::ui::shell::warning_monitor::WARNING_MONITOR_CONTROL;
 
-pub const SHELL_BASE_W: i32 = 800;
-pub const SHELL_BASE_H: i32 = 600;
 pub const RA2TS_L_W: i32 = 632;
 pub const RA2TS_L_H: i32 = 570;
 pub const RA2TS_S_W: i32 = 472;
@@ -42,6 +41,9 @@ pub struct MainMenuButtonRect {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MainMenuShellLayout {
+    /// How far these rects sit from the 800x600 art they were authored against.
+    /// `RETAIL` on the retail layout at every screen size.
+    pub scale: ShellScale,
     pub screen: RectPx,
     pub movie_base: MainMenuMovieBase,
     pub movie: RectPx,
@@ -234,6 +236,7 @@ pub fn compute_layout(screen_w: u32, screen_h: u32) -> MainMenuShellLayout {
     let laid = layout_pass(&dialog_descriptor(), screen_w, screen_h);
 
     MainMenuShellLayout {
+        scale: ShellScale::RETAIL,
         screen: RectPx::new(0, 0, screen_w, screen_h),
         movie_base,
         movie: RectPx::new(movie_x, movie_y, movie_w, movie_h),
@@ -272,47 +275,44 @@ pub fn compute_layout(screen_w: u32, screen_h: u32) -> MainMenuShellLayout {
     }
 }
 
-fn scale_rect(rect: RectPx, scale_x: f32, scale_y: f32) -> RectPx {
-    let x0 = (rect.x as f32 * scale_x).round() as i32;
-    let y0 = (rect.y as f32 * scale_y).round() as i32;
-    let x1 = ((rect.x + rect.w) as f32 * scale_x).round() as i32;
-    let y1 = ((rect.y + rect.h) as f32 * scale_y).round() as i32;
-    RectPx::new(x0, y0, (x1 - x0).max(0), (y1 - y0).max(0))
+/// The RA2TS source rect inside the 800x600 logical shell: the large loop's
+/// native 632x570 canvas, flush to the panel/strip inner edges (verified by the
+/// 800x600 pixel guard in `compute_layout`).
+pub const RA2TS_BASE_MOVIE: RectPx = RectPx::new(0, 0, RA2TS_L_W, RA2TS_L_H);
+
+/// The movie loop a responsive shell plays. The retail 640-wide asset switch
+/// only made sense for the unscaled layout; a stretched area always uses the
+/// large loop.
+pub fn movie_base_for_responsive_width(_screen_w: u32) -> MainMenuMovieBase {
+    MainMenuMovieBase::Ra2tsL
 }
 
-/// Compute the modern responsive shell layout.
-///
-/// The verified 800x600 dialog is kept as the logical coordinate space, then
-/// stretched independently on X/Y to fill the swapchain. This intentionally
-/// drifts from retail pixel parity, but keeps render and input coordinates in
-/// the same window-pixel space.
+/// Map the verified 800x600 dialog into the live window by stretching X/Y
+/// independently. Identity at 800x600, so the responsive layout equals the
+/// retail layout at the base size. This intentionally drifts from retail pixel
+/// parity at other sizes, but keeps render and input coordinates in the same
+/// window-pixel space.
 pub fn compute_responsive_layout(screen_w: u32, screen_h: u32) -> MainMenuShellLayout {
+    let scale = ShellScale::from_screen(screen_w as i32, screen_h as i32);
     let base = compute_layout(SHELL_BASE_W as u32, SHELL_BASE_H as u32);
-    let scale_x = screen_w as f32 / SHELL_BASE_W as f32;
-    let scale_y = screen_h as f32 / SHELL_BASE_H as f32;
     let mut buttons = base.buttons;
     for button in &mut buttons {
-        button.rect = scale_rect(button.rect, scale_x, scale_y);
+        button.rect = scale.scale_rect(button.rect);
     }
-    let right_panel = RightPanelRects {
-        top: scale_rect(base.right_panel.top, scale_x, scale_y),
-        tile: scale_rect(base.right_panel.tile, scale_x, scale_y),
-        tile_count: base.right_panel.tile_count,
-        bottom: scale_rect(base.right_panel.bottom, scale_x, scale_y),
-    };
-    let lower_strip = scale_rect(base.lower_strip, scale_x, scale_y);
+    let right_panel = scale.scale_panel(base.right_panel);
 
     MainMenuShellLayout {
+        scale,
         screen: RectPx::new(0, 0, screen_w as i32, screen_h as i32),
-        movie_base: movie_base_for_screen_width(screen_w),
-        movie: scale_rect(base.movie, scale_x, scale_y),
-        title: scale_rect(base.title, scale_x, scale_y),
-        version_line: scale_rect(base.version_line, scale_x, scale_y),
-        tooltip_line: scale_rect(base.tooltip_line, scale_x, scale_y),
-        warning_monitor: scale_rect(base.warning_monitor, scale_x, scale_y),
+        movie_base: movie_base_for_responsive_width(screen_w),
+        movie: scale.scale_rect(base.movie),
+        title: scale.scale_rect(base.title),
+        version_line: scale.scale_rect(base.version_line),
+        tooltip_line: scale.scale_rect(base.tooltip_line),
+        warning_monitor: scale.scale_rect(base.warning_monitor),
         buttons,
         right_panel,
-        lower_strip,
+        lower_strip: scale.scale_rect(base.lower_strip),
     }
 }
 
@@ -421,11 +421,19 @@ mod tests {
     }
 
     #[test]
-    fn responsive_layout_keeps_640_movie_asset_rule() {
+    fn responsive_layout_keeps_large_movie_when_shrunk_to_640x480() {
+        // The stretched shell always plays the large loop; the retail 640
+        // asset switch belongs to the unscaled layout.
         let layout = compute_responsive_layout(640, 480);
-        assert_eq!(layout.movie_base, MainMenuMovieBase::Ra2tsS);
+        assert_eq!(layout.movie_base, MainMenuMovieBase::Ra2tsL);
         assert_eq!(layout.movie, RectPx::new(0, 0, 506, 456));
         // Base SP cell (644,199,156,42) scaled 0.8x/0.8x → (515, 159, 125, 34).
         assert_eq!(layout.buttons[0].rect, RectPx::new(515, 159, 125, 34));
+    }
+
+    #[test]
+    fn responsive_layout_is_identity_at_800x600() {
+        let retail = compute_layout(800, 600);
+        assert_eq!(compute_responsive_layout(800, 600), retail);
     }
 }

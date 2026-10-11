@@ -12,7 +12,9 @@
 //! returns to `0xE2` (-2).
 
 use crate::ui::shell::descriptor::DialogId;
-use crate::ui::shell::geom::{RectPx, child_window, dlu_rect};
+use crate::ui::shell::geom::{
+    RectPx, SHELL_BASE_H, SHELL_BASE_W, ShellScale, child_window, dlu_rect,
+};
 use crate::ui::shell::layout::status_line_rect;
 use crate::ui::shell::menu_page::{
     self, MenuPageButtonRect, MenuPageButtonSpec, MenuPageLayout, MenuPageSpec,
@@ -371,6 +373,32 @@ pub fn compute_layout(screen_w: u32, screen_h: u32) -> WolWelcomeLayout {
     }
 }
 
+/// The responsive variant of [`compute_layout`]: the verified 800x600 `0x10E`
+/// stretched to fill the window. Identity at the base size.
+pub fn compute_responsive_layout(screen_w: u32, screen_h: u32) -> WolWelcomeLayout {
+    let scale = ShellScale::from_screen(screen_w as i32, screen_h as i32);
+    let base = compute_layout(SHELL_BASE_W as u32, SHELL_BASE_H as u32);
+    let mut page = menu_page::compute_responsive_layout(&WOL_WELCOME_PAGE, screen_w, screen_h);
+    // The heading override is authored 11 DLU tall, so it stretches from the
+    // overridden base rect rather than the family's 10.
+    page.title = scale.scale_rect(base.page.title);
+    WolWelcomeLayout {
+        page,
+        status_help: scale.scale_rect(base.status_help),
+        texts: base
+            .texts
+            .iter()
+            .map(|(text, window)| (*text, scale.scale_rect(*window)))
+            .collect(),
+        icons: base
+            .icons
+            .iter()
+            .map(|(file, window)| (*file, scale.scale_rect(*window)))
+            .collect(),
+        group_boxes: base.group_boxes.map(|window| scale.scale_rect(window)),
+    }
+}
+
 impl WolWelcomeLayout {
     /// The page's buttons in hit-test order.
     pub fn buttons_in_z_order(&self) -> Vec<MenuPageButtonRect> {
@@ -515,6 +543,50 @@ mod tests {
         // 1024x768 leaves them at their 800x600 places.
         let wide = compute_layout(1024, 768);
         assert_eq!(wide.group_boxes, layout.group_boxes);
+    }
+
+    #[test]
+    fn responsive_layout_stretches_the_page_and_the_left_side() {
+        let base = compute_layout(800, 600);
+        // Identity at the authored size: with the switch off the page is what
+        // it is today.
+        let same = compute_responsive_layout(800, 600);
+        assert_eq!(same.page.title, base.page.title);
+        assert_eq!(same.status_help, base.status_help);
+        assert_eq!(same.group_boxes, base.group_boxes);
+        let scale = ShellScale::from_screen(1600, 1200);
+        let scaled = compute_responsive_layout(1600, 1200);
+        assert_eq!(scaled.page.scale, scale);
+        assert_eq!(scaled.page.title, RectPx::new(1270, 18, 326, 38));
+        assert_eq!(scaled.status_help, RectPx::new(20, 1156, 950, 42));
+        assert_eq!(scaled.group_boxes[0], RectPx::new(244, 170, 768, 346));
+        assert_eq!(scaled.group_boxes[1], RectPx::new(184, 604, 870, 412));
+        assert_eq!(
+            base.texts
+                .iter()
+                .map(|(text, window)| (*text, scale.scale_rect(*window)))
+                .collect::<Vec<_>>(),
+            scaled.texts
+        );
+        assert_eq!(
+            base.icons
+                .iter()
+                .map(|(file, window)| (*file, scale.scale_rect(*window)))
+                .collect::<Vec<_>>(),
+            scaled.icons
+        );
+        let wins = scaled
+            .texts
+            .iter()
+            .find(|(text, _)| text.key == "GUI:LadderWins")
+            .unwrap();
+        assert_eq!(wins.1, RectPx::new(262, 204, 348, 42));
+        assert_eq!(
+            scaled.page.button_rect(MAIN_MENU),
+            Some(RectPx::new(1288, 1070, 312, 84))
+        );
+        assert_eq!(scaled.texts.len(), base.texts.len());
+        assert_eq!(scaled.icons.len(), base.icons.len());
     }
 
     #[test]

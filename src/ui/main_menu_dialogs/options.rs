@@ -6,7 +6,7 @@
 //! the app shell renderer paints that model through the shared retail compositor.
 
 use crate::ui::shell::trackbar::{
-    TrackbarHold, TrackbarPress, thumb_left, trackbar_position_from_x, trackbar_press,
+    TrackbarHold, TrackbarPress, trackbar_position_from_x, trackbar_press,
 };
 
 pub(crate) mod shell;
@@ -613,6 +613,7 @@ impl OptionsDialogState {
 mod tests {
     use super::*;
     use crate::assets::csf_file::CsfFile;
+    use crate::ui::shell::trackbar::thumb_left;
 
     fn labels() -> LauncherOptionsLabels {
         LauncherOptionsLabels::resolve(&|_| None)

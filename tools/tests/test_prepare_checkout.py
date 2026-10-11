@@ -134,10 +134,18 @@ class MainCheckoutTests(CheckoutTest):
     def test_only_the_game_folder_is_accepted(self):
         with self.assertRaisesRegex(SystemExit, "must be the Yuri's Revenge game folder"):
             checkout.prepare(self.main, self.main, self.base)
-        (self.game / 'gamemd.exe').unlink()
-        with self.assertRaisesRegex(SystemExit, 'has no gamemd.exe'):
-            checkout.prepare(self.main, self.main, self.game)
         self.assertFalse((self.main / 'config.toml').exists())
+
+    def test_only_retail_tests_need_the_executable(self):
+        # The game reads no gamemd.exe bytes; RA2_DIR's table checks do.
+        (self.game / 'gamemd.exe').unlink()
+        self.add_ini(self.main)
+        checkout.write_config(self.main, self.game)
+        os.environ['RA2_DIR'] = str(self.game)
+        text, ready = self.report(self.main, self.main)
+        self.assertIn('ok        config.toml: ra2_dir', text)
+        self.assertIn('problem   RA2_DIR: ' + str(self.game) + ' has no gamemd.exe; retail tests read it', text)
+        self.assertFalse(ready)
 
     def test_missing_ini_names_the_extractor(self):
         checkout.write_config(self.main, self.game)

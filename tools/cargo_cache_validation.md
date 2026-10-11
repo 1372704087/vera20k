@@ -119,9 +119,9 @@ owner with a zero-second lock wait, retaining its existing safe main-sync behavi
 
 ## Recurring pressure and build admission
 
-The [pressure follow-up receipt](cargo_cache_pressure_validation/receipt.json)
-records 435 Python checks (431 passed, four optional skips) and a real compiled
-Mach-O fixture. Cleanup removes the fixture’s finalized incremental hardlink
+The pressure follow-up ran 435 Python checks (431 passed, four optional skips)
+and exercised a real compiled Mach-O fixture. Cleanup removes the fixture’s
+finalized incremental hardlink
 aliases and metadata; required debug paths and binary/source hashes survive,
 the binary still prints42, and dsymutil reconstructs its debug information.
 Four new regression checks fail against the original owner/runner and pass with
@@ -154,6 +154,5 @@ The real locked apply removed42,026 compiler-cache paths, reclaiming61,837,312,0
 allocated bytes (57.59 GiB) and61,827,600,384 observed volume bytes. Free space
 rose from4,989,837,312 to66,817,437,696 bytes. All three targets were met, no errors
 were reported, and116 retained manifests/executable records passed their hash
-checks afterward. Full local receipts and preserved SHA-256 values are bound in
-the saved follow-up receipt; no executable copies are included. Later volume
+checks afterward. Later volume
 activity can change free space, so future runs still measure it afresh.

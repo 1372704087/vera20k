@@ -163,15 +163,13 @@ Release executable SHA256 is
 `d786d6a2ee35cef18cbd7ac2ca50108e27bbfa63094af034252710016e1d2ff7`.
 The profile SHA256 is
 `b2add10d8c9145038873dadb5c5fc948f35892f873e36d169927d6e6e13c3486`;
-retained capture/run SHA256 values are
+capture/run SHA256 values are
 `9c24377620ff5d9d9eb251cb0a2e9d0535ccd31d68ecfbfa6c6eb09fa77c89a3` and
 `ec10f21b9f1799d9cd2c22b10a77956a9fb966720ecd9e53da1c7b50668e97b5`.
 Final BGRA SHA256 is
 `c692b9ac59cd7e8766c730ff229643299cc8d38a052769d31c429d1a8fc713d1`.
 The capture passed the ordinary wrapper and offline validation against the actual
-release binary. The retained [runtime summary](infantry_teleport_validation/runtime-summary.json)
-records source/input identities, selected boundaries, artifact hashes and limits.
-The final GPU bytes match the prior accepted capture exactly.
+release binary. The final GPU bytes match the prior accepted capture exactly.
 
 Final required-retail library validation passes 9568 tests with 0 failures and 227
 intentional ignored tests; Clippy passes. A separate exact 63-test retail movement
@@ -182,9 +180,7 @@ implemented in the existing observer so this long ordinary tech-tree path fits i
 fixed budget; no simulation or RNG behavior changes with filtering. Earlier failed
 or incomplete profiles remain retained and are not relabelled as runtime passes.
 
-The final [validation archive](infantry_teleport_validation/README.md) retains
-the commands, logs, source freeze, native binding receipt, critic/repair and
-actual capture/run/GPU bytes. The final external Rust validation receipt
+The final external Rust validation receipt
 SHA256 is `20f4efdf1ad1d54f07b761a133e993f258fd6a1299460ca411dfefee4cfea81a`.
 The destination8 and restoration11 checks also pass; the garrison13 checks use
 the existing Infantry fixture constructor, preserving the exact Scatter RNG

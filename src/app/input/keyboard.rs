@@ -2,6 +2,7 @@
 use crate::app::input::hotkeys::{self, BindingAssignmentError, catalog::registered_commands};
 use crate::app::{App, AppState};
 use crate::ui::shell::keyboard::*;
+use crate::ui::shell::list::ListMetrics;
 use crate::ui::shell::list::ShellListGeometry;
 use std::time::Instant;
 use winit::event::{ElementState, KeyEvent, MouseButton};
@@ -81,7 +82,9 @@ pub(crate) fn layout(state: &AppState) -> Option<KeyboardLayout> {
     } else {
         (state.render_width(), state.render_height())
     };
-    Some(KeyboardLayout::new(w as i32, h as i32, size))
+    Some(crate::app::frontend::shell_layout::keyboard_layout(
+        state, w as i32, h as i32, size,
+    ))
 }
 fn localized(state: &AppState, key: &str, parameter: Option<u8>) -> String {
     let text = state
@@ -266,7 +269,12 @@ pub(crate) fn poll_scroll_repeat(state: &mut AppState) -> Option<Instant> {
     let layout = layout(state)?;
     let (x, y) = state.window_cursor_position();
     let dialog = state.frontend.keyboard_dialog.as_mut()?;
-    let geometry = ShellListGeometry::new(layout.commands, dialog.rows.len(), dialog.top);
+    let geometry = ShellListGeometry::new(
+        layout.commands,
+        dialog.rows.len(),
+        dialog.top,
+        ListMetrics::scaled(layout.scale),
+    );
     if dialog.scroll.poll(
         geometry,
         &mut dialog.top,
@@ -293,7 +301,12 @@ pub(crate) fn cursor_moved(state: &mut AppState) {
     if dialog.category_open {
         dialog.category_hovered = layout.category_row_at(dialog.categories.len(), x, y);
     }
-    let geometry = ShellListGeometry::new(layout.commands, dialog.rows.len(), dialog.top);
+    let geometry = ShellListGeometry::new(
+        layout.commands,
+        dialog.rows.len(),
+        dialog.top,
+        ListMetrics::scaled(layout.scale),
+    );
     dialog.scroll.pointer_moved(geometry, &mut dialog.top, x, y);
     state.platform.window.request_redraw();
 }
@@ -343,7 +356,12 @@ pub(crate) fn mouse(state: &mut AppState, button: MouseButton, pressed: bool) {
             cue(state, true);
         }
         Some(KeyboardControl::Commands) => {
-            let geometry = ShellListGeometry::new(layout.commands, dialog.rows.len(), dialog.top);
+            let geometry = ShellListGeometry::new(
+                layout.commands,
+                dialog.rows.len(),
+                dialog.top,
+                ListMetrics::scaled(layout.scale),
+            );
             if let Some(part) = geometry.scroll_part_at(x, y) {
                 dialog
                     .scroll
@@ -368,7 +386,12 @@ pub(crate) fn wheel(state: &mut AppState, lines: f32) {
             .clamp(0, dialog.categories.len().saturating_sub(1) as i32) as usize;
         dialog.select_category(next);
     } else if dialog.hovered == Some(KeyboardControl::Commands) {
-        let geometry = ShellListGeometry::new(layout.commands, dialog.rows.len(), dialog.top);
+        let geometry = ShellListGeometry::new(
+            layout.commands,
+            dialog.rows.len(),
+            dialog.top,
+            ListMetrics::scaled(layout.scale),
+        );
         dialog.top =
             (dialog.top as i32 - (lines * 3.0) as i32).clamp(0, geometry.max_top as i32) as usize;
     }

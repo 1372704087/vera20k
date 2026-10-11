@@ -4,9 +4,11 @@
 //! decoding remains in `render::loading_screen_chrome`; draw submission remains
 //! in `app::loading`.
 
-use crate::app::loading::composition::{NARROW_LOADING_SCREEN_WIDTH, loading_base_origin};
+use crate::app::loading::composition::{
+    NARROW_LOADING_SCREEN_WIDTH, loading_authored_size, loading_base_origin,
+};
 use crate::skirmish_launch::SkirmishLaunchSession;
-use crate::ui::shell::geom::RectPx;
+use crate::ui::shell::geom::{RectPx, ShellScale};
 
 /// Row offsets from the loading-screen base origin. gamemd picks the narrow pair
 /// only at exactly 640 screen pixels wide.
@@ -49,6 +51,19 @@ pub(crate) struct LoadingProgressRowLayout {
     pub label_rect: RectPx,
 }
 
+impl LoadingProgressRowLayout {
+    /// The row a stretched page draws: the authored meter origin, icon anchor and
+    /// label box grown by the same scale as the art around them. Identity on the
+    /// retail mapping, which is why the centered-origin cases stay exact.
+    pub(crate) fn scaled(self, scale: ShellScale) -> Self {
+        Self {
+            bar_origin: scale.scale_point(self.bar_origin),
+            icon_origin: self.icon_origin.map(|origin| scale.scale_point(origin)),
+            label_rect: scale.scale_rect(self.label_rect),
+        }
+    }
+}
+
 /// Original meter placement and row-width policy. The campaign point comes
 /// from the already executed `0x00552BE0` layout; it has no width override.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -64,16 +79,21 @@ pub(crate) enum LoadingProgressRowPlacement {
 ///
 /// `font_size` is the initialized font's fifteen-W width and cell height.
 /// Side-icon dimensions are absent when the native caller disables the icon.
+/// `scale` is the loading screen's mapping: the standard row is measured in the
+/// authored viewport and grown by it, while the campaign point arrives already in
+/// window pixels from that layout's own owner.
 pub(crate) fn layout_loading_progress_row(
     placement: LoadingProgressRowPlacement,
     bar_size: [i32; 2],
     side_icon_size: Option<[i32; 2]>,
     font_size: [i32; 2],
+    scale: ShellScale,
 ) -> LoadingProgressRowLayout {
     let ([base_x, base_y], row_width_override) = match placement {
         LoadingProgressRowPlacement::StandardSkirmish(render_size) => {
-            let [origin_x, origin_y] = loading_base_origin(render_size);
-            let [offset_x, offset_y, width] = if render_size[0] == NARROW_LOADING_SCREEN_WIDTH {
+            let authored = loading_authored_size(render_size, scale);
+            let [origin_x, origin_y] = loading_base_origin(authored);
+            let [offset_x, offset_y, width] = if authored[0] == NARROW_LOADING_SCREEN_WIDTH {
                 [NARROW_ROW_OFFSET_X, NARROW_ROW_OFFSET_Y, NARROW_ROW_WIDTH]
             } else {
                 [WIDE_ROW_OFFSET_X, WIDE_ROW_OFFSET_Y, WIDE_ROW_WIDTH]
@@ -111,10 +131,14 @@ pub(crate) fn layout_loading_progress_row(
         font_height,
     );
 
-    LoadingProgressRowLayout {
+    let layout = LoadingProgressRowLayout {
         bar_origin,
         icon_origin,
         label_rect,
+    };
+    match placement {
+        LoadingProgressRowPlacement::StandardSkirmish(_) => layout.scaled(scale),
+        LoadingProgressRowPlacement::Campaign(_) => layout,
     }
 }
 
@@ -159,6 +183,7 @@ mod tests {
                 pair("bar_size"),
                 None,
                 pair("font_size"),
+                ShellScale::RETAIL,
             );
             assert_eq!(
                 layout.bar_origin,
@@ -179,6 +204,7 @@ mod tests {
             [80, 5],
             Some([47, 23]),
             [0, 12],
+            ShellScale::RETAIL,
         );
 
         assert_eq!(layout.bar_origin, [20, 267]);
@@ -193,6 +219,7 @@ mod tests {
             [80, 5],
             Some([47, 23]),
             [0, 12],
+            ShellScale::RETAIL,
         );
 
         assert_eq!(layout.bar_origin, [24, 332]);
@@ -207,6 +234,7 @@ mod tests {
             [80, 5],
             None,
             [0, 12],
+            ShellScale::RETAIL,
         );
 
         assert_eq!(layout.bar_origin, [20, 261]);
@@ -221,6 +249,7 @@ mod tests {
             [80, 5],
             Some([20, 10]),
             [0, 30],
+            ShellScale::RETAIL,
         );
 
         assert_eq!(layout.label_rect.y, 258);
@@ -234,12 +263,14 @@ mod tests {
             [80, 5],
             Some([47, 23]),
             [0, 12],
+            ShellScale::RETAIL,
         );
         let maximized = layout_loading_progress_row(
             LoadingProgressRowPlacement::StandardSkirmish([1024, 768]),
             [80, 5],
             Some([47, 23]),
             [0, 12],
+            ShellScale::RETAIL,
         );
 
         // (1024-800)/2, (768-600)/2 — the same base origin the art and text use.
@@ -262,12 +293,14 @@ mod tests {
             [80, 5],
             None,
             [0, 12],
+            ShellScale::RETAIL,
         );
         let just_above = layout_loading_progress_row(
             LoadingProgressRowPlacement::StandardSkirmish([641, 480]),
             [80, 5],
             None,
             [0, 12],
+            ShellScale::RETAIL,
         );
 
         // 641 takes the wide offsets and the 800x600 art viewport, so its base

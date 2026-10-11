@@ -17,10 +17,12 @@
 use std::time::{Duration, Instant};
 
 use crate::ui::shell::descriptor::DialogId;
-use crate::ui::shell::geom::{RectPx, center_offset, dlu_rect};
+use crate::ui::shell::geom::{
+    RectPx, SHELL_BASE_H, SHELL_BASE_W, ShellScale, center_offset, dlu_rect,
+};
 use crate::ui::shell::menu_page::{self, MenuPageButtonSpec, MenuPageLayout, MenuPageSpec};
 use crate::ui::shell::trackbar::{
-    TrackbarHold, TrackbarPress, trackbar_position_from_x, trackbar_press,
+    TrackbarHold, TrackbarPress, authored_track, trackbar_position_from_x, trackbar_press,
 };
 
 pub const CAMPAIGN_DIALOG: DialogId = DialogId(0x0094);
@@ -127,6 +129,10 @@ pub struct CampaignLayout {
     pub slider: RectPx,
     pub difficulty_label: RectPx,
     pub difficulty_value: RectPx,
+    /// The mapping [`compute_responsive_layout`] stretched the authored dialog
+    /// with; [`compute_layout`] always reports [`ShellScale::RETAIL`]. Paint and
+    /// hit-testing both read their rects through this.
+    pub scale: ShellScale,
 }
 
 impl CampaignLayout {
@@ -168,6 +174,7 @@ pub fn compute_layout(screen_w: u32, screen_h: u32) -> CampaignLayout {
             slider: dlu_rect(137, 140, 140, 14),
             difficulty_label: dlu_rect(137, 167, 75, 12),
             difficulty_value: dlu_rect(203, 167, 75, 12),
+            scale: ShellScale::RETAIL,
         };
     }
     let dx = center_offset(screen_w as i32, 800);
@@ -183,6 +190,27 @@ pub fn compute_layout(screen_w: u32, screen_h: u32) -> CampaignLayout {
         slider: at(177, 265, 272, 22),
         difficulty_label: at(177, 291, 141, 20),
         difficulty_value: at(309, 291, 141, 20),
+        scale: ShellScale::RETAIL,
+    }
+}
+
+/// The responsive variant of [`compute_layout`]: the verified 800x600 `0x94`
+/// stretched to fill the window. At 800x600 the fixed control rectangles carry
+/// no centring offset, so the authored geometry is the retail one.
+pub fn compute_responsive_layout(screen_w: u32, screen_h: u32) -> CampaignLayout {
+    let scale = ShellScale::from_screen(screen_w as i32, screen_h as i32);
+    let base = compute_layout(SHELL_BASE_W as u32, SHELL_BASE_H as u32);
+    let stretch = |rect: RectPx| scale.scale_rect(rect);
+    CampaignLayout {
+        page: menu_page::compute_responsive_layout(&CAMPAIGN_PAGE, screen_w, screen_h),
+        allied: stretch(base.allied),
+        soviet: stretch(base.soviet),
+        allied_caption: stretch(base.allied_caption),
+        soviet_caption: stretch(base.soviet_caption),
+        slider: stretch(base.slider),
+        difficulty_label: stretch(base.difficulty_label),
+        difficulty_value: stretch(base.difficulty_value),
+        scale,
     }
 }
 
@@ -300,10 +328,19 @@ impl CampaignShellState {
         self.slider_hold.is_some()
     }
 
-    /// A left press at slider-local `(x, y)` in a `width` x `height` trackbar.
+    /// A left press at device `(x, y)` on the difficulty trackbar `window`.
     /// Returns whether the position changed (`WM_HSCROLL` and GenericClick).
-    pub fn slider_press(&mut self, x: i32, y: i32, width: i32, height: i32) -> bool {
-        let press = trackbar_press(self.difficulty, x, y, width, height, 0, DIFFICULTY_MAX);
+    pub fn slider_press(&mut self, x: i32, y: i32, window: RectPx, scale: ShellScale) -> bool {
+        let track = authored_track(window, (x, y), scale);
+        let press = trackbar_press(
+            self.difficulty,
+            track.local_x,
+            track.local_y,
+            track.width,
+            track.height,
+            0,
+            DIFFICULTY_MAX,
+        );
         self.slider_hold = press.hold(());
         match press {
             TrackbarPress::Jump(position) => self.set_difficulty(position),
@@ -311,12 +348,18 @@ impl CampaignShellState {
         }
     }
 
-    /// Mouse movement with the button held: a captured thumb follows it.
-    pub fn slider_drag(&mut self, x: i32, width: i32) -> bool {
+    /// Mouse movement with the button held: a captured thumb follows device `x`.
+    pub fn slider_drag(&mut self, x: i32, window: RectPx, scale: ShellScale) -> bool {
         if !self.slider_hold.is_some_and(|hold| hold.dragging) {
             return false;
         }
-        self.set_difficulty(trackbar_position_from_x(x, width, 0, DIFFICULTY_MAX))
+        let track = authored_track(window, (x, 0), scale);
+        self.set_difficulty(trackbar_position_from_x(
+            track.local_x,
+            track.width,
+            0,
+            DIFFICULTY_MAX,
+        ))
     }
 
     /// Release, or movement without the button: the capture ends.
@@ -480,6 +523,26 @@ mod tests {
     }
 
     #[test]
+    fn responsive_layout_stretches_the_fixed_control_rects() {
+        let base = compute_layout(800, 600);
+        // The authored 800x600 rectangles carry no centring offset, so doubling
+        // them is the whole of the responsive mapping.
+        let double = compute_responsive_layout(1600, 1200);
+        assert_eq!(double.scale, ShellScale::from_screen(1600, 1200));
+        assert_eq!(double.allied, RectPx::new(282, 116, 696, 272));
+        assert_eq!(double.slider, RectPx::new(354, 530, 544, 44));
+        assert_eq!(double.difficulty_value, RectPx::new(618, 582, 282, 40));
+        assert_eq!(
+            double.page.button_rect(BACK_BUTTON),
+            Some(RectPx::new(1288, 1070, 312, 84))
+        );
+        // Identity at the base size, on both the dialog and its page.
+        let same = compute_responsive_layout(800, 600);
+        assert_eq!(same.slider, base.slider);
+        assert_eq!(same.page, base.page);
+    }
+
+    #[test]
     fn layout_puts_back_on_the_last_row_and_hit_tests_the_emblems() {
         let layout = compute_layout(800, 600);
         assert_eq!(
@@ -519,27 +582,53 @@ mod tests {
     fn slider_presses_hold_the_mouse_and_only_the_thumb_drags() {
         // 272x22 at 800x600: thumbs at x 1, 130 and 260 (executed 178/307/437
         // on screen), positions 0 below x 94, 1 below 180, else 2.
+        let window = RectPx::new(0, 0, 272, 22);
         let mut state = CampaignShellState::open(1);
         assert!(
-            !state.slider_press(40, 3, 272, 22),
+            !state.slider_press(40, 3, window, ShellScale::RETAIL),
             "above the admitted strip"
         );
         assert!(state.slider_held());
         state.slider_release();
-        assert!(state.slider_press(40, 10, 272, 22));
+        assert!(state.slider_press(40, 10, window, ShellScale::RETAIL));
         assert_eq!(state.difficulty(), 0);
         assert!(state.slider_held());
-        assert!(!state.slider_drag(200, 272), "a rail press does not drag");
+        assert!(
+            !state.slider_drag(200, window, ShellScale::RETAIL),
+            "a rail press does not drag"
+        );
         state.slider_release();
         assert!(!state.slider_held());
         assert!(
-            !state.slider_press(5, 10, 272, 22),
+            !state.slider_press(5, 10, window, ShellScale::RETAIL),
             "on the thumb at position 0"
         );
-        assert!(state.slider_drag(200, 272));
+        assert!(state.slider_drag(200, window, ShellScale::RETAIL));
         assert_eq!(state.difficulty_label_key(), "TXT_HARD");
         state.slider_release();
-        assert!(!state.slider_drag(20, 272));
+        assert!(!state.slider_drag(20, window, ShellScale::RETAIL));
+    }
+
+    #[test]
+    fn a_stretched_slider_presses_on_its_authored_track() {
+        // The 272x22 control doubled: the device cursor and window map back to
+        // the authored x 40 of the strip, so a stretched slider jumps to the
+        // same position the retail one does instead of partitioning the wider
+        // device track.
+        let scale = ShellScale::from_screen(1600, 1200);
+        let window = scale.scale_rect(RectPx::new(177, 265, 272, 22));
+        let mut state = CampaignShellState::open(1);
+        assert!(state.slider_press(434, 550, window, scale));
+        assert_eq!(state.difficulty(), 0);
+        state.slider_release();
+        state.slider_hold = Some(TrackbarHold {
+            id: (),
+            dragging: true,
+        });
+        // Device 2*(177+200) is authored x 200, which the retail case above
+        // reads as the hardest position.
+        assert!(state.slider_drag(754, window, scale));
+        assert_eq!(state.difficulty_label_key(), "TXT_HARD");
     }
 
     #[test]

@@ -5,13 +5,11 @@
 //! velocity (46A5D2..46A86D). This module does not resolve world receivers.
 
 use crate::map::retail_trig::{AcosTable, TrigTable};
-use crate::util::native_x87::{
-    NativeF32Bits, NativeF64Bits, X87Chop53 as X, X87Ordering, X87Value,
-};
+use crate::util::native_x87::{NativeF64Bits, X87Chop53 as X, X87Ordering, X87Value};
 
 use super::native_math::{
-    PI_HALF, angle_word, apply_pitch, atan, cos, d, f, int, less, radians, round, sin, sqrt,
-    square, store, turn_xy,
+    angle_word, apply_pitch, atan, cos, d, f, int, less, radians, round, sin, sqrt, square, store,
+    turn_xy,
 };
 use super::{ProjectileCoord, ProjectileVelocity};
 use crate::sim::rng::SimRng;
@@ -23,29 +21,6 @@ const INVERSE_DRAW_SPAN: NativeF64Bits = NativeF64Bits::from_bits(0x3e00_0000_00
 const TWO_PI: NativeF64Bits = NativeF64Bits::from_bits(0x4019_21fb_5444_2d18);
 /// SpawnShrapnel's fixed launch pitch, pushed as an immediate (`0x0046A787`).
 const SHRAPNEL_PITCH: NativeF64Bits = NativeF64Bits::from_bits(0x3fe9_2164_8732_995c);
-
-fn acos(table: &AcosTable, argument: X87Value) -> X87Value {
-    // 4CADB0 uses a NEGATIVE scale and subtracts the signed offset from
-    // 859094. Within the active table domain this advances into 4097 entries.
-    let scaled = X::mul(
-        X::add(d(store(argument)), X::load_i32(1)),
-        X::load_i32(-2048),
-    );
-    let index = int(scaled).wrapping_neg() as usize;
-    X::sub(
-        d(PI_HALF),
-        f(NativeF32Bits::from_bits(table.entry(index).to_bits())),
-    )
-}
-
-fn acos_nan(table: &AcosTable) -> X87Value {
-    // A native 0/0 reaches ftol's indefinite 80000000 low word. SHL 2
-    // wraps it to zero, so 4CADCF reads entry zero rather than rejecting it.
-    X::sub(
-        d(PI_HALF),
-        f(NativeF32Bits::from_bits(table.entry(0).to_bits())),
-    )
-}
 
 /// Original 48A9D0. Height >0 bypasses every arithmetic failure predicate.
 fn arc_angle(
@@ -84,9 +59,9 @@ fn arc_angle(
             return None;
         }
         return Some(store(if speed == 0 {
-            acos_nan(table)
+            table.acos_lookup_nan()
         } else {
-            acos(table, zero)
+            table.acos_lookup(zero).1
         }));
     }
     let ratio = X::div(X::mul(h, h), range2).expect("nonzero squared range");
@@ -103,10 +78,10 @@ fn arc_angle(
         return None;
     }
     if speed == 0 {
-        return Some(store(acos_nan(table)));
+        return Some(store(table.acos_lookup_nan()));
     }
     let argument = round(X::div(sqrt(quotient), s).expect("nonzero launch speed"));
-    Some(store(acos(table, argument)))
+    Some(store(table.acos_lookup(argument).1))
 }
 
 /// 48A8D0 as reached by FireAt 6FED21. A failed second probe still selects
@@ -553,15 +528,8 @@ fn aircraft_bullet_velocity_with_table(
 /// FireAt 6FE8EE..6FF014 for ordinary ROT<=0 and stock RadialFireSegments=0.
 /// The returned doubles are the six DWORDs copied by Bullet::Fire 468691..A0.
 pub(crate) fn fireat_launch(input: FireAtLaunch) -> Option<FireAtLaunchResult> {
-    let acos_table = crate::map::retail_trig::required_acos_table();
-    fireat_launch_with_tables(input, TrigTable::embedded(), acos_table)
-}
-
-fn fireat_launch_with_tables(
-    input: FireAtLaunch,
-    trig: &TrigTable,
-    acos_table: &AcosTable,
-) -> Option<FireAtLaunchResult> {
+    let trig = TrigTable::embedded();
+    let acos_table = AcosTable::retail();
     let x = X::load_i32(input.delta.x);
     let y = X::load_i32(input.delta.y);
     let z = X::load_i32(input.delta.z);
@@ -695,16 +663,8 @@ mod tests {
         }
     }
 
-    fn verified_acos() -> Option<&'static AcosTable> {
-        crate::map::retail_trig::verified_acos_table_or_skip("native launch comparison")
-    }
-
     #[test]
     fn original_fireat_and_fire_preserve_exact_launch_bits() {
-        let Some(acos) = verified_acos() else {
-            return;
-        };
-        let trig = TrigTable::embedded();
         for (name, data) in [
             (
                 "ordinary",
@@ -768,7 +728,7 @@ mod tests {
                             .wrapping_sub(row["source_z"].as_i64().unwrap() as i32)
                     }),
                 };
-                let result = fireat_launch_with_tables(input, trig, acos);
+                let result = fireat_launch(input);
                 assert_eq!(
                     result.is_some(),
                     row["success"].as_u64().unwrap() != 0,
@@ -1007,9 +967,7 @@ mod tests {
 
     #[test]
     fn original_arc_solver_domain_and_failure_predicates() {
-        let Some(table) = verified_acos() else {
-            return;
-        };
+        let table = AcosTable::retail();
         let rows: Vec<Value> = serde_json::from_str(crate::test_fixture::text(
             "tools/projectile_oracle/arc_domain.json",
         ))

@@ -5,7 +5,7 @@
 //! arithmetic below. It keeps the position relative to the range minimum
 //! (`TBM_SETRANGE` `0x406`); `range` below is maximum minus minimum.
 
-use super::geom::RectPx;
+use super::geom::{RectPx, ShellScale};
 
 /// Width the value plaque takes at the window's right end (`0x32`), unless
 /// the owner turns the plaque off with `0x4AC`.
@@ -108,6 +108,48 @@ pub fn thumb_left(position: i32, client_width: i32, reserve: i32, range: i32) ->
     1 + position * usable_span / range.max(1)
 }
 
+/// A trackbar window and cursor in the authored 800x600 numbers the native
+/// arithmetic runs on. The admitted strip, thumb span and jump partition are all
+/// built from fixed pixel metrics, so a stretched window maps back first: the
+/// paint and input sides then agree on where the track ends and the plaque
+/// begins.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct AuthoredTrack {
+    /// Cursor x relative to the window's left edge.
+    pub local_x: i32,
+    /// Cursor y relative to the window's top edge.
+    pub local_y: i32,
+    pub width: i32,
+    pub height: i32,
+}
+
+/// [`AuthoredTrack`] for a device `window` with an absolute device `cursor`.
+/// Identity at [`ShellScale::RETAIL`].
+pub fn authored_track(window: RectPx, cursor: (i32, i32), scale: ShellScale) -> AuthoredTrack {
+    let base = scale.base_rect(window);
+    let (x, y) = scale.base_point(cursor.0, cursor.1);
+    AuthoredTrack {
+        local_x: x - base.x,
+        local_y: y - base.y,
+        width: base.w,
+        height: base.h,
+    }
+}
+
+/// The device offset from a stretched `window`'s left edge to the thumb at
+/// `position`: [`thumb_left`] on the authored width, then stretched. It matches
+/// the plaque [`authored_track`] admits.
+pub fn thumb_left_at(
+    position: i32,
+    window: RectPx,
+    reserve: i32,
+    range: i32,
+    scale: ShellScale,
+) -> i32 {
+    let base = scale.base_rect(window);
+    (thumb_left(position, base.w, reserve, range) as f32 * scale.x()).round() as i32
+}
+
 /// A plaque trackbar's range as its owner sets it: `TBM_SETRANGE` (`0x406`)
 /// and the step (`0x4AB`). Values are absolute; the control keeps the
 /// position `value - min`.
@@ -157,10 +199,30 @@ impl TrackbarRange {
         thumb_left(value - self.min, width, PLAQUE_RESERVE, self.max - self.min)
     }
 
+    /// [`Self::thumb_left`] for a window at `scale`, as an offset from its left
+    /// edge in device pixels. The native `0x31` plaque reserve and the 12-pixel
+    /// thumb stay authored, so the painted thumb lands inside the painted plaque
+    /// boundary the input side admits.
+    pub fn thumb_left_in(self, value: i32, window: RectPx, scale: ShellScale) -> i32 {
+        thumb_left_at(
+            value - self.min,
+            window,
+            PLAQUE_RESERVE,
+            self.max - self.min,
+            scale,
+        )
+    }
+
     /// The value a captured pointer at window-relative `x` selects.
     pub fn value_at(self, x: i32, width: i32) -> i32 {
         let position = trackbar_position_from_x(x, width, PLAQUE_RESERVE, self.max - self.min);
         self.stepped(self.min + position)
+    }
+
+    /// [`Self::value_at`] for a window at `scale` with a device cursor `x`.
+    pub fn value_at_in(self, x: i32, window: RectPx, scale: ShellScale) -> i32 {
+        let track = authored_track(window, (x, 0), scale);
+        self.value_at(track.local_x, track.width)
     }
 
     /// What a press at window-relative `(x, y)` does on a window showing
@@ -172,12 +234,36 @@ impl TrackbarRange {
             other => other,
         }
     }
+
+    /// [`Self::press`] for a window at `scale` with a device cursor at absolute
+    /// `(x, y)`. The admitted strip, thumb span and jump position all come out
+    /// of the authored window, matching [`Self::thumb_left_in`].
+    pub fn press_in(
+        self,
+        value: i32,
+        x: i32,
+        y: i32,
+        window: RectPx,
+        scale: ShellScale,
+    ) -> TrackbarPress {
+        let track = authored_track(window, (x, y), scale);
+        self.press(
+            value,
+            track.local_x,
+            track.local_y,
+            track.width,
+            track.height,
+        )
+    }
 }
 
 /// The value text's rect on a window with the plaque: its last `0x31`
-/// columns, full height (`0x0061E2B6..0x0061E2DB`).
-pub const fn value_text_rect(window: RectPx) -> RectPx {
-    RectPx::new(window.x + window.w - 0x31, window.y, 0x31, window.h)
+/// columns, full height (`0x0061E2B6..0x0061E2DB`). `scale` keeps the `0x31`
+/// reserve authored on a stretched window, as the paint and input sides share.
+pub fn value_text_rect(window: RectPx, scale: ShellScale) -> RectPx {
+    scale.derive_rect(window, |window| {
+        RectPx::new(window.x + window.w - 0x31, window.y, 0x31, window.h)
+    })
 }
 
 #[cfg(test)]
@@ -299,6 +385,40 @@ mod tests {
         ] {
             assert_eq!(kind.hold(7), Some(TrackbarHold { id: 7, dragging }));
         }
+    }
+
+    #[test]
+    fn stretched_window_presses_use_the_authored_track() {
+        // The retail 129x22 Credits window and its doubled device window at the
+        // same screen origin.
+        let range = TrackbarRange::new(5000, 5500, 1);
+        let authored = RectPx::new(404, 314, 129, 22);
+        let double = ShellScale::from_screen(1600, 1200);
+        let device = double.scale_rect(authored);
+
+        // At the retail mapping each adapter is the plain call.
+        assert_eq!(
+            range.thumb_left_in(5000, authored, ShellScale::RETAIL),
+            range.thumb_left(5000, authored.w)
+        );
+        assert_eq!(
+            range.press_in(0, 404, 324, authored, ShellScale::RETAIL),
+            range.press(0, 0, 10, authored.w, authored.h)
+        );
+
+        // Stretched, the same authored local offsets give the same result: the
+        // thumb offset stretches while the plaque reserve stays authored, so the
+        // painted plaque and the admitted press track still agree. The minimum
+        // sits at authored offset 1, so it lands on device offset 2.
+        assert_eq!(range.thumb_left_in(5000, device, double), 2);
+        assert_eq!(
+            range.press_in(0, 808, 648, device, double),
+            range.press(0, 0, 10, 129, 22)
+        );
+        assert_eq!(
+            range.value_at_in(834, device, double),
+            range.value_at(13, 129)
+        );
     }
 
     #[test]

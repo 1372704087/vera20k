@@ -61,6 +61,19 @@ pub struct RightPanelRects {
     pub bottom: RectPx,
 }
 
+impl RightPanelRects {
+    /// How far these rects sit from the 168x199 SDTP canvas the panel art is
+    /// authored against: `(1.0, 1.0)` on the retail layout at every screen size,
+    /// above one once the 800x600 dialog is stretched into the window. Both
+    /// axes clamp at one, so an unscaled panel never shrinks its art.
+    pub fn stretch(&self) -> (f32, f32) {
+        (
+            (self.tile.w as f32 / RIGHT_PANEL_WIDTH as f32).max(1.0),
+            (self.top.h as f32 / RIGHT_PANEL_TOP_H as f32).max(1.0),
+        )
+    }
+}
+
 /// Round-half-up MulDiv (sign-correct). Byte-identical to the three prior copies.
 pub fn mul_div_round(n: i32, numer: i32, denom: i32) -> i32 {
     let value = n * numer;
@@ -113,6 +126,170 @@ pub fn dialog_origin(screen_w: i32, screen_h: i32) -> (i32, i32) {
 /// every i32.
 pub fn center_offset(screen: i32, base: i32) -> i32 {
     ((screen - base) / 2).max(0)
+}
+
+/// The logical shell is authored at 800x600; the responsive pass maps that
+/// rectangle space onto the live window on both axes.
+pub const SHELL_BASE_W: i32 = 800;
+pub const SHELL_BASE_H: i32 = 600;
+
+/// Corner-rounded non-uniform mapping from the 800x600 logical shell space to
+/// a live window size. Identity at the base size, so a responsive layout equals
+/// the retail layout there.
+///
+/// Holds the window it maps onto, not the float factors, so a layout carrying
+/// one stays `Eq` for the shell structs that compare it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ShellScale {
+    screen_w: i32,
+    screen_h: i32,
+}
+
+impl ShellScale {
+    /// The retail mapping: the 800x600 dialog is placed in the window by
+    /// [`dialog_origin`], never stretched. Every art fit keyed on this scale is
+    /// then a no-op, so the responsive path is the only source of drift.
+    pub const RETAIL: Self = Self {
+        screen_w: SHELL_BASE_W,
+        screen_h: SHELL_BASE_H,
+    };
+
+    pub fn from_screen(screen_w: i32, screen_h: i32) -> Self {
+        Self { screen_w, screen_h }
+    }
+
+    pub const fn x(self) -> f32 {
+        self.screen_w as f32 / SHELL_BASE_W as f32
+    }
+
+    pub const fn y(self) -> f32 {
+        self.screen_h as f32 / SHELL_BASE_H as f32
+    }
+
+    /// The single factor for work the two axes cannot stretch independently:
+    /// glyph pixels and the software cursor. The height drives legibility.
+    pub const fn uniform(self) -> f32 {
+        self.y()
+    }
+
+    /// Is this the retail mapping — place the 800x600 shell in the window, never
+    /// stretch it? Callers that keep a native-size draw for the retail layout
+    /// test this instead of inferring it from a rect.
+    pub fn is_retail(self) -> bool {
+        self.screen_w == SHELL_BASE_W && self.screen_h == SHELL_BASE_H
+    }
+
+    pub fn scale_rect(self, rect: RectPx) -> RectPx {
+        let (scale_x, scale_y) = (self.x(), self.y());
+        let x0 = (rect.x as f32 * scale_x).round() as i32;
+        let y0 = (rect.y as f32 * scale_y).round() as i32;
+        let x1 = ((rect.x + rect.w) as f32 * scale_x).round() as i32;
+        let y1 = ((rect.y + rect.h) as f32 * scale_y).round() as i32;
+        RectPx::new(x0, y0, (x1 - x0).max(0), (y1 - y0).max(0))
+    }
+
+    /// The window-space point an authored point came to sit on, for layers placed
+    /// by origin rather than by rectangle — the loading screen's meter and its
+    /// country icon. Identity on the retail mapping.
+    pub fn scale_point(self, point: [i32; 2]) -> [i32; 2] {
+        let rect = self.scale_rect(RectPx::new(point[0], point[1], 0, 0));
+        [rect.x, rect.y]
+    }
+
+    pub fn scale_panel(self, panel: RightPanelRects) -> RightPanelRects {
+        RightPanelRects {
+            top: self.scale_rect(panel.top),
+            tile: self.scale_rect(panel.tile),
+            tile_count: panel.tile_count,
+            bottom: self.scale_rect(panel.bottom),
+        }
+    }
+
+    /// Chrome art authored at `(w, h)` pixels in the 800x600 dialog, in window
+    /// space. Identity on the retail mapping.
+    pub fn art_size(self, w: f32, h: f32) -> [f32; 2] {
+        [w * self.x(), h * self.y()]
+    }
+
+    /// The authored width a stretched device width came from. Art selected by
+    /// exact retail size (the combo faces, the trackbar frames) keys on this, so
+    /// a stretched control keeps the glyph its base rect would have chosen.
+    pub fn base_width(self, device_w: i32) -> i32 {
+        (device_w as f32 / self.x()).round() as i32
+    }
+
+    /// [`Self::base_width`] along the vertical axis.
+    pub fn base_height(self, device_h: i32) -> i32 {
+        (device_h as f32 / self.y()).round() as i32
+    }
+
+    /// The 800x600-space point a stretched device point came from: the point
+    /// form of [`Self::base_rect`]. A cursor mapped through it lets pointer
+    /// arithmetic run on the authored pixels the paint path used.
+    pub fn base_point(self, x: i32, y: i32) -> (i32, i32) {
+        (
+            (x as f32 / self.x()).round() as i32,
+            (y as f32 / self.y()).round() as i32,
+        )
+    }
+
+    /// The 800x600-space rect a stretched device rect came from: the inverse of
+    /// [`Self::scale_rect`] up to rounding. Control geometry derived from a
+    /// device rect maps through this first, so the insets and row counts run on
+    /// the authored numbers the paint and input paths agree on.
+    pub fn base_rect(self, rect: RectPx) -> RectPx {
+        RectPx::new(
+            (rect.x as f32 / self.x()).round() as i32,
+            (rect.y as f32 / self.y()).round() as i32,
+            self.base_width(rect.w),
+            self.base_height(rect.h),
+        )
+    }
+
+    /// Derive a control's sub-rect from its device rect: map back to the
+    /// authored numbers, apply `derive` there, then stretch the result. Paint
+    /// and hit-testing both go through this, so a stretched control's drawn art
+    /// and its clickable area are the same rect. The retail mapping hands the
+    /// rect to `derive` untouched, keeping every unscaled page byte-identical.
+    pub fn derive_rect(self, rect: RectPx, derive: impl FnOnce(RectPx) -> RectPx) -> RectPx {
+        if self.is_retail() {
+            derive(rect)
+        } else {
+            self.scale_rect(derive(self.base_rect(rect)))
+        }
+    }
+}
+
+/// Every rect a layout owns, mapped onto the live window in one pass.
+///
+/// Each impl is an exhaustive struct literal, so a rect field added to a layout
+/// is a compile error here until it is stretched too: a page cannot half-scale.
+pub trait ScaledRects {
+    fn scaled_rects(&self, scale: ShellScale) -> Self;
+}
+
+impl ScaledRects for RectPx {
+    fn scaled_rects(&self, scale: ShellScale) -> Self {
+        scale.scale_rect(*self)
+    }
+}
+
+impl<T: ScaledRects, const N: usize> ScaledRects for [T; N] {
+    fn scaled_rects(&self, scale: ShellScale) -> Self {
+        std::array::from_fn(|index| self[index].scaled_rects(scale))
+    }
+}
+
+impl<T: ScaledRects> ScaledRects for Option<T> {
+    fn scaled_rects(&self, scale: ShellScale) -> Self {
+        self.as_ref().map(|value| value.scaled_rects(scale))
+    }
+}
+
+impl ScaledRects for RightPanelRects {
+    fn scaled_rects(&self, scale: ShellScale) -> Self {
+        scale.scale_panel(*self)
+    }
 }
 
 /// Where an image static paints a `w`x`h` image in its window: centred only
@@ -358,5 +535,37 @@ mod tests {
         assert_eq!(lower_strip_rect(800, 600), RectPx::new(0, 568, 632, 32));
         assert_eq!(lower_strip_rect(1024, 768), RectPx::new(112, 652, 632, 32));
         assert_eq!(lower_strip_rect(640, 480), RectPx::new(0, 448, 472, 32));
+    }
+
+    #[test]
+    fn derive_rect_runs_the_derivation_in_authored_pixels() {
+        // A control sub-rect inset by 2 px on each axis, the shape every
+        // paint/hit-test derivation in the shells uses.
+        fn inset(rect: RectPx) -> RectPx {
+            RectPx::new(rect.x + 2, rect.y + 2, rect.w - 4, rect.h - 4)
+        }
+
+        // The retail mapping hands the rect to `derive` untouched, so the
+        // default path keeps its exact bytes.
+        let authored = RectPx::new(100, 200, 207, 23);
+        assert_eq!(
+            ShellScale::RETAIL.derive_rect(authored, inset),
+            inset(authored)
+        );
+
+        // A stretched device rect round-trips to the authored numbers, so the 2 px
+        // inset is 2 authored pixels (4 device) rather than 2 device pixels: the
+        // paint and input paths can never disagree by a scale factor.
+        let scale = ShellScale::from_screen(1600, 1200);
+        let device = scale.scale_rect(authored);
+        assert_eq!(scale.base_rect(device), authored);
+        assert_eq!(
+            scale.derive_rect(device, inset),
+            scale.scale_rect(inset(authored))
+        );
+        assert_eq!(
+            scale.derive_rect(device, inset),
+            RectPx::new(204, 404, 406, 38)
+        );
     }
 }

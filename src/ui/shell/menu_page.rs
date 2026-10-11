@@ -9,14 +9,15 @@
 
 use super::descriptor::{DialogId, HEADING_ANCHOR, MONITOR_ANCHOR};
 use super::geom::{
-    RectPx, RightPanelRects, SDBTNANM_CELL_H, SDBTNANM_CELL_W_NARROW, center_offset, dlu_rect,
-    lower_strip_rect, right_panel_rects, snap_button_biased_truncate,
+    RectPx, RightPanelRects, SDBTNANM_CELL_H, SDBTNANM_CELL_W_NARROW, SHELL_BASE_H, SHELL_BASE_W,
+    ShellScale, center_offset, dlu_rect, lower_strip_rect, right_panel_rects,
+    snap_button_biased_truncate,
 };
 use super::layout::{anchor_rect, status_line_rect};
-use crate::ui::main_menu_shell::{MainMenuMovieBase, movie_base_for_screen_width};
+use crate::ui::main_menu_shell::{
+    MainMenuMovieBase, movie_base_for_responsive_width, movie_base_for_screen_width,
+};
 
-const SHELL_BASE_W: i32 = 800;
-const SHELL_BASE_H: i32 = 600;
 const RIGHT_PANEL_TILE_H: i32 = super::geom::RIGHT_PANEL_TILE_H;
 const RA2TS_L_W: i32 = 632;
 const RA2TS_L_H: i32 = 570;
@@ -71,6 +72,9 @@ pub struct MenuPageButtonRect {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MenuPageLayout {
+    /// How far these rects sit from the 800x600 art they were authored against.
+    /// `RETAIL` on the retail layout at every screen size.
+    pub scale: ShellScale,
     pub screen: RectPx,
     pub movie_base: MainMenuMovieBase,
     pub movie: RectPx,
@@ -146,6 +150,7 @@ pub fn compute_layout(spec: &MenuPageSpec, screen_w: u32, screen_h: u32) -> Menu
     });
 
     MenuPageLayout {
+        scale: ShellScale::RETAIL,
         screen: RectPx::new(0, 0, screen_w, screen_h),
         movie_base,
         movie: RectPx::new(movie_x, movie_y, movie_w, movie_h),
@@ -165,4 +170,36 @@ impl MenuPageLayout {
             .find(|button| button.id == id)
             .map(|button| button.rect)
     }
+
+    /// Map the verified 800x600 page into the live window by stretching X/Y
+    /// independently. Identity at the base size, so the responsive page equals
+    /// the retail page there. The 640-wide asset switch belongs to the unscaled
+    /// layout; a stretched area always uses the large loop.
+    fn scaled_to_window(mut self, screen_w: u32, screen_h: u32) -> Self {
+        let scale = ShellScale::from_screen(screen_w as i32, screen_h as i32);
+        self.scale = scale;
+        self.screen = RectPx::new(0, 0, screen_w as i32, screen_h as i32);
+        self.movie_base = movie_base_for_responsive_width(screen_w);
+        self.movie = scale.scale_rect(self.movie);
+        self.title = scale.scale_rect(self.title);
+        self.warning_monitor = scale.scale_rect(self.warning_monitor);
+        self.status_help = scale.scale_rect(self.status_help);
+        self.lower_strip = scale.scale_rect(self.lower_strip);
+        self.right_panel = scale.scale_panel(self.right_panel);
+        for button in &mut self.buttons {
+            button.rect = scale.scale_rect(button.rect);
+        }
+        self
+    }
+}
+
+/// The responsive variant of [`compute_layout`]: the verified 800x600 page
+/// stretched to fill the window.
+pub fn compute_responsive_layout(
+    spec: &MenuPageSpec,
+    screen_w: u32,
+    screen_h: u32,
+) -> MenuPageLayout {
+    compute_layout(spec, SHELL_BASE_W as u32, SHELL_BASE_H as u32)
+        .scaled_to_window(screen_w, screen_h)
 }

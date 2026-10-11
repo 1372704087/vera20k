@@ -20,10 +20,10 @@ use crate::app::frontend::shell_pass::{
 use crate::app::frontend::shell_transition::ShellSlideKind;
 use crate::render::shell_paint::{
     self, CHROME_DEPTH, CURSOR_DEPTH, PARENT_BACKGROUND_DEPTH, PaintButton, PaintLabel,
-    SHELL_TEXT_RGB_ENABLED, push_entry_native,
+    SHELL_TEXT_RGB_ENABLED, push_entry_scaled, push_entry_sized,
 };
 use crate::render::shell_text::ShellAlign;
-use crate::ui::shell::geom::centred_in_window;
+use crate::ui::shell::geom::{ShellScale, centred_in_window};
 use crate::ui::wol_shell::{StaticAlign, WOL_WELCOME_PAGE};
 
 /// Icon and group-box children sit over the background, under the text.
@@ -57,6 +57,7 @@ pub(crate) fn render_wol_welcome_page(
     let layout = crate::app::App::wol_welcome_layout(state);
     let screen_w = layout.page.screen.w;
     let screen_h = layout.page.screen.h;
+    let scale = layout.page.scale;
     let api_missing = state
         .frontend
         .wol_welcome
@@ -113,16 +114,26 @@ pub(crate) fn render_wol_welcome_page(
         .filter(|_| api_missing.is_none());
     let mut background_sprites = Vec::new();
     match dialog_background {
-        Some(entry) => push_entry_native(
+        // The background canvas is the authored 800x600 dialog; a stretched
+        // page grows it over the whole window, as the parent backdrop does.
+        Some(entry) => push_entry_sized(
             &mut background_sprites,
             entry,
-            0,
-            0,
+            0.0,
+            0.0,
+            if scale.is_retail() {
+                entry.pixel_size
+            } else {
+                [screen_w as f32, screen_h as f32]
+            },
             PARENT_BACKGROUND_DEPTH,
         ),
         None => sprites.extend(
             crate::app::frontend::main_menu_shell_render::shell_parent_background_instances(
-                chrome, screen_w, screen_h,
+                chrome,
+                screen_w,
+                screen_h,
+                layout.page.scale,
             ),
         ),
     }
@@ -133,7 +144,12 @@ pub(crate) fn render_wol_welcome_page(
         screen_w,
     ));
     sprites.extend(monitor_frame.and_then(|frame| {
-        shell_paint::paint_warning_monitor(chrome, layout.page.warning_monitor, frame)
+        shell_paint::paint_warning_monitor(
+            chrome,
+            layout.page.warning_monitor,
+            frame,
+            layout.page.scale,
+        )
     }));
 
     // Children of the page: blank while the teardown slide runs and gone
@@ -143,7 +159,7 @@ pub(crate) fn render_wol_welcome_page(
     let mut icon_sprites = Vec::new();
     if children {
         for window in layout.group_boxes {
-            push_group_box(&mut sprites, chrome, window);
+            push_group_box(&mut sprites, chrome, window, scale);
         }
         if let Some(art) = art {
             for (file, window) in &layout.icons {
@@ -151,8 +167,8 @@ pub(crate) fn render_wol_welcome_page(
                     continue;
                 };
                 let (w, h) = entry.native_size();
-                let (x, y) = centred_in_window(*window, w, h);
-                push_entry_native(&mut icon_sprites, *entry, x, y, CHILD_DEPTH);
+                let (x, y) = centred_in_window(scale.base_rect(*window), w, h);
+                push_entry_scaled(&mut icon_sprites, *entry, x, y, scale, CHILD_DEPTH);
             }
         }
     }
@@ -233,7 +249,8 @@ pub(crate) fn render_wol_welcome_page(
         });
     }
     labels.extend(status_label);
-    let mut text = shell_paint::paint_labels(&state.renderer.bit_font, &labels);
+    let mut text =
+        shell_paint::paint_labels_scaled(&state.renderer.bit_font, &labels, scale.uniform());
 
     // The TXT_APIMISSING box `0xD0`: PUDLGBGN with one MNBTTN OK.
     let mut box_sprites = Vec::new();
@@ -273,6 +290,7 @@ pub(crate) fn render_wol_welcome_page(
                 enabled: true,
             }],
             &box_labels,
+            ShellScale::RETAIL,
             BOX_DEPTHS,
         );
         box_sprites = draw.sprites;

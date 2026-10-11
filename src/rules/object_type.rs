@@ -567,6 +567,24 @@ pub struct ObjectType {
     /// the sinking edge, plays VoiceSinking, then the held SinkingSound.
     pub sinking_sound: Option<String>,
     pub voice_sinking: Option<String>,
+    /// `TurretRotateSound=` — `TechnoTypeClass+0x560`, the sustained positional
+    /// loop a `Turret=yes` object plays while its turret turns.
+    ///
+    /// Constructor `0x00710F25` stores `-1`; `TechnoTypeClass::ReadINI @
+    /// 0x007133BA` calls `ReadString` at `0x007133C8` with a 0x80 buffer,
+    /// then `VocClass::FindIndex` at `0x007133D5`. `0x007133DF..0x007133E7`
+    /// retains or writes the index, keeping the old value for an absent,
+    /// empty or unregistered name. `RulesClass` processes type sections in
+    /// scenario order, so retention holds across RULESMD/LANGRULE/mode/map
+    /// layers: the field is the last name a layer gave *and* `soundmd.ini`
+    /// registers, and `None` stands for the
+    /// constructor's `-1` (silence, never a raw audio-bag lookup). The fixed
+    /// SOUNDMD binder owns that resolution.
+    ///
+    /// Consumer: `crate::sim::world::turret_rotate_sound`.
+    /// Stock authors: `[GTGCAN]` `GrandCannonRotate`, `[CAEAST02]`
+    /// `YuriBustRotate` (both `Turret=yes`); no other type names it.
+    pub turret_rotate_sound: Option<String>,
     /// `ImpactWaterSound=` / `ImpactLandSound=` — `+0x53C` / `+0x540`, read at
     /// `0x00712EFC` / `0x00712F38`: the crash impact's cue by the impact cell's
     /// LandType (`FlyLocomotionClass::Process 0x004CD818..0x004CD891`), each
@@ -1774,7 +1792,6 @@ pub struct ObjectType {
     /// ReadINI0x715087..0x7150A2 reads exact key0x8436E0 through
     /// ReadBool0x5295F0 with the prior byte as its default on every rules pass.
     /// VXL shadow706BF3 and SHP shadow706052 consume the same type flag.
-    /// Original byte receipts: tools/procedural_drawing_oracle/validation/source-dependencies/.
     pub no_shadow: bool,
     /// `Cloakable=` — copied into Unit/Infantry runtime cloak ability.
     pub cloakable: bool,
@@ -2296,6 +2313,9 @@ impl ObjectType {
             // these references against its fixed SOUNDMD catalog.
             sinking_sound: None,
             voice_sinking: None,
+            // TechnoTypeClass+0x560 starts at -1. RuleSet's fixed SOUNDMD
+            // binder later resolves the layered ReadINI7133BA reference.
+            turret_rotate_sound: None,
             impact_water_sound: section
                 .read_name("ImpactWaterSound", 0x80)
                 .map(str::to_owned),

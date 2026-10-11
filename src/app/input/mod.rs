@@ -5,22 +5,22 @@
 pub(crate) mod camera;
 pub(crate) mod commands;
 pub(crate) mod context_order;
-pub(crate) mod dispatch;
 pub(crate) mod cursor;
+pub(crate) mod dispatch;
 pub(crate) mod entity_pick;
 pub(crate) mod gadget_input;
 pub(crate) mod hotkeys;
-pub(crate) mod state;
 pub(crate) mod in_game_options;
-pub(crate) mod pause_menu;
 pub(crate) mod messages;
+pub(crate) mod pause_menu;
 pub(crate) mod sidebar_eva;
+pub(crate) mod state;
 pub(crate) mod tooltips;
 pub(crate) mod transport_orders;
 
+pub(crate) mod abort;
 #[cfg(test)]
 mod bridge_click_tests;
-pub(crate) mod abort;
 
 pub(crate) mod sound;
 

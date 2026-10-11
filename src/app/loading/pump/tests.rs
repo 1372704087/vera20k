@@ -422,14 +422,12 @@ fn loading_replacement_and_terminal_retirement_preserve_cache_and_admission_orde
     ));
 }
 
-/// Uses the production initial-map reader and the real retail Acos table;
-/// assertions distinguish initial read failure from context admission.
+/// Uses the production initial-map reader; assertions distinguish initial read
+/// failure from context admission.
 #[test]
-#[ignore = "requires RA2_DIR with verified retail gamemd.exe"]
+#[ignore = "requires RA2_DIR with the retail game files"]
 fn loading_preparation_consumes_real_source_and_returns_lease_on_initial_and_admission_failures() {
     let ra2_dir = PathBuf::from(std::env::var_os("RA2_DIR").expect("RA2_DIR"));
-    crate::map::retail_trig::install_from_dir(&ra2_dir);
-    assert!(crate::map::retail_trig::wave_tables_available());
     let dir = std::env::temp_dir().join(format!(
         "vera20k-loading-preparation-{}",
         std::process::id()
@@ -680,6 +678,7 @@ fn gsi_04_12_generated_prefix_uses_accepted_staging_once() {
         &launch,
         None,
         [800, 600],
+        ShellScale::RETAIL,
         Some(DecodedPreview {
             width: 300,
             height: 100,
@@ -1346,6 +1345,7 @@ fn gsi_04_12_stock_ffa_preview_can_only_supply_loading_fallback_pixels() {
         &launch,
         None,
         [800, 600],
+        ShellScale::RETAIL,
         Some(preview),
         &launch_map,
         &active_scenario_waypoints,

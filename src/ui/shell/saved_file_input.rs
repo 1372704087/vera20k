@@ -1,6 +1,7 @@
 //! Shared input for the native saved-file browser (driver 558DD0).
 //! Persistence, prompt purpose, audio and font measurement remain app-owned.
 
+use crate::ui::shell::list::ListMetrics;
 use crate::ui::skirmish_shell::seed_list::SeedListGeometry;
 use crate::ui::skirmish_shell::{
     SavedSeedBrowserState, SavedSeedControl, SavedSeedLayout, SavedSeedMode, SavedSeedOutcome,
@@ -98,9 +99,14 @@ fn hit<I>(
     if let Some(prompt) = browser.prompt.as_ref() {
         prompt.control_at(extent.0, extent.1, x, y)
     } else {
-        SeedListGeometry::new(layout.list, browser.entries.len(), browser.top_index)
-            .scroll_control_at(x, y)
-            .or_else(|| crate::ui::skirmish_shell::saved_seed_control_at(layout, x, y))
+        SeedListGeometry::new(
+            layout.list,
+            browser.entries.len(),
+            browser.top_index,
+            ListMetrics::scaled(layout.scale),
+        )
+        .scroll_control_at(x, y)
+        .or_else(|| crate::ui::skirmish_shell::saved_seed_control_at(layout, x, y))
     }
 }
 
@@ -148,6 +154,7 @@ pub fn mouse_down<I: Clone + PartialEq>(
                 layout.list,
                 browser.entries.len(),
                 browser.top_index,
+                ListMetrics::scaled(layout.scale),
             )
             .row_at(browser.entries.len(), browser.top_index, x, y)
             {
@@ -156,8 +163,12 @@ pub fn mouse_down<I: Clone + PartialEq>(
             }
         }
         Some(SavedSeedControl::ScrollUp | SavedSeedControl::ScrollDown) => {
-            let geometry =
-                SeedListGeometry::new(layout.list, browser.entries.len(), browser.top_index);
+            let geometry = SeedListGeometry::new(
+                layout.list,
+                browser.entries.len(),
+                browser.top_index,
+                ListMetrics::scaled(layout.scale),
+            );
             if hit == Some(SavedSeedControl::ScrollUp) {
                 browser.top_index = browser.top_index.saturating_sub(1);
             } else {
@@ -168,9 +179,13 @@ pub fn mouse_down<I: Clone + PartialEq>(
         }
         Some(SavedSeedControl::ScrollThumb) => browser.pressed_control = hit,
         Some(SavedSeedControl::ScrollTrack) => {
-            browser.top_index =
-                SeedListGeometry::new(layout.list, browser.entries.len(), browser.top_index)
-                    .top_at_pointer(y);
+            browser.top_index = SeedListGeometry::new(
+                layout.list,
+                browser.entries.len(),
+                browser.top_index,
+                ListMetrics::scaled(layout.scale),
+            )
+            .top_at_pointer(y);
         }
         // A disabled window takes no press (Load with no rows, 0x00558FE5).
         Some(SavedSeedControl::Action) if !browser.action_enabled() => {}
@@ -193,9 +208,13 @@ pub fn mouse_up<I: Clone + PartialEq>(
     let pressed = browser.pressed_control.take();
     browser.scroll_repeat_at = None;
     if pressed == Some(SavedSeedControl::ScrollThumb) {
-        browser.top_index =
-            SeedListGeometry::new(layout.list, browser.entries.len(), browser.top_index)
-                .top_at_pointer(pointer.1);
+        browser.top_index = SeedListGeometry::new(
+            layout.list,
+            browser.entries.len(),
+            browser.top_index,
+            ListMetrics::scaled(layout.scale),
+        )
+        .top_at_pointer(pointer.1);
         return BrowserInputResult::None;
     }
     if pressed.is_none() || pressed != hit {
@@ -224,7 +243,12 @@ pub fn update_scroll<I>(
     if browser.prompt.is_some() {
         return false;
     }
-    let geometry = SeedListGeometry::new(layout.list, browser.entries.len(), browser.top_index);
+    let geometry = SeedListGeometry::new(
+        layout.list,
+        browser.entries.len(),
+        browser.top_index,
+        ListMetrics::scaled(layout.scale),
+    );
     if pointer_moved && browser.pressed_control == Some(SavedSeedControl::ScrollThumb) {
         browser.top_index = geometry.top_at_pointer(pointer_y);
     }
@@ -274,7 +298,8 @@ mod tests {
             "Working".into(),
             "New".into(),
             100,
-            SeedListGeometry::new(layout.list, count, 0).visible_rows,
+            SeedListGeometry::new(layout.list, count, 0, ListMetrics::scaled(layout.scale))
+                .visible_rows,
         );
         (browser, layout)
     }
@@ -338,7 +363,8 @@ mod tests {
     #[test]
     fn double_click_load_fires_on_second_press_without_release_replay() {
         let (mut browser, layout) = fixture(SavedSeedMode::Load, 2);
-        let row = SeedListGeometry::new(layout.list, 2, 0).row(1);
+        let row =
+            SeedListGeometry::new(layout.list, 2, 0, ListMetrics::scaled(layout.scale)).row(1);
         let pointer = (row.x + 2, row.y + 2);
         let now = Instant::now();
         let limits = (Duration::from_millis(500), 4, 4);
@@ -362,7 +388,7 @@ mod tests {
     #[test]
     fn a_double_click_below_the_rows_loads_the_selection_without_reselecting() {
         let (mut browser, layout) = fixture(SavedSeedMode::Load, 2);
-        let geometry = SeedListGeometry::new(layout.list, 2, 0);
+        let geometry = SeedListGeometry::new(layout.list, 2, 0, ListMetrics::scaled(layout.scale));
         let below = geometry.row(geometry.visible_rows - 1);
         let pointer = (below.x + 2, below.y + 2);
         let now = Instant::now();
@@ -409,7 +435,9 @@ mod tests {
     #[test]
     fn scrollbar_hold_repeats_at_deadline_and_release_cancels_capture() {
         let (mut browser, layout) = fixture(SavedSeedMode::Load, 40);
-        let bar = SeedListGeometry::new(layout.list, 40, 0).scrollbar.unwrap();
+        let bar = SeedListGeometry::new(layout.list, 40, 0, ListMetrics::scaled(layout.scale))
+            .scrollbar
+            .unwrap();
         let pointer = (bar.x + 3, bar.y + bar.h - 3);
         let now = Instant::now();
         let _ = mouse_down(

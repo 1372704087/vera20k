@@ -6,12 +6,12 @@ use crate::app::AppState;
 use crate::assets::csf_file::CsfFile;
 use crate::render::bit_font::BitFont;
 use crate::render::shell_text::{self, ShellAlign, ShellTextDraw, TextRect};
-use crate::ui::sidebar::SidebarTheme;
 use crate::ui::shell::geom::RectPx;
 use crate::ui::shell::pause_menu::{
     PAUSE_MENU_FOOTER, PAUSE_MENU_TITLE, PauseMenuButton, PauseMenuButtonState, PauseMenuLayout,
     pause_menu_layout,
 };
+use crate::ui::sidebar::SidebarTheme;
 
 /// Type2 chooses released0 / pressed1 / timer-highlight2 (612EE8..612F5B).
 /// Disabled buttons retain their SHP frame;612F5F changes their text color only.

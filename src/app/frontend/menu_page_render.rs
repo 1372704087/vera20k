@@ -7,6 +7,7 @@ use anyhow::Result;
 
 use crate::app::AppState;
 use crate::app::frontend::main_menu_shell_render::{Ra2tsDialogOwner, shell_reveal_path_a};
+use crate::app::frontend::shell_layout;
 use crate::app::frontend::shell_pass::{
     ShellComposition, TexturedDraw, encode_shell_pass, owner_draw_button_label_rect, resolve_csf,
     software_cursor,
@@ -17,16 +18,21 @@ use crate::render::shell_paint::{
     SHELL_TEXT_RGB_DISABLED, SHELL_TEXT_RGB_ENABLED,
 };
 use crate::render::shell_text::ShellAlign;
-use crate::ui::shell::geom::RectPx;
-use crate::ui::shell::menu_page::{MenuPageLayout, MenuPageSpec, compute_layout};
+use crate::ui::shell::geom::{RectPx, SDBTNANM_CELL_H, SDBTNANM_CELL_W_NARROW};
+use crate::ui::shell::menu_page::{MenuPageLayout, MenuPageSpec};
 use crate::ui::shell::static_reveal::Kind1RevealWindow;
 
-/// Menu pages paint the native 156x42 SDBTNANM frame at the control origin.
+/// Menu pages paint the 156x42 SDBTNANM frame filling its cell, right-anchored
+/// and vertically centred — the native placement at the authored cell size, and
+/// a proportional stretch of it on a stretched layout.
 /// Mouse hover updates static 0x695 but does not select frame 3. Press selects
 /// frame 4 without moving the art; a runtime-disabled button keeps its art and
 /// shows its caption in the disabled colour (owner-draw type 1, `0x006135F3`).
 pub(crate) const MENU_PAGE_BUTTON_POLICY: ButtonPolicy = ButtonPolicy {
-    art_fit: ArtFit::Native,
+    art_fit: ArtFit::FitRightAnchored {
+        panel_w: SDBTNANM_CELL_W_NARROW as f32,
+        tile_h: SDBTNANM_CELL_H as f32,
+    },
     hover_flash: false,
     art_sink_y: 0.0,
 };
@@ -360,11 +366,7 @@ pub(crate) fn render_menu_page(
         }
     }
 
-    let layout = compute_layout(
-        view.spec,
-        state.renderer.gpu.config.width,
-        state.renderer.gpu.config.height,
-    );
+    let layout = shell_layout::menu_page_layout(state, view.spec);
     let input = page_input(state, view.spec);
     // The teardown slide starts with a full dialog repaint (`0x00622C4F`)
     // and pumps no messages until it ends: the statics stay blank and the
@@ -403,6 +405,7 @@ pub(crate) fn render_menu_page(
             chrome,
             layout.screen.w,
             layout.screen.h,
+            layout.scale,
         )
     } else {
         Vec::new()
@@ -414,7 +417,7 @@ pub(crate) fn render_menu_page(
         layout.screen.w,
     );
     chrome_instances.extend(monitor_frame.and_then(|frame| {
-        shell_paint::paint_warning_monitor(chrome, layout.warning_monitor, frame)
+        shell_paint::paint_warning_monitor(chrome, layout.warning_monitor, frame, layout.scale)
     }));
     // While a slide runs the engine draws the whole tile column in place of
     // the buttons (`0x006071E0`).
@@ -438,7 +441,8 @@ pub(crate) fn render_menu_page(
     );
     let mut labels = paint_labels(state, &view, &layout, input, title_window, !sliding);
     labels.extend(status_label);
-    let text = shell_paint::paint_labels(&state.renderer.bit_font, &labels);
+    let text =
+        shell_paint::paint_labels_scaled(&state.renderer.bit_font, &labels, layout.scale.uniform());
     let draws = [
         TexturedDraw {
             texture: movie_texture,
@@ -483,8 +487,16 @@ mod tests {
     use crate::ui::single_player_shell::SINGLE_PLAYER_PAGE;
 
     #[test]
-    fn menu_page_policy_uses_native_art_without_mouse_hover_flash() {
-        assert!(matches!(MENU_PAGE_BUTTON_POLICY.art_fit, ArtFit::Native));
+    fn menu_page_policy_fills_the_authored_cell_without_mouse_hover_flash() {
+        // The fit is keyed on the authored 156x42 cell, so an unstretched
+        // layout gets the native placement; a stretched cell stretches the art.
+        assert_eq!(
+            MENU_PAGE_BUTTON_POLICY.art_fit,
+            ArtFit::FitRightAnchored {
+                panel_w: 156.0,
+                tile_h: 42.0
+            }
+        );
         const { assert!(!MENU_PAGE_BUTTON_POLICY.hover_flash) };
         assert_eq!(MENU_PAGE_BUTTON_POLICY.art_sink_y, 0.0);
     }

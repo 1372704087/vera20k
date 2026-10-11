@@ -6,7 +6,8 @@ use super::text::{localized_label, push_text_draw, rect_to_text_rect};
 use super::{SHELL_CONTROL_DEPTH, SHELL_CONTROL_TEXT_DEPTH, SHELL_LABEL_TEXT_RGB};
 use crate::app::AppState;
 use crate::render::{shell_paint, shell_text::ShellAlign};
-use crate::ui::shell::geom::RectPx;
+use crate::ui::shell::geom::{RectPx, ShellScale};
+use crate::ui::shell::list::ListMetrics;
 use crate::ui::shell::list::ShellListGeometry;
 use crate::ui::shell::pause_menu::PauseMenuButtonState;
 use crate::ui::shell::sound::{SoundButton, SoundLayout, SoundSlider};
@@ -60,6 +61,7 @@ pub(crate) fn render_sound_shell(
                 thumb_left: dialog.thumb_left(id, rect),
                 plaque: true,
             },
+            ShellScale::RETAIL,
         );
     }
     let profile = &state.persistence.options_profile;
@@ -71,9 +73,15 @@ pub(crate) fn render_sound_shell(
             &mut controls,
             &chrome,
             ControlPaint::Checkbox { rect, checked },
+            ShellScale::RETAIL,
         );
     }
-    let geometry = ShellListGeometry::new(layout.list, dialog.rows.len(), dialog.top);
+    let geometry = ShellListGeometry::new(
+        layout.list,
+        dialog.rows.len(),
+        dialog.top,
+        ListMetrics::RETAIL,
+    );
     super::list::paint_list(
         &mut controls,
         atlas,
@@ -82,6 +90,7 @@ pub(crate) fn render_sound_shell(
         dialog.selected,
         dialog.scroll.pressed_part(),
         false,
+        ShellScale::RETAIL,
     );
     // 609FC7..609FE2/60A330 selects type3. MNBTTN uses native canvas
     // centered on the resource control, not the side column's SIDEBTTN.
@@ -95,6 +104,7 @@ pub(crate) fn render_sound_shell(
         super::chrome::type3_button_frames(atlas),
         RectPx::new(0, 0, width, height),
         &buttons,
+        ShellScale::RETAIL,
         shell_paint::ModalDepths {
             background: SHELL_CONTROL_DEPTH,
             button: SHELL_CONTROL_DEPTH,
@@ -111,6 +121,7 @@ pub(crate) fn render_sound_shell(
             SHELL_LABEL_TEXT_RGB,
             align,
             SHELL_CONTROL_TEXT_DEPTH,
+            1.0,
         )
     };
     text(
@@ -144,7 +155,7 @@ pub(crate) fn render_sound_shell(
         );
         text(
             &dialog.positions[index].to_string(),
-            crate::ui::shell::trackbar::value_text_rect(layout.sliders[index]),
+            crate::ui::shell::trackbar::value_text_rect(layout.sliders[index], ShellScale::RETAIL),
             ShellAlign::H_CENTER | ShellAlign::V_CENTER,
         );
     }

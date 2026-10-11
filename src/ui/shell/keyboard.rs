@@ -1,7 +1,7 @@
 //! Shared Keyboard A3 control state and physical geometry. Native5FBEF0/5FB320,
 //! RT_DIALOG A3 atBEF560; bindings remain in the app command owner.
 use super::button::ShellButtonInteraction;
-use super::geom::{self, RectPx};
+use super::geom::{self, RectPx, ShellScale};
 use super::in_game_shell::InGameShellLayout;
 use super::list::ListScrollInteraction;
 
@@ -186,18 +186,44 @@ pub struct KeyboardLayout {
     pub current_shortcut: RectPx,
     pub error: RectPx,
     pub labels: [(&'static str, RectPx, bool); 6],
+    /// The mapping the control rects were placed in: retail centers the authored
+    /// 800x600 dialog, the responsive page stretches it into the window.
+    pub scale: ShellScale,
 }
 impl KeyboardLayout {
+    /// Gamemd's A3: the authored dialog centered in the window at its native
+    /// size. Also the frame the in-game page sits in, which never stretches.
     pub fn new(width: i32, height: i32, shell: Option<(InGameShellLayout, [i32; 2])>) -> Self {
+        Self::build(width, height, shell, ShellScale::RETAIL)
+    }
+
+    /// The responsive variant of [`Self::new`] for the front-end family page: the
+    /// verified 800x600 controls stretched to fill the window, with the family
+    /// chrome where every other stretched family page puts it. Identity at the
+    /// base size. The in-game frame keeps its own layout, so it takes `new`.
+    pub fn responsive(width: i32, height: i32) -> Self {
+        Self::build(width, height, None, ShellScale::from_screen(width, height))
+    }
+
+    fn build(
+        width: i32,
+        height: i32,
+        shell: Option<(InGameShellLayout, [i32; 2])>,
+        scale: ShellScale,
+    ) -> Self {
         // Common60B7A0 ordinary controls use signed centering then clamp origins.
         let dlu = |x, y, w, h| {
             let r = geom::dlu_rect(x, y, w, h);
-            RectPx::new(
-                (r.x + (width - 800) / 2).max(0),
-                (r.y + (height - 600) / 2).max(0),
-                r.w,
-                r.h,
-            )
+            if scale.is_retail() {
+                RectPx::new(
+                    (r.x + (width - 800) / 2).max(0),
+                    (r.y + (height - 600) / 2).max(0),
+                    r.w,
+                    r.h,
+                )
+            } else {
+                scale.scale_rect(r)
+            }
         };
         let (title, back, footer) = if let Some((shell, size)) = shell {
             (
@@ -205,15 +231,22 @@ impl KeyboardLayout {
                 RectPx::new(width - 147, shell.side3.y - size[1], size[0], size[1]),
                 RectPx::new(10, height - 21, 455, 20),
             )
-        } else {
+        } else if scale.is_retail() {
             // The front-end page is a family page: its heading, Back and
             // status line sit where every family page puts them.
             let page =
                 super::menu_page::compute_layout(&KEYBOARD_PAGE, width as u32, height as u32);
             (page.title, page.buttons[0].rect, page.status_help)
+        } else {
+            let page = super::menu_page::compute_responsive_layout(
+                &KEYBOARD_PAGE,
+                width as u32,
+                height as u32,
+            );
+            (page.title, page.buttons[0].rect, page.status_help)
         };
         let mut category = dlu(63, 83, 138, 146);
-        category.h = crate::ui::skirmish_shell::COMBO_FACE_H;
+        category.h = (crate::ui::skirmish_shell::COMBO_FACE_H as f32 * scale.y()).round() as i32;
         Self {
             title,
             back,
@@ -236,6 +269,7 @@ impl KeyboardLayout {
                 ("GUI:CurAssignedTo", dlu(63, 266, 134, 11), false),
                 ("GUI:CurrentShortcut", dlu(63, 203, 138, 11), false),
             ],
+            scale,
         }
     }
     pub fn button(self, button: KeyboardButton) -> RectPx {
@@ -271,20 +305,28 @@ impl KeyboardLayout {
         None
     }
     /// Combo owner618AEA sets font+6=23px dropdown rows, independently of lists.
+    /// The popup is authored on the face and stretched with it, so a stretched
+    /// page's list keeps the same row count and pitch as its face.
     pub fn category_popup(self, count: usize) -> RectPx {
-        RectPx::new(
-            self.category.x,
-            self.category.y + self.category.h,
-            self.category.w,
-            count as i32 * 23 + 4,
-        )
+        self.scale.derive_rect(self.category, |face| {
+            RectPx::new(
+                face.x,
+                face.y + face.h,
+                face.w,
+                count as i32 * crate::ui::skirmish_shell::COMBO_DROPDOWN_ROW_H + 4,
+            )
+        })
     }
     pub fn category_row_at(self, count: usize, x: i32, y: i32) -> Option<usize> {
         let popup = self.category_popup(count);
         let inner = RectPx::new(popup.x + 2, popup.y + 2, popup.w - 4, popup.h - 4);
         inner
             .contains(x, y)
-            .then(|| ((y - inner.y) / 23) as usize)
+            .then(|| {
+                ((y - inner.y)
+                    / crate::ui::skirmish_shell::DropdownMetrics::scaled(self.scale).row_h)
+                    as usize
+            })
             .filter(|i| *i < count)
     }
 }
@@ -343,6 +385,49 @@ mod tests {
                 "resource child {index}, width{}",
                 case["width"]
             );
+        }
+    }
+    #[test]
+    fn a_stretched_keyboard_page_moves_its_popup_rows_with_the_face() {
+        use crate::ui::skirmish_shell::{COMBO_DROPDOWN_ROW_H, COMBO_FACE_H, DropdownMetrics};
+
+        // At the authored size the responsive page is the retail page.
+        let retail = KeyboardLayout::new(800, 600, None);
+        let base = KeyboardLayout::responsive(800, 600);
+        assert_eq!(base.category, retail.category);
+        assert_eq!(base.commands, retail.commands);
+        assert_eq!(base.title, retail.title);
+        assert_eq!(base.back, retail.back);
+
+        let stretched = KeyboardLayout::responsive(1600, 1200);
+        assert_eq!(stretched.category.h, COMBO_FACE_H * 2);
+        assert_eq!(stretched.category.w, retail.category.w * 2);
+
+        // The paint path draws row `i` at `popup.y + 2 + i * scaled row_h`; a
+        // click at that row's centre has to select it.
+        for (layout, row_h) in [
+            (retail, COMBO_DROPDOWN_ROW_H),
+            (stretched, DropdownMetrics::scaled(stretched.scale).row_h),
+        ] {
+            assert_eq!(
+                DropdownMetrics::scaled(layout.scale).row_h,
+                row_h,
+                "layout rows and paint pitch agree"
+            );
+            let count = 4;
+            let popup = layout.category_popup(count);
+            assert_eq!(popup.x, layout.category.x);
+            assert_eq!(popup.w, layout.category.w);
+            for i in 0..count {
+                let y = popup.y + 2 + i as i32 * row_h + row_h / 2;
+                assert_eq!(
+                    layout.category_row_at(count, popup.x + row_h, y),
+                    Some(i),
+                    "row {i} of a {}x{} page",
+                    layout.category.w,
+                    layout.category.h
+                );
+            }
         }
     }
     #[test]

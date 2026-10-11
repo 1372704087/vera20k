@@ -2355,17 +2355,6 @@ pub(crate) fn load_map_initial_with_assets(
     requested_map: Option<&str>,
     progress: &mut dyn crate::app::loading::pump::LoadingProgressSink,
 ) -> Result<MapLoadInitial> {
-    // Sonic Wave and arcing FireAt read `Acos_lookup`'s table out of the
-    // retail executable (the sine table is checked in). Install it before any
-    // map source is selected; OnceLock keeps repeated map loads read-only.
-    crate::map::retail_trig::install_from_dir(&ra2_dir);
-    if !crate::map::retail_trig::wave_tables_available() {
-        anyhow::bail!(
-            "{} does not provide the verified gamemd Acos table required by stock arcing projectile and Sonic Wave simulation",
-            ra2_dir.join("gamemd.exe").display()
-        );
-    }
-
     // Check RA2_QUICKPLAY env var: if it names a .map/.mpr file, load that directly.
     // UI-selected map name/path (requested_map) takes precedence.
     // Default: try testmap1.map in the project directory first, then fall back to .mmx files.
@@ -3607,9 +3596,6 @@ mod random_map_retail_tests {
         let Some(ra2) = retail_dir() else {
             panic!("set RA2_DIR to the retail RA2/YR install directory");
         };
-        // The .SED lives in a scratch directory, while the verified Acos table
-        // belongs to the retail install, like the AssetManager supplied below.
-        crate::map::retail_trig::install_from_dir(&ra2);
 
         let mut structures_placed = 0usize;
         let mut configurations = 0usize;

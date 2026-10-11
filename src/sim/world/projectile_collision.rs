@@ -1521,11 +1521,6 @@ mod tests {
         use crate::sim::combat::AttackTarget;
         use crate::sim::runtime::SimRuntime;
         use crate::sim::snapshot::GameSnapshot;
-        if crate::map::retail_trig::verified_acos_table_or_skip("native FireAt runtime motion")
-            .is_none()
-        {
-            return;
-        }
         let native: Vec<Value> = serde_json::from_str(crate::test_fixture::text(
             "tools/projectile_oracle/fireat_runtime.json",
         ))

@@ -314,7 +314,11 @@ fn sync_in_game_regions(state: &mut AppState) {
 /// chat overlay and the software cursor (study O10).
 pub(crate) fn build_tooltip_instances(
     state: &AppState,
-) -> (Vec<SpriteInstance>, Vec<SpriteInstance>, Vec<SpriteInstance>) {
+) -> (
+    Vec<SpriteInstance>,
+    Vec<SpriteInstance>,
+    Vec<SpriteInstance>,
+) {
     let Some(tip) = state.match_state.match_presentation.tooltips.active() else {
         return (Vec::new(), Vec::new(), Vec::new());
     };
@@ -373,13 +377,29 @@ pub(crate) fn tooltip_quads(
     tint: [f32; 3],
     camera_offset: [f32; 2],
     with_fill: bool,
-) -> (Vec<SpriteInstance>, Vec<SpriteInstance>, Vec<SpriteInstance>) {
+) -> (
+    Vec<SpriteInstance>,
+    Vec<SpriteInstance>,
+    Vec<SpriteInstance>,
+) {
     // Region the popup is sized and placed against. gamemd measures with the
     // selected region's width; which region record it picks is UNCHECKED, so
     // the render surface width is used here.
     let (layout, [box_w, box_h]) = size_tip_box(font, text, region[2] as u32);
-    let bx = place_tip(tip_xy[0] as f32, TIP_CURSOR_OFFSET[0] as f32, box_w, region[0], region[2]);
-    let by = place_tip(tip_xy[1] as f32, TIP_CURSOR_OFFSET[1] as f32, box_h, region[1], region[3]);
+    let bx = place_tip(
+        tip_xy[0] as f32,
+        TIP_CURSOR_OFFSET[0] as f32,
+        box_w,
+        region[0],
+        region[2],
+    );
+    let by = place_tip(
+        tip_xy[1] as f32,
+        TIP_CURSOR_OFFSET[1] as f32,
+        box_h,
+        region[1],
+        region[3],
+    );
 
     let mut fill = Vec::with_capacity(1);
     if with_fill {

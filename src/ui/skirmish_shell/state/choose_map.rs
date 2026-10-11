@@ -12,7 +12,7 @@ use crate::map::skirmish_scenarios::{
     SkirmishScenarioRecord, filter_records_for_mode, upsert_random_map_sentinel,
 };
 use crate::skirmish_modes::{SkirmishGameMode, mode_by_id};
-use crate::ui::shell::list::{ListScrollInteraction, ShellListGeometry};
+use crate::ui::shell::list::{ListMetrics, ListScrollInteraction, ShellListGeometry};
 use crate::ui::shell::static_reveal::DialogStatics;
 
 use super::super::layout::{ChooseMapModalButton, ChooseMapModalLayout, RectPx};
@@ -183,6 +183,7 @@ impl ChooseMapModalState {
             list_surface(layout.mode_list),
             self.mode_rows.len(),
             self.mode_top_index,
+            ListMetrics::scaled(layout.scale),
         )
     }
 
@@ -191,6 +192,7 @@ impl ChooseMapModalState {
             list_surface(layout.map_list),
             self.filtered_record_indices.len(),
             self.map_top_index,
+            ListMetrics::scaled(layout.scale),
         )
     }
 

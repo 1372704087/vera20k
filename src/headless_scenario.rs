@@ -117,13 +117,6 @@ pub(crate) fn load_with_launch(
     seed: u32,
     launch: crate::sim::scenario_bootstrap::MatchLaunchDescriptor,
 ) -> Result<HeadlessScenario, String> {
-    crate::map::retail_trig::install_from_dir(retail_dir);
-    if !crate::map::retail_trig::wave_tables_available() {
-        return Err(format!(
-            "{} does not provide the verified gamemd Acos table required by stock arcing projectile and Sonic Wave simulation",
-            retail_dir.join("gamemd.exe").display()
-        ));
-    }
     let mut assets =
         AssetManager::new(retail_dir, MediaArchiveMode::STOCK_DIGITAL).map_err(|error| {
             format!(

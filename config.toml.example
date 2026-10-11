@@ -11,6 +11,16 @@ width = 1024
 height = 768
 vsync = true
 extra_animations = true   # cosmetic effects: water/ore sparkles (future: laser pulses, particle trails)
+# How the top-level window is presented (VERA presentation policy).
+#   "windowed"   fixed-size decorated window — the default, as before
+#   "resizable"  decorated window you can drag to any size
+#   "borderless" no title bar or border, covering the whole monitor
+#   "frameless"  no title bar or border, at the size below (nothing to drag it by)
+#   "fullscreen" exclusive full-screen at the monitor's own video mode
+window_mode = "windowed"
+# Stretch the menu family (main menu and its right-panel pages) to fill the
+# window instead of centring the unscaled 800x600 shell.
+menu_fill_window = false
 
 
 [gameplay]

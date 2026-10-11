@@ -14,7 +14,9 @@ use draw_order::{
 };
 mod in_game_options;
 mod in_game_shell;
-pub(crate) use in_game_shell::{native_in_game_shell_active, current_in_game_shell_layout, render_in_game_options_shell};
+pub(crate) use in_game_shell::{
+    current_in_game_shell_layout, native_in_game_shell_active, render_in_game_options_shell,
+};
 mod pause_menu;
 pub(crate) use pause_menu::render_pause_menu_shell;
 mod saved_games;
@@ -47,9 +49,9 @@ use crate::ui::skirmish_shell::{
     COMBO_DROPDOWN_ROW_H, SkirmishComboId, combo_dropdown_content_rect, player_name_edit_text_rect,
 };
 use crate::ui::skirmish_shell::{
-    ChooseMapModalLayout, OwnerDrawButton, RectPx, SkirmishShellAction, SkirmishShellLayout,
-    SkirmishShellState, compute_choose_map_modal_layout, compute_layout,
-    compute_random_map_setup_layout, compute_saved_seed_layout, player_row_visible,
+    ChooseMapModalLayout, OwnerDrawButton, RandomMapSetupLayout, RectPx, SavedSeedLayout,
+    SkirmishShellAction, SkirmishShellLayout, SkirmishShellState, compute_layout,
+    player_row_visible,
 };
 
 use self::chrome::*;
@@ -198,6 +200,8 @@ fn build_skirmish_shell_instances(
     font: &BitFont,
     layout: &SkirmishShellLayout,
     choose_map_layout: Option<&ChooseMapModalLayout>,
+    seed_layout: Option<&SavedSeedLayout>,
+    setup_layout: Option<&RandomMapSetupLayout>,
     shell: &SkirmishShellState,
     color_schemes: &[ColorSchemeEntry],
     maps: &[MapMenuEntry],
@@ -210,21 +214,27 @@ fn build_skirmish_shell_instances(
         // The setup dialog REPLACES the chooser rather than overlaying it: the
         // original hides/suspends the chooser while 0x105 is up. Drawing both
         // collides their listboxes, labels and button captions.
-        if let Some(browser) = shell.saved_seed_browser.as_ref() {
-            let seed_layout = compute_saved_seed_layout(
-                browser.mode,
-                choose_map_layout.screen.w as u32,
-                choose_map_layout.screen.h as u32,
-            );
+        if let (Some(browser), Some(seed_layout)) = (shell.saved_seed_browser.as_ref(), seed_layout)
+        {
             push_right_panel_base_instances(&mut instances, atlas, layout, false);
             push_lower_strip_instance(&mut instances, atlas, layout);
-            let interior = push_choose_map_background_instances(&mut instances, atlas, layout, choose_map_layout);
-            push_saved_seed_modal_instances(&mut instances, atlas, font, &seed_layout, browser, interior);
-        } else if let Some(modal) = shell.random_map_setup_modal.as_ref() {
-            let setup_layout = compute_random_map_setup_layout(
-                choose_map_layout.screen.w as u32,
-                choose_map_layout.screen.h as u32,
+            let interior = push_choose_map_background_instances(
+                &mut instances,
+                atlas,
+                layout,
+                choose_map_layout,
             );
+            push_saved_seed_modal_instances(
+                &mut instances,
+                atlas,
+                font,
+                seed_layout,
+                browser,
+                interior,
+            );
+        } else if let (Some(modal), Some(setup_layout)) =
+            (shell.random_map_setup_modal.as_ref(), setup_layout)
+        {
             push_right_panel_base_instances(&mut instances, atlas, layout, false);
             push_lower_strip_instance(&mut instances, atlas, layout);
             let interior = push_generic_shell_background_instances(&mut instances, atlas, layout);
@@ -252,7 +262,7 @@ fn build_skirmish_shell_instances(
                 push_random_map_setup_modal_control_instances(
                     &mut instances,
                     atlas,
-                    &setup_layout,
+                    setup_layout,
                     interior,
                     modal,
                     wave.is_none(),
@@ -319,11 +329,12 @@ fn build_skirmish_shell_instances(
 
     // The RA2 skirmish skin shares the common shell's art and SHELL.PAL.
     if let Some(background) = generic_shell_background_entry(atlas, layout) {
-        push_entry_native(
+        push_entry_scaled(
             &mut instances,
             background,
             layout.screen.x,
             layout.screen.y,
+            layout.scale,
             SHELL_PARENT_BACKGROUND_DEPTH,
         );
     }
@@ -386,7 +397,13 @@ fn build_skirmish_shell_instances(
         flag_name_for_country_choice(shell.player_country_random, shell.player_country)
             .and_then(|name| flag_entry(atlas, name))
     {
-        push_flag_entry_native_clipped_centered(&mut instances, flag, layout.flags[0], 0.00057);
+        push_flag_entry_clipped_centered(
+            &mut instances,
+            flag,
+            layout.flags[0],
+            layout.scale,
+            0.00057,
+        );
     }
     for idx in 1..layout.flags.len() {
         if !player_row_visible(shell, maps, idx) {
@@ -401,10 +418,11 @@ fn build_skirmish_shell_instances(
             })
             .and_then(|name| flag_entry(atlas, name));
         if let Some(flag) = entry {
-            push_flag_entry_native_clipped_centered(
+            push_flag_entry_clipped_centered(
                 &mut instances,
                 flag,
                 layout.flags[idx],
+                layout.scale,
                 0.00057,
             );
         }
@@ -428,7 +446,10 @@ fn apply_owner_draw_button_paint_state(
 }
 
 fn update_owner_draw_button_paint_sound(state: &mut AppState, mode: ShellRenderMode) {
-    let pressed = state.frontend.skirmish_shell_state.pressed_owner_draw_button;
+    let pressed = state
+        .frontend
+        .skirmish_shell_state
+        .pressed_owner_draw_button;
     if apply_owner_draw_button_paint_state(
         &mut state.frontend.skirmish_shell_last_painted_pressed_button,
         pressed,
@@ -455,11 +476,11 @@ pub(crate) fn render_skirmish_shell(
         ShellRenderMode::Visible,
     )?;
     state
-        .renderer.shell_surface_presenter
+        .renderer
+        .shell_surface_presenter
         .encode_present(encoder, destination);
     Ok(action)
 }
-
 
 pub(crate) fn render_skirmish_shell_to_target(
     state: &mut AppState,
@@ -491,14 +512,31 @@ fn render_skirmish_shell_with_atlas(
     {
         state.platform.window.request_redraw();
     }
-    let layout = compute_layout(state.render_width(), state.render_height());
+    let layout = crate::app::frontend::shell_layout::skirmish_layout(state);
     let choose_map_layout = state
-        .frontend.skirmish_shell_state
+        .frontend
+        .skirmish_shell_state
         .choose_map_modal
         .as_ref()
-        .map(|_| compute_choose_map_modal_layout(state.render_width(), state.render_height()));
+        .map(|_| crate::app::frontend::shell_layout::choose_map_layout(state));
+    // `0x105` and the seed browser each replace the page beneath them, and both
+    // the sprite pass and the text pass need the same rects: one layout per page
+    // per frame, from the same seam the input handlers read.
+    let seed_layout = state
+        .frontend
+        .skirmish_shell_state
+        .saved_seed_browser
+        .as_ref()
+        .map(|browser| crate::app::frontend::shell_layout::saved_seed_layout(state, browser.mode));
+    let setup_layout = state
+        .frontend
+        .skirmish_shell_state
+        .random_map_setup_modal
+        .as_ref()
+        .map(|_| crate::app::frontend::shell_layout::random_map_setup_layout(state));
     let validation_layout = state
-        .frontend.skirmish_shell_state
+        .frontend
+        .skirmish_shell_state
         .validation_modal
         .as_ref()
         .map(|_| body_ok_layout(state.render_width() as i32, state.render_height() as i32));
@@ -568,19 +606,23 @@ fn render_skirmish_shell_with_atlas(
         }
         _ => Vec::new(),
     };
-    let setup_layout = compute_random_map_setup_layout(state.render_width(), state.render_height());
-    let setup_statics = match state
-        .frontend
-        .skirmish_shell_state
-        .random_map_setup_modal
-        .as_mut()
-    {
-        Some(setup) if setup_showing && !leaving && !message_box_up => text::dialog_statics_labels(
-            &mut setup.statics,
-            setup_layout.title,
-            setup_layout.status_help,
-            sliding,
-        ),
+    let setup_layout = setup_layout.as_ref();
+    let setup_statics = match (
+        setup_layout,
+        state
+            .frontend
+            .skirmish_shell_state
+            .random_map_setup_modal
+            .as_mut(),
+    ) {
+        (Some(setup_layout), Some(setup)) if setup_showing && !leaving && !message_box_up => {
+            text::dialog_statics_labels(
+                &mut setup.statics,
+                setup_layout.title,
+                setup_layout.status_help,
+                sliding,
+            )
+        }
         _ => Vec::new(),
     };
     ensure_selected_preview_texture(state);
@@ -593,20 +635,22 @@ fn render_skirmish_shell_with_atlas(
     // already carry their start markers, so the overlay pass must not add them
     // a second time.
     let preview_has_baked_start_markers = selected_entry.is_some_and(is_random_map_sentinel_entry)
-        || state.frontend.skirmish_shell_state.random_map_setup_modal.is_some();
+        || state
+            .frontend
+            .skirmish_shell_state
+            .random_map_setup_modal
+            .is_some();
     let selected_preview_bounds =
         selected_entry.and_then(|entry| entry.preview_source_bounds.as_ref());
-    let setup_modal_open = state.frontend.skirmish_shell_state.random_map_setup_modal.is_some();
     // While the setup dialog is up it owns the preview box, so the image goes in
     // its own 0x468 rect rather than the chooser's.
-    let setup_preview_rect = setup_modal_open.then(|| {
-        compute_random_map_setup_layout(state.render_width(), state.render_height()).preview
-    });
+    let setup_preview_rect = setup_layout.map(|layout| layout.preview);
     let preview_rect = setup_preview_rect
         .or_else(|| choose_map_layout.as_ref().map(|layout| layout.preview))
         .unwrap_or(layout.map_preview);
     let fitted_preview_rect = state
-        .frontend.skirmish_preview_texture
+        .frontend
+        .skirmish_preview_texture
         .as_ref()
         .map(|preview| aspect_fit_rect(preview_rect, preview.width, preview.height));
     let projected_start_positions = selected_preview_bounds
@@ -631,16 +675,18 @@ fn render_skirmish_shell_with_atlas(
         });
     let preview_buffer = preview_instance.as_ref().and_then(|instance| {
         state
-            .renderer.batch_renderer
+            .renderer
+            .batch_renderer
             .create_instance_buffer(&state.renderer.gpu, &[*instance])
     });
     let marker_instances = if draw_start_marker_overlays {
-        build_start_marker_instances(atlas, &projected_start_positions)
+        build_start_marker_instances(atlas, &projected_start_positions, layout.scale)
     } else {
         Vec::new()
     };
     let marker_buffer = state
-        .renderer.batch_renderer
+        .renderer
+        .batch_renderer
         .create_instance_buffer(&state.renderer.gpu, &marker_instances);
 
     let color_schemes = state
@@ -671,6 +717,8 @@ fn render_skirmish_shell_with_atlas(
             &state.renderer.bit_font,
             &layout,
             choose_map_layout.as_ref(),
+            seed_layout.as_ref(),
+            setup_layout,
             &state.frontend.skirmish_shell_state,
             color_schemes,
             state.frontend.scenario_catalog.shell_maps(),
@@ -708,33 +756,14 @@ fn render_skirmish_shell_with_atlas(
     if let Some(choose_map_layout) = choose_map_layout.as_ref().filter(|_| !message_box_up) {
         // Mirrors the sprite pass: the setup dialog replaces the chooser, so
         // only one of the two contributes text.
-        if let Some(mode) = state
-            .frontend.skirmish_shell_state
-            .saved_seed_browser
-            .as_ref()
-            .map(|browser| browser.mode)
-        {
-            let seed_layout = compute_saved_seed_layout(
-                mode,
-                choose_map_layout.screen.w as u32,
-                choose_map_layout.screen.h as u32,
-            );
-            push_saved_seed_modal_text_draws(&mut shell_draws, state, &seed_layout);
-        } else if state
-            .frontend
-            .skirmish_shell_state
-            .random_map_setup_modal
-            .is_some()
-        {
+        if let Some(seed_layout) = seed_layout.as_ref() {
+            push_saved_seed_modal_text_draws(&mut shell_draws, state, seed_layout);
+        } else if let Some(setup_layout) = setup_layout {
             if !leaving {
-                let setup_layout = compute_random_map_setup_layout(
-                    choose_map_layout.screen.w as u32,
-                    choose_map_layout.screen.h as u32,
-                );
                 push_random_map_setup_modal_text_draws(
                     &mut shell_draws,
                     state,
-                    &setup_layout,
+                    setup_layout,
                     sliding,
                 );
                 shell_draws.extend(crate::render::shell_paint::paint_labels_at_depth(
@@ -764,12 +793,13 @@ fn render_skirmish_shell_with_atlas(
         );
     }
     let marker_label_instances = if draw_start_marker_overlays {
-        build_start_marker_label_instances(state, &projected_start_positions)
+        build_start_marker_label_instances(state, &projected_start_positions, layout.scale)
     } else {
         Vec::new()
     };
     let marker_label_buffer = state
-        .renderer.batch_renderer
+        .renderer
+        .batch_renderer
         .create_instance_buffer(&state.renderer.gpu, &marker_label_instances);
     state.renderer.batch_renderer.update_camera(
         &state.renderer.gpu,
@@ -782,20 +812,23 @@ fn render_skirmish_shell_with_atlas(
     );
 
     let Some((buffer, count)) = state
-        .renderer.batch_renderer
+        .renderer
+        .batch_renderer
         .create_instance_buffer(&state.renderer.gpu, &instances)
     else {
         clear_shell_target(state, encoder, target);
         return Ok(action);
     };
     let bare_text_buffer = state
-        .renderer.batch_renderer
+        .renderer
+        .batch_renderer
         .create_instance_buffer(&state.renderer.gpu, &bare_text_instances);
     let scissored_text_buffers: Vec<_> = shell_draws
         .iter()
         .map(|d| {
             state
-                .renderer.batch_renderer
+                .renderer
+                .batch_renderer
                 .create_instance_buffer(&state.renderer.gpu, &d.instances)
         })
         .collect();
@@ -805,11 +838,14 @@ fn render_skirmish_shell_with_atlas(
             .into_iter()
             .collect();
     let cursor_buffer = state
-        .renderer.batch_renderer
+        .renderer
+        .batch_renderer
         .create_instance_buffer(&state.renderer.gpu, &cursor_instances);
     // Default-cursor frame-0 texture, borrowed for the duration of the pass.
     let cursor_texture = state
-        .match_state.match_presentation.software_cursor
+        .match_state
+        .match_presentation
+        .software_cursor
         .as_ref()
         .and_then(|cursor| cursor.get(crate::app::types::CursorId::Default))
         .and_then(|sequence| sequence.frames.first())
@@ -837,9 +873,12 @@ fn render_skirmish_shell_with_atlas(
         timestamp_writes: None,
         occlusion_query_set: None,
     });
-    state
-        .renderer.batch_renderer
-        .draw_with_buffer_passthrough(&mut pass, &atlas.texture, &buffer, count);
+    state.renderer.batch_renderer.draw_with_buffer_passthrough(
+        &mut pass,
+        &atlas.texture,
+        &buffer,
+        count,
+    );
     if let (Some(preview), Some((buffer, count))) = (
         state.frontend.skirmish_preview_texture.as_ref(),
         preview_buffer.as_ref(),
@@ -897,7 +936,8 @@ fn render_skirmish_shell_with_atlas(
     // Software cursor draws last, on top of all chrome/controls/modals.
     if let (Some((buffer, count)), Some(texture)) = (cursor_buffer.as_ref(), cursor_texture) {
         state
-            .renderer.batch_renderer
+            .renderer
+            .batch_renderer
             .draw_with_buffer_passthrough(&mut pass, texture, buffer, *count);
     }
     drop(pass);
@@ -937,6 +977,7 @@ fn clear_shell_target(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ui::shell::geom::ShellScale;
     use crate::ui::skirmish_shell::{compute_fixed_800_layout, compute_layout};
 
     fn test_entry(width: f32, height: f32) -> SkirmishShellChromeEntry {
@@ -1194,10 +1235,11 @@ mod tests {
         };
         let mut out = Vec::new();
 
-        push_flag_entry_native_clipped_centered(
+        push_flag_entry_clipped_centered(
             &mut out,
             entry,
             RectPx::new(100, 50, 30, 16),
+            ShellScale::RETAIL,
             0.00057,
         );
 
@@ -1205,6 +1247,29 @@ mod tests {
         assert_eq!(out[0].position, [105.0, 53.0]);
         assert_eq!(out[0].size, [20.0, 10.0]);
         assert_eq!(out[0].uv_origin, entry.uv_origin);
+        assert_eq!(out[0].uv_size, entry.uv_size);
+    }
+
+    #[test]
+    fn a_stretched_page_grows_the_flag_art_with_its_cell() {
+        let entry = SkirmishShellChromeEntry {
+            uv_origin: [0.25, 0.5],
+            uv_size: [0.5, 0.25],
+            pixel_size: [20.0, 10.0],
+        };
+        let mut out = Vec::new();
+
+        push_flag_entry_clipped_centered(
+            &mut out,
+            entry,
+            RectPx::new(200, 100, 60, 32),
+            ShellScale::from_screen(1600, 1200),
+            0.00057,
+        );
+
+        assert_eq!(out.len(), 1);
+        assert_eq!(out[0].size, [40.0, 20.0]);
+        assert_eq!(out[0].position, [210.0, 106.0]);
         assert_eq!(out[0].uv_size, entry.uv_size);
     }
 
@@ -1217,10 +1282,11 @@ mod tests {
         };
         let mut out = Vec::new();
 
-        push_flag_entry_native_clipped_centered(
+        push_flag_entry_clipped_centered(
             &mut out,
             entry,
             RectPx::new(100, 50, 48, 16),
+            ShellScale::RETAIL,
             0.00057,
         );
 
@@ -1240,10 +1306,11 @@ mod tests {
         };
         let mut out = Vec::new();
 
-        push_flag_entry_native_clipped_centered(
+        push_flag_entry_clipped_centered(
             &mut out,
             entry,
             RectPx::new(100, 50, 12, 6),
+            ShellScale::RETAIL,
             0.00057,
         );
 
@@ -1264,7 +1331,13 @@ mod tests {
         };
         let mut out = Vec::new();
 
-        push_entry_top_clipped_native(&mut out, entry, RectPx::new(632, 577, 168, 23), 0.00078);
+        push_entry_top_clipped(
+            &mut out,
+            entry,
+            RectPx::new(632, 577, 168, 23),
+            1.0,
+            0.00078,
+        );
 
         assert_eq!(out.len(), 1);
         assert_eq!(out[0].position, [632.0, 577.0]);
@@ -1272,6 +1345,22 @@ mod tests {
         assert_eq!(out[0].uv_origin, entry.uv_origin);
         assert_f32_close(out[0].uv_size[0], 0.84);
         assert_f32_close(out[0].uv_size[1], 0.23);
+
+        // A cap twice as tall keeps the same 23 source rows and stretches them
+        // over the whole cap, instead of cropping to a shorter band.
+        let mut stretched = Vec::new();
+        push_entry_top_clipped(
+            &mut stretched,
+            entry,
+            RectPx::new(632, 1154, 336, 46),
+            2.0,
+            0.00078,
+        );
+
+        assert_eq!(stretched.len(), 1);
+        assert_eq!(stretched[0].size, [336.0, 46.0]);
+        assert_f32_close(stretched[0].uv_size[0], 0.84);
+        assert_f32_close(stretched[0].uv_size[1], 0.23);
     }
 
     #[test]
@@ -1618,7 +1707,10 @@ mod tests {
 
     #[test]
     fn start_marker_instances_apply_verified_shape_offsets() {
-        assert_eq!(start_marker_top_left(120, 70), (111, 64));
+        assert_eq!(
+            start_marker_top_left(120, 70, ShellScale::RETAIL),
+            (111, 64)
+        );
     }
 
     #[test]
@@ -1637,18 +1729,21 @@ mod tests {
         assert_eq!(projected, vec![(845, 93)]);
         assert!(!preview.contains(projected[0].0, projected[0].1));
         assert_eq!(
-            start_marker_top_left(projected[0].0, projected[0].1),
+            start_marker_top_left(projected[0].0, projected[0].1, ShellScale::RETAIL),
             (836, 87)
         );
         assert_eq!(
-            start_marker_label_origin(projected[0].0, projected[0].1),
+            start_marker_label_origin(projected[0].0, projected[0].1, ShellScale::RETAIL),
             (843, 87)
         );
     }
 
     #[test]
     fn start_marker_labels_use_startbut_overlay_origin_and_yellow_color() {
-        assert_eq!(start_marker_label_origin(120, 70), (118, 64));
+        assert_eq!(
+            start_marker_label_origin(120, 70, ShellScale::RETAIL),
+            (118, 64)
+        );
         assert_eq!(start_marker_label_color(), SHELL_LABEL_TEXT_RGB);
         assert_ne!(start_marker_label_color(), SHELL_BUTTON_TEXT_RGB_00000C05);
     }
@@ -1661,9 +1756,15 @@ mod tests {
         let content =
             combo_dropdown_content_rect(&shell, &layout, &maps, SkirmishComboId::Color(0)).unwrap();
 
-        let selected =
-            dropdown_selected_row_rect(&shell, &maps, SkirmishComboId::Color(0), 0, content)
-                .unwrap();
+        let selected = dropdown_selected_row_rect(
+            &shell,
+            &maps,
+            SkirmishComboId::Color(0),
+            0,
+            content,
+            ShellScale::RETAIL,
+        )
+        .unwrap();
 
         assert_eq!(
             selected,
@@ -1680,19 +1781,25 @@ mod tests {
     fn skirmish_dropdown_side_text_uses_row_rect_and_separate_fit_width() {
         let content = RectPx::new(287, 84, 97, 161);
 
-        let text = combo_dropdown_text_rect_for_current_renderer(content, 0);
+        let text = combo_dropdown_text_rect_for_current_renderer(content, 0, ShellScale::RETAIL);
 
         assert_eq!(text.x, content.x + COMBODROPWIN_TEXT_INSET_X);
         assert_eq!(text.y, content.y);
         assert_eq!(text.w, 94);
         assert_eq!(text.h, COMBO_DROPDOWN_ROW_H as u32);
-        assert_eq!(combo_dropdown_text_fit_width(content), 77);
+        assert_eq!(
+            combo_dropdown_text_fit_width(content, ShellScale::RETAIL),
+            77
+        );
     }
 
     #[test]
     fn player_name_edit_text_rect_uses_verified_inset() {
         let layout = compute_layout(800, 600);
-        let text = player_name_edit_text_rect(layout.player_name);
+        let text = player_name_edit_text_rect(
+            layout.player_name,
+            crate::ui::shell::geom::ShellScale::RETAIL,
+        );
 
         assert_eq!(text, RectPx::new(61, 60, 147, 21));
     }
@@ -1747,8 +1854,8 @@ mod tests {
     #[test]
     fn button_text_rect_follows_owner_draw_caller_contract() {
         let rect = RectPx::new(644, 241, 156, 42);
-        let released = button_text_rect(rect, false);
-        let pressed = button_text_rect(rect, true);
+        let released = button_text_rect(rect, false, crate::ui::shell::geom::ShellScale::RETAIL);
+        let pressed = button_text_rect(rect, true, crate::ui::shell::geom::ShellScale::RETAIL);
 
         assert_eq!(
             (released.x, released.y, released.w, released.h),

@@ -82,8 +82,7 @@ Validation: `python -m unittest tools.tests.test_cargo_exports
  tools.tests.test_cargo_macho`. Existing label retirement and cache retention
 remain separate explicit operations through the same shared owner.
 
-The [saved native validation receipt](cargo_export_retirement_validation/receipt.json)
-records a real macOS dry-run/apply on one disposable copy of the current retained
+A real macOS dry-run/apply ran on one disposable copy of the then-retained
 libtest. Native symbol/dependency inspection, `lsof` and the shared lock ran without
 mocks. Apply removed only that copy (806,465,536 allocated bytes); its retained
 binary, manifest, results, plan and all 402 debug-input identities remained
@@ -92,7 +91,7 @@ check was skipped. Shared replacement
 inspection is reused within a locked batch; first-seen identities are rechecked
 before every unlink, including mutations during later export inspection.
 
-The initial Windows CI failure is retained in the validation receipt. The
+After an initial Windows CI failure, the
 POSIX transaction fixtures now follow the existing saved-label retirement test
 admission, while unsupported Windows native inspection still has a fail-closed
 check. Simulated Darwin symbol tests explicitly provide native-tool discovery;

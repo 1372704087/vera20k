@@ -280,7 +280,25 @@ impl App {
                 Self::render_shell_error(state, &mut encoder, &view)?;
             }
             _ if state.frontend.keyboard_dialog.is_some() => {
-                crate::app::frontend::skirmish_shell_render::render_keyboard_shell(state, &mut encoder, &output.texture)?;
+                // The launcher's A3 is a family page, so its entry wave has to be
+                // pumped here: it is the only place that advances and completes a
+                // non-main-menu wave, and an uncompleted wave leaves the page
+                // painting its slide-suppressed frame forever (no Back button,
+                // heading or status line). The in-game A3 arms no wave, so it
+                // falls through to the direct render.
+                let slid = matches!(
+                    crate::app::frontend::shell_transition::render_shell_first_paint_slide(
+                        state,
+                        &mut encoder,
+                        &output.texture,
+                    )?,
+                    crate::app::frontend::shell_transition::ShellFirstPaintRenderResult::Rendered {
+                        ..
+                    }
+                );
+                if !slid {
+                    crate::app::frontend::skirmish_shell_render::render_keyboard_shell(state, &mut encoder, &output.texture)?;
+                }
             }
             GameScreen::MainMenu if state.frontend.fullscreen_movie.is_some() => {
                 Self::advance_fullscreen_movie(state)?;

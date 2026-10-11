@@ -4,7 +4,7 @@ use crate::map::scenario_menu::MapMenuEntry;
 use crate::skirmish_launch::{LaunchCountry, SKIRMISH_PLAYER_SLOT_COUNT};
 
 use super::super::layout::{
-    COMBO_DROPDOWN_ROW_H, ChooseMapModalButton, ChooseMapModalLayout, ColorComboId,
+    ChooseMapModalButton, ChooseMapModalLayout, ColorComboId, DropdownMetrics,
     RandomMapSetupControl, RectPx, SKIRMISH_AI_ROW_COUNT, SkirmishCheckboxId, SkirmishShellLayout,
     SkirmishTrackbarId, combo_face_rect,
 };
@@ -29,7 +29,8 @@ fn hover_open_combo_item(
         return None;
     }
 
-    let visible_row = ((y - content.y) / COMBO_DROPDOWN_ROW_H).max(0) as usize;
+    let visible_row =
+        ((y - content.y) / DropdownMetrics::scaled(layout.scale).row_h).max(0) as usize;
     if visible_row >= combo_dropdown_visible_row_count(state, maps, open.id) {
         return None;
     }
@@ -85,7 +86,9 @@ pub fn hovered_shell_control(
             SkirmishComboId::Start(row),
             SkirmishComboId::Team(row),
         ] {
-            if combo_rect(layout, id).is_some_and(|rect| combo_face_rect(rect).contains(x, y)) {
+            if combo_rect(layout, id)
+                .is_some_and(|rect| combo_face_rect(rect, layout.scale).contains(x, y))
+            {
                 return Some(SkirmishHoverTarget::ComboFace(id));
             }
         }
@@ -95,7 +98,9 @@ pub fn hovered_shell_control(
             continue;
         }
         let id = SkirmishComboId::AiType(row);
-        if combo_rect(layout, id).is_some_and(|rect| combo_face_rect(rect).contains(x, y)) {
+        if combo_rect(layout, id)
+            .is_some_and(|rect| combo_face_rect(rect, layout.scale).contains(x, y))
+        {
             return Some(SkirmishHoverTarget::ComboFace(id));
         }
     }

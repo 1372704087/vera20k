@@ -48,7 +48,9 @@ struct BracketDepthCtx {
 impl BracketDepthCtx {
     fn from_state(state: &AppState, cell_z: u8) -> Self {
         let (origin_y, world_height) = state
-            .match_state.match_presentation.terrain_grid
+            .match_state
+            .match_presentation
+            .terrain_grid
             .as_ref()
             .map(|g| (g.origin_y, g.world_height))
             .unwrap_or((0.0, 1.0));
@@ -336,7 +338,12 @@ pub(crate) fn build_selection_bracket_instances(
     sw: f32,
     sh: f32,
 ) -> SelectionBracketInstances {
-    let Some(sim) = state.match_state.sim_runtime.as_ref().map(|rt| &rt.simulation) else {
+    let Some(sim) = state
+        .match_state
+        .sim_runtime
+        .as_ref()
+        .map(|rt| &rt.simulation)
+    else {
         return SelectionBracketInstances::default();
     };
     let local_owner = preferred_local_owner_name(state);
@@ -378,7 +385,8 @@ pub(crate) fn build_selection_bracket_instances(
                 if img.is_empty() { o.id.as_str() } else { img }
             })
             .unwrap_or(type_str);
-        let art_height: f32 = state.rules()
+        let art_height: f32 = state
+            .rules()
             .and_then(|rules| rules.art().get(art_key))
             .map(|entry| entry.height as f32)
             .unwrap_or(2.0);

@@ -19,22 +19,11 @@ use crate::render::{
     shell_text::{self, ShellAlign, ShellTextDraw},
 };
 use crate::ui::shell::geom::RectPx;
-use crate::ui::shell::keyboard::{KEYBOARD_PAGE, KeyboardButton, KeyboardLayout, KeyboardParent};
+use crate::ui::shell::keyboard::{KEYBOARD_PAGE, KeyboardButton, KeyboardParent};
+use crate::ui::shell::list::ListMetrics;
 use crate::ui::shell::list::ShellListGeometry;
 use crate::ui::shell::static_reveal::Kind1PaintWindow;
 use std::time::Instant;
-
-fn text(font: &BitFont, value: &str, rect: RectPx, align: ShellAlign, depth: f32) -> ShellTextDraw {
-    shell_text::draw_in_rect(
-        font,
-        value,
-        rect_to_text_rect(rect),
-        SHELL_LABEL_TEXT_RGB,
-        align,
-        [0.0; 2],
-        depth,
-    )
-}
 
 /// Original61E700 group and6208F0 plain frames both use two bevel rings and
 /// averaged mixed corners. A group's top edge leaves the native caption gap.
@@ -159,12 +148,13 @@ pub(crate) fn render_keyboard_shell(
             .and_then(|dialog| dialog.hovered)
             .map(|control| localized_label(state, control.help_key(), ""))
             .unwrap_or_default();
-        let window = KeyboardLayout::new(width, height, None).footer;
+        let window =
+            crate::app::frontend::shell_layout::keyboard_layout(state, width, height, None).footer;
         crate::app::frontend::menu_page_render::paint_shell_status_line(state, help, window)
     };
     let shell = active
         .then(|| in_game_shell::current_in_game_shell_layout(state).expect("active A3 frame"));
-    let layout = KeyboardLayout::new(width, height, shell);
+    let layout = crate::app::frontend::shell_layout::keyboard_layout(state, width, height, shell);
     let dialog = state
         .frontend
         .keyboard_dialog
@@ -195,13 +185,22 @@ pub(crate) fn render_keyboard_shell(
         }
         art
     } else {
-        super::launcher_options::launcher_background_instances(atlas, width as u32, height as u32)
+        super::launcher_options::launcher_background_instances(
+            atlas,
+            width as u32,
+            height as u32,
+            layout.scale,
+        )
     };
     if let Some(wave) = wave.as_ref() {
         push_slide_column(
             &mut art,
             atlas,
-            &super::compute_layout(width as u32, height as u32),
+            &if layout.scale.is_retail() {
+                super::compute_layout(width as u32, height as u32)
+            } else {
+                crate::ui::skirmish_shell::compute_responsive_layout(width as u32, height as u32)
+            },
             &wave.button_draws(),
             SHELL_CONTROL_DEPTH,
         );
@@ -242,8 +241,14 @@ pub(crate) fn render_keyboard_shell(
             open: dialog.category_open,
             disabled: false,
         },
+        layout.scale,
     );
-    let geometry = ShellListGeometry::new(layout.commands, dialog.rows.len(), dialog.top);
+    let geometry = ShellListGeometry::new(
+        layout.commands,
+        dialog.rows.len(),
+        dialog.top,
+        ListMetrics::scaled(layout.scale),
+    );
     super::list::paint_list(
         &mut controls,
         atlas,
@@ -252,10 +257,29 @@ pub(crate) fn render_keyboard_shell(
         dialog.selected,
         dialog.scroll.pressed_part(),
         false,
+        layout.scale,
     );
     let font = &state.renderer.bit_font;
+    let glyph_scale = layout.scale.uniform();
+    let text = |font: &BitFont,
+                value: &str,
+                rect: RectPx,
+                align: ShellAlign,
+                depth: f32|
+     -> ShellTextDraw {
+        shell_text::draw_in_rect_scaled(
+            font,
+            value,
+            rect_to_text_rect(rect),
+            SHELL_LABEL_TEXT_RGB,
+            align,
+            [0.0; 2],
+            depth,
+            glyph_scale,
+        )
+    };
     let group_caption = localized_label(state, "GUI:Description", "Description");
-    let group_top = font.cell_height() as i32 / 2;
+    let group_top = (font.cell_height() * glyph_scale).round() as i32 / 2;
     push_frame(
         &mut controls,
         atlas,
@@ -292,6 +316,7 @@ pub(crate) fn render_keyboard_shell(
         type3_button_frames(atlas),
         RectPx::new(0, 0, width, height),
         &buttons,
+        layout.scale,
         shell_paint::ModalDepths {
             background: SHELL_CONTROL_DEPTH,
             button: SHELL_CONTROL_DEPTH,
@@ -367,7 +392,7 @@ pub(crate) fn render_keyboard_shell(
         texts.push(text(
             font,
             category,
-            crate::ui::skirmish_shell::combo_text_rect(layout.category),
+            crate::ui::skirmish_shell::combo_text_rect(layout.category, layout.scale),
             ShellAlign::V_CENTER,
             SHELL_CONTROL_TEXT_DEPTH,
         ));
@@ -474,8 +499,14 @@ pub(crate) fn render_keyboard_shell(
             SHELL_DROPDOWN_BG_RGB_PENDING_COMBODROPWIN_SOURCE_CAPTURE,
             SHELL_DROPDOWN_DEPTH,
         );
+        let row_h = crate::ui::skirmish_shell::DropdownMetrics::scaled(layout.scale).row_h;
         for (i, category) in dialog.categories.iter().enumerate() {
-            let row = RectPx::new(popup.x + 2, popup.y + 2 + i as i32 * 23, popup.w - 4, 23);
+            let row = RectPx::new(
+                popup.x + 2,
+                popup.y + 2 + i as i32 * row_h,
+                popup.w - 4,
+                row_h,
+            );
             if dialog.category_hovered.or(Some(dialog.category)) == Some(i) {
                 push_solid_rect(
                     &mut overlay.controls,

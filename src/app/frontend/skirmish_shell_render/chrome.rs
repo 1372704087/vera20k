@@ -6,6 +6,7 @@
 use crate::app::frontend::shell_transition::{ColumnDraw, PanelArt};
 use crate::render::batch::SpriteInstance;
 use crate::render::skirmish_shell_chrome::{SkirmishShellChromeAtlas, SkirmishShellChromeEntry};
+use crate::ui::shell::geom::ShellScale;
 use crate::ui::shell::slide::{column_draw_origin, panel_art_origin};
 use crate::ui::skirmish_shell::{RectPx, SkirmishShellLayout, SkirmishShellState};
 
@@ -168,40 +169,20 @@ pub(super) fn push_entry_sized(
     });
 }
 
-pub(super) fn push_entry_top_clipped_native(
-    out: &mut Vec<SpriteInstance>,
-    mut entry: SkirmishShellChromeEntry,
-    rect: RectPx,
-    depth: f32,
-) {
-    let src_w = entry.pixel_size[0].round();
-    let src_h = entry.pixel_size[1].round();
-    if src_w <= 0.0 || src_h <= 0.0 || rect.w <= 0 || rect.h <= 0 {
-        return;
-    }
-
-    let draw_w = (rect.w as f32).min(src_w);
-    let draw_h = (rect.h as f32).min(src_h);
-    entry.uv_size[0] *= draw_w / src_w;
-    entry.uv_size[1] *= draw_h / src_h;
-    push_entry_sized(
-        out,
-        entry,
-        rect.x as f32,
-        rect.y as f32,
-        [draw_w, draw_h],
-        depth,
-    );
-}
-
 /// `0x006BA3E0`: an opaque copy of `entry` into `rect` that starts the
 /// source at the centred offset `max(0, (source - rect) / 2)` on each axis
 /// and wraps past its end, so a smaller source tiles and a larger one shows
 /// its middle.
+///
+/// `rect` is the device rect and `scale` stretches it: the tiling runs on the
+/// authored numbers and each piece is emitted scaled, so a wider plaque grows
+/// TROFM's gradient instead of repeating it. `ShellScale::RETAIL` reproduces
+/// the plain tiling.
 pub(super) fn push_entry_wrapped_centered(
     out: &mut Vec<SpriteInstance>,
     entry: SkirmishShellChromeEntry,
     rect: RectPx,
+    scale: ShellScale,
     depth: f32,
 ) {
     let src_w = entry.pixel_size[0].round() as i32;
@@ -209,27 +190,29 @@ pub(super) fn push_entry_wrapped_centered(
     if src_w <= 0 || src_h <= 0 {
         return;
     }
-    let offset_x = ((src_w - rect.w) / 2).max(0);
-    let offset_y = ((src_h - rect.h) / 2).max(0);
+    let base = scale.base_rect(rect);
+    let offset_x = ((src_w - base.w) / 2).max(0);
+    let offset_y = ((src_h - base.h) / 2).max(0);
     let mut dy = 0;
-    while dy < rect.h {
+    while dy < base.h {
         let sy = (offset_y + dy) % src_h;
-        let h = (src_h - sy).min(rect.h - dy);
+        let h = (src_h - sy).min(base.h - dy);
         let mut dx = 0;
-        while dx < rect.w {
+        while dx < base.w {
             let sx = (offset_x + dx) % src_w;
-            let w = (src_w - sx).min(rect.w - dx);
+            let w = (src_w - sx).min(base.w - dx);
             let mut piece = entry;
             piece.uv_origin[0] += entry.uv_size[0] * sx as f32 / src_w as f32;
             piece.uv_origin[1] += entry.uv_size[1] * sy as f32 / src_h as f32;
             piece.uv_size[0] *= w as f32 / src_w as f32;
             piece.uv_size[1] *= h as f32 / src_h as f32;
+            let piece_rect = scale.scale_rect(RectPx::new(base.x + dx, base.y + dy, w, h));
             push_entry_sized(
                 out,
                 piece,
-                (rect.x + dx) as f32,
-                (rect.y + dy) as f32,
-                [w as f32, h as f32],
+                piece_rect.x as f32,
+                piece_rect.y as f32,
+                [piece_rect.w as f32, piece_rect.h as f32],
                 depth,
             );
             dx += w;
@@ -246,6 +229,56 @@ pub(super) fn push_entry_native(
     depth: f32,
 ) {
     push_entry_sized(out, entry, x as f32, y as f32, entry.pixel_size, depth);
+}
+
+/// Chrome art authored at its native size, grown by the layout's stretch.
+/// `x`/`y` are the window-space point the art is placed at, so a stretched page
+/// grows the art without moving it twice. Identity on the retail layout.
+pub(super) fn push_entry_scaled(
+    out: &mut Vec<SpriteInstance>,
+    entry: SkirmishShellChromeEntry,
+    x: i32,
+    y: i32,
+    scale: ShellScale,
+    depth: f32,
+) {
+    let [w, h] = scale.art_size(entry.pixel_size[0], entry.pixel_size[1]);
+    push_entry_sized(
+        out,
+        entry,
+        x as f32,
+        y as f32,
+        [w.round(), h.round()],
+        depth,
+    );
+}
+
+/// The top `rect.h / scale_y` source rows of `entry` across the whole of `rect`.
+///
+/// At `scale_y == 1` this is gamemd's 1:1 top-left crop, which the SDBTM cap
+/// needs: the SHP is 168x65 native and the cap region is 23 px tall. On a
+/// stretched panel the same 23 source rows fill the taller cap.
+pub(super) fn push_entry_top_clipped(
+    out: &mut Vec<SpriteInstance>,
+    mut entry: SkirmishShellChromeEntry,
+    rect: RectPx,
+    scale_y: f32,
+    depth: f32,
+) {
+    let src_h = entry.pixel_size[1].round();
+    if rect.w <= 0 || rect.h <= 0 || src_h <= 0.0 {
+        return;
+    }
+    let source_h = (rect.h as f32 / scale_y).min(src_h).max(1.0);
+    entry.uv_size[1] *= source_h / src_h;
+    push_entry_sized(
+        out,
+        entry,
+        rect.x as f32,
+        rect.y as f32,
+        [rect.w as f32, rect.h as f32],
+        depth,
+    );
 }
 
 pub(super) fn push_entry_sized_alpha(
@@ -269,37 +302,36 @@ pub(super) fn push_entry_sized_alpha(
     });
 }
 
-pub(super) fn push_flag_entry_native_clipped_centered(
+/// Flag and icon art authored at its native size, grown by the layout's stretch,
+/// clipped to and centred in `rect`. Identity on the retail layout.
+pub(super) fn push_flag_entry_clipped_centered(
     out: &mut Vec<SpriteInstance>,
     mut entry: SkirmishShellChromeEntry,
     rect: RectPx,
+    scale: ShellScale,
     depth: f32,
 ) {
-    let src_w_px = entry.pixel_size[0].round() as i32;
-    let src_h_px = entry.pixel_size[1].round() as i32;
-    if src_w_px <= 0 || src_h_px <= 0 || rect.w <= 0 || rect.h <= 0 {
+    let [art_w, art_h] = scale.art_size(entry.pixel_size[0], entry.pixel_size[1]);
+    if art_w <= 0.0 || art_h <= 0.0 || rect.w <= 0 || rect.h <= 0 {
         return;
     }
 
-    let src_w = src_w_px as f32;
-    let src_h = src_h_px as f32;
-    let rect_w = rect.w as f32;
-    let rect_h = rect.h as f32;
-    let draw_w = src_w.min(rect_w);
-    let draw_h = src_h.min(rect_h);
-    let x = if src_w_px < rect.w {
-        (rect.x + (rect.w - src_w_px) / 2) as f32
+    let (art_w_px, art_h_px) = (art_w.round() as i32, art_h.round() as i32);
+    let draw_w = art_w.min(rect.w as f32);
+    let draw_h = art_h.min(rect.h as f32);
+    let x = if art_w_px < rect.w {
+        (rect.x + (rect.w - art_w_px) / 2) as f32
     } else {
         rect.x as f32
     };
-    let y = if src_h_px < rect.h {
-        (rect.y + (rect.h - src_h_px) / 2) as f32
+    let y = if art_h_px < rect.h {
+        (rect.y + (rect.h - art_h_px) / 2) as f32
     } else {
         rect.y as f32
     };
 
-    entry.uv_size[0] *= draw_w / src_w;
-    entry.uv_size[1] *= draw_h / src_h;
+    entry.uv_size[0] *= draw_w / art_w;
+    entry.uv_size[1] *= draw_h / art_h;
     push_entry_sized(out, entry, x, y, [draw_w, draw_h], depth);
 }
 
@@ -592,23 +624,19 @@ pub(super) fn lower_strip_entry(
 }
 
 pub(super) fn common_shell_origin(layout: &SkirmishShellLayout) -> (i32, i32) {
-    let (x, y) = crate::ui::shell::geom::dialog_origin(layout.screen.w, layout.screen.h);
-    (layout.screen.x + x, layout.screen.y + y)
+    layout.shell_origin()
 }
 
 pub(super) fn lower_strip_rect(
     layout: &SkirmishShellLayout,
     entry: SkirmishShellChromeEntry,
 ) -> RectPx {
-    let w = entry.pixel_size[0].round() as i32;
-    let h = entry.pixel_size[1].round() as i32;
-    let (origin_x, origin_y) = common_shell_origin(layout);
-    let shell_h = if layout.screen.h > 767 {
-        600
-    } else {
-        layout.screen.h
-    };
-    RectPx::new(origin_x, origin_y + shell_h - h, w, h)
+    let [w, h] = layout
+        .scale
+        .art_size(entry.pixel_size[0], entry.pixel_size[1]);
+    let (w, h) = (w.round() as i32, h.round() as i32);
+    let (origin_x, origin_y) = layout.shell_origin();
+    RectPx::new(origin_x, origin_y + layout.shell_height() - h, w, h)
 }
 
 pub(super) fn right_panel_overlay_rect(
@@ -616,18 +644,21 @@ pub(super) fn right_panel_overlay_rect(
     row: i32,
     entry: SkirmishShellChromeEntry,
 ) -> RectPx {
-    let w = entry.pixel_size[0].round() as i32;
-    let h = entry.pixel_size[1].round() as i32;
-    let x = layout.right_panel.tile.x + layout.right_panel.tile.w - w;
-    RectPx::new(x, layout.right_panel.tile.y + row * h, w, h)
+    let (scale_x, scale_y) = layout.right_panel.stretch();
+    let w = (entry.pixel_size[0] * scale_x).round() as i32;
+    let h = (entry.pixel_size[1] * scale_y).round().max(1.0) as i32;
+    let panel = layout.right_panel;
+    let x = panel.tile.x + panel.tile.w - w;
+    RectPx::new(x, panel.tile.y + row * h, w, h)
 }
 
 pub(super) fn sdmpbtn_rect(
     layout: &SkirmishShellLayout,
     entry: SkirmishShellChromeEntry,
 ) -> RectPx {
-    let w = entry.pixel_size[0].round() as i32;
-    let h = entry.pixel_size[1].round() as i32;
+    let (scale_x, scale_y) = layout.right_panel.stretch();
+    let w = (entry.pixel_size[0] * scale_x).round() as i32;
+    let h = (entry.pixel_size[1] * scale_y).round().max(1.0) as i32;
     let (x, y) = panel_art_origin(layout.right_panel, PanelArt::MapButton(0), w, h);
     RectPx::new(x, y, w, h)
 }
@@ -667,10 +698,11 @@ pub(super) fn push_right_panel_base_instances(
         }
     }
     if let Some(bottom) = atlas.right_panel_bottom_sdbtm {
-        push_entry_top_clipped_native(
+        push_entry_top_clipped(
             out,
             bottom,
             layout.right_panel.bottom,
+            layout.right_panel.stretch().1,
             RIGHT_PANEL_BOTTOM_DEPTH,
         );
     }
@@ -739,8 +771,9 @@ pub(super) fn push_slide_panel_art(
         let Some(entry) = entry else {
             continue;
         };
-        let w = entry.pixel_size[0].round() as i32;
-        let h = entry.pixel_size[1].round() as i32;
+        let (scale_x, scale_y) = layout.right_panel.stretch();
+        let w = (entry.pixel_size[0] * scale_x).round() as i32;
+        let h = (entry.pixel_size[1] * scale_y).round().max(1.0) as i32;
         let (x, y) = panel_art_origin(layout.right_panel, *art, w, h);
         push_entry(
             out,
@@ -761,12 +794,13 @@ pub(super) fn push_slide_column(
     depth: f32,
 ) {
     let panel = layout.right_panel;
+    let (scale_x, scale_y) = panel.stretch();
     for (index, draw) in draws.iter().enumerate() {
         let Some(entry) = right_panel_button_sdbtnanm_frame(atlas, draw.frame) else {
             continue;
         };
-        let w = entry.pixel_size[0].round() as i32;
-        let h = entry.pixel_size[1].round() as i32;
+        let w = (entry.pixel_size[0] * scale_x).round() as i32;
+        let h = (entry.pixel_size[1] * scale_y).round().max(1.0) as i32;
         let (x, y) = column_draw_origin(panel, draw.row, w);
         push_entry(
             out,

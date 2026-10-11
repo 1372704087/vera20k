@@ -39,8 +39,9 @@ these exact retail executables, including under optimized Python:
 
 No executable is distributed here.
 This restriction belongs to these comparison tools alone, because their harnesses
-run code at fixed addresses of that build: the game and the Rust tests accept any
-retail `gamemd.exe`, locate its Acos table by its contents and check every byte.
+run code at fixed addresses of that build. The game reads no `gamemd.exe` bytes.
+The Rust table checks read the `RA2_DIR` executable's math tables at the same
+retail addresses and compare every byte, without checking the file hash.
 
 ### Steam compatibility and evidence identity
 
@@ -147,6 +148,13 @@ GetFireError path still uses the canonical map query, so missing-cell Dummy writ
 there are a separate residual, not a claim of complete input-query purity.
 
 These generators now default to **read-only checks**, also spelled `--check`:
+
+`python -m tools.spatial_oracle.turret_rotate_sound --check` executes Building
+rotation sampling, Techno start/continued-turn/idle controls and Limbo sound
+cleanup on the supported historical/Steam layout. Rust consumes the corpus in
+`sim::world::turret_rotate_sound::tests`. Audio is device-disabled: accepted
+playback, source retention, audio RNG, attack/decay and whole native Load are not
+covered. The metadata records the executed binary, command and supplied type getter.
 
 | Python module | Sampled native behavior | Rust consumer/test location |
 | --- | --- | --- |

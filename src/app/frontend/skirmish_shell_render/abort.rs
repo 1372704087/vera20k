@@ -45,6 +45,7 @@ pub(crate) fn render_abort_shell(
             SHELL_LABEL_TEXT_RGB,
             ShellAlign::H_CENTER | ShellAlign::V_CENTER,
             SHELL_CONTROL_TEXT_DEPTH,
+            1.0,
         );
     }
     // Plain static615A81..615AE8 uses low style bits1 for horizontal center;
@@ -57,6 +58,7 @@ pub(crate) fn render_abort_shell(
         SHELL_LABEL_TEXT_RGB,
         ShellAlign::H_CENTER,
         SHELL_CONTROL_TEXT_DEPTH,
+        1.0,
     );
     if let Some(button) = interaction.hovered {
         let (key, fallback) = button.help();
@@ -68,6 +70,7 @@ pub(crate) fn render_abort_shell(
             SHELL_LABEL_TEXT_RGB,
             ShellAlign::NONE,
             SHELL_CONTROL_TEXT_DEPTH,
+            1.0,
         );
     }
     in_game_shell::render_in_game_shell_frame(

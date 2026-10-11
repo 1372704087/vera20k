@@ -1,6 +1,7 @@
 //! The owner-draw list `0x00618D40` (paint `0x00619230`) and its scrollbar
 //! child (`0x0061C690`) on the Skirmish-family atlas.
 use super::*;
+use crate::ui::shell::geom::ShellScale;
 use crate::ui::shell::list::{
     ListFrameTone, ListScrollPart, ShellListGeometry, grip_tiles, list_frame_lines,
     scrollbar_arrow_origins, scrollbar_edge_lines, scrollbar_interior,
@@ -23,6 +24,7 @@ pub(super) fn paint_list(
     selected: Option<usize>,
     pressed_part: Option<ListScrollPart>,
     solid_fill: bool,
+    scale: ShellScale,
 ) {
     let depth = SHELL_DROPDOWN_DEPTH - 0.00010;
     if solid_fill {
@@ -56,9 +58,7 @@ pub(super) fn paint_list(
     }
     let chrome = atlas.control_chrome();
     let x = scrollbar_interior(bar).x;
-    let arrow_h = chrome
-        .scrollbar_arrow_down_released
-        .map_or(22, |entry| entry.pixel_size[1].round() as i32);
+    let arrow_h = geometry.metrics.arrow_h;
     for ((released, pressed, part), (x, y)) in [
         (
             chrome.scrollbar_arrow_up_released,
@@ -77,15 +77,16 @@ pub(super) fn paint_list(
         if let Some(entry) =
             super::controls::scrollbar_arrow_entry(released, pressed, pressed_part == Some(part))
         {
-            push_entry_native(out, entry, x, y, depth - 0.00003);
+            push_entry_scaled(out, entry, x, y, scale, depth - 0.00003);
         }
     }
     if let Some(mid) = chrome.scrollbar_thumb_mid {
-        let tile_h = mid.pixel_size[1].round() as i32;
+        let [tile_w, tile_h] = scale.art_size(mid.pixel_size[0], mid.pixel_size[1]);
+        let tile_h = tile_h.round() as i32;
         for (y, h) in grip_tiles(thumb, tile_h) {
             out.push(SpriteInstance {
                 position: [x as f32, y as f32],
-                size: [mid.pixel_size[0], h as f32],
+                size: [tile_w, h as f32],
                 uv_origin: mid.uv_origin,
                 uv_size: [mid.uv_size[0], mid.uv_size[1] * h as f32 / tile_h as f32],
                 depth: depth - 0.00003,
@@ -96,10 +97,10 @@ pub(super) fn paint_list(
         }
     }
     if let Some(cap) = chrome.scrollbar_thumb_top {
-        push_entry_native(out, cap, x, thumb.y, depth - 0.00004);
+        push_entry_scaled(out, cap, x, thumb.y, scale, depth - 0.00004);
     }
     if let Some(cap) = chrome.scrollbar_thumb_bottom {
-        let h = cap.pixel_size[1].round() as i32;
-        push_entry_native(out, cap, x, thumb.y + thumb.h - h, depth - 0.00004);
+        let h = scale.art_size(cap.pixel_size[0], cap.pixel_size[1])[1].round() as i32;
+        push_entry_scaled(out, cap, x, thumb.y + thumb.h - h, scale, depth - 0.00004);
     }
 }

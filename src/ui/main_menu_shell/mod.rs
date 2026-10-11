@@ -4,9 +4,9 @@ mod layout;
 mod state;
 
 pub use layout::{
-    MainMenuButtonRect, MainMenuMovieBase, MainMenuShellLayout, RIGHT_PANEL_TILE_H,
-    RIGHT_PANEL_WIDTH, RectPx, compute_layout, compute_responsive_layout,
-    movie_base_for_screen_width,
+    MainMenuButtonRect, MainMenuMovieBase, MainMenuShellLayout, RA2TS_BASE_MOVIE,
+    RIGHT_PANEL_TILE_H, RIGHT_PANEL_WIDTH, RectPx, SHELL_BASE_H, SHELL_BASE_W, compute_layout,
+    compute_responsive_layout, movie_base_for_responsive_width, movie_base_for_screen_width,
 };
 pub use state::{
     MainMenuControlId, MainMenuShellAction, MainMenuShellState, action_for_control,

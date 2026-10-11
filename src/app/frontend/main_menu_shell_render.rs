@@ -6,6 +6,7 @@ use std::time::Instant;
 use anyhow::Result;
 
 use crate::app::AppState;
+use crate::app::frontend::shell_layout;
 use crate::app::frontend::shell_pass::{owner_draw_button_label_rect, resolve_csf};
 use crate::app::frontend::shell_transition::{
     ColumnDraw, MainMenuEntryPaintFrame, MainMenuEntryPresentToken, ShellFrameWave,
@@ -20,13 +21,12 @@ use crate::render::shell_text::ShellAlign;
 use crate::render::shell_text_reveal::PathAReveal;
 use crate::render::shell_transition_pass::ShellRenderTarget;
 use crate::ui::main_menu_shell::{
-    MainMenuControlId, MainMenuMovieBase, MainMenuShellLayout, compute_layout, csf_key_for_control,
+    MainMenuControlId, MainMenuMovieBase, MainMenuShellLayout, csf_key_for_control,
     tooltip_csf_key_for_control,
 };
+use crate::ui::shell::geom::{SDBTNANM_CELL_H, SDBTNANM_CELL_W_NARROW, ShellScale};
 use crate::ui::shell::static_reveal::{Kind1PaintWindow, Kind1RevealReceipt, Kind1RevealWindow};
 
-/// Screen-size thresholds above which the centered 800x600 shell is letterboxed
-/// (background and chrome offset by ((w-800)/2, (h-600)/2) instead of (0,0)).
 /// Archive holding the Red Alert 2 shell loop.
 ///
 /// `ra2ts_l.bik` / `ra2ts_s.bik` exist under identical names in both this archive
@@ -34,11 +34,15 @@ use crate::ui::shell::static_reveal::{Kind1PaintWindow, Kind1RevealReceipt, Kind
 /// so the shell loader asks for this one by name instead.
 const RA2_SHELL_MOVIE_ARCHIVE: &str = "language.mix";
 
-/// Dialog 0xE2 owner-draw button policy: native art remains at the cell top-left
-/// while frame selection changes on press. The dialog has no hover flash or
-/// disabled owner-draw button.
+/// Dialog 0xE2 owner-draw button policy: the SDBTNANM frame fills its 156x42
+/// cell, right-anchored and vertically centred, so a stretched cell stretches
+/// the art with it. At the authored cell size that placement is the native
+/// top-left draw. The dialog has no hover flash or disabled owner-draw button.
 const MAIN_MENU_BUTTON_POLICY: ButtonPolicy = ButtonPolicy {
-    art_fit: ArtFit::Native,
+    art_fit: ArtFit::FitRightAnchored {
+        panel_w: SDBTNANM_CELL_W_NARROW as f32,
+        tile_h: SDBTNANM_CELL_H as f32,
+    },
     hover_flash: false,
     art_sink_y: 0.0,
 };
@@ -164,7 +168,6 @@ fn main_menu_paint_buttons(
         .collect()
 }
 
-
 pub(crate) fn main_menu_title_text(state: &AppState) -> std::borrow::Cow<'_, str> {
     resolve_csf(state, "GUI:MainMenu")
 }
@@ -245,13 +248,15 @@ fn select_parent_background(
 }
 
 /// The MNSCRN parent background of a right-panel shell at `screen_w` x
-/// `screen_h`, drawn at native SHP canvas size at the centered shell origin:
-/// behind the `0xE2` movie and chrome, and in the RA2TS area of the menu pages
+/// `screen_h`: native SHP canvas at the centered shell origin on the retail
+/// layout, stretched over the whole window when the layout stretches the shell.
+/// Behind the `0xE2` movie and chrome, and in the RA2TS area of the menu pages
 /// while no movie is drawn.
 pub(crate) fn shell_parent_background_instances(
     atlas: &MainMenuShellChromeAtlas,
     screen_w: i32,
     screen_h: i32,
+    scale: crate::ui::shell::geom::ShellScale,
 ) -> Vec<SpriteInstance> {
     let Some(entry) = select_parent_background(
         screen_w,
@@ -260,14 +265,21 @@ pub(crate) fn shell_parent_background_instances(
     ) else {
         return Vec::new();
     };
-    let (x, y) = crate::ui::shell::geom::dialog_origin(screen_w, screen_h);
+    let (size, (x, y)) = if scale.is_retail() {
+        (
+            entry.pixel_size,
+            crate::ui::shell::geom::dialog_origin(screen_w, screen_h),
+        )
+    } else {
+        ([screen_w as f32, screen_h as f32], (0, 0))
+    };
     let mut out = Vec::new();
     push_entry_sized(
         &mut out,
         entry,
         x as f32,
         y as f32,
-        entry.pixel_size,
+        size,
         PARENT_BACKGROUND_DEPTH,
     );
     out
@@ -294,7 +306,7 @@ pub(crate) fn ensure_movie_for_current_layout(
     state: &mut AppState,
     requested_owner: Ra2tsDialogOwner,
 ) -> Result<()> {
-    let layout = compute_layout(state.renderer.gpu.config.width, state.renderer.gpu.config.height);
+    let layout = shell_layout::main_menu_layout(state);
     let requested_identity = Ra2tsMovieSessionIdentity::new(requested_owner, layout.movie_base);
     if ra2ts_movie_session_is_reusable(
         state.frontend.main_menu_movie.is_some(),
@@ -306,7 +318,10 @@ pub(crate) fn ensure_movie_for_current_layout(
     clear_ra2ts_movie_session(state);
 
     let Some(assets) = state.process_assets.manager() else {
-        state.frontend.main_menu_shell_error.get_or_insert_with(|| "Game archives are unavailable.".to_owned());
+        state
+            .frontend
+            .main_menu_shell_error
+            .get_or_insert_with(|| "Game archives are unavailable.".to_owned());
         return Ok(());
     };
     let asset_name = layout.movie_base.asset_name();
@@ -345,7 +360,9 @@ pub(crate) fn ensure_movie_for_current_layout(
         Ok(movie) => movie,
         Err(err) => {
             log::warn!("Failed to load main-menu RA2TS movie {asset_name} from {source}: {err:#}");
-            state.frontend.main_menu_shell_error = Some(format!("Could not load {asset_name} from {source}: {err:#}"));
+            state.frontend.main_menu_shell_error = Some(format!(
+                "Could not load {asset_name} from {source}: {err:#}"
+            ));
             return Ok(());
         }
     };
@@ -358,7 +375,6 @@ pub(crate) fn ensure_movie_for_current_layout(
     state.frontend.main_menu_movie_last_step = Instant::now();
     Ok(())
 }
-
 
 /// Paint the normal 0xE2 route through its active-retail presentation boundary.
 ///
@@ -379,7 +395,12 @@ pub(crate) fn render_main_menu_shell(
     let (title_window, title_receipt) = if matches!(slide, MainMenuSlide::Exit(_)) {
         (None, None)
     } else {
-        match state.frontend.main_menu_shell_state.title_reveal.paint_window() {
+        match state
+            .frontend
+            .main_menu_shell_state
+            .title_reveal
+            .paint_window()
+        {
             Kind1PaintWindow::Hidden => (None, None),
             Kind1PaintWindow::Retained(window) => (Some(window), None),
             Kind1PaintWindow::Due { window, receipt } => (Some(window), Some(receipt)),
@@ -400,7 +421,8 @@ pub(crate) fn render_main_menu_shell(
     match result {
         MainMenuShellRenderResult::Rendered { .. } => {
             state
-                .renderer.shell_surface_presenter
+                .renderer
+                .shell_surface_presenter
                 .encode_present(encoder, destination);
             Ok(MainMenuShellRenderResult::Rendered { title_receipt })
         }
@@ -429,10 +451,12 @@ pub(crate) fn render_main_menu_first_paint_frame(
     match result {
         MainMenuShellRenderResult::Rendered { .. } => {
             state
-                .renderer.shell_surface_presenter
+                .renderer
+                .shell_surface_presenter
                 .encode_present(encoder, destination);
             let token = state
-                .frontend.shell_first_paint_slide
+                .frontend
+                .shell_first_paint_slide
                 .as_ref()
                 .and_then(|wave| wave.mint_present_token(frame))
                 .ok_or_else(|| {
@@ -461,8 +485,13 @@ fn render_main_menu_shell_to_target_inner(
     if !backdrop {
         ensure_movie_for_current_layout(state, Ra2tsDialogOwner::MainMenu0xE2)?;
     }
-    if state.frontend.main_menu_shell_error.is_some() || state.frontend.main_menu_shell_chrome.is_none() {
-        state.frontend.main_menu_shell_error.get_or_insert_with(|| "Required game-menu artwork is unavailable.".to_owned());
+    if state.frontend.main_menu_shell_error.is_some()
+        || state.frontend.main_menu_shell_chrome.is_none()
+    {
+        state
+            .frontend
+            .main_menu_shell_error
+            .get_or_insert_with(|| "Required game-menu artwork is unavailable.".to_owned());
         return Ok(MainMenuShellRenderResult::Fallback);
     }
 
@@ -482,12 +511,13 @@ fn render_main_menu_shell_to_target_inner(
         state.frontend.main_menu_movie_last_step = now;
         if let Err(err) = movie.step(&state.renderer.gpu, elapsed) {
             log::warn!("Failed to step main-menu RA2TS movie: {err:#}");
-            state.frontend.main_menu_shell_error = Some(format!("Could not play the menu movie: {err:#}"));
+            state.frontend.main_menu_shell_error =
+                Some(format!("Could not play the menu movie: {err:#}"));
             return Ok(MainMenuShellRenderResult::Fallback);
         }
     }
 
-    let layout = compute_layout(state.renderer.gpu.config.width, state.renderer.gpu.config.height);
+    let layout = shell_layout::main_menu_layout(state);
     // The teardown slide starts with a full dialog repaint (`0x00622C4F`)
     // that covers the children, and the engine pumps no messages until it
     // ends: the heading, status and version statics stay blank and the
@@ -514,7 +544,8 @@ fn render_main_menu_shell_to_target_inner(
         )
     };
     let chrome = state
-        .frontend.main_menu_shell_chrome
+        .frontend
+        .main_menu_shell_chrome
         .as_ref()
         .expect("checked before render");
     let movie_texture = state
@@ -525,7 +556,7 @@ fn render_main_menu_shell_to_target_inner(
 
     // 0xE2-only MNSCRN parent background, submitted FIRST (no analog on 0x100).
     let background_instances =
-        shell_parent_background_instances(chrome, layout.screen.w, layout.screen.h);
+        shell_parent_background_instances(chrome, layout.screen.w, layout.screen.h, layout.scale);
     let movie_instances = if movie_shown && movie_texture.is_some() {
         build_movie_instances(&layout)
     } else {
@@ -538,7 +569,7 @@ fn render_main_menu_shell_to_target_inner(
         layout.screen.w,
     );
     chrome_instances.extend(monitor_frame.and_then(|frame| {
-        shell_paint::paint_warning_monitor(chrome, layout.warning_monitor, frame)
+        shell_paint::paint_warning_monitor(chrome, layout.warning_monitor, frame, layout.scale)
     }));
     // The slide engine and the empty backdrop draw the whole tile column in
     // place of the buttons.
@@ -595,7 +626,8 @@ fn render_main_menu_shell_to_target_inner(
         )
     };
     labels.extend(status_label);
-    let text_draws = shell_paint::paint_labels(&state.renderer.bit_font, &labels);
+    let text_draws =
+        shell_paint::paint_labels_scaled(&state.renderer.bit_font, &labels, layout.scale.uniform());
 
     // Quit-confirm SHP modal overlay (blocking; drawn over the menu, under the
     // cursor). `None` when the modal is closed or the skirmish atlas (which holds
@@ -613,28 +645,34 @@ fn render_main_menu_shell_to_target_inner(
         crate::render::batch::DepthAxis::NONE,
     );
     let background_buffer = state
-        .renderer.batch_renderer
+        .renderer
+        .batch_renderer
         .create_instance_buffer(&state.renderer.gpu, &background_instances);
     let movie_buffer = state
-        .renderer.batch_renderer
+        .renderer
+        .batch_renderer
         .create_instance_buffer(&state.renderer.gpu, &movie_instances);
     let chrome_buffer = state
-        .renderer.batch_renderer
+        .renderer
+        .batch_renderer
         .create_instance_buffer(&state.renderer.gpu, &chrome_instances);
     let button_buffer = state
-        .renderer.batch_renderer
+        .renderer
+        .batch_renderer
         .create_instance_buffer(&state.renderer.gpu, &button_instances);
     let text_buffers: Vec<_> = text_draws
         .iter()
         .map(|draw| {
             state
-                .renderer.batch_renderer
+                .renderer
+                .batch_renderer
                 .create_instance_buffer(&state.renderer.gpu, &draw.instances)
         })
         .collect();
     let modal_sprite_buffer = modal_overlay.as_ref().and_then(|m| {
         state
-            .renderer.batch_renderer
+            .renderer
+            .batch_renderer
             .create_instance_buffer(&state.renderer.gpu, &m.sprites)
     });
     let modal_text_buffers: Vec<_> = modal_overlay
@@ -644,7 +682,8 @@ fn render_main_menu_shell_to_target_inner(
                 .iter()
                 .map(|draw| {
                     state
-                        .renderer.batch_renderer
+                        .renderer
+                        .batch_renderer
                         .create_instance_buffer(&state.renderer.gpu, &draw.instances)
                 })
                 .collect()
@@ -656,11 +695,14 @@ fn render_main_menu_shell_to_target_inner(
             .into_iter()
             .collect();
     let cursor_buffer = state
-        .renderer.batch_renderer
+        .renderer
+        .batch_renderer
         .create_instance_buffer(&state.renderer.gpu, &cursor_instances);
     // Default-cursor frame-0 texture, borrowed for the duration of the pass.
     let cursor_texture = state
-        .match_state.match_presentation.software_cursor
+        .match_state
+        .match_presentation
+        .software_cursor
         .as_ref()
         .and_then(|cursor| cursor.get(crate::app::types::CursorId::Default))
         .and_then(|sequence| sequence.frames.first())
@@ -672,7 +714,8 @@ fn render_main_menu_shell_to_target_inner(
     // here (like every other layer) so it outlives the render pass. Only present on
     // the SHP path (the atlas is unavailable on the utility error card).
     let fade_alpha = state
-        .frontend.quit_cascade
+        .frontend
+        .quit_cascade
         .as_ref()
         .map_or(0.0, |cascade| cascade.overlay_alpha());
     let fade_buffer = if fade_alpha > 0.0 {
@@ -695,7 +738,8 @@ fn render_main_menu_shell_to_target_inner(
                     ..Default::default()
                 }];
                 state
-                    .renderer.batch_renderer
+                    .renderer
+                    .batch_renderer
                     .create_instance_buffer(&state.renderer.gpu, &quad)
             })
     } else {
@@ -771,7 +815,12 @@ fn render_main_menu_shell_to_target_inner(
             *count,
         );
     }
-    pass.set_scissor_rect(0, 0, state.renderer.gpu.config.width, state.renderer.gpu.config.height);
+    pass.set_scissor_rect(
+        0,
+        0,
+        state.renderer.gpu.config.width,
+        state.renderer.gpu.config.height,
+    );
     // Quit-confirm modal overlay: SHP panel + buttons (skirmish atlas texture),
     // then labels (font atlas), above the menu but below the cursor.
     if let (Some(overlay), Some(sk_chrome)) = (modal_overlay.as_ref(), skirmish_chrome) {
@@ -800,11 +849,17 @@ fn render_main_menu_shell_to_target_inner(
                 *count,
             );
         }
-        pass.set_scissor_rect(0, 0, state.renderer.gpu.config.width, state.renderer.gpu.config.height);
+        pass.set_scissor_rect(
+            0,
+            0,
+            state.renderer.gpu.config.width,
+            state.renderer.gpu.config.height,
+        );
     }
     if let (Some((buffer, count)), Some(texture)) = (cursor_buffer.as_ref(), cursor_texture) {
         state
-            .renderer.batch_renderer
+            .renderer
+            .batch_renderer
             .draw_with_buffer_passthrough(&mut pass, texture, buffer, *count);
     }
     // Quit-cascade fade-to-black overlay, drawn LAST so it blackens everything
@@ -894,10 +949,10 @@ fn build_exit_confirm_modal_overlay(state: &AppState) -> Option<shell_paint::Mod
         layout.dialog,
         &buttons,
         &labels,
+        ShellScale::RETAIL,
         EXIT_CONFIRM_MODAL_DEPTHS,
     ))
 }
-
 
 #[cfg(test)]
 mod tests {

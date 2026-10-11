@@ -46,7 +46,7 @@ CONFIG = 'config.toml'
 INI = 'ini'
 # Yuri's Revenge's own archive; its presence identifies the game folder.
 GAME_ARCHIVE = 'ra2md.mix'
-# The game reads its Acos table from it (retail_trig::install_from_dir).
+# Retail tests compare VERA20k's math tables with it.
 GAME_EXECUTABLE = 'gamemd.exe'
 EXTRACT_INI = 'python -m tools.cargo_run -- run --bin extract-ini'
 # The pinned packages of tool tests and native oracles; sidecars record the Unicorn version.
@@ -65,13 +65,13 @@ def main_checkout(root: Path) -> Path:
     return Path(first.removeprefix('worktree ')).resolve() if first else root
 
 
-def game_folder_problem(folder: Path) -> str | None:
+def game_folder_problem(folder: Path, for_tests: bool = False) -> str | None:
     if not folder.is_dir():
         return f'{folder} is not a folder'
     if not any(entry.name.lower() == GAME_ARCHIVE for entry in folder.iterdir()):
         return f"{folder} has no {GAME_ARCHIVE}; it must be the Yuri's Revenge game folder"
-    if not (folder / GAME_EXECUTABLE).is_file():
-        return f'{folder} has no {GAME_EXECUTABLE}; the game and retail tests read it'
+    if for_tests and not (folder / GAME_EXECUTABLE).is_file():
+        return f'{folder} has no {GAME_EXECUTABLE}; retail tests read it'
     return None
 
 
@@ -195,7 +195,7 @@ def report(root: Path, main: Path) -> tuple[list[str], bool]:
         retail = line(False, 'RA2_DIR', 'unset; retail tests and native oracles read the game folder '
                       'from it, not from config.toml', f'set RA2_DIR to {target} in the shell that runs them')
     else:
-        problem = game_folder_problem(Path(retail_dir)) if retail_dir else 'set but empty'
+        problem = game_folder_problem(Path(retail_dir), for_tests=True) if retail_dir else 'set but empty'
         retail = line(problem is None, 'RA2_DIR', problem or retail_dir, 'point RA2_DIR at the game folder')
 
     ini = root / INI

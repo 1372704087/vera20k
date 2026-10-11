@@ -11,7 +11,7 @@ use crate::app::shell_route::ShellRoute;
 use crate::ui::shell::layout::LaidOutControl;
 use crate::ui::wol_shell::{
     ApiMissingBox, WOL_WELCOME_DIALOG, WolWelcomeAction, WolWelcomeLayout, WolWelcomeState,
-    action_for_control, compute_layout,
+    action_for_control,
 };
 
 /// The message box's controller identity while it owns input.
@@ -58,7 +58,7 @@ impl App {
                 &state.renderer.gpu,
                 &state.renderer.batch_renderer,
                 assets,
-                state.renderer.gpu.config.width,
+                crate::app::frontend::shell_layout::art_key_screen_width(state),
                 &icons,
             );
         state.frontend.wol_welcome_art.is_some()
@@ -71,10 +71,7 @@ impl App {
     }
 
     pub(crate) fn wol_welcome_layout(state: &AppState) -> WolWelcomeLayout {
-        compute_layout(
-            state.renderer.gpu.config.width,
-            state.renderer.gpu.config.height,
-        )
+        crate::app::frontend::shell_layout::wol_welcome_layout(state)
     }
 
     /// The page's buttons in hit-test (Z) order.

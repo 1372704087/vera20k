@@ -92,6 +92,57 @@ pub struct GraphicsConfig {
     /// gamemd's default.
     #[serde(default = "default_true")]
     pub extra_animations: bool,
+    /// How the top-level window is presented. Local presentation policy; the
+    /// simulation never reads it.
+    #[serde(default)]
+    pub window_mode: WindowMode,
+    /// Stretch the shell family (main menu 0xE2 and its right-panel pages) to
+    /// fill the window instead of reproducing gamemd's centered, unscaled
+    /// 800x600 shell. Off by default: the retail layout is the parity behavior,
+    /// and at the 800x600 base size the two layouts are pixel-identical anyway.
+    #[serde(default)]
+    pub menu_fill_window: bool,
+}
+
+/// Top-level window presentation modes — VERA presentation policy, read by no
+/// simulation code.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum WindowMode {
+    /// Decorated, fixed-size window at the profile's frontend size: the window
+    /// every build before this key created.
+    #[default]
+    Windowed,
+    /// Decorated window the player can resize. The shell fits whatever size
+    /// the player drags it to; leaving a match restores that same window.
+    Resizable,
+    /// No title bar or border, client area covering the whole monitor.
+    Borderless,
+    /// No title bar or border, but at the profile's frontend size rather than the
+    /// monitor's. With no caption there is nothing to drag, so the window stays
+    /// where the system placed it; a match still uses the profile's game pair.
+    Frameless,
+    /// Exclusive full-screen at the monitor's own video mode. VERA picks a mode
+    /// the display advertises at its current size and never changes the display
+    /// mode, so a match keeps that size instead of the profile's game pair.
+    Fullscreen,
+}
+
+impl WindowMode {
+    /// Is the window given the whole monitor, with no player-visible frame?
+    pub fn covers_monitor(self) -> bool {
+        matches!(self, Self::Borderless | Self::Fullscreen)
+    }
+
+    /// Does the window keep the OS title bar and border?
+    pub fn has_decorations(self) -> bool {
+        matches!(self, Self::Windowed | Self::Resizable)
+    }
+
+    /// Does the player resize the window themselves?
+    pub fn resizable(self) -> bool {
+        matches!(self, Self::Resizable)
+    }
 }
 
 impl Default for GraphicsConfig {
@@ -102,6 +153,8 @@ impl Default for GraphicsConfig {
             vsync: true,
             upscale: false,
             extra_animations: true,
+            window_mode: WindowMode::default(),
+            menu_fill_window: false,
         }
     }
 }

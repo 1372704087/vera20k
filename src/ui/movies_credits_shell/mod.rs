@@ -15,5 +15,6 @@ pub use movie_list::{
     MOVIE_LIST_CONTROL, MOVIE_LIST_DIALOG, MOVIE_LIST_PAGE, MOVIE_LIST_PROMPT_KEY,
     MOVIE_LIST_TOOLTIP_KEY, MovieEntry, MovieListLayout, MovieListState, MovieProgress,
     PLAY_MOVIE_CONTROL, active_movie_entries, compute_movie_list_layout,
+    compute_responsive_movie_list_layout,
 };
 pub use page::{MOVIES_CREDITS_PAGE, MoviesCreditsAction, action_for_control, compute_layout};

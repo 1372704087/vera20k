@@ -135,10 +135,8 @@ canonical ART. The checked run contains two surviving terrain Anims. Its native
 navigation fixture observes constructor boundaries but substitutes their body;
 that count is an observed Rust result, not a new native lifetime golden.
 
-The generated retail check now initializes the verified Acos table from the actual
-retail directory before loading its scratch .SED. Previously it failed when run
-alone because it searched beside that scratch file. Both this eight-configuration
-check and the generated launch lifecycle test are explicitly executed.
+The eight-configuration generated-map retail check and the generated launch
+lifecycle test are explicitly executed.
 
 The final receipt also retains strict retail library/clippy results, explicitly
 executed generated-map checks, labeled release builds, 300-step Hills/Dustbowl

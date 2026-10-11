@@ -9,9 +9,14 @@ use super::{
     KeyEventExtModifierSupplement, MouseButton, MouseScrollDelta, PhysicalKey, PhysicalSize,
     ShellKey, WindowEvent, WindowId,
 };
+use crate::util::config::WindowMode;
 
 trait ShellWindowModeOperations {
     fn shell_client_size(&self) -> PhysicalSize<u32>;
+    /// The process-lifetime `[graphics] window_mode` presentation policy. Only
+    /// its resizable flag is a runtime operation; the covering modes are
+    /// installed once at window creation and never toggled here.
+    fn window_mode(&self) -> WindowMode;
     fn set_resizable(&mut self, resizable: bool);
     fn inner_size(&self) -> PhysicalSize<u32>;
     fn request_inner_size(&mut self, size: PhysicalSize<u32>) -> Option<PhysicalSize<u32>>;
@@ -26,6 +31,10 @@ struct PlatformShellWindowModeOperations<'a> {
 impl ShellWindowModeOperations for PlatformShellWindowModeOperations<'_> {
     fn shell_client_size(&self) -> PhysicalSize<u32> {
         self.state.platform.shell_client_size
+    }
+
+    fn window_mode(&self) -> WindowMode {
+        self.state.platform.window_mode
     }
 
     fn set_resizable(&mut self, resizable: bool) {
@@ -50,6 +59,12 @@ impl ShellWindowModeOperations for PlatformShellWindowModeOperations<'_> {
 }
 
 fn enter_shell_window_mode_with_operations(operations: &mut impl ShellWindowModeOperations) {
+    if operations.window_mode().resizable() {
+        // The player owns this frame, so the shell fits whatever the window
+        // already is: nothing is restored and no size is requested.
+        operations.set_resizable(true);
+        return;
+    }
     let target = operations.shell_client_size();
     apply_window_mode(operations, target, false);
 }
@@ -111,19 +126,26 @@ impl App {
         // 006857AE restores the independent frontend pair. Profile stays sole
         // authority, so launcher resolution edits take effect on the next match.
         let size = state.persistence.options_profile.game_screen_size();
-        let target = state
-            .platform
-            .capture_client_size
-            .unwrap_or_else(|| PhysicalSize::new(size.width, size.height));
+        // A window that owns the whole display has no room for the profile's game
+        // pair, and its shell size is the display's own client size, so both
+        // modes keep the size the window already has.
+        let monitor_covered = state.platform.window_mode.covers_monitor();
+        let target = match state.platform.capture_client_size {
+            Some(size) => size,
+            None if monitor_covered => state.platform.shell_client_size,
+            None => PhysicalSize::new(size.width, size.height),
+        };
         // Explicit low-mode startup is not a permanent return preference:
         // 006857AE restores Options' independent frontend pair after a match.
-        let shell = crate::app::persistence::options_profile::RETAIL_SHELL_SIZE;
-        state.platform.shell_client_size = state
-            .platform
-            .capture_client_size
-            .unwrap_or_else(|| PhysicalSize::new(shell.width, shell.height));
+        if !monitor_covered {
+            let shell = crate::app::persistence::options_profile::RETAIL_SHELL_SIZE;
+            state.platform.shell_client_size = state
+                .platform
+                .capture_client_size
+                .unwrap_or_else(|| PhysicalSize::new(shell.width, shell.height));
+        }
         let mut operations = PlatformShellWindowModeOperations { state };
-        apply_window_mode(&mut operations, target, true);
+        apply_window_mode(&mut operations, target, !monitor_covered);
         log::info!(
             "Match surface {}x{} (requested {}x{})",
             state.renderer.gpu.config.width,
@@ -1063,6 +1085,7 @@ mod tests {
 
     struct RecordingShellWindowModeOperations {
         shell_client_size: PhysicalSize<u32>,
+        window_mode: WindowMode,
         current_size: PhysicalSize<u32>,
         applied_size: Option<PhysicalSize<u32>>,
         resizable_values: Vec<bool>,
@@ -1075,6 +1098,7 @@ mod tests {
         fn new(shell_client_size: PhysicalSize<u32>, current_size: PhysicalSize<u32>) -> Self {
             Self {
                 shell_client_size,
+                window_mode: WindowMode::Windowed,
                 current_size,
                 applied_size: Some(shell_client_size),
                 resizable_values: Vec::new(),
@@ -1088,6 +1112,10 @@ mod tests {
     impl ShellWindowModeOperations for RecordingShellWindowModeOperations {
         fn shell_client_size(&self) -> PhysicalSize<u32> {
             self.shell_client_size
+        }
+
+        fn window_mode(&self) -> WindowMode {
+            self.window_mode
         }
 
         fn set_resizable(&mut self, resizable: bool) {
@@ -1136,6 +1164,34 @@ mod tests {
         assert!(equal.requested_sizes.is_empty());
         assert!(equal.resized_surfaces.is_empty());
         assert_eq!(equal.redraw_requests, 0);
+    }
+
+    #[test]
+    fn resizable_shell_keeps_the_players_window_size() {
+        let mut operations = RecordingShellWindowModeOperations::new(
+            PhysicalSize::new(800, 600),
+            PhysicalSize::new(1440, 900),
+        );
+        operations.window_mode = WindowMode::Resizable;
+
+        enter_shell_window_mode_with_operations(&mut operations);
+
+        // The player owns the frame: nothing is restored and nothing requested.
+        assert_eq!(operations.resizable_values, [true]);
+        assert!(operations.requested_sizes.is_empty());
+        assert!(operations.resized_surfaces.is_empty());
+    }
+
+    #[test]
+    fn borderless_shell_restores_the_display_size_unresized() {
+        let monitor = PhysicalSize::new(1920, 1080);
+        let mut operations = RecordingShellWindowModeOperations::new(monitor, monitor);
+        operations.window_mode = WindowMode::Borderless;
+
+        enter_shell_window_mode_with_operations(&mut operations);
+
+        assert_eq!(operations.resizable_values, [false]);
+        assert!(operations.requested_sizes.is_empty());
     }
 
     #[test]

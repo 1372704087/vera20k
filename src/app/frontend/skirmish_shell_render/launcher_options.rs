@@ -11,7 +11,7 @@ use crate::render::shell_text::{self, ShellAlign, ShellTextDraw, TextRect};
 use crate::render::shell_text_reveal::PathAReveal;
 use crate::ui::main_menu_dialogs::options::shell::{LauncherLabelAlign, LauncherOptionsLayout};
 use crate::ui::main_menu_dialogs::options::{LauncherTrackbarId, OptionsDialogState};
-use crate::ui::shell::geom::RectPx;
+use crate::ui::shell::geom::{RectPx, ShellScale};
 use std::time::Instant;
 
 fn text_draw(
@@ -20,8 +20,9 @@ fn text_draw(
     rect: RectPx,
     align: ShellAlign,
     rgb: [f32; 3],
+    glyph_scale: f32,
 ) -> ShellTextDraw {
-    shell_text::draw_in_rect(
+    shell_text::draw_in_rect_scaled(
         font,
         text,
         TextRect {
@@ -34,6 +35,7 @@ fn text_draw(
         align,
         [0.0, 0.0],
         SHELL_CONTROL_TEXT_DEPTH,
+        glyph_scale,
     )
 }
 
@@ -47,15 +49,17 @@ fn build_controls(
 ) -> Vec<SpriteInstance> {
     let mut out = Vec::new();
     let chrome = atlas.control_chrome();
+    let scale = layout.scale;
     for (id, rect) in layout.trackbars {
         paint_control(
             &mut out,
             &chrome,
             ControlPaint::Trackbar {
                 rect,
-                thumb_left: dialog.shell_trackbar_thumb_left(id, rect.w),
+                thumb_left: dialog.shell_trackbar_thumb_left(id, rect, scale),
                 plaque: id.plaque_reserve() > 0,
             },
+            scale,
         );
     }
     for (id, rect) in layout.checkboxes {
@@ -66,6 +70,7 @@ fn build_controls(
                 rect,
                 checked: dialog.shell_checkbox_checked(id),
             },
+            scale,
         );
     }
     paint_control(
@@ -77,6 +82,7 @@ fn build_controls(
             open: dialog.shell_popup(layout).is_some(),
             disabled: false,
         },
+        scale,
     );
     for (id, rect) in layout.buttons.into_iter().filter(|_| buttons) {
         push_right_panel_button_shp(
@@ -99,6 +105,8 @@ fn build_text(
     buttons: bool,
 ) -> Vec<ShellTextDraw> {
     let mut out = Vec::new();
+    let scale = layout.scale;
+    let glyph = scale.uniform();
     for label in dialog.shell_labels(layout) {
         let align = match label.align {
             LauncherLabelAlign::Left => ShellAlign::NONE,
@@ -107,7 +115,7 @@ fn build_text(
         };
         if label.title {
             if let Some(window) = title {
-                out.push(shell_text::draw_in_rect_path_a(
+                out.push(shell_text::draw_in_rect_path_a_scaled(
                     font,
                     label.text,
                     TextRect {
@@ -125,6 +133,7 @@ fn build_text(
                         base_rgb: [255, 255, 0],
                         highlight_rgb: [255, 255, 255],
                     },
+                    glyph,
                 ));
             }
         } else {
@@ -134,16 +143,22 @@ fn build_text(
                 label.rect,
                 align,
                 SHELL_LABEL_TEXT_RGB,
+                glyph,
             ));
         }
     }
     for (id, rect) in layout.checkboxes {
+        // The box's icon column keeps its authored 26-pixel reserve.
+        let text = scale.derive_rect(rect, |rect| {
+            RectPx::new(rect.x + 26, rect.y, rect.w - 26, rect.h)
+        });
         out.push(text_draw(
             font,
             dialog.shell_checkbox_label(id),
-            RectPx::new(rect.x + 26, rect.y, rect.w - 26, rect.h),
+            text,
             ShellAlign::V_CENTER,
             SHELL_LABEL_TEXT_RGB,
+            glyph,
         ));
     }
     for (id, rect) in layout.trackbars {
@@ -154,33 +169,33 @@ fn build_text(
             out.push(text_draw(
                 font,
                 &dialog.trackbar_position(id).to_string(),
-                crate::ui::shell::trackbar::value_text_rect(rect),
+                crate::ui::shell::trackbar::value_text_rect(rect, scale),
                 ShellAlign::H_CENTER | ShellAlign::V_CENTER,
                 if dialog.launcher_audio_available() {
                     SHELL_LABEL_TEXT_RGB
                 } else {
                     SHELL_DISABLED_TEXT_RGB_FROM_PACKED_0000009F
                 },
+                glyph,
             ));
         }
     }
+    let resolution_text = scale.derive_rect(layout.resolution, |rect| {
+        RectPx::new(rect.x + 3, rect.y, rect.w - 23, rect.h)
+    });
     out.push(text_draw(
         font,
         dialog.shell_selected_resolution_text(),
-        RectPx::new(
-            layout.resolution.x + 3,
-            layout.resolution.y,
-            layout.resolution.w - 23,
-            layout.resolution.h,
-        ),
+        resolution_text,
         ShellAlign::V_CENTER,
         SHELL_LABEL_TEXT_RGB,
+        glyph,
     ));
     for (id, rect) in layout.buttons.into_iter().filter(|_| buttons) {
         let pressed = dialog.shell_button_pressed(id);
         // 612B70 type1: ordinary press retains AC18A4 foreground; the text
         // rectangle changes at61358D..6135CD, independently of SHP geometry.
-        let native_text = button_text_rect(rect, pressed);
+        let native_text = button_text_rect(rect, pressed, scale);
         out.push(text_draw(
             font,
             dialog.shell_button_label(id),
@@ -192,6 +207,7 @@ fn build_text(
             ),
             ShellAlign::H_CENTER | ShellAlign::V_CENTER,
             button_label_color(),
+            glyph,
         ));
     }
     out
@@ -203,8 +219,13 @@ pub(super) fn launcher_background_instances(
     atlas: &SkirmishShellChromeAtlas,
     width: u32,
     height: u32,
+    scale: ShellScale,
 ) -> Vec<SpriteInstance> {
-    let common = compute_layout(width, height);
+    let common = if scale.is_retail() {
+        compute_layout(width, height)
+    } else {
+        crate::ui::skirmish_shell::compute_responsive_layout(width, height)
+    };
     let mut out = Vec::new();
     let background = if width == 640 {
         atlas.generic_background_640_mnscrns_shell
@@ -212,7 +233,20 @@ pub(super) fn launcher_background_instances(
         atlas.generic_background_large_mnscrnl_shell
     };
     if let Some(background) = background {
-        push_entry_native(&mut out, background, 0, 0, SHELL_PARENT_BACKGROUND_DEPTH);
+        if scale.is_retail() {
+            push_entry_native(&mut out, background, 0, 0, SHELL_PARENT_BACKGROUND_DEPTH);
+        } else {
+            // The stretched page takes the whole window, so the MNSCRN canvas
+            // grows over it as it does on the family menu pages.
+            push_entry_sized(
+                &mut out,
+                background,
+                0.0,
+                0.0,
+                [width as f32, height as f32],
+                SHELL_PARENT_BACKGROUND_DEPTH,
+            );
+        }
     }
     push_right_panel_base_instances(&mut out, atlas, &common, false);
     push_lower_strip_instance(&mut out, atlas, &common);
@@ -226,8 +260,8 @@ pub(crate) fn render_launcher_options(
 ) -> anyhow::Result<()> {
     use crate::app::frontend::shell_transition::ShellSlideKind;
     let now = Instant::now();
-    let layout =
-        LauncherOptionsLayout::new(state.render_width() as i32, state.render_height() as i32);
+    let layout = crate::app::frontend::shell_layout::launcher_options_layout(state);
+    let scale = layout.scale;
     // The teardown slide starts with a full dialog repaint (`0x00622C4F`) and
     // pumps no messages until it ends: every child stays blank. The entry
     // slide suppresses the heading, status line, monitor and column buttons
@@ -279,21 +313,30 @@ pub(crate) fn render_launcher_options(
         .as_ref()
         .expect("launcher atlas");
     let mut instances =
-        launcher_background_instances(atlas, state.render_width(), state.render_height());
+        launcher_background_instances(atlas, state.render_width(), state.render_height(), scale);
     if let Some(frame) = monitor_frame.and_then(|frame| atlas.launcher_warning_frames.get(frame)) {
-        push_flag_entry_native_clipped_centered(
+        push_flag_entry_clipped_centered(
             &mut instances,
             *frame,
             layout.warning,
+            scale,
             SHELL_CONTROL_DEPTH,
         );
     }
     let mut texts = Vec::new();
     if let Some(wave) = wave.as_ref() {
+        let common = if scale.is_retail() {
+            compute_layout(state.render_width(), state.render_height())
+        } else {
+            crate::ui::skirmish_shell::compute_responsive_layout(
+                state.render_width(),
+                state.render_height(),
+            )
+        };
         push_slide_column(
             &mut instances,
             atlas,
-            &compute_layout(state.render_width(), state.render_height()),
+            &common,
             &wave.button_draws(),
             SHELL_CONTROL_DEPTH,
         );
@@ -302,9 +345,10 @@ pub(crate) fn render_launcher_options(
         instances.extend(build_controls(atlas, &layout, dialog, !sliding));
         texts = build_text(&state.renderer.bit_font, &layout, dialog, title, !sliding);
     }
-    texts.extend(crate::render::shell_paint::paint_labels(
+    texts.extend(crate::render::shell_paint::paint_labels_scaled(
         &state.renderer.bit_font,
         &status_label.into_iter().collect::<Vec<_>>(),
+        scale.uniform(),
     ));
     let mut popup_instances = Vec::new();
     let mut popup_text = Vec::new();
@@ -316,6 +360,7 @@ pub(crate) fn render_launcher_options(
             SHELL_DROPDOWN_BG_RGB_PENDING_COMBODROPWIN_SOURCE_CAPTURE,
             SHELL_DROPDOWN_DEPTH,
         );
+        let text_inset = (3.0 * scale.x()).round() as i32;
         for (i, row) in dialog
             .shell_resolution_rows()
             .iter()
@@ -341,9 +386,10 @@ pub(crate) fn render_launcher_options(
             popup_text.push(text_draw(
                 &state.renderer.bit_font,
                 &row.label,
-                RectPx::new(rect.x + 3, rect.y, rect.w - 6, rect.h),
+                RectPx::new(rect.x + text_inset, rect.y, rect.w - 2 * text_inset, rect.h),
                 ShellAlign::V_CENTER,
                 SHELL_LABEL_TEXT_RGB,
+                scale.uniform(),
             ));
         }
         if let (Some(scrollbar), Some(thumb)) = (popup.scrollbar, popup.thumb) {
@@ -355,6 +401,7 @@ pub(crate) fn render_launcher_options(
                     thumb,
                     pressed_part: None,
                 },
+                scale,
             );
         }
         push_ownerdraw_two_pixel_bevel_frame_px(

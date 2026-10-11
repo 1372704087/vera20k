@@ -8,7 +8,7 @@ use crate::app::loading::campaign_presentation::{
     CampaignLoadingLayout, CampaignLoadingPresentation,
 };
 use crate::app::loading::composition::{
-    LoadingCompositionSnapshot, MmpbRegionRect, loading_base_origin,
+    LoadingCompositionSnapshot, MmpbRegionRect, loading_authored_size, loading_base_origin,
 };
 use crate::app::loading::progress_row::{
     LoadingProgressRowLayout, LoadingProgressRowPlacement, LoadingProgressRowSnapshot,
@@ -21,8 +21,11 @@ use crate::render::draw_state::DrawState;
 use crate::render::gpu::GpuContext;
 use crate::render::loading_screen_chrome::{LoadingScreenAtlas, LoadingScreenEntry};
 use crate::render::shell_surface_present::ShellSurfacePresenter;
-use crate::render::shell_text::{ScissorRect, ShellAlign, ShellTextDraw, TextRect, draw_in_rect};
+use crate::render::shell_text::{
+    ScissorRect, ShellAlign, ShellTextDraw, TextRect, draw_in_rect_scaled,
+};
 use crate::rules::color_scheme::scheme_entry_for_priority;
+use crate::ui::shell::geom::ShellScale;
 
 const BACKGROUND_DEPTH: f32 = 0.90;
 const PREVIEW_DEPTH: f32 = 0.80;
@@ -103,6 +106,7 @@ pub(super) fn present_blank(
 pub(super) fn encode_native_loading_frame(
     renderer: &RendererState,
     native: &NativeLoadingScreenState,
+    scale: ShellScale,
     encoder: &mut wgpu::CommandEncoder,
     destination: &wgpu::Texture,
 ) -> anyhow::Result<()> {
@@ -121,6 +125,7 @@ pub(super) fn encode_native_loading_frame(
         native.backing_rgb,
         native.text_rgb,
         [renderer.gpu.config.width, renderer.gpu.config.height],
+        scale,
     );
     encode_native_loading_plan(
         &renderer.gpu,
@@ -151,6 +156,7 @@ fn native_loading_row_layout(
     progress: &LoadingProgressState,
     render_size: [u32; 2],
     campaign: Option<&CampaignLoadingPresentation>,
+    scale: ShellScale,
 ) -> Option<LoadingProgressRowLayout> {
     if progress.current_value() == 0.0 {
         return None;
@@ -173,6 +179,7 @@ fn native_loading_row_layout(
             font.text_width(PROGRESS_ROW_MEASURE_TEXT) as i32,
             font.cell_height() as i32,
         ],
+        scale,
     ))
 }
 
@@ -186,6 +193,7 @@ fn build_native_loading_text_draws(
     text_rgb: [f32; 3],
     row_rgb: [f32; 3],
     render_size: [u32; 2],
+    scale: ShellScale,
 ) -> Vec<NativeLoadingTextDraw> {
     let mut draws = Vec::with_capacity(5);
     if let Some(campaign) = campaign {
@@ -209,6 +217,7 @@ fn build_native_loading_text_draws(
                 ShellAlign::NONE,
                 None,
                 CAMPAIGN_TITLE_TEXT_DEPTH,
+                scale.uniform(),
             );
             draw.text.scissor = ScissorRect {
                 x: 0,
@@ -226,6 +235,9 @@ fn build_native_loading_text_draws(
                 text,
                 CampaignLoadingPresentation::BRIEFING_WRAP_WIDTH as u32,
             );
+            // The measured box is authored; the draw divides its rect back by the
+            // glyph scale, so the stretched copy lands in the same box.
+            let grow = |px: i32| (px as f32 * scale.uniform()).round() as i32;
             draws.push(build_native_loading_text_draw(
                 font,
                 solid_texel,
@@ -233,13 +245,14 @@ fn build_native_loading_text_draws(
                 crate::ui::shell::geom::RectPx::new(
                     campaign.briefing_origin[0],
                     campaign.briefing_origin[1],
-                    measured.width as i32,
-                    measured.height as i32,
+                    grow(measured.width as i32),
+                    grow(measured.height as i32),
                 ),
                 text_rgb,
                 ShellAlign::V_CENTER,
                 Some(CampaignLoadingPresentation::BRIEFING_BACKING_PADDING as f32),
                 TEXT_DEPTH,
+                scale.uniform(),
             ));
         }
         return draws;
@@ -255,6 +268,7 @@ fn build_native_loading_text_draws(
                 ShellAlign::H_RIGHT,
                 Some(TEXT_BACKING_PADDING),
                 TEXT_DEPTH,
+                scale.uniform(),
             ));
         }
         if let Some(text) = composition.text.special_unit.as_deref() {
@@ -267,6 +281,7 @@ fn build_native_loading_text_draws(
                 ShellAlign::NONE,
                 None,
                 TEXT_DEPTH,
+                scale.uniform(),
             ));
         }
         if let Some(text) = composition.text.load_brief.as_deref() {
@@ -279,6 +294,7 @@ fn build_native_loading_text_draws(
                 ShellAlign::NONE,
                 Some(TEXT_BACKING_PADDING),
                 TEXT_DEPTH,
+                scale.uniform(),
             ));
         }
         if let Some(text) = composition.text.loading.as_deref() {
@@ -291,6 +307,7 @@ fn build_native_loading_text_draws(
                 ShellAlign::NONE,
                 Some(TEXT_BACKING_PADDING),
                 TEXT_DEPTH,
+                scale.uniform(),
             ));
         }
     }
@@ -308,6 +325,7 @@ fn build_native_loading_text_draws(
             ShellAlign::NONE,
             None,
             ROW_LABEL_DEPTH,
+            scale.uniform(),
         ));
     }
     draws
@@ -322,6 +340,7 @@ fn build_native_loading_text_draw(
     align: ShellAlign,
     backing_padding: Option<f32>,
     depth: f32,
+    glyph_scale: f32,
 ) -> NativeLoadingTextDraw {
     let width = rect.w.max(0) as u32;
     let height = rect.h.max(0) as u32;
@@ -331,16 +350,29 @@ fn build_native_loading_text_draw(
         w: width,
         h: height,
     };
-    let text_draw = draw_in_rect(font, text, text_rect, color, align, [0.0, 0.0], depth);
+    let text_draw = draw_in_rect_scaled(
+        font,
+        text,
+        text_rect,
+        color,
+        align,
+        [0.0, 0.0],
+        depth,
+        glyph_scale,
+    );
     let mut backing = Vec::new();
     if let Some(padding) = backing_padding
         && !text_draw.instances.is_empty()
     {
-        let layout = font.wrap_layout(text, width);
-        let aligned_x = if align.contains(ShellAlign::H_RIGHT) && layout.width < width {
-            rect.x + (width - layout.width) as i32
-        } else if align.contains(ShellAlign::H_CENTER) && layout.width < width {
-            rect.x + ((width - layout.width) / 2) as i32
+        // The draw lays the copy out in the box's authored units, so the backing
+        // measures there too and grows back with the glyphs it has to sit behind.
+        let authored = (width as f32 / glyph_scale).round().max(0.0) as u32;
+        let authored_height = (height as f32 / glyph_scale).round().max(0.0) as u32;
+        let layout = font.wrap_layout(text, authored);
+        let aligned_x = if align.contains(ShellAlign::H_RIGHT) && layout.width < authored {
+            rect.x + ((authored - layout.width) as f32 * glyph_scale) as i32
+        } else if align.contains(ShellAlign::H_CENTER) && layout.width < authored {
+            rect.x + (((authored - layout.width) as f32 * glyph_scale) / 2.0) as i32
         } else {
             rect.x
         };
@@ -349,8 +381,8 @@ fn build_native_loading_text_draw(
             solid_texel,
             [aligned_x as f32 - padding, rect.y as f32 - padding],
             [
-                layout.width as f32 + padding * 2.0,
-                layout.height.min(height) as f32 + padding * 2.0,
+                (layout.width as f32 + padding * 2.0) * glyph_scale,
+                ((layout.height.min(authored_height) as f32 + padding * 2.0) * glyph_scale),
             ],
             TEXT_BACKING_DEPTH,
             [0.0, 0.0, 0.0],
@@ -388,6 +420,7 @@ fn build_native_loading_instances(
     backing_rgb: [f32; 3],
     row_layout: Option<&LoadingProgressRowLayout>,
     base_origin: [i32; 2],
+    scale: ShellScale,
 ) -> Vec<SpriteInstance> {
     let mut instances = Vec::with_capacity(12);
     if let Some(campaign) = campaign {
@@ -398,14 +431,20 @@ fn build_native_loading_instances(
             atlas.title_bar,
             atlas.progress_background,
             atlas.solid_texel,
+            scale,
         );
     } else {
         // Standard art hangs off the same base origin as its row and copy.
-        push_entry(
+        push_entry_scaled(
             &mut instances,
             atlas.background,
             [base_origin[0] as f32, base_origin[1] as f32],
+            scale.art_size(
+                atlas.background.pixel_size[0],
+                atlas.background.pixel_size[1],
+            ),
             BACKGROUND_DEPTH,
+            [1.0; 3],
         );
     }
 
@@ -445,6 +484,7 @@ fn build_native_loading_instances(
                     [marker.anchor.screen_x, marker.anchor.screen_y],
                     MARKER_DEPTH,
                     prepared.region,
+                    scale,
                 );
             }
         }
@@ -473,6 +513,7 @@ fn build_native_loading_instances(
         progress,
         bar_origin,
         campaign.is_none().then_some(backing_rgb),
+        scale,
     );
 
     // Country insignia follows the progress span. The atlas has already applied
@@ -480,11 +521,13 @@ fn build_native_loading_instances(
     if campaign.is_none()
         && let (Some(icon), Some(icon_origin)) = (atlas.side_icon, row_layout.icon_origin)
     {
-        push_entry(
+        push_entry_scaled(
             &mut instances,
             icon,
             [icon_origin[0] as f32, icon_origin[1] as f32],
+            scale.art_size(icon.pixel_size[0], icon.pixel_size[1]),
             SIDE_ICON_DEPTH,
+            [1.0; 3],
         );
     }
 
@@ -494,6 +537,7 @@ fn build_native_loading_instances(
 /// DrawLoading552F65..553057: unscaled frame0 at the three executed rectangle
 /// origins. Missing title/bar shapes fill the original black background
 /// (4E8120 initializesA83CD9..DB), with no country layers.
+#[allow(clippy::too_many_arguments)]
 fn push_campaign_loading_chrome(
     out: &mut Vec<SpriteInstance>,
     layout: &CampaignLoadingLayout,
@@ -501,6 +545,7 @@ fn push_campaign_loading_chrome(
     title_bar: Option<LoadingScreenEntry>,
     progress_background: Option<LoadingScreenEntry>,
     solid_texel: LoadingScreenEntry,
+    scale: ShellScale,
 ) {
     for (entry, rect) in [
         (title_bar, layout.title),
@@ -508,7 +553,14 @@ fn push_campaign_loading_chrome(
         (progress_background, layout.bar),
     ] {
         if let Some(entry) = entry {
-            push_entry(out, entry, [rect.x as f32, rect.y as f32], BACKGROUND_DEPTH);
+            push_entry_scaled(
+                out,
+                entry,
+                [rect.x as f32, rect.y as f32],
+                scale.art_size(entry.pixel_size[0], entry.pixel_size[1]),
+                BACKGROUND_DEPTH,
+                [1.0; 3],
+            );
         } else {
             push_entry_tinted(
                 out,
@@ -532,25 +584,31 @@ fn push_loading_progress_span(
     progress: &LoadingProgressState,
     bar_origin: [f32; 2],
     backing_rgb: Option<[f32; 3]>,
+    scale: ShellScale,
 ) {
+    let bar_size = scale.art_size(frame.pixel_size[0], frame.pixel_size[1]);
     if let Some(backing_rgb) = backing_rgb {
         push_entry_tinted(
             out,
             solid_texel,
             bar_origin,
-            frame.pixel_size,
+            bar_size,
             SOLID_FILL_DEPTH,
             backing_rgb,
         );
     }
-    let progress_width =
-        progress.fill_width_gamemd_ftol_positive_domain(frame.pixel_size[0] as u32);
+    let full_width = frame.pixel_size[0].max(1.0);
+    let progress_width = progress.fill_width_gamemd_ftol_positive_domain(full_width as u32);
     if progress_width > 0 {
+        // The meter still reveals by fraction, whatever the window: the native
+        // ftol width decides how far along the frame the sweep has reached, and
+        // a stretched bar reaches that same point of its grown rectangle.
         push_progress_fill(
             out,
             frame,
             bar_origin,
-            progress_width as f32,
+            (progress_width as f32 / full_width).clamp(0.0, 1.0),
+            bar_size,
             PROGRESS_DEPTH,
         );
     }
@@ -566,8 +624,10 @@ fn build_native_loading_frame_plan(
     backing_rgb: [f32; 3],
     text_rgb: [f32; 3],
     render_size: [u32; 2],
+    scale: ShellScale,
 ) -> NativeLoadingFramePlan {
-    let row_layout = native_loading_row_layout(font, atlas, progress, render_size, campaign);
+    let authored = loading_authored_size(render_size, scale);
+    let row_layout = native_loading_row_layout(font, atlas, progress, render_size, campaign, scale);
     let instances = build_native_loading_instances(
         atlas,
         composition,
@@ -575,7 +635,8 @@ fn build_native_loading_frame_plan(
         progress,
         backing_rgb,
         row_layout.as_ref(),
-        loading_base_origin(render_size),
+        loading_base_origin(authored),
+        scale,
     );
     let text_draws = build_native_loading_text_draws(
         font,
@@ -587,6 +648,7 @@ fn build_native_loading_frame_plan(
         text_rgb,
         backing_rgb,
         render_size,
+        scale,
     );
     NativeLoadingFramePlan {
         instances,
@@ -613,6 +675,7 @@ pub(super) fn present_native_loading(
     backing_rgb: [f32; 3],
     text_rgb: [f32; 3],
     render_size: [u32; 2],
+    scale: ShellScale,
 ) -> anyhow::Result<()> {
     let output = gpu
         .surface
@@ -634,6 +697,7 @@ pub(super) fn present_native_loading(
         backing_rgb,
         text_rgb,
         render_size,
+        scale,
     );
     encode_native_loading_plan(
         gpu,
@@ -743,15 +807,6 @@ fn encode_native_loading_plan(
     Ok(())
 }
 
-fn push_entry(
-    out: &mut Vec<SpriteInstance>,
-    entry: LoadingScreenEntry,
-    position: [f32; 2],
-    depth: f32,
-) {
-    push_entry_scaled(out, entry, position, entry.pixel_size, depth, [1.0; 3]);
-}
-
 /// Push a quad that resamples the whole source into `size`.
 ///
 /// This is the ordinary scaling blit: the full atlas slot is sampled across the
@@ -782,16 +837,19 @@ fn push_entry_scaled(
 ///
 /// gamemd composes the start markers into a surface exactly the size of the
 /// preview region and blits that surface, so a marker whose nudge pushes it past
-/// an edge is cut off there instead of spilling onto the loading art.
+/// an edge is cut off there instead of spilling onto the loading art. The marker
+/// art grows with the page's scale, and the crop is taken in those window pixels,
+/// so the same part of the diamond survives on either mapping.
 fn push_entry_clipped(
     out: &mut Vec<SpriteInstance>,
     entry: LoadingScreenEntry,
     position: [i32; 2],
     depth: f32,
     clip: MmpbRegionRect,
+    scale: ShellScale,
 ) {
-    let width = entry.pixel_size[0] as i32;
-    let height = entry.pixel_size[1] as i32;
+    let [art_w, art_h] = scale.art_size(entry.pixel_size[0], entry.pixel_size[1]);
+    let (width, height) = (art_w.round() as i32, art_h.round() as i32);
     if width <= 0 || height <= 0 {
         return;
     }
@@ -809,12 +867,12 @@ fn push_entry_clipped(
         position: [left as f32, top as f32],
         size: visible,
         uv_origin: [
-            entry.uv_origin[0] + entry.uv_size[0] * cropped[0] / entry.pixel_size[0],
-            entry.uv_origin[1] + entry.uv_size[1] * cropped[1] / entry.pixel_size[1],
+            entry.uv_origin[0] + entry.uv_size[0] * cropped[0] / art_w.max(1.0),
+            entry.uv_origin[1] + entry.uv_size[1] * cropped[1] / art_h.max(1.0),
         ],
         uv_size: [
-            entry.uv_size[0] * visible[0] / entry.pixel_size[0],
-            entry.uv_size[1] * visible[1] / entry.pixel_size[1],
+            entry.uv_size[0] * visible[0] / art_w.max(1.0),
+            entry.uv_size[1] * visible[1] / art_h.max(1.0),
         ],
         depth,
         tint: [1.0, 1.0, 1.0],
@@ -839,22 +897,21 @@ fn push_entry_tinted(
 ///
 /// This is the one loading-screen layer that is *clipped* rather than scaled —
 /// the bar sweeps by uncovering more of the same frame, so the U axis is cut at
-/// the fill width while the V axis stays whole. Every other layer scales.
+/// the fill fraction while the V axis stays whole. `size` is that frame's
+/// destination box, which the page's scale has already grown.
 fn push_progress_fill(
     out: &mut Vec<SpriteInstance>,
     entry: LoadingScreenEntry,
     position: [f32; 2],
-    fill_width: f32,
+    fraction: f32,
+    size: [f32; 2],
     depth: f32,
 ) {
     out.push(SpriteInstance {
         position,
-        size: [fill_width, entry.pixel_size[1]],
+        size: [size[0] * fraction, size[1]],
         uv_origin: entry.uv_origin,
-        uv_size: [
-            entry.uv_size[0] * (fill_width / entry.pixel_size[0]).clamp(0.0, 1.0),
-            entry.uv_size[1],
-        ],
+        uv_size: [entry.uv_size[0] * fraction, entry.uv_size[1]],
         depth,
         tint: [1.0, 1.0, 1.0],
         alpha: 1.0,
@@ -946,11 +1003,12 @@ mod tests {
                 let mut instances = Vec::new();
                 push_campaign_loading_chrome(
                     &mut instances,
-                    &CampaignLoadingLayout::for_render_size(size),
+                    &CampaignLoadingLayout::for_authored_size(size),
                     background,
                     Some(title),
                     Some(bar),
                     solid,
+                    ShellScale::RETAIL,
                 );
                 assert_eq!(instances.len(), 3, "{filename} {size:?}");
                 for ((draw, entry), role) in instances
@@ -1007,6 +1065,7 @@ mod tests {
                 pair("bar_size"),
                 None,
                 pair("font_size"),
+                ShellScale::RETAIL,
             );
             let mut progress = LoadingProgressState::standard_skirmish();
             progress.advance_progress(row["percent"].as_u64().unwrap() as u32);
@@ -1018,6 +1077,7 @@ mod tests {
                 &progress,
                 layout.bar_origin.map(|value| value as f32),
                 None,
+                ShellScale::RETAIL,
             );
             let clip = row["clip_rect"].as_array().unwrap();
             let clip_width = clip[2].as_i64().unwrap() as f32;
@@ -1108,7 +1168,14 @@ mod tests {
         };
         let mut instances = Vec::new();
 
-        push_progress_fill(&mut instances, entry, [24.0, 332.0], 100.0, PROGRESS_DEPTH);
+        push_progress_fill(
+            &mut instances,
+            entry,
+            [24.0, 332.0],
+            0.25,
+            [400.0, 10.0],
+            PROGRESS_DEPTH,
+        );
 
         assert_eq!(instances.len(), 1);
         // A quarter of the frame is uncovered: a quarter of U, all of V.
@@ -1127,6 +1194,7 @@ mod tests {
             [520, 400],
             MARKER_DEPTH,
             clip,
+            ShellScale::RETAIL,
         );
 
         assert_eq!(instances.len(), 1);
@@ -1148,6 +1216,7 @@ mod tests {
             [707, 376],
             MARKER_DEPTH,
             clip,
+            ShellScale::RETAIL,
         );
 
         assert_eq!(instances.len(), 1);
@@ -1171,6 +1240,7 @@ mod tests {
             [715, 400],
             MARKER_DEPTH,
             clip,
+            ShellScale::RETAIL,
         );
         push_entry_clipped(
             &mut instances,
@@ -1178,6 +1248,7 @@ mod tests {
             [520, 367],
             MARKER_DEPTH,
             clip,
+            ShellScale::RETAIL,
         );
 
         assert!(instances.is_empty());

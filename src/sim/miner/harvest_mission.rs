@@ -14,6 +14,8 @@ use crate::rules::ruleset::RuleSet;
 use crate::sim::world::FrameEffects;
 use crate::sim::world::Simulation;
 
+// Read only by the debug-build cursor assertion below.
+#[cfg(debug_assertions)]
 use super::MinerState;
 use super::miner_system::{
     MinerSnapshot, build_miner_snapshot, commit_miner_snapshot, process_miner,

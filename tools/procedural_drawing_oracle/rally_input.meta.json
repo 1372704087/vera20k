@@ -34,8 +34,9 @@
     "event_constructor": "0x004C6780"
   },
   "source_normalized_lf_sha256": {
-    "rally_input": "61b573a26b93f144fc9a9d1ad9eeacc52f011b14f9eedc044f68b662b30b4cc4",
-    "shared_map_fixture": "6ab481647a1d69676cb3931f3e196abd654790e8097016d2f12baa9e40d74ffb"
+    "tools/procedural_drawing_oracle/rally_input.py": "61b573a26b93f144fc9a9d1ad9eeacc52f011b14f9eedc044f68b662b30b4cc4",
+    "tools/spatial_oracle/walk_move_admission.py": "4bcc4da01463be56ce088d0356e44ab23f2ea637a68ff8a5ce26b86d0b7f1f89"
   },
-  "payload_sha256": "bdd0618de5ebc1e7ff94a1d77ab3a6046dd393e50fca1a4a795bbcf1273ae189"
+  "payload_sha256": "bdd0618de5ebc1e7ff94a1d77ab3a6046dd393e50fca1a4a795bbcf1273ae189",
+  "replay_command": "python -m tools.procedural_drawing_oracle.rally_input"
 }

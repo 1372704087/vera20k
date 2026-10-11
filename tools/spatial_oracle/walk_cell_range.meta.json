@@ -44,9 +44,10 @@
     "python -m tools.spatial_oracle.walk_cell_range --check"
   ],
   "source_normalized_lf_sha256": {
-    "walk_cell_range": "26c1c5f1e767c6bcb97733c0fd654429aa815c850c7a3fa3ed0f9064d70f115c",
-    "native_oracle": "67a69b8e446a8134fbff1128c1fe15025350f329fc25585af29ea725746f2ceb",
-    "map_queries": "f1c798f50bf8a69ebe53c6d0e2327ce395ad99ba5c7017e74e353757770f4305"
+    "tools/spatial_oracle/walk_cell_range.py": "26c1c5f1e767c6bcb97733c0fd654429aa815c850c7a3fa3ed0f9064d70f115c",
+    "tools/native_oracle.py": "0c94545bb9c4ca049ad7d46b152d9bd79624c7e52b3fec7a42d360974bbaacef",
+    "tools/spatial_oracle/map_queries.py": "f1c798f50bf8a69ebe53c6d0e2327ce395ad99ba5c7017e74e353757770f4305"
   },
-  "payload_sha256": "2348cb911edbac5cad43d38de2b59670b74c663b657f58092e4fafdef5979df7"
+  "payload_sha256": "2348cb911edbac5cad43d38de2b59670b74c663b657f58092e4fafdef5979df7",
+  "replay_command": "python -m tools.spatial_oracle.walk_cell_range"
 }

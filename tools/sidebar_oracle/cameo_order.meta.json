@@ -37,11 +37,12 @@
     "recharge_reader": "0x006CED5C"
   },
   "source_normalized_lf_sha256": {
-    "producer": "6ecd2470bfe80ba2c001d944748ef8babdcf721cecb46119be30f4d2b3b08242",
-    "sidebar_machine": "3be14607c275ec465c6e6535e6dfa5af6f4db7b9eef2a022ce52e9434e5819d7",
-    "cost_owner": "11cc459dc355063e4a7d5207e14c2bdc079f2306bcbb57d2c2ee018973cb5ad8",
-    "ini_fixture": "4c01dd452ccf63c0058e8b58cb751c1e13933fcc25b9ef639cb57c628f4e8643",
-    "runner": "67a69b8e446a8134fbff1128c1fe15025350f329fc25585af29ea725746f2ceb"
+    "tools/sidebar_oracle/cameo_order.py": "6ecd2470bfe80ba2c001d944748ef8babdcf721cecb46119be30f4d2b3b08242",
+    "tools/sidebar_oracle/geometry.py": "3be14607c275ec465c6e6535e6dfa5af6f4db7b9eef2a022ce52e9434e5819d7",
+    "tools/spatial_oracle/cost_of.py": "11cc459dc355063e4a7d5207e14c2bdc079f2306bcbb57d2c2ee018973cb5ad8",
+    "tools/spatial_oracle/building_body_rules.py": "4c01dd452ccf63c0058e8b58cb751c1e13933fcc25b9ef639cb57c628f4e8643",
+    "tools/native_oracle.py": "0c94545bb9c4ca049ad7d46b152d9bd79624c7e52b3fec7a42d360974bbaacef"
   },
-  "payload_sha256": "41cb85d76a82dbf2d921d1e01bff53bccfde09f21500f5100a0dfeb74a061ddf"
+  "payload_sha256": "41cb85d76a82dbf2d921d1e01bff53bccfde09f21500f5100a0dfeb74a061ddf",
+  "replay_command": "python -m tools.sidebar_oracle.cameo_order"
 }

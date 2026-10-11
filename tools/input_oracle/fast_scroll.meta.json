@@ -46,9 +46,10 @@
     "SetViewToCoordInstant": "0x006D6070"
   },
   "source_normalized_lf_sha256": {
-    "producer": "fc23d236ec33e0e60168e7c9174d8c52b7970dafee4ea071d018f780d2aeadc4",
-    "shared_runner": "79dac1057d97e706f106a26145f00fa220d92c172b5173876c60fed22c17530c",
-    "projection_fixture": "b2879a5172b5fe778fbc8f8d98374b124ea1120aefe5e960764bd27a99183026"
+    "tools/input_oracle/fast_scroll.py": "fc23d236ec33e0e60168e7c9174d8c52b7970dafee4ea071d018f780d2aeadc4",
+    "tools/native_oracle.py": "0c94545bb9c4ca049ad7d46b152d9bd79624c7e52b3fec7a42d360974bbaacef",
+    "tools/bridge_click_oracle.py": "b2879a5172b5fe778fbc8f8d98374b124ea1120aefe5e960764bd27a99183026"
   },
-  "payload_sha256": "76f457d8c87481cacddd61637b8c919130d63ca1fdc092fb06e839ac5c215f25"
+  "payload_sha256": "76f457d8c87481cacddd61637b8c919130d63ca1fdc092fb06e839ac5c215f25",
+  "replay_command": "python -m tools.input_oracle.fast_scroll"
 }

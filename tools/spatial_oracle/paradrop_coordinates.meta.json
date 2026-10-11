@@ -26,8 +26,9 @@
     "ftol": "0x007C5F00"
   },
   "source_normalized_lf_sha256": {
-    "generator": "bd9fab8860884454c62e3d6a168759592bf70410a076dbf30eaa6710a75aafdf",
-    "runner": "484e528d6d4c9bc6539126985897e60bc4f38ac7283a46b78e3264de81e4b21c"
+    "tools/spatial_oracle/paradrop_coordinates.py": "bd9fab8860884454c62e3d6a168759592bf70410a076dbf30eaa6710a75aafdf",
+    "tools/native_oracle.py": "0c94545bb9c4ca049ad7d46b152d9bd79624c7e52b3fec7a42d360974bbaacef"
   },
-  "payload_sha256": "a7693e802b9c4915234ff6a728a85993597c8c945f18901bc92239cb2c155fa0"
+  "payload_sha256": "a7693e802b9c4915234ff6a728a85993597c8c945f18901bc92239cb2c155fa0",
+  "replay_command": "python -m tools.spatial_oracle.paradrop_coordinates"
 }

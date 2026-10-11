@@ -39,7 +39,9 @@ impl InfantryDeathSequence {
 pub(crate) enum InfantryTerminal {
     RetireNextVisit,
     Sequence(InfantryDeathSequence),
-    /// The receiver's consuming DamageConsequences owns the cleanup boundary.
+    /// From the arm's choice to its UnInit in
+    /// [`InfantryDeathPostlude::commit`], or to DamageConsequences for a
+    /// callback-disabled receiver fixture.
     AwaitingConsequences,
 }
 
@@ -75,29 +77,40 @@ impl InfantryDeathPostlude {
     /// inline (e.g. InfDeath 3 at `0x00518693`, 9 at `0x00518A8B`), the
     /// death producers' constructor ([`Simulation::emit_death_anim`]); then
     /// UnInit for an anim arm (`0x005185F1`, the `Crashable=` test, then
-    /// `0x00518B9A`).
+    /// `0x00518B9A`, or `0x0051861D` after a refused Crash) and for an
+    /// InfDeath with neither anim nor sequence.
+    ///
+    /// The UnInit runs here, inside the receiver, as natively: the next
+    /// record of the same Apply_area_damage finds this infantryman unmarked
+    /// from its cell spot. A later InfDeath 9 victim in the cell can then
+    /// take the spot (PlaceInfantryInCell in its admission). `uninit` is
+    /// `None` only for a callback-disabled receiver fixture, which leaves the
+    /// UnInit to DamageConsequences (`immediate_uninit_ids`).
     pub(crate) fn commit(
         self,
         world: &mut Simulation,
         rules: &RuleSet,
         effects: &mut crate::sim::combat::DeathEffects,
+        uninit: Option<super::UninitContext<'_>>,
     ) {
         use crate::sim::combat::destruction_effects::{DeathAnimFollowUp, DeathAnimSpawn};
-        let (inf_death, follow_up) = match self.recipe {
-            ReceiverDeathRecipe::ExternalAnim(inf_death) => (
+        let anim = match self.recipe {
+            ReceiverDeathRecipe::ExternalAnim(inf_death) => Some((
                 inf_death,
                 self.house
                     .filter(|_| inf_death == VIRUS_INF_DEATH)
                     .map(DeathAnimFollowUp::Owner),
-            ),
-            ReceiverDeathRecipe::CrashExplode => (INFANTRY_EXPLODE_INF_DEATH, None),
-            ReceiverDeathRecipe::Mutate => (
+            )),
+            ReceiverDeathRecipe::CrashExplode => Some((INFANTRY_EXPLODE_INF_DEATH, None)),
+            ReceiverDeathRecipe::Mutate => Some((
                 INFANTRY_MUTATE_INF_DEATH,
                 Some(DeathAnimFollowUp::Mutate(self.house)),
-            ),
-            ReceiverDeathRecipe::Sequence | ReceiverDeathRecipe::Cleanup => return,
+            )),
+            ReceiverDeathRecipe::Sequence | ReceiverDeathRecipe::Cleanup => None,
         };
-        if let Some(name) = rules.general.infantry_death_anim(inf_death) {
+        if let Some((inf_death, follow_up)) = anim
+            && let Some(name) = rules.general.infantry_death_anim(inf_death)
+        {
             world.emit_death_anim(
                 rules,
                 &mut effects.explosion_effects,
@@ -110,9 +123,14 @@ impl InfantryDeathPostlude {
         }
         if matches!(
             self.recipe,
-            ReceiverDeathRecipe::ExternalAnim(_) | ReceiverDeathRecipe::Mutate
+            ReceiverDeathRecipe::ExternalAnim(_)
+                | ReceiverDeathRecipe::Mutate
+                | ReceiverDeathRecipe::Cleanup
         ) {
-            effects.immediate_uninit_ids.push(self.id);
+            match uninit {
+                Some(context) => world.uninit_with_context(self.id, context),
+                None => effects.immediate_uninit_ids.push(self.id),
+            }
         }
     }
 }
@@ -173,6 +191,16 @@ impl Simulation {
     /// (`0x00518434..0x0051845B`), and a type with `DeathAnims=` (`+0xE7C`)
     /// builds the list's InfDeath entry, else its first
     /// (`0x00518460..0x005184F2`). Retail sets neither key.
+    ///
+    /// RESIDUAL: three rungs ahead of the JumpJet one are not ported, none
+    /// reachable in VERA. An ignoreDefenses kill of a `Cyborg=` (`+0xEAC`)
+    /// type raises a flag (`0x0051815B`) that takes the Die1, Die2,
+    /// NotHuman and refused InfDeath 9 arms on to UnInit (`0x005185E5`); a
+    /// prone Cyborg builds InfantryExplode (`0x005182B4`); and a DropIn
+    /// faller (`+0x8F`) below height 11 over water builds `Wake=` and the
+    /// first `SplashList=` anim, then UnInits (`0x005181B5..0x005182AF`).
+    /// Retail sets no `Cyborg=`, and VERA sets no `+0x8F`
+    /// ([`Simulation::drop_in_bridge_member`]'s DRIFT).
     ///
     /// RESIDUAL: a `NotHuman=` infantryman killed with InfDeath 8 natively
     /// also builds InfantryVirus at its Location, spawns one gas particle
@@ -317,7 +345,6 @@ impl Simulation {
         house: Option<crate::sim::intern::InternedId>,
         rules: &RuleSet,
         overlay_registry: Option<&crate::rules::overlay_types::OverlayTypeRegistry>,
-        immediate_uninit_ids: &mut Vec<u64>,
         effects: super::FrameEffects<'_>,
     ) -> InfantryDeathPostlude {
         if self
@@ -392,7 +419,6 @@ impl Simulation {
                 } else if crate::sim::animation::inf_death_spawns_anim(inf_death) {
                     ReceiverDeathRecipe::ExternalAnim(inf_death)
                 } else {
-                    immediate_uninit_ids.push(id);
                     ReceiverDeathRecipe::Cleanup
                 }
             }

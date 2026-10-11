@@ -85,6 +85,24 @@ class PacketReceiptTests(unittest.TestCase):
                 else:
                     self.assertEqual((directory / name).read_bytes(), raw)
 
+    def test_shared_publisher_source_provenance_is_identity_too(self):
+        provenance = {'source_normalized_lf_sha256': {'tools/helper.py': 'current'},
+                      'replay_command': 'python -m tools.spatial_oracle.anytown_damage.first'}
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary); directory = self.fixture(root)
+            self.staged_fixture(directory)
+            with patch.multiple(packet, ROOT=root, HERE=directory,
+                                RUNNERS=('first', 'second'), PROJECTIONS=(),
+                                PROMOTIONS=(), FROZEN_RECEIPTS=('history.json',)), \
+                 patch.object(packet, 'inputs', return_value={}), \
+                 patch.object(packet, 'manifest', return_value={}), \
+                 patch.object(packet.subprocess, 'run',
+                              side_effect=self.candidate_runner(directory, metadata=provenance)):
+                packet.main(['--refresh-receipt'])
+            for name in ('first', 'second'):
+                published = json.loads((directory / (name + '.meta.json')).read_bytes())
+                self.assertEqual({key: published[key] for key in provenance}, provenance)
+
     def test_bad_candidates_and_late_failures_publish_nothing(self):
         for changes, error in (({'payload': {'native': 18}}, 'payload changed'),
                                ({'metadata': {'entry_points': {'entry': 456}}}, 'evidence metadata changed'),

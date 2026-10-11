@@ -28,6 +28,8 @@ from unicorn.x86_const import (
     UC_X86_REG_EIP, UC_X86_REG_EFLAGS, UC_X86_REG_FPCW,
 )
 
+from tools import oracle_sources
+
 # Historical vector/reference identity, retained for existing Rust-facing payloads.
 # Actual input identity belongs in image_sha256()/provenance, not this constant.
 NATIVE_SHA256 = "1cdd1180e49024fbda8ad568caac2e86e856063ff67ab38f62b7d2c7bb84298c"
@@ -49,6 +51,10 @@ NATIVE_FPCW = 0x0E7F
 
 class OracleError(RuntimeError):
     """No trustworthy result was obtained; do not publish reference outputs."""
+
+
+class OracleMismatch(OracleError):
+    """A comparison ran, and its native output or evidence differs from the reference."""
 
 
 class NativeCallTrace:
@@ -527,26 +533,34 @@ def finish_vectors(data, default_path: Path, *, provenance: dict, argv=None,
     guards compaction of already accepted evidence. Without that guard,
     --write deliberately accepts a newly executed reference; --check still
     compares the full archive, decompressed bytes and both metadata records.
+
+    Recorded source pins and the replay command say which sources last
+    reproduced the payload and how; they are not evidence (tools/oracle_sources.py).
+    --check reports their drift without failing. --refresh-sources records them
+    after a replay reproduced the payload, archive and other metadata exactly.
     """
     parser = argparse.ArgumentParser(description="Compare native outputs with recorded reference data")
     mode = parser.add_mutually_exclusive_group()
     mode.add_argument("--check", action="store_true", help="compare only (default)")
     mode.add_argument("--write", action="store_true", help="explicitly write outputs and provenance")
+    mode.add_argument("--refresh-sources", action="store_true",
+                      help="compare, then record current source pins if nothing else changed")
     parser.add_argument("--output", type=Path, default=default_path)
     args = parser.parse_args(argv)
     if projection is None and raw_archive_sha256 is not None:
         raise OracleError("Full raw archive SHA256 requires a projection")
     def source_identity():
-        return {name: hashlib.sha256(path.read_text(encoding="utf-8").encode("utf-8")).hexdigest()
-                for name, path in (source_paths or {}).items()}
+        return oracle_sources.source_identity(source_paths)
 
     sources = source_identity()
     data = data() if callable(data) else data
     provenance = provenance() if callable(provenance) else provenance
+    if any(key in provenance for key in oracle_sources.SOURCE_PROVENANCE):
+        raise OracleError("Source provenance must be supplied through source_paths")
     if source_paths is not None:
-        if "source_normalized_lf_sha256" in provenance:
-            raise OracleError("Source provenance must be supplied through source_paths")
         provenance = dict(provenance, source_normalized_lf_sha256=sources)
+    if replay := oracle_sources.replay_command():
+        provenance = dict(provenance, replay_command=replay)
     # Normalize tuples before comparisons; reject NaN/Infinity in either workflow.
     normalized = json.loads(_canonical(data))
     target = args.output
@@ -558,7 +572,7 @@ def finish_vectors(data, default_path: Path, *, provenance: dict, argv=None,
         raw_archive = (json.dumps(normalized, indent=2, allow_nan=False) + "\n").encode("utf-8")
         digest = hashlib.sha256(raw_archive).hexdigest()
         if raw_archive_sha256 is not None and digest != raw_archive_sha256:
-            raise OracleError(f"Full raw evidence changed before projection: expected {raw_archive_sha256}, got {digest}")
+            raise OracleMismatch(f"Full raw evidence changed before projection: expected {raw_archive_sha256}, got {digest}")
         buffer = io.BytesIO()
         with gzip.GzipFile(filename="", fileobj=buffer, mode="wb", compresslevel=9, mtime=0) as output:
             output.write(raw_archive)
@@ -597,11 +611,21 @@ def finish_vectors(data, default_path: Path, *, provenance: dict, argv=None,
         raise OracleError(f"Reference missing: {target}; use --write to deliberately create it")
     expected = json.loads(target.read_text(encoding="utf-8"))
     if difference := first_difference(expected, normalized):
-        raise OracleError(f"Reference mismatch in {target}: {difference}")
+        raise OracleMismatch(f"Reference mismatch in {target}: {difference}")
+    # Every sidecar is compared before any is refreshed, so a refresh never
+    # follows an unchecked archive.
+    refreshes = {}
+    drift = None
     if sidecar.is_file():
         expected_metadata = json.loads(sidecar.read_text(encoding="utf-8"))
-        if difference := first_difference(expected_metadata, metadata):
-            raise OracleError(f"Provenance mismatch in {sidecar}: {difference}")
+        if difference := first_difference(oracle_sources.evidence(expected_metadata),
+                                           oracle_sources.evidence(metadata)):
+            raise OracleMismatch(f"Provenance mismatch in {sidecar}: {difference}")
+        drift = oracle_sources.describe_drift(
+            oracle_sources.source_drift(expected_metadata, metadata, source_paths))
+        refreshes[sidecar] = oracle_sources.refreshed(expected_metadata, metadata)
+    elif args.refresh_sources:
+        raise OracleError(f"No provenance sidecar to refresh: {sidecar}; --write deliberately creates one")
     else:
         print("NOTE: legacy reference has no provenance sidecar; historical environment is unknown")
     if archive_record is not None:
@@ -609,7 +633,26 @@ def finish_vectors(data, default_path: Path, *, provenance: dict, argv=None,
             raise OracleError(f"Full raw archive or provenance missing: {archive_path}")
         expected_archive = archive_path.read_bytes()
         if expected_archive != archive_bytes or gzip.decompress(expected_archive) != raw_archive:
-            raise OracleError(f"Full raw archive mismatch: {archive_path}")
-        if difference := first_difference(json.loads(archive_sidecar.read_text(encoding="utf-8")), archive_metadata):
-            raise OracleError(f"Full raw archive provenance mismatch: {difference}")
+            raise OracleMismatch(f"Full raw archive mismatch: {archive_path}")
+        expected_archive_metadata = json.loads(archive_sidecar.read_text(encoding="utf-8"))
+        if difference := first_difference(oracle_sources.evidence(expected_archive_metadata),
+                                           oracle_sources.evidence(archive_metadata)):
+            raise OracleMismatch(f"Full raw archive provenance mismatch: {difference}")
+        refreshes[archive_sidecar] = oracle_sources.refreshed(expected_archive_metadata, archive_metadata)
+    if args.refresh_sources:
+        written = []
+        for path, record in refreshes.items():
+            text = json.dumps(record, indent=2, allow_nan=False) + "\n"
+            if path.read_text(encoding="utf-8") != text:
+                path.write_text(text, encoding="utf-8")
+                written.append(str(path))
+        if written:
+            print(f"REFRESHED source provenance in {' and '.join(written)}; native outputs and "
+                  "evidence metadata reproduced exactly")
+        else:
+            print(f"PASS {target}: native outputs match; source provenance already current")
+        return
+    if drift:
+        print(f"NOTE {sidecar}: native outputs and evidence metadata match, but the recorded "
+              f"sources differ ({drift}); --refresh-sources records the current ones")
     print(f"PASS {target}: native outputs match; no files written")

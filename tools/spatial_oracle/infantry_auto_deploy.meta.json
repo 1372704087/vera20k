@@ -183,9 +183,10 @@
     "sha256": "4cd5557a7490debc493ff965afc4483d8d2f1065f434f6b665cbb8fc4835b0cc"
   },
   "source_normalized_lf_sha256": {
-    "generator": "2ee210a14e1a89227affa777632bef5e5daa2ecbf973ff06c08e4d81bf4b7605",
-    "native_oracle": "79dac1057d97e706f106a26145f00fa220d92c172b5173876c60fed22c17530c",
-    "map_queries": "f1c798f50bf8a69ebe53c6d0e2327ce395ad99ba5c7017e74e353757770f4305"
+    "tools/spatial_oracle/infantry_deploy_action.py": "2ee210a14e1a89227affa777632bef5e5daa2ecbf973ff06c08e4d81bf4b7605",
+    "tools/native_oracle.py": "0c94545bb9c4ca049ad7d46b152d9bd79624c7e52b3fec7a42d360974bbaacef",
+    "tools/spatial_oracle/map_queries.py": "f1c798f50bf8a69ebe53c6d0e2327ce395ad99ba5c7017e74e353757770f4305"
   },
-  "payload_sha256": "cd8ce14f4b5fbf61ddf7d043c527e275798ab2ec453c6d541dd7b1df9e53b1d1"
+  "payload_sha256": "cd8ce14f4b5fbf61ddf7d043c527e275798ab2ec453c6d541dd7b1df9e53b1d1",
+  "replay_command": "python -m tools.spatial_oracle.infantry_deploy_action --automatic-guard"
 }

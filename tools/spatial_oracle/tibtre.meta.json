@@ -43,13 +43,14 @@
     "probability_store": "0x0071E073"
   },
   "source_normalized_lf_sha256": {
-    "producer": "273c306c99dcb51b800d4a505b5d19e8568ac4ab5f6f2065081fc931f45eaaf9",
-    "harvest_field": "047fd5d2333dcee593d93edfa92a69debd6ad2f7b5a53029711f3dde17b5e087",
-    "refinery_dock": "4c657ce9ab3d924d08d55085408f89099712c7a77353e18be7161a7b1e459228",
-    "type_inputs": "489e7999c957edfc1141d6ca8b5d72e36e570cb4065b2f208564875ed81174e5",
-    "physical_shapes": "62b855dba1836bf484bb6c112b9249003ff4427c3004a1ef3d95c3aac985ba9b",
-    "resident_tmp": "6c28a1ab004aa2fbfbfec58382bc8653b451514e21daab802cc0666b7bb8c80c",
-    "overlay_registries": "9a0155e48cb24c11b34dd28be4580a28bf3821e4ef034109dd494921f4d598a6"
+    "tools/spatial_oracle/tibtre.py": "273c306c99dcb51b800d4a505b5d19e8568ac4ab5f6f2065081fc931f45eaaf9",
+    "tools/spatial_oracle/harvest_field.py": "047fd5d2333dcee593d93edfa92a69debd6ad2f7b5a53029711f3dde17b5e087",
+    "tools/spatial_oracle/refinery_dock.py": "c8fb2b33edc7c3100986fb78d90e663b820e10c35d6e450fe5bf923ddb0b8408",
+    "tools/rules_oracle/bridge_landing_inputs.py": "489e7999c957edfc1141d6ca8b5d72e36e570cb4065b2f208564875ed81174e5",
+    "tools/sidebar_oracle/stock.py": "62b855dba1836bf484bb6c112b9249003ff4427c3004a1ef3d95c3aac985ba9b",
+    "tools/spatial_oracle/terrain_recalc.py": "6c28a1ab004aa2fbfbfec58382bc8653b451514e21daab802cc0666b7bb8c80c",
+    "tools/spatial_oracle/bridge_constructor.py": "9a0155e48cb24c11b34dd28be4580a28bf3821e4ef034109dd494921f4d598a6"
   },
-  "payload_sha256": "d9e857ee1cdbd72a3e0a8a04e10845d5530aad4c9bc2d3daa8f4e58bc65caf50"
+  "payload_sha256": "d9e857ee1cdbd72a3e0a8a04e10845d5530aad4c9bc2d3daa8f4e58bc65caf50",
+  "replay_command": "python -m tools.spatial_oracle.tibtre"
 }

@@ -577,11 +577,12 @@ def gate_provenance():
 
 
 def gate_source_paths():
-    """Conservative imported-module inventory plus the selected Rust owners.
+    """Conservative imported-module inventory.
 
     Import membership binds source identity; it does not claim that every
     imported body executes in the bounded Gate controls. The central
     finish_vectors owner hashes normalized source before and after generation.
+    The native run executes no Rust; the Rust consumers' own tests compare them.
     """
     repo = Path(__file__).resolve().parents[2]
     paths = (
@@ -625,67 +626,6 @@ def gate_source_paths():
         'tools/spatial_oracle/unit_scatter_state.py',
         'tools/spatial_oracle/unit_source_scatter.py',
         'tools/spatial_oracle/walk_head_occupation.py',
-        # Gate, Door and constructor/body state owners.
-        'src/sim/gate_runtime.rs',
-        'src/sim/door.rs',
-        'src/sim/timer.rs',
-        'src/sim/game_entity.rs',
-        'src/sim/game_entity/construction_stage.rs',
-        'src/sim/building_construction.rs',
-        'src/sim/stage.rs',
-        'src/sim/game_options.rs',
-        'src/sim/components.rs',
-        'src/sim/movement/facing_class.rs',
-        # Live scheduling, canonical idle, publication and persistence consumers.
-        'src/sim/world/mod.rs',
-        'src/sim/world/world_spawn.rs',
-        'src/sim/world/world_spawn/construction.rs',
-        'src/sim/world/techno_ai.rs',
-        'src/sim/world/techno_ai/building_missions.rs',
-        'src/sim/world/object_turn.rs',
-        'src/sim/world/logic_vector.rs',
-        'src/sim/world/world_hash.rs',
-        'src/sim/snapshot.rs',
-        # Mission cursor, verbs, readiness and frame clocks.
-        'src/sim/mission/mod.rs',
-        'src/sim/mission/authority.rs',
-        'src/sim/mission/state.rs',
-        'src/sim/mission/verb.rs',
-        'src/sim/mission/readiness.rs',
-        'src/sim/mission/leaf.rs',
-        'src/sim/mission/timer.rs',
-        'src/sim/mission/control.rs',
-        # Admission/passability callers and ordered footprint/list owners.
-        'src/sim/movement/track_fresh.rs',
-        'src/sim/movement/track_host.rs',
-        'src/sim/movement/track_path.rs',
-        'src/sim/movement/hover_process.rs',
-        'src/sim/movement/walk_admission.rs',
-        'src/sim/movement/walk_head.rs',
-        'src/sim/movement/jumpjet_movement.rs',
-        'src/sim/world/object_entry.rs',
-        'src/sim/movement/locomotor.rs',
-        'src/sim/occupancy.rs',
-        'src/sim/production/production_tech.rs',
-        'src/sim/entity_store.rs',
-        'src/sim/intern.rs',
-        'src/sim/rng.rs',
-        'src/map/entities.rs',
-        'src/map/houses.rs',
-        'src/sim/production/mod.rs',
-        # Typed rule inputs, canonical rates and their numeric owner.
-        'src/rules/ruleset.rs',
-        'src/rules/object_type.rs',
-        'src/rules/art_data.rs',
-        'src/rules/ini_parser.rs',
-        'src/rules/ini_value.rs',
-        'src/rules/mission_data.rs',
-        'src/util/native_x87.rs',
-        'src/util/native_x87/masked.rs',
-        'src/rules/foundation.rs',
-        # Incoming recoil constructor reached by component installation.
-        'src/sim/game_entity/voxel_recoil.rs',
-        'src/rules/recoil.rs',
     )
     return {name: repo / name for name in paths}
 

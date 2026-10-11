@@ -35,10 +35,11 @@
     "ranged_random": "0x0065C7E0"
   },
   "source_normalized_lf_sha256": {
-    "tools/spatial_oracle/house_base_projection.py": "1715aad017c6b0bada73d993bec13396ee2659a0ef0b6aba63ad8b508f39d460",
-    "tools/native_oracle.py": "79dac1057d97e706f106a26145f00fa220d92c172b5173876c60fed22c17530c",
+    "tools/spatial_oracle/house_base_projection.py": "82d663a4ebd5a1a3799737932727cd4d59174114a6d460904d75dd8ec3e40054",
+    "tools/native_oracle.py": "0c94545bb9c4ca049ad7d46b152d9bd79624c7e52b3fec7a42d360974bbaacef",
     "tools/spatial_oracle/map_queries.py": "f1c798f50bf8a69ebe53c6d0e2327ce395ad99ba5c7017e74e353757770f4305",
-    "tools/rmg_oracle/gen_rng_vectors.py": "bac5dde765d07d3f522b7281a21a8527869f5d4da59eb385e7f9fed7493775a2"
+    "tools/rmg_oracle/gen_rng_vectors.py": "c1e75b4eade453c1331ddc140365eb687a70e06d64852a9b786856fd5bb530ad"
   },
-  "payload_sha256": "9523e46093b56ebbc8cea0b9191bac3a19960f0e85fa1e3f99e77c53a2192872"
+  "payload_sha256": "9523e46093b56ebbc8cea0b9191bac3a19960f0e85fa1e3f99e77c53a2192872",
+  "replay_command": "python -m tools.spatial_oracle.house_base_projection --ordinary-return"
 }

@@ -30,12 +30,6 @@
     "unit_entry": "0x0073F0A0",
     "threat": "0x0056BCD0"
   },
-  "fixture_source_sha256": {
-    "unit_source_scatter.py": "d2ce3dce6e7baff886f3bc6a30c545ec29e442e9866a39a0acb03c92268bbcc8",
-    "unit_scatter_state.py": "9cb5b9726c02c8ef7e08aeadf006fecd90191341250f744e9307d5a62a63a4c3",
-    "mapgen_range.py": "df39b5ab3a2450c98dfa749a67826d5cb87f9d73086dc2511ff3261906724eef",
-    "map_queries.py": "f1c798f50bf8a69ebe53c6d0e2327ce395ad99ba5c7017e74e353757770f4305"
-  },
   "extended_bounds": [
     "Historical first33 case payloads are frozen by canonical SHA256b5a9a3c9917110eb79fe11f6759d7ba5cf183253e2510f92b43eea6a9e756273. New cases only append.",
     "Tube records/indexes and missing Map slots are supplied. Original reconstruction emits direction8 from distinct nonadjacent parent Cells; both finishing passes execute unchanged.",
@@ -44,8 +38,13 @@
     "Adjacent binary64 threshold controls are supplied finite coefficients. Original FPCW startup, FMUL and comparison instructions establish returned admission; no Python/Rust arithmetic supplies the result."
   ],
   "source_normalized_lf_sha256": {
-    "height_owner": "40593945eb8d383b4b53817e319b65655ec6f98714917e3a5a8879c92355a8bd",
-    "finishing": "e6c278ae15f9dc055b9f2fefcc70925461d293d0e586bbddba0f05926ea85acc"
+    "tools/spatial_oracle/astar_structural_height.py": "88910c6a760b73e2da4396fda90d1820443a0e60b504a55d1ee200abbea7c306",
+    "tools/spatial_oracle/astar_path_finishing.py": "e5103bda66c6bbe5fb7975e12ffefeacda8849599354cfb8b02cc7806aeccae2",
+    "tools/spatial_oracle/unit_source_scatter.py": "3384579566b40ebcc9d8d56d53a0736655eb3a15a6bf7f08730611b15852a009",
+    "tools/spatial_oracle/unit_scatter_state.py": "c8269a41294316c97f990051506c4a9d9dbe923d8143a54a1a92c69645d2a112",
+    "tools/spatial_oracle/mapgen_range.py": "df39b5ab3a2450c98dfa749a67826d5cb87f9d73086dc2511ff3261906724eef",
+    "tools/spatial_oracle/map_queries.py": "f1c798f50bf8a69ebe53c6d0e2327ce395ad99ba5c7017e74e353757770f4305"
   },
+  "replay_command": "python -m tools.spatial_oracle.astar_structural_height --finishing",
   "payload_sha256": "3129e32f9526e05f9ce64fdacc3b5e0c0e099b02257795c4220585841b215ebe"
 }

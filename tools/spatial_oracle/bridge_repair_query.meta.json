@@ -25,10 +25,11 @@
     "coord_add": "0x0042D510"
   },
   "source_normalized_lf_sha256": {
-    "query": "f168786b3378b4a27cc3cd9b3addf1314e345a74264e8f3b98272e7987c3d14b",
-    "native_oracle": "79dac1057d97e706f106a26145f00fa220d92c172b5173876c60fed22c17530c",
-    "map_queries": "f1c798f50bf8a69ebe53c6d0e2327ce395ad99ba5c7017e74e353757770f4305",
-    "bridge_rim": "5fdcf28d51a05e8e4fddbfd41cea0a5ac19b3ab80f01a87ee36cea5ced676b80"
+    "tools/spatial_oracle/bridge_repair_query.py": "f168786b3378b4a27cc3cd9b3addf1314e345a74264e8f3b98272e7987c3d14b",
+    "tools/native_oracle.py": "0c94545bb9c4ca049ad7d46b152d9bd79624c7e52b3fec7a42d360974bbaacef",
+    "tools/spatial_oracle/map_queries.py": "f1c798f50bf8a69ebe53c6d0e2327ce395ad99ba5c7017e74e353757770f4305",
+    "tools/spatial_oracle/bridge_rim.py": "5fdcf28d51a05e8e4fddbfd41cea0a5ac19b3ab80f01a87ee36cea5ced676b80"
   },
-  "payload_sha256": "8e02535558da02169dcdd213ba8b7ab5c9d0ed693c2671033ce959135d033afd"
+  "payload_sha256": "8e02535558da02169dcdd213ba8b7ab5c9d0ed693c2671033ce959135d033afd",
+  "replay_command": "python -m tools.spatial_oracle.bridge_repair_query"
 }

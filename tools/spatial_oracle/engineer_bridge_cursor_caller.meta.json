@@ -54,13 +54,14 @@
     "cursor_descriptor_table": "0x0082D028"
   },
   "source_normalized_lf_sha256": {
-    "caller": "6c4c486ee384598dae044a407f3b631c4d43fbb5c054351a440a0fe9edf2d09f",
-    "native_oracle": "79dac1057d97e706f106a26145f00fa220d92c172b5173876c60fed22c17530c",
-    "map_queries": "f1c798f50bf8a69ebe53c6d0e2327ce395ad99ba5c7017e74e353757770f4305",
-    "reader_fixture": "f7f2941e11bbede50ffab19554a789e4e3e42f4969b04ad4e9697973e659d316",
-    "reader_base": "2a7a96ea1e24f1129161e8fe5608c0ab69ac584ee6ad78fa91c43bd3ad072045",
-    "reader_memory": "4c01dd452ccf63c0058e8b58cb751c1e13933fcc25b9ef639cb57c628f4e8643",
-    "reader_crc": "2f663fbb2b8c88925dd8aa46e8be9216d580ec033bac3e08a138bcd0b272b7c6"
+    "tools/spatial_oracle/engineer_bridge_cursor_caller.py": "6c4c486ee384598dae044a407f3b631c4d43fbb5c054351a440a0fe9edf2d09f",
+    "tools/native_oracle.py": "0c94545bb9c4ca049ad7d46b152d9bd79624c7e52b3fec7a42d360974bbaacef",
+    "tools/spatial_oracle/map_queries.py": "f1c798f50bf8a69ebe53c6d0e2327ce395ad99ba5c7017e74e353757770f4305",
+    "tools/rules_oracle/bridge_anim_inputs.py": "fc0d267d9c8453ba3090bfacd056af5207f47cb1170651cce5b0c41c80e90a2e",
+    "tools/rules_oracle/bridge_anim_lists.py": "2a7a96ea1e24f1129161e8fe5608c0ab69ac584ee6ad78fa91c43bd3ad072045",
+    "tools/spatial_oracle/building_body_rules.py": "4c01dd452ccf63c0058e8b58cb751c1e13933fcc25b9ef639cb57c628f4e8643",
+    "tools/projectile_oracle/flat_art.py": "2f663fbb2b8c88925dd8aa46e8be9216d580ec033bac3e08a138bcd0b272b7c6"
   },
-  "payload_sha256": "924e02f1ba42f9fcc61e6dd2055d01abbded724f7fb06d6d229ac40551a9e613"
+  "payload_sha256": "924e02f1ba42f9fcc61e6dd2055d01abbded724f7fb06d6d229ac40551a9e613",
+  "replay_command": "python -m tools.spatial_oracle.engineer_bridge_cursor_caller"
 }

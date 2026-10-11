@@ -897,3 +897,106 @@ fn an_infantryman_above_the_ground_is_not_mutated() {
     );
     assert_eq!(anims_of(&sim, "GENDEATH").len(), 1);
 }
+
+/// Each anim arm of InfantryClass::ReceiveDamage ends in UnInit inside the
+/// receiver (`0x00518B9A`), before Apply_area_damage dispatches its next
+/// record. Three infantrymen hold spots 2 to 4 of a cell, and a fourth,
+/// listed after them, stands at its centre (no spot preference). Under
+/// `MutateExplosion=` each of the three mutates and leaves its spot, so
+/// PlaceInfantryInCell finds one for the fourth, which mutates too.
+#[test]
+fn a_fourth_infantryman_at_a_full_cells_centre_mutates() {
+    use crate::sim::movement::ground_pose;
+    let mut rules = rules("");
+    rules.general.mutate_explosion = true;
+    let (rules, mut sim, owner) = world_with(rules, 64, &[]);
+    let spawn = |sim: &mut Simulation, (x, y): (u16, u16)| {
+        sim.spawn_object_at_height("E1", "Americans", x, y, 0, 0, &rules)
+            .unwrap()
+    };
+    let fourth = spawn(&mut sim, (41, 40));
+    let three: Vec<u64> = (0..3).map(|_| spawn(&mut sim, (40, 40))).collect();
+    let spots: BTreeSet<Option<u8>> = three
+        .iter()
+        .map(|&id| sim.substrate.entities.get(id).unwrap().sub_cell)
+        .collect();
+    assert_eq!(spots, BTreeSet::from([Some(2), Some(3), Some(4)]));
+
+    // The fourth moves to the centre of (40, 40), behind the three on its list.
+    let [x, y] =
+        ground_pose::position_world_xy(&sim.substrate.entities.get(fourth).unwrap().position);
+    assert!(sim.object_raw_receiver_at(fourth, DriveCoord { x, y, z: 0 }, false));
+    let occupancy = &mut sim.substrate.occupancy;
+    occupancy.move_entity(
+        41,
+        40,
+        40,
+        40,
+        fourth,
+        MovementLayer::Ground,
+        Some(0),
+        CellListInsertion::PrependNonBuilding,
+    );
+    for &id in &three {
+        let spot = sim.substrate.entities.get(id).unwrap().sub_cell;
+        let occupancy = &mut sim.substrate.occupancy;
+        occupancy.remove(40, 40, id);
+        occupancy.add(
+            40,
+            40,
+            id,
+            MovementLayer::Ground,
+            spot,
+            CellListInsertion::PrependNonBuilding,
+        );
+    }
+    let centre = DriveCoord {
+        x: 40 * 256 + 128,
+        y: 40 * 256 + 128,
+        z: 0,
+    };
+    {
+        let entity = sim.substrate.entities.get_mut(fourth).unwrap();
+        ground_pose::put_location(&mut entity.position, centre);
+        entity.sub_cell = Some(0);
+    }
+    assert!(sim.object_raw_receiver_at(fourth, centre, true));
+    let listed: Vec<u64> = sim
+        .substrate
+        .occupancy
+        .get(40, 40)
+        .unwrap()
+        .iter_layer(MovementLayer::Ground)
+        .map(|occupant| occupant.entity_id)
+        .collect();
+    assert_eq!(listed.len(), 4);
+    assert_eq!(listed.last(), Some(&fourth));
+
+    let sw_type = charge_super(&mut sim, owner, MUTATOR);
+    assert!(launch(
+        &mut sim,
+        &rules,
+        owner,
+        40,
+        40,
+        sw_type,
+        None,
+        crate::sim::world::FrameEffects::default()
+    ));
+
+    let terminal = sim
+        .substrate
+        .entities
+        .get(fourth)
+        .and_then(|entity| entity.infantry_terminal);
+    assert_eq!(anims_of(&sim, "GENDEATH").len(), 4, "fourth: {terminal:?}");
+    for &id in three.iter().chain([&fourth]) {
+        assert!(
+            sim.substrate
+                .entities
+                .get(id)
+                .is_none_or(|entity| !entity.lifecycle.object_alive),
+            "{id} mutated and is gone"
+        );
+    }
+}

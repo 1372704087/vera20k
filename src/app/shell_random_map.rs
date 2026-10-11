@@ -1006,10 +1006,7 @@ impl App {
         };
         // Reuse the modal helper: it upserts the single sentinel, honours the
         // mode's random-map admission, and refreshes the filtered record list.
-        let chooser_layout = crate::ui::skirmish_shell::compute_choose_map_modal_layout(
-            state.render_width(),
-            state.render_height(),
-        );
+        let chooser_layout = crate::app::frontend::shell_layout::choose_map_layout(state);
         let Some(modal) = state
             .frontend
             .skirmish_shell_state
@@ -1051,10 +1048,7 @@ impl App {
     fn skirmish_random_map_setup_layout(
         state: &AppState,
     ) -> crate::ui::skirmish_shell::RandomMapSetupLayout {
-        crate::ui::skirmish_shell::compute_random_map_setup_layout(
-            state.render_width(),
-            state.render_height(),
-        )
+        crate::app::frontend::shell_layout::random_map_setup_layout(state)
     }
 
     pub(super) fn handle_random_map_setup_mouse_down(state: &mut AppState) -> bool {
@@ -1097,9 +1091,7 @@ impl App {
             // release, so it never arms a pressed control.
             if control == crate::ui::skirmish_shell::RandomMapSetupControl::Players0x3eb {
                 let rect = layout.control_rects[SETUP_PLAYERS_ROW];
-                if modal.is_enabled(control)
-                    && modal.press_players(x - rect.x, y - rect.y, rect.w, rect.h)
-                {
+                if modal.is_enabled(control) && modal.press_players(x, y, rect, layout.scale) {
                     Self::play_skirmish_shell_generic_click_sound(state);
                 }
                 return true;
@@ -1162,7 +1154,7 @@ impl App {
             return;
         }
         let rect = layout.control_rects[SETUP_PLAYERS_ROW];
-        if modal.drag_players(x - rect.x, rect.w) {
+        if modal.drag_players(x, rect, layout.scale) {
             Self::play_skirmish_shell_generic_click_sound(state);
         }
         state.platform.window.request_redraw();

@@ -9,8 +9,10 @@
 //! by `0x005FBF80` whenever Play_Movie resolves a campaign movie name.
 
 use crate::ui::shell::descriptor::DialogId;
-use crate::ui::shell::geom::{RectPx, dlu_rect};
-use crate::ui::shell::list::{ListScrollInteraction, ROW_HEIGHT, ShellListGeometry};
+use crate::ui::shell::geom::{
+    RectPx, SHELL_BASE_H, SHELL_BASE_W, ScaledRects, ShellScale, dlu_rect,
+};
+use crate::ui::shell::list::{ListMetrics, ListScrollInteraction, ShellListGeometry};
 use crate::ui::shell::menu_page::{self, MenuPageButtonSpec, MenuPageLayout, MenuPageSpec};
 use std::time::{Duration, Instant};
 
@@ -66,6 +68,19 @@ pub fn compute_movie_list_layout(screen_w: u32, screen_h: u32) -> MovieListLayou
     }
 }
 
+/// The responsive variant of [`compute_movie_list_layout`]: the verified
+/// 800x600 `0x129` stretched to fill the window. Identity at the base size.
+/// Rows keep their native height, so a stretched list shows more of them.
+pub fn compute_responsive_movie_list_layout(screen_w: u32, screen_h: u32) -> MovieListLayout {
+    let scale = ShellScale::from_screen(screen_w as i32, screen_h as i32);
+    let base = compute_movie_list_layout(SHELL_BASE_W as u32, SHELL_BASE_H as u32);
+    MovieListLayout {
+        page: menu_page::compute_responsive_layout(&MOVIE_LIST_PAGE, screen_w, screen_h),
+        list: base.list.scaled_rects(scale),
+        prompt: base.prompt.scaled_rects(scale),
+    }
+}
+
 /// One `0x129` instance: rows from `0x005FC000` and the subclass selection.
 #[derive(Debug, Clone)]
 pub struct MovieListState {
@@ -102,18 +117,26 @@ impl MovieListState {
     /// surface, one pixel wider and taller than the `0x744` window, which
     /// reproduces the retail frames: a scrollbar only above 15 rows, at
     /// `x + w - 20` and 20 wide, a 202 px thumb for 17 rows.
-    pub fn geometry(&self, list: RectPx) -> ShellListGeometry {
+    pub fn geometry(&self, list: RectPx, metrics: ListMetrics) -> ShellListGeometry {
         ShellListGeometry::new(
             RectPx::new(list.x, list.y, list.w + 1, list.h + 1),
             self.rows.len(),
             self.top,
+            metrics,
         )
     }
 
     /// A press on the scrollbar child: capture it, step an arrow or jump the
     /// track. Returns `false` when the press is not on the scrollbar.
-    pub fn scroll_press(&mut self, list: RectPx, x: i32, y: i32, now: Instant) -> bool {
-        let geometry = self.geometry(list);
+    pub fn scroll_press(
+        &mut self,
+        list: RectPx,
+        metrics: ListMetrics,
+        x: i32,
+        y: i32,
+        now: Instant,
+    ) -> bool {
+        let geometry = self.geometry(list, metrics);
         let Some(part) = geometry.scroll_part_at(x, y) else {
             return false;
         };
@@ -122,17 +145,24 @@ impl MovieListState {
     }
 
     /// Pointer motion while the scrollbar may hold capture (thumb drag).
-    pub fn scroll_pointer_moved(&mut self, list: RectPx, x: i32, y: i32) {
-        let geometry = self.geometry(list);
+    pub fn scroll_pointer_moved(&mut self, list: RectPx, metrics: ListMetrics, x: i32, y: i32) {
+        let geometry = self.geometry(list, metrics);
         self.scroll.pointer_moved(geometry, &mut self.top, x, y);
     }
 
     /// Arrow auto-repeat; returns whether the list changed.
-    pub fn scroll_poll(&mut self, list: RectPx, x: i32, y: i32, now: Instant) -> bool {
+    pub fn scroll_poll(
+        &mut self,
+        list: RectPx,
+        metrics: ListMetrics,
+        x: i32,
+        y: i32,
+        now: Instant,
+    ) -> bool {
         if self.scroll.repeat_at().is_none() {
             return false;
         }
-        let geometry = self.geometry(list);
+        let geometry = self.geometry(list, metrics);
         self.scroll.poll(geometry, &mut self.top, x, y, now)
     }
 
@@ -152,16 +182,16 @@ impl MovieListState {
     /// without a border correction, ignoring presses below the last row. The
     /// scrollbar is its own child window, so presses on it never reach the
     /// list.
-    pub fn row_at(&self, list: RectPx, x: i32, y: i32) -> Option<usize> {
+    pub fn row_at(&self, list: RectPx, metrics: ListMetrics, x: i32, y: i32) -> Option<usize> {
         if !list.contains(x, y)
             || self
-                .geometry(list)
+                .geometry(list, metrics)
                 .scrollbar
                 .is_some_and(|bar| bar.contains(x, y))
         {
             return None;
         }
-        let row = ((y - list.y) / ROW_HEIGHT) as usize + self.top;
+        let row = ((y - list.y) / metrics.row_h) as usize + self.top;
         (row < self.rows.len()).then_some(row)
     }
 }
@@ -289,6 +319,20 @@ mod tests {
     }
 
     #[test]
+    fn responsive_layout_stretches_the_page_list_and_prompt() {
+        let base = compute_movie_list_layout(800, 600);
+        let same = compute_responsive_movie_list_layout(800, 600);
+        assert_eq!(same, base);
+        let double = compute_responsive_movie_list_layout(1600, 1200);
+        assert_eq!(double.list, RectPx::new(240, 256, 798, 608));
+        assert_eq!(double.prompt, RectPx::new(240, 146, 798, 78));
+        assert_eq!(
+            double.page.button_rect(0x0686),
+            Some(RectPx::new(1288, 1070, 312, 84))
+        );
+    }
+
+    #[test]
     fn fresh_open_selects_nothing_and_retained_selection_restores() {
         let fresh = MovieListState::open(MovieProgress::default(), -1);
         assert_eq!(fresh.rows.len(), 1);
@@ -301,11 +345,15 @@ mod tests {
     fn press_hit_uses_client_y_without_border_correction() {
         let list = RectPx::new(120, 128, 399, 304);
         let state = MovieListState::open(MovieProgress::default(), -1);
-        assert_eq!(state.row_at(list, 150, 128), Some(0));
-        assert_eq!(state.row_at(list, 150, 146), Some(0));
-        assert_eq!(state.row_at(list, 150, 147), None, "row 1 does not exist");
-        assert_eq!(state.row_at(list, 119, 130), None);
-        assert_eq!(state.row_at(list, 519, 130), None);
+        assert_eq!(state.row_at(list, ListMetrics::RETAIL, 150, 128), Some(0));
+        assert_eq!(state.row_at(list, ListMetrics::RETAIL, 150, 146), Some(0));
+        assert_eq!(
+            state.row_at(list, ListMetrics::RETAIL, 150, 147),
+            None,
+            "row 1 does not exist"
+        );
+        assert_eq!(state.row_at(list, ListMetrics::RETAIL, 119, 130), None);
+        assert_eq!(state.row_at(list, ListMetrics::RETAIL, 519, 130), None);
     }
 
     fn files(progress: MovieProgress) -> Vec<&'static str> {

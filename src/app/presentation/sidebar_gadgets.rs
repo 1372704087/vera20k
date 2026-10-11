@@ -29,7 +29,12 @@ const FLASH_PERIOD_TICKS: u32 = 10;
 /// Drive the sidebar gadget state for this frame. Call once per render frame
 /// after `update_power_bar_anim`.
 pub(crate) fn update_sidebar_gadget_state(state: &mut AppState) {
-    let Some(sim) = state.match_state.sim_runtime.as_ref().map(|rt| &rt.simulation) else {
+    let Some(sim) = state
+        .match_state
+        .sim_runtime
+        .as_ref()
+        .map(|rt| &rt.simulation)
+    else {
         return;
     };
     let Some(rules) = state.rules() else {

@@ -30,7 +30,7 @@ use crate::render::main_menu_shell_chrome::{MainMenuShellChromeAtlas, MainMenuSh
 use crate::render::shell_text::{ShellAlign, ShellTextDraw};
 use crate::render::shell_text_reveal::PathAReveal;
 use crate::render::skirmish_shell_chrome::SkirmishShellChromeEntry;
-use crate::ui::shell::geom::{RectPx, RightPanelRects};
+use crate::ui::shell::geom::{RectPx, RightPanelRects, ShellScale};
 use crate::ui::shell::slide::{ColumnDraw, column_draw_origin};
 
 /// Parent background sits behind the movie in the Z stack. Greater depth =
@@ -56,7 +56,7 @@ pub const SHELL_TEXT_RGB_ENABLED: [f32; 3] = [1.0, 1.0, 0.0];
 /// black blend runs only for type 0 (`0x006135F3..0x0061361B`).
 pub const SHELL_TEXT_RGB_DISABLED: [f32; 3] = [0x48 as f32 / 255.0, 0.0, 0.0];
 /// How a button's SDBTNANM art is fit into its cell rect.
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub enum ArtFit {
     /// Native `pixel_size` at `(rect.x, rect.y + art_sink_y)`. Active 0xE2 and
     /// 0x100 both use this path.
@@ -101,7 +101,8 @@ pub struct PaintLabel<'a> {
     pub path_a_reveal: Option<PathAReveal>,
 }
 
-fn push_entry_sized(
+/// One chrome atlas entry stretched to `size`, top-left at `(x, y)`.
+pub fn push_entry_sized(
     out: &mut Vec<SpriteInstance>,
     entry: MainMenuShellChromeEntry,
     x: f32,
@@ -132,6 +133,28 @@ pub fn push_entry_native(
     push_entry_sized(out, entry, x as f32, y as f32, entry.pixel_size, depth);
 }
 
+/// One chrome atlas entry authored for the 800x600 dialog, placed at the
+/// authored `(x, y)` and grown by `scale`. Identity at [`ShellScale::RETAIL`],
+/// so an unscaled page emits the same native-size sprite at the same point.
+pub fn push_entry_scaled(
+    out: &mut Vec<SpriteInstance>,
+    entry: MainMenuShellChromeEntry,
+    x: i32,
+    y: i32,
+    scale: ShellScale,
+    depth: f32,
+) {
+    let [w, h] = scale.art_size(entry.pixel_size[0], entry.pixel_size[1]);
+    push_entry_sized(
+        out,
+        entry,
+        (x as f32 * scale.x()).round(),
+        (y as f32 * scale.y()).round(),
+        [w.round(), h.round()],
+        depth,
+    );
+}
+
 /// The part of `entry`, drawn with its top-left at `entry_origin`, that lies
 /// inside `rect`, 1:1.
 pub fn push_entry_crop(
@@ -141,32 +164,111 @@ pub fn push_entry_crop(
     rect: RectPx,
     depth: f32,
 ) {
-    // Clip the destination to the entry canvas, then map it to atlas UVs.
-    let left = rect.x.max(entry_origin.0);
-    let top = rect.y.max(entry_origin.1);
-    let right = (rect.x + rect.w).min(entry_origin.0 + entry.pixel_size[0] as i32);
-    let bottom = (rect.y + rect.h).min(entry_origin.1 + entry.pixel_size[1] as i32);
+    if let Some(crop) = entry_crop(entry, entry_origin, rect) {
+        push_crop(out, crop, depth);
+    }
+}
+
+/// [`push_entry_crop`] for an entry and rect in the authored 800x600 dialog
+/// space, with the result stretched over the device window. The sampled source
+/// pixels stay aligned with the stretched background art, so a control's darker
+/// under-patch still matches what lies behind it.
+pub fn push_entry_crop_scaled(
+    out: &mut Vec<SpriteInstance>,
+    entry: MainMenuShellChromeEntry,
+    entry_origin: (i32, i32),
+    rect: RectPx,
+    scale: ShellScale,
+    depth: f32,
+) {
+    if let Some((rect, uv_origin, uv_size)) = entry_crop(entry, entry_origin, rect) {
+        push_crop(out, (scale.scale_rect(rect), uv_origin, uv_size), depth);
+    }
+}
+
+/// The part of a backdrop whose whole canvas is stretched over the window:
+/// `rect`'s position in the window selects the texels, so an inset drawn
+/// through this lines up with the stretched background it sits on.
+/// [`push_entry_crop`] is the 1:1 form of the same idea.
+pub fn push_entry_window_crop(
+    out: &mut Vec<SpriteInstance>,
+    entry: MainMenuShellChromeEntry,
+    window: (i32, i32),
+    rect: RectPx,
+    depth: f32,
+) {
+    let (screen_w, screen_h) = (window.0.max(1), window.1.max(1));
+    let left = rect.x.clamp(0, screen_w);
+    let top = rect.y.clamp(0, screen_h);
+    let right = (rect.x + rect.w).clamp(0, screen_w);
+    let bottom = (rect.y + rect.h).clamp(0, screen_h);
     if right <= left || bottom <= top {
         return;
     }
-    let u_per_px = entry.uv_size[0] / entry.pixel_size[0];
-    let v_per_px = entry.uv_size[1] / entry.pixel_size[1];
+    let u = |value: i32, span: i32| value as f32 / span as f32;
     out.push(SpriteInstance {
         position: [left as f32, top as f32],
         size: [(right - left) as f32, (bottom - top) as f32],
         uv_origin: [
-            entry.uv_origin[0] + (left - entry_origin.0) as f32 * u_per_px,
-            entry.uv_origin[1] + (top - entry_origin.1) as f32 * v_per_px,
+            entry.uv_origin[0] + u(left, screen_w) * entry.uv_size[0],
+            entry.uv_origin[1] + u(top, screen_h) * entry.uv_size[1],
         ],
         uv_size: [
-            (right - left) as f32 * u_per_px,
-            (bottom - top) as f32 * v_per_px,
+            u(right - left, screen_w) * entry.uv_size[0],
+            u(bottom - top, screen_h) * entry.uv_size[1],
         ],
         depth,
         tint: [1.0, 1.0, 1.0],
         alpha: 1.0,
         ..Default::default()
     });
+}
+
+fn push_crop(
+    out: &mut Vec<SpriteInstance>,
+    (rect, uv_origin, uv_size): (RectPx, [f32; 2], [f32; 2]),
+    depth: f32,
+) {
+    out.push(SpriteInstance {
+        position: [rect.x as f32, rect.y as f32],
+        size: [rect.w as f32, rect.h as f32],
+        uv_origin,
+        uv_size,
+        depth,
+        tint: [1.0, 1.0, 1.0],
+        alpha: 1.0,
+        ..Default::default()
+    });
+}
+
+/// The destination rect, atlas UV origin and UV size of the part of `entry`
+/// inside `rect`, both in the space the caller places the entry in.
+fn entry_crop(
+    entry: MainMenuShellChromeEntry,
+    entry_origin: (i32, i32),
+    rect: RectPx,
+) -> Option<(RectPx, [f32; 2], [f32; 2])> {
+    // Clip the destination to the entry canvas, then map it to atlas UVs.
+    let left = rect.x.max(entry_origin.0);
+    let top = rect.y.max(entry_origin.1);
+    let right = (rect.x + rect.w).min(entry_origin.0 + entry.pixel_size[0] as i32);
+    let bottom = (rect.y + rect.h).min(entry_origin.1 + entry.pixel_size[1] as i32);
+    if right <= left || bottom <= top {
+        return None;
+    }
+    let u_per_px = entry.uv_size[0] / entry.pixel_size[0];
+    let v_per_px = entry.uv_size[1] / entry.pixel_size[1];
+    Some((
+        RectPx::new(left, top, right - left, bottom - top),
+        [
+            entry.uv_origin[0] + (left - entry_origin.0) as f32 * u_per_px,
+            entry.uv_origin[1] + (top - entry_origin.1) as f32 * v_per_px,
+        ],
+        [
+            (right - left) as f32 * u_per_px,
+            (bottom - top) as f32 * v_per_px,
+        ],
+    ))
 }
 
 fn push_entry_rect(
@@ -185,22 +287,24 @@ fn push_entry_rect(
     );
 }
 
-/// Draw the top `rect.h` rows of `entry` 1:1, cropping the SHP rather than
-/// stretching the full image to fit. Used for SDBTM where the SHP is 168x65
-/// native but the destination cap region is 23 px tall — gamemd clips, we
-/// must too.
+/// Draw `entry` into `rect`, taking the top `rect.h / scale` rows of the SHP.
+///
+/// At `scale == 1` this is gamemd's 1:1 crop, which SDBTM needs: the SHP is
+/// 168x65 native but the destination cap region is 23 px tall. On the
+/// responsive layout the same 23 source rows fill the stretched cap.
 fn push_clipped_top(
     out: &mut Vec<SpriteInstance>,
     entry: MainMenuShellChromeEntry,
     rect: RectPx,
+    scale: f32,
     depth: f32,
 ) {
     let native_h = entry.pixel_size[1].max(1.0);
-    let visible_h = (rect.h as f32).min(native_h);
-    let uv_h = entry.uv_size[1] * (visible_h / native_h);
+    let source_h = (rect.h as f32 / scale).min(native_h).max(1.0);
+    let uv_h = entry.uv_size[1] * (source_h / native_h);
     out.push(SpriteInstance {
         position: [rect.x as f32, rect.y as f32],
-        size: [rect.w as f32, visible_h],
+        size: [rect.w as f32, rect.h as f32],
         uv_origin: entry.uv_origin,
         uv_size: [entry.uv_size[0], uv_h],
         depth,
@@ -236,7 +340,13 @@ pub fn paint_chrome(
         }
     }
     if let Some(bottom) = atlas.right_panel_bottom_sdbtm {
-        push_clipped_top(&mut out, bottom, panel.bottom, CHROME_DEPTH);
+        push_clipped_top(
+            &mut out,
+            bottom,
+            panel.bottom,
+            panel.stretch().1,
+            CHROME_DEPTH,
+        );
     }
     if let Some(strip) = lower_strip {
         let lower_strip_entry = if screen_w == 640 {
@@ -260,12 +370,15 @@ pub(crate) fn paint_slide_column(
     draws: &[ColumnDraw],
 ) -> Vec<SpriteInstance> {
     let mut out = Vec::new();
+    let (scale_x, scale_y) = panel.stretch();
     for (index, draw) in draws.iter().enumerate() {
         let Some(entry) = atlas.button_wave_frames.get(draw.frame).copied().flatten() else {
             continue;
         };
-        let w = entry.pixel_size[0].round() as i32;
-        let h = entry.pixel_size[1].round() as i32;
+        // The cell the frame occupies: its native 156x42 canvas, stretched by
+        // the same factor as the column it slides in.
+        let w = (entry.pixel_size[0] * scale_x).round() as i32;
+        let h = (entry.pixel_size[1] * scale_y).round().max(1.0) as i32;
         let (x, y) = column_draw_origin(panel, draw.row, w);
         push_entry_rect(
             &mut out,
@@ -290,14 +403,28 @@ pub(crate) fn shuttered_column(panel: RightPanelRects) -> Vec<ColumnDraw> {
 /// Static `0x71C`: SDWRNANM `frame` in the static's window. Kind-4 paint
 /// (`0x0061595E..0x0061597E`) centers the shape only along an axis where the
 /// window is larger, and the window clips it.
+///
+/// `scale` is the layout's stretch: the shape grows with the window it was
+/// laid out into, then keeps the same center-and-clip rule. `ShellScale::RETAIL`
+/// reproduces the native 1:1 draw exactly.
 pub fn paint_warning_monitor(
     atlas: &MainMenuShellChromeAtlas,
     monitor: RectPx,
     frame: usize,
+    scale: ShellScale,
 ) -> Option<SpriteInstance> {
     let entry = *atlas.warning_monitor_frames.get(frame)?;
-    let shape_w = entry.pixel_size[0].round() as i32;
-    let shape_h = entry.pixel_size[1].round() as i32;
+    monitor_sprite(entry, monitor, scale)
+}
+
+/// The kind-4 centre-and-clip placement of one monitor shape in its window.
+fn monitor_sprite(
+    entry: MainMenuShellChromeEntry,
+    monitor: RectPx,
+    scale: ShellScale,
+) -> Option<SpriteInstance> {
+    let shape_w = (entry.pixel_size[0] * scale.x()).round() as i32;
+    let shape_h = (entry.pixel_size[1] * scale.y()).round() as i32;
     if shape_w <= 0 || shape_h <= 0 {
         return None;
     }
@@ -433,6 +560,16 @@ pub fn paint_labels(font: &BitFont, labels: &[PaintLabel<'_>]) -> Vec<ShellTextD
     paint_labels_at_depth(font, labels, TEXT_DEPTH)
 }
 
+/// [`paint_labels`] for a stretched shell: labels are centred in their stretched
+/// rects, so the glyphs grow by the layout's own `scale`.
+pub fn paint_labels_scaled(
+    font: &BitFont,
+    labels: &[PaintLabel<'_>],
+    scale: f32,
+) -> Vec<ShellTextDraw> {
+    paint_labels_at_depth_scaled(font, labels, TEXT_DEPTH, scale)
+}
+
 /// As [`paint_labels`] but at a caller-chosen depth. The right-panel shells use
 /// `TEXT_DEPTH`; the mode-2 modal draws as a blocking overlay and supplies its own
 /// front-most text depth so the body/OK labels sit above the modal art.
@@ -440,6 +577,16 @@ pub fn paint_labels_at_depth(
     font: &BitFont,
     labels: &[PaintLabel<'_>],
     depth: f32,
+) -> Vec<ShellTextDraw> {
+    paint_labels_at_depth_scaled(font, labels, depth, 1.0)
+}
+
+/// [`paint_labels_at_depth`] with a glyph scale.
+pub fn paint_labels_at_depth_scaled(
+    font: &BitFont,
+    labels: &[PaintLabel<'_>],
+    depth: f32,
+    scale: f32,
 ) -> Vec<ShellTextDraw> {
     use crate::render::shell_text::TextRect;
 
@@ -453,7 +600,7 @@ pub fn paint_labels_at_depth(
                 h: label.rect.h.max(0) as u32,
             };
             match label.path_a_reveal {
-                Some(reveal) => crate::render::shell_text::draw_in_rect_path_a(
+                Some(reveal) => crate::render::shell_text::draw_in_rect_path_a_scaled(
                     font,
                     label.text.as_ref(),
                     text_rect,
@@ -461,8 +608,9 @@ pub fn paint_labels_at_depth(
                     [0.0, 0.0],
                     depth,
                     reveal,
+                    scale,
                 ),
-                None => crate::render::shell_text::draw_in_rect(
+                None => crate::render::shell_text::draw_in_rect_scaled(
                     font,
                     label.text.as_ref(),
                     text_rect,
@@ -470,6 +618,7 @@ pub fn paint_labels_at_depth(
                     label.align,
                     [0.0, 0.0],
                     depth,
+                    scale,
                 ),
             }
         })
@@ -529,16 +678,19 @@ pub struct ModalButton {
     pub enabled: bool,
 }
 
-/// Emit the mode-2 modal sprites: PUDLGBGN background at the dialog top-left
-/// (native size), then each MNBTTN button centered on its control rect at the
-/// state-selected frame. A missing background (retail always provides PUDLGBGN) is
-/// the caller's concern — only present entries are emitted here, so the solid-panel
-/// fallback stays with the host caller.
+/// Emit the mode-2 modal sprites: PUDLGBGN background at the dialog top-left,
+/// then each MNBTTN button centered on its control rect at the state-selected
+/// frame. Both grow with `scale`, which is [`ShellScale::RETAIL`] for the
+/// message-box family's own fixed-size box and a stretched page's scale where the
+/// dialog itself stretches. A missing background (retail always provides
+/// PUDLGBGN) is the caller's concern — only present entries are emitted here, so
+/// the solid-panel fallback stays with the host caller.
 pub fn paint_modal_sprites(
     background: Option<SkirmishShellChromeEntry>,
     button_frames: ModalButtonFrames,
     dialog: RectPx,
     buttons: &[ModalButton],
+    scale: ShellScale,
     depths: ModalDepths,
 ) -> Vec<SpriteInstance> {
     let mut out = Vec::new();
@@ -548,14 +700,21 @@ pub fn paint_modal_sprites(
             bg,
             dialog.x as f32,
             dialog.y as f32,
-            bg.pixel_size,
+            scale.art_size(bg.pixel_size[0], bg.pixel_size[1]),
             depths.background,
         );
     }
     for button in buttons {
         if let Some(entry) = button_frames.select(button.pressed, button.enabled) {
-            let [x, y] = modal_button_centered_position(button.rect, entry);
-            push_skirmish_entry(&mut out, entry, x, y, entry.pixel_size, depths.button);
+            let [x, y] = modal_button_centered_position(button.rect, entry, scale);
+            push_skirmish_entry(
+                &mut out,
+                entry,
+                x,
+                y,
+                scale.art_size(entry.pixel_size[0], entry.pixel_size[1]),
+                depths.button,
+            );
         }
     }
     out
@@ -570,18 +729,23 @@ pub fn paint_modal_shp(
     dialog: RectPx,
     buttons: &[ModalButton],
     labels: &[PaintLabel<'_>],
+    scale: ShellScale,
     depths: ModalDepths,
 ) -> ModalDraw {
-    let sprites = paint_modal_sprites(background, button_frames, dialog, buttons, depths);
+    let sprites = paint_modal_sprites(background, button_frames, dialog, buttons, scale, depths);
     let text = paint_labels_at_depth(font, labels, depths.text);
     ModalDraw { sprites, text }
 }
 
-/// Center the native-size button art on its control rect (matches the existing
-/// modal button placement: integer-halved gaps on each axis).
-fn modal_button_centered_position(rect: RectPx, entry: SkirmishShellChromeEntry) -> [f32; 2] {
-    let art_w = entry.pixel_size[0].round() as i32;
-    let art_h = entry.pixel_size[1].round() as i32;
+/// Center the button art, grown by `scale`, on its control rect (matches the
+/// existing modal button placement: integer-halved gaps on each axis).
+fn modal_button_centered_position(
+    rect: RectPx,
+    entry: SkirmishShellChromeEntry,
+    scale: ShellScale,
+) -> [f32; 2] {
+    let [art_w, art_h] = scale.art_size(entry.pixel_size[0], entry.pixel_size[1]);
+    let (art_w, art_h) = (art_w.round() as i32, art_h.round() as i32);
     [
         (rect.x + (rect.w - art_w) / 2) as f32,
         (rect.y + (rect.h - art_h) / 2) as f32,
@@ -612,6 +776,7 @@ fn push_skirmish_entry(
 mod tests {
     use super::*;
     use crate::render::bit_font::tests::make_test_font;
+    use crate::ui::shell::geom::RIGHT_PANEL_WIDTH;
     use std::time::Duration;
 
     const FIT_PANEL_W: f32 = 168.0;
@@ -623,6 +788,80 @@ mod tests {
             uv_size: [1.0, 1.0],
             pixel_size: [w, h],
         }
+    }
+
+    fn one_sprite(push: impl Fn(&mut Vec<SpriteInstance>)) -> SpriteInstance {
+        let mut out = Vec::new();
+        push(&mut out);
+        out.pop().expect("one instance")
+    }
+
+    /// The panel's drift factor is read off its own top cap: 199 native rows at
+    /// every retail screen size, the stretched row count on a responsive panel.
+    #[test]
+    fn panel_stretch_reads_the_layout_not_the_screen() {
+        // 1024x768 is 1.28x the 800x600 art, but a retail panel is letterboxed
+        // beside that scale, not stretched by it.
+        let retail = crate::ui::shell::geom::right_panel_rects(1024, 768);
+        assert_eq!(retail.stretch(), (1.0, 1.0));
+
+        let tall = ShellScale::from_screen(800, 1200).scale_panel(retail);
+        assert_eq!(tall.stretch().1, 2.0);
+
+        // Width alone never moves the vertical factor.
+        let wide = ShellScale::from_screen(1600, 600).scale_panel(retail);
+        assert_eq!(wide.stretch().1, 1.0);
+        assert_eq!(wide.tile.w, RIGHT_PANEL_WIDTH * 2);
+    }
+
+    /// SDBTM is a 168x65 SHP whose bottom cap shows 23 rows. Stretching the cap
+    /// must show the same 23 source rows over a taller rect, not reveal more of
+    /// the SHP or keep the rect at 23 px.
+    #[test]
+    fn clipped_top_stretches_the_destination_and_keeps_the_source_rows() {
+        let entry = fake_entry(168.0, 65.0);
+        let retail = one_sprite(|out| {
+            push_clipped_top(
+                out,
+                entry,
+                RectPx::new(632, 577, 168, 23),
+                1.0,
+                CHROME_DEPTH,
+            )
+        });
+        assert_eq!(retail.size, [168.0, 23.0]);
+        assert_eq!(retail.uv_size[1], 23.0 / 65.0);
+
+        let stretched = one_sprite(|out| {
+            push_clipped_top(
+                out,
+                entry,
+                RectPx::new(1264, 1154, 336, 46),
+                2.0,
+                CHROME_DEPTH,
+            )
+        });
+        assert_eq!(stretched.size, [336.0, 46.0]);
+        assert_eq!(stretched.uv_size, retail.uv_size);
+        assert_eq!(stretched.uv_origin, retail.uv_origin);
+    }
+
+    /// `ShellScale::RETAIL` leaves the monitor at its native shape, centre-and-clip
+    /// included; a stretched layout grows the shape with its window.
+    #[test]
+    fn warning_monitor_shape_follows_the_layout_scale() {
+        let entry = fake_entry(62.0, 44.0);
+        let window = RectPx::new(640, 30, 200, 200);
+        let retail = monitor_sprite(entry, window, ShellScale::RETAIL).expect("shape");
+        assert_eq!(retail.size, [62.0, 44.0]);
+        // Integer-halved gaps: (200-62)/2 right, (200-44)/2 down.
+        assert_eq!(retail.position, [709.0, 108.0]);
+
+        let stretched =
+            monitor_sprite(entry, window, ShellScale::from_screen(1600, 1200)).expect("shape");
+        // 2x on both axes, then re-centred in the same window.
+        assert_eq!(stretched.size, [124.0, 88.0]);
+        assert_eq!(stretched.position, [678.0, 86.0]);
     }
 
     fn btn(pressed: bool, hovered: bool) -> PaintButton {
@@ -1023,10 +1262,11 @@ mod tests {
                 pressed: true,
                 enabled: true,
             }],
+            ShellScale::RETAIL,
             MODAL_DEPTHS,
         );
         assert_eq!(sprites.len(), 2);
-        // Background: native size at dialog top-left, background depth.
+        // Background: authored size at dialog top-left, background depth.
         assert_eq!(sprites[0].position, [300.0, 200.0]);
         assert_eq!(sprites[0].size, [200.0, 120.0]);
         assert_eq!(sprites[0].uv_origin, bg.uv_origin);
@@ -1060,6 +1300,7 @@ mod tests {
                 pressed: false,
                 enabled: true,
             }],
+            ShellScale::RETAIL,
             MODAL_DEPTHS,
         );
         // No background passed -> only the button sprite, using the UP frame.
@@ -1080,9 +1321,38 @@ mod tests {
                 pressed: true,
                 enabled: true,
             }],
+            ShellScale::RETAIL,
             MODAL_DEPTHS,
         );
         assert!(sprites.is_empty());
+    }
+
+    /// A stretched dialog grows the panel and its buttons with the page, staying
+    /// centred on the control rects it is drawn into.
+    #[test]
+    fn modal_sprites_grow_with_a_stretched_page() {
+        let bg = fake_skirmish_entry([0.1, 0.1], [0.2, 0.2], [200.0, 120.0]);
+        let up = fake_skirmish_entry([0.3, 0.0], [0.05, 0.05], [80.0, 20.0]);
+        let frames = ModalButtonFrames {
+            up: Some(up),
+            disabled: None,
+            pressed: None,
+        };
+        let sprites = paint_modal_sprites(
+            Some(bg),
+            frames,
+            RectPx::new(600, 400, 400, 240),
+            &[ModalButton {
+                rect: RectPx::new(720, 580, 180, 60),
+                pressed: false,
+                enabled: true,
+            }],
+            ShellScale::from_screen(1600, 1200),
+            MODAL_DEPTHS,
+        );
+        assert_eq!(sprites[0].size, [400.0, 240.0]);
+        assert_eq!(sprites[1].size, [160.0, 40.0]);
+        assert_eq!(sprites[1].position, [730.0, 590.0]);
     }
 
     /// Two buttons (OK + Cancel) share the frame set; each resolves its own state.
@@ -1112,6 +1382,7 @@ mod tests {
                     enabled: true,
                 },
             ],
+            ShellScale::RETAIL,
             MODAL_DEPTHS,
         );
         assert_eq!(sprites.len(), 2);

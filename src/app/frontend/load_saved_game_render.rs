@@ -4,6 +4,7 @@
 //! status line `0x695`, Load and Back, and the list `0x525`. The template has
 //! no monitor and no movie static, and the prompt `0x40C` is hidden.
 
+use crate::ui::shell::list::ListMetrics;
 use anyhow::Result;
 
 use crate::app::AppState;
@@ -71,7 +72,12 @@ pub(crate) fn render_load_saved_game_page(
         .load_saved_game
         .as_ref()
         .expect("checked before render");
-    let backdrop = family_backdrop(chrome, layout.page.screen.w, layout.page.screen.h);
+    let backdrop = family_backdrop(
+        chrome,
+        layout.page.screen.w,
+        layout.page.screen.h,
+        layout.page.scale,
+    );
     let mut sprites = Vec::new();
     push_family_backdrop(&mut sprites, &backdrop);
     sprites.extend(shell_paint::paint_chrome(
@@ -84,6 +90,7 @@ pub(crate) fn render_load_saved_game_page(
         layout.browser.list,
         browser.entries.len(),
         browser.top_index,
+        ListMetrics::scaled(layout.browser.scale),
     );
     if !leaving {
         let pressed = match browser.pressed_control {
@@ -185,7 +192,11 @@ pub(crate) fn render_load_saved_game_page(
         });
     }
     labels.extend(status_label);
-    let mut text = shell_paint::paint_labels(&state.renderer.bit_font, &labels);
+    let mut text = shell_paint::paint_labels_scaled(
+        &state.renderer.bit_font,
+        &labels,
+        layout.page.scale.uniform(),
+    );
     let prompt_sprites = crate::app::frontend::skirmish_shell_render::family_saved_game_overlays(
         state,
         &layout.browser,

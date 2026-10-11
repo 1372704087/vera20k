@@ -4,6 +4,7 @@
 //! it is a family page (right panel, heading, status line, slides). Back
 //! (result 2) tears it down and state 1 recreates Single Player.
 
+use crate::ui::shell::list::ListMetrics;
 use std::path::PathBuf;
 
 use winit::keyboard::KeyCode;
@@ -11,9 +12,7 @@ use winit::keyboard::KeyCode;
 use super::{App, AppState};
 use crate::app::shell_route::ShellRoute;
 use crate::ui::shell::saved_file_input::{self, BrowserInputResult};
-use crate::ui::shell::saved_games::{
-    LOAD_SAVED_GAME_PAGE, MainMenuSavedGameLayout, main_menu_saved_game_layout,
-};
+use crate::ui::shell::saved_games::{LOAD_SAVED_GAME_PAGE, MainMenuSavedGameLayout};
 use crate::ui::skirmish_shell::seed_list::SeedListGeometry;
 use crate::ui::skirmish_shell::{
     SavedSeedBrowserState, SavedSeedMode, SavedSeedOutcome, SavedSeedPrompt, SavedSeedPromptPurpose,
@@ -29,7 +28,13 @@ impl App {
         // The error message box paints from the skirmish chrome atlas.
         let _ = Self::ensure_skirmish_shell_chrome(state);
         let layout = Self::load_saved_game_layout(state);
-        let rows = SeedListGeometry::new(layout.browser.list, 0, 0).visible_rows;
+        let rows = SeedListGeometry::new(
+            layout.browser.list,
+            0,
+            0,
+            ListMetrics::scaled(layout.browser.scale),
+        )
+        .visible_rows;
         let browser = Self::open_saved_game_rows(state, SavedSeedMode::Load, rows);
         state.frontend.load_saved_game = Some(browser);
         state.frontend.shell_route = ShellRoute::LoadSavedGame;
@@ -53,10 +58,7 @@ impl App {
     }
 
     pub(crate) fn load_saved_game_layout(state: &AppState) -> MainMenuSavedGameLayout {
-        main_menu_saved_game_layout(
-            state.renderer.gpu.config.width,
-            state.renderer.gpu.config.height,
-        )
+        crate::app::frontend::shell_layout::load_saved_game_layout(state)
     }
 
     pub(super) fn handle_load_saved_game_mouse(state: &mut AppState, pressed: bool) {

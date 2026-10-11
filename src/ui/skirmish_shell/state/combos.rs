@@ -5,9 +5,10 @@ use crate::skirmish_launch::{
     HOUSE_COLOR_COUNT, LaunchCountry, LaunchStartPosition, SKIRMISH_PLAYER_SLOT_COUNT,
 };
 
+use crate::ui::shell::geom::ShellScale;
+
 use super::super::layout::{
-    COMBO_ARROW_RESERVE_W, COMBO_DROPDOWN_ROW_H, COMBO_DROPDOWN_SCROLLBAR_BUTTON_H,
-    COMBO_DROPDOWN_SCROLLBAR_W, COMBO_FACE_H, RectPx, SkirmishShellLayout, combo_face_rect,
+    COMBO_ARROW_RESERVE_W, DropdownMetrics, RectPx, SkirmishShellLayout, combo_face_rect,
 };
 use super::super::scroll::ScrollModel;
 use super::{
@@ -47,11 +48,14 @@ pub fn combo_dropdown_rect(
     } else {
         item_count
     };
+    // The panel hangs below the face as drawn, so the gap follows the face's
+    // stretched height; the rows keep the authored count and grow with the page.
+    let metrics = DropdownMetrics::scaled(layout.scale);
     Some(RectPx::new(
         rect.x,
-        rect.y + COMBO_FACE_H + 1,
+        rect.y + combo_face_rect(rect, layout.scale).h + 1,
         rect.w,
-        visible_rows * COMBO_DROPDOWN_ROW_H,
+        visible_rows * metrics.row_h,
     ))
 }
 
@@ -112,10 +116,11 @@ pub fn combo_dropdown_scrollbar_rect(
         return None;
     }
     let dropdown = combo_dropdown_rect(state, layout, maps, id)?;
+    let scrollbar_w = DropdownMetrics::scaled(layout.scale).scrollbar_w;
     Some(RectPx::new(
-        dropdown.x + dropdown.w - COMBO_DROPDOWN_SCROLLBAR_W,
+        dropdown.x + dropdown.w - scrollbar_w,
         dropdown.y,
-        COMBO_DROPDOWN_SCROLLBAR_W,
+        scrollbar_w,
         dropdown.h,
     ))
 }
@@ -128,7 +133,7 @@ pub fn combo_dropdown_content_rect(
 ) -> Option<RectPx> {
     let dropdown = combo_dropdown_rect(state, layout, maps, id)?;
     let width = if combo_dropdown_needs_scrollbar(state, maps, id) {
-        dropdown.w - COMBO_DROPDOWN_SCROLLBAR_W
+        dropdown.w - DropdownMetrics::scaled(layout.scale).scrollbar_w
     } else {
         dropdown.w
     };
@@ -147,7 +152,10 @@ pub fn combo_dropdown_scroll_thumb_rect(
     id: SkirmishComboId,
 ) -> Option<RectPx> {
     let scrollbar = combo_dropdown_scrollbar_rect(state, layout, maps, id)?;
-    let model = ScrollModel::combo(combo_dropdown_max_visible_rows(id));
+    let model = ScrollModel::combo_at(
+        combo_dropdown_max_visible_rows(id),
+        DropdownMetrics::scaled(layout.scale),
+    );
     let visible_rows = combo_dropdown_visible_row_count(state, maps, id);
     let item_count = combo_dropdown_item_count(state, maps, id);
     let thumb_h = model.thumb_height(visible_rows, item_count, scrollbar.h);
@@ -207,7 +215,10 @@ pub(super) fn top_index_from_thumb_y(
     let scrollbar = combo_dropdown_scrollbar_rect(state, layout, maps, id)?;
     let thumb = combo_dropdown_scroll_thumb_rect(state, layout, maps, id)?;
     let max_top = combo_dropdown_max_top_index(state, maps, id);
-    let model = ScrollModel::combo(combo_dropdown_max_visible_rows(id));
+    let model = ScrollModel::combo_at(
+        combo_dropdown_max_visible_rows(id),
+        DropdownMetrics::scaled(layout.scale),
+    );
     Some(model.top_index_from_thumb_top(scrollbar, thumb.h, max_top, mouse_y - grab_offset_y))
 }
 
@@ -221,7 +232,10 @@ pub(super) fn top_index_from_scrollbar_track_click(
     let scrollbar = combo_dropdown_scrollbar_rect(state, layout, maps, id)?;
     let thumb = combo_dropdown_scroll_thumb_rect(state, layout, maps, id)?;
     let max_top = combo_dropdown_max_top_index(state, maps, id);
-    let model = ScrollModel::combo(combo_dropdown_max_visible_rows(id));
+    let model = ScrollModel::combo_at(
+        combo_dropdown_max_visible_rows(id),
+        DropdownMetrics::scaled(layout.scale),
+    );
     Some(model.top_index_from_thumb_top(scrollbar, thumb.h, max_top, mouse_y - thumb.h / 2))
 }
 
@@ -494,14 +508,16 @@ fn evict_other_color_claimants(state: &mut SkirmishShellState, row: usize, color
     }
 }
 
-fn arrow_hit_rect(rect: RectPx) -> RectPx {
-    let face = combo_face_rect(rect);
-    RectPx::new(
-        face.x + face.w - COMBO_ARROW_RESERVE_W,
-        face.y,
-        COMBO_ARROW_RESERVE_W,
-        face.h,
-    )
+fn arrow_hit_rect(rect: RectPx, scale: ShellScale) -> RectPx {
+    let face = combo_face_rect(rect, scale);
+    scale.derive_rect(face, |face| {
+        RectPx::new(
+            face.x + face.w - COMBO_ARROW_RESERVE_W,
+            face.y,
+            COMBO_ARROW_RESERVE_W,
+            face.h,
+        )
+    })
 }
 
 fn combo_hit_order() -> Vec<SkirmishComboId> {
@@ -528,7 +544,7 @@ fn combo_arrow_at(
     combo_hit_order().into_iter().find(|id| {
         combo_enabled(state, maps, *id)
             && combo_rect(layout, *id)
-                .map(|rect| arrow_hit_rect(rect).contains(x, y))
+                .map(|rect| arrow_hit_rect(rect, layout.scale).contains(x, y))
                 .unwrap_or(false)
     })
 }
@@ -548,7 +564,7 @@ fn combo_face_at(
     combo_hit_order().into_iter().find(|id| {
         combo_enabled(state, maps, *id)
             && combo_rect(layout, *id)
-                .map(|rect| combo_face_rect(rect).contains(x, y))
+                .map(|rect| combo_face_rect(rect, layout.scale).contains(x, y))
                 .unwrap_or(false)
     })
 }
@@ -649,16 +665,17 @@ pub(super) fn handle_combo_mouse_down(
     y: i32,
 ) -> bool {
     if let Some(open) = state.open_combo_dropdown {
+        let metrics = DropdownMetrics::scaled(layout.scale);
         if let Some(scrollbar) = combo_dropdown_scrollbar_rect(state, layout, maps, open.id)
             && scrollbar.contains(x, y)
         {
-            if y < scrollbar.y + COMBO_DROPDOWN_SCROLLBAR_BUTTON_H {
+            if y < scrollbar.y + metrics.button_h {
                 state.dropdown_scroll_press = Some(DropdownScrollbarPressState {
                     id: open.id,
                     part: DropdownScrollbarPart::UpArrow,
                 });
                 scroll_open_combo_by_rows(state, maps, open.id, -1);
-            } else if y >= scrollbar.y + scrollbar.h - COMBO_DROPDOWN_SCROLLBAR_BUTTON_H {
+            } else if y >= scrollbar.y + scrollbar.h - metrics.button_h {
                 state.dropdown_scroll_press = Some(DropdownScrollbarPressState {
                     id: open.id,
                     part: DropdownScrollbarPart::DownArrow,
@@ -692,7 +709,7 @@ pub(super) fn handle_combo_mouse_down(
             if let Some(content) = combo_dropdown_content_rect(state, layout, maps, open.id)
                 && content.contains(x, y)
             {
-                let row = open.top_index + ((y - content.y) / COMBO_DROPDOWN_ROW_H) as usize;
+                let row = open.top_index + ((y - content.y) / metrics.row_h) as usize;
                 if let Some(item) = combo_items(state, maps, open.id).get(row).copied() {
                     apply_combo_selection(state, open.id, item);
                 }

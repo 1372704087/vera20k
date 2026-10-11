@@ -10,20 +10,20 @@ use crate::render::skirmish_shell_chrome::{
     ControlChrome, SkirmishShellChromeAtlas, SkirmishShellChromeEntry,
 };
 use crate::rules::color_scheme::ColorSchemeEntry;
+use crate::ui::shell::geom::ShellScale;
 use crate::ui::shell::trackbar::{PLAQUE_RESERVE, THUMB_W};
 use crate::ui::skirmish_shell::{
-    COMBO_DROPDOWN_ROW_H, COMBO_DROPDOWN_SCROLLBAR_BUTTON_H, DropdownScrollbarPart, RectPx,
-    SkirmishCheckboxId, SkirmishComboId, SkirmishComboItem, SkirmishShellLayout,
-    SkirmishShellState, SkirmishTrackbarId, checkbox_icon_rect, combo_arrow_rect,
-    combo_dropdown_content_rect, combo_dropdown_needs_scrollbar, combo_dropdown_rect,
-    combo_dropdown_scroll_thumb_rect, combo_dropdown_scrollbar_rect,
-    combo_dropdown_visible_row_count, combo_enabled, combo_face_rect, combo_items,
-    combo_swatch_rect, player_name_edit_text_rect, player_row_visible, selected_combo_item_index,
-    trackbar_visual_value,
+    COMBO_DROPDOWN_ROW_H, DropdownMetrics, DropdownScrollbarPart, RectPx, SkirmishCheckboxId,
+    SkirmishComboId, SkirmishComboItem, SkirmishShellLayout, SkirmishShellState,
+    SkirmishTrackbarId, checkbox_icon_rect, combo_arrow_rect, combo_dropdown_content_rect,
+    combo_dropdown_needs_scrollbar, combo_dropdown_rect, combo_dropdown_scroll_thumb_rect,
+    combo_dropdown_scrollbar_rect, combo_dropdown_visible_row_count, combo_enabled,
+    combo_face_rect, combo_items, combo_swatch_rect, player_name_edit_text_rect,
+    player_row_visible, selected_combo_item_index, trackbar_visual_value,
 };
 
 use super::chrome::{
-    push_entry, push_entry_native, push_entry_top_clipped_native, push_entry_wrapped_centered,
+    push_entry, push_entry_scaled, push_entry_top_clipped, push_entry_wrapped_centered,
     push_ownerdraw_two_pixel_bevel_frame, push_ownerdraw_two_pixel_bevel_frame_px, push_solid_rect,
     push_solid_rect_px, push_tinted_entry,
 };
@@ -48,8 +48,9 @@ pub(super) fn checkbox_checked(shell: &SkirmishShellState, id: SkirmishCheckboxI
 pub(super) fn combo_face_entry(
     chrome: &ControlChrome,
     rect: RectPx,
+    scale: ShellScale,
 ) -> Option<SkirmishShellChromeEntry> {
-    match rect.w {
+    match scale.base_width(rect.w) {
         207 => chrome.combo_face_207,
         180 => chrome.combo_face_180,
         150 => chrome.combo_face_150,
@@ -97,7 +98,12 @@ pub(super) fn push_player_name_edit_instances(
 ) {
     push_ownerdraw_two_pixel_bevel_frame(out, atlas, layout.player_name, SHELL_EDIT_FRAME_DEPTH);
 
-    let text_rect = player_name_edit_text_rect(layout.player_name);
+    let scale = layout.scale;
+    // The caret and the selection ride the font's authored glyph metrics, so the
+    // piece is built in 800x600 numbers and stretched once; `ShellScale::RETAIL`
+    // emits the plain numbers.
+    let base = scale.base_rect(layout.player_name);
+    let text_rect = player_name_edit_text_rect(base, ShellScale::RETAIL);
     if shell.player_name_edit.focused {
         if let Some((start, end)) = shell.player_name_edit.selection {
             let (start, end) = if start <= end {
@@ -119,7 +125,12 @@ pub(super) fn push_player_name_edit_instances(
                 push_solid_rect(
                     out,
                     atlas,
-                    RectPx::new(x, text_rect.y + 2, w.max(1), (text_rect.h - 4).max(1)),
+                    scale.scale_rect(RectPx::new(
+                        x,
+                        text_rect.y + 2,
+                        w.max(1),
+                        (text_rect.h - 4).max(1),
+                    )),
                     OWNERDRAW_SELECTED_RGB_FROM_DAT_00AC4604_PACKED_000000FF,
                     SHELL_EDIT_SELECTION_DEPTH,
                 );
@@ -129,7 +140,7 @@ pub(super) fn push_player_name_edit_instances(
             push_solid_rect(
                 out,
                 atlas,
-                RectPx::new(x, text_rect.y + 2, 2, (text_rect.h - 4).max(1)),
+                scale.scale_rect(RectPx::new(x, text_rect.y + 2, 2, (text_rect.h - 4).max(1))),
                 SHELL_LABEL_TEXT_RGB,
                 SHELL_EDIT_CARET_DEPTH,
             );
@@ -141,21 +152,29 @@ pub(super) fn push_scrollbar_thumb(
     out: &mut Vec<SpriteInstance>,
     chrome: &ControlChrome,
     rect: RectPx,
+    scale: ShellScale,
     depth: f32,
 ) {
     let top_h = chrome
         .scrollbar_thumb_top
-        .map(|entry| entry.pixel_size[1].round() as i32)
+        .map(|entry| scale.art_size(entry.pixel_size[0], entry.pixel_size[1])[1].round() as i32)
         .unwrap_or(0);
     let bottom_h = chrome
         .scrollbar_thumb_bottom
-        .map(|entry| entry.pixel_size[1].round() as i32)
+        .map(|entry| scale.art_size(entry.pixel_size[0], entry.pixel_size[1])[1].round() as i32)
         .unwrap_or(0);
     if let Some(top) = chrome.scrollbar_thumb_top {
-        push_entry_native(out, top, rect.x, rect.y, depth);
+        push_entry_scaled(out, top, rect.x, rect.y, scale, depth);
     }
     if let Some(bottom) = chrome.scrollbar_thumb_bottom {
-        push_entry_native(out, bottom, rect.x, rect.y + rect.h - bottom_h, depth);
+        push_entry_scaled(
+            out,
+            bottom,
+            rect.x,
+            rect.y + rect.h - bottom_h,
+            scale,
+            depth,
+        );
     }
     if let Some(mid) = chrome.scrollbar_thumb_mid {
         let mid_y = rect.y + top_h;
@@ -213,19 +232,50 @@ pub(super) fn paint_trackbar_plaque(
     chrome: &ControlChrome,
     rect: RectPx,
     depth: f32,
+    scale: ShellScale,
 ) {
-    let x = rect.x + rect.w - (PLAQUE_RESERVE - 1);
-    let y = rect.y - 1;
+    // The plaque's offsets are authored numbers, so they are computed on the
+    // window's base rect and each piece is stretched into device space. That
+    // keeps the art on the same rect as [`value_text_rect`].
+    let base = scale.base_rect(rect);
+    let x = base.x + base.w - (PLAQUE_RESERVE - 1);
+    let y = base.y - 1;
     if let Some(mid) = chrome.trackbar_plaque_mid_trofm {
         let h = mid.pixel_size[1].round() as i32;
-        push_entry_wrapped_centered(out, mid, RectPx::new(x, y, PLAQUE_RESERVE, h), depth);
+        push_entry_wrapped_centered(
+            out,
+            mid,
+            scale.scale_rect(RectPx::new(x, y, PLAQUE_RESERVE, h)),
+            scale,
+            depth,
+        );
     }
     if let Some(left) = chrome.trackbar_plaque_left_trofl {
-        push_entry_native(out, left, x, y, depth - 0.00001);
+        push_entry(
+            out,
+            left,
+            scale.scale_rect(RectPx::new(
+                x,
+                y,
+                left.pixel_size[0].round() as i32,
+                left.pixel_size[1].round() as i32,
+            )),
+            depth - 0.00001,
+        );
     }
     if let Some(right) = chrome.trackbar_plaque_right_trofr {
         let w = right.pixel_size[0].round() as i32;
-        push_entry_native(out, right, rect.x + rect.w + 1 - w, y, depth - 0.00001);
+        push_entry(
+            out,
+            right,
+            scale.scale_rect(RectPx::new(
+                base.x + base.w + 1 - w,
+                y,
+                w,
+                right.pixel_size[1].round() as i32,
+            )),
+            depth - 0.00001,
+        );
     }
 }
 
@@ -282,6 +332,7 @@ pub(super) fn paint_control(
     out: &mut Vec<SpriteInstance>,
     chrome: &ControlChrome,
     paint: ControlPaint,
+    scale: ShellScale,
 ) {
     match paint {
         ControlPaint::Checkbox { checked, rect } => {
@@ -291,7 +342,12 @@ pub(super) fn paint_control(
                 chrome.checkbox_unchecked_cue_i
             };
             if let Some(entry) = icon {
-                push_entry(out, entry, checkbox_icon_rect(rect), SHELL_CONTROL_DEPTH);
+                push_entry(
+                    out,
+                    entry,
+                    checkbox_icon_rect(rect, scale),
+                    SHELL_CONTROL_DEPTH,
+                );
             }
         }
         ControlPaint::Trackbar {
@@ -305,22 +361,35 @@ pub(super) fn paint_control(
             // blit into `{x + thumb_left, y, 12, H}`, so a shorter window
             // clips it rather than scaling it.
             if plaque {
-                paint_trackbar_plaque(out, chrome, rect, SHELL_CONTROL_DEPTH);
+                paint_trackbar_plaque(out, chrome, rect, SHELL_CONTROL_DEPTH, scale);
             }
             if let Some(thumb) = chrome.trackbar_thumb_trakgrip {
-                push_entry_top_clipped_native(
+                push_entry_top_clipped(
                     out,
                     thumb,
-                    RectPx::new(rect.x + thumb_left, rect.y, THUMB_W, rect.h),
+                    RectPx::new(
+                        rect.x + thumb_left,
+                        rect.y,
+                        (THUMB_W as f32 * scale.x()).round() as i32,
+                        rect.h,
+                    ),
+                    scale.y(),
                     SHELL_CONTROL_DEPTH - 0.00002,
                 );
             }
-            if let Some(frame) = chrome.trackbar_frame(plaque, rect.w, rect.h) {
-                push_entry_native(
+            if let Some(frame) =
+                chrome.trackbar_frame(plaque, scale.base_width(rect.w), scale.base_height(rect.h))
+            {
+                let base = scale.base_rect(rect);
+                push_entry(
                     out,
                     frame,
-                    rect.x - 2,
-                    rect.y - 2,
+                    scale.scale_rect(RectPx::new(
+                        base.x - 2,
+                        base.y - 2,
+                        frame.pixel_size[0].round() as i32,
+                        frame.pixel_size[1].round() as i32,
+                    )),
                     SHELL_CONTROL_DEPTH - 0.00003,
                 );
             }
@@ -335,14 +404,14 @@ pub(super) fn paint_control(
             // push_combo_face: face glyph → swatch (color faces only) → arrow, at
             // the same depths. The caller resolves the swatch RGB so the arm stays
             // chrome-only.
-            if let Some(face) = combo_face_entry(chrome, rect) {
-                push_entry(out, face, combo_face_rect(rect), SHELL_CONTROL_DEPTH);
+            if let Some(face) = combo_face_entry(chrome, rect, scale) {
+                push_entry(out, face, combo_face_rect(rect, scale), SHELL_CONTROL_DEPTH);
             }
             if let (Some(tint), Some(white)) = (swatch, chrome.white_pixel) {
                 push_tinted_entry(
                     out,
                     white,
-                    combo_swatch_rect(rect),
+                    combo_swatch_rect(rect, scale),
                     tint,
                     SHELL_SWATCH_DEPTH,
                 );
@@ -354,12 +423,16 @@ pub(super) fn paint_control(
                 (false, false) => chrome.combo_arrow_down_released,
             };
             if let Some(arrow) = arrow {
-                let arrow_rect = combo_arrow_rect(rect);
-                push_entry_native(
+                // The arrow grows with its face: the anchor and the glyph's own
+                // authored box both stretch, so the gaps to the face's right and
+                // top edges keep their authored size in stretched pixels too.
+                let arrow_rect = combo_arrow_rect(rect, scale);
+                push_entry_scaled(
                     out,
                     arrow,
                     arrow_rect.x,
                     arrow_rect.y,
+                    scale,
                     SHELL_CONTROL_DEPTH - 0.00001,
                 );
             }
@@ -386,11 +459,12 @@ pub(super) fn paint_control(
                 pressed_part == Some(DropdownScrollbarPart::UpArrow),
             );
             if let Some(up) = up_entry {
-                push_entry_native(
+                push_entry_scaled(
                     out,
                     up,
                     scrollbar.x,
                     scrollbar.y,
+                    scale,
                     SHELL_DROPDOWN_DEPTH - 0.00005,
                 );
             }
@@ -400,15 +474,16 @@ pub(super) fn paint_control(
                 pressed_part == Some(DropdownScrollbarPart::DownArrow),
             );
             if let Some(down) = down_entry {
-                push_entry_native(
+                push_entry_scaled(
                     out,
                     down,
                     scrollbar.x,
-                    scrollbar.y + scrollbar.h - COMBO_DROPDOWN_SCROLLBAR_BUTTON_H,
+                    scrollbar.y + scrollbar.h - DropdownMetrics::scaled(scale).button_h,
+                    scale,
                     SHELL_DROPDOWN_DEPTH - 0.00005,
                 );
             }
-            push_scrollbar_thumb(out, chrome, thumb, SHELL_DROPDOWN_DEPTH - 0.00006);
+            push_scrollbar_thumb(out, chrome, thumb, scale, SHELL_DROPDOWN_DEPTH - 0.00006);
             push_ownerdraw_two_pixel_bevel_frame_px(
                 out,
                 chrome.white_pixel,
@@ -439,6 +514,7 @@ pub(super) fn push_checkbox_instances(
                 checked: checkbox_checked(shell, checkbox.id),
                 rect: checkbox.rect,
             },
+            layout.scale,
         );
     }
 }
@@ -457,7 +533,10 @@ pub(super) fn push_trackbar_instances(
     ] {
         let rect = trackbar_rect_for_id(layout, id);
         let value = trackbar_visual_value(shell, id);
-        let thumb_left = shell.trackbar_bounds.range(id).thumb_left(value, rect.w);
+        let thumb_left = shell
+            .trackbar_bounds
+            .range(id)
+            .thumb_left_in(value, rect, layout.scale);
         paint_control(
             out,
             &chrome,
@@ -466,6 +545,7 @@ pub(super) fn push_trackbar_instances(
                 thumb_left,
                 plaque: true,
             },
+            layout.scale,
         );
     }
 }
@@ -498,6 +578,7 @@ pub(super) fn push_combo_instances(
             open: open == Some(SkirmishComboId::Side(0)),
             disabled: false,
         },
+        layout.scale,
     );
     paint_control(
         out,
@@ -512,6 +593,7 @@ pub(super) fn push_combo_instances(
             open: open == Some(SkirmishComboId::Color(0)),
             disabled: false,
         },
+        layout.scale,
     );
     paint_control(
         out,
@@ -522,6 +604,7 @@ pub(super) fn push_combo_instances(
             open: open == Some(SkirmishComboId::Start(0)),
             disabled: false,
         },
+        layout.scale,
     );
     paint_control(
         out,
@@ -536,6 +619,7 @@ pub(super) fn push_combo_instances(
             // input path uses.
             disabled: !combo_enabled(shell, maps, SkirmishComboId::Team(0)),
         },
+        layout.scale,
     );
 
     for (idx, opponent) in shell.opponents.iter().enumerate() {
@@ -555,6 +639,7 @@ pub(super) fn push_combo_instances(
                 open: open == Some(SkirmishComboId::AiType(idx)),
                 disabled: false,
             },
+            layout.scale,
         );
         let sibling_disabled = !opponent.is_active();
         paint_control(
@@ -566,6 +651,7 @@ pub(super) fn push_combo_instances(
                 open: open == Some(SkirmishComboId::Side(row)),
                 disabled: sibling_disabled,
             },
+            layout.scale,
         );
         paint_control(
             out,
@@ -578,6 +664,7 @@ pub(super) fn push_combo_instances(
                 open: open == Some(SkirmishComboId::Color(row)),
                 disabled: sibling_disabled,
             },
+            layout.scale,
         );
         paint_control(
             out,
@@ -588,6 +675,7 @@ pub(super) fn push_combo_instances(
                 open: open == Some(SkirmishComboId::Start(row)),
                 disabled: sibling_disabled,
             },
+            layout.scale,
         );
         paint_control(
             out,
@@ -601,6 +689,7 @@ pub(super) fn push_combo_instances(
                 // `sibling_disabled`.
                 disabled: !combo_enabled(shell, maps, SkirmishComboId::Team(row)),
             },
+            layout.scale,
         );
     }
 }
@@ -633,7 +722,7 @@ pub(super) fn push_dropdown_instances(
     );
     let visible_rows = combo_dropdown_visible_row_count(shell, maps, open.id);
     if let Some(selected_rect) =
-        dropdown_selected_row_rect(shell, maps, open.id, open.top_index, content)
+        dropdown_selected_row_rect(shell, maps, open.id, open.top_index, content, layout.scale)
     {
         push_solid_rect(
             out,
@@ -650,8 +739,19 @@ pub(super) fn push_dropdown_instances(
         .enumerate()
     {
         if let SkirmishComboItem::Color(color_index) = item {
-            let row_y = content.y + idx as i32 * COMBO_DROPDOWN_ROW_H;
-            let swatch = RectPx::new(content.x + 2, row_y + 2, content.w - 4, 19);
+            // The row and its inset swatch are laid out on the authored 23-pixel
+            // row and stretched together, so the swatch keeps its 2-pixel frame
+            // proportion on a stretched page.
+            let base = layout.scale.base_rect(content);
+            let row = RectPx::new(
+                base.x,
+                base.y + idx as i32 * COMBO_DROPDOWN_ROW_H,
+                base.w,
+                COMBO_DROPDOWN_ROW_H,
+            );
+            let swatch = layout
+                .scale
+                .scale_rect(RectPx::new(row.x + 2, row.y + 2, row.w - 4, 19));
             push_solid_rect(
                 out,
                 atlas,
@@ -680,6 +780,7 @@ pub(super) fn push_dropdown_instances(
                 thumb,
                 pressed_part,
             },
+            layout.scale,
         );
     }
     push_ownerdraw_two_pixel_bevel_frame(out, atlas, dropdown, SHELL_DROPDOWN_DEPTH - 0.00003);
@@ -691,24 +792,29 @@ pub(super) fn dropdown_selected_row_rect(
     id: SkirmishComboId,
     top_index: usize,
     content: RectPx,
+    scale: ShellScale,
 ) -> Option<RectPx> {
     let visible_rows = combo_dropdown_visible_row_count(shell, maps, id);
     let selected = selected_combo_item_index(shell, maps, id)?;
     if selected < top_index || selected >= top_index + visible_rows {
         return None;
     }
-    Some(RectPx::new(
-        content.x,
-        content.y + (selected - top_index) as i32 * COMBO_DROPDOWN_ROW_H,
-        content.w,
+    // Laid out on the authored row and stretched with it, so the highlight
+    // covers exactly the row the pointer hit test selects.
+    let base = scale.base_rect(content);
+    Some(scale.scale_rect(RectPx::new(
+        base.x,
+        base.y + (selected - top_index) as i32 * COMBO_DROPDOWN_ROW_H,
+        base.w,
         COMBO_DROPDOWN_ROW_H,
-    ))
+    )))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::render::skirmish_shell_chrome::{TRACKBAR_FRAMES, trackbar_frame_slot};
+    use crate::ui::skirmish_shell::COMBO_DROPDOWN_SCROLLBAR_BUTTON_H;
 
     #[test]
     fn skirmish_swatches_match_the_native_fixed_table() {
@@ -759,7 +865,7 @@ mod tests {
             ..Default::default()
         };
         let rect = RectPx::new(71, 286, 150, 16);
-        let icon = checkbox_icon_rect(rect);
+        let icon = checkbox_icon_rect(rect, ShellScale::RETAIL);
 
         let mut out = Vec::new();
         paint_control(
@@ -769,6 +875,7 @@ mod tests {
                 checked: true,
                 rect,
             },
+            ShellScale::RETAIL,
         );
         assert_eq!(out.len(), 1);
         assert_eq!(out[0].position, [icon.x as f32, icon.y as f32]);
@@ -786,6 +893,7 @@ mod tests {
                 checked: true,
                 rect,
             },
+            ShellScale::RETAIL,
         );
         assert!(empty.is_empty());
     }
@@ -826,6 +934,7 @@ mod tests {
                     thumb_left,
                     plaque: true,
                 },
+                ShellScale::RETAIL,
             );
             assert_eq!(out.len(), 5, "plaque (mid, left, right), thumb, frame");
             // TROFM's middle 50 columns (32..82) at its own height: its red
@@ -859,6 +968,7 @@ mod tests {
                 thumb_left: 1,
                 plaque: false,
             },
+            ShellScale::RETAIL,
         );
         assert_eq!(out.len(), 1, "no plaque, no frame of this size");
         assert_eq!(out[0].size, [12.0, 21.0]);
@@ -873,6 +983,7 @@ mod tests {
                 thumb_left: 1,
                 plaque: true,
             },
+            ShellScale::RETAIL,
         );
         assert!(empty.is_empty());
     }
@@ -897,6 +1008,7 @@ mod tests {
                     thumb_left: 1,
                     plaque: reserve > 0,
                 },
+                ShellScale::RETAIL,
             );
             assert_eq!(out.len(), 1, "{width}x{height}");
             assert_eq!(out[0].position, [234.0, 96.0]);
@@ -956,6 +1068,7 @@ mod tests {
                 open: false,
                 disabled: false,
             },
+            ShellScale::RETAIL,
         );
         assert_eq!(out.len(), 1);
         assert_eq!(out[0].position, [95.0, 135.0]);
@@ -1011,9 +1124,9 @@ mod tests {
         };
         // w=150 selects combo_face_150 via combo_face_entry.
         let rect = RectPx::new(176, 100, 150, 24);
-        let face_rect = combo_face_rect(rect);
-        let swatch_rect = combo_swatch_rect(rect);
-        let arrow_rect = combo_arrow_rect(rect);
+        let face_rect = combo_face_rect(rect, ShellScale::RETAIL);
+        let swatch_rect = combo_swatch_rect(rect, ShellScale::RETAIL);
+        let arrow_rect = combo_arrow_rect(rect, ShellScale::RETAIL);
         let tint = [0.25, 0.5, 0.75];
 
         let assert_face = |inst: &SpriteInstance| {
@@ -1040,6 +1153,7 @@ mod tests {
                 open: true,
                 disabled: false,
             },
+            ShellScale::RETAIL,
         );
         assert_eq!(a.len(), 3, "face + swatch + arrow");
         assert_face(&a[0]);
@@ -1061,6 +1175,7 @@ mod tests {
                 open: false,
                 disabled: false,
             },
+            ShellScale::RETAIL,
         );
         assert_eq!(b.len(), 3);
         assert_face(&b[0]);
@@ -1079,6 +1194,7 @@ mod tests {
                 open: false,
                 disabled: false,
             },
+            ShellScale::RETAIL,
         );
         assert_eq!(c.len(), 2, "face + arrow, no swatch");
         assert_face(&c[0]);
@@ -1095,10 +1211,35 @@ mod tests {
                 open: false,
                 disabled: true,
             },
+            ShellScale::RETAIL,
         );
         assert_eq!(d.len(), 2);
         assert_face(&d[0]);
         assert_arrow(&d[1], arrow_gray_released);
+
+        // (e) the same face stretched 2x: the arrow grows with the face, so its
+        // authored 3x1 gap to the face's right/top edges keeps its proportion.
+        let double = ShellScale::from_screen(1600, 1200);
+        let wide = double.scale_rect(rect);
+        let wide_arrow = combo_arrow_rect(wide, double);
+        let mut e = Vec::new();
+        paint_control(
+            &mut e,
+            &chrome,
+            ControlPaint::Combo {
+                rect: wide,
+                swatch: None,
+                open: false,
+                disabled: false,
+            },
+            double,
+        );
+        assert_eq!(e.len(), 2, "the authored face width still selects 150");
+        assert_eq!(e[0].size, [wide.w as f32, wide.h as f32]);
+        assert_eq!(e[1].position, [wide_arrow.x as f32, wide_arrow.y as f32]);
+        assert_eq!(e[1].size, [32.0, 32.0]);
+        assert_eq!((wide.x + wide.w - (wide_arrow.x + 32)) / 2, 3);
+        assert_eq!((wide_arrow.y - wide.y) / 2, 1);
 
         // Empty chrome (no glyphs) → nothing emitted.
         let mut empty = Vec::new();
@@ -1111,6 +1252,7 @@ mod tests {
                 open: true,
                 disabled: false,
             },
+            ShellScale::RETAIL,
         );
         assert!(empty.is_empty());
     }
@@ -1186,6 +1328,7 @@ mod tests {
                 thumb,
                 pressed_part: None,
             },
+            ShellScale::RETAIL,
         );
         // track(1) + up(1) + down(1) + thumb top/bottom/mid(3) + 2 bevel rings × 4
         // edges each (each ring: top/left/bottom/right solid rects) = 8.
@@ -1261,6 +1404,7 @@ mod tests {
                 thumb,
                 pressed_part: Some(DropdownScrollbarPart::UpArrow),
             },
+            ShellScale::RETAIL,
         );
         assert_eq!(pressed[1].uv_origin, up_p.uv_origin);
         assert_eq!(pressed[2].uv_origin, dn_r.uv_origin);
@@ -1275,6 +1419,7 @@ mod tests {
                 thumb,
                 pressed_part: None,
             },
+            ShellScale::RETAIL,
         );
         assert!(empty.is_empty());
     }
@@ -1285,7 +1430,7 @@ mod tests {
         // (half-open): the last interior px (icon.x+17) HITS, the right edge
         // (icon.x+18) MISSES — the boundary the input toggle branch relies on.
         let rect = RectPx::new(71, 286, 150, 16);
-        let icon = checkbox_icon_rect(rect);
+        let icon = checkbox_icon_rect(rect, ShellScale::RETAIL);
         assert_eq!(icon.w, 18, "C-Checkbox icon width is 18px");
         assert!(
             icon.contains(icon.x + icon.w - 1, icon.y),

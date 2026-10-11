@@ -55,6 +55,18 @@ pub struct TextRect {
     pub h: u32,
 }
 
+/// A stretched label's rect back in the glyph atlas's native units, so Path A's
+/// integer layout math (wrap, centre, line admission) runs on the numbers
+/// gamemd ran on. Identity at `scale == 1.0`.
+fn to_native_rect(rect: TextRect, scale: f32) -> TextRect {
+    TextRect {
+        x: (rect.x as f32 / scale).round() as i32,
+        y: (rect.y as f32 / scale).round() as i32,
+        w: (rect.w as f32 / scale).round().max(0.0) as u32,
+        h: (rect.h as f32 / scale).round().max(0.0) as u32,
+    }
+}
+
 /// Vertical-centre offset for the v-centre flag.
 ///
 /// gamemd's Path A wrapper computes `y += (rect_height - measured_height) / 2`
@@ -79,6 +91,25 @@ pub fn draw_in_rect(
     cam_offset: [f32; 2],
     depth: f32,
 ) -> ShellTextDraw {
+    draw_in_rect_scaled(font, text, rect, color, flags, cam_offset, depth, 1.0)
+}
+
+/// [`draw_in_rect`] with a glyph scale. `scale == 1.0` is gamemd's 1:1 Path A
+/// draw; above it the label is laid out in the rect's native units (the rect
+/// divided back by `scale`) and every glyph and advance is emitted at
+/// `scale`x, so a stretched shell's caption still centres in its stretched
+/// cell. The scissor stays in window pixels.
+#[allow(clippy::too_many_arguments)]
+pub fn draw_in_rect_scaled(
+    font: &BitFont,
+    text: &str,
+    rect: TextRect,
+    color: [f32; 3],
+    flags: ShellAlign,
+    cam_offset: [f32; 2],
+    depth: f32,
+    scale: f32,
+) -> ShellTextDraw {
     let scissor = ScissorRect {
         x: rect.x.max(0) as u32,
         y: rect.y.max(0) as u32,
@@ -91,11 +122,12 @@ pub fn draw_in_rect(
             scissor,
         };
     }
-    let layout = font.wrap_layout(text, rect.w);
-    let base_x = rect.x as f32;
-    let mut line_y = rect.y as f32;
+    let native = to_native_rect(rect, scale);
+    let layout = font.wrap_layout(text, native.w);
+    let base_x = native.x as f32;
+    let mut line_y = native.y as f32;
     if flags.contains(ShellAlign::V_CENTER) {
-        line_y += vcenter_offset(rect.h, layout.height);
+        line_y += vcenter_offset(native.h, layout.height);
     }
     let line_advance = font.cell_height();
 
@@ -106,22 +138,22 @@ pub fn draw_in_rect(
         // consumed cell advances reach the nonzero limit. The raster scissor
         // clips overhanging glyph pixels; a short clip must not discard an
         // admitted line. Retail GAME.FNT has16 bitmap rows and17px cell advance.
-        if line_index > 0 && rect.h != 0 && line_index as f32 * line_advance >= rect.h as f32 {
+        if line_index > 0 && native.h != 0 && line_index as f32 * line_advance >= native.h as f32 {
             break;
         }
-        let line_x_offset = if flags.contains(ShellAlign::H_CENTER) && span.width < rect.w {
-            ((rect.w - span.width) / 2) as f32
-        } else if flags.contains(ShellAlign::H_RIGHT) && span.width < rect.w {
-            (rect.w - span.width) as f32
+        let line_x_offset = if flags.contains(ShellAlign::H_CENTER) && span.width < native.w {
+            ((native.w - span.width) / 2) as f32
+        } else if flags.contains(ShellAlign::H_RIGHT) && span.width < native.w {
+            (native.w - span.width) as f32
         } else {
             0.0
         };
         let segment = &text[span.start_byte..span.end_byte];
         instances.append(&mut font.build_text(
             segment,
-            base_x + line_x_offset,
-            line_y,
-            1.0,
+            (base_x + line_x_offset) * scale,
+            line_y * scale,
+            scale,
             depth,
             color,
             cam_offset,
@@ -142,6 +174,21 @@ pub fn draw_in_rect_path_a(
     depth: f32,
     reveal: PathAReveal,
 ) -> ShellTextDraw {
+    draw_in_rect_path_a_scaled(font, text, rect, flags, cam_offset, depth, reveal, 1.0)
+}
+
+/// [`draw_in_rect_path_a`] with a glyph scale; see [`draw_in_rect_scaled`].
+#[allow(clippy::too_many_arguments)]
+pub fn draw_in_rect_path_a_scaled(
+    font: &BitFont,
+    text: &str,
+    rect: TextRect,
+    flags: ShellAlign,
+    cam_offset: [f32; 2],
+    depth: f32,
+    reveal: PathAReveal,
+    scale: f32,
+) -> ShellTextDraw {
     let scissor = ScissorRect {
         x: rect.x.max(0) as u32,
         y: rect.y.max(0) as u32,
@@ -154,11 +201,12 @@ pub fn draw_in_rect_path_a(
             scissor,
         };
     }
-    let layout = font.wrap_layout(text, rect.w);
-    let base_x = rect.x as f32;
-    let mut line_y = rect.y as f32;
+    let native = to_native_rect(rect, scale);
+    let layout = font.wrap_layout(text, native.w);
+    let base_x = native.x as f32;
+    let mut line_y = native.y as f32;
     if flags.contains(ShellAlign::V_CENTER) {
-        line_y += vcenter_offset(rect.h, layout.height);
+        line_y += vcenter_offset(native.h, layout.height);
     }
     let line_advance = font.cell_height();
     let mut instances = Vec::with_capacity(text.len());
@@ -166,22 +214,22 @@ pub fn draw_in_rect_path_a(
 
     for (line_index, span) in layout.lines.iter().enumerate() {
         // Same original 434CD0 line admission as the non-reveal entry above.
-        if line_index > 0 && rect.h != 0 && line_index as f32 * line_advance >= rect.h as f32 {
+        if line_index > 0 && native.h != 0 && line_index as f32 * line_advance >= native.h as f32 {
             break;
         }
-        let line_x_offset = if flags.contains(ShellAlign::H_CENTER) && span.width < rect.w {
-            ((rect.w - span.width) / 2) as f32
-        } else if flags.contains(ShellAlign::H_RIGHT) && span.width < rect.w {
-            (rect.w - span.width) as f32
+        let line_x_offset = if flags.contains(ShellAlign::H_CENTER) && span.width < native.w {
+            ((native.w - span.width) / 2) as f32
+        } else if flags.contains(ShellAlign::H_RIGHT) && span.width < native.w {
+            (native.w - span.width) as f32
         } else {
             0.0
         };
         let segment = &text[span.start_byte..span.end_byte];
         let (mut line_instances, new_consumed) = font.build_text_path_a(
             segment,
-            base_x + line_x_offset,
-            line_y,
-            1.0,
+            (base_x + line_x_offset) * scale,
+            line_y * scale,
+            scale,
             depth,
             cam_offset,
             consumed,
@@ -546,5 +594,124 @@ mod tests {
             reveal,
         );
         assert_eq!(draw.instances.len(), 3);
+    }
+
+    /// The scaled entry points must not move the retail path at all: every
+    /// existing caller, golden and pixel guard runs through them now.
+    #[test]
+    fn scale_one_reproduces_the_retail_draw_exactly() {
+        let font = test_font();
+        let rect = TextRect {
+            x: 10,
+            y: 20,
+            w: 40,
+            h: 30,
+        };
+        let reveal = || PathAReveal {
+            count: 4,
+            range: 8,
+            base_rgb: [255, 255, 0],
+            highlight_rgb: [255; 3],
+        };
+        for (text, flags) in [
+            ("xa b\nxx", ShellAlign::NONE),
+            ("xax ab", ShellAlign::H_CENTER | ShellAlign::V_CENTER),
+            ("x ax", ShellAlign::H_RIGHT),
+        ] {
+            let plain = draw_in_rect(&font, text, rect, [1.0; 3], flags, [0.0; 2], 0.5);
+            let plain_scaled =
+                draw_in_rect_scaled(&font, text, rect, [1.0; 3], flags, [0.0; 2], 0.5, 1.0);
+            assert_same_scissor(&plain.scissor, &plain_scaled.scissor);
+            assert_same_quads(&plain.instances, &plain_scaled.instances, "plain");
+
+            let path_a = draw_in_rect_path_a(&font, text, rect, flags, [0.0; 2], 0.5, reveal());
+            let path_a_scaled =
+                draw_in_rect_path_a_scaled(&font, text, rect, flags, [0.0; 2], 0.5, reveal(), 1.0);
+            assert_same_scissor(&path_a.scissor, &path_a_scaled.scissor);
+            assert_same_quads(&path_a.instances, &path_a_scaled.instances, "path a");
+        }
+    }
+
+    /// A label in a 2x-stretched shell is the retail label with every glyph
+    /// position, size and advance doubled, and the window-pixel scissor kept.
+    #[test]
+    fn a_stretched_label_doubles_every_glyph_and_advance() {
+        let font = test_font();
+        let reveal = || PathAReveal {
+            count: 4,
+            range: 8,
+            base_rgb: [255, 255, 0],
+            highlight_rgb: [255; 3],
+        };
+        let retail = TextRect {
+            x: 10,
+            y: 20,
+            w: 40,
+            h: 30,
+        };
+        let stretched = TextRect {
+            x: 20,
+            y: 40,
+            w: 80,
+            h: 60,
+        };
+        // The stretched rect maps back to the retail rect exactly, so the line
+        // structure is identical and only the emitted quads are doubled.
+        for (text, flags) in [("xab", ShellAlign::NONE), ("xa b", ShellAlign::H_CENTER)] {
+            let plain = draw_in_rect(&font, text, retail, [1.0; 3], flags, [0.0; 2], 0.5);
+            let doubled =
+                draw_in_rect_scaled(&font, text, stretched, [1.0; 3], flags, [0.0; 2], 0.5, 2.0);
+            assert_eq!(
+                plain.instances.len(),
+                doubled.instances.len(),
+                "plain count"
+            );
+            assert!(plain.instances.len() >= 2, "the test needs an advance");
+            for (one, two) in plain.instances.iter().zip(&doubled.instances) {
+                assert_eq!([two.position[0] / 2.0, two.position[1] / 2.0], one.position);
+                assert_eq!([two.size[0] / 2.0, two.size[1] / 2.0], one.size);
+                assert_eq!(two.uv_origin, one.uv_origin);
+                assert_eq!(two.uv_size, one.uv_size);
+            }
+            assert_eq!(doubled.scissor.x, stretched.x as u32);
+            assert_eq!(doubled.scissor.y, stretched.y as u32);
+            assert_eq!(doubled.scissor.w, stretched.w);
+            assert_eq!(doubled.scissor.h, stretched.h);
+
+            let path_a = draw_in_rect_path_a(&font, text, retail, flags, [0.0; 2], 0.5, reveal());
+            let path_a_doubled = draw_in_rect_path_a_scaled(
+                &font,
+                text,
+                stretched,
+                flags,
+                [0.0; 2],
+                0.5,
+                reveal(),
+                2.0,
+            );
+            assert_eq!(
+                path_a.instances.len(),
+                path_a_doubled.instances.len(),
+                "path a count"
+            );
+            for (one, two) in path_a.instances.iter().zip(&path_a_doubled.instances) {
+                assert_eq!([two.position[0] / 2.0, two.position[1] / 2.0], one.position);
+                assert_eq!([two.size[0] / 2.0, two.size[1] / 2.0], one.size);
+            }
+        }
+    }
+
+    fn assert_same_scissor(one: &ScissorRect, two: &ScissorRect) {
+        assert_eq!((one.x, one.y, one.w, one.h), (two.x, two.y, two.w, two.h));
+    }
+
+    fn assert_same_quads(one: &[SpriteInstance], two: &[SpriteInstance], what: &str) {
+        assert_eq!(one.len(), two.len(), "{what} instance count");
+        for (a, b) in one.iter().zip(two) {
+            assert_eq!(a.position, b.position, "{what} position");
+            assert_eq!(a.size, b.size, "{what} size");
+            assert_eq!(a.uv_origin, b.uv_origin, "{what} uv origin");
+            assert_eq!(a.uv_size, b.uv_size, "{what} uv size");
+        }
     }
 }

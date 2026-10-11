@@ -7,7 +7,8 @@
 //! state, render, or UI dependency (pure integer pixel geometry).
 
 use super::layout::{
-    COMBO_DROPDOWN_SCROLLBAR_BUTTON_H, COMBO_DROPDOWN_SCROLLBAR_MIN_THUMB_H, RectPx,
+    COMBO_DROPDOWN_SCROLLBAR_BUTTON_H, COMBO_DROPDOWN_SCROLLBAR_MIN_THUMB_H, DropdownMetrics,
+    RectPx,
 };
 
 /// A combo dropdown's scroll model: rows visible at once are capped per
@@ -17,12 +18,30 @@ use super::layout::{
 pub struct ScrollModel {
     /// Rows shown at once; 0 is unbounded.
     cap: i32,
+    /// The scrollbar's arrow-button height in the pixels the track is measured
+    /// in: authored on the retail layout, stretched on a stretched page.
+    button_h: i32,
+    min_thumb_h: i32,
 }
 
 impl ScrollModel {
-    /// `cap` is the per-combo max-visible (0 = unbounded).
+    /// `cap` is the per-combo max-visible (0 = unbounded), on the authored
+    /// metrics.
     pub const fn combo(cap: i32) -> Self {
-        Self { cap }
+        Self {
+            cap,
+            button_h: COMBO_DROPDOWN_SCROLLBAR_BUTTON_H,
+            min_thumb_h: COMBO_DROPDOWN_SCROLLBAR_MIN_THUMB_H,
+        }
+    }
+
+    /// The same model on a stretched dropdown's device metrics.
+    pub const fn combo_at(cap: i32, metrics: DropdownMetrics) -> Self {
+        Self {
+            cap,
+            button_h: metrics.button_h,
+            min_thumb_h: metrics.min_thumb_h,
+        }
     }
 
     /// Visible-row count: `item_count.min(cap)`, or `item_count` unbounded.
@@ -43,12 +62,12 @@ impl ScrollModel {
     /// height. An empty list takes the whole track (never reached: an empty
     /// combo shows no scrollbar).
     pub fn thumb_height(&self, visible_rows: usize, item_count: usize, scrollbar_h: i32) -> i32 {
-        let track_h = (scrollbar_h - COMBO_DROPDOWN_SCROLLBAR_BUTTON_H * 2).max(1);
+        let track_h = (scrollbar_h - self.button_h * 2).max(1);
         if item_count == 0 || visible_rows == 0 {
-            return track_h.max(COMBO_DROPDOWN_SCROLLBAR_MIN_THUMB_H);
+            return track_h.max(self.min_thumb_h);
         }
         ((track_h * visible_rows as i32) / item_count as i32)
-            .max(COMBO_DROPDOWN_SCROLLBAR_MIN_THUMB_H)
+            .max(self.min_thumb_h)
             .min(track_h)
     }
 
@@ -61,9 +80,9 @@ impl ScrollModel {
         top_index: usize,
         max_top: usize,
     ) -> i32 {
-        let track_span = (scrollbar.h - COMBO_DROPDOWN_SCROLLBAR_BUTTON_H * 2 - thumb_h).max(1);
+        let track_span = (scrollbar.h - self.button_h * 2 - thumb_h).max(1);
         scrollbar.y
-            + COMBO_DROPDOWN_SCROLLBAR_BUTTON_H
+            + self.button_h
             + if max_top == 0 {
                 0
             } else {
@@ -84,12 +103,12 @@ impl ScrollModel {
         if max_top == 0 {
             return 0;
         }
-        let track_span = (scrollbar.h - COMBO_DROPDOWN_SCROLLBAR_BUTTON_H * 2 - thumb_h).max(1);
+        let track_span = (scrollbar.h - self.button_h * 2 - thumb_h).max(1);
         let thumb_top = thumb_top_candidate.clamp(
-            scrollbar.y + COMBO_DROPDOWN_SCROLLBAR_BUTTON_H,
-            scrollbar.y + scrollbar.h - COMBO_DROPDOWN_SCROLLBAR_BUTTON_H - thumb_h,
+            scrollbar.y + self.button_h,
+            scrollbar.y + scrollbar.h - self.button_h - thumb_h,
         );
-        let local = thumb_top - scrollbar.y - COMBO_DROPDOWN_SCROLLBAR_BUTTON_H;
+        let local = thumb_top - scrollbar.y - self.button_h;
         ((local * max_top as i32 + track_span / 2) / track_span) as usize
     }
 }
@@ -157,8 +176,8 @@ mod tests {
         vec![
             RectPx::new(100, 50, 20, 23 * 7), // a Side combo dropdown (cap 7, row 23)
             RectPx::new(100, 50, 20, 23 * 9), // Color/Start dropdown (cap 9)
-            RectPx::new(0, 0, 20, 44),      // degenerate: scrollbar.h - 44 == 0  -> track_h clamp
-            RectPx::new(0, 0, 20, 45),      // degenerate: track_h == 1
+            RectPx::new(0, 0, 20, 44),        // degenerate: scrollbar.h - 44 == 0  -> track_h clamp
+            RectPx::new(0, 0, 20, 45),        // degenerate: track_h == 1
             RectPx::new(0, 0, 20, 46),
         ]
     }

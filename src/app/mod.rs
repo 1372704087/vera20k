@@ -11,11 +11,12 @@ use winit::dpi::PhysicalSize;
 use winit::event::{MouseButton, MouseScrollDelta, WindowEvent};
 use winit::event_loop::{ActiveEventLoop, ControlFlow};
 use winit::keyboard::{KeyCode, ModifiersState, PhysicalKey};
+use winit::monitor::{MonitorHandle, VideoModeHandle};
 use winit::platform::modifier_supplement::KeyEventExtModifierSupplement;
-use winit::window::{Window, WindowAttributes, WindowId};
+use winit::window::{Fullscreen, Window, WindowAttributes, WindowId};
 
-use crate::app::presentation::render;
 use crate::app::match_runtime::sim_tick;
+use crate::app::presentation::render;
 use crate::assets::asset_manager::AssetManager;
 use crate::audio::music::MusicPlayer;
 use crate::audio::sfx::SfxPlayer;
@@ -26,59 +27,58 @@ use crate::render::batch::BatchRenderer;
 use crate::render::bit_font::BitFont;
 use crate::render::gpu::GpuContext;
 use crate::rules::overlay_types::OverlayTypeRegistry;
-use crate::ui::sidebar::{SidebarChromeLayoutSpec, SidebarTab};
 use crate::ui::game_screen::GameScreen;
 use crate::ui::shell::controller::ShellKey;
+use crate::ui::sidebar::{SidebarChromeLayoutSpec, SidebarTab};
 use crate::ui::skirmish_shell::{SavedSeedBrowserState, SavedSeedMode};
 use crate::util::config::GameConfig;
 
-pub mod frontend;
-pub(crate) mod types;
-pub(crate) mod input;
-mod frame;
-mod handler;
-mod initialize;
-mod in_game;
-pub(crate) mod match_audio;
-pub mod match_bootstrap;
-pub(crate) mod match_runtime;
 pub(crate) mod audio_runtime;
 pub(crate) mod diagnostics;
+mod frame;
+pub mod frontend;
+mod handler;
+mod in_game;
+mod initialize;
+pub(crate) mod input;
 pub(crate) mod loading;
+pub(crate) mod match_audio;
+pub mod match_bootstrap;
 pub(crate) mod match_diagnostics;
+pub(crate) mod match_runtime;
 pub(crate) mod persistence;
 pub(crate) mod presentation;
 pub(crate) mod process_assets;
+#[cfg(test)]
+mod random_map_lifecycle_tests;
 pub(crate) mod renderer_state;
 pub(crate) mod scenario_catalog;
 mod shell_campaign;
 mod shell_load_saved_game;
-mod shell_wol;
 mod shell_main_menu;
 mod shell_movies_credits;
 mod shell_random_map;
-mod shell_saved_seeds;
-mod shell_saved_games;
-#[cfg(test)]
-mod random_map_lifecycle_tests;
 pub(crate) mod shell_route;
+mod shell_saved_games;
+mod shell_saved_seeds;
 mod shell_skirmish;
+mod shell_wol;
 pub(crate) mod sidebar_projection;
 #[cfg(test)]
 mod sidebar_projection_tests;
 mod state;
+pub(crate) mod types;
 mod window_icon;
 
-pub(crate) use shell_random_map::{
-    RandomMapGenerationRetention,
-};
+pub(crate) use shell_random_map::RandomMapGenerationRetention;
 pub(crate) use state::{AppState, PlatformState, reset_scenario_exit_runtime};
 
 /// Top-level application. Implements winit's ApplicationHandler.
 pub struct App {
     state: Option<AppState>,
     shell_capture: Option<crate::app::diagnostics::shell_capture::ShellCaptureSession>,
-    tactical_capture: Option<crate::app::diagnostics::tactical_capture::session::TacticalCaptureSession>,
+    tactical_capture:
+        Option<crate::app::diagnostics::tactical_capture::session::TacticalCaptureSession>,
     /// Retained until `resumed()` so the profile's pre-window Video read can
     /// use the command-line screen fields as its current-value defaults.
     startup_options: crate::app::frontend::startup_options::RetailStartupOptions,
@@ -118,7 +118,9 @@ impl Default for App {
 }
 
 impl App {
-    pub fn new(startup_options: crate::app::frontend::startup_options::RetailStartupOptions) -> Self {
+    pub fn new(
+        startup_options: crate::app::frontend::startup_options::RetailStartupOptions,
+    ) -> Self {
         Self {
             state: None,
             shell_capture: None,
@@ -127,21 +129,29 @@ impl App {
         }
     }
 
-    pub fn new_shell_capture(request: crate::app::diagnostics::shell_capture::ShellCaptureRequest) -> Self {
+    pub fn new_shell_capture(
+        request: crate::app::diagnostics::shell_capture::ShellCaptureRequest,
+    ) -> Self {
         Self {
             state: None,
-            shell_capture: Some(crate::app::diagnostics::shell_capture::ShellCaptureSession::new(request)),
+            shell_capture: Some(
+                crate::app::diagnostics::shell_capture::ShellCaptureSession::new(request),
+            ),
             tactical_capture: None,
             startup_options: crate::app::frontend::startup_options::RetailStartupOptions::default(),
         }
     }
 
-    pub fn new_tactical_capture(request: crate::app::frontend::launch::TacticalCaptureRequest) -> Self {
+    pub fn new_tactical_capture(
+        request: crate::app::frontend::launch::TacticalCaptureRequest,
+    ) -> Self {
         Self {
             state: None,
             shell_capture: None,
             tactical_capture: Some(
-                crate::app::diagnostics::tactical_capture::session::TacticalCaptureSession::new(request),
+                crate::app::diagnostics::tactical_capture::session::TacticalCaptureSession::new(
+                    request,
+                ),
             ),
             startup_options: crate::app::frontend::startup_options::RetailStartupOptions::default(),
         }

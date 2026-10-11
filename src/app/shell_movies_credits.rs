@@ -3,6 +3,7 @@
 //! 4, `0xD`, `0xE` and `0xF`. Each child destroys its source dialog first and
 //! recreates its return dialog afterwards.
 
+use crate::ui::shell::list::ListMetrics;
 use std::sync::Arc;
 use std::time::Instant;
 
@@ -82,10 +83,7 @@ impl App {
     }
 
     fn movie_list_layout(state: &AppState) -> crate::ui::movies_credits_shell::MovieListLayout {
-        crate::ui::movies_credits_shell::compute_movie_list_layout(
-            state.renderer.gpu.config.width,
-            state.renderer.gpu.config.height,
-        )
+        crate::app::frontend::shell_layout::movie_list_layout(state)
     }
 
     fn movie_list_feed(state: &mut AppState) -> Vec<crate::ui::shell::layout::LaidOutControl> {
@@ -111,7 +109,7 @@ impl App {
         state.frontend.shell_controller.on_pointer_move(x, y, &feed);
         let layout = Self::movie_list_layout(state);
         if let Some(list) = state.frontend.movie_list.as_mut() {
-            list.scroll_pointer_moved(layout.list, x, y);
+            list.scroll_pointer_moved(layout.list, ListMetrics::scaled(layout.page.scale), x, y);
         }
         // Every hover message repaints the status line (0x00615EF7).
         state.frontend.shell_status_line.repaint();
@@ -125,7 +123,13 @@ impl App {
         let (x, y) = state.match_state.input.cursor_px();
         let layout = Self::movie_list_layout(state);
         let list = state.frontend.movie_list.as_mut()?;
-        if list.scroll_poll(layout.list, x, y, Instant::now()) {
+        if list.scroll_poll(
+            layout.list,
+            ListMetrics::scaled(layout.page.scale),
+            x,
+            y,
+            Instant::now(),
+        ) {
             state.platform.window.request_redraw();
         }
         list.scroll.repeat_at()
@@ -140,7 +144,13 @@ impl App {
         {
             // The scrollbar child (0x0061C690) captures its own presses and
             // plays no sound.
-            if list.scroll_press(layout.list, x, y, Instant::now()) {
+            if list.scroll_press(
+                layout.list,
+                ListMetrics::scaled(layout.page.scale),
+                x,
+                y,
+                Instant::now(),
+            ) {
                 return;
             }
             let double_click = list.is_double_click(
@@ -151,7 +161,10 @@ impl App {
             );
             // 0x0061A948: a single press selects the row under it (presses
             // below the last row are ignored) and plays GenericClick.
-            if !double_click && let Some(row) = list.row_at(layout.list, x, y) {
+            if !double_click
+                && let Some(row) =
+                    list.row_at(layout.list, ListMetrics::scaled(layout.page.scale), x, y)
+            {
                 list.selected = Some(row);
                 Self::play_generic_click_sound(state);
             }

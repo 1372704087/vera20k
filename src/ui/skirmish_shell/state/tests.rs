@@ -874,7 +874,7 @@ fn checkbox_icon_click_toggles_but_label_click_does_not() {
         vec![SkirmishShellUiSound::GuiCheckboxSound]
     );
 
-    let label = checkbox_text_rect(checkbox.rect);
+    let label = checkbox_text_rect(checkbox.rect, crate::ui::shell::geom::ShellScale::RETAIL);
     handle_option_mouse_down(&mut shell, &layout, &[], label.x, label.y + 1);
     assert_eq!(shell.short_game, !initial);
     assert!(shell.drain_pending_ui_sounds().is_empty());

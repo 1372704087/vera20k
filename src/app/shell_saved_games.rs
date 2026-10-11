@@ -4,6 +4,7 @@
 use super::{App, AppState};
 use crate::map::rmg::SeedDescription;
 use crate::ui::pause_menu::InGameMenuState;
+use crate::ui::shell::list::ListMetrics;
 use crate::ui::shell::saved_file_input::{self, BrowserInputResult};
 use crate::ui::skirmish_shell::seed_list::SeedListGeometry;
 use crate::ui::skirmish_shell::{
@@ -32,7 +33,8 @@ impl App {
         let browser = Self::open_saved_game_rows(
             state,
             mode,
-            SeedListGeometry::new(layout.list, 0, 0).visible_rows,
+            SeedListGeometry::new(layout.list, 0, 0, ListMetrics::scaled(layout.scale))
+                .visible_rows,
         );
         // The child replaces its hidden parent and owns all subsequent input.
         state.match_state.match_presentation.saved_game_browser = Some(browser);
@@ -133,7 +135,10 @@ impl App {
                 }
                 state.persistence.invalidate_save_list();
                 let rows = Self::saved_game_layout(state, SavedSeedMode::Delete)
-                    .map(|layout| SeedListGeometry::new(layout.list, 0, 0).visible_rows)
+                    .map(|layout| {
+                        SeedListGeometry::new(layout.list, 0, 0, ListMetrics::scaled(layout.scale))
+                            .visible_rows
+                    })
                     .unwrap_or(1);
                 let empty = state
                     .match_state
@@ -325,8 +330,12 @@ impl App {
             return;
         }
         if let Some(rect) = layout.name_edit {
-            let available =
-                (crate::ui::skirmish_shell::player_name_edit_text_rect(rect).w - 2).max(0) as u32;
+            let available = (crate::ui::skirmish_shell::player_name_edit_text_rect(
+                rect,
+                crate::ui::shell::geom::ShellScale::RETAIL,
+            )
+            .w - 2)
+                .max(0) as u32;
             let edit = &mut browser.description_edit;
             edit.first_visible_unit = edit.first_visible_unit.min(edit.caret);
             while edit.first_visible_unit < edit.caret {

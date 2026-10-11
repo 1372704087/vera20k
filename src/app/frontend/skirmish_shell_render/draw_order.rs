@@ -67,15 +67,17 @@ pub enum SkirmishShellDrawRole {
     Flag,
 }
 
-pub(super) const fn generic_background_role(layout: &SkirmishShellLayout) -> GenericBackgroundRole {
-    match layout.screen.w {
+/// The parent background shapes exist at 640 and "large"; a stretched page is
+/// authored at 800, so it always takes the large one.
+pub(super) fn generic_background_role(layout: &SkirmishShellLayout) -> GenericBackgroundRole {
+    match layout.authored_width() {
         640 => GenericBackgroundRole::Mnscrns640,
         _ => GenericBackgroundRole::MnscrnlLarge,
     }
 }
 
 pub(super) fn lower_strip_role(layout: &SkirmishShellLayout) -> LowerStripRole {
-    match layout.screen.w {
+    match layout.authored_width() {
         640 => LowerStripRole::Lwscrns640,
         _ => LowerStripRole::LwscrnlLarge,
     }

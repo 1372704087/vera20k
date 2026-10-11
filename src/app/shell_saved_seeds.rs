@@ -5,6 +5,7 @@
 use super::shell_random_map::{RANDOM_MAP_DESCRIPTION_FALLBACK, RANDOM_MAP_DESCRIPTION_KEY};
 use super::*;
 use crate::map::rmg::{SeedDescription, saved_seeds};
+use crate::ui::shell::list::ListMetrics;
 use crate::ui::skirmish_shell::seed_list::SeedListGeometry;
 use crate::ui::skirmish_shell::{SavedSeedOutcome, SavedSeedPrompt, SavedSeedPromptPurpose};
 use crate::util::native_file_name::{self, NativeFileName};
@@ -24,11 +25,7 @@ impl App {
         state: &AppState,
         mode: SavedSeedMode,
     ) -> crate::ui::skirmish_shell::SavedSeedLayout {
-        crate::ui::skirmish_shell::compute_saved_seed_layout(
-            mode,
-            state.render_width(),
-            state.render_height(),
-        )
+        crate::app::frontend::shell_layout::saved_seed_layout(state, mode)
     }
 
     pub(super) fn open_saved_seed_browser(state: &mut AppState, mode: SavedSeedMode) {
@@ -44,7 +41,8 @@ impl App {
             .unwrap_or_default();
         let empty = Self::csf_label(state, "TXT_EMPTY_SLOT", "[EMPTY SLOT]");
         let layout = Self::skirmish_saved_seed_layout(state, mode);
-        let rows = SeedListGeometry::new(layout.list, 0, 0).visible_rows;
+        let rows = SeedListGeometry::new(layout.list, 0, 0, ListMetrics::scaled(layout.scale))
+            .visible_rows;
         state.frontend.skirmish_shell_state.saved_seed_browser = Some(SavedSeedBrowserState::open(
             mode,
             entries,
@@ -170,7 +168,9 @@ impl App {
                     log::warn!("saved seed: could not delete {file_name}: {error}");
                 }
                 let layout = Self::skirmish_saved_seed_layout(state, SavedSeedMode::Delete);
-                let rows = SeedListGeometry::new(layout.list, 0, 0).visible_rows;
+                let rows =
+                    SeedListGeometry::new(layout.list, 0, 0, ListMetrics::scaled(layout.scale))
+                        .visible_rows;
                 let empty = state
                     .frontend
                     .skirmish_shell_state
@@ -332,8 +332,14 @@ impl App {
         let Some(rect) = layout.name_edit else {
             return;
         };
-        let available =
-            (crate::ui::skirmish_shell::player_name_edit_text_rect(rect).w - 2).max(0) as u32;
+        // The fit width is in the font's authored units, so the field's base
+        // rect is what the caret-scroll math needs.
+        let available = (crate::ui::skirmish_shell::player_name_edit_text_rect(
+            layout.scale.base_rect(rect),
+            crate::ui::shell::geom::ShellScale::RETAIL,
+        )
+        .w - 2)
+            .max(0) as u32;
         let Some(browser) = state
             .frontend
             .skirmish_shell_state

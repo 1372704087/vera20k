@@ -190,12 +190,14 @@ class NativeAudioPlatform:
         self.prepared_files = MappingProxyType({})
         self.os_clock, self.os_device = None, None
         self.os_buffer_devices = None
+        self.new_buffer_device = None
         self.critical_calls = frozenset()
         self.clock_calls, self.file_io, self.device_io = [], [], []
         self.device_stop_updates_status = False
 
     def configure_transport(self, *, prepared_files=None, clock=None,
-                            device=None, buffer_devices=None, critical_calls=None):
+                            device=None, buffer_devices=None, new_buffer_device=None,
+                            critical_calls=None):
         """Admit raw OS inputs; native readers, clocks and consumers still run.
 
         Files are immutable bytes selected/pinned by the caller; an explicit
@@ -206,6 +208,8 @@ class NativeAudioPlatform:
         by device-buffer identities returned by this transport; unlisted
         buffers retain the configured global behavior. Existing controls retain their zero-cursor
         and unsupported-clock defaults unless these inputs are configured.
+        An optional new-buffer template admits explicit status/cursors at each
+        returned identity and records it; native Stop is the sole status0 transition.
         """
         if prepared_files is not None:
             values = {str(name).lower(): None if raw is None else bytes(raw)
@@ -221,6 +225,16 @@ class NativeAudioPlatform:
             if not set(buffer_devices) <= set(self.buffers):
                 raise ValueError('Per-buffer OS inputs require returned device-buffer identities')
             self.os_buffer_devices = buffer_devices
+        if new_buffer_device is not None:
+            if set(new_buffer_device) != {'value', 'play_cursor', 'write_cursor'} or any(
+                    type(value) is not int or not 0 <= value < 1 << 32
+                    for value in new_buffer_device.values()):
+                raise ValueError('New-buffer OS input requires DWORD status/play/write cursors')
+            # An explicitly declared OS input template, not a native event or
+            # clock result. Old fixtures retain their unconfigured behavior.
+            self.new_buffer_device = dict(new_buffer_device)
+            if self.os_buffer_devices is None:
+                self.os_buffer_devices = {}
         if critical_calls is not None:
             self.critical_calls = frozenset(critical_calls)
 
@@ -256,6 +270,12 @@ class NativeAudioPlatform:
             self.cursor += (length + 0xFFF) & ~0xFFF
             assert self.cursor < 0x32400000
             self.buffers[pointer] = data, length
+            if self.new_buffer_device is not None:
+                device = dict(self.new_buffer_device)
+                self.os_buffer_devices[pointer] = device
+                self.device_io.append(dict(phase=self.owner.phase,
+                    kind='declared_new_buffer_OS_input', buffer=pointer,
+                    data=data, bytes=length, **device))
         return pointer
 
     def hook(self, u, pc, size):
@@ -875,18 +895,32 @@ class EngineerJoinedFixture(construction.JoinedFixture):
     def rng(self):
         return dict(super().rng(), mapgen=bytes(self.u.mem_read(0xABE890, 0x3F4)).hex())
 
-    def house_prior(self, house, buildings=()):
+    def house_prior(self, house, buildings=(), *, native_building_counts=False):
         u = self.u
         items = self.heap
         self.heap += 0x200
         u.mem_write(house + 0x68, dwords(0x7E4488, items, 128, 1, len(buildings), 10))
         if buildings:
             u.mem_write(items, dwords(*buildings))
+        counts = [len(buildings)]
+        if native_building_counts:
+            # Declared House prior, indexed by the original type getter used
+            # by Add_Tracking4FF79B..4FF7B1. Preserve the historical GAPOWR
+            # index-zero prior for the default comparison profile.
+            indices = []
+            for building in buildings:
+                typ = self.read32(building + 0x520)
+                indices.append(construction.invoke(u,
+                    self.read32(self.read32(typ) + 0x40), typ))
+            assert all(0 <= index < 128 for index in indices)
+            counts = [0] * (max(indices, default=0) + 1)
+            for index in indices:
+                counts[index] += 1
         for offset in (0x5500, 0x5550):
             items = self.heap
             self.heap += 0x200
-            u.mem_write(house + offset, dwords(0x7E449C, items, 128, 1, 1, 10))
-            u.mem_write(items, dwords(len(buildings)))
+            u.mem_write(house + offset, dwords(0x7E449C, items, 128, 1, len(counts), 10))
+            u.mem_write(items, dwords(*counts))
         # Supplied already-admitted ordinary building quantity. Original
         # Remove_Tracking4FF550/Add_Tracking4FF700 mutate this native total.
         u.mem_write(house + 0x2F0, dwords(len(buildings)))
@@ -895,7 +929,7 @@ class EngineerJoinedFixture(construction.JoinedFixture):
         u.mem_write(house + 0x150, dwords(0))
         construction.invoke(u, 0x50BF60, house)
 
-    def second_house_prior(self, allied=False):
+    def second_house_prior(self, allied=False, *, native_building_counts=False):
         u = self.u
         house = self.heap
         self.heap += 0x6000
@@ -905,8 +939,8 @@ class EngineerJoinedFixture(construction.JoinedFixture):
         u.mem_write(house + 0x1EC, b'\0')
         u.mem_write(house + 0x5788, dwords(3 if allied else 2))
         u.mem_write(HOUSE + 0x5788, dwords(3 if allied else 1))
-        self.house_prior(HOUSE)
-        self.house_prior(house, (BLD,))
+        self.house_prior(HOUSE, native_building_counts=native_building_counts)
+        self.house_prior(house, (BLD,), native_building_counts=native_building_counts)
         u.mem_write(BLD + 0x21C, dwords(house))
         return house
 
@@ -938,17 +972,39 @@ class EngineerJoinedFixture(construction.JoinedFixture):
         assert end == RET_MAGIC, f'ordinary suffix entered unexecuted fallback {end:08X}'
         return u.reg_read(UC_X86_REG_EAX)
 
-    def repair_target_prior(self):
+    def repair_target_prior(self, *, target_name='GAPOWR', native_unlimbo=False):
         u = self.u
         for y in range(32):
             for x in range(32):
                 u.mem_write(cell(x, y) + 0xE4, dwords(0))
                 u.mem_write(cell(x, y) + 0x12C, dwords(0x18))
                 u.mem_write(cell(x, y) + 0x48, dwords(-1))
-        self.building('GAPOWR', BLD, BLD_ITEMS, health=374, coord=(10, 10))
-        typ = self.types['GAPOWR']
+        if native_unlimbo:
+            # Shared admitted-map/House input, followed by the complete
+            # original Building constructor and Unlimbo. The caller's
+            # building() configuration preserves native health/sample/UID.
+            self.house_prior(HOUSE)
+        self.building(target_name, BLD, BLD_ITEMS,
+                      health=None if native_unlimbo else 374, coord=(10, 10))
+        typ = self.types[target_name]
         self.building_foundation_dimensions = (
             construction.invoke(u, 0x45EC90, typ), construction.invoke(u, 0x45ECA0, typ, 0))
+        if native_unlimbo:
+            position = self.allocate(12)
+            u.mem_write(position, dwords(10 * 256 + 128, 10 * 256 + 128, 0))
+            self.phase = 'setup_original_building_unlimbo'
+            before = self.rng()
+            result = construction.invoke(u, 0x440580, BLD, position, 0)
+            self.building_native_admission = dict(entry=0x440580, result=result,
+                coord=list(struct.unpack('<3i', u.mem_read(position, 12))),
+                health=self.read32(BLD + 0x6C), sampled_health=self.read32(BLD + 0x544),
+                native_id=self.read32(BLD + 0x10),
+                limbo=u.mem_read(BLD + 0x81, 1)[0], marked=u.mem_read(BLD + 0x74, 1)[0],
+                logic_member=u.mem_read(BLD + 0x98, 1)[0],
+                rng_before=before, rng_after=self.rng())
+            assert result & 255 == 1, self.building_native_admission
+            self.owner_houses = [HOUSE]
+            return
         for y in range(10, 10 + self.building_foundation_dimensions[1]):
             for x in range(10, 10 + self.building_foundation_dimensions[0]):
                 u.mem_write(cell(x, y) + 0xE4, dwords(BLD))

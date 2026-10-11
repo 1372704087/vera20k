@@ -1121,13 +1121,11 @@ mod tests {
             "tools/spatial_oracle/sqrt_approx_distances.json",
         ))
         .unwrap();
-        let rules = GeneralRules {
-            chrono_trigger: true,
-            chrono_distance_factor: 1,
-            chrono_minimum_delay: 0,
-            chrono_range_minimum: 0,
-            ..default_rules()
-        };
+        let mut rules = default_rules();
+        rules.chrono_trigger = true;
+        rules.chrono_distance_factor = 1;
+        rules.chrono_minimum_delay = 0;
+        rules.chrono_range_minimum = 0;
         let rows = corpus["teleport"].as_array().unwrap();
         for row in rows {
             let [owner, destination] = [&row["owner"], &row["destination"]]

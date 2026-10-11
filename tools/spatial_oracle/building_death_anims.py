@@ -259,7 +259,7 @@ JOINED_TRANSPORT = frozenset((0x527AF9, 0x527B0C, 0x41C27D, 0x41C2CB, 0x41C28C,
     0x55A965, 0x55A987, 0x7CAA5E))
 
 
-def joined_inputs(root, *, damage_fires=False, stock_smudges=False):
+def joined_inputs(root, *, damage_fires=False, stock_smudges=False, damage_sound=False):
     import hashlib
     from collections import deque
     from types import SimpleNamespace
@@ -274,6 +274,9 @@ def joined_inputs(root, *, damage_fires=False, stock_smudges=False):
     anim_names = JOINED_ANIMS + (JOINED_DAMAGE_FIRES if damage_fires else ())
     extra_assets = JOINED_EXTRA_ASSETS + tuple(name + '.SHP' for name in
                                              (JOINED_DAMAGE_FIRES if damage_fires else ()))
+    building_names = (*bc.JOINED_NAMES, 'CAMISC03') if damage_sound else bc.JOINED_NAMES
+    if damage_sound:
+        extra_assets += ('CTMISC03.SHP',)
     m = er.prepare_joined_inputs(root)
     u, read = m.u, m.read32
     original_ret = m.ret
@@ -301,7 +304,7 @@ def joined_inputs(root, *, damage_fires=False, stock_smudges=False):
     # This does not stand in for a physical map load or whole Rules::Process.
     inherited_map = sections((root / 'Hills.mmx').read_bytes())
     scenario_map = sections((root / 'Hills.map').read_bytes())
-    selected_map_sections = (*bc.JOINED_NAMES, 'General', 'AudioVisual',
+    selected_map_sections = (*building_names, 'General', 'AudioVisual',
         'CombatDamage', 'ENGINEER', 'E1', 'CTECH', 'MTNK', '105mm', '105mmE',
         'Cannon', 'AP', 'Americans', 'ElevationModel', 'Radiation')
     inherited_projection = {name: inherited_map.get(name) for name in selected_map_sections}
@@ -345,7 +348,20 @@ def joined_inputs(root, *, damage_fires=False, stock_smudges=False):
     tank = m.alloc(0xF00)
     m.invoke(0x7470D0, tank, (m.cstring('MTNK'),))
     m.types['MTNK'] = tank
+    if damage_sound:
+        pointer = m.alloc(0x2000)
+        m.invoke(0x45DD90, pointer, (m.cstring('CAMISC03'),))
+        m.types['CAMISC03'] = pointer
     wanted = {'Dummy', 'BuildingRepaired', 'PowerPlantDie', 'GrizzlyTankAttack'}
+    if damage_sound:
+        # Select the actual authored per-type and fallback names in layer
+        # order; original7510D0/45FE50/6691E0 still own their binding.
+        for filename in ('RULESMD.INI', 'LANGRULE.INI', 'MPBattleMD.ini', 'Hills.map'):
+            path = root / filename
+            if path.exists():
+                layer = sections(path.read_bytes())
+                wanted.update(layer.get('CAMISC03', {}).get('DamageSound', '').split(','))
+                wanted.update(layer.get('AudioVisual', {}).get('BuildingDamageSound', '').split(','))
     for name in anim_names:
         for key in ('Report', 'StartSound'):
             wanted.update(art.get(name, {}).get(key, '').split(','))
@@ -359,7 +375,8 @@ def joined_inputs(root, *, damage_fires=False, stock_smudges=False):
                       for name in sorted(wanted)]
     selected_art = {name: art[name] for name in (*bc.JOINED_ART_NAMES, *anim_names,
                     'MTNK', 'GTNK', 'Cannon', '120MM', 'GI', 'GISequence',
-                    'ENGINEER', 'EngineerSequence', 'CIV3', 'CivilianSequence') if name in art}
+                    'ENGINEER', 'EngineerSequence', 'CIV3', 'CivilianSequence',
+                    *(('CAMISC03',) if damage_sound else ())) if name in art}
     m.death_art_input_sections = dict(selected_art,
         **{name: art.get(name) for name in ('E1', 'GI', 'GISequence', 'GAPOWR', 'gtpowexp')})
     m.make_ini(selected_art)
@@ -389,7 +406,7 @@ def joined_inputs(root, *, damage_fires=False, stock_smudges=False):
             m.death_layers.append(dict(file=filename, absent=True))
             continue
         physical = sections(path.read_bytes())
-        retained = {name: physical[name] for name in (*bc.JOINED_NAMES, 'General',
+        retained = {name: physical[name] for name in (*building_names, 'General',
             'AudioVisual', 'CombatDamage', 'E1', 'CTECH', 'MTNK', '105mm', '105mmE',
             'Cannon', 'AP', 'Americans', 'ElevationModel', 'Radiation') if name in physical}
         # Physical inputs for the Rust fixture's existing production readers.
@@ -409,7 +426,7 @@ def joined_inputs(root, *, damage_fires=False, stock_smudges=False):
                            (0x66FCD8, 0x66FCF7), (0x670BEC, 0x670C72)):
             rule_block(begin, end, rules_ini)
         building_reads = {name: m.invoke(0x45FE50, m.types[name], (rules_ini,)) & 255
-                          for name in bc.JOINED_NAMES}
+                          for name in building_names}
         e1_result = m.invoke(0x5240A0, m.types['E1'], (rules_ini,)) & 255
         tank_result = m.invoke(0x747620, tank, (rules_ini,)) & 255
         assert read(tank + 0x898) == weapon
@@ -422,7 +439,10 @@ def joined_inputs(root, *, damage_fires=False, stock_smudges=False):
         for entry in (0x66D530, 0x66D150, 0x66CF70):
             m.invoke(entry, m.rules, (rules_ini,))
         if m.invoke(0x526810, rules_ini, (m.cstring('AudioVisual'),)):
-            rule_block(0x66B3C4, 0x66B3E4, rules_ini)
+            if damage_sound:
+                m.invoke(0x6691E0, m.rules, (rules_ini,))
+            else:
+                rule_block(0x66B3C4, 0x66B3E4, rules_ini)
         if m.invoke(0x526810, rules_ini, (m.cstring('CombatDamage'),)):
             for begin, end in ((0x66CD66, 0x66CD8C), (0x66C184, 0x66C287), (0x66CE2C, 0x66CE57)):
                 rule_block(begin, end, rules_ini)
@@ -452,6 +472,15 @@ def joined_inputs(root, *, damage_fires=False, stock_smudges=False):
         m.death_anim_rows.append(dict(pointer=pointer, **m.result(name, pointer, admitted),
             assets=m.asset_loaded[mark:], physical_art_keys=art.get(name)))
     m.weapon, m.warhead = weapon, warhead
+    if damage_sound:
+        m.damage_sound_inputs = dict(target='CAMISC03',
+            strength=read(m.types['CAMISC03'] + 0xA0),
+            per_type_id=struct.unpack('<i', u.mem_read(m.types['CAMISC03'] + 0x538, 4))[0],
+            global_id=struct.unpack('<i', u.mem_read(m.rules + 0x714, 4))[0],
+            image_assets=[row for row in m.asset_loaded if 'MISC03' in str(row)])
+        m.make_ini({})
+        m.voice_theme_ini = m.alloc(0x40)
+        u.mem_write(m.voice_theme_ini, bytes(u.mem_read(INI, 0x40)))
     m.death_country_sides = dict(entry='0x00672440', result=side_result, countries=countries,
                                 physical_sides=physical_rules['Sides'])
     m.death_input_execution = dict(instruction_addresses=[f'0x{pc:08X}' for pc in sorted(executed)],
@@ -624,7 +653,8 @@ def joined_stock_observer(f):
     u.hook_add(UC_HOOK_CODE,observe);u.hook_add(UC_HOOK_MEM_WRITE,write)
     return dict(f=f,calls=calls,writes=writes,pcs=pcs,pending=pending,snapshot=snapshot)
 
-def joined_fixture(inputs, health, *, seed=31, building_ai=False, drive_startup=False):
+def joined_fixture(inputs, health, *, seed=31, building_ai=False, drive_startup=False,
+                   damage_sound=False):
     import hashlib
     from collections import deque
     from types import SimpleNamespace
@@ -640,6 +670,8 @@ def joined_fixture(inputs, health, *, seed=31, building_ai=False, drive_startup=
     from tools.spatial_oracle.infantry_entry_raw import STARTUP as INFANTRY_STARTUP
 
     class Fixture(er.EngineerJoinedFixture):
+        transport_entries = JOINED_TRANSPORT
+
         def __init__(self):
             self.transport = SimpleNamespace(m=self, trace=deque(maxlen=40), events=[],
                                             pending={}, frame=0, phase='setup')
@@ -786,6 +818,14 @@ def joined_fixture(inputs, health, *, seed=31, building_ai=False, drive_startup=
                 self.building_constructor['logic_member_98'] = u.mem_read(pointer + 0x98, 1)[0]
                 assert self.building_constructor['logic_member_98'] == 0
                 self.building_constructor['abstract_flags'] = self.read32(pointer + 0x14)
+            if damage_sound:
+                # Original43B740/6F2B40 own +6C and43B78F owns +544=0.
+                # No post-constructor Strength/health/UID/marked prior.
+                self.building_constructor.update(type=name,
+                    health=self.read32(pointer + 0x6C),
+                    sampled_health=self.read32(pointer + 0x544))
+                self.phase = 'setup'
+                return
             # Main retains the actual whole43B740 constructor result. The
             # historical direct control deliberately keeps its partial prior.
             place_building(u, pointer, coord, constructor_abstract_flags=(
@@ -836,21 +876,60 @@ def joined_fixture(inputs, health, *, seed=31, building_ai=False, drive_startup=
         before_hex=before_offsets, after_hex=bytes(u.mem_read(0x89E9F0, 60)).hex(),
         rng_before=before, rng_after=f.rng())
     assert before == f.rng()
+    if damage_sound:
+        # Original CRT entry813AA4 -> thunk561900 -> whole561910 owns
+        # AreaDamage's369 signed CellSpread pairs at ABD490..ABDA50.
+        # A cold BSS table repeats the centre cell. Keep legacy fixtures'
+        # declared cold premise; this selected ordinary shot executes its
+        # prerequisite instead of supplying offsets or deduplicating hits.
+        f.phase = 'setup_selected_cell_spread_crt_startup'
+        before = f.rng()
+        draws, advances = len(f.draws), len(f.advances)
+        before_table = bytes(u.mem_read(0xABD490, 369 * 4))
+        crt_entry = read(0x813AA4)
+        assert crt_entry == 0x561900
+        returned = bc.invoke(u, 0x561910, 0)
+        after_table = bytes(u.mem_read(0xABD490, 369 * 4))
+        f.cell_spread_startup = dict(entry=0x561910, crt_pointer=0x813AA4,
+            original_crt_entry=crt_entry, original_thunk=0x561900,
+            table_address=0xABD490, pair_count=369, returned=returned,
+            before_hex=before_table.hex(), after_hex=after_table.hex(),
+            before_pairs=[list(pair) for pair in struct.iter_unpack('<hh', before_table)],
+            after_pairs=[list(pair) for pair in struct.iter_unpack('<hh', after_table)],
+            rng_before=before, rng_after=f.rng(),
+            requests=f.draws[draws:].copy(), advances=f.advances[advances:].copy(),
+            limits='Whole original initializer at the selected fixture startup; full CRT/process/Scenario admission remains outside this fixture.')
+        f.phase = 'setup'
+        # Execute the registered Tactical CRT group in its original table
+        # order. In particular6D1BB0 derives B0CD48 from earlier original
+        # initializers; the inherited presentation scale is not a golden.
+        entries = struct.unpack('<20I', u.mem_read(0x814E58, 80))
+        assert entries[-2:] == (0x6D1BB0, 0x6D1BF0)
+        before, globals_before = f.rng(), bytes(u.mem_read(0xB0CD40, 0x120)).hex()
+        for entry in entries:
+            bc.invoke(u, entry, 0)
+        f.tactical_projection_startup = dict(crt_table=0x814E58,
+            entries=list(entries), before_hex=globals_before,
+            after_hex=bytes(u.mem_read(0xB0CD40, 0x120)).hex(),
+            z_scale_f64_bits=bytes(u.mem_read(0xB0CD48, 8)).hex(),
+            rng_before=before, rng_after=f.rng())
     bc.invoke(u, FOUNDATION_INIT, 0)
     bc.invoke(u, 0x42E6F0, er.HOUSE + 0x5700)
-    f.repair_target_prior()
+    f.repair_target_prior(target_name='CAMISC03' if damage_sound else 'GAPOWR',
+                          native_unlimbo=damage_sound)
     # The reused Engineer command fixture supplies UID1000 and a duplicate
     # lookup row. Retain the actual full-ctor assigned ID instead; the native
     # registry row already exists. This is declared admitted-state setup.
-    original_id = f.building_constructor['native_id']
-    assert read(er.BLD + 0x10) == 1000 and read(0xB0E844) >= 2
-    lookup, count = read(0xB0E840), read(0xB0E844)
-    assert list(struct.unpack('<2I', u.mem_read(lookup + (count - 1) * 8, 8))) == [1000, er.BLD]
-    u.mem_write(er.BLD + 0x10, dwords(original_id))
-    u.mem_write(0xB0E844, dwords(count - 1))
-    u.mem_write(er.BLD + 0x6E8, b'\0')  # supplied ordinary prior: no paid repair active.
+    if not damage_sound:
+        original_id = f.building_constructor['native_id']
+        assert read(er.BLD + 0x10) == 1000 and read(0xB0E844) >= 2
+        lookup, count = read(0xB0E840), read(0xB0E844)
+        assert list(struct.unpack('<2I', u.mem_read(lookup + (count - 1) * 8, 8))) == [1000, er.BLD]
+        u.mem_write(er.BLD + 0x10, dwords(original_id))
+        u.mem_write(0xB0E844, dwords(count - 1))
+        u.mem_write(er.BLD + 0x6E8, b'\0')  # supplied ordinary prior: no paid repair active.
     bc.invoke(u, 0x455F10, er.BLD, 0)
-    owner = f.second_house_prior(allied=False)
+    owner = f.second_house_prior(allied=False, native_building_counts=damage_sound)
     f.owner_houses = [er.HOUSE, owner]
     u.mem_write(owner + 0x1EC, b'\1')
     bc.invoke(u, 0x42E6F0, owner + 0x5700)
@@ -860,8 +939,9 @@ def joined_fixture(inputs, health, *, seed=31, building_ai=False, drive_startup=
             u.mem_write(house + off, struct.pack('<d', 1.0))
         for off in (0x5514, 0x5564):
             u.mem_write(house + off, dwords(0x7E449C, f.allocate(4096), 1024, 1, 1, 10))
-    u.mem_write(er.BLD + 0x6C, dwords(health))
-    u.mem_write(er.BLD + 0x544, dwords(health))
+    if not damage_sound:
+        u.mem_write(er.BLD + 0x6C, dwords(health))
+        u.mem_write(er.BLD + 0x544, dwords(health))
     u.mem_write(owner + 0x5778, b'\1')
     surface = f.allocate(0x40)
     u.mem_write(surface, dwords(0x7E2070, 640, 480, 0, 2, 0, 0, 0))
@@ -880,7 +960,7 @@ def joined_fixture(inputs, health, *, seed=31, building_ai=False, drive_startup=
         class_height_plane_sha256=hashlib.sha256(plane).hexdigest(),
         prior='33x33 class/height samples; class0/level0 interior1..31, class7/level0 border; supplied flat clear Cell data; original connectivity and Pathfinder execute',
         native_zone_count=read(MAP + 0x4C))
-    if building_ai:
+    if building_ai and not damage_sound:
         # +12C is the already-revealed client view (original4876F0 ORs18).
         # Infantry raw occupation is independent at+124/+128; only native
         # admissions/marking/placement below may populate these words.
@@ -925,7 +1005,7 @@ def joined_fixture(inputs, health, *, seed=31, building_ai=False, drive_startup=
     for off in (0x388, 0x3A0):
         bc.invoke(u, 0x4C9300, f.source + off, heading)
     f.ready_facing = read(heading)
-    if building_ai:
+    if building_ai and not damage_sound:
         # The inherited target prior supplies marked74 and the ground list,
         # but does not execute BuildingMark's raw+124 producer. Reinsert the
         # already-admitted main target through the original owner: Mark0 ->
@@ -959,7 +1039,7 @@ def joined_fixture(inputs, health, *, seed=31, building_ai=False, drive_startup=
     return f
 
 
-def joined_execute(inputs, *, projectile, seed=31, building_ai=False):
+def joined_execute(inputs, *, projectile, seed=31, building_ai=False, damage_sound=False):
     from unicorn import UC_HOOK_CODE, UC_HOOK_MEM_WRITE
     from unicorn.x86_const import UC_X86_REG_EDI, UC_X86_REG_EAX, UC_X86_REG_EIP
     from tools import native_oracle as native
@@ -967,7 +1047,13 @@ def joined_execute(inputs, *, projectile, seed=31, building_ai=False):
     from tools.spatial_oracle.refinery_dock import cell
     from tools.spatial_oracle.building_body_rules import SP
     from tools.spatial_oracle.unit_source_scatter import SCENARIO
-    f = joined_fixture(inputs, 38 if projectile else 374, seed=seed, building_ai=building_ai)
+    f = joined_fixture(inputs, None if damage_sound else (38 if projectile else 374),
+        seed=seed, building_ai=building_ai, damage_sound=damage_sound)
+    audio = None
+    if damage_sound:
+        from tools.input_oracle.unit_voice_playback import VoiceHistory
+        audio = VoiceHistory(inputs, 'CAMISC03_' + ('FireAt' if projectile else 'receiver'),
+            fixture=f, actor_count=0, coordinate_profile=True)
     stock = joined_stock_observer(f) if hasattr(inputs, 'stock_smudge_inputs') else None
     u, read = f.u, f.read32
     watched = {0x741340: 'unit_fire', 0x6FDD50: 'techno_fire', 0x46B050: 'bullet_allocate',
@@ -1168,6 +1254,9 @@ def joined_execute(inputs, *, projectile, seed=31, building_ai=False):
 
     f.phase = 'initial_house_power_prefix'
     power_prefix()
+    if damage_sound:
+        audio.invoke('whole_original_building_initial_health_sample', 0x43FB20, er.BLD)
+        assert read(er.BLD + 0x6C) == read(er.BLD + 0x544) == 100
     result = dict(input=dict(route='mtnk_105mm_ap_fatal' if projectile else 'direct_ap_multi_hit_control',
         seed=seed, health=38 if projectile else 374, paid_repair=False, tag=None,
         building_owner='human Allied enemy House', ready_mtnk=bool(projectile),
@@ -1190,8 +1279,14 @@ def joined_execute(inputs, *, projectile, seed=31, building_ai=False):
                             name=f.string(read(smudge_items + i * 4) + 0x24)) for i in range(smudge_count)],
                 selected_smudge_readers_executed=False,
                 prior='inherited empty SmudgeType registry; physical SmudgeTypes reader/map-smudge startup excluded; original center roll and reached placers execute'))
-        result['building_mark_admission'] = f.building_mark_admission
-        result['building_logic_registration'] = f.logic_registration
+        if damage_sound:
+            result['input'].update(route='mtnk_105mm_ap_ordinary' if projectile else 'direct_ap_ordinary',
+                health=100, admission='whole original440580, supplied admitted map/House inputs')
+            result['building_native_admission'] = f.building_native_admission
+            result['tactical_projection_startup'] = f.tactical_projection_startup
+        else:
+            result['building_mark_admission'] = f.building_mark_admission
+            result['building_logic_registration'] = f.logic_registration
         result['unit_unlimbo'] = f.unit_unlimbo
         result['infantry_startup'] = f.infantry_startup
         result['unit_target_assignment'] = f.unit_target_assignment
@@ -1205,10 +1300,13 @@ def joined_execute(inputs, *, projectile, seed=31, building_ai=False):
     ordered.clear();checkpoints.clear();raw_next.clear();writes.clear()
     if projectile:
         f.phase = 'original_unit_fire'
-        slot = bc.invoke(u, 0x746CD0, f.source, er.BLD)
-        error = bc.invoke(u, 0x740FD0, f.source, er.BLD, slot, 1)
+        slot = (audio.invoke('whole_original_weapon_slot', 0x746CD0, f.source, er.BLD)
+                if damage_sound else bc.invoke(u, 0x746CD0, f.source, er.BLD))
+        error = (audio.invoke('whole_original_can_fire', 0x740FD0, f.source, er.BLD, slot, 1)
+                 if damage_sound else bc.invoke(u, 0x740FD0, f.source, er.BLD, slot, 1))
         assert error == 0, error
-        bullet = bc.invoke(u, 0x741340, f.source, er.BLD, slot)
+        bullet = (audio.invoke('whole_original_unit_fire', 0x741340, f.source, er.BLD, slot)
+                  if damage_sound else bc.invoke(u, 0x741340, f.source, er.BLD, slot))
         assert bullet
         result['shot'] = dict(slot=slot, fire_error=error, bullet=bullet,
             bullet_id=read(bullet + 0x10), raw_damage=signed(bullet + 0x6C),
@@ -1234,28 +1332,52 @@ def joined_execute(inputs, *, projectile, seed=31, building_ai=False):
             bc.invoke(u, 0x725C70, 0)
         else:
             raise AssertionError('No impact in30original dynamic Logic visits')
-        assert not u.mem_read(er.BLD + 0x90, 1)[0], 'represented shot was not fatal'
+        if damage_sound:
+            # Record the original outcome rather than supply a direct-receiver
+            # answer to this separate FireAt/AreaDamage composition.
+            result['native_impact_state'] = snapshot()
+            # Preserve this independent FireAt outcome before the later PCM
+            # transport phase, including on a bounded observer failure there.
+            import json, sys
+            print('NATIVE_FIRE_IMPACT ' + json.dumps(dict(shot=result['shot'],
+                frame=result['native_impact_state']['frame'],
+                health=result['native_impact_state']['health'],
+                sampled_health=result['native_impact_state']['sampled_health'],
+                alive=result['native_impact_state']['alive'],
+                location=result['native_impact_state']['building_coord'],
+                rng=result['native_impact_state']['rng'])), file=sys.stderr, flush=True)
+        else:
+            assert not u.mem_read(er.BLD + 0x90, 1)[0], 'represented shot was not fatal'
         result['frames'] = frames
     else:
         damage_pointer = f.allocate(4)
         result['receiver_visits'] = []
-        for visit in range(1, 30):
+        for visit in range(1, 2 if damage_sound else 30):
             f.phase = f'direct_AP_receiver_{visit}'
             u.mem_write(damage_pointer, dwords(read(inputs.weapon + 0xA4)))
             before = snapshot()
-            answer = bc.invoke(u, 0x442230, er.BLD, damage_pointer, 0, inputs.warhead, 0, 0, 0, 0)
+            answer = (audio.invoke('whole_original_building_receiver', 0x442230,
+                      er.BLD, damage_pointer, 0, inputs.warhead, f.source, 0, 0, 0)
+                      if damage_sound else bc.invoke(u, 0x442230, er.BLD,
+                      damage_pointer, 0, inputs.warhead, 0, 0, 0, 0))
             after_receiver = snapshot()
             f.phase = 'direct_control_health_sample_and_power'
-            u.reg_write(UC_X86_REG_ESP, SP)
-            u.reg_write(UC_X86_REG_ESI, er.BLD)
-            native.run_checked(u, 0x440042, 0x440072)
+            if damage_sound:
+                audio.invoke('whole_original_building_post_damage_health_sample', 0x43FB20, er.BLD)
+            else:
+                u.reg_write(UC_X86_REG_ESP, SP)
+                u.reg_write(UC_X86_REG_ESI, er.BLD)
+                native.run_checked(u, 0x440042, 0x440072)
             power_prefix()
             result['receiver_visits'].append(dict(before=before, result=answer,
                 after_receiver=after_receiver, after_sample_and_power=snapshot()))
             if not u.mem_read(er.BLD + 0x90, 1)[0]:
                 break
         else:
-            raise AssertionError('No fatal result in30direct stock AP controls')
+            if damage_sound:
+                assert answer == 1 and read(er.BLD + 0x6C) == 62
+            else:
+                raise AssertionError('No fatal result in30direct stock AP controls')
     if stock is not None:
         result['input']['smudge_registry_prior'].update(
             selected_smudge_readers_executed=True,
@@ -1285,6 +1407,10 @@ def joined_execute(inputs, *, projectile, seed=31, building_ai=False):
             calls=stock['calls'],cell_writes=stock['writes'],
             executed=[f'0x{pc:08X}' for pc in sorted(stock['pcs'])],
             final=stock['snapshot']())
+    if damage_sound:
+        result['cell_spread_startup'] = f.cell_spread_startup
+        result['coordinate_audio_lifecycle'] = audio.natural_coordinate_end()
+        result['damage_sound_audio'] = audio.project()
     return result
 
 
@@ -1408,6 +1534,322 @@ def joined_main(argv):
     from tools.native_oracle import finish_vectors
     finish_vectors(joined_generate, Path(__file__).with_name('building_death_anims_joined.json'),
                    provenance=joined_metadata, argv=argv,source_paths=joined_source_paths())
+
+
+def damage_sound_object_identity(f, pointer):
+    """Raw identity inputs shared by this producer's whole receiver controls."""
+    owner = f.read32(pointer + 0x21C)
+    house_type = f.read32(owner + 0x34)
+    return dict(pointer=pointer, native_id=f.read32(pointer + 0x10),
+        location=list(struct.unpack('<3i', f.u.mem_read(pointer + 0x9C, 12))),
+        owner=owner, house_type_pointer=house_type, house_type_name=f.string(house_type + 0x24))
+
+
+def damage_sound_receiver_controls(inputs):
+    """Whole receivers with explicit packets, retaining native health history."""
+    from tools.input_oracle.unit_voice_playback import VoiceHistory
+    from tools.spatial_oracle import engineer_repair_admission as er
+    f = joined_fixture(inputs, None, building_ai=True, damage_sound=True)
+    h = VoiceHistory(inputs, 'CAMISC03_packet_admission_controls', fixture=f,
+                     actor_count=0, coordinate_profile=True)
+    h.invoke('whole_original_initial_health_sample', 0x43FB20, er.BLD)
+    projection = h.projection_controls()
+    packet = f.allocate(4)
+    result = dict(input=dict(target='CAMISC03', strength=f.read32(f.types['CAMISC03'] + 0xA0),
+        can_c4=f.u.mem_read(f.types['CAMISC03'] + 0x1577, 1)[0],
+        per_type_id=struct.unpack('<i', f.u.mem_read(f.types['CAMISC03'] + 0x538, 4))[0],
+        packet_boundary='Declared signed int receiver ABI inputs; health only from constructor or previous whole receiver.',
+        source='original admitted MTNK', warhead='original stock AP', distance=0),
+        building_constructor=f.building_constructor,
+        building_native_admission=f.building_native_admission,
+        cell_spread_startup=f.cell_spread_startup,
+        tactical_projection_startup=f.tactical_projection_startup,
+        projection_controls=projection, steps=[])
+    result['input'].update(source_object=damage_sound_object_identity(f, f.source),
+                          target_object=damage_sound_object_identity(f, er.BLD))
+    for label, entry, raw, ignore in (
+        ('Object_raw_zero', 0x5F5390, 0, 1),
+        ('Techno_raw_zero', 0x701900, 0, 1),
+        ('Building_raw_zero', 0x442230, 0, 1),
+        ('Building_full_health_heal', 0x442230, -1, 0),
+        ('Techno_defended_zero', 0x701900, 0, 0),
+        ('Building_defended_zero', 0x442230, 0, 0),
+        ('Building_heal_after_zero', 0x442230, -1, 0),
+        ('Building_stock_105mm_packet', 0x442230, f.read32(inputs.weapon + 0xA4), 0),
+        ('Building_heal_after_stock_damage', 0x442230, -1, 0),
+        ('Building_heal_below_strength', 0x442230, -7, 0),
+    ):
+        f.u.mem_write(packet, dwords(raw))
+        before, call_start = h.snapshot(), len(h.events)
+        draw_start, advance_start = len(f.draws), len(f.advances)
+        answer = h.invoke(label, entry, er.BLD, packet, 0, inputs.warhead,
+                          f.source, ignore, 0, 0)
+        after, call_end = h.snapshot(), len(h.events)
+        import copy
+        receiver_draws = copy.deepcopy(f.draws[draw_start:])
+        receiver_advances = copy.deepcopy(f.advances[advance_start:])
+        h.invoke(label + '_whole_AI_health_sample', 0x43FB20, er.BLD)
+        calls = h.events[call_start:call_end]
+        result['steps'].append(dict(label=label, entry=entry, supplied_damage=raw,
+            ignore_defenses=bool(ignore), damage_packet_after=struct.unpack('<i', f.u.mem_read(packet, 4))[0],
+            result=answer, before=before, after_receiver=after, after_sample=h.snapshot(),
+            requests=receiver_draws, advances=receiver_advances,
+            coordinate_attempts=[{k: v for k, v in row.items() if k not in ('before', 'after')}
+                                 for row in calls if row.get('kind') == 'CoordinateRequest'],
+            packet_readbacks=[{k: v for k, v in row.items() if k not in ('before', 'after')}
+                for row in calls if row.get('kind') in ('BuildingReceiver', 'TechnoReceiver',
+                    'ObjectReceiver', 'WarheadDamageKernel', 'receiver_packet_site')],
+            ordered_receiver_calls=[dict(kind=row.get('kind'), pc=row.get('pc'),
+                phase=row.get('phase')) for row in calls if row.get('kind') in
+                ('BuildingReceiver', 'TechnoReceiver', 'ObjectReceiver', 'CoordinateRequest')]))
+    h.invoke('original_request_clear', 0x750FA0, 0)
+    h.audio(1034)
+    result['audio'] = h.project()
+    return result
+
+
+def damage_sound_generate(*, profile='all'):
+    """Selected ordinary DamageSound path on the existing joined world."""
+    import hashlib, os
+    from tools.native_oracle import NATIVE_SHA256
+    root = Path(os.environ['VERA20K_BUILDING_DEATH_ASSETS'])
+    inputs = joined_inputs(root, damage_fires=True, damage_sound=True)
+    result = dict(schema_version=1, source='unicorn/gamemd.exe', native_sha256=NATIVE_SHA256,
+        selected_profile=profile,
+        retail_files=[dict(name=p.name, size=p.stat().st_size,
+            sha256=hashlib.sha256(p.read_bytes()).hexdigest())
+            for p in sorted(root.iterdir()) if p.is_file() and p.suffix.lower() != '.json'],
+        selected_sounds=inputs.death_sounds, selected_inputs=inputs.damage_sound_inputs,
+        death_layers=inputs.death_layers, physical_art_input_sections=inputs.death_art_input_sections,
+        native_asset_loads=inputs.asset_loaded,
+        routes=[joined_execute(inputs, projectile=projectile, building_ai=True, damage_sound=True)
+                for projectile in {'all': (False, True), 'direct': (False,),
+                                   'fire': (True,), 'receiver': (), 'audio': (),
+                                   'threshold': ()}[profile]])
+    if profile in ('all', 'receiver'):
+        result['receiver_controls'] = damage_sound_receiver_controls(inputs)
+    if profile in ('all', 'audio'):
+        from tools.input_oracle.unit_voice_playback import VoiceHistory
+        f = joined_fixture(inputs, None, building_ai=True, damage_sound=True)
+        h = VoiceHistory(inputs, 'CAMISC03_shared_audio_owner_controls', fixture=f,
+                         actor_count=0, coordinate_profile=True)
+        ids = {row['name']: row['fixture_index'] for row in inputs.death_sounds}
+        result['audio_core_controls'] = h.audio_core_controls(
+            ids['BuildingMetalDamaged'], ids['GrizzlyTankAttack'])
+        result['audio_core_controls']['cell_spread_startup'] = f.cell_spread_startup
+    if profile in ('all', 'threshold'):
+        result['threshold_controls'] = damage_sound_threshold_controls(inputs)
+    return result
+
+
+def damage_sound_threshold_controls(inputs):
+    """Synthetic reference controls through existing full native readers."""
+    import os
+    from tools.input_oracle.unit_voice_playback import VoiceHistory
+    from tools.spatial_oracle import engineer_repair_admission as er
+    from tools.spatial_oracle.building_body_rules import INI
+    from tools.rules_oracle.bridge_child_sound import sections
+    m = inputs
+    original_type = m.types['CAMISC03']
+    physical = sections((Path(os.environ['VERA20K_BUILDING_DEATH_ASSETS']) / 'RULESMD.INI').read_bytes())
+    raw_type = dict(physical['CAMISC03'])
+    rows, global_reads = [], []
+    for label, reference in (('absent', None), ('empty', ''),
+            ('unregistered', 'UNREGISTERED_DAMAGE_SOUND_CONTROL'),
+            ('registered_Dummy', 'Dummy'), ('registered_stock', raw_type['DamageSound'])):
+        name = 'DSC_' + label
+        pointer = m.alloc(0x2000)
+        m.invoke(0x45DD90, pointer, (m.cstring(name),))
+        initial = struct.unpack('<i', m.u.mem_read(pointer + 0x538, 4))[0]
+        raw = dict(raw_type, Image='CAMISC03')
+        raw.pop('DamageSound', None)
+        if reference is not None:
+            raw['DamageSound'] = reference
+        # Declared section-name/Image translation admits the same physical
+        # type fields. Only the reference under test differs; no native ID,
+        # health/sample, threshold, RNG or timer result is supplied.
+        m.make_ini({name: raw})
+        admitted = m.invoke(0x45FE50, pointer, (INI,)) & 255
+        assert admitted == 1, (name, admitted)
+        bound = struct.unpack('<i', m.u.mem_read(pointer + 0x538, 4))[0]
+        m.types['CAMISC03'] = pointer
+        f = joined_fixture(m, None, building_ai=True, damage_sound=True)
+        h = VoiceHistory(m, 'reference_' + label, fixture=f, actor_count=0, coordinate_profile=True)
+        h.invoke('initial_native_health_sample', 0x43FB20, er.BLD)
+        packet, steps = f.allocate(4), []
+        for order in range(3):
+            f.u.mem_write(packet, dwords(50))
+            before, start = h.snapshot(), len(h.events)
+            draw_start, advance_start = len(f.draws), len(f.advances)
+            call_label = 'whole_receiver_threshold_' + str(order)
+            result = h.invoke(call_label, 0x442230,
+                             er.BLD, packet, 0, m.warhead, f.source, 0, 0, 0)
+            calls, after = h.events[start:], h.snapshot()
+            steps.append(dict(label=call_label, entry=0x442230, ignore_defenses=False,
+                supplied_damage=50, result=result,
+                damage_packet_after=struct.unpack('<i', f.u.mem_read(packet, 4))[0],
+                before=before, after_receiver=after,
+                requests=f.draws[draw_start:].copy(), advances=f.advances[advance_start:].copy(),
+                coordinate_attempts=[{k: v for k, v in call.items() if k not in ('before', 'after')}
+                    for call in calls if call.get('kind') == 'CoordinateRequest'],
+                packet_readbacks=[{k: v for k, v in call.items() if k not in ('before', 'after')}
+                    for call in calls if call.get('kind') in ('BuildingReceiver', 'TechnoReceiver',
+                    'ObjectReceiver', 'WarheadDamageKernel', 'receiver_packet_site')]))
+            h.invoke('native_health_sample_after_threshold_' + str(order), 0x43FB20, er.BLD)
+            steps[-1]['after_sample'] = h.snapshot()
+        h.invoke('original_clear_threshold_requests', 0x750FA0, 0)
+        rows.append(dict(label=label, synthetic_input_section={name: raw},
+            input=dict(source_object=damage_sound_object_identity(f, f.source),
+                target_object=damage_sound_object_identity(f, er.BLD), warhead='original stock AP', distance=0),
+            reference=reference, constructor_id=initial, reader_result=admitted, native_bound_id=bound,
+            global_bound_id=struct.unpack('<i', m.u.mem_read(m.rules + 0x714, 4))[0],
+            building_constructor=f.building_constructor, building_native_admission=f.building_native_admission,
+            cell_spread_startup=f.cell_spread_startup,
+            steps=steps, audio=h.project(),
+            limits='Synthetic name/Image/reference controls over physical CAMISC03 fields; original full type/receiver bodies, not a stock alternate type or scenario producer.'))
+    # Later empty/invalid passes retain the registered global ID. Full AV
+    # owns this same selected fallback; no field-specific resolver is used.
+    for label, raw in (('empty', ''), ('unregistered', 'UNREGISTERED_DAMAGE_SOUND_CONTROL'),
+                      ('registered_stock', physical['AudioVisual']['BuildingDamageSound'])):
+        before = struct.unpack('<i', m.u.mem_read(m.rules + 0x714, 4))[0]
+        m.make_ini({'AudioVisual': {'BuildingDamageSound': raw}})
+        returned = m.invoke(0x6691E0, m.rules, (INI,))
+        global_reads.append(dict(label=label, raw=raw, before=before, returned=returned,
+            after=struct.unpack('<i', m.u.mem_read(m.rules + 0x714, 4))[0]))
+    m.types['CAMISC03'] = original_type
+    return dict(histories=rows, global_later_passes=global_reads,
+        limits='Constructor defaults/parser capacity/trim/case reader controls remain separately preserved in the accepted original reader packet. These are new full-reader/receiver integration controls.')
+
+
+def damage_sound_projection(data):
+    """Select original observations; the formatter archives every raw byte.
+
+    Ordinary receiver/projection and shared-core Rust comparisons consume
+    named boundaries, not each of the300/299/201 admission-loop snapshots.
+    No HP, event, timer, PCM or RNG answer is computed by this projection.
+    """
+    import copy
+    result = copy.deepcopy(data)
+    bulk_prefixes = ('full_pool_nonpositional_', 'state4_pool_nonpositional_',
+                     'inaudible_request_capacity_')
+    def retained(row):
+        label = row['label']
+        return not any(label.startswith(prefix) and label[len(prefix):].isdigit()
+                       for prefix in bulk_prefixes)
+    def history(value, *, boundaries=True, extra=()):
+        keys = ('name', 'initial', 'inputs', 'final', 'complete_rng_states',
+                'original_code_unchanged', 'platform_transport')
+        selected = {key: value[key] for key in keys if key in value}
+        if boundaries:
+            prefixes = ('audio_pump_', 'original_worker_', 'whole_game_pause_',
+                        'whole_game_resume_', 'registered_Limit2_request_')
+            names = {'coordinate_natural_end', 'coordinate_before_nested_pause',
+                     'new_request_during_nested_pause_depth_zero',
+                     'original_request_clear_while_live'}
+            selected['boundaries'] = [row for row in value['boundaries'] if
+                row['label'].startswith(prefixes) or row['label'] in names]
+        # IDs are original observer references. Keep the original full bytes
+        # for every referenced stream; unused state copies stay in the archive.
+        states = selected.pop('complete_rng_states')
+        references = set()
+        def collect(value):
+            if isinstance(value, str) and value in states:
+                references.add(value)
+            elif isinstance(value, dict):
+                for item in value.values(): collect(item)
+            elif isinstance(value, list):
+                for item in value: collect(item)
+        collect(selected)
+        collect(extra)
+        selected['complete_rng_states'] = {key: states[key] for key in sorted(references)}
+        return selected
+    result['receiver_controls']['audio'] = history(result['receiver_controls']['audio'],
+        boundaries=False, extra=result['receiver_controls']['steps'])
+    for row in result['threshold_controls']['histories']:
+        row['audio'] = history(row['audio'], boundaries=False, extra=row['steps'])
+    # Rust consumes the direct receiver/threshold histories and named core
+    # controls. The executed Fire routes and these controls have no Rust
+    # consumer yet; they stay in the checked raw archive.
+    for key in ('routes', 'native_asset_loads', 'physical_art_input_sections'):
+        del result[key]
+    core = result['audio_core_controls']
+    del core['cell_spread_startup']
+    archived_controls = {
+        'position_out_of_range_id_unbinds', 'position_valid_after_invalid',
+        'disabled_position_retains_handle', 'disabled_nonpositional_retains_handle',
+        'position_inaudible_stops_retains_entry', 'out_of_range_request_node_no_event',
+        'inaudible_request_node_no_event', 'invalid_inaudible_nodes_reaped',
+        'suspended_request_service_and_new_request_redrive',
+        'clear_requests_and_dead_event_reap'}
+    core['controls'] = [row for row in core['controls']
+                        if retained(row) and row['label'] not in archived_controls]
+    core['history'] = history(core['history'], extra=[core['controls'], core['natural_end']])
+    def lifecycle(value):
+        selected = {key: item for key, item in value.items()
+                    if key not in ('all_native_rng_requests', 'all_raw_advances')}
+        pcm = selected['pcm_observation']
+        for key in ('callbacks', 'blocks'):
+            pcm[key] = [{name: item for name, item in row.items()
+                         if name not in ('output_writes', 'nibble_calls', 'count_writes')}
+                        for row in pcm[key]]
+        return selected
+    core['natural_end'] = lifecycle(core['natural_end'])
+    result['projection_manifest'] = dict(
+        retained_core_control_labels=[row['label'] for row in core['controls']],
+        retained_core_boundary_labels=[row['label'] for row in core['history']['boundaries']],
+        omitted_bulk_admission_prefixes=list(bulk_prefixes),
+        archived_core_control_labels=sorted(archived_controls),
+        limits='Named exact observations and their referenced full RNG states only; repeated raw traces, scoped timer/detach writes, every bulk admission, the executed Fire routes and the archived controls remain in the checked full raw archive. The Fire fixture executes original CellSpread startup before the ready/faced shot; full scenario/input acquisition/approach/turning and later weapon cadence remain fixture boundaries.')
+    return result
+
+
+def damage_sound_metadata():
+    return provenance(scope='Stock MTNK/105mm/AP ordinary damage to genuine CAMISC03, per-type retained-coordinate DamageSound requests',
+        entry_points=dict(building_ctor=0x43B740, building_unlimbo=0x440580,
+            cell_spread_startup=0x561910,
+            building_ai=0x43FB20, health_sample_store=0x44006C,
+            building_receiver=0x442230, techno_receiver=0x701900,
+            object_receiver=0x5F5390, unit_fire=0x741340,
+            coordinate_request=0x750E20, positional_play=0x7509E0,
+            coordinate_service=0x750EC0, positional_redrive=0x750D40,
+            spatial_gain=0x750AC0, coords_to_client=0x6D2140),
+        assumptions=[
+            'Existing joined_inputs owns original selected full constructors/readers and lexical RULESMD/optional LANGRULE/Battle/Hills layers. Complete scenario/House/factory admission and physical cache loading are fixture boundaries.',
+            'Distinct genuine CAMISC03 retains original43B740 health100/sample0/UID/flags. Original440580 owns Unlimbo/Mark/Logic admission against supplied clear Cells/House. Whole43FB20 owns the first sample100; no post-constructor health or sampled-health value is supplied.',
+            'Selected joined-fixture startup invokes whole original561910 via the existing invocation owner, recording CRT813AA4/thunk561900, all369 signed CellSpread pairs and full RNG/draw readbacks. This prerequisite is separate from full CRT/process/Scenario admission. Historical default fixtures keep their cold uninitialized CellSpread premise and cannot establish ordinary AreaDamage parity.',
+            'Direct receiver and original ready/faced MTNK FireAt/Bullet/AreaDamage are separate routes on the same existing fixture implementation. Earlier target acquisition/input/approach/turning and subsequent weapon cadence remain outside the native fixture.',
+            'VoiceHistory attaches to the same Unicorn world, existing NativeAudioPlatform, invocation/worker and observer. It does not create a second world, listener, registry, platform or audio service.',
+            'Viewport/camera/surface values are declared consumer inputs. Native projection readbacks/constants/outputs are observed; no native camera producer or rendered/audible hardware parity is claimed.',
+            'Full Scenario/Main/MapGen states and original RNG requests, native request/event readbacks and scoped memory writes are retained. Opaque CdTimer middle words are not numeric timer assertions.'],
+        substitutions=['Existing joined lexical cache/file/allocator/COM/CRT/platform boundaries only; original gameplay/audio/projection instructions are unchanged.'])
+
+
+def damage_sound_main(argv):
+    # Load inherited observer/PCM owners before finish_vectors' source guard.
+    from tools.input_oracle import unit_voice_playback as voice
+    sources = dict(joined_source_paths(), **voice.source_paths())
+    root = Path(__file__).resolve().parents[2]
+    sources['tools/input_oracle/unit_voice_playback.py'] = root / 'tools/input_oracle/unit_voice_playback.py'
+    selected = [arg for arg in argv if arg.startswith('--damage-sound-profile=')]
+    if len(selected) > 1:
+        raise ValueError('Select one damage-sound profile')
+    profile = selected[0].split('=', 1)[1] if selected else 'all'
+    if profile not in ('all', 'direct', 'fire', 'receiver', 'audio', 'threshold'):
+        raise ValueError('Unknown damage-sound profile: ' + profile)
+    argv = [arg for arg in argv if not arg.startswith('--damage-sound-profile=')]
+    def metadata():
+        result = damage_sound_metadata()
+        result['selected_profile'] = profile
+        if profile == 'all':
+            result['projection_limits'] = ('Existing finish_vectors retains the complete raw archive. '
+                'Projection selects named original controls/receiver steps/24projection outputs and referenced full RNG states/PCM bytes; no derived answers. '
+                'Selected original CellSpread startup/ready-faced FireAt/impact and full receiver are executed on declared fixture inputs; the Fire routes are archived, not projected. '
+                'Full scenario admission and input/approach/turning/rearm cadence are outside this comparison.')
+        return result
+    finish_vectors(lambda: damage_sound_generate(profile=profile),
+        Path(__file__).with_name('building_damage_sound_joined.json'),
+        provenance=metadata, argv=argv, source_paths=sources,
+        projection=damage_sound_projection if profile == 'all' else None)
 
 
 
@@ -1621,6 +2063,11 @@ def constructed_cancellation_main(argv):
 
 if __name__ == "__main__":
     import sys
+    if '--damage-sound-joined' in sys.argv[1:]:
+        if {'--joined', '--joined-stock-smudges', '--constructed-cancellation'} & set(sys.argv[1:]):
+            raise SystemExit('Select one native corpus mode')
+        damage_sound_main([arg for arg in sys.argv[1:] if arg != '--damage-sound-joined'])
+        raise SystemExit(0)
     if '--joined-stock-smudges' in sys.argv[1:]:
         if '--joined' in sys.argv[1:] or '--constructed-cancellation' in sys.argv[1:]:
             raise SystemExit('Select one native corpus mode')

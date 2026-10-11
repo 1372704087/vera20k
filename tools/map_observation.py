@@ -240,6 +240,17 @@ def _bounded_int(value: Any, label: str, minimum: int, maximum: int) -> int:
     return number
 
 
+def _finite_number(value: Any, label: str) -> None:
+    if type(value) not in (int, float):
+        raise ValidationError(f'{label} must be finite')
+    try:
+        finite = math.isfinite(value)
+    except OverflowError:
+        finite = False
+    if not finite:
+        raise ValidationError(f'{label} must be finite')
+
+
 def _coordinate(value: Any, label: str, *, leptons: bool = False,
                 packed_cell: bool = False) -> list[int]:
     coordinate = require_array(value, label)
@@ -1481,16 +1492,12 @@ def _sidebar_observation(value: Any, label: str) -> int:
         if type(value) is not bool:
             raise ValidationError(f'{name} must be boolean')
 
-    def finite(value, name):
-        if type(value) not in (int, float) or not math.isfinite(value):
-            raise ValidationError(f'{name} must be finite')
-
     def rect(value, name):
         coordinates = require_array(value, name)
         if len(coordinates) != 4:
             raise ValidationError(f'{name} must contain x, y, width and height')
         for index, number in enumerate(coordinates):
-            finite(number, f'{name}[{index}]')
+            _finite_number(number, f'{name}[{index}]')
         if coordinates[2] < 0 or coordinates[3] < 0:
             raise ValidationError(f'{name} has a negative extent')
 
@@ -1530,7 +1537,7 @@ def _sidebar_observation(value: Any, label: str) -> int:
             _bounded_int(item['cost'], f'{item_label}.cost', -(1 << 31), (1 << 31) - 1)
         if item['queue_category'] not in ('Building', 'Defense', 'Infantry', 'Vehicle', 'Aircraft', 'Ship'):
             raise ValidationError(f'{item_label}.queue_category is unknown')
-        finite(item['progress'], f'{item_label}.progress')
+        _finite_number(item['progress'], f'{item_label}.progress')
         _bounded_int(item['queued_count'], f'{item_label}.queued_count', 0, (1 << 64) - 1)
     for key in ('scroll_up', 'scroll_down'):
         control = require_object(row[key], f'{label}.{key}')
@@ -1642,7 +1649,32 @@ def _segment_clock(step: int, segments: list, *, after_inputs=False, gesture_ord
 
 def _sound_state(value: Any, label: str) -> int:
     state = require_object(value, label)
-    require_exact_keys(state, ('main_rng_cursor', 'scenario_rng_cursor', 'actors'), label)
+    require_exact_keys(state, ('main_rng_cursor', 'scenario_rng_cursor', 'actors',
+                              *(('coordinate_requests',) if 'coordinate_requests' in state else ())), label)
+    requests = state.get('coordinate_requests')
+    if requests is not None:
+        requests = require_array(requests, f'{label}.coordinate_requests')
+        if len(requests) > 200:
+            raise ValidationError(f'{label}.coordinate_requests exceeds the native request pool')
+        seen = set()
+        for index, value in enumerate(requests):
+            at = f'{label}.coordinate_requests[{index}]'
+            request = require_object(value, at)
+            require_exact_keys(request, ('request_id', 'sound_id', 'source_world_pixels',
+                                         'source_cell', 'suspend_depth'), at)
+            identity = _bounded_int(request['request_id'], f'{at}.request_id', 1, (1 << 64) - 1)
+            if identity in seen:
+                raise ValidationError(f'{label}.coordinate_requests duplicates an owner')
+            seen.add(identity)
+            if request['sound_id'] is not None and not require_string(request['sound_id'], f'{at}.sound_id'):
+                raise ValidationError(f'{at}.sound_id must be nonempty or null')
+            point = require_array(request['source_world_pixels'], f'{at}.source_world_pixels')
+            if len(point) != 2:
+                raise ValidationError(f'{at}.source_world_pixels must hold two pixels')
+            for axis, pixel in enumerate(point):
+                _finite_number(pixel, f'{at}.source_world_pixels[{axis}]')
+            _coordinate(request['source_cell'], f'{at}.source_cell')
+            _bounded_int(request['suspend_depth'], f'{at}.suspend_depth', -(1 << 31), (1 << 31) - 1)
     for key in ('main_rng_cursor', 'scenario_rng_cursor'):
         cursor = require_array(state[key], f'{label}.{key}')
         if len(cursor) != 2:
@@ -1667,7 +1699,7 @@ def _sound_state(value: Any, label: str) -> int:
             # Historical receipts may omit the pair; no state is inferred.
             for key in gattling_fields:
                 _bounded_int(row[key], f'{label}.{key}', -(1 << 31), (1 << 31) - 1)
-    return len(actors) + 2
+    return len(actors) + 2 + (len(requests) if requests is not None else 0)
 
 
 def _load_segments(value: Any, profile: Mapping[str, Any]) -> list:
@@ -1729,7 +1761,10 @@ def _audio_observation(value: Any, profile: Mapping[str, Any]) -> None:
     pool_finish = any(key in audio for key in AUDIO_POOL_FINISH_FIELDS)
     require_exact_keys(audio, ('policy', 'point', 'completion_tail_ms', 'tail_draw_count',
                                'settled', 'truncated', 'outputs', *(('voice_actions',) if voices else ()),
-                               *(AUDIO_POOL_FINISH_FIELDS if pool_finish else ())), label)
+                               *(AUDIO_POOL_FINISH_FIELDS if pool_finish else ()),
+                               *(('coordinate_request_count_at_finish',) if 'coordinate_request_count_at_finish' in audio else ())), label)
+    if 'coordinate_request_count_at_finish' in audio and audio['coordinate_request_count_at_finish'] is not None:
+        _bounded_int(audio['coordinate_request_count_at_finish'], f'{label}.coordinate_request_count_at_finish', 0, 200)
     if pool_finish:
         counts = [audio[key] for key in AUDIO_POOL_FINISH_FIELDS]
         if any(value is None for value in counts):
@@ -1776,7 +1811,7 @@ def _audio_observation(value: Any, profile: Mapping[str, Any]) -> None:
                 raise ValidationError('audio live allocation requires its occupied pool slot')
         if row['owner'] is not None:
             _bounded_int(row['owner'], f'{row_label}.owner', 1, (1 << 64) - 1)
-        if voices and (row['owner_role'] not in (None, 'positional', 'unit_voice')
+        if voices and (row['owner_role'] not in (None, 'positional', 'unit_voice', 'coordinate_request')
                        or (row['owner_role'] is None) != (row['owner'] is None)):
             raise ValidationError('audio owner role differs from its typed owner')
         if require_string(row['sound_id'], f'{row_label}.sound_id').upper() not in {name.upper() for name in config['sound_ids']}:
@@ -2699,6 +2734,8 @@ def export_audio(directory: Path, output: Path) -> dict[str, Any]:
             name = f'submission-{event["submission"]}-event-{event["event"]}-span-{index}.wav'
             payloads.append((name, wav))
             files.append({'file_name': name, 'submission': event['submission'], 'event': event['event'], 'sound_id': event['sound_id'],
+                          'owner': event['owner'],
+                          **({'owner_role': event['owner_role']} if 'owner_role' in event else {}),
                           **({key: event[key] for key in AUDIO_FINISH_FIELDS} if 'event_serial' in event else {}),
                           **({key: event[key] for key in AUDIO_PLAYBACK_FIELDS} if 'playback_clips' in event else {}),
                           'resolved_samples': event['resolved_samples'], 'channels': channels, 'sample_rate': rate,
@@ -2712,6 +2749,8 @@ def export_audio(directory: Path, output: Path) -> dict[str, Any]:
               'source_manifest': checked.capture.manifest.public_identity(), 'point': audio['point'],
               **({key: audio[key] for key in AUDIO_POOL_FINISH_FIELDS}
                  if 'live_event_count_at_finish' in audio else {}),
+              **({'coordinate_request_count_at_finish': audio['coordinate_request_count_at_finish']}
+                 if 'coordinate_request_count_at_finish' in audio else {}),
               'files': files, 'native_comparator': 'NONE', 'parity_certification': 'NONE'}
     write_json_exclusive(output / 'audio.json', report)
     return report

@@ -175,7 +175,7 @@ use crate::sim::animation;
 use crate::sim::bridge_state::BridgeRuntimeState;
 use crate::sim::combat::combat_weapon::WeaponSlot;
 use crate::sim::command::CommandEnvelope;
-use crate::sim::components::{AnimClassSpawnDescriptor, Position};
+use crate::sim::components::{AnimClassSpawnDescriptor, DriveCoord, Position};
 use crate::sim::entity_store::EntityStore;
 use crate::sim::house_state::HouseState;
 use crate::sim::house_strategy;
@@ -522,6 +522,12 @@ pub enum SimSoundEvent {
         sub_y: SimFixed,
         world_z_leptons: i32,
     },
+    /// VocClass::PlayAtCoord750E20 retains the full signed native coordinate
+    /// and owns its playback handle independently of the source object.
+    VocAtCoord {
+        sound_id: String,
+        coordinate: DriveCoord,
+    },
     /// `TechnoClass::AI_Update @ 0x006FA054..0x006FA145` crossed a rank.
     ///
     /// Native plays `[AudioVisual] UpgradeVeteranSound=`/`UpgradeEliteSound=`
@@ -726,33 +732,6 @@ pub enum SimSoundEvent {
     /// First-occupant SFX from rulesmd [AudioVisual] BuildingGarrisonedSound.
     /// Positional cue gated on owner == local human.
     BuildingGarrisonedSfx { owner: InternedId, rx: u16, ry: u16 },
-    /// A struck building crossed a damage-state threshold and its type carries
-    /// no `DamageSound=` of its own — the global `[AudioVisual]
-    /// BuildingDamageSound=` cue, played at the building's own coordinate.
-    ///
-    /// gamemd: `BuildingClass::ReceiveDamage @ 0x00442230`. After the shared
-    /// Techno receiver returns at `0x00442425`, `0x0044242C MOV AL,[ESI+0x90]`
-    /// (`ObjectClass::IsAlive`) skips the whole dispatch for a dead building;
-    /// otherwise `0x00442476 JMP [EAX*4 + 0x00442C18]` with `EAX = result - 2`
-    /// enters `{0x004426AC, 0x004426C8, 0x004424A2, 0x0044247D}`. Entry 0
-    /// (result 2) multiplies the `float` at `+0xE8` of the object pointed to
-    /// by `BuildingClass+0x30C` by `1.5f` (`0x007E4460`) when that pointer is
-    /// non-null, then falls through into entry 1 (result 3). The identity of
-    /// that object is UNCHECKED: it is written once by
-    /// `BuildingClass::Unlimbo @ 0x00440F5B` from `CALL 0x0062DC50` on
-    /// `[BuildingTypeClass+0x764]` and is read and rewritten by
-    /// `BuildingClass::UpdateGapGenerator_Tick` (`0x00454E7F`, `0x0045500C`).
-    /// Both entries reach `0x004426D2 CMP [type+0x538],-1`, and only an absent
-    /// per-type `DamageSound=` continues to
-    /// `0x00442700 MOV ECX,[Rules+0x714]` / `0x00442706 CALL
-    /// VocClass::PlayAtCoord @ 0x00750E20` at `[ESI+0x9C]`.
-    ///
-    /// Results 2 and 3 are the threshold crossings computed by
-    /// `ObjectClass::ReceiveDamage @ 0x005F5390`: 2 when the hit took HP from
-    /// `>= Strength >> 1` to below it, 3 when it took HP from above
-    /// `Strength * Rules+0x1708` (ConditionRed) to below it. Ordinary hits
-    /// that cross nothing return 1 and are silent.
-    BuildingDamagedSfx { rx: u16, ry: u16 },
     /// Tank-bunker walls-up cue — emitted on install. App resolves to
     /// [AudioVisual] BunkerWallsUpSound (retail "TankBunkerUp").
     BunkerWallsUp { rx: u16, ry: u16 },

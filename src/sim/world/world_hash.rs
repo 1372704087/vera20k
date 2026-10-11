@@ -2906,15 +2906,12 @@ mod state_hash_field_tests {
                 let mut sim = Simulation::new();
                 let owner = sim.interner.intern("Computer1");
                 let mut house = HouseState::new(owner, 0, None, false, 0, 10);
-                let general = crate::rules::ruleset::GeneralRules {
-                    difficulty_rows: [0.8, 1.0, 1.2].map(|rof| {
-                        crate::rules::ruleset::DifficultyRules {
-                            rof,
-                            ..Default::default()
-                        }
-                    }),
-                    ..Default::default()
-                };
+                let mut general = crate::rules::ruleset::GeneralRules::default();
+                general.difficulty_rows =
+                    [0.8, 1.0, 1.2].map(|rof| crate::rules::ruleset::DifficultyRules {
+                        rof,
+                        ..Default::default()
+                    });
                 house.set_difficulty(
                     HouseDifficulty::Hard,
                     &general,

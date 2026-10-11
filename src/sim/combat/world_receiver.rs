@@ -701,7 +701,6 @@ pub(crate) fn commit_entities(
             healing_only,
             latch_hostile_hit,
             uncloak_after_damage,
-            building_damage_cue,
             threat_feedback,
         }) = receiver_health::commit_receiver_health(
             event,
@@ -717,6 +716,31 @@ pub(crate) fn commit_entities(
         else {
             continue;
         };
+
+        // Techno701900 result1 (switch table702D24 entry 1) selects
+        // 702713..7027A9: two distinct Voc750E20 retained-coordinate requests
+        // at direct Location+9C. The arm's own tail7027AE (only reached from
+        // 702775) holds the protected-Techno call7027E9 before common7027F7.
+        // Each request reaches the existing synchronous sound boundary before
+        // later receiver consequences can spend Main.
+        // The exact-zero override70202E takes the death arm instead.
+        if receive_state == damage::DamageState::Damaged && !entered_techno_death && sound_enabled {
+            for _ in 0..2 {
+                if let Some(target) = world.substrate.entities.get(target_id)
+                    && let Some(sound_id) = rules
+                        .object(world.interner.resolve(target.type_ref()))
+                        .and_then(|object| object.damage_sound())
+                {
+                    let coordinate =
+                        crate::sim::movement::ground_pose::position_world_coord(&target.position);
+                    world.sound_events.push(SimSoundEvent::VocAtCoord {
+                        sound_id: sound_id.to_owned(),
+                        coordinate,
+                    });
+                    run.effects().flush_sound(world, Some(rules));
+                }
+            }
+        }
 
         // Techno ReceiveDamage702049 selects result 2's arm702695. The
         // percent draw precedes House50B6F0; accepted lists spend one raw
@@ -753,6 +777,8 @@ pub(crate) fn commit_entities(
         // ObjectClass has committed health/visual state and before the dead
         // branch. `ShouldProtect+0x3CF` has no active YR writer; `ToProtect=`
         // is the exact live gate retained here.
+        // RESIDUAL (#1422): that tail belongs to result 1 only; this call is
+        // not yet gated on the damage result.
         let protected_techno_response = attacker_id != RAD_NO_ATTACKER
             && world
                 .substrate
@@ -1065,12 +1091,6 @@ pub(crate) fn commit_entities(
             }
         }
 
-        if let Some((rx, ry)) = building_damage_cue
-            && let Some(sink) = sound_enabled.then_some(&mut world.sound_events)
-        {
-            sink.push(SimSoundEvent::BuildingDamagedSfx { rx, ry });
-        }
-
         if synchronous_retaliation && attacker_id != RAD_NO_ATTACKER {
             #[cfg(test)]
             death
@@ -1147,6 +1167,36 @@ pub(crate) fn commit_entities(
             }
             death.append(nested);
         }
+
+        // Building442425 has returned from the complete Techno receiver,
+        // including its retaliation tail, before this live dispatch:
+        // alive44242C, results2/3 at442476 and resolved type+538==-1 at4426D2.
+        // The global Rules+714 request442706 uses direct Location+9C, not
+        // virtual+48/GetCoords. Read here instead of latching admission and
+        // coordinates before callbacks. Flush before Building's own response.
+        // Residual outside this no-emitter route: result2's non-null gap
+        // generator +30C/+E8 multiplication at4426AC precedes this gate.
+        if matches!(
+            receive_state,
+            damage::DamageState::Yellow | damage::DamageState::Red
+        ) && sound_enabled
+            && let Some(target) = world.substrate.entities.get(target_id)
+            && target.category == EntityCategory::Structure
+            && target.lifecycle.object_alive
+            && rules
+                .object(world.interner.resolve(target.type_ref()))
+                .is_some_and(|object| object.damage_sound().is_none())
+            && let Some(sound_id) = rules.general.building_damage_sound()
+        {
+            let coordinate =
+                crate::sim::movement::ground_pose::position_world_coord(&target.position);
+            world.sound_events.push(SimSoundEvent::VocAtCoord {
+                sound_id: sound_id.to_owned(),
+                coordinate,
+            });
+            run.effects().flush_sound(world, Some(rules));
+        }
+
         // `BuildingClass::ReceiveDamage`'s retaliation block
         // (`0x00442942..0x00442A90`, [`Simulation::building_hit_response`])
         // runs after the IsAlive re-test (`0x00442905`; `+0x90` is

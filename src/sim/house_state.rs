@@ -1800,12 +1800,10 @@ mod difficulty_tests {
             });
             let difficulty =
                 HouseDifficulty::from_native(input["difficulty"].as_i64().unwrap() as i32).unwrap();
-            let general = crate::rules::ruleset::GeneralRules {
-                difficulty_rows,
-                game_speed_bias: bits(&input["game_speed_bias"]),
-                team_delays: vec![11, 22, 33],
-                ..Default::default()
-            };
+            let mut general = crate::rules::ruleset::GeneralRules::default();
+            general.difficulty_rows = difficulty_rows;
+            general.game_speed_bias = bits(&input["game_speed_bias"]);
+            general.team_delays = vec![11, 22, 33];
             let mut house = HouseState::new(Default::default(), 0, None, false, 0, 10);
             house.set_difficulty(
                 difficulty,

@@ -389,6 +389,7 @@ pub(crate) fn monotonic_frame_pacer_ms(state: &AppState, now: Instant) -> u64 {
 /// the SFX pause, so the sources are combined here, one frame after the movie
 /// starts and ends.
 pub(crate) fn pump_audio_service(state: &mut AppState, now_ms: u64) {
+    crate::app::presentation::building_anim::refresh_coordinate_sound_gains(state);
     // The process audio service remains live while the loading job holds the
     // asset-manager lease. Retained simulations still own Main on the shell;
     // only the process before its first scenario uses the frontend cursor.

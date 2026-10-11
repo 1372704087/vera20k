@@ -292,6 +292,12 @@ explicit Stop invalidates its serial before the reaping pass. Report-level
 `live_event_count_at_finish` and `busy_channel_count_at_finish` retain the
 arbiter's global live-list/channel counts, including unfiltered cues. Their
 capacities are the owner's 300 pool records and 13 ordinary channels.
+`coordinate_request_count_at_finish`, when present, reads the SFX owner's
+independent 200-node Voc750E20 request pool. `null` means that pool was not
+observed. Scoped PCM completion does not imply that this count or the global
+event/channel counts are zero. Retained-coordinate submissions use the typed
+`owner_role:"coordinate_request"`; their request IDs are independent of
+positional actor and unit-voice IDs, even when the numbers coincide.
 Without a final owner snapshot all five output values and both aggregate counts
 are `null`, explicitly unobserved. Historical receipts may omit the entire
 six-field output group and the two-field aggregate group; partial
@@ -349,7 +355,16 @@ fields; a partial pair, null, boolean or out-of-range value is rejected. A
 stage-transition witness must require their presence explicitly rather than
 infer progression from animation, firing counts or nominal ticks. Each row
 charges its actors and both cursors to the shared
-100000-sample budget, including the immediate restored row. Sound RNG and device
+100000-sample budget, including the immediate restored row. Optional
+`audio_state.coordinate_requests` reads the SFX owner's current ordered request
+list without validating handles or driving playback. Each row retains
+`request_id`, the handle's nullable `sound_id`, immutable `source_world_pixels`
+and `source_cell`, and nested `suspend_depth`. The pixels use VERA's absolute
+world frame, including its 15-pixel Y translation; they are not client pixels.
+Each retained request costs one observation sample. An absent field or `null`
+leaves the pool unobserved; an empty array observes an empty pool. Row changes
+can bound request survival and retirement to capture boundaries, but do not
+supply an exact within-step timestamp. Sound RNG and device
 timing are presentation inputs; repeated PCM captures need not be byte-identical.
 
 Export retained PCM after the wrapper validates every byte and summary:

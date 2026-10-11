@@ -30,6 +30,7 @@ use glam::IVec3;
 use crate::rules::ini_parser::IniSection;
 use crate::rules::jumpjet_params::JumpjetParams;
 use crate::rules::locomotor_type::{LocomotorKind, MovementZone, SpeedType};
+use crate::rules::sound_ini::SoundRegistry;
 use crate::rules::terrain_rules::LandType;
 use crate::util::fixed_math::{SimFixed, sim_from_f32};
 
@@ -537,20 +538,16 @@ pub struct ObjectType {
     pub die_sounds: Vec<String>,
     /// `DamageSound=` — `TechnoTypeClass+0x538`, the type's own struck cue.
     ///
-    /// Only its presence is consumed here: `BuildingClass::ReceiveDamage`
-    /// gates the global `[AudioVisual] BuildingDamageSound=` on
-    /// `0x004426D2 CMP [type+0x538],-1`, so a type that names any resolvable
-    /// sound suppresses the global.
-    ///
-    /// RESIDUAL: the per-type cue itself is not routed. Native plays it from
-    /// `TechnoClass::ReceiveDamage @ 0x00701900` arm `0x00702713`/`0x00702717`
-    /// — index **1** of the switch table at `0x00702D24`, i.e. the ordinary
-    /// **non-crossing** hit (damage result 1), not the result-2/3 crossings
-    /// the global rides — and plays it **twice** (`0x00702760`, `0x007027A9`).
-    /// The two cues are therefore mutually exclusive by result, not just by
-    /// the `-1` gate. Trigger / player effect / frequency are recorded in full
-    /// on `crate::audio::events::SoundEventQueue`.
-    pub damage_sound: Option<String>,
+    /// Original gamemd (SHA2561cdd1180e490...) inherited constructor710AF0
+    /// stores the -1 default at710EE9;
+    /// reader712EB7..712F07 passes literal84421C, empty889F64 and capacity128
+    /// to ReadString528A10, then resolves through VocFindIndex7514D0.
+    /// The fixed SOUNDMD catalog binder owns this resolved reference. Native
+    /// result1 plays it twice at702760/7027A9 before the common7027AE tail;
+    /// Building4426D2 also reads this same field to gate its global cue.
+    /// Missing, empty and unregistered names retain the prior resolved ID in
+    /// the existing processed-rules reader, starting at the native -1 default.
+    damage_sound: Option<String>,
     /// Ordered MoveSound vector, TechnoType+4F4. Constructor710E7B..710EAC
     /// creates an empty list; ReadINI713459..7134D9 uses ReadSoundList525430.
     /// The fixed SOUNDMD binder resolves each token, retaining duplicates.
@@ -1835,6 +1832,21 @@ fn native_minutes_to_ticks(value: f64) -> u32 {
 }
 
 impl ObjectType {
+    pub fn damage_sound(&self) -> Option<&str> {
+        self.damage_sound.as_deref()
+    }
+
+    /// Bind TechnoType+538 through the shared registered-reference reader,
+    /// using only passes where this type existed in the native processing order.
+    pub(crate) fn bind_damage_sound_reference(
+        &mut self,
+        section: Option<&IniSection>,
+        sounds: &SoundRegistry,
+    ) {
+        self.damage_sound =
+            section.and_then(|section| sounds.read_rules_reference(section, "DamageSound"));
+    }
+
     /// `Weapon[index]` (`TechnoTypeClass+0x898 + index*0x1C`): the weapon in
     /// base slot `index`, or `None` for an empty slot or an index past the
     /// array. `TechnoTypeClass::ReadINI @ 0x007128B2` writes `Weapon1=` and
@@ -2318,7 +2330,7 @@ impl ObjectType {
                 .read_sound_list("DieSound")
                 .map(|tokens| tokens.into_iter().map(str::to_owned).collect())
                 .unwrap_or_default(),
-            damage_sound: section.read_name("DamageSound", 0x80).map(str::to_owned),
+            damage_sound: None,
             move_sound: section
                 .read_sound_list("MoveSound")
                 .map(|tokens| tokens.into_iter().map(str::to_owned).collect())

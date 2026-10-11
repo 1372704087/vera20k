@@ -25,6 +25,26 @@ pub(crate) fn sound_listener(state: &AppState) -> crate::audio::sfx::SpatialList
     }
 }
 
+/// Refresh retained750E20 sources using the same spatial decision owner
+/// as inline delivery, before the common audio pump (including paused frames).
+pub(crate) fn refresh_coordinate_sound_gains(state: &mut AppState) {
+    let listener = sound_listener(state);
+    let sim = state
+        .match_state
+        .sim_runtime
+        .as_ref()
+        .map(|runtime| &runtime.simulation);
+    let local_owner = preferred_local_owner_name(state);
+    let Some(catalog) = state.process_assets.audio_catalog() else {
+        return;
+    };
+    let spatial =
+        SoundSpatialContext::new(catalog.sounds(), &listener, sim, local_owner.as_deref());
+    if let Some(sfx) = state.audio.sfx_player.as_mut() {
+        sfx.refresh_coordinate_sound_gains(|key, source| spatial.gain_for(key, Some(source)));
+    }
+}
+
 /// Borrowed process sources and listener for one synchronous sound delivery.
 /// The simulation is supplied only for the duration of `consume`.
 pub(crate) struct SoundPlaybackInputs<'a> {
@@ -41,7 +61,21 @@ struct SoundSpatialContext<'a> {
     local_owner_id: Option<crate::sim::intern::InternedId>,
 }
 
-impl SoundSpatialContext<'_> {
+impl<'a> SoundSpatialContext<'a> {
+    fn new(
+        registry: &'a crate::rules::sound_ini::SoundRegistry,
+        listener: &'a crate::audio::sfx::SpatialListener,
+        sim: Option<&'a crate::sim::world::Simulation>,
+        local_owner: Option<&str>,
+    ) -> Self {
+        Self {
+            registry,
+            listener,
+            sim,
+            local_owner_id: local_owner.and_then(|name| sim.and_then(|sim| sim.interner.get(name))),
+        }
+    }
+
     /// `CellClass+0x12C & 0x18 == 0`: unrevealed or gap-covered.
     fn shrouded(&self, rx: u16, ry: u16) -> bool {
         match (self.sim, self.local_owner_id) {
@@ -53,7 +87,8 @@ impl SoundSpatialContext<'_> {
         }
     }
 
-    /// `None` is native volume below 0.05: no sound admission.
+    /// `None` is native volume below 0.05: no event playback. A retained
+    /// Voc750E20 request still keeps its coordinate for the service phase.
     fn gain_for(
         &self,
         sound_id: &str,
@@ -85,12 +120,7 @@ impl SoundPlaybackInputs<'_> {
         sim: Option<&'s crate::sim::world::Simulation>,
         local_owner: Option<&str>,
     ) -> SoundSpatialContext<'s> {
-        SoundSpatialContext {
-            registry: self.catalog.sounds(),
-            listener: &self.listener,
-            sim,
-            local_owner_id: local_owner.and_then(|name| sim.and_then(|sim| sim.interner.get(name))),
-        }
+        SoundSpatialContext::new(self.catalog.sounds(), &self.listener, sim, local_owner)
     }
 
     /// Consume ordered requests through the sole SFX owner. Periodic voice,
@@ -210,6 +240,14 @@ impl SoundPlaybackInputs<'_> {
                         sfx.play_registered_sound_spatial(sound_id, gain, registry);
                     }
                 }
+                GameSoundEvent::VocAtCoord { sound_id, source } => {
+                    sfx.play_sound_at_coord(
+                        sound_id,
+                        *source,
+                        gain_for(sound_id, Some(*source)),
+                        registry,
+                    );
+                }
                 GameSoundEvent::BaseUnderAttackSfx { sound_id } => {
                     // `0x004F95BF MOV EDX,0x2000` / `0x004F95C4 PUSH 0x3F800000`:
                     // pan centred, volume 1.0f, no handle — an ordinary pooled
@@ -224,18 +262,6 @@ impl SoundPlaybackInputs<'_> {
                         SpatialGain::CENTRED_FULL,
                         registry,
                     );
-                }
-                GameSoundEvent::BuildingDamagedSfx { sound_id, source } => {
-                    // `RulesClass::ReadAudioVisual @ 0x006691E0` keeps only the
-                    // `VocClass::FindByName` result in `Rules+0x714`, so a name
-                    // that is not a registered Voc is silence in gamemd and must
-                    // not reach the raw audio-bag fallback here.
-                    if registry.get(sound_id).is_none() {
-                        continue;
-                    }
-                    if let Some(gain) = gain_for(sound_id, *source) {
-                        sfx.play_registered_sound_spatial(sound_id, gain, registry);
-                    }
                 }
                 GameSoundEvent::SuperWeaponActivated {
                     sound_id,

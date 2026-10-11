@@ -273,8 +273,6 @@ def metadata():
             'Original CRT precision tail and WinMain chop selection execute through existing mapgen_range owner. Three original seed1 RNGs remain byte-identical; Unit body and original executable text are checked unchanged.',
             'Cell table is a supplied allocated32x32 square in native512 stride. Guarded parent/path storage and adequate House130x130 threat data are inputs; geometry/occupants are not native-produced.'],
         substitutions=['Existing fixture substitutes only OS InterlockedIncrement/Decrement. No path/admission/threat/height/RNG return or executable code is substituted.'])
-    result['fixture_source_sha256']={name:hashlib.sha256(Path(__file__).with_name(name).read_bytes()).hexdigest()
-        for name in ('unit_source_scatter.py','unit_scatter_state.py','mapgen_range.py','map_queries.py')}
     result['extended_bounds']=[
         'Historical first33 case payloads are frozen by canonical SHA256'+FROZEN_FIRST33_SHA256+'. New cases only append.',
         'Tube records/indexes and missing Map slots are supplied. Original reconstruction emits direction8 from distinct nonadjacent parent Cells; both finishing passes execute unchanged.',

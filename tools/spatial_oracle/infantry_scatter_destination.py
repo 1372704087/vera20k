@@ -368,8 +368,8 @@ def teleport_metadata():
 
 
 def teleport_source_paths():
-    # Final publication binds this existing controller and the production
-    # owners; callers stage unbound native data while those Rust files change.
+    # Final publication binds this existing controller. The native run executes
+    # no Rust; the Rust consumers' own tests compare them.
     from tools.spatial_oracle.anytown_damage import foot_missions
     root = Path(__file__).resolve().parents[2]
     # One existing inventory owns the Mission reader/controller dependency
@@ -384,19 +384,6 @@ def teleport_source_paths():
         'tools/spatial_oracle/infantry_sequence_rules.py',
         'tools/spatial_oracle/infantry_entry_raw.py',
         'tools/projectile_oracle/bridge_render_inputs.py',
-        'src/sim/movement/teleport_movement.rs', 'src/sim/movement/infantry_scatter.rs',
-        'src/sim/movement/motion_query.rs', 'src/sim/movement/walk_head.rs',
-        'src/sim/movement/bump_crush.rs', 'src/sim/cell_kernel.rs',
-        'src/sim/movement/locomotor.rs', 'src/sim/movement/locomotor_owner.rs',
-        'src/sim/movement/mod.rs', 'src/sim/movement/teleport_cell_destination_tests.rs',
-        'src/sim/game_entity.rs', 'src/sim/mission/authority.rs',
-        'src/sim/mission/readiness.rs', 'src/sim/mission/verb.rs',
-        'src/rules/object_type.rs', 'src/rules/native_processing.rs',
-        'src/rules/ruleset.rs', 'src/rules/ini_value.rs',
-        'src/rules/overlay_types.rs', 'src/sim/world/object_entry.rs',
-        'src/sim/world/world_orders.rs', 'src/sim/world/world_commands.rs',
-        'src/sim/movement/track_path.rs', 'src/sim/transport_unload.rs',
-        'src/sim/miner/miner_system.rs', 'src/sim/production/production_queue.rs',
     ]
     paths.update({name: root / name for name in names})
     return paths

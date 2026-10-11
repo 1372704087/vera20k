@@ -155,10 +155,13 @@ if __name__ == "__main__":
                                      'navigation_inputs':Path(astar_mtnk_inputs.navigation_inputs.__file__),
                                      'next_family':Path(astar_mtnk_inputs.next_family_native.__file__)})
     elif '--finishing' in sys.argv:
-        from tools.spatial_oracle import astar_path_finishing
+        from tools.spatial_oracle import (astar_path_finishing, map_queries, mapgen_range,
+                                          unit_scatter_state, unit_source_scatter)
         finish_vectors(astar_path_finishing.generate, Path(__file__).with_name('astar_path_finishing.json'),
                        provenance=astar_path_finishing.metadata,
                        argv=[arg for arg in sys.argv[1:] if arg != '--finishing'],
-                       source_paths={'height_owner':Path(__file__),'finishing':Path(astar_path_finishing.__file__)})
+                       source_paths={'height_owner':Path(__file__),'finishing':Path(astar_path_finishing.__file__),
+                                     **{module.__name__: Path(module.__file__) for module in
+                                        (unit_source_scatter, unit_scatter_state, mapgen_range, map_queries)}})
     else:
         finish_vectors(generate, Path(__file__).with_suffix(".json"), provenance=metadata)

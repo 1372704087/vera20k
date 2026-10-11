@@ -11,9 +11,11 @@ import hashlib
 import struct
 
 from unicorn.x86_const import UC_X86_REG_EAX, UC_X86_REG_ECX, UC_X86_REG_EDI, UC_X86_REG_EIP, UC_X86_REG_ESP
+from tools import native_inspect, native_oracle
 from tools.native_oracle import NATIVE_SHA256, SCRATCH, RET_MAGIC, finish_vectors, provenance, run_checked
 from tools.native_inspect import decode_ranges, instruction_row, selected_ranges
 from tools.native_oracle import image_bytes
+from tools.spatial_oracle import infantry_deploy_action, map_queries
 from tools.spatial_oracle.infantry_deploy_action import Fixture as Base, ACTOR, LOCO, SCENARIO, SP
 from tools.spatial_oracle.map_queries import dwords
 
@@ -192,8 +194,6 @@ def metadata():
         decoded = decode_ranges(span, lambda ins:[instruction_row(ins)])
         snippets.append(dict(start=hex(a), end_exclusive=hex(b), bytes=span[0]['bytes'].hex(),
                              sha256=sha(span[0]['bytes']), **decoded))
-    pins = ('tools/native_oracle.py','tools/native_inspect.py',
-            'tools/spatial_oracle/infantry_deploy_action.py','tools/spatial_oracle/map_queries.py')
     return provenance(scope=__doc__, entry_points={'logic_loop':0x55B5FF,'infantry_ai':AI,'foot_ai':0x4DA530,
         'readiness':0x521B60,'commence':0x5B3570,'thief_capture':0x5202F0,'fear':0x5200B0,
         'fire':0x5206B0,'sequencer':0x520AE0,'movement_actions':0x520F40},
@@ -204,9 +204,11 @@ def metadata():
             'No full shot/emission, locomotor Process, fear transition, sequencer result, Scenario or retail-map comparison is claimed. No original bytes or vtable entries are patched.'],
         substitutions=['FootAI4DA530, Fire5206B0, sequencer520AE0 and movement actions520F40 return at entry after observation; selected callback controls explicitly clear Object+90. Foot may supply a motion-byte change.',
             'One Thief success control substitutes AL1 at5202F0 to prove caller early exit; all ordinary rows execute its actual EC5=false body.',
-            'The raw684>=0 control observes then returns from51B350 and virtual+4A0/70D990; it proves caller exclusion only.']) | dict(harness_sha256=sha(Path(__file__).read_bytes()),
-                source_pins={p:sha(Path(p).read_bytes()) for p in pins}, original_slices=snippets)
+            'The raw684>=0 control observes then returns from51B350 and virtual+4A0/70D990; it proves caller exclusion only.']) | dict(original_slices=snippets)
 
 
 if __name__ == '__main__':
-    finish_vectors(generate, Path(__file__).with_suffix('.json'), provenance=metadata)
+    finish_vectors(generate, Path(__file__).with_suffix('.json'), provenance=metadata,
+                   source_paths={'producer': Path(__file__),
+                                 **{module.__name__: Path(module.__file__) for module in
+                                    (native_oracle, native_inspect, infantry_deploy_action, map_queries)}})

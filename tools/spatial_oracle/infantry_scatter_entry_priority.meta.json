@@ -34,11 +34,12 @@
     "rng_ctor": "0x0065C6D0"
   },
   "source_normalized_lf_sha256": {
-    "tools/native_oracle.py": "79dac1057d97e706f106a26145f00fa220d92c172b5173876c60fed22c17530c",
+    "tools/native_oracle.py": "0c94545bb9c4ca049ad7d46b152d9bd79624c7e52b3fec7a42d360974bbaacef",
     "tools/spatial_oracle/infantry_scatter_entry.py": "ee0ab58a0c1186bc3a5318e76680216b4111ec13e9f8b62ff927803d28356d82",
-    "tools/spatial_oracle/unit_source_scatter.py": "d2ce3dce6e7baff886f3bc6a30c545ec29e442e9866a39a0acb03c92268bbcc8",
-    "tools/spatial_oracle/unit_scatter_state.py": "9cb5b9726c02c8ef7e08aeadf006fecd90191341250f744e9307d5a62a63a4c3",
+    "tools/spatial_oracle/unit_source_scatter.py": "3384579566b40ebcc9d8d56d53a0736655eb3a15a6bf7f08730611b15852a009",
+    "tools/spatial_oracle/unit_scatter_state.py": "c8269a41294316c97f990051506c4a9d9dbe923d8143a54a1a92c69645d2a112",
     "tools/spatial_oracle/map_queries.py": "f1c798f50bf8a69ebe53c6d0e2327ce395ad99ba5c7017e74e353757770f4305"
   },
-  "payload_sha256": "9ba96c780bb49ae7be03ff2fdb32906f7592736ef06826dcbcc79aebcd35f1c0"
+  "payload_sha256": "9ba96c780bb49ae7be03ff2fdb32906f7592736ef06826dcbcc79aebcd35f1c0",
+  "replay_command": "python -m tools.spatial_oracle.infantry_scatter_entry --priority"
 }

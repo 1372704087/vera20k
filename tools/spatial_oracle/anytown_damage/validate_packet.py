@@ -8,6 +8,7 @@ import subprocess
 import sys
 import tempfile
 
+from tools import oracle_sources
 from tools.native_oracle import NATIVE_SHA256, OracleError, _canonical, first_difference
 from tools.spatial_oracle.shrapnel_repair import packet_io
 from tools.spatial_oracle.shrapnel_repair.validate_packet import sha
@@ -148,8 +149,10 @@ def manifest(retail, archives):
                       'full hut lifecycle or whole-bridge parity claim.')
 
 
+# This packet's own source-identity fields, plus the shared publisher's
+# (finish_vectors writes the projections and the two counter witnesses).
 IDENTITY_FIELDS = frozenset(('sources', 'harness_sha256', 'helper_sources',
-                             'projection_source_sha256'))
+                             'projection_source_sha256', *oracle_sources.SOURCE_PROVENANCE))
 
 
 def output_path(runner):

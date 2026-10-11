@@ -58,7 +58,8 @@ class UnitMoveProductionTests(unittest.TestCase):
         cases['unit-move-active-v1']['pixels'][0][2] ^= 1
         self.assertNotEqual(production.action_case_set_digest(cases), expected)
         metadata = production.document(production.HERE / 'action_lines.meta.json')
-        metadata['source_normalized_lf_sha256']['producer'] = '0' * 64
+        pins = metadata['source_normalized_lf_sha256']
+        pins[next(iter(pins))] = '0' * 64
         with patch.object(production, 'document', return_value=metadata):
             self.assertEqual(production.action_case_set_digest(self.cases), expected)
         metadata['native_sha256'] = '0' * 64

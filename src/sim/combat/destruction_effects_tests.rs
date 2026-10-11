@@ -683,7 +683,7 @@ fn a_heavy_ship_dying_on_water_sinks_without_its_explosion() {
             assert!(retained.lifecycle.object_alive);
             assert!(!retained.lifecycle.in_limbo);
             assert!(retained.in_logic_vector);
-            assert!(!sim.substrate.pending_delete.contains(&ship));
+            assert!(!sim.substrate.pending_delete.contains_object(&ship));
             assert!(
                 !retained.lifecycle.cell_marked,
                 "native737F7A still unmarks the hull"
@@ -774,7 +774,7 @@ fn a_heavy_ship_dying_on_water_sinks_without_its_explosion() {
                 crate::sim::world::FrameEffects::default()
             ));
             assert_eq!(sim.houses[&owner].stats.units_lost(), 3);
-            assert!(sim.substrate.pending_delete.contains(&ship));
+            assert!(sim.substrate.pending_delete.contains_object(&ship));
             assert!(!sim.substrate.entities.get(ship).unwrap().in_logic_vector);
         } else {
             assert_eq!(

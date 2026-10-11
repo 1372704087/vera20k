@@ -217,7 +217,6 @@ mod tests {
                 medium: true,
                 hard: true,
             },
-            repeating: false,
         }
     }
 

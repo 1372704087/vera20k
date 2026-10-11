@@ -329,6 +329,11 @@ impl App {
     /// while its simulation is still alive, hand the scenario stream back to the
     /// offline shell, retaining the runtime and presentation resources.
     pub(super) fn leave_mission_result_screen(state: &mut AppState) {
+        // Main_Game48CEBF also retires ScenarioStarted after score Continue;
+        // source: original gamemd.exe Main_Game48CCC0 (EBX=0 at48CCD4).
+        if let Some(runtime) = state.match_state.sim_runtime.as_mut() {
+            runtime.simulation.session.set_started(false);
+        }
         crate::app::match_runtime::sim_tick::flush_replay_log(state);
         Self::capture_returned_skirmish_rng(state);
         state.match_state.startup.clear();

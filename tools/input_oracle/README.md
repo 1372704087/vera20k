@@ -27,6 +27,8 @@ No retail executable is included. Help does not require retail configuration.
 | `message_cases` | 18 full tactical receiver calls at `0x006930A0`: right press/release, admission gates, capture change and inert middle-button messages; original cleanup `0x004AEAD0` and band-rectangle clearing `0x006DA160` execute |
 | `throttle_cases` | 37 calls from original throttle entry `0x0055E160` to `0x0055E33B`, before unrelated FPS bookkeeping: modes 0..6, remaining waits 0/6/10/11/20 and inactive-app/game-state gates |
 | `camera_sequences` | Ten retained-state request/commit/absolute-view sequences, including original full drag into `Scroll_Map` and the original directional request, clamp, Tactical AI and instant SetView bodies |
+| `focus_sequences` | 22 retained-state sequences with 1,628 visits: original `FocusOn` `0x006D2420`, full Tactical AI, interpolation `0x0075F5C0`, clamp and completion cleanup; all five rates, four clipping edges, nonzero/small local rectangles, frame/start/replay gates, retarget, pending requests, absolute views and supplied subcell/height coordinates |
+| `camera_lifecycle_sequences` | Four sequences with 39 visits: original constructor `0x006D1C20`, save `0x006DBE00`, load `0x006DBD20` and no-init `0x006D1E30`; frame-zero admission, mid-pan save/load, pending request discard, completed-pan cleanup and changed-local-size reclamping |
 
 The principal body executes original threshold tests, displacement arithmetic,
 edge boosts, Options getter `0x005FBF70`, direction helper `0x0075F230`, table
@@ -69,6 +71,18 @@ band-box update; right routes to `0x00693440`. Ordinary edge/coast processing is
 on the uncaptured branch. The supplied planning-consumption and logical-button
 results are declared boundaries, not execution of those input subsystems.
 
+Input lock returns at `0x00692F3D` before these logical-button queries, and
+`0x006930A0` rejects locked tactical messages. The next admitted poll calls
+`0x0054F5C0` -> `0x0053EC90`, which reads the live Win32 button state or the
+native cached input buffer independently of tactical capture. Original
+`Scroll::Cancel_Mouse` `0x006938C0` clears capture only. VERA therefore records
+physical edges before consumed shell/movie/input gates in its private
+`TacticalMouseState`; gadgets and scrolling read that same owner. New-view
+initialization retains its physical buttons, while focus loss retains VERA's
+existing client input-reset policy. The lock-edge regressions consume native
+`held_right`/`held_both` update results. Those controls supply logical results at
+`0x0054F5C0`; they do not certify Win32 input delivery or focus-loss behavior.
+
 The drag threshold is strictly greater than twice each supplied
 `SM_CXDRAG/SM_CYDRAG`, not greater-than-or-equal. Method 0 measures displacement
 from the press anchor every call, so holding a displaced pointer continues to
@@ -98,6 +112,30 @@ and the caller's frame cadence require their separate caller evidence; the
 fixture supplies clock sequences and observes this original admission logic.
 
 ## Arithmetic and x87 state
+
+The focus rows capture both trajectory endpoints and every progress float store.
+With successive frames starting at 1, native velocities 0..4 complete at frames
+667/334/134/34/17. A repeated frame cannot advance progress; a newly started
+focus keeps the previous AI frame stamp. Focus overrides pending scroll requests
+when it advances, including the completion visit, then clears endpoints, rate
+and progress. An instant view change replaces current/requested position but
+retains the existing focus trajectory. A zero projected target suppresses focus.
+
+The original interpolation evaluates `target*t + start*(1-t)` per axis before
+`ftol`; it is not rewritten as an offset interpolation. Coordinates, geometry,
+frame timelines, replay/start flags and heights -104/0/727/728/1500 are supplied
+inputs. The unrelated waypoint animation timer is stopped with remaining time 1.
+The lifecycle sequences retain the original 3,612 IStream bytes (the Abstract
+prefix and raw Tactical object), and execute the original load/clamp/AI bodies.
+Load retains trajectory endpoints, rate, progress and frame stamp, but replaces
+pending scroll requests with the clamped committed view. Visible-cell pointers
+are absent; the HereIAm/swizzle registration is an observed boundary. This is
+not full native SAV compatibility. Rust's consumer also transports the neutral
+view through the production VERA snapshot format before continuing the sequence.
+
+These comparisons establish the bounded camera transaction and retained fields,
+not retail terrain height lookup, campaign trigger timing, whole saved-game
+integration or rendered output.
 
 Before every drag fixture, original WinMain instructions
 `0x006BBFB7..0x006BBFCE` execute `_controlfp` and cache its result through

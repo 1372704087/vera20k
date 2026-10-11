@@ -27,13 +27,20 @@ pub(crate) fn in_game_key_edge(
     paused_at_event: bool,
 ) {
     let is_escape = matches!(edge.logical, Key::Named(NamedKey::Escape));
+    let locked = crate::app::input::campaign_input::is_locked(state);
     let binding_key = hotkeys::binding_logical_key(edge.logical, edge.unmodified, edge.location);
-    let resolution = state.match_state.input.hotkey_bindings.resolve_event(
+    let mut resolution = state.match_state.input.hotkey_bindings.resolve_event(
         binding_key,
         edge.location,
         state.match_state.input.hotkey_modifiers,
     );
-    if is_escape || !dev_ui_consumed {
+    // EncodeAndEnqueue54F200 admits Escape while A8ED9C is set and refuses
+    // other buffered keys. ProcessCommand55DF80 then falls back to Options
+    // for the Escape base key even if its ordinary binding cannot execute.
+    if locked && is_escape {
+        resolution = hotkeys::HotkeyResolution::Command(hotkeys::HotkeyCommand::Options);
+    }
+    if (is_escape || !dev_ui_consumed) && (!locked || is_escape) {
         let consumed = crate::app::input::dispatch::handle_type_select_key_edge(
             state,
             resolution,
@@ -50,7 +57,9 @@ pub(crate) fn in_game_key_edge(
         return;
     }
     if edge.state.is_pressed() {
-        if let Some(scroll_key) = hotkeys::fallback_scroll_key(resolution) {
+        if let Some(scroll_key) = hotkeys::fallback_scroll_key(resolution)
+            && !locked
+        {
             state.match_state.input.keys_held.insert(scroll_key);
         } else if hotkeys::physical_scroll_key(edge.physical).is_none() {
             state.match_state.input.keys_held.insert(edge.physical);

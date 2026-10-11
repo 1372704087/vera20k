@@ -178,7 +178,7 @@ fn sinking_state_is_hashed_and_survives_snapshot() {
             let hull = loaded.substrate.entities.get(id).unwrap();
             assert!(!hull.lifecycle.object_alive);
             assert!(hull.lifecycle.in_limbo);
-            assert!(loaded.substrate.pending_delete.contains(&id));
+            assert!(loaded.substrate.pending_delete.contains_object(&id));
             assert_eq!(loaded.houses[&hull.owner()].stats.units_lost(), 2);
             return;
         }

@@ -48,13 +48,178 @@ const KEY_SCROLL_SHIFT_MULTIPLIER: f32 = 2.5;
 /// catches it and the view lands on the map border in a single frame.
 const KEY_SCROLL_CTRL_CELL_SHIFT: u32 = 8;
 
-/// Uncommitted world-pixel scroll requests, owned by the camera controller.
+/// Camera-owned requests and the retained cinematic focus transaction.
 /// Native Scroll_Map (0x4A9840 -> 0x6D8530) accumulates a requested view;
 /// keyboard input at the end of Main_Tick survives until the next mouse poll
 /// and Tactical__AI commit. This is a request, not a second camera position.
-#[derive(Debug, Default)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub(crate) struct PendingCameraScroll {
     world_pixels: (f32, f32),
+    focus: CameraFocus,
+    last_ai_frame: u32,
+}
+
+impl Default for PendingCameraScroll {
+    fn default() -> Self {
+        // TacticalCtor6D1C20 initializes +A8 to -1, allowing frame0's AI.
+        Self {
+            world_pixels: (0.0, 0.0),
+            focus: CameraFocus::default(),
+            last_ai_frame: u32::MAX,
+        }
+    }
+}
+
+pub(crate) fn saved_tactical_view(state: &AppState) -> crate::sim::snapshot::SavedTacticalView {
+    let input = &state.match_state.input;
+    input
+        .pending_camera_scroll
+        .saved_view((input.camera_x, input.camera_y), input.zoom_level)
+}
+
+pub(crate) fn validate_saved_tactical_view(
+    saved: &crate::sim::snapshot::SavedTacticalView,
+) -> Result<(), String> {
+    if saved
+        .view_world_pixels
+        .iter()
+        .any(|value| !value.is_finite())
+        || !saved.zoom.is_finite()
+        || !(MIN_ZOOM..=MAX_ZOOM).contains(&saved.zoom)
+    {
+        return Err("nonfinite view or unsupported zoom".to_owned());
+    }
+    if saved.focus_rate_bits != 0 && !CameraFocus::RATE_BITS.contains(&saved.focus_rate_bits) {
+        return Err("unknown focus rate".to_owned());
+    }
+    let progress = f32::from_bits(saved.focus_progress_bits);
+    if !progress.is_finite() || !(0.0..=1.0).contains(&progress) {
+        return Err("focus progress outside zero through one".to_owned());
+    }
+    Ok(())
+}
+
+/// TacticalLoad6DBD20 preserves focus/stamp but resets requested to current.
+/// A headless envelope has no local view and clears outgoing cinematic work.
+pub(crate) fn restore_tactical_view(
+    state: &mut AppState,
+    saved: Option<crate::sim::snapshot::SavedTacticalView>,
+) {
+    state.match_state.input.pending_camera_scroll = PendingCameraScroll::default();
+    let Some(saved) = saved else {
+        return;
+    };
+    state.match_state.input.zoom_level = saved.zoom;
+    state.match_state.input.zoom_target = saved.zoom;
+    let point = clamp_camera_point_for_state(
+        state,
+        (saved.view_world_pixels[0], saved.view_world_pixels[1]),
+        state.render_width() as f32,
+        state.render_height() as f32,
+    );
+    state.match_state.input.camera_x = point.0;
+    state.match_state.input.camera_y = point.1;
+    state
+        .match_state
+        .input
+        .pending_camera_scroll
+        .restore_saved_view(&saved);
+}
+
+impl PendingCameraScroll {
+    fn saved_view(
+        &self,
+        current: (f32, f32),
+        zoom: f32,
+    ) -> crate::sim::snapshot::SavedTacticalView {
+        crate::sim::snapshot::SavedTacticalView {
+            view_world_pixels: [current.0, current.1],
+            zoom,
+            focus_start: self.focus.start,
+            focus_target: self.focus.target,
+            focus_rate_bits: self.focus.rate_bits,
+            focus_progress_bits: self.focus.progress_bits,
+            last_ai_frame: self.last_ai_frame,
+        }
+    }
+
+    fn restore_saved_view(&mut self, saved: &crate::sim::snapshot::SavedTacticalView) {
+        // TacticalLoad6DBD20 copies committed view into requested view. The
+        // pending pointer/keyboard delta is discarded; trajectory and stamp
+        // survive the original raw Load/no-init path.
+        self.world_pixels = (0.0, 0.0);
+        self.focus = CameraFocus {
+            start: saved.focus_start,
+            target: saved.focus_target,
+            rate_bits: saved.focus_rate_bits,
+            progress_bits: saved.focus_progress_bits,
+        };
+        self.last_ai_frame = saved.last_ai_frame;
+    }
+}
+
+pub(crate) fn reset_camera_for_new_scenario(state: &mut AppState) {
+    state.match_state.input.pending_camera_scroll = PendingCameraScroll::default();
+}
+
+/// Tactical+C8..DC. Start and target are native absolute tactical pixels,
+/// distinct from VERA's viewport top-left. They are trajectory endpoints, not
+/// a second committed view. Original FocusOn6D2420 copies the current view;
+/// TacticalAI6D2540 owns progress, interpolation and completion cleanup.
+#[derive(Debug, Default, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+struct CameraFocus {
+    start: [i32; 2],
+    target: [i32; 2],
+    rate_bits: u32,
+    progress_bits: u32,
+}
+
+/// Logic-frame admission, separate from render frequency and wall-clock coast.
+#[derive(Clone, Copy)]
+struct CameraAiFrame {
+    frame: u32,
+    scenario_started: bool,
+    replay_blocked: bool,
+}
+
+impl CameraFocus {
+    /// Original rates at8428EC, captured through FocusOn, not fitted to video.
+    /// These are the five admitted velocities. An out-of-range native read is
+    /// not a deterministic malformed-map contract and is rejected by Rust.
+    const RATE_BITS: [u32; 5] = [
+        0x3ac4_9ba6,
+        0x3b44_9ba6,
+        0x3bf5_c28f,
+        0x3cf5_c28f,
+        0x3d75_c28f,
+    ];
+
+    fn advance(&mut self) -> [i32; 2] {
+        use crate::util::native_x87::{NativeF32Bits, NativeF64Bits, X87Chop53, X87Ordering};
+        let load = |bits| X87Chop53::load_f32(NativeF32Bits::from_bits(bits)).unwrap();
+        let one = X87Chop53::load_f64(NativeF64Bits::ONE).unwrap();
+        //6D25B5..25DE stores the float, but compares the unstored sum against1.
+        let sum = X87Chop53::add(load(self.progress_bits), load(self.rate_bits));
+        self.progress_bits = if X87Chop53::compare(sum, one) == X87Ordering::Greater {
+            NativeF32Bits::ONE.bits()
+        } else {
+            X87Chop53::store_f32(sum).unwrap().bits()
+        };
+        let progress = load(self.progress_bits);
+        let remaining = X87Chop53::sub(one, progress);
+        //75F5C0 evaluates target*t + start*(1-t), then ftol, separately per
+        //axis. Rewriting it as start+(target-start)*t changes native rounding.
+        let center = std::array::from_fn(|axis| {
+            X87Chop53::ftol_i32_low_masked(X87Chop53::add(
+                X87Chop53::mul(X87Chop53::load_i32(self.target[axis]), progress),
+                X87Chop53::mul(X87Chop53::load_i32(self.start[axis]), remaining),
+            ))
+        });
+        if self.progress_bits == NativeF32Bits::ONE.bits() {
+            *self = Self::default();
+        }
+        center
+    }
 }
 
 impl PendingCameraScroll {
@@ -65,6 +230,7 @@ impl PendingCameraScroll {
 
     fn is_idle(&self) -> bool {
         self.world_pixels == (0.0, 0.0)
+            && (self.focus.rate_bits == 0 || self.focus.target == [0, 0])
     }
 
     fn clear(&mut self) {
@@ -75,15 +241,87 @@ impl PendingCameraScroll {
     /// Keeping this transaction together prevents opposing mouse/key requests
     /// at a boundary from losing their outward component to an earlier clamp.
     fn commit(
-        self,
+        &mut self,
         current: (f32, f32),
         mouse: (f32, f32),
         clamp: impl FnOnce((f32, f32)) -> (f32, f32),
     ) -> (f32, f32) {
+        let requests = std::mem::take(&mut self.world_pixels);
+        if (requests.0 + mouse.0, requests.1 + mouse.1) == (0.0, 0.0) {
+            //6D26F9 skips the clamp when requested and committed views match.
+            // This also preserves native low/high behavior on a small map.
+            return current;
+        }
         clamp((
-            current.0 + self.world_pixels.0 + mouse.0,
-            current.1 + self.world_pixels.1 + mouse.1,
+            current.0 + requests.0 + mouse.0,
+            current.1 + requests.1 + mouse.1,
         ))
+    }
+
+    /// One port of FocusOn6D2420. Projection and its height adjustment share
+    /// the existing lepton owner; the target is clamped only during AI.
+    /// Native controls: tools/input_oracle/fast_scroll.json focus_sequences.
+    fn focus_on(
+        &mut self,
+        current: (f32, f32),
+        coord: [i32; 3],
+        velocity: i32,
+        viewport: (f32, f32),
+        zoom: f32,
+    ) -> bool {
+        let Some(rate_bits) = usize::try_from(velocity)
+            .ok()
+            .and_then(|index| CameraFocus::RATE_BITS.get(index).copied())
+        else {
+            return false;
+        };
+        let bias = crate::util::lepton::absolute_leptons_to_screen(0, 0, 0);
+        let target = crate::util::lepton::absolute_leptons_to_screen(coord[0], coord[1], coord[2]);
+        self.focus = CameraFocus {
+            start: [
+                (current.0 + viewport.0 / (2.0 * zoom) - bias.0) as i32,
+                (current.1 + viewport.1 / (2.0 * zoom) - bias.1) as i32,
+            ],
+            target: [(target.0 - bias.0) as i32, (target.1 - bias.1) as i32],
+            rate_bits,
+            progress_bits: 0,
+        };
+        true
+    }
+
+    /// Original TacticalAI6D2540 focus/request ordering. Repeated visits in
+    /// frame N can commit fresh input but cannot advance cinematic progress.
+    /// A focus visit replaces the pending request, even at its final frame.
+    fn advance_ai(
+        &mut self,
+        current: (f32, f32),
+        mouse: (f32, f32),
+        admission: CameraAiFrame,
+        viewport: (f32, f32),
+        zoom: f32,
+        clamp: impl FnOnce((f32, f32)) -> (f32, f32),
+    ) -> (f32, f32) {
+        self.request(mouse);
+        if admission.replay_blocked {
+            return current;
+        }
+        let focus_active =
+            admission.scenario_started && self.focus.target != [0, 0] && self.focus.rate_bits != 0;
+        let advance_focus = self.last_ai_frame != admission.frame && focus_active;
+        self.last_ai_frame = admission.frame;
+        if advance_focus {
+            let center = self.focus.advance();
+            self.clear();
+            let bias = crate::util::lepton::absolute_leptons_to_screen(0, 0, 0);
+            clamp(tactical_camera_top_left(
+                (center[0] as f32 + bias.0, center[1] as f32 + bias.1),
+                viewport.0,
+                viewport.1,
+                zoom,
+            ))
+        } else {
+            self.commit(current, (0.0, 0.0), clamp)
+        }
     }
 }
 
@@ -577,9 +815,9 @@ pub(crate) struct TacticalMouseState {
     /// A tactical mouse button holds the capture.
     pub(crate) captured: bool,
     /// Left button physically down.
-    pub(crate) left_held: bool,
+    left_held: bool,
     /// Right button physically down.
-    pub(crate) right_held: bool,
+    right_held: bool,
     /// Right-press anchor in render-target pixels.
     pub(crate) right_anchor: (f32, f32),
     /// The right drag has passed the system drag threshold. Once set, the
@@ -597,6 +835,42 @@ enum RightDragPoll {
 }
 
 impl TacticalMouseState {
+    /// The one physical-button record for tactical, gadget and scrolling
+    /// consumers. Original54F5C0->53EC90 reads live OS state, independently
+    /// of6930A0's message gate. Record every edge before any UI/input lock.
+    /// Source: tools/input_oracle/README.md; fast_scroll.json update_cases.
+    pub(crate) fn record_physical_button(&mut self, button: winit::event::MouseButton, held: bool) {
+        match button {
+            winit::event::MouseButton::Left => self.left_held = held,
+            winit::event::MouseButton::Right => self.right_held = held,
+            _ => {}
+        }
+    }
+
+    pub(crate) fn left_held(&self) -> bool {
+        self.left_held
+    }
+
+    pub(crate) fn right_held(&self) -> bool {
+        self.right_held
+    }
+
+    /// A new view resets tactical capture, not the physical buttons retained
+    /// by native Input/GetAsyncKeyState across Scenario transitions.
+    pub(crate) fn reset_for_new_view(&mut self) {
+        *self = Self {
+            left_held: self.left_held,
+            right_held: self.right_held,
+            ..Self::default()
+        };
+    }
+
+    /// Winit can lose release edges while unfocused. Discard this client's
+    /// physical record and gesture together at that existing lifecycle edge.
+    pub(crate) fn reset_on_focus_loss(&mut self) {
+        *self = Self::default();
+    }
+
     /// Whether a press edge may arm anything and take the capture.
     ///
     /// `Tactical_Mouse_Message_Handler` 0x006930A0 keeps ONE capture byte at
@@ -676,6 +950,12 @@ impl TacticalMouseState {
         self.captured = false;
         self.right_threshold_crossed = false;
         self.right_pan_engaged = false;
+    }
+
+    /// Scroll::Cancel_Mouse6938C0 releases only capture. The physical
+    /// buttons and retained pan/coast/focus state survive this callback.
+    pub(crate) fn cancel_mouse_drag(&mut self) {
+        self.captured = false;
     }
 
     /// WM_RBUTTONUP at 0x693397 tests the already-polled threshold, then
@@ -865,6 +1145,14 @@ fn keyboard_scroll_distance(state: &AppState) -> f32 {
 /// Main_Tick's keyboard requests run after logic (0x55DD42..0x55DD96), and
 /// remain pending until the next Tactical__AI commit with that frame's mouse.
 pub(crate) fn queue_keyboard_scroll(state: &mut AppState) {
+    if state
+        .match_state
+        .sim_runtime
+        .as_ref()
+        .is_some_and(|runtime| runtime.simulation.session.input_locked())
+    {
+        return;
+    }
     let key_distance = keyboard_scroll_distance(state);
     let mut movement = (0.0, 0.0);
     if state
@@ -911,6 +1199,14 @@ pub(crate) fn queue_keyboard_scroll(state: &mut AppState) {
 /// committing the view. Main_Tick calls input before logic (0x55D8AB); captured
 /// right drag and uncaptured edge/coast are mutually exclusive in 0x692F30.
 pub(crate) fn poll_mouse_scroll(state: &mut AppState) -> (f32, f32) {
+    if state
+        .match_state
+        .sim_runtime
+        .as_ref()
+        .is_some_and(|runtime| runtime.simulation.session.input_locked())
+    {
+        return (0.0, 0.0);
+    }
     let sw = state.render_width() as f32;
     let sh = state.render_height() as f32;
     let right_drag = poll_right_drag_pan(state);
@@ -952,11 +1248,7 @@ pub(crate) fn poll_mouse_scroll(state: &mut AppState) -> (f32, f32) {
             sh as i32,
             scroll_rate,
             scroll_multiplier,
-            state
-                .match_state
-                .match_presentation
-                .in_game_gadgets
-                .right_held,
+            state.match_state.input.tactical_mouse.right_held(),
             movement_allowed,
             now,
         );
@@ -979,7 +1271,7 @@ pub(crate) fn commit_camera_scroll(state: &mut AppState, mouse: (f32, f32)) {
         state.match_state.input.camera_x,
         state.match_state.input.camera_y,
     );
-    let pending = std::mem::take(&mut state.match_state.input.pending_camera_scroll);
+    let mut pending = std::mem::take(&mut state.match_state.input.pending_camera_scroll);
     let point = pending.commit(current, mouse, |point| {
         clamp_camera_point_for_state(
             state,
@@ -988,8 +1280,86 @@ pub(crate) fn commit_camera_scroll(state: &mut AppState, mouse: (f32, f32)) {
             state.render_height() as f32,
         )
     });
+    state.match_state.input.pending_camera_scroll = pending;
     state.match_state.input.camera_x = point.0;
     state.match_state.input.camera_y = point.1;
+}
+
+/// The admitted Logic visit owns cinematic progress, irrespective of whether
+/// this visit sampled mouse input. `frame` is its pre-increment binary frame;
+/// the simulation has already committed N+1 by the time presentation runs.
+pub(crate) fn advance_camera_ai(state: &mut AppState, mouse: (f32, f32), frame: u32) {
+    sync_playfield_presentation_bounds(state);
+    let (width, height) = tactical_viewport_size_px(state.render_width(), state.render_height());
+    let current = (
+        state.match_state.input.camera_x,
+        state.match_state.input.camera_y,
+    );
+    let admission = CameraAiFrame {
+        frame,
+        scenario_started: state
+            .match_state
+            .sim_runtime
+            .as_ref()
+            .is_some_and(|runtime| runtime.simulation.session.started()),
+        // The ordinary app currently admits the offline session route with
+        // native replay flags0. Native playback bit2 is covered by the shared
+        // owner controls; a production playback host remains a separate gap.
+        replay_blocked: false,
+    };
+    let mut pending = std::mem::take(&mut state.match_state.input.pending_camera_scroll);
+    let point = pending.advance_ai(
+        current,
+        mouse,
+        admission,
+        (width as f32, height as f32),
+        state.match_state.input.zoom_level,
+        |point| {
+            clamp_camera_point_for_state(
+                state,
+                point,
+                state.render_width() as f32,
+                state.render_height() as f32,
+            )
+        },
+    );
+    state.match_state.input.pending_camera_scroll = pending;
+    state.match_state.input.camera_x = point.0;
+    state.match_state.input.camera_y = point.1;
+}
+
+/// TAction48 uses FocusOn6D2420 and its literal velocity; TAction112 uses
+/// SetViewToCoordInstant6D6070. Coordinates are resolved by simulation before
+/// its hash, including the canonical CellClass Dummy query effects.
+pub(crate) fn apply_trigger_camera(state: &mut AppState, coord: [i32; 3], velocity: Option<i32>) {
+    let (width, height) = tactical_viewport_size_px(state.render_width(), state.render_height());
+    let viewport = (width as f32, height as f32);
+    let current = (
+        state.match_state.input.camera_x,
+        state.match_state.input.camera_y,
+    );
+    if let Some(velocity) = velocity {
+        if !state.match_state.input.pending_camera_scroll.focus_on(
+            current,
+            coord,
+            velocity,
+            viewport,
+            state.match_state.input.zoom_level,
+        ) {
+            log::warn!("Trigger48 rejected invalid camera velocity {velocity}");
+        }
+    } else {
+        let target = crate::util::lepton::absolute_leptons_to_screen(coord[0], coord[1], coord[2]);
+        let point = tactical_camera_top_left(
+            target,
+            viewport.0,
+            viewport.1,
+            state.match_state.input.zoom_level,
+        );
+        let render_size = (state.render_width() as f32, state.render_height() as f32);
+        set_camera_position(state, point);
+        clamp_camera_to_playable_area(state, render_size.0, render_size.1);
+    }
 }
 
 /// Smoothing factor for zoom animation. Each frame, zoom_level moves this
@@ -1416,16 +1786,32 @@ fn clamp_camera_point_for_state(
     sw: f32,
     sh: f32,
 ) -> (f32, f32) {
+    let (viewport_w, viewport_h) =
+        tactical_viewport_size_px(sw.max(0.0) as u32, sh.max(0.0) as u32);
+    let viewport = (viewport_w as f32, viewport_h as f32);
+    if let Some(runtime) = state.match_state.sim_runtime.as_ref() {
+        // The radar rectangle enumerates mode-zero cells. Tactical6D8640
+        // instead reads the five final MapClass LocalSize fields directly,
+        // including its northern headroom. These are distinct consumers of
+        // the same map authority, not interchangeable pixel rectangles.
+        return runtime
+            .view()
+            .playfield_authority()
+            .0
+            .map_or(point, |bounds| {
+                clamp_camera_point_to_local_bounds(
+                    point,
+                    bounds,
+                    viewport,
+                    state.match_state.input.zoom_level,
+                )
+            });
+    }
     let Some(grid) = &state.match_state.match_presentation.terrain_grid else {
         return point;
     };
     let (area_x, area_y, area_w, area_h) = match grid.local_bounds {
         Some(b) => (b.pixel_x, b.pixel_y, b.pixel_w, b.pixel_h),
-        None if state.match_state.sim_runtime.is_some() => {
-            // A live match without normalized MapClass bounds must not silently
-            // substitute the allocated terrain rectangle.
-            return point;
-        }
         None => (
             grid.origin_x,
             grid.origin_y,
@@ -1433,17 +1819,52 @@ fn clamp_camera_point_for_state(
             grid.world_height,
         ),
     };
-    let (viewport_w, viewport_h) =
-        tactical_viewport_size_px(sw.max(0.0) as u32, sh.max(0.0) as u32);
-    clamp_camera_point_to_local_bounds(
+    clamp_camera_point_to_rect(
         point,
         (area_x, area_y, area_w, area_h),
-        (viewport_w as f32, viewport_h as f32),
+        viewport,
         state.match_state.input.zoom_level,
     )
 }
 
 fn clamp_camera_point_to_local_bounds(
+    point: (f32, f32),
+    bounds: crate::map::playfield::PlayfieldBounds,
+    viewport: (f32, f32),
+    zoom: f32,
+) -> (f32, f32) {
+    // Original Tactical::ClampViewCenter6D8640. Convert its absolute centre
+    // bounds to VERA world top-left using the shared projection's row bias;
+    // the viewport/2 terms cancel. Retain x86 wrapping integer arithmetic
+    // before presentation conversion. Executed controls include all edges,
+    // shifted LocalSize and a viewport larger than the map: fast_scroll.json.
+    let bias = crate::util::lepton::absolute_leptons_to_screen(0, 0, 0);
+    let left = bounds
+        .off_fc
+        .wrapping_mul(2)
+        .wrapping_sub(bounds.base)
+        .wrapping_mul(30);
+    let top = bounds
+        .base
+        .wrapping_sub(5)
+        .wrapping_add(bounds.off_100.wrapping_mul(2))
+        .wrapping_mul(15);
+    let width = bounds.off_104.wrapping_mul(60);
+    let height = bounds.off_108.wrapping_mul(60).wrapping_add(270) / 2;
+    clamp_camera_point_to_rect(
+        point,
+        (
+            left as f32 + bias.0 + 30.0,
+            top as f32 + bias.1,
+            width as f32,
+            height as f32,
+        ),
+        viewport,
+        zoom,
+    )
+}
+
+fn clamp_camera_point_to_rect(
     point: (f32, f32),
     area: (f32, f32, f32, f32),
     viewport: (f32, f32),
@@ -1455,7 +1876,7 @@ fn clamp_camera_point_to_local_bounds(
     let x_min = area_x - 30.0;
     let x_max = x_min + area_w - visible_w;
     let y_min = area_y;
-    let y_max = y_min + area_h - visible_h - 15.0;
+    let y_max = y_min + area_h - visible_h;
 
     // Native comparison order is Y low/high, then X low/high. Each side is a
     // strict comparison, so an exact boundary remains untouched. Do not invent
@@ -2064,24 +2485,9 @@ mod tests {
         assert_eq!(tactical_viewport_size_px(1920, 1080), (1752, 1048));
     }
 
-    #[test]
-    fn item82_local_clamp_uses_native_minus_30_and_minus_15_bounds() {
-        let area = (100.0, 200.0, 1_000.0, 800.0);
-        let viewport = (632.0, 568.0);
-        assert_eq!(
-            clamp_camera_point_to_local_bounds((-999.0, -999.0), area, viewport, 1.0),
-            (70.0, 200.0),
-        );
-        assert_eq!(
-            clamp_camera_point_to_local_bounds((9_999.0, 9_999.0), area, viewport, 1.0),
-            (438.0, 417.0),
-        );
-        assert_eq!(
-            clamp_camera_point_to_local_bounds((70.0, 417.0), area, viewport, 1.0),
-            (70.0, 417.0),
-            "equality is not clamped",
-        );
-    }
+    // Shared clamp coverage comes from the original executable's retained
+    // camera/focus sequences in fast_scroll_tests. The previous hand-derived
+    // rectangle test certified an extra15px southern inset that native lacks.
 
     /// A degenerate layout must not scissor the battlefield out of existence —
     /// a zero-width scissor drops every tactical draw call silently.

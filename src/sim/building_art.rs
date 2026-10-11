@@ -27,6 +27,32 @@ mod storage;
 mod super_anim;
 pub(crate) use storage::BuildingStorage;
 
+#[cfg(test)]
+thread_local! {
+    static GRAND_OPENING_CALLS: std::cell::RefCell<Option<Vec<(u64, bool)>>> = const { std::cell::RefCell::new(None) };
+}
+
+/// Observe calls into the production owner, including its native6E4 early
+/// return. The trace is test-local and does not enter persisted sim state.
+#[cfg(test)]
+pub(crate) fn trace_grand_opening_calls<T>(run: impl FnOnce() -> T) -> (T, Vec<(u64, bool)>) {
+    GRAND_OPENING_CALLS.with_borrow_mut(|trace| {
+        assert!(trace.is_none(), "nested Grand_Opening traces");
+        *trace = Some(Vec::new());
+    });
+    struct Reset;
+    impl Drop for Reset {
+        fn drop(&mut self) {
+            GRAND_OPENING_CALLS.with_borrow_mut(|trace| *trace = None);
+        }
+    }
+    let reset = Reset;
+    let result = run();
+    let calls = GRAND_OPENING_CALLS.with_borrow_mut(|trace| trace.take().unwrap());
+    drop(reset);
+    (result, calls)
+}
+
 impl Simulation {
     fn building_anim_world_coord(
         &self,
@@ -85,6 +111,12 @@ impl Simulation {
         registry: Option<&crate::rules::overlay_types::OverlayTypeRegistry>,
         effects: FrameEffects<'_>,
     ) {
+        #[cfg(test)]
+        GRAND_OPENING_CALLS.with_borrow_mut(|trace| {
+            if let Some(trace) = trace {
+                trace.push((id, captured));
+            }
+        });
         let Some(entity) = self.substrate.entities.get(id) else {
             return;
         };
@@ -1111,7 +1143,7 @@ mod slot_tests {
                 None,
                 crate::sim::world::FrameEffects::default(),
             );
-            assert!(sim.substrate.pending_delete.contains(&missing));
+            assert!(sim.substrate.pending_delete.contains_object(&missing));
             assert!(!sim.anim(missing).unwrap().in_logic_vector);
             assert_eq!(sim.entities().get(id).unwrap().building_anim_slots[5], None);
         }
@@ -1147,7 +1179,7 @@ mod slot_tests {
         let new = sim.entities().get(id).unwrap().building_anim_slots[3].unwrap();
         assert_ne!(old, new);
         assert!(sim.anim(old).is_none());
-        assert!(!sim.substrate.pending_delete.contains(&old));
+        assert!(!sim.substrate.pending_delete.contains_object(&old));
         let anim = sim.anim(new).unwrap();
         assert_eq!(sim.interner.resolve(anim.type_id), "D");
         assert_eq!(anim.runtime.current_frame, 17);
@@ -1175,7 +1207,7 @@ mod slot_tests {
         // Object UnInit5F6616 broadcasts before Limbo/storage removal;
         // Building44EA3A→451B40 clears the matched slot synchronously.
         assert_eq!(sim.entities().get(id).unwrap().building_anim_slots[3], None);
-        assert!(sim.substrate.pending_delete.contains(&anim));
+        assert!(sim.substrate.pending_delete.contains_object(&anim));
         assert!(!sim.anim(anim).unwrap().in_logic_vector);
         sim.process_pending_delete();
         assert!(sim.anim(anim).is_none());
@@ -1219,14 +1251,14 @@ mod slot_tests {
             ),
             before_rng
         );
-        assert!(sim.substrate.pending_delete.contains(&id));
-        assert!(!sim.substrate.pending_delete.contains(&anim_id));
+        assert!(sim.substrate.pending_delete.contains_object(&id));
+        assert!(!sim.substrate.pending_delete.contains_object(&anim_id));
 
         sim.process_pending_delete();
         assert!(sim.entities().get(id).is_none());
         assert!(sim.anim(anim_id).is_none());
         assert!(!sim.logic_order().contains(&anim_id));
-        assert!(!sim.substrate.pending_delete.contains(&anim_id));
+        assert!(!sim.substrate.pending_delete.contains_object(&anim_id));
         assert_eq!(
             (
                 sim.main_rng.logical_state(),

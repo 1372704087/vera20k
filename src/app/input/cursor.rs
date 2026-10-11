@@ -14,6 +14,52 @@ use crate::app::types::{
 };
 use crate::sim::combat;
 
+/// WWMouse's display depth, separate from Scenario's authoritative input
+/// lock. Lock684240 hides only at depth0; Unlock684290 unwinds negative
+/// depth only when the previous Scenario byte is1. Software presentation
+/// uses the same visible/hidden result without Win32 ShowCursor counting.
+/// Executed controls: trigger_action_values.json input_history (eight
+/// histories, including repeated calls and initial depths-2/-3/+1).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub(crate) struct CursorVisibility {
+    level: i32,
+}
+
+impl CursorVisibility {
+    pub(crate) fn level(self) -> i32 {
+        self.level
+    }
+
+    /// Supply a native WWMouse prior in tests. LoadMission559D60 restores the
+    /// pre-load depth; production keeps this client's existing counter across
+    /// the view transition. Every i32 is a valid stored WWMouse depth.
+    #[cfg(test)]
+    pub(crate) fn restore_level(&mut self, level: i32) {
+        self.level = level;
+    }
+
+    pub(crate) fn reset(&mut self) {
+        self.level = 0;
+    }
+
+    pub(crate) fn is_visible(self) -> bool {
+        self.level >= 0
+    }
+
+    pub(crate) fn apply_input_lock(&mut self, locked: bool, was_locked: bool) {
+        if locked {
+            if self.level == 0 {
+                self.level = -1;
+            }
+        } else if was_locked {
+            // Original repeatedly calls Show7B9750 until depth reaches0.
+            // That owner also clamps positive retained levels to0; only
+            // terminal visibility has a software-cursor effect here.
+            self.level = 0;
+        }
+    }
+}
+
 pub(crate) fn current_cursor_feedback_kind(state: &AppState) -> Option<CursorFeedbackKind> {
     // A right-drag pan owns the cursor for as long as it owns the camera, and it
     // is tested first because native gates the cursor write and the edge-scroll
@@ -1202,6 +1248,12 @@ impl CursorAnimation {
 thread_local! {
     static CURSOR_ANIMATION: std::cell::Cell<CursorAnimation> =
         const { std::cell::Cell::new(CursorAnimation::new()) };
+}
+
+/// DisplayCancel4AEAD0 resets cursor shape through the existing animation
+/// owner. The next ordinary draw starts the default shape at frame0.
+pub(crate) fn reset_cursor_shape() {
+    CURSOR_ANIMATION.with(|animation| animation.set(CursorAnimation::new()));
 }
 
 /// The frame of `sequence` to draw for cursor `id` right now.

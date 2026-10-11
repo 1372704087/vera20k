@@ -26,11 +26,7 @@ fn native_foot_archive_expiry_matches_all_22_original_class_rows() {
         };
         let mut sim = Simulation::new();
         sim.session.binary_frame = 1000;
-        sim.fog = FogState {
-            width: 8,
-            height: 8,
-            ..FogState::default()
-        };
+        sim.fog = FogState::new(8, 8);
         let owner = sim.interner.intern("Receiver");
         let other_owner = sim.interner.intern("Enemy");
         let type_ref = sim.interner.intern("TEST");

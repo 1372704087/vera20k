@@ -320,11 +320,9 @@ impl Simulation {
     ///   its ground (not current sight); the shared dummy never is.
     ///
     /// Native executions: tools/spatial_oracle/fly_can_enter.{py,json,meta.json}.
-    /// RESIDUAL: the Team arm (`0x004196BC..0x004196DE`) is not ported. A team
-    /// member whose script step answers `0x006EC300` admits a cell outside the
-    /// playfield before the shroud test. Only a player-owned team aircraft
-    /// reaches that test, so the gap is a campaign's scripted aircraft sent or
-    /// landing outside the playfield.
+    /// The Team arm (`0x004196BC..0x004196DE`) uses the single Team6EC300
+    /// port before the shroud test; its executable controls are in
+    /// tools/spatial_oracle/team_creation.
     pub(crate) fn aircraft_can_enter(&self, id: u64, cell: (i16, i16)) -> u8 {
         let Some(terrain) = self.resolved_terrain.as_ref() else {
             return 0;
@@ -337,6 +335,10 @@ impl Simulation {
     /// up (the native argument is the `CellClass`).
     pub(crate) fn aircraft_can_enter_cell(&self, id: u64, cell: Cell) -> u8 {
         let e = self.substrate.entities.get(id).unwrap();
+        // Aircraft4196BC queries Team6EC300 before owner/mission/shroud.
+        if self.member_team_is_moving_outside_playfield(id) {
+            return 0;
+        }
         let Some(terrain) = self.resolved_terrain.as_ref() else {
             return 0;
         };
@@ -1133,14 +1135,14 @@ fn classify_foot_entry<'a>(
 /// Aircraft's kind 2 always takes the first pass's damage at `0x00487A3B`,
 /// and the neighbour pass admits only Foot objects), so only the read's
 /// effects matter here. Canonical lookups reproduce the shared-dummy stamps.
-/// Two preconditions VERA cannot yet reproduce refuse with an error:
+/// The remaining unproved locomotor precondition refuses with an error:
 /// - Fly, Jumpjet, Rocket and Teleport have the constant-false `+A0`
 ///   (`0x004B6630`) the neighbour pass relies on; other families are
 ///   unproved. See LIVE_REPAIR_AIRCRAFT_RECEIVER.md and
 ///   locomotor_at_coord.json.
-/// - The Team arm (`0x004196BC..0x004196DE`) reaches `0x006EC300`'s
-///   waypoint read for a formed team on action 3, which the simulation
-///   cannot perform (no waypoint table).
+///
+/// The Team arm (`0x004196BC..0x004196DE`) uses the shared Team6EC300
+/// waypoint owner before the other Aircraft admission gates.
 fn aircraft_entry(
     live: &EntryReadContext<'_>,
     entity: &GameEntity,
@@ -1156,13 +1158,6 @@ fn aircraft_entry(
         )
     }) {
         return Err("repair Aircraft requires a proved constant-false AtCoord family".into());
-    }
-    if live
-        .sim
-        .team_script_vm
-        .member_step_reads_waypoint(entity.stable_id())
-    {
-        return Err("repair Aircraft Team action3 has unresolved waypoint lookup effects".into());
     }
     Ok(live.sim.aircraft_can_enter_cell(entity.stable_id(), cell))
 }
@@ -1314,9 +1309,11 @@ mod tests {
                 vec![id],
                 sim.session.binary_frame as i32,
             );
-            assert!(
-                probe(&mut sim).unwrap_err().contains("action3"),
-                "mode cannot bypass the earlier Team receiver"
+            assert!(sim.member_team_is_moving_outside_playfield(id));
+            assert_eq!(
+                probe(&mut sim),
+                Ok(0),
+                "the shared Team waypoint receiver runs before the mode gate"
             );
         }
     }

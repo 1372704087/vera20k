@@ -150,6 +150,7 @@ pub(super) fn dispatch_sim_sound_events(
     // Convert sim sound events to app-layer sound events for playback.
     for sim_event in events {
         let app_event: GameSoundEvent = match sim_event {
+            SimSoundEvent::TriggerEva { index } => GameSoundEvent::TriggerEva { index },
             SimSoundEvent::UnitVoiceVisit { owner } => GameSoundEvent::UnitVoiceVisit { owner },
             SimSoundEvent::UnitVoiceDestroyed { owner } => {
                 GameSoundEvent::UnitVoiceDestroyed { owner }
@@ -344,6 +345,24 @@ pub(super) fn dispatch_sim_sound_events(
                 GameSoundEvent::VocAt {
                     sound_id,
                     source: Some(SoundSource::new((sx, sy), (rx, ry))),
+                }
+            }
+            SimSoundEvent::VocAtCoord {
+                sound_id,
+                coordinate,
+            } => {
+                // Original750B32 uses arithmetic coord>>8 for the shroud
+                // cell. Preserve direct Location XYZ; do not recenter it.
+                GameSoundEvent::VocAtCoord {
+                    sound_id,
+                    source: SoundSource::new(
+                        crate::util::lepton::absolute_leptons_to_screen(
+                            coordinate.x,
+                            coordinate.y,
+                            coordinate.z,
+                        ),
+                        ((coordinate.x >> 8) as u16, (coordinate.y >> 8) as u16),
+                    ),
                 }
             }
             SimSoundEvent::BuildingComplete { owner } => {
@@ -565,23 +584,6 @@ pub(super) fn dispatch_sim_sound_events(
                 sound_id: "SealPlaceBomb".to_string(),
                 source: Some(sound_source_at_cell(rx, ry)),
             },
-            SimSoundEvent::BuildingDamagedSfx { rx, ry } => {
-                // `[AudioVisual] BuildingDamageSound` (`Rules+0x714`),
-                // played at the building's own coordinate by
-                // `BuildingClass::ReceiveDamage @ 0x00442700` /
-                // `0x00442706 CALL VocClass::PlayAtCoord @ 0x00750E20`.
-                // `RulesClass::ReadAudioVisual` stores only the
-                // `VocClass::FindByName` result, so an absent or empty
-                // key is silence rather than a bag lookup.
-                let sound_id = match rules.general.building_damage_sound.as_deref() {
-                    Some(s) if !s.is_empty() => s.to_string(),
-                    _ => continue,
-                };
-                GameSoundEvent::BuildingDamagedSfx {
-                    sound_id,
-                    source: Some(sound_source_at_cell(rx, ry)),
-                }
-            }
             SimSoundEvent::BunkerWallsUp { rx, ry } => {
                 // Walls-up cue on install; skip when the rules key is empty.
                 let sound_id =
@@ -1161,6 +1163,47 @@ mod tests {
         .unwrap()
     }
 
+    #[test]
+    fn trigger_eva_dispatch_preserves_original_index_history_without_listener_gates() {
+        let rows: Vec<serde_json::Value> = serde_json::from_str(crate::test_fixture::text(
+            "tools/spatial_oracle/trigger_action_values.json",
+        ))
+        .unwrap();
+        let history = rows
+            .iter()
+            .find(|row| row["case_kind"] == "eva_history")
+            .unwrap();
+        let indices: Vec<i32> = history["history"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .flat_map(|step| step["calls"].as_array().unwrap())
+            .filter(|call| call["call"] == "QueueVoice")
+            .map(|call| call["index"].as_i64().unwrap() as i32)
+            .collect();
+        assert_eq!(indices.len(), 7);
+        let mut output = SoundEventQueue::new();
+        dispatch_sim_sound_events(
+            indices
+                .iter()
+                .map(|&index| SimSoundEvent::TriggerEva { index }),
+            &Simulation::new(),
+            &dispatch_rules(),
+            None,
+            &mut |_| panic!("original TAction21 does not create or gate on a radar event"),
+            &mut output,
+        );
+        let observed: Vec<_> = output
+            .drain()
+            .into_iter()
+            .map(|event| match event {
+                GameSoundEvent::TriggerEva { index } => index,
+                other => panic!("unexpected event {other:?}"),
+            })
+            .collect();
+        assert_eq!(observed, indices);
+    }
+
     /// Original458200 calls global Voc before radar15 and speaks only when
     /// that radar request accepts. Simulation already admitted House50B6F0;
     /// a campaign human need not be the local-owner name used by other arms.
@@ -1515,8 +1558,7 @@ mod tests {
 
     #[test]
     fn dispatcher_preserves_resolved_feedback_before_the_building_cue() {
-        let mut rules = dispatch_rules();
-        rules.general.building_damage_sound = Some("Damaged".into());
+        let rules = dispatch_rules();
         let sim = Simulation::new();
         let before = sim.rng_state();
         let mut output = SoundEventQueue::new();
@@ -1531,7 +1573,14 @@ mod tests {
                     sub_y: SimFixed::from_num(174),
                     world_z_leptons: 104,
                 },
-                SimSoundEvent::BuildingDamagedSfx { rx: 3, ry: 4 },
+                SimSoundEvent::VocAtCoord {
+                    sound_id: "Damaged".into(),
+                    coordinate: crate::sim::components::DriveCoord {
+                        x: 3 * 256 + 61,
+                        y: 4 * 256 + 174,
+                        z: 104,
+                    },
+                },
             ],
             &sim,
             &rules,
@@ -1548,6 +1597,8 @@ mod tests {
             ["Feedback", "Damaged"]
         );
         let source = events[0].source().unwrap();
+        assert!(matches!(&events[1], GameSoundEvent::VocAtCoord { .. }));
+        assert_eq!(events[1].source(), Some(source));
         assert_eq!(source.cell(), (3, 4));
         assert_eq!(
             source.screen_pos(),
@@ -1942,14 +1993,13 @@ mod tests {
     fn stock_audio_visual() -> crate::rules::ruleset::GeneralRules {
         // The parse of each key from stock `[AudioVisual]` text is pinned in
         // `rules::ruleset::tests::superweapon_activate_sounds_parse_their_stock_values`.
-        crate::rules::ruleset::GeneralRules {
-            psychic_dominator_activate_sound: Some("PsychicDominatorActivate".to_string()),
-            genetic_mutator_activate_sound: Some("GeneticMutatorActivate".to_string()),
-            psychic_reveal_activate_sound: Some("PsychicRevealActivate".to_string()),
-            dig_sound: Some("NukeSiren".to_string()),
-            storm_sound: Some("WeatherIntro".to_string()),
-            ..Default::default()
-        }
+        let mut general = crate::rules::ruleset::GeneralRules::default();
+        general.psychic_dominator_activate_sound = Some("PsychicDominatorActivate".to_string());
+        general.genetic_mutator_activate_sound = Some("GeneticMutatorActivate".to_string());
+        general.psychic_reveal_activate_sound = Some("PsychicRevealActivate".to_string());
+        general.dig_sound = Some("NukeSiren".to_string());
+        general.storm_sound = Some("WeatherIntro".to_string());
+        general
     }
 
     /// The whole `SuperClass::Launch @ 0x006CC390` cue table, one row per

@@ -411,8 +411,24 @@ mod tests {
         }
         assert!(report["live_event_count_at_finish"].is_null());
         assert!(report["busy_channel_count_at_finish"].is_null());
+        assert!(report["coordinate_request_count_at_finish"].is_null());
         assert!(output.get("playback_clips").is_none());
         assert!(output.get("source_state_alive_at_finish").is_none());
+    }
+
+    #[test]
+    fn coordinate_request_identity_is_distinct_from_an_actor_with_the_same_number() {
+        let mut recorder = observer(8);
+        recorder.bind_owner(token(1, 1), HandleOwner::Coordinate(7));
+        recorder.owner_action(HandleOwner::Positional(7), "stopped", 12);
+        assert!(!recorder.settled());
+        recorder.action(token(1, 1), "completed", 34);
+        let report = recorder.finish().into_json();
+        let output = &report["outputs"][0];
+        assert_eq!(output["owner"], 7);
+        assert_eq!(output["owner_role"], "coordinate_request");
+        assert_eq!(output["actions"].as_array().unwrap().len(), 2);
+        assert!(report["coordinate_request_count_at_finish"].is_null());
     }
 
     #[test]
@@ -610,6 +626,9 @@ pub(crate) struct PcmObservationReport {
     pub truncated: bool,
     pub live_event_count_at_finish: Option<usize>,
     pub busy_channel_count_at_finish: Option<usize>,
+    /// Read from SfxPlayer's request owner when attached. A standalone PCM
+    /// observer has no coordinate pool and reports None, never a guessed0.
+    pub coordinate_request_count_at_finish: Option<usize>,
 }
 
 impl PcmObservationReport {
@@ -643,7 +662,8 @@ impl PcmObservationReport {
         }).collect::<Vec<_>>();
         serde_json::json!({"outputs": outputs, "voice_actions": self.voice_actions, "truncated": self.truncated,
             "live_event_count_at_finish": self.live_event_count_at_finish,
-            "busy_channel_count_at_finish": self.busy_channel_count_at_finish})
+            "busy_channel_count_at_finish": self.busy_channel_count_at_finish,
+            "coordinate_request_count_at_finish": self.coordinate_request_count_at_finish})
     }
 }
 
@@ -1106,11 +1126,14 @@ impl PcmObserver {
                     event: output.token.event.0,
                     event_serial: output.token.serial,
                     owner: output.owner.map(|owner| match owner {
-                        HandleOwner::Positional(id) | HandleOwner::UnitVoice(id) => id,
+                        HandleOwner::Positional(id)
+                        | HandleOwner::UnitVoice(id)
+                        | HandleOwner::Coordinate(id) => id,
                     }),
                     owner_role: output.owner.map(|owner| match owner {
                         HandleOwner::Positional(_) => "positional",
                         HandleOwner::UnitVoice(_) => "unit_voice",
+                        HandleOwner::Coordinate(_) => "coordinate_request",
                     }),
                     sound_id: output.sound_id,
                     resolved_samples,
@@ -1144,6 +1167,7 @@ impl PcmObserver {
             truncated: self.truncated || playback_truncated,
             live_event_count_at_finish: self.live_event_count_at_finish,
             busy_channel_count_at_finish: self.busy_channel_count_at_finish,
+            coordinate_request_count_at_finish: None,
         }
     }
 }

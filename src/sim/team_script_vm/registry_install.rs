@@ -11,7 +11,7 @@ use crate::sim::pathfinding::passability::combine_team_movement_zones;
 use super::{
     TeamAiInstallDiagnostic, TeamAiTriggerDefinition, TeamAiTriggerOwner, TeamMemberTypeIdentity,
     TeamScriptAction, TeamScriptDefinition, TeamScriptVm, TeamTaskForceDefinition,
-    TeamTaskForceEntry, TeamTypeDefinition, TeamTypeIniMetadata,
+    TeamTaskForceEntry, TeamTypeDefinition, TeamTypeHouse, TeamTypeIniMetadata,
 };
 
 impl TeamScriptVm {
@@ -126,6 +126,31 @@ impl TeamScriptVm {
             vm.team_type_ini.insert(
                 id,
                 TeamTypeIniMetadata {
+                    house: fields.read_string_with("House", 0x80, None, |_, value| {
+                        // ReadHouseType475540 uses a case-sensitive physical
+                        // <Player @ A>..<Player @ H> table, then the shared
+                        // case-insensitive country alias-before-ID lookup.
+                        let bytes = value.as_bytes();
+                        if bytes.len() == 12
+                            && bytes.starts_with(b"<Player @ ")
+                            && bytes[11] == b'>'
+                            && (b'A'..=b'H').contains(&bytes[10])
+                        {
+                            Some(TeamTypeHouse::PlayerAt(bytes[10] - b'A'))
+                        } else {
+                            rules
+                                .scenario_country_name(Some(value))
+                                .and_then(|name| rules.country_index(name))
+                                .map(TeamTypeHouse::Country)
+                        }
+                    }),
+                    veteran_level: fields.read_int("VeteranLevel", 1),
+                    waypoint: fields.read_string_with("Waypoint", 0x40, -1, |_, value| {
+                        crate::map::actions::decode_waypoint_token(value)
+                            .map_or(-1, |index| index as i32)
+                    }),
+                    full: fields.read_bool("Full", false),
+                    whiner: fields.read_bool("Whiner", false),
                     max_teams: fields.read_int("Max", -1),
                     autocreate: fields.read_bool("Autocreate", false),
                     are_team_members_recruitable: fields
@@ -133,6 +158,7 @@ impl TeamScriptVm {
                     reinforce: fields.read_bool("Reinforce", false),
                     group: fields.read_int("Group", -1),
                     avoid_threats: fields.read_bool("AvoidThreats", false),
+                    on_trans_only: fields.read_bool("OnTransOnly", false),
                     recruiter: fields.read_bool("Recruiter", false),
                     annoyance: fields.read_bool("Annoyance", false),
                     guard_slower: fields.read_bool("GuardSlower", false),
@@ -281,6 +307,7 @@ impl TeamScriptVm {
         &self.script_order
     }
 
+    #[cfg(test)]
     pub(crate) fn script(&self, id: InternedId) -> Option<&TeamScriptDefinition> {
         self.scripts.get(&id)
     }

@@ -831,13 +831,19 @@ impl EvaEntry {
 /// and calls `VoxClass::ReadINI` on the section of the same name.
 #[derive(Debug, Clone, Default)]
 pub struct EvaRegistry {
-    entries: HashMap<String, EvaEntry>,
+    /// Native registration order is authoritative: TAction21 stores this
+    /// ordinal in +0x90 and passes it directly to QueueVoice752480.
+    entries: Vec<EvaEntry>,
+    /// Derived lookup only; built with the entry vector and never mutated
+    /// independently. ASCII uppercase implements the original stricmp scan.
+    names: HashMap<String, usize>,
 }
 
 impl EvaRegistry {
     /// Parse the registry from evamd.ini data.
     pub fn from_ini(ini: &IniFile) -> Self {
-        let mut entries: HashMap<String, EvaEntry> = HashMap::new();
+        let mut entries = Vec::new();
+        let mut names = HashMap::new();
         if let Some(list) = ini.section("DialogList") {
             // Each entry name through `ReadString` into `char[200]` (`0x0075304D`).
             for key in list.keys() {
@@ -845,22 +851,37 @@ impl EvaRegistry {
                     continue;
                 };
                 let id = name.to_ascii_uppercase();
-                if entries.contains_key(&id) {
+                if names.contains_key(&id) {
                     continue;
                 }
-                entries.insert(id, EvaEntry::from_section(name, ini.section(name)));
+                names.insert(id, entries.len());
+                entries.push(EvaEntry::from_section(name, ini.section(name)));
             }
         }
         log::info!(
             "EvaRegistry: loaded {} EVA event definitions",
             entries.len()
         );
-        Self { entries }
+        Self { entries, names }
     }
 
     /// `VoxClass::PlayEVA`'s `stricmp` scan: the entry for an event name.
     pub fn entry(&self, event_name: &str) -> Option<&EvaEntry> {
-        self.entries.get(&event_name.to_ascii_uppercase())
+        self.entry_by_index(self.index_of(event_name)?)
+    }
+
+    /// VoxClass::FindIndex753250. The action reader's operand is not trimmed;
+    /// a missing name is the native -1 sentinel. Evidence: the full retail
+    /// Read753000 and action21 histories in trigger_action_values.json.
+    pub fn index_of(&self, event_name: &str) -> Option<i32> {
+        self.names
+            .get(&event_name.to_ascii_uppercase())
+            .map(|&index| i32::try_from(index).expect("EVA registry exceeds native i32 count"))
+    }
+
+    /// QueueVoice752480 accepts only 0 <= index < the registered count.
+    pub fn entry_by_index(&self, index: i32) -> Option<&EvaEntry> {
+        self.entries.get(usize::try_from(index).ok()?)
     }
 
     /// Look up an EVA sample name by event name and side column.
@@ -1430,6 +1451,102 @@ mod tests {
         // A section that is not in DialogList is not an entry.
         assert!(reg.entry("EVA_NotListed").is_none());
         assert_eq!(reg.get("EVA_UnitLost", EvaSide::Russian), Some("csof064"));
+        for (index, name) in ["EVA_UnitLost", "EVA_LowPower", "EVA_Plain", "EVA_Missing"]
+            .into_iter()
+            .enumerate()
+        {
+            assert_eq!(reg.index_of(name), Some(index as i32));
+            assert_eq!(reg.entry_by_index(index as i32).unwrap().name, name);
+        }
+        assert!(reg.entry_by_index(-1).is_none());
+        assert!(reg.entry_by_index(reg.len() as i32).is_none());
+    }
+
+    #[test]
+    fn eva_registry_preserves_physical_dialog_order_and_one_name_index() {
+        let ini = IniFile::from_str(
+            "[DialogList]\n9=FIRST\n2=SECOND\n3=first\n0=THIRD\n\
+             [FIRST]\nRussian=one\n[SECOND]\nRussian=two\n[THIRD]\nRussian=three\n",
+        );
+        let registry = EvaRegistry::from_ini(&ini);
+        assert_eq!(registry.len(), 3);
+        for (index, entry) in registry.entries.iter().enumerate() {
+            assert_eq!(registry.index_of(&entry.name), Some(index as i32));
+            assert_eq!(registry.entry(&entry.name), Some(entry));
+        }
+        assert_eq!(registry.entry_by_index(0).unwrap().name, "FIRST");
+        assert_eq!(registry.entry_by_index(1).unwrap().name, "SECOND");
+        assert_eq!(registry.entry_by_index(2).unwrap().name, "THIRD");
+        assert_eq!(registry.index_of("second"), Some(1));
+        assert!(registry.index_of(" SECOND").is_none());
+        assert!(registry.index_of("SECOND ").is_none());
+    }
+
+    /// Original full Read753000 plus TAction6DD5B0/QueueVoice752480,
+    /// executed against EVAMD470 by the retained oracle. This validates the
+    /// production reader's ordinal, columns and admission metadata; it does
+    /// not establish speech hardware or the stock mission's timing.
+    #[test]
+    fn retail_eva_action_indices_match_original_reader_and_dispatch() {
+        let Some(ini) = crate::rules::retail_ini_fixture::retail_ini("evamd.ini") else {
+            return;
+        };
+        let registry = EvaRegistry::from_ini(&ini);
+        // Full derived-index consistency against the physical retail list.
+        // Numeric DialogList keys are labels, not the registration order.
+        let list = ini.section("DialogList").unwrap();
+        let mut compared_ordinals = 0;
+        for (index, key) in list.keys().enumerate() {
+            let name = list.read_name(key, 0xC8).unwrap();
+            assert_eq!(registry.index_of(name), Some(index as i32));
+            assert_eq!(registry.entry_by_index(index as i32).unwrap().name, name);
+            compared_ordinals += 1;
+        }
+        assert_eq!(compared_ordinals, 470);
+        let rows: Vec<serde_json::Value> = serde_json::from_str(crate::test_fixture::text(
+            "tools/spatial_oracle/trigger_action_values.json",
+        ))
+        .unwrap();
+        let mut compared = 0;
+        for row in rows
+            .iter()
+            .filter(|row| row["case_kind"] == "eva_read_dispatch")
+        {
+            compared += 1;
+            assert_eq!(
+                registry.len() as u64,
+                row["registry_count"].as_u64().unwrap()
+            );
+            let operand = row["raw"].as_str().unwrap().split(',').nth(2).unwrap();
+            let index = registry.index_of(operand).unwrap_or(-1);
+            assert_eq!(
+                i64::from(index),
+                row["value"].as_i64().unwrap(),
+                "{operand}"
+            );
+            let Some(entry) = registry.entry_by_index(index) else {
+                assert!(row["entry"].is_null());
+                continue;
+            };
+            let expected = &row["entry"];
+            assert_eq!(entry.name, expected["name"].as_str().unwrap());
+            assert_eq!(entry.eva_type as i64, expected["type"].as_i64().unwrap());
+            assert_eq!(
+                entry.priority as i64,
+                expected["priority"].as_i64().unwrap()
+            );
+            for (column, side) in [EvaSide::Allied, EvaSide::Russian, EvaSide::Yuri]
+                .into_iter()
+                .enumerate()
+            {
+                assert_eq!(
+                    entry.column(side).unwrap_or(""),
+                    expected["columns"][column.to_string()].as_str().unwrap(),
+                    "{operand} column{column}",
+                );
+            }
+        }
+        assert_eq!(compared, 15);
     }
 
     /// `VoxClass::SetSide @ 0x007534E0` stores the side as is (`-1` → 0);

@@ -45,7 +45,7 @@ fn height_grid(levels: &Value) -> Vec<u8> {
         let (cell, level) = item.split_once('=').unwrap();
         let (x, y) = cell.split_once(',').unwrap();
         let (x, y): (usize, usize) = (x.parse().unwrap(), y.parse().unwrap());
-        grid[y * width + x] = level.parse().unwrap();
+        grid[y * width + x] = level.parse::<i8>().unwrap() as u8;
     }
     grid
 }
@@ -89,6 +89,37 @@ fn the_walk_matches_native() {
         compared += 1;
     }
     assert_eq!(compared, 68);
+}
+
+/// Original567CB5 sign-extends Cell+11B. A negative terrain byte must not
+/// become a tall unsigned obstruction; positive4/127 controls exercise the
+/// opposite branch. These are original executable walks, not fitted discs.
+#[test]
+fn native_trigger_reveal_signed_los_matches_original_walk() {
+    let corpus: Vec<Value> = serde_json::from_str(crate::test_fixture::text(
+        "tools/spatial_oracle/trigger_action_values.json",
+    ))
+    .unwrap();
+    let native = corpus
+        .iter()
+        .find(|row| row["case_kind"] == "trigger_reveal")
+        .unwrap();
+    let controls = native["los_controls"].as_array().unwrap();
+    assert_eq!(controls.len(), 4);
+    for row in controls {
+        let heights = height_grid(&row["levels"]);
+        let actual = collect_reveal_cells(
+            int(&row["center"][0]) as u16,
+            int(&row["center"][1]) as u16,
+            int(&row["radius"]) as u16,
+            int(&row["z"]),
+            row["by_height"] == true && row["reveal_by_height"] == true,
+            Some(&heights),
+            GRID,
+            Some((int(&row["size"][0]), int(&row["size"][1]))),
+        );
+        assert_eq!(actual, cells(&row["leaf"]), "{}", row["name"]);
+    }
 }
 
 /// The house gate (`0x00567AB0..0x00567B12`): another house's reveal maps

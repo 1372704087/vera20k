@@ -4,6 +4,22 @@
 use super::{FogState, InternedId, OwnerVisibility, gap_footprint};
 
 impl FogState {
+    /// House+240, the existing Map reveal/gap authority. The separately
+    /// stored House+241 map-clear byte does not decide reveal admission.
+    pub(crate) fn whole_map_revealed_for_owner(&self, owner: InternedId) -> bool {
+        self.whole_map_revealed_owners.contains(&owner)
+    }
+
+    /// Successful native6FB170 gap re-admission invalidates House+240,
+    /// including a friendly generator whose footprint leaves no hostile gap.
+    pub(crate) fn invalidate_whole_map_reveal_for_owner(&mut self, owner: InternedId) {
+        self.whole_map_revealed_owners.remove(&owner);
+    }
+
+    pub(crate) fn hash_whole_map_reveal_state(&self, hasher: &mut impl std::hash::Hasher) {
+        std::hash::Hash::hash(&self.whole_map_revealed_owners, hasher);
+    }
+
     pub(crate) fn transition_whole_map_for_owner(
         &mut self,
         owner: InternedId,

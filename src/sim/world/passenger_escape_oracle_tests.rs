@@ -313,7 +313,7 @@ fn scene(input: &Value) -> Scene {
     // The oracle seeds the Scenario stream 31 and draws nothing before the
     // block.
     sim.scenario_rng = SimRng::new(31);
-    sim.substrate.pending_delete.clear();
+    sim.substrate.pending_delete.clear_for_test();
     Scene {
         sim,
         rules,
@@ -425,7 +425,7 @@ fn compare(row: &Value) {
         };
         let killed = of("uninit").is_some();
         assert_eq!(
-            sim.substrate.pending_delete.contains(&id),
+            sim.substrate.pending_delete.contains_object(&id),
             killed,
             "{context}: UnInit"
         );

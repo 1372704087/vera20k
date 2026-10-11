@@ -328,7 +328,11 @@ const MIN_DISTINCT_DECK_CELLS: usize = 6;
 // Snapshot320 retains native Techno constructor disguise identity/timer state
 // for every actor, replacing the absent component. These fixtures acquire no
 // disguise; their gameplay and absolute RNG pins remain the independent gates.
-const BRIDGE_HARNESS_FINAL_HASH: u64 = 0xE598_15E1_D803_4937;
+// Snapshot324 replaces the disabled/fired trigger-latch fold with retained
+// definition/live-instance/registration/attachment/dispatch state. This fixture
+// has no authored Tags; route, per-frame replay and all three RNG gates precede
+// this structural Rust hash pin and remain unchanged.
+const BRIDGE_HARNESS_FINAL_HASH: u64 = 0x8800_B430_026B_6F17;
 
 fn bridge_ini() -> IniFile {
     // One armed ground vehicle and one distant infantryman on a second house, so
@@ -514,6 +518,7 @@ fn unit(owner: &str, type_id: &str, cx: u16, cy: u16, cat: EntityCategory) -> Ma
         structure_upgrades: [None, None, None],
         structure_ai_sellable: false,
         structure_ai_repairable: false,
+        trigger_tag: None,
     }
 }
 

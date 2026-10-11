@@ -479,8 +479,12 @@ pub(crate) fn build_shp_instances(
         // blits (`0x0043D386..0x0043D544`), tested at the building's
         // coordinate's cell. SHP vehicles' draws pass no colour word
         // (`0x0073CE3E`, `0x0073CE7D`).
-        let (body_tint, palette_light) =
-            crate::app::presentation::lighting::curtain_light(entity, tint, palette_light, sim);
+        let (body_tint, palette_light) = crate::app::presentation::lighting::techno_effect_light(
+            entity,
+            tint,
+            palette_light,
+            sim,
+        );
         let colour_word = match state.rules() {
             Some(rules) if entity.category == EntityCategory::Structure => {
                 let [x, y] = crate::sim::movement::ground_pose::object_center_xy(entity);
@@ -644,12 +648,13 @@ pub(crate) fn build_shp_instances(
                 // TechnoClass::Draw's curtain arm (`0x0070678D..0x007067E2`)
                 // and BuildingClass::Draw's colour word (`0x0043DC1C..
                 // 0x0043DDF1`, DrawBody's) on the voxel cache blit.
-                let (turret_tint, turret_light) = crate::app::presentation::lighting::curtain_light(
-                    entity,
-                    tint,
-                    selected_palette_light,
-                    sim,
-                );
+                let (turret_tint, turret_light) =
+                    crate::app::presentation::lighting::techno_effect_light(
+                        entity,
+                        tint,
+                        selected_palette_light,
+                        sim,
+                    );
                 emit_building_turret_vxl(
                     unit_atlas,
                     &mut state
@@ -1299,7 +1304,7 @@ fn emit_unit_terrain_body(
     let palette_light = crate::render::palette_light::PaletteLight::cell(grid, cell, false);
     let tint = grid.terrain_object_tint_for_type(cell, false);
     let (tint, palette_light) =
-        crate::app::presentation::lighting::curtain_light(entity, tint, palette_light, sim);
+        crate::app::presentation::lighting::techno_effect_light(entity, tint, palette_light, sim);
     let depth = compute_sprite_depth(
         state,
         ground_sort_row(entity, point[1] + body.offset_y + body.pixel_size[1]),

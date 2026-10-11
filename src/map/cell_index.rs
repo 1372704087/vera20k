@@ -10,7 +10,9 @@
 /// Retained CellClass allocation identity after a fixed-stride lookup. A real
 /// index addresses the loaded terrain storage; Dummy always names the same
 /// process object even when a later failed lookup changes its coordinate.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, serde::Serialize, serde::Deserialize,
+)]
 pub enum NativeCellIdentity {
     Real(usize),
     Dummy,

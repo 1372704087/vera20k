@@ -41,6 +41,7 @@ fn curtained(row: &Value) -> GameEntity {
     };
     let mut entity =
         GameEntity::test_default_of_category(1, "GAPOWR", "Americans", 10, 10, category);
+    entity.elite_flash_frames = int(&row["flash"]);
     entity.invulnerability = Some(InvulnerabilityState::with_tint(
         timer(&row["curtain"]),
         InvulnKind::ForceShield,
@@ -73,9 +74,9 @@ fn rules(force_color: i32) -> RuleSet {
 }
 
 /// Each `drawshp_curtain_arm` row (TechnoClass::DrawSHP `0x0070631F..
-/// 0x00706389` run natively) for a building and a unit whose flash count and
-/// airstrike are idle: the intensity DrawSHP hands the blit is the
-/// brightness [`curtain_light`] gives the draw at the row's frame as the
+/// 0x00706389` run natively) for a building and a unit with no
+/// airstrike: the intensity DrawSHP hands the blit is the
+/// brightness [`techno_effect_light`] gives the draw at the row's frame as the
 /// committed `binary_frame`, and the compatibility tint takes its ratio. The
 /// other rows are its residuals.
 #[test]
@@ -98,12 +99,12 @@ fn assert_curtain_arm_matches(section: &str) {
     let mut sim = Simulation::new();
     let mut compared = 0;
     for row in rows {
-        if int(&row["flash"]) != 0 || !row["airstrike"].is_null() {
+        if !row["airstrike"].is_null() {
             continue;
         }
         let intensity = int(&row["intensity"]);
         sim.session.binary_frame = int(&row["frame"]) as u32;
-        let (tint, light) = curtain_light(
+        let (tint, light) = techno_effect_light(
             &curtained(row),
             TINT,
             PaletteLight::color_scheme([1000; 3], intensity),
@@ -118,12 +119,12 @@ fn assert_curtain_arm_matches(section: &str) {
         );
         compared += 1;
     }
-    assert_eq!(compared, 76);
+    assert_eq!(compared, 88);
 }
 
 /// Each `building_anim_light` row (BuildingClass::UpdateAnimation
 /// `0x00450A47..0x00450A77` with 0x456FB0 and the slot loop run natively)
-/// whose flash count and airstrike are idle: the ShouldUseCellDrawer anim's
+/// with no airstrike: the ShouldUseCellDrawer anim's
 /// intensity is the brightness [`building_anim_light`] gives it when the
 /// committed frame is the one after the update's, cut to 16 bits; the anim
 /// whose type lacks ShouldUseCellDrawer keeps its own.
@@ -137,7 +138,7 @@ fn the_building_anim_light_matches_native() {
     for row in rows {
         assert_eq!(row["drawer_set"], serde_json::json!([true, false]), "{row}");
         assert_eq!(int(&row["anim_light"][1]), -12345, "{row}");
-        if int(&row["flash"]) != 0 || !row["airstrike"].is_null() {
+        if !row["airstrike"].is_null() {
             continue;
         }
         sim.session.binary_frame = int(&row["frame"]) as u32 + 1;
@@ -150,7 +151,7 @@ fn the_building_anim_light_matches_native() {
         assert_eq!(light.brightness(), int(&row["anim_light"][0]), "{row}");
         compared += 1;
     }
-    assert_eq!(compared, 42);
+    assert_eq!(compared, 46);
 }
 
 /// Each `building_colour_word` row (BuildingClass_DrawBody

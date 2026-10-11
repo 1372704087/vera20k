@@ -43,6 +43,9 @@ CAMPAIGN_CHECKPOINTS = {
     for phase in ("loading-first-frame", "first-live-frame", "abort-return")
 }
 CAMPAIGN_CHECKPOINTS["campaign-back-return"] = (None, "campaign-back-return")
+for phase in ("opening-locked", "opening-pan", "opening-flash", "opening-arrows",
+              "opening-unlocked", "opening-restore-unlocked"):
+    CAMPAIGN_CHECKPOINTS[f"campaign-sov1-{phase}"] = ("sov1", phase)
 PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
 TILE = 50
 
@@ -159,9 +162,11 @@ def validate_campaign_capture(manifest):
     if phase == "loading-first-frame":
         _require(runtime is None, "first loading capture claims an installed runtime")
     else:
-        _require(isinstance(runtime, dict) and _integer(runtime.get("tick")) and runtime.get("tick") == 0
+        opening_phase = phase.startswith("opening-")
+        _require(isinstance(runtime, dict) and _integer(runtime.get("tick"))
+                 and (runtime["tick"] > 0 if opening_phase else runtime["tick"] == 0)
                  and runtime.get("game_mode_nonzero") is False,
-                 "first live campaign capture is not before simulation tick zero")
+                 "campaign capture is outside its admitted runtime frame domain")
         _require(_integer(runtime["campaign_mission_counter"]), "campaign counter missing")
         rows = runtime["campaign_difficulty_rows"]
         _require(rows["player"] == difficulty and rows["computer"] == 2 - difficulty,
@@ -193,6 +198,8 @@ def validate_campaign_capture(manifest):
                  and len(camera["view_bookmarks"]) == 4
                  and all(isinstance(cell, list) and len(cell) == 2 for cell in camera["view_bookmarks"]),
                  "campaign camera/bookmark receipt missing")
+        if opening_phase:
+            _validate_campaign_opening(manifest, phase, runtime)
     if phase == "abort-return":
         _require(manifest.get("runtime_observation") == "first-live-frame-before-Escape-press",
                  "abort return has no pre-Escape installed-runtime observation")
@@ -245,6 +252,10 @@ def validate_campaign_capture(manifest):
             "match_startup_receipt_present", "asset_manager_leased", "campaign_page_present",
             "fullscreen_movie_present", "scenario_exit_present", "scenario_outcome_present",
         )), "campaign abort retained startup/loading/modal/exit owners")
+        _require(cleanup.get("campaign_installation_present", False) is False,
+                 "campaign abort retained its installation admission")
+        _require(cleanup.get("retained_scenario_started", False) is False,
+                 "campaign abort retained a started scenario")
         _require(cleanup.get("asset_manager_available") is True
                  and cleanup.get("retained_runtime_present") is True
                  and cleanup.get("retained_quit_requested") is True
@@ -258,6 +269,100 @@ def validate_campaign_capture(manifest):
     return {"campaign": campaign_id, "phase": phase, "scenario": campaign["scenario"],
             "selected_map_sha256": source["source_sha256"],
             "map_admission": manifest["map_admission"], "parity_certification": "NONE"}
+
+
+def _validate_campaign_opening(manifest, phase, runtime):
+    opening = manifest["opening"]
+    _require(opening["target"] == phase and opening["saw_lock"] is True,
+             "opening did not observe its authored lock")
+    initial = opening["initial_runtime"]
+    _require(initial["tick"] == 0 and initial["game_mode_nonzero"] is False,
+             "opening skipped the ordinary tick-zero installation")
+    for observation in (initial, runtime):
+        _require(observation.get("scenario_started") is True,
+                 "opening retained an inactive scenario")
+        _require(observation.get("startup_admission") == {
+            "accepted_rust_l0": False, "campaign_installation": True,
+        }, "opening has no checked campaign installation admission")
+    steps = opening["exact_steps"]
+    _require(isinstance(steps, list) and 0 < len(steps) <= 2500,
+             "opening has no bounded production step sequence")
+    tick, frame = initial["tick"], initial["binary_frame"]
+    for step in steps:
+        _require(step["tick_before"] == tick and step["tick_after"] == tick + 1
+                 and step["binary_frame_before"] == frame
+                 and step["binary_frame_after"] == (frame + 1) & 0xFFFFFFFF,
+                 "opening production steps contain a gap or a repeated frame")
+        tick, frame = step["tick_after"], step["binary_frame_after"]
+    current = opening["current"]
+    _require(tick == runtime["tick"] == current["tick"]
+             and frame == runtime["binary_frame"] == current["binary_frame"],
+             "opening readback receipt differs from its last production step")
+    _require(current.get("fog_viewer") == runtime["current_house"]["name"],
+             "opening shroud observation does not belong to the installed player")
+    observations = opening["observations"]
+    _require(isinstance(observations, list) and observations
+             and all(_integer(row["tick"]) and 0 <= row["tick"] <= tick for row in observations)
+             and all(a["tick"] <= b["tick"] for a, b in zip(observations, observations[1:])),
+             "opening owner observations are not ordered within the captured run")
+    probe = opening["locked_arrow_probe"]
+    _require(isinstance(probe, dict) and probe["locked"] is True
+             and (probe["custom_binding"] is True or (
+                 probe["press_admitted"] is False and probe["release_cleared"] is True)),
+             "opening did not exercise ordinary locked key admission")
+    _require(opening.get("locked_mouse_probe") == {
+        "pre_lock_capture_cancelled": True, "locked_release_cleared": True,
+        "locked_press_recorded": True, "left_held_until_unlock": True,
+        "locked_press_captured": False,
+    }, "opening did not exercise physical pointer edges across its input lock")
+    if phase == "opening-locked":
+        _require(current["input_locked"] is True and current["cursor_depth"] < 0,
+                 "lock readback has no hidden cursor/locked Scenario")
+    elif phase == "opening-pan":
+        progress = struct.unpack("<f", struct.pack("<I", current["camera"]["focus_progress_bits"]))[0]
+        _require(current["camera"]["focus_rate_bits"] != 0 and 0.25 <= progress < 1.0,
+                 "pan readback is not inside the retained camera trajectory")
+    elif phase == "opening-flash":
+        _require(any(actor.get("cell_shrouded") is False for actor in current["flashing"]),
+                 "flash readback has no unshrouded live native flash phase")
+    elif phase == "opening-arrows":
+        _require(any(anim["type"] == "ARRWSE" and anim.get("cell_shrouded") is False
+                     for anim in current["no_effects_anims"]),
+                 "arrow readback has no unshrouded post-reset retail arrow")
+    else:
+        _require(opening["saw_unlock"] is True and current["input_locked"] is False
+                 and current["cursor_depth"] == 0,
+                 "unlock readback did not restore authored input/cursor admission")
+        probe = opening["unlocked_arrow_probe"]
+        _require(isinstance(probe, dict) and probe["locked"] is False
+                 and (probe["custom_binding"] is True or (
+                     probe["press_admitted"] is True and probe["release_cleared"] is True)),
+                 "opening did not exercise ordinary unlocked key admission")
+        _require(opening.get("unlocked_mouse_probe") == {
+            "held_left_blocks_right_pan": True,
+            "released_buttons_admit_right_pan": True, "capture_released": True,
+            "camera_request_committed": False,
+        }, "opening did not exercise live button priority and release after unlock")
+        _require(any(any(actor.get("cell_shrouded") is False for actor in row["flashing"])
+                     for row in observations)
+                 and any(row["messages"] for row in observations)
+                 and any(any(anim["type"] == "ARRWSE" and anim.get("cell_shrouded") is False
+                             for anim in row["no_effects_anims"])
+                         for row in observations),
+                 "opening missed a required flash/message/arrow consumer before unlock")
+    restored = opening["save_restore"]
+    if phase == "opening-restore-unlocked":
+        _require(isinstance(restored, dict)
+                 and restored["view_before"] == restored["view_after"]
+                 and restored["cursor_depth_before"] == restored["cursor_depth_after"],
+                 "ordinary save/load did not preserve the retained pan and outgoing cursor depth")
+        saved, loaded = restored["saved_runtime"], restored["loaded_runtime"]
+        _require(saved["tick"] == loaded["tick"] and saved["binary_frame"] == loaded["binary_frame"]
+                 and saved["rng"]["main"] == loaded["rng"]["main"]
+                 and saved["rng"]["mapgen"] == loaded["rng"]["mapgen"],
+                 "ordinary save/load changed its frame or retained RNG owners")
+    else:
+        _require(restored is None, "non-restore opening capture changed the saved-game timeline")
 
 
 def _paeth(a, b, c):

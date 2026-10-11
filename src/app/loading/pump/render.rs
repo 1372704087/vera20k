@@ -600,15 +600,14 @@ fn push_loading_progress_span(
     let full_width = frame.pixel_size[0].max(1.0);
     let progress_width = progress.fill_width_gamemd_ftol_positive_domain(full_width as u32);
     if progress_width > 0 {
-        // The meter still reveals by fraction, whatever the window: the native
-        // ftol width decides how far along the frame the sweep has reached, and
-        // a stretched bar reaches that same point of its grown rectangle.
+        // Preserve the native integer clip width before scaling. Dividing by
+        // the full frame and multiplying back loses that width even at1x.
         push_progress_fill(
             out,
             frame,
             bar_origin,
-            (progress_width as f32 / full_width).clamp(0.0, 1.0),
-            bar_size,
+            progress_width,
+            scale,
             PROGRESS_DEPTH,
         );
     }
@@ -897,19 +896,22 @@ fn push_entry_tinted(
 ///
 /// This is the one loading-screen layer that is *clipped* rather than scaled —
 /// the bar sweeps by uncovering more of the same frame, so the U axis is cut at
-/// the fill fraction while the V axis stays whole. `size` is that frame's
-/// destination box, which the page's scale has already grown.
+/// the fill fraction while the V axis stays whole. `source_width` is the native
+/// integer clip width. The page's scale grows that width and the full height.
 fn push_progress_fill(
     out: &mut Vec<SpriteInstance>,
     entry: LoadingScreenEntry,
     position: [f32; 2],
-    fraction: f32,
-    size: [f32; 2],
+    source_width: u32,
+    scale: ShellScale,
     depth: f32,
 ) {
+    let full_width = entry.pixel_size[0].max(1.0);
+    let width = (source_width as f32).min(full_width);
+    let fraction = width / full_width;
     out.push(SpriteInstance {
         position,
-        size: [size[0] * fraction, size[1]],
+        size: scale.art_size(width, entry.pixel_size[1]),
         uv_origin: entry.uv_origin,
         uv_size: [entry.uv_size[0] * fraction, entry.uv_size[1]],
         depth,
@@ -1172,8 +1174,8 @@ mod tests {
             &mut instances,
             entry,
             [24.0, 332.0],
-            0.25,
-            [400.0, 10.0],
+            100,
+            ShellScale::RETAIL,
             PROGRESS_DEPTH,
         );
 

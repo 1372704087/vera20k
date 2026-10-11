@@ -118,10 +118,7 @@ fn live_avoid_threats_membership_reads_admitted_house_grid_through_search_and_sn
     assert!(diagnostics.is_empty(), "{diagnostics:?}");
     sim.team_script_vm = vm;
     let team_type = sim.interner.get("AVOID").unwrap();
-    let team = sim
-        .team_script_vm
-        .construct_team(team_type, american, true, sim.session.binary_frame as i32)
-        .unwrap();
+    let team = sim.create_team(team_type, Some(american), &rules).unwrap();
     assert!(sim.team_add_member(
         team,
         mover,

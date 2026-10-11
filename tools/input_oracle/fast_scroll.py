@@ -551,6 +551,10 @@ class CameraFixture(DragFixture):
         self.refresh_calls = 0
         self.exit_registrations = 0
         self.native_case = case
+        self.stream_payload = bytearray()
+        self.stream_position = 0
+        self.stream_calls: list[dict] = []
+        self.swizzle_tokens: list[int] = []
         # The same-frame condition skips unrelated focus animation/timer work
         # while retaining the entire original pending-view commit and clamp.
         for address, value in (
@@ -569,6 +573,13 @@ class CameraFixture(DragFixture):
         # Existing native projection fixture owns this startup value. These
         # rows use Z=0 and do not broaden its established height coverage.
         machine.mem_write(0x00B0CD48, struct.pack("<Q", STANDARD_Z_MULTIPLIER_BITS))
+        if case.get("focus_sequence"):
+            put8(machine, 0x00A8ED5C, case.get("scenario_started", True))
+            # Keep the unrelated wall-clock waypoint animation stopped with
+            # nonzero remaining time. Focus still executes the original full
+            # TacticalAI body, interpolation, clamp and view publication.
+            put32(machine, self.tactical + 0xDA4, -1)
+            put32(machine, self.tactical + 0xDAC, 1)
         for axis in range(2):
             put32(machine, POINT + axis * 4, case["initial_center_seed"][axis])
         self.invoke(0x006D8640, [POINT])
@@ -585,6 +596,36 @@ class CameraFixture(DragFixture):
         elif address == 0x006D8B30:
             self.refresh_calls += 1
             return_from_sink(machine, 0)
+        elif address == 0x006C8C40:
+            # An explicit wall-clock bucket. The waypoint draw timer is kept
+            # stopped during measured AI visits; it is not the focus clock.
+            return_from_sink(machine, 0, 0)
+        elif address == 0x006CF2C0:
+            # Abstract Load's Here_I_Am boundary. These Tactical scenes have
+            # no VisibleCell pointers to swizzle; record the saved-this token.
+            stack = machine.reg_read(UC_X86_REG_ESP)
+            self.swizzle_tokens.append(u32(machine, stack + 8))
+            return_from_sink(machine, 12)
+        elif address in (SCRATCH + 0x9100, SCRATCH + 0x9110):
+            stack = machine.reg_read(UC_X86_REG_ESP)
+            receiver, pointer, length, actual = struct.unpack(
+                "<4I", machine.mem_read(stack + 4, 16))
+            if receiver != SCRATCH + 0x9000:
+                raise RuntimeError("Unexpected camera IStream receiver")
+            if address == SCRATCH + 0x9110:
+                self.stream_payload.extend(machine.mem_read(pointer, length))
+                operation = "write"
+            else:
+                block = bytes(self.stream_payload[self.stream_position:self.stream_position + length])
+                if len(block) != length:
+                    raise RuntimeError("Original camera Load over-read its saved bytes")
+                machine.mem_write(pointer, block)
+                self.stream_position += length
+                operation = "read"
+            if actual:
+                put32(machine, actual, length)
+            self.stream_calls.append({"operation": operation, "length": length})
+            return_from_sink(machine, 16)
 
     def invoke(self, address: int, arguments: list[int], *, receiver: int | None = None) -> None:
         machine = self.machine
@@ -592,7 +633,7 @@ class CameraFixture(DragFixture):
             put32(machine, SP + index * 4, value)
         machine.reg_write(UC_X86_REG_ESP, SP)
         machine.reg_write(UC_X86_REG_ECX, self.tactical if receiver is None else receiver)
-        run_checked(machine, address, RET_MAGIC, count=10000)
+        run_checked(machine, address, RET_MAGIC, count=100000)
         if machine.reg_read(UC_X86_REG_ESP) != SP + 4 * (len(arguments) + 1):
             raise RuntimeError(f"Camera entry {address:#x} did not balance arguments")
 
@@ -602,13 +643,57 @@ class CameraFixture(DragFixture):
         self.refresh_calls = 0
         operation = step["operation"]
         drag = None
-        if operation == "scroll":
+        if operation == "constructor":
+            self.invoke(0x006D1C20, [])
+            # Keep the unrelated waypoint-display wall timer stopped, as in
+            # the preexisting focus controls, after observing the real ctor.
+            put32(machine, self.tactical + 0xDA4, -1)
+            put32(machine, self.tactical + 0xDAC, 1)
+        elif operation == "save_restore":
+            stream, table = SCRATCH + 0x9000, SCRATCH + 0x9020
+            put32(machine, stream, table)
+            put32(machine, table + 0xC, SCRATCH + 0x9100)
+            put32(machine, table + 0x10, SCRATCH + 0x9110)
+            self.stream_payload.clear()
+            self.stream_position = 0
+            self.stream_calls.clear()
+            self.swizzle_tokens.clear()
+            self.invoke(0x006DBE00, [self.tactical, stream, 0])
+            if machine.reg_read(UC_X86_REG_EAX) != 0:
+                raise RuntimeError("Original Tactical Save failed")
+            # Destroy only the receiving object's measured fields, so success
+            # demonstrates actual stream retention rather than an unread copy.
+            for offset in (0xA8, 0xC8, 0xCC, 0xD0, 0xD4, 0xD8, 0xDC, 0xD64, 0xD68, 0xD74, 0xD78):
+                put32(machine, self.tactical + offset, 0xA5A5A5A5)
+            if "local_size" in step:
+                for axis, value in enumerate(step["local_size"]):
+                    put32(machine, 0x0087F8E4 + axis * 4, value)
+            self.invoke(0x006DBD20, [self.tactical, stream])
+            if machine.reg_read(UC_X86_REG_EAX) != 0:
+                raise RuntimeError("Original Tactical Load failed")
+            if self.stream_position != len(self.stream_payload):
+                raise RuntimeError("Original camera Load left saved bytes unread")
+            # No-init reconstructs the separate waypoint-display wall timer.
+            # Keep it stopped for the following focus-only AI measurements.
+            put32(machine, self.tactical + 0xDA4, -1)
+            put32(machine, self.tactical + 0xDAC, 1)
+        elif operation == "scroll":
             put32(machine, POINT + 0x20, step["distance"])
             self.invoke(SCROLL_MAP, [step["direction"], POINT + 0x20, 1], receiver=DISPLAY)
         elif operation == "drag":
             drag = self.run(step["cursor"])
         elif operation == "commit":
+            if "frame" in step:
+                put32(machine, 0x00A8ED84, step["frame"])
             self.invoke(0x006D2540, [])
+        elif operation == "focus":
+            for axis, value in enumerate(step["coord"]):
+                put32(machine, POINT + axis * 4, value)
+            self.invoke(0x006D2420, [POINT, step["velocity"]])
+        elif operation == "scenario_started":
+            put8(machine, 0x00A8ED5C, step["value"])
+        elif operation == "replay_flags":
+            put32(machine, 0x00A8D5F8, step["value"])
         elif operation == "set_view":
             if step["coord"][2] != 0:
                 raise ValueError("Camera lifecycle rows deliberately bound SetView to Z=0")
@@ -626,6 +711,22 @@ class CameraFixture(DragFixture):
         }
         if drag is not None:
             output["drag"] = drag
+        if operation == "save_restore":
+            output["stream"] = {"calls": self.stream_calls.copy(),
+                                "bytes": len(self.stream_payload),
+                                "consumed": self.stream_position,
+                                "swizzle_saved_tokens": self.swizzle_tokens.copy()}
+        if self.native_case.get("focus_sequence"):
+            output["focus"] = {
+                "start": [i32(machine, self.tactical + 0xC8),
+                          i32(machine, self.tactical + 0xCC)],
+                "target": [i32(machine, self.tactical + 0xD0),
+                           i32(machine, self.tactical + 0xD4)],
+                "rate_bits": u32(machine, self.tactical + 0xD8),
+                "progress_bits": u32(machine, self.tactical + 0xDC),
+                "last_ai_frame": u32(machine, self.tactical + 0xA8),
+                "frame": u32(machine, 0x00A8ED84),
+            }
         return output
 
 
@@ -672,6 +773,87 @@ def native_camera_sequence(case: dict) -> dict:
             "steps": [{**step, "expected": fixture.advance(step)} for step in case["steps"]]}
 
 
+def focus_inputs() -> list[dict]:
+    def focus(velocity: int, coord: list[int] | None = None) -> dict:
+        return {"operation": "focus", "velocity": velocity,
+                "coord": coord or [25600, 25600, 0]}
+
+    def commit(frame: int) -> dict:
+        return {"operation": "commit", "frame": frame}
+
+    # Timelines are inputs; no second interpolation algorithm computes the
+    # outputs or completion frame. Capture original float stores on each visit.
+    cases = [(f"focus_velocity_{velocity}",
+              [focus(velocity), commit(0), commit(1), commit(1)]
+              + [commit(frame) for frame in range(2, horizon)])
+             for velocity, horizon in enumerate((710, 370, 170, 70, 50))]
+    cases += [
+        ("focus_retarget_keeps_same_frame_gate",
+         [focus(4), commit(1), commit(2), focus(3, [12800, 25600, 0]),
+          commit(2), commit(3), commit(4), commit(40)]),
+        ("focus_during_unstarted_scenario",
+         [{"operation": "scenario_started", "value": False}, focus(4),
+          commit(1), commit(2), {"operation": "scenario_started", "value": True},
+          commit(2), commit(3)]),
+        ("focus_replay_gate_retains_state",
+         [focus(4), {"operation": "replay_flags", "value": 2}, commit(1),
+          {"operation": "replay_flags", "value": 0}, commit(1), commit(1)]),
+        ("focus_clamps_outside_target",
+         [focus(4, [256000, 256000, 0])] + [commit(frame) for frame in range(1, 20)]),
+        ("focus_clamps_north",
+         [focus(4, [-256000, -256000, 0])] + [commit(frame) for frame in range(1, 21)]),
+        ("focus_clamps_east",
+         [focus(4, [256000, -256000, 0])] + [commit(frame) for frame in range(1, 21)]),
+        ("focus_clamps_west",
+         [focus(4, [-256000, 256000, 0])] + [commit(frame) for frame in range(1, 21)]),
+        ("focus_overwrites_pending_scroll",
+         [{"operation": "scroll", "direction": 2, "distance": 21},
+          focus(4), commit(1), {"operation": "scroll", "direction": 6, "distance": 21},
+          commit(2)]),
+        ("absolute_view_during_focus_keeps_original_trajectory",
+         [focus(4), commit(1),
+          {"operation": "set_view", "coord": [12800, 25600, 0]},
+          commit(1), commit(2)]),
+        ("focus_zero_target_is_inactive",
+         [focus(4, [0, 0, 0]), commit(1), commit(2)]),
+        ("focus_wrapping_frame_comparison",
+         [focus(4), commit(0xFFFFFFFF), commit(0), commit(0), commit(1)]),
+    ]
+    for height in (-104, 727, 728, 1500):
+        cases.append((f"focus_subcell_height_{height}",
+                      [focus(4, [25601, 24317, height])]
+                      + [commit(frame) for frame in range(1, 21)]))
+    rows = [{"name": name, "focus_sequence": True, "viewport": [640, 480],
+             "map_rect_width": 100, "local_size": [0, 0, 100, 100],
+             "initial_center_seed": [0, 2500], "drag_anchor": [320, 240],
+             "scroll_rate": 3, "drag_metrics": [4, 4], "steps": steps}
+            for name, steps in cases]
+    for name, map_width, local_size in (
+        ("focus_nonzero_local_rect", 58, [4, 29, 52, 60]),
+        ("focus_view_larger_than_local_rect", 10, [0, 0, 4, 4]),
+    ):
+        rows.append({**rows[0], "name": name, "map_rect_width": map_width,
+                     "local_size": local_size,
+                     "steps": [focus(4)] + [commit(frame) for frame in range(1, 21)]})
+    return rows
+
+
+def camera_lifecycle_inputs() -> list[dict]:
+    base = {**focus_inputs()[0], "focus_sequence": True}
+    constructor = {"operation": "constructor"}
+    focus = {"operation": "focus", "coord": [25600, 25600, 0], "velocity": 4}
+    commit = lambda frame: {"operation": "commit", "frame": frame}
+    scroll = {"operation": "scroll", "direction": 2, "distance": 21}
+    restore = {"operation": "save_restore"}
+    cases = (
+        ("real_ctor_frame_zero_is_admitted", [constructor, commit(0), commit(0), focus, commit(1)]),
+        ("real_save_load_mid_focus_discards_pending_request", [constructor, focus, commit(1), scroll, restore, commit(1), commit(2), commit(3)]),
+        ("real_save_load_completed_focus_stays_clean", [constructor, focus, *[commit(n) for n in range(1, 18)], restore, commit(18)]),
+        ("real_save_load_reclamps_view_retains_focus", [constructor, focus, commit(1), {**restore, "local_size": [4, 29, 52, 60]}, commit(2)]),
+    )
+    return [{**base, "name": name, "steps": steps} for name, steps in cases]
+
+
 def generate() -> dict:
     cases = []
     for case in input_cases():
@@ -688,6 +870,8 @@ def generate() -> dict:
             "update_cases": [{**case, "expected": native_update(case)} for case in update_inputs()],
             "message_cases": [{**case, "expected": native_message(case)} for case in message_inputs()],
             "camera_sequences": [native_camera_sequence(case) for case in camera_inputs()],
+            "focus_sequences": [native_camera_sequence(case) for case in focus_inputs()],
+            "camera_lifecycle_sequences": [native_camera_sequence(case) for case in camera_lifecycle_inputs()],
             "throttle_cases": [{**case, "expected": native_throttle(case)}
                                for case in throttle_inputs()]}
 
@@ -705,6 +889,7 @@ if __name__ == "__main__":
                 "Ordinary drag-row motion observes native requested Scroll_Map distances; those rows do not execute downstream clipping/projection",
                 "Camera sequences execute original Scroll_Map/request, same-frame TacticalAI commit/clamp and Z=0 instant SetView; supplied MapWidth100/LocalSize0,0,100,100 and viewport640x480 are geometry fixtures, not retail-map provenance",
                 "Camera sequence Tactical+A8 and global frame are both0, bypassing unrelated animation/timer work while retaining full original request commit; original clamp determines initial centers from supplied seeds",
+                "Focus sequences execute original FocusOn6D2420 and full TacticalAI6D2540, float stores/interpolation75F5C0/clamp/cleanup for velocities0..4, all four clipping edges, nonzero/small LocalSize, repeated/wrapping frame gates, retarget, zero target, absolute SetView, ScenarioStarted/replay gates and pending scrolls. Original waypoint animation is kept stopped with remaining time1; geometry, subcell coordinates and Z=-104/0/727/728/1500 are explicit supplied inputs, not a stock mission timing or terrain ground-height comparison",
                 "Original throttle entry 0x55E160 through 0x55E33B observes supplied clocks and session modes 0..6; later FPS bookkeeping is outside scope",
                 "No original executable instructions are replaced; fresh original image per independent row, retained state only within the explicitly listed sequence",
             ],
@@ -716,6 +901,7 @@ if __name__ == "__main__":
                 "Camera sequences replace CRT exit registration and derived viewport refresh0x6D8B30 with observed void sinks; committed/requested centers and native clamp/SetView writes remain original",
                 "Camera sequence keyboard distances are supplied producer outputs; the21 distance is the original constant at0x82A030, while drag25 is produced by original method0 for100 pixels at rate3; keyboard producer/follow-target selection is not emulated",
                 "Camera SetView Z=0 rows supply the standard original projection multiplier from existing bridge_click_oracle; no new height or terrain coverage is claimed",
+                "Camera lifecycle rows execute the full original Tactical constructor, Abstract/Tactical Save and Load, no-init constructor, size leaf, native clamp and subsequent AI. IStream retains exactly original requested bytes; Here_I_Am records the identity token without reconstructing the global Swizzle manager. VisibleCellCount is zero; pointer swizzling, complete scenario reload and serialization wire equivalence to Rust are excluded. The unrelated waypoint-display clock is supplied bucket0 and stopped during AI visits.",
                 "Display vtable+0x48 records cursor, +0xC4 records band-box cancel argument without engagement mutation",
                 "ClientToScreen adds fixture origin 101/202, SetCursorPos records requested OS coordinates; tactical offsets are 11/23",
             ],
@@ -727,7 +913,11 @@ if __name__ == "__main__":
                           "Throttle_start": 0x0055E160, "Throttle_end": 0x0055E33B,
                           "Scroll_Map": SCROLL_MAP, "RequestDirectionalScroll": 0x006D8530,
                           "TacticalAI": 0x006D2540, "ClampViewCenter": 0x006D8640,
-                          "SetViewToCoordInstant": 0x006D6070},
+                          "SetViewToCoordInstant": 0x006D6070,
+                          "FocusOn": 0x006D2420, "InterpolatePoint": 0x0075F5C0,
+                          "TacticalConstructor": 0x006D1C20, "TacticalNoInit": 0x006D1E30,
+                          "TacticalSave": 0x006DBE00, "TacticalLoad": 0x006DBD20,
+                          "AbstractSave": 0x00410320, "AbstractLoad": 0x00410380},
         ),
         source_paths={"producer": Path(__file__), "shared_runner": Path(native_oracle.__file__),
                       "projection_fixture": Path(native_oracle.__file__).with_name("bridge_click_oracle.py")},

@@ -583,7 +583,11 @@ const FINAL_STREAM_STATES: (u64, u64, u64) = (
 // Snapshot320 retains native Techno constructor disguise identity/timer state
 // for every actor, replacing the absent component. These fixtures acquire no
 // disguise; their gameplay and absolute RNG pins remain the independent gates.
-const GLOBAL_HARNESS_FINAL_HASH: u64 = 0xF493_EA6A_538B_57AC;
+// Snapshot324 replaces the disabled/fired trigger-latch fold with retained
+// definition/live-instance/registration/attachment/dispatch state. This fixture
+// has no authored Tags; per-frame replay, combat/mining and all three RNG gates
+// precede this structural Rust hash pin and remain unchanged.
+const GLOBAL_HARNESS_FINAL_HASH: u64 = 0x8E8D_412E_A279_9F51;
 
 fn harness_ini() -> IniFile {
     // Multi-faction vehicles + infantry + buildings (war factory, refinery) plus a
@@ -676,6 +680,7 @@ fn unit(owner: &str, type_id: &str, cx: u16, cy: u16, cat: EntityCategory) -> Ma
         structure_upgrades: [None, None, None],
         structure_ai_sellable: false,
         structure_ai_repairable: false,
+        trigger_tag: None,
     }
 }
 

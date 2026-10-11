@@ -88,10 +88,6 @@ pub(crate) struct InGameGadgets {
     pub focus: FocusState,
     /// Reused tick output (buffers cleared per tick, never reallocated).
     pub out: TickOutput,
-    /// Live held record (G8 idle-tick held-bit source — nothing else in the
-    /// app tracks left/right held state).
-    pub left_held: bool,
-    pub right_held: bool,
     pub handles: Option<SidebarButtonHandles>,
     /// Cameo gadget pool (A2): grown to fit the visible cameo count, never
     /// auto-shrunk; the tail past `view.items.len()` is disabled. Index in this
@@ -115,8 +111,6 @@ impl InGameGadgets {
             list: GadgetList::new(IN_GAME_LIST),
             focus: FocusState::new(),
             out: TickOutput::default(),
-            left_held: false,
-            right_held: false,
             handles: None,
             cameos: Vec::new(),
             tactical: None,
@@ -128,6 +122,21 @@ impl InGameGadgets {
 
     fn is_cameo(&self, h: GadgetHandle) -> bool {
         self.cameos.contains(&h)
+    }
+
+    /// Cancel the retained driver's pointer gesture after the display loses
+    /// capture. No delayed release may fire the pre-lock button. Toggle/mode
+    /// state is synchronized separately from its existing sidebar owner.
+    pub(crate) fn cancel_pointer_capture(&mut self) {
+        if let Some(handle) = self.focus.sticky.take()
+            && let Some(gadget) = self.list.get_mut(handle)
+        {
+            if let GadgetBehavior::Button(button) = &mut gadget.behavior {
+                button.is_pressed = false;
+            }
+            gadget.is_to_redraw = true;
+        }
+        self.out.clear();
     }
 }
 
@@ -490,24 +499,8 @@ pub(crate) fn handle_mouse_button_event(
     button: MouseButton,
     pressed: bool,
 ) -> GadgetConsume {
-    // The held record updates on every edge (G8 idle-tick source). The gadget
-    // masks cover left/right only; middle input has no tactical behavior.
-    match button {
-        MouseButton::Left => {
-            state
-                .match_state
-                .match_presentation
-                .in_game_gadgets
-                .left_held = pressed
-        }
-        MouseButton::Right => {
-            state
-                .match_state
-                .match_presentation
-                .in_game_gadgets
-                .right_held = pressed
-        }
-        _ => return GadgetConsume::NotConsumed,
+    if crate::app::input::campaign_input::is_locked(state) {
+        return GadgetConsume::Consumed;
     }
     let Some(view) = current_sidebar_view(state).cloned() else {
         return GadgetConsume::NotConsumed;
@@ -531,6 +524,10 @@ pub(crate) fn idle_tick(state: &mut AppState) {
         return;
     };
     sync_gadgets(state, &view);
+    if crate::app::input::campaign_input::is_locked(state) {
+        publish_pressed_visuals(state);
+        return;
+    }
     let _ = run_tick(state, &view, 0);
     crate::app::presentation::sidebar_render::refresh_sidebar_projection(state);
 }
@@ -546,16 +543,8 @@ fn run_tick(state: &mut AppState, view: &SidebarView, key: u16) -> GadgetConsume
         event_y: cy,
         mouse_x: cx,
         mouse_y: cy,
-        left_held: state
-            .match_state
-            .match_presentation
-            .in_game_gadgets
-            .left_held,
-        right_held: state
-            .match_state
-            .match_presentation
-            .in_game_gadgets
-            .right_held,
+        left_held: state.match_state.input.tactical_mouse.left_held(),
+        right_held: state.match_state.input.tactical_mouse.right_held(),
         shift: crate::app::input::dispatch::is_shift_held(state),
         ctrl: crate::app::input::dispatch::is_ctrl_held(state),
         alt: crate::app::input::dispatch::is_alt_held(state),
@@ -792,4 +781,78 @@ fn publish_pressed_visuals(state: &mut AppState) {
     gs.scroll_down_pressed = down;
     gs.scroll_up_pressed = up;
     gs.top_pressed = top;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn cancelled_pointer_capture_cannot_fire_a_delayed_release() {
+        let mut gadgets = InGameGadgets::new();
+        let button = gadgets.list.add_tail(GadgetSpec::button(
+            GadgetRect::new(0, 0, 20, 20),
+            9,
+            ToggleKind::Flip,
+        ));
+        let mut input = GadgetInput {
+            queued_key: KEY_LMB_DOWN,
+            event_x: 8,
+            event_y: 8,
+            mouse_x: 8,
+            mouse_y: 8,
+            left_held: true,
+            ..Default::default()
+        };
+        assert_eq!(
+            tick(
+                &mut gadgets.list,
+                &mut gadgets.focus,
+                &input,
+                &mut gadgets.out
+            ),
+            0
+        );
+        assert_eq!(gadgets.focus.sticky, Some(button));
+        gadgets.cancel_pointer_capture();
+        assert_eq!(gadgets.focus.sticky, None);
+        assert!(gadgets.out.dispatches.is_empty());
+        input.queued_key = KEY_LMB_UP;
+        input.left_held = false;
+        let release = tick(
+            &mut gadgets.list,
+            &mut gadgets.focus,
+            &input,
+            &mut gadgets.out,
+        );
+        assert_eq!(release & RESULT_BUTTON, 0);
+        let GadgetBehavior::Button(state) = gadgets.list.get(button).unwrap().behavior else {
+            panic!("retained button lost its behavior");
+        };
+        assert!(!state.is_pressed);
+        assert!(!state.is_on);
+
+        input.queued_key = KEY_LMB_DOWN;
+        input.left_held = true;
+        assert_eq!(
+            tick(
+                &mut gadgets.list,
+                &mut gadgets.focus,
+                &input,
+                &mut gadgets.out
+            ),
+            0
+        );
+        input.queued_key = KEY_LMB_UP;
+        input.left_held = false;
+        assert_eq!(
+            tick(
+                &mut gadgets.list,
+                &mut gadgets.focus,
+                &input,
+                &mut gadgets.out
+            ),
+            9 | RESULT_BUTTON
+        );
+    }
 }

@@ -715,6 +715,13 @@ impl MinimapRenderer {
         self.radar_events.admit(request, sim_tick, geometry, config)
     }
 
+    /// The allied successful reinforcement caller65DB97 only remembers its
+    /// requested origin. Native660B80 shares the existing radar review ring;
+    /// it does not admit a live radar event or request any announcement.
+    pub(crate) fn remember_event_cell(&mut self, cell: (i16, i16)) {
+        self.radar_events.remember_event_cell(cell);
+    }
+
     /// Spacebar review of the eight most recent accepted event cells.
     pub(crate) fn cycle_radar_event(&mut self, now: std::time::Instant) -> Option<(u16, u16)> {
         self.radar_events.cycle_cell(now)

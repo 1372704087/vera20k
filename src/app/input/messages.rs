@@ -19,8 +19,8 @@ const MESSAGE_WIDTH_INSET: i32 = 14;
 /// Interim system-message color (native rows use a color-scheme index whose
 /// mapping is a plan deferred item).
 const MESSAGE_RGB_SYSTEM: [f32; 3] = [1.0, 1.0, 1.0];
-/// Mission/trigger text lifetime — preserves the pre-A5 banner's 4 s
-/// (the native trigger-text timeout is untraced; deferred item).
+/// The existing synthetic mission-announcement banner retains its 4 s
+/// lifetime. Native action11 uses the separate Rules MessageDelay read below.
 const MISSION_TEXT_TIMEOUT_MS: u64 = 4_000;
 /// `0xF0` native 16 ms timer buckets.
 const TYPE_SELECT_MESSAGE_TIMEOUT_MS: u64 = 3_840;
@@ -70,6 +70,58 @@ pub(crate) fn post_system_message(state: &mut AppState, text: &str) {
             .and_then(|r| r.general.incoming_message_sound.clone());
         crate::app::App::play_shell_ui_sound_by_id(state, sound.as_deref());
     }
+}
+
+/// Original TAction11 6DE0B0..6DE122 resolves its CSF label, selects the
+/// scenario-side priority through69A310 and adds a non-silent4046 row.
+/// MessageDelay's ftol result is in WallClock16ms buckets, not sim frames.
+pub(crate) fn post_trigger_message(state: &mut AppState, csf_key: &str) {
+    let Some(runtime) = state.match_state.sim_runtime.as_ref() else {
+        return;
+    };
+    // The selected campaign opening keeps its startup player/country. The
+    // existing House owner supplies that side; a later scenario-side change
+    // independent of the current House remains a separate retained-field gap.
+    let side = runtime
+        .simulation
+        .session
+        .current_house()
+        .and_then(|owner| runtime.simulation.houses.get(&owner))
+        .map_or(0, |house| i32::from(house.side_index));
+    let rules = &runtime.resources.rules;
+    let rgb = trigger_message_rgb(&rules.color_schemes, side);
+    let buckets = trigger_message_buckets(rules.general.message_delay_minutes);
+    let timeout = (buckets != -1).then(|| u64::try_from(buckets).unwrap_or(0) * 16);
+    post_localized_message(state, csf_key, rgb, timeout);
+}
+
+fn trigger_message_buckets(delay: crate::util::native_x87::NativeF64Bits) -> i32 {
+    use crate::util::native_x87::{NativeF64Bits, X87Chop53};
+    X87Chop53::load_f64(delay)
+        .map(|delay| {
+            X87Chop53::mul(
+                delay,
+                X87Chop53::load_f64(NativeF64Bits::from_bits(0x408C_2000_0000_0000))
+                    .expect("native900 constant is finite"),
+            )
+        })
+        .map_or(0, X87Chop53::ftol_i32_low_masked)
+}
+
+fn trigger_message_rgb(
+    schemes: &[crate::rules::color_scheme::ColorSchemeEntry],
+    side: i32,
+) -> [f32; 3] {
+    let priority = match side {
+        0 => 2,
+        1 => 1,
+        _ => 5,
+    };
+    let entry = crate::rules::color_scheme::scheme_entry_for_priority(priority);
+    crate::rules::color_scheme::scheme_hsv_by_entry(schemes, entry)
+        .map(crate::rules::color_scheme::hsv_to_rgb)
+        .unwrap_or([255; 3])
+        .map(|channel| f32::from(channel) / 255.0)
 }
 
 /// Post the localized, silent HUD result of one executed TypeSelect tap.
@@ -156,13 +208,22 @@ pub(crate) fn post_selection_navigation_text(state: &mut AppState, text: &str) {
 /// line takes the player's colours as TypeSelect's does and plays
 /// IncomingMessage. Its print styles (`0x4046`, `0x46`) are not represented.
 pub(crate) fn post_super_weapon_message(state: &mut AppState, csf_key: &str) {
-    sync_view(state);
-    let now = message_now_ms(state);
     let rgb = type_select_message_rgb(
         crate::app::input::commands::preferred_local_owner_name(state).as_deref(),
         &state.match_state.match_presentation.house_color_map,
         state.rules().map(|rules| &rules.house_color_ramps),
     );
+    post_localized_message(state, csf_key, rgb, Some(SUPER_WEAPON_MESSAGE_TIMEOUT_MS));
+}
+
+fn post_localized_message(
+    state: &mut AppState,
+    csf_key: &str,
+    rgb: [f32; 3],
+    timeout_ms: Option<u64>,
+) {
+    sync_view(state);
+    let now = message_now_ms(state);
     let text = state.process_assets.csf.as_ref().map_or_else(
         || csf_key.to_string(),
         |table| table.text(csf_key).into_owned(),
@@ -177,7 +238,7 @@ pub(crate) fn post_super_weapon_message(state: &mut AppState, csf_key: &str) {
                 prefix: None,
                 text: &text,
                 rgb,
-                timeout_ms: Some(SUPER_WEAPON_MESSAGE_TIMEOUT_MS),
+                timeout_ms,
                 silent: false,
             },
             now,
@@ -298,6 +359,138 @@ fn message_text_instances(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn original_trigger_messages() -> serde_json::Value {
+        let rows: Vec<serde_json::Value> = serde_json::from_str(crate::test_fixture::text(
+            "tools/spatial_oracle/trigger_action_values.json",
+        ))
+        .unwrap();
+        rows.into_iter()
+            .find(|row| row["case_kind"] == "localized_message")
+            .expect("original action11 MessageDelay/color/CSF controls")
+    }
+
+    fn original_delay_bits(row: &serde_json::Value) -> u64 {
+        let hex = row["delay_f64_le_hex"].as_str().unwrap();
+        assert_eq!(hex.len(), 16);
+        u64::from_le_bytes(std::array::from_fn(|index| {
+            u8::from_str_radix(&hex[index * 2..index * 2 + 2], 16).unwrap()
+        }))
+    }
+
+    #[test]
+    fn trigger_message_rules_reader_and_bucket_conversion_match_original_binary64_controls() {
+        use crate::rules::ini_parser::IniFile;
+        use crate::rules::ruleset::RuleSet;
+
+        let native = original_trigger_messages();
+        let rows = native["histories"].as_array().unwrap();
+        assert_eq!(rows.len(), 21);
+        for row in rows {
+            let ini = if let Some(delay) = row["input_delay"].as_str() {
+                IniFile::from_str(&format!("[AudioVisual]\nMessageDelay={delay}\n"))
+            } else {
+                IniFile::from_str("[AudioVisual]\n")
+            };
+            // GeneralRules::from_ini is private to its existing owner. Use
+            // its production RuleSet entry, without exposing another reader.
+            let rules = RuleSet::from_ini(&ini).unwrap();
+            let delay = rules.general.message_delay_minutes;
+            assert_eq!(delay.bits(), original_delay_bits(row), "{row} parsed bits");
+            let message = row["calls"].as_array().unwrap().last().unwrap();
+            assert_eq!(message["call"], "message_add");
+            assert_eq!(
+                i64::from(trigger_message_buckets(delay)),
+                message["duration"].as_i64().unwrap(),
+                "{row} native ftol duration"
+            );
+        }
+        // The stock `.6` spelling and the native control's `0.6` both pass
+        // through the same production ReadDouble owner. Constructor omission
+        // has distinct observed bits and is covered above.
+        let Some(retail) = crate::rules::retail_ini_fixture::retail_ini("rulesmd.ini") else {
+            return;
+        };
+        let stock = RuleSet::from_ini(&retail).unwrap();
+        let recorded = rows.iter().find(|row| row["input_delay"] == "0.6").unwrap();
+        assert_eq!(
+            stock.general.message_delay_minutes.bits(),
+            original_delay_bits(recorded)
+        );
+        assert_eq!(
+            i64::from(trigger_message_buckets(stock.general.message_delay_minutes)),
+            recorded["calls"].as_array().unwrap().last().unwrap()["duration"]
+                .as_i64()
+                .unwrap()
+        );
+    }
+
+    #[test]
+    fn trigger_message_scenario_side_selects_original_runtime_scheme_in_stock_colors() {
+        use crate::rules::ruleset::RuleSet;
+
+        let Some(retail) = crate::rules::retail_ini_fixture::retail_ini("rulesmd.ini") else {
+            return;
+        };
+        let rules = RuleSet::from_ini(&retail).unwrap();
+        let native = original_trigger_messages();
+        for row in native["histories"].as_array().unwrap() {
+            let color = row["calls"].as_array().unwrap().last().unwrap()["color"]
+                .as_u64()
+                .unwrap() as usize;
+            // Original69A310's output indexes the doubled runtime scheme
+            // list. The shared color owner handles HSV conversion; this
+            // comparison establishes priority selection, not GPU pixels.
+            let scheme = &rules.color_schemes[color / 2];
+            let expected = crate::rules::color_scheme::hsv_to_rgb(scheme.hsv)
+                .map(|channel| f32::from(channel) / 255.0);
+            assert_eq!(
+                trigger_message_rgb(&rules.color_schemes, row["side"].as_i64().unwrap() as i32),
+                expected,
+                "{row}"
+            );
+        }
+    }
+
+    #[test]
+    fn trigger_message_csf_labels_match_original_lookup_through_retail_archive_reader() {
+        let Some((_, assets)) = crate::rules::retail_ini_fixture::retail_assets() else {
+            return;
+        };
+        let selected = assets
+            .load_file_from_mix("ra2md.csf")
+            .expect("active-YR retail CSF");
+        let native = original_trigger_messages();
+        assert_eq!(
+            crate::util::sha256::sha256_hex(&selected.bytes),
+            native["csf"]["source_sha256"].as_str().unwrap(),
+            "the corpus and production loader must select the same physical CSF"
+        );
+        let table = crate::assets::csf_file::CsfFile::from_bytes(&selected.bytes).unwrap();
+        let rows = native["histories"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .chain(native["label_controls"].as_array().unwrap());
+        let mut compared = 0;
+        for row in rows {
+            let Some(message) = row["calls"].as_array().unwrap().last() else {
+                continue;
+            };
+            assert_eq!(message["call"], "message_add");
+            let label = row["label"].as_str().unwrap();
+            assert_eq!(
+                table.text(label).as_ref(),
+                message["text"].as_str().unwrap(),
+                "{label}"
+            );
+            compared += 1;
+        }
+        assert_eq!(compared, 27);
+        // Archive selection, CSF parsing, case-insensitive lookup and missing
+        // labels are compared. Full AppState posting, wrapping, expiration
+        // and the rendered message surface remain separate validation.
+    }
 
     fn test_csf(label: &str, value: &str) -> crate::assets::csf_file::CsfFile {
         let encoded_value: Vec<u8> = value

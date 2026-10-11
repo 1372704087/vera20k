@@ -7,9 +7,26 @@
 use std::collections::HashMap;
 
 use crate::rules::ini_parser::IniFile;
-use crate::rules::ini_value::{crt_atoi, strtok};
+use crate::rules::ini_value::{crt_atoi, strtok, truncate_native_bytes};
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+/// Definition selection performed by original TAction Read6DD5B0. A short
+/// token is a retained registry ordinal; a longer token is a name, including
+/// its spaces. Registry resolution belongs to the corresponding definition
+/// owner, not to the diagnostic HashMaps in this parser.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum DefinitionSelector<'a> {
+    Index(i32),
+    Name(&'a str),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ActionDefinitionReference<'a> {
+    Team(DefinitionSelector<'a>),
+    Trigger(DefinitionSelector<'a>),
+    Tag(DefinitionSelector<'a>),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub struct ActionEntry {
     pub kind: i32,
     pub params: Vec<String>,
@@ -22,11 +39,57 @@ pub struct ActionEntry {
 }
 
 impl ActionEntry {
+    /// Inline CSF label at TAction+6D, materialized by Read6DD6D0..6DD728.
+    /// Metadata4 checks atoi(token3)==-1 before skipping leading control/space
+    /// bytes, copying at most31 source bytes and clearing trailing bytes<=20.
+    /// This inline trim differs from the shared727CF0 strtrim reader.
+    pub(crate) fn csf_label(&self) -> &str {
+        if self.params.first().map_or(0, |value| crt_atoi(value)) != 4 {
+            return "";
+        }
+        let Some(label) = self.params.get(1) else {
+            return "";
+        };
+        if crt_atoi(label) == -1 {
+            return "";
+        }
+        let label = label.trim_start_matches(|character: char| character <= '\u{20}');
+        truncate_native_bytes(label, 31).trim_end_matches(|character: char| character <= '\u{20}')
+    }
+
+    /// Original Read6DD5B0 stores token3 at Team+30 (types1/5), Trigger+50
+    /// (type2) or Tag+4C (type3). Token2 selects that destination; it never
+    /// names the target. `atoi(token3)==-1` clears it before the byte-length
+    /// check, even when token3 has spaces or a suffix. See the reference-read
+    /// controls in tools/spatial_oracle/trigger_action_values.
+    pub(crate) fn definition_reference(&self) -> Option<ActionDefinitionReference<'_>> {
+        let parameter_type = self.params.first().map_or(0, |value| crt_atoi(value));
+        if !matches!(parameter_type, 1 | 2 | 3 | 5) {
+            return None;
+        }
+        let operand = self.params.get(1)?.as_str();
+        let index = crt_atoi(operand);
+        if index == -1 {
+            return None;
+        }
+        let selector = if operand.len() < 3 {
+            DefinitionSelector::Index(index)
+        } else {
+            DefinitionSelector::Name(operand)
+        };
+        Some(match parameter_type {
+            1 | 5 => ActionDefinitionReference::Team(selector),
+            2 => ActionDefinitionReference::Trigger(selector),
+            3 => ActionDefinitionReference::Tag(selector),
+            _ => unreachable!("definition parameter type was admitted above"),
+        })
+    }
+
     /// Literal `TActionClass+0x90` value after `Read @ 0x006DD5B0`.
     ///
     /// Parameter type is params[0], not the action's numeric operand. Types
     /// 0/11 read params[1]; types 5/9 replace the value with token 8. Other
-    /// literal types retain zero. Types 6/7/8 need sound/theme/speech registry
+    /// literal types retain zero. Types 6/7/8 need EVA/sound/theme registry
     /// resolution and remain unsupported here, rather than becoming an index.
     /// Native reader/dispatch comparisons: `trigger_action_values.json`.
     pub fn literal_value(&self) -> Option<i32> {

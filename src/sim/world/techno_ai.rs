@@ -340,7 +340,7 @@ impl Simulation {
                 .projectiles
                 .begin_ai_visit(id, |anim| {
                     self.substrate.anims.contains_key(anim)
-                        && !self.substrate.pending_delete.contains(&anim)
+                        && !self.substrate.pending_delete.contains_object(&anim)
                 })
                 .expect("live Bullet has an AI prefix");
             // Bullet466826..4668B8 constructs at the old Location after its
@@ -789,6 +789,7 @@ fn techno_ai_shell(
             slave_manager_slot(sim, id, rules, ctx.overlay_registry, ctx.effects);
             spawn_manager_slot(sim, id, rules, ctx.overlay_registry, ctx.effects);
             // The Gattling block after the Techno AI (`0x0043FE5B..0x0043FF8B`).
+            elite_flash_step(sim, id);
             if let Some(rules) = rules {
                 building_missions::gattling_idle(sim, id, rules);
             }
@@ -921,15 +922,13 @@ fn techno_ai_shell(
 /// `UpgradeEliteSound` positionally plus `EVA_UnitPromoted`; a crossing to
 /// veteran plays `UpgradeVeteranSound` plus the EVA. The local-player gate is
 /// the app layer's (`HouseClass::IsHumanPlayer @ 0x0050B6F0` is
-/// `owner == g_PlayerPtr` in a skirmish). The flash countdown itself is ticked
-/// here too; native decrements it through a timer virtual later in the same
-/// update (`vtable+0x124`, UNCHECKED position) and only the presentation reads
-/// it, so the one-frame placement difference is invisible.
+/// `owner == g_PlayerPtr` in a skirmish). The flash's existing signed dword
+/// counter is stepped later by4CC770 at6FAC4D, through elite_flash_step; a
+/// newly promoted object's timer therefore loses one on this same visit.
 fn veterancy_promotion_step(sim: &mut Simulation, id: u64, rules: &RuleSet) {
     let Some(entity) = sim.substrate.entities.get_mut(id) else {
         return;
     };
-    entity.elite_flash_frames = entity.elite_flash_frames.saturating_sub(1);
     let Some(promotion) =
         crate::sim::combat::veterancy::sample_promotion(entity, rules.general.elite_flash_timer)
     else {
@@ -1726,6 +1725,7 @@ fn techno_common_post(sim: &mut Simulation, id: u64, rules: Option<&RuleSet>) {
     if let Some(entity) = sim.substrate.entities.get_mut(id) {
         entity.tick_native_stage(sim.session.binary_frame as i32);
     }
+    elite_flash_step(sim, id);
     let Some(rules) = rules else {
         return;
     };
@@ -1819,6 +1819,17 @@ fn techno_common_post(sim: &mut Simulation, id: u64, rules: Option<&RuleSet>) {
         && let Some(entity) = sim.substrate.entities.get_mut(id)
     {
         entity.damage_particle_live_until = live_until;
+    }
+}
+
+/// Shared late Techno6FAC31..6FAC79 slot for every represented category.
+/// The countdown owns no RNG or CdTimer. Native redraw virtual+124 is a
+/// presentation dependency; the existing +F0 supplies its phase bits.
+fn elite_flash_step(sim: &mut Simulation, id: u64) {
+    if ai_alive(sim, id)
+        && let Some(entity) = sim.substrate.entities.get_mut(id)
+    {
+        entity.tick_elite_flash();
     }
 }
 
@@ -2058,6 +2069,8 @@ mod tests {
             Some(&rules),
             None,
             crate::sim::world::FrameEffects::default(),
+            1,
+            false,
         );
         sim.object_ai_stage_with(Some(&rules), ObjectAiCtx::default());
         sim.uninit_with_rules(9, &rules);
@@ -2065,6 +2078,8 @@ mod tests {
             Some(&rules),
             None,
             crate::sim::world::FrameEffects::default(),
+            1,
+            false,
         );
         assert_eq!(
             unit_voice_facts(&sim),
@@ -2076,6 +2091,8 @@ mod tests {
             Some(&rules),
             None,
             crate::sim::world::FrameEffects::default(),
+            1,
+            false,
         );
         assert_eq!(
             unit_voice_facts(&sim),
@@ -2415,6 +2432,7 @@ mod tests {
             veterancy: Some(0),
             high: false,
             mission: None,
+            trigger_tag: None,
             recruitable_a: true,
             recruitable_b: true,
             structure_upgrades: [None, None, None],

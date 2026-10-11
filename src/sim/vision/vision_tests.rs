@@ -1952,23 +1952,29 @@ fn shroud_current_sight_unchanged_refresh_does_not_invent_a_return_event() {
 #[test]
 fn shroud_current_sight_first_fire_and_psychic_have_distinct_pending_history() {
     let owner = intern::test_intern("Americans");
-    let interner = ti();
     let mut fire = FogState {
         width: 32,
         height: 32,
         ..Default::default()
     };
-    let mut psychic = fire.clone();
+    let psychic = fire.clone();
     reveal_radius(&mut fire, owner, 10, 10, 2);
-    psychic_reveal(
-        &mut psychic,
-        owner,
-        (10, 10),
-        0,
-        2,
-        &default_config(),
-        &interner,
-    );
+    let mut sim = crate::sim::world::Simulation::default();
+    sim.fog = psychic;
+    let config = default_config();
+    for final_pass in [false, true] {
+        sim.reveal_area(
+            &[owner],
+            (10, 10),
+            0,
+            2,
+            None,
+            final_pass,
+            &config,
+            crate::sim::world::UninitContext::default(),
+        );
+    }
+    let mut psychic = sim.fog;
     assert!(fire.is_cell_revealed(owner, 10, 10));
     assert!(psychic.is_cell_revealed(owner, 10, 10));
     fire.flush_pending_gap_conceal(120);

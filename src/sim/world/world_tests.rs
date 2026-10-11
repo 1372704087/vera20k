@@ -53,6 +53,7 @@ fn make_test_entity(type_id: &str, category: EntityCategory) -> MapEntity {
         structure_upgrades: [None, None, None],
         structure_ai_sellable: false,
         structure_ai_repairable: false,
+        trigger_tag: None,
     }
 }
 
@@ -2076,7 +2077,10 @@ fn gsi_04_07_damage_fatal_transport_lifecycle_brackets_nested_death_weapon() {
     }
 
     let (fatal, result, fatal_rng) = run(10);
-    assert_eq!(fatal.substrate.pending_delete, vec![11, 31, 10]);
+    assert_eq!(
+        fatal.substrate.pending_delete.object_ids(),
+        vec![11, 31, 10]
+    );
     for id in [11, 31, 10] {
         let entity = fatal.substrate.entities.get(id).unwrap();
         assert_eq!(entity.health.current, 0);
@@ -2711,11 +2715,7 @@ fn gsi_04_15_active_tube_leaf_preempts_unit_and_infantry_mission_host() {
         building.lifecycle.in_limbo = false;
         sim.substrate.entities.insert(building);
         sim.add_entity_occupancy(2);
-        sim.fog = crate::sim::vision::FogState {
-            width: 3,
-            height: 1,
-            ..Default::default()
-        };
+        sim.fog = crate::sim::vision::FogState::new(3, 1);
         crate::sim::vision::reveal_radius(&mut sim.fog, owner, 0, 0, 3);
         sim.set_logic_order_for_test(vec![1]);
         sim.mission_queue_exact(
@@ -3268,7 +3268,7 @@ fn sonic_constructor_dead_pointer_link_lives_until_deferred_delete_at_239() {
         .expect("dead pointer stored");
     assert!(sim.waves.get(wave_id).is_some());
     assert!(!sim.waves.get(wave_id).unwrap().in_logic_vector);
-    assert_eq!(sim.substrate.pending_delete, vec![wave_id]);
+    assert_eq!(sim.substrate.pending_delete.object_ids(), vec![wave_id]);
 
     sim.process_pending_delete();
     assert!(!sim.active_wave_links.contains_key(&firer_id));
@@ -4524,6 +4524,7 @@ fn test_spawn_from_map_high_unit_uses_native_ground_plus_bridge_height() {
             structure_upgrades: [None, None, None],
             structure_ai_sellable: false,
             structure_ai_repairable: false,
+            trigger_tag: None,
         }],
         Some(&combat_test_rules()),
         Some(&resolved),
@@ -4611,6 +4612,7 @@ fn test_spawn_from_map_high_without_bridge_retains_native_caller_pose() {
             structure_upgrades: [None, None, None],
             structure_ai_sellable: false,
             structure_ai_repairable: false,
+            trigger_tag: None,
         }],
         Some(&combat_test_rules()),
         Some(&resolved),
@@ -4822,6 +4824,7 @@ fn test_destroyed_bridge_snaps_unit_to_ground_when_ground_exists() {
             structure_upgrades: [None, None, None],
             structure_ai_sellable: false,
             structure_ai_repairable: false,
+            trigger_tag: None,
         }],
         Some(&combat_test_rules()),
         Some(&resolved),
@@ -4881,6 +4884,7 @@ fn test_destroyed_bridge_snaps_unit_to_ground_over_water_below() {
             structure_upgrades: [None, None, None],
             structure_ai_sellable: false,
             structure_ai_repairable: false,
+            trigger_tag: None,
         }],
         Some(&combat_test_rules()),
         Some(&resolved),
@@ -4946,6 +4950,7 @@ fn test_destroyed_bridge_snaps_unit_to_ground_over_overlay_blocked() {
             structure_upgrades: [None, None, None],
             structure_ai_sellable: false,
             structure_ai_repairable: false,
+            trigger_tag: None,
         }],
         Some(&combat_test_rules()),
         Some(&resolved),
@@ -5003,6 +5008,7 @@ fn test_destroyed_bridge_snaps_unit_to_ground_over_terrain_object_blocked() {
             structure_upgrades: [None, None, None],
             structure_ai_sellable: false,
             structure_ai_repairable: false,
+            trigger_tag: None,
         }],
         Some(&combat_test_rules()),
         Some(&resolved),
@@ -5063,6 +5069,7 @@ fn test_destroyed_bridge_fallout_matches_rebuilt_ground_walkability() {
             structure_upgrades: [None, None, None],
             structure_ai_sellable: false,
             structure_ai_repairable: false,
+            trigger_tag: None,
         }],
         Some(&combat_test_rules()),
         Some(&resolved),
@@ -5141,6 +5148,7 @@ fn test_bridge_collapse_kills_ground_unit_under_destroyed_cell() {
             structure_upgrades: [None, None, None],
             structure_ai_sellable: false,
             structure_ai_repairable: false,
+            trigger_tag: None,
         }],
         Some(&rules),
         Some(&resolved),
@@ -6535,6 +6543,7 @@ fn test_execute_tick_delay_blocks_early_execution() {
             structure_upgrades: [None, None, None],
             structure_ai_sellable: false,
             structure_ai_repairable: false,
+            trigger_tag: None,
         }],
         None,
     );
@@ -6601,6 +6610,7 @@ fn test_move_queue_command_appends_waypoint() {
             structure_upgrades: [None, None, None],
             structure_ai_sellable: false,
             structure_ai_repairable: false,
+            trigger_tag: None,
         }],
         None,
     );
@@ -6667,6 +6677,7 @@ fn test_stop_command_clears_move_and_attack_intent() {
             structure_upgrades: [None, None, None],
             structure_ai_sellable: false,
             structure_ai_repairable: false,
+            trigger_tag: None,
         }],
         None,
     );
@@ -6730,6 +6741,7 @@ fn gsi_04_05_stop_preserves_committed_drive_until_reserved_head_finishes() {
             structure_upgrades: [None, None, None],
             structure_ai_sellable: false,
             structure_ai_repairable: false,
+            trigger_tag: None,
         }],
         None,
     );
@@ -7008,6 +7020,7 @@ fn gsi_13_06_stop_preserves_committed_ship_segment_and_speed_state() {
             structure_upgrades: [None, None, None],
             structure_ai_sellable: false,
             structure_ai_repairable: false,
+            trigger_tag: None,
         }],
         None,
     );
@@ -7157,6 +7170,7 @@ fn test_move_command_rejects_non_owned_entity() {
             structure_upgrades: [None, None, None],
             structure_ai_sellable: false,
             structure_ai_repairable: false,
+            trigger_tag: None,
         }],
         None,
     );
@@ -7451,6 +7465,7 @@ fn test_attack_command_rejects_friendly_target() {
                 structure_upgrades: [None, None, None],
                 structure_ai_sellable: false,
                 structure_ai_repairable: false,
+                trigger_tag: None,
             },
             MapEntity {
                 owner: "British".to_string(),
@@ -7469,6 +7484,7 @@ fn test_attack_command_rejects_friendly_target() {
                 structure_upgrades: [None, None, None],
                 structure_ai_sellable: false,
                 structure_ai_repairable: false,
+                trigger_tag: None,
             },
         ],
         None,
@@ -7518,6 +7534,7 @@ fn test_attack_move_auto_acquires_enemy() {
                 structure_upgrades: [None, None, None],
                 structure_ai_sellable: false,
                 structure_ai_repairable: false,
+                trigger_tag: None,
             },
             MapEntity {
                 owner: "Russians".to_string(),
@@ -7536,6 +7553,7 @@ fn test_attack_move_auto_acquires_enemy() {
                 structure_upgrades: [None, None, None],
                 structure_ai_sellable: false,
                 structure_ai_repairable: false,
+                trigger_tag: None,
             },
         ],
         None,
@@ -7602,6 +7620,7 @@ fn test_attack_move_lethal_hit_expires_the_target_at_the_kill() {
                 structure_upgrades: [None, None, None],
                 structure_ai_sellable: false,
                 structure_ai_repairable: false,
+                trigger_tag: None,
             },
             MapEntity {
                 owner: "Russians".to_string(),
@@ -7620,6 +7639,7 @@ fn test_attack_move_lethal_hit_expires_the_target_at_the_kill() {
                 structure_upgrades: [None, None, None],
                 structure_ai_sellable: false,
                 structure_ai_repairable: false,
+                trigger_tag: None,
             },
         ],
         None,
@@ -7704,6 +7724,7 @@ fn test_lethal_hit_restore_refuses_the_dying_archived_target() {
                 structure_upgrades: [None, None, None],
                 structure_ai_sellable: false,
                 structure_ai_repairable: false,
+                trigger_tag: None,
             },
             MapEntity {
                 owner: "Russians".to_string(),
@@ -7722,6 +7743,7 @@ fn test_lethal_hit_restore_refuses_the_dying_archived_target() {
                 structure_upgrades: [None, None, None],
                 structure_ai_sellable: false,
                 structure_ai_repairable: false,
+                trigger_tag: None,
             },
         ],
         None,
@@ -7799,6 +7821,7 @@ fn test_lethal_hit_stuns_the_dying_infantry() {
                 structure_upgrades: [None, None, None],
                 structure_ai_sellable: false,
                 structure_ai_repairable: false,
+                trigger_tag: None,
             },
             MapEntity {
                 owner: "Americans".to_string(),
@@ -7817,6 +7840,7 @@ fn test_lethal_hit_stuns_the_dying_infantry() {
                 structure_upgrades: [None, None, None],
                 structure_ai_sellable: false,
                 structure_ai_repairable: false,
+                trigger_tag: None,
             },
         ],
         None,
@@ -7886,6 +7910,7 @@ fn test_area_guard_keeps_its_post_when_displaced_inside_the_native_leash() {
             structure_upgrades: [None, None, None],
             structure_ai_sellable: false,
             structure_ai_repairable: false,
+            trigger_tag: None,
         }],
         Some(&rules),
     );
@@ -8310,7 +8335,7 @@ fn immediate_structure_death_is_dying_then_flushed() {
             "dying structure must be off occupancy cell {cell:?}"
         );
     }
-    assert!(sim.substrate.pending_delete.contains(&7));
+    assert!(sim.substrate.pending_delete.contains_object(&7));
 
     sim.flush_pending_delete();
     assert!(sim.substrate.entities.get(7).is_none());
@@ -8334,7 +8359,7 @@ fn mutual_same_tick_death_both_dying_then_flushed() {
     assert!(a.substrate.entities.get(1).is_some_and(|e| e.dying));
     assert!(a.substrate.entities.get(2).is_some_and(|e| e.dying));
     // Drain order = death (enqueue) order, deterministic.
-    assert_eq!(a.substrate.pending_delete, vec![1, 2]);
+    assert_eq!(a.substrate.pending_delete.object_ids(), vec![1, 2]);
 
     // Determinism: an identical second run hashes equal at the pre-flush point.
     let mut b = build();
@@ -8369,7 +8394,7 @@ fn animated_death_uninit_waits_for_ordinary_tail_drain() {
 
     sim.uninit(5);
     assert!(sim.substrate.entities.get(5).is_some_and(|e| e.dying));
-    assert!(sim.substrate.pending_delete.contains(&5));
+    assert!(sim.substrate.pending_delete.contains_object(&5));
 
     sim.advance_tick(&[], None, None, None, 67);
     assert!(sim.substrate.entities.get(5).is_none());
@@ -11337,11 +11362,7 @@ fn a_group_spread_keeps_aircraft_out_of_shrouded_cells() {
             harrier.discovery.owned_by_current_house = true;
         }
         let owner = sim.interner.intern("Americans");
-        sim.fog = crate::sim::vision::FogState {
-            width: 32,
-            height: 32,
-            ..Default::default()
-        };
+        sim.fog = crate::sim::vision::FogState::new(32, 32);
         if revealed {
             crate::sim::vision::reveal_radius(&mut sim.fog, owner, 20, 20, 8);
             assert!(sim.fog.is_ground_unshrouded(owner, 19, 20));

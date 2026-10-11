@@ -865,6 +865,8 @@ fn original_nine_routes_ten_walk_arrivals_repair_capture_and_deferred_cleanup() 
             Some(&fixture.rules),
             Some(&fixture.registry),
             crate::sim::world::FrameEffects::default(),
+            1,
+            false,
         );
         for (index, after) in route["cleanup"]["after"]
             .as_array()

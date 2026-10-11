@@ -419,6 +419,8 @@ fn target_uninit_clears_tarcom_before_aim_query_and_physical_removal() {
         Some(&duel.rules),
         None,
         crate::sim::world::FrameEffects::default(),
+        1,
+        false,
     );
     assert!(duel.sim.substrate.entities.get(target).is_none());
     assert_read_only_native_aim(&duel, source, expected);

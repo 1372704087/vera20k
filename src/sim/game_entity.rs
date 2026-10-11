@@ -475,13 +475,13 @@ pub struct GameEntity {
     /// uninitialised, `0` ELITE, `1` veteran, `2` rookie.
     #[serde(default = "veterancy_rank_cache_default")]
     pub veterancy_rank_cache: i8,
-    /// Frames left on the newly-elite flash — `TechnoClass+0xF0`, seeded with
-    /// `[AudioVisual] EliteFlashTimer=` at `0x006FA0DC` on the elite crossing.
-    /// Presentation-only state; nothing in `sim/` reads it back.
-    /// RESIDUAL (GSI-08.12): no renderer reads it either, so a unit that just
-    /// turned elite does not flash.
+    /// Signed native flash dword `TechnoClass+0xF0`, seeded with
+    /// `[AudioVisual] EliteFlashTimer=` at `0x006FA0DC` on the elite crossing
+    /// or the script50 operand at6E9D0A. Preserve all bits of either writer.
+    /// The shared late TechnoAI countdown owns updates; presentation reads
+    /// the native phase bit from this same counter. No separate flash clock.
     #[serde(default)]
-    pub elite_flash_frames: u16,
+    pub elite_flash_frames: i32,
     /// Mutable Techno instance armor multiplier (`Techno+0x158`). Native
     /// construction seeds this double to 1.0; the Armor crate
     /// (`crates::effects`) is its only writer, exactly once per object.
@@ -1534,6 +1534,19 @@ impl GameEntity {
     /// Map percentages use `set_veterancy_from_percent` instead.
     pub fn set_veterancy_rank(&mut self, rank_u16: u16) {
         self.veterancy_raw = crate::sim::combat::veterancy::raw_for_rank(rank_u16);
+    }
+
+    /// Countdown4CC770, called by TechnoAI6FAC4D after promotion and Stage.
+    /// DEC executes for every nonzero signed dword, including negative
+    /// values; native zero is idle. +F4 is a derived parity cache for drawing,
+    /// not an independent gameplay timer. Executed signed controls are in
+    /// tools/spatial_oracle/team_creation (elite_flash rows).
+    pub(crate) fn tick_elite_flash(&mut self) -> bool {
+        if self.elite_flash_frames == 0 {
+            return false;
+        }
+        self.elite_flash_frames = self.elite_flash_frames.wrapping_sub(1);
+        true
     }
 
     /// Apply the native `SetFromPercent @ 0x007500E0` to the single raw

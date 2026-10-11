@@ -1551,8 +1551,9 @@ fn replay_shared_one_shot(name: &str) {
         );
         if let Some(native_event) = after["events"].as_array().unwrap().first() {
             let token = token.unwrap();
+            let snapshot = arbiter.native_event_snapshot(token.event).unwrap();
             assert_eq!(
-                arbiter.native_event_snapshot(token.event).unwrap(),
+                json!({"state": snapshot["state"], "flags": snapshot["flags"], "serial": snapshot["serial"]}),
                 json!({"state": native_event["state"], "flags": native_event["flags"], "serial": native_event["serial"]}),
                 "{name}: {label}: original event state/flags/serial",
             );
@@ -1872,7 +1873,7 @@ fn initial_positional_loop_preserves_native_attack_admission() {
     let definitions = crate::rules::audio_sources::AudioDefinitions::select(&assets);
     let registry = definitions.sounds();
     assert!(player.play_animation_sound_spatial(
-        79,
+        79_u64,
         "GattlingGunAttackLoop1",
         SpatialGain::CENTRED_FULL,
         registry,

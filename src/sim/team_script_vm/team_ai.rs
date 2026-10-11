@@ -19,14 +19,15 @@
 //!   first springs trigger event 0x17 ("team leaves map") on every tag
 //!   (`0x006EA49F..0x006EA4D2`, `0x006E53A0`), whose evaluation draws on the
 //!   Scenario RNG for a trigger with event 51 (`0x007264C0` ->
-//!   `0x00726400`). VERA has no live tags (`trigger_runtime` residual), so
-//!   nothing is sprung. Trigger: a team sent to an off-map cell (action 54
+//!   `0x00726400`). That producer is not connected to the shared live Tag
+//!   owner. Trigger: a team sent to an off-map cell (action 54
 //!   without a passable cell) loses its last member. Effect: map triggers on
 //!   event 0x17 never fire from it.
 //! - `+0x75` (NeedsRegrouping, written by Regroup and the damage report)
 //!   and `+0x76` (written by Recalc under `GuardSlower=`) are not kept: no
-//!   TeamClass code reads either. `+0x77` (forced active) is written only by
-//!   reinforcements (`0x0065DD64`), not ported, and reads as clear.
+//!   TeamClass code reads either. The private forced-active `+0x77` is
+//!   written by shared reinforcement creation (`0x0065DD64`) and read by
+//!   formation and recruitment in this owner.
 //! - The under-strength retreat moves the team to its centre: the search
 //!   for the house's nearest safe unarmed building (`0x006EA173..
 //!   0x006EA39B`), which weights distance by the House threat map
@@ -55,15 +56,22 @@ const RELAXED_STRAY_ACTIONS: [i32; 2] = [0x35, 0x36];
 
 /// The team code's live-member test (`0x006EF9E0`, inlined throughout):
 /// active (`+0x90`), with Health (`+0x6C`), out of limbo (`+0x81`;
-/// `ScenarioInit` is 0 in play).
-pub(super) fn member_is_live(entity: &GameEntity) -> bool {
-    entity.lifecycle.object_alive && entity.health.current != 0 && !entity.lifecycle.in_limbo
+/// the shared ScenarioInit/placement scope admits limbo members).
+pub(super) fn member_is_live(entity: &GameEntity, placement_scope_active: bool) -> bool {
+    entity.lifecycle.object_alive
+        && entity.health.current != 0
+        && (placement_scope_active || !entity.lifecycle.in_limbo)
 }
 
 /// A live member that has joined up (`+0x689`) or is an aircraft, which
 /// team code treats as joined wherever it is.
-pub(super) fn member_is_live_joined(entity: &GameEntity, initiated: bool) -> bool {
-    member_is_live(entity) && (initiated || entity.category == EntityCategory::Aircraft)
+pub(super) fn member_is_live_joined(
+    entity: &GameEntity,
+    initiated: bool,
+    placement_scope_active: bool,
+) -> bool {
+    member_is_live(entity, placement_scope_active)
+        && (initiated || entity.category == EntityCategory::Aircraft)
 }
 
 /// A member as `Calc_Center` weighs it.
@@ -85,13 +93,16 @@ pub(super) fn center_sample(
     initiated: bool,
     doubled: bool,
     naval_transport: bool,
+    placement_scope_active: bool,
 ) -> Option<CenterSample> {
-    (member_is_live_joined(entity, initiated) && entity.in_playfield).then(|| CenterSample {
-        id: entity.stable_id(),
-        xy: crate::sim::movement::ground_pose::position_world_xy(&entity.position),
-        doubled,
-        naval_transport,
-    })
+    (member_is_live_joined(entity, initiated, placement_scope_active) && entity.in_playfield).then(
+        || CenterSample {
+            id: entity.stable_id(),
+            xy: crate::sim::movement::ground_pose::position_world_xy(&entity.position),
+            doubled,
+            naval_transport,
+        },
+    )
 }
 
 /// `Calc_Center`'s arithmetic (`0x006EB225..0x006EB31B`): the mean XY of
@@ -196,11 +207,11 @@ impl Simulation {
         };
         // `0x006E91AD..0x006E91F5`: a full team forms: its members are
         // initiated when it was reforming, and its script starts over.
-        if !team.formed && team.full_strength {
+        if !team.formed && (team.full_strength || team.forced_active) {
             team.formed = true;
             team.has_been_full = true;
             team.under_strength = false;
-            if team.reforming {
+            if team.reforming || team.forced_active {
                 for member in &mut team.members {
                     member.initiated = true;
                 }
@@ -380,6 +391,7 @@ impl Simulation {
                     member.initiated,
                     guard_slower && self.guard_slower_weight(entity, rules),
                     naval_transport,
+                    self.object_placement_scope_active(),
                 )
             })
             .collect();
@@ -487,7 +499,7 @@ impl Simulation {
                 continue;
             };
             let initiated = self.team_member_initiated(team_id, member.id);
-            if !member_is_live_joined(entity, initiated) {
+            if !member_is_live_joined(entity, initiated, self.object_placement_scope_active()) {
                 continue;
             }
             let stray = self.team_stray(team_id, rules);
@@ -628,7 +640,9 @@ impl Simulation {
         let Some(entity) = self.substrate.entities.get(member) else {
             return false;
         };
-        if !member_is_live(entity) || self.team_member_initiated(team_id, member) {
+        if !member_is_live(entity, self.object_placement_scope_active())
+            || self.team_member_initiated(team_id, member)
+        {
             return false;
         }
         let zone = self
@@ -777,11 +791,7 @@ mod tests {
             .expect("aircraft")
             .discovery
             .owned_by_current_house = true;
-        sim.fog = crate::sim::vision::FogState {
-            width: 33,
-            height: 33,
-            ..Default::default()
-        };
+        sim.fog = crate::sim::vision::FogState::new(33, 33);
         let centre = TeamTarget::Cell { x: 12, y: 12 };
         assert!(sim.team_member_refuses_cell(hornet, centre, &rules, Some(&registry)));
 

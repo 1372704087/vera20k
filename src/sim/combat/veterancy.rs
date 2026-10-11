@@ -381,7 +381,7 @@ pub fn sample_promotion(entity: &mut GameEntity, elite_flash_timer: i32) -> Opti
     }
     match curr {
         LEVEL_ELITE => {
-            entity.elite_flash_frames = elite_flash_timer.clamp(0, i32::from(u16::MAX)) as u16;
+            entity.elite_flash_frames = elite_flash_timer;
             Some(Promotion::Elite)
         }
         LEVEL_VETERAN => Some(Promotion::Veteran),

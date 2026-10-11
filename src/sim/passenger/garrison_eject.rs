@@ -1087,7 +1087,7 @@ pub(crate) mod tests {
         assert!(matches!(passenger.passenger_role, PassengerRole::None));
         assert!(!passenger.lifecycle.object_alive);
         assert!(passenger.lifecycle.in_limbo);
-        assert!(sim.substrate.pending_delete.contains(&passenger_id));
+        assert!(sim.substrate.pending_delete.contains_object(&passenger_id));
 
         sim.flush_pending_delete();
         assert!(sim.substrate.entities.get(passenger_id).is_none());

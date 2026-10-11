@@ -1100,7 +1100,7 @@ fn a_killing_hit_lets_the_passengers_out() {
         let attacker = spawn(&mut sim, &rules, "APC", "Russians", 14, 10);
         let passengers = load_passengers(&mut sim, &rules, apc, owner, 3);
         kill_by(&mut sim, &rules, apc, attacker, ORDINARY);
-        assert!(sim.substrate.pending_delete.contains(&apc));
+        assert!(sim.substrate.pending_delete.contains_object(&apc));
         assert_eq!(cargo_len(&sim, apc), 0);
         for &id in &passengers {
             let passenger = sim.substrate.entities.get(id).expect("escaped");
@@ -1110,7 +1110,7 @@ fn a_killing_hit_lets_the_passengers_out() {
             assert_eq!(passenger.killed_by, None);
             assert!(!passenger.selected);
             assert_eq!(queued(&sim, id), mission, "{owner}");
-            assert!(!sim.substrate.pending_delete.contains(&id));
+            assert!(!sim.substrate.pending_delete.contains_object(&id));
         }
     }
 }
@@ -1137,7 +1137,7 @@ fn an_ignore_defenses_kill_takes_the_passengers_along() {
     let russians = sim.interner.intern("Russians");
     for id in passengers {
         let passenger = sim.substrate.entities.get(id).unwrap();
-        assert!(sim.substrate.pending_delete.contains(&id));
+        assert!(sim.substrate.pending_delete.contains_object(&id));
         assert!(!passenger.lifecycle.object_alive);
         assert_eq!(passenger.killed_by, Some(russians));
     }
@@ -1155,7 +1155,7 @@ fn an_exploding_transport_kills_its_passengers_first() {
     let passengers = load_passengers(&mut sim, &rules, boomer, "Americans", 2);
     kill_by(&mut sim, &rules, boomer, attacker, ORDINARY);
     let russians = sim.interner.intern("Russians");
-    let deleted = &sim.substrate.pending_delete;
+    let deleted = sim.substrate.pending_delete.object_ids();
     let order: Vec<usize> = passengers
         .iter()
         .chain([&boomer])
@@ -1626,7 +1626,7 @@ fn retail_dustbowl_passengers_leave_their_destroyed_transports() {
     }
     let mut destinations = Vec::new();
     for (kind, transport, cell, gis) in &loads {
-        assert!(sim.substrate.pending_delete.contains(transport));
+        assert!(sim.substrate.pending_delete.contains_object(transport));
         for &id in gis {
             let gi = sim.substrate.entities.get(id).expect("GI lives");
             assert!(

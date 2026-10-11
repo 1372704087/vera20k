@@ -27,9 +27,6 @@ pub struct MapTrigger {
     pub name: Option<String>,
     pub enabled: bool,
     pub difficulty: TriggerDifficulty,
-    /// Legacy runtime approximation. Native repetition is TagType+9C, not
-    /// TriggerType+A0 (the last token); remove this with the Tag lifecycle port.
-    pub repeating: bool,
 }
 
 pub type TriggerMap = HashMap<String, MapTrigger>;
@@ -82,7 +79,6 @@ fn parse_record(id: String, value: &str) -> MapTrigger {
         name: parse_name(&tokens),
         enabled,
         difficulty,
-        repeating: parse_repeat_mode(&tokens),
         fields: tokens.iter().map(|token| token.to_string()).collect(),
     }
 }
@@ -110,11 +106,8 @@ fn parse_name(fields: &[&str]) -> Option<String> {
         .map(|name| truncate_native_bytes(name, 0x30).to_string())
 }
 
-/// Token 8 through `atoi` (`0x00727488`); native keeps `atoi != 0` at
-/// TriggerType+0xA0, and VERA's legacy flag reads 2 as repeating.
-fn parse_repeat_mode(fields: &[&str]) -> bool {
-    fields.get(7).is_some_and(|value| crt_atoi(value) == 2)
-}
+// TriggerType+0xA0 retains token8's unrelated boolean in native storage.
+// Repetition belongs to TagType+0x9C and has no Trigger projection here.
 
 #[cfg(test)]
 mod tests {
@@ -140,7 +133,6 @@ mod tests {
                     medium: false,
                     hard: true,
                 },
-                repeating: false,
                 fields: vec![
                     "Neutral".to_string(),
                     "TR_NEXT".to_string(),
@@ -183,7 +175,7 @@ mod tests {
         assert_eq!(trigger.owner.as_deref(), Some(" Neutral"));
         assert_eq!(trigger.linked_trigger_id, None);
         assert_eq!(trigger.name.as_deref(), Some(&name[..0x30]));
-        assert!(trigger.repeating);
+        assert_eq!(trigger.fields[7], "02");
         let linked = parse_record("T".to_string(), "Neutral, next,x");
         assert_eq!(linked.linked_trigger_id.as_deref(), Some(" NEXT"));
     }

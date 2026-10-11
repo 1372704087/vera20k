@@ -1167,12 +1167,7 @@ impl Simulation {
         if actor.is_mission_only() || actor.mission.effective().raw() == 4 {
             return Ok(true);
         }
-        //6EC300's waypoint read happens only for a formed team whose cursor
-        //names action 3; every other exit answers false without a lookup.
-        if self.team_script_vm.member_step_reads_waypoint(id) {
-            return Err("Foot edge admission requires the Team action3 waypoint read".into());
-        }
-        Ok(false)
+        Ok(self.member_team_is_moving_outside_playfield(id))
     }
 
     /// Original Foot+2CC4D3810. Its MZ==-1 and Cell(0,0) exits precede

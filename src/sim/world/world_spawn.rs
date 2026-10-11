@@ -537,6 +537,10 @@ impl Simulation {
                 if let Some(percent) = map_ent.veterancy {
                     ge.set_veterancy_from_percent(percent);
                 }
+                // Authored ReadFromINI resolves/births the Tag after the
+                // concrete constructor and before class Unlimbo. Shared
+                // Object5F5B50 attachment state belongs to TriggerRuntime.
+                sim.attach_object_trigger_tag(ge.stable_id(), map_ent.trigger_tag.as_deref());
                 let (stable_id, outcome) =
                     sim.unlimbo_authored_techno(ge, map_ent.health, rules, overlay_registry);
                 if !matches!(outcome, RevealOutcome::Revealed { .. }) {
@@ -1329,6 +1333,9 @@ impl Simulation {
         self.finalize_and_remove_common(
             stable_id,
             super::lifecycle::UninitContext::new(rules, None).with_effects(frame_effects),
+            // This scalar entry belongs to the ordinary admitted match. The
+            // authored-load deferred owner supplies its distinct GameState0.
+            1,
         );
         for child_id in spawn_children.into_iter().chain(slave_children) {
             if self.substrate.entities.contains(child_id) {
@@ -1485,16 +1492,30 @@ impl Simulation {
                 if let Some(entity) = self.substrate.entities.get_mut(stable_id) {
                     entity.initialize_building_idle_body(self.session.binary_frame as i32);
                 }
-                // Map import carries ScenarioInit explicitly. Runtime
-                //Construction enters through its own mission dispatcher.
-                self.grand_opening(
-                    stable_id,
-                    false,
-                    scenario_initialization,
-                    rules,
-                    overlay_registry,
-                    frame_effects,
-                );
+                // AI buildings reached virtual DiscoveredBy(owner) in the
+                // shared Unlimbo owner. Do not replace its radio/mission
+                // admission with an eager second opening here. The retained
+                // human-map setup seam is the separate shrouded-human
+                // residual in queue_placed_building_guard.
+                if self
+                    .substrate
+                    .entities
+                    .get(stable_id)
+                    .is_some_and(|entity| {
+                        self.houses.get(&entity.owner()).is_some_and(|house| {
+                            house.is_controlled_by_human(self.session.game_mode_nonzero)
+                        })
+                    })
+                {
+                    self.grand_opening(
+                        stable_id,
+                        false,
+                        scenario_initialization,
+                        rules,
+                        overlay_registry,
+                        frame_effects,
+                    );
+                }
             }
         }
         (stable_id, outcome)

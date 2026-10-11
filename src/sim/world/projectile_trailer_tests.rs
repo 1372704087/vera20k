@@ -109,7 +109,7 @@ fn anim_state(sim: &Simulation, anim: &AnimObject) -> Value {
     let p = anim.world_coord;
     json!({
         "native_id": anim.native_unique_id,
-        "alive": !sim.substrate.pending_delete.contains(&anim.stable_id),
+        "alive": !sim.substrate.pending_delete.contains_object(&anim.stable_id),
         "position": [p.x,p.y,p.z],
         "stage": anim.runtime.current_frame,
         "timer": [anim.runtime.frame_timer.start_frame(), anim.runtime.frame_timer.duration()],
@@ -231,6 +231,8 @@ fn projectile_trailer_retail_constructor_rng_and_complete_lifetime_match_native(
             Some(&rules),
             None,
             crate::sim::world::FrameEffects::default(),
+            1,
+            false,
         );
         assert_eq!(counts(&sim), row["after_bullet_drain"]["counts"]);
         assert_eq!(
@@ -261,6 +263,8 @@ fn projectile_trailer_retail_constructor_rng_and_complete_lifetime_match_native(
                 Some(&rules),
                 None,
                 crate::sim::world::FrameEffects::default(),
+                1,
+                false,
             );
         }
         assert_eq!(counts(&sim), row["final_counts"]);
@@ -293,7 +297,10 @@ fn projectile_trailer_is_registered_before_terminal_logic_compaction() {
             terminal,
             "a terminal Bullet's removal shifts its new Anim behind the cursor"
         );
-        assert_eq!(sim.substrate.pending_delete.contains(&bullet), terminal);
+        assert_eq!(
+            sim.substrate.pending_delete.contains_object(&bullet),
+            terminal
+        );
         assert_eq!(
             sim.anim(bubble).unwrap().world_coord.x,
             coord(&row["supplied"]["position"]).x
@@ -361,6 +368,8 @@ fn projectile_trailer_save_load_preserves_live_and_pending_cleanup_boundaries() 
                 Some(&rules),
                 None,
                 crate::sim::world::FrameEffects::default(),
+                1,
+                false,
             );
         }
         for frame in row["anim_frames"].as_array().unwrap() {
@@ -380,6 +389,8 @@ fn projectile_trailer_save_load_preserves_live_and_pending_cleanup_boundaries() 
                     Some(&rules),
                     None,
                     crate::sim::world::FrameEffects::default(),
+                    1,
+                    false,
                 );
             }
             assert_eq!(first.state_hash(), second.state_hash());

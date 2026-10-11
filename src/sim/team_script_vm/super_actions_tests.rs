@@ -216,7 +216,9 @@ fn replay(row: &Value, plant: bool) -> Replay {
         .get_mut(&team_type)
         .unwrap()
         .only_target_house_enemy = flag(&row["only_enemy"]);
-    let team = vm.construct_team(team_type, owner, true, 0).unwrap();
+    let team = vm
+        .construct_team(team_type, owner, true, 0, false, None)
+        .unwrap();
     let state = vm.teams.get_mut(&team).unwrap();
     state.members = members
         .iter()

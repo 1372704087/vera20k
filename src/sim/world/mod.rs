@@ -85,6 +85,9 @@ use object_turn::unit_body_counter_admitted;
 mod projectile_collision;
 mod substrate;
 mod techno_ai;
+mod trigger_camera;
+#[cfg(test)]
+mod trigger_camera_tests;
 pub(crate) use techno_ai::ObjectAiCtx;
 pub(crate) use techno_ai::direct_greatest_threat;
 #[cfg(test)]
@@ -145,15 +148,19 @@ pub(crate) use lifecycle::{LifecycleTestEvent, RevealFailure};
 pub(crate) use load_object_lifecycle::{LoadObjectLifecycle, OverlayConstructionReceipt};
 pub(crate) use logic_vector::LogicVector;
 pub(crate) use object_entry::FootEntryReceiver;
+#[cfg(test)]
+pub(crate) use substrate::DeferredDeleteQueue;
 pub use substrate::EnterOrderCounter;
-pub(crate) use substrate::ObjectSubstrate;
+pub(crate) use substrate::{DeferredDeleteTicket, ObjectSubstrate};
 pub(crate) use world_spawn::{GeneratedTechnoInitError, GeneratedTechnoInitTable};
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
+#[cfg(test)]
 use crate::map::actions::ActionMap;
 use crate::map::entities::EntityCategory;
+#[cfg(test)]
 use crate::map::events::EventMap;
 use crate::map::houses::HouseAllianceMap;
 use crate::map::overlay::OverlayEntry;
@@ -161,8 +168,6 @@ use crate::map::playfield::PlayfieldBounds;
 use crate::map::resolved_terrain::{
     RealCellBridgeFlags0x1180, ResolvedTerrainGrid, SharedCellDummy,
 };
-use crate::map::trigger_graph::TriggerGraph;
-use crate::map::triggers::TriggerMap;
 use crate::rules::locomotor_type::SpeedType;
 use crate::rules::object_type::ObjectType;
 use crate::rules::ruleset::RuleSet;
@@ -170,7 +175,7 @@ use crate::sim::animation;
 use crate::sim::bridge_state::BridgeRuntimeState;
 use crate::sim::combat::combat_weapon::WeaponSlot;
 use crate::sim::command::CommandEnvelope;
-use crate::sim::components::{AnimClassSpawnDescriptor, Position};
+use crate::sim::components::{AnimClassSpawnDescriptor, DriveCoord, Position};
 use crate::sim::entity_store::EntityStore;
 use crate::sim::house_state::HouseState;
 use crate::sim::house_strategy;
@@ -298,17 +303,16 @@ pub(crate) enum TickLane {
     NetworkModal,
 }
 
-/// Static map trigger definitions borrowed for one authoritative frame.
-///
-/// The definitions remain map data; `Simulation` owns the mutable runtime
-/// state and evaluates it in the master-frame spine.
+/// Existing rule owner borrowed for one authoritative trigger frame.
+/// Live definitions and mutable Trigger/Tag state belong to `Simulation`.
 #[derive(Clone, Copy)]
 pub(crate) struct TriggerInputs<'a> {
-    pub graph: &'a TriggerGraph,
-    pub triggers: &'a TriggerMap,
+    // Legacy focused fixtures finish their test-only definition installation
+    // on first dispatch. Production uses the installed live registry only.
+    #[cfg(test)]
     pub events: &'a EventMap,
+    #[cfg(test)]
     pub actions: &'a ActionMap,
-    pub waypoints: &'a std::collections::HashMap<u32, crate::map::waypoints::Waypoint>,
     /// Bound match rules used by action callbacks that share ordinary Techno
     /// runtime calculations (not reparsed or substituted by trigger data).
     pub rules: Option<&'a RuleSet>,
@@ -340,6 +344,10 @@ pub(crate) enum HouseAiActivationOrderTestEvent {
 /// Pure data — no audio library dependency. Drained by the app layer each frame.
 #[derive(Debug, Clone)]
 pub enum SimSoundEvent {
+    /// TAction21 Execute6DD8B0 calls VoxQueueVoice752480 with its literal
+    /// signed DialogList index, type2 and priority-1. The process audio
+    /// catalog owns ordinal resolution; no cue-name guess enters simulation.
+    TriggerEva { index: i32 },
     /// A pending acknowledgement owner's live AI reached Techno6F9EBB.
     /// The app owns the latch/handle; this fact preserves the actual visit.
     UnitVoiceVisit { owner: u64 },
@@ -513,6 +521,12 @@ pub enum SimSoundEvent {
         sub_x: SimFixed,
         sub_y: SimFixed,
         world_z_leptons: i32,
+    },
+    /// VocClass::PlayAtCoord750E20 retains the full signed native coordinate
+    /// and owns its playback handle independently of the source object.
+    VocAtCoord {
+        sound_id: String,
+        coordinate: DriveCoord,
     },
     /// `TechnoClass::AI_Update @ 0x006FA054..0x006FA145` crossed a rank.
     ///
@@ -718,33 +732,6 @@ pub enum SimSoundEvent {
     /// First-occupant SFX from rulesmd [AudioVisual] BuildingGarrisonedSound.
     /// Positional cue gated on owner == local human.
     BuildingGarrisonedSfx { owner: InternedId, rx: u16, ry: u16 },
-    /// A struck building crossed a damage-state threshold and its type carries
-    /// no `DamageSound=` of its own — the global `[AudioVisual]
-    /// BuildingDamageSound=` cue, played at the building's own coordinate.
-    ///
-    /// gamemd: `BuildingClass::ReceiveDamage @ 0x00442230`. After the shared
-    /// Techno receiver returns at `0x00442425`, `0x0044242C MOV AL,[ESI+0x90]`
-    /// (`ObjectClass::IsAlive`) skips the whole dispatch for a dead building;
-    /// otherwise `0x00442476 JMP [EAX*4 + 0x00442C18]` with `EAX = result - 2`
-    /// enters `{0x004426AC, 0x004426C8, 0x004424A2, 0x0044247D}`. Entry 0
-    /// (result 2) multiplies the `float` at `+0xE8` of the object pointed to
-    /// by `BuildingClass+0x30C` by `1.5f` (`0x007E4460`) when that pointer is
-    /// non-null, then falls through into entry 1 (result 3). The identity of
-    /// that object is UNCHECKED: it is written once by
-    /// `BuildingClass::Unlimbo @ 0x00440F5B` from `CALL 0x0062DC50` on
-    /// `[BuildingTypeClass+0x764]` and is read and rewritten by
-    /// `BuildingClass::UpdateGapGenerator_Tick` (`0x00454E7F`, `0x0045500C`).
-    /// Both entries reach `0x004426D2 CMP [type+0x538],-1`, and only an absent
-    /// per-type `DamageSound=` continues to
-    /// `0x00442700 MOV ECX,[Rules+0x714]` / `0x00442706 CALL
-    /// VocClass::PlayAtCoord @ 0x00750E20` at `[ESI+0x9C]`.
-    ///
-    /// Results 2 and 3 are the threshold crossings computed by
-    /// `ObjectClass::ReceiveDamage @ 0x005F5390`: 2 when the hit took HP from
-    /// `>= Strength >> 1` to below it, 3 when it took HP from above
-    /// `Strength * Rules+0x1708` (ConditionRed) to below it. Ordinary hits
-    /// that cross nothing return 1 and are silent.
-    BuildingDamagedSfx { rx: u16, ry: u16 },
     /// Tank-bunker walls-up cue — emitted on install. App resolves to
     /// [AudioVisual] BunkerWallsUpSound (retail "TankBunkerUp").
     BunkerWallsUp { rx: u16, ry: u16 },
@@ -1031,8 +1018,8 @@ pub struct Simulation {
     #[serde(skip, default)]
     pub(crate) native_map_tubes: crate::map::tubes::NativeMapTubesState,
     /// Shared authored/runtime OverlayClass registry/deferred-delete owner. These
-    /// ephemeral objects are neither gameplay objects nor snapshot/hash state.
-    #[serde(skip, default)]
+    /// records survive saves so global deferred tickets keep their registry
+    /// identities. Their queue order is hashed by the shared deletion owner.
     pub(crate) load_objects: LoadObjectLifecycle,
     /// Deterministic fog/shroud visibility state.
     pub fog: FogState,
@@ -3725,7 +3712,7 @@ impl Simulation {
                 })
                 .expect("runtime Overlay constructor must join its owned registries");
             self.load_objects
-                .finish_cell_construction(handle, receipt)
+                .finish_cell_construction(handle, receipt, &mut self.substrate.pending_delete)
                 .expect("runtime Overlay constructor must finish its owned lifecycle");
         }
     }
@@ -3955,9 +3942,20 @@ impl Simulation {
         }
     }
 
-    fn poll_triggers_for_master_frame(&mut self, inputs: TriggerInputs<'_>) {
+    fn poll_triggers_for_master_frame(
+        &mut self,
+        inputs: TriggerInputs<'_>,
+        overlay_registry: Option<&crate::rules::overlay_types::OverlayTypeRegistry>,
+        frame_effects: FrameEffects<'_>,
+    ) {
         // YR LogicClass::Update polls scenario triggers before the live-object walk.
-        let effects = self.advance_triggers(inputs);
+        let effects = self.advance_triggers(inputs, overlay_registry, frame_effects);
+        self.publish_trigger_effects(effects);
+    }
+
+    /// Commit synchronous Tag outcomes to the existing frame-output boundary.
+    /// Object callbacks and the master-frame poll share this single queue.
+    pub(crate) fn publish_trigger_effects(&mut self, effects: Vec<TriggerEffect>) {
         self.trigger_effects.extend(effects);
     }
 
@@ -4265,7 +4263,9 @@ impl Simulation {
                     entity.stable_id()
                 );
                 debug_assert!(
-                    self.substrate.pending_delete.contains(&entity.stable_id()),
+                    self.substrate
+                        .pending_delete
+                        .contains_object(&entity.stable_id()),
                     "dead entity {} must remain pending until finalization",
                     entity.stable_id()
                 );
@@ -5887,7 +5887,7 @@ impl Simulation {
             //rechecks current operational state independently for this viewer.
             if self.fog.width != 0
                 && self.fog.height != 0
-                && (!active || !self.fog.whole_map_revealed_owners.contains(&owner))
+                && (!active || !self.fog.whole_map_revealed_for_owner(owner))
             {
                 let (gaps, admitted_gap) = self.prepare_spy_sat_gap_reentry(owner, rules);
                 self.fog.transition_whole_map_with_gap_reentry(
@@ -5901,7 +5901,7 @@ impl Simulation {
                 //577D90 sets240 before callbacks; every successful6FB170
                 //re-admission clears it again, including a friendly generator.
                 if admitted_gap {
-                    self.fog.whole_map_revealed_owners.remove(&owner);
+                    self.fog.invalidate_whole_map_reveal_for_owner(owner);
                 }
             }
             if let Some(house) = self.houses.get_mut(&owner) {
@@ -6186,15 +6186,13 @@ impl Simulation {
         // collapse and physically finalize exactly once.
         #[cfg(test)]
         self.trace_master_frame_rung(MasterFrameTestRung::PendingDelete);
-        self.process_pending_delete_with(rules, overlay_registry, effects);
-
-        // Original55DE9F calls725C70 at this admitted late-frame boundary.
-        // Stock bridge/ore Overlay objects publish only Cell state; their isolated
-        // destructor has no gameplay-object callback effects and cannot allocate
-        // IDs. Drain the shared authored/runtime owner after gameplay objects.
-        self.load_objects
-            .drain_deferred()
-            .expect("live Overlay deferred queue must contain its owned objects");
+        self.process_pending_delete_with(
+            rules,
+            overlay_registry,
+            effects,
+            1,
+            self.session.started(),
+        );
 
         // Validate actual membership after the drain. Rebuilding from current
         // phase/terrain would erase legitimate retained Cell list history.
@@ -6510,7 +6508,7 @@ impl Simulation {
         #[cfg(test)]
         self.trace_master_frame_rung(MasterFrameTestRung::Triggers);
         if let Some(inputs) = trigger_inputs {
-            self.poll_triggers_for_master_frame(inputs);
+            self.poll_triggers_for_master_frame(inputs, overlay_registry, effects);
         }
 
         // Logic55B29A/55B2AD: consume prior pending conceal at the signed

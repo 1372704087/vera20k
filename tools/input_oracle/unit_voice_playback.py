@@ -12,7 +12,7 @@ import hashlib
 import os
 import struct
 
-from unicorn import UC_HOOK_CODE
+from unicorn import UC_HOOK_CODE, UC_HOOK_MEM_WRITE
 from unicorn.x86_const import *
 from tools import native_inspect as inspect
 from tools.native_oracle import RET_MAGIC, finish_vectors, image_bytes, provenance, run_checked
@@ -151,9 +151,33 @@ class VoiceHistory(GIMoveHistory):
         0x402440: ('AssignChannelGroup', 0),
     })
 
-    def __init__(self, m, name, *, seed=31, actor_count=2, initial_pump=True):
-        f = er.EngineerJoinedFixture(m, seed=seed, arena_size=0x400000)
+    def __init__(self, m, name, *, seed=31, actor_count=2, initial_pump=True,
+                 fixture=None, coordinate_profile=False):
+        require(fixture is None or actor_count == 0,
+                'An attached native world must retain its existing actors')
+        f = fixture if fixture is not None else er.EngineerJoinedFixture(m, seed=seed, arena_size=0x400000)
+        self.coordinate_profile, self.compact_observation = coordinate_profile, False
+        self.bulk_observation = False
+        self.coordinate_writes, self.coordinate_observation_limits = [], []
+        if coordinate_profile:
+            self.WATCH = dict(self.WATCH)
+            self.WATCH.update({0x750E20: ('CoordinateRequest', 4),
+                0x750EC0: ('CoordinateService', 0), 0x750FA0: ('CoordinateClear', 0),
+                0x751040: ('CoordinateSuspend', 0), 0x751080: ('CoordinateResume', 0),
+                0x750D40: ('RedrivePosition', 0), 0x750AC0: ('SpatialGain', 4),
+                0x6D2140: ('CoordsToClient', 8), 0x405190: ('AllocateEvent', 0),
+                0x4052F0: ('StopEvent', 0), 0x4053E0: ('SuspendEvent', 0),
+                0x405430: ('ResumeEvent', 0), 0x404FD0: ('SuspendEvents', 0),
+                0x405040: ('ResumeEvents', 0), 0x4061D0: ('PrepareVolume', 0),
+                0x406270: ('PreparePan', 0), 0x4060F0: ('BindHandle', 4),
+                0x442230: ('BuildingReceiver', 28), 0x701900: ('TechnoReceiver', 28),
+                0x5F5390: ('ObjectReceiver', 28), 0x741340: ('UnitFireAt', 8),
+                0x489180: ('WarheadDamageKernel', 4),
+                0x405BE0: ('HandleConstructor', 0), 0x7518C0: ('AudioEnabled', 0),
+                0x406F00: ('GamePause', 0), 0x406F40: ('GameResume', 0),
+                0x43FB20: ('BuildingAI', 0), 0x55B610: ('LogicVisit', 0)})
         self.f, self.u, self.r, self.bc = f, f.u, f.read32, bc
+        self.existing_transport_entries = getattr(f, 'transport_entries', frozenset())
         self.require, self.copy, self.hashlib = require, copy, hashlib
         self.unit, self.name = False, name
         self.sequence, self.phase = 0, 'created'
@@ -162,7 +186,8 @@ class VoiceHistory(GIMoveHistory):
         self.draw_start, self.advance_start = len(f.draws), len(f.advances)
         # Inherited physical Cell grid; declared nonzero outer map dimensions
         # prevent original568350 treating every idle GI as off-map.
-        self.u.mem_write(0x87F7E8 + 0xF4, dwords(16, 16))
+        if fixture is None:
+            self.u.mem_write(0x87F7E8 + 0xF4, dwords(16, 16))
         self.actors = []
         prior = f.types['ENGINEER']
         try:
@@ -172,19 +197,47 @@ class VoiceHistory(GIMoveHistory):
         finally:
             f.types['ENGINEER'] = prior
         self.actor = self.actors[0] if self.actors else 0
-        surface = f.allocate(0x40)
-        self.u.mem_write(surface, dwords(0x7E2070, 640, 480, 0, 2, 0, 0, 0))
-        self.u.mem_write(0x880A04, dwords(surface))
-        self.u.mem_write(0xA8B238, dwords(5))
-        self.u.mem_write(0xAC4CF4, b'\0')
-        self.u.mem_write(0x822CF2, b'\1')
+        if fixture is None:
+            surface = f.allocate(0x40)
+            self.u.mem_write(surface, dwords(0x7E2070, 640, 480, 0, 2, 0, 0, 0))
+            self.u.mem_write(0x880A04, dwords(surface))
+            self.u.mem_write(0xA8B238, dwords(5))
+            self.u.mem_write(0xAC4CF4, b'\0')
+            self.u.mem_write(0x822CF2, b'\1')
         self.hooks = [self.u.hook_add(UC_HOOK_CODE, self.observe)]
+        if coordinate_profile:
+            self.hooks.append(self.u.hook_add(UC_HOOK_MEM_WRITE, self.coordinate_written))
         self.clock = dict(frequency=1000000, counter=1000000)
         calls = inspect.decode_ranges(inspect.selected_ranges(image_bytes(), 0x407550, 0xE00,
             code_only=True), lambda ins: [inspect.instruction_row(ins)])['matches']
         critical = {row['address']: row for row in calls if row['mnemonic'] == 'call' and
             row['operands'] in ('dword ptr [0x7e11e8]', 'dword ptr [0x7e11ec]', 'dword ptr [0x7e11f4]')}
         f.platform_audio.configure_transport(clock=self.clock, critical_calls=critical)
+        if coordinate_profile:
+            device_template = dict(value=1, play_cursor=0, write_cursor=0)
+            f.platform_audio.configure_transport(new_buffer_device=device_template)
+            self.inputs.append(dict(kind='declared_new_buffer_OS_input_template',
+                device=device_template,
+                limits='Explicit device consumer inputs, not physical playback progression. Original Stop alone clears status.'))
+            # Original7510D0 owns the <=200 request-pool allocation as well as
+            # registry reading. The inherited world copies the existing sound
+            # registry, but deliberately has no request allocator. An empty
+            # original INI pass initializes it without replacing that registry.
+            empty = f.allocate(0x40)
+            self.u.mem_write(empty, bytes(m.u.mem_read(m.voice_theme_ini, 0x40)))
+            count = self.r(0xB1D388)
+            bindings = [(self.r(self.r(self.r(0xB1D37C) + i * 4)),
+                         bytes(self.u.mem_read(self.r(self.r(
+                             self.r(0xB1D37C) + i * 4)), 0x138))) for i in range(count)]
+            self.inputs.append(dict(kind='declared_empty_sound_catalog', sections={}))
+            self.invoke('original_empty_catalog_coordinate_pool_init', 0x7510D0, empty)
+            require(self.r(0xB1D3A4) != 0 and self.r(0xB1D388) == count,
+                    'Original request-pool initialization changed the registry count')
+            require(bindings == [(self.r(self.r(self.r(0xB1D37C) + i * 4)),
+                                  bytes(self.u.mem_read(self.r(self.r(
+                                      self.r(0xB1D37C) + i * 4)), 0x138)))
+                                 for i in range(count)],
+                    'Empty sound reader changed a retained native binding')
         self.invoke('native_theme_constructor', 0x720960, 0xA83D10)
         self.invoke('native_clock_init', 0x409360, 0)
         self.region('native_stream_list_init', 0x407550, 0x40756C)
@@ -196,14 +249,27 @@ class VoiceHistory(GIMoveHistory):
             self.invoke('empty_audio_pump_1000', 0x406F70, 0)
         self.initial = self.snapshot()
 
+    def finish_returns(self, pc, sp):
+        pending = tuple(self.pending) if self.coordinate_profile else ()
+        super().finish_returns(pc, sp)
+        for row in pending:
+            if row.get('packet_pointer') and 'returned_eax' in row:
+                row.update(packet_after=signed(self.u, row['packet_pointer']),
+                           health_after=signed(self.u, row['this'] + 0x6C))
+
     def observe(self, u, pc, size, data):
         if pc in (0x655560, 0x655740):
             # Existing selected radar tracker presentation boundary, not a
             # second implementation or a gameplay return substitution.
-            Mission.observe(SimpleNamespace(trace=self.recent, m=self.f, pending={},
-                events=self.events, frame=self.r(bc.FRAME), phase=self.phase), u, pc, size, data)
+            if pc not in self.existing_transport_entries:
+                Mission.observe(SimpleNamespace(trace=self.recent, m=self.f, pending={},
+                    events=self.events, frame=self.r(bc.FRAME), phase=self.phase), u, pc, size, data)
             return
-        super().observe(u, pc, size, data)
+        self.compact_observation = self.coordinate_profile
+        try:
+            super().observe(u, pc, size, data)
+        finally:
+            self.compact_observation = False
         if pc in (0x6F9EBB, 0x6F9F0D, 0x40971A, 0x40974F):
             self.events.append(dict(sequence=self.next_sequence(), kind='native_site', pc=pc,
                 phase=self.phase, this=u.reg_read(UC_X86_REG_ESI), state=self.snapshot()))
@@ -211,9 +277,306 @@ class VoiceHistory(GIMoveHistory):
             self.events[-1]['requested_group'] = u.reg_read(UC_X86_REG_EDX)
         if pc == 0x7509E0:
             self.events[-1]['coordinate'] = self.ints(u.reg_read(UC_X86_REG_EDX), 3)
+        if not self.coordinate_profile:
+            return
+        if pc in (0x442230, 0x701900, 0x5F5390):
+            row = self.events[-1]
+            row.update(packet_pointer=row['args'][0],
+                packet_before=signed(u, row['args'][0]),
+                health_before=signed(u, row['this'] + 0x6C),
+                ignore_defenses=bool(row['args'][4]))
+        if pc == 0x489180:
+            row = self.events[-1]
+            row.update(raw_damage=struct.unpack('<i', dwords(row['this']))[0],
+                warhead=u.reg_read(UC_X86_REG_EDX), armor=row['args'][0])
+        if pc in (0x7019E3, 0x5F5414, 0x5F5416):
+            packet = u.reg_read(UC_X86_REG_EBX if pc == 0x7019E3 else UC_X86_REG_EDI)
+            receiver = u.reg_read(UC_X86_REG_ESI)
+            self.events.append(dict(sequence=self.next_sequence(), kind='receiver_packet_site',
+                pc=pc, phase=self.phase, packet_pointer=packet, packet=signed(u, packet),
+                receiver=receiver, health=signed(u, receiver + 0x6C),
+                eax_signed=struct.unpack('<i', dwords(u.reg_read(UC_X86_REG_EAX)))[0]))
+        if pc in (0x750E20, 0x750D40, 0x750AC0):
+            row = self.events[-1]
+            coordinate = u.reg_read(UC_X86_REG_EDX if pc == 0x750E20 else UC_X86_REG_ECX)
+            row.update(coordinate=self.ints(coordinate, 3),
+                register_ecx=u.reg_read(UC_X86_REG_ECX), register_edx=u.reg_read(UC_X86_REG_EDX))
+        if pc == 0x6D2140:
+            row = self.events[-1]
+            row.update(coordinate=self.ints(row['args'][0], 3), output_pointer=row['args'][1],
+                       listener=self.coordinate_listener())
+        if pc in (0x6D21CE, 0x6D21F7, 0x6D2202, 0x6D221E,
+                  0x750BBE, 0x750BCF, 0x750BED, 0x750D29):
+            sp = u.reg_read(UC_X86_REG_ESP)
+            row = dict(sequence=self.next_sequence(), kind='native_projection_site', pc=pc,
+                phase=self.phase, stack_hex=bytes(u.mem_read(sp, 0x40)).hex(),
+                eax=u.reg_read(UC_X86_REG_EAX), ecx=u.reg_read(UC_X86_REG_ECX),
+                esi=u.reg_read(UC_X86_REG_ESI), edi=u.reg_read(UC_X86_REG_EDI))
+            if pc == 0x750D29:
+                row.update(gain_f32_bits=bytes(u.mem_read(sp + 0x18, 4)).hex(),
+                           pan=u.reg_read(UC_X86_REG_EAX))
+            if pc in (0x6D2202, 0x6D221E):
+                row['output'] = self.ints(u.reg_read(UC_X86_REG_EAX), 2)
+            self.events.append(row)
+
+    def coordinate_listener(self):
+        r, u = self.r, self.u
+        tact, surface = r(0x887324), r(0x880A04)
+        return dict(tactical=tact, view_xy=self.ints(tact + 0xB0, 2),
+            viewport_886fa8_fac=self.ints(0x886FA8, 2),
+            backbuffer_b0ce30_34=self.ints(0xB0CE30, 2), surface=surface,
+            surface_words=self.ints(surface, 8) if surface else [],
+            fpcw=u.reg_read(UC_X86_REG_FPCW),
+            constants={hex(p): bytes(u.mem_read(p, n)).hex() for p, n in
+                ((0xB0CD48, 8), (0x7E1738, 8), (0x7E5168, 4), (0x7F68E8, 4),
+                 (0x7EF38C, 4), (0x7E8AE8, 8), (0x7E1748, 4))})
+
+    def projection_controls(self):
+        """Declared listener/Coord inputs through whole original6D2140."""
+        require(self.coordinate_profile, 'Projection readbacks require the existing coordinate observer')
+        initial = self.coordinate_listener()
+        tact, surface = initial['tactical'], initial['surface']
+        coordinate, output = self.f.allocate(12), self.f.allocate(8)
+        controls = []
+        coordinates = ((0, 0, 0), (128, 128, 0), (256, 256, 0),
+            (-1, -1, -1), (-255, 1, -1), (1, -255, 1),
+            (15232, 28032, 104), (0, 0, 727), (0, 0, 728), (0, 0, 729),
+            (128, -256, -728), (65536, -32768, 1024))
+        for label, viewport, backbuffer, view in (
+            ('declared_zoom1_origin', (640, 480), (640, 480), (0, 0)),
+            ('declared_production_frame_mapping', (640, 600), (800, 600), (-1726, 2371)),
+        ):
+            self.u.mem_write(0x886FA8, dwords(*viewport))
+            self.u.mem_write(0xB0CE30, dwords(*backbuffer))
+            self.u.mem_write(surface + 4, dwords(*backbuffer))
+            self.u.mem_write(tact + 0xB0, dwords(*view))
+            self.inputs.append(dict(kind='declared_projection_listener', label=label,
+                viewport=list(viewport), backbuffer=list(backbuffer), view=list(view),
+                limits='Consumer inputs only; native scenario/camera producer is not executed. VERA worldY and cameraY are native tacticalY+15.'))
+            for values in coordinates:
+                self.u.mem_write(coordinate, dwords(*values))
+                before, start = self.coordinate_listener(), len(self.events)
+                returned = self.invoke(label + '_' + '_'.join(map(str, values)),
+                    0x6D2140, tact, coordinate, output)
+                controls.append(dict(input=dict(coordinate=list(values), listener=before),
+                    returned_eax=returned, output=self.ints(output, 2),
+                    intermediates=[row for row in self.events[start:]
+                                   if row.get('kind') == 'native_projection_site']))
+        self.u.mem_write(0x886FA8, dwords(*initial['viewport_886fa8_fac']))
+        self.u.mem_write(0xB0CE30, dwords(*initial['backbuffer_b0ce30_34']))
+        self.u.mem_write(surface + 4, dwords(*initial['surface_words'][1:3]))
+        self.u.mem_write(tact + 0xB0, dwords(*initial['view_xy']))
+        return controls
+
+    def listener_input(self, label, *, viewport=(640, 600), backbuffer=(800, 600),
+                       view=(-1726, 2371)):
+        """Explicit consumer input; never a native camera-producer claim."""
+        tactical, surface = self.r(0x887324), self.r(0x880A04)
+        self.u.mem_write(0x886FA8, dwords(*viewport))
+        self.u.mem_write(0xB0CE30, dwords(*backbuffer))
+        self.u.mem_write(surface + 4, dwords(*backbuffer))
+        self.u.mem_write(tactical + 0xB0, dwords(*view))
+        self.inputs.append(dict(kind='declared_projection_listener', label=label,
+            viewport=list(viewport), backbuffer=list(backbuffer), view=list(view),
+            limits='Original projection consumer only; scenario/camera producer excluded.'))
+
+    def natural_coordinate_end(self, *, first_ms=1034, reap=True):
+        """Existing pump/worker/PCM owners, with explicit OS clock/cursor inputs."""
+        observer = NativePcmObserver(raw_pcm=True)
+        observer.install(self.f, self.u, self.r)
+        self.audio(first_ms - 1)
+        self.audio(first_ms)
+        milliseconds = first_ms + 26
+        for step in range(16):
+            self.worker(milliseconds, step % 4)
+            if all(event['state'] == 4 or event['flags'] & 1
+                   for event in self.snapshot()['events']):
+                break
+            milliseconds += 256
+        else:
+            raise AssertionError('Selected PCM requests did not naturally end in16worker iterations')
+        ended = self.snapshot()
+        reaped = None
+        if reap:
+            self.audio(milliseconds + 34)
+            reaped = self.snapshot()
+            require(reaped['coordinate_request_count'] == 0,
+                    'Naturally finished retained-coordinate requests were not reaped')
+        return dict(ended_before_main=ended, after_main_reap=reaped, last_worker_ms=milliseconds,
+            pcm_observation={k: v for k, v in observer.state.items() if k != 'fixture'},
+            all_native_rng_requests=self.f.draws, all_raw_advances=self.f.advances)
+
+    def audio_core_controls(self, index, other_index):
+        """Whole original core/request controls on this one joined audio world."""
+        require(self.coordinate_profile, 'Core controls need the existing coordinate observer')
+        coordinate = self.f.allocate(12)
+        self.u.mem_write(coordinate, dwords(15232, 28032, 104))
+        self.listener_input('declared_production_API_coordinate')
+        handles = [self.f.allocate(16) for _ in range(3)]
+        for handle in handles:
+            self.invoke('original_handle_constructor_' + str(handle), 0x405BE0, handle)
+        rows = []
+        def play(label, entry, sound, handle=0, *, pan=0):
+            self.u.reg_write(UC_X86_REG_EDX, coordinate if entry == 0x7509E0 else pan)
+            returned = self.invoke(label, entry, sound,
+                *((handle,) if entry == 0x7509E0 else (0x3F800000, handle)))
+            rows.append(dict(label=label, entry=entry, sound_index=sound, returned_event=returned,
+                handle_pointer=handle, handle=self.ints(handle, 4) if handle else [],
+                state=self.snapshot()))
+            return returned
+        def request(label, sound=index):
+            self.u.reg_write(UC_X86_REG_EDX, coordinate)
+            returned = self.invoke(label, 0x750E20, sound, 0)
+            rows.append(dict(label=label, entry=0x750E20, sound_index=sound,
+                caller_argument=0, returned_event=returned, state=self.snapshot()))
+            return returned
+        play('position_first', 0x7509E0, index, handles[0])
+        play('position_same_entry_reuses', 0x7509E0, index, handles[0])
+        play('position_different_entry_stops_old', 0x7509E0, other_index, handles[0])
+        play('position_negative_id_unbinds', 0x7509E0, 0xFFFFFFFF, handles[0])
+        play('position_out_of_range_id_unbinds', 0x7509E0, self.r(0xB1D388), handles[0])
+        play('position_valid_after_invalid', 0x7509E0, index, handles[0])
+        self.invoke('original_disable_audio', 0x7518C0, 0)
+        play('disabled_position_retains_handle', 0x7509E0, other_index, handles[0])
+        play('disabled_nonpositional_retains_handle', 0x750920, other_index, handles[0])
+        self.invoke('original_enable_audio', 0x7518C0, 1)
+        self.listener_input('declared_inaudible_view', view=(10000, 10000))
+        play('position_inaudible_stops_retains_entry', 0x7509E0, index, handles[0])
+        request('negative_request_no_node', 0xFFFFFFFF)
+        request('out_of_range_request_node_no_event', self.r(0xB1D388))
+        request('inaudible_request_node_no_event')
+        self.audio(1034)
+        rows.append(dict(label='invalid_inaudible_nodes_reaped', state=self.snapshot()))
+        # Both callers reach shared405190. No pool state or event result is
+        # supplied: whole originals create300 queued events before the retry.
+        self.bulk_observation = True
+        try:
+            fill = [play('full_pool_nonpositional_' + str(i), 0x750920, index)
+                    for i in range(300)]
+        finally:
+            self.bulk_observation = False
+        rows.append(dict(label='native300event_pool_full', returns=fill, state=self.snapshot()))
+        self.listener_input('declared_audible_pool_retry_view')
+        play('full_pool_position_bind', 0x7509E0, index, handles[1])
+        play('full_pool_nonpositional_bind', 0x750920, index, handles[2])
+        require(self.r(0x87E28C) == 300 and all(fill), 'Native event pool did not fill')
+        self.invoke('original_stop_for_position_retry', 0x4052F0, fill[0])
+        play('dead_only_position_retry', 0x7509E0, index, handles[1])
+        self.invoke('original_stop_for_nonpositional_retry', 0x4052F0, fill[1])
+        play('dead_only_nonpositional_retry', 0x750920, index, handles[2])
+        self.invoke('original_clear_event_pool', 0x406E80, 0)
+        # Request-depth and event-depth belong to their existing separate
+        # native owners. Whole GamePause adds both layers in original order.
+        request('coordinate_before_nested_pause')
+        self.invoke('whole_game_pause_first', 0x406F00, 0)
+        rows.append(dict(label='after_game_pause_first', state=self.snapshot()))
+        self.invoke('whole_game_pause_second', 0x406F00, 0)
+        rows.append(dict(label='after_game_pause_second', state=self.snapshot()))
+        request('new_request_during_nested_pause_depth_zero')
+        self.listener_input('declared_view_during_suspend', view=(-2126, 2371))
+        self.audio(1068)
+        rows.append(dict(label='suspended_request_service_and_new_request_redrive', state=self.snapshot()))
+        self.invoke('whole_game_resume_first', 0x406F40, 0)
+        rows.append(dict(label='after_game_resume_first', state=self.snapshot()))
+        self.invoke('whole_game_resume_second', 0x406F40, 0)
+        rows.append(dict(label='after_game_resume_second', state=self.snapshot()))
+        self.invoke('whole_game_resume_extra_clamps', 0x406F40, 0)
+        rows.append(dict(label='after_game_resume_extra', state=self.snapshot()))
+        self.invoke('original_request_clear_while_live', 0x750FA0, 0)
+        self.audio(1102)
+        rows.append(dict(label='clear_requests_and_dead_event_reap', state=self.snapshot()))
+        self.listener_input('declared_natural_end_view')
+        request('coordinate_natural_end')
+        natural = self.natural_coordinate_end(first_ms=1136, reap=False)
+        ended_events = self.snapshot()['events']
+        require(len(ended_events) == 1 and ended_events[0]['state'] == 4
+                and not ended_events[0]['flags'] & 1, 'Natural state4 control is not merely non-DEAD')
+        self.bulk_observation = True
+        try:
+            state4_fill = [play('state4_pool_nonpositional_' + str(i), 0x750920, index)
+                           for i in range(299)]
+        finally:
+            self.bulk_observation = False
+        rows.append(dict(label='state4_plus299_pool_full', returns=state4_fill, state=self.snapshot()))
+        play('state4_is_not_DEAD_position_fails', 0x7509E0, index, handles[1])
+        play('state4_is_not_DEAD_nonpositional_fails', 0x750920, index, handles[2])
+        self.invoke('original_stop_naturally_ended_event', 0x4052F0, ended_events[0]['pointer'])
+        play('state4_now_DEAD_position_retry', 0x7509E0, index, handles[1])
+        self.invoke('original_request_clear_after_state4_retry', 0x750FA0, 0)
+        self.invoke('original_event_clear_after_state4_retry', 0x406E80, 0)
+        self.audio(natural['last_worker_ms'] + 34)
+        rows.append(dict(label='after_natural_end_and_reap', state=self.snapshot()))
+        self.listener_input('declared_inaudible_request_capacity', view=(10000, 10000))
+        self.bulk_observation = True
+        try:
+            capacity = [request('inaudible_request_capacity_' + str(i)) for i in range(201)]
+        finally:
+            self.bulk_observation = False
+        rows.append(dict(label='native200request_pool_full', returns=capacity, state=self.snapshot()))
+        self.audio(3500)
+        rows.append(dict(label='inaudible200requests_reaped', state=self.snapshot()))
+        self.listener_input('declared_three_request_limit2')
+        for i in range(3):
+            request('registered_Limit2_request_' + str(i))
+        self.audio(3534)
+        rows.append(dict(label='registered_Limit2_service', state=self.snapshot()))
+        for ms, view in ((3568, (-2126, 2371)), (3602, (-2526, 2371)),
+                         (3636, (10000, 10000))):
+            self.listener_input('declared_camera_redrive_' + str(ms), view=view)
+            self.audio(ms)
+            rows.append(dict(label='native_camera_redrive_' + str(ms), state=self.snapshot()))
+        self.listener_input('declared_camera_return_after_inaudible_stop')
+        self.audio(3670)
+        rows.append(dict(label='stopped_one_shot_stays_reaped_after_view_returns', state=self.snapshot()))
+        require(not self.pending and not self.f.pending, 'Unreturned native audio control')
+        return dict(input=dict(sound_index=index, other_sound_index=other_index,
+            coordinate=[15232, 28032, 104], caller_argument=0), controls=rows,
+            natural_end=natural, history=self.project())
+
+    def coordinate_written(self, u, _access, address, size, value, _data):
+        # Observation only, scoped to the selected existing world and native
+        # request/event owners. No timer, RNG or lifecycle state is supplied.
+        ranges = [(er.BLD, er.BLD + 0x800, 'building')]
+        if getattr(self.f, 'source', 0):
+            ranges.append((self.f.source, self.f.source + 0x1000, 'source'))
+        node = self.r(0xB1D320)
+        seen = set()
+        while node and node != self.r(node + 8):
+            if node in seen or node == self.r(node) or len(seen) >= 200:
+                self.coordinate_observation_limits.append(dict(
+                    kind='partial_coordinate_request_list',
+                    pc=u.reg_read(UC_X86_REG_EIP), phase=self.phase,
+                    address=address, node=node, traversed_nodes=sorted(seen),
+                    reported_count=self.r(0xB1D3A8),
+                    reason='cycle/self-link or bound during native memory-write observation'))
+                break
+            seen.add(node)
+            ranges.append((node, node + 0x3C, 'coordinate_request'))
+            node = self.r(node)
+        node = self.r(0x87E180)
+        seen = set()
+        while node and node != 0x87E180:
+            if node in seen or len(seen) >= 300:
+                self.coordinate_observation_limits.append(dict(
+                    kind='partial_event_list', pc=u.reg_read(UC_X86_REG_EIP),
+                    phase=self.phase, address=address, node=node,
+                    traversed_nodes=sorted(seen), reported_count=self.r(0x87E28C),
+                    reason='cycle or bound during native memory-write observation'))
+                break
+            seen.add(node)
+            ranges.append((node + 0x138, node + 0x15C, 'event_clock_pause'))
+            node = self.r(node)
+        owners = [name for lo, hi, name in ranges if address < hi and lo < address + size]
+        if owners:
+            self.coordinate_writes.append(dict(pc=u.reg_read(UC_X86_REG_EIP), phase=self.phase,
+                frame=self.r(bc.FRAME), address=address, size=size, value=value,
+                before=bytes(u.mem_read(address, size)).hex(), owners=owners))
 
     def snapshot(self):
         u, r = self.u, self.r
+        if self.compact_observation or self.bulk_observation:
+            return dict(rng=self.rng(), event_count=r(0x87E28C),
+                        coordinate_request_count=r(0xB1D3A8))
         result = self.f.sound_state()
         result['pump_last_ms'] = struct.unpack('<Q', u.mem_read(0x87E760, 8))[0]
         result['rng'] = self.rng()
@@ -256,6 +619,23 @@ class VoiceHistory(GIMoveHistory):
                 event['backend'] = dict(pointer=backend, buffer=r(backend + 0x64),
                     decoded_remaining=signed(u, backend + 8), cursor_quarter=r(backend + 0xC),
                     ring_bytes=r(backend + 0x68), quantum_bytes=r(backend + 0x6C))
+            if self.coordinate_profile:
+                event.update(suspend_depth=r(p + 0x158),
+                    volume_controller_words=self.ints(p + 0xB8, 3),
+                    pan_controller_words=self.ints(p + 0x108, 3),
+                    deadline_140_144=list(struct.unpack('<2I', u.mem_read(p + 0x140, 8))))
+        if self.coordinate_profile:
+            result.update(listener=self.coordinate_listener(), coordinate_requests=[],
+                coordinate_request_count=r(0xB1D3A8), coordinate_request_high_water=r(0xB1D3AC),
+                building=dict(health=signed(u, er.BLD + 0x6C), sampled_health=signed(u, er.BLD + 0x544),
+                    native_id=r(er.BLD + 0x10), location=self.ints(er.BLD + 0x9C, 3)))
+            node = r(0xB1D320)
+            while node and node != r(node + 8):
+                require(len(result['coordinate_requests']) < 200, 'Unexpected request census')
+                result['coordinate_requests'].append(dict(pointer=node, handle=self.ints(node + 0xC, 4),
+                    location=self.ints(node + 0x20, 3), caller_argument=r(node + 0x2C),
+                    suspend_depth=r(node + 0x30)))
+                node = r(node)
         return result
 
     def region(self, label, begin, end, *, registers=(), required=(), count=10_000_000):
@@ -285,7 +665,9 @@ class VoiceHistory(GIMoveHistory):
         return self.region(label, 0x55B5FF, 0x55B61B,
             registers=((UC_X86_REG_EDI, 0x87F778),), required=(0x51BAB0, 0x6F9EBB))
 
-    def audio(self, milliseconds, *, wall=60_000_000):
+    def audio(self, milliseconds, *, wall=None):
+        if wall is None:
+            wall = 180_000_000 if self.coordinate_profile else 60_000_000
         self.clock['counter'] = milliseconds * 1000
         self.inputs.append(dict(kind='os_counter', milliseconds=milliseconds,
                                 value=self.clock['counter']))
@@ -305,7 +687,8 @@ class VoiceHistory(GIMoveHistory):
             require(len(created) == 1 and created[0]['args'][2] == 0x4095B0,
                     'Original device worker creation differs')
             self.worker_parameter = created[0]['args'][3]
-            self.devices = {}
+            self.devices = (platform.os_buffer_devices if self.coordinate_profile
+                            and platform.os_buffer_devices is not None else {})
             self.worker_context = None
             platform.configure_transport(buffer_devices=self.devices)
             platform.device_stop_updates_status = True
@@ -339,7 +722,8 @@ class VoiceHistory(GIMoveHistory):
             sp = self.u.reg_read(UC_X86_REG_ESP)
             platform.callsite(0x40983E, 6, [self.r(sp)], 0)
         run_checked(self.u, row['entry'], 0x40983E, count=20_000_000,
-                    timeout_us=60_000_000, required_addresses=[0x4095F5])
+                    timeout_us=180_000_000 if self.coordinate_profile else 60_000_000,
+                    required_addresses=[0x4095F5])
         self.finish_returns(0x40983E, self.u.reg_read(UC_X86_REG_ESP))
         self.worker_context = self.u.context_save()
         row.update(after=self.snapshot(), os_devices_after=copy.deepcopy(self.devices),
@@ -355,9 +739,21 @@ class VoiceHistory(GIMoveHistory):
         # ring snapshots are mechanically omitted except RNG and head sites.
         calls = [{k: v for k, v in row.items() if k not in ('before', 'after', 'at_ret8')}
                  for row in self.events]
-        return dict(name=self.name, initial=self.initial, inputs=self.inputs,
+        result = dict(name=self.name, initial=self.initial, inputs=self.inputs,
             boundaries=self.boundaries, ordered_calls=calls, final=self.snapshot(),
             complete_rng_states=self.streams, original_code_unchanged=True)
+        if self.coordinate_profile:
+            result['native_coordinate_writes'] = self.coordinate_writes
+            result['coordinate_observation_limits'] = self.coordinate_observation_limits
+            platform = self.f.platform_audio
+            result['platform_transport'] = dict(
+                buffer_bindings=[dict(buffer=p, data=v[0], bytes=v[1])
+                                 for p, v in sorted(platform.buffers.items())],
+                final_OS_devices=copy.deepcopy(platform.os_buffer_devices),
+                clock_calls=copy.deepcopy(platform.clock_calls),
+                file_io=copy.deepcopy(platform.file_io),
+                device_io=copy.deepcopy(platform.device_io))
+        return result
 
 
 def core(m):

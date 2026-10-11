@@ -51,6 +51,10 @@ use crate::util::native_x87::{NativeF32Bits, NativeF64Bits};
 #[path = "building_abandoned_sound_tests.rs"]
 mod building_abandoned_sound_tests;
 
+#[cfg(test)]
+#[path = "building_damage_sound_tests.rs"]
+mod building_damage_sound_tests;
+
 /// Country-level fields needed by gameplay systems.
 #[derive(Debug, Clone)]
 pub struct CountryRules {
@@ -928,6 +932,11 @@ pub struct GeneralRules {
     pub building_die_sound: Option<String>,
     /// Struck-building cue from `[AudioVisual] BuildingDamageSound=` (stock
     /// `BuildingDamaged`), stored at `Rules+0x714`.
+    /// Original gamemd (SHA2561cdd1180e490...) ctor665650 stores -1 at666045;
+    /// ReadAudioVisual6691E0's block66AC98..66ACDD passes literal83A460,
+    /// empty889F64 and capacity128 to ReadString528A10, then7514D0.
+    /// The fixed-catalog process binder retains earlier valid references for
+    /// absent, empty or unregistered later values; no unresolved name escapes.
     ///
     /// gamemd: `BuildingClass::ReceiveDamage @ 0x00442230` plays it at the
     /// building's own coordinate (`0x004426DB LEA ECX,[ESI+0x9C]`,
@@ -943,7 +952,7 @@ pub struct GeneralRules {
     /// ConditionRed) — reach the gate at `0x004426D2 CMP [type+0x538],-1`.
     /// A type with its own `DamageSound=` takes `JNZ 0x0044270B` and the
     /// global is skipped.
-    pub building_damage_sound: Option<String>,
+    building_damage_sound: Option<String>,
     /// Thunder cues from `[AudioVisual] LightningSounds=` (stock a single
     /// `WeatherStrike`), in source order.
     ///
@@ -1138,10 +1147,11 @@ pub struct GeneralRules {
     /// Message-insert sound from [AudioVisual] IncomingMessage (retail
     /// `MessageText`). Plays on every non-silent message-list insert.
     pub incoming_message_sound: Option<String>,
-    /// Chat/system message lifetime in MINUTES from [AudioVisual]
-    /// MessageDelay (retail `.6`). The exact native minutes→ticks binding is
-    /// untraced (plan deferred item); the driver converts minutes→ms.
-    pub message_delay_minutes: f32,
+    /// `[AudioVisual] MessageDelay=` native ReadDouble in6691E0 retains
+    /// Rules+14C0. Constructor665650 initializes binary64 .6. Action11
+    /// 6DE0EF..6DE100 converts MessageDelay*900 through the native ftol into
+    /// MessageList's 16ms buckets, independently of simulation pacing.
+    pub message_delay_minutes: crate::util::native_x87::NativeF64Bits,
     /// `[AudioVisual] SpeakDelay=` in MINUTES (retail `2`): the EVA advice
     /// repeat interval. `RulesClass::ReadAudioVisual` reads key
     /// `"SpeakDelay"` (`0x0083A270`) through `INIClass::ReadDouble @
@@ -2180,7 +2190,9 @@ impl Default for GeneralRules {
             building_slam: None,
             gui_tab_sound: None,
             incoming_message_sound: None,
-            message_delay_minutes: 0.6,
+            message_delay_minutes: crate::util::native_x87::NativeF64Bits::from_bits(
+                0x3FE3_3333_3333_3333,
+            ),
             speak_delay_minutes: 0.0,
             gui_combo_open_sound: None,
             gui_combo_close_sound: None,
@@ -2619,6 +2631,11 @@ pub(crate) fn ambient_change_terms(rate: f64, step: f64) -> (bool, i32, i32) {
 }
 
 impl GeneralRules {
+    /// The Rules+714 reference resolved by the fixed SOUNDMD process binder.
+    pub fn building_damage_sound(&self) -> Option<&str> {
+        self.building_damage_sound.as_deref()
+    }
+
     /// Drive4B3A65, Ship6A30B4 and Foot/Walk's timer producers retain the
     /// configured double until FLD/FMUL900/ftol7C5F00. In particular, authored
     /// decimal .01 is parsed through float by ReadDouble5283D0 and converts to
@@ -2662,6 +2679,8 @@ impl GeneralRules {
         // ReadGeneral.66B34B/66B372 pass AudioVisual to5283D0 and store raw
         // doubles in Rules+1708/+1700; a missing General section cannot skip them.
         let audio_visual = ini.section_or_empty("AudioVisual");
+        let message_delay_minutes =
+            audio_visual.read_double_bits("MessageDelay", defaults.message_delay_minutes);
         let detail = defaults.detail.read_pass(audio_visual);
         let pose_dir = audio_visual.read_int("PoseDir", defaults.pose_dir);
         let deploy_dir = audio_visual
@@ -2703,6 +2722,7 @@ impl GeneralRules {
         });
         let Some(general) = ini.section("General") else {
             return Self {
+                message_delay_minutes,
                 detail,
                 pose_dir,
                 deploy_dir,
@@ -3067,9 +3087,7 @@ impl GeneralRules {
             building_die_sound: audio_visual
                 .read_name("BuildingDieSound", 0x80)
                 .map(str::to_owned),
-            building_damage_sound: audio_visual
-                .read_name("BuildingDamageSound", 0x80)
-                .map(str::to_owned),
+            building_damage_sound: None,
             // `CCINIClass::ReadSoundList @ 0x00525430`: `ReadString(..., "",
             // buf, 0x80)` first (so the whole value is byte-cut and trimmed
             // once), then `strtok` on `","` (`0x00817F70`) with the tokens
@@ -3158,7 +3176,7 @@ impl GeneralRules {
             incoming_message_sound: audio_visual
                 .read_name("IncomingMessage", 0x80)
                 .map(str::to_owned),
-            message_delay_minutes: audio_visual.read_double("MessageDelay", 0.6) as f32,
+            message_delay_minutes,
             speak_delay_minutes: audio_visual.read_double("SpeakDelay", 0.0),
             gui_combo_open_sound: audio_visual
                 .read_name("GUIComboOpenSound", 0x80)
@@ -3498,6 +3516,11 @@ pub struct RuleSet {
     pub production: ProductionRules,
     /// Global gameplay constants (vision, gap generator, etc.).
     pub general: GeneralRules,
+    /// `[General] RevealTriggerRadius`, Rules+62C: ctor665EDE stores5;
+    /// ReadGeneral67181C..671836 uses ReadInt5276D0 over the retained field,
+    /// without clamping. Ordered rule passes use the shared typed projection.
+    /// Executed reader controls: tools/spatial_oracle/trigger_action_values.
+    reveal_trigger_radius: i32,
     /// Signed, unclamped `[AI] AIBaseSpacing`; constructor default is 1.
     pub ai_base_spacing: i32,
     /// Source-ordered `[General] Shipyard=` BuildingType identities.
@@ -3645,7 +3668,7 @@ pub struct RuleSet {
     pub anim_type_names: BTreeSet<String>,
     /// Ordered native registry receipt: whether this type actually reached a
     /// successful fixed-ART ReadINI before the final rules pass completed.
-    pub anim_type_art_read_states: Vec<(String, bool)>,
+    anim_type_art_read_states: Vec<(String, bool)>,
     /// GPU-independent SHP frame counts used by particle timing. Bound once
     /// from the active assets and ART data.
     effect_assets: crate::rules::effect_asset_catalog::EffectAssetCatalog,
@@ -3678,6 +3701,10 @@ pub struct RuleSet {
 }
 
 impl RuleSet {
+    pub(crate) fn reveal_trigger_radius(&self) -> i32 {
+        self.reveal_trigger_radius
+    }
+
     /// Build from the active ordered rules sources.
     pub fn from_rules_layers(layers: &RulesLayerStack) -> Result<Self, RulesError> {
         Self::from_processed_rules(&layers.process()?)
@@ -3830,6 +3857,9 @@ impl RuleSet {
         self.general.building_abandoned_sound = ini
             .section("AudioVisual")
             .and_then(|section| sounds.read_rules_reference(section, "BuildingAbandonedSound"));
+        self.general.building_damage_sound = ini
+            .section("AudioVisual")
+            .and_then(|section| sounds.read_rules_reference(section, "BuildingDamageSound"));
         self.general.building_repaired_sound = ini
             .section("AudioVisual")
             .and_then(|section| sounds.read_rules_reference(section, "BuildingRepairedSound"));
@@ -3841,6 +3871,7 @@ impl RuleSet {
             .and_then(|section| sounds.read_rules_reference(section, "GuardSound"));
         for object in &mut self.object_list {
             let section = ini.section(&object.id);
+            object.bind_damage_sound_reference(section, sounds);
             object.voice_select = section.map_or_else(Vec::new, |section| {
                 sounds.read_rules_sound_list(section, "VoiceSelect")
             });
@@ -4434,6 +4465,9 @@ impl RuleSet {
             color_add,
             production,
             general,
+            reveal_trigger_radius: ini
+                .section_or_empty("General")
+                .read_int("RevealTriggerRadius", 5),
             ai_base_spacing,
             shipyard_types,
             build_const_types,
@@ -5528,6 +5562,21 @@ impl RuleSet {
     /// Read the same bound ART owner used during construction and gameplay.
     pub fn art(&self) -> &crate::rules::art_data::ArtRegistry {
         &self.art_registry
+    }
+
+    /// AnimTypeArray8B4154's retained constructor order, including types
+    /// discovered before the master list and by later rules/ART readers.
+    /// TAction41 indexes this registry at6E2357; `[Animations]` numeric
+    /// labels and the membership-only BTreeSet are not ordinal catalogs.
+    pub(crate) fn anim_type_name_by_index(&self, index: i32) -> Option<&str> {
+        self.anim_type_art_read_states
+            .get(usize::try_from(index).ok()?)
+            .map(|(name, _)| name.as_str())
+    }
+
+    #[cfg(test)]
+    pub(crate) fn anim_type_art_read_states(&self) -> &[(String, bool)] {
+        &self.anim_type_art_read_states
     }
 
     pub(crate) fn bind_scheduler_anim_assets(
@@ -7770,24 +7819,21 @@ BuildingGarrisonedSound=BuildingGarrisoned
     /// building's type has no `DamageSound=` of its own
     /// (`0x004426D2 CMP [type+0x538],-1`).
     #[test]
-    fn building_damage_sound_parses_and_an_absent_key_is_silence() {
+    fn building_damage_sound_remains_unbound_without_the_fixed_catalog() {
         let stock = GeneralRules::from_ini(&IniFile::from_str(
             "[General]\nFlightLevel=500\n[AudioVisual]\nBuildingDamageSound=BuildingDamaged\n",
         ));
-        assert_eq!(
-            stock.building_damage_sound.as_deref(),
-            Some("BuildingDamaged")
-        );
+        assert_eq!(stock.building_damage_sound(), None);
 
         let absent = GeneralRules::from_ini(&IniFile::from_str(
             "[General]\nFlightLevel=500\n[AudioVisual]\n",
         ));
-        assert_eq!(absent.building_damage_sound, None);
+        assert_eq!(absent.building_damage_sound(), None);
 
         let empty = GeneralRules::from_ini(&IniFile::from_str(
             "[General]\nFlightLevel=500\n[AudioVisual]\nBuildingDamageSound=\n",
         ));
-        assert_eq!(empty.building_damage_sound, None);
+        assert_eq!(empty.building_damage_sound(), None);
     }
 
     /// `[AudioVisual] LightningSounds=` goes through `CCINIClass::ReadSoundList

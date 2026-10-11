@@ -351,13 +351,15 @@ fn ordinary_uninit_then_physical_destruction_detaches_without_a_foot_hard_stop()
             effects(id, &sim.sound_events, true),
             native_effects(original_limbo, true)
         );
-        assert!(sim.substrate.pending_delete.contains(&id));
+        assert!(sim.substrate.pending_delete.contains_object(&id));
         let mut expected = native_effects(original_limbo, true);
         expected.extend(native_effects(original_destructor, true));
         sim.process_pending_delete_with(
             Some(&rules),
             None,
             crate::sim::world::FrameEffects::default(),
+            1,
+            false,
         );
         assert_eq!(
             effects(id, &sim.sound_events, true),

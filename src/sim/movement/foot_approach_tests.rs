@@ -175,7 +175,7 @@ fn retail_legionnaire_attacks_distant_object_after_teleport_recovery() {
             let commands = if frame == 0 {
                 std::slice::from_ref(&command)
             } else {
-                pending.as_ref().map_or(&[][..], std::slice::from_ref)
+                pending.as_slice()
             };
             sim.advance_tick(commands, Some(&rules), Some(&grid), None, 33);
             let actor = sim.substrate.entities.get(cleg).unwrap();

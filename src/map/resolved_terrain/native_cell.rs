@@ -332,7 +332,7 @@ impl SharedCellDummy {
         let _ = self
             .state
             .cell
-            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |current| {
+            .try_update(Ordering::Relaxed, Ordering::Relaxed, |current| {
                 Some((current & !0xffff_ffff) | coord)
             });
     }
@@ -377,7 +377,7 @@ impl SharedCellDummy {
         let _ = self
             .state
             .overlay
-            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |current| {
+            .try_update(Ordering::Relaxed, Ordering::Relaxed, |current| {
                 Some((current & !u64::from(u32::MAX)) | identity)
             });
     }
@@ -388,7 +388,7 @@ impl SharedCellDummy {
         let _ = self
             .state
             .overlay
-            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |current| {
+            .try_update(Ordering::Relaxed, Ordering::Relaxed, |current| {
                 Some((current & !STATE_MASK) | state)
             });
     }
@@ -433,16 +433,16 @@ impl SharedCellDummy {
     /// without disturbing coordinate, level, or slope writers.
     #[cfg(test)]
     pub(crate) fn apply_bridge_flag_slot(&self, slot: BridgeStampSlot, set: bool) {
-        let _ =
-            self.state
-                .raw_flags
-                .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |current| {
-                    let mut flags = current;
-                    crate::map::bridge_facts::apply_modeled_cellclass_bridge_slot(
-                        &mut flags, slot, set,
-                    );
-                    Some(flags)
-                });
+        let _ = self
+            .state
+            .raw_flags
+            .try_update(Ordering::Relaxed, Ordering::Relaxed, |current| {
+                let mut flags = current;
+                crate::map::bridge_facts::apply_modeled_cellclass_bridge_slot(
+                    &mut flags, slot, set,
+                );
+                Some(flags)
+            });
     }
 
     pub(crate) fn bridge_flags_0x1180(&self) -> u32 {
@@ -459,13 +459,13 @@ impl SharedCellDummy {
     }
 
     pub(super) fn update_retained_bridge_flags(&self, update: impl Fn(u32) -> u32) {
-        let _ =
-            self.state
-                .raw_flags
-                .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |current| {
-                    let flags = update(current) & RETAINED_CELLCLASS_BRIDGE_FLAG_MASK;
-                    Some((current & !RETAINED_CELLCLASS_BRIDGE_FLAG_MASK) | flags)
-                });
+        let _ = self
+            .state
+            .raw_flags
+            .try_update(Ordering::Relaxed, Ordering::Relaxed, |current| {
+                let flags = update(current) & RETAINED_CELLCLASS_BRIDGE_FLAG_MASK;
+                Some((current & !RETAINED_CELLCLASS_BRIDGE_FLAG_MASK) | flags)
+            });
     }
 
     pub(crate) fn apply_retained_bridge_flag_slot(
@@ -521,15 +521,15 @@ impl SharedCellDummy {
 
     #[cfg(test)]
     pub(crate) fn set_bridge_flags_0x1180(&self, flags: u32) {
-        let _ =
-            self.state
-                .raw_flags
-                .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |current| {
-                    Some(
-                        (current & !MODELED_CELLCLASS_BRIDGE_FLAG_MASK)
-                            | (flags & MODELED_CELLCLASS_BRIDGE_FLAG_MASK),
-                    )
-                });
+        let _ = self
+            .state
+            .raw_flags
+            .try_update(Ordering::Relaxed, Ordering::Relaxed, |current| {
+                Some(
+                    (current & !MODELED_CELLCLASS_BRIDGE_FLAG_MASK)
+                        | (flags & MODELED_CELLCLASS_BRIDGE_FLAG_MASK),
+                )
+            });
     }
 
     #[cfg(test)]
@@ -539,7 +539,7 @@ impl SharedCellDummy {
         let _ = self
             .state
             .cell
-            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |current| {
+            .try_update(Ordering::Relaxed, Ordering::Relaxed, |current| {
                 Some((current & !LEVEL_SLOPE_MASK) | value)
             });
     }
@@ -550,7 +550,7 @@ impl SharedCellDummy {
         let _ = self
             .state
             .cell
-            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |current| {
+            .try_update(Ordering::Relaxed, Ordering::Relaxed, |current| {
                 Some((current & !LEVEL_MASK) | value)
             });
     }

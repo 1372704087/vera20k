@@ -3055,9 +3055,16 @@ impl TacticalCaptureSession {
                     owner,
                     &sim.interner,
                 )
-                .map(|house| &house.economy);
+                .map(|house| {
+                    json!({
+                        "credits": house.economy.credits(),
+                        "spent_credits": house.economy.spent_credits(),
+                        "score": house.economy.score(),
+                    })
+                });
                 // Missing Houses stay explicit rather than inventing a zero
-                // balance. Economy is the same immutable wallet used by play.
+                // balance. The row reads the wallet play uses, but only the
+                // run schema's three fields, not its saved layout.
                 let mut row = json!({"owner": owner, "economy": economy});
                 if profile.observe_super_weapons == Some(true) {
                     row["super_weapons"] = super_weapon_rows(sim, owner);

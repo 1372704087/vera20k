@@ -2355,14 +2355,13 @@ pub(crate) fn load_map_initial_with_assets(
     requested_map: Option<&str>,
     progress: &mut dyn crate::app::loading::pump::LoadingProgressSink,
 ) -> Result<MapLoadInitial> {
-    // TubeMovement and random-map geometry share the retail executable's
-    // sine/cosine table.  Install it before selecting the map source: explicit
-    // `[Tubes]` are valid in ordinary .map/.mpr/.mmx content, not just .SED
-    // random maps.  OnceLock keeps repeated map loads read-only and cheap.
+    // Sonic Wave and arcing FireAt read `Acos_lookup`'s table out of the
+    // retail executable (the sine table is checked in). Install it before any
+    // map source is selected; OnceLock keeps repeated map loads read-only.
     crate::map::retail_trig::install_from_dir(&ra2_dir);
     if !crate::map::retail_trig::wave_tables_available() {
         anyhow::bail!(
-            "{} does not provide the verified gamemd sine/Acos tables required by stock Sonic Wave simulation",
+            "{} does not provide the verified gamemd Acos table required by stock Sonic Wave simulation",
             ra2_dir.join("gamemd.exe").display()
         );
     }
@@ -2416,11 +2415,8 @@ pub(crate) fn load_map_initial_with_assets(
                 crate::rules::terrain_rules::TerrainRules::from_ini(owner.selected_rules_root())
             })
             .unwrap_or_default();
-        let resolved = crate::map::rmg::build::ResolvedTheaterInputs::from_theater(
-            &theater,
-            &terrain_rules,
-            crate::map::retail_trig::global().cloned(),
-        );
+        let resolved =
+            crate::map::rmg::build::ResolvedTheaterInputs::from_theater(&theater, &terrain_rules);
 
         // Tile-block layouts (sub-cell height/terrain grids) from the theater's
         // real TMP data — the shore tiler and zone classifier read these.

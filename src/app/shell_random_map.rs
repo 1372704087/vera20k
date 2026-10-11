@@ -369,11 +369,8 @@ pub(super) fn prepare_random_map_generation(
             crate::rules::terrain_rules::TerrainRules::from_ini(owner.selected_rules_root())
         })
         .unwrap_or_default();
-    let resolved_inputs = crate::map::rmg::build::ResolvedTheaterInputs::from_theater(
-        &theater,
-        &terrain_rules,
-        crate::map::retail_trig::global().cloned(),
-    );
+    let resolved_inputs =
+        crate::map::rmg::build::ResolvedTheaterInputs::from_theater(&theater, &terrain_rules);
     let blocks =
         crate::map::rmg::theater_blocks::TheaterTileBlocks::build(&theater.lookup, |name| {
             asset_manager.get(name)

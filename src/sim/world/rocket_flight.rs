@@ -11,7 +11,7 @@
 use super::Simulation;
 use super::lifecycle::UninitContext;
 use crate::map::resolved_terrain::NativeCellQuery;
-use crate::map::retail_trig::{TrigTable, required_math_tables};
+use crate::map::retail_trig::TrigTable;
 use crate::rules::overlay_types::OverlayTypeRegistry;
 use crate::rules::ruleset::RuleSet;
 use crate::sim::anim_class::AnimWorldCoord;
@@ -280,7 +280,7 @@ impl Simulation {
         let (block, cmisl) = rules
             .missile_spawn
             .rocket_block(self.interner.resolve(entity.type_ref()));
-        let (trig, _) = required_math_tables();
+        let trig = TrigTable::embedded();
         let frame = self.session.binary_frame;
         let mut host = RocketProcessHost {
             sim: self,

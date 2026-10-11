@@ -877,14 +877,16 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "requires RA2_DIR with verified gamemd.exe math tables"]
     fn runtime_fireat_fractional_velocity_survives_live_gravity_and_snapshot() {
         use crate::rules::ini_parser::IniFile;
         use crate::sim::combat::AttackTarget;
         use crate::sim::runtime::SimRuntime;
         use crate::sim::snapshot::GameSnapshot;
-        let tables = crate::map::retail_trig::required_math_tables();
-        assert!(tables.0.matches_retail() && tables.1.matches_retail());
+        if crate::map::retail_trig::verified_acos_table_or_skip("native FireAt runtime motion")
+            .is_none()
+        {
+            return;
+        }
         let native: Vec<Value> = serde_json::from_str(crate::test_fixture::text(
             "tools/projectile_oracle/fireat_runtime.json",
         ))

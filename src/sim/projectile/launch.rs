@@ -214,7 +214,7 @@ pub(crate) fn lead_aim(
     shot_speed: i32,
     target_speed: i32,
 ) -> ProjectileCoord {
-    let (trig, _) = crate::map::retail_trig::required_math_tables();
+    let trig = TrigTable::embedded();
     lead_aim_with_table(aim, target_facing, distance, shot_speed, target_speed, trig)
 }
 
@@ -304,7 +304,7 @@ pub(crate) fn fireat_launch_scatter(
     flak: bool,
     rng: &mut SimRng,
 ) -> ProjectileCoord {
-    let (trig, _) = crate::map::retail_trig::required_math_tables();
+    let trig = TrigTable::embedded();
     launch_scatter_with(
         delta,
         ballistic_scatter,
@@ -402,7 +402,7 @@ pub(crate) fn shrapnel_launch_velocity(
     speed: i32,
     random_cell: bool,
 ) -> ProjectileVelocity {
-    let (trig, _) = crate::map::retail_trig::required_math_tables();
+    let trig = TrigTable::embedded();
     shrapnel_launch_with_table(origin, target, speed, random_cell, trig)
 }
 
@@ -510,7 +510,7 @@ pub(crate) fn aircraft_bullet_velocity(
     velocity: ProjectileVelocity,
     course: AircraftBulletCourse,
 ) -> ProjectileVelocity {
-    let (trig, _) = crate::map::retail_trig::required_math_tables();
+    let trig = TrigTable::embedded();
     aircraft_bullet_velocity_with_table(velocity, course, trig)
 }
 
@@ -553,8 +553,8 @@ fn aircraft_bullet_velocity_with_table(
 /// FireAt 6FE8EE..6FF014 for ordinary ROT<=0 and stock RadialFireSegments=0.
 /// The returned doubles are the six DWORDs copied by Bullet::Fire 468691..A0.
 pub(crate) fn fireat_launch(input: FireAtLaunch) -> Option<FireAtLaunchResult> {
-    let (trig, acos_table) = crate::map::retail_trig::required_math_tables();
-    fireat_launch_with_tables(input, trig, acos_table)
+    let acos_table = crate::map::retail_trig::required_acos_table();
+    fireat_launch_with_tables(input, TrigTable::embedded(), acos_table)
 }
 
 fn fireat_launch_with_tables(
@@ -695,19 +695,16 @@ mod tests {
         }
     }
 
-    fn tables() -> (&'static TrigTable, &'static AcosTable) {
-        let tables = crate::map::retail_trig::required_math_tables();
-        assert!(
-            tables.0.matches_retail() && tables.1.matches_retail(),
-            "native launch comparison requires RA2_DIR with verified gamemd.exe"
-        );
-        tables
+    fn verified_acos() -> Option<&'static AcosTable> {
+        crate::map::retail_trig::verified_acos_table_or_skip("native launch comparison")
     }
 
     #[test]
-    #[ignore = "requires RA2_DIR with verified gamemd.exe math tables"]
     fn original_fireat_and_fire_preserve_exact_launch_bits() {
-        let (trig, acos) = tables();
+        let Some(acos) = verified_acos() else {
+            return;
+        };
+        let trig = TrigTable::embedded();
         for (name, data) in [
             (
                 "ordinary",
@@ -871,9 +868,8 @@ mod tests {
     /// coordinate (another class, not moving, no weapon) are the caller's gate
     /// and must be exactly that coordinate.
     #[test]
-    #[ignore = "requires RA2_DIR with verified gamemd.exe math tables"]
     fn original_aim_lead_rows() {
-        let (trig, _) = tables();
+        let trig = TrigTable::embedded();
         let corpus = fireat_speed_corpus();
         let rows = corpus["aim"].as_array().unwrap();
         assert_eq!(rows.len(), 596);
@@ -931,9 +927,8 @@ mod tests {
     /// the recorded draws, and its `RandomRanged` bounds must match the
     /// recorded arguments in order.
     #[test]
-    #[ignore = "requires RA2_DIR with verified gamemd.exe math tables"]
     fn original_launch_scatter_both_arms() {
-        let (trig, _) = tables();
+        let trig = TrigTable::embedded();
         let corpus = launch_scatter_corpus();
         let rows = corpus["scatter"].as_array().unwrap();
         assert_eq!(rows.len(), 87);
@@ -979,9 +974,8 @@ mod tests {
     /// bit for bit, over headings, the zero delta and zero speed (the kernel
     /// reads only the target's X and Y).
     #[test]
-    #[ignore = "requires RA2_DIR with verified gamemd.exe math tables"]
     fn original_shrapnel_launch_velocity_both_branches() {
-        let (trig, _) = tables();
+        let trig = TrigTable::embedded();
         let corpus = launch_scatter_corpus();
         let rows = corpus["shrapnel"].as_array().unwrap();
         assert_eq!(rows.len(), 54);
@@ -1012,9 +1006,10 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "requires RA2_DIR with verified gamemd.exe math tables"]
     fn original_arc_solver_domain_and_failure_predicates() {
-        let (_, table) = tables();
+        let Some(table) = verified_acos() else {
+            return;
+        };
         let rows: Vec<Value> = serde_json::from_str(crate::test_fixture::text(
             "tools/projectile_oracle/arc_domain.json",
         ))

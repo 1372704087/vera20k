@@ -8,8 +8,6 @@
 //! predicate and zone metadata only: the retail producer divides by path
 //! length, so a zero-step shell must never become active movement state.
 
-use std::sync::OnceLock;
-
 use super::locomotor::LocomotorState;
 use super::track_process::TrackFamily;
 use crate::map::entities::EntityCategory;
@@ -313,10 +311,8 @@ pub(crate) fn tick_active_tube_object(
         [state.target.x, state.target.y, state.target.z],
     );
     if distance > budget {
-        let Some(trig) = active_tube_trig() else {
-            return true;
-        };
         let raw_step = tube.path_steps[usize::from(state.cursor)];
+        let trig = TrigTable::embedded();
         let next = advance_amount(current, state.target, budget, raw_step, z_step, trig);
         ground_pose::foot_set_location(entities, entity_id, next, rules, interner);
         return true;
@@ -352,26 +348,13 @@ pub(crate) fn tick_active_tube_object(
     state.target.y = state.target.y.wrapping_add(dy.wrapping_mul(256));
     state.target.z = state.target.z.wrapping_add(z_step);
     let leftover = budget.wrapping_sub(distance);
-    let Some(trig) = active_tube_trig() else {
-        return true;
-    };
+    let trig = TrigTable::embedded();
     let next = advance_amount(old_target, state.target, leftover, next_raw, z_step, trig);
     if let Some(entity) = entities.get_mut(entity_id) {
         entity.low_bridge_tube_state = Some(state);
     }
     ground_pose::foot_set_location(entities, entity_id, next, rules, interner);
     true
-}
-
-fn active_tube_trig() -> Option<&'static TrigTable> {
-    let trig = crate::map::retail_trig::global();
-    if trig.is_none() {
-        static WARNED: OnceLock<()> = OnceLock::new();
-        if WARNED.set(()).is_ok() {
-            log::warn!("explicit TubeMovement requires the verified retail sine table");
-        }
-    }
-    trig
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -1054,7 +1037,7 @@ mod tests {
 
     #[test]
     fn gsi_04_15_cardinal_partial_uses_full_3d_distance_but_nominal_z_denominator() {
-        let trig = TrigTable::synthetic();
+        let trig = TrigTable::embedded();
         let current = DriveCoord { x: 0, y: 0, z: 0 };
         let target = DriveCoord {
             x: 256,
@@ -1063,7 +1046,7 @@ mod tests {
         };
         assert!(distance_3d_leptons([0, 0, 0], [target.x, target.y, target.z]) > 256);
         assert_eq!(
-            advance_amount(current, target, 100, 2, 100, &trig),
+            advance_amount(current, target, 100, 2, 100, trig),
             DriveCoord {
                 x: 100,
                 y: 0,
@@ -1225,8 +1208,7 @@ mod tests {
         ));
         let [transport, rider] = [1, 2].map(|id| &entities.get(id).unwrap().position);
         let coord = |p: &Position| (ground_pose::position_world_xy(p), p.exact_z_leptons);
-        // With the retail sine table loaded (another test may have), the
-        // leftover budget then steps on towards the next target as well.
+        // The leftover budget then steps on towards the next target as well.
         assert!(
             ground_pose::position_world_xy(transport)[0] >= 384,
             "the step reached its target"

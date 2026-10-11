@@ -281,9 +281,9 @@ pub fn carve(
     start: Option<(i32, i32, f64)>,
     is_branch: bool,
 ) -> bool {
-    // Without the retail sine table a river cannot be steered faithfully, so
-    // none is carved. Skipping is the honest failure: a river built on a
-    // substitute table would be wrong in a way nothing here could detect.
+    // Production always passes the retail sine table. Unit tests of other
+    // phases pass none, and no river is carved rather than one steered by a
+    // substitute table.
     let Some(trig) = ctx.trig else {
         return false;
     };
@@ -685,7 +685,7 @@ mod tests {
         let _ = map_type;
         let quota;
         {
-            let trig = crate::map::retail_trig::TrigTable::synthetic();
+            let trig = crate::map::retail_trig::TrigTable::embedded();
             let mut ctx = BlobCtx {
                 grid: &mut grid,
                 scratch: &mut scratch,
@@ -693,7 +693,7 @@ mod tests {
                 blocks: &blocks,
                 rng: &mut rng,
                 gauss: &mut gauss,
-                trig: Some(&trig),
+                trig: Some(trig),
                 map_w,
                 map_h,
                 rollback_level: CANYON_BASE_LEVEL,
@@ -791,7 +791,7 @@ mod tests {
         };
         let base;
         {
-            let trig = crate::map::retail_trig::TrigTable::synthetic();
+            let trig = crate::map::retail_trig::TrigTable::embedded();
             let mut ctx = BlobCtx {
                 grid: &mut grid,
                 scratch: &mut scratch,
@@ -799,7 +799,7 @@ mod tests {
                 blocks: &blocks,
                 rng: &mut rng,
                 gauss: &mut gauss,
-                trig: Some(&trig),
+                trig: Some(trig),
                 map_w,
                 map_h,
                 rollback_level: CANYON_BASE_LEVEL,

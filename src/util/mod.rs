@@ -13,7 +13,6 @@ pub mod case_insensitive_path;
 pub mod config;
 pub mod direction;
 pub mod direction_tables;
-pub mod facing_table;
 pub mod fixed_math;
 pub mod flh_transform;
 pub mod fnv;

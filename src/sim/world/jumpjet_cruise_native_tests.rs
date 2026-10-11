@@ -15,7 +15,7 @@
 //! file load or object COM Load sequence.
 
 use crate::map::playfield::PlayfieldBounds;
-use crate::map::retail_trig::required_math_tables;
+use crate::map::retail_trig::TrigTable;
 use crate::rules::locomotor_type::LocomotorKind;
 use crate::rules::overlay_types::OverlayTypeRegistry;
 use crate::rules::retail_ini_fixture::retail_battle_rules_for_map;
@@ -763,7 +763,7 @@ fn execute_step(
         "register_air" => sim.aircraft_tracker_add(actor),
         "state1_decision" | "state3_decision" | "state4_decision" => {
             let frame = sim.session.binary_frame;
-            let (trig, _) = required_math_tables();
+            let trig = TrigTable::embedded();
             sim.with_jumpjet_process(actor, |runtime, sim| {
                 let mut host = super::CruiseHost {
                     frame_effects: crate::sim::world::FrameEffects::default(),
@@ -827,8 +827,6 @@ fn stock_shad_state1_scatter_publishes_before_following_translate() {
     let Some(retail) = retail_battle_rules_for_map("XMP03T4.MAP") else {
         return;
     };
-    let (trig, _) = required_math_tables();
-    assert!(trig.matches_retail());
     let control = control_named("stock_taken_state1_arrival");
     let output = &control["output"];
     assert_stock_type(&retail.rules, &output["input_final"]);

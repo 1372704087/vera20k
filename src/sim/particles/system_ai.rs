@@ -327,7 +327,7 @@ mod tests {
 
         assert!(sim.particle_systems().get(id).is_some());
         assert!(!sim.live_object_order_snapshot().contains(&id));
-        assert_eq!(sim.substrate.pending_delete, vec![id]);
+        assert_eq!(sim.substrate.pending_delete.object_ids(), vec![id]);
 
         sim.process_pending_delete();
         assert!(sim.particle_systems().get(id).is_none());
@@ -439,7 +439,7 @@ SpawnSparkPercentage=1
         // dropped by the later pending-delete flush, so the queue is the
         // observable decision here.
         assert!(
-            sim.substrate.pending_delete.contains(&id),
+            sim.substrate.pending_delete.contains_object(&id),
             "a done-spawning, empty system retires even with Lifetime absent"
         );
     }

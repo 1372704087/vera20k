@@ -331,8 +331,8 @@ pub(crate) struct ExactStepReceipt {
 
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub(crate) enum ExactStepError {
-    #[error("exact tactical step requires an accepted explicit Rust-L0 receipt")]
-    MissingAcceptedRustL0,
+    #[error("exact tactical step requires an accepted match or installed campaign")]
+    MissingInstalledStartup,
     #[error("exact tactical step requires the InGame screen")]
     ScreenNotInGame,
     #[error("exact tactical step requires a live simulation")]
@@ -635,7 +635,7 @@ pub(crate) fn advance_in_game_runtime_exact_step(
 ) -> Result<ExactStepReceipt, ExactStepError> {
     let admitted = state.match_state.startup.admits_exact_step();
     if !admitted {
-        return Err(ExactStepError::MissingAcceptedRustL0);
+        return Err(ExactStepError::MissingInstalledStartup);
     }
     if state.frontend.screen != GameScreen::InGame {
         return Err(ExactStepError::ScreenNotInGame);
@@ -866,11 +866,13 @@ fn advance_one_simulation_frame(
         let mut frame_overlay_updates = Vec::new();
         let mut frame_overlay_removals: Vec<(u16, u16)> = Vec::new();
         let mut trigger_effects: Vec<TriggerEffect> = Vec::new();
+        let mut camera_logic_frame: Option<u32> = None;
         let mut super_weapon_messages: Vec<&'static str> = Vec::new();
         // Carried out of the sim borrow so the census can read `state` freely below.
         let mut census_tick: Option<u64> = None;
         if let Some(rt) = state.match_state.sim_runtime.as_mut() {
             let sim = &mut rt.simulation;
+            let native_frame = sim.session.binary_frame;
             sim.prepare_unit_voice_visits(unit_voice_owners);
             // Delay-zero AnimClass construction can emit StartSound during the
             // final map-load sweep. Keep it until this first tactical drain;
@@ -933,6 +935,10 @@ fn advance_one_simulation_frame(
                 lighting_events,
                 ..
             } = output;
+            camera_logic_frame = frame_lifecycle_outputs
+                .iter()
+                .any(|output| matches!(output, LifecycleOutput::LogicVisit))
+                .then_some(native_frame);
             let resources = &rt.resources;
             if let Some(terrain) = resources.terrain_template.as_ref() {
                 state
@@ -1058,11 +1064,20 @@ fn advance_one_simulation_frame(
                 .commit_frame(drained_combat_lights);
         }
         crate::app::input::dispatch::reconcile_selection_order_after_sim(state);
+        // Trigger Focus/lock effects precede TacticalAI in this Logic visit.
+        // Coordinates were resolved by simulation before its final hash.
+        apply_trigger_effects(state, &trigger_effects);
         // Scroll_Map (0x4A9840 -> 0x6D8530) accumulates mouse requests;
         // Tactical__AI commits/clamps them at 0x6D26F9..0x6D2770, before
         // follow's SetView (0x55B6F3) overwrites both requested/current view.
         // Applying here also uses any LocalSize changes from this frame.
-        if let Some(request) = mouse_scroll {
+        if let Some(frame) = camera_logic_frame {
+            crate::app::input::camera::advance_camera_ai(
+                state,
+                mouse_scroll.unwrap_or((0.0, 0.0)),
+                frame,
+            );
+        } else if let Some(request) = mouse_scroll {
             crate::app::input::camera::commit_camera_scroll(state, request);
         }
         // Native drives the follow camera from the tail of
@@ -1208,7 +1223,6 @@ fn advance_one_simulation_frame(
             crate::app::input::dispatch::report_black_cell_causes(state);
         }
 
-        apply_trigger_effects(state, &trigger_effects);
         for csf_key in super_weapon_messages {
             crate::app::input::messages::post_super_weapon_message(state, csf_key);
         }
@@ -1275,15 +1289,25 @@ fn refresh_cell_lighting(state: &mut AppState) {
 fn apply_trigger_effects(state: &mut AppState, effects: &[TriggerEffect]) {
     for effect in effects {
         match effect {
-            TriggerEffect::CenterCameraAtWaypoint {
-                waypoint,
-                immediate: _,
-            } => center_camera_on_waypoint(state, *waypoint),
+            TriggerEffect::CameraAtCoord { coord, velocity } => {
+                crate::app::input::camera::apply_trigger_camera(state, *coord, *velocity);
+            }
+            TriggerEffect::InputLockChanged { locked, was_locked } => {
+                crate::app::input::campaign_input::apply_lock_effect(state, *locked, *was_locked);
+            }
+            TriggerEffect::RecentEventCell { cell } => {
+                if let Some(minimap) = state.match_state.match_presentation.minimap.as_mut() {
+                    minimap.remember_event_cell(*cell);
+                }
+            }
             TriggerEffect::MissionAnnouncement { text } => {
                 // gamemd routes trigger text through the message list
                 // (contract lane §4.5: the native trigger-text path is a
                 // message-list producer).
                 crate::app::input::messages::post_system_message(state, text);
+            }
+            TriggerEffect::LocalizedMessage { csf_label } => {
+                crate::app::input::messages::post_trigger_message(state, csf_label);
             }
             TriggerEffect::MissionResult { title, detail } => {
                 state.frontend.screen = GameScreen::MissionResult {
@@ -1293,24 +1317,6 @@ fn apply_trigger_effects(state: &mut AppState, effects: &[TriggerEffect]) {
             }
         }
     }
-}
-
-fn center_camera_on_waypoint(state: &mut AppState, waypoint_index: u32) {
-    let Some(waypoint) = state
-        .match_state
-        .sim_runtime
-        .as_ref()
-        .and_then(|rt| rt.resources.waypoints.get(&waypoint_index))
-    else {
-        log::warn!(
-            "Trigger action requested missing waypoint {} for camera centering",
-            waypoint_index
-        );
-        return;
-    };
-    let (rx, ry) = (waypoint.rx, waypoint.ry);
-    // Centres on the tactical viewport, not the window.
-    crate::app::input::camera::center_camera_on_cell(state, rx, ry);
 }
 
 pub(crate) fn update_building_placement_preview(state: &mut AppState) {

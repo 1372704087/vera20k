@@ -180,6 +180,41 @@ fn capture_and_left_button_priority_match_native_update() {
 }
 
 #[test]
+fn locked_physical_edges_drive_native_button_priority_after_unlock() {
+    use winit::event::MouseButton;
+    let data = vectors();
+    let mut checked = 0;
+    for row in data["update_cases"].as_array().unwrap() {
+        let released_during_lock = match row["name"].as_str().unwrap() {
+            "held_right" => true,
+            "held_both" => false,
+            _ => continue,
+        };
+        let mut input = row.clone();
+        input["expected"] = row["expected"]["drag"].clone();
+        let case: DragCase = serde_json::from_value(input).unwrap();
+        let mut mouse = TacticalMouseState::default();
+        if released_during_lock {
+            assert!(mouse.begin_left_press());
+            mouse.cancel_mouse_drag();
+            mouse.record_physical_button(MouseButton::Left, false);
+        } else {
+            // A consumed cinematic/menu press updates physical state without
+            // arming a gesture; new-view initialization must retain it too.
+            mouse.record_physical_button(MouseButton::Left, true);
+            mouse.reset_for_new_view();
+        }
+        assert!(!mouse.captured);
+        assert_eq!(mouse.left_held(), !released_during_lock);
+        mouse.record_physical_button(MouseButton::Right, true);
+        mouse.begin_right_drag(case.anchor.into());
+        check_poll(&mut mouse, &case);
+        checked += 1;
+    }
+    assert_eq!(checked, 2);
+}
+
+#[test]
 fn a_drag_between_offline_polls_remains_a_cancel_click() {
     let data = vectors();
     let mut checked = 0;
@@ -219,7 +254,7 @@ fn a_drag_between_offline_polls_remains_a_cancel_click() {
     assert_eq!(checked, 10);
 }
 
-#[derive(Deserialize)]
+#[derive(Clone, Deserialize)]
 struct CameraSequence {
     name: String,
     viewport: [f32; 2],
@@ -233,10 +268,8 @@ struct CameraSequence {
     steps: Vec<serde_json::Value>,
 }
 
-/// Same terrain geometry owner used by the live camera, supplied with a flat
-/// fixture containing all packed cells needed by the oracle's map rectangle.
-fn camera_fixture_bounds(sequence: &CameraSequence) -> crate::map::terrain::LocalBounds {
-    use crate::map::terrain::{PlayfieldPresentationGeometry, TerrainCell, TerrainGrid};
+/// The same final MapClass fields used by the production scroll clamp.
+fn camera_fixture_clamp(sequence: &CameraSequence) -> impl Fn((f32, f32)) -> (f32, f32) + use<> {
     let [left, top, width, height] = sequence.local_size;
     let bounds = crate::map::playfield::PlayfieldBounds::from_normalized_local_size(
         sequence.map_rect_width,
@@ -245,67 +278,29 @@ fn camera_fixture_bounds(sequence: &CameraSequence) -> crate::map::terrain::Loca
         width,
         height,
     );
-    assert!(sequence.map_rect_width + 2 * (top + height) < 512);
-    let mut cells = Vec::new();
-    for ry in 0..256 {
-        for rx in 0..256 {
-            let (screen_x, screen_y) = crate::map::terrain::iso_to_screen(rx, ry, 0);
-            cells.push(TerrainCell {
-                screen_x,
-                screen_y,
-                tile_id: 1,
-                sub_tile: 0,
-                z: 0,
-                rx,
-                ry,
-                is_water: false,
-                variant: 0,
-                tint: [1.0; 3],
-                radar_left: [0; 3],
-                radar_right: [0; 3],
-                has_damaged_data: false,
-            });
-        }
-    }
-    let grid = TerrainGrid {
-        cells,
-        world_width: 0.0,
-        world_height: 0.0,
-        origin_x: 0.0,
-        origin_y: 0.0,
-        local_bounds: None,
-        bridge_middle_tiles: None,
-    };
-    PlayfieldPresentationGeometry::from_grid(&grid, bounds)
-        .unwrap()
-        .camera_local_bounds()
+    let viewport = sequence.viewport.into();
+    move |point| super::clamp_camera_point_to_local_bounds(point, bounds, viewport, 1.0)
+}
+
+fn native_camera_to_world(center: [f32; 2], viewport: [f32; 2]) -> (f32, f32) {
+    let bias = crate::util::lepton::absolute_leptons_to_screen(0, 0, 0);
+    super::tactical_camera_top_left(
+        (center[0] + bias.0, center[1] + bias.1),
+        viewport[0],
+        viewport[1],
+        1.0,
+    )
 }
 
 #[test]
 fn pending_requests_commit_once_and_absolute_views_discard_them() {
-    use super::{
-        PendingCameraScroll, clamp_camera_point_to_local_bounds, tactical_camera_top_left,
-    };
+    use super::{PendingCameraScroll, tactical_camera_top_left};
     let sequences: Vec<CameraSequence> =
         serde_json::from_value(vectors()["camera_sequences"].clone()).unwrap();
     assert_eq!(sequences.len(), 10);
     let mut commits = 0;
     for sequence in sequences {
-        let bounds = camera_fixture_bounds(&sequence);
-        let viewport = sequence.viewport.into();
-        let clamp = |point| {
-            clamp_camera_point_to_local_bounds(
-                point,
-                (
-                    bounds.pixel_x,
-                    bounds.pixel_y,
-                    bounds.pixel_w,
-                    bounds.pixel_h,
-                ),
-                viewport,
-                1.0,
-            )
-        };
+        let clamp = camera_fixture_clamp(&sequence);
         // Original refresh0x6D8B30 converts center to top-left with viewport/2.
         // VERA's shared projection adds its world-row bias; use that owner to
         // obtain the offset, rather than duplicating its literal15 here.
@@ -357,7 +352,7 @@ fn pending_requests_commit_once_and_absolute_views_discard_them() {
                     mouse_request.1 += delta.1;
                 }
                 "commit" => {
-                    current = std::mem::take(&mut pending).commit(current, mouse_request, clamp);
+                    current = std::mem::take(&mut pending).commit(current, mouse_request, &clamp);
                     mouse_request = (0.0, 0.0);
                     commits += 1;
                 }
@@ -394,4 +389,156 @@ fn pending_requests_commit_once_and_absolute_views_discard_them() {
         );
     }
     assert_eq!(commits, 13);
+}
+
+#[test]
+fn cinematic_focus_matches_native_frame_gates_projection_cleanup_and_restored_state() {
+    use super::{CameraAiFrame, CameraFocus, PendingCameraScroll, tactical_camera_top_left};
+    let mut sequences: Vec<CameraSequence> =
+        serde_json::from_value(vectors()["focus_sequences"].clone()).unwrap();
+    assert_eq!(sequences.len(), 22);
+    let lifecycle: Vec<CameraSequence> =
+        serde_json::from_value(vectors()["camera_lifecycle_sequences"].clone()).unwrap();
+    assert_eq!(lifecycle.len(), 4);
+    sequences.extend(lifecycle);
+    let mut visits = 0;
+    for sequence in sequences {
+        let mut clamp = camera_fixture_clamp(&sequence);
+        let native_to_world = |point| native_camera_to_world(point, sequence.viewport);
+        let mut current = clamp(native_to_world(sequence.initial_center_seed));
+        assert_eq!(current, native_to_world(sequence.initial_center));
+        // These original controls supply last-AI=0 explicitly. The actual
+        // Tactical constructor uses -1, covered by its lifecycle controls.
+        let mut pending = PendingCameraScroll {
+            last_ai_frame: 0,
+            ..Default::default()
+        };
+        let mut frame = 0;
+        let mut started = true;
+        let mut replay_blocked = false;
+        for step in &sequence.steps {
+            let operation = step["operation"].as_str().unwrap();
+            match operation {
+                "constructor" => {
+                    pending = PendingCameraScroll::default();
+                    current = native_to_world([0.0, 0.0]);
+                }
+                "scroll" => {
+                    let direction = step["direction"].as_u64().unwrap() as usize;
+                    let distance = step["distance"].as_f64().unwrap() as f32;
+                    let (dx, dy) = super::OCTANT_DELTA[direction];
+                    pending.request((dx * distance, dy * distance));
+                }
+                "save_restore" => {
+                    use crate::sim::snapshot::GameSnapshot;
+                    let saved_view = pending.saved_view(current, 1.0);
+                    let mut sim = crate::sim::world::Simulation::new();
+                    sim.session.binary_frame = frame;
+                    let bytes = GameSnapshot::save_validated_with_presentation(
+                        &sim,
+                        0,
+                        0,
+                        "native camera lifecycle",
+                        0,
+                        &[],
+                        None,
+                        Some(&saved_view),
+                    );
+                    let snapshot = GameSnapshot::load(&bytes).unwrap();
+                    let restored = snapshot.tactical_view().unwrap();
+                    super::validate_saved_tactical_view(restored).unwrap();
+                    assert_eq!(snapshot.sim.session.binary_frame, frame);
+                    if let Some(rect) = step.get("local_size") {
+                        let mut geometry = sequence.clone();
+                        geometry.local_size = serde_json::from_value(rect.clone()).unwrap();
+                        clamp = camera_fixture_clamp(&geometry);
+                    }
+                    pending = PendingCameraScroll::default();
+                    pending.restore_saved_view(restored);
+                    current = clamp((restored.view_world_pixels[0], restored.view_world_pixels[1]));
+                    assert_eq!(step["expected"]["stream"]["consumed"], 3612);
+                }
+                "focus" => {
+                    let coord = serde_json::from_value(step["coord"].clone()).unwrap();
+                    assert!(pending.focus_on(
+                        current,
+                        coord,
+                        step["velocity"].as_i64().unwrap() as i32,
+                        sequence.viewport.into(),
+                        1.0,
+                    ));
+                }
+                "commit" => {
+                    frame = step["frame"].as_u64().unwrap() as u32;
+                    current = pending.advance_ai(
+                        current,
+                        (0.0, 0.0),
+                        CameraAiFrame {
+                            frame,
+                            scenario_started: started,
+                            replay_blocked,
+                        },
+                        sequence.viewport.into(),
+                        1.0,
+                        &clamp,
+                    );
+                    if frame == 2 {
+                        // This checks the camera owner's serialization only;
+                        // production save/load integration has a separate gate.
+                        pending =
+                            serde_json::from_slice(&serde_json::to_vec(&pending).unwrap()).unwrap();
+                    }
+                }
+                "scenario_started" => started = step["value"].as_bool().unwrap(),
+                "replay_flags" => {
+                    replay_blocked = step["value"].as_u64().unwrap() & 2 != 0;
+                }
+                "set_view" => {
+                    let coord: [i32; 3] = serde_json::from_value(step["coord"].clone()).unwrap();
+                    current = clamp(tactical_camera_top_left(
+                        crate::util::lepton::absolute_leptons_to_screen(
+                            coord[0], coord[1], coord[2],
+                        ),
+                        sequence.viewport[0],
+                        sequence.viewport[1],
+                        1.0,
+                    ));
+                    pending.clear();
+                }
+                unknown => panic!("unexpected camera operation {unknown}"),
+            }
+            let expected = &step["expected"];
+            let center = serde_json::from_value(expected["committed_center"].clone()).unwrap();
+            assert_eq!(
+                current,
+                native_to_world(center),
+                "{} {operation} frame{frame}",
+                sequence.name
+            );
+            let requested = serde_json::from_value(expected["requested_center"].clone()).unwrap();
+            assert_eq!(
+                (
+                    current.0 + pending.world_pixels.0,
+                    current.1 + pending.world_pixels.1
+                ),
+                native_to_world(requested),
+                "{} requested {operation} frame{frame}",
+                sequence.name,
+            );
+            let focus: CameraFocus = serde_json::from_value(expected["focus"].clone()).unwrap();
+            assert_eq!(
+                pending.focus, focus,
+                "{} focus {operation} frame{frame}",
+                sequence.name
+            );
+            assert_eq!(
+                u64::from(pending.last_ai_frame),
+                expected["focus"]["last_ai_frame"].as_u64().unwrap(),
+                "{} cadence {operation} frame{frame}",
+                sequence.name,
+            );
+            visits += 1;
+        }
+    }
+    assert_eq!(visits, 1667);
 }

@@ -215,13 +215,8 @@ fn test_minimap_entity_visible_for_allied_owner() {
     alliances.insert("AMERICANS".to_string(), allied_names.clone());
     alliances.insert("BRITISH".to_string(), allied_names);
 
-    let fog = FogState {
-        width: 64,
-        height: 64,
-        by_owner: BTreeMap::new(),
-        alliances,
-        ..Default::default()
-    };
+    let mut fog = FogState::new(64, 64);
+    fog.alliances = alliances;
     let pos = Position {
         rx: 10,
         ry: 12,
@@ -240,11 +235,7 @@ fn test_minimap_entity_visible_for_allied_owner() {
 
 #[test]
 fn test_cell_visibility_color_visible_uses_base_color() {
-    let mut fog = FogState {
-        width: 16,
-        height: 16,
-        ..Default::default()
-    };
+    let mut fog = FogState::new(16, 16);
     fog.mark_visible_for_owner(test_intern("Americans"), 5, 7);
     let pixel = make_pixel(5, 7, [40, 120, 40, 255]);
     assert_eq!(
@@ -256,11 +247,7 @@ fn test_cell_visibility_color_visible_uses_base_color() {
 #[test]
 fn test_cell_visibility_color_revealed_shows_full_color() {
     // In standard YR (FogOfWar=false), revealed cells show at full brightness.
-    let mut fog = FogState {
-        width: 16,
-        height: 16,
-        ..Default::default()
-    };
+    let mut fog = FogState::new(16, 16);
     fog.mark_visible_for_owner(test_intern("Americans"), 5, 7);
     fog.by_owner
         .get_mut(&test_intern("Americans"))

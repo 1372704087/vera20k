@@ -25,6 +25,11 @@ impl App {
 
     pub(super) fn return_to_main_menu(state: &mut AppState) {
         if let Some(runtime) = state.match_state.sim_runtime.as_mut() {
+            // Main_Game48CCC0 clears ScenarioStarted[A8ED5C] at48CEBF
+            // after the match returns (EBX=0 from48CCD4). The runtime may
+            // remain retained, but Tag destruction must see a stopped session.
+            // Source: original gamemd.exe instructions, SHA2561cdd1180..84298c.
+            runtime.simulation.session.set_started(false);
             // Main55D283 calls BattleControlTerminated686570 on shell return;
             // its retained Scenario mission counter resets to the ctor's 1.
             runtime

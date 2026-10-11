@@ -117,11 +117,11 @@ fn retail_landing_child_reports_release_instead_of_cutting_samples() {
         for frame in 0..100 {
             sim.session.binary_frame = frame;
             sim.visit_anim(id, &rules, None, crate::sim::world::FrameEffects::default());
-            if sim.substrate.pending_delete.contains(&id) {
+            if sim.substrate.pending_delete.contains_object(&id) {
                 break;
             }
         }
-        assert!(sim.substrate.pending_delete.contains(&id), "{name}");
+        assert!(sim.substrate.pending_delete.contains_object(&id), "{name}");
         assert!(!sim.anim(id).unwrap().in_logic_vector, "{name}");
         let events = std::mem::take(&mut sim.sound_events);
         let mut output = SoundEventQueue::default();

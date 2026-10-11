@@ -40,6 +40,7 @@ mod actions;
 mod membership;
 mod orders;
 mod registry_install;
+mod reinforcements;
 mod super_actions;
 mod team_ai;
 
@@ -121,6 +122,19 @@ pub struct TeamTypeDefinition {
 /// defined.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TeamTypeIniMetadata {
+    /// ReadHouseType475540 called by6F1090; GetHouse6F2070 resolves it.
+    #[serde(default)]
+    house: Option<TeamTypeHouse>,
+    /// VeteranLevel(+A0), constructor default1; native reader6F1090.
+    #[serde(default = "one")]
+    veteran_level: i32,
+    /// Waypoint(+D4), constructor -1; ReadString64/FromLetters763690.
+    #[serde(default = "minus_one")]
+    waypoint: i32,
+    #[serde(default)]
+    full: bool,
+    #[serde(default)]
+    whiner: bool,
     /// `Max=` (`+0xB8`, constructor -1): a house's team limit of this type;
     /// negative is none.
     pub max_teams: i32,
@@ -144,6 +158,13 @@ pub struct TeamTypeIniMetadata {
     /// getter4DC760 returns1.0 for members of a type whose byte is set.
     #[serde(default)]
     avoid_threats: bool,
+    /// TeamType+B3: exact-case `OnTransOnly`; ctor6F0765 clears it.
+    /// ReadBool5295F0 at6F12CB retains the prior byte, stored6F12D0.
+    /// AddMember6EA58C..6EA5B0 restricts Tag inheritance to members whose
+    /// type has signed Passengers>0 only while this byte is set.
+    /// Executed reader/member controls: tools/spatial_oracle/team_creation.
+    #[serde(default)]
+    on_trans_only: bool,
     /// `Recruiter=` (`+0xA8`, ReadBool at `0x006F1249`): recruitment passes
     /// over the group filter.
     #[serde(default)]
@@ -180,6 +201,16 @@ pub struct TeamTypeIniMetadata {
     pub source: TeamAiDefinitionSource,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+enum TeamTypeHouse {
+    Country(CountryIdx),
+    PlayerAt(u8),
+}
+
+const fn one() -> i32 {
+    1
+}
+
 const fn minus_one() -> i32 {
     -1
 }
@@ -187,12 +218,18 @@ const fn minus_one() -> i32 {
 impl Default for TeamTypeIniMetadata {
     fn default() -> Self {
         Self {
+            house: None,
+            veteran_level: 1,
+            waypoint: -1,
+            full: false,
+            whiner: false,
             max_teams: -1,
             autocreate: false,
             are_team_members_recruitable: true,
             reinforce: false,
             group: -1,
             avoid_threats: false,
+            on_trans_only: false,
             recruiter: false,
             annoyance: false,
             guard_slower: false,
@@ -500,6 +537,10 @@ pub struct TeamScriptState {
     created_frame: i32,
     /// `+0x7F`, IsMoving: the team has formed and runs its script.
     formed: bool,
+    /// +77, set by reinforcement creation65DD64. It permits a partial Team
+    /// to start and initiates every member at the formation slot6E91B5.
+    #[serde(default)]
+    forced_active: bool,
     /// `+0x79`, IsFullStrength: it has as many members as its TaskForce.
     full_strength: bool,
     /// `+0x7A`, IsUnderStrength. Constructor set.
@@ -573,6 +614,13 @@ impl TeamScriptState {
         self.members.len()
     }
 
+    /// Read-only observation of the existing TaskForce counting owner for
+    /// cross-module native destructor comparisons. It never mutates the Team.
+    #[cfg(test)]
+    pub(crate) const fn taskforce_counts_for_test(&self) -> [i32; 6] {
+        self.slot_counts
+    }
+
     #[cfg(test)]
     pub(crate) fn response_suspension_state(&self) -> (bool, bool, bool, i32, i32) {
         (
@@ -605,7 +653,7 @@ impl TeamScriptState {
     /// (`+0x79`), or while it is neither forced (`+0x77`, which only
     /// reinforcements set: none is ported) nor has been full (`+0x78`).
     pub(crate) const fn wants_members(&self, reinforce: bool) -> bool {
-        (reinforce && !self.full_strength) || !self.has_been_full
+        (reinforce && !self.full_strength) || (!self.forced_active && !self.has_been_full)
     }
 
     /// The selector's cancel test (`0x006F0E05..0x006F0E11`): the team is
@@ -706,35 +754,44 @@ impl TeamScriptVm {
     /// (`+0x50`, and the timers `+0x58`/`+0x64` start there with no time),
     /// its script (`0x006913C0`) before its first action.
     ///
-    /// RESIDUAL: the constructor's centre is the TeamType's `Waypoint=` cell
-    /// (`0x006E8D1A..0x006E8D58`); `Waypoint=` is not read, and no retail
-    /// AIMD TeamType sets one, so every team starts without a centre. The
-    /// TeamType's Tag (`+0xD0`, created by `0x006E4DE0`) is not ported either;
-    /// no retail TeamType names one.
     pub(crate) fn construct_team(
         &mut self,
         team_type_id: InternedId,
         owner: InternedId,
         game_mode_nonzero: bool,
         current_frame: i32,
+        placement_scope_active: bool,
+        initial_zone: Option<TeamTarget>,
     ) -> Option<u64> {
-        let team_type = *self.team_types.get(&team_type_id)?;
-        if self.at_max_teams(team_type_id, owner, !game_mode_nonzero) {
+        if !placement_scope_active && self.at_max_teams(team_type_id, owner, !game_mode_nonzero) {
             return None;
         }
+        self.construct_team_instance(team_type_id, owner, current_frame, initial_zone)
+    }
+
+    /// Sole Team6E8A90/Script6913C0 constructor. Reinforcement65DD30 calls
+    /// it directly; CreateTeam6F09C0 performs its limit gate first. Neither
+    /// Abstract-derived instance consumes Scenario's concrete Create_ID.
+    fn construct_team_instance(
+        &mut self,
+        team_type_id: InternedId,
+        owner: InternedId,
+        current_frame: i32,
+        initial_zone: Option<TeamTarget>,
+    ) -> Option<u64> {
+        let team_type = *self.team_types.get(&team_type_id)?;
         let id = self.next_team_id;
         self.next_team_id = self.next_team_id.wrapping_add(1);
-        self.teams.insert(
+        let mut team = TeamScriptState::new(
             id,
-            TeamScriptState::new(
-                id,
-                owner,
-                Some(team_type_id),
-                Some(team_type.task_force_id),
-                team_type.script_id,
-                current_frame,
-            ),
+            owner,
+            Some(team_type_id),
+            Some(team_type.task_force_id),
+            team_type.script_id,
+            current_frame,
         );
+        team.zone = initial_zone;
+        self.teams.insert(id, team);
         Some(id)
     }
 
@@ -894,27 +951,16 @@ impl TeamScriptVm {
         Some((team_id, is_base_defense))
     }
 
-    /// `0x006EC300`'s exits before its waypoint read: `member`'s team has
-    /// formed (`+0x7F`), its script cursor names an action (`0x006915D0`,
-    /// unsigned `cursor < count`) and that action is 3. Only then does the
-    /// original read the action's waypoint and ask whether it lies outside
-    /// the playfield (mode 1). VERA has no waypoint table in the
-    /// simulation, so callers must treat `true` as an unported read.
-    pub(crate) fn member_step_reads_waypoint(&self, member: u64) -> bool {
-        let Some(team) = self
-            .member_team
-            .get(&member)
-            .and_then(|id| self.teams.get(id))
-        else {
-            return false;
-        };
-        team.formed()
-            && self.script(team.script_id()).is_some_and(|script| {
-                script
-                    .actions
-                    .get(team.cursor() as u32 as usize)
-                    .is_some_and(|action| action.action_id == 3)
-            })
+    /// Data input to the shared Simulation6EC300 port. Native early exits
+    /// precede Scenario's signed packed waypoint read and Map578460(mode1).
+    fn team_step_waypoint(&self, team_id: u64) -> Option<i32> {
+        let team = self.teams.get(&team_id)?;
+        if !team.formed {
+            return None;
+        }
+        script_action_at(self.scripts.get(&team.script_id), team.cursor)
+            .filter(|action| action.action_id == 3)
+            .map(|action| action.argument)
     }
 
     /// `TechnoClass::Fire @ 0x006FF7A3..0x006FF7E9`: `entity_id` remembers
@@ -1095,6 +1141,7 @@ impl TeamScriptState {
             refusal: None,
             created_frame: current_frame,
             formed: false,
+            forced_active: false,
             full_strength: false,
             under_strength: true,
             reforming: false,
@@ -1138,15 +1185,18 @@ impl TeamScriptVm {
         for (id, team) in &self.teams {
             id.hash(hasher);
             team.team_type_id.hash(hasher);
-            // The retained type gate changes the Foot getter and future paths.
-            // Preserve the historical false gate while hashing each active
-            // true override with its Team identity (the surrounding id feed).
-            if team
-                .team_type_id
-                .and_then(|id| self.team_type_ini.get(&id))
-                .is_some_and(|metadata| metadata.avoid_threats)
-            {
-                b"team-avoid-threats-v1".hash(hasher);
+            // Retained type gates change the Foot getter and future member
+            // Tag admission. Definitions remain frozen map input; include
+            // active true gates with the surrounding Team identity, preserving
+            // the historical false-gate feed. This is VERA state hashing, not
+            // a claim that native ComputeCRC feeds these definition bytes.
+            if let Some(metadata) = team.team_type_id.and_then(|id| self.team_type_ini.get(&id)) {
+                if metadata.avoid_threats {
+                    b"team-avoid-threats-v1".hash(hasher);
+                }
+                if metadata.on_trans_only {
+                    b"team-on-trans-only-v1".hash(hasher);
+                }
             }
             team.task_force_id.hash(hasher);
             team.script_id.hash(hasher);
@@ -1170,6 +1220,9 @@ impl TeamScriptVm {
             Vec::<(TeamMemberTypeIdentity, u32)>::new().hash(hasher);
             team.created_frame.hash(hasher);
             team.formed.hash(hasher);
+            if team.forced_active {
+                b"team-forced-active-v1".hash(hasher);
+            }
             if team.recruitment_state_moved(current_frame) {
                 b"team-recruitment-v1".hash(hasher);
                 team.members.hash(hasher);
@@ -1403,6 +1456,8 @@ mod oracle_tests;
 mod path_threat_input_tests;
 #[cfg(test)]
 mod recruit_oracle_tests;
+#[cfg(test)]
+mod reinforcements_tests;
 
 #[cfg(test)]
 mod tests {
@@ -1423,7 +1478,7 @@ mod tests {
     /// `0x006EC300` reaches its waypoint read only for a formed team
     /// (`+0x7F`) whose cursor names action 3 (`0x006915D0`, unsigned).
     #[test]
-    fn member_step_reads_waypoint_follows_the_original_exits() {
+    fn team_step_waypoint_follows_the_original_exits() {
         let mut vm = TeamScriptVm::default();
         let script = InternedId::from_index(7);
         vm.register_script(TeamScriptDefinition {
@@ -1433,16 +1488,17 @@ mod tests {
         });
         let owner = InternedId::from_index(1);
         let team = vm.create_team(owner, script, vec![50], 0);
-        assert!(vm.member_step_reads_waypoint(50));
-        assert!(!vm.member_step_reads_waypoint(51), "not a team member");
+        assert_eq!(vm.team_step_waypoint(team), Some(0));
+        assert_eq!(vm.team_step_waypoint(team + 1), None, "not a team");
         vm.teams.get_mut(&team).unwrap().formed = false;
-        assert!(!vm.member_step_reads_waypoint(50), "a forming team exits");
+        assert_eq!(vm.team_step_waypoint(team), None, "a forming team exits");
         vm.teams.get_mut(&team).unwrap().formed = true;
         vm.teams.get_mut(&team).unwrap().cursor = 1;
-        assert!(!vm.member_step_reads_waypoint(50), "action 2 exits");
+        assert_eq!(vm.team_step_waypoint(team), None, "action 2 exits");
         vm.teams.get_mut(&team).unwrap().cursor = -1;
-        assert!(
-            !vm.member_step_reads_waypoint(50),
+        assert_eq!(
+            vm.team_step_waypoint(team),
+            None,
             "a negative cursor is a huge unsigned index"
         );
     }
@@ -1575,7 +1631,9 @@ mod tests {
         let mut vm = TeamScriptVm::default();
         register_team_type(&mut vm, team_type, Vec::new());
 
-        let team = vm.construct_team(team_type, owner, true, -19).unwrap();
+        let team = vm
+            .construct_team(team_type, owner, true, -19, false, None)
+            .unwrap();
         let state = vm.team(team).unwrap();
         assert!(!state.has_been_full);
         assert!(state.under_strength && state.advance_pending && !state.formed);
@@ -1620,7 +1678,9 @@ mod tests {
         let team_type = InternedId::from_index(4);
         let mut vm = TeamScriptVm::default();
         register_team_type(&mut vm, team_type, Vec::new());
-        let team = vm.construct_team(team_type, owner, true, 0).unwrap();
+        let team = vm
+            .construct_team(team_type, owner, true, 0, false, None)
+            .unwrap();
         let constructed = state_hash_at(&vm, 0);
 
         vm.teams.get_mut(&team).unwrap().zone = Some(TeamTarget::Cell { x: 3, y: 4 });

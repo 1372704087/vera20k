@@ -279,11 +279,7 @@ fn gsi_04_01_production_tick_keeps_pavement_damage_through_ordinary_overlay_repa
     // This regression attacks the bridge deck. A ground-level building below
     // it lies outside native Apply_area_damage's structural height window.
     let owner = sim.interner.get("Americans").expect("owner interned");
-    sim.fog = crate::sim::vision::FogState {
-        width: SIDE,
-        height: SIDE,
-        ..Default::default()
-    };
+    sim.fog = crate::sim::vision::FogState::new(SIDE, SIDE);
     crate::sim::vision::reveal_radius(&mut sim.fog, owner, CENTER.0, CENTER.1, 6);
     assert!(sim.apply_command(
         "Americans",
@@ -305,7 +301,12 @@ fn gsi_04_01_production_tick_keeps_pavement_damage_through_ordinary_overlay_repa
     let mut fire_count = 0;
     for _ in 0..32 {
         let output = runtime
-            .advance_frame(&[], 67, TickLane::Ordinary, crate::sim::world::FrameEffects::default())
+            .advance_frame(
+                &[],
+                67,
+                TickLane::Ordinary,
+                crate::sim::world::FrameEffects::default(),
+            )
             .expect("fixture frame must complete");
         fire_count += output.fire_events.len();
         if runtime.simulation.radar_terrain_dirty_generation != 0 {
@@ -446,7 +447,12 @@ fn gsi_04_01_production_tick_keeps_pavement_damage_through_ordinary_overlay_repa
     ));
     for _ in 0..100 {
         let _ = runtime
-            .advance_frame(&[], 67, TickLane::Ordinary, crate::sim::world::FrameEffects::default())
+            .advance_frame(
+                &[],
+                67,
+                TickLane::Ordinary,
+                crate::sim::world::FrameEffects::default(),
+            )
             .expect("fixture frame must complete");
         if runtime
             .simulation

@@ -52,6 +52,13 @@ const CHECKPOINT_CAMPAIGN_ALL1_FIRST_LIVE: &str = "campaign-all1-first-live-fram
 const CHECKPOINT_CAMPAIGN_SOV1_FIRST_LIVE: &str = "campaign-sov1-first-live-frame";
 const CHECKPOINT_CAMPAIGN_ALL1_ABORT_RETURN: &str = "campaign-all1-abort-return";
 const CHECKPOINT_CAMPAIGN_SOV1_ABORT_RETURN: &str = "campaign-sov1-abort-return";
+const CHECKPOINT_CAMPAIGN_SOV1_OPENING_LOCKED: &str = "campaign-sov1-opening-locked";
+const CHECKPOINT_CAMPAIGN_SOV1_OPENING_PAN: &str = "campaign-sov1-opening-pan";
+const CHECKPOINT_CAMPAIGN_SOV1_OPENING_FLASH: &str = "campaign-sov1-opening-flash";
+const CHECKPOINT_CAMPAIGN_SOV1_OPENING_ARROWS: &str = "campaign-sov1-opening-arrows";
+const CHECKPOINT_CAMPAIGN_SOV1_OPENING_UNLOCKED: &str = "campaign-sov1-opening-unlocked";
+const CHECKPOINT_CAMPAIGN_SOV1_OPENING_RESTORE_UNLOCKED: &str =
+    "campaign-sov1-opening-restore-unlocked";
 const CHECKPOINT_CAMPAIGN_BACK_RETURN: &str = "campaign-back-return";
 const CHECKPOINT_LOAD_SAVED_GAME_0XB7_STEADY: &str = "load-saved-game-0xb7-steady";
 const CHECKPOINT_LOAD_SAVED_GAME_0XB7_ENTRY_PREFIX: &str = "load-saved-game-0xb7-entry-tick-";
@@ -187,6 +194,9 @@ pub enum ShellCaptureCheckpoint {
     /// First installed campaign, then physical Escape/B5 Abort/B6 Leave and
     /// ordinary queued EXIT/audio teardown, read back on the settled main menu.
     CampaignAbortReturn(crate::ui::campaign_shell::CampaignSide),
+    /// The authored SOV01 opening, through the normal loader and exact
+    /// production sim/app steps. These receipts are integration observations.
+    CampaignOpening(movies::OpeningTarget),
     /// Ordinary Back from campaign selection to the recreated Single Player.
     CampaignBackReturn,
     /// Single Player -> Load Saved Game: `0xB7` settled. Needs a readable
@@ -451,6 +461,24 @@ impl ShellCaptureCheckpoint {
             CHECKPOINT_CAMPAIGN_SOV1_ABORT_RETURN => Ok(Self::CampaignAbortReturn(
                 crate::ui::campaign_shell::CampaignSide::Soviet,
             )),
+            CHECKPOINT_CAMPAIGN_SOV1_OPENING_LOCKED => {
+                Ok(Self::CampaignOpening(movies::OpeningTarget::Locked))
+            }
+            CHECKPOINT_CAMPAIGN_SOV1_OPENING_PAN => {
+                Ok(Self::CampaignOpening(movies::OpeningTarget::CameraPan))
+            }
+            CHECKPOINT_CAMPAIGN_SOV1_OPENING_FLASH => {
+                Ok(Self::CampaignOpening(movies::OpeningTarget::Flash))
+            }
+            CHECKPOINT_CAMPAIGN_SOV1_OPENING_ARROWS => {
+                Ok(Self::CampaignOpening(movies::OpeningTarget::Arrows))
+            }
+            CHECKPOINT_CAMPAIGN_SOV1_OPENING_UNLOCKED => {
+                Ok(Self::CampaignOpening(movies::OpeningTarget::Unlocked))
+            }
+            CHECKPOINT_CAMPAIGN_SOV1_OPENING_RESTORE_UNLOCKED => Ok(Self::CampaignOpening(
+                movies::OpeningTarget::RestoreUnlocked,
+            )),
             CHECKPOINT_CAMPAIGN_BACK_RETURN => Ok(Self::CampaignBackReturn),
             CHECKPOINT_LOAD_SAVED_GAME_0XB7_STEADY => Ok(Self::LoadSavedGame0xB7Steady),
             CHECKPOINT_OPTIONS_0XD5_STEADY => Ok(Self::Options0xD5Steady),
@@ -517,6 +545,24 @@ impl ShellCaptureCheckpoint {
             }
             Self::CampaignAbortReturn(crate::ui::campaign_shell::CampaignSide::Soviet) => {
                 CHECKPOINT_CAMPAIGN_SOV1_ABORT_RETURN
+            }
+            Self::CampaignOpening(movies::OpeningTarget::Locked) => {
+                CHECKPOINT_CAMPAIGN_SOV1_OPENING_LOCKED
+            }
+            Self::CampaignOpening(movies::OpeningTarget::CameraPan) => {
+                CHECKPOINT_CAMPAIGN_SOV1_OPENING_PAN
+            }
+            Self::CampaignOpening(movies::OpeningTarget::Flash) => {
+                CHECKPOINT_CAMPAIGN_SOV1_OPENING_FLASH
+            }
+            Self::CampaignOpening(movies::OpeningTarget::Arrows) => {
+                CHECKPOINT_CAMPAIGN_SOV1_OPENING_ARROWS
+            }
+            Self::CampaignOpening(movies::OpeningTarget::Unlocked) => {
+                CHECKPOINT_CAMPAIGN_SOV1_OPENING_UNLOCKED
+            }
+            Self::CampaignOpening(movies::OpeningTarget::RestoreUnlocked) => {
+                CHECKPOINT_CAMPAIGN_SOV1_OPENING_RESTORE_UNLOCKED
             }
             Self::CampaignBackReturn => CHECKPOINT_CAMPAIGN_BACK_RETURN,
             Self::LoadSavedGame0xB7Steady => CHECKPOINT_LOAD_SAVED_GAME_0XB7_STEADY,
@@ -614,6 +660,10 @@ impl ShellCaptureCheckpoint {
             Self::CampaignAbortReturn(side) => movies::MoviesTarget::CampaignStart {
                 side,
                 target: movies::CampaignStartTarget::AbortReturn,
+            },
+            Self::CampaignOpening(target) => movies::MoviesTarget::CampaignStart {
+                side: crate::ui::campaign_shell::CampaignSide::Soviet,
+                target: movies::CampaignStartTarget::Opening(target),
             },
             Self::CampaignBackReturn => movies::MoviesTarget::CampaignBack,
             Self::LoadSavedGame0xB7Steady => {
@@ -1149,7 +1199,7 @@ impl ShellCaptureSession {
         let movies = request
             .checkpoint
             .movies_target()
-            .map(movies::MoviesCapture::new);
+            .map(|target| movies::MoviesCapture::new(target, request.output_dir()));
         let score = match request.checkpoint {
             ShellCaptureCheckpoint::Score0x108Steady => Some(score::ScoreTarget::Steady),
             ShellCaptureCheckpoint::Score0x108Entry(tick) => Some(score::ScoreTarget::Entry(tick)),
@@ -1194,14 +1244,13 @@ impl ShellCaptureSession {
         }
     }
 
-    /// The first-live diagnostic records the first game draw before any
-    /// admitted simulation step. The frame owner consults this before its
-    /// ordinary sim_tick call. Abort-return freezes only until that first draw;
-    /// the ordinary modal and EXIT owners govern its remaining frames.
-    pub(crate) fn freezes_simulation_for_first_live(&self, state: &AppState) -> bool {
+    /// First-live observes tick zero; opening captures drive exact steps through
+    /// the same production runtime. Abort-return releases this ownership after
+    /// its first draw so the ordinary modal/EXIT owners govern remaining frames.
+    pub(crate) fn owns_simulation_steps(&self, state: &AppState) -> bool {
         self.movies
             .as_ref()
-            .is_some_and(|capture| capture.freezes_simulation_for_first_live(state))
+            .is_some_and(|capture| capture.owns_simulation_steps(state))
     }
 
     pub(crate) fn prepare_state(&mut self, state: &mut AppState) {
@@ -1213,7 +1262,9 @@ impl ShellCaptureSession {
     fn timeout(&self) -> Duration {
         if let Some(capture) = &self.skirmish {
             capture.timeout()
-        } else if self.movies.is_some() || self.score.is_some() {
+        } else if let Some(capture) = &self.movies {
+            capture.timeout()
+        } else if self.score.is_some() {
             Duration::from_secs(60)
         } else {
             CAPTURE_TIMEOUT
@@ -1984,6 +2035,42 @@ mod tests {
             let checkpoint = ShellCaptureCheckpoint::parse(name).expect("campaign checkpoint");
             assert_eq!(checkpoint.as_str(), name);
             assert_eq!(checkpoint.movies_target(), Some(target));
+        }
+        for (name, target) in [
+            (
+                CHECKPOINT_CAMPAIGN_SOV1_OPENING_LOCKED,
+                movies::OpeningTarget::Locked,
+            ),
+            (
+                CHECKPOINT_CAMPAIGN_SOV1_OPENING_PAN,
+                movies::OpeningTarget::CameraPan,
+            ),
+            (
+                CHECKPOINT_CAMPAIGN_SOV1_OPENING_FLASH,
+                movies::OpeningTarget::Flash,
+            ),
+            (
+                CHECKPOINT_CAMPAIGN_SOV1_OPENING_ARROWS,
+                movies::OpeningTarget::Arrows,
+            ),
+            (
+                CHECKPOINT_CAMPAIGN_SOV1_OPENING_UNLOCKED,
+                movies::OpeningTarget::Unlocked,
+            ),
+            (
+                CHECKPOINT_CAMPAIGN_SOV1_OPENING_RESTORE_UNLOCKED,
+                movies::OpeningTarget::RestoreUnlocked,
+            ),
+        ] {
+            let checkpoint = ShellCaptureCheckpoint::parse(name).expect("opening checkpoint");
+            assert_eq!(checkpoint.as_str(), name);
+            assert_eq!(
+                checkpoint.movies_target(),
+                Some(movies::MoviesTarget::CampaignStart {
+                    side: Soviet,
+                    target: movies::CampaignStartTarget::Opening(target),
+                })
+            );
         }
         for name in [
             "campaign-tut1-first-live-frame",

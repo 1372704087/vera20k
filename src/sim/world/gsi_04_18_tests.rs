@@ -843,7 +843,7 @@ fn shroud_current_sight_spy_sat_event_preserves_registration_order_and_restore()
         sim.reconcile_active_vision_structures(&rules);
         assert!(sim.houses[&owner].spy_sat_active);
         assert!(
-            !sim.fog.whole_map_revealed_owners.contains(&owner),
+            !sim.fog.whole_map_revealed_for_owner(owner),
             "successful gap readmission clears House240 after the map reveal; SpySat577A stays active"
         );
         let case_name = if gap_first {
@@ -902,7 +902,7 @@ fn shroud_current_sight_spy_sat_event_preserves_registration_order_and_restore()
             .in_limbo = true;
         restored.reconcile_active_vision_structures(&rules);
         assert!(!restored.houses[&owner].spy_sat_active);
-        assert!(!restored.fog.whole_map_revealed_owners.contains(&owner));
+        assert!(!restored.fog.whole_map_revealed_for_owner(owner));
         assert!(
             !restored.fog.is_cell_revealed(owner, 23, 23),
             "actual loss executes reset; passive House did not"

@@ -64,6 +64,10 @@ pub enum GameSoundEvent {
         event: String,
         type_override: Option<crate::rules::sound_ini::EvaType>,
     },
+    /// TAction21 calls QueueVoice752480 with its Read6DD5B0-resolved
+    /// EVAMD ordinal, type2 (Interrupt) and priority-1. It shares the EVA
+    /// queue owner with named calls, without repeating the name lookup.
+    TriggerEva { index: i32 },
     /// `VoxClass::RemoveFromQueues @ 0x00752A40` for a `[DialogList]` event:
     /// its queued lines are dropped (`SfxPlayer::remove_eva`).
     EvaRemove { event: String },
@@ -383,7 +387,8 @@ impl GameSoundEvent {
             Self::AnimationReleased { .. }
             | Self::AnimationDetached { .. }
             | Self::UnitVoiceVisit { .. }
-            | Self::UnitVoiceDestroyed { .. } => "",
+            | Self::UnitVoiceDestroyed { .. }
+            | Self::TriggerEva { .. } => "",
             // The event name, not a sample: the sample is a per-side column
             // the `VoxClass` consumer resolves.
             Self::Eva { event, .. } | Self::EvaRemove { event } => event,

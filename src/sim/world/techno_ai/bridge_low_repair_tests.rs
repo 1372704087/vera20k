@@ -467,7 +467,12 @@ fn retail_shrapnel_repair_reaches_moving_water_neighbor() {
         let lifetime_start = scene.sim().lifecycle_test_events_for_test().len();
         let output = scene
             .runtime
-            .advance_frame(envelope.as_slice(), SIM_TICK_MS, TickLane::Ordinary, crate::sim::world::FrameEffects::default())
+            .advance_frame(
+                envelope.as_slice(),
+                SIM_TICK_MS,
+                TickLane::Ordinary,
+                crate::sim::world::FrameEffects::default(),
+            )
             .unwrap();
         let lifetime = &scene.sim().lifecycle_test_events_for_test()[lifetime_start..];
         let actor = scene.sim().entities().get(ship);
@@ -684,7 +689,12 @@ fn retail_shrapnel_repair_reaches_moving_water_neighbor() {
         for _ in 0..2 {
             let output = scene
                 .runtime
-                .advance_frame(&[], SIM_TICK_MS, TickLane::Ordinary, crate::sim::world::FrameEffects::default())
+                .advance_frame(
+                    &[],
+                    SIM_TICK_MS,
+                    TickLane::Ordinary,
+                    crate::sim::world::FrameEffects::default(),
+                )
                 .unwrap();
             assert!(
                 output
@@ -760,7 +770,7 @@ fn assert_retained_naval_ship(
         native["display_count"].as_u64().unwrap() as usize
     );
     assert_eq!(
-        sim.substrate.pending_delete.contains(&id),
+        sim.substrate.pending_delete.contains_object(&id),
         native["deferred_is_self"].as_bool().unwrap()
     );
     let coord = crate::sim::movement::ground_pose::position_world_coord(&actor.position);
@@ -833,6 +843,6 @@ fn assert_naval_cleanup(
         native["owner_losses"].as_u64().unwrap() as u32
     );
     assert!(!sim.entities().contains(id));
-    assert!(!sim.substrate.pending_delete.contains(&id));
+    assert!(!sim.substrate.pending_delete.contains_object(&id));
     assert_no_naval_cell_member(sim, id);
 }

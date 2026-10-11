@@ -315,6 +315,21 @@ impl ApplicationHandler for App {
             return;
         }
 
+        // Physical input survives consumed shell, movie and tactical messages.
+        // Native54F5C0->53EC90 polls the current buttons after such gates lift.
+        if let WindowEvent::MouseInput {
+            state: edge,
+            button,
+            ..
+        } = &event
+        {
+            state
+                .match_state
+                .input
+                .tactical_mouse
+                .record_physical_button(*button, edge.is_pressed());
+        }
+
         // Native does not expose menu/game input while its process-start splash
         // owns the display. Keep close/resize/redraw operational, but discard
         // player input until the post-present deadline has elapsed.
@@ -421,7 +436,7 @@ impl ApplicationHandler for App {
                     // Without this the right-drag pan keeps applying its
                     // anchor-relative step every frame and edge scroll stays
                     // inhibited until the player right-clicks again.
-                    state.match_state.input.tactical_mouse = Default::default();
+                    state.match_state.input.tactical_mouse.reset_on_focus_loss();
                     state.match_state.input.selection_state.cancel_drag();
                     state.match_state.input.minimap_dragging = false;
                     state

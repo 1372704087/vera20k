@@ -1386,7 +1386,7 @@ fn a_fatal_strike_runs_the_death_transaction_inline() {
         fatal.overlay_grid.as_ref().unwrap().cell(5, 5).overlay_id,
         None
     );
-    assert!(fatal.substrate.pending_delete.contains(&10));
+    assert!(fatal.substrate.pending_delete.contains_object(&10));
     assert!(!fatal.live_object_order_snapshot().contains(&10));
     // The bolt's type, the death weapon's wall damage, then the debris
     // count: the death emptied the cell. With one MetallicDebris= type the

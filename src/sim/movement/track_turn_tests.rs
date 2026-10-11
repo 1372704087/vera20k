@@ -1018,8 +1018,14 @@ fn actual_turn_and_arrival_crush_use_binary_frame_for_both_shield_kinds() {
                             .object_alive,
                         "expired: {context}"
                     );
-                    assert!(!sim.substrate.pending_delete.contains(&2), "{context}");
-                    assert!(sim.substrate.pending_delete.contains(&3), "{context}");
+                    assert!(
+                        !sim.substrate.pending_delete.contains_object(&2),
+                        "{context}"
+                    );
+                    assert!(
+                        sim.substrate.pending_delete.contains_object(&3),
+                        "{context}"
+                    );
                 }
             }
         }

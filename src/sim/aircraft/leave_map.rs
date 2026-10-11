@@ -81,15 +81,8 @@ impl Simulation {
     /// be either paradrop mission; then a team member (`+0x5D4`) asks its
     /// team (`0x006EC300`), any other the mission-only latch (`+0x3D4`).
     ///
-    /// `0x006EC300` answers false at each exit before its waypoint read
-    /// (`TeamScriptVm::member_step_reads_waypoint`).
-    ///
-    /// RESIDUAL: that read. A member whose team has formed and whose script
-    /// cursor names action 3 is removed natively when the action's waypoint
-    /// lies outside the playfield; VERA has no waypoint table in the
-    /// simulation, so it is kept. Trigger: a team aircraft past the map's
-    /// edge while its script moves to a waypoint off the playfield, mostly in
-    /// campaigns. Effect: it stays where native removes it.
+    /// The shared Team6EC300 owner reads the Scenario waypoint and its
+    /// mode1 height-aware playfield gate, including the early cursor exits.
     pub(crate) fn aircraft_may_leave_map(&self, id: u64) -> bool {
         let Some(entity) = self.substrate.entities.get(id) else {
             return false;
@@ -110,7 +103,7 @@ impl Simulation {
             return false;
         }
         match self.team_script_vm.team_for_member(id) {
-            Some(_) => false,
+            Some(_) => self.member_team_is_moving_outside_playfield(id),
             None => entity.is_mission_only(),
         }
     }

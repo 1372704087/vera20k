@@ -55,6 +55,7 @@ pub(crate) fn commit_prepared_load(
         .match_presentation
         .target_lines
         .reanchor_after_load(runtime.simulation.session.binary_frame);
+    crate::app::input::camera::restore_tactical_view(state, committed.tactical_view);
     state
         .match_state
         .match_presentation

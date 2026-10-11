@@ -360,7 +360,7 @@ fn accepted_chain_per_cell_crush_finishes_lifecycle_in_list_order_before_continu
                         .occupancy
                         .contains_entity(position.rx, position.ry, id)
                 );
-                assert!(sim.substrate.pending_delete.contains(&id));
+                assert!(sim.substrate.pending_delete.contains_object(&id));
             }
         }
     });

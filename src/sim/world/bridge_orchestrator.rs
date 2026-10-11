@@ -1735,7 +1735,7 @@ mod tests {
         );
         assert!(!retired.lifecycle.object_alive);
         assert!(retired.infantry_terminal.is_none());
-        assert_eq!(sim.substrate.pending_delete, vec![3, 1]);
+        assert_eq!(sim.substrate.pending_delete.object_ids(), vec![3, 1]);
 
         let g = sim.substrate.entities.get(1).expect("ground unit present");
         assert_eq!(g.health.current, 0, "ground occupant is force-killed");

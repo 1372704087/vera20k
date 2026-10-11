@@ -176,9 +176,12 @@ impl Simulation {
         self.native_unique_ids.as_ref().map(|cursor| cursor.value)
     }
 
-    /// Assign AbstractClass+10 at the constructor boundary, before class
-    /// registration, optional constructor draws, or a later failed admission.
-    /// Original410230/68BCB0; never derived from the Rust stable handle.
+    /// Assign an object's native identity at its concrete constructor boundary.
+    /// Techno6F3254 spends its Scenario RNG word before the concrete Unit,
+    /// Infantry or Aircraft constructor calls Create_ID410230/68BCB0. Team
+    /// 6E8A90 and Script6913C0 use Abstract410170, whose identity remains -1;
+    /// neither consumes this cursor. A later failed admission retains the spent
+    /// identity. Never derive it from the independent Rust stable handle.
     pub(crate) fn next_native_runtime_id(&mut self) -> i32 {
         NativeUniqueIdCursor::assign_runtime(&mut self.native_unique_ids)
     }

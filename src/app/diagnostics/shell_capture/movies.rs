@@ -8,6 +8,9 @@ use crate::app::App;
 use crate::ui::campaign_shell::CampaignSide;
 use serde_json::{Value, json};
 
+mod opening;
+pub(super) use opening::OpeningTarget;
+
 /// Row-0 press point for the selected-list checkpoint (inside `0x744`).
 const LIST_ROW0_POINT: (f32, f32) = (150.0, 137.0);
 /// Down-arrow press point of the 17-row list's scrollbar.
@@ -88,6 +91,7 @@ pub(super) enum CampaignStartTarget {
     LoadingFirst,
     FirstLive,
     AbortReturn,
+    Opening(OpeningTarget),
 }
 
 /// A `0x10E` button the capture presses once the page has settled.
@@ -149,10 +153,11 @@ pub(super) struct MoviesCapture {
     /// Abort-return observes the installed owners once before opening B5.
     observed_campaign_runtime: Option<Value>,
     observed_exit_cascade: bool,
+    opening: Option<opening::OpeningCapture>,
 }
 
 impl MoviesCapture {
-    pub(super) fn new(target: MoviesTarget) -> Self {
+    pub(super) fn new(target: MoviesTarget, output: &Path) -> Self {
         Self {
             target,
             phase: Phase::MainMenu,
@@ -160,7 +165,21 @@ impl MoviesCapture {
             observed_campaign_startup: None,
             observed_campaign_runtime: None,
             observed_exit_cascade: false,
+            opening: match target {
+                MoviesTarget::CampaignStart {
+                    target: CampaignStartTarget::Opening(target),
+                    ..
+                } => Some(opening::OpeningCapture::new(
+                    target,
+                    output.with_extension("opening-saves"),
+                )),
+                _ => None,
+            },
         }
+    }
+
+    pub(super) fn timeout(&self) -> Duration {
+        Duration::from_secs(if self.opening.is_some() { 180 } else { 60 })
     }
 
     fn slide_settled(state: &AppState, kind: ShellSlideKind) -> bool {
@@ -275,6 +294,15 @@ impl MoviesCapture {
                 self.route
                     .push(json!({"frame": frame, "action": "Escape press", "dialog": 0xb5}));
                 self.phase = Phase::CampaignAbortMenu;
+            }
+            if state.frontend.screen == GameScreen::InGame
+                && let Some(opening) = self.opening.as_mut()
+            {
+                ensure!(
+                    self.observed_campaign_startup.is_some(),
+                    "opening was not preceded by ordinary campaign loading"
+                );
+                opening.after_present(state)?;
             }
             return Ok(());
         }
@@ -1246,6 +1274,15 @@ impl MoviesCapture {
                     campaign_runtime_receipt(state)?;
                     Ok(true)
                 }
+                CampaignStartTarget::Opening(_) => {
+                    if state.frontend.screen != GameScreen::InGame {
+                        return Ok(false);
+                    }
+                    self.opening
+                        .as_ref()
+                        .context("opening capture missing")?
+                        .ready(state)
+                }
                 CampaignStartTarget::AbortReturn => unreachable!("handled above"),
             };
         }
@@ -1447,9 +1484,9 @@ impl MoviesCapture {
                 CampaignStartTarget::LoadingFirst => {
                     crate::app::loading::pump::loading_map_source(state)
                 }
-                CampaignStartTarget::FirstLive | CampaignStartTarget::AbortReturn => {
-                    state.match_state.loaded_map_source.as_ref()
-                }
+                CampaignStartTarget::FirstLive
+                | CampaignStartTarget::AbortReturn
+                | CampaignStartTarget::Opening(_) => state.match_state.loaded_map_source.as_ref(),
             }
             .context("campaign selected map source missing at readback")?;
             // Readiness is queried before the first loading render prepares
@@ -1472,6 +1509,7 @@ impl MoviesCapture {
                 CampaignStartTarget::LoadingFirst => "loading-first-frame",
                 CampaignStartTarget::FirstLive => "first-live-frame",
                 CampaignStartTarget::AbortReturn => "abort-return",
+                CampaignStartTarget::Opening(target) => target.phase(),
             });
             manifest["runtime"] = match target {
                 CampaignStartTarget::LoadingFirst => Value::Null,
@@ -1480,6 +1518,7 @@ impl MoviesCapture {
                     .observed_campaign_runtime
                     .clone()
                     .context("campaign abort has no pre-Escape runtime observation")?,
+                CampaignStartTarget::Opening(_) => installed_campaign_runtime_receipt(state)?,
             };
             if target == CampaignStartTarget::AbortReturn {
                 manifest["runtime_observation"] = json!("first-live-frame-before-Escape-press");
@@ -1490,6 +1529,17 @@ impl MoviesCapture {
                 "first_live": "first InGame draw before any simulation tick",
                 "mission_opening_1308": "unresolved; this receipt does not certify scripted mission opening",
             });
+            if let Some(opening) = &self.opening {
+                manifest["opening"] = opening.receipt(state)?;
+                manifest["coverage"]["first_live"] =
+                    json!("tick-zero installation observed before exact production steps");
+                manifest["coverage"]["mission_opening_1308"] = json!(
+                    "selected SOV01 checkpoint after ordinary loading; app/render integration only, not a native whole-scene parity certificate"
+                );
+                manifest["coverage"]["audio"] = json!(
+                    "ordinary audio owners serviced; hardware audio timing and waveform are not captured"
+                );
+            }
             if target == CampaignStartTarget::AbortReturn {
                 manifest["coverage"]["abort_audio"] =
                     json!("ordinary exit cascade observed; device audio output is not captured");
@@ -1507,11 +1557,13 @@ impl MoviesCapture {
         Ok(manifest)
     }
 
-    pub(super) fn freezes_simulation_for_first_live(&self, state: &AppState) -> bool {
+    pub(super) fn owns_simulation_steps(&self, state: &AppState) -> bool {
         matches!(
             self.target,
             MoviesTarget::CampaignStart {
-                target: CampaignStartTarget::FirstLive | CampaignStartTarget::AbortReturn,
+                target: CampaignStartTarget::FirstLive
+                    | CampaignStartTarget::AbortReturn
+                    | CampaignStartTarget::Opening(_),
                 ..
             }
         ) && self.phase == Phase::CampaignStarting
@@ -1570,6 +1622,7 @@ fn campaign_abort_cleanup_receipt(state: &AppState) -> Result<Value> {
             && crate::app::loading::pump::loading_campaign_startup(state).is_none()
             && state.match_state.startup.startup().is_none()
             && state.match_state.startup.receipt().is_none()
+            && !state.match_state.startup.campaign_installed()
             && !state.process_assets.is_leased()
             && state.process_assets.is_available(),
         "campaign abort retained an active startup or loading asset lease"
@@ -1599,8 +1652,11 @@ fn campaign_abort_cleanup_receipt(state: &AppState) -> Result<Value> {
         .filter(|command| matches!(command.payload, crate::sim::command::Command::ExitMatch))
         .count();
     ensure!(
-        mission_counter == 1 && sim.quit_requested && pending_exit_commands == 0,
-        "campaign return did not consume EXIT/reset the retained Session counter"
+        mission_counter == 1
+            && sim.quit_requested
+            && pending_exit_commands == 0
+            && !sim.session.started(),
+        "campaign return did not consume EXIT/reset the retained Session counter/retire started"
     );
     Ok(json!({
         "screen": format!("{:?}", state.frontend.screen), "route": format!("{:?}", state.frontend.shell_route),
@@ -1608,12 +1664,14 @@ fn campaign_abort_cleanup_receipt(state: &AppState) -> Result<Value> {
         "loading_campaign_startup_present": crate::app::loading::pump::loading_campaign_startup(state).is_some(),
         "accepted_match_startup_present": state.match_state.startup.startup().is_some(),
         "match_startup_receipt_present": state.match_state.startup.receipt().is_some(),
+        "campaign_installation_present": state.match_state.startup.campaign_installed(),
         "asset_manager_leased": state.process_assets.is_leased(), "asset_manager_available": state.process_assets.is_available(),
         "campaign_page_present": state.frontend.campaign.is_some(), "fullscreen_movie_present": state.frontend.fullscreen_movie.is_some(),
         "scenario_exit_present": state.match_state.scenario_exit.is_some(), "scenario_outcome_present": state.match_state.scenario_outcome.is_some(),
         "in_game_menu": format!("{:?}", state.match_state.match_presentation.in_game_menu),
         "retained_runtime_present": state.match_state.sim_runtime.is_some(), "retained_tick": sim.session.tick,
         "retained_quit_requested": sim.quit_requested,
+        "retained_scenario_started": sim.session.started(),
         "campaign_mission_counter": mission_counter, "pending_exit_commands": pending_exit_commands,
     }))
 }
@@ -1621,16 +1679,24 @@ fn campaign_abort_cleanup_receipt(state: &AppState) -> Result<Value> {
 /// Observe the already-installed owners before frame.rs admits sim_tick. No
 /// bootstrap choices, country defaults, RNG draws or camera writes occur here.
 fn campaign_runtime_receipt(state: &AppState) -> Result<Value> {
+    ensure!(
+        state
+            .match_state
+            .sim_runtime
+            .as_ref()
+            .is_some_and(|runtime| runtime.simulation.session.tick == 0),
+        "first live capture passed simulation tick zero"
+    );
+    installed_campaign_runtime_receipt(state)
+}
+
+fn installed_campaign_runtime_receipt(state: &AppState) -> Result<Value> {
     let runtime = state
         .match_state
         .sim_runtime
         .as_ref()
         .context("first live frame has no runtime")?;
     let sim = &runtime.simulation;
-    ensure!(
-        sim.session.tick == 0,
-        "first live capture passed simulation tick zero"
-    );
     ensure!(
         !sim.session.game_mode_nonzero,
         "campaign capture admitted a multiplayer session"
@@ -1685,6 +1751,9 @@ fn campaign_runtime_receipt(state: &AppState) -> Result<Value> {
     let rules = &runtime.resources.rules;
     Ok(json!({
         "tick": sim.session.tick, "binary_frame": sim.session.binary_frame,
+        "scenario_started": sim.session.started(),
+        "startup_admission": {"accepted_rust_l0": state.match_state.startup.accepted().is_some(),
+            "campaign_installation": state.match_state.startup.campaign_installed()},
         "seed": sim.session.seed, "map_name": sim.session.map_name, "theater": sim.session.theater,
         "game_mode_nonzero": sim.session.game_mode_nonzero, "campaign_mission_counter": mission_counter,
         "campaign_difficulty_rows": {"player": player_difficulty as i32, "computer": computer_difficulty as i32},

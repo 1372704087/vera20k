@@ -1625,12 +1625,12 @@ impl SfxPlayer {
     /// `VoxClass::PlayEVA @ 0x00752700`: find the entry by name (`stricmp`
     /// scan of `0xB1D4A4`; a miss becomes `QueueVoice(-1, ..)`, which its
     /// index guard rejects), then `QueueVoice(index, type_override, -1)` —
-    /// priority is always the entry's own — and `PlayNextQueued`.
+    /// priority is always the entry's own. QueueVoice owns the guarded
+    /// PlayNextQueued call, including after a duplicate request.
     ///
     /// `side` is the session column `VoxClass::SetSide @ 0x007534E0` stored;
-    /// an empty column is a `PlayFile` of `".WAV"`, which fails, so it is
-    /// treated as a miss here. Returns whether the request entered a queue
-    /// (or the pending slot).
+    /// an empty column is still queued and fails at the later PlayFile of
+    /// `".WAV"`. Returns whether the request entered a queue/pending slot.
     pub fn play_eva(
         &mut self,
         event: &str,
@@ -1641,16 +1641,39 @@ impl SfxPlayer {
         assets: &AssetManager,
         audio_index: Option<&crate::assets::audio_bag::AudioIndex>,
     ) -> bool {
-        let Some(entry) = eva_registry.entry(event) else {
-            return false;
-        };
-        let Some(sample) = entry.column(side) else {
+        self.queue_eva(
+            eva_registry.index_of(event).unwrap_or(-1),
+            type_override,
+            eva_registry,
+            side,
+            registry,
+            assets,
+            audio_index,
+        )
+    }
+
+    /// VoxClass::QueueVoice752480: the shared entry/index admission and
+    /// announcement-stream effects for PlayEVA752700 and TAction21. The
+    /// original action uses type2/priority-1; priority remains the entry's.
+    /// Native comparison: tools/spatial_oracle/trigger_action_values.json,
+    /// eva_read_dispatch and eva_history (retail470 entries, paused stream).
+    pub fn queue_eva(
+        &mut self,
+        index: i32,
+        type_override: Option<EvaType>,
+        eva_registry: &EvaRegistry,
+        side: EvaSide,
+        registry: &SoundRegistry,
+        assets: &AssetManager,
+        audio_index: Option<&crate::assets::audio_bag::AudioIndex>,
+    ) -> bool {
+        let Some(entry) = eva_registry.entry_by_index(index) else {
             return false;
         };
         let effect = self.vox.queue_voice(
             VoxRequest {
                 event: &entry.name,
-                sample,
+                sample: entry.column(side).unwrap_or(""),
                 eva_type: entry.eva_type,
                 priority: entry.priority,
             },
@@ -1661,7 +1684,9 @@ impl SfxPlayer {
             // the announcement stream; unit lines and SFX are untouched.
             self.stop_eva_stream();
         }
-        self.advance_voice_queue(registry, assets, audio_index);
+        if effect.advance_queue {
+            self.advance_voice_queue(registry, assets, audio_index);
+        }
         effect.inserted
     }
 
@@ -1726,6 +1751,11 @@ impl SfxPlayer {
         audio_index: Option<&crate::assets::audio_bag::AudioIndex>,
     ) {
         let _ = registry;
+        // Native PlayFile(".WAV",1) fails after dequeue for an empty column.
+        // It must not prevent QueueVoice from interrupting an existing line.
+        if node.sample.is_empty() {
+            return;
+        }
         // Vox75295C plays the column's physical filename directly. It does
         // not resolve a Voc entry or consume Main sample-selection draws.
         let Some(decoded) = load_sfx(&node.sample, assets, audio_index) else {
@@ -3181,6 +3211,106 @@ mod tests {
             return;
         };
         assert!(!player.voices_active());
+    }
+
+    /// Original action21 lookup/admission controls, through the process's
+    /// production retail audio reader and the actual Sfx admission owner.
+    /// The captured stream is paused; no hardware completion is inferred.
+    #[test]
+    fn retail_trigger_indices_and_named_eva_share_sfx_admission_including_empty_columns() {
+        let Some((_root, assets)) = crate::rules::retail_ini_fixture::retail_assets() else {
+            return;
+        };
+        let Some(mut player) = SfxPlayer::new() else {
+            return;
+        };
+        let definitions = crate::rules::audio_sources::AudioDefinitions::select(&assets);
+        assert_eq!(definitions.eva().len(), 470);
+        let rows: Vec<serde_json::Value> = serde_json::from_str(crate::test_fixture::text(
+            "tools/spatial_oracle/trigger_action_values.json",
+        ))
+        .unwrap();
+        let mut compared = 0;
+        for row in rows
+            .iter()
+            .filter(|row| row["case_kind"] == "eva_read_dispatch")
+        {
+            let index = row["value"].as_i64().unwrap() as i32;
+            let name = row["raw"].as_str().unwrap().split(',').nth(2).unwrap();
+            let after = &row["after"];
+            let expected_count = after["critical"].as_array().unwrap().len()
+                + after["interrupts"].as_array().unwrap().len()
+                + usize::from(!after["pending"].is_null())
+                + (0..4)
+                    .map(|priority| {
+                        after["queues"][priority.to_string()]
+                            .as_array()
+                            .unwrap()
+                            .len()
+                    })
+                    .sum::<usize>();
+            assert!(expected_count <= 1);
+            for (side_index, side) in [
+                (0, EvaSide::Allied),
+                (1, EvaSide::Russian),
+                (2, EvaSide::Yuri),
+            ] {
+                player.stop_all();
+                player.set_paused(false, 1);
+                player.set_paused(true, 1);
+                assert_eq!(
+                    player.queue_eva(
+                        index,
+                        Some(EvaType::Interrupt),
+                        definitions.eva(),
+                        side,
+                        definitions.sounds(),
+                        &assets,
+                        None
+                    ),
+                    expected_count != 0,
+                    "{} side{side_index}",
+                    row["raw"],
+                );
+                assert_eq!(player.vox.queued_count(), expected_count);
+                assert!(player.eva_player.is_none());
+                // The named route resolves to the same entry already queued
+                // by its index, so its duplicate call cannot create a copy.
+                assert!(!player.play_eva(
+                    name,
+                    Some(EvaType::Interrupt),
+                    definitions.eva(),
+                    side,
+                    definitions.sounds(),
+                    &assets,
+                    None
+                ));
+                assert_eq!(player.vox.queued_count(), expected_count);
+                player.set_paused(false, 1);
+                if expected_count != 0 {
+                    let node = player.vox.take_next(1, false).unwrap();
+                    assert_eq!(
+                        node.event,
+                        row["entry"]["name"].as_str().unwrap().to_ascii_uppercase()
+                    );
+                    assert_eq!(node.eva_type, EvaType::Interrupt);
+                    assert_eq!(
+                        node.priority as i32,
+                        row["entry"]["priority"].as_i64().unwrap() as i32
+                    );
+                    assert_eq!(
+                        node.sample,
+                        row["entry"]["columns"][side_index.to_string()]
+                            .as_str()
+                            .unwrap()
+                    );
+                }
+                assert_eq!(player.vox.queued_count(), 0);
+                assert!(player.eva_player.is_none());
+                compared += 1;
+            }
+        }
+        assert_eq!(compared, 45);
     }
 
     /// The original ordinary event binds channel+94 to SoundVolume at

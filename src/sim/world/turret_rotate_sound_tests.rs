@@ -304,6 +304,8 @@ fn limbo_releases_a_live_loop_and_re_arms_the_latch() {
         Some(&rules),
         None,
         crate::sim::world::FrameEffects::default(),
+        1,
+        sim.session.started(),
     );
     assert!(turret_events(&sim, id).is_empty());
 }

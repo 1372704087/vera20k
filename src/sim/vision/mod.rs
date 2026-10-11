@@ -8,9 +8,16 @@
 //! Direct source-aware writes publish viewer knowledge. Queries use a cached
 //! visibility grid so each cell lookup is O(1) instead of iterating all owners.
 
+mod cell_reveal;
 mod gap_source;
 mod map_reveal;
 mod shroud_knowledge;
+pub use cell_reveal::SHROUD_EDGE_LUT;
+#[cfg(test)]
+pub(crate) use cell_reveal::tests::{
+    assert_native_cell_history, discovery_corpus, native_map_cell_fixture,
+};
+use cell_reveal::{DummyVisibility, MapCellEdgeCache};
 pub(crate) use gap_source::GapGeneratorRuntime;
 pub(crate) use shroud_knowledge::SightRefreshTimers;
 use shroud_knowledge::{ShroudKnowledge, SightAdmission};
@@ -148,6 +155,8 @@ pub struct OwnerVisibility {
     /// [`GROUND_VISIBLE`] / [`GROUND_OPEN`] per cell, aligned with `cells`.
     ground_flags: Vec<u8>,
     shroud_knowledge: Vec<ShroudKnowledge>,
+    map_cell_edge_cache: Vec<MapCellEdgeCache>,
+    dummy_visibility: DummyVisibility,
 }
 
 impl OwnerVisibility {
@@ -160,6 +169,8 @@ impl OwnerVisibility {
             height,
             ground_flags: vec![0; len],
             shroud_knowledge: vec![ShroudKnowledge::default(); len],
+            map_cell_edge_cache: vec![MapCellEdgeCache::default(); len],
+            dummy_visibility: DummyVisibility::default(),
         }
     }
 
@@ -307,6 +318,7 @@ impl OwnerVisibility {
     #[cfg(test)]
     fn resized_preserving_state(&self, width: u16, height: u16) -> Self {
         let mut expanded = Self::new(width, height);
+        expanded.dummy_visibility = self.dummy_visibility;
         for ry in 0..self.height.min(height) {
             for rx in 0..self.width.min(width) {
                 let old = ry as usize * self.width as usize + rx as usize;
@@ -315,6 +327,7 @@ impl OwnerVisibility {
                 expanded.shroud_knowledge[new] =
                     self.shroud_knowledge.get(old).copied().unwrap_or_default();
                 expanded.ground_flags[new] = self.ground_flags[old];
+                expanded.map_cell_edge_cache[new] = self.map_cell_edge_cache[old];
             }
         }
         expanded
@@ -394,8 +407,11 @@ pub struct FogState {
     pub by_owner: BTreeMap<InternedId, OwnerVisibility>,
     pub alliances: HouseAllianceMap,
     pub(crate) sight_admissions: BTreeMap<(u64, InternedId), SightAdmission>,
-    /// Native local House240: idempotent whole-map reveal, distinct from577A.
-    pub(crate) whole_map_revealed_owners: std::collections::BTreeSet<InternedId>,
+    /// Native local House+240: whole-map reveal guard, distinct from the
+    /// checksum's map-clear byte+241 and SpySatActive+577A. TAction17 at
+    ///6E0FE0 reads this guard without writing it; Map577D90 and gap writers
+    ///own its transitions (tools/spatial_oracle/trigger_action_values).
+    whole_map_revealed_owners: std::collections::BTreeSet<InternedId>,
     /// Per-viewer hostile admission receipts; preserved across save/load so a
     /// continuing generator does not become a fresh write after restoration.
     pub(crate) gap_sources: BTreeMap<InternedId, std::collections::BTreeSet<GapGeneratorSource>>,
@@ -432,6 +448,16 @@ pub struct FogState {
 }
 
 impl FogState {
+    /// An empty viewer domain with the allocated map dimensions. Reveal and
+    /// gap admission always initialize their own private House+240 state.
+    pub fn new(width: u16, height: u16) -> Self {
+        Self {
+            width,
+            height,
+            ..Self::default()
+        }
+    }
+
     /// Techno6F6AC0's ordinary release precedes its gap removal and Object
     /// Conceal. Only actual retained admissions emit the native leave event.
     pub(crate) fn release_entity_sight(&mut self, stable_id: u64) {
@@ -1195,6 +1221,28 @@ impl VisionConfig {
     pub(crate) fn reveal_by_height(&self) -> bool {
         self.reveal_by_height
     }
+
+    /// Ordered geometry for the ordinary MapClass area route, with this
+    /// configuration's map admission. The world owns synchronous receivers.
+    pub(crate) fn collect_area_cells(
+        &self,
+        cell: (u16, u16),
+        radius: u16,
+        z: i32,
+        line_of_sight: Option<&[u8]>,
+        dimensions: (u16, u16),
+    ) -> Vec<(u16, u16)> {
+        collect_reveal_cells(
+            cell.0,
+            cell.1,
+            radius,
+            z,
+            line_of_sight.is_some(),
+            line_of_sight,
+            dimensions,
+            self.map_size,
+        )
+    }
 }
 
 /// Recompute deterministic fog/shroud state for all owners (allocating variant).
@@ -1608,7 +1656,7 @@ fn reveal_radius_into(
 /// - With `RevealByHeight=` off, a caller's outline argument (arg 3, the
 ///   Techno sight callers') walks only the outer three rings
 ///   (`0x00567A77..0x00567AA5`); retail rules leave the key on.
-fn collect_reveal_cells(
+pub(crate) fn collect_reveal_cells(
     center_rx: u16,
     center_ry: u16,
     range: u16,
@@ -1660,7 +1708,8 @@ fn collect_reveal_cells(
                 let obs_x = rx + mdx as i32 + 2 + z_shift;
                 let obs_y = ry + mdy as i32 + 2 + z_shift;
                 if obs_x >= 0 && obs_x < w && obs_y >= 0 && obs_y < h {
-                    let obs_level = hg[(obs_y * w + obs_x) as usize] as i32;
+                    // Original567CB5 MOVSX reads Cell+11B as a signed byte.
+                    let obs_level = i32::from(hg[(obs_y * w + obs_x) as usize] as i8);
                     if viewer_level + 3 < obs_level {
                         continue; // terrain blocks LOS
                     }
@@ -1838,7 +1887,8 @@ pub(crate) fn coordinate_is_shrouded(
 
 /// `0x00487950`: `viewer`'s map shrouds the centre of the Cell at `cell`,
 /// raised to its floor (`0x0047B3A0`): [`coordinate_is_shrouded`] there, a
-/// Cell being open when `viewer` has mapped its ground and the Dummy never.
+/// Cell being open when `viewer` has mapped its ground, including retained
+/// canonical Dummy knowledge after a mapping of an absent allocated slot.
 /// A query error counts as unshrouded. Callers that test a Cell's own
 /// coordinate (CellClass vt+0x48) against `MapClass::IsShrouded` ask the same.
 pub(crate) fn cell_is_shrouded(
@@ -1852,7 +1902,7 @@ pub(crate) fn cell_is_shrouded(
 }
 
 /// `viewer`'s map shrouds `point`: [`coordinate_is_shrouded`], a Cell being
-/// open when `viewer` has mapped its ground and the Dummy never. A query
+/// open when `viewer` has mapped its ground, including the canonical Dummy. A query
 /// error counts as unshrouded.
 pub(crate) fn point_is_shrouded(
     fog: &FogState,
@@ -1867,7 +1917,9 @@ pub(crate) fn point_is_shrouded(
                 let cell = &terrain.cells()[index];
                 fog.is_ground_unshrouded(viewer, cell.rx, cell.ry)
             }
-            crate::map::cell_index::NativeCellIdentity::Dummy => false,
+            crate::map::cell_index::NativeCellIdentity::Dummy => {
+                fog.is_dummy_ground_unshrouded(viewer)
+            }
         })
     };
     matches!(coordinate_is_shrouded(cells, point, &open), Ok(true))
@@ -2026,75 +2078,6 @@ pub(crate) fn allied_viewers(
         .into_iter()
         .filter(|&viewer| owner_allied_with(fog, owner, viewer, interner))
         .collect()
-}
-
-/// `MapClass::RevealArea @ 0x005678E0` with no outline or unreveal, on the
-/// maps of `viewers`, the houses its house gate admits for the caller: the
-/// cells `radius` around `cell` raised by `z` leptons
-/// ([`collect_reveal_cells`]), with the height line of sight when the
-/// caller's by-height argument is set and `RevealByHeight=` is on
-/// (`line_of_sight` then holds the ground heights). Through the leaf MapCell
-/// `0x00653830` -> `0x004A9CA0`, final 0 reduces each cell's shroud counter
-/// and final 1 raises it again, so a call of each leaves the cells mapped
-/// with no lasting sight source.
-pub(crate) fn reveal_area(
-    fog: &mut FogState,
-    viewers: &[InternedId],
-    cell: (u16, u16),
-    z: i32,
-    radius: u16,
-    line_of_sight: Option<&[u8]>,
-    final_pass: bool,
-    config: &VisionConfig,
-) {
-    let cells = collect_reveal_cells(
-        cell.0,
-        cell.1,
-        radius,
-        z,
-        line_of_sight.is_some(),
-        line_of_sight,
-        (fog.width, fog.height),
-        config.map_size,
-    );
-    for &viewer in viewers {
-        let vis = fog
-            .by_owner
-            .entry(viewer)
-            .or_insert_with(|| OwnerVisibility::new(fog.width, fog.height));
-        for &(rx, ry) in &cells {
-            vis.mark_sight(rx, ry);
-            let index = vis.index(rx, ry).expect("collected cell is in bounds");
-            if final_pass {
-                vis.shroud_knowledge[index].leave();
-            } else {
-                vis.shroud_knowledge[index].reveal();
-            }
-            vis.shroud_knowledge[index].transient_visible = true;
-            vis.publish_knowledge(index);
-        }
-    }
-}
-
-/// [`reveal_area`] as `SuperClass::Launch @ 0x006CC390` case 11 calls it
-/// twice: around `cell` raised by `z` leptons (the cell's GetCoords),
-/// `radius` cells, with no line of sight, final 0 (`0x006CD773`) then
-/// final 1 (`0x006CD79C`), for each map the house gate admits
-/// ([`direct_reveal_viewers`]). Only the launcher's gate is asked: a
-/// viewer's own allies gain nothing.
-pub(crate) fn psychic_reveal(
-    fog: &mut FogState,
-    owner: InternedId,
-    cell: (u16, u16),
-    z: i32,
-    radius: u16,
-    config: &VisionConfig,
-    interner: &StringInterner,
-) {
-    let viewers = direct_reveal_viewers(fog, owner, config, interner);
-    for final_pass in [false, true] {
-        reveal_area(fog, &viewers, cell, z, radius, None, final_pass, config);
-    }
 }
 
 /// Materialize active SpySat house latches by marking every synthetic-grid cell

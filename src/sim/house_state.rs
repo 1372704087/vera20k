@@ -362,6 +362,16 @@ pub struct HouseState {
     native_construction: Option<NativeHouseConstruction>,
     #[serde(default)]
     scenario_parameters: HouseScenarioParameters,
+    /// Native House+27C count of TagTypes carrying AllowWin(action15).
+    /// Constructor4F57F6 writes zero; Fill684EC3 counts definition families,
+    /// and active Tag destructor6E509B decrements a nonzero count.
+    #[serde(default)]
+    allow_win_tags: i32,
+    /// House+298 timer. Constructor4F5825/4F582B writes (-1,0); destruction
+    /// of an AllowWin Tag starts 60 frames at6E50B1. Native replay controls:
+    /// tools/spatial_oracle/tag_lifecycle (active_cleanup histories).
+    #[serde(default)]
+    allow_win_timer: CdTimer,
     /// Stable rules-owned side index. Stock YR uses 0=Allied, 1=Soviet,
     /// 2=Yuri, 3=Civilian, and 4=Mutant.
     pub side_index: u8,
@@ -422,7 +432,9 @@ pub struct HouseState {
     /// App-owned wall waits and audio teardown are intentionally excluded.
     #[serde(default)]
     pub outcome_state: Option<HouseOutcomeState>,
-    /// HouseClass map-clear byte folded by the retail multiplayer checksum.
+    /// HouseClass+0x241 map-clear byte folded by the retail multiplayer
+    /// checksum. Distinct from the fog owner's+0x240 reveal guard, which
+    /// TAction17 reads (6E0FE8) and gap re-admission clears independently.
     ///
     /// Defeat/reveal paths set this independently of the win/loss flags, and
     /// shroud restoration can clear it again.
@@ -679,6 +691,37 @@ impl Default for HouseSuperWeaponCells {
 }
 
 impl HouseState {
+    pub(crate) fn register_allow_win_tag_type(&mut self) {
+        self.allow_win_tags = self.allow_win_tags.wrapping_add(1);
+    }
+
+    pub(crate) fn removed_allow_win_tag(&mut self, frame: i32) {
+        if self.allow_win_tags != 0 {
+            self.allow_win_tags = self.allow_win_tags.wrapping_sub(1);
+        }
+        self.allow_win_timer.start(frame, 60);
+    }
+
+    pub(crate) fn hash_allow_win_tags(&self, hasher: &mut impl std::hash::Hasher) {
+        use std::hash::Hash;
+        if self.allow_win_tags != 0 || self.allow_win_timer != CdTimer::default() {
+            b"house-allow-win-tags-v1".hash(hasher);
+            self.allow_win_tags.hash(hasher);
+            self.allow_win_timer.hash(hasher);
+        }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn allow_win_tag_state(&self) -> (i32, CdTimer) {
+        (self.allow_win_tags, self.allow_win_timer)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn supply_allow_win_tag_state(&mut self, count: i32, timer: CdTimer) {
+        self.allow_win_tags = count;
+        self.allow_win_timer = timer;
+    }
+
     /// Bind the actual constructor's numeric identity and one Scenario draw.
     /// Original4F634F uses RandomRanged450..1800, then ftol of its product
     /// with Rules+10A8 ([AI] AttackDelay). Only this owner stores the timer.
@@ -1193,6 +1236,8 @@ impl HouseState {
             has_won: false,
             has_lost: false,
             outcome_state: None,
+            allow_win_tags: 0,
+            allow_win_timer: CdTimer::default(),
             map_is_clear: false,
             spy_sat_active: false,
             tracking: Default::default(),

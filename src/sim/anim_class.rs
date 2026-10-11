@@ -381,6 +381,11 @@ pub struct AnimObject {
     /// AnimClass `+0x197`: created from a terrain tile animation descriptor.
     #[serde(default)]
     pub terrain_attached: bool,
+    /// Anim+198. Constructor421FF1 clears it; TAction416E2368 sets it
+    /// only after constructor-time Start. Start424CF1/424D5F, AI423AC6
+    /// and UnInit4255DA suppress effects, independently of drawing/Middle.
+    #[serde(default)]
+    no_effects: bool,
     /// LogicClass membership is reconstructed from the serialized vector.
     /// ObjectClass::Save does not persist its local membership byte.
     #[serde(skip)]
@@ -426,6 +431,10 @@ pub struct AnimObject {
 impl AnimObject {
     pub fn remap(&self) -> Option<AnimRemap> {
         self.remap
+    }
+
+    pub(crate) fn no_effects(&self) -> bool {
+        self.no_effects
     }
 
     pub(crate) fn completed(&self) -> bool {
@@ -475,6 +484,7 @@ impl AnimObject {
             draw_runtime: AnimDrawRuntime::default(),
             use_cell_drawer: false,
             terrain_attached: false,
+            no_effects: false,
             in_logic_vector: false,
             owner_entity: None,
             building_slot: None,
@@ -525,6 +535,12 @@ impl AnimObject {
         self.stop_sound_id.hash(hasher);
         self.completed.hash(hasher);
         self.building_anim.hash(hasher);
+        // The retained native byte affects later Start/UnInit behavior.
+        // False preserves pre-existing hashes and compatibility fixtures.
+        if self.no_effects {
+            b"anim-no-effects-v1".hash(hasher);
+            self.no_effects.hash(hasher);
+        }
         // Unset links add no bytes, preserving earlier streams.
         if self.owner_house.is_some() || self.attached_bullet.is_some() {
             b"anim-owner-house-bullet-v1".hash(hasher);
@@ -1032,6 +1048,45 @@ impl Simulation {
         )
     }
 
+    /// Original TAction41 PlayAnimAtWP6E2290, reached at6DECB0.
+    /// Resolve8B4154[+90], use the shared signed waypoint/Ground/bridge
+    /// query, then constructor421EA0 with delay0/loop1/flags600. Native
+    /// sets+198 after the constructor returns, so its first Start effects
+    /// remain admitted. Invalid Rust input safely fails instead of taking
+    /// the original unchecked pointer access; stock operands are valid.
+    pub(crate) fn trigger_play_anim_at_waypoint(
+        &mut self,
+        rules: &RuleSet,
+        anim_type_index: i32,
+        waypoint: i32,
+    ) -> bool {
+        let Some(type_name) = rules.anim_type_name_by_index(anim_type_index) else {
+            return false;
+        };
+        let Some([x, y, z]) = self.trigger_waypoint_coord(waypoint) else {
+            return false;
+        };
+        let world_coord = AnimWorldCoord { x, y, z };
+        let type_id = self.interner.intern(type_name);
+        let (rx, ry, sub_x, sub_y, level) = world_coord.to_cell_sub_z();
+        let descriptor = AnimClassSpawnDescriptor {
+            draw_flags: 0x600,
+            ..AnimClassSpawnDescriptor::new(type_id, rx, ry, sub_x, sub_y, level)
+        };
+        let Ok(id) = self.spawn_anim_at_world(rules, descriptor, world_coord) else {
+            return false;
+        };
+        self.set_anim_no_effects(id, true);
+        true
+    }
+
+    /// Mutation of the retained Anim+198 byte belongs to its instance owner.
+    pub(crate) fn set_anim_no_effects(&mut self, id: AnimId, no_effects: bool) {
+        if let Some(anim) = self.anim_mut_by_id(id) {
+            anim.no_effects = no_effects;
+        }
+    }
+
     /// One port of Anim421EA0 for runtime and authored-load producers. An
     /// assigned identity skips only42203D; preconsumed death-debris input also
     /// retains draws already taken at that producer's native boundary.
@@ -1078,7 +1133,13 @@ impl Simulation {
             type_id: descriptor.type_name,
             world_coord,
             draw_flags: descriptor.draw_flags,
-            z_adjust: descriptor.z_adjust,
+            // Anim42219E: a zero constructor argument reads Type+348;
+            // explicit nonzero producer adjustments take precedence.
+            z_adjust: if descriptor.z_adjust == 0 {
+                config.z_adjust
+            } else {
+                descriptor.z_adjust
+            },
             remap: None,
             effective_end,
             effective_loop_end,
@@ -1101,6 +1162,7 @@ impl Simulation {
             draw_runtime: descriptor.draw_runtime,
             use_cell_drawer: descriptor.use_cell_drawer,
             terrain_attached: descriptor.terrain_attached,
+            no_effects: false,
             in_logic_vector: false,
             owner_entity: None,
             building_slot: None,
@@ -1186,7 +1248,7 @@ impl Simulation {
                     .push(SimSoundEvent::ObjectSoundReleased { owner: id });
             }
             self.conceal_anim(id);
-            self.substrate.pending_delete.retain(|queued| *queued != id);
+            self.substrate.pending_delete.remove_object(id);
             let removed_anim = self.substrate.anims.remove(id);
             debug_assert!(removed_anim.is_some());
             removed += 1;
@@ -1601,7 +1663,7 @@ impl Simulation {
     }
 
     pub(crate) fn destroy_anim_with_context(&mut self, id: AnimId, rules: Option<&RuleSet>) {
-        if self.substrate.pending_delete.contains(&id) {
+        if self.substrate.pending_delete.contains_object(&id) {
             return;
         }
         // `AnimClass::GetCoords @ 0x00422BE0` — the sound plays at the anim's
@@ -1609,7 +1671,10 @@ impl Simulation {
         let Some(world) = self.anim_absolute_coord(id) else {
             return;
         };
-        let Some(stop_sound) = self.anim(id).map(|anim| anim.stop_sound_id) else {
+        let Some(stop_sound) = self
+            .anim(id)
+            .map(|anim| (!anim.no_effects()).then_some(anim.stop_sound_id).flatten())
+        else {
             return;
         };
         if self
@@ -1664,7 +1729,7 @@ impl Simulation {
         // notifications precede Display5F4D79 and Logic5F4DD3 removal.
         self.building_anim_pointer_expired(id, rules);
         self.conceal_anim(id);
-        self.substrate.pending_delete.push(id);
+        self.substrate.pending_delete.queue_object(id);
     }
 
     /// Building451A2C and ClearAnimSlot451E40 use scalar deletion: the old
@@ -1683,7 +1748,7 @@ impl Simulation {
                 .push(SimSoundEvent::ObjectSoundReleased { owner: id });
         }
         self.conceal_anim(id);
-        self.substrate.pending_delete.retain(|queued| *queued != id);
+        self.substrate.pending_delete.remove_object(id);
         self.substrate.anims.remove(id);
     }
 
@@ -2529,11 +2594,17 @@ impl Simulation {
         rules: &RuleSet,
         overlay_registry: Option<&crate::rules::overlay_types::OverlayTypeRegistry>,
     ) {
-        let sound_name = config
-            .start_sound
-            .as_ref()
-            .or(config.report.as_ref())
-            .cloned();
+        let sound_name = self.anim(id).and_then(|anim| {
+            (!anim.no_effects())
+                .then(|| {
+                    config
+                        .start_sound
+                        .as_ref()
+                        .or(config.report.as_ref())
+                        .cloned()
+                })
+                .flatten()
+        });
         if let Some(sound_name) = sound_name
             && let Some(world) = self.anim_absolute_coord(id)
         {
@@ -2545,6 +2616,20 @@ impl Simulation {
                 sound_id: sound_name,
                 world,
             });
+        } else if self.anim(id).is_some_and(|anim| anim.start_sound_active) {
+            // Start424D32 clears the prior start handle when NoEffects is
+            // set or the new type has no StartSound. A late TAction41 flag
+            // never cancels the constructor's sound before this later Start.
+            if let Some(world) = self.anim_absolute_coord(id) {
+                self.sound_events.push(SimSoundEvent::AnimationStopped {
+                    anim_id: id,
+                    stop_sound_id: None,
+                    world,
+                });
+            }
+            self.anim_mut_by_id(id)
+                .expect("restarting animation remains present")
+                .start_sound_active = false;
         }
         if middle_frame(config).is_none() {
             self.anim_middle(id, config, rules, overlay_registry);
@@ -2943,6 +3028,10 @@ mod long_tail_contract_tests {
 mod debris_tests;
 
 #[cfg(test)]
+#[path = "anim_trigger_tests.rs"]
+mod trigger_tests;
+
+#[cfg(test)]
 mod tests {
     use super::*;
     use crate::map::entities::EntityCategory;
@@ -3069,7 +3158,7 @@ mod tests {
             assert_eq!(anim.world_coord, *coord);
             assert_eq!(anim.owner_entity, None);
             assert!(anim.runtime.inactive);
-            assert!(!sim.substrate.pending_delete.contains(id));
+            assert!(!sim.substrate.pending_delete.contains_object(id));
             assert_eq!(sim.substrate.display.layer_of(*id), None);
         }
         sim.scenario_rng = crate::sim::rng::SimRng::new(0);
@@ -3476,7 +3565,7 @@ mod tests {
             sim.substrate.entities.get(owner_id).unwrap().deploy_anim(),
             None
         );
-        assert!(sim.substrate.pending_delete.contains(&id));
+        assert!(sim.substrate.pending_delete.contains_object(&id));
         assert!(sim.sound_events.iter().any(|event| matches!(event,
             SimSoundEvent::AnimationStopped { anim_id, world, .. }
                 if *anim_id == id && *world == absolute
@@ -4074,7 +4163,7 @@ mod tests {
         sim.visit_anim(id, &rules, None, crate::sim::world::FrameEffects::default());
 
         assert_eq!(sim.substrate.raw_cell_occupation.ground_bits(3, 4), 0);
-        assert!(sim.substrate.pending_delete.contains(&id));
+        assert!(sim.substrate.pending_delete.contains_object(&id));
     }
 
     #[test]
@@ -4541,7 +4630,7 @@ mod tests {
                 [anim.world_coord.x, anim.world_coord.y, anim.world_coord.z],
                 [body.x, body.y, body.z]
             );
-            if sim.substrate.pending_delete.contains(&chunk) {
+            if sim.substrate.pending_delete.contains_object(&chunk) {
                 landed_at = Some(body);
                 break;
             }
@@ -4769,7 +4858,7 @@ mod tests {
         sim.visit_anim(id, &rules, None, crate::sim::world::FrameEffects::default()); // SECOND frame 2 -> destroy
         sim.destroy_anim(id, &rules);
         assert!(!sim.anim(id).unwrap().runtime.inactive);
-        assert!(sim.substrate.pending_delete.contains(&id));
+        assert!(sim.substrate.pending_delete.contains_object(&id));
         assert!(!sim.live_object_order_snapshot().contains(&id));
         assert_eq!(
             sim.sound_events
@@ -4805,7 +4894,7 @@ mod tests {
         // UnInit4255B0/UnInit5F65F0 retire the receiver without changing19B.
         // The retained physical identity cannot be revealed before the drain.
         assert!(!sim.anim(id).unwrap().runtime.inactive);
-        assert_eq!(sim.substrate.pending_delete, vec![id]);
+        assert_eq!(sim.substrate.pending_delete.object_ids(), vec![id]);
         assert!(!sim.anim(id).unwrap().in_logic_vector);
         assert_eq!(sim.display_layers().layer_of(id), None);
         assert!(!sim.reveal_anim(id, Some(&rules)));
@@ -4872,7 +4961,7 @@ mod tests {
         );
         assert!(sim.anim(anim_id).unwrap().runtime.inactive);
         assert!(sim.live_object_order_snapshot().contains(&anim_id));
-        assert!(!sim.substrate.pending_delete.contains(&anim_id));
+        assert!(!sim.substrate.pending_delete.contains_object(&anim_id));
 
         sim.visit_anim(
             anim_id,
@@ -4888,7 +4977,7 @@ mod tests {
                 .is_none()
         );
         assert!(!sim.live_object_order_snapshot().contains(&anim_id));
-        assert_eq!(sim.substrate.pending_delete, vec![anim_id]);
+        assert_eq!(sim.substrate.pending_delete.object_ids(), vec![anim_id]);
     }
 
     #[test]
@@ -4912,7 +5001,7 @@ mod tests {
         // Supply the common post-UnInit retirement state through its existing
         // membership owner;19B remains the independent native expiry byte.
         sim.conceal_anim(anim_id);
-        sim.substrate.pending_delete.push(anim_id);
+        sim.substrate.pending_delete.queue_object(anim_id);
 
         sim.process_pending_delete();
 

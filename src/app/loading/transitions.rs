@@ -63,7 +63,6 @@ pub(crate) fn fallback_map_load_result() -> init::MapLoadResult {
             simulation: None,
             overlays: Vec::new(),
             terrain_objects: Vec::new(),
-            waypoints: HashMap::new(),
             triggers: HashMap::new(),
             events: HashMap::new(),
             actions: HashMap::new(),
@@ -194,6 +193,7 @@ pub(crate) fn apply_map_load_result(state: &mut AppState, result: init::MapLoadR
     }
     state.match_state.sim_runtime = incoming.map(|(mut simulation, rules)| {
         simulation.install_fresh_process_main(&state.frontend.frontend_main_rng);
+        simulation.session.set_started(true);
         crate::sim::runtime::SimRuntime {
             simulation,
             resources: crate::sim::runtime::SimResources {
@@ -204,7 +204,6 @@ pub(crate) fn apply_map_load_result(state: &mut AppState, result: init::MapLoadR
                 triggers: result.scenario.triggers,
                 events: result.scenario.events,
                 actions: result.scenario.actions,
-                waypoints: result.scenario.waypoints,
             },
         }
     });
@@ -345,6 +344,8 @@ pub(crate) fn apply_map_load_result(state: &mut AppState, result: init::MapLoadR
         tactical_height as f32,
         state.match_state.input.zoom_level,
     );
+    crate::app::input::camera::reset_camera_for_new_scenario(state);
+    state.match_state.input.cursor_visibility.reset();
     crate::app::input::camera::set_camera_position(state, (camera_x, camera_y));
     // gamemd's scenario reader fills all four camera bookmarks with the opening
     // view cell, so F1 before any Ctrl+F1 is a valid "go home".
@@ -426,7 +427,7 @@ pub(crate) fn apply_map_load_result(state: &mut AppState, result: init::MapLoadR
         ));
     }
     state.match_state.input.minimap_dragging = false;
-    state.match_state.input.tactical_mouse = Default::default();
+    state.match_state.input.tactical_mouse.reset_for_new_view();
     state.match_state.input.keys_held.clear();
     let (tactical_width, tactical_height) = crate::app::input::camera::tactical_viewport_size_px(
         state.render_width(),
@@ -553,16 +554,20 @@ pub(crate) fn apply_map_load_result(state: &mut AppState, result: init::MapLoadR
         );
     }
 
-    match startup {
-        crate::app::match_bootstrap::LoadingStartup::Campaign(_) => {
-            state.match_state.startup.clear();
-            let now_ms = sim_tick::monotonic_frame_pacer_ms(state, std::time::Instant::now());
-            state.match_state.scenario_elapsed_clock.start(now_ms);
-            state.frontend.screen = GameScreen::InGame;
-            log::info!("Transitioned to InGame from the selected campaign");
+    let installation = match startup {
+        crate::app::match_bootstrap::LoadingStartup::Campaign(prepared) => {
+            state.match_state.startup.acknowledge_campaign(
+                &prepared,
+                state
+                    .match_state
+                    .sim_runtime
+                    .as_ref()
+                    .map(|rt| &rt.simulation),
+                matches!(state.frontend.screen, GameScreen::Loading),
+            )
         }
         crate::app::match_bootstrap::LoadingStartup::Accepted(prepared) => {
-            let receipt = state.match_state.startup.acknowledge(
+            state.match_state.startup.acknowledge(
                 prepared,
                 state
                     .match_state
@@ -570,33 +575,16 @@ pub(crate) fn apply_map_load_result(state: &mut AppState, result: init::MapLoadR
                     .as_ref()
                     .map(|rt| &rt.simulation),
                 matches!(state.frontend.screen, GameScreen::Loading),
-            );
-
-            match receipt {
-                Ok(()) => {
-                    let now_ms =
-                        sim_tick::monotonic_frame_pacer_ms(state, std::time::Instant::now());
-                    state.match_state.scenario_elapsed_clock.start(now_ms);
-                    state.frontend.screen = GameScreen::InGame;
-                    state
-                        .frontend
-                        .offline_skirmish_runtime
-                        .mark_gameplay_rng_return_pending();
-                    log::info!("Transitioned to InGame after Rust L0 acknowledgement");
-                }
-                Err(err) => {
-                    state.match_state.startup.clear();
-                    state.frontend.screen = GameScreen::MissionResult {
-                        title: "Startup Rejected".to_string(),
-                        detail: err.clone(),
-                    };
-                    log::error!("Accepted startup failed closed at Rust L0: {err}");
-                }
-            }
+            )
         }
         crate::app::match_bootstrap::LoadingStartup::UnverifiedLegacy { .. }
         | crate::app::match_bootstrap::LoadingStartup::Generic { .. } => {
             state.match_state.startup.clear();
+            Ok(())
+        }
+    };
+    match installation {
+        Ok(()) => {
             let now_ms = sim_tick::monotonic_frame_pacer_ms(state, std::time::Instant::now());
             state.match_state.scenario_elapsed_clock.start(now_ms);
             state.frontend.screen = GameScreen::InGame;
@@ -606,7 +594,15 @@ pub(crate) fn apply_map_load_result(state: &mut AppState, result: init::MapLoadR
                     .offline_skirmish_runtime
                     .mark_gameplay_rng_return_pending();
             }
-            log::info!("Transitioned to InGame on noncertifying startup path");
+            log::info!("Transitioned to InGame after scenario installation");
+        }
+        Err(err) => {
+            state.match_state.startup.clear();
+            state.frontend.screen = GameScreen::MissionResult {
+                title: "Startup Rejected".to_string(),
+                detail: err.clone(),
+            };
+            log::error!("Scenario installation rejected startup: {err}");
         }
     }
     crate::app::presentation::sidebar_render::refresh_sidebar_projection(state);

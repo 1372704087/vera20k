@@ -52,7 +52,7 @@ use crate::map::terrain::{self, LocalBounds, TerrainGrid};
 use crate::map::theater;
 use crate::map::trigger_graph::TriggerGraph;
 use crate::map::triggers::TriggerMap;
-use crate::map::waypoints::{self, Waypoint};
+use crate::map::waypoints;
 use crate::render::batch::BatchRenderer;
 use crate::render::bridge_atlas::BridgeAtlas;
 use crate::render::bridge_railing_atlas::{BridgeRailingAtlas, BridgeRailingTileBases};
@@ -1534,7 +1534,6 @@ pub struct ScenarioLoadInputs {
     pub overlays: Vec<OverlayEntry>,
     /// Terrain objects for per-frame instance generation.
     pub terrain_objects: Vec<TerrainObject>,
-    pub waypoints: HashMap<u32, Waypoint>,
     pub triggers: TriggerMap,
     pub events: EventMap,
     pub actions: ActionMap,
@@ -2062,11 +2061,15 @@ impl MapLoadInitial {
             || theater_ext_for(&map_data.header.theater),
             |td| td.extension,
         );
-        let scheduler_roots = scheduler_anim_roots(
+        let mut scheduler_roots = scheduler_anim_roots(
             &rules,
             &overlay_registry,
             resolved_terrain.tile_animations(),
         );
+        scheduler_roots.extend(crate::app::loading::init_helpers::trigger_anim_class_roots(
+            &rules,
+            &map_data.actions,
+        ));
         rules
             .bind_scheduler_anim_assets(
                 &scheduler_roots,
@@ -2532,6 +2535,7 @@ pub(crate) fn load_map_from_initial(
     theater_cache_mismatch: bool,
     runtime_color_scheme_count: usize,
     native_rules_owner: &mut crate::rules::process_owner::NativeRulesProcessOwner,
+    eva: Option<&crate::rules::sound_ini::EvaRegistry>,
     shared_cell_dummy: crate::map::resolved_terrain::SharedCellDummy,
     tile_variant_selector_cache: &mut crate::map::tile_variant_selector::TileVariantSelectorCache,
     progress: &mut dyn crate::app::loading::pump::LoadingProgressSink,
@@ -2789,6 +2793,10 @@ pub(crate) fn load_map_from_initial(
     let (mut staged_simulation, scenario_prefix_projection) =
         bootstrap_rng.into_fresh_staged_simulation(&scenario_descriptor, fresh_prefix)?;
     staged_simulation.bind_shared_cell_dummy(shared_cell_dummy.clone());
+    staged_simulation
+        .session
+        .install_waypoints(&map_data.waypoints);
+    staged_simulation.initialize_trigger_definitions(&map_data, &team_ai_registry, eva);
     let (mut scenario_fill_rng, variant_main_rng) = staged_simulation.terrain_load_draws();
     let mut scenario_fill_ranged =
         |low, high| scenario_fill_rng.next_range_u32_inclusive(low, high);
@@ -2862,13 +2870,17 @@ pub(crate) fn load_map_from_initial(
     // tile art is a load error rather than a silently invisible map feature.
     {
         let r = &mut rules;
-        let roots = scheduler_anim_roots(
+        let mut roots = scheduler_anim_roots(
             r,
             &overlay_registry,
             resolved_terrain
                 .as_ref()
                 .map_or(&[], |terrain| terrain.tile_animations()),
         );
+        roots.extend(crate::app::loading::init_helpers::trigger_anim_class_roots(
+            r,
+            &map_data.actions,
+        ));
         r.bind_scheduler_anim_assets(&roots, asset_manager, theater_ext, &map_data.header.theater)?;
         // Every other AnimClass producer and the building animations need the
         // same loader-derived End/LoopEnd. Tolerant by design; must follow the
@@ -3489,7 +3501,6 @@ pub(crate) fn load_map_from_initial(
             simulation,
             overlays: overlays_connected,
             terrain_objects: map_data.terrain_objects,
-            waypoints: map_data.waypoints,
             triggers: map_data.triggers,
             events: map_data.events,
             actions: map_data.actions,

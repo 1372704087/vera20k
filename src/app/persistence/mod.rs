@@ -58,6 +58,15 @@ impl PersistenceState {
         }
     }
 
+    /// A one-shot production capture uses its own new directory, so the
+    /// ordinary save command cannot replace a player's existing saves.
+    pub(crate) fn isolate_capture_saves(&mut self, directory: &Path) -> std::io::Result<()> {
+        std::fs::create_dir(directory)?;
+        self.repository = SaveRepository::at(directory);
+        self.invalidate_save_list();
+        Ok(())
+    }
+
     /// A successful disk write and its UI bookkeeping are one persistence
     /// operation. Failed writes preserve the previous last-save indication.
     pub(crate) fn write_save(
@@ -136,6 +145,8 @@ pub(crate) enum PreparedLoadError {
     FactoryState(#[from] crate::sim::production::FactoryRestoreError),
     #[error("invalid saved sidebar order: {0}")]
     SidebarOrder(String),
+    #[error("invalid saved tactical view: {0}")]
+    TacticalView(String),
 }
 
 /// Fully validated, cache-rebuilt replacement state ready for one infallible commit.
@@ -143,6 +154,7 @@ pub(crate) struct PreparedLoad {
     simulation: Simulation,
     map_restore: SnapshotMapRestoreOutput,
     sinking_waterlines: Vec<(u64, i16)>,
+    tactical_view: Option<crate::sim::snapshot::SavedTacticalView>,
     sidebar_order: Option<(
         crate::sim::intern::InternedId,
         crate::ui::sidebar::cameo_order::CameoStrips,
@@ -153,6 +165,7 @@ pub(crate) struct PreparedLoad {
 pub(crate) struct CommittedLoadPresentation {
     pub(crate) occupied_overlays: Vec<crate::map::overlay::OverlayEntry>,
     pub(crate) sinking_waterlines: Vec<(u64, i16)>,
+    pub(crate) tactical_view: Option<crate::sim::snapshot::SavedTacticalView>,
     pub(crate) sidebar_order: Option<(
         crate::sim::intern::InternedId,
         crate::ui::sidebar::cameo_order::CameoStrips,
@@ -262,6 +275,11 @@ impl PreparedLoad {
         let terrain_speed_config = current_simulation.terrain_speed_config.clone();
 
         let saved_sidebar_order = snapshot.sidebar_order().cloned();
+        let tactical_view = snapshot.tactical_view().cloned();
+        if let Some(saved) = tactical_view.as_ref() {
+            crate::app::input::camera::validate_saved_tactical_view(saved)
+                .map_err(PreparedLoadError::TacticalView)?;
+        }
         let mut simulation = snapshot.sim;
         // This is the in-scenario Load Game route: native load reseeds
         // Scenario->Random after reading ScenarioClass, while the process-global
@@ -305,6 +323,7 @@ impl PreparedLoad {
             map_restore,
             sinking_waterlines,
             sidebar_order,
+            tactical_view,
         })
     }
 
@@ -326,11 +345,15 @@ impl PreparedLoad {
         let live_dummy = runtime.simulation.effective_shared_cell_dummy();
         live_dummy.adopt_prepared_load_state(&self.simulation.effective_shared_cell_dummy());
         self.simulation.bind_shared_cell_dummy(live_dummy);
+        // Original successful LoadGame67E6C4 publishes A8ED5C=1 after the
+        // fallible content/read tail. Failed preparation never changes it.
+        self.simulation.session.set_started(true);
         runtime.replace_simulation(self.simulation);
         CommittedLoadPresentation {
             occupied_overlays: self.map_restore.occupied_overlays,
             sinking_waterlines: self.sinking_waterlines,
             sidebar_order: self.sidebar_order,
+            tactical_view: self.tactical_view,
         }
     }
 }
@@ -424,7 +447,6 @@ impl SaveRepository {
         }
     }
 
-    #[cfg(test)]
     pub(crate) fn at(directory: impl Into<PathBuf>) -> Self {
         Self {
             directory: directory.into(),
@@ -1064,6 +1086,16 @@ mod tests {
         let mut saved = load_fixture_simulation(true);
         saved.substrate.base_reservations.reserve(None, 3, 4, 2);
         saved.substrate.base_reservations.reserve(None, -1, 0, 5);
+        saved
+            .session
+            .install_waypoints(&std::collections::HashMap::from([(
+                701,
+                crate::map::waypoints::Waypoint {
+                    index: 701,
+                    rx: 122,
+                    ry: 135,
+                },
+            )]));
         let path = repository
             .write_named("same-content.bin", &snapshot_bytes(&saved, &rules))
             .expect("write same-content transaction fixture");
@@ -1073,14 +1105,6 @@ mod tests {
         state.runtime.resources.rules = rules;
         state.runtime.resources.overlay_registry = registry;
         state.runtime.resources.terrain_template = Some(terrain);
-        state.runtime.resources.waypoints.insert(
-            701,
-            crate::map::waypoints::Waypoint {
-                index: 701,
-                rx: 122,
-                ry: 135,
-            },
-        );
         let rules_before = state.runtime.resources.rules.simulation_config_hash();
         let prepared = PreparedLoad::from_repository(
             LoadPreparationView::from_runtime(
@@ -1118,7 +1142,10 @@ mod tests {
             rules_before
         );
         assert!(runtime.resources.terrain_template.is_some());
-        assert_eq!(runtime.resources.waypoints[&701].rx, 122);
+        assert_eq!(
+            runtime.simulation.session.waypoint_cell(701),
+            Some((122, 135))
+        );
         let simulation = &mut runtime.simulation;
         let restored_dummy = simulation.effective_shared_cell_dummy();
         assert!(restored_dummy.same_identity(&live_dummy));

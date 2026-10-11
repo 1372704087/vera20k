@@ -532,5 +532,5 @@ fn a_kamikaze_missile_is_removed_after_its_shot() {
     assert_eq!(result.consequences.fire_events().len(), 1, "it fires");
     let missile = sim.substrate.entities.get(1).unwrap();
     assert!(!missile.lifecycle.object_alive, "UnInit");
-    assert!(sim.substrate.pending_delete.contains(&1));
+    assert!(sim.substrate.pending_delete.contains_object(&1));
 }

@@ -16,6 +16,7 @@
     "Ordinary drag-row motion observes native requested Scroll_Map distances; those rows do not execute downstream clipping/projection",
     "Camera sequences execute original Scroll_Map/request, same-frame TacticalAI commit/clamp and Z=0 instant SetView; supplied MapWidth100/LocalSize0,0,100,100 and viewport640x480 are geometry fixtures, not retail-map provenance",
     "Camera sequence Tactical+A8 and global frame are both0, bypassing unrelated animation/timer work while retaining full original request commit; original clamp determines initial centers from supplied seeds",
+    "Focus sequences execute original FocusOn6D2420 and full TacticalAI6D2540, float stores/interpolation75F5C0/clamp/cleanup for velocities0..4, all four clipping edges, nonzero/small LocalSize, repeated/wrapping frame gates, retarget, zero target, absolute SetView, ScenarioStarted/replay gates and pending scrolls. Original waypoint animation is kept stopped with remaining time1; geometry, subcell coordinates and Z=-104/0/727/728/1500 are explicit supplied inputs, not a stock mission timing or terrain ground-height comparison",
     "Original throttle entry 0x55E160 through 0x55E33B observes supplied clocks and session modes 0..6; later FPS bookkeeping is outside scope",
     "No original executable instructions are replaced; fresh original image per independent row, retained state only within the explicitly listed sequence"
   ],
@@ -27,6 +28,7 @@
     "Camera sequences replace CRT exit registration and derived viewport refresh0x6D8B30 with observed void sinks; committed/requested centers and native clamp/SetView writes remain original",
     "Camera sequence keyboard distances are supplied producer outputs; the21 distance is the original constant at0x82A030, while drag25 is produced by original method0 for100 pixels at rate3; keyboard producer/follow-target selection is not emulated",
     "Camera SetView Z=0 rows supply the standard original projection multiplier from existing bridge_click_oracle; no new height or terrain coverage is claimed",
+    "Camera lifecycle rows execute the full original Tactical constructor, Abstract/Tactical Save and Load, no-init constructor, size leaf, native clamp and subsequent AI. IStream retains exactly original requested bytes; Here_I_Am records the identity token without reconstructing the global Swizzle manager. VisibleCellCount is zero; pointer swizzling, complete scenario reload and serialization wire equivalence to Rust are excluded. The unrelated waypoint-display clock is supplied bucket0 and stopped during AI visits.",
     "Display vtable+0x48 records cursor, +0xC4 records band-box cancel argument without engagement mutation",
     "ClientToScreen adds fixture origin 101/202, SetCursorPos records requested OS coordinates; tactical offsets are 11/23"
   ],
@@ -43,13 +45,21 @@
     "RequestDirectionalScroll": "0x006D8530",
     "TacticalAI": "0x006D2540",
     "ClampViewCenter": "0x006D8640",
-    "SetViewToCoordInstant": "0x006D6070"
+    "SetViewToCoordInstant": "0x006D6070",
+    "FocusOn": "0x006D2420",
+    "InterpolatePoint": "0x0075F5C0",
+    "TacticalConstructor": "0x006D1C20",
+    "TacticalNoInit": "0x006D1E30",
+    "TacticalSave": "0x006DBE00",
+    "TacticalLoad": "0x006DBD20",
+    "AbstractSave": "0x00410320",
+    "AbstractLoad": "0x00410380"
   },
   "source_normalized_lf_sha256": {
-    "tools/input_oracle/fast_scroll.py": "fc23d236ec33e0e60168e7c9174d8c52b7970dafee4ea071d018f780d2aeadc4",
+    "tools/input_oracle/fast_scroll.py": "821fef694ae5d06c2ed85a76ecccb72db57ce88d380f29d99f166c396d94d89f",
     "tools/native_oracle.py": "0c94545bb9c4ca049ad7d46b152d9bd79624c7e52b3fec7a42d360974bbaacef",
     "tools/bridge_click_oracle.py": "b2879a5172b5fe778fbc8f8d98374b124ea1120aefe5e960764bd27a99183026"
   },
-  "payload_sha256": "76f457d8c87481cacddd61637b8c919130d63ca1fdc092fb06e839ac5c215f25",
+  "payload_sha256": "a100f216691907a05893665167101507d9880fbade58f5249c755e47ff23e46d",
   "replay_command": "python -m tools.input_oracle.fast_scroll"
 }

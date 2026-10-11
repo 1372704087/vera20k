@@ -506,6 +506,16 @@ pub struct ScenarioSession {
     pub game_mode_nonzero: bool,
     #[serde(default)]
     campaign: Option<CampaignScenarioState>,
+    /// Scenario+35A2. Trigger actions46/47 own this retained input lock;
+    /// presentation reads it and applies the ordered mouse/keyboard effects.
+    #[serde(default)]
+    input_locked: bool,
+    /// Process scenario-active byte A8ED5C. StartScenario683E75 publishes1;
+    /// MainGame48CEBF clears it on exit, and LoadGame67E6C4 republishes1.
+    /// It is reconstructed by the committed load/start route, not inferred
+    /// from a saved focus timer or the render screen.
+    #[serde(skip)]
+    started: bool,
     /// Persisted native `ScenarioClass` flags bit `0x20`.
     #[serde(default)]
     pub no_damage: bool,
@@ -533,6 +543,12 @@ pub struct ScenarioSession {
     pub map_height: u16,
     /// MP start waypoints (index -> cell) from the map `[Waypoints]` list.
     pub mp_start_waypoints: BTreeMap<u32, (u16, u16)>,
+    /// Scenario68BDC0's complete waypoint authority. The map parser is the
+    /// source transaction; Team movement and trigger callbacks read this one
+    /// private, saved table rather than maintaining subsystem copies. Omitted
+    /// slots retain the native zero coordinate.
+    #[serde(default)]
+    waypoints: BTreeMap<u32, (i16, i16)>,
     /// Start waypoint index -> owning house, filled during launch application
     /// (after the random-assignment draws), before tick 0.
     pub start_slot_houses: BTreeMap<u32, InternedId>,
@@ -565,6 +581,53 @@ pub struct ScenarioSession {
 }
 
 impl ScenarioSession {
+    pub(crate) fn install_waypoints(
+        &mut self,
+        waypoints: &std::collections::HashMap<u32, crate::map::waypoints::Waypoint>,
+    ) {
+        self.waypoints.clear();
+        self.waypoints.extend(waypoints.iter().filter_map(|(&index, waypoint)| {
+            (index < crate::map::waypoints::WAYPOINT_SLOT_COUNT)
+                .then_some((index, (waypoint.rx as i16, waypoint.ry as i16)))
+        }));
+    }
+
+    /// Scenario::GetWaypointCoords68BCC0 copies the packed signed words. An
+    /// unset valid slot is (0,0); reading outside its702-slot allocation is
+    /// not a deterministic malformed-map contract and is rejected here.
+    pub(crate) fn waypoint_cell(&self, index: i32) -> Option<(i16, i16)> {
+        let index = u32::try_from(index).ok()?;
+        (index < crate::map::waypoints::WAYPOINT_SLOT_COUNT)
+            .then(|| self.waypoints.get(&index).copied().unwrap_or((0, 0)))
+    }
+
+    pub(crate) fn first_multiplayer_start(&self) -> Option<crate::map::waypoints::Waypoint> {
+        self.waypoints
+            .range(crate::map::waypoints::MULTIPLAYER_START_WAYPOINTS)
+            .next()
+            .map(|(&index, &(rx, ry))| crate::map::waypoints::Waypoint {
+                index,
+                rx: rx as u16,
+                ry: ry as u16,
+            })
+    }
+
+    pub(crate) const fn input_locked(&self) -> bool {
+        self.input_locked
+    }
+
+    pub(crate) fn set_input_locked(&mut self, locked: bool) {
+        self.input_locked = locked;
+    }
+
+    pub(crate) const fn started(&self) -> bool {
+        self.started
+    }
+
+    pub(crate) fn set_started(&mut self, started: bool) {
+        self.started = started;
+    }
+
     pub(super) fn initialize_campaign_startup(
         &mut self,
         difficulty: i32,
@@ -626,6 +689,13 @@ impl ScenarioSession {
         if let Some(campaign) = s.campaign {
             b"scenario-campaign-startup-v1".hash(hasher);
             campaign.hash(hasher);
+        }
+        if s.input_locked {
+            b"scenario-input-lock-v1".hash(hasher);
+        }
+        if !s.waypoints.is_empty() {
+            b"scenario-waypoints-v1".hash(hasher);
+            s.waypoints.hash(hasher);
         }
         // current_house is persisted process input, deliberately absent from
         // the shared peer hash: native64DAB0 does not fold A83D4C, and different
@@ -746,6 +816,8 @@ impl ScenarioSession {
             theater: desc.theater.clone(),
             game_mode_nonzero: desc.game_mode_nonzero,
             campaign: None,
+            input_locked: false,
+            started: false,
             no_damage: desc.no_damage,
             free_radar: desc.free_radar,
             ignore_global_ai_triggers: desc.ignore_global_ai_triggers,
@@ -756,6 +828,7 @@ impl ScenarioSession {
             map_width: desc.map_width,
             map_height: desc.map_height,
             mp_start_waypoints: desc.mp_start_waypoints.clone(),
+            waypoints: BTreeMap::new(),
             start_slot_houses: BTreeMap::new(),
             house_order: Vec::new(),
             current_house: None,
@@ -943,6 +1016,7 @@ mod tests {
                 structure_upgrades: [None, None, None],
                 structure_ai_sellable: false,
                 structure_ai_repairable: false,
+                trigger_tag: None,
             };
             sim.spawn_from_map(&[entity], None);
             sim

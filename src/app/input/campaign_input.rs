@@ -1,0 +1,158 @@
+//! Presentation effects of original input46/47. ScenarioSession is the sole
+//! gameplay lock owner; this leaf coordinates existing input/display owners.
+
+use crate::app::AppState;
+
+/// Native mirror A8ED9C is copied from Scenario+35A2. App consumers read the
+/// session owner directly, including before its presentation effect drains.
+pub(crate) fn is_locked(state: &AppState) -> bool {
+    state
+        .match_state
+        .sim_runtime
+        .as_ref()
+        .is_some_and(|runtime| runtime.simulation.session.input_locked())
+}
+
+/// Ordered effect emitted after the authoritative Scenario mutation. The
+/// prior flag is carried by that owner: Unlock684290 restores cursor depth
+/// only for prior byte1, including after repeated locks.
+pub(crate) fn apply_lock_effect(state: &mut AppState, locked: bool, was_locked: bool) {
+    if locked {
+        state
+            .match_state
+            .input
+            .cancel_tactical_gesture_and_targeting();
+        state
+            .match_state
+            .match_presentation
+            .sidebar_gadget_state
+            .disable_selection_modes(false);
+        state
+            .match_state
+            .match_presentation
+            .in_game_gadgets
+            .cancel_pointer_capture();
+        crate::app::input::cursor::reset_cursor_shape();
+    }
+    state
+        .match_state
+        .input
+        .cursor_visibility
+        .apply_input_lock(locked, was_locked);
+    state.match_state.input.clear_command_latches();
+    // The OS cursor is ordinarily hidden behind mouse.shp. If that asset is
+    // absent, apply the same display-depth result to the window cursor.
+    state.platform.window.set_cursor_visible(
+        !state.use_software_cursor() && state.match_state.input.cursor_visibility.is_visible(),
+    );
+    crate::app::presentation::sidebar_render::refresh_sidebar_projection(state);
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::app::input::cursor::CursorVisibility;
+    use crate::app::input::state::MatchInputState;
+    use crate::app::types::{OrderMode, TargetingMode};
+    use winit::keyboard::KeyCode;
+
+    #[test]
+    fn lock_cleanup_cancels_gestures_and_targets_without_clearing_selection_or_held_keys() {
+        let mut interner = crate::sim::intern::StringInterner::new();
+        let owner = interner.intern("FixtureHouse");
+        for building in [true, false] {
+            let mut input =
+                MatchInputState::new(crate::app::input::hotkeys::HotkeyBindings::load(None));
+            if building {
+                assert!(input.begin_building_placement("FixtureBuilding", 23, owner,));
+            } else {
+                input.targeting_mode = Some(TargetingMode::SuperWeapon("FixtureSuper".to_owned()));
+            }
+            input.building_placement_preview =
+                Some(crate::sim::production::BuildingPlacementPreview {
+                    rx: 10,
+                    ry: 11,
+                    width: 1,
+                    height: 1,
+                    valid: true,
+                    reason: None,
+                    cell_valid: vec![true],
+                    wall_autofill_cells: vec![],
+                });
+            input.minimap_dragging = true;
+            input.selection_state.begin_drag(10.0, 20.0);
+            input.selection_state.update_drag(40.0, 50.0);
+            assert!(input.tactical_mouse.begin_left_press());
+            input.tactical_mouse.right_threshold_crossed = true;
+            input.selection_order = vec![11, 12];
+            input.control_groups[3] = vec![11, 12];
+            input.follow_target = Some(12);
+            input.camera_x = 30.0;
+            input.camera_y = 60.0;
+            input.keys_held.insert(KeyCode::ArrowLeft);
+            input.keys_held.insert(KeyCode::KeyT);
+            input
+                .type_select
+                .press(KeyCode::KeyT, std::time::Instant::now(), false);
+            input.queued_order_mode = OrderMode::AttackMove;
+
+            input.cancel_tactical_gesture_and_targeting();
+            input.clear_command_latches();
+
+            assert!(input.targeting_mode.is_none());
+            assert!(input.building_placement_preview.is_none());
+            assert!(!input.minimap_dragging);
+            assert!(!input.selection_state.is_dragging());
+            assert!(!input.tactical_mouse.captured);
+            assert!(input.tactical_mouse.left_held());
+            assert!(input.tactical_mouse.right_threshold_crossed);
+            assert_eq!(input.selection_order, [11, 12]);
+            assert_eq!(input.control_groups[3], [11, 12]);
+            assert_eq!(input.follow_target, Some(12));
+            assert_eq!((input.camera_x, input.camera_y), (30.0, 60.0));
+            assert!(input.keys_held.contains(&KeyCode::ArrowLeft));
+            assert!(input.keys_held.contains(&KeyCode::KeyT));
+            assert!(!input.type_select.held());
+            assert_eq!(input.queued_order_mode, OrderMode::Move);
+        }
+    }
+
+    #[test]
+    fn native_input_histories_preserve_cursor_depth_and_scenario_prior_gate() {
+        let rows: Vec<serde_json::Value> = serde_json::from_str(crate::test_fixture::text(
+            "tools/spatial_oracle/trigger_action_values.json",
+        ))
+        .unwrap();
+        let mut compared = 0;
+        for row in rows
+            .iter()
+            .filter(|row| row["case_kind"] == "input_history")
+        {
+            let steps = row["history"].as_array().unwrap();
+            let mut cursor = CursorVisibility::default();
+            cursor.restore_level(steps[0]["before"]["show_level"].as_i64().unwrap() as i32);
+            for step in steps {
+                assert_eq!(
+                    i64::from(cursor.level()),
+                    step["before"]["show_level"].as_i64().unwrap()
+                );
+                cursor.apply_input_lock(step["kind"] == 46, step["before"]["scenario_locked"] == 1);
+                assert_eq!(
+                    i64::from(cursor.level()),
+                    step["after"]["show_level"].as_i64().unwrap(),
+                    "{}",
+                    row["input"]["name"]
+                );
+                assert_eq!(
+                    cursor.is_visible(),
+                    step["after"]["show_level"].as_i64().unwrap() >= 0
+                );
+            }
+            // Native LoadMission retains the pre-load client scalar.
+            let mut restored = CursorVisibility::default();
+            restored.restore_level(cursor.level());
+            assert_eq!(restored, cursor);
+            compared += 1;
+        }
+        assert_eq!(compared, 8);
+    }
+}

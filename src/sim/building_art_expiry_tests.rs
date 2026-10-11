@@ -391,7 +391,7 @@ fn original_64_slot_expiry_controls_and_actual_sprite_frame_histories() {
                     "{name}: {frame}"
                 );
                 assert_eq!(
-                    !sim.substrate.pending_delete.contains(&expired),
+                    !sim.substrate.pending_delete.contains_object(&expired),
                     frame["alive"] == 1,
                     "{name}: {frame}"
                 );

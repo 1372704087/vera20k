@@ -549,7 +549,7 @@ fn assert_memberships(sim: &Simulation, expected: &Value, ids: &BTreeMap<String,
         "{name}: ordered live Logic"
     );
     assert_eq!(
-        sim.substrate.pending_delete,
+        sim.substrate.pending_delete.object_ids(),
         recorded_ids(ids, &expected["deferred"]),
         "{name}: ordered deferred finalization"
     );
@@ -1038,6 +1038,8 @@ fn original_whole_ai_shot_dynamic_logic_damage_and_deferred_lifetimes_match_nati
                 Some(&rules),
                 None,
                 crate::sim::world::FrameEffects::default(),
+                1,
+                false,
             );
             assert_emission_boundary(&fixture, &suffix["after_drain"], &ids, name);
             assert_rng(&fixture.sim, &suffix["rng_after"], name);

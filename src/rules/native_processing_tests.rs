@@ -2,6 +2,70 @@
 
 use super::*;
 
+/// Rules ctor665EDE and retained ReadGeneral67181C..67183C, compared with
+/// original5276D0 reads. Physical-empty lines and deliberately stored-empty
+/// cache values have different admission; the shared INI owner preserves it.
+#[test]
+fn native_trigger_reveal_radius_retains_original_reader_history() {
+    use crate::rules::ruleset::RuleSet;
+    let corpus: Vec<serde_json::Value> = serde_json::from_str(crate::test_fixture::text(
+        "tools/spatial_oracle/trigger_action_values.json",
+    ))
+    .unwrap();
+    let native = &corpus
+        .iter()
+        .find(|row| row["case_kind"] == "trigger_reveal")
+        .unwrap()["radius_reader"];
+    let integer = |value: &serde_json::Value| value.as_i64().unwrap() as i32;
+    let mut layers = RulesLayerStack::new(IniFile::empty());
+    assert_eq!(
+        RuleSet::from_rules_layers(&layers)
+            .unwrap()
+            .reveal_trigger_radius(),
+        integer(&native["constructor"])
+    );
+    let rows = native["rows"].as_array().unwrap();
+    assert_eq!(rows.len(), 22);
+    for row in rows {
+        let name = row["name"].as_str().unwrap();
+        assert_eq!(
+            RuleSet::from_rules_layers(&layers)
+                .unwrap()
+                .reveal_trigger_radius(),
+            integer(&row["prior"]),
+            "{name}: retained reader default"
+        );
+        let pass = if let Some(text) = row["physical_text"].as_str() {
+            IniFile::from_str(text)
+        } else {
+            // Supplied cached entries are the same seam as the original
+            // comparison, including its explicit stored-empty control.
+            let mut ini = IniFile::empty();
+            for (section, entries) in row["sections"].as_object().unwrap() {
+                for (key, value) in entries.as_object().unwrap() {
+                    ini.projection_section_mut(section)
+                        .set(key, value.as_str().unwrap());
+                }
+            }
+            ini
+        };
+        layers.push(RulesLayerKind::Scenario, pass);
+        assert_eq!(
+            RuleSet::from_rules_layers(&layers)
+                .unwrap()
+                .reveal_trigger_radius(),
+            integer(&row["value"]),
+            "{name}: original signed unclamped read"
+        );
+        let read = &row["reads"][0];
+        assert_eq!(read["section"], native["section"]);
+        assert_eq!(read["key"], native["key"]);
+        assert_eq!(read["default"], row["prior"]);
+    }
+    assert_eq!(native["rng_before"], native["rng_after"]);
+    assert!(native["rng_calls"].as_array().unwrap().is_empty());
+}
+
 #[test]
 fn campaign_difficulty_process_layers_match_original_nine_scalar_outputs() {
     use crate::rules::ruleset::{DifficultyRules, RuleSet};
@@ -439,7 +503,7 @@ fn retail_bridge_animation_vectors_match_original_reader_and_unread_d() {
     );
     assert!(
         rules
-            .anim_type_art_read_states
+            .anim_type_art_read_states()
             .iter()
             .any(|(name, read)| name == "D" && !read)
     );

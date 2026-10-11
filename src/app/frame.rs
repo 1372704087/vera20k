@@ -199,13 +199,13 @@ impl App {
 
         // Outcome gates, exit cascades, the audio pump and the simulation
         // advance, shared with the hidden-window service loop.
-        let freeze_campaign_first_live = shell_capture
+        let shell_capture_owns_simulation = shell_capture
             .as_deref()
-            .is_some_and(|capture| capture.freezes_simulation_for_first_live(state));
+            .is_some_and(|capture| capture.owns_simulation_steps(state));
         if Self::service_match_runtime(
             state,
             event_loop,
-            tactical_capture.is_none() && !freeze_campaign_first_live,
+            tactical_capture.is_none() && !shell_capture_owns_simulation,
         ) {
             return Ok(());
         }

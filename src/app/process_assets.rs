@@ -214,7 +214,7 @@ impl ProcessAssets {
         self.native_rules.as_ref()
     }
 
-    /// Split the two process-resident mutable authorities used by a synchronous
+    /// Split the process-resident authorities used by a synchronous
     /// scenario load. The leased MIX manager lives in `LoadingJob`; the native
     /// Rules registry remains here so every `?` after its destructive reset
     /// preserves the actual live state.
@@ -223,10 +223,12 @@ impl ProcessAssets {
     ) -> (
         Option<&mut crate::rules::process_owner::NativeRulesProcessOwner>,
         &mut crate::map::tile_variant_selector::TileVariantSelectorCache,
+        Option<&crate::rules::sound_ini::EvaRegistry>,
     ) {
         (
             self.native_rules.as_mut(),
             &mut self.tile_variant_selector_cache,
+            self.audio_catalog.as_ref().map(ProcessAudioCatalog::eva),
         )
     }
 

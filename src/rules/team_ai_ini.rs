@@ -60,6 +60,10 @@ pub struct TaskForceIni {
 pub struct TeamTypeIni {
     pub id: String,
     fields: IniSection,
+    /// Immutable original section for this read transaction. Reference
+    /// factories must run once for the actual physical pass, not replay the
+    /// accumulated current-field projection and reconstruct a stored pointer.
+    physical_read_fields: IniSection,
     pub source: TeamAiDefinitionSource,
 }
 
@@ -69,6 +73,12 @@ impl TeamTypeIni {
         &self.fields
     }
 
+    /// Native reference-resolution readers consume only this transaction's
+    /// physical section. Other typed readers keep the existing projection.
+    pub(crate) fn physical_read_section(&self) -> &IniSection {
+        &self.physical_read_fields
+    }
+
     fn overlay(&mut self, section: &IniSection, source: TeamAiDefinitionSource) {
         // Original TeamType ReadINI6F1371..6F1391 passes retained +F2 to
         // ReadBool5295F0. Preserve reached values through the shared INI
@@ -76,6 +86,7 @@ impl TeamTypeIni {
         // falling back to its constructor default. Executable controls:
         // tools/spatial_oracle/astar_threat_inputs.json (team_readers).
         self.fields.overlay_rules_pass(section);
+        self.physical_read_fields = section.clone();
         self.source = source;
     }
 }
@@ -334,6 +345,7 @@ impl TeamAiIniRegistry {
                 let mut definition = TeamTypeIni {
                     id: id.to_string(),
                     fields: IniSection::new(id.to_string()),
+                    physical_read_fields: IniSection::new(id.to_string()),
                     source,
                 };
                 definition.overlay(section, source);

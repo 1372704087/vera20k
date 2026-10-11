@@ -245,7 +245,7 @@ fn snapshot(
         "on_bridge":u8::from(actor.on_bridge),"sink":u8::from(actor.sinking.is_active()),
         "ground_head":object_name(sim.cell_objects(current,MovementLayer::Ground).next(),actors),
         "object_next":object_name(sim.next_cell_object(CellObjectMember::Entity(actors[0])),actors),
-        "deferred_count":actors.iter().filter(|id| sim.substrate.pending_delete.contains(id)).count(),
+        "deferred_count":actors.iter().filter(|id| sim.substrate.pending_delete.contains_object(id)).count(),
         "owner_losses":sim.houses[&owner].stats.units_lost()-initial_losses,
         // Native House+5574 counts on-map units. EntityStore's type index
         // counts stored objects, including these retained dead receivers.

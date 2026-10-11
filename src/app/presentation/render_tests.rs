@@ -75,13 +75,10 @@ fn allied_fog_with_visible_cells(
     }
     by_owner.insert(crate::sim::intern::test_intern(allied_owner), visibility);
 
-    FogState {
-        width: 64,
-        height: 64,
-        by_owner,
-        alliances,
-        ..Default::default()
-    }
+    let mut fog = FogState::new(64, 64);
+    fog.by_owner = by_owner;
+    fog.alliances = alliances;
+    fog
 }
 
 #[test]
@@ -380,13 +377,9 @@ fn test_band_emptiness_ignores_a_shrouded_unit_but_not_a_shrouded_building() {
         test_intern("Americans"),
         crate::sim::vision::OwnerVisibility::new(64, 64),
     );
-    let fog = FogState {
-        width: 64,
-        height: 64,
-        by_owner,
-        alliances,
-        ..Default::default()
-    };
+    let mut fog = FogState::new(64, 64);
+    fog.by_owner = by_owner;
+    fog.alliances = alliances;
 
     // One store per case, both populated before the interner snapshot is taken
     // (it is a clone of the shared test interner, so every name has to be in it).

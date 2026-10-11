@@ -25,6 +25,271 @@ use crate::sim::occupancy::{
 use crate::sim::particles::ParticleSystemStore;
 use crate::sim::voxel_anim::VoxelAnimStore;
 
+/// One retained identity in original AbstractClass deferred queue B0F698.
+/// Tag/Trigger ordinals belong to their own registries; Object/Overlay stable
+/// IDs share the substrate allocator but retain distinct destructor owners.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+pub(crate) enum DeferredDeleteTicket {
+    Object(u64),
+    Overlay(u64),
+    Tag(usize),
+    Trigger(usize),
+}
+
+/// Serialized, ordered authority for every725C70 enqueue. Registry membership
+/// and readiness belong to the corresponding object owners; this queue owns
+/// admission order and duplicate removal, including destructor-added entries.
+#[derive(Debug, Clone, Default)]
+pub(crate) struct DeferredDeleteQueue {
+    entries: Vec<Option<DeferredDeleteTicket>>,
+    /// Derived identity→storage positions; updated at every append/removal.
+    positions: std::collections::BTreeMap<DeferredDeleteTicket, Vec<usize>>,
+    /// Derived Fenwick prefix counts select a native logical cursor in O(log N).
+    /// Storage holes never affect queue order, saves or hashes. Rebuilt after
+    /// compaction/load; no family-specific queue or queue shadow exists.
+    prefix_counts: Vec<usize>,
+    live_count: usize,
+    #[cfg(test)]
+    fail_next_overlay_queue: bool,
+}
+
+impl DeferredDeleteQueue {
+    pub(crate) fn queue_object(&mut self, id: u64) {
+        self.append(DeferredDeleteTicket::Object(id));
+    }
+    pub(crate) fn queue_tag(&mut self, id: usize) {
+        self.append(DeferredDeleteTicket::Tag(id));
+    }
+    pub(crate) fn queue_trigger(&mut self, id: usize) {
+        self.append(DeferredDeleteTicket::Trigger(id));
+    }
+    pub(crate) fn queue_overlay(&mut self, id: u64) -> Result<(), ()> {
+        #[cfg(test)]
+        if std::mem::take(&mut self.fail_next_overlay_queue) {
+            return Err(());
+        }
+        self.entries.try_reserve(1).map_err(|_| ())?;
+        self.append(DeferredDeleteTicket::Overlay(id));
+        Ok(())
+    }
+    pub(crate) fn contains_object(&self, id: &u64) -> bool {
+        self.positions
+            .contains_key(&DeferredDeleteTicket::Object(*id))
+    }
+    #[cfg(test)]
+    pub(crate) fn contains_overlay(&self, id: u64) -> bool {
+        self.positions
+            .contains_key(&DeferredDeleteTicket::Overlay(id))
+    }
+    pub(crate) fn remove_object(&mut self, id: u64) {
+        self.remove(DeferredDeleteTicket::Object(id));
+    }
+    pub(super) fn remove(&mut self, ticket: DeferredDeleteTicket) {
+        if let Some(positions) = self.positions.remove(&ticket) {
+            for position in positions {
+                self.entries[position] = None;
+                self.live_count -= 1;
+                self.change_prefix(position, false);
+            }
+        }
+    }
+    pub(super) fn ticket(&self, index: usize) -> Option<DeferredDeleteTicket> {
+        let position = self.storage_position(index)?;
+        self.entries[position]
+    }
+    #[cfg(test)]
+    pub(crate) fn len(&self) -> usize {
+        self.live_count
+    }
+    #[cfg(test)]
+    pub(crate) fn is_empty(&self) -> bool {
+        self.live_count == 0
+    }
+    pub(crate) fn retained_tickets(&self) -> impl Iterator<Item = DeferredDeleteTicket> + '_ {
+        self.entries.iter().flatten().copied()
+    }
+    pub(crate) fn object_tickets(&self) -> impl Iterator<Item = u64> + '_ {
+        self.retained_tickets().filter_map(|ticket| match ticket {
+            DeferredDeleteTicket::Object(id) => Some(id),
+            _ => None,
+        })
+    }
+    pub(crate) fn hash_state(&self, hasher: &mut impl std::hash::Hasher) {
+        self.live_count.hash(hasher);
+        for ticket in self.entries.iter().flatten() {
+            // Preserve the established object-only fold. Non-Object tickets
+            // carry an explicit family marker before their retained identity.
+            match ticket {
+                DeferredDeleteTicket::Object(id) => id.hash(hasher),
+                _ => {
+                    "AbstractDeferredTicket".hash(hasher);
+                    ticket.hash(hasher);
+                }
+            }
+        }
+    }
+    fn append(&mut self, ticket: DeferredDeleteTicket) {
+        let position = self.entries.len();
+        self.entries.push(Some(ticket));
+        self.positions.entry(ticket).or_default().push(position);
+        self.live_count += 1;
+        if position + 1 >= self.prefix_counts.len() {
+            self.rebuild_prefix();
+        } else {
+            self.change_prefix(position, true);
+        }
+    }
+    fn change_prefix(&mut self, position: usize, add: bool) {
+        let mut index = position + 1;
+        while index < self.prefix_counts.len() {
+            if add {
+                self.prefix_counts[index] += 1;
+            } else {
+                self.prefix_counts[index] -= 1;
+            }
+            index += index.isolate_lowest_one();
+        }
+    }
+    fn rebuild_prefix(&mut self) {
+        let capacity = self.entries.len().max(8).next_power_of_two();
+        self.prefix_counts = vec![0; capacity + 1];
+        for (index, entry) in self.entries.iter().enumerate() {
+            self.prefix_counts[index + 1] = usize::from(entry.is_some());
+        }
+        for index in 1..=capacity {
+            let parent = index + index.isolate_lowest_one();
+            if parent <= capacity {
+                self.prefix_counts[parent] += self.prefix_counts[index];
+            }
+        }
+    }
+    fn storage_position(&self, logical_index: usize) -> Option<usize> {
+        if logical_index >= self.live_count {
+            return None;
+        }
+        let capacity = self.prefix_counts.len() - 1;
+        let mut target = logical_index + 1;
+        let mut position = 0;
+        let mut step = capacity;
+        while step != 0 {
+            let next = position + step;
+            if next <= capacity && self.prefix_counts[next] < target {
+                target -= self.prefix_counts[next];
+                position = next;
+            }
+            step /= 2;
+        }
+        Some(position)
+    }
+    /// Finish a native scan with one stable compaction. Destructors and their
+    /// callbacks have already observed the same live logical queue throughout.
+    pub(super) fn finish_drain(&mut self) {
+        if self.entries.len() != self.live_count {
+            self.entries.retain(Option::is_some);
+            self.rebuild_indexes();
+        }
+    }
+    fn rebuild_indexes(&mut self) {
+        self.positions.clear();
+        self.live_count = 0;
+        for (position, ticket) in self.entries.iter().enumerate() {
+            if let Some(ticket) = ticket {
+                self.positions.entry(*ticket).or_default().push(position);
+                self.live_count += 1;
+            }
+        }
+        self.rebuild_prefix();
+    }
+    #[cfg(test)]
+    pub(crate) fn tickets(&self) -> Vec<DeferredDeleteTicket> {
+        self.entries.iter().flatten().copied().collect()
+    }
+    /// Check every derived index against the sole serialized order source.
+    /// Native history tests call this before and after every saved boundary.
+    #[cfg(test)]
+    pub(crate) fn assert_consistent_for_test(&self) {
+        let mut rebuilt = Self {
+            entries: self.entries.clone(),
+            ..Self::default()
+        };
+        rebuilt.rebuild_indexes();
+        assert_eq!(self.positions, rebuilt.positions);
+        if self.prefix_counts.is_empty() {
+            assert!(self.entries.is_empty());
+        } else {
+            assert_eq!(self.prefix_counts, rebuilt.prefix_counts);
+        }
+        assert_eq!(self.live_count, rebuilt.live_count);
+        for (index, ticket) in self.retained_tickets().enumerate() {
+            assert_eq!(self.ticket(index), Some(ticket));
+        }
+        assert_eq!(self.ticket(self.live_count), None);
+    }
+    #[cfg(test)]
+    pub(crate) fn object_ids(&self) -> Vec<u64> {
+        self.object_tickets().collect()
+    }
+    #[cfg(test)]
+    pub(crate) fn overlay_count(&self) -> usize {
+        self.entries
+            .iter()
+            .flatten()
+            .filter(|ticket| matches!(ticket, DeferredDeleteTicket::Overlay(_)))
+            .count()
+    }
+    #[cfg(test)]
+    pub(crate) fn clear_for_test(&mut self) {
+        *self = Self::default();
+    }
+    #[cfg(test)]
+    pub(crate) fn remove_ticket_for_test(&mut self, ticket: DeferredDeleteTicket) {
+        self.remove(ticket);
+    }
+    #[cfg(test)]
+    pub(super) fn fail_next_overlay_queue_for_test(&mut self) {
+        self.fail_next_overlay_queue = true;
+    }
+    #[cfg(test)]
+    pub(crate) fn swap_for_test(&mut self, a: usize, b: usize) {
+        let a = self.storage_position(a).unwrap();
+        let b = self.storage_position(b).unwrap();
+        self.entries.swap(a, b);
+        self.rebuild_indexes();
+    }
+}
+
+impl PartialEq for DeferredDeleteQueue {
+    fn eq(&self, other: &Self) -> bool {
+        self.entries
+            .iter()
+            .flatten()
+            .eq(other.entries.iter().flatten())
+    }
+}
+impl Eq for DeferredDeleteQueue {}
+
+impl Serialize for DeferredDeleteQueue {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        use serde::ser::SerializeSeq;
+        let mut seq = serializer.serialize_seq(Some(self.live_count))?;
+        for ticket in self.entries.iter().flatten() {
+            seq.serialize_element(ticket)?;
+        }
+        seq.end()
+    }
+}
+impl<'de> Deserialize<'de> for DeferredDeleteQueue {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let tickets = Vec::<DeferredDeleteTicket>::deserialize(deserializer)?;
+        let mut queue = Self {
+            entries: tickets.into_iter().map(Some).collect(),
+            ..Self::default()
+        };
+        queue.rebuild_indexes();
+        Ok(queue)
+    }
+}
+
 /// Monotonic source for the AirTracker's registration order. Each airborne
 /// entity stores the value assigned when it entered its bucket; this counter
 /// hands out the next one. The sole mutator is `next()` — callers cannot mis-increment
@@ -137,13 +402,13 @@ pub(crate) struct ObjectSubstrate {
     /// namespace and LogicVector; individual particles remain container-owned.
     #[serde(default)]
     pub(crate) particle_systems: ParticleSystemStore,
-    /// Deferred-delete queue (the native `PendingDeleteList`). Ordered IDs may
+    /// Deferred-delete queue (the native `PendingDeleteList`). Ordered tickets may
     /// survive a Rust snapshot boundary: between enqueue and the ordinary late
     /// drain an entity remains resolvable in storage while its independent
     /// lifecycle facts describe dead/limbo/cell/logic state. Serialized verbatim;
-    /// the state hash folds the queue length followed by IDs in insertion order.
+    /// the state hash folds queue identities in insertion order.
     #[serde(default)]
-    pub(crate) pending_delete: Vec<u64>,
+    pub(crate) pending_delete: DeferredDeleteQueue,
 }
 
 impl ObjectSubstrate {
@@ -185,7 +450,7 @@ impl ObjectSubstrate {
             anims: AnimStore::default(),
             voxel_anims: VoxelAnimStore::default(),
             particle_systems: ParticleSystemStore::default(),
-            pending_delete: Vec::new(),
+            pending_delete: DeferredDeleteQueue::default(),
         }
     }
 }

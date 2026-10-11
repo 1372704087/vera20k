@@ -121,6 +121,7 @@ fn tube_hierarchy_restore_prepares_detached_dummy_then_publishes_terminal_fields
         0,
         &[],
         Some(&sidebar),
+        None,
     );
     // The independent fixture shares the immutable template's dummy; restore
     // the live witness after fixture setup, before testing the transaction.

@@ -39,6 +39,277 @@ use super::{
     RevealPosition, RevealRequest, Simulation,
 };
 
+/// CellPUT47E96E..47E9DC calls Player discovery for an unshrouded campaign
+/// cell; IsFogged5865E0 always returns false in active YR. The original
+/// foreign-owner entry/PUT contrast retains41C and changes41B only in the
+/// admitted cases. This protects the shared gate used by Foot and Building.
+#[test]
+fn native_trigger_reveal_cell_put_discovers_unshrouded_campaign_resident() {
+    use crate::sim::game_entity::TechnoDiscoveryHistory;
+    use crate::sim::vision::{FogState, OwnerVisibility};
+
+    for (game_mode_nonzero, revealed, discovered) in [
+        (false, false, false),
+        (false, true, true),
+        (true, false, true),
+    ] {
+        let mut sim = Simulation::with_seed(31);
+        let player = sim.interner.intern("Player");
+        let owner = sim.interner.intern("Other");
+        sim.session.current_house = Some(player);
+        sim.session.game_mode_nonzero = game_mode_nonzero;
+        for house in [player, owner] {
+            sim.houses
+                .insert(house, HouseState::new(house, 0, None, true, 0, 10));
+        }
+        sim.install_resolved_terrain_for_new_map(crate::map::resolved_terrain::test_grid(
+            24,
+            24,
+            crate::map::resolved_terrain::test_clear_cell,
+        ));
+        sim.fog = FogState::new(24, 24);
+        let mut plane = OwnerVisibility::new(24, 24);
+        if revealed {
+            plane.mark_sight(10, 10);
+        }
+        sim.fog.by_owner.insert(player, plane);
+        let typ = sim.interner.intern("E1");
+        let mut actor = GameEntity::new_at_frame_for_test(
+            1,
+            10,
+            10,
+            0,
+            0,
+            owner,
+            Health { current: 100 },
+            typ,
+            EntityCategory::Infantry,
+            0,
+            0,
+            false,
+            0,
+        );
+        actor.discovery = TechnoDiscoveryHistory {
+            owned_by_current_house: false,
+            discovered_by_current_house: false,
+            discovered_by_other_house: true,
+        };
+        let id = sim.substrate.entities.insert(actor);
+        let scenario = sim.scenario_rng.native_state_hex();
+        let main = sim.main_rng.native_state_hex();
+        let mapgen = sim.mapgen_rng.native_state_hex();
+        sim.discover_cell_put_object(id, (10, 10), super::UninitContext::default());
+        let history = sim.substrate.entities.get(id).unwrap().discovery;
+        assert_eq!(
+            history.discovered_by_current_house, discovered,
+            "mode_nonzero={game_mode_nonzero}, revealed={revealed}"
+        );
+        assert!(!history.owned_by_current_house && history.discovered_by_other_house);
+        assert_eq!(sim.houses[&owner].discovered_by_current_house(), discovered);
+        assert_eq!(sim.scenario_rng.native_state_hex(), scenario);
+        assert_eq!(sim.main_rng.native_state_hex(), main);
+        assert_eq!(sim.mapgen_rng.native_state_hex(), mapgen);
+    }
+}
+
+#[test]
+fn constructor_complete_foot_destructors_match_native_team_gate_and_rng() {
+    use crate::rules::art_data::ArtRegistry;
+    use crate::rules::ini_parser::IniFile;
+    use crate::rules::retail_ini_fixture::retail_rules_and_art;
+    use crate::rules::team_ai_ini::TeamAiIniRegistry;
+    use crate::sim::rng::SimRng;
+
+    let Some((ini, art)) = retail_rules_and_art() else {
+        return;
+    };
+    let mut rules =
+        crate::rules::ruleset::RuleSet::from_ini_with_fixed_art_for_test(&ini, &art).unwrap();
+    rules.install_art_data(ArtRegistry::from_ini(&art));
+    let corpus: serde_json::Value = serde_json::from_str(crate::test_fixture::text(
+        "tools/spatial_oracle/team_creation.json",
+    ))
+    .unwrap();
+    let rows: Vec<_> = corpus
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|row| row["case_kind"] == "scalar_cleanup")
+        .collect();
+    assert_eq!(rows.len(), 12);
+    for row in rows {
+        let input = &row["input"];
+        let typ = input["type"].as_str().unwrap();
+        let mut sim = Simulation::new();
+        sim.intern_rule_type_ids(&rules);
+        sim.resolve_type_handles(&rules);
+        sim.install_resolved_terrain_for_new_map(crate::map::resolved_terrain::test_grid(
+            128,
+            128,
+            |x, y| {
+                let mut cell = crate::map::resolved_terrain::test_flat_cell(x, y);
+                cell.level = 4;
+                cell
+            },
+        ));
+        sim.session.binary_frame = 1;
+        sim.session.game_mode_nonzero = true;
+        sim.session
+            .set_started(input["scenario_started_byte"].as_i64().unwrap() != 0);
+        let owner = sim.interner.intern("Americans");
+        sim.houses
+            .insert(owner, HouseState::new(owner, 0, Some(owner), true, 0, 10));
+        sim.session.house_order = vec![owner];
+        let definitions = IniFile::from_str(&format!(
+            "[TeamTypes]\n0=TT\n[TT]\nHouse=Americans\nScript=S\nTaskForce=F\nWaypoint=E\nMax=-1\n[ScriptTypes]\n0=S\n[S]\n0=3,4\n[TaskForces]\n0=F\n[F]\n0=1,{typ}\n"
+        ));
+        let registry = TeamAiIniRegistry::from_sources(&definitions, &IniFile::from_str(""), true);
+        sim.install_team_ai_registry(&registry, &rules).unwrap();
+        let team_type = sim.interner.get("TT").unwrap();
+        let team = sim
+            .with_object_placement_scope(|sim| sim.create_team(team_type, Some(owner), &rules))
+            .unwrap();
+        let member = sim
+            .with_object_placement_scope(|sim| {
+                sim.construct_object_limbo_at_height(typ, "Americans", 0, 0, 0, 0, &rules)
+            })
+            .unwrap();
+        assert!(sim.with_object_placement_scope(|sim| {
+            sim.team_add_member(
+                team,
+                member,
+                false,
+                &rules,
+                None,
+                super::FrameEffects::default(),
+            )
+        }));
+        let actor = sim.entities().get(member).unwrap();
+        assert!(actor.lifecycle.object_alive && actor.lifecycle.in_limbo);
+        assert_eq!(row["prior"]["alive"], 1);
+        assert_eq!(row["prior"]["limbo"], 1);
+        assert_eq!(row["prior"]["type_present"], true);
+        let counts = |field: &str| {
+            row[field]["taskforce_counts"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|value| i32::try_from(value.as_i64().unwrap()).unwrap())
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(
+            sim.team_script_vm
+                .team(team)
+                .unwrap()
+                .taskforce_counts_for_test()
+                .as_slice(),
+            counts("prior"),
+            "{input}"
+        );
+        // The native prior is observed at genuine action7's first scalar
+        // entry, not an invented dead/queue-ready object. This comparison
+        // starts its RNG there; the action7 test separately covers constructor
+        // draws and native identities. No process-Started inference is made.
+        sim.scenario_rng =
+            SimRng::from_native_state_hex_for_test(row["rng_before"]["scenario"].as_str().unwrap());
+        sim.main_rng =
+            SimRng::from_native_state_hex_for_test(row["rng_before"]["main"].as_str().unwrap())
+                .into();
+        sim.mapgen_rng =
+            SimRng::from_native_state_hex_for_test(row["rng_before"]["mapgen"].as_str().unwrap());
+        sim.finalize_and_remove_common(
+            member,
+            super::lifecycle::UninitContext::with_rules(&rules),
+            i32::try_from(input["game_active_byte"].as_i64().unwrap()).unwrap(),
+        );
+        assert!(!sim.entities().contains(member), "{input}");
+        let state = sim.team_script_vm.team(team).unwrap();
+        assert_eq!(
+            state.taskforce_counts_for_test().as_slice(),
+            counts("after_dtor"),
+            "{input}"
+        );
+        assert_eq!(
+            state.members().next().is_some(),
+            row["after_dtor"]["head_present"].as_bool().unwrap(),
+            "{input}"
+        );
+        assert_eq!(
+            sim.scenario_rng.native_state_hex(),
+            row["rng_after"]["scenario"].as_str().unwrap(),
+            "{input}"
+        );
+        assert_eq!(
+            sim.main_rng.native_state_hex(),
+            row["rng_after"]["main"].as_str().unwrap(),
+            "{input}"
+        );
+        assert_eq!(
+            sim.mapgen_rng.native_state_hex(),
+            row["rng_after"]["mapgen"].as_str().unwrap(),
+            "{input}"
+        );
+        // Native inactive teardown retains +48/+4C bookkeeping although its
+        // linked head is NULL. Team.members models that head/list; its length
+        // is not a claim about these separate native retired-state counters.
+    }
+}
+
+#[test]
+fn deferred_queue_indexes_and_saved_continuation_handle_twenty_thousand_identities() {
+    use super::{DeferredDeleteQueue, DeferredDeleteTicket};
+    use std::hash::Hasher;
+
+    // Native725C70 ordering is pinned by the mixed executable histories in
+    // trigger_runtime_native_tests. This protects the representation at the
+    // target scale: holes, duplicates and later appends cross every index
+    // growth boundary, then the serialized order must resume identically.
+    let mut queue = DeferredDeleteQueue::default();
+    for id in 0..20_000 {
+        queue.queue_object(id);
+        if id % 13 == 0 {
+            queue.queue_object(id);
+        }
+    }
+    for id in (0..20_000).step_by(3) {
+        queue.remove_object(id);
+    }
+    queue.queue_tag(31);
+    queue.queue_trigger(47);
+    queue.queue_overlay(20_001).unwrap();
+    queue.assert_consistent_for_test();
+    let bytes = bincode::serialize(&queue).unwrap();
+    let mut restored: DeferredDeleteQueue = bincode::deserialize(&bytes).unwrap();
+    restored.assert_consistent_for_test();
+    assert_eq!(queue, restored);
+
+    for id in 20_002..40_002 {
+        queue.queue_object(id);
+        restored.queue_object(id);
+        if id % 7 == 0 {
+            queue.remove_object(id - 20_002);
+            restored.remove_object(id - 20_002);
+        }
+    }
+    queue.remove(DeferredDeleteTicket::Tag(31));
+    restored.remove(DeferredDeleteTicket::Tag(31));
+    queue.finish_drain();
+    restored.finish_drain();
+    queue.assert_consistent_for_test();
+    restored.assert_consistent_for_test();
+    assert_eq!(queue, restored);
+    assert_eq!(
+        bincode::serialize(&queue).unwrap(),
+        bincode::serialize(&restored).unwrap()
+    );
+    let hash = |queue: &DeferredDeleteQueue| {
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        queue.hash_state(&mut hasher);
+        hasher.finish()
+    };
+    assert_eq!(hash(&queue), hash(&restored));
+}
+
 pub(super) fn insert_entity(sim: &mut Simulation, stable_id: u64, category: EntityCategory) {
     let owner = sim.interner.intern("Americans");
     let type_ref = sim.interner.intern("TEST");
@@ -882,6 +1153,7 @@ fn zero_speed_foot_drive_ship_payloads_survive_all_world_spawn_paths() {
     let placement = MapEntity {
         owner: "Americans".to_string(),
         type_id: "ZMAPD".to_string(),
+        trigger_tag: None,
         health: 256,
         cell_x: 8,
         cell_y: 2,
@@ -2544,7 +2816,7 @@ fn lifecycle_authority_conceal_keeps_object_alive() {
     assert!(entity.lifecycle.object_alive);
     assert!(entity.lifecycle.in_limbo);
     assert!(!entity.dying);
-    assert!(!sim.substrate.pending_delete.contains(&1));
+    assert!(!sim.substrate.pending_delete.contains_object(&1));
 }
 
 #[test]
@@ -2647,7 +2919,7 @@ fn lifecycle_authority_uninit_limbos_while_alive_then_clears_alive_then_queues()
     assert!(entity.lifecycle.in_limbo);
     assert!(!entity.lifecycle.cell_marked);
     assert!(entity.dying);
-    assert_eq!(sim.substrate.pending_delete, vec![1]);
+    assert_eq!(sim.substrate.pending_delete.object_ids(), vec![1]);
     let limbo = sim
         .lifecycle_test_events
         .iter()
@@ -2868,7 +3140,7 @@ fn lifecycle_authority_uninit_dead_limbo_remains_resolvable_until_drain() {
     assert!(entity.lifecycle.in_limbo);
     assert!(!entity.lifecycle.cell_marked);
     assert!(!entity.in_logic_vector);
-    assert_eq!(sim.substrate.pending_delete, vec![1]);
+    assert_eq!(sim.substrate.pending_delete.object_ids(), vec![1]);
 
     sim.process_pending_delete();
     assert!(!sim.substrate.entities.contains(1));
@@ -2899,7 +3171,7 @@ fn lifecycle_authority_transport_uninits_passengers_in_cargo_order_before_carrie
     sim.uninit(1);
     // Cargo list order is head-first: `CargoClass::AddPassenger @ 0x004733A0`
     // prepends, so the passenger boarded last (3) is walked first.
-    assert_eq!(sim.substrate.pending_delete, vec![3, 2, 1]);
+    assert_eq!(sim.substrate.pending_delete.object_ids(), vec![3, 2, 1]);
     let notify_order = sim
         .lifecycle_test_events
         .iter()
@@ -3365,7 +3637,7 @@ fn gsi_05_03_duplicate_uninit_repeats_direct_expiry_and_queue_but_finalizes_once
     assert_eq!(tracking.active_for_test().0, 0);
     assert_eq!(tracking.units_for_test(), 1);
     assert!(sim.substrate.entities.get(1).unwrap().destruction_recorded);
-    assert_eq!(sim.substrate.pending_delete, vec![1, 1]);
+    assert_eq!(sim.substrate.pending_delete.object_ids(), vec![1, 1]);
     let direct = repeated_events
         .iter()
         .position(|event| {
@@ -3429,6 +3701,15 @@ fn gsi_05_03_duplicate_uninit_repeats_direct_expiry_and_queue_but_finalizes_once
         sim.lifecycle_test_events,
         vec![
             LifecycleTestEvent::PendingDeleteDrainStarted,
+            LifecycleTestEvent::DeferredDeleteSelected {
+                ticket: super::DeferredDeleteTicket::Object(1),
+            },
+            LifecycleTestEvent::UninitRemovalListenerVisited {
+                expired_id: 1,
+                listener_id: 1,
+                target_alive: false,
+                target_in_limbo: true,
+            },
             LifecycleTestEvent::FinalizedCommon { stable_id: 1 },
         ]
     );
@@ -4041,7 +4322,7 @@ fn lifecycle_authority_duplicate_queue_finalizes_once() {
     insert_entity(&mut sim, 1, EntityCategory::Unit);
     sim.uninit(1);
     sim.uninit(1);
-    assert_eq!(sim.substrate.pending_delete, vec![1, 1]);
+    assert_eq!(sim.substrate.pending_delete.object_ids(), vec![1, 1]);
     sim.lifecycle_test_events.clear();
 
     sim.process_pending_delete();
@@ -4049,6 +4330,15 @@ fn lifecycle_authority_duplicate_queue_finalizes_once() {
         sim.lifecycle_test_events,
         vec![
             LifecycleTestEvent::PendingDeleteDrainStarted,
+            LifecycleTestEvent::DeferredDeleteSelected {
+                ticket: super::DeferredDeleteTicket::Object(1),
+            },
+            LifecycleTestEvent::UninitRemovalListenerVisited {
+                expired_id: 1,
+                listener_id: 1,
+                target_alive: false,
+                target_in_limbo: true,
+            },
             LifecycleTestEvent::FinalizedCommon { stable_id: 1 },
         ]
     );
@@ -4060,10 +4350,10 @@ fn lifecycle_authority_duplicate_queue_finalizes_once() {
 fn lifecycle_authority_entity_and_anim_share_ordered_drain() {
     let mut sim = Simulation::new();
     insert_anim(&mut sim, 2, true);
-    sim.substrate.pending_delete.push(2);
+    sim.substrate.pending_delete.queue_object(2);
     insert_entity(&mut sim, 1, EntityCategory::Unit);
     sim.uninit(1);
-    assert_eq!(sim.substrate.pending_delete, vec![2, 1]);
+    assert_eq!(sim.substrate.pending_delete.object_ids(), vec![2, 1]);
     sim.lifecycle_test_events.clear();
 
     sim.process_pending_delete();
@@ -4071,7 +4361,19 @@ fn lifecycle_authority_entity_and_anim_share_ordered_drain() {
         sim.lifecycle_test_events,
         vec![
             LifecycleTestEvent::PendingDeleteDrainStarted,
+            LifecycleTestEvent::DeferredDeleteSelected {
+                ticket: super::DeferredDeleteTicket::Object(2),
+            },
             LifecycleTestEvent::FinalizedCommon { stable_id: 2 },
+            LifecycleTestEvent::DeferredDeleteSelected {
+                ticket: super::DeferredDeleteTicket::Object(1),
+            },
+            LifecycleTestEvent::UninitRemovalListenerVisited {
+                expired_id: 1,
+                listener_id: 1,
+                target_alive: false,
+                target_in_limbo: true,
+            },
             LifecycleTestEvent::FinalizedCommon { stable_id: 1 },
         ]
     );
@@ -4093,6 +4395,15 @@ fn lifecycle_authority_late_tail_commits_frame_before_drain() {
         vec![
             LifecycleTestEvent::BinaryFrameCommitted,
             LifecycleTestEvent::PendingDeleteDrainStarted,
+            LifecycleTestEvent::DeferredDeleteSelected {
+                ticket: super::DeferredDeleteTicket::Object(1),
+            },
+            LifecycleTestEvent::UninitRemovalListenerVisited {
+                expired_id: 1,
+                listener_id: 1,
+                target_alive: false,
+                target_in_limbo: true,
+            },
             LifecycleTestEvent::FinalizedCommon { stable_id: 1 },
         ]
     );
@@ -4702,7 +5013,7 @@ fn substrate_registration_and_removal_dispatch_is_order_identical() {
     assert!(!sim.retire_non_entity_object(entity_id));
     assert!(!sim.retire_non_entity_object(anim_id));
     assert!(sim.retire_non_entity_object(terrain_id));
-    assert!(sim.substrate.pending_delete.contains(&terrain_id));
+    assert!(sim.substrate.pending_delete.contains_object(&terrain_id));
     assert!(!sim.live_object_order_snapshot().contains(&terrain_id));
 
     sim.debug_assert_logic_membership_consistent();
@@ -4766,7 +5077,10 @@ fn gsi_05_02_tail_appends_run_same_pass_and_terminal_current_skips_successor() {
     assert_eq!(removal_visited, vec![terminal_id]);
     assert_eq!(removal.live_object_order_snapshot(), vec![successor_id]);
     assert!(removal.projectiles.get(terminal_id).is_some());
-    assert_eq!(removal.substrate.pending_delete, vec![terminal_id]);
+    assert_eq!(
+        removal.substrate.pending_delete.object_ids(),
+        vec![terminal_id]
+    );
     assert_eq!(removal.waves.get(successor_id).unwrap().lifetime, 100);
     removal.debug_assert_logic_membership_consistent();
 }
@@ -4850,7 +5164,7 @@ fn gsi_05_02_lethal_terrain_unregisters_and_inactive_slot_cannot_roundtrip() {
     assert_eq!(terrain.lifecycle, TerrainObjectLifecycle::Destroyed);
     assert!(!terrain.in_logic_vector);
     assert!(sim.live_object_order_snapshot().is_empty());
-    assert_eq!(sim.substrate.pending_delete, vec![terrain_id]);
+    assert_eq!(sim.substrate.pending_delete.object_ids(), vec![terrain_id]);
 
     let bytes = GameSnapshot::save(&sim, 0, 0, "inactive-terrain", 0);
     let mut restored = GameSnapshot::load(&bytes)
@@ -4939,7 +5253,7 @@ fn gsi_05_03_terminal_non_entities_remain_resolvable_until_common_drain() {
     assert!(!sim.projectiles.get(projectile_id).unwrap().in_logic_vector);
     assert!(!sim.waves.get(wave_id).unwrap().in_logic_vector);
     assert_eq!(
-        sim.substrate.pending_delete,
+        sim.substrate.pending_delete.object_ids(),
         vec![terrain_id, projectile_id, wave_id]
     );
     assert!(sim.live_object_order_snapshot().is_empty());
@@ -4952,7 +5266,7 @@ fn gsi_05_03_terminal_non_entities_remain_resolvable_until_common_drain() {
         .restore_after_snapshot_load()
         .expect("deferred non-entities restore outside Logic");
     assert_eq!(
-        restored.substrate.pending_delete,
+        restored.substrate.pending_delete.object_ids(),
         vec![terrain_id, projectile_id, wave_id]
     );
     assert!(
@@ -5218,7 +5532,7 @@ fn gsi_05_04_combat_fatal_expiry_keeps_authoritative_cell_target() {
         .expect("fatal target remains resolvable before the common drain");
     assert!(!victim.lifecycle.object_alive);
     assert!(victim.lifecycle.in_limbo);
-    assert!(sim.substrate.pending_delete.contains(&victim_id));
+    assert!(sim.substrate.pending_delete.contains_object(&victim_id));
     assert_eq!(
         sim.projectiles.get(listener_id).unwrap().target,
         ProjectileTarget::Cell { rx: 5, ry: 6 },
@@ -5355,7 +5669,7 @@ fn gsi_05_04_combat_fatal_garrison_recursion_keeps_cell_target() {
         .expect("no-exit occupant remains resolvable before common drain");
     assert!(!passenger.lifecycle.object_alive);
     assert!(passenger.lifecycle.in_limbo);
-    assert!(sim.substrate.pending_delete.contains(&passenger_id));
+    assert!(sim.substrate.pending_delete.contains_object(&passenger_id));
     assert_eq!(
         sim.projectiles.get(listener_id).unwrap().target,
         ProjectileTarget::Cell { rx: 2, ry: 3 },
@@ -5610,7 +5924,10 @@ fn gsi_05_04_cell_target_cleanup_is_idempotent_across_duplicate_uninit() {
     sim.uninit(target_id);
 
     assert_eq!(sim.projectiles.get(projectile_id).unwrap(), &after_first);
-    assert_eq!(sim.substrate.pending_delete, vec![target_id, target_id]);
+    assert_eq!(
+        sim.substrate.pending_delete.object_ids(),
+        vec![target_id, target_id]
+    );
     assert_eq!(
         sim.lifecycle_test_events
             .iter()
@@ -5987,7 +6304,10 @@ fn gsi_01_05_lethal_bullet_commits_receiver_before_retirement_and_double_compact
         0,
         "receiver removal followed by current Bullet removal skips the shifted successor"
     );
-    assert_eq!(sim.substrate.pending_delete, vec![victim_id, projectile_id]);
+    assert_eq!(
+        sim.substrate.pending_delete.object_ids(),
+        vec![victim_id, projectile_id]
+    );
     assert!(sim.pending_projectile_detonations.is_empty());
     assert!(sim.projectiles.get(projectile_id).is_some());
     assert!(!sim.projectiles.get(projectile_id).unwrap().in_logic_vector);
@@ -6098,7 +6418,7 @@ fn gsi_01_05_terminal_wave_damages_once_before_single_current_removal() {
         1
     );
     assert!(sim.pending_wave_damage_requests.is_empty());
-    assert_eq!(sim.substrate.pending_delete, vec![wave_id]);
+    assert_eq!(sim.substrate.pending_delete.object_ids(), vec![wave_id]);
     assert_eq!(
         sim.live_object_order_snapshot(),
         vec![victim_id, successor_id]
@@ -6154,7 +6474,7 @@ fn terminal_type_zero_wave_with_empty_recorded_vector_has_no_damage_area_tail() 
     assert!(sim.dynamic_terrain_cells.is_empty());
     assert!(sim.radar_terrain_dirty_cells.is_empty());
     assert!(sim.tactical_dirty_cells.is_empty());
-    assert_eq!(sim.substrate.pending_delete, vec![wave_id]);
+    assert_eq!(sim.substrate.pending_delete.object_ids(), vec![wave_id]);
 }
 
 #[test]
@@ -7005,7 +7325,10 @@ fn gsi_01_05_wave_reselects_live_cell_list_after_fatal_receiver_unmark() {
     assert!(building.lifecycle.in_limbo);
     assert!(!sim.substrate.occupancy.contains_entity(4, 5, building_id));
     assert!(!sim.substrate.occupancy.contains_entity(5, 5, building_id));
-    assert_eq!(sim.substrate.pending_delete, vec![building_id, wave_id]);
+    assert_eq!(
+        sim.substrate.pending_delete.object_ids(),
+        vec![building_id, wave_id]
+    );
     assert!(sim.pending_wave_damage_requests.is_empty());
 }
 
@@ -7064,11 +7387,11 @@ fn gsi_05_02_restore_rejects_each_live_modeled_family_missing_from_logic() {
 fn lifecycle_authority_alive_queued_object_remains_queued() {
     let mut sim = Simulation::new();
     insert_entity(&mut sim, 1, EntityCategory::Unit);
-    sim.substrate.pending_delete.push(1);
+    sim.substrate.pending_delete.queue_object(1);
 
     sim.process_pending_delete();
     assert!(sim.substrate.entities.contains(1));
-    assert_eq!(sim.substrate.pending_delete, vec![1]);
+    assert_eq!(sim.substrate.pending_delete.object_ids(), vec![1]);
 }
 
 fn attack_fixture(current: MissionType, suspended: MissionId) -> MissionTestFixture {

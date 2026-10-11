@@ -463,7 +463,7 @@ mod muzzle_anim_tests {
             anim.runtime.inactive,
             "native19B requests expiry on its next AI"
         );
-        assert!(!sim.substrate.pending_delete.contains(&id));
+        assert!(!sim.substrate.pending_delete.contains_object(&id));
         assert_eq!(
             sim.anim_absolute_coord(id),
             Some(relative),

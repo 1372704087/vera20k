@@ -36,6 +36,7 @@ impl Simulation {
                     overlay_id: u8::try_from(identity).ok(),
                     overlay_data: state,
                     wall_owner: None,
+                    rubble_building_type: None,
                 }
             }
         }

@@ -40,6 +40,7 @@ mod handler;
 mod initialize;
 mod in_game;
 pub(crate) mod match_audio;
+pub mod match_bootstrap;
 pub(crate) mod match_runtime;
 pub(crate) mod audio_runtime;
 pub(crate) mod diagnostics;

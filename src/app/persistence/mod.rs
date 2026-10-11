@@ -630,13 +630,13 @@ mod tests {
 
     struct TestClock(u32);
 
-    impl crate::match_bootstrap::MatchSeedClock for TestClock {
+    impl crate::app::match_bootstrap::MatchSeedClock for TestClock {
         fn low_u32(&mut self) -> u32 {
             self.0
         }
 
-        fn source(&self) -> crate::match_bootstrap::MatchSeedSource {
-            crate::match_bootstrap::MatchSeedSource::Controlled
+        fn source(&self) -> crate::app::match_bootstrap::MatchSeedSource {
+            crate::app::match_bootstrap::MatchSeedSource::Controlled
         }
 
         fn seed_authority_certifying(&self) -> bool {
@@ -683,16 +683,16 @@ mod tests {
 
     fn startup_authority(seed: u32) -> MatchStartup {
         let launch = load_fixture_launch();
-        let accepted = match crate::match_bootstrap::classify_startup_session(&launch) {
-            crate::match_bootstrap::StartupSessionClassification::AcceptedExplicitFixedBattle(
+        let accepted = match crate::app::match_bootstrap::classify_startup_session(&launch) {
+            crate::app::match_bootstrap::StartupSessionClassification::AcceptedExplicitFixedBattle(
                 accepted,
             ) => accepted,
             other => panic!("startup fixture was not accepted: {other:?}"),
         };
         let mut next_correlation = 1;
         let correlation =
-            crate::match_bootstrap::allocate_match_correlation(&mut next_correlation).unwrap();
-        let startup = crate::match_bootstrap::prepare_match_startup(
+            crate::app::match_bootstrap::allocate_match_correlation(&mut next_correlation).unwrap();
+        let startup = crate::app::match_bootstrap::prepare_match_startup(
             correlation,
             accepted,
             &mut TestClock(seed),

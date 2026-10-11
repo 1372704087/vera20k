@@ -207,8 +207,8 @@ impl App {
         // Native process startup seeds Scenario before the MPModes loader. The
         // Cooperative factory reached by that loader then advances this cursor
         // before the first shell is shown.
-        let mut frontend_seed_clock = crate::match_bootstrap::OrdinaryMatchSeedClock;
-        let frontend_seed = crate::match_bootstrap::read_match_seed(&mut frontend_seed_clock);
+        let mut frontend_seed_clock = crate::app::match_bootstrap::OrdinaryMatchSeedClock;
+        let frontend_seed = crate::app::match_bootstrap::read_match_seed(&mut frontend_seed_clock);
         // The splash goes up as soon as the archives are mounted and the two
         // things it draws with are available: native presents it immediately
         // after the mix mount and lets the rules/type initialization run under
@@ -687,8 +687,8 @@ impl App {
             // the unverified legacy Battle loader. It has no artificial AI
             // opponent or starting forces; this is not campaign admission.
             let session = quickplay_launch_session(quickplay);
-            let mut clock = crate::match_bootstrap::OrdinaryMatchSeedClock;
-            let seed = crate::match_bootstrap::read_match_seed(&mut clock);
+            let mut clock = crate::app::match_bootstrap::OrdinaryMatchSeedClock;
+            let seed = crate::app::match_bootstrap::read_match_seed(&mut clock);
             let request = crate::app::loading::pump::LoadingRequest::unverified_legacy_skirmish(
                 session, seed,
             );

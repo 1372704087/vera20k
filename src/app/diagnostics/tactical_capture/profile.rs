@@ -801,7 +801,7 @@ mod tests {
 
     #[test]
     fn tracked_profiles_build_classifier_valid_fixed_battle_sessions() {
-        use crate::match_bootstrap::{StartupSessionClassification, classify_startup_session};
+        use crate::app::match_bootstrap::{StartupSessionClassification, classify_startup_session};
 
         let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
         for (file_name, expected_country, expected_harvester) in [

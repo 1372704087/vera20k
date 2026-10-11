@@ -1533,7 +1533,9 @@ fn set_window_pointer_to_rect_center(
     point
 }
 
-fn campaign_startup_receipt(startup: &crate::match_bootstrap::PreparedCampaignStartup) -> Value {
+fn campaign_startup_receipt(
+    startup: &crate::app::match_bootstrap::PreparedCampaignStartup,
+) -> Value {
     let campaign = startup.campaign();
     json!({
         "campaign": {"id": campaign.id(), "index": startup.campaign_index(), "cd": campaign.cd(),

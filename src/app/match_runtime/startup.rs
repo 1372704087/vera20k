@@ -4,7 +4,7 @@
 //! VERA-internal admission protocol; gamemd equivalent UNCHECKED. Existing startup
 //! observation checks remain in `match_bootstrap::RustL0Observation`.
 
-use crate::match_bootstrap::{
+use crate::app::match_bootstrap::{
     MatchCorrelationId, PreparedMatchStartup, RustL0Observation, RustL0Receipt,
 };
 use crate::sim::world::Simulation;
@@ -80,7 +80,7 @@ impl MatchStartup {
     pub(crate) fn admits_ordinary_tick(&self) -> bool {
         // Preserve the previous None/None policy, including during loading.
         // The app frame's InGame screen gate prevents loading from advancing.
-        crate::match_bootstrap::accepted_tick_is_admitted(self.startup(), self.receipt())
+        crate::app::match_bootstrap::accepted_tick_is_admitted(self.startup(), self.receipt())
     }
 
     pub(crate) fn admits_exact_step(&self) -> bool {

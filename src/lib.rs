@@ -48,13 +48,10 @@ pub mod app;
 
 /// Headless retail-scenario loading for parity runs (no GPU, no window).
 pub mod headless_scenario;
-pub mod match_bootstrap;
 
 // App-level skirmish startup contract shared by the menu shell and map loader.
-pub mod skirmish_cooperative;
 pub mod skirmish_launch;
 pub mod skirmish_modes;
-pub mod skirmish_persistence;
 
 // Source-level dependency guards for the domain-boundaries ledger.
 #[cfg(test)]

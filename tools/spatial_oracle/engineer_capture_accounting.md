@@ -76,8 +76,8 @@ at `519F4F` is observed. Constructor `4F577D` clears that retained notification;
 TEvent `71F0E1`, mapped to event kind3 by `71F328/71F350`, is its known gameplay
 reader. Live Tag/TEvent polling is outside these NULL-Tag controls.
 
-The production accounting owner is `combat::record_the_kill` with the private
-`MatchStatistics` mutation APIs. Tests in
+The production accounting owner is `combat::record_kill::record_the_kill` with
+the private `MatchStatistics` mutation APIs. Tests in
 `src/sim/house_statistics_tests.rs` consume this companion directly:
 
 - `native_null_record_kill_books_each_live_callback_immediately` compares five

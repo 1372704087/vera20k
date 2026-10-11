@@ -70,6 +70,7 @@
 //!   stock `Explodes=` vehicle has a finite `Ammo=`.
 
 use crate::map::entities::EntityCategory;
+use crate::rules::foundation::foundation_dimensions;
 use crate::rules::object_type::Ability;
 use crate::rules::ruleset::RuleSet;
 use crate::rules::terrain_rules::LandType;
@@ -356,7 +357,7 @@ impl Simulation {
         // 7. `0x0044177E..0x004418E7`.
         commit_smudge(
             self,
-            super::building_center_smudge_request(rx, ry, i32::from(z), &object.foundation),
+            building_center_smudge_request(rx, ry, i32::from(z), &object.foundation),
         );
 
         // 8. `0x004418EC..0x00441A26`, per foundation cell: the cell centre
@@ -426,3 +427,20 @@ impl Simulation {
 #[cfg(test)]
 #[path = "destruction_effects_tests.rs"]
 mod tests;
+
+/// `BuildingClass::DestructionEffects`' centre mark for a destroyed building.
+pub(super) fn building_center_smudge_request(
+    rx: u16,
+    ry: u16,
+    building_z: i32,
+    foundation: &str,
+) -> SmudgeSpawnRequest {
+    let (foundation_w, foundation_h) = foundation_dimensions(foundation);
+    SmudgeSpawnRequest::BuildingCenter {
+        rx,
+        ry,
+        building_z,
+        foundation_w: foundation_w as u8,
+        foundation_h: foundation_h as u8,
+    }
+}

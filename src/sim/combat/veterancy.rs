@@ -519,7 +519,7 @@ pub fn accumulate(
 /// RECIPIENT's own cost — an expensive unit needs a proportionally larger
 /// haul to promote — and the award is the victim's cost after the ally gate
 /// and the victim's own rank multiplier. Which object is the recipient is
-/// decided by the caller (`combat::award_kill_experience`), which walks the
+/// decided by the caller (`record_kill::award_kill_experience`), which walks the
 /// native redirection chain.
 pub fn award_kill(
     recipient: &mut GameEntity,

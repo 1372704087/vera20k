@@ -20,6 +20,10 @@ Sections, each executed in a fresh emulator per case:
   base centre and the atan2 facing 0x4CAE30, or the RandomRanged(0, 255)
   facing; the sin/cos step 0x4CACB0/0x4CAD00 and the cell quotients).
 - own_building: FindOwnBuilding 0x6EEEA0.
+- target_building: Find_Best_Target_Building 0x6EEBD0, actions 46/47's
+  pick over BuildingClass::Array (the type, enemy, IsAlliedWith 0x4F9A50 and
+  MultiplayPassive tests, the GetCoords cell each threat read takes, the
+  Sqrt_Approx distance, the two bests and OnlyTargetHouseEnemy=).
 - gather: action 53 0x6EF700 with `first` up to its FNPC call 0x6EF98A, or
   to its return when it finishes at once (the enemy's and own base centres,
   the leader's location without a base, the same atan2/sin/cos step as
@@ -670,6 +674,117 @@ def own_building():
     return rows
 
 
+# ---------------------------------------------------------------- target_building
+
+FIND_BEST_TARGET_BUILDING = 0x6EEBD0
+BUILDING_ARRAY = (0xA8EB44, 0xA8EB50)
+HOUSE_TYPES = BUILDING_TYPES + 0x8000
+
+
+def target_building_row(*, unit, buildings, mode, only_enemy, enemy=1, allies=(),
+                        passive=(3,)):
+    """`buildings`: dicts of Location, GetCoords answer, type match, owner
+    (house 0..3) and threat answer, in BuildingClass::Array order. House 0
+    owns the unit; `enemy` is the house the original receives as the enemy
+    (None for NULL); `allies` are the houses house 0's Allies bits name;
+    `passive` the houses whose type is MultiplayPassive."""
+    emu = TeamEmu()
+    houses = [HOUSES + index * HOUSE_SIZE for index in range(4)]
+    for index, house in enumerate(houses):
+        house_type = HOUSE_TYPES + index * 0x400
+        emu.write32(house + 0x30, index)
+        emu.write32(house + 0x34, house_type)
+        emu.write8(house_type + 0x1A6, int(index in passive))
+    emu.write32(houses[0] + 0x5788, sum(1 << ally for ally in allies))
+    unit_address = emu.object(0, xyz=unit)
+    emu.write32(unit_address + 0x21C, houses[0])
+    searched, other = BUILDING_TYPES, BUILDING_TYPES + 0x2000
+    coords, threats = {}, {}
+    for index, building in enumerate(buildings):
+        address = emu.object(index + 1, xyz=building['location'], vtable=BUILDING_VTABLE,
+                             rtti=RTTI_BUILDING)
+        emu.write32(address + 0x520, searched if building['of_type'] else other)
+        emu.write32(address + 0x21C, houses[building['owner']])
+        emu.write32(ARRAYS + index * 4, address)
+        coords[address] = building['coords']
+        threats[address] = building['threat']
+    emu.write32(BUILDING_ARRAY[0], ARRAYS)
+    emu.write32(BUILDING_ARRAY[1], len(buildings))
+
+    def building_coords(e):
+        out = e.arg(0)
+        for offset, value in zip((0, 4, 8), coords[e.uc.reg_read(UC_X86_REG_ECX)]):
+            e.write32(out + offset, value)
+        return out
+
+    def threat_at(e):
+        # The building being scored is in ESI throughout the walk.
+        building = e.uc.reg_read(UC_X86_REG_ESI)
+        cell = e.uc.mem_read(e.arg(0), 4)
+        e.events.append(['threat', TeamEmu.index_of(building) - 1,
+                         struct.unpack('<h', cell[:2])[0], struct.unpack('<h', cell[2:])[0],
+                         houses.index(e.arg(1))])
+        return threats[building]
+    emu.hook(STUB_BUILDING_COORDS, building_coords, 4)
+    emu.hook(THREAT_AT, threat_at, 8)
+    result = emu.invoke(FIND_BEST_TARGET_BUILDING, ecx=searched,
+                        edx=0 if enemy is None else houses[enemy],
+                        args=(unit_address, mode, int(only_enemy)))
+    return dict(unit=unit, buildings=buildings, mode=mode, only_enemy=only_enemy, enemy=enemy,
+                allies=list(allies), passive=list(passive),
+                result=None if result == 0 else TeamEmu.index_of(result) - 1,
+                events=emu.events)
+
+
+def target_building():
+    rng = random.Random(0x6EEBD0)
+    rows = []
+    for case in range(160):
+        span = (0x400, 0x8000, 0x40000, 0x7FFF00)[case % 4]
+
+        def xyz():
+            return [rng.randrange(-span, span), rng.randrange(-span, span),
+                    rng.randrange(0, 0x800)]
+        buildings = [dict(location=xyz(), coords=xyz(), of_type=rng.random() > 0.25,
+                          owner=rng.randrange(4),
+                          threat=rng.choice((0, 0, rng.randrange(1, 0x400),
+                                             rng.randrange(0, 0x7FFFFFFF), -rng.randrange(1, 9))))
+                     for _ in range(rng.randrange(0, 8))]
+        rows.append(target_building_row(
+            unit=xyz(), buildings=buildings, mode=(0, 1, 2, 3, 2, 0, 4, 0xFFFF)[case % 8],
+            only_enemy=case % 3 == 1, enemy=None if case % 9 == 4 else 1,
+            allies=[ally for ally in (1, 2, 3) if rng.random() > 0.6],
+            passive=(3,) if case % 5 else (2, 3)))
+    near = dict(location=[0x2100, 0x2000, 0], coords=[0x2180, 0x2080, 0], of_type=True,
+                owner=2, threat=7)
+    far = dict(location=[0x3000, 0x2000, 0], coords=[0x3080, 0x2080, 0], of_type=True,
+               owner=1, threat=3)
+    for mode in (0, 1, 2, 3):
+        for only_enemy in (False, True):
+            # The enemy's building is not the best overall: OnlyTargetHouseEnemy=
+            # takes it, otherwise the other house's.
+            rows.append(target_building_row(unit=[0x2000, 0x2000, 0], buildings=[near, far],
+                                            mode=mode, only_enemy=only_enemy))
+    # Ties keep the earlier building; an allied, passive owner's building is
+    # a candidate, an allied, active one is not; an own building is allied.
+    tied = [dict(near, owner=3), dict(near, location=[0x2000, 0x2100, 0], owner=1)]
+    for mode in (0, 2):
+        rows.append(target_building_row(unit=[0x2000, 0x2000, 0], buildings=tied, mode=mode,
+                                        only_enemy=False, allies=(3,)))
+    rows.append(target_building_row(unit=[0x2000, 0x2000, 0], mode=2, only_enemy=False,
+                                    allies=(2,), buildings=[near, dict(near, owner=0),
+                                                            dict(far, owner=3)]))
+    # No enemy: OnlyTargetHouseEnemy= finds none.
+    rows.append(target_building_row(unit=[0x2000, 0x2000, 0], buildings=[near, far], mode=2,
+                                    only_enemy=True, enemy=None))
+    # Coordinates whose /256 rounds toward zero, and a threat of -1 that no
+    # building beats.
+    rows.append(target_building_row(unit=[0, 0, 0], mode=1, only_enemy=False, buildings=[
+        dict(near, coords=[-0x80, -0x101, 0], threat=-1),
+        dict(near, coords=[-0x100, 0x7F, 0], threat=-1)]))
+    return rows
+
+
 # ---------------------------------------------------------------- bio_reactor
 
 ENTER_BIO_REACTOR = 0x4DFB70
@@ -880,7 +995,7 @@ def battle_bunker():
 def generate():
     return dict(recalc=recalc(), center=center(), recruit=recruit(), distance=distance(),
                 guard=guard(), regroup=regroup(), own_building=own_building(),
-                gather=gather(), quarry=quarry(), attack_cadence=attack_cadence(),
+                target_building=target_building(), gather=gather(), quarry=quarry(), attack_cadence=attack_cadence(),
                 bio_reactor=bio_reactor(), battle_bunker=battle_bunker())
 
 
@@ -891,6 +1006,7 @@ if __name__ == '__main__':
                'over one class array with supplied Can_Add answers; ObjectClass::Distance to '
                'a Foot or a building of every foundation; the action 5 guard timer; action '
                '54\'s point up to its FNPC call; FindOwnBuilding over one house\'s buildings; '
+               'Find_Best_Target_Building over BuildingClass::Array with four houses; '
                'action 53 up to its FNPC call or its early return; Quarry_To_Threat; '
                'Coordinate_Attack\'s frame test; EnterBioReactor over one house\'s '
                'absorber list with supplied CAN_LOAD answers; EnterBattleBunker over one '
@@ -914,6 +1030,11 @@ if __name__ == '__main__':
                        'z 0); RandomRanged 0x65C7E0 answers from the case and records its '
                        'range.',
                        'FindOwnBuilding\'s threat map read 0x56BCD0 answers 0.',
+                       'Find_Best_Target_Building: a building\'s GetCoords (vt+0x48) answers '
+                       'the case\'s coordinate; the threat map read 0x56BCD0 answers the '
+                       'scored building\'s case value and records its cell and house; '
+                       'IsAlliedWith 0x4F9A50 runs on the houses\' ArrayIndex (+0x30) and '
+                       'Allies bits (+0x5788).',
                        'EnterBioReactor\'s Transmit_Message (vt+0x278) answers the case\'s '
                        'CAN_LOAD reply and records it; Queue_Mission (vt+0x1E8) and '
                        'Assign_Destination (vt+0x480) record their calls; the pick is read '
@@ -925,7 +1046,8 @@ if __name__ == '__main__':
         entry_points={'recalc': RECALC, 'calc_center': CALC_CENTER, 'recruit': RECRUIT,
                       'distance': DISTANCE, 'guard_case': GUARD_CASE,
                       'regroup_at_base': REGROUP_AT_BASE, 'find_own_building':
-                      FIND_OWN_BUILDING, 'gather_at_enemy_base': GATHER_AT_ENEMY_BASE,
+                      FIND_OWN_BUILDING, 'find_best_target_building':
+                      FIND_BEST_TARGET_BUILDING, 'gather_at_enemy_base': GATHER_AT_ENEMY_BASE,
                       'quarry_to_threat': QUARRY_TO_THREAT, 'attack_cadence': CADENCE,
                       'enter_bio_reactor': ENTER_BIO_REACTOR,
                       'enter_battle_bunker': ENTER_BATTLE_BUNKER},

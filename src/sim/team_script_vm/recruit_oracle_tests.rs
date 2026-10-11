@@ -1,8 +1,8 @@
 //! `tools/team_recruit_oracle.py`'s native rows replayed: `Recalc`,
 //! `Calc_Center`'s arithmetic, `Recruit`'s search, `ObjectClass::Distance`,
 //! the action 5 guard timer, action 54's seed cell, `FindOwnBuilding`,
-//! action 53's seed cell, `Quarry_To_Threat` and `Coordinate_Attack`'s frame
-//! test.
+//! `Find_Best_Target_Building`, action 53's seed cell, `Quarry_To_Threat`
+//! and `Coordinate_Attack`'s frame test.
 //!
 //! Each row carries what the original's stubs answered (Can_Add, the weight
 //! and cell tests, the draw); the Rust owner must ask in the same order and
@@ -11,8 +11,8 @@
 use serde_json::Value;
 
 use super::actions::{
-    attack_check_frame, gather_seed_cell, guard_frames, own_building_pick, quarry_mask,
-    regroup_seed_cell,
+    TargetBuilding, attack_check_frame, gather_seed_cell, guard_frames, own_building_pick,
+    quarry_mask, regroup_seed_cell, target_building_pick,
 };
 use super::membership::{RecruitCandidate, entry_short, recruit_pick};
 use super::team_ai::{CenterSample, center_of, center_sample};
@@ -23,6 +23,7 @@ use crate::rules::ruleset::RuleSet;
 use crate::sim::game_entity::GameEntity;
 use crate::sim::world::Simulation;
 use crate::util::fixed_math::SimFixed;
+use crate::util::lepton::lepton_to_cell_packed;
 
 fn rows(section: &str) -> Vec<Value> {
     let oracle: Value =
@@ -366,6 +367,72 @@ fn find_own_building_matches_the_original() {
             row["result"].as_u64(),
             "own building row {number}"
         );
+    }
+}
+
+/// Each row's buildings of the searched type, scored in the original's
+/// order: the pick, the buildings whose threat it read, and the cell of each
+/// read (the building's GetCoords, rounded toward zero) for the unit's house.
+#[test]
+fn target_building_matches_the_original() {
+    for (number, row) in rows("target_building").iter().enumerate() {
+        let enemy = row["enemy"].as_u64();
+        let listed =
+            |key: &str| -> Vec<u64> { row[key].as_array().unwrap().iter().map(index).collect() };
+        let (allies, passive) = (listed("allies"), listed("passive"));
+        let all = row["buildings"].as_array().unwrap();
+        let buildings: Vec<TargetBuilding> = all
+            .iter()
+            .enumerate()
+            .filter(|(_, building)| flag(&building["of_type"]))
+            .map(|(id, building)| {
+                let owner = index(&building["owner"]);
+                TargetBuilding {
+                    id: id as u64,
+                    location: xyz(&building["location"]),
+                    enemy_owned: Some(owner) == enemy,
+                    allied: owner == 0 || allies.contains(&owner),
+                    passive: passive.contains(&owner),
+                }
+            })
+            .collect();
+        let mut read = Vec::new();
+        let result = target_building_pick(
+            &buildings,
+            xyz(&row["unit"]),
+            row["mode"].as_u64().unwrap() as u32,
+            flag(&row["only_enemy"]),
+            |id| {
+                read.push(id);
+                int(&all[id as usize]["threat"])
+            },
+        );
+        assert_eq!(
+            result,
+            row["result"].as_u64(),
+            "target building row {number}"
+        );
+        let threats = events(row, "threat");
+        assert_eq!(
+            read,
+            threats
+                .iter()
+                .map(|event| index(&event[1]))
+                .collect::<Vec<_>>(),
+            "target building row {number}: threat reads"
+        );
+        for event in threats {
+            let coords = xyz(&all[index(&event[1]) as usize]["coords"]);
+            assert_eq!(
+                (
+                    lepton_to_cell_packed(coords[0]),
+                    lepton_to_cell_packed(coords[1])
+                ),
+                (int(&event[2]) as i16, int(&event[3]) as i16),
+                "target building row {number}: threat cell"
+            );
+            assert_eq!(index(&event[4]), 0, "target building row {number}: house");
+        }
     }
 }
 

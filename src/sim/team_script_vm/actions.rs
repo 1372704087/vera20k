@@ -760,7 +760,11 @@ impl Simulation {
                 continue;
             };
             if member == transport
-                || !member_is_live_joined(entity, self.team_member_initiated(team_id, member))
+                || !member_is_live_joined(
+                    entity,
+                    self.team_member_initiated(team_id, member),
+                    self.object_placement_scope_active(),
+                )
             {
                 continue;
             }
@@ -862,8 +866,11 @@ impl Simulation {
             let Some(entity) = self.substrate.entities.get(member) else {
                 continue;
             };
-            if !member_is_live_joined(entity, self.team_member_initiated(team_id, member))
-                || entity.passenger_role.passenger_count() == 0
+            if !member_is_live_joined(
+                entity,
+                self.team_member_initiated(team_id, member),
+                self.object_placement_scope_active(),
+            ) || entity.passenger_role.passenger_count() == 0
             {
                 continue;
             }

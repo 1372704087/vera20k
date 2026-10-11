@@ -1192,12 +1192,10 @@ mod retail_construction_tests {
                 .interner
                 .get(team_type)
                 .expect("retail TeamType interned");
-            let frame = sim.session.binary_frame as i32;
             // The computer house may already have made the team; then it
             // recruits the new members.
             let team_id = sim
-                .team_script_vm
-                .construct_team(id, house, true, frame)
+                .create_team(id, Some(house), &resources.rules)
                 .or_else(|| {
                     sim.team_script_vm
                         .teams_in_order()

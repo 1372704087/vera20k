@@ -22,7 +22,6 @@ pub(crate) mod base_defense_response;
 pub mod burst;
 pub(crate) mod cell_spread;
 pub(crate) mod combat_aoe;
-pub(crate) mod combat_fire_gate;
 pub(crate) mod combat_targeting;
 pub(crate) mod combat_weapon;
 pub(crate) mod damage;

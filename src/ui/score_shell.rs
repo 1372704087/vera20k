@@ -20,7 +20,9 @@
 use std::time::{Duration, Instant};
 
 use crate::ui::shell::descriptor::DialogId;
-use crate::ui::shell::geom::{RectPx, child_window};
+use crate::ui::shell::geom::{
+    RectPx, SHELL_BASE_H, SHELL_BASE_W, ScaledRects, ShellScale, child_window,
+};
 use crate::ui::shell::layout::status_line_rect;
 use crate::ui::shell::menu_page::{self, MenuPageButtonSpec, MenuPageLayout, MenuPageSpec};
 use crate::ui::shell::static_reveal::{Kind1Params, Kind1RevealWindow, PresentedKind1Static};
@@ -240,14 +242,40 @@ impl ScoreTableLayout {
     /// bottom-right of the last player row's Score cell (`0x0082FD58` indexed
     /// by the row count), grown by 4 pixels sideways and 8 vertically
     /// (`0x0072AA10`). With no rows the proc looks up a non-control id and
-    /// darkens nothing.
-    pub fn shaded_rect(&self, rows: usize) -> Option<RectPx> {
+    /// darkens nothing. On a stretched page the growth stays authored, so the
+    /// shaded band matches the stretched background it sits on.
+    pub fn shaded_rect(&self, rows: usize, scale: ShellScale) -> Option<RectPx> {
         let last = self.rows.get(rows.checked_sub(1)?)?.score;
-        let left = self.game_label.x - 4;
-        let top = self.game_label.y - 8;
+        let (game, last) = (scale.base_rect(self.game_label), scale.base_rect(last));
+        let left = game.x - 4;
+        let top = game.y - 8;
         let right = last.x + last.w + 4;
         let bottom = last.y + last.h + 8;
-        Some(RectPx::new(left, top, right - left, bottom - top))
+        Some(scale.scale_rect(RectPx::new(left, top, right - left, bottom - top)))
+    }
+}
+
+impl ScaledRects for ScoreRowRects {
+    fn scaled_rects(&self, scale: ShellScale) -> Self {
+        Self {
+            name: self.name.scaled_rects(scale),
+            kills: self.kills.scaled_rects(scale),
+            losses: self.losses.scaled_rects(scale),
+            built: self.built.scaled_rects(scale),
+            score: self.score.scaled_rects(scale),
+        }
+    }
+}
+
+impl ScaledRects for ScoreTableLayout {
+    fn scaled_rects(&self, scale: ShellScale) -> Self {
+        Self {
+            game_label: self.game_label.scaled_rects(scale),
+            time_label: self.time_label.scaled_rects(scale),
+            header: self.header.scaled_rects(scale),
+            rows: self.rows.scaled_rects(scale),
+            bands: self.bands.scaled_rects(scale),
+        }
     }
 }
 
@@ -259,17 +287,36 @@ pub struct ScoreLayout {
     pub table: ScoreTableLayout,
 }
 
+/// `0x695` on this dialog is 303x14 DLU; the menu pages' is 303x12.
+fn score_status_help(screen_w: u32, screen_h: u32, scale: ShellScale) -> RectPx {
+    let window = RectPx::new(2, 353, 303, 14);
+    if scale.is_retail() {
+        return status_line_rect(window, screen_w as i32, screen_h as i32);
+    }
+    scale.scale_rect(status_line_rect(window, SHELL_BASE_W, SHELL_BASE_H))
+}
+
 pub fn compute_layout(screen_w: u32, screen_h: u32) -> ScoreLayout {
     let mut page = menu_page::compute_layout(&SCORE_PAGE, screen_w, screen_h);
-    // 0x695 is 303x14 DLU here; the menu pages' is 303x12.
-    page.status_help = status_line_rect(
-        RectPx::new(2, 353, 303, 14),
-        screen_w as i32,
-        screen_h as i32,
-    );
+    page.status_help = score_status_help(screen_w, screen_h, page.scale);
     ScoreLayout {
         page,
         table: ScoreTableLayout::template(),
+    }
+}
+
+/// The responsive variant of [`compute_layout`]: the verified 800x600 `0x108`
+/// stretched to fill the window. Identity at the base size. The table's cells,
+/// shaded rectangle and band windows stretch with the page; the bars themselves
+/// stay native-size images centred in their window.
+pub fn compute_responsive_layout(screen_w: u32, screen_h: u32) -> ScoreLayout {
+    let scale = ShellScale::from_screen(screen_w as i32, screen_h as i32);
+    let mut page = menu_page::compute_responsive_layout(&SCORE_PAGE, screen_w, screen_h);
+    page.status_help = score_status_help(screen_w, screen_h, scale);
+    let base = ScoreTableLayout::template();
+    ScoreLayout {
+        page,
+        table: base.scaled_rects(scale),
     }
 }
 
@@ -495,10 +542,32 @@ mod tests {
     fn the_shaded_rect_ends_eight_pixels_under_the_last_row() {
         let layout = ScoreTableLayout::template();
         // Two rows: x 95..534 and y 116..255, as the retail still measures.
-        assert_eq!(layout.shaded_rect(2), Some(RectPx::new(95, 116, 440, 140)));
-        assert_eq!(layout.shaded_rect(0), None);
+        assert_eq!(
+            layout.shaded_rect(2, ShellScale::RETAIL),
+            Some(RectPx::new(95, 116, 440, 140))
+        );
+        assert_eq!(layout.shaded_rect(0, ShellScale::RETAIL), None);
         // Row 7's Score cell ends at y 462.
-        assert_eq!(layout.shaded_rect(8), Some(RectPx::new(95, 116, 440, 354)));
+        assert_eq!(
+            layout.shaded_rect(8, ShellScale::RETAIL),
+            Some(RectPx::new(95, 116, 440, 354))
+        );
+    }
+
+    #[test]
+    fn responsive_score_layout_stretches_the_page_table_and_status_line() {
+        let base = compute_layout(800, 600);
+        let same = compute_responsive_layout(800, 600);
+        assert_eq!(same, base);
+        let double = compute_responsive_layout(1600, 1200);
+        assert_eq!(double.table.bands[0], RectPx::new(192, 234, 882, 74));
+        assert_eq!(double.table.bands[1], RectPx::new(192, 306, 882, 74));
+        assert_eq!(double.page.status_help, RectPx::new(20, 1150, 912, 48));
+        // The shaded band grows by the authored 4 and 8 pixels.
+        assert_eq!(
+            double.table.shaded_rect(2, double.page.scale),
+            Some(RectPx::new(190, 232, 880, 280))
+        );
     }
 
     #[test]

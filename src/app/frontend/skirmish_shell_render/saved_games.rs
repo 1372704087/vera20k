@@ -56,6 +56,7 @@ pub(crate) fn render_saved_game_shell(
             SHELL_LABEL_TEXT_RGB,
             ShellAlign::H_CENTER,
             SHELL_CONTROL_TEXT_DEPTH,
+            1.0,
         );
     }
     push_saved_browser_contents_text(&mut texts, state, &layout, browser);
@@ -96,6 +97,7 @@ pub(crate) fn render_saved_game_shell(
             button_text_rgb(theme, enabled),
             ShellAlign::H_CENTER | ShellAlign::V_CENTER,
             SHELL_CONTROL_TEXT_DEPTH,
+            1.0,
         );
     }
     // Shared confirmation clipping excludes all underlying text, including the

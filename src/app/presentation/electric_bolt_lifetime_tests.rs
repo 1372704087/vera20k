@@ -237,7 +237,8 @@ fn accepted_bolt_composites_preserve_the_next_actual_bullet_identity() {
             },
             rules,
             None,
-         crate::sim::world::FrameEffects::default(),);
+            crate::sim::world::FrameEffects::default(),
+        );
         assert_eq!(sim.projectiles.len(), 1, "retail MTNK emitted its shell");
         let (_, bullet) = sim.projectiles.iter().next().unwrap();
         assert_eq!(bullet.source_id, source);

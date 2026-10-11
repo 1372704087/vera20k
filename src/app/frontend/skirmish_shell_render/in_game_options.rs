@@ -8,7 +8,7 @@ use crate::render::bit_font::BitFont;
 use crate::render::shell_text::{self, ShellAlign, ShellTextDraw, TextRect};
 use crate::render::skirmish_shell_chrome::ControlChrome;
 use crate::ui::shell::descriptor::ControlKind;
-use crate::ui::shell::geom;
+use crate::ui::shell::geom::{self, ShellScale};
 use crate::ui::shell::in_game_options::{
     build_in_game_options_descriptor, control, speed_value_label_key,
 };
@@ -52,6 +52,7 @@ pub(crate) fn build_in_game_options_instances(
                         thumb_left: plain_trackbar_thumb_left(pos, rect),
                         plaque: false,
                     },
+                    ShellScale::RETAIL,
                 );
             }
             ControlKind::Checkbox => {
@@ -61,7 +62,12 @@ pub(crate) fn build_in_game_options_instances(
                     control::TOOLTIPS => state.tooltips,
                     _ => false,
                 };
-                paint_control(&mut out, chrome, ControlPaint::Checkbox { checked, rect });
+                paint_control(
+                    &mut out,
+                    chrome,
+                    ControlPaint::Checkbox { checked, rect },
+                    ShellScale::RETAIL,
+                );
             }
             // The active 0xBBB set carries only buttons/trackbars/checkboxes.
             _ => {}

@@ -36,7 +36,11 @@ const TYPE_SELECT_FALLBACK_SCHEME_ENTRY: crate::rules::house_colors::HouseColorI
 /// clock — never the raw `tooltips::now_ms` — so a pause freezes the
 /// remaining lifetime of every visible row.
 pub(crate) fn message_now_ms(state: &AppState) -> u64 {
-    state.match_state.match_presentation.message_clock.now(crate::app::input::tooltips::now_ms(state))
+    state
+        .match_state
+        .match_presentation
+        .message_clock
+        .now(crate::app::input::tooltips::now_ms(state))
 }
 
 /// Post a system message (mission/trigger text, future house notifications).
@@ -45,19 +49,24 @@ pub(crate) fn post_system_message(state: &mut AppState, text: &str) {
     let now = message_now_ms(state);
     let font = &state.renderer.bit_font;
     let measure = |s: &str| font.text_width(s) as i32;
-    let outcome = state.match_state.match_presentation.message_list.add_message(
-        &crate::ui::messages::MessagePost {
-            prefix: None,
-            text,
-            rgb: MESSAGE_RGB_SYSTEM,
-            timeout_ms: Some(MISSION_TEXT_TIMEOUT_MS),
-            silent: false,
-        },
-        now,
-        &measure,
-    );
+    let outcome = state
+        .match_state
+        .match_presentation
+        .message_list
+        .add_message(
+            &crate::ui::messages::MessagePost {
+                prefix: None,
+                text,
+                rgb: MESSAGE_RGB_SYSTEM,
+                timeout_ms: Some(MISSION_TEXT_TIMEOUT_MS),
+                silent: false,
+            },
+            now,
+            &measure,
+        );
     if outcome.play_sound {
-        let sound = state.rules()
+        let sound = state
+            .rules()
             .and_then(|r| r.general.incoming_message_sound.clone());
         crate::app::App::play_shell_ui_sound_by_id(state, sound.as_deref());
     }
@@ -123,13 +132,21 @@ pub(crate) fn post_selection_navigation_text(state: &mut AppState, text: &str) {
         state.rules().map(|rules| &rules.house_color_ramps),
     );
     let font = &state.renderer.bit_font;
-    state.match_state.match_presentation.message_list.add_message(
-        &crate::ui::messages::MessagePost {
-            prefix: None, text, rgb,
-            timeout_ms: Some(TYPE_SELECT_MESSAGE_TIMEOUT_MS), silent: true,
-        },
-        now, &|s| font.text_width(s) as i32,
-    );
+    state
+        .match_state
+        .match_presentation
+        .message_list
+        .add_message(
+            &crate::ui::messages::MessagePost {
+                prefix: None,
+                text,
+                rgb,
+                timeout_ms: Some(TYPE_SELECT_MESSAGE_TIMEOUT_MS),
+                silent: true,
+            },
+            now,
+            &|s| font.text_width(s) as i32,
+        );
 }
 
 /// Post one of the Supers' lines (`LightningStorm::Start @ 0x0053A076`,
@@ -146,23 +163,26 @@ pub(crate) fn post_super_weapon_message(state: &mut AppState, csf_key: &str) {
         &state.match_state.match_presentation.house_color_map,
         state.rules().map(|rules| &rules.house_color_ramps),
     );
-    let text = state
-        .process_assets
-        .csf
-        .as_ref()
-        .map_or_else(|| csf_key.to_string(), |table| table.text(csf_key).into_owned());
-    let font = &state.renderer.bit_font;
-    let outcome = state.match_state.match_presentation.message_list.add_message(
-        &crate::ui::messages::MessagePost {
-            prefix: None,
-            text: &text,
-            rgb,
-            timeout_ms: Some(SUPER_WEAPON_MESSAGE_TIMEOUT_MS),
-            silent: false,
-        },
-        now,
-        &|s| font.text_width(s) as i32,
+    let text = state.process_assets.csf.as_ref().map_or_else(
+        || csf_key.to_string(),
+        |table| table.text(csf_key).into_owned(),
     );
+    let font = &state.renderer.bit_font;
+    let outcome = state
+        .match_state
+        .match_presentation
+        .message_list
+        .add_message(
+            &crate::ui::messages::MessagePost {
+                prefix: None,
+                text: &text,
+                rgb,
+                timeout_ms: Some(SUPER_WEAPON_MESSAGE_TIMEOUT_MS),
+                silent: false,
+            },
+            now,
+            &|s| font.text_width(s) as i32,
+        );
     if outcome.play_sound {
         let sound = state
             .rules()
@@ -200,7 +220,11 @@ pub(crate) fn update(state: &mut AppState) -> Option<u64> {
         return None;
     }
     let wall = crate::app::input::tooltips::now_ms(state);
-    state.match_state.match_presentation.message_clock.set_paused(state.match_state.paused(), wall);
+    state
+        .match_state
+        .match_presentation
+        .message_clock
+        .set_paused(state.match_state.paused(), wall);
     if state.match_state.paused() {
         return None;
     }
@@ -216,8 +240,13 @@ pub(crate) fn update(state: &mut AppState) -> Option<u64> {
 
 fn sync_view(state: &mut AppState) {
     // Tactical viewport = render area minus the sidebar panel width.
-    let tactical_w =
-        state.render_width() as i32 - state.match_state.match_presentation.sidebar_layout_spec.sidebar_width.round() as i32;
+    let tactical_w = state.render_width() as i32
+        - state
+            .match_state
+            .match_presentation
+            .sidebar_layout_spec
+            .sidebar_width
+            .round() as i32;
     state.match_state.match_presentation.message_list.set_view(
         MESSAGE_X_INSET,
         0,
@@ -233,7 +262,10 @@ pub(crate) fn build_message_text_instances(state: &AppState) -> Vec<SpriteInstan
     message_text_instances(
         &state.renderer.bit_font,
         &state.match_state.match_presentation.message_list,
-        [state.match_state.input.camera_x, state.match_state.input.camera_y],
+        [
+            state.match_state.input.camera_x,
+            state.match_state.input.camera_y,
+        ],
     )
 }
 

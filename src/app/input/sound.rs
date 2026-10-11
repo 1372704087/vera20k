@@ -6,6 +6,7 @@ use crate::app::persistence::options::{
 };
 use crate::app::{App, AppState};
 use crate::ui::pause_menu::InGameMenuState;
+use crate::ui::shell::list::ListMetrics;
 use crate::ui::shell::list::ShellListGeometry;
 use crate::ui::shell::sound::{
     SoundButton, SoundControl, SoundLayout, SoundSlider, SoundState, SoundTrackRow,
@@ -142,7 +143,12 @@ pub(crate) fn poll_scroll_repeat(state: &mut AppState) -> Option<Instant> {
     let layout = layout(state)?;
     let (x, y) = state.window_cursor_position();
     let dialog = state.match_state.match_presentation.sound_dialog.as_mut()?;
-    let geometry = ShellListGeometry::new(layout.list, dialog.rows.len(), dialog.top);
+    let geometry = ShellListGeometry::new(
+        layout.list,
+        dialog.rows.len(),
+        dialog.top,
+        ListMetrics::RETAIL,
+    );
     if dialog.scroll.poll(
         geometry,
         &mut dialog.top,
@@ -168,7 +174,12 @@ pub(crate) fn cursor_moved(state: &mut AppState) {
         Some(SoundControl::Button(id)) => Some(id),
         _ => None,
     };
-    let geometry = ShellListGeometry::new(layout.list, dialog.rows.len(), dialog.top);
+    let geometry = ShellListGeometry::new(
+        layout.list,
+        dialog.rows.len(),
+        dialog.top,
+        ListMetrics::RETAIL,
+    );
     dialog.scroll.pointer_moved(geometry, &mut dialog.top, x, y);
     let changed = dialog.dragging.and_then(|id| {
         dialog
@@ -255,7 +266,12 @@ pub(crate) fn mouse(state: &mut AppState, button: MouseButton, pressed: bool) {
             App::play_shell_ui_sound_by_id(state, cue.as_deref());
         }
         Some(SoundControl::List) => {
-            let geometry = ShellListGeometry::new(layout.list, dialog.rows.len(), dialog.top);
+            let geometry = ShellListGeometry::new(
+                layout.list,
+                dialog.rows.len(),
+                dialog.top,
+                ListMetrics::RETAIL,
+            );
             if let Some(part) = geometry.scroll_part_at(x, y) {
                 dialog
                     .scroll

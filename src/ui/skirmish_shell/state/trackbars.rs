@@ -190,7 +190,7 @@ pub fn handle_option_mouse_down(
     }
 
     for checkbox in layout.checkboxes {
-        if checkbox_icon_rect(checkbox.rect).contains(x, y) {
+        if checkbox_icon_rect(checkbox.rect, layout.scale).contains(x, y) {
             let value = checkbox_value_mut(state, checkbox.id);
             *value = !*value;
             state.push_ui_sound(SkirmishShellUiSound::GuiCheckboxSound);
@@ -202,7 +202,7 @@ pub fn handle_option_mouse_down(
         let rect = trackbar_rect(layout, id);
         let range = state.trackbar_bounds.range(id);
         let visual_value = trackbar_visual_value(state, id);
-        let press = range.press(visual_value, x - rect.x, y - rect.y, rect.w, rect.h);
+        let press = range.press_in(visual_value, x, y, rect, layout.scale);
         let Some(hold) = press.hold(id) else {
             continue;
         };
@@ -244,7 +244,7 @@ pub fn handle_option_mouse_move(
     let value = state
         .trackbar_bounds
         .range(hold.id)
-        .value_at(x - rect.x, rect.w);
+        .value_at_in(x, rect, layout.scale);
     if set_trackbar_visual_value_if_changed(state, hold.id, value) {
         state.push_ui_sound(SkirmishShellUiSound::GenericClick);
     }

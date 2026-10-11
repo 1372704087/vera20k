@@ -45,7 +45,10 @@ pub use random_map_setup::{
     AcceptOutcome, PLAYERS_RANGE, RandomMapSetupModalState, SETUP_COMBO_ROWS, SetupCombo,
     SetupComboItem, setup_combo_items,
 };
-pub use saved_seed_browser::{SAVED_SEED_DESCRIPTION_MAX_UNITS, SavedSeedBrowserState, SavedSeedBrowserRow, SavedSeedOutcome, SavedSeedPrompt, SavedSeedPromptPurpose};
+pub use saved_seed_browser::{
+    SAVED_SEED_DESCRIPTION_MAX_UNITS, SavedSeedBrowserRow, SavedSeedBrowserState, SavedSeedOutcome,
+    SavedSeedPrompt, SavedSeedPromptPurpose,
+};
 pub use trackbars::{
     SkirmishTrackbarBounds, game_speed_from_visual_position, game_speed_visual_position,
     handle_option_mouse_down, handle_option_mouse_move, handle_option_mouse_up,

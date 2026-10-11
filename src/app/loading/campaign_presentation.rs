@@ -6,11 +6,11 @@
 //! `tools/input_oracle/campaign_start.{json,meta.json}`. GPU decoding and text
 //! rasterization remain with the existing loading render owners.
 
-use super::composition::{loading_art_viewport_size, loading_base_origin};
+use super::composition::{loading_art_viewport_size, loading_authored_size, loading_base_origin};
 use crate::assets::csf_file::CsfFile;
 use crate::render::loading_screen_chrome::LoadingScreenWidth;
 use crate::rules::campaign_loading::CampaignLoadingMetadata;
-use crate::ui::shell::geom::RectPx;
+use crate::ui::shell::geom::{RectPx, ShellScale};
 
 /// The three original campaign rectangles and the meter's base point, in
 /// loading-destination pixels. Progress-row frame insets belong to its owner.
@@ -23,13 +23,26 @@ pub(crate) struct CampaignLoadingLayout {
 }
 
 impl CampaignLoadingLayout {
-    pub(crate) const fn for_render_size(render_size: [u32; 2]) -> Self {
-        let [x, y] = loading_base_origin(render_size);
-        let [art_width, art_height] = loading_art_viewport_size(render_size[0]);
+    /// The chrome a stretched page draws: the authored rectangles and meter point
+    /// grown together, so the title band, body and bar still meet. Identity at
+    /// retail.
+    pub(crate) fn scaled(self, scale: ShellScale) -> Self {
+        Self {
+            title: scale.scale_rect(self.title),
+            body: scale.scale_rect(self.body),
+            bar: scale.scale_rect(self.bar),
+            progress_point: scale.scale_point(self.progress_point),
+        }
+    }
+
+    /// The executed rectangles in the viewport they are authored in.
+    pub(crate) fn for_authored_size(authored: [u32; 2]) -> Self {
+        let [x, y] = loading_base_origin(authored);
+        let [art_width, art_height] = loading_art_viewport_size(authored[0]);
         let title = RectPx::new(x, y, art_width, 40);
         let body = RectPx::new(x, y + 40, art_width, art_height - 80);
         let bar = RectPx::new(x, body.y + body.h, art_width, 40);
-        let meter_offset_x = if render_size[0] == super::composition::NARROW_LOADING_SCREEN_WIDTH {
+        let meter_offset_x = if authored[0] == super::composition::NARROW_LOADING_SCREEN_WIDTH {
             84
         } else {
             164
@@ -65,8 +78,10 @@ impl CampaignLoadingPresentation {
         metadata: &CampaignLoadingMetadata,
         csf: &CsfFile,
         render_size: [u32; 2],
+        scale: ShellScale,
     ) -> Self {
-        let width = LoadingScreenWidth::for_render_width(render_size[0]);
+        let authored = loading_authored_size(render_size, scale);
+        let width = LoadingScreenWidth::for_render_width(authored[0]);
         let (background_name, brief_location) = match width {
             LoadingScreenWidth::W640 => (
                 metadata.background_name_640(),
@@ -77,22 +92,22 @@ impl CampaignLoadingPresentation {
                 metadata.brief_location_800(),
             ),
         };
-        let layout = CampaignLoadingLayout::for_render_size(render_size);
+        let layout = CampaignLoadingLayout::for_authored_size(authored);
         let localize = |key: &str| {
             (!background_name.is_empty() && !key.is_empty()).then(|| csf.text(key).into_owned())
         };
         Self {
             width,
-            layout,
+            layout: layout.scaled(scale),
             background_name: background_name.to_owned(),
             background_palette_name: metadata.background_palette_name().to_owned(),
             title: localize(metadata.load_message_key()),
             briefing: localize(metadata.load_briefing_key()),
-            title_origin: [layout.title.x + 10, layout.title.y + 10],
-            briefing_origin: [
+            title_origin: scale.scale_point([layout.title.x + 10, layout.title.y + 10]),
+            briefing_origin: scale.scale_point([
                 layout.body.x.wrapping_add(brief_location[0]),
                 layout.body.y.wrapping_add(brief_location[1]),
-            ],
+            ]),
         }
     }
 
@@ -128,7 +143,7 @@ mod tests {
                 row["width"].as_u64().unwrap() as u32,
                 row["height"].as_u64().unwrap() as u32,
             ];
-            let layout = CampaignLoadingLayout::for_render_size(size);
+            let layout = CampaignLoadingLayout::for_authored_size(size);
             let expected_rect = |name: &str| {
                 let rect = row["rects"][name].as_array().unwrap();
                 RectPx::new(

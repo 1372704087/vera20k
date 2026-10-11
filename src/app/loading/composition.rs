@@ -13,7 +13,7 @@ use crate::map::playfield::PlayfieldBounds;
 use crate::map::preview::DecodedPreview;
 use crate::map::waypoints::Waypoint;
 use crate::skirmish_launch::{LaunchCountry, SkirmishLaunchMode, SkirmishLaunchSession};
-use crate::ui::shell::geom::RectPx;
+use crate::ui::shell::geom::{RectPx, SHELL_BASE_H, SHELL_BASE_W, ShellScale};
 
 const NATIVE_START_LIMIT: u32 = 8;
 const PREVIEW_SCALE: i64 = 1_000;
@@ -42,6 +42,30 @@ pub(crate) const fn loading_art_viewport_size(render_width: u32) -> [i32; 2] {
         NARROW_ART_SIZE
     } else {
         WIDE_ART_SIZE
+    }
+}
+
+/// The mapping the loading screen paints in. gamemd centers the art viewport in
+/// the window and draws it 1:1; the family's fill-window switch instead grows the
+/// authored dialog into the whole window, so every authored rect maps through this
+/// scale. [`ShellScale::RETAIL`] leaves every path exactly as gamemd has it.
+pub(crate) fn loading_screen_scale(fill_window: bool, render_size: [u32; 2]) -> ShellScale {
+    if fill_window {
+        ShellScale::from_screen(render_size[0] as i32, render_size[1] as i32)
+    } else {
+        ShellScale::RETAIL
+    }
+}
+
+/// The size the loading layers are authored in: the live window at retail, and the
+/// dialog a stretched page grows into the window. Every layer's geometry — the
+/// narrow/wide art branch, the centered origin and each rect — is computed from
+/// this size first, then mapped through the scale, so the two paths cannot drift.
+pub(crate) fn loading_authored_size(render_size: [u32; 2], scale: ShellScale) -> [u32; 2] {
+    if scale.is_retail() {
+        render_size
+    } else {
+        [SHELL_BASE_W as u32, SHELL_BASE_H as u32]
     }
 }
 
@@ -75,6 +99,13 @@ impl MmpbRegionRect {
             width,
             height,
         }
+    }
+
+    /// The region a stretched page draws its preview into: the native rect grown
+    /// by the layout's scale. Identity on the retail mapping.
+    pub(crate) fn scaled(self, scale: ShellScale) -> Self {
+        let rect = scale.scale_rect(RectPx::new(self.x, self.y, self.width, self.height));
+        Self::new(rect.x, rect.y, rect.w, rect.h)
     }
 }
 
@@ -287,12 +318,15 @@ pub(crate) struct LoadingTextRects {
 ///
 /// The Cooperative briefing Y only exists in the 800 table: gamemd's Cooperative
 /// branch collapses to the same values as the plain branch at exactly 640 wide.
+/// The tables are authored numbers, so a stretched page maps them through its
+/// scale after the offset, keeping the copy on the art it labels.
 pub(crate) fn loading_text_rects(
     render_size: [u32; 2],
     mode: &SkirmishLaunchMode,
+    scale: ShellScale,
 ) -> LoadingTextRects {
-    let [width, _] = render_size;
-    let table = if width == NARROW_LOADING_SCREEN_WIDTH {
+    let authored = loading_authored_size(render_size, scale);
+    let table = if authored[0] == NARROW_LOADING_SCREEN_WIDTH {
         LoadingTextRects {
             country_name: RectPx::new(385, 436, 200, 20),
             special_unit: RectPx::new(16, 72, 200, 20),
@@ -311,12 +345,13 @@ pub(crate) fn loading_text_rects(
         }
     };
 
-    let [dx, dy] = loading_base_origin(render_size);
+    let [dx, dy] = loading_base_origin(authored);
+    let place = |rect: RectPx| scale.scale_rect(rect.translate(dx, dy));
     LoadingTextRects {
-        country_name: table.country_name.translate(dx, dy),
-        special_unit: table.special_unit.translate(dx, dy),
-        load_brief: table.load_brief.translate(dx, dy),
-        loading: table.loading.translate(dx, dy),
+        country_name: place(table.country_name),
+        special_unit: place(table.special_unit),
+        load_brief: place(table.load_brief),
+        loading: place(table.loading),
     }
 }
 
@@ -342,6 +377,9 @@ pub(crate) enum LoadingCompositionLayer {
 /// Immutable CPU-side input for every selected-map loading presentation.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct LoadingCompositionSnapshot {
+    /// The mapping [`Self::text_rects`] and the preview region were placed in, so
+    /// the paint path scales the art it draws beside them the same way.
+    pub scale: ShellScale,
     pub preview: Option<PreparedLoadingPreview>,
     pub markers: Vec<MmpbMarkerRecord>,
     pub text: LocalizedLoadingTextSnapshot,
@@ -355,9 +393,10 @@ pub(crate) fn build_loading_composition(
     session: &SkirmishLaunchSession,
     csf: Option<&CsfFile>,
     render_size: [u32; 2],
+    scale: ShellScale,
     assignments: &[LoadingStartAssignment],
 ) -> LoadingCompositionSnapshot {
-    let region = mmpb_region_rect(render_size[0]);
+    let region = mmpb_region_rect(loading_authored_size(render_size, scale)[0]).scaled(scale);
     let prefix = native_loading_waypoint_prefix(&map.waypoints);
     let bounds = projected_playfield_bounds(map);
 
@@ -377,7 +416,7 @@ pub(crate) fn build_loading_composition(
             Some(PreparedLoadingPreview { image, region, fit })
         });
 
-    finish_loading_composition(session, csf, render_size, preview, markers)
+    finish_loading_composition(session, csf, render_size, scale, preview, markers)
 }
 
 /// Build the snapshot for a random-map seed load.
@@ -400,12 +439,13 @@ pub(crate) fn build_random_map_loading_composition(
     session: &SkirmishLaunchSession,
     csf: Option<&CsfFile>,
     render_size: [u32; 2],
+    scale: ShellScale,
     preview_image: Option<DecodedPreview>,
     launch_map: &MapFile,
     active_scenario_waypoints: &HashMap<u32, Waypoint>,
     assignments: &[LoadingStartAssignment],
 ) -> LoadingCompositionSnapshot {
-    let region = mmpb_region_rect(render_size[0]);
+    let region = mmpb_region_rect(loading_authored_size(render_size, scale)[0]).scaled(scale);
     let mut markers = Vec::new();
     let preview = preview_image
         .filter(valid_preview_buffer)
@@ -419,7 +459,7 @@ pub(crate) fn build_random_map_loading_composition(
             Some(PreparedLoadingPreview { image, region, fit })
         });
 
-    finish_loading_composition(session, csf, render_size, preview, markers)
+    finish_loading_composition(session, csf, render_size, scale, preview, markers)
 }
 
 /// Attach the map-independent layers — the four localized text strings and their
@@ -428,6 +468,7 @@ fn finish_loading_composition(
     session: &SkirmishLaunchSession,
     csf: Option<&CsfFile>,
     render_size: [u32; 2],
+    scale: ShellScale,
     preview: Option<PreparedLoadingPreview>,
     markers: Vec<MmpbMarkerRecord>,
 ) -> LoadingCompositionSnapshot {
@@ -436,9 +477,10 @@ fn finish_loading_composition(
         || LocalizedLoadingTextSnapshot::missing(country),
         |csf| localize_loading_text(csf, country),
     );
-    let text_rects = loading_text_rects(render_size, &session.mode);
+    let text_rects = loading_text_rects(render_size, &session.mode, scale);
     let layers = composition_layers(preview.is_some(), !markers.is_empty(), &text);
     LoadingCompositionSnapshot {
+        scale,
         preview,
         markers,
         text,
@@ -959,8 +1001,8 @@ mod tests {
         // The split-anchor bug this guards: the text layers moved with the
         // window while the art and the progress row stayed at (0,0).
         let battle = mode("MPBattleMD.ini");
-        let anchored = loading_text_rects([800, 600], &battle);
-        let maximized = loading_text_rects([1024, 768], &battle);
+        let anchored = loading_text_rects([800, 600], &battle, ShellScale::RETAIL);
+        let maximized = loading_text_rects([1024, 768], &battle, ShellScale::RETAIL);
         let [dx, dy] = loading_base_origin([1024, 768]);
 
         assert_eq!(
@@ -983,15 +1025,13 @@ mod tests {
             ("LoadBrief:USA", "A briefing."),
             ("GUI:LoadingEx", "Loading..."),
         ]);
-        let map = crate::map::rmg::emit::empty_map_file(
-            &crate::map::rmg::RmgOptions::default(),
-            32,
-            32,
-        );
+        let map =
+            crate::map::rmg::emit::empty_map_file(&crate::map::rmg::RmgOptions::default(), 32, 32);
         let composition = build_random_map_loading_composition(
             &test_launch_session(),
             Some(&csf),
             [800, 600],
+            ShellScale::RETAIL,
             None,
             &map,
             &map.waypoints,
@@ -1004,7 +1044,7 @@ mod tests {
         assert_eq!(composition.text.loading.as_deref(), Some("Loading..."));
         assert_eq!(
             composition.text_rects,
-            loading_text_rects([800, 600], &mode("MPBattleMD.ini"))
+            loading_text_rects([800, 600], &mode("MPBattleMD.ini"), ShellScale::RETAIL)
         );
         assert!(composition.preview.is_none());
         assert!(composition.markers.is_empty());
@@ -1017,15 +1057,13 @@ mod tests {
             height: 80,
             rgba: vec![255; 200 * 80 * 4],
         };
-        let map = crate::map::rmg::emit::empty_map_file(
-            &crate::map::rmg::RmgOptions::default(),
-            32,
-            32,
-        );
+        let map =
+            crate::map::rmg::emit::empty_map_file(&crate::map::rmg::RmgOptions::default(), 32, 32);
         let composition = build_random_map_loading_composition(
             &test_launch_session(),
             None,
             [800, 600],
+            ShellScale::RETAIL,
             Some(image),
             &map,
             &map.waypoints,
@@ -1075,13 +1113,27 @@ mod tests {
 
         let baseline_bounds =
             projected_playfield_bounds(&map).expect("inside cells establish bounds");
-        let baseline = build_loading_composition(&map, &session, None, [800, 600], &assignments);
+        let baseline = build_loading_composition(
+            &map,
+            &session,
+            None,
+            [800, 600],
+            ShellScale::RETAIL,
+            &assignments,
+        );
 
         // (55,55) is inside the RMG Size diamond (104 < x+y) but below the
         // normalized LocalSize near edge (114 < x+y), so native mode zero skips it.
         map.cells.push(cell(55, 55));
         assert_eq!(projected_playfield_bounds(&map), Some(baseline_bounds));
-        let with_filler = build_loading_composition(&map, &session, None, [800, 600], &assignments);
+        let with_filler = build_loading_composition(
+            &map,
+            &session,
+            None,
+            [800, 600],
+            ShellScale::RETAIL,
+            &assignments,
+        );
         assert_eq!(with_filler.markers, baseline.markers);
 
         // A genuinely in-playfield cell still extends both projected bounds and
@@ -1089,7 +1141,14 @@ mod tests {
         map.cells.push(cell(150, 60));
         let extended_bounds = projected_playfield_bounds(&map).expect("inside extender");
         assert_ne!(extended_bounds, baseline_bounds);
-        let with_inside = build_loading_composition(&map, &session, None, [800, 600], &assignments);
+        let with_inside = build_loading_composition(
+            &map,
+            &session,
+            None,
+            [800, 600],
+            ShellScale::RETAIL,
+            &assignments,
+        );
         assert_ne!(with_inside.markers[0].anchor, baseline.markers[0].anchor);
     }
 
@@ -1158,6 +1217,7 @@ mod tests {
             &session,
             Some(&csf),
             [800, 600],
+            ShellScale::RETAIL,
             Some(image),
             &map,
             &map.waypoints,
@@ -1228,11 +1288,11 @@ mod tests {
         let battle = mode("MPBattleMD.ini");
         let cooperative = mode("MPCoopMD.ini");
         assert_eq!(
-            loading_text_rects([640, 480], &cooperative).load_brief,
+            loading_text_rects([640, 480], &cooperative, ShellScale::RETAIL).load_brief,
             RectPx::new(16, 126, 318, 104)
         );
         assert_eq!(
-            loading_text_rects([800, 600], &battle),
+            loading_text_rects([800, 600], &battle, ShellScale::RETAIL),
             LoadingTextRects {
                 country_name: RectPx::new(540, 310, 200, 20),
                 special_unit: RectPx::new(20, 90, 200, 20),
@@ -1241,12 +1301,69 @@ mod tests {
             }
         );
         assert_eq!(
-            loading_text_rects([1024, 768], &cooperative).load_brief,
+            loading_text_rects([1024, 768], &cooperative, ShellScale::RETAIL).load_brief,
             RectPx::new(132, 464, 398, 130)
         );
         assert_eq!(
-            loading_text_rects([799, 600], &battle).country_name,
+            loading_text_rects([799, 600], &battle, ShellScale::RETAIL).country_name,
             RectPx::new(540, 310, 200, 20)
+        );
+    }
+
+    #[test]
+    fn a_stretched_loading_screen_grows_one_authored_dialog_into_the_window() {
+        use crate::app::loading::campaign_presentation::CampaignLoadingLayout;
+        use crate::app::loading::progress_row::{
+            LoadingProgressRowPlacement, layout_loading_progress_row,
+        };
+
+        let battle = mode("MPBattleMD.ini");
+        let scale = ShellScale::from_screen(1600, 1200);
+        let authored = loading_text_rects([800, 600], &battle, ShellScale::RETAIL);
+
+        // Every layer places itself in the 800x600 dialog, then maps through the
+        // page scale, so the copy stays on the art it labels at any window size.
+        assert_eq!(
+            loading_text_rects([1600, 1200], &battle, scale),
+            LoadingTextRects {
+                country_name: RectPx::new(1080, 620, 400, 40),
+                special_unit: RectPx::new(40, 180, 400, 40),
+                load_brief: RectPx::new(40, 316, 796, 260),
+                loading: RectPx::new(40, 600, 400, 40),
+            }
+        );
+        assert_eq!(
+            mmpb_region_rect(800).scaled(scale),
+            MmpbRegionRect::new(998, 758, 432, 332)
+        );
+        let row = layout_loading_progress_row(
+            LoadingProgressRowPlacement::StandardSkirmish([1600, 1200]),
+            [80, 5],
+            Some([47, 23]),
+            [0, 12],
+            scale,
+        );
+        assert_eq!(row.bar_origin, [48, 664]);
+        assert_eq!(row.icon_origin, Some([234, 646]));
+        assert_eq!(row.label_rect, RectPx::new(348, 656, 490, 24));
+        let authored_chrome = CampaignLoadingLayout::for_authored_size([800, 600]);
+        let chrome = authored_chrome.scaled(scale);
+        assert_eq!(chrome.title, RectPx::new(0, 0, 1600, 80));
+        assert_eq!(chrome.body, RectPx::new(0, 80, 1600, 1040));
+        assert_eq!(chrome.bar, RectPx::new(0, 1120, 1600, 80));
+        assert_eq!(chrome.progress_point, [328, 1134]);
+
+        // gamemd's own mapping stays untouched by the switch: the same dialog is
+        // centered at 1:1 and the identity scale leaves each layer where it is.
+        let centered = loading_text_rects([1600, 1200], &battle, ShellScale::RETAIL);
+        assert_eq!(
+            centered.country_name,
+            authored.country_name.translate(400, 300)
+        );
+        assert_eq!(centered.load_brief, authored.load_brief.translate(400, 300));
+        assert_eq!(
+            CampaignLoadingLayout::for_authored_size([1600, 1200]).title,
+            RectPx::new(400, 300, 800, 40)
         );
     }
 

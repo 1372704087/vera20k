@@ -5,17 +5,19 @@
 use crate::render::batch::SpriteInstance;
 use crate::render::shell_paint;
 use crate::render::skirmish_shell_chrome::{SkirmishShellChromeAtlas, SkirmishShellChromeEntry};
-use crate::ui::shell::geom::LOWER_STRIP_H;
+use crate::ui::shell::geom::{LOWER_STRIP_H, ShellScale};
+use crate::ui::shell::list::ListMetrics;
 use crate::ui::shell::modal::BodyOkLayout;
 use crate::ui::skirmish_shell::{
-    COMBO_DROPDOWN_ROW_H, COMBO_FACE_H, ChooseMapModalButton, ChooseMapModalLayout, PLAYERS_RANGE,
+    ChooseMapModalButton, ChooseMapModalLayout, DropdownMetrics, PLAYERS_RANGE,
     RandomMapSetupControl, RandomMapSetupLayout, RandomMapSetupModalState, RectPx,
     SETUP_COMBO_ROWS, SavedSeedBrowserState, SavedSeedControl, SavedSeedLayout,
-    SkirmishShellLayout, SkirmishShellState, random_map_setup_dropdown_rect, setup_combo_items,
+    SkirmishShellLayout, SkirmishShellState, combo_face_rect, random_map_setup_dropdown_rect,
+    setup_combo_items,
 };
 
 use super::chrome::{
-    common_shell_origin, push_button_30, push_entry_native, push_lower_strip_instance,
+    common_shell_origin, push_button_30, push_entry_scaled, push_lower_strip_instance,
     push_ownerdraw_two_pixel_bevel_frame, push_rect_outline, push_right_panel_base_instances,
     push_right_panel_button_shp, push_solid_rect,
 };
@@ -72,8 +74,9 @@ pub(super) fn choose_map_background_entry(
     layout: &ChooseMapModalLayout,
 ) -> Option<SkirmishShellChromeEntry> {
     // `0x0072E730` draws the small shape at 640 wide and the large one
-    // (loaded only at exactly 800) elsewhere.
-    match layout.screen.w {
+    // (loaded only at exactly 800) elsewhere. A stretched chooser is authored at
+    // 800, so it takes the large shape instead of falling back to a flat rect.
+    match layout.authored_width() {
         640 => atlas.choose_map_background_640_customize_battle,
         800 => atlas.choose_map_background_800_customize_battle,
         _ => None,
@@ -81,17 +84,13 @@ pub(super) fn choose_map_background_entry(
 }
 
 pub(super) fn shell_content_fallback_rect(layout: &SkirmishShellLayout) -> RectPx {
-    let (origin_x, origin_y) = common_shell_origin(layout);
-    let shell_h = if layout.screen.h > 767 {
-        600
-    } else {
-        layout.screen.h
-    };
+    let (origin_x, origin_y) = layout.shell_origin();
+    let strip_h = (LOWER_STRIP_H as f32 * layout.scale.y()).round() as i32;
     RectPx::new(
         origin_x,
         origin_y,
         (layout.right_panel.top.x - origin_x).max(0),
-        (shell_h - LOWER_STRIP_H).max(0),
+        (layout.shell_height() - strip_h).max(0),
     )
 }
 
@@ -104,11 +103,12 @@ pub(super) fn push_choose_map_background_instances(
     let background = choose_map_background_entry(atlas, modal_layout);
     let interior = backdrop_interior(background.is_some());
     if let Some(background) = background {
-        push_entry_native(
+        push_entry_scaled(
             out,
             background,
             modal_layout.screen.x,
             modal_layout.screen.y,
+            modal_layout.scale,
             SHELL_PARENT_BACKGROUND_DEPTH,
         );
     } else {
@@ -151,6 +151,7 @@ pub(super) fn push_choose_map_modal_control_instances(
         modal.selected_mode_row(),
         modal.mode_scroll.pressed_part(),
         interior.paints_solid_fill(),
+        layout.scale,
     );
     super::list::paint_list(
         out,
@@ -160,6 +161,7 @@ pub(super) fn push_choose_map_modal_control_instances(
         modal.highlighted_filtered_index,
         modal.map_scroll.pressed_part(),
         interior.paints_solid_fill(),
+        layout.scale,
     );
     // While a slide runs the column replaces the buttons and the preview
     // static is validate-only (`0x00606800`).
@@ -237,6 +239,7 @@ pub(super) fn push_eject_box_instances(
         super::chrome::type3_button_frames(atlas),
         boxed.dialog,
         &buttons,
+        ShellScale::RETAIL,
         VALIDATION_MODAL_SPRITE_DEPTHS,
     ));
 }
@@ -263,7 +266,14 @@ pub(super) fn push_generic_shell_background_instances(
     let interior = backdrop_interior(background.is_some());
     if let Some(background) = background {
         let (x, y) = common_shell_origin(layout);
-        push_entry_native(out, background, x, y, SHELL_PARENT_BACKGROUND_DEPTH);
+        push_entry_scaled(
+            out,
+            background,
+            x,
+            y,
+            layout.scale,
+            SHELL_PARENT_BACKGROUND_DEPTH,
+        );
     } else {
         let fallback = shell_content_fallback_rect(layout);
         push_solid_rect(
@@ -299,7 +309,7 @@ pub(super) fn push_random_map_setup_modal_control_instances(
     // occupies only its face, not the dropdown extent the resource reserves.
     for (row, control) in SETUP_COMBO_ROWS.iter().enumerate() {
         let rect = layout.control_rects[row];
-        let face = RectPx::new(rect.x, rect.y, rect.w, COMBO_FACE_H);
+        let face = combo_face_rect(rect, layout.scale);
         // Native owner-draw controls preserve their composed background. The
         // solid plate is only needed when retail shell artwork is unavailable.
         if interior.paints_solid_fill() {
@@ -321,6 +331,7 @@ pub(super) fn push_random_map_setup_modal_control_instances(
                 open: modal.open_combo == Some(*control),
                 disabled: !modal.is_enabled(SETUP_COMBO_CONTROLS[row]),
             },
+            layout.scale,
         );
     }
     let players = layout.control_rects[PLAYERS_ROW];
@@ -329,9 +340,14 @@ pub(super) fn push_random_map_setup_modal_control_instances(
         &chrome,
         ControlPaint::Trackbar {
             rect: players,
-            thumb_left: PLAYERS_RANGE.thumb_left(modal.options.num_players, players.w),
+            thumb_left: PLAYERS_RANGE.thumb_left_in(
+                modal.options.num_players,
+                players,
+                layout.scale,
+            ),
             plaque: true,
         },
+        layout.scale,
     );
 
     // Surprise Me and Generate are owner-draw type 3 for this dialog, so they
@@ -356,6 +372,7 @@ pub(super) fn push_random_map_setup_modal_control_instances(
             modal_button_frames,
             layout.dialog,
             &action_buttons,
+            layout.scale,
             shell_paint::ModalDepths {
                 background: SHELL_DROPDOWN_DEPTH - 0.00011,
                 button: SHELL_DROPDOWN_DEPTH - 0.00011,
@@ -424,6 +441,7 @@ pub(super) fn push_random_map_setup_modal_control_instances(
         let row = combo.row();
         let items = setup_combo_items(combo);
         let list = random_map_setup_dropdown_rect(layout, row, items.len());
+        let row_h = DropdownMetrics::scaled(layout.scale).row_h;
         push_solid_rect(
             out,
             atlas,
@@ -442,12 +460,7 @@ pub(super) fn push_random_map_setup_modal_control_instances(
             push_solid_rect(
                 out,
                 atlas,
-                RectPx::new(
-                    list.x,
-                    list.y + COMBO_DROPDOWN_ROW_H * selected as i32,
-                    list.w,
-                    COMBO_DROPDOWN_ROW_H,
-                ),
+                RectPx::new(list.x, list.y + row_h * selected as i32, list.w, row_h),
                 OWNERDRAW_SELECTED_RGB_FROM_DAT_00AC4604_PACKED_000000FF,
                 SHELL_DROPDOWN_DEPTH - 0.00017,
             );
@@ -488,6 +501,7 @@ pub(super) fn push_validation_modal_instances(
         frames,
         layout.dialog,
         &[button],
+        ShellScale::RETAIL,
         VALIDATION_MODAL_SPRITE_DEPTHS,
     ));
 }
@@ -518,17 +532,29 @@ pub(super) fn push_saved_browser_modal_instances<I: Clone + PartialEq>(
     interior: BackdropInteriorPaint,
     column_buttons: bool,
 ) {
-    use crate::ui::shell::list::{ShellListGeometry,ListScrollPart};
-    let pressed=match browser.pressed_control {
-        Some(SavedSeedControl::ScrollUp)=>Some(ListScrollPart::Up),
-        Some(SavedSeedControl::ScrollDown)=>Some(ListScrollPart::Down),
-        Some(SavedSeedControl::ScrollThumb)=>Some(ListScrollPart::Thumb),
-        Some(SavedSeedControl::ScrollTrack)=>Some(ListScrollPart::Track),
-        _=>None,
+    use crate::ui::shell::list::{ListScrollPart, ShellListGeometry};
+    let pressed = match browser.pressed_control {
+        Some(SavedSeedControl::ScrollUp) => Some(ListScrollPart::Up),
+        Some(SavedSeedControl::ScrollDown) => Some(ListScrollPart::Down),
+        Some(SavedSeedControl::ScrollThumb) => Some(ListScrollPart::Thumb),
+        Some(SavedSeedControl::ScrollTrack) => Some(ListScrollPart::Track),
+        _ => None,
     };
-    super::list::paint_list(out,atlas,
-        ShellListGeometry::new(layout.list,browser.entries.len(),browser.top_index),
-        browser.top_index,browser.selected,pressed,interior.paints_solid_fill());
+    super::list::paint_list(
+        out,
+        atlas,
+        ShellListGeometry::new(
+            layout.list,
+            browser.entries.len(),
+            browser.top_index,
+            ListMetrics::scaled(layout.scale),
+        ),
+        browser.top_index,
+        browser.selected,
+        pressed,
+        interior.paints_solid_fill(),
+        layout.scale,
+    );
     // The name field is a plain sunken plate; Save is the only mode that has one.
     if let Some(edit) = layout.name_edit {
         push_solid_rect(
@@ -539,18 +565,29 @@ pub(super) fn push_saved_browser_modal_instances<I: Clone + PartialEq>(
             SHELL_DROPDOWN_DEPTH - 0.00010,
         );
         push_ownerdraw_two_pixel_bevel_frame(out, atlas, edit, SHELL_DROPDOWN_DEPTH - 0.00011);
-        if browser.description_edit.focused && browser.opened_at.elapsed().as_millis() % 2000 < 1000 {
-            let field = crate::ui::skirmish_shell::player_name_edit_text_rect(edit);
+        if browser.description_edit.focused && browser.opened_at.elapsed().as_millis() % 2000 < 1000
+        {
+            // The caret rides the font's authored metrics, so it is placed in
+            // 800x600 numbers and stretched once with the field.
+            let scale = layout.scale;
+            let field = crate::ui::skirmish_shell::player_name_edit_text_rect(
+                scale.base_rect(edit),
+                ShellScale::RETAIL,
+            );
             let editor = &browser.description_edit;
             let start = editor.first_visible_unit.min(editor.caret);
             let prefix = String::from_utf16_lossy(&editor.units[start..editor.caret]);
             let x = field.x + font.text_width(&prefix) as i32;
             if x < field.x + field.w {
-                push_solid_rect(out, atlas, RectPx::new(x, field.y + 2, 2, (field.h - 4).max(1)),
-                    SHELL_LABEL_TEXT_RGB, SHELL_DROPDOWN_DEPTH - 0.00012);
+                push_solid_rect(
+                    out,
+                    atlas,
+                    scale.scale_rect(RectPx::new(x, field.y + 2, 2, (field.h - 4).max(1))),
+                    SHELL_LABEL_TEXT_RGB,
+                    SHELL_DROPDOWN_DEPTH - 0.00012,
+                );
             }
         }
-
     }
     if column_buttons {
         for (rect, control) in [
@@ -581,19 +618,26 @@ pub(super) fn push_saved_browser_prompt_instances<I: Clone + PartialEq>(
     if let Some(prompt) = browser.prompt.as_ref() {
         let (dialog, _, yes, no) = prompt.layout(layout.screen.w as u32, layout.screen.h as u32);
         let mut buttons = vec![shell_paint::ModalButton {
-            rect: yes, pressed: browser.pressed_control == Some(SavedSeedControl::Action), enabled: true,
+            rect: yes,
+            pressed: browser.pressed_control == Some(SavedSeedControl::Action),
+            enabled: true,
         }];
         if let Some(rect) = no {
             buttons.push(shell_paint::ModalButton {
-                rect, pressed: browser.pressed_control == Some(SavedSeedControl::Back0x686), enabled: true,
+                rect,
+                pressed: browser.pressed_control == Some(SavedSeedControl::Back0x686),
+                enabled: true,
             });
         }
         out.extend(shell_paint::paint_modal_sprites(
             atlas.validation_modal_background_pudlgbgn,
-            super::chrome::type3_button_frames(atlas), dialog, &buttons, VALIDATION_MODAL_SPRITE_DEPTHS,
+            super::chrome::type3_button_frames(atlas),
+            dialog,
+            &buttons,
+            ShellScale::RETAIL,
+            VALIDATION_MODAL_SPRITE_DEPTHS,
         ));
     }
-
 }
 
 #[cfg(test)]

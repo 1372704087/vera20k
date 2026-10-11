@@ -3,7 +3,8 @@
 use crate::ui::shell::descriptor::{AnchorRule, LOW_HEADING_ANCHOR, MAP_TEXT_ANCHOR};
 pub use crate::ui::shell::geom::{RectPx, RightPanelRects};
 use crate::ui::shell::geom::{
-    center_offset, child_window, dlu_rect, right_panel_rects, snap_button_biased_truncate,
+    ScaledRects, ShellScale, center_offset, child_window, dialog_origin, dlu_rect,
+    right_panel_rects, snap_button_biased_truncate,
 };
 
 pub const SHELL_BASE_W: i32 = 800;
@@ -28,6 +29,30 @@ pub const COMBO_ARROW_X_FROM_RIGHT: i32 = 19;
 pub const COMBO_ARROW_Y: i32 = 1;
 pub const COMBO_TEXT_LEFT_INSET: i32 = 2;
 pub const COMBO_SWATCH_INSET: i32 = 2;
+
+/// The `ComboDropWin` dropdown's device metrics: the authored row, scrollbar and
+/// thumb sizes grown by the page's stretch, so a dropdown under a stretched
+/// combo has rows as tall as its face and stays the same number of rows deep.
+/// Identity at [`ShellScale::RETAIL`], where every field is the constant above.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct DropdownMetrics {
+    pub row_h: i32,
+    pub scrollbar_w: i32,
+    pub button_h: i32,
+    pub min_thumb_h: i32,
+}
+
+impl DropdownMetrics {
+    pub fn scaled(scale: ShellScale) -> Self {
+        let grow = |px: i32, factor: f32| (px as f32 * factor).round() as i32;
+        Self {
+            row_h: grow(COMBO_DROPDOWN_ROW_H, scale.y()),
+            scrollbar_w: grow(COMBO_DROPDOWN_SCROLLBAR_W, scale.x()),
+            button_h: grow(COMBO_DROPDOWN_SCROLLBAR_BUTTON_H, scale.y()),
+            min_thumb_h: grow(COMBO_DROPDOWN_SCROLLBAR_MIN_THUMB_H, scale.y()),
+        }
+    }
+}
 pub const PLAYER_NAME_EDIT_CLIENT_INSET: i32 = 1;
 pub const PLAYER_NAME_EDIT_TEXT_LEFT_INSET: i32 = 2;
 pub const CHOOSE_MAP_MODAL_W: i32 = 533;
@@ -165,6 +190,9 @@ pub struct SkirmishRowRects {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SkirmishShellLayout {
+    /// How far these rects sit from the 800x600 art they were authored against.
+    /// `RETAIL` on the retail layout at every screen size.
+    pub scale: ShellScale,
     pub screen: RectPx,
     pub right_panel: RightPanelRects,
     pub right_panel_text: SkirmishRightPanelTextRects,
@@ -181,6 +209,44 @@ pub struct SkirmishShellLayout {
     pub trackbar_labels: SkirmishTrackbarLabelRects,
     pub checkboxes: [SkirmishCheckboxRect; SKIRMISH_CHECKBOX_COUNT],
     pub status_help: RectPx,
+}
+
+impl SkirmishShellLayout {
+    /// Where the shell's own art sits: gamemd's [`dialog_origin`] on the retail
+    /// layout, and the window's top-left once the 800x600 space is stretched
+    /// over it — every child rect already carries that stretch.
+    pub fn shell_origin(&self) -> (i32, i32) {
+        if self.scale.is_retail() {
+            let (x, y) = dialog_origin(self.screen.w, self.screen.h);
+            (self.screen.x + x, self.screen.y + y)
+        } else {
+            (self.screen.x, self.screen.y)
+        }
+    }
+
+    /// The live height of the shell space: the authored 600 rows letterboxed
+    /// below the strip on the retail layout, the whole window once stretched.
+    pub fn shell_height(&self) -> i32 {
+        if self.scale.is_retail() {
+            if self.screen.h > 767 {
+                600
+            } else {
+                self.screen.h
+            }
+        } else {
+            self.screen.h
+        }
+    }
+
+    /// The width the shell *assets* are selected by. The 640-wide shapes belong to
+    /// the unscaled layout only; a stretched page always takes the large art.
+    pub fn authored_width(&self) -> i32 {
+        if self.scale.is_retail() {
+            self.screen.w
+        } else {
+            SHELL_BASE_W
+        }
+    }
 }
 
 /// Heading `0x694` of Choose Map `0x6B`.
@@ -215,6 +281,8 @@ pub enum RandomMapSetupControl {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ChooseMapModalLayout {
+    /// The 800x600 -> window mapping these rects went through.
+    pub scale: ShellScale,
     pub screen: RectPx,
     pub dialog: RectPx,
     pub mode_list: RectPx,
@@ -230,11 +298,25 @@ pub struct ChooseMapModalLayout {
     pub preview: RectPx,
 }
 
+impl ChooseMapModalLayout {
+    /// The width the chooser's background assets are selected by: they exist at
+    /// 640 and 800, so a stretched chooser takes the 800 shape.
+    pub fn authored_width(&self) -> i32 {
+        if self.scale.is_retail() {
+            self.screen.w
+        } else {
+            SHELL_BASE_W
+        }
+    }
+}
+
 /// Pixel rects for the random-map setup dialog `0x105`.
 ///
 /// Rows are ordered map type, time, theater, size, resources, players.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RandomMapSetupLayout {
+    /// The 800x600 -> window mapping these rects went through.
+    pub scale: ShellScale,
     pub screen: RectPx,
     pub dialog: RectPx,
     pub label_rects: [RectPx; 6],
@@ -335,70 +417,90 @@ pub fn compute_fixed_800_layout(screen_w: u32, screen_h: u32) -> SkirmishShellLa
     )
 }
 
-pub const fn checkbox_icon_rect(rect: RectPx) -> RectPx {
-    RectPx::new(rect.x, rect.y, CHECKBOX_ICON_W, CHECKBOX_ICON_H)
+/// The icon plate inside a checkbox. `scale` maps the control's own device rect
+/// back to its authored 18x18 plate, so paint and hit-testing agree on one rect.
+pub fn checkbox_icon_rect(rect: RectPx, scale: ShellScale) -> RectPx {
+    scale.derive_rect(rect, |rect| {
+        RectPx::new(rect.x, rect.y, CHECKBOX_ICON_W, CHECKBOX_ICON_H)
+    })
 }
 
-pub const fn checkbox_text_rect(rect: RectPx) -> RectPx {
-    RectPx::new(
-        rect.x + CHECKBOX_TEXT_LEFT_OFFSET,
-        rect.y,
-        rect.w - CHECKBOX_TEXT_LEFT_OFFSET,
-        rect.h,
-    )
+pub fn checkbox_text_rect(rect: RectPx, scale: ShellScale) -> RectPx {
+    scale.derive_rect(rect, |rect| {
+        RectPx::new(
+            rect.x + CHECKBOX_TEXT_LEFT_OFFSET,
+            rect.y,
+            rect.w - CHECKBOX_TEXT_LEFT_OFFSET,
+            rect.h,
+        )
+    })
 }
 
-pub const fn player_name_edit_client_rect(rect: RectPx) -> RectPx {
-    RectPx::new(
-        rect.x + PLAYER_NAME_EDIT_CLIENT_INSET,
-        rect.y + PLAYER_NAME_EDIT_CLIENT_INSET,
-        rect.w - PLAYER_NAME_EDIT_CLIENT_INSET * 2,
-        rect.h - PLAYER_NAME_EDIT_CLIENT_INSET * 2,
-    )
+pub fn player_name_edit_client_rect(rect: RectPx, scale: ShellScale) -> RectPx {
+    scale.derive_rect(rect, |rect| {
+        RectPx::new(
+            rect.x + PLAYER_NAME_EDIT_CLIENT_INSET,
+            rect.y + PLAYER_NAME_EDIT_CLIENT_INSET,
+            rect.w - PLAYER_NAME_EDIT_CLIENT_INSET * 2,
+            rect.h - PLAYER_NAME_EDIT_CLIENT_INSET * 2,
+        )
+    })
 }
 
-pub const fn player_name_edit_text_rect(rect: RectPx) -> RectPx {
-    let client = player_name_edit_client_rect(rect);
-    RectPx::new(
-        client.x + PLAYER_NAME_EDIT_TEXT_LEFT_INSET,
-        client.y,
-        client.w - PLAYER_NAME_EDIT_TEXT_LEFT_INSET,
-        client.h,
-    )
+pub fn player_name_edit_text_rect(rect: RectPx, scale: ShellScale) -> RectPx {
+    scale.derive_rect(rect, |rect| {
+        let client = player_name_edit_client_rect(rect, ShellScale::RETAIL);
+        RectPx::new(
+            client.x + PLAYER_NAME_EDIT_TEXT_LEFT_INSET,
+            client.y,
+            client.w - PLAYER_NAME_EDIT_TEXT_LEFT_INSET,
+            client.h,
+        )
+    })
 }
 
-pub const fn combo_face_rect(rect: RectPx) -> RectPx {
-    RectPx::new(rect.x, rect.y, rect.w, COMBO_FACE_H)
+pub fn combo_face_rect(rect: RectPx, scale: ShellScale) -> RectPx {
+    scale.derive_rect(rect, |rect| {
+        RectPx::new(rect.x, rect.y, rect.w, COMBO_FACE_H)
+    })
 }
 
-pub const fn combo_arrow_rect(rect: RectPx) -> RectPx {
-    RectPx::new(
-        rect.x + rect.w - COMBO_ARROW_X_FROM_RIGHT,
-        rect.y + COMBO_ARROW_Y,
-        0,
-        0,
-    )
+/// The combo arrow's top-left anchor: a zero-size rect, because the arrow glyph
+/// is placed from it rather than fitted into it.
+pub fn combo_arrow_rect(rect: RectPx, scale: ShellScale) -> RectPx {
+    scale.derive_rect(rect, |rect| {
+        RectPx::new(
+            rect.x + rect.w - COMBO_ARROW_X_FROM_RIGHT,
+            rect.y + COMBO_ARROW_Y,
+            0,
+            0,
+        )
+    })
 }
 
-pub const fn combo_text_rect(rect: RectPx) -> RectPx {
-    let w = rect.w - COMBO_ARROW_RESERVE_W;
-    RectPx::new(
-        rect.x + COMBO_TEXT_LEFT_INSET,
-        rect.y,
-        if w > 0 { w } else { 0 },
-        COMBO_FACE_H,
-    )
+pub fn combo_text_rect(rect: RectPx, scale: ShellScale) -> RectPx {
+    scale.derive_rect(rect, |rect| {
+        let w = rect.w - COMBO_ARROW_RESERVE_W;
+        RectPx::new(
+            rect.x + COMBO_TEXT_LEFT_INSET,
+            rect.y,
+            if w > 0 { w } else { 0 },
+            COMBO_FACE_H,
+        )
+    })
 }
 
-pub const fn combo_swatch_rect(rect: RectPx) -> RectPx {
-    let w = rect.w - COMBO_ARROW_RESERVE_W - COMBO_SWATCH_INSET * 2;
-    let h = COMBO_FACE_H - COMBO_SWATCH_INSET * 2;
-    RectPx::new(
-        rect.x + COMBO_SWATCH_INSET,
-        rect.y + COMBO_SWATCH_INSET,
-        if w > 0 { w } else { 0 },
-        if h > 0 { h } else { 0 },
-    )
+pub fn combo_swatch_rect(rect: RectPx, scale: ShellScale) -> RectPx {
+    scale.derive_rect(rect, |rect| {
+        let w = rect.w - COMBO_ARROW_RESERVE_W - COMBO_SWATCH_INSET * 2;
+        let h = COMBO_FACE_H - COMBO_SWATCH_INSET * 2;
+        RectPx::new(
+            rect.x + COMBO_SWATCH_INSET,
+            rect.y + COMBO_SWATCH_INSET,
+            if w > 0 { w } else { 0 },
+            if h > 0 { h } else { 0 },
+        )
+    })
 }
 
 /// A right-panel static by its template rect and anchor rule (`0x0060B1D0`).
@@ -525,6 +627,7 @@ pub fn compute_layout(screen_w: u32, screen_h: u32) -> SkirmishShellLayout {
     };
 
     SkirmishShellLayout {
+        scale: ShellScale::RETAIL,
         screen: RectPx::new(0, 0, screen_w, screen_h),
         right_panel: panel,
         right_panel_text,
@@ -600,6 +703,7 @@ pub fn compute_choose_map_modal_layout(screen_w: u32, screen_h: u32) -> ChooseMa
     let create_random_map_base = dlu_rect(425, 149, 108, 23);
 
     ChooseMapModalLayout {
+        scale: ShellScale::RETAIL,
         screen: RectPx::new(0, 0, screen_w, screen_h),
         dialog: RectPx::new(0, 0, screen_w, screen_h),
         mode_list: crate::ui::shell::geom::child_window(77, 78, 130, 211),
@@ -689,6 +793,7 @@ pub fn compute_random_map_setup_layout(screen_w: u32, screen_h: u32) -> RandomMa
     let (pbar_x, pbar_y, pbar_w, pbar_h) = SETUP_PROGRESS_BAR_RECT;
 
     RandomMapSetupLayout {
+        scale: ShellScale::RETAIL,
         screen: RectPx::new(0, 0, screen_w, screen_h),
         dialog: RectPx::new(0, 0, screen_w, screen_h),
         label_rects,
@@ -754,7 +859,11 @@ pub fn random_map_setup_control_at(
     // resource reserves, so hit-test the face height the shell already uses.
     for (row, control) in ROW_CONTROLS.iter().enumerate() {
         let rect = layout.control_rects[row];
-        let face_h = if row == 5 { rect.h } else { COMBO_FACE_H };
+        let face_h = if row == 5 {
+            rect.h
+        } else {
+            combo_face_rect(rect, layout.scale).h
+        };
         if RectPx::new(rect.x, rect.y, rect.w, face_h).contains(x, y) {
             return Some(*control);
         }
@@ -778,17 +887,17 @@ pub fn random_map_setup_control_at(
 /// entries. The resource reserves a taller extent per combo, but a Windows
 /// dropdown sizes itself to the item count up to that reserve, and none of
 /// these lists come close to it.
-pub const fn random_map_setup_dropdown_rect(
+pub fn random_map_setup_dropdown_rect(
     layout: &RandomMapSetupLayout,
     row: usize,
     item_count: usize,
 ) -> RectPx {
-    let face = layout.control_rects[row];
+    let face = combo_face_rect(layout.control_rects[row], layout.scale);
     RectPx::new(
         face.x,
-        face.y + COMBO_FACE_H,
+        face.y + face.h,
         face.w,
-        COMBO_DROPDOWN_ROW_H * item_count as i32,
+        DropdownMetrics::scaled(layout.scale).row_h * item_count as i32,
     )
 }
 
@@ -804,7 +913,7 @@ pub fn random_map_setup_dropdown_row_at(
     if !list.contains(x, y) {
         return None;
     }
-    let index = ((y - list.y) / COMBO_DROPDOWN_ROW_H) as usize;
+    let index = ((y - list.y) / DropdownMetrics::scaled(layout.scale).row_h) as usize;
     (index < item_count).then_some(index)
 }
 
@@ -893,8 +1002,10 @@ pub enum SavedSeedControl {
     ScrollTrack,
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct SavedSeedLayout {
+    /// The 800x600 -> window mapping these rects went through.
+    pub scale: ShellScale,
     pub screen: RectPx,
     pub dialog: RectPx,
     pub title: RectPx,
@@ -929,6 +1040,7 @@ pub fn compute_saved_seed_layout(
     };
 
     SavedSeedLayout {
+        scale: ShellScale::RETAIL,
         screen: RectPx::new(0, 0, screen_w, screen_h),
         dialog: RectPx::new(0, 0, screen_w, screen_h),
         title: rect_of(SEED_TITLE_RECT),
@@ -939,6 +1051,196 @@ pub fn compute_saved_seed_layout(
         back: back_rect(screen_w, panel),
         blank: rect_of(SEED_BLANK_RECTS[index]),
     }
+}
+
+// --- Responsive (window-filling) variants -------------------------------
+//
+// Each layout stretches the verified 800x600 dialog into the live window. The
+// `ScaledRects` impls below are exhaustive struct literals, so a rect field
+// added to a layout must be stretched too or the crate stops building.
+
+impl ScaledRects for SkirmishRightPanelTextRects {
+    fn scaled_rects(&self, scale: ShellScale) -> Self {
+        SkirmishRightPanelTextRects {
+            title: self.title.scaled_rects(scale),
+            game_type: self.game_type.scaled_rects(scale),
+            map_label: self.map_label.scaled_rects(scale),
+        }
+    }
+}
+
+impl ScaledRects for SkirmishTrackbarRects {
+    fn scaled_rects(&self, scale: ShellScale) -> Self {
+        SkirmishTrackbarRects {
+            game_speed: self.game_speed.scaled_rects(scale),
+            credits: self.credits.scaled_rects(scale),
+            unit_count: self.unit_count.scaled_rects(scale),
+        }
+    }
+}
+
+impl ScaledRects for SkirmishTrackbarLabelRects {
+    fn scaled_rects(&self, scale: ShellScale) -> Self {
+        SkirmishTrackbarLabelRects {
+            game_speed: self.game_speed.scaled_rects(scale),
+            credits: self.credits.scaled_rects(scale),
+            unit_count: self.unit_count.scaled_rects(scale),
+        }
+    }
+}
+
+impl ScaledRects for SkirmishColumnLabelRects {
+    fn scaled_rects(&self, scale: ShellScale) -> Self {
+        SkirmishColumnLabelRects {
+            players: self.players.scaled_rects(scale),
+            side: self.side.scaled_rects(scale),
+            color: self.color.scaled_rects(scale),
+            start: self.start.scaled_rects(scale),
+            team: self.team.scaled_rects(scale),
+        }
+    }
+}
+
+impl ScaledRects for SkirmishRowRects {
+    fn scaled_rects(&self, scale: ShellScale) -> Self {
+        SkirmishRowRects {
+            ai_type_combos: self.ai_type_combos.scaled_rects(scale),
+            side_combos: self.side_combos.scaled_rects(scale),
+            start_combos: self.start_combos.scaled_rects(scale),
+            team_combos: self.team_combos.scaled_rects(scale),
+        }
+    }
+}
+
+impl ScaledRects for SkirmishCheckboxRect {
+    fn scaled_rects(&self, scale: ShellScale) -> Self {
+        SkirmishCheckboxRect {
+            id: self.id,
+            rect: self.rect.scaled_rects(scale),
+        }
+    }
+}
+
+impl ScaledRects for SkirmishShellLayout {
+    fn scaled_rects(&self, scale: ShellScale) -> Self {
+        SkirmishShellLayout {
+            scale,
+            screen: self.screen.scaled_rects(scale),
+            right_panel: self.right_panel.scaled_rects(scale),
+            right_panel_text: self.right_panel_text.scaled_rects(scale),
+            start_button: self.start_button.scaled_rects(scale),
+            choose_map_button: self.choose_map_button.scaled_rects(scale),
+            back_button: self.back_button.scaled_rects(scale),
+            map_preview: self.map_preview.scaled_rects(scale),
+            column_labels: self.column_labels.scaled_rects(scale),
+            player_name: self.player_name.scaled_rects(scale),
+            rows: self.rows.scaled_rects(scale),
+            color_combos: self.color_combos.scaled_rects(scale),
+            flags: self.flags.scaled_rects(scale),
+            trackbars: self.trackbars.scaled_rects(scale),
+            trackbar_labels: self.trackbar_labels.scaled_rects(scale),
+            checkboxes: self.checkboxes.scaled_rects(scale),
+            status_help: self.status_help.scaled_rects(scale),
+        }
+    }
+}
+
+impl ScaledRects for ChooseMapModalLayout {
+    fn scaled_rects(&self, scale: ShellScale) -> Self {
+        ChooseMapModalLayout {
+            scale,
+            screen: self.screen.scaled_rects(scale),
+            dialog: self.dialog.scaled_rects(scale),
+            mode_list: self.mode_list.scaled_rects(scale),
+            map_list: self.map_list.scaled_rects(scale),
+            use_map_button: self.use_map_button.scaled_rects(scale),
+            cancel_button: self.cancel_button.scaled_rects(scale),
+            create_random_map_button: self.create_random_map_button.scaled_rects(scale),
+            title: self.title.scaled_rects(scale),
+            select_engagement: self.select_engagement.scaled_rects(scale),
+            game_type_heading: self.game_type_heading.scaled_rects(scale),
+            game_map_heading: self.game_map_heading.scaled_rects(scale),
+            status_help: self.status_help.scaled_rects(scale),
+            preview: self.preview.scaled_rects(scale),
+        }
+    }
+}
+
+impl ScaledRects for RandomMapSetupLayout {
+    fn scaled_rects(&self, scale: ShellScale) -> Self {
+        RandomMapSetupLayout {
+            scale,
+            screen: self.screen.scaled_rects(scale),
+            dialog: self.dialog.scaled_rects(scale),
+            label_rects: self.label_rects.scaled_rects(scale),
+            control_rects: self.control_rects.scaled_rects(scale),
+            randomize: self.randomize.scaled_rects(scale),
+            generate: self.generate.scaled_rects(scale),
+            seed_field: self.seed_field.scaled_rects(scale),
+            title: self.title.scaled_rects(scale),
+            preview: self.preview.scaled_rects(scale),
+            use_map: self.use_map.scaled_rects(scale),
+            load: self.load.scaled_rects(scale),
+            save: self.save.scaled_rects(scale),
+            delete: self.delete.scaled_rects(scale),
+            cancel: self.cancel.scaled_rects(scale),
+            status_help: self.status_help.scaled_rects(scale),
+            progress_text: self.progress_text.scaled_rects(scale),
+            progress_bar: self.progress_bar.scaled_rects(scale),
+        }
+    }
+}
+
+impl ScaledRects for SavedSeedLayout {
+    fn scaled_rects(&self, scale: ShellScale) -> Self {
+        SavedSeedLayout {
+            scale,
+            screen: self.screen.scaled_rects(scale),
+            dialog: self.dialog.scaled_rects(scale),
+            title: self.title.scaled_rects(scale),
+            prompt: self.prompt.scaled_rects(scale),
+            list: self.list.scaled_rects(scale),
+            name_edit: self.name_edit.scaled_rects(scale),
+            action: self.action.scaled_rects(scale),
+            back: self.back.scaled_rects(scale),
+            blank: self.blank.scaled_rects(scale),
+        }
+    }
+}
+
+/// The responsive variant of [`compute_layout`]: the verified 800x600 `0x102`
+/// stretched to fill the window. Identity at the base size.
+pub fn compute_responsive_layout(screen_w: u32, screen_h: u32) -> SkirmishShellLayout {
+    let scale = ShellScale::from_screen(screen_w as i32, screen_h as i32);
+    compute_layout(SHELL_BASE_W as u32, SHELL_BASE_H as u32).scaled_rects(scale)
+}
+
+/// The responsive variant of [`compute_choose_map_modal_layout`].
+pub fn compute_responsive_choose_map_modal_layout(
+    screen_w: u32,
+    screen_h: u32,
+) -> ChooseMapModalLayout {
+    let scale = ShellScale::from_screen(screen_w as i32, screen_h as i32);
+    compute_choose_map_modal_layout(SHELL_BASE_W as u32, SHELL_BASE_H as u32).scaled_rects(scale)
+}
+
+/// The responsive variant of [`compute_random_map_setup_layout`].
+pub fn compute_responsive_random_map_setup_layout(
+    screen_w: u32,
+    screen_h: u32,
+) -> RandomMapSetupLayout {
+    let scale = ShellScale::from_screen(screen_w as i32, screen_h as i32);
+    compute_random_map_setup_layout(SHELL_BASE_W as u32, SHELL_BASE_H as u32).scaled_rects(scale)
+}
+
+/// The responsive variant of [`compute_saved_seed_layout`].
+pub fn compute_responsive_saved_seed_layout(
+    mode: SavedSeedMode,
+    screen_w: u32,
+    screen_h: u32,
+) -> SavedSeedLayout {
+    let scale = ShellScale::from_screen(screen_w as i32, screen_h as i32);
+    compute_saved_seed_layout(mode, SHELL_BASE_W as u32, SHELL_BASE_H as u32).scaled_rects(scale)
 }
 
 /// Topmost saved-seed control at `(x, y)`, or `None`.
@@ -981,10 +1283,13 @@ pub fn choose_map_modal_button_at(
 mod tests {
     use super::RandomMapSetupControl;
     use super::{
-        ChooseMapModalButton, RectPx, SkirmishCheckboxId, checkbox_icon_rect, checkbox_text_rect,
-        choose_map_modal_button_at, combo_arrow_rect, combo_face_rect, combo_swatch_rect,
-        combo_text_rect, compute_choose_map_modal_layout, compute_fixed_800_layout, compute_layout,
-        compute_random_map_setup_layout, dlu_rect, player_name_edit_client_rect,
+        ChooseMapModalButton, RectPx, SavedSeedMode, ShellScale, SkirmishCheckboxId,
+        checkbox_icon_rect, checkbox_text_rect, choose_map_modal_button_at, combo_arrow_rect,
+        combo_face_rect, combo_swatch_rect, combo_text_rect, compute_choose_map_modal_layout,
+        compute_fixed_800_layout, compute_layout, compute_random_map_setup_layout,
+        compute_responsive_choose_map_modal_layout, compute_responsive_layout,
+        compute_responsive_random_map_setup_layout, compute_responsive_saved_seed_layout,
+        compute_saved_seed_layout, dlu_rect, player_name_edit_client_rect,
         player_name_edit_text_rect, random_map_setup_control_at,
     };
 
@@ -1085,11 +1390,11 @@ mod tests {
     fn player_name_edit_text_rect_uses_verified_client_and_text_insets() {
         let layout = compute_layout(800, 600);
         assert_eq!(
-            player_name_edit_client_rect(layout.player_name),
+            player_name_edit_client_rect(layout.player_name, ShellScale::RETAIL),
             RectPx::new(59, 60, 149, 21)
         );
         assert_eq!(
-            player_name_edit_text_rect(layout.player_name),
+            player_name_edit_text_rect(layout.player_name, ShellScale::RETAIL),
             RectPx::new(61, 60, 147, 21)
         );
     }
@@ -1201,10 +1506,22 @@ mod tests {
     fn collapsed_combo_helpers_follow_owner_draw_constants() {
         let rect = RectPx::new(423, 59, 44, 119);
 
-        assert_eq!(combo_face_rect(rect), RectPx::new(423, 59, 44, 24));
-        assert_eq!(combo_arrow_rect(rect), RectPx::new(448, 60, 0, 0));
-        assert_eq!(combo_text_rect(rect), RectPx::new(425, 59, 24, 24));
-        assert_eq!(combo_swatch_rect(rect), RectPx::new(425, 61, 20, 20));
+        assert_eq!(
+            combo_face_rect(rect, ShellScale::RETAIL),
+            RectPx::new(423, 59, 44, 24)
+        );
+        assert_eq!(
+            combo_arrow_rect(rect, ShellScale::RETAIL),
+            RectPx::new(448, 60, 0, 0)
+        );
+        assert_eq!(
+            combo_text_rect(rect, ShellScale::RETAIL),
+            RectPx::new(425, 59, 24, 24)
+        );
+        assert_eq!(
+            combo_swatch_rect(rect, ShellScale::RETAIL),
+            RectPx::new(425, 61, 20, 20)
+        );
     }
 
     #[test]
@@ -1339,8 +1656,11 @@ mod tests {
     fn checkbox_icon_and_text_rects_follow_owner_draw_constants() {
         let rect = RectPx::new(71, 286, 150, 16);
 
-        assert_eq!(checkbox_icon_rect(rect), RectPx::new(71, 286, 18, 18));
-        assert_eq!(checkbox_text_rect(rect).x, rect.x + 26);
+        assert_eq!(
+            checkbox_icon_rect(rect, ShellScale::RETAIL),
+            RectPx::new(71, 286, 18, 18)
+        );
+        assert_eq!(checkbox_text_rect(rect, ShellScale::RETAIL).x, rect.x + 26);
     }
 
     #[test]
@@ -1481,5 +1801,125 @@ mod tests {
                 "{name} escapes the 800x600 screen: {rect:?}"
             );
         }
+    }
+
+    /// A 2x stretch is exact, so every responsive rect is the base one doubled.
+    fn double(rect: RectPx) -> RectPx {
+        RectPx::new(rect.x * 2, rect.y * 2, rect.w * 2, rect.h * 2)
+    }
+
+    #[test]
+    fn responsive_layouts_are_identity_at_the_base_size() {
+        assert_eq!(
+            compute_responsive_layout(800, 600),
+            compute_layout(800, 600)
+        );
+        assert_eq!(
+            compute_responsive_choose_map_modal_layout(800, 600),
+            compute_choose_map_modal_layout(800, 600)
+        );
+        assert_eq!(
+            compute_responsive_random_map_setup_layout(800, 600),
+            compute_random_map_setup_layout(800, 600)
+        );
+        for mode in [
+            SavedSeedMode::Load,
+            SavedSeedMode::Save,
+            SavedSeedMode::Delete,
+        ] {
+            assert_eq!(
+                compute_responsive_saved_seed_layout(mode, 800, 600),
+                compute_saved_seed_layout(mode, 800, 600)
+            );
+        }
+    }
+
+    #[test]
+    fn responsive_skirmish_layout_doubles_the_verified_base_geometry() {
+        let base = compute_layout(800, 600);
+        let layout = compute_responsive_layout(1600, 1200);
+
+        assert_eq!(layout.scale, ShellScale::from_screen(1600, 1200));
+        assert_eq!(layout.screen, RectPx::new(0, 0, 1600, 1200));
+        for (rect, base_rect) in [
+            (layout.start_button, base.start_button),
+            (layout.choose_map_button, base.choose_map_button),
+            (layout.back_button, base.back_button),
+            (layout.map_preview, base.map_preview),
+            (layout.player_name, base.player_name),
+            (layout.status_help, base.status_help),
+            (layout.right_panel_text.title, base.right_panel_text.title),
+            (layout.column_labels.players, base.column_labels.players),
+            (layout.rows.side_combos[0], base.rows.side_combos[0]),
+            (layout.rows.team_combos[7], base.rows.team_combos[7]),
+            (layout.color_combos[0], base.color_combos[0]),
+            (layout.flags[0], base.flags[0]),
+            (layout.trackbars.game_speed, base.trackbars.game_speed),
+            (
+                layout.trackbar_labels.unit_count,
+                base.trackbar_labels.unit_count,
+            ),
+            (layout.checkboxes[0].rect, base.checkboxes[0].rect),
+        ] {
+            assert_eq!(rect, double(base_rect));
+        }
+        // The panel keeps its chrome art whole: flush to the window's right edge
+        // and twice as tall, with the tile count unchanged for the painter.
+        assert_eq!(layout.right_panel.top.x + layout.right_panel.top.w, 1600);
+        assert_eq!(layout.right_panel.top.h, 199 * 2);
+        assert_eq!(layout.right_panel.tile_count, base.right_panel.tile_count);
+    }
+
+    #[test]
+    fn responsive_modals_fill_the_window_the_same_way() {
+        let chooser_base = compute_choose_map_modal_layout(800, 600);
+        let chooser = compute_responsive_choose_map_modal_layout(1600, 1200);
+        for (rect, base_rect) in [
+            (chooser.mode_list, chooser_base.mode_list),
+            (chooser.map_list, chooser_base.map_list),
+            (chooser.use_map_button, chooser_base.use_map_button),
+            (chooser.cancel_button, chooser_base.cancel_button),
+            (chooser.title, chooser_base.title),
+            (chooser.status_help, chooser_base.status_help),
+        ] {
+            assert_eq!(rect, double(base_rect));
+        }
+
+        let setup_base = compute_random_map_setup_layout(800, 600);
+        let setup = compute_responsive_random_map_setup_layout(1600, 1200);
+        for row in 0..6 {
+            assert_eq!(setup.label_rects[row], double(setup_base.label_rects[row]));
+            assert_eq!(
+                setup.control_rects[row],
+                double(setup_base.control_rects[row])
+            );
+        }
+        assert_eq!(setup.progress_bar, double(setup_base.progress_bar));
+
+        let seed_base = compute_saved_seed_layout(SavedSeedMode::Save, 800, 600);
+        let seed = compute_responsive_saved_seed_layout(SavedSeedMode::Save, 1600, 1200);
+        assert_eq!(seed.list, double(seed_base.list));
+        assert_eq!(seed.action, double(seed_base.action));
+        // The Save-only name edit stretches with the rest of the dialog.
+        assert_eq!(seed.name_edit, seed_base.name_edit.map(double));
+    }
+
+    #[test]
+    fn responsive_hit_tests_follow_the_stretched_rects() {
+        let base = compute_random_map_setup_layout(800, 600);
+        let setup = compute_responsive_random_map_setup_layout(1600, 1200);
+        let face = setup.control_rects[0];
+
+        assert_eq!(
+            random_map_setup_control_at(&setup, face.x + face.w / 2, face.y + 2),
+            Some(RandomMapSetupControl::MapType0x405)
+        );
+        // The base dialog's own map-type spot is empty chrome once stretched: a
+        // click there must not still land on the control.
+        let base_face = base.control_rects[0];
+        assert_eq!(
+            random_map_setup_control_at(&setup, base_face.x + 5, base_face.y + 2),
+            None
+        );
     }
 }

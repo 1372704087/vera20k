@@ -7,6 +7,7 @@ use anyhow::Result;
 
 use crate::app::AppState;
 use crate::app::frontend::main_menu_shell_render::shell_reveal_path_a;
+use crate::app::frontend::shell_layout;
 use crate::app::frontend::shell_pass::{
     ShellComposition, TexturedDraw, encode_shell_pass, owner_draw_button_label_rect, resolve_csf,
     software_cursor,
@@ -16,11 +17,11 @@ use crate::render::batch::SpriteInstance;
 use crate::render::main_menu_shell_chrome::CampaignShellArt;
 use crate::render::shell_paint::{
     self, CURSOR_DEPTH, PARENT_BACKGROUND_DEPTH, PaintButton, PaintLabel, SHELL_TEXT_RGB_ENABLED,
-    STATIC_IMAGE_DEPTH, push_entry_crop, push_entry_native,
+    STATIC_IMAGE_DEPTH, push_entry_crop_scaled, push_entry_scaled,
 };
 use crate::render::shell_text::ShellAlign;
 use crate::ui::campaign_shell::{
-    CAMPAIGN_PAGE, CampaignLayout, CampaignSide, DIFFICULTY_MAX, DIFFICULTY_SLIDER, compute_layout,
+    CAMPAIGN_PAGE, CampaignLayout, CampaignSide, DIFFICULTY_MAX, DIFFICULTY_SLIDER,
 };
 use crate::ui::shell::geom::{RectPx, centred_in_window};
 use crate::ui::shell::trackbar::thumb_left;
@@ -44,27 +45,33 @@ fn push_slider(
     background_origin: (i32, i32),
     position: i32,
 ) {
-    let slider = layout.slider;
+    let scale = layout.scale;
+    // The native metrics below (the one-pixel saved area, the 22-pixel thumb and
+    // the frame's two-pixel border) are authored numbers: the window maps back
+    // first and the art is stretched, so paint and press track the same rail.
+    let slider = scale.base_rect(layout.slider);
     if let Some(dark) = art.background_dark {
-        push_entry_crop(
+        push_entry_crop_scaled(
             out,
             dark,
             background_origin,
             RectPx::new(slider.x, slider.y, slider.w + 1, slider.h + 1),
+            scale,
             PARENT_BACKGROUND_DEPTH - 0.00001,
         );
     }
     if let Some(thumb) = art.slider_thumb {
         let x = slider.x + thumb_left(position, slider.w, 0, DIFFICULTY_MAX);
         let y = slider.y + (slider.h - 22) / 2;
-        push_entry_native(out, thumb, x, y, STATIC_IMAGE_DEPTH - 0.00001);
+        push_entry_scaled(out, thumb, x, y, scale, STATIC_IMAGE_DEPTH - 0.00001);
     }
     if let Some(frame) = art.slider_frame {
-        push_entry_native(
+        push_entry_scaled(
             out,
             frame,
             slider.x - 2,
             slider.y - 2,
+            scale,
             STATIC_IMAGE_DEPTH - 0.00002,
         );
     }
@@ -78,16 +85,22 @@ fn campaign_sprites(
     children: bool,
 ) -> Vec<SpriteInstance> {
     let mut out = Vec::new();
+    let scale = layout.scale;
     // Background_Overlay (`0x0072E730`) at `[0x00B0FC1C]`: centred only from
-    // 1024x768 up (`0x0072EC70`).
-    let background_origin =
-        crate::ui::shell::geom::dialog_origin(layout.page.screen.w, layout.page.screen.h);
+    // 1024x768 up (`0x0072EC70`). A stretched dialog starts at the authored
+    // origin instead, since the 800x600 backdrop grows into the whole window.
+    let background_origin = if scale.is_retail() {
+        crate::ui::shell::geom::dialog_origin(layout.page.screen.w, layout.page.screen.h)
+    } else {
+        (0, 0)
+    };
     if let Some(background) = art.background {
-        push_entry_native(
+        push_entry_scaled(
             &mut out,
             background,
             background_origin.0,
             background_origin.1,
+            scale,
             PARENT_BACKGROUND_DEPTH,
         );
     }
@@ -110,8 +123,8 @@ fn campaign_sprites(
             continue;
         };
         let (w, h) = entry.native_size();
-        let (x, y) = centred_in_window(layout.emblem(side), w, h);
-        push_entry_native(&mut out, entry, x, y, STATIC_IMAGE_DEPTH);
+        let (x, y) = centred_in_window(scale.base_rect(layout.emblem(side)), w, h);
+        push_entry_scaled(&mut out, entry, x, y, scale, STATIC_IMAGE_DEPTH);
     }
     out
 }
@@ -180,10 +193,7 @@ pub(crate) fn render_campaign_page(
     {
         return Ok(false);
     }
-    let layout = compute_layout(
-        state.renderer.gpu.config.width,
-        state.renderer.gpu.config.height,
-    );
+    let layout = shell_layout::campaign_layout(state);
     // The teardown slide starts with a full dialog repaint (`0x00622C4F`)
     // and pumps no messages until it ends: every child stays blank.
     let exit_wave =
@@ -233,7 +243,12 @@ pub(crate) fn render_campaign_page(
         layout.page.screen.w,
     );
     chrome_sprites.extend(monitor_frame.and_then(|frame| {
-        shell_paint::paint_warning_monitor(chrome, layout.page.warning_monitor, frame)
+        shell_paint::paint_warning_monitor(
+            chrome,
+            layout.page.warning_monitor,
+            frame,
+            layout.page.scale,
+        )
     }));
     let controller = &state.frontend.shell_controller;
     let active = controller.top_id() == Some(CAMPAIGN_PAGE.dialog);
@@ -292,7 +307,8 @@ pub(crate) fn render_campaign_page(
         });
     }
     labels.extend(status_label);
-    let text = shell_paint::paint_labels(&state.renderer.bit_font, &labels);
+    let text =
+        shell_paint::paint_labels_scaled(&state.renderer.bit_font, &labels, layout.scale.uniform());
     let draws = [
         TexturedDraw {
             texture: &art.texture,

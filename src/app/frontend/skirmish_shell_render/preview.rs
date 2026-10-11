@@ -12,9 +12,10 @@ use crate::map::preview::{DecodedPreview, PreviewSourceBounds};
 use crate::render::batch::{BatchTexture, SpriteInstance};
 use crate::render::skirmish_shell_chrome::SkirmishShellChromeAtlas;
 use crate::rules::ini_parser::IniFile;
+use crate::ui::shell::geom::ShellScale;
 use crate::ui::skirmish_shell::RectPx;
 
-use super::chrome::push_entry_native;
+use super::chrome::push_entry_scaled;
 use super::{
     RANDMAP_PREVIEW_FILE_NAME, RANDMAP_SENTINEL_FILE_NAME, SHELL_PREVIEW_SURFACE_DEPTH,
     START_MARKER_OFFSET_X, START_MARKER_OFFSET_Y,
@@ -34,21 +35,24 @@ pub(super) fn push_start_marker_sprites(
     out: &mut Vec<SpriteInstance>,
     atlas: &SkirmishShellChromeAtlas,
     projected_positions: &[(i32, i32)],
+    scale: ShellScale,
     depth: f32,
 ) {
     let Some(marker) = atlas.start_marker else {
         return;
     };
     for &(x, y) in projected_positions {
-        let (marker_x, marker_y) = start_marker_top_left(x, y);
-        push_entry_native(out, marker, marker_x, marker_y, depth);
+        let (marker_x, marker_y) = start_marker_top_left(x, y, scale);
+        push_entry_scaled(out, marker, marker_x, marker_y, scale, depth);
     }
 }
 
-pub(super) fn start_marker_top_left(anchor_x: i32, anchor_y: i32) -> (i32, i32) {
+/// The marker is authored to sit on its projected anchor; a stretched preview
+/// grows the art and the offset together, so it stays centred on the same point.
+pub(super) fn start_marker_top_left(anchor_x: i32, anchor_y: i32, scale: ShellScale) -> (i32, i32) {
     (
-        anchor_x + START_MARKER_OFFSET_X,
-        anchor_y + START_MARKER_OFFSET_Y,
+        anchor_x + (START_MARKER_OFFSET_X as f32 * scale.x()).round() as i32,
+        anchor_y + (START_MARKER_OFFSET_Y as f32 * scale.y()).round() as i32,
     )
 }
 
@@ -83,9 +87,10 @@ pub(super) fn project_preview_start_positions(
 pub(super) fn build_start_marker_instances(
     atlas: &SkirmishShellChromeAtlas,
     projected_positions: &[(i32, i32)],
+    scale: ShellScale,
 ) -> Vec<SpriteInstance> {
     let mut instances = Vec::new();
-    push_start_marker_sprites(&mut instances, atlas, projected_positions, 0.00056);
+    push_start_marker_sprites(&mut instances, atlas, projected_positions, scale, 0.00056);
     instances
 }
 
@@ -94,7 +99,8 @@ pub(super) fn selected_preview_texture_is_current(
     selected_map_idx: usize,
 ) -> bool {
     state
-        .frontend.skirmish_preview_texture
+        .frontend
+        .skirmish_preview_texture
         .as_ref()
         .is_some_and(|cached| {
             // A setup-dialog preview happens to carry the selected index too, so it
@@ -210,7 +216,12 @@ pub(super) fn decode_preview_from_ini(ini: &IniFile, source: &str) -> Option<Dec
 /// generated map and nothing else — before the first generate it stays empty
 /// rather than borrowing whatever the chooser underneath had selected.
 pub(super) fn ensure_random_map_setup_preview_texture(state: &mut AppState) -> bool {
-    let Some(modal) = state.frontend.skirmish_shell_state.random_map_setup_modal.as_ref() else {
+    let Some(modal) = state
+        .frontend
+        .skirmish_shell_state
+        .random_map_setup_modal
+        .as_ref()
+    else {
         return false;
     };
     let Some(preview) = modal.generated_preview.as_ref() else {
@@ -219,7 +230,8 @@ pub(super) fn ensure_random_map_setup_preview_texture(state: &mut AppState) -> b
     };
     let generation = modal.preview_generation;
     let already_current = state
-        .frontend.skirmish_preview_texture
+        .frontend
+        .skirmish_preview_texture
         .as_ref()
         .is_some_and(|texture| texture.setup_preview_generation == Some(generation));
     if already_current {
@@ -270,7 +282,12 @@ pub(super) fn ensure_selected_preview_texture(state: &mut AppState) {
         return;
     }
     let selected_map_idx = preview_map_idx(state);
-    let selected_entry = state.frontend.scenario_catalog.shell_maps().get(selected_map_idx).cloned();
+    let selected_entry = state
+        .frontend
+        .scenario_catalog
+        .shell_maps()
+        .get(selected_map_idx)
+        .cloned();
     let selected_is_random_sentinel = selected_entry
         .as_ref()
         .is_some_and(is_random_map_sentinel_entry);
@@ -280,10 +297,16 @@ pub(super) fn ensure_selected_preview_texture(state: &mut AppState) {
     }
 
     let ra2_dir = state
-        .platform.game_config
+        .platform
+        .game_config
         .as_ref()
         .map(|config| config.paths.ra2_dir.as_path())
-        .or_else(|| state.process_assets.manager().map(|assets| assets.ra2_dir()));
+        .or_else(|| {
+            state
+                .process_assets
+                .manager()
+                .map(|assets| assets.ra2_dir())
+        });
     let decoded = selected_entry.as_ref().and_then(|entry| {
         decode_preview_for_map_entry(entry, ra2_dir, state.process_assets.manager())
     });

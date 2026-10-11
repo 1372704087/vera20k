@@ -18,6 +18,7 @@ use crate::app::loading::campaign_presentation::CampaignLoadingPresentation;
 use crate::app::loading::composition::{
     LoadingCompositionSnapshot, LoadingParticipantId, LoadingStartAssignment,
     RANDOM_MAP_PREVIEW_FILE, build_loading_composition, build_random_map_loading_composition,
+    loading_authored_size, loading_screen_scale,
 };
 use crate::app::loading::fresh_scenario::FreshScenarioLoadContextDescriptor;
 use crate::app::loading::init::{self, MapLoadInitial, MapLoadResult};
@@ -43,6 +44,7 @@ use crate::rules::house_colors::{HouseColorIndex, HouseColorRamps};
 use crate::sim::scenario_bootstrap::StockOfflinePrefixProjection;
 use crate::skirmish_launch::{LaunchCountry, SkirmishLaunchSession};
 use crate::ui::game_screen::GameScreen;
+use crate::ui::shell::geom::ShellScale;
 use std::path::{Path, PathBuf};
 
 const STANDARD_SKIRMISH_PROGRESS_MAX: f64 = 100.0;
@@ -925,6 +927,7 @@ fn pump_loading_after_present(state: &mut AppState) -> LoadingPump {
             state.renderer.gpu.config.width,
             state.renderer.gpu.config.height,
         ];
+        let scale = loading_scale(state);
         // The pre-parse swallowed the loader's raw 8 so it could not present
         // before the first frame; hand it over now for either native cadence.
         if let Some(native) = native.as_mut()
@@ -941,6 +944,7 @@ fn pump_loading_after_present(state: &mut AppState) -> LoadingPump {
                 native,
                 8,
                 render_size,
+                scale,
             );
         }
         let startup = request.startup;
@@ -984,6 +988,7 @@ fn pump_loading_after_present(state: &mut AppState) -> LoadingPump {
                         backing_rgb,
                         text_rgb,
                         render_size,
+                        scale,
                         cadence,
                     }
                 },
@@ -1017,6 +1022,7 @@ fn pump_loading_after_present(state: &mut AppState) -> LoadingPump {
                         native,
                         terminal_raw_percent,
                         render_size,
+                        scale,
                     );
                 }
                 result.asset_manager = job.asset_manager.take();
@@ -1345,6 +1351,7 @@ fn ensure_loading_composition_snapshot(state: &mut AppState) {
             state.renderer.gpu.config.width,
             state.renderer.gpu.config.height,
         ];
+        let scale = loading_scale(state);
         match native.progress_cadence {
             NativeLoadingProgressCadence::SelectedMap => {
                 let assignments = selected_map_start_assignments(launch_session, Some(projection));
@@ -1353,6 +1360,7 @@ fn ensure_loading_composition_snapshot(state: &mut AppState) {
                     launch_session,
                     state.process_assets.csf.as_ref(),
                     render_size,
+                    scale,
                     &assignments,
                 )
             }
@@ -1367,6 +1375,7 @@ fn ensure_loading_composition_snapshot(state: &mut AppState) {
                     launch_session,
                     state.process_assets.csf.as_ref(),
                     render_size,
+                    scale,
                     preview,
                     initial.map_data(),
                     projection.active_scenario_waypoints(),
@@ -1488,6 +1497,7 @@ pub(crate) fn ensure_native_loading_atlas(state: &mut AppState) -> anyhow::Resul
                 state.renderer.gpu.config.width,
                 state.renderer.gpu.config.height,
             ],
+            loading_scale(state),
         );
         let atlas = crate::render::loading_screen_chrome::build_campaign_loading_screen_atlas(
             &state.renderer.gpu,
@@ -1527,7 +1537,17 @@ pub(crate) fn ensure_native_loading_atlas(state: &mut AppState) -> anyhow::Resul
             "native loading job has no asset manager after initialization"
         ));
     };
-    let width = LoadingScreenWidth::for_render_width(state.renderer.gpu.config.width);
+    // The atlas is the art the authored viewport uses: a stretched window still
+    // loads the 800px set and grows it, exactly as the shell family's pages do.
+    let width = LoadingScreenWidth::for_render_width(
+        loading_authored_size(
+            [
+                state.renderer.gpu.config.width,
+                state.renderer.gpu.config.height,
+            ],
+            loading_scale(state),
+        )[0],
+    );
     let progress_ramp = state
         .frontend
         .loading_session
@@ -1666,7 +1686,13 @@ fn encode_loading_screen(
         render::encode_blank_loading_frame(&state.renderer, encoder, destination);
         return Ok(LoadingRenderResult::NativeRendered);
     }
-    render::encode_native_loading_frame(&state.renderer, native, encoder, destination)?;
+    render::encode_native_loading_frame(
+        &state.renderer,
+        native,
+        loading_scale(state),
+        encoder,
+        destination,
+    )?;
     Ok(LoadingRenderResult::NativeRendered)
 }
 
@@ -1799,6 +1825,18 @@ fn normalize_rgb(rgb: [u8; 3]) -> [f32; 3] {
     ]
 }
 
+/// The mapping the loading screen composes and paints in: gamemd's centered,
+/// 1:1 art viewport, or the fill-window stretch of that same authored dialog.
+fn loading_scale(state: &AppState) -> ShellScale {
+    loading_screen_scale(
+        state.platform.menu_fill_window,
+        [
+            state.renderer.gpu.config.width,
+            state.renderer.gpu.config.height,
+        ],
+    )
+}
+
 fn advance_and_present_native_progress(
     gpu: &GpuContext,
     presenter: &ShellSurfacePresenter,
@@ -1808,6 +1846,7 @@ fn advance_and_present_native_progress(
     native: &mut NativeLoadingScreenState,
     raw_percent: u32,
     render_size: [u32; 2],
+    scale: ShellScale,
 ) {
     let effective_percent = native.progress_cadence.effective_percent(raw_percent);
     if !native.progress.advance_progress(effective_percent) {
@@ -1831,6 +1870,7 @@ fn advance_and_present_native_progress(
         native.backing_rgb,
         native.text_rgb,
         render_size,
+        scale,
     ) {
         log::warn!(
             "Native loading repaint at raw milestone {raw_percent} \
@@ -1857,6 +1897,7 @@ struct RenderingProgressSink<'a> {
     backing_rgb: [f32; 3],
     text_rgb: [f32; 3],
     render_size: [u32; 2],
+    scale: ShellScale,
     cadence: NativeLoadingProgressCadence,
 }
 
@@ -1879,6 +1920,7 @@ impl LoadingProgressSink for RenderingProgressSink<'_> {
                 self.backing_rgb,
                 self.text_rgb,
                 self.render_size,
+                self.scale,
             ) {
                 log::warn!(
                     "Native loading repaint at raw milestone {raw_percent} \

@@ -9,7 +9,7 @@ use super::{App, AppState};
 use crate::app::shell_route::ShellRoute;
 use crate::ui::campaign_shell::{
     CAMPAIGN_DIALOG, CampaignLayout, CampaignRelease, CampaignShellState, CampaignSide,
-    DIFFICULTY_SLIDER, compute_layout,
+    DIFFICULTY_SLIDER,
 };
 use crate::ui::shell::layout::LaidOutControl;
 
@@ -51,15 +51,19 @@ impl App {
             log::warn!("Could not prepare campaign art: process asset manager is unavailable");
             return false;
         };
-        let small = state.renderer.gpu.config.width == 640;
-        let slider = Self::campaign_layout(state).slider;
+        // The 640 art set belongs to the unscaled 640 dialog; a stretched layout
+        // always authors `0x94` at 800x600, so it takes the large set and the
+        // trackbar frame of that control size.
+        let small = !state.platform.menu_fill_window && state.renderer.gpu.config.width == 640;
+        let layout = Self::campaign_layout(state);
+        let base = layout.scale.base_rect(layout.slider);
         state.frontend.campaign_art =
             crate::render::main_menu_shell_chrome::build_campaign_shell_art(
                 &state.renderer.gpu,
                 &state.renderer.batch_renderer,
                 assets,
                 small,
-                (slider.w as u32, slider.h as u32),
+                (base.w as u32, base.h as u32),
             );
         let ready = state.frontend.campaign_art.is_some();
         if !ready {
@@ -75,10 +79,7 @@ impl App {
     }
 
     fn campaign_layout(state: &AppState) -> CampaignLayout {
-        compute_layout(
-            state.renderer.gpu.config.width,
-            state.renderer.gpu.config.height,
-        )
+        crate::app::frontend::shell_layout::campaign_layout(state)
     }
 
     /// Hover targets for the status line: Back, then the emblems and the
@@ -132,7 +133,7 @@ impl App {
             if !slider_held && !back_pressed {
                 campaign.pointer_moved(layout.emblem_at(x, y), now);
             }
-            slider_moved = campaign.slider_drag(x - layout.slider.x, layout.slider.w);
+            slider_moved = campaign.slider_drag(x, layout.slider, layout.scale);
         }
         if slider_moved {
             // 0x0061E6DD: mouse-driven position changes click.
@@ -158,14 +159,10 @@ impl App {
             return;
         }
         if layout.slider.contains(x, y) {
-            let moved = state.frontend.campaign.as_mut().is_some_and(|campaign| {
-                campaign.slider_press(
-                    x - layout.slider.x,
-                    y - layout.slider.y,
-                    layout.slider.w,
-                    layout.slider.h,
-                )
-            });
+            let moved =
+                state.frontend.campaign.as_mut().is_some_and(|campaign| {
+                    campaign.slider_press(x, y, layout.slider, layout.scale)
+                });
             if moved {
                 Self::play_generic_click_sound(state);
             }

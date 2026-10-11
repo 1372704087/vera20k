@@ -1,7 +1,7 @@
 //! Shared native list and scrollbar geometry from 0x00618D40 / 0x0061C690.
 //! Native list rows use GAME.FNT height 17 + 2; inner rectangles exclude borders.
 
-use super::geom::RectPx;
+use super::geom::{RectPx, ShellScale};
 use std::time::{Duration, Instant};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -13,6 +13,44 @@ pub enum ListScrollPart {
 }
 
 pub const ROW_HEIGHT: i32 = 19;
+/// The list scrollbar child's width and arrow height, and the thumb's minimum
+/// height (`0x0061C690`, the same native scrollbar the combo dropdowns use).
+const SCROLLBAR_WIDTH: i32 = 20;
+const ARROW_HEIGHT: i32 = 22;
+const MIN_THUMB_HEIGHT: i32 = 14;
+
+/// A list box's row and scrollbar metrics in the pixels its page is drawn in:
+/// the native constants on the retail layout, grown with the window on a
+/// stretched one.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ListMetrics {
+    pub row_h: i32,
+    pub scrollbar_w: i32,
+    pub arrow_h: i32,
+    pub min_thumb_h: i32,
+}
+
+impl ListMetrics {
+    pub const RETAIL: Self = Self {
+        row_h: ROW_HEIGHT,
+        scrollbar_w: SCROLLBAR_WIDTH,
+        arrow_h: ARROW_HEIGHT,
+        min_thumb_h: MIN_THUMB_HEIGHT,
+    };
+
+    pub fn scaled(scale: ShellScale) -> Self {
+        if scale.is_retail() {
+            return Self::RETAIL;
+        }
+        let grow = |px: i32, factor: f32| (px as f32 * factor).round() as i32;
+        Self {
+            row_h: grow(ROW_HEIGHT, scale.y()),
+            scrollbar_w: grow(SCROLLBAR_WIDTH, scale.x()),
+            arrow_h: grow(ARROW_HEIGHT, scale.y()),
+            min_thumb_h: grow(MIN_THUMB_HEIGHT, scale.y()),
+        }
+    }
+}
 
 /// Scrollbar capture and repeat from original gamemd61C690: button down arms
 /// 500 ms at61D383..61D3B2; each timer callback rearms25 ms at61D215..61D2C8,
@@ -99,25 +137,44 @@ pub struct ShellListGeometry {
     pub thumb: Option<RectPx>,
     pub visible_rows: usize,
     pub max_top: usize,
+    pub metrics: ListMetrics,
 }
 impl ShellListGeometry {
-    pub fn new(outer: RectPx, count: usize, top: usize) -> Self {
+    pub fn new(outer: RectPx, count: usize, top: usize, metrics: ListMetrics) -> Self {
         let inner_height = (outer.h - 2).max(0);
-        let visible_rows = (inner_height / ROW_HEIGHT) as usize;
+        let visible_rows = (inner_height / metrics.row_h) as usize;
         let max_top = count.saturating_sub(visible_rows);
-        let scrollbar =
-            (max_top > 0).then(|| RectPx::new(outer.x + outer.w - 21, outer.y, 20, outer.h));
+        let scrollbar = (max_top > 0).then(|| {
+            RectPx::new(
+                outer.x + outer.w - metrics.scrollbar_w - 1,
+                outer.y,
+                metrics.scrollbar_w,
+                outer.h,
+            )
+        });
         let content = RectPx::new(
             outer.x + 1,
             outer.y + 1,
-            (outer.w - 2 - if scrollbar.is_some() { 20 } else { 0 }).max(0),
+            (outer.w
+                - 2
+                - if scrollbar.is_some() {
+                    metrics.scrollbar_w
+                } else {
+                    0
+                })
+            .max(0),
             inner_height,
         );
         let thumb = scrollbar.map(|bar| {
-            let height = thumb_height(bar.h, max_top);
-            let span = (bar.h - 2 - 44 - height).max(1);
+            let height = thumb_height(bar.h, max_top, metrics);
+            let span = (bar.h - 2 - metrics.arrow_h * 2 - height).max(1);
             let offset = (span as i64 * top.min(max_top) as i64 / max_top as i64) as i32;
-            RectPx::new(bar.x + 1, bar.y + 1 + 22 + offset, 18, height)
+            RectPx::new(
+                bar.x + 1,
+                bar.y + 1 + metrics.arrow_h + offset,
+                metrics.scrollbar_w - 2,
+                height,
+            )
         });
         Self {
             outer,
@@ -126,15 +183,17 @@ impl ShellListGeometry {
             thumb,
             visible_rows,
             max_top,
+            metrics,
         }
     }
     pub fn row(&self, visible: usize) -> RectPx {
         RectPx::new(
             self.content.x,
-            self.content.y + visible as i32 * ROW_HEIGHT,
+            self.content.y + visible as i32 * self.metrics.row_h,
             self.content.w,
-            ROW_HEIGHT
-                .min(self.content.h - visible as i32 * ROW_HEIGHT)
+            self.metrics
+                .row_h
+                .min(self.content.h - visible as i32 * self.metrics.row_h)
                 .max(0),
         )
     }
@@ -142,7 +201,7 @@ impl ShellListGeometry {
         if !self.content.contains(x, y) {
             return None;
         }
-        let index = top + ((y - self.content.y) / ROW_HEIGHT) as usize;
+        let index = top + ((y - self.content.y) / self.metrics.row_h) as usize;
         (index < count).then_some(index)
     }
     pub fn scroll_part_at(&self, x: i32, y: i32) -> Option<ListScrollPart> {
@@ -154,10 +213,10 @@ impl ShellListGeometry {
         if x <= bar.x {
             return None;
         }
-        if local_y < 22 {
+        if local_y < self.metrics.arrow_h {
             return Some(ListScrollPart::Up);
         }
-        if local_y > bar.h - 2 - 22 {
+        if local_y > bar.h - 2 - self.metrics.arrow_h {
             return Some(ListScrollPart::Down);
         }
         let thumb = self.thumb?;
@@ -297,14 +356,16 @@ pub fn is_double_click(
 
 /// 0x0061C818 uses natural log with the stored binary64 0.2; 0x007C5F00
 /// truncates the result to integer, then the caller enforces the 14 px minimum.
-/// f64 arithmetic preserves ordinary control geometry; x87 rounding-edge cases
-/// remain outside the sampled native comparison coverage.
-pub fn thumb_height(height: i32, range: usize) -> i32 {
-    let track = f64::from(height - 2 - 44);
+/// The track and the minimum come from `metrics`, so a stretched list keeps the
+/// same proportion against its grown arrows. f64 arithmetic preserves ordinary
+/// control geometry; x87 rounding-edge cases remain outside the sampled native
+/// comparison coverage.
+pub fn thumb_height(height: i32, range: usize, metrics: ListMetrics) -> i32 {
+    let track = f64::from(height - 2 - metrics.arrow_h * 2);
     crate::util::native_x87::X87Chop53::ftol_f64_low_masked(
         track - ((range + 1) as f64).ln() * track * 0.2,
     )
-    .max(14)
+    .max(metrics.min_thumb_h)
 }
 
 #[cfg(test)]
@@ -314,7 +375,8 @@ mod tests {
     // separately replays the saved native scrollbar fixture below.
     #[test]
     fn held_arrow_waits_500ms_then_steps_each_25ms_without_catch_up() {
-        let geometry = ShellListGeometry::new(RectPx::new(10, 20, 400, 255), 60, 10);
+        let geometry =
+            ShellListGeometry::new(RectPx::new(10, 20, 400, 255), 60, 10, ListMetrics::RETAIL);
         let bar = geometry.scrollbar.unwrap();
         let (x, y) = (bar.x + 10, bar.y + bar.h - 10);
         let now = Instant::now();
@@ -340,7 +402,8 @@ mod tests {
     }
     #[test]
     fn leaving_arrow_keeps_timer_cadence_and_capture_until_release_or_focus_loss() {
-        let geometry = ShellListGeometry::new(RectPx::new(10, 20, 400, 255), 60, 10);
+        let geometry =
+            ShellListGeometry::new(RectPx::new(10, 20, 400, 255), 60, 10, ListMetrics::RETAIL);
         let bar = geometry.scrollbar.unwrap();
         let (x, y) = (bar.x + 10, bar.y + bar.h - 10);
         let now = Instant::now();
@@ -370,7 +433,8 @@ mod tests {
     }
     #[test]
     fn repeat_follows_current_arrow_and_clamps_at_each_end() {
-        let geometry = ShellListGeometry::new(RectPx::new(10, 20, 400, 255), 60, 0);
+        let geometry =
+            ShellListGeometry::new(RectPx::new(10, 20, 400, 255), 60, 0, ListMetrics::RETAIL);
         let bar = geometry.scrollbar.unwrap();
         let x = bar.x + 10;
         let now = Instant::now();
@@ -399,7 +463,8 @@ mod tests {
     }
     #[test]
     fn thumb_does_not_jump_on_press_and_track_capture_can_reach_an_arrow() {
-        let geometry = ShellListGeometry::new(RectPx::new(10, 20, 400, 255), 60, 10);
+        let geometry =
+            ShellListGeometry::new(RectPx::new(10, 20, 400, 255), 60, 10, ListMetrics::RETAIL);
         let bar = geometry.scrollbar.unwrap();
         let now = Instant::now();
         let mut interaction = ListScrollInteraction::default();
@@ -440,7 +505,8 @@ mod tests {
             assert_eq!(
                 thumb_height(
                     case["height"].as_i64().unwrap() as i32,
-                    case["range"].as_u64().unwrap() as usize
+                    case["range"].as_u64().unwrap() as usize,
+                    ListMetrics::RETAIL,
                 ),
                 case["thumb"].as_i64().unwrap() as i32
             );
@@ -448,12 +514,31 @@ mod tests {
     }
     #[test]
     fn border_and_scroll_range_share_one_geometry_for_hit_and_paint() {
-        let list = ShellListGeometry::new(RectPx::new(10, 20, 400, 255), 23, 10);
+        let list =
+            ShellListGeometry::new(RectPx::new(10, 20, 400, 255), 23, 10, ListMetrics::RETAIL);
         assert_eq!(list.visible_rows, 13);
         assert_eq!(list.max_top, 10);
         assert_eq!(list.scrollbar, Some(RectPx::new(389, 20, 20, 255)));
         assert_eq!(list.row_at(23, 10, 13, 22), Some(10));
         assert_eq!(list.top_at_pointer(2000), 10);
         assert_eq!(list.top_at_pointer(-1), 0);
+    }
+
+    /// A stretched list grows its rows with the window, so the same list shows
+    /// the same number of rows and the same scroll range as it did at 800x600.
+    #[test]
+    fn a_stretched_list_keeps_its_row_count_and_scroll_range() {
+        let double = ShellScale::from_screen(1600, 1200);
+        assert_eq!(ListMetrics::scaled(ShellScale::RETAIL), ListMetrics::RETAIL);
+        let metrics = ListMetrics::scaled(double);
+        assert_eq!(metrics.row_h, 38);
+        assert_eq!(metrics.scrollbar_w, 40);
+        assert_eq!(metrics.arrow_h, 44);
+        let stretched = ShellListGeometry::new(RectPx::new(20, 40, 800, 510), 23, 10, metrics);
+        assert_eq!(stretched.visible_rows, 13);
+        assert_eq!(stretched.max_top, 10);
+        assert_eq!(stretched.row_at(23, 10, 40, 100), Some(11));
+        assert_eq!(stretched.scrollbar.unwrap().w, 40);
+        assert!(stretched.thumb.unwrap().h >= metrics.min_thumb_h);
     }
 }

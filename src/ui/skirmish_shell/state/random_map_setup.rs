@@ -8,6 +8,7 @@ use crate::map::rmg::options::RmgOptions;
 use crate::map::rmg::preview::PreviewImage;
 use crate::map::rmg::randomize::{RandomRanged, derive_from_map_type, randomize};
 use crate::map::rmg::settings::RmgSettings;
+use crate::ui::shell::geom::{RectPx, ShellScale};
 use crate::ui::shell::static_reveal::DialogStatics;
 use crate::ui::shell::trackbar::{TrackbarHold, TrackbarPress, TrackbarRange};
 
@@ -269,12 +270,11 @@ impl RandomMapSetupModalState {
         self.on_option_changed();
     }
 
-    /// A press on the Players slider at window-relative `(x, y)` of its
-    /// `width` x `height` window. Returns whether the value changed; the
-    /// slider then clicks (GenericClick, `0x0061E6DD`), since `0x105` never
-    /// turns its cue off (`0x4AE`).
-    pub fn press_players(&mut self, x: i32, y: i32, width: i32, height: i32) -> bool {
-        let press = PLAYERS_RANGE.press(self.options.num_players, x, y, width, height);
+    /// A press at device `(x, y)` on the Players slider window. Returns whether
+    /// the value changed; the slider then clicks (GenericClick, `0x0061E6DD`),
+    /// since `0x105` never turns its cue off (`0x4AE`).
+    pub fn press_players(&mut self, x: i32, y: i32, window: RectPx, scale: ShellScale) -> bool {
+        let press = PLAYERS_RANGE.press_in(self.options.num_players, x, y, window, scale);
         self.players_hold = press.hold(());
         match press {
             TrackbarPress::Jump(value) => self.change_num_players(value),
@@ -283,10 +283,10 @@ impl RandomMapSetupModalState {
     }
 
     /// A move while the Players slider holds the mouse: a held thumb follows
-    /// window-relative `x`. Returns whether the value changed.
-    pub fn drag_players(&mut self, x: i32, width: i32) -> bool {
+    /// device `x`. Returns whether the value changed.
+    pub fn drag_players(&mut self, x: i32, window: RectPx, scale: ShellScale) -> bool {
         self.players_hold.is_some_and(|hold| hold.dragging)
-            && self.change_num_players(PLAYERS_RANGE.value_at(x, width))
+            && self.change_num_players(PLAYERS_RANGE.value_at_in(x, window, scale))
     }
 
     /// The slider notifies (`WM_HSCROLL`, case `0x00596B04`) only when its

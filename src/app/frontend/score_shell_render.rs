@@ -21,11 +21,12 @@ use crate::app::frontend::shell_pass::{
 use crate::app::frontend::shell_transition::ShellSlideKind;
 use crate::render::shell_paint::{
     self, CURSOR_DEPTH, PARENT_BACKGROUND_DEPTH, PaintButton, PaintLabel, SHELL_TEXT_RGB_ENABLED,
-    STATIC_IMAGE_DEPTH, push_entry_crop, push_entry_native,
+    STATIC_IMAGE_DEPTH, push_entry_crop, push_entry_native, push_entry_scaled, push_entry_sized,
+    push_entry_window_crop,
 };
 use crate::render::shell_text::ShellAlign;
 use crate::render::shell_text_reveal::PathAReveal;
-use crate::ui::score_shell::{CONTINUE_BUTTON, SCORE_PAGE, ScoreAlign, compute_layout};
+use crate::ui::score_shell::{CONTINUE_BUTTON, SCORE_PAGE, ScoreAlign};
 use crate::ui::shell::geom::{centred_in_window, dialog_origin};
 
 /// The shaded part of the art sits over the art.
@@ -62,11 +63,9 @@ pub(crate) fn render_score_page(
     {
         return Ok(false);
     }
-    let layout = compute_layout(
-        state.renderer.gpu.config.width,
-        state.renderer.gpu.config.height,
-    );
+    let layout = crate::app::frontend::shell_layout::score_layout(state);
     let screen = layout.page.screen;
+    let scale = layout.page.scale;
     let exit_wave =
         crate::app::frontend::shell_transition::shell_exit_wave(state, ShellSlideKind::Score)
             .cloned();
@@ -125,7 +124,9 @@ pub(crate) fn render_score_page(
             let base = text.rgb.unwrap_or(SHELL_TEXT);
             labels.push(PaintLabel {
                 text: text.text().to_owned().into(),
-                rect: text.window,
+                // The statics carry the template windows `0x0060B950` keeps;
+                // on a stretched page they map onto the window with the table.
+                rect: scale.scale_rect(text.window),
                 align: match text.align {
                     ScoreAlign::Left => ShellAlign::NONE,
                     ScoreAlign::Right => ShellAlign::H_RIGHT,
@@ -168,37 +169,64 @@ pub(crate) fn render_score_page(
     let origin = dialog_origin(screen.w, screen.h);
     let mut art_sprites = Vec::new();
     if let Some(background) = art.background {
-        push_entry_native(
-            &mut art_sprites,
-            background,
-            origin.0,
-            origin.1,
-            PARENT_BACKGROUND_DEPTH,
-        );
+        if scale.is_retail() {
+            push_entry_native(
+                &mut art_sprites,
+                background,
+                origin.0,
+                origin.1,
+                PARENT_BACKGROUND_DEPTH,
+            );
+        } else {
+            push_entry_sized(
+                &mut art_sprites,
+                background,
+                0.0,
+                0.0,
+                [screen.w as f32, screen.h as f32],
+                PARENT_BACKGROUND_DEPTH,
+            );
+        }
     }
     if !leaving
         && let (Some(shaded), Some(rect)) = (
             art.background_shaded,
-            layout.table.shaded_rect(page.model.rows.len()),
+            layout.table.shaded_rect(page.model.rows.len(), scale),
         )
     {
-        push_entry_crop(&mut art_sprites, shaded, origin, rect, SHADE_DEPTH);
+        if scale.is_retail() {
+            push_entry_crop(&mut art_sprites, shaded, origin, rect, SHADE_DEPTH);
+        } else {
+            push_entry_window_crop(
+                &mut art_sprites,
+                shaded,
+                (screen.w, screen.h),
+                rect,
+                SHADE_DEPTH,
+            );
+        }
     }
     if children {
         // Bands 0 and 1 always carry a bar; player bands only up to the row
-        // count (`0x005C9D82..0x005C9DD1`, `0x005C9E4C..0x005C9E7A`).
+        // count (`0x005C9D82..0x005C9DD1`, `0x005C9E4C..0x005C9E7A`). The bar
+        // image is centred by its authored window and stretched with it.
         let bands = 2 + page.model.rows.len();
         for (window, bar) in layout.table.bands.iter().zip(&art.bars).take(bands) {
             let Some(bar) = *bar else {
                 continue;
             };
             let (w, h) = bar.native_size();
-            let (x, y) = centred_in_window(*window, w, h);
-            push_entry_native(&mut art_sprites, bar, x, y, STATIC_IMAGE_DEPTH);
+            let (x, y) = centred_in_window(scale.base_rect(*window), w, h);
+            push_entry_scaled(&mut art_sprites, bar, x, y, scale, STATIC_IMAGE_DEPTH);
         }
     }
     chrome_sprites.extend(monitor_frame.and_then(|frame| {
-        shell_paint::paint_warning_monitor(chrome, layout.page.warning_monitor, frame)
+        shell_paint::paint_warning_monitor(
+            chrome,
+            layout.page.warning_monitor,
+            frame,
+            layout.page.scale,
+        )
     }));
 
     // The slide engine draws the whole column while either slide runs
@@ -243,7 +271,7 @@ pub(crate) fn render_score_page(
             path_a_reveal: None,
         });
     }
-    let text = shell_paint::paint_labels(&state.renderer.bit_font, &labels);
+    let text = shell_paint::paint_labels_scaled(&state.renderer.bit_font, &labels, scale.uniform());
 
     let draws = [
         TexturedDraw {

@@ -678,6 +678,7 @@ fn gsi_04_12_generated_prefix_uses_accepted_staging_once() {
         &launch,
         None,
         [800, 600],
+        ShellScale::RETAIL,
         Some(DecodedPreview {
             width: 300,
             height: 100,
@@ -1344,6 +1345,7 @@ fn gsi_04_12_stock_ffa_preview_can_only_supply_loading_fallback_pixels() {
         &launch,
         None,
         [800, 600],
+        ShellScale::RETAIL,
         Some(preview),
         &launch_map,
         &active_scenario_waypoints,

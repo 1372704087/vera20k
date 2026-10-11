@@ -48,6 +48,12 @@ pub(crate) struct PlatformState {
     /// `[gameplay] pause_on_focus_loss`: whether a deactivated window freezes
     /// the match the way native does. Off, the match runs on in the background.
     pub(crate) pause_on_focus_loss: bool,
+    /// `[graphics] window_mode`: how the top-level window is framed. Read only
+    /// at window creation and by the shell/game window-mode transitions.
+    pub(crate) window_mode: crate::util::config::WindowMode,
+    /// `[graphics] menu_fill_window`: stretch the shell family into the whole
+    /// window instead of painting gamemd's centered, unscaled 800x600 dialog.
+    pub(crate) menu_fill_window: bool,
     /// Whether the window has no visible surface — minimised, or occluded on
     /// the platforms that report occlusion.
     ///
@@ -83,12 +89,23 @@ impl PlatformState {
         let pause_on_focus_loss = game_config
             .as_ref()
             .is_some_and(|config| config.gameplay.pause_on_focus_loss);
+        let (window_mode, menu_fill_window) = game_config
+            .as_ref()
+            .map(|config| {
+                (
+                    config.graphics.window_mode,
+                    config.graphics.menu_fill_window,
+                )
+            })
+            .unwrap_or_default();
         Self {
             window,
             live_modifiers: winit::keyboard::ModifiersState::empty(),
             held_modifier_keys: Default::default(),
             window_active: true,
             pause_on_focus_loss,
+            window_mode,
+            menu_fill_window,
             window_hidden: false,
             frame_pacer_epoch: Instant::now(),
             frame_pacer: LocalFramePacer::new(),

@@ -255,7 +255,7 @@ impl App {
                 &state.renderer.batch_renderer,
                 assets,
                 model.side,
-                state.renderer.gpu.config.width,
+                crate::app::frontend::shell_layout::art_key_screen_width(state),
             )
         });
         if state.frontend.score_art.is_none() {
@@ -270,10 +270,7 @@ impl App {
     }
 
     fn score_layout(state: &AppState) -> crate::ui::score_shell::ScoreLayout {
-        crate::ui::score_shell::compute_layout(
-            state.renderer.gpu.config.width,
-            state.renderer.gpu.config.height,
-        )
+        crate::app::frontend::shell_layout::score_layout(state)
     }
 
     /// Continue, the page's only button, through the shared controller.
@@ -625,11 +622,11 @@ impl App {
             state.match_state.input.cursor_x as i32,
             state.match_state.input.cursor_y as i32,
         );
-        let (w, h) = (state.render_width() as i32, state.render_height() as i32);
+        let layout = crate::app::frontend::shell_layout::launcher_options_layout(state);
         match down {
-            Some(true) => dialog.shell_mouse_down(x, y, w, h),
-            Some(false) => dialog.shell_mouse_up(x, y, w, h),
-            None => dialog.shell_mouse_move(x, y, w, h),
+            Some(true) => dialog.shell_mouse_down(x, y, &layout),
+            Some(false) => dialog.shell_mouse_up(x, y, &layout),
+            None => dialog.shell_mouse_move(x, y, &layout),
         }
         let output = dialog.drain_output();
         Self::dispatch_launcher_options_output(state, dialog, output);
@@ -703,10 +700,7 @@ impl App {
     }
 
     pub(super) fn handle_main_menu_shell_mouse_down(state: &mut AppState) {
-        let layout = crate::ui::main_menu_shell::compute_layout(
-            state.renderer.gpu.config.width,
-            state.renderer.gpu.config.height,
-        );
+        let layout = crate::app::frontend::shell_layout::main_menu_layout(state);
         let feed = Self::main_menu_shell_button_feed(&layout);
         let (x, y) = state.match_state.input.cursor_px();
         state
@@ -725,10 +719,7 @@ impl App {
     }
 
     pub(super) fn handle_main_menu_shell_mouse_move(state: &mut AppState) {
-        let layout = crate::ui::main_menu_shell::compute_layout(
-            state.renderer.gpu.config.width,
-            state.renderer.gpu.config.height,
-        );
+        let layout = crate::app::frontend::shell_layout::main_menu_layout(state);
         let feed = Self::main_menu_shell_button_feed(&layout);
         let (x, y) = state.match_state.input.cursor_px();
         state
@@ -745,10 +736,7 @@ impl App {
         state: &mut AppState,
         _event_loop: &ActiveEventLoop,
     ) {
-        let layout = crate::ui::main_menu_shell::compute_layout(
-            state.renderer.gpu.config.width,
-            state.renderer.gpu.config.height,
-        );
+        let layout = crate::app::frontend::shell_layout::main_menu_layout(state);
         let feed = Self::main_menu_shell_button_feed(&layout);
         let (x, y) = state.match_state.input.cursor_px();
         state
@@ -854,11 +842,7 @@ impl App {
     ) -> Vec<crate::ui::shell::layout::LaidOutControl> {
         use crate::app::frontend::menu_page_render::ActiveMenuPage;
         let spec = page.spec();
-        let layout = crate::ui::shell::menu_page::compute_layout(
-            spec,
-            state.renderer.gpu.config.width,
-            state.renderer.gpu.config.height,
-        );
+        let layout = crate::app::frontend::shell_layout::menu_page_layout(state, spec);
         state
             .frontend
             .shell_controller

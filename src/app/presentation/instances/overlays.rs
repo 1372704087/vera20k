@@ -102,10 +102,12 @@ fn ordinary_overlay_accepts_identity(overlay_id: u8, name: &str) -> bool {
 /// with `-15 * level - 2`; ordinary non-walls use DrawFlat (+0x2B3), adding
 /// -15 only for upright non-rock art. Tiberium's flat branch uses gradient 0.
 ///
-/// Sloped resources use a separate native slope Z-shape. Rubble queries
-/// foundation art dynamically, and the TS vein family also has special shape
-/// offsets. Preserve their existing passthrough until those consumers have
-/// their own shape data; assigning a made-up flat Z would poison nearby walls.
+/// Sloped resources use a separate native slope Z-shape, and the TS vein
+/// family also has special shape offsets; preserve their passthrough until
+/// those consumers have their own shape data, since a made-up flat Z would
+/// poison nearby walls. Rubble swaps in its building's art but keeps the
+/// ordinary flags-derived Z: 0047F6A0's IsRubble arm computes level,
+/// gradient and DrawFlat term exactly as the ordinary arm does.
 fn ordinary_overlay_z(
     flags: Option<&OverlayTypeFlags>,
     slope: u8,
@@ -114,11 +116,7 @@ fn ordinary_overlay_z(
     let Some(flags) = flags else {
         return (RenderZPolicy::None, 0.0, 0);
     };
-    if (flags.tiberium && slope != 0)
-        || flags.is_rubble
-        || flags.is_veins
-        || flags.is_veinhole_monster
-    {
+    if (flags.tiberium && slope != 0) || flags.is_veins || flags.is_veinhole_monster {
         return (RenderZPolicy::None, 0.0, 0);
     }
     let (gradient, class_term) = if flags.tiberium {
@@ -144,6 +142,22 @@ fn ordinary_overlay_z(
         native_z::ground_anchored_z_adjust(i32::from(level), class_term) as f32,
         pack_z_gradient(gradient, false),
     )
+}
+
+/// `CellClass::DrawOverlay_Body @ 0x0047F6A0`'s IsRubble arm: the cell draws
+/// its recorded building type's rubble frame (`Cell+0x40`, `0x0045F160`), and
+/// nothing when it has none or the type's image carries no rubble.
+fn rubble_sprite_key(
+    live_cell: Option<&crate::sim::overlay_grid::OverlayCell>,
+    rules: Option<&crate::rules::ruleset::RuleSet>,
+    interner: Option<&crate::sim::intern::StringInterner>,
+) -> Option<OverlaySpriteKey> {
+    let type_id = live_cell?.rubble_building_type?;
+    let art = rules?.building_rubble_art(interner?.resolve(type_id))?;
+    Some(crate::render::overlay_atlas::rubble_key(
+        &art.shp,
+        art.body_frame,
+    ))
 }
 
 /// Resolve the CellClass overlay identity/data used by the tactical overlay
@@ -538,6 +552,9 @@ struct CellOverlayInputs<'a> {
     names: &'a std::collections::BTreeMap<u8, String>,
     live_grid: Option<&'a crate::sim::overlay_grid::OverlayGrid>,
     registry: Option<&'a crate::rules::overlay_types::OverlayTypeRegistry>,
+    /// Rules and interner resolving a rubble cell's recorded building type.
+    rules: Option<&'a crate::rules::ruleset::RuleSet>,
+    interner: Option<&'a crate::sim::intern::StringInterner>,
     tiberium_types: Option<&'a crate::rules::tiberium_type::TiberiumTypeRegistry>,
     terrain: Option<&'a crate::map::resolved_terrain::ResolvedTerrainGrid>,
     heights: &'a std::collections::BTreeMap<(u16, u16), u8>,
@@ -615,6 +632,15 @@ fn build_cell_overlay_instances(
         let is_wall: bool = overlay_flags.map(|f| f.wall).unwrap_or(false);
         let is_crate: bool = overlay_flags.map(|f| f.crate_type).unwrap_or(false);
         let render_frame: u8 = overlay_body_frame(is_crate, live_overlay_data);
+        let rubble_key = if overlay_flags.is_some_and(|f| f.is_rubble) {
+            let Some(key) = rubble_sprite_key(live_overlay_cell, input.rules, input.interner)
+            else {
+                continue;
+            };
+            Some(key)
+        } else {
+            None
+        };
 
         // FA2 IsoView.cpp:5955-5956: track overlays render +CellHeight (15px) lower.
         let track_y_offset: f32 = if overlay_flags.map(|f| f.track).unwrap_or(false) {
@@ -633,16 +659,24 @@ fn build_cell_overlay_instances(
 
         // No LocalSize gate: gamemd draws overlays on border filler cells like
         // any other; camera/geometry admission precedes per-pixel shroud.
+        // Rubble draws a whole building's art from one cell, so its margin
+        // grows to the sprite.
+        let cull_margin: f32 = rubble_key
+            .as_ref()
+            .and_then(|key| input.atlas.get(key))
+            .map_or(120.0, |spr| {
+                120.0f32.max(spr.pixel_size[0]).max(spr.pixel_size[1])
+            });
         if !in_view(
             screen_x,
             screen_y,
-            120.0,
-            120.0,
+            cull_margin,
+            cull_margin,
             input.camera[0],
             input.camera[1],
             input.viewport[0],
             input.viewport[1],
-            120.0,
+            cull_margin,
         ) {
             continue;
         }
@@ -654,10 +688,10 @@ fn build_cell_overlay_instances(
         // 2, art only in frame 1). Collapsing to frame 0 here resurrected them
         // as phantom deck slabs. Frame selection lives in
         // `render::overlay_atlas::resolve_body_frame`.
-        let key = OverlaySpriteKey {
+        let key = rubble_key.unwrap_or_else(|| OverlaySpriteKey {
             name: name.clone(),
             frame: render_frame,
-        };
+        });
         let Some(spr) = input.atlas.get(&key) else {
             continue;
         };
@@ -774,6 +808,12 @@ pub(crate) fn build_overlay_instances(
                 .as_ref()
                 .and_then(|runtime| runtime.simulation.overlay_grid.as_ref()),
             registry: state.overlay_registry(),
+            rules: state.rules(),
+            interner: state
+                .match_state
+                .sim_runtime
+                .as_ref()
+                .map(|runtime| &runtime.simulation.interner),
             tiberium_types: state.rules().map(|rules| &rules.tiberium_types),
             terrain: state.terrain_template(),
             heights: state.height_map(),
@@ -1416,12 +1456,48 @@ mod tests {
         assert_eq!(overlay_body_frame(true, 0x2F), CRATE_BODY_FRAME);
     }
 
+    /// 0047F6A0's IsRubble arm: only the cell holding a rubble type draws,
+    /// and only when that type has bound rubble art.
+    #[test]
+    fn rubble_draws_only_from_the_cell_recording_a_type_with_art() {
+        let mut rules = RuleSet::from_ini(&IniFile::from_str(
+            "[InfantryTypes]\n[VehicleTypes]\n[AircraftTypes]\n[BuildingTypes]\n0=RUIN\n1=BARE\n",
+        ))
+        .unwrap();
+        rules.set_building_rubble_art_for_test(
+            "RUIN",
+            crate::rules::building_rubble::RubbleArt {
+                shp: "ruin.shp".into(),
+                body_frame: 3,
+            },
+        );
+        let mut interner = crate::sim::intern::StringInterner::new();
+        let ruin = interner.intern("RUIN");
+        let bare = interner.intern("BARE");
+        let cell = |rubble_building_type| OverlayCell {
+            overlay_id: Some(crate::sim::overlay_grid::RUBBLE_OVERLAY_INDEX),
+            overlay_data: 0,
+            wall_owner: None,
+            rubble_building_type,
+        };
+        let key = |live: OverlayCell| {
+            super::rubble_sprite_key(Some(&live), Some(&rules), Some(&interner))
+        };
+        assert_eq!(
+            key(cell(Some(ruin))),
+            Some(crate::render::overlay_atlas::rubble_key("RUIN.SHP", 3))
+        );
+        assert_eq!(key(cell(None)), None, "other foundation cells");
+        assert_eq!(key(cell(Some(bare))), None, "no rubble art bound");
+    }
+
     #[test]
     fn gsi_04_13_low_overlay_renderer_follows_live_identity_through_terminal_collapse() {
         let mut live = OverlayCell {
             overlay_id: Some(0x50),
             overlay_data: 0xA5,
             wall_owner: None,
+            rubble_building_type: None,
         };
 
         assert_eq!(overlay_render_identity(0x4A, 7, None), Some((0x4A, 7)));

@@ -106,6 +106,7 @@ pub mod animation_sequence;
 pub mod art_data;
 pub mod bridge_warheads;
 pub mod buildup_asset_catalog;
+pub mod building_rubble;
 pub mod campaign_loading;
 #[cfg(test)]
 mod campaign_start_tests;

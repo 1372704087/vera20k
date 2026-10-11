@@ -158,6 +158,7 @@ pub(crate) fn build_overlay_atlas_from_map(
     theater_unit_palette: Option<&Palette>,
     theater_tiberium_palette: Option<&Palette>,
     smudge_types: Option<&crate::rules::smudge_type::SmudgeTypeRegistry>,
+    rubble_arts: &[crate::rules::building_rubble::RubbleArt],
     bridge_railing_tile_bases: Option<BridgeRailingTileBases>,
 ) -> OverlayAtlasBuild {
     let force_tib_remap_enabled: bool = std::env::var("RA2_FORCE_TIB3_TO_TIB01")
@@ -329,6 +330,7 @@ pub(crate) fn build_overlay_atlas_from_map(
             rules_ini,
             art_registry,
             smudge_types,
+            rubble_arts,
         )
     });
 

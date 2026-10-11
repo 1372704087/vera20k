@@ -58,6 +58,7 @@ fn retail_tibtre_decode_and_atlas_pairs_match_original_shape_draw() {
             &retail.processed_rules,
             retail.rules.art(),
             None,
+            &[],
         )
         .unwrap();
         for asset in stock["assets"]

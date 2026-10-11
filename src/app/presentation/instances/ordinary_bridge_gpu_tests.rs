@@ -221,6 +221,7 @@ impl Probe {
             &rules_ini,
             rules.art(),
             None,
+            &[],
         )
         .expect("production preloads the physical low-bridge variants");
         let terrain = scene.sim().resolved_terrain.as_ref().unwrap().clone();
@@ -292,6 +293,8 @@ impl Probe {
                 names: &self.names,
                 live_grid: scene.sim().overlay_grid.as_ref(),
                 registry: Some(&scene.runtime.resources.overlay_registry),
+                rules: None,
+                interner: None,
                 tiberium_types: Some(&scene.runtime.resources.rules.tiberium_types),
                 terrain: Some(&self.terrain),
                 heights: &heights,

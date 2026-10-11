@@ -933,7 +933,10 @@ use crate::sim::world::Simulation;
 // 324 -> 325: each entity retains the turret rotation-sound control latch
 // (TechnoClass+0x49C). Load reconstructs the external handle but retains the
 // saved latch; version 324 records lack this field.
-const SNAPSHOT_VERSION: u32 = 325;
+// 325 -> 326: each overlay cell retains the destroyed building type its rubble
+// draws (CellClass+0x40). Serialized but NOT hashed: only the draw and rect
+// code read it. Version 325 records lack this field.
+const SNAPSHOT_VERSION: u32 = 326;
 
 const SNAPSHOT_PRODUCT_MAGIC: [u8; 8] = *b"VERA20K\0";
 const SNAPSHOT_ENVELOPE_VERSION: u32 = 1;
@@ -3989,7 +3992,8 @@ mod tests {
         // 322 -> 323: the Foot building-entry latches.
         // 323 -> 324: the +0x690 latch and garrison admission order.
         // 324 -> 325: each entity's turret rotation-sound control latch.
-        assert_eq!(super::SNAPSHOT_VERSION, 325);
+        // 325 -> 326: each overlay cell's rubble building type.
+        assert_eq!(super::SNAPSHOT_VERSION, 326);
     }
 
     #[test]
@@ -4198,6 +4202,24 @@ mod tests {
                 .retained_neighbor_counts(),
             &[0, 7, 255, 4][..]
         );
+    }
+
+    #[test]
+    fn overlay_rubble_building_type_roundtrips() {
+        let mut sim = Simulation::new();
+        let ruin = sim.interner.intern("CAOUTP");
+        let mut grid = crate::sim::overlay_grid::OverlayGrid::new(3, 3);
+        grid.place_overlay(1, 2, 0xEF, 4);
+        grid.cell_mut(1, 2).rubble_building_type = Some(ruin);
+        grid.place_overlay(2, 2, 0xEF, 0);
+        sim.overlay_grid = Some(grid);
+
+        let bytes = GameSnapshot::save(&sim, 0, 0, "rubble", 0);
+        let restored = GameSnapshot::load(&bytes).expect("current snapshot").sim;
+        let grid = restored.overlay_grid.as_ref().expect("overlay authority");
+        assert_eq!(grid.cell(1, 2).rubble_building_type, Some(ruin));
+        assert_eq!(grid.cell(1, 2).overlay_data, 4);
+        assert_eq!(grid.cell(2, 2).rubble_building_type, None);
     }
 
     #[test]

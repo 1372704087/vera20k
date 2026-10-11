@@ -19,6 +19,9 @@ pub(crate) mod bridge_orchestrator;
 #[cfg(test)]
 pub(crate) mod bridge_test_evidence;
 pub(crate) mod building_anim;
+mod building_rubble;
+#[cfg(test)]
+mod building_rubble_tests;
 mod building_scatter;
 mod cell_content;
 mod crash;
@@ -1881,7 +1884,27 @@ impl Simulation {
                         uninit_context.effects(),
                     );
                 }
+                // `BuildingClass::AfterDestruction @ 0x00441F60` follows the
+                // dying building's UnInit and reads its type and Location.
+                let rubble = (category == EntityCategory::Structure)
+                    .then(|| self.substrate.entities.get(stable_id))
+                    .flatten()
+                    .map(|building| {
+                        (
+                            building.type_ref(),
+                            (building.position.rx, building.position.ry),
+                        )
+                    });
                 self.uninit_with_context(stable_id, uninit_context);
+                if let Some((type_id, origin)) = rubble {
+                    self.leave_building_rubble(
+                        rules,
+                        uninit_context.registry(),
+                        type_id,
+                        origin,
+                        uninit_context.effects(),
+                    );
+                }
             }
         }
     }
@@ -5539,20 +5562,34 @@ impl Simulation {
         self.publish_recalculated_cells_with_presence(rules, &overlay_cells, &blocked);
         // Each Limbo's AssignOrphaned sees later deaths' cells unpublished.
         for &cell in terrain_changed_cells {
-            self.publish_recalculated_cells_with_presence(rules, &[cell], &blocked);
-            if let (Some(terrain), Some(path)) =
-                (self.resolved_terrain.as_ref(), self.path_grid.as_deref())
-            {
-                repair_zone_after_recalc(
-                    &mut self.zone_grid,
-                    path,
-                    terrain,
-                    self.bridge_state.as_ref(),
-                    self.playfield_bounds,
-                    cell,
-                    ZoneRepairKind::AssignOrphaned,
-                );
-            }
+            self.publish_cell_and_assign_orphaned_zone(rules, cell, &blocked);
+        }
+    }
+
+    /// One Recalc'd cell's navigation publication, then
+    /// AssignOrphanedCellZone (`0x0056D460`) and the local graph update
+    /// (`0x00584550`): the per-cell tail `TerrainClass::Limbo` and
+    /// `BuildingClass::AfterDestruction` share. `blocked` is the structure
+    /// presence already scanned for the caller's cells.
+    fn publish_cell_and_assign_orphaned_zone(
+        &mut self,
+        rules: &RuleSet,
+        cell: (u16, u16),
+        blocked: &BTreeSet<(u16, u16)>,
+    ) {
+        self.publish_recalculated_cells_with_presence(rules, &[cell], blocked);
+        if let (Some(terrain), Some(path)) =
+            (self.resolved_terrain.as_ref(), self.path_grid.as_deref())
+        {
+            repair_zone_after_recalc(
+                &mut self.zone_grid,
+                path,
+                terrain,
+                self.bridge_state.as_ref(),
+                self.playfield_bounds,
+                cell,
+                ZoneRepairKind::AssignOrphaned,
+            );
         }
     }
 

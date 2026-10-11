@@ -3652,6 +3652,9 @@ pub struct RuleSet {
     /// Every building type's construction control from its Buildup SHP,
     /// bound once from the active assets (`bind_building_buildup_assets`).
     buildup_assets: crate::rules::buildup_asset_catalog::BuildupAssetCatalog,
+    /// Rubble art of every `LeaveRubble=yes` building type, bound once from
+    /// the active assets (`bind_building_rubble_assets`).
+    rubble_assets: crate::rules::building_rubble::RubbleAssetCatalog,
     /// Raw terrain SHP counts used by authoritative TIBTRE animation timing.
     /// Presentation keeps its separate body-frame projection.
     terrain_spawner_assets: crate::rules::terrain_asset_catalog::TerrainSpawnerAssetCatalog,
@@ -4493,6 +4496,7 @@ impl RuleSet {
                 .collect(),
             effect_assets: crate::rules::effect_asset_catalog::EffectAssetCatalog::default(),
             buildup_assets: crate::rules::buildup_asset_catalog::BuildupAssetCatalog::default(),
+            rubble_assets: crate::rules::building_rubble::RubbleAssetCatalog::default(),
             terrain_spawner_assets:
                 crate::rules::terrain_asset_catalog::TerrainSpawnerAssetCatalog::default(),
             animation_sequences: BTreeMap::new(),
@@ -4870,6 +4874,7 @@ impl RuleSet {
         self.unit_shp_read_states.hash(&mut hasher);
         self.effect_assets.hash(&mut hasher);
         self.buildup_assets.hash(&mut hasher);
+        self.rubble_assets.hash(&mut hasher);
         self.terrain_spawner_assets.hash(&mut hasher);
         b"art-smudge-config-v2".hash(&mut hasher);
         let smudge_anim_inputs = self
@@ -5710,6 +5715,48 @@ impl RuleSet {
             asset_manager,
             theater_name,
         );
+    }
+
+    /// Resolve every `LeaveRubble=yes` building type's rubble frames from the
+    /// active theater's assets, without a renderer atlas.
+    pub fn bind_building_rubble_assets(
+        &mut self,
+        asset_manager: &crate::assets::asset_manager::AssetManager,
+        theater_ext: &str,
+        theater_name: &str,
+    ) {
+        self.rubble_assets = crate::rules::building_rubble::RubbleAssetCatalog::bind(
+            self,
+            asset_manager,
+            theater_ext,
+            theater_name,
+        );
+    }
+
+    /// A building type's rubble art; `None` when it leaves no rubble
+    /// ([`crate::rules::building_rubble`]).
+    pub fn building_rubble_art(
+        &self,
+        type_id: &str,
+    ) -> Option<&crate::rules::building_rubble::RubbleArt> {
+        self.rubble_assets.art(type_id)
+    }
+
+    /// Every bound rubble art, for presentation preloading.
+    pub fn building_rubble_arts(
+        &self,
+    ) -> impl Iterator<Item = &crate::rules::building_rubble::RubbleArt> {
+        self.rubble_assets.iter()
+    }
+
+    /// Install one building type's rubble art (fixtures without assets).
+    #[cfg(test)]
+    pub(crate) fn set_building_rubble_art_for_test(
+        &mut self,
+        type_id: &str,
+        art: crate::rules::building_rubble::RubbleArt,
+    ) {
+        self.rubble_assets.insert_for_test(type_id, art);
     }
 
     /// A building type's construction control (`Type+0xF04`: first frame,

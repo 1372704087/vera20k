@@ -20,6 +20,11 @@ use crate::util::lepton::{LEPTONS_PER_LEVEL, ground_height_leptons};
 use crate::util::native_x87::object_distance;
 use std::collections::BTreeSet;
 
+/// The overlay index `BuildingClass::AfterDestruction` stamps on a destroyed
+/// building's foundation (`MOV [ESI+0x44],0xEF` at `0x0044202C`). Retail
+/// `[OverlayTypes]` puts `RUBBLE_OVERLAY` (`IsRubble=yes`) there.
+pub(crate) const RUBBLE_OVERLAY_INDEX: u8 = 0xEF;
+
 const MARK_MAX_SLOPE: u8 = 4;
 const MARK_STEEP_SLOPE_EXCEPTION_ID: u8 = 0xB2;
 
@@ -63,6 +68,14 @@ pub struct OverlayCell {
     /// isolated-neighbor cleanup. It is inert while `overlay_id` is `None` and
     /// is overwritten by the next placement.
     pub wall_owner: Option<InternedId>,
+    /// The destroyed building type whose rubble this cell draws
+    /// (`CellClass+0x40`). Only `BuildingClass::AfterDestruction @
+    /// 0x00441F60` writes it: null on every foundation cell, then the type on
+    /// the origin cell. The overlay draws read it only under an `IsRubble`
+    /// identity (`0x0047F6A0`, `0x0047F510`), which no other runtime writer
+    /// creates, so the whole-cell overlay writers resetting it is invisible.
+    /// Serialized but not hashed: no simulation reader.
+    pub rubble_building_type: Option<InternedId>,
 }
 
 /// Mutable overlay state grid — seeded from map [OverlayPack] at init,
@@ -200,6 +213,7 @@ impl OverlayGrid {
                 overlay_id: cell.overlay_id(),
                 overlay_data: cell.state(),
                 wall_owner: None,
+                rubble_building_type: None,
             })
             .collect();
         Self {
@@ -261,6 +275,7 @@ impl OverlayGrid {
                     overlay_id: Some(entry.overlay_id),
                     overlay_data: entry.frame,
                     wall_owner: None,
+                    rubble_building_type: None,
                 };
             }
         }
@@ -346,6 +361,7 @@ impl OverlayGrid {
                     overlay_id: Some(entry.overlay_id),
                     overlay_data: if flags.crate_type { u8::MAX } else { 0 },
                     wall_owner: None,
+                    rubble_building_type: None,
                 };
                 if flags.wall {
                     increment_wall_neighbor_plane(
@@ -605,6 +621,7 @@ impl OverlayGrid {
                 overlay_id: Some(overlay_id),
                 overlay_data: data,
                 wall_owner: None,
+                rubble_building_type: None,
             };
             self.dirty_cells.push((rx, ry));
         }
@@ -623,17 +640,62 @@ impl OverlayGrid {
         overlay_id: u8,
         overlay_data: u8,
     ) -> bool {
-        let Some(idx) = index_of(self.width, self.height, rx, ry) else {
+        self.write_identity_fields(
+            resolved_terrain,
+            registry,
+            (rx, ry),
+            overlay_id,
+            Some(overlay_data),
+        )
+        .is_some()
+    }
+
+    /// `BuildingClass::AfterDestruction @ 0x00441F60`'s foundation-cell
+    /// write: `CellClass+0x44 = 0xEF` (the rubble overlay index) and
+    /// `+0x40 = NULL` (`0x0044202C..0x00442033`). The data byte (`+0x11E`)
+    /// and wall owner keep their values; the caller runs the RecalcAttributes
+    /// tail ([`Self::recalculate_runtime_cell`]). False when the cell is
+    /// outside the grid or the table has no index 0xEF.
+    pub(crate) fn write_rubble_fields(
+        &mut self,
+        resolved_terrain: &mut ResolvedTerrainGrid,
+        registry: &OverlayTypeRegistry,
+        rx: u16,
+        ry: u16,
+    ) -> bool {
+        let Some(idx) = self.write_identity_fields(
+            resolved_terrain,
+            registry,
+            (rx, ry),
+            RUBBLE_OVERLAY_INDEX,
+            None,
+        ) else {
             return false;
         };
-        if registry.flags(overlay_id).is_none() {
-            return false;
+        self.cells[idx].rubble_building_type = None;
+        true
+    }
+
+    /// The literal `CellClass+0x44` store, with `+0x11E` when `overlay_data`
+    /// is given, projected into the bridge cache. No Recalc tail. Returns the
+    /// cell index, or `None` outside the grid or for an unregistered type.
+    fn write_identity_fields(
+        &mut self,
+        resolved_terrain: &mut ResolvedTerrainGrid,
+        registry: &OverlayTypeRegistry,
+        (rx, ry): (u16, u16),
+        overlay_id: u8,
+        overlay_data: Option<u8>,
+    ) -> Option<usize> {
+        let idx = index_of(self.width, self.height, rx, ry)?;
+        registry.flags(overlay_id)?;
+        let name = registry.name(overlay_id)?;
+        let cell = &mut self.cells[idx];
+        cell.overlay_id = Some(overlay_id);
+        if let Some(overlay_data) = overlay_data {
+            cell.overlay_data = overlay_data;
         }
-        let Some(name) = registry.name(overlay_id) else {
-            return false;
-        };
-        self.cells[idx].overlay_id = Some(overlay_id);
-        self.cells[idx].overlay_data = overlay_data;
+        let overlay_data = cell.overlay_data;
         self.dirty_cells.push((rx, ry));
         resolved_terrain.set_runtime_overlay_bridge_identity(
             rx,
@@ -642,6 +704,22 @@ impl OverlayGrid {
             overlay_data,
             name,
         );
+        Some(idx)
+    }
+
+    /// AfterDestruction's origin-cell write, `CellClass+0x40 = Type`
+    /// (`0x00442082`), after every foundation cell took the rubble overlay.
+    pub(crate) fn set_rubble_building_type(
+        &mut self,
+        rx: u16,
+        ry: u16,
+        building_type: InternedId,
+    ) -> bool {
+        let Some(idx) = index_of(self.width, self.height, rx, ry) else {
+            return false;
+        };
+        self.cells[idx].rubble_building_type = Some(building_type);
+        self.dirty_cells.push((rx, ry));
         true
     }
 
@@ -810,6 +888,7 @@ impl OverlayGrid {
                 overlay_id: Some(overlay_id),
                 overlay_data: data,
                 wall_owner: None,
+                rubble_building_type: None,
             };
             self.dirty_cells.push((rx, ry));
         }
@@ -1955,6 +2034,7 @@ const DEFAULT_CELL: OverlayCell = OverlayCell {
     overlay_id: None,
     overlay_data: 0,
     wall_owner: None,
+    rubble_building_type: None,
 };
 
 fn index_of(width: u16, height: u16, rx: u16, ry: u16) -> Option<usize> {

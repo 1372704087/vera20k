@@ -2090,6 +2090,7 @@ impl MapLoadInitial {
         );
         rules.bind_effect_assets(asset_manager, theater_ext, &map_data.header.theater);
         rules.bind_building_buildup_assets(asset_manager, &map_data.header.theater);
+        rules.bind_building_rubble_assets(asset_manager, theater_ext, &map_data.header.theater);
         rules.bind_terrain_spawner_assets(
             &rules_ini,
             asset_manager,
@@ -2884,6 +2885,7 @@ pub(crate) fn load_map_from_initial(
         );
         r.bind_effect_assets(asset_manager, theater_ext, &map_data.header.theater);
         r.bind_building_buildup_assets(asset_manager, &map_data.header.theater);
+        r.bind_building_rubble_assets(asset_manager, theater_ext, &map_data.header.theater);
         r.bind_terrain_spawner_assets(
             &rules_ini,
             asset_manager,
@@ -3319,6 +3321,7 @@ pub(crate) fn load_map_from_initial(
         unit_palette.as_ref(),
         overlay_tiberium_palette.as_ref(),
         Some(&rules.smudge_types),
+        &rules.building_rubble_arts().cloned().collect::<Vec<_>>(),
         bridge_railing_tile_bases,
     );
 

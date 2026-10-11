@@ -1204,6 +1204,13 @@ pub struct ObjectType {
     /// for friendly infantry hovering this building.
     pub can_be_occupied: bool,
 
+    /// `LeaveRubble=` (BuildingType `+0x1768`): a destroyed building leaves
+    /// rubble on its foundation (`BuildingClass::AfterDestruction @
+    /// 0x00441F60`). Read by `BuildingTypeClass::ReadINI` at `0x00460EF5`
+    /// with the current value as default; the constructor's is false
+    /// (`0x0045E279`).
+    pub leave_rubble: bool,
+
     /// Whether garrisoned infantry can fire from this building.
     /// Parsed from `CanOccupyFire=yes` in rules.ini. Building must also
     /// have `CanBeOccupied=yes` and at least one occupant for fire to occur.
@@ -2618,6 +2625,8 @@ impl ObjectType {
             // Repairable defaults to true — most buildings can be repaired in RA2.
             repairable: section.read_bool("Repairable", true),
             can_be_occupied: section.read_bool("CanBeOccupied", false),
+            leave_rubble: category == ObjectCategory::Building
+                && section.read_bool("LeaveRubble", false),
             can_occupy_fire: section.read_bool("CanOccupyFire", false),
             show_occupant_pips: section.read_bool("ShowOccupantPips", true),
             bridge_repair_hut: section.read_bool("BridgeRepairHut", false),

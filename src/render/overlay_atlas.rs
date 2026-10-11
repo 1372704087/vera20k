@@ -134,6 +134,16 @@ pub fn terrain_shadow_key(name: &str, frame: u8) -> OverlaySpriteKey {
     }
 }
 
+/// Separate source identity for a destroyed building's rubble frame, keyed by
+/// the SHP file its type's image resolved to
+/// ([`crate::rules::building_rubble::RubbleArt`]).
+pub fn rubble_key(shp: &str, frame: u16) -> OverlaySpriteKey {
+    OverlaySpriteKey {
+        name: format!("__rubble::{}", shp.to_uppercase()),
+        frame: frame as u8,
+    }
+}
+
 /// Build the canonical OverlayAtlas key for a smudge SHP.
 ///
 /// Frame is always 0 — the per-cell draw of every multi-cell smudge footprint
@@ -438,6 +448,7 @@ pub fn build_overlay_atlas(
     rules_ini: &IniFile,
     art_registry: &ArtRegistry,
     smudge_types: Option<&crate::rules::smudge_type::SmudgeTypeRegistry>,
+    rubble_arts: &[crate::rules::building_rubble::RubbleArt],
 ) -> Option<OverlayAtlas> {
     build_overlay_atlas_on_device(
         &gpu.device,
@@ -458,6 +469,7 @@ pub fn build_overlay_atlas(
         rules_ini,
         art_registry,
         smudge_types,
+        rubble_arts,
     )
 }
 
@@ -482,6 +494,7 @@ pub(crate) fn build_overlay_atlas_on_device(
     rules_ini: &IniFile,
     art_registry: &ArtRegistry,
     smudge_types: Option<&crate::rules::smudge_type::SmudgeTypeRegistry>,
+    rubble_arts: &[crate::rules::building_rubble::RubbleArt],
 ) -> Option<OverlayAtlas> {
     // Collect unique (name, frame) pairs from overlays.
     let mut needed: HashSet<OverlaySpriteKey> = HashSet::new();
@@ -751,6 +764,39 @@ pub(crate) fn build_overlay_atlas_on_device(
             smudge_failed_count,
             smudge_reg.len(),
         );
+    }
+
+    // --- Building rubble ---
+    // `CellClass::DrawOverlay_Body @ 0x0047F6A0`'s IsRubble arm blits the
+    // destroyed type's own image frame through the cell's ordinary Convert, so
+    // it shares the ordinary overlay palette and has no type Y bias.
+    let mut rubble_loaded: HashSet<OverlaySpriteKey> = HashSet::new();
+    for art in rubble_arts {
+        let key = rubble_key(&art.shp, art.body_frame);
+        if rubble_loaded.contains(&key) {
+            continue;
+        }
+        let Some(shp) = asset_manager
+            .get_ref(&art.shp)
+            .and_then(|data| ShpFile::from_bytes(data).ok())
+        else {
+            continue;
+        };
+        let Some(sprite) = render_decoded_overlay_frame(
+            &shp,
+            theater_palette,
+            key.clone(),
+            usize::from(art.body_frame),
+            0.0,
+        )
+        .filter(|sprite| sprite.width > 0 && sprite.height > 0) else {
+            continue;
+        };
+        rendered.push(sprite);
+        rubble_loaded.insert(key);
+    }
+    if !rubble_loaded.is_empty() {
+        log::info!("Rubble sprites: {} rendered", rubble_loaded.len());
     }
 
     if rendered.is_empty() {

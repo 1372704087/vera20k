@@ -2266,12 +2266,8 @@ impl MapLoadInitial {
         );
         let crate_name_id =
             |name: Option<&str>| name.and_then(|name| overlay_registry.id_for_name(name));
-        let mut runtime_names = BTreeMap::new();
-        crate::app::frontend::skirmish::preregister_runtime_overlay_names(
-            &overlay_registry,
-            &rules.crate_rules,
-            &mut runtime_names,
-        );
+        let mut runtime_names =
+            crate::render::overlay_assets::render_overlay_names(&overlay_registry);
         let selected_ids = [
             crate_name_id(rules.crate_rules.wood_crate_img.as_deref()),
             crate_name_id(rules.crate_rules.crate_img.as_deref()),

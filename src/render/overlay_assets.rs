@@ -4,6 +4,7 @@
 //! consumer may depend on the env-var debug remaps here.
 
 use std::borrow::Cow;
+use std::collections::BTreeMap;
 use std::sync::OnceLock;
 
 use crate::rules::overlay_types::OverlayTypeRegistry;
@@ -86,9 +87,55 @@ pub fn resolve_overlay_name_for_render(
         .map(|n| remap_overlay_name_for_debug(n).into_owned())
 }
 
+/// The render name of every registered overlay type, keyed by its
+/// `[OverlayTypes]` index. `CellClass::DrawOverlay_Body @ 0x0047F6A0` and
+/// `DrawOverlay_Shadow @ 0x0047F510` take the type straight from
+/// `OverlayTypeClass::Array[Cell+0x44]`, so every identity a cell can hold,
+/// authored or written at runtime, resolves here; nothing is pre-selected.
+pub fn render_overlay_names(reg: &OverlayTypeRegistry) -> BTreeMap<u8, String> {
+    (0..=u8::MAX)
+        .filter_map(|overlay_id| {
+            Some((
+                overlay_id,
+                resolve_overlay_name_for_render(reg, overlay_id)?,
+            ))
+        })
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn render_overlay_names_cover_every_registered_type() {
+        // Kinds the simulation writes after load (walls, low bridges, crates,
+        // ore variants, rubble) need no authored cell to be named.
+        let mut text = String::from("[OverlayTypes]\n");
+        for overlay_id in 0..=0xEFu8 {
+            text.push_str(&format!("{overlay_id}=TYPE{overlay_id}\n"));
+        }
+        text.push_str(
+            "[TYPE1]\nWall=yes\n[TYPE2]\nCrate=yes\n[TYPE3]\nTiberium=yes\n\
+             [TYPE239]\nIsRubble=yes\n",
+        );
+        let reg = OverlayTypeRegistry::from_ini(
+            &crate::rules::ini_parser::IniFile::from_str(&text),
+            None,
+        );
+
+        let names = render_overlay_names(&reg);
+
+        assert_eq!(names.len(), 0xF0);
+        for overlay_id in [1, 2, 3, 0x18, 0x50, 0xED, 0xEF] {
+            assert_eq!(
+                names.get(&overlay_id).map(String::as_str),
+                reg.name(overlay_id),
+                "{overlay_id:#x}"
+            );
+        }
+        assert!(!names.contains_key(&0xF0), "unregistered index");
+    }
 
     #[test]
     fn test_shp_candidates() {

@@ -430,6 +430,12 @@ fn gsi_04_01_production_tick_keeps_pavement_damage_through_ordinary_overlay_repa
             .simulation
             .rebuild_dynamic_navigation(&runtime.resources.rules)
     );
+    // The repair order is the player's: Mission_Capture sends a computer
+    // house's capturer without a target hunting (`0x004D4C14..0x004D4C6B`).
+    let americans = runtime.simulation.interner.intern("Americans");
+    let mut house = crate::sim::house_state::HouseState::new(americans, 0, None, false, 0, 0);
+    house.player_control = true;
+    runtime.simulation.houses.insert(americans, house);
     assert!(runtime.simulation.apply_command(
         "Americans",
         &Command::CaptureBuilding {

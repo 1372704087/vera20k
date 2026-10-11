@@ -123,7 +123,7 @@ fn a_capturer_on_its_way_takes_captures_cadence() {
     let (mut sim, plant) = arena(&rules);
     let engineer = capturer(&mut sim, &rules, "ENGINEER", "Americans", 10);
     head_for(&mut sim, &rules, engineer, plant);
-    let rng = sim.scenario_rng.clone();
+    let mut rng = sim.scenario_rng.clone();
     let delay = 14 + rng.next_range_u32_inclusive(0, 2) as i32;
     let now = sim.session.binary_frame;
 
@@ -160,7 +160,7 @@ fn a_capturer_without_a_destination_idles() {
 /// An `Engineer=` or `Occupier=` infantryman holding a building target and
 /// no destination takes the target as its destination
 /// (`0x004D4B43..0x004D4BC1`) and does not idle; a plain infantryman and a
-/// vehicle holding one idle.
+/// vehicle holding one idle instead.
 #[test]
 fn a_capturing_infantryman_heads_for_its_building_target() {
     let rules = rules();
@@ -183,10 +183,13 @@ fn a_capturing_infantryman_heads_for_its_building_target() {
         assert_eq!(heading(&sim, id), Some(plant));
         assert_eq!(mission(&sim, id), (CAPTURE, MissionId::NONE));
     }
-    for id in [rifleman, tank] {
-        assert_eq!(heading(&sim, id), None);
-        assert_eq!(mission(&sim, id), (CAPTURE, GUARD));
-    }
+    // Neither of the others takes the target as its destination: the tank
+    // idles into Guard, the rifleman, an infantryman holding a target, back
+    // into Capture (Infantry Enter_Idle_Mode, `0x0051CBCE..0x0051CD9D`).
+    assert_eq!(heading(&sim, rifleman), None);
+    assert_eq!(mission(&sim, rifleman), (CAPTURE, MissionId::NONE));
+    assert_eq!(heading(&sim, tank), None);
+    assert_eq!(mission(&sim, tank), (CAPTURE, GUARD));
 }
 
 /// Left without a destination on a building's cell, a capturer also

@@ -166,8 +166,19 @@ fn engineer_repair_damages_landed_fly_with_known_non_waypoint_team_script() {
     command_repair_fixture(true, true);
 }
 
+/// The engineer's owner as the player's house (mode 0's PlayerControl): the
+/// repair order is the player's, and Mission_Capture sends a computer
+/// house's capturer without a target hunting (`0x004D4C14..0x004D4C6B`).
+fn player_house(sim: &mut Simulation) {
+    let owner = sim.interner.intern("Americans");
+    let mut house = crate::sim::house_state::HouseState::new(owner, 0, None, false, 0, 0);
+    house.player_control = true;
+    sim.houses.insert(owner, house);
+}
+
 fn command_repair_fixture(with_aircraft: bool, with_team: bool) {
     let (mut sim, rules, registry) = fixture();
+    player_house(&mut sim);
     let hut = sim
         .spawn_object("CABHUT", "Soviets", 16, 15, 0, &rules)
         .unwrap();
@@ -687,10 +698,7 @@ pub(in crate::sim::world) fn ready_repair_fixture(
 ) {
     let (mut sim, rules, registry) = fixture();
     sim.mapgen_rng = Simulation::with_seed(0).mapgen_rng;
-    let owner = sim.interner.intern("Americans");
-    let mut house = crate::sim::house_state::HouseState::new(owner, 0, None, false, 0, 0);
-    house.player_control = true;
-    sim.houses.insert(owner, house);
+    player_house(&mut sim);
     let hut = sim
         .spawn_object("CABHUT", "Soviets", 16, 15, 0, &rules)
         .unwrap();

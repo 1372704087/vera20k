@@ -345,7 +345,7 @@ pub(crate) fn compute_click_selection_snapshot_with_playfield(
     let selection_is_local = current_selection
         .first()
         .and_then(|id| entities.get(*id))
-        .is_some_and(&owner_is_local);
+        .is_some_and(owner_is_local);
     let picked_is_local = owner_is_local(picked);
 
     if !additive || current_selection.is_empty() || !selection_is_local || !picked_is_local {

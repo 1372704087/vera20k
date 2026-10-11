@@ -17,6 +17,7 @@
 //! - sim/ NEVER depends on render/, ui/, audio/, net/.
 
 mod departure;
+pub(crate) mod garrison_eject;
 pub(crate) use departure::{
     DepartureFailure, DepartureRoute, depart_cargo_head, reveal_unloaded_passenger,
 };
@@ -918,7 +919,7 @@ pub(crate) fn reconcile_civilian_garrison_owner_for_building(
         object.strength,
         rules.general.condition_red,
     ) {
-        crate::sim::production::sell_building_occupants(sim, rules, registry, building_id, effects);
+        garrison_eject::sell_building_occupants(sim, rules, registry, building_id, effects);
     }
     //458265/4582F2 re-read the live vector after ejection.
     let Some(building) = sim.substrate.entities.get(building_id) else {
@@ -2560,7 +2561,7 @@ ConditionYellow=50%
             }
         };
         let survivor_ids = event.passenger_ids.clone();
-        crate::sim::production::eject_destruction_garrison(sim, rules, &event);
+        super::garrison_eject::eject_destruction_garrison(sim, rules, &event);
         sim.uninit(building_id);
         sim.process_pending_delete();
         survivor_ids

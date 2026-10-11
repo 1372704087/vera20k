@@ -10,7 +10,7 @@ use crate::app::presentation::render;
 use crate::map::basic::BasicSection;
 use crate::map::houses::HouseRoster;
 use crate::map::trigger_graph::TriggerGraph;
-use crate::render::minimap::MinimapRenderer;
+use crate::render::radar::minimap::MinimapRenderer;
 use crate::render::selection_overlay::SelectionOverlay;
 use crate::rules::overlay_types::OverlayTypeRegistry;
 use crate::ui::game_screen::GameScreen;
@@ -627,8 +627,8 @@ pub(crate) fn build_minimap_overlay_data(
     terrain_objects: &[crate::map::overlay::TerrainObject],
     overlay_registry: Option<&crate::rules::overlay_types::OverlayTypeRegistry>,
     rules: Option<&crate::rules::ruleset::RuleSet>,
-) -> Vec<crate::render::minimap::MinimapOverlayDatum> {
-    use crate::render::minimap::{
+) -> Vec<crate::render::radar::minimap::MinimapOverlayDatum> {
+    use crate::render::radar::minimap::{
         MinimapCellRadarSource, MinimapOverlayDatum, OverlayClassification, minimap_overlay_datum,
     };
 

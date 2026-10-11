@@ -4,9 +4,9 @@
 //! frames in place. Leaf4912B0 skips source index0;6A70E0 only copies this
 //! surface outward. Online656EC0 writes minimap content into the same surface.
 
-use super::batch::SpriteInstance;
+use crate::render::batch::SpriteInstance;
 
-pub(super) struct RadarSurface {
+pub(in crate::render) struct RadarSurface {
     pub rgba: Vec<u8>,
     width: u32,
     height: u32,

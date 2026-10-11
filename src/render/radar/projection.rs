@@ -5,27 +5,27 @@ use std::collections::{BTreeMap, BTreeSet, HashMap};
 use crate::map::playfield::PlayfieldBounds;
 use crate::map::terrain::{PlayfieldPresentationGeometry, TerrainGrid};
 
-use super::current_radar_cell::CurrentRadarCellAuthority;
-use super::minimap::{MinimapCellRadarSource, MinimapOverlayDatum};
-use super::minimap_helpers::{
-    COLOR_SHROUD, MINIMAP_HEIGHT, MINIMAP_WIDTH, OverlayPixel,
-    RadarSurfacePixel, TerrainPixel, compute_aspect_fit, overlay_radar_color,
-    radar_color_for_cell, radar_colors_for_cell, set_pixel, structural_bridge_radar_color,
-    terrain_brightness_for_theater, world_to_minimap_pixel,
+use super::current_cell::CurrentRadarCellAuthority;
+use super::geometry::NativeRadarSurfaceGeometry;
+use super::helpers::{
+    COLOR_SHROUD, MINIMAP_HEIGHT, MINIMAP_WIDTH, OverlayPixel, RadarSurfacePixel, TerrainPixel,
+    compute_aspect_fit, overlay_radar_color, radar_color_for_cell, radar_colors_for_cell,
+    set_pixel, structural_bridge_radar_color, terrain_brightness_for_theater,
+    world_to_minimap_pixel,
 };
-use super::native_radar_surface::NativeRadarSurfaceGeometry;
-use super::native_radar_terrain::{NativeRadarCellColors, NativeRadarTerrainSurface};
-use super::native_surface_format::RGB565;
+use super::minimap::{MinimapCellRadarSource, MinimapOverlayDatum};
+use super::terrain::{NativeRadarCellColors, NativeRadarTerrainSurface};
+use crate::render::native_surface_format::RGB565;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
-pub(super) struct PrimaryRadarCopyFrame {
+pub(in crate::render) struct PrimaryRadarCopyFrame {
     pub offset: [f32; 2],
     pub size: [f32; 2],
     pub uv_origin: [f32; 2],
     pub uv_size: [f32; 2],
 }
 
-pub(super) fn generated_primary_copy_frame(
+pub(in crate::render) fn generated_primary_copy_frame(
     surface: NativeRadarSurfaceGeometry,
     aperture_width: f32,
     aperture_height: f32,
@@ -203,7 +203,7 @@ impl MinimapPlayfieldProjection {
                 || resolved.is_some_and(|cell| cell.terrain_object_occupation.is_some());
             let structural_bridge =
                 resolved.is_some_and(|cell| cell.bridge_facts.has_structural_bridge());
-            super::minimap_helpers::current_cell_radar_source(
+            super::helpers::current_cell_radar_source(
                 terrain_object,
                 structural_bridge,
                 overlays_by_cell.get(&(cell.rx, cell.ry)).copied(),
@@ -365,7 +365,7 @@ impl MinimapPlayfieldProjection {
 }
 
 #[cfg(test)]
-#[path = "native_radar_projection_tests.rs"]
+#[path = "projection_tests.rs"]
 mod tests;
 
 #[allow(clippy::too_many_arguments)]

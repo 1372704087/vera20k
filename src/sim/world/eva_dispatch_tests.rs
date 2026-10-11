@@ -2,7 +2,7 @@
 //! `TechnoClass::Death_Announcement @ 0x004D98C0` (owner gate, radar type 7
 //! request) and `HouseClass::NotifyUnderAttack @ 0x004F93E0` (own line, ally
 //! line). Radar admission and its dedupe belong to the local client's event
-//! array (`render::radar_events`); the world only publishes the request.
+//! array (`render::radar::events`); the world only publishes the request.
 
 use super::{SimSoundEvent, Simulation};
 use crate::sim::combat::{UnderAttackEvent, UnitLostEvent};

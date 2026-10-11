@@ -3,8 +3,8 @@
 use crate::render::batch::SpriteInstance;
 
 use super::minimap::MinimapRenderer;
-use super::minimap_projection::minimap_screen_point_to_camera_top_left;
-use super::native_radar_viewport::{
+use super::projection::minimap_screen_point_to_camera_top_left;
+use super::viewport::{
     NativeRadarScreenGeometry, native_content_boundary_outline_instances,
     native_viewport_outline_instances, native_viewport_rect,
 };
@@ -74,7 +74,7 @@ fn clamp_native_radar_click_cell(
 }
 
 fn signed_tracker_or_inverse_cell(
-    surface: super::native_radar_surface::NativeRadarSurfaceGeometry,
+    surface: super::geometry::NativeRadarSurfaceGeometry,
     pixel: (i32, i32),
     tracker_cell: Option<(i16, i16)>,
 ) -> (i16, i16) {
@@ -82,7 +82,7 @@ fn signed_tracker_or_inverse_cell(
 }
 
 fn tracker_object_signed_cell(
-    tracker: &super::radar_tracker::RetainedRadarTracker,
+    tracker: &super::tracker::RetainedRadarTracker,
     entities: &crate::sim::entity_store::EntityStore,
     pixel: (i32, i32),
 ) -> Option<(i16, i16)> {
@@ -304,9 +304,9 @@ impl MinimapRenderer {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::render::native_radar_surface::NativeRadarSurfaceGeometry;
-    use crate::render::radar_tracker::{RadarObjectUpdate, RetainedRadarTracker};
-    use crate::render::radar_visibility::{
+    use crate::render::radar::geometry::NativeRadarSurfaceGeometry;
+    use crate::render::radar::tracker::{RadarObjectUpdate, RetainedRadarTracker};
+    use crate::render::radar::visibility::{
         RadarMobileVisibilityFacts, RadarRegistrationVisibilityFacts,
     };
     use crate::sim::intern::test_intern;

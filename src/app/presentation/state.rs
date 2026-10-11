@@ -15,8 +15,8 @@ use crate::map::overlay::TerrainObject;
 use crate::map::terrain::TerrainGrid;
 use crate::render::bridge_atlas::BridgeAtlas;
 use crate::render::bridge_railing_atlas::BridgeRailingAtlas;
-use crate::render::minimap::MinimapRenderer;
 use crate::render::overlay_atlas::OverlayAtlas;
+use crate::render::radar::minimap::MinimapRenderer;
 use crate::render::selection_overlay::SelectionOverlay;
 use crate::render::sidebar_cameo_atlas::SidebarCameoAtlas;
 use crate::render::sidebar_chrome::SidebarChromeSet;
@@ -87,7 +87,7 @@ pub(crate) struct MatchPresentationState {
     pub(crate) combat_lights: crate::app::presentation::combat_lights::CombatLightRuntime,
     pub(crate) minimap: Option<MinimapRenderer>,
     /// Animated radar chrome — plays 33-frame open/close animation when radar gained/lost.
-    pub(crate) radar_anim: Option<crate::render::radar_anim::RadarAnimState>,
+    pub(crate) radar_anim: Option<crate::render::radar::anim::RadarAnimState>,
     /// Requested-versus-resolved atlas identity used to construct `radar_anim`.
     ///
     /// Kept beside the animation so tactical evidence never reconstructs

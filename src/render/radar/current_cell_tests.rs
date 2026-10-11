@@ -7,10 +7,10 @@ use crate::map::bridge_facts::{
 use crate::map::playfield::PlayfieldBounds;
 use crate::map::resolved_terrain::{ResolvedTerrainCell, ResolvedTerrainGrid};
 use crate::map::terrain::{TerrainGrid, build_terrain_grid_from_resolved};
-use crate::render::minimap::{MinimapCellRadarSource, MinimapOverlayDatum};
-use crate::render::minimap_helpers::OverlayClassification;
-use crate::render::minimap_projection::MinimapPlayfieldProjection;
-use crate::render::radar_terrain_updates::{
+use crate::render::radar::helpers::OverlayClassification;
+use crate::render::radar::minimap::{MinimapCellRadarSource, MinimapOverlayDatum};
+use crate::render::radar::projection::MinimapPlayfieldProjection;
+use crate::render::radar::terrain_updates::{
     RadarTerrainUpdateLayers, apply_radar_terrain_dirty_cells,
 };
 use crate::sim::bridge_state::BridgeRuntimeState;

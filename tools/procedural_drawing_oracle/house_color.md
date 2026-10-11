@@ -91,7 +91,7 @@ reads House+56FB/56FA/56F9 at655F86/655F96/655FB8. It packs those RGB bytes and
 passes the packed result to the radar surface at656053..65608C. Active callers
 are RefreshRadar657CE0 at657D77 and Update656EC0 at6574C3/657520. This is original
 body/caller evidence; the whole radar path was not executed by this fixture.
-`render/minimap_helpers.rs::owner_dot_color` now calls the same House presentation
+`render/radar/helpers.rs::owner_dot_color` now calls the same House presentation
 owner as rally. Rust comparisons cover all21 stock colors and the radar-dot
 lookup; whole native radar execution remains outside this fixture.
 

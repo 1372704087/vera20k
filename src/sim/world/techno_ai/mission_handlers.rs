@@ -90,7 +90,6 @@ pub(crate) fn dispatch_foot_mission(
             refinery_dock_miner,
             timer_due: entity.mission.dispatch_timer().due(now),
             moving_or_queued: moving || entity.mission.queued() != MissionId::NONE,
-            bunker_delegate: entity.bunker_link.installed_in().is_some(),
             has_attack_target: entity.attack_target.is_some(),
             // The destination slot alone, NOT the wider "is this object in
             // motion" test above: the idle-mode selector branches on exactly
@@ -207,6 +206,30 @@ pub(crate) fn dispatch_foot_mission(
             MissionHandlerEvaluation::cadence(crate::sim::mission::enter::mission_enter(
                 sim,
                 rules,
+                ctx.overlay_registry,
+                id,
+                ctx.effects,
+            ))
+        }
+        // Infantry inherit Foot Enter too (InfantryClass vt+0x240 is
+        // `0x004D9290`). Their entries, an Enter order or a building-entry
+        // seek (`sim::building_entry`), run through the Boarding adapter
+        // (`passenger::tick_passenger_system`), which carries the walk without
+        // the native radio route; while it does, the body is not run. Once the
+        // adapter has let the Foot go (its target died, or was full on
+        // arrival), the body's no-target arm idles it (`0x004D9425..0x004D9466`).
+        (EntityCategory::Infantry, Some(MissionType::Enter))
+            if !sim.substrate.entities.get(id).is_some_and(|entity| {
+                matches!(
+                    entity.passenger_role,
+                    crate::sim::passenger::PassengerRole::Boarding { .. }
+                )
+            }) =>
+        {
+            MissionHandlerEvaluation::cadence(crate::sim::mission::enter::mission_enter(
+                sim,
+                rules,
+                ctx.overlay_registry,
                 id,
                 ctx.effects,
             ))
@@ -587,24 +610,12 @@ pub(crate) fn dispatch_foot_mission(
                     MissionType::Unload,
                 )
             } else {
-                evaluate_foot_guard_cadence(
-                    sim,
-                    rules,
-                    id,
-                    mission,
-                    input.bunker_delegate,
-                    ctx.effects,
-                )
+                evaluate_foot_guard_cadence(sim, rules, id, mission, ctx)
             }
         }
-        (EntityCategory::Infantry, Some(MissionType::Guard)) => evaluate_foot_guard_cadence(
-            sim,
-            rules,
-            id,
-            MissionType::Guard,
-            input.bunker_delegate,
-            ctx.effects,
-        ),
+        (EntityCategory::Infantry, Some(MissionType::Guard)) => {
+            evaluate_foot_guard_cadence(sim, rules, id, MissionType::Guard, ctx)
+        }
         // `InfantryClass::Mission_Harvest @ 0x00522E70` (Infantry `vt+0x224`),
         // the slave's dig (`sim::slave_manager`).
         (EntityCategory::Infantry, Some(MissionType::Harvest)) => {
@@ -620,14 +631,9 @@ pub(crate) fn dispatch_foot_mission(
         // handler's identity), and `[Sticky] Rate=.016` is 14 frames against
         // Guard's 26. Stock skirmish maps park neutral civilian traffic on
         // this.
-        (EntityCategory::Infantry, Some(MissionType::Sticky)) => evaluate_foot_guard_cadence(
-            sim,
-            rules,
-            id,
-            MissionType::Sticky,
-            input.bunker_delegate,
-            ctx.effects,
-        ),
+        (EntityCategory::Infantry, Some(MissionType::Sticky)) => {
+            evaluate_foot_guard_cadence(sim, rules, id, MissionType::Sticky, ctx)
+        }
         // Area Guard is NOT a Guard alias — it has its own slot and its own
         // handler, and that handler owns its acquisition. The common Techno AI
         // body's passive-acquire block admits missions {Move, Harvest, Guard}
@@ -717,14 +723,7 @@ pub(crate) fn dispatch_foot_mission(
         match input.mission {
             Some(MissionType::AreaGuard) => evaluate_foot_area_guard(sim, id, rules, ctx),
             Some(mission @ (MissionType::Guard | MissionType::Sticky)) => {
-                evaluate_foot_guard_cadence(
-                    sim,
-                    rules,
-                    id,
-                    mission,
-                    input.bunker_delegate,
-                    ctx.effects,
-                )
+                evaluate_foot_guard_cadence(sim, rules, id, mission, ctx)
             }
             _ => unreachable!("Infantry Guard shim belongs to Guard-family slots"),
         }
@@ -773,7 +772,6 @@ pub(super) struct MissionHandlerInput {
     /// `Mission_Move`'s keep-going test (`0x004D4203..0x004D4238`): a NavCom,
     /// the locomotor's `Is_Moving`, or a queued mission.
     pub(super) moving_or_queued: bool,
-    pub(super) bunker_delegate: bool,
     pub(super) has_attack_target: bool,
     /// The destination slot on its own. The idle-mode selector reads this one
     /// field, not the broader in-motion test [`Self::moving_or_queued`] uses.
@@ -1528,9 +1526,10 @@ const AREA_GUARD_CADENCE_JITTER_MAX: u32 = 5;
 /// work precedes the cadence draw. Native execution: foot_missions ordinary
 /// post/leash, scan-point and retail idle controls.
 ///
+/// The head (tank bunker, then [`foot_building_entry_head`]) precedes it.
 /// Required larger chains: target-present Approach_Target4D5690 (sole port in
 /// PR#798), Tesla ElectricAssault adjacency4D6F44 (+68E, Overpowerable), the
-/// AI C4/Sabotage arm4D6DDA and the early containment/waypoint/harvester arms.
+/// AI C4/Sabotage arm4D6DDA and the early waypoint/harvester arms.
 /// They retain their existing boundaries; these controls do not certify them.
 pub(super) fn evaluate_foot_area_guard(
     sim: &mut Simulation,
@@ -1538,6 +1537,27 @@ pub(super) fn evaluate_foot_area_guard(
     rules: &RuleSet,
     ctx: super::ObjectAiCtx<'_>,
 ) -> MissionHandlerEvaluation {
+    // `0x004D6AAB..0x004D6ACB`: a Foot in a tank bunker (`+0x2E4`) queues
+    // Guard with the immediate flag and returns 1.
+    if sim
+        .substrate
+        .entities
+        .get(id)
+        .is_some_and(|entity| entity.bunker_link.installed_in().is_some())
+    {
+        let now = sim.session.binary_frame;
+        let _ = sim.mission_queue_exact(
+            id,
+            MissionId::from_known(MissionType::Guard),
+            1,
+            now,
+            &crate::sim::mission::authority::LiveReadyInputProvider { rules },
+        );
+        return MissionHandlerEvaluation::cadence(1);
+    }
+    if let Some(head) = foot_building_entry_head(sim, rules, id, MissionType::AreaGuard, ctx) {
+        return head;
+    }
     let needs_post = sim.substrate.entities.get(id).is_some_and(|entity| {
         entity.archive_target().is_none() && entity.mission.queued() == MissionId::NONE
     });
@@ -1674,6 +1694,34 @@ pub(super) fn evaluate_foot_area_guard(
     MissionHandlerEvaluation::cadence(delay)
 }
 
+/// The head `FootClass::Mission_Guard` (`0x004D5076..0x004D50CD`) and
+/// `Mission_AreaGuard` (`0x004D6ACC..0x004D6B22`) share: with `+0x68F` set
+/// the Foot runs its Bio Reactor seek (vt+0x340,
+/// [`Simulation::foot_enter_bio_reactor`]), whose answer is unread, and the
+/// handler returns the current mission's `ftol(Rate × 900)` with no draw.
+/// `+0x690` (vt+0x348) and `+0x691` (vt+0x34C) follow; no VERA code sets
+/// them (`sim::building_entry`).
+fn foot_building_entry_head(
+    sim: &mut Simulation,
+    rules: &RuleSet,
+    id: u64,
+    mission: MissionType,
+    ctx: super::ObjectAiCtx<'_>,
+) -> Option<MissionHandlerEvaluation> {
+    if !sim
+        .substrate
+        .entities
+        .get(id)
+        .is_some_and(|entity| entity.building_entry.should_enter_absorber())
+    {
+        return None;
+    }
+    let _ = sim.foot_enter_bio_reactor(id, rules, ctx.overlay_registry, ctx.effects);
+    Some(MissionHandlerEvaluation::cadence(mission_cadence(
+        rules, mission,
+    )))
+}
+
 /// `FootClass::Mission_Guard` 0x004D5070, the body Guard(5) and Sticky(6) share.
 ///
 /// **Shared for units. Infantry reach it only through a leaf override.**
@@ -1706,9 +1754,9 @@ pub(super) fn evaluate_foot_area_guard(
 /// slot is `+0x39C` (0x00709820), which this handler never calls, so a guarding
 /// object acquires solely through the common AI body's block. VERA matches.
 ///
-/// **Cadence.** Bunker delegation returns the base cadence with no draw. Past
-/// it, while the object's rearm timer runs (`+0x2EC`, which FireAt arms with
-/// GetROF each shot:
+/// **Cadence.** The building-entry head returns the base cadence with no
+/// draw. Past it, while the object's rearm timer runs (`+0x2EC`, which
+/// FireAt arms with GetROF each shot:
 /// [`GameEntity::rearm_timer`](crate::sim::game_entity::GameEntity::rearm_timer)),
 /// the handler returns its remaining frames and draws nothing
 /// (0x004D52A9..0x004D52F4): a guarding object that just fired next wakes when
@@ -1739,20 +1787,10 @@ pub(super) fn evaluate_foot_area_guard(
 ///   plants; VERA's shoots it instead. Frequency: every Guard dispatch of such
 ///   a computer-owned infantryman with a building target.
 ///   `+0xEC2` is UNCHECKED.
-/// - **the two further containment latches.** The head takes three byte
-///   latches in order — `+0x68F` → `[vtable+0x340]` (0x004DFB70), `+0x690` →
-///   `[+0x348]`, `+0x691` → `[+0x34C]` — and each delegates, discards the
-///   result and returns the flat `ftol(Rate × 900)` with no jitter draw
-///   (0x004D5076-0x004D50CD). VERA models the first as `bunker_delegate`; the
-///   identity of the other two is UNCHECKED, and VERA carries no state that
-///   could be their equivalent, so there is nothing to gate on. The identical
-///   three-way head opens `FootClass::Mission_AreaGuard` at 0x004D6ACC, so this
-///   is a FootClass-wide containment cluster, not a bunker special case.
-///   Trigger: whichever containment those two bytes denote. Player effect:
-///   cadence only — a contained object re-dispatches on the flat rate instead
-///   of rate-plus-jitter. Frequency: unknown until the bytes are identified,
-///   which is why this cannot be closed by guessing. Downstream risk: one
-///   scenario-RNG draw per dispatch on those paths.
+/// - **the other two building-entry latches.** The head
+///   ([`foot_building_entry_head`]) tests `+0x68F`, then `+0x690` (vt+0x348)
+///   and `+0x691` (vt+0x34C); no VERA code sets the last two (script actions
+///   63 and 64, `sim::building_entry`), so their arms never run.
 /// - **Tesla charging adjacency** (0x004D5116-0x004D51D2; AreaGuard4D6F44).
 ///   A secondary weapon's ElectricAssault warhead (`+0x158`)
 ///   admits an adjacent allied Overpowerable building (`+0x1575`, reader460029).
@@ -1776,12 +1814,12 @@ pub(super) fn evaluate_foot_guard_cadence(
     rules: &RuleSet,
     id: u64,
     mission: MissionType,
-    bunker_delegate: bool,
-    effects: FrameEffects<'_>,
+    ctx: super::ObjectAiCtx<'_>,
 ) -> MissionHandlerEvaluation {
-    if bunker_delegate {
-        return MissionHandlerEvaluation::cadence(mission_cadence(rules, mission));
+    if let Some(head) = foot_building_entry_head(sim, rules, id, mission, ctx) {
+        return head;
     }
+    let effects = ctx.effects;
     //4D51A6 /4D51D8 precede even the rearm-timer early return. Unit's
     //receiver is a false stub; Infantry's owner decides actual admission.
     if sim
@@ -2682,8 +2720,7 @@ mod guard_rearm_tests {
                 &rules,
                 1,
                 MissionType::Guard,
-                false,
-                crate::sim::world::FrameEffects::default(),
+                super::super::ObjectAiCtx::default(),
             );
 
             match row["returns"].as_i64() {

@@ -304,12 +304,7 @@ impl GuardHost for WorldGuard<'_> {
     fn foot_guard(&mut self) -> i32 {
         let mission = self.current();
         mission_handlers::evaluate_foot_guard_cadence(
-            self.sim,
-            self.rules,
-            self.id,
-            mission,
-            false,
-            self.ctx.effects,
+            self.sim, self.rules, self.id, mission, self.ctx,
         )
         .delay()
     }

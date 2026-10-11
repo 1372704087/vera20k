@@ -1323,6 +1323,10 @@ impl Simulation {
                 b"foot-pending-entry-500".hash(hasher);
                 pending.hash(hasher);
             }
+            if entity.building_entry.seeking() {
+                b"foot-building-entry-68f".hash(hasher);
+                entity.building_entry.hash(hasher);
+            }
             entity.native_unique_id.hash(hasher);
             if let Some(manager) = entity.slave_manager.as_ref() {
                 b"slave-manager-v209".hash(hasher);

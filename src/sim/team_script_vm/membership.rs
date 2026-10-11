@@ -27,10 +27,10 @@
 //! - `Remove_Member` sets `+0x6B8` on every object it is called for; only a
 //!   `Weeder=` unit's Mission_Guard reads it (`0x00740A60`), and VERA's
 //!   Weeder takes its own guard arm.
-//! - `Can_Add`'s building-entry flags (`0x004E0080`: `+0x68F`/`+0x690`/
-//!   `+0x691`) and lifted-object link (`+0x2B0`) have no VERA writer: the
-//!   AI's grinder, reactor and bunker seeks and the Magnetron are not
-//!   ported, so both tests pass.
+//! - `Can_Add`'s lifted-object link (`+0x2B0`) has no VERA writer: the
+//!   Magnetron is not ported, so that test passes. Of its building-entry
+//!   flags (`0x004E0080`) only the Bio Reactor seek's `+0x68F` is written
+//!   (`sim::building_entry`).
 //! - `Recruit` adds a recruited unit's passengers (`0x006EADE8..0x006EAE17`);
 //!   a passenger is in limbo, which `Can_Add` refuses while `ScenarioInit`
 //!   is 0, so the loop adds nothing in play and is not ported.
@@ -38,9 +38,10 @@
 //!   no ported reader.
 //! - `Remove_Member`'s callers in unported owners do not remove: the
 //!   Magnetron's lift (`0x00710349`), a building's occupant release with
-//!   Hunt (`0x0045812B`), and script actions 8 and 60-64 and the team change
-//!   and merge (`0x006EF392`, `0x006EF416`, `0x006E9E24..0x006E9F38`,
-//!   `0x006E96FD`, `0x006ECFF8`).
+//!   Hunt (`0x0045812B`), and script actions 8, 60, 61, 63 and 64 and the
+//!   team change and merge (`0x006EF392`, `0x006EF416`, `0x006E9E24`,
+//!   `0x006E9E69`, `0x006E9EF3`, `0x006E9F38`, `0x006E96FD`,
+//!   `0x006ECFF8`).
 //! - The removal loops in `0x006ECB50` (`0x006ECB7C..0x006ECCBC`) and
 //!   `0x0070F890` (`0x0070F8C7`) are not ported: neither function has a call
 //!   or a pointer anywhere in the executable (`tools.native_inspect calls`
@@ -129,10 +130,11 @@ impl Simulation {
     /// whose map recruit byte (`+0x421`) is clear, for a TeamType that is
     /// not `Autocreate=`; one whose team recruit byte (`+0x422`) is clear,
     /// for an `Autocreate=` TeamType, unless an aircraft or the team's
-    /// current action is 8 (Unload); one draining (`+0x1CC`) or in a tank
-    /// bunker (`+0x2E4`); a member of a team whose TeamType's `Priority=`
-    /// is not lower (signed); an armed aircraft out of ammo (`+0x2FC`); and
-    /// one whose entry is full (signed).
+    /// current action is 8 (Unload); one seeking a building's entry
+    /// (`0x004E0080`, [`crate::sim::building_entry`]); one draining
+    /// (`+0x1CC`) or in a tank bunker (`+0x2E4`); a member of a team whose
+    /// TeamType's `Priority=` is not lower (signed); an armed aircraft out
+    /// of ammo (`+0x2FC`); and one whose entry is full (signed).
     pub(crate) fn team_can_add(
         &self,
         team_id: u64,
@@ -179,6 +181,10 @@ impl Simulation {
         let unloading = script_action_at(vm.scripts.get(&team.script_id), team.cursor)
             .is_some_and(|action| action.action_id == 8);
         if !entity.base_defense_response.recruitable_b && autocreate && !(unloading || aircraft) {
+            return None;
+        }
+        // `0x006EA79B..0x006EA7A4`: one seeking a building's entry.
+        if entity.building_entry.seeking() {
             return None;
         }
         if entity.drain_target.is_some() || entity.bunker_link.installed_in().is_some() {

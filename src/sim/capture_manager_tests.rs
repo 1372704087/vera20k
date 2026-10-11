@@ -883,6 +883,43 @@ fn native_decide_unit_fate_corpus() {
     }
 }
 
+/// DecideUnitFate's choice 3 (`0x0047261F..0x0047262E`): the computer
+/// controller's new Foot seeks a Bio Reactor of its house
+/// ([`Simulation::foot_enter_bio_reactor`]) and, one taking it, gets no Hunt.
+/// The corpus above stubs the seek to find none.
+#[test]
+fn a_captive_sent_to_a_bio_reactor_does_not_hunt() {
+    use crate::sim::passenger::PassengerRole;
+    let mut rules = rules_from(&RULES.replace(
+        "[BIOR]\nStrength=900\nPassengers=5",
+        "[BIOR]\nStrength=900\nPassengers=5\nInfantryAbsorb=yes\nSizeLimit=15",
+    ));
+    rules.mind_control.ai_capture = std::array::from_fn(|_| vec![0, 0, 100, 0]);
+    let mut sim = sim(39);
+    let yuri = spawn(&mut sim, &rules, "YURI", "YuriCountry", 10, 10);
+    let reactor = spawn(&mut sim, &rules, "BIOR", "YuriCountry", 16, 10);
+    let gi = spawn(&mut sim, &rules, "E1", "Americans", 12, 10);
+    let mut replay = sim.scenario_rng.clone();
+
+    assert!(sim.capture_unit(
+        yuri,
+        gi,
+        &rules,
+        None,
+        crate::sim::world::FrameEffects::default()
+    ));
+    fate_draw(&mut replay);
+
+    let entity = sim.substrate.entities.get(gi).unwrap();
+    assert_eq!(queued_mission(&sim, gi), Some(MissionType::Enter));
+    assert!(entity.building_entry.should_enter_absorber());
+    assert!(matches!(
+        entity.passenger_role,
+        PassengerRole::Boarding { target_transport_id } if target_transport_id == reactor
+    ));
+    assert_eq!(sim.scenario_rng.state(), replay.state());
+}
+
 /// Original CaptureManagerClass::Update `0x00471A50` after the original
 /// constructor, frame by frame (`tools/spatial_oracle/capture_overload_update.py`):
 /// which frames check, each check's C4 damage, voice and five spark systems

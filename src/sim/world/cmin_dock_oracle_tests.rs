@@ -707,6 +707,7 @@ fn mission_enter_teleporter_arms_match_the_original_dispatch() {
         let delay = crate::sim::mission::enter::mission_enter(
             &mut s.sim,
             &s.rules,
+            None,
             s.miner,
             crate::sim::world::FrameEffects::default(),
         );

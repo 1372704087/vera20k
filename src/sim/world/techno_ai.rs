@@ -4381,7 +4381,6 @@ mod tests {
             refinery_dock_miner: false,
             timer_due: true,
             moving_or_queued: false,
-            bunker_delegate: false,
             has_attack_target: false,
             has_destination: false,
             effective_mission: Some(MissionType::Attack),
@@ -4479,7 +4478,6 @@ mod tests {
             refinery_dock_miner: false,
             timer_due: true,
             moving_or_queued: false,
-            bunker_delegate: false,
             has_attack_target: false,
             has_destination: false,
             effective_mission: Some(MissionType::Attack),
@@ -4601,33 +4599,79 @@ mod tests {
         assert_eq!(unit.mission.queued(), MissionId::NONE);
     }
 
+    /// The heads of `FootClass::Mission_Guard` (`0x004D5076..0x004D50CD`)
+    /// and `Mission_AreaGuard` (`0x004D6ACC`): with `+0x68F` set the Bio
+    /// Reactor seek runs and the handler returns the flat `ftol(Rate × 900)`
+    /// (both at the constructed 0.016 here) with no draw, whatever the seek
+    /// found; a house with no absorber clears the latch, so the next visit
+    /// takes the body.
     #[test]
-    fn infantry_guard_handler_skips_jitter_for_a_bunker_delegate() {
-        let mut sim = Simulation::with_seed(0x6A2D);
-        let rules = representative_foot_handler_rules();
-        let mut infantry = entity_of(1, EntityCategory::Infantry);
-        infantry.owner = sim.interner.intern("Americans");
-        infantry.type_ref = sim.interner.intern("TEST");
-        infantry.bunker_link = BunkerLink::Installed(99);
-        update_mission_test_fixture(&mut infantry.mission, |fixture| {
-            fixture.current = MissionId::from_known(MissionType::Guard);
-            fixture.dispatch_timer = MissionDispatchTimer::at_frame(0);
-        });
-        sim.substrate.entities.insert(infantry);
-        let before_rng = sim.scenario_rng.logical_state();
+    fn guard_heads_run_the_bio_reactor_seek_while_its_latch_holds() {
+        for mission in [MissionType::Guard, MissionType::AreaGuard] {
+            let mut sim = Simulation::with_seed(0x6A2D);
+            let rules = representative_foot_handler_rules();
+            let mut infantry = entity_of(1, EntityCategory::Infantry);
+            infantry.owner = sim.interner.intern("Americans");
+            infantry.type_ref = sim.interner.intern("TEST");
+            crate::sim::building_entry::set_should_enter_absorber_for_test(&mut infantry, true);
+            update_mission_test_fixture(&mut infantry.mission, |fixture| {
+                fixture.current = MissionId::from_known(mission);
+                fixture.dispatch_timer = MissionDispatchTimer::at_frame(0);
+            });
+            sim.substrate.entities.insert(infantry);
+            let before_rng = sim.scenario_rng.logical_state();
 
-        sim.object_ai_visit_one(1, Some(&rules), ObjectAiCtx::default());
+            sim.object_ai_visit_one(1, Some(&rules), ObjectAiCtx::default());
 
-        assert_eq!(
-            sim.substrate
-                .entities
-                .get(1)
-                .unwrap()
-                .mission
-                .dispatch_timer(),
-            MissionDispatchTimer::from_raw(0, 14)
-        );
-        assert_eq!(sim.scenario_rng.logical_state(), before_rng);
+            let infantry = sim.substrate.entities.get(1).unwrap();
+            assert_eq!(
+                infantry.mission.dispatch_timer(),
+                MissionDispatchTimer::from_raw(0, 14),
+                "{mission:?}"
+            );
+            assert_eq!(sim.scenario_rng.logical_state(), before_rng, "{mission:?}");
+            assert!(
+                !infantry.building_entry.should_enter_absorber(),
+                "{mission:?}"
+            );
+            assert_eq!(infantry.mission.current(), MissionId::from_known(mission));
+        }
+    }
+
+    /// `FootClass::Mission_AreaGuard`'s head (`0x004D6AAB..0x004D6ACB`): an
+    /// object in a tank bunker (`+0x2E4`) queues Guard and returns 1 with no
+    /// draw. Mission_Guard has no such head: it takes its body and draws.
+    #[test]
+    fn area_guard_head_returns_a_bunkered_object_to_guard() {
+        for mission in [MissionType::AreaGuard, MissionType::Guard] {
+            let mut sim = Simulation::with_seed(0x6A2E);
+            let rules = representative_foot_handler_rules();
+            let mut unit = entity_of(1, EntityCategory::Unit);
+            unit.bunker_link = BunkerLink::Installed(99);
+            // Queue_Mission's immediate Commence reads the locomotor.
+            unit.locomotor = Some(LocomotorState::for_test_kind(LocomotorKind::Drive));
+            update_mission_test_fixture(&mut unit.mission, |fixture| {
+                fixture.current = MissionId::from_known(mission);
+                fixture.dispatch_timer = MissionDispatchTimer::at_frame(0);
+            });
+            register_entity(&mut sim, unit);
+            let before_rng = sim.scenario_rng.logical_state();
+
+            sim.object_ai_visit_one(1, Some(&rules), ObjectAiCtx::default());
+
+            let unit = sim.substrate.entities.get(1).unwrap();
+            let guard = MissionId::from_known(MissionType::Guard);
+            if mission == MissionType::AreaGuard {
+                assert_eq!(
+                    unit.mission.dispatch_timer(),
+                    MissionDispatchTimer::from_raw(0, 1)
+                );
+                assert_eq!(sim.scenario_rng.logical_state(), before_rng);
+                assert_eq!(unit.mission.current(), guard);
+            } else {
+                assert_ne!(sim.scenario_rng.logical_state(), before_rng);
+            }
+        }
     }
 
     /// `FootClass::Mission_Guard 0x004D52A9..0x004D52F4`: while the object's
@@ -5119,6 +5163,13 @@ mod tests {
                 fixture.current = MissionId::from_known(mission);
                 fixture.dispatch_timer = MissionDispatchTimer::at_frame(0);
             });
+            // An infantryman on Enter is held by the Boarding adapter; once it
+            // lets go, the Infantry Enter arm runs Mission_Enter.
+            if category == EntityCategory::Infantry {
+                unit.passenger_role = crate::sim::passenger::PassengerRole::Boarding {
+                    target_transport_id: 2,
+                };
+            }
             register_entity(&mut sim, unit);
 
             sim.object_ai_visit_one(1, Some(&rules), ObjectAiCtx::default());

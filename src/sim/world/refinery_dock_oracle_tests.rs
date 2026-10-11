@@ -767,6 +767,7 @@ fn mission_enter_matches_the_original_dispatch() {
         let delay = crate::sim::mission::enter::mission_enter(
             &mut s.sim,
             &s.rules,
+            None,
             s.miner,
             crate::sim::world::FrameEffects::default(),
         );

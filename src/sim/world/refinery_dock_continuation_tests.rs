@@ -451,6 +451,7 @@ fn step(s: &mut Scene, step: &Value, context: &str) {
             crate::sim::mission::enter::mission_enter(
                 &mut s.sim,
                 &s.rules,
+                None,
                 s.miner,
                 crate::sim::world::FrameEffects::default()
             ),

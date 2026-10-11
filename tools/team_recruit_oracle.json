@@ -145,6 +145,6783 @@
       "frame": -2147483644
     }
   ],
+  "bio_reactor": [
+    {
+      "absorbers": [],
+      "contact": null,
+      "events": [],
+      "foot": [
+        423,
+        858,
+        425
+      ],
+      "latch": false,
+      "latch_after": 0,
+      "pending": null,
+      "result": 0
+    },
+    {
+      "absorbers": [],
+      "contact": null,
+      "events": [],
+      "foot": [
+        463,
+        194,
+        89
+      ],
+      "latch": true,
+      "latch_after": 0,
+      "pending": null,
+      "result": 0
+    },
+    {
+      "absorbers": [
+        {
+          "answer": 0,
+          "xyz": [
+            72807,
+            215461,
+            466
+          ]
+        },
+        {
+          "answer": 10,
+          "xyz": [
+            137495,
+            240308,
+            2010
+          ]
+        },
+        {
+          "answer": 1,
+          "xyz": [
+            168512,
+            16590,
+            1787
+          ]
+        }
+      ],
+      "contact": null,
+      "events": [
+        [
+          "transmit",
+          15,
+          2
+        ],
+        [
+          "transmit",
+          15,
+          1
+        ],
+        [
+          "transmit",
+          15,
+          0
+        ],
+        [
+          "picked",
+          2
+        ],
+        [
+          "queue_mission",
+          7,
+          0
+        ],
+        [
+          "assign_destination",
+          2,
+          1
+        ]
+      ],
+      "foot": [
+        222126,
+        134890,
+        1140
+      ],
+      "latch": false,
+      "latch_after": 1,
+      "pending": 1,
+      "result": 1
+    },
+    {
+      "absorbers": [
+        {
+          "answer": 10,
+          "xyz": [
+            4730224,
+            426457,
+            965
+          ]
+        },
+        {
+          "answer": 1,
+          "xyz": [
+            7217940,
+            2781911,
+            1778
+          ]
+        }
+      ],
+      "contact": null,
+      "events": [
+        [
+          "transmit",
+          15,
+          1
+        ],
+        [
+          "transmit",
+          15,
+          0
+        ],
+        [
+          "picked",
+          1
+        ],
+        [
+          "queue_mission",
+          7,
+          0
+        ],
+        [
+          "assign_destination",
+          1,
+          1
+        ]
+      ],
+      "foot": [
+        7491180,
+        6315820,
+        1897
+      ],
+      "latch": true,
+      "latch_after": 1,
+      "pending": null,
+      "result": 1
+    },
+    {
+      "absorbers": [
+        {
+          "answer": 1,
+          "xyz": [
+            756,
+            542,
+            949
+          ]
+        },
+        {
+          "answer": 0,
+          "xyz": [
+            1006,
+            383,
+            98
+          ]
+        }
+      ],
+      "contact": 1,
+      "events": [
+        [
+          "transmit",
+          15,
+          1
+        ],
+        [
+          "transmit",
+          15,
+          0
+        ],
+        [
+          "picked",
+          0
+        ],
+        [
+          "queue_mission",
+          7,
+          0
+        ],
+        [
+          "assign_destination",
+          0,
+          1
+        ]
+      ],
+      "foot": [
+        445,
+        583,
+        1702
+      ],
+      "latch": false,
+      "latch_after": 1,
+      "pending": null,
+      "result": 1
+    },
+    {
+      "absorbers": [
+        {
+          "answer": 1,
+          "xyz": [
+            2292,
+            3761,
+            773
+          ]
+        },
+        {
+          "answer": 1,
+          "xyz": [
+            337,
+            16067,
+            551
+          ]
+        },
+        {
+          "answer": 1,
+          "xyz": [
+            7703,
+            14283,
+            1882
+          ]
+        }
+      ],
+      "contact": null,
+      "events": [
+        [
+          "transmit",
+          15,
+          2
+        ],
+        [
+          "transmit",
+          15,
+          1
+        ],
+        [
+          "transmit",
+          15,
+          0
+        ],
+        [
+          "picked",
+          2
+        ],
+        [
+          "queue_mission",
+          7,
+          0
+        ],
+        [
+          "assign_destination",
+          2,
+          1
+        ]
+      ],
+      "foot": [
+        14404,
+        4432,
+        1193
+      ],
+      "latch": true,
+      "latch_after": 1,
+      "pending": null,
+      "result": 1
+    },
+    {
+      "absorbers": [
+        {
+          "answer": 1,
+          "xyz": [
+            192348,
+            226661,
+            1421
+          ]
+        },
+        {
+          "answer": 0,
+          "xyz": [
+            36249,
+            201575,
+            141
+          ]
+        },
+        {
+          "answer": 1,
+          "xyz": [
+            250413,
+            178163,
+            1468
+          ]
+        },
+        {
+          "answer": 10,
+          "xyz": [
+            195763,
+            143561,
+            509
+          ]
+        },
+        {
+          "answer": 0,
+          "xyz": [
+            92443,
+            26139,
+            802
+          ]
+        }
+      ],
+      "contact": null,
+      "events": [
+        [
+          "transmit",
+          15,
+          4
+        ],
+        [
+          "transmit",
+          15,
+          3
+        ],
+        [
+          "transmit",
+          15,
+          2
+        ],
+        [
+          "transmit",
+          15,
+          1
+        ],
+        [
+          "transmit",
+          15,
+          0
+        ],
+        [
+          "picked",
+          2
+        ],
+        [
+          "queue_mission",
+          7,
+          0
+        ],
+        [
+          "assign_destination",
+          2,
+          1
+        ]
+      ],
+      "foot": [
+        59557,
+        2367,
+        1995
+      ],
+      "latch": false,
+      "latch_after": 1,
+      "pending": null,
+      "result": 1
+    },
+    {
+      "absorbers": [],
+      "contact": null,
+      "events": [],
+      "foot": [
+        5733125,
+        8222292,
+        405
+      ],
+      "latch": true,
+      "latch_after": 0,
+      "pending": null,
+      "result": 0
+    },
+    {
+      "absorbers": [
+        {
+          "answer": 1,
+          "xyz": [
+            782,
+            275,
+            953
+          ]
+        },
+        {
+          "answer": 1,
+          "xyz": [
+            1016,
+            213,
+            71
+          ]
+        },
+        {
+          "answer": 1,
+          "xyz": [
+            601,
+            199,
+            1883
+          ]
+        },
+        {
+          "answer": 1,
+          "xyz": [
+            272,
+            528,
+            1580
+          ]
+        },
+        {
+          "answer": 1,
+          "xyz": [
+            475,
+            124,
+            949
+          ]
+        }
+      ],
+      "contact": null,
+      "events": [
+        [
+          "transmit",
+          15,
+          4
+        ],
+        [
+          "transmit",
+          15,
+          3
+        ],
+        [
+          "transmit",
+          15,
+          2
+        ],
+        [
+          "transmit",
+          15,
+          1
+        ],
+        [
+          "transmit",
+          15,
+          0
+        ],
+        [
+          "picked",
+          3
+        ],
+        [
+          "queue_mission",
+          7,
+          0
+        ],
+        [
+          "assign_destination",
+          3,
+          1
+        ]
+      ],
+      "foot": [
+        361,
+        574,
+        1811
+      ],
+      "latch": false,
+      "latch_after": 1,
+      "pending": null,
+      "result": 1
+    },
+    {
+      "absorbers": [
+        {
+          "answer": 1,
+          "xyz": [
+            84,
+            9626,
+            354
+          ]
+        },
+        {
+          "answer": 1,
+          "xyz": [
+            9545,
+            6942,
+            1998
+          ]
+        },
+        {
+          "answer": 1,
+          "xyz": [
+            2886,
+            195,
+            304
+          ]
+        },
+        {
+          "answer": 10,
+          "xyz": [
+            11424,
+            14159,
+            1563
+          ]
+        }
+      ],
+      "contact": null,
+      "events": [
+        [
+          "transmit",
+          15,
+          3
+        ],
+        [
+          "transmit",
+          15,
+          2
+        ],
+        [
+          "transmit",
+          15,
+          1
+        ],
+        [
+          "transmit",
+          15,
+          0
+        ],
+        [
+          "picked",
+          0
+        ],
+        [
+          "queue_mission",
+          7,
+          0
+        ],
+        [
+          "assign_destination",
+          0,
+          1
+        ]
+      ],
+      "foot": [
+        1156,
+        7895,
+        1192
+      ],
+      "latch": true,
+      "latch_after": 1,
+      "pending": null,
+      "result": 1
+    },
+    {
+      "absorbers": [
+        {
+          "answer": 0,
+          "xyz": [
+            3668,
+            191685,
+            686
+          ]
+        },
+        {
+          "answer": 1,
+          "xyz": [
+            17301,
+            230660,
+            787
+          ]
+        },
+        {
+          "answer": 1,
+          "xyz": [
+            188075,
+            20731,
+            1282
+          ]
+        },
+        {
+          "answer": 10,
+          "xyz": [
+            60170,
+            6279,
+            1628
+          ]
+        }
+      ],
+      "contact": 2,
+      "events": [
+        [
+          "transmit",
+          15,
+          3
+        ],
+        [
+          "transmit",
+          15,
+          2
+        ],
+        [
+          "transmit",
+          15,
+          1
+        ],
+        [
+          "transmit",
+          15,
+          0
+        ],
+        [
+          "picked",
+          2
+        ]
+      ],
+      "foot": [
+        153422,
+        56766,
+        1307
+      ],
+      "latch": false,
+      "latch_after": 1,
+      "pending": null,
+      "result": 1
+    },
+    {
+      "absorbers": [],
+      "contact": null,
+      "events": [],
+      "foot": [
+        6144280,
+        2545166,
+        293
+      ],
+      "latch": true,
+      "latch_after": 0,
+      "pending": null,
+      "result": 0
+    },
+    {
+      "absorbers": [
+        {
+          "answer": 0,
+          "xyz": [
+            91,
+            50,
+            275
+          ]
+        },
+        {
+          "answer": 10,
+          "xyz": [
+            389,
+            361,
+            1767
+          ]
+        },
+        {
+          "answer": 1,
+          "xyz": [
+            278,
+            775,
+            86
+          ]
+        }
+      ],
+      "contact": null,
+      "events": [
+        [
+          "transmit",
+          15,
+          2
+        ],
+        [
+          "transmit",
+          15,
+          1
+        ],
+        [
+          "transmit",
+          15,
+          0
+        ],
+        [
+          "picked",
+          2
+        ],
+        [
+          "queue_mission",
+          7,
+          0
+        ],
+        [
+          "assign_destination",
+          2,
+          1
+        ]
+      ],
+      "foot": [
+        575,
+        654,
+        192
+      ],
+      "latch": false,
+      "latch_after": 1,
+      "pending": 1,
+      "result": 1
+    },
+    {
+      "absorbers": [
+        {
+          "answer": 1,
+          "xyz": [
+            2820,
+            12547,
+            2036
+          ]
+        },
+        {
+          "answer": 1,
+          "xyz": [
+            14147,
+            14385,
+            1035
+          ]
+        },
+        {
+          "answer": 1,
+          "xyz": [
+            12209,
+            6758,
+            1744
+          ]
+        },
+        {
+          "answer": 1,
+          "xyz": [
+            736,
+            6153,
+            1840
+          ]
+        }
+      ],
+      "contact": 3,
+      "events": [
+        [
+          "transmit",
+          15,
+          3
+        ],
+        [
+          "transmit",
+          15,
+          2
+        ],
+        [
+          "transmit",
+          15,
+          1
+        ],
+        [
+          "transmit",
+          15,
+          0
+        ],
+        [
+          "picked",
+          0
+        ],
+        [
+          "queue_mission",
+          7,
+          0
+        ],
+        [
+          "assign_destination",
+          0,
+          1
+        ]
+      ],
+      "foot": [
+        2003,
+        11027,
+        915
+      ],
+      "latch": true,
+      "latch_after": 1,
+      "pending": null,
+      "result": 1
+    },
+    {
+      "absorbers": [],
+      "contact": null,
+      "events": [],
+      "foot": [
+        160676,
+        42521,
+        494
+      ],
+      "latch": false,
+      "latch_after": 0,
+      "pending": null,
+      "result": 0
+    },
+    {
+      "absorbers": [
+        {
+          "answer": 0,
+          "xyz": [
+            6789901,
+            4461737,
+            553
+          ]
+        }
+      ],
+      "contact": null,
+      "events": [
+        [
+          "transmit",
+          15,
+          0
+        ],
+        [
+          "picked",
+          null
+        ]
+      ],
+      "foot": [
+        7302913,
+        5081655,
+        1315
+      ],
+      "latch": true,
+      "latch_after": 0,
+      "pending": null,
+      "result": 0
+    },
+    {
+      "absorbers": [
+        {
+          "answer": 1,
+          "xyz": [
+            325,
+            744,
+            801
+          ]
+        },
+        {
+          "answer": 10,
+          "xyz": [
+            621,
+            87,
+            731
+          ]
+        }
+      ],
+      "contact": 1,
+      "events": [
+        [
+          "transmit",
+          15,
+          1
+        ],
+        [
+          "transmit",
+          15,
+          0
+        ],
+        [
+          "picked",
+          0
+        ],
+        [
+          "queue_mission",
+          7,
+          0
+        ],
+        [
+          "assign_destination",
+          0,
+          1
+        ]
+      ],
+      "foot": [
+        190,
+        449,
+        2028
+      ],
+      "latch": false,
+      "latch_after": 1,
+      "pending": null,
+      "result": 1
+    },
+    {
+      "absorbers": [
+        {
+          "answer": 1,
+          "xyz": [
+            5688,
+            1251,
+            1326
+          ]
+        }
+      ],
+      "contact": null,
+      "events": [
+        [
+          "transmit",
+          15,
+          0
+        ],
+        [
+          "picked",
+          0
+        ]
+      ],
+      "foot": [
+        15310,
+        11429,
+        1658
+      ],
+      "latch": true,
+      "latch_after": 1,
+      "pending": 0,
+      "result": 1
+    },
+    {
+      "absorbers": [
+        {
+          "answer": 1,
+          "xyz": [
+            204988,
+            218526,
+            10
+          ]
+        },
+        {
+          "answer": 1,
+          "xyz": [
+            224650,
+            211077,
+            1504
+          ]
+        },
+        {
+          "answer": 1,
+          "xyz": [
+            60052,
+            124841,
+            1159
+          ]
+        },
+        {
+          "answer": 1,
+          "xyz": [
+            159381,
+            10755,
+            1586
+          ]
+        }
+      ],
+      "contact": null,
+      "events": [
+        [
+          "transmit",
+          15,
+          3
+        ],
+        [
+          "transmit",
+          15,
+          2
+        ],
+        [
+          "transmit",
+          15,
+          1
+        ],
+        [
+          "transmit",
+          15,
+          0
+        ],
+        [
+          "picked",
+          1
+        ],
+        [
+          "queue_mission",
+          7,
+          0
+        ],
+        [
+          "assign_destination",
+          1,
+          1
+        ]
+      ],
+      "foot": [
+        238253,
+        248964,
+        563
+      ],
+      "latch": false,
+      "latch_after": 1,
+      "pending": null,
+      "result": 1
+    },
+    {
+      "absorbers": [
+        {
+          "answer": 1,
+          "xyz": [
+            3120282,
+            6972612,
+            1658
+          ]
+        },
+        {
+          "answer": 1,
+          "xyz": [
+            4102634,
+            109900,
+            499
+          ]
+        }
+      ],
+      "contact": 0,
+      "events": [
+        [
+          "transmit",
+          15,
+          1
+        ],
+        [
+          "transmit",
+          15,
+          0
+        ],
+        [
+          "picked",
+          1
+        ],
+        [
+          "queue_mission",
+          7,
+          0
+        ],
+        [
+          "assign_destination",
+          1,
+          1
+        ]
+      ],
+      "foot": [
+        7860679,
+        743336,
+        1640
+      ],
+      "latch": true,
+      "latch_after": 1,
+      "pending": null,
+      "result": 1
+    },
+    {
+      "absorbers": [
+        {
+          "answer": 1,
+          "xyz": [
+            174,
+            658,
+            202
+          ]
+        },
+        {
+          "answer": 1,
+          "xyz": [
+            928,
+            163,
+            1656
+          ]
+        },
+        {
+          "answer": 1,
+          "xyz": [
+            758,
+            792,
+            1410
+          ]
+        },
+        {
+          "answer": 0,
+          "xyz": [
+            742,
+            601,
+            952
+          ]
+        },
+        {
+          "answer": 1,
+          "xyz": [
+            256,
+            812,
+            546
+          ]
+        }
+      ],
+      "contact": null,
+      "events": [
+        [
+          "transmit",
+          15,
+          4
+        ],
+        [
+          "transmit",
+          15,
+          3
+        ],
+        [
+          "transmit",
+          15,
+          2
+        ],
+        [
+          "transmit",
+          15,
+          1
+        ],
+        [
+          "transmit",
+          15,
+          0
+        ],
+        [
+          "picked",
+          2
+        ],
+        [
+          "queue_mission",
+          7,
+          0
+        ],
+        [
+          "assign_destination",
+          2,
+          1
+        ]
+      ],
+      "foot": [
+        956,
+        861,
+        1320
+      ],
+      "latch": false,
+      "latch_after": 1,
+      "pending": null,
+      "result": 1
+    },
+    {
+      "absorbers": [
+        {
+          "answer": 1,
+          "xyz": [
+            1346,
+            15730,
+            1625
+          ]
+        }
+      ],
+      "contact": null,
+      "events": [
+        [
+          "transmit",
+          15,
+          0
+        ],
+        [
+          "picked",
+          0
+        ],
+        [
+          "queue_mission",
+          7,
+          0
+        ],
+        [
+          "assign_destination",
+          0,
+          1
+        ]
+      ],
+      "foot": [
+        12805,
+        939,
+        2028
+      ],
+      "latch": true,
+      "latch_after": 1,
+      "pending": null,
+      "result": 1
+    },
+    {
+      "absorbers": [],
+      "contact": null,
+      "events": [],
+      "foot": [
+        165503,
+        231552,
+        810
+      ],
+      "latch": false,
+      "latch_after": 0,
+      "pending": null,
+      "result": 0
+    },
+    {
+      "absorbers": [],
+      "contact": null,
+      "events": [],
+      "foot": [
+        7850526,
+        933768,
+        1075
+      ],
+      "latch": true,
+      "latch_after": 0,
+      "pending": null,
+      "result": 0
+    },
+    {
+      "absorbers": [
+        {
+          "answer": 0,
+          "xyz": [
+            713,
+            414,
+            1017
+          ]
+        },
+        {
+          "answer": 10,
+          "xyz": [
+            964,
+            502,
+            1719
+          ]
+        },
+        {
+          "answer": 0,
+          "xyz": [
+            748,
+            837,
+            636
+          ]
+        },
+        {
+          "answer": 1,
+          "xyz": [
+            490,
+            952,
+            1887
+          ]
+        }
+      ],
+      "contact": null,
+      "events": [
+        [
+          "transmit",
+          15,
+          3
+        ],
+        [
+          "transmit",
+          15,
+          2
+        ],
+        [
+          "transmit",
+          15,
+          1
+        ],
+        [
+          "transmit",
+          15,
+          0
+        ],
+        [
+          "picked",
+          3
+        ],
+        [
+          "queue_mission",
+          7,
+          0
+        ],
+        [
+          "assign_destination",
+          3,
+          1
+        ]
+      ],
+      "foot": [
+        767,
+        595,
+        824
+      ],
+      "latch": false,
+      "latch_after": 1,
+      "pending": null,
+      "result": 1
+    },
+    {
+      "absorbers": [
+        {
+          "answer": 0,
+          "xyz": [
+            13420,
+            7646,
+            131
+          ]
+        }
+      ],
+      "contact": 0,
+      "events": [
+        [
+          "transmit",
+          15,
+          0
+        ],
+        [
+          "picked",
+          null
+        ]
+      ],
+      "foot": [
+        2526,
+        5632,
+        1993
+      ],
+      "latch": true,
+      "latch_after": 0,
+      "pending": null,
+      "result": 0
+    },
+    {
+      "absorbers": [
+        {
+          "answer": 1,
+          "xyz": [
+            35462,
+            194707,
+            614
+          ]
+        },
+        {
+          "answer": 1,
+          "xyz": [
+            219340,
+            41060,
+            134
+          ]
+        },
+        {
+          "answer": 1,
+          "xyz": [
+            182282,
+            90318,
+            769
+          ]
+        },
+        {
+          "answer": 10,
+          "xyz": [
+            10881,
+            21955,
+            1100
+          ]
+        },
+        {
+          "answer": 1,
+          "xyz": [
+            159202,
+            131663,
+            942
+          ]
+        }
+      ],
+      "contact": null,
+      "events": [
+        [
+          "transmit",
+          15,
+          4
+        ],
+        [
+          "transmit",
+          15,
+          3
+        ],
+        [
+          "transmit",
+          15,
+          2
+        ],
+        [
+          "transmit",
+          15,
+          1
+        ],
+        [
+          "transmit",
+          15,
+          0
+        ],
+        [
+          "picked",
+          0
+        ],
+        [
+          "queue_mission",
+          7,
+          0
+        ],
+        [
+          "assign_destination",
+          0,
+          1
+        ]
+      ],
+      "foot": [
+        101947,
+        180516,
+        268
+      ],
+      "latch": false,
+      "latch_after": 1,
+      "pending": null,
+      "result": 1
+    },
+    {
+      "absorbers": [
+        {
+          "answer": 1,
+          "xyz": [
+            2238221,
+            3869051,
+            1732
+          ]
+        }
+      ],
+      "contact": null,
+      "events": [
+        [
+          "transmit",
+          15,
+          0
+        ],
+        [
+          "picked",
+          0
+        ]
+      ],
+      "foot": [
+        6612630,
+        7377312,
+        660
+      ],
+      "latch": true,
+      "latch_after": 1,
+      "pending": 0,
+      "result": 1
+    },
+    {
+      "absorbers": [],
+      "contact": null,
+      "events": [],
+      "foot": [
+        128,
+        766,
+        1888
+      ],
+      "latch": false,
+      "latch_after": 0,
+      "pending": null,
+      "result": 0
+    },
+    {
+      "absorbers": [
+        {
+          "answer": 0,
+          "xyz": [
+            14700,
+            11854,
+            537
+          ]
+        },
+        {
+          "answer": 1,
+          "xyz": [
+            95,
+            16046,
+            954
+          ]
+        },
+        {
+          "answer": 1,
+          "xyz": [
+            9435,
+            70,
+            586
+          ]
+        }
+      ],
+      "contact": null,
+      "events": [
+        [
+          "transmit",
+          15,
+          2
+        ],
+        [
+          "transmit",
+          15,
+          1
+        ],
+        [
+          "transmit",
+          15,
+          0
+        ],
+        [
+          "picked",
+          1
+        ],
+        [
+          "queue_mission",
+          7,
+          0
+        ],
+        [
+          "assign_destination",
+          1,
+          1
+        ]
+      ],
+      "foot": [
+        8880,
+        14976,
+        421
+      ],
+      "latch": true,
+      "latch_after": 1,
+      "pending": null,
+      "result": 1
+    },
+    {
+      "absorbers": [
+        {
+          "answer": 1,
+          "xyz": [
+            189992,
+            68531,
+            1847
+          ]
+        },
+        {
+          "answer": 0,
+          "xyz": [
+            24349,
+            147479,
+            4
+          ]
+        },
+        {
+          "answer": 1,
+          "xyz": [
+            42556,
+            261589,
+            409
+          ]
+        },
+        {
+          "answer": 1,
+          "xyz": [
+            171967,
+            206057,
+            948
+          ]
+        },
+        {
+          "answer": 10,
+          "xyz": [
+            4782,
+            165299,
+            1183
+          ]
+        }
+      ],
+      "contact": null,
+      "events": [
+        [
+          "transmit",
+          15,
+          4
+        ],
+        [
+          "transmit",
+          15,
+          3
+        ],
+        [
+          "transmit",
+          15,
+          2
+        ],
+        [
+          "transmit",
+          15,
+          1
+        ],
+        [
+          "transmit",
+          15,
+          0
+        ],
+        [
+          "picked",
+          3
+        ],
+        [
+          "queue_mission",
+          7,
+          0
+        ],
+        [
+          "assign_destination",
+          3,
+          1
+        ]
+      ],
+      "foot": [
+        196822,
+        225233,
+        1237
+      ],
+      "latch": false,
+      "latch_after": 1,
+      "pending": null,
+      "result": 1
+    },
+    {
+      "absorbers": [],
+      "contact": null,
+      "events": [],
+      "foot": [
+        2542966,
+        4976303,
+        217
+      ],
+      "latch": true,
+      "latch_after": 0,
+      "pending": null,
+      "result": 0
+    },
+    {
+      "absorbers": [],
+      "contact": null,
+      "events": [],
+      "foot": [
+        625,
+        340,
+        210
+      ],
+      "latch": false,
+      "latch_after": 0,
+      "pending": null,
+      "result": 0
+    },
+    {
+      "absorbers": [],
+      "contact": null,
+      "events": [],
+      "foot": [
+        1012,
+        13758,
+        726
+      ],
+      "latch": true,
+      "latch_after": 0,
+      "pending": null,
+      "result": 0
+    },
+    {
+      "absorbers": [
+        {
+          "answer": 1,
+          "xyz": [
+            164178,
+            36450,
+            1785
+          ]
+        }
+      ],
+      "contact": 0,
+      "events": [
+        [
+          "transmit",
+          15,
+          0
+        ],
+        [
+          "picked",
+          0
+        ]
+      ],
+      "foot": [
+        186179,
+        213604,
+        742
+      ],
+      "latch": false,
+      "latch_after": 1,
+      "pending": null,
+      "result": 1
+    },
+    {
+      "absorbers": [
+        {
+          "answer": 1,
+          "xyz": [
+            5282211,
+            298825,
+            1844
+          ]
+        },
+        {
+          "answer": 1,
+          "xyz": [
+            7342731,
+            6923926,
+            674
+          ]
+        },
+        {
+          "answer": 1,
+          "xyz": [
+            926143,
+            6344306,
+            196
+          ]
+        }
+      ],
+      "contact": null,
+      "events": [
+        [
+          "transmit",
+          15,
+          2
+        ],
+        [
+          "transmit",
+          15,
+          1
+        ],
+        [
+          "transmit",
+          15,
+          0
+        ],
+        [
+          "picked",
+          2
+        ],
+        [
+          "queue_mission",
+          7,
+          0
+        ],
+        [
+          "assign_destination",
+          2,
+          1
+        ]
+      ],
+      "foot": [
+        938883,
+        8348195,
+        1073
+      ],
+      "latch": true,
+      "latch_after": 1,
+      "pending": null,
+      "result": 1
+    },
+    {
+      "absorbers": [
+        {
+          "answer": 10,
+          "xyz": [
+            211,
+            801,
+            1969
+          ]
+        }
+      ],
+      "contact": null,
+      "events": [
+        [
+          "transmit",
+          15,
+          0
+        ],
+        [
+          "picked",
+          null
+        ]
+      ],
+      "foot": [
+        547,
+        973,
+        195
+      ],
+      "latch": false,
+      "latch_after": 0,
+      "pending": null,
+      "result": 0
+    },
+    {
+      "absorbers": [
+        {
+          "answer": 1,
+          "xyz": [
+            1328,
+            12571,
+            505
+          ]
+        },
+        {
+          "answer": 1,
+          "xyz": [
+            16243,
+            9049,
+            502
+          ]
+        },
+        {
+          "answer": 1,
+          "xyz": [
+            9812,
+            5377,
+            267
+          ]
+        },
+        {
+          "answer": 1,
+          "xyz": [
+            10830,
+            13542,
+            304
+          ]
+        }
+      ],
+      "contact": 1,
+      "events": [
+        [
+          "transmit",
+          15,
+          3
+        ],
+        [
+          "transmit",
+          15,
+          2
+        ],
+        [
+          "transmit",
+          15,
+          1
+        ],
+        [
+          "transmit",
+          15,
+          0
+        ],
+        [
+          "picked",
+          2
+        ],
+        [
+          "queue_mission",
+          7,
+          0
+        ],
+        [
+          "assign_destination",
+          2,
+          1
+        ]
+      ],
+      "foot": [
+        1996,
+        3008,
+        108
+      ],
+      "latch": true,
+      "latch_after": 1,
+      "pending": 0,
+      "result": 1
+    },
+    {
+      "absorbers": [
+        {
+          "answer": 0,
+          "xyz": [
+            131214,
+            124159,
+            549
+          ]
+        },
+        {
+          "answer": 0,
+          "xyz": [
+            162326,
+            180539,
+            1983
+          ]
+        },
+        {
+          "answer": 1,
+          "xyz": [
+            170869,
+            36471,
+            695
+          ]
+        },
+        {
+          "answer": 10,
+          "xyz": [
+            211075,
+            111043,
+            1827
+          ]
+        },
+        {
+          "answer": 1,
+          "xyz": [
+            189653,
+            116824,
+            179
+          ]
+        }
+      ],
+      "contact": null,
+      "events": [
+        [
+          "transmit",
+          15,
+          4
+        ],
+        [
+          "transmit",
+          15,
+          3
+        ],
+        [
+          "transmit",
+          15,
+          2
+        ],
+        [
+          "transmit",
+          15,
+          1
+        ],
+        [
+          "transmit",
+          15,
+          0
+        ],
+        [
+          "picked",
+          4
+        ],
+        [
+          "queue_mission",
+          7,
+          0
+        ],
+        [
+          "assign_destination",
+          4,
+          1
+        ]
+      ],
+      "foot": [
+        257064,
+        244400,
+        562
+      ],
+      "latch": false,
+      "latch_after": 1,
+      "pending": null,
+      "result": 1
+    },
+    {
+      "absorbers": [
+        {
+          "answer": 1,
+          "xyz": [
+            6752128,
+            6179481,
+            702
+          ]
+        },
+        {
+          "answer": 1,
+          "xyz": [
+            4101735,
+            1286447,
+            178
+          ]
+        },
+        {
+          "answer": 1,
+          "xyz": [
+            6278410,
+            125561,
+            317
+          ]
+        },
+        {
+          "answer": 1,
+          "xyz": [
+            2075018,
+            4825230,
+            1166
+          ]
+        }
+      ],
+      "contact": null,
+      "events": [
+        [
+          "transmit",
+          15,
+          3
+        ],
+        [
+          "transmit",
+          15,
+          2
+        ],
+        [
+          "transmit",
+          15,
+          1
+        ],
+        [
+          "transmit",
+          15,
+          0
+        ],
+        [
+          "picked",
+          0
+        ],
+        [
+          "queue_mission",
+          7,
+          0
+        ],
+        [
+          "assign_destination",
+          0,
+          1
+        ]
+      ],
+      "foot": [
+        4653454,
+        7057794,
+        931
+      ],
+      "latch": true,
+      "latch_after": 1,
+      "pending": null,
+      "result": 1
+    },
+    {
+      "absorbers": [
+        {
+          "answer": 1,
+          "xyz": [
+            709,
+            303,
+            611
+          ]
+        }
+      ],
+      "contact": 0,
+      "events": [
+        [
+          "transmit",
+          15,
+          0
+        ],
+        [
+          "picked",
+          0
+        ]
+      ],
+      "foot": [
+        973,
+        396,
+        238
+      ],
+      "latch": false,
+      "latch_after": 1,
+      "pending": null,
+      "result": 1
+    },
+    {
+      "absorbers": [
+        {
+          "answer": 0,
+          "xyz": [
+            3161,
+            11815,
+            709
+          ]
+        },
+        {
+          "answer": 1,
+          "xyz": [
+            15720,
+            6610,
+            997
+          ]
+        },
+        {
+          "answer": 10,
+          "xyz": [
+            9800,
+            1040,
+            1069
+          ]
+        },
+        {
+          "answer": 1,
+          "xyz": [
+            12305,
+            15043,
+            347
+          ]
+        }
+      ],
+      "contact": null,
+      "events": [
+        [
+          "transmit",
+          15,
+          3
+        ],
+        [
+          "transmit",
+          15,
+          2
+        ],
+        [
+          "transmit",
+          15,
+          1
+        ],
+        [
+          "transmit",
+          15,
+          0
+        ],
+        [
+          "picked",
+          1
+        ],
+        [
+          "queue_mission",
+          7,
+          0
+        ],
+        [
+          "assign_destination",
+          1,
+          1
+        ]
+      ],
+      "foot": [
+        15066,
+        7652,
+        1541
+      ],
+      "latch": true,
+      "latch_after": 1,
+      "pending": null,
+      "result": 1
+    },
+    {
+      "absorbers": [
+        {
+          "answer": 1,
+          "xyz": [
+            176256,
+            195124,
+            400
+          ]
+        }
+      ],
+      "contact": null,
+      "events": [
+        [
+          "transmit",
+          15,
+          0
+        ],
+        [
+          "picked",
+          0
+        ]
+      ],
+      "foot": [
+        173319,
+        14468,
+        228
+      ],
+      "latch": false,
+      "latch_after": 1,
+      "pending": 0,
+      "result": 1
+    },
+    {
+      "absorbers": [
+        {
+          "answer": 1,
+          "xyz": [
+            2153118,
+            4712384,
+            1440
+          ]
+        },
+        {
+          "answer": 1,
+          "xyz": [
+            1279241,
+            3406999,
+            2009
+          ]
+        },
+        {
+          "answer": 10,
+          "xyz": [
+            4807747,
+            335347,
+            827
+          ]
+        }
+      ],
+      "contact": 2,
+      "events": [
+        [
+          "transmit",
+          15,
+          2
+        ],
+        [
+          "transmit",
+          15,
+          1
+        ],
+        [
+          "transmit",
+          15,
+          0
+        ],
+        [
+          "picked",
+          0
+        ],
+        [
+          "queue_mission",
+          7,
+          0
+        ],
+        [
+          "assign_destination",
+          0,
+          1
+        ]
+      ],
+      "foot": [
+        4593183,
+        5383243,
+        1011
+      ],
+      "latch": true,
+      "latch_after": 1,
+      "pending": null,
+      "result": 1
+    },
+    {
+      "absorbers": [
+        {
+          "answer": 10,
+          "xyz": [
+            677,
+            273,
+            1720
+          ]
+        }
+      ],
+      "contact": null,
+      "events": [
+        [
+          "transmit",
+          15,
+          0
+        ],
+        [
+          "picked",
+          null
+        ]
+      ],
+      "foot": [
+        279,
+        905,
+        44
+      ],
+      "latch": false,
+      "latch_after": 0,
+      "pending": null,
+      "result": 0
+    },
+    {
+      "absorbers": [],
+      "contact": null,
+      "events": [],
+      "foot": [
+        3322,
+        13616,
+        138
+      ],
+      "latch": true,
+      "latch_after": 0,
+      "pending": null,
+      "result": 0
+    },
+    {
+      "absorbers": [
+        {
+          "answer": 10,
+          "xyz": [
+            31028,
+            62391,
+            1240
+          ]
+        }
+      ],
+      "contact": 0,
+      "events": [
+        [
+          "transmit",
+          15,
+          0
+        ],
+        [
+          "picked",
+          null
+        ]
+      ],
+      "foot": [
+        188355,
+        150789,
+        1400
+      ],
+      "latch": false,
+      "latch_after": 0,
+      "pending": null,
+      "result": 0
+    },
+    {
+      "absorbers": [
+        {
+          "answer": 1,
+          "xyz": [
+            993940,
+            5706346,
+            55
+          ]
+        },
+        {
+          "answer": 10,
+          "xyz": [
+            6665426,
+            382271,
+            2028
+          ]
+        }
+      ],
+      "contact": null,
+      "events": [
+        [
+          "transmit",
+          15,
+          1
+        ],
+        [
+          "transmit",
+          15,
+          0
+        ],
+        [
+          "picked",
+          0
+        ],
+        [
+          "queue_mission",
+          7,
+          0
+        ],
+        [
+          "assign_destination",
+          0,
+          1
+        ]
+      ],
+      "foot": [
+        5852411,
+        7816788,
+        1532
+      ],
+      "latch": true,
+      "latch_after": 1,
+      "pending": 1,
+      "result": 1
+    },
+    {
+      "absorbers": [
+        {
+          "answer": 0,
+          "xyz": [
+            187,
+            431,
+            1603
+          ]
+        },
+        {
+          "answer": 0,
+          "xyz": [
+            229,
+            614,
+            1992
+          ]
+        },
+        {
+          "answer": 1,
+          "xyz": [
+            493,
+            842,
+            1703
+          ]
+        },
+        {
+          "answer": 10,
+          "xyz": [
+            968,
+            714,
+            1982
+          ]
+        },
+        {
+          "answer": 1,
+          "xyz": [
+            484,
+            683,
+            1629
+          ]
+        }
+      ],
+      "contact": null,
+      "events": [
+        [
+          "transmit",
+          15,
+          4
+        ],
+        [
+          "transmit",
+          15,
+          3
+        ],
+        [
+          "transmit",
+          15,
+          2
+        ],
+        [
+          "transmit",
+          15,
+          1
+        ],
+        [
+          "transmit",
+          15,
+          0
+        ],
+        [
+          "picked",
+          4
+        ],
+        [
+          "queue_mission",
+          7,
+          0
+        ],
+        [
+          "assign_destination",
+          4,
+          1
+        ]
+      ],
+      "foot": [
+        98,
+        156,
+        1689
+      ],
+      "latch": false,
+      "latch_after": 1,
+      "pending": null,
+      "result": 1
+    },
+    {
+      "absorbers": [
+        {
+          "answer": 1,
+          "xyz": [
+            2063,
+            15251,
+            2041
+          ]
+        },
+        {
+          "answer": 1,
+          "xyz": [
+            14257,
+            8738,
+            275
+          ]
+        },
+        {
+          "answer": 1,
+          "xyz": [
+            16207,
+            8365,
+            437
+          ]
+        },
+        {
+          "answer": 1,
+          "xyz": [
+            11913,
+            3537,
+            388
+          ]
+        }
+      ],
+      "contact": 2,
+      "events": [
+        [
+          "transmit",
+          15,
+          3
+        ],
+        [
+          "transmit",
+          15,
+          2
+        ],
+        [
+          "transmit",
+          15,
+          1
+        ],
+        [
+          "transmit",
+          15,
+          0
+        ],
+        [
+          "picked",
+          1
+        ],
+        [
+          "queue_mission",
+          7,
+          0
+        ],
+        [
+          "assign_destination",
+          1,
+          1
+        ]
+      ],
+      "foot": [
+        9973,
+        8108,
+        881
+      ],
+      "latch": true,
+      "latch_after": 1,
+      "pending": null,
+      "result": 1
+    },
+    {
+      "absorbers": [
+        {
+          "answer": 1,
+          "xyz": [
+            99535,
+            118863,
+            1046
+          ]
+        },
+        {
+          "answer": 1,
+          "xyz": [
+            139754,
+            20433,
+            940
+          ]
+        },
+        {
+          "answer": 10,
+          "xyz": [
+            221956,
+            149703,
+            1502
+          ]
+        },
+        {
+          "answer": 1,
+          "xyz": [
+            947,
+            198779,
+            1452
+          ]
+        },
+        {
+          "answer": 10,
+          "xyz": [
+            261056,
+            141374,
+            1054
+          ]
+        }
+      ],
+      "contact": null,
+      "events": [
+        [
+          "transmit",
+          15,
+          4
+        ],
+        [
+          "transmit",
+          15,
+          3
+        ],
+        [
+          "transmit",
+          15,
+          2
+        ],
+        [
+          "transmit",
+          15,
+          1
+        ],
+        [
+          "transmit",
+          15,
+          0
+        ],
+        [
+          "picked",
+          0
+        ],
+        [
+          "queue_mission",
+          7,
+          0
+        ],
+        [
+          "assign_destination",
+          0,
+          1
+        ]
+      ],
+      "foot": [
+        168251,
+        158737,
+        401
+      ],
+      "latch": false,
+      "latch_after": 1,
+      "pending": null,
+      "result": 1
+    },
+    {
+      "absorbers": [
+        {
+          "answer": 1,
+          "xyz": [
+            24992,
+            2446081,
+            1340
+          ]
+        },
+        {
+          "answer": 0,
+          "xyz": [
+            6596711,
+            1245941,
+            1986
+          ]
+        },
+        {
+          "answer": 0,
+          "xyz": [
+            4111264,
+            2144806,
+            1688
+          ]
+        }
+      ],
+      "contact": null,
+      "events": [
+        [
+          "transmit",
+          15,
+          2
+        ],
+        [
+          "transmit",
+          15,
+          1
+        ],
+        [
+          "transmit",
+          15,
+          0
+        ],
+        [
+          "picked",
+          0
+        ],
+        [
+          "queue_mission",
+          7,
+          0
+        ],
+        [
+          "assign_destination",
+          0,
+          1
+        ]
+      ],
+      "foot": [
+        7164053,
+        1214086,
+        974
+      ],
+      "latch": true,
+      "latch_after": 1,
+      "pending": null,
+      "result": 1
+    },
+    {
+      "absorbers": [
+        {
+          "answer": 1,
+          "xyz": [
+            691,
+            407,
+            1984
+          ]
+        }
+      ],
+      "contact": 0,
+      "events": [
+        [
+          "transmit",
+          15,
+          0
+        ],
+        [
+          "picked",
+          0
+        ]
+      ],
+      "foot": [
+        242,
+        529,
+        697
+      ],
+      "latch": false,
+      "latch_after": 1,
+      "pending": 0,
+      "result": 1
+    },
+    {
+      "absorbers": [
+        {
+          "answer": 1,
+          "xyz": [
+            7545,
+            8098,
+            72
+          ]
+        },
+        {
+          "answer": 1,
+          "xyz": [
+            167,
+            15880,
+            1246
+          ]
+        },
+        {
+          "answer": 1,
+          "xyz": [
+            7171,
+            1481,
+            666
+          ]
+        }
+      ],
+      "contact": null,
+      "events": [
+        [
+          "transmit",
+          15,
+          2
+        ],
+        [
+          "transmit",
+          15,
+          1
+        ],
+        [
+          "transmit",
+          15,
+          0
+        ],
+        [
+          "picked",
+          1
+        ],
+        [
+          "queue_mission",
+          7,
+          0
+        ],
+        [
+          "assign_destination",
+          1,
+          1
+        ]
+      ],
+      "foot": [
+        1417,
+        13555,
+        1500
+      ],
+      "latch": true,
+      "latch_after": 1,
+      "pending": null,
+      "result": 1
+    },
+    {
+      "absorbers": [],
+      "contact": null,
+      "events": [],
+      "foot": [
+        125580,
+        261287,
+        231
+      ],
+      "latch": false,
+      "latch_after": 0,
+      "pending": null,
+      "result": 0
+    },
+    {
+      "absorbers": [],
+      "contact": null,
+      "events": [],
+      "foot": [
+        4972197,
+        4850815,
+        1346
+      ],
+      "latch": true,
+      "latch_after": 0,
+      "pending": null,
+      "result": 0
+    },
+    {
+      "absorbers": [
+        {
+          "answer": 1,
+          "xyz": [
+            394,
+            344,
+            750
+          ]
+        },
+        {
+          "answer": 1,
+          "xyz": [
+            101,
+            678,
+            898
+          ]
+        },
+        {
+          "answer": 10,
+          "xyz": [
+            949,
+            127,
+            1736
+          ]
+        },
+        {
+          "answer": 1,
+          "xyz": [
+            121,
+            866,
+            1887
+          ]
+        },
+        {
+          "answer": 1,
+          "xyz": [
+            234,
+            514,
+            601
+          ]
+        }
+      ],
+      "contact": null,
+      "events": [
+        [
+          "transmit",
+          15,
+          4
+        ],
+        [
+          "transmit",
+          15,
+          3
+        ],
+        [
+          "transmit",
+          15,
+          2
+        ],
+        [
+          "transmit",
+          15,
+          1
+        ],
+        [
+          "transmit",
+          15,
+          0
+        ],
+        [
+          "picked",
+          0
+        ],
+        [
+          "queue_mission",
+          7,
+          0
+        ],
+        [
+          "assign_destination",
+          0,
+          1
+        ]
+      ],
+      "foot": [
+        581,
+        89,
+        1512
+      ],
+      "latch": false,
+      "latch_after": 1,
+      "pending": null,
+      "result": 1
+    },
+    {
+      "absorbers": [
+        {
+          "answer": 1,
+          "xyz": [
+            12757,
+            10247,
+            1576
+          ]
+        },
+        {
+          "answer": 1,
+          "xyz": [
+            4782,
+            646,
+            735
+          ]
+        }
+      ],
+      "contact": null,
+      "events": [
+        [
+          "transmit",
+          15,
+          1
+        ],
+        [
+          "transmit",
+          15,
+          0
+        ],
+        [
+          "picked",
+          0
+        ]
+      ],
+      "foot": [
+        12124,
+        14490,
+        1745
+      ],
+      "latch": true,
+      "latch_after": 1,
+      "pending": 0,
+      "result": 1
+    },
+    {
+      "absorbers": [
+        {
+          "answer": 1,
+          "xyz": [
+            101034,
+            42953,
+            1068
+          ]
+        },
+        {
+          "answer": 0,
+          "xyz": [
+            27458,
+            156390,
+            1996
+          ]
+        },
+        {
+          "answer": 0,
+          "xyz": [
+            112931,
+            149052,
+            355
+          ]
+        },
+        {
+          "answer": 0,
+          "xyz": [
+            238735,
+            141549,
+            761
+          ]
+        },
+        {
+          "answer": 10,
+          "xyz": [
+            51513,
+            37394,
+            501
+          ]
+        }
+      ],
+      "contact": 3,
+      "events": [
+        [
+          "transmit",
+          15,
+          4
+        ],
+        [
+          "transmit",
+          15,
+          3
+        ],
+        [
+          "transmit",
+          15,
+          2
+        ],
+        [
+          "transmit",
+          15,
+          1
+        ],
+        [
+          "transmit",
+          15,
+          0
+        ],
+        [
+          "picked",
+          0
+        ],
+        [
+          "queue_mission",
+          7,
+          0
+        ],
+        [
+          "assign_destination",
+          0,
+          1
+        ]
+      ],
+      "foot": [
+        138916,
+        22054,
+        1864
+      ],
+      "latch": false,
+      "latch_after": 1,
+      "pending": null,
+      "result": 1
+    },
+    {
+      "absorbers": [
+        {
+          "answer": 0,
+          "xyz": [
+            25516,
+            41248,
+            22
+          ]
+        },
+        {
+          "answer": 1,
+          "xyz": [
+            789785,
+            621117,
+            978
+          ]
+        },
+        {
+          "answer": 1,
+          "xyz": [
+            4949101,
+            4007568,
+            394
+          ]
+        },
+        {
+          "answer": 1,
+          "xyz": [
+            6599673,
+            1955833,
+            25
+          ]
+        }
+      ],
+      "contact": null,
+      "events": [
+        [
+          "transmit",
+          15,
+          3
+        ],
+        [
+          "transmit",
+          15,
+          2
+        ],
+        [
+          "transmit",
+          15,
+          1
+        ],
+        [
+          "transmit",
+          15,
+          0
+        ],
+        [
+          "picked",
+          2
+        ],
+        [
+          "queue_mission",
+          7,
+          0
+        ],
+        [
+          "assign_destination",
+          2,
+          1
+        ]
+      ],
+      "foot": [
+        4614970,
+        6139898,
+        1662
+      ],
+      "latch": true,
+      "latch_after": 1,
+      "pending": null,
+      "result": 1
+    },
+    {
+      "absorbers": [
+        {
+          "answer": 1,
+          "xyz": [
+            865,
+            489,
+            513
+          ]
+        },
+        {
+          "answer": 10,
+          "xyz": [
+            128,
+            841,
+            1531
+          ]
+        },
+        {
+          "answer": 1,
+          "xyz": [
+            966,
+            107,
+            410
+          ]
+        }
+      ],
+      "contact": null,
+      "events": [
+        [
+          "transmit",
+          15,
+          2
+        ],
+        [
+          "transmit",
+          15,
+          1
+        ],
+        [
+          "transmit",
+          15,
+          0
+        ],
+        [
+          "picked",
+          0
+        ],
+        [
+          "queue_mission",
+          7,
+          0
+        ],
+        [
+          "assign_destination",
+          0,
+          1
+        ]
+      ],
+      "foot": [
+        315,
+        705,
+        1824
+      ],
+      "latch": false,
+      "latch_after": 1,
+      "pending": null,
+      "result": 1
+    },
+    {
+      "absorbers": [
+        {
+          "answer": 1,
+          "xyz": [
+            4009,
+            7975,
+            989
+          ]
+        }
+      ],
+      "contact": 0,
+      "events": [
+        [
+          "transmit",
+          15,
+          0
+        ],
+        [
+          "picked",
+          0
+        ]
+      ],
+      "foot": [
+        15796,
+        12962,
+        1932
+      ],
+      "latch": true,
+      "latch_after": 1,
+      "pending": null,
+      "result": 1
+    },
+    {
+      "absorbers": [
+        {
+          "answer": 0,
+          "xyz": [
+            96289,
+            243014,
+            1792
+          ]
+        }
+      ],
+      "contact": null,
+      "events": [
+        [
+          "transmit",
+          15,
+          0
+        ],
+        [
+          "picked",
+          null
+        ]
+      ],
+      "foot": [
+        80158,
+        238866,
+        1564
+      ],
+      "latch": false,
+      "latch_after": 0,
+      "pending": 0,
+      "result": 0
+    },
+    {
+      "absorbers": [
+        {
+          "answer": 1,
+          "xyz": [
+            3570709,
+            380522,
+            568
+          ]
+        },
+        {
+          "answer": 1,
+          "xyz": [
+            5510391,
+            3406732,
+            169
+          ]
+        },
+        {
+          "answer": 1,
+          "xyz": [
+            5505219,
+            418342,
+            239
+          ]
+        },
+        {
+          "answer": 0,
+          "xyz": [
+            4266728,
+            4580823,
+            935
+          ]
+        },
+        {
+          "answer": 1,
+          "xyz": [
+            2261036,
+            7425068,
+            1570
+          ]
+        }
+      ],
+      "contact": null,
+      "events": [
+        [
+          "transmit",
+          15,
+          4
+        ],
+        [
+          "transmit",
+          15,
+          3
+        ],
+        [
+          "transmit",
+          15,
+          2
+        ],
+        [
+          "transmit",
+          15,
+          1
+        ],
+        [
+          "transmit",
+          15,
+          0
+        ],
+        [
+          "picked",
+          0
+        ],
+        [
+          "queue_mission",
+          7,
+          0
+        ],
+        [
+          "assign_destination",
+          0,
+          1
+        ]
+      ],
+      "foot": [
+        3954066,
+        569665,
+        292
+      ],
+      "latch": true,
+      "latch_after": 1,
+      "pending": null,
+      "result": 1
+    },
+    {
+      "absorbers": [
+        {
+          "answer": 10,
+          "xyz": [
+            312,
+            736,
+            478
+          ]
+        },
+        {
+          "answer": 10,
+          "xyz": [
+            645,
+            976,
+            931
+          ]
+        }
+      ],
+      "contact": 1,
+      "events": [
+        [
+          "transmit",
+          15,
+          1
+        ],
+        [
+          "transmit",
+          15,
+          0
+        ],
+        [
+          "picked",
+          null
+        ]
+      ],
+      "foot": [
+        452,
+        5,
+        811
+      ],
+      "latch": false,
+      "latch_after": 0,
+      "pending": null,
+      "result": 0
+    },
+    {
+      "absorbers": [
+        {
+          "answer": 1,
+          "xyz": [
+            6731,
+            4437,
+            1840
+          ]
+        }
+      ],
+      "contact": null,
+      "events": [
+        [
+          "transmit",
+          15,
+          0
+        ],
+        [
+          "picked",
+          0
+        ],
+        [
+          "queue_mission",
+          7,
+          0
+        ],
+        [
+          "assign_destination",
+          0,
+          1
+        ]
+      ],
+      "foot": [
+        12169,
+        7314,
+        329
+      ],
+      "latch": true,
+      "latch_after": 1,
+      "pending": null,
+      "result": 1
+    },
+    {
+      "absorbers": [
+        {
+          "answer": 1,
+          "xyz": [
+            233704,
+            208869,
+            816
+          ]
+        }
+      ],
+      "contact": null,
+      "events": [
+        [
+          "transmit",
+          15,
+          0
+        ],
+        [
+          "picked",
+          0
+        ],
+        [
+          "queue_mission",
+          7,
+          0
+        ],
+        [
+          "assign_destination",
+          0,
+          1
+        ]
+      ],
+      "foot": [
+        163739,
+        17664,
+        1452
+      ],
+      "latch": false,
+      "latch_after": 1,
+      "pending": null,
+      "result": 1
+    },
+    {
+      "absorbers": [
+        {
+          "answer": 1,
+          "xyz": [
+            1202789,
+            2150440,
+            1300
+          ]
+        },
+        {
+          "answer": 1,
+          "xyz": [
+            2591222,
+            3113431,
+            1803
+          ]
+        }
+      ],
+      "contact": 0,
+      "events": [
+        [
+          "transmit",
+          15,
+          1
+        ],
+        [
+          "transmit",
+          15,
+          0
+        ],
+        [
+          "picked",
+          1
+        ]
+      ],
+      "foot": [
+        4671394,
+        4773158,
+        1256
+      ],
+      "latch": true,
+      "latch_after": 1,
+      "pending": 1,
+      "result": 1
+    },
+    {
+      "absorbers": [
+        {
+          "answer": 1,
+          "xyz": [
+            262,
+            917,
+            1874
+          ]
+        }
+      ],
+      "contact": null,
+      "events": [
+        [
+          "transmit",
+          15,
+          0
+        ],
+        [
+          "picked",
+          0
+        ],
+        [
+          "queue_mission",
+          7,
+          0
+        ],
+        [
+          "assign_destination",
+          0,
+          1
+        ]
+      ],
+      "foot": [
+        197,
+        805,
+        1359
+      ],
+      "latch": false,
+      "latch_after": 1,
+      "pending": null,
+      "result": 1
+    },
+    {
+      "absorbers": [],
+      "contact": null,
+      "events": [],
+      "foot": [
+        9397,
+        15321,
+        181
+      ],
+      "latch": true,
+      "latch_after": 0,
+      "pending": null,
+      "result": 0
+    },
+    {
+      "absorbers": [
+        {
+          "answer": 1,
+          "xyz": [
+            179413,
+            73535,
+            29
+          ]
+        },
+        {
+          "answer": 10,
+          "xyz": [
+            243660,
+            124968,
+            1358
+          ]
+        },
+        {
+          "answer": 10,
+          "xyz": [
+            212891,
+            145464,
+            1290
+          ]
+        }
+      ],
+      "contact": 0,
+      "events": [
+        [
+          "transmit",
+          15,
+          2
+        ],
+        [
+          "transmit",
+          15,
+          1
+        ],
+        [
+          "transmit",
+          15,
+          0
+        ],
+        [
+          "picked",
+          0
+        ]
+      ],
+      "foot": [
+        158045,
+        119813,
+        313
+      ],
+      "latch": false,
+      "latch_after": 1,
+      "pending": null,
+      "result": 1
+    },
+    {
+      "absorbers": [
+        {
+          "answer": 1,
+          "xyz": [
+            4943509,
+            3839412,
+            1326
+          ]
+        },
+        {
+          "answer": 1,
+          "xyz": [
+            3391638,
+            1835810,
+            638
+          ]
+        }
+      ],
+      "contact": null,
+      "events": [
+        [
+          "transmit",
+          15,
+          1
+        ],
+        [
+          "transmit",
+          15,
+          0
+        ],
+        [
+          "picked",
+          0
+        ],
+        [
+          "queue_mission",
+          7,
+          0
+        ],
+        [
+          "assign_destination",
+          0,
+          1
+        ]
+      ],
+      "foot": [
+        4463680,
+        7924956,
+        1669
+      ],
+      "latch": true,
+      "latch_after": 1,
+      "pending": null,
+      "result": 1
+    },
+    {
+      "absorbers": [
+        {
+          "answer": 1,
+          "xyz": [
+            49,
+            373,
+            454
+          ]
+        }
+      ],
+      "contact": null,
+      "events": [
+        [
+          "transmit",
+          15,
+          0
+        ],
+        [
+          "picked",
+          0
+        ]
+      ],
+      "foot": [
+        96,
+        784,
+        955
+      ],
+      "latch": false,
+      "latch_after": 1,
+      "pending": 0,
+      "result": 1
+    },
+    {
+      "absorbers": [
+        {
+          "answer": 1,
+          "xyz": [
+            8372,
+            11982,
+            286
+          ]
+        },
+        {
+          "answer": 1,
+          "xyz": [
+            15224,
+            9879,
+            1145
+          ]
+        },
+        {
+          "answer": 1,
+          "xyz": [
+            9691,
+            2797,
+            152
+          ]
+        },
+        {
+          "answer": 1,
+          "xyz": [
+            7034,
+            891,
+            1963
+          ]
+        },
+        {
+          "answer": 10,
+          "xyz": [
+            6124,
+            13105,
+            1374
+          ]
+        }
+      ],
+      "contact": 2,
+      "events": [
+        [
+          "transmit",
+          15,
+          4
+        ],
+        [
+          "transmit",
+          15,
+          3
+        ],
+        [
+          "transmit",
+          15,
+          2
+        ],
+        [
+          "transmit",
+          15,
+          1
+        ],
+        [
+          "transmit",
+          15,
+          0
+        ],
+        [
+          "picked",
+          3
+        ],
+        [
+          "queue_mission",
+          7,
+          0
+        ],
+        [
+          "assign_destination",
+          3,
+          1
+        ]
+      ],
+      "foot": [
+        771,
+        3776,
+        1999
+      ],
+      "latch": true,
+      "latch_after": 1,
+      "pending": null,
+      "result": 1
+    },
+    {
+      "absorbers": [
+        {
+          "answer": 1,
+          "xyz": [
+            40019,
+            158482,
+            1937
+          ]
+        },
+        {
+          "answer": 10,
+          "xyz": [
+            243235,
+            228014,
+            1498
+          ]
+        },
+        {
+          "answer": 10,
+          "xyz": [
+            235462,
+            13059,
+            1796
+          ]
+        },
+        {
+          "answer": 1,
+          "xyz": [
+            95894,
+            201413,
+            1162
+          ]
+        },
+        {
+          "answer": 0,
+          "xyz": [
+            155367,
+            226994,
+            2008
+          ]
+        }
+      ],
+      "contact": null,
+      "events": [
+        [
+          "transmit",
+          15,
+          4
+        ],
+        [
+          "transmit",
+          15,
+          3
+        ],
+        [
+          "transmit",
+          15,
+          2
+        ],
+        [
+          "transmit",
+          15,
+          1
+        ],
+        [
+          "transmit",
+          15,
+          0
+        ],
+        [
+          "picked",
+          0
+        ],
+        [
+          "queue_mission",
+          7,
+          0
+        ],
+        [
+          "assign_destination",
+          0,
+          1
+        ]
+      ],
+      "foot": [
+        28496,
+        172128,
+        609
+      ],
+      "latch": false,
+      "latch_after": 1,
+      "pending": null,
+      "result": 1
+    },
+    {
+      "absorbers": [
+        {
+          "answer": 10,
+          "xyz": [
+            215394,
+            989128,
+            2003
+          ]
+        },
+        {
+          "answer": 1,
+          "xyz": [
+            1187481,
+            361865,
+            1587
+          ]
+        },
+        {
+          "answer": 0,
+          "xyz": [
+            8031329,
+            966056,
+            1095
+          ]
+        },
+        {
+          "answer": 0,
+          "xyz": [
+            6140753,
+            1832391,
+            1400
+          ]
+        }
+      ],
+      "contact": null,
+      "events": [
+        [
+          "transmit",
+          15,
+          3
+        ],
+        [
+          "transmit",
+          15,
+          2
+        ],
+        [
+          "transmit",
+          15,
+          1
+        ],
+        [
+          "transmit",
+          15,
+          0
+        ],
+        [
+          "picked",
+          1
+        ],
+        [
+          "queue_mission",
+          7,
+          0
+        ],
+        [
+          "assign_destination",
+          1,
+          1
+        ]
+      ],
+      "foot": [
+        6581770,
+        6952493,
+        1659
+      ],
+      "latch": true,
+      "latch_after": 1,
+      "pending": null,
+      "result": 1
+    },
+    {
+      "absorbers": [
+        {
+          "answer": 1,
+          "xyz": [
+            378,
+            177,
+            675
+          ]
+        },
+        {
+          "answer": 0,
+          "xyz": [
+            185,
+            422,
+            1682
+          ]
+        },
+        {
+          "answer": 1,
+          "xyz": [
+            272,
+            1004,
+            1935
+          ]
+        },
+        {
+          "answer": 10,
+          "xyz": [
+            658,
+            697,
+            1822
+          ]
+        },
+        {
+          "answer": 1,
+          "xyz": [
+            963,
+            354,
+            241
+          ]
+        }
+      ],
+      "contact": 3,
+      "events": [
+        [
+          "transmit",
+          15,
+          4
+        ],
+        [
+          "transmit",
+          15,
+          3
+        ],
+        [
+          "transmit",
+          15,
+          2
+        ],
+        [
+          "transmit",
+          15,
+          1
+        ],
+        [
+          "transmit",
+          15,
+          0
+        ],
+        [
+          "picked",
+          4
+        ],
+        [
+          "queue_mission",
+          7,
+          0
+        ],
+        [
+          "assign_destination",
+          4,
+          1
+        ]
+      ],
+      "foot": [
+        819,
+        642,
+        713
+      ],
+      "latch": false,
+      "latch_after": 1,
+      "pending": null,
+      "result": 1
+    },
+    {
+      "absorbers": [
+        {
+          "answer": 1,
+          "xyz": [
+            10389,
+            5788,
+            1227
+          ]
+        }
+      ],
+      "contact": null,
+      "events": [
+        [
+          "transmit",
+          15,
+          0
+        ],
+        [
+          "picked",
+          0
+        ]
+      ],
+      "foot": [
+        10058,
+        15339,
+        1769
+      ],
+      "latch": true,
+      "latch_after": 1,
+      "pending": 0,
+      "result": 1
+    },
+    {
+      "absorbers": [],
+      "contact": null,
+      "events": [],
+      "foot": [
+        244472,
+        88934,
+        904
+      ],
+      "latch": false,
+      "latch_after": 0,
+      "pending": null,
+      "result": 0
+    },
+    {
+      "absorbers": [
+        {
+          "answer": 0,
+          "xyz": [
+            7872625,
+            50830,
+            16
+          ]
+        },
+        {
+          "answer": 0,
+          "xyz": [
+            7247543,
+            7399522,
+            151
+          ]
+        }
+      ],
+      "contact": 0,
+      "events": [
+        [
+          "transmit",
+          15,
+          1
+        ],
+        [
+          "transmit",
+          15,
+          0
+        ],
+        [
+          "picked",
+          null
+        ]
+      ],
+      "foot": [
+        1309450,
+        5457531,
+        411
+      ],
+      "latch": true,
+      "latch_after": 0,
+      "pending": null,
+      "result": 0
+    },
+    {
+      "absorbers": [],
+      "contact": null,
+      "events": [],
+      "foot": [
+        762,
+        409,
+        1592
+      ],
+      "latch": false,
+      "latch_after": 0,
+      "pending": null,
+      "result": 0
+    },
+    {
+      "absorbers": [
+        {
+          "answer": 10,
+          "xyz": [
+            11525,
+            1856,
+            1526
+          ]
+        },
+        {
+          "answer": 1,
+          "xyz": [
+            15888,
+            7320,
+            482
+          ]
+        },
+        {
+          "answer": 10,
+          "xyz": [
+            14616,
+            1402,
+            1515
+          ]
+        }
+      ],
+      "contact": null,
+      "events": [
+        [
+          "transmit",
+          15,
+          2
+        ],
+        [
+          "transmit",
+          15,
+          1
+        ],
+        [
+          "transmit",
+          15,
+          0
+        ],
+        [
+          "picked",
+          1
+        ],
+        [
+          "queue_mission",
+          7,
+          0
+        ],
+        [
+          "assign_destination",
+          1,
+          1
+        ]
+      ],
+      "foot": [
+        9775,
+        789,
+        285
+      ],
+      "latch": true,
+      "latch_after": 1,
+      "pending": null,
+      "result": 1
+    },
+    {
+      "absorbers": [
+        {
+          "answer": 0,
+          "xyz": [
+            24332,
+            218821,
+            1038
+          ]
+        },
+        {
+          "answer": 10,
+          "xyz": [
+            119098,
+            135801,
+            1440
+          ]
+        },
+        {
+          "answer": 1,
+          "xyz": [
+            245317,
+            114308,
+            1352
+          ]
+        }
+      ],
+      "contact": 1,
+      "events": [
+        [
+          "transmit",
+          15,
+          2
+        ],
+        [
+          "transmit",
+          15,
+          1
+        ],
+        [
+          "transmit",
+          15,
+          0
+        ],
+        [
+          "picked",
+          2
+        ]
+      ],
+      "foot": [
+        256621,
+        63029,
+        1369
+      ],
+      "latch": false,
+      "latch_after": 1,
+      "pending": 2,
+      "result": 1
+    },
+    {
+      "absorbers": [
+        {
+          "answer": 0,
+          "xyz": [
+            2686315,
+            3563375,
+            914
+          ]
+        }
+      ],
+      "contact": null,
+      "events": [
+        [
+          "transmit",
+          15,
+          0
+        ],
+        [
+          "picked",
+          null
+        ]
+      ],
+      "foot": [
+        6205992,
+        5897378,
+        1653
+      ],
+      "latch": true,
+      "latch_after": 0,
+      "pending": null,
+      "result": 0
+    },
+    {
+      "absorbers": [
+        {
+          "answer": 1,
+          "xyz": [
+            673,
+            46,
+            1259
+          ]
+        },
+        {
+          "answer": 0,
+          "xyz": [
+            648,
+            26,
+            1582
+          ]
+        },
+        {
+          "answer": 1,
+          "xyz": [
+            620,
+            575,
+            1572
+          ]
+        },
+        {
+          "answer": 0,
+          "xyz": [
+            501,
+            345,
+            526
+          ]
+        }
+      ],
+      "contact": null,
+      "events": [
+        [
+          "transmit",
+          15,
+          3
+        ],
+        [
+          "transmit",
+          15,
+          2
+        ],
+        [
+          "transmit",
+          15,
+          1
+        ],
+        [
+          "transmit",
+          15,
+          0
+        ],
+        [
+          "picked",
+          2
+        ],
+        [
+          "queue_mission",
+          7,
+          0
+        ],
+        [
+          "assign_destination",
+          2,
+          1
+        ]
+      ],
+      "foot": [
+        648,
+        1001,
+        1772
+      ],
+      "latch": false,
+      "latch_after": 1,
+      "pending": null,
+      "result": 1
+    },
+    {
+      "absorbers": [
+        {
+          "answer": 1,
+          "xyz": [
+            10859,
+            7889,
+            1655
+          ]
+        },
+        {
+          "answer": 0,
+          "xyz": [
+            12268,
+            13031,
+            721
+          ]
+        },
+        {
+          "answer": 10,
+          "xyz": [
+            13706,
+            8719,
+            1601
+          ]
+        },
+        {
+          "answer": 1,
+          "xyz": [
+            8138,
+            15888,
+            572
+          ]
+        }
+      ],
+      "contact": 3,
+      "events": [
+        [
+          "transmit",
+          15,
+          3
+        ],
+        [
+          "transmit",
+          15,
+          2
+        ],
+        [
+          "transmit",
+          15,
+          1
+        ],
+        [
+          "transmit",
+          15,
+          0
+        ],
+        [
+          "picked",
+          0
+        ],
+        [
+          "queue_mission",
+          7,
+          0
+        ],
+        [
+          "assign_destination",
+          0,
+          1
+        ]
+      ],
+      "foot": [
+        8186,
+        1159,
+        1927
+      ],
+      "latch": true,
+      "latch_after": 1,
+      "pending": null,
+      "result": 1
+    },
+    {
+      "absorbers": [
+        {
+          "answer": 10,
+          "xyz": [
+            23589,
+            76907,
+            1199
+          ]
+        },
+        {
+          "answer": 1,
+          "xyz": [
+            111848,
+            166827,
+            1199
+          ]
+        }
+      ],
+      "contact": null,
+      "events": [
+        [
+          "transmit",
+          15,
+          1
+        ],
+        [
+          "transmit",
+          15,
+          0
+        ],
+        [
+          "picked",
+          1
+        ],
+        [
+          "queue_mission",
+          7,
+          0
+        ],
+        [
+          "assign_destination",
+          1,
+          1
+        ]
+      ],
+      "foot": [
+        259576,
+        196558,
+        70
+      ],
+      "latch": false,
+      "latch_after": 1,
+      "pending": null,
+      "result": 1
+    },
+    {
+      "absorbers": [
+        {
+          "answer": 1,
+          "xyz": [
+            8147179,
+            3659503,
+            1054
+          ]
+        },
+        {
+          "answer": 1,
+          "xyz": [
+            6216909,
+            1338286,
+            1832
+          ]
+        },
+        {
+          "answer": 1,
+          "xyz": [
+            7647267,
+            8187363,
+            1524
+          ]
+        }
+      ],
+      "contact": null,
+      "events": [
+        [
+          "transmit",
+          15,
+          2
+        ],
+        [
+          "transmit",
+          15,
+          1
+        ],
+        [
+          "transmit",
+          15,
+          0
+        ],
+        [
+          "picked",
+          2
+        ],
+        [
+          "queue_mission",
+          7,
+          0
+        ],
+        [
+          "assign_destination",
+          2,
+          1
+        ]
+      ],
+      "foot": [
+        7241322,
+        5951999,
+        1168
+      ],
+      "latch": true,
+      "latch_after": 1,
+      "pending": 0,
+      "result": 1
+    },
+    {
+      "absorbers": [],
+      "contact": null,
+      "events": [],
+      "foot": [
+        550,
+        35,
+        1096
+      ],
+      "latch": false,
+      "latch_after": 0,
+      "pending": null,
+      "result": 0
+    },
+    {
+      "absorbers": [
+        {
+          "answer": 10,
+          "xyz": [
+            7669,
+            3937,
+            1573
+          ]
+        },
+        {
+          "answer": 1,
+          "xyz": [
+            6126,
+            13116,
+            964
+          ]
+        },
+        {
+          "answer": 1,
+          "xyz": [
+            13561,
+            9459,
+            1459
+          ]
+        },
+        {
+          "answer": 10,
+          "xyz": [
+            9035,
+            2573,
+            1610
+          ]
+        }
+      ],
+      "contact": null,
+      "events": [
+        [
+          "transmit",
+          15,
+          3
+        ],
+        [
+          "transmit",
+          15,
+          2
+        ],
+        [
+          "transmit",
+          15,
+          1
+        ],
+        [
+          "transmit",
+          15,
+          0
+        ],
+        [
+          "picked",
+          1
+        ],
+        [
+          "queue_mission",
+          7,
+          0
+        ],
+        [
+          "assign_destination",
+          1,
+          1
+        ]
+      ],
+      "foot": [
+        12223,
+        16355,
+        1489
+      ],
+      "latch": true,
+      "latch_after": 1,
+      "pending": null,
+      "result": 1
+    },
+    {
+      "absorbers": [
+        {
+          "answer": 1,
+          "xyz": [
+            10184,
+            189981,
+            1531
+          ]
+        }
+      ],
+      "contact": null,
+      "events": [
+        [
+          "transmit",
+          15,
+          0
+        ],
+        [
+          "picked",
+          0
+        ],
+        [
+          "queue_mission",
+          7,
+          0
+        ],
+        [
+          "assign_destination",
+          0,
+          1
+        ]
+      ],
+      "foot": [
+        216289,
+        81308,
+        1705
+      ],
+      "latch": false,
+      "latch_after": 1,
+      "pending": null,
+      "result": 1
+    },
+    {
+      "absorbers": [
+        {
+          "answer": 1,
+          "xyz": [
+            6217452,
+            7805893,
+            1429
+          ]
+        },
+        {
+          "answer": 10,
+          "xyz": [
+            2947369,
+            5440346,
+            455
+          ]
+        }
+      ],
+      "contact": 0,
+      "events": [
+        [
+          "transmit",
+          15,
+          1
+        ],
+        [
+          "transmit",
+          15,
+          0
+        ],
+        [
+          "picked",
+          0
+        ]
+      ],
+      "foot": [
+        7635087,
+        321653,
+        783
+      ],
+      "latch": true,
+      "latch_after": 1,
+      "pending": null,
+      "result": 1
+    },
+    {
+      "absorbers": [
+        {
+          "answer": 10,
+          "xyz": [
+            490,
+            827,
+            1942
+          ]
+        },
+        {
+          "answer": 1,
+          "xyz": [
+            802,
+            132,
+            1129
+          ]
+        }
+      ],
+      "contact": null,
+      "events": [
+        [
+          "transmit",
+          15,
+          1
+        ],
+        [
+          "transmit",
+          15,
+          0
+        ],
+        [
+          "picked",
+          1
+        ]
+      ],
+      "foot": [
+        202,
+        306,
+        1127
+      ],
+      "latch": false,
+      "latch_after": 1,
+      "pending": 1,
+      "result": 1
+    },
+    {
+      "absorbers": [
+        {
+          "answer": 0,
+          "xyz": [
+            2368,
+            7625,
+            196
+          ]
+        },
+        {
+          "answer": 10,
+          "xyz": [
+            4372,
+            1115,
+            170
+          ]
+        },
+        {
+          "answer": 1,
+          "xyz": [
+            4199,
+            1944,
+            810
+          ]
+        },
+        {
+          "answer": 10,
+          "xyz": [
+            5968,
+            10497,
+            384
+          ]
+        }
+      ],
+      "contact": null,
+      "events": [
+        [
+          "transmit",
+          15,
+          3
+        ],
+        [
+          "transmit",
+          15,
+          2
+        ],
+        [
+          "transmit",
+          15,
+          1
+        ],
+        [
+          "transmit",
+          15,
+          0
+        ],
+        [
+          "picked",
+          2
+        ],
+        [
+          "queue_mission",
+          7,
+          0
+        ],
+        [
+          "assign_destination",
+          2,
+          1
+        ]
+      ],
+      "foot": [
+        15965,
+        16314,
+        1147
+      ],
+      "latch": true,
+      "latch_after": 1,
+      "pending": null,
+      "result": 1
+    },
+    {
+      "absorbers": [],
+      "contact": null,
+      "events": [],
+      "foot": [
+        53366,
+        34672,
+        1509
+      ],
+      "latch": false,
+      "latch_after": 0,
+      "pending": null,
+      "result": 0
+    },
+    {
+      "absorbers": [
+        {
+          "answer": 0,
+          "xyz": [
+            2677904,
+            1828332,
+            762
+          ]
+        },
+        {
+          "answer": 1,
+          "xyz": [
+            7729321,
+            6182804,
+            767
+          ]
+        },
+        {
+          "answer": 0,
+          "xyz": [
+            3602317,
+            7703117,
+            589
+          ]
+        }
+      ],
+      "contact": null,
+      "events": [
+        [
+          "transmit",
+          15,
+          2
+        ],
+        [
+          "transmit",
+          15,
+          1
+        ],
+        [
+          "transmit",
+          15,
+          0
+        ],
+        [
+          "picked",
+          1
+        ],
+        [
+          "queue_mission",
+          7,
+          0
+        ],
+        [
+          "assign_destination",
+          1,
+          1
+        ]
+      ],
+      "foot": [
+        3498133,
+        5937020,
+        1607
+      ],
+      "latch": true,
+      "latch_after": 1,
+      "pending": null,
+      "result": 1
+    },
+    {
+      "absorbers": [
+        {
+          "answer": 1,
+          "xyz": [
+            979,
+            588,
+            1783
+          ]
+        },
+        {
+          "answer": 10,
+          "xyz": [
+            20,
+            921,
+            420
+          ]
+        },
+        {
+          "answer": 1,
+          "xyz": [
+            842,
+            47,
+            864
+          ]
+        }
+      ],
+      "contact": null,
+      "events": [
+        [
+          "transmit",
+          15,
+          2
+        ],
+        [
+          "transmit",
+          15,
+          1
+        ],
+        [
+          "transmit",
+          15,
+          0
+        ],
+        [
+          "picked",
+          2
+        ],
+        [
+          "queue_mission",
+          7,
+          0
+        ],
+        [
+          "assign_destination",
+          2,
+          1
+        ]
+      ],
+      "foot": [
+        623,
+        653,
+        822
+      ],
+      "latch": false,
+      "latch_after": 1,
+      "pending": null,
+      "result": 1
+    },
+    {
+      "absorbers": [],
+      "contact": null,
+      "events": [],
+      "foot": [
+        13979,
+        13859,
+        530
+      ],
+      "latch": true,
+      "latch_after": 0,
+      "pending": null,
+      "result": 0
+    },
+    {
+      "absorbers": [
+        {
+          "answer": 1,
+          "xyz": [
+            174500,
+            45146,
+            718
+          ]
+        }
+      ],
+      "contact": null,
+      "events": [
+        [
+          "transmit",
+          15,
+          0
+        ],
+        [
+          "picked",
+          0
+        ],
+        [
+          "queue_mission",
+          7,
+          0
+        ],
+        [
+          "assign_destination",
+          0,
+          1
+        ]
+      ],
+      "foot": [
+        219704,
+        204972,
+        1526
+      ],
+      "latch": false,
+      "latch_after": 1,
+      "pending": null,
+      "result": 1
+    },
+    {
+      "absorbers": [
+        {
+          "answer": 0,
+          "xyz": [
+            5461267,
+            1910023,
+            97
+          ]
+        },
+        {
+          "answer": 0,
+          "xyz": [
+            5266200,
+            4573620,
+            808
+          ]
+        }
+      ],
+      "contact": null,
+      "events": [
+        [
+          "transmit",
+          15,
+          1
+        ],
+        [
+          "transmit",
+          15,
+          0
+        ],
+        [
+          "picked",
+          null
+        ]
+      ],
+      "foot": [
+        7166133,
+        5225581,
+        715
+      ],
+      "latch": true,
+      "latch_after": 0,
+      "pending": null,
+      "result": 0
+    },
+    {
+      "absorbers": [
+        {
+          "answer": 0,
+          "xyz": [
+            524,
+            499,
+            1466
+          ]
+        },
+        {
+          "answer": 1,
+          "xyz": [
+            986,
+            930,
+            909
+          ]
+        },
+        {
+          "answer": 10,
+          "xyz": [
+            217,
+            986,
+            352
+          ]
+        }
+      ],
+      "contact": 2,
+      "events": [
+        [
+          "transmit",
+          15,
+          2
+        ],
+        [
+          "transmit",
+          15,
+          1
+        ],
+        [
+          "transmit",
+          15,
+          0
+        ],
+        [
+          "picked",
+          1
+        ],
+        [
+          "queue_mission",
+          7,
+          0
+        ],
+        [
+          "assign_destination",
+          1,
+          1
+        ]
+      ],
+      "foot": [
+        799,
+        320,
+        168
+      ],
+      "latch": false,
+      "latch_after": 1,
+      "pending": null,
+      "result": 1
+    },
+    {
+      "absorbers": [
+        {
+          "answer": 1,
+          "xyz": [
+            63,
+            7851,
+            1863
+          ]
+        },
+        {
+          "answer": 10,
+          "xyz": [
+            16135,
+            7990,
+            1593
+          ]
+        }
+      ],
+      "contact": null,
+      "events": [
+        [
+          "transmit",
+          15,
+          1
+        ],
+        [
+          "transmit",
+          15,
+          0
+        ],
+        [
+          "picked",
+          0
+        ],
+        [
+          "queue_mission",
+          7,
+          0
+        ],
+        [
+          "assign_destination",
+          0,
+          1
+        ]
+      ],
+      "foot": [
+        1217,
+        11720,
+        314
+      ],
+      "latch": true,
+      "latch_after": 1,
+      "pending": null,
+      "result": 1
+    },
+    {
+      "absorbers": [
+        {
+          "answer": 1,
+          "xyz": [
+            251186,
+            79207,
+            1380
+          ]
+        }
+      ],
+      "contact": null,
+      "events": [
+        [
+          "transmit",
+          15,
+          0
+        ],
+        [
+          "picked",
+          0
+        ]
+      ],
+      "foot": [
+        22865,
+        211682,
+        1575
+      ],
+      "latch": false,
+      "latch_after": 1,
+      "pending": 0,
+      "result": 1
+    },
+    {
+      "absorbers": [
+        {
+          "answer": 0,
+          "xyz": [
+            8353457,
+            6878482,
+            1581
+          ]
+        }
+      ],
+      "contact": 0,
+      "events": [
+        [
+          "transmit",
+          15,
+          0
+        ],
+        [
+          "picked",
+          null
+        ]
+      ],
+      "foot": [
+        1700181,
+        4645996,
+        674
+      ],
+      "latch": true,
+      "latch_after": 0,
+      "pending": null,
+      "result": 0
+    },
+    {
+      "absorbers": [
+        {
+          "answer": 1,
+          "xyz": [
+            80,
+            346,
+            1799
+          ]
+        },
+        {
+          "answer": 1,
+          "xyz": [
+            28,
+            528,
+            1003
+          ]
+        },
+        {
+          "answer": 1,
+          "xyz": [
+            662,
+            362,
+            202
+          ]
+        },
+        {
+          "answer": 1,
+          "xyz": [
+            616,
+            328,
+            1506
+          ]
+        }
+      ],
+      "contact": null,
+      "events": [
+        [
+          "transmit",
+          15,
+          3
+        ],
+        [
+          "transmit",
+          15,
+          2
+        ],
+        [
+          "transmit",
+          15,
+          1
+        ],
+        [
+          "transmit",
+          15,
+          0
+        ],
+        [
+          "picked",
+          2
+        ],
+        [
+          "queue_mission",
+          7,
+          0
+        ],
+        [
+          "assign_destination",
+          2,
+          1
+        ]
+      ],
+      "foot": [
+        516,
+        818,
+        640
+      ],
+      "latch": false,
+      "latch_after": 1,
+      "pending": null,
+      "result": 1
+    },
+    {
+      "absorbers": [
+        {
+          "answer": 10,
+          "xyz": [
+            6467,
+            14237,
+            1373
+          ]
+        },
+        {
+          "answer": 10,
+          "xyz": [
+            4558,
+            8826,
+            104
+          ]
+        },
+        {
+          "answer": 1,
+          "xyz": [
+            430,
+            9420,
+            1276
+          ]
+        }
+      ],
+      "contact": null,
+      "events": [
+        [
+          "transmit",
+          15,
+          2
+        ],
+        [
+          "transmit",
+          15,
+          1
+        ],
+        [
+          "transmit",
+          15,
+          0
+        ],
+        [
+          "picked",
+          2
+        ],
+        [
+          "queue_mission",
+          7,
+          0
+        ],
+        [
+          "assign_destination",
+          2,
+          1
+        ]
+      ],
+      "foot": [
+        3639,
+        547,
+        1151
+      ],
+      "latch": true,
+      "latch_after": 1,
+      "pending": null,
+      "result": 1
+    },
+    {
+      "absorbers": [
+        {
+          "answer": 10,
+          "xyz": [
+            132145,
+            104526,
+            673
+          ]
+        },
+        {
+          "answer": 0,
+          "xyz": [
+            122598,
+            213031,
+            765
+          ]
+        },
+        {
+          "answer": 1,
+          "xyz": [
+            222254,
+            182998,
+            2013
+          ]
+        }
+      ],
+      "contact": 2,
+      "events": [
+        [
+          "transmit",
+          15,
+          2
+        ],
+        [
+          "transmit",
+          15,
+          1
+        ],
+        [
+          "transmit",
+          15,
+          0
+        ],
+        [
+          "picked",
+          2
+        ]
+      ],
+      "foot": [
+        214976,
+        19860,
+        1352
+      ],
+      "latch": false,
+      "latch_after": 1,
+      "pending": null,
+      "result": 1
+    },
+    {
+      "absorbers": [
+        {
+          "answer": 10,
+          "xyz": [
+            57293,
+            7690112,
+            26
+          ]
+        }
+      ],
+      "contact": null,
+      "events": [
+        [
+          "transmit",
+          15,
+          0
+        ],
+        [
+          "picked",
+          null
+        ]
+      ],
+      "foot": [
+        5871593,
+        8304554,
+        1213
+      ],
+      "latch": true,
+      "latch_after": 0,
+      "pending": 0,
+      "result": 0
+    },
+    {
+      "absorbers": [
+        {
+          "answer": 0,
+          "xyz": [
+            560,
+            153,
+            1153
+          ]
+        },
+        {
+          "answer": 0,
+          "xyz": [
+            354,
+            720,
+            1212
+          ]
+        },
+        {
+          "answer": 10,
+          "xyz": [
+            213,
+            801,
+            1176
+          ]
+        },
+        {
+          "answer": 0,
+          "xyz": [
+            627,
+            660,
+            1299
+          ]
+        }
+      ],
+      "contact": null,
+      "events": [
+        [
+          "transmit",
+          15,
+          3
+        ],
+        [
+          "transmit",
+          15,
+          2
+        ],
+        [
+          "transmit",
+          15,
+          1
+        ],
+        [
+          "transmit",
+          15,
+          0
+        ],
+        [
+          "picked",
+          null
+        ]
+      ],
+      "foot": [
+        3,
+        250,
+        974
+      ],
+      "latch": false,
+      "latch_after": 0,
+      "pending": null,
+      "result": 0
+    },
+    {
+      "absorbers": [
+        {
+          "answer": 1,
+          "xyz": [
+            13465,
+            12202,
+            897
+          ]
+        },
+        {
+          "answer": 1,
+          "xyz": [
+            4522,
+            5739,
+            453
+          ]
+        }
+      ],
+      "contact": 0,
+      "events": [
+        [
+          "transmit",
+          15,
+          1
+        ],
+        [
+          "transmit",
+          15,
+          0
+        ],
+        [
+          "picked",
+          0
+        ]
+      ],
+      "foot": [
+        10592,
+        9048,
+        1414
+      ],
+      "latch": true,
+      "latch_after": 1,
+      "pending": null,
+      "result": 1
+    },
+    {
+      "absorbers": [
+        {
+          "answer": 0,
+          "xyz": [
+            50720,
+            245079,
+            954
+          ]
+        },
+        {
+          "answer": 1,
+          "xyz": [
+            251010,
+            65103,
+            1961
+          ]
+        }
+      ],
+      "contact": null,
+      "events": [
+        [
+          "transmit",
+          15,
+          1
+        ],
+        [
+          "transmit",
+          15,
+          0
+        ],
+        [
+          "picked",
+          1
+        ],
+        [
+          "queue_mission",
+          7,
+          0
+        ],
+        [
+          "assign_destination",
+          1,
+          1
+        ]
+      ],
+      "foot": [
+        238126,
+        133976,
+        1352
+      ],
+      "latch": false,
+      "latch_after": 1,
+      "pending": null,
+      "result": 1
+    },
+    {
+      "absorbers": [],
+      "contact": null,
+      "events": [],
+      "foot": [
+        7809363,
+        2568226,
+        1362
+      ],
+      "latch": true,
+      "latch_after": 0,
+      "pending": null,
+      "result": 0
+    },
+    {
+      "absorbers": [
+        {
+          "answer": 0,
+          "xyz": [
+            473,
+            76,
+            886
+          ]
+        },
+        {
+          "answer": 1,
+          "xyz": [
+            113,
+            809,
+            1444
+          ]
+        },
+        {
+          "answer": 1,
+          "xyz": [
+            704,
+            496,
+            1135
+          ]
+        },
+        {
+          "answer": 1,
+          "xyz": [
+            735,
+            798,
+            1362
+          ]
+        },
+        {
+          "answer": 10,
+          "xyz": [
+            243,
+            978,
+            279
+          ]
+        }
+      ],
+      "contact": 3,
+      "events": [
+        [
+          "transmit",
+          15,
+          4
+        ],
+        [
+          "transmit",
+          15,
+          3
+        ],
+        [
+          "transmit",
+          15,
+          2
+        ],
+        [
+          "transmit",
+          15,
+          1
+        ],
+        [
+          "transmit",
+          15,
+          0
+        ],
+        [
+          "picked",
+          2
+        ],
+        [
+          "queue_mission",
+          7,
+          0
+        ],
+        [
+          "assign_destination",
+          2,
+          1
+        ]
+      ],
+      "foot": [
+        1014,
+        201,
+        1618
+      ],
+      "latch": false,
+      "latch_after": 1,
+      "pending": 1,
+      "result": 1
+    },
+    {
+      "absorbers": [],
+      "contact": null,
+      "events": [],
+      "foot": [
+        10100,
+        9785,
+        766
+      ],
+      "latch": true,
+      "latch_after": 0,
+      "pending": null,
+      "result": 0
+    },
+    {
+      "absorbers": [
+        {
+          "answer": 10,
+          "xyz": [
+            52393,
+            248109,
+            1249
+          ]
+        }
+      ],
+      "contact": null,
+      "events": [
+        [
+          "transmit",
+          15,
+          0
+        ],
+        [
+          "picked",
+          null
+        ]
+      ],
+      "foot": [
+        129128,
+        235290,
+        422
+      ],
+      "latch": false,
+      "latch_after": 0,
+      "pending": null,
+      "result": 0
+    },
+    {
+      "absorbers": [
+        {
+          "answer": 0,
+          "xyz": [
+            8355076,
+            3152141,
+            827
+          ]
+        }
+      ],
+      "contact": 0,
+      "events": [
+        [
+          "transmit",
+          15,
+          0
+        ],
+        [
+          "picked",
+          null
+        ]
+      ],
+      "foot": [
+        7153543,
+        5893967,
+        96
+      ],
+      "latch": true,
+      "latch_after": 0,
+      "pending": null,
+      "result": 0
+    },
+    {
+      "absorbers": [
+        {
+          "answer": 1,
+          "xyz": [
+            835,
+            979,
+            333
+          ]
+        }
+      ],
+      "contact": null,
+      "events": [
+        [
+          "transmit",
+          15,
+          0
+        ],
+        [
+          "picked",
+          0
+        ],
+        [
+          "queue_mission",
+          7,
+          0
+        ],
+        [
+          "assign_destination",
+          0,
+          1
+        ]
+      ],
+      "foot": [
+        182,
+        615,
+        783
+      ],
+      "latch": false,
+      "latch_after": 1,
+      "pending": null,
+      "result": 1
+    },
+    {
+      "absorbers": [
+        {
+          "answer": 1,
+          "xyz": [
+            15816,
+            15904,
+            1798
+          ]
+        },
+        {
+          "answer": 0,
+          "xyz": [
+            13192,
+            4073,
+            517
+          ]
+        },
+        {
+          "answer": 1,
+          "xyz": [
+            5119,
+            4061,
+            290
+          ]
+        },
+        {
+          "answer": 1,
+          "xyz": [
+            15640,
+            14851,
+            507
+          ]
+        }
+      ],
+      "contact": null,
+      "events": [
+        [
+          "transmit",
+          15,
+          3
+        ],
+        [
+          "transmit",
+          15,
+          2
+        ],
+        [
+          "transmit",
+          15,
+          1
+        ],
+        [
+          "transmit",
+          15,
+          0
+        ],
+        [
+          "picked",
+          2
+        ]
+      ],
+      "foot": [
+        3375,
+        5749,
+        51
+      ],
+      "latch": true,
+      "latch_after": 1,
+      "pending": 2,
+      "result": 1
+    },
+    {
+      "absorbers": [
+        {
+          "answer": 1,
+          "xyz": [
+            106045,
+            239357,
+            1389
+          ]
+        },
+        {
+          "answer": 1,
+          "xyz": [
+            27179,
+            43685,
+            261
+          ]
+        },
+        {
+          "answer": 0,
+          "xyz": [
+            240081,
+            2348,
+            587
+          ]
+        },
+        {
+          "answer": 10,
+          "xyz": [
+            252270,
+            67990,
+            1096
+          ]
+        }
+      ],
+      "contact": 0,
+      "events": [
+        [
+          "transmit",
+          15,
+          3
+        ],
+        [
+          "transmit",
+          15,
+          2
+        ],
+        [
+          "transmit",
+          15,
+          1
+        ],
+        [
+          "transmit",
+          15,
+          0
+        ],
+        [
+          "picked",
+          0
+        ]
+      ],
+      "foot": [
+        97247,
+        135744,
+        109
+      ],
+      "latch": false,
+      "latch_after": 1,
+      "pending": null,
+      "result": 1
+    },
+    {
+      "absorbers": [],
+      "contact": null,
+      "events": [],
+      "foot": [
+        1197351,
+        1204891,
+        454
+      ],
+      "latch": true,
+      "latch_after": 0,
+      "pending": null,
+      "result": 0
+    },
+    {
+      "absorbers": [
+        {
+          "answer": 1,
+          "xyz": [
+            8448,
+            8192,
+            0
+          ]
+        },
+        {
+          "answer": 1,
+          "xyz": [
+            8192,
+            8448,
+            0
+          ]
+        }
+      ],
+      "contact": null,
+      "events": [
+        [
+          "transmit",
+          15,
+          1
+        ],
+        [
+          "transmit",
+          15,
+          0
+        ],
+        [
+          "picked",
+          1
+        ],
+        [
+          "queue_mission",
+          7,
+          0
+        ],
+        [
+          "assign_destination",
+          1,
+          1
+        ]
+      ],
+      "foot": [
+        8192,
+        8192,
+        0
+      ],
+      "latch": false,
+      "latch_after": 1,
+      "pending": null,
+      "result": 1
+    },
+    {
+      "absorbers": [
+        {
+          "answer": 1,
+          "xyz": [
+            8320,
+            8192,
+            0
+          ]
+        },
+        {
+          "answer": 1,
+          "xyz": [
+            8192,
+            8448,
+            0
+          ]
+        }
+      ],
+      "contact": null,
+      "events": [
+        [
+          "transmit",
+          15,
+          1
+        ],
+        [
+          "transmit",
+          15,
+          0
+        ],
+        [
+          "picked",
+          0
+        ],
+        [
+          "queue_mission",
+          7,
+          0
+        ],
+        [
+          "assign_destination",
+          0,
+          1
+        ]
+      ],
+      "foot": [
+        8192,
+        8192,
+        0
+      ],
+      "latch": false,
+      "latch_after": 1,
+      "pending": null,
+      "result": 1
+    },
+    {
+      "absorbers": [
+        {
+          "answer": 1,
+          "xyz": [
+            300,
+            400,
+            0
+          ]
+        },
+        {
+          "answer": 1,
+          "xyz": [
+            0,
+            500,
+            1
+          ]
+        }
+      ],
+      "contact": null,
+      "events": [
+        [
+          "transmit",
+          15,
+          1
+        ],
+        [
+          "transmit",
+          15,
+          0
+        ],
+        [
+          "picked",
+          1
+        ],
+        [
+          "queue_mission",
+          7,
+          0
+        ],
+        [
+          "assign_destination",
+          1,
+          1
+        ]
+      ],
+      "foot": [
+        0,
+        0,
+        0
+      ],
+      "latch": false,
+      "latch_after": 1,
+      "pending": null,
+      "result": 1
+    },
+    {
+      "absorbers": [
+        {
+          "answer": 1,
+          "xyz": [
+            10240,
+            8192,
+            0
+          ]
+        },
+        {
+          "answer": 10,
+          "xyz": [
+            8208,
+            8192,
+            0
+          ]
+        }
+      ],
+      "contact": null,
+      "events": [
+        [
+          "transmit",
+          15,
+          1
+        ],
+        [
+          "transmit",
+          15,
+          0
+        ],
+        [
+          "picked",
+          0
+        ],
+        [
+          "queue_mission",
+          7,
+          0
+        ],
+        [
+          "assign_destination",
+          0,
+          1
+        ]
+      ],
+      "foot": [
+        8192,
+        8192,
+        0
+      ],
+      "latch": false,
+      "latch_after": 1,
+      "pending": null,
+      "result": 1
+    },
+    {
+      "absorbers": [
+        {
+          "answer": 10,
+          "xyz": [
+            10240,
+            8192,
+            0
+          ]
+        },
+        {
+          "answer": 0,
+          "xyz": [
+            8208,
+            8192,
+            0
+          ]
+        }
+      ],
+      "contact": null,
+      "events": [
+        [
+          "transmit",
+          15,
+          1
+        ],
+        [
+          "transmit",
+          15,
+          0
+        ],
+        [
+          "picked",
+          null
+        ]
+      ],
+      "foot": [
+        8192,
+        8192,
+        0
+      ],
+      "latch": true,
+      "latch_after": 0,
+      "pending": null,
+      "result": 0
+    },
+    {
+      "absorbers": [],
+      "contact": null,
+      "events": [],
+      "foot": [
+        8192,
+        8192,
+        0
+      ],
+      "latch": true,
+      "latch_after": 0,
+      "pending": null,
+      "result": 0
+    },
+    {
+      "absorbers": [
+        {
+          "answer": 1,
+          "xyz": [
+            9216,
+            8192,
+            0
+          ]
+        },
+        {
+          "answer": 1,
+          "xyz": [
+            12288,
+            8192,
+            0
+          ]
+        }
+      ],
+      "contact": 0,
+      "events": [
+        [
+          "transmit",
+          15,
+          1
+        ],
+        [
+          "transmit",
+          15,
+          0
+        ],
+        [
+          "picked",
+          0
+        ]
+      ],
+      "foot": [
+        8192,
+        8192,
+        0
+      ],
+      "latch": false,
+      "latch_after": 1,
+      "pending": null,
+      "result": 1
+    },
+    {
+      "absorbers": [
+        {
+          "answer": 1,
+          "xyz": [
+            9216,
+            8192,
+            0
+          ]
+        },
+        {
+          "answer": 1,
+          "xyz": [
+            12288,
+            8192,
+            0
+          ]
+        }
+      ],
+      "contact": null,
+      "events": [
+        [
+          "transmit",
+          15,
+          1
+        ],
+        [
+          "transmit",
+          15,
+          0
+        ],
+        [
+          "picked",
+          0
+        ]
+      ],
+      "foot": [
+        8192,
+        8192,
+        0
+      ],
+      "latch": false,
+      "latch_after": 1,
+      "pending": 0,
+      "result": 1
+    },
+    {
+      "absorbers": [
+        {
+          "answer": 1,
+          "xyz": [
+            9216,
+            8192,
+            0
+          ]
+        },
+        {
+          "answer": 1,
+          "xyz": [
+            12288,
+            8192,
+            0
+          ]
+        }
+      ],
+      "contact": 1,
+      "events": [
+        [
+          "transmit",
+          15,
+          1
+        ],
+        [
+          "transmit",
+          15,
+          0
+        ],
+        [
+          "picked",
+          0
+        ],
+        [
+          "queue_mission",
+          7,
+          0
+        ],
+        [
+          "assign_destination",
+          0,
+          1
+        ]
+      ],
+      "foot": [
+        8192,
+        8192,
+        0
+      ],
+      "latch": false,
+      "latch_after": 1,
+      "pending": 1,
+      "result": 1
+    }
+  ],
   "center": [
     {
       "center": "cell",

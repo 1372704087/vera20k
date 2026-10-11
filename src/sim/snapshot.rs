@@ -926,7 +926,9 @@ use crate::sim::world::Simulation;
 // 321 -> 322: campaign Session inputs, House/Super native identities, authored
 // House ratios/credits/Edge and the complete shared difficulty bias aggregate
 // are retained by their existing owners. Prior bincode records cannot resume.
-const SNAPSHOT_VERSION: u32 = 322;
+// 322 -> 323: each object keeps its Foot building-entry latches (+0x68F).
+// Prior bincode records lack them.
+const SNAPSHOT_VERSION: u32 = 323;
 
 const SNAPSHOT_PRODUCT_MAGIC: [u8; 8] = *b"VERA20K\0";
 const SNAPSHOT_ENVELOPE_VERSION: u32 = 1;
@@ -3979,7 +3981,8 @@ mod tests {
         // 319 -> 320: Mirage retains only its established timer words.
         // 320 -> 321: particle constructors retain native IDs and their cursor.
         // 321 -> 322: campaign Session and complete House initialization state.
-        assert_eq!(super::SNAPSHOT_VERSION, 322);
+        // 322 -> 323: the Foot building-entry latches.
+        assert_eq!(super::SNAPSHOT_VERSION, 323);
     }
 
     #[test]

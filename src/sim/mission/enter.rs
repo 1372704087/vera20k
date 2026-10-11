@@ -4,8 +4,17 @@
 //! entry parking, navigation handoff and the current-mission Rate/RNG tail.
 //! The class radio receiver owns docking decisions; this mission does not
 //! repeat them. Evidence: tools/spatial_oracle/refinery_dock.json and .md.
+//! Infantry inherit the body (InfantryClass vt+0x240); theirs runs once the
+//! Boarding adapter has let them go (`techno_ai::mission_handlers`).
+//!
+//! RESIDUAL: the nav-queue and `Teleporter=` arms take the class destination
+//! setter (vt+0x480); only the Unit setters are represented, so an
+//! infantryman skips them. VERA's infantry reach that arm only with a radio
+//! contact or an archived Techno on Enter, which the Boarding adapter never
+//! gives them.
 
 use crate::map::entities::EntityCategory;
+use crate::rules::overlay_types::OverlayTypeRegistry;
 use crate::rules::ruleset::RuleSet;
 use crate::sim::components::NavTargetRef;
 use crate::sim::mission::MissionType;
@@ -14,10 +23,13 @@ use crate::sim::world::FrameEffects;
 use crate::sim::world::Simulation;
 
 /// `FootClass::Mission_Enter @ 0x004D9290`, shared by refinery and depot
-/// callers. The MissionClass dispatcher owns the returned delay timer.
+/// callers and infantry. The MissionClass dispatcher owns the returned delay
+/// timer. The idle exits run the class receiver (vt+0x484,
+/// [`crate::sim::world::enter_idle_mode`]).
 pub(crate) fn mission_enter(
     sim: &mut Simulation,
     rules: &RuleSet,
+    registry: Option<&OverlayTypeRegistry>,
     id: u64,
     effects: FrameEffects<'_>,
 ) -> i32 {
@@ -59,7 +71,7 @@ pub(crate) fn mission_enter(
                 _ => false,
             };
             if !parked && !nav_is_mover {
-                sim.unit_enter_idle_mode(id, Some(rules), false, effects);
+                crate::sim::world::enter_idle_mode(sim, id, rules, registry, effects);
             }
             let _ = sim.mission_commence_exact(id, now);
         }
@@ -78,11 +90,16 @@ pub(crate) fn mission_enter(
                 .entities
                 .get(id)
                 .is_some_and(|entity| entity.dock_entered_with.is_some());
+            let unit = sim
+                .substrate
+                .entities
+                .get(id)
+                .is_some_and(|entity| entity.category == EntityCategory::Unit);
             if reply != RadioResponse::Roger && !tethered {
                 // 0x004D92CE..0x004D92E8.
                 radio::transmit_to_contact(sim, id, RadioMessage::Break, Some(rules), effects);
-                sim.unit_enter_idle_mode(id, Some(rules), false, effects);
-            } else if !pop_nav_queue(sim, rules, id, effects) {
+                crate::sim::world::enter_idle_mode(sim, id, rules, registry, effects);
+            } else if unit && !pop_nav_queue(sim, rules, id, effects) {
                 teleporter_reassign(sim, rules, id, effects);
             }
         }

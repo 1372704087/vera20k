@@ -15,7 +15,7 @@ use crate::rules::ini_parser::IniFile;
 use crate::ui::shell::geom::ShellScale;
 use crate::ui::skirmish_shell::RectPx;
 
-use super::chrome::push_entry_scaled;
+use super::chrome::push_entry_grown;
 use super::{
     RANDMAP_PREVIEW_FILE_NAME, RANDMAP_SENTINEL_FILE_NAME, SHELL_PREVIEW_SURFACE_DEPTH,
     START_MARKER_OFFSET_X, START_MARKER_OFFSET_Y,
@@ -43,7 +43,7 @@ pub(super) fn push_start_marker_sprites(
     };
     for &(x, y) in projected_positions {
         let (marker_x, marker_y) = start_marker_top_left(x, y, scale);
-        push_entry_scaled(out, marker, marker_x, marker_y, scale, depth);
+        push_entry_grown(out, marker, marker_x, marker_y, scale, depth);
     }
 }
 
@@ -51,8 +51,8 @@ pub(super) fn push_start_marker_sprites(
 /// grows the art and the offset together, so it stays centred on the same point.
 pub(super) fn start_marker_top_left(anchor_x: i32, anchor_y: i32, scale: ShellScale) -> (i32, i32) {
     (
-        anchor_x + (START_MARKER_OFFSET_X as f32 * scale.x()).round() as i32,
-        anchor_y + (START_MARKER_OFFSET_Y as f32 * scale.y()).round() as i32,
+        anchor_x + (START_MARKER_OFFSET_X as f32 * scale.factor()).round() as i32,
+        anchor_y + (START_MARKER_OFFSET_Y as f32 * scale.factor()).round() as i32,
     )
 }
 

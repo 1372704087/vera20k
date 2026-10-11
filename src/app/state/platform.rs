@@ -51,8 +51,9 @@ pub(crate) struct PlatformState {
     /// `[graphics] window_mode`: how the top-level window is framed. Read only
     /// at window creation and by the shell/game window-mode transitions.
     pub(crate) window_mode: crate::util::config::WindowMode,
-    /// `[graphics] menu_fill_window`: stretch the shell family into the whole
-    /// window instead of painting gamemd's centered, unscaled 800x600 dialog.
+    /// `[graphics] menu_fill_window`: scale the shell family to fit the window,
+    /// keeping its shape, instead of painting gamemd's centered, unscaled
+    /// 800x600 dialog.
     pub(crate) menu_fill_window: bool,
     /// Whether the window has no visible surface — minimised, or occluded on
     /// the platforms that report occlusion.

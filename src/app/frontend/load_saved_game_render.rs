@@ -195,7 +195,7 @@ pub(crate) fn render_load_saved_game_page(
     let mut text = shell_paint::paint_labels_scaled(
         &state.renderer.bit_font,
         &labels,
-        layout.page.scale.uniform(),
+        layout.page.scale.factor(),
     );
     let prompt_sprites = crate::app::frontend::skirmish_shell_render::family_saved_game_overlays(
         state,

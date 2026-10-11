@@ -77,7 +77,7 @@ pub(super) fn paint_list(
         if let Some(entry) =
             super::controls::scrollbar_arrow_entry(released, pressed, pressed_part == Some(part))
         {
-            push_entry_scaled(out, entry, x, y, scale, depth - 0.00003);
+            push_entry_grown(out, entry, x, y, scale, depth - 0.00003);
         }
     }
     if let Some(mid) = chrome.scrollbar_thumb_mid {
@@ -97,10 +97,10 @@ pub(super) fn paint_list(
         }
     }
     if let Some(cap) = chrome.scrollbar_thumb_top {
-        push_entry_scaled(out, cap, x, thumb.y, scale, depth - 0.00004);
+        push_entry_grown(out, cap, x, thumb.y, scale, depth - 0.00004);
     }
     if let Some(cap) = chrome.scrollbar_thumb_bottom {
         let h = scale.art_size(cap.pixel_size[0], cap.pixel_size[1])[1].round() as i32;
-        push_entry_scaled(out, cap, x, thumb.y + thumb.h - h, scale, depth - 0.00004);
+        push_entry_grown(out, cap, x, thumb.y + thumb.h - h, scale, depth - 0.00004);
     }
 }

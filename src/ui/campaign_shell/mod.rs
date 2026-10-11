@@ -195,8 +195,9 @@ pub fn compute_layout(screen_w: u32, screen_h: u32) -> CampaignLayout {
 }
 
 /// The responsive variant of [`compute_layout`]: the verified 800x600 `0x94`
-/// stretched to fill the window. At 800x600 the fixed control rectangles carry
-/// no centring offset, so the authored geometry is the retail one.
+/// scaled to fit the window, keeping its shape. At 800x600 the fixed control
+/// rectangles carry no centring offset, so the authored geometry is the retail
+/// one.
 pub fn compute_responsive_layout(screen_w: u32, screen_h: u32) -> CampaignLayout {
     let scale = ShellScale::from_screen(screen_w as i32, screen_h as i32);
     let base = compute_layout(SHELL_BASE_W as u32, SHELL_BASE_H as u32);

@@ -374,7 +374,7 @@ pub fn compute_layout(screen_w: u32, screen_h: u32) -> WolWelcomeLayout {
 }
 
 /// The responsive variant of [`compute_layout`]: the verified 800x600 `0x10E`
-/// stretched to fill the window. Identity at the base size.
+/// scaled to fit the window, keeping its shape. Identity at the base size.
 pub fn compute_responsive_layout(screen_w: u32, screen_h: u32) -> WolWelcomeLayout {
     let scale = ShellScale::from_screen(screen_w as i32, screen_h as i32);
     let base = compute_layout(SHELL_BASE_W as u32, SHELL_BASE_H as u32);

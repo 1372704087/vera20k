@@ -87,8 +87,8 @@ fn campaign_sprites(
     let mut out = Vec::new();
     let scale = layout.scale;
     // Background_Overlay (`0x0072E730`) at `[0x00B0FC1C]`: centred only from
-    // 1024x768 up (`0x0072EC70`). A stretched dialog starts at the authored
-    // origin instead, since the 800x600 backdrop grows into the whole window.
+    // 1024x768 up (`0x0072EC70`). A scaled dialog starts at the authored
+    // origin instead, which the scale places in the window.
     let background_origin = if scale.is_retail() {
         crate::ui::shell::geom::dialog_origin(layout.page.screen.w, layout.page.screen.h)
     } else {
@@ -308,7 +308,7 @@ pub(crate) fn render_campaign_page(
     }
     labels.extend(status_label);
     let text =
-        shell_paint::paint_labels_scaled(&state.renderer.bit_font, &labels, layout.scale.uniform());
+        shell_paint::paint_labels_scaled(&state.renderer.bit_font, &labels, layout.scale.factor());
     let draws = [
         TexturedDraw {
             texture: &art.texture,

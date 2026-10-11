@@ -306,9 +306,9 @@ pub fn compute_layout(screen_w: u32, screen_h: u32) -> ScoreLayout {
 }
 
 /// The responsive variant of [`compute_layout`]: the verified 800x600 `0x108`
-/// stretched to fill the window. Identity at the base size. The table's cells,
-/// shaded rectangle and band windows stretch with the page; the bars themselves
-/// stay native-size images centred in their window.
+/// scaled to fit the window, keeping its shape. Identity at the base size. The
+/// table's cells, shaded rectangle, band windows and bars all scale with the
+/// page; each bar stays centred in its band window.
 pub fn compute_responsive_layout(screen_w: u32, screen_h: u32) -> ScoreLayout {
     let scale = ShellScale::from_screen(screen_w as i32, screen_h as i32);
     let mut page = menu_page::compute_responsive_layout(&SCORE_PAGE, screen_w, screen_h);

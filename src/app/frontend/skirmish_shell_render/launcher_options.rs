@@ -106,7 +106,7 @@ fn build_text(
 ) -> Vec<ShellTextDraw> {
     let mut out = Vec::new();
     let scale = layout.scale;
-    let glyph = scale.uniform();
+    let glyph = scale.factor();
     for label in dialog.shell_labels(layout) {
         let align = match label.align {
             LauncherLabelAlign::Left => ShellAlign::NONE,
@@ -221,13 +221,9 @@ pub(super) fn launcher_background_instances(
     height: u32,
     scale: ShellScale,
 ) -> Vec<SpriteInstance> {
-    let common = if scale.is_retail() {
-        compute_layout(width, height)
-    } else {
-        crate::ui::skirmish_shell::compute_responsive_layout(width, height)
-    };
+    let common = crate::ui::skirmish_shell::compute_layout_on(scale, width, height);
     let mut out = Vec::new();
-    let background = if width == 640 {
+    let background = if common.authored_width() == 640 {
         atlas.generic_background_640_mnscrns_shell
     } else {
         atlas.generic_background_large_mnscrnl_shell
@@ -236,14 +232,15 @@ pub(super) fn launcher_background_instances(
         if scale.is_retail() {
             push_entry_native(&mut out, background, 0, 0, SHELL_PARENT_BACKGROUND_DEPTH);
         } else {
-            // The stretched page takes the whole window, so the MNSCRN canvas
-            // grows over it as it does on the family menu pages.
-            push_entry_sized(
+            // A scaled page grows the MNSCRN canvas with its dialog, as the
+            // family menu pages do.
+            let dialog = scale.dialog_rect();
+            push_entry_grown(
                 &mut out,
                 background,
-                0.0,
-                0.0,
-                [width as f32, height as f32],
+                dialog.x,
+                dialog.y,
+                scale,
                 SHELL_PARENT_BACKGROUND_DEPTH,
             );
         }
@@ -325,14 +322,11 @@ pub(crate) fn render_launcher_options(
     }
     let mut texts = Vec::new();
     if let Some(wave) = wave.as_ref() {
-        let common = if scale.is_retail() {
-            compute_layout(state.render_width(), state.render_height())
-        } else {
-            crate::ui::skirmish_shell::compute_responsive_layout(
-                state.render_width(),
-                state.render_height(),
-            )
-        };
+        let common = crate::ui::skirmish_shell::compute_layout_on(
+            scale,
+            state.render_width(),
+            state.render_height(),
+        );
         push_slide_column(
             &mut instances,
             atlas,
@@ -348,7 +342,7 @@ pub(crate) fn render_launcher_options(
     texts.extend(crate::render::shell_paint::paint_labels_scaled(
         &state.renderer.bit_font,
         &status_label.into_iter().collect::<Vec<_>>(),
-        scale.uniform(),
+        scale.factor(),
     ));
     let mut popup_instances = Vec::new();
     let mut popup_text = Vec::new();
@@ -360,7 +354,7 @@ pub(crate) fn render_launcher_options(
             SHELL_DROPDOWN_BG_RGB_PENDING_COMBODROPWIN_SOURCE_CAPTURE,
             SHELL_DROPDOWN_DEPTH,
         );
-        let text_inset = (3.0 * scale.x()).round() as i32;
+        let text_inset = (3.0 * scale.factor()).round() as i32;
         for (i, row) in dialog
             .shell_resolution_rows()
             .iter()
@@ -389,7 +383,7 @@ pub(crate) fn render_launcher_options(
                 RectPx::new(rect.x + text_inset, rect.y, rect.w - 2 * text_inset, rect.h),
                 ShellAlign::V_CENTER,
                 SHELL_LABEL_TEXT_RGB,
-                scale.uniform(),
+                scale.factor(),
             ));
         }
         if let (Some(scrollbar), Some(thumb)) = (popup.scrollbar, popup.thumb) {

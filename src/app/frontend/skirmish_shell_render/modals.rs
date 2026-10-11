@@ -17,7 +17,7 @@ use crate::ui::skirmish_shell::{
 };
 
 use super::chrome::{
-    common_shell_origin, push_button_30, push_entry_scaled, push_lower_strip_instance,
+    common_shell_origin, push_button_30, push_entry_grown, push_lower_strip_instance,
     push_ownerdraw_two_pixel_bevel_frame, push_rect_outline, push_right_panel_base_instances,
     push_right_panel_button_shp, push_solid_rect,
 };
@@ -85,7 +85,7 @@ pub(super) fn choose_map_background_entry(
 
 pub(super) fn shell_content_fallback_rect(layout: &SkirmishShellLayout) -> RectPx {
     let (origin_x, origin_y) = layout.shell_origin();
-    let strip_h = (LOWER_STRIP_H as f32 * layout.scale.y()).round() as i32;
+    let strip_h = (LOWER_STRIP_H as f32 * layout.scale.factor()).round() as i32;
     RectPx::new(
         origin_x,
         origin_y,
@@ -103,11 +103,14 @@ pub(super) fn push_choose_map_background_instances(
     let background = choose_map_background_entry(atlas, modal_layout);
     let interior = backdrop_interior(background.is_some());
     if let Some(background) = background {
-        push_entry_scaled(
+        let (x, y) = modal_layout
+            .scale
+            .dialog_origin_or((modal_layout.screen.x, modal_layout.screen.y));
+        push_entry_grown(
             out,
             background,
-            modal_layout.screen.x,
-            modal_layout.screen.y,
+            x,
+            y,
             modal_layout.scale,
             SHELL_PARENT_BACKGROUND_DEPTH,
         );
@@ -266,7 +269,7 @@ pub(super) fn push_generic_shell_background_instances(
     let interior = backdrop_interior(background.is_some());
     if let Some(background) = background {
         let (x, y) = common_shell_origin(layout);
-        push_entry_scaled(
+        push_entry_grown(
             out,
             background,
             x,

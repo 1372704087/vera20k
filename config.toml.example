@@ -18,8 +18,10 @@ extra_animations = true   # cosmetic effects: water/ore sparkles (future: laser 
 #   "frameless"  no title bar or border, at the size below (nothing to drag it by)
 #   "fullscreen" exclusive full-screen at the monitor's own video mode
 window_mode = "windowed"
-# Stretch the menu family (main menu and its right-panel pages) to fill the
-# window instead of centring the unscaled 800x600 shell.
+# Scale the menus (main menu, its right-panel pages and the loading screens)
+# up to the largest size that fits the window without distorting them, centred,
+# instead of showing the unscaled 800x600 shell. Wider or taller windows than
+# 4:3 get black bars at the sides or top and bottom.
 menu_fill_window = false
 
 

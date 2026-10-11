@@ -254,10 +254,10 @@ python -m tools.oracle_sources stale --replay --timeout 1800
 `--replay` runs each corpus's recorded (or declared, or same-named) producer with
 `--refresh-sources`, one at a time, and reports `REFRESHED`/`CURRENT`, `CHANGED`
 (native output or evidence metadata differs: review it), `BLOCKED` with the
-producer's own error (usually the missing input it needs) or `UNKNOWN` when no
-replay command is recorded yet. Report changed and blocked corpora in the PR;
-replaying a corpus is never required to keep `--check` passing after an
-unrelated helper edit.
+producer's own error (usually the missing input it needs), `TIMEOUT`, `ELSEWHERE`
+when the command compared some other corpus, or `UNKNOWN` when no replay command
+is recorded yet. Report changed and blocked corpora in the PR; replaying a corpus
+is never required to keep `--check` passing after an unrelated helper edit.
 
 ## Add a comparison
 

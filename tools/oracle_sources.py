@@ -23,10 +23,11 @@ from __future__ import annotations
 
 import argparse
 from collections import defaultdict
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 import hashlib
 import json
 from pathlib import Path
+import re
 import shlex
 import subprocess
 import sys
@@ -40,6 +41,7 @@ MODE_FLAGS = frozenset(('--check', '--write', '--refresh-sources'))
 # Producer labels for the producer's own file, from before pins were keyed by path.
 ROLE_LABELS = frozenset(('producer', 'generator', 'oracle', 'caller', 'query', '__main__'))
 OUTPUT_CHANGED = ('Reference mismatch', 'Provenance mismatch', 'Full raw archive')
+MAIN_GUARD = re.compile(r'''__name__\s*==\s*['"]__main__['"]''')
 
 
 def source_sha256(path: Path) -> str:
@@ -152,14 +154,23 @@ def tracked(*patterns: str) -> list[str]:
 class Sources:
     """Current identities of tracked tool and Rust sources, by path and content."""
 
-    def __init__(self, digests: dict[str, str]):
+    def __init__(self, digests: dict[str, str], texts: dict[str, str] | None = None):
         self.digests = digests
+        self.texts = texts
+        self.read = {}
         self.by_digest = defaultdict(list)
         self.by_stem = defaultdict(list)
         for name, digest in digests.items():
             self.by_digest[digest].append(name)
             if name.endswith('.py'):
                 self.by_stem[Path(name).stem].append(name)
+
+    def text(self, name: str) -> str:
+        if self.texts is not None:
+            return self.texts.get(name, '')
+        if name not in self.read:
+            self.read[name] = (REPO / name).read_text(encoding='utf-8')
+        return self.read[name]
 
     @classmethod
     def tracked(cls) -> Sources:
@@ -207,6 +218,7 @@ class Corpus:
     pins: list[Pin]
     replay: list[str] | None
     replay_origin: str | None
+    producers: list[str] = field(default_factory=list)
 
     def stale(self) -> list[Pin]:
         return [pin for pin in self.pins if pin.state != 'current']
@@ -260,7 +272,7 @@ def declared_replay(sidecar: str, metadata: dict, sources: Sources) -> tuple[lis
             if arguments := replay_arguments(command):
                 return arguments, 'declared by the producer'
     producer = sidecar.removesuffix('.meta.json') + '.py'
-    if producer in sources.digests:
+    if producer in sources.digests and MAIN_GUARD.search(sources.text(producer)):
         return ['-m', producer.removesuffix('.py').replace('/', '.')], 'inferred from the file name'
     return None, None
 
@@ -294,7 +306,11 @@ def inspect(sidecar: str, metadata: dict, sources: Sources, history: History | N
             if pin.current is None and (REPO / pin.path).is_file():
                 pin.current = source_sha256(REPO / pin.path)
         pins.append(pin)
-    return Corpus(sidecar, payload_name(sidecar), pins, replay, origin)
+    payload = payload_name(sidecar)
+    # Without a command, name the tools that mention the payload file.
+    producers = [] if replay else [name for name in sorted(sources.digests) if name.endswith('.py')
+                                   and Path(payload).name in sources.text(name)]
+    return Corpus(sidecar, payload, pins, replay, origin, producers)
 
 
 def corpora(sources: Sources) -> list[Corpus]:
@@ -352,8 +368,10 @@ def describe(corpus: Corpus, pins: list[Pin], heading: str) -> list[str]:
     if corpus.replay:
         lines.append(f'  replay: {shlex.join(["python", *corpus.replay, "--refresh-sources"])}'
                      f'  [{corpus.replay_origin}]')
+    elif corpus.producers:
+        lines.append(f'  replay: unknown; {", ".join(corpus.producers)} names {Path(corpus.payload).name}')
     else:
-        lines.append(f'  replay: unknown; find the producer that writes {corpus.payload}')
+        lines.append(f'  replay: unknown; no tool names {Path(corpus.payload).name}')
     return lines
 
 
@@ -375,7 +393,7 @@ def replay(corpus: Corpus, timeout: float | None) -> tuple[str, str]:
         return ('CHANGED' if any(text in last for text in OUTPUT_CHANGED) else 'BLOCKED'), last
     # Producers print their payload or sidecar path, absolute or relative.
     if corpus.payload not in output and corpus.sidecar not in output:
-        return 'ELSEWHERE', f'the command replayed another corpus ({elapsed})'
+        return 'ELSEWHERE', f'the command did not compare this corpus ({elapsed})'
     return ('REFRESHED' if 'REFRESHED' in output else 'CURRENT'), elapsed
 
 

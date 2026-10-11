@@ -82,7 +82,10 @@ class DependentTests(unittest.TestCase):
             'tools/spatial_oracle/rally.py': digest('rally a'),
             'tools/procedural_drawing_oracle/rally.py': digest('rally b'),
             'src/sim/door.rs': digest('door v2'),
-        })
+            'tools/spatial_oracle/house_base.py': digest('helper module'),
+        }, texts={'tools/spatial_oracle/unit_entry.py': "if __name__=='__main__':\n    main()\n",
+                  'tools/spatial_oracle/house_base.py':
+                      "OUTPUT = 'unit_entry_counter_mode.json'\ndef helper(): pass\n"})
 
     def corpus(self, pins, **metadata):
         return sources.inspect('tools/spatial_oracle/unit_entry_counter_mode.meta.json',
@@ -126,7 +129,11 @@ class DependentTests(unittest.TestCase):
         self.assertEqual(inferred.replay, ['-m', 'tools.spatial_oracle.unit_entry'])
         unknown = self.corpus({})
         self.assertIsNone(unknown.replay)
-        self.assertIn('replay: unknown', '\n'.join(sources.describe(unknown, [], 'pins')))
+        self.assertEqual(unknown.producers, ['tools/spatial_oracle/house_base.py'])
+        self.assertIn('house_base.py names unit_entry_counter_mode.json',
+                      '\n'.join(sources.describe(unknown, [], 'pins')))
+        # A same-named module that cannot run is not a producer.
+        self.assertIsNone(sources.inspect('tools/spatial_oracle/house_base.meta.json', {}, self.sources).replay)
 
     def test_affected_matches_paths_and_earlier_content_of_legacy_labels(self):
         by_path = self.corpus({'src/sim/door.rs': digest('door v1')})

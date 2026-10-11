@@ -233,6 +233,9 @@ Before fixing a bug whose expected behavior is established, first make a focused
 - Asset binding, loader or rules-closure changes: a release-build retail map load
   before merge; the lib suite never runs the app loader against retail assets.
 - Docs/skills: validate content, links/examples and tooling; no Cargo suite.
+- Python tools and skills (`tools/`, `.agents/skills/`): one `python -m tools.run_tests`
+  on the final candidate, with `tools/requirements-test.txt` installed. It passes on
+  `main`, so treat any failure as a regression.
 - Every `cargo test` uses `--lib`.
 
 Run Cargo through `python -m tools.cargo_run -- <cargo arguments>` from the checkout.

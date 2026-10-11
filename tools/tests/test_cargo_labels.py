@@ -204,13 +204,19 @@ class ProcessInspectionTests(unittest.TestCase):
                         with self.assertRaises(ValueError):
                             labels._idle([Path('/executable')])
 
-    @unittest.skipUnless(sys.platform in {'darwin', 'linux'} and shutil.which('lsof') and Path('/bin/sleep').exists(),
-                         'requires POSIX sleep and lsof')
+    @unittest.skipUnless(sys.platform in {'darwin', 'linux'} and shutil.which('lsof') and Path('/bin/sleep').exists()
+                         and (sys.platform == 'linux' or shutil.which('codesign')),
+                         'requires POSIX sleep and lsof, and codesign on macOS')
     def test_real_running_executable_is_rejected(self):
         with tempfile.TemporaryDirectory() as temporary:
             binary = Path(temporary).resolve() / 'sleep-copy'
             shutil.copyfile('/bin/sleep', binary)
             binary.chmod(0o755)
+            if sys.platform == 'darwin':
+                # macOS launch constraints kill a copied Apple binary at exec. An
+                # ad-hoc signature makes it an ordinary executable, like a Cargo build.
+                subprocess.run(['codesign', '--force', '--sign', '-', str(binary)],
+                               check=True, capture_output=True)
             child = subprocess.Popen([str(binary), '30'])
             try:
                 with self.assertRaisesRegex(ValueError, 'in use'):

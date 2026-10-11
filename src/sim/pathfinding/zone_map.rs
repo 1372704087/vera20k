@@ -287,7 +287,7 @@ impl ZoneGrid {
             self.width,
             self.height,
         );
-        self.hierarchy = zone_build::build_zone_hierarchy_with_query(
+        self.hierarchy = zone_build::hierarchy::build_zone_hierarchy_with_query(
             &self.base_topology,
             Some(terrain),
             records,
@@ -466,7 +466,7 @@ impl ZoneGrid {
             native_bridge_source_size,
         );
         let hierarchy = if let Some(query) = query {
-            zone_build::build_zone_hierarchy_with_query(
+            zone_build::hierarchy::build_zone_hierarchy_with_query(
                 &base_topology,
                 Some(terrain),
                 bridge_records,
@@ -475,7 +475,7 @@ impl ZoneGrid {
                 &mut |x, y| query(x, y),
             )
         } else {
-            zone_build::build_zone_hierarchy(
+            zone_build::hierarchy::build_zone_hierarchy(
                 &base_topology,
                 Some(terrain),
                 bridge_records,

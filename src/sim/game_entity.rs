@@ -37,7 +37,6 @@ use crate::sim::superweapon::invulnerability::InvulnerabilityState;
 use crate::sim::timer::CdTimer;
 use crate::util::native_x87::NativeF64Bits;
 
-#[path = "movement/foot_air.rs"]
 mod foot_air;
 
 /// Frames the passive target-scan timer is armed for at object construction.

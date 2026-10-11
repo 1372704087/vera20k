@@ -9,10 +9,10 @@
 //! - sim/ NEVER depends on render/, ui/, audio/, net/.
 
 use super::PathGrid;
-use super::zone_build::{
+use super::zone_build::hierarchy::{
     LocalHierarchyPatchResult, build_zone_hierarchy_with_query, patch_zone_hierarchy_with_query,
-    projected_zone_record_index,
 };
+use super::zone_build::projected_zone_record_index;
 use super::zone_map::{ZONE_INVALID, ZoneGrid, ZoneId};
 use crate::map::resolved_terrain::{ResolvedTerrainGrid, zone_class};
 

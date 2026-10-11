@@ -23,7 +23,7 @@ use crate::app::loading::init_helpers::{
     build_sidebar_cameo_atlas, build_tile_atlas, log_trigger_graph_diagnostics,
     parse_debug_spawn_units_env, scheduler_anim_roots, theater_ext_for,
 };
-use crate::match_bootstrap::LoadingStartup;
+use crate::app::match_bootstrap::LoadingStartup;
 use crate::sim::scenario_bootstrap::{
     FreshScenarioPrefix, ScenarioBootstrapRng, StockOfflinePrefixProjection,
     apply_pre_fill_scenario_prefix_launch_session_with_overlay_registry,

@@ -244,9 +244,9 @@ impl App {
 
     pub(super) fn commit_campaign_start(state: &mut AppState, side: CampaignSide) {
         state.process_assets.refresh_empty_campaigns_if_available();
-        let mut clock = crate::match_bootstrap::OrdinaryMatchSeedClock;
+        let mut clock = crate::app::match_bootstrap::OrdinaryMatchSeedClock;
         let startup = state.process_assets.campaigns().and_then(|campaigns| {
-            crate::match_bootstrap::prepare_campaign_startup(
+            crate::app::match_bootstrap::prepare_campaign_startup(
                 campaigns,
                 side.campaign_name(),
                 state.persistence.options_profile.difficulty,

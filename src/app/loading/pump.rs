@@ -22,11 +22,11 @@ use crate::app::loading::composition::{
 use crate::app::loading::fresh_scenario::FreshScenarioLoadContextDescriptor;
 use crate::app::loading::init::{self, MapLoadInitial, MapLoadResult};
 use crate::app::loading::progress_row::LoadingProgressRowSnapshot;
+use crate::app::match_bootstrap::{LoadingStartup, PreparedMatchStartup};
 use crate::assets::asset_manager::AssetManager;
 use crate::assets::pal_file::Color;
 use crate::assets::pcx_file::PcxFile;
 use crate::map::preview::DecodedPreview;
-use crate::match_bootstrap::{LoadingStartup, PreparedMatchStartup};
 use crate::render::batch::BatchRenderer;
 use crate::render::bit_font::BitFont;
 use crate::render::gpu::GpuContext;
@@ -256,7 +256,7 @@ pub(crate) struct LoadingRequest {
 }
 
 impl LoadingRequest {
-    pub(crate) fn campaign(startup: crate::match_bootstrap::PreparedCampaignStartup) -> Self {
+    pub(crate) fn campaign(startup: crate::app::match_bootstrap::PreparedCampaignStartup) -> Self {
         Self {
             startup: LoadingStartup::Campaign(startup),
             accepted_rmg_start_staging: None,
@@ -274,7 +274,7 @@ impl LoadingRequest {
 
     pub(crate) fn unverified_legacy_skirmish(
         skirmish_launch_session: SkirmishLaunchSession,
-        seed: crate::match_bootstrap::MatchSeed,
+        seed: crate::app::match_bootstrap::MatchSeed,
     ) -> Self {
         Self {
             startup: LoadingStartup::UnverifiedLegacy {
@@ -775,7 +775,7 @@ pub(crate) fn loading_map_name(state: &AppState) -> Option<&str> {
 /// authority over its request through preparation and terminal disposition.
 pub(crate) fn loading_campaign_startup(
     state: &AppState,
-) -> Option<&crate::match_bootstrap::PreparedCampaignStartup> {
+) -> Option<&crate::app::match_bootstrap::PreparedCampaignStartup> {
     state
         .frontend
         .loading_session

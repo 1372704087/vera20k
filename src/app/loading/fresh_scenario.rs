@@ -5,11 +5,11 @@
 //! their supported combination before any Scenario cursor or load effect is
 //! installed; persistence/restore deliberately has no conversion into it.
 
+use crate::app::match_bootstrap::LoadingStartup;
 use crate::app::shell_random_map::AcceptedRmgStartStaging;
 use crate::map::map_file::MapFile;
 use crate::map::resolved_terrain::OverlayLoadSource;
 use crate::map::source::LoadedMapSource;
-use crate::match_bootstrap::LoadingStartup;
 use crate::sim::scenario_bootstrap::{
     MatchLaunchDescriptor, PreFillScenarioPrefixPlan, StockOfflinePrefixProjection,
     prepare_stock_offline_scenario_prefix_plan,
@@ -55,7 +55,7 @@ enum FreshScenarioPrefixReceipt {
         scenario_prefix: PreFillScenarioPrefixPlan,
     },
     Campaign {
-        startup: crate::match_bootstrap::PreparedCampaignStartup,
+        startup: crate::app::match_bootstrap::PreparedCampaignStartup,
     },
 }
 
@@ -90,7 +90,7 @@ pub(crate) enum FreshScenarioParts {
     Campaign {
         physical_source: LoadedMapSource,
         signed_new_ini_format: i32,
-        startup: crate::match_bootstrap::PreparedCampaignStartup,
+        startup: crate::app::match_bootstrap::PreparedCampaignStartup,
     },
 }
 

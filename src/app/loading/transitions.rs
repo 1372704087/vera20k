@@ -50,7 +50,7 @@ pub(crate) fn sync_in_game_options_speed_from_sim(state: &mut AppState) {
 pub(crate) fn fallback_map_load_result() -> init::MapLoadResult {
     init::MapLoadResult {
         scenario: init::ScenarioLoadInputs {
-            startup: crate::match_bootstrap::LoadingStartup::Generic {
+            startup: crate::app::match_bootstrap::LoadingStartup::Generic {
                 selected_map_file: "fallback".to_string(),
             },
             map_source: crate::map::source::LoadedMapSource::LegacyFallback {
@@ -559,14 +559,14 @@ pub(crate) fn apply_map_load_result(state: &mut AppState, result: init::MapLoadR
     }
 
     match startup {
-        crate::match_bootstrap::LoadingStartup::Campaign(_) => {
+        crate::app::match_bootstrap::LoadingStartup::Campaign(_) => {
             state.match_state.startup.clear();
             let now_ms = sim_tick::monotonic_frame_pacer_ms(state, std::time::Instant::now());
             state.match_state.scenario_elapsed_clock.start(now_ms);
             state.frontend.screen = GameScreen::InGame;
             log::info!("Transitioned to InGame from the selected campaign");
         }
-        crate::match_bootstrap::LoadingStartup::Accepted(prepared) => {
+        crate::app::match_bootstrap::LoadingStartup::Accepted(prepared) => {
             let receipt = state.match_state.startup.acknowledge(
                 prepared,
                 state
@@ -599,8 +599,8 @@ pub(crate) fn apply_map_load_result(state: &mut AppState, result: init::MapLoadR
                 }
             }
         }
-        crate::match_bootstrap::LoadingStartup::UnverifiedLegacy { .. }
-        | crate::match_bootstrap::LoadingStartup::Generic { .. } => {
+        crate::app::match_bootstrap::LoadingStartup::UnverifiedLegacy { .. }
+        | crate::app::match_bootstrap::LoadingStartup::Generic { .. } => {
             state.match_state.startup.clear();
             let now_ms = sim_tick::monotonic_frame_pacer_ms(state, std::time::Instant::now());
             state.match_state.scenario_elapsed_clock.start(now_ms);

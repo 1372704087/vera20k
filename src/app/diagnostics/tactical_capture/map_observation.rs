@@ -618,7 +618,7 @@ impl MapCaptureProfile {
         );
         ensure!(
             matches!(
-                crate::match_bootstrap::classify_startup_session(&self.launch),
+                crate::app::match_bootstrap::classify_startup_session(&self.launch),
                 StartupSessionClassification::AcceptedExplicitFixedBattle(_)
             ),
             "map observation requires an explicit fixed Battle launch"
@@ -2121,7 +2121,10 @@ impl TacticalCaptureSession {
                 .receipt()
                 .context("Rust L0 receipt absent")?;
             ensure!(
-                crate::match_bootstrap::accepted_tick_is_admitted(Some(startup), Some(receipt)),
+                crate::app::match_bootstrap::accepted_tick_is_admitted(
+                    Some(startup),
+                    Some(receipt)
+                ),
                 "loaded startup does not admit ticks"
             );
             ensure!(

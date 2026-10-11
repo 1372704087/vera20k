@@ -1193,7 +1193,7 @@ impl Simulation {
         if !infantry {
             if let Some(rules) = rules {
                 let receipt = sim.commit_fire_visit(
-                    crate::sim::combat::world_receiver::FireVisit::UnitTarget(stable_id),
+                    crate::sim::combat::world_fire::FireVisit::UnitTarget(stable_id),
                     rules,
                     overlay_registry,
                     object_ctx.effects,

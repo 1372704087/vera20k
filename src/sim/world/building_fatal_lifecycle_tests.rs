@@ -1340,7 +1340,7 @@ fn assert_ready_fatal_routes(corpus: &Value) {
             &format!("{label} ready native prior"),
         );
         fixture.sim.commit_fire_visit(
-            crate::sim::combat::world_receiver::FireVisit::Direct {
+            crate::sim::combat::world_fire::FireVisit::Direct {
                 id: fixture.unit,
                 target: TargetKind::Entity(fixture.building),
                 weapon_index: int(&route["shot"]["slot"]),

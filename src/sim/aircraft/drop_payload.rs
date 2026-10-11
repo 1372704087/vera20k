@@ -39,13 +39,10 @@
 //!
 //! RESIDUALS:
 //! - ObjectClass::Paradrop raises the falling byte (`+0x8D`, `0x005F5965`)
-//!   and OnBridge (`+0x8C`, `0x005F5986`) before its checks and restores
-//!   neither when a check refuses. VERA writes both once the checks pass. They
-//!   differ only for a passenger whose drop was refused and who stays aboard:
-//!   native keeps both bytes set until it lands or dies. Trigger: a refused
-//!   drop over the playfield's edge, a bridge without its `0x200` flag or a
-//!   blocked cell. Effect: none known while it rides; a later drop over
-//!   ground would fall to the old deck height.
+//!   before its checks and keeps it when one refuses; VERA starts the fall
+//!   once they pass. A refused passenger rides on in limbo, where no
+//!   gameplay code reads the byte (ComputeCRC `0x005F62FA` hashes it), and
+//!   its next drop raises it again: the same answer.
 //! - Paradrop compares the landing cell's zone (`MapClass @ 0x0056D230`
 //!   with OnBridge) with itself in IsClearToMove; VERA asks for no zone, the
 //!   same answer.
@@ -316,13 +313,19 @@ fn spawn_parachuted(
 /// `ObjectClass::Paradrop @ 0x005F5940` at `landing`, in order:
 /// - the coordinate over the playfield (`MapClass::IsCoordInPlayfield @
 ///   0x005785F0`);
-/// - a bridge cell (`+0x140 & 0x100`) puts it on the deck and needs the
-///   `0x200` flag too (`0x005F597B..0x005F5996`);
+/// - a bridge cell (`+0x140 & 0x100`) sets OnBridge (`0x005F5986`), which
+///   no refusal clears, and needs the `0x200` flag too
+///   (`0x005F598D..0x005F5996`);
 /// - a Techno needs IsClearToMove (`0x004834A0`) for its SpeedType and
 ///   MovementZone, any level (`0x005F599C..0x005F5A2D`);
 /// - Unlimbo (vt+0xD8) at the coordinate facing south, then SetLocation
 ///   (vt+0x1B4), which the falling Z keeps ([`begin_parachute_descent`]);
 /// - the canopy ([`Simulation::attach_parachute_anim`]).
+///
+/// A passenger refused over a bridge cell thus boards again with OnBridge
+/// set. Its next drop, over ground too, falls to the deck's height (GetHeight
+/// `0x005F5F40`), and it walks there until it steps off a bridge cell
+/// (`0x0075C180..0x0075C193`) or boards a transport (`0x0051A407`).
 fn paradrop(
     sim: &mut Simulation,
     rules: &RuleSet,
@@ -352,11 +355,23 @@ fn paradrop(
             NativeCellQuery::canonical(terrain).lookup_world(landing.x, landing.y),
         )
     });
+    // OnBridge goes up before the tests below and stays up: neither a refusal
+    // here nor Drop_Payload's AddPassenger lowers it, so a passenger refused
+    // over a bridge drops later as if onto a deck. Its locomotor layer is the
+    // OnBridge projection.
+    if flags & BRIDGE_FLAG_STRUCTURAL != 0
+        && let Some(rider) = sim.substrate.entities.get_mut(passenger)
+    {
+        rider.on_bridge = true;
+        if let Some(locomotor) = rider.locomotor.as_mut() {
+            locomotor.layer = MovementLayer::Bridge;
+        }
+    }
     if flags & BRIDGE_FLAG_STRUCTURAL != 0 && flags & BRIDGE_FLAG_TRANSITION == 0 {
         return Err(DepartureFailure::Placement);
     }
 
-    let (speed_type, movement_zone, prior_layer) = {
+    let (speed_type, movement_zone) = {
         let rider = sim
             .substrate
             .entities
@@ -376,10 +391,6 @@ fn paradrop(
                 .map(|locomotor| locomotor.movement_zone)
                 .or_else(|| object_type.map(|object_type| object_type.movement_zone))
                 .unwrap_or(crate::rules::locomotor_type::MovementZone::Normal),
-            rider
-                .locomotor
-                .as_ref()
-                .map_or(MovementLayer::Ground, |locomotor| locomotor.layer),
         )
     };
     let path_grid = sim.path_grid_snapshot();
@@ -415,37 +426,34 @@ fn paradrop(
             raw_occupation: Some(&sim.substrate.raw_cell_occupation),
         })
     };
-    let layer = match passability {
-        IsClearToMoveResult::Clear { selected_layer } => selected_layer,
-        IsClearToMoveResult::ClearWinged => MovementLayer::Ground,
+    match passability {
+        IsClearToMoveResult::Clear {
+            selected_layer: MovementLayer::Ground | MovementLayer::Bridge,
+        }
+        | IsClearToMoveResult::ClearWinged => {}
         _ => return Err(DepartureFailure::Placement),
-    };
-    if !matches!(layer, MovementLayer::Ground | MovementLayer::Bridge) {
-        return Err(DepartureFailure::Placement);
     }
 
     // Unlimbo places the passenger at the spot PlaceInfantryInCell chose; the
-    // falling Z keeps the plane's. OnBridge is the `0x100` flag, which makes
-    // IsClearToMove select the deck, so GetHeight measures the fall to it.
-    if let Some(rider) = sim.substrate.entities.get_mut(passenger) {
-        rider.sub_cell = (rider.category == EntityCategory::Infantry).then_some(spot);
-        rider.passenger_role = PassengerRole::None;
-        rider.on_bridge = layer == MovementLayer::Bridge;
-        if let Some(locomotor) = rider.locomotor.as_mut() {
-            locomotor.layer = layer;
-        }
-    }
+    // falling Z keeps the plane's. OnBridge, from this cell or an earlier
+    // refused one, makes GetHeight measure the fall to the deck's height.
+    let on_bridge = sim
+        .substrate
+        .entities
+        .get_mut(passenger)
+        .is_some_and(|rider| {
+            rider.sub_cell = (rider.category == EntityCategory::Infantry).then_some(spot);
+            rider.passenger_role = PassengerRole::None;
+            rider.on_bridge
+        });
     if !begin_parachute_descent(&mut sim.substrate.entities, passenger, landing.z) {
-        return Err(DepartureFailure::ParachuteAttach(prior_layer));
+        return Err(DepartureFailure::ParachuteAttach);
     }
     let level = sim
         .resolved_terrain
         .as_ref()
         .and_then(|terrain| terrain.cell(rx, ry))
-        .map_or(0, |cell| {
-            cell.level
-                .wrapping_add(u8::from(layer == MovementLayer::Bridge) * 4)
-        });
+        .map_or(0, |cell| cell.level.wrapping_add(u8::from(on_bridge) * 4));
     let outcome = sim.try_reveal_entity_with_context(
         passenger,
         RevealRequest {
@@ -465,7 +473,7 @@ fn paradrop(
             .with_unlimbo_facing(Some(PARADROP_UNLIMBO_FACING)),
     );
     if !matches!(outcome, RevealOutcome::Revealed { .. }) {
-        return Err(DepartureFailure::ParachuteReveal(outcome, prior_layer));
+        return Err(DepartureFailure::ParachuteReveal(outcome));
     }
     sim.attach_parachute_anim(rules, passenger);
     Ok(())
@@ -1035,7 +1043,8 @@ mod tests {
 
     /// Over a structural bridge cell (`+0x140 & 0x100`) Paradrop sets OnBridge
     /// (`0x005F5986`) and refuses the cell unless it also has the `0x200` flag
-    /// (`0x005F598D..0x005F5996`).
+    /// (`0x005F598D..0x005F5996`). The refused passenger boards again with
+    /// OnBridge still set.
     #[test]
     fn a_drop_over_a_bridge_cell_needs_its_0x200_flag() {
         use crate::map::resolved_terrain::{ResolvedTerrainGrid, test_flat_cell};
@@ -1074,11 +1083,86 @@ mod tests {
             )
         };
 
-        assert!(drop(BRIDGE_FLAG_STRUCTURAL).0);
+        assert_eq!(drop(BRIDGE_FLAG_STRUCTURAL), (true, true));
         assert_eq!(
             drop(BRIDGE_FLAG_STRUCTURAL | BRIDGE_FLAG_TRANSITION),
             (false, true)
         );
+    }
+
+    /// A passenger refused over a bridge cell keeps OnBridge aboard, so its
+    /// next drop over plain ground falls to the deck's height: GetHeight
+    /// takes the deck off while OnBridge (`0x005F5F40`), and the landing's
+    /// SetHeight(0) (`0x005F3F7A`) puts it back (`0x005F5FA0`). It stands on
+    /// that ground cell's bridge list, as Mark files it by OnBridge.
+    #[test]
+    fn a_passenger_refused_over_a_bridge_lands_at_deck_height_on_ground() {
+        use crate::map::resolved_terrain::{
+            ResolvedTerrainGrid, TEST_OPEN_SPEED_COSTS, test_flat_cell,
+        };
+        use crate::rules::locomotor_type::LocomotorKind;
+        use crate::sim::movement::locomotor::LocomotorState;
+
+        let rules = drop_test_rules();
+        let mut sim = Simulation::new();
+        let cells = (0..64u16)
+            .flat_map(|y| {
+                (0..64u16).map(move |x| {
+                    let mut cell = test_flat_cell(x, y);
+                    cell.speed_costs = TEST_OPEN_SPEED_COSTS;
+                    cell.base_speed_costs = TEST_OPEN_SPEED_COSTS;
+                    if (x, y) == (51, 20) {
+                        cell.bridge_facts.raw_flags = BRIDGE_FLAG_STRUCTURAL;
+                        cell.has_bridge_deck = true;
+                        cell.bridge_deck_level = 4;
+                    }
+                    cell
+                })
+            })
+            .collect();
+        sim.install_resolved_terrain_for_new_map(ResolvedTerrainGrid::from_cells(64, 64, cells));
+        let (plane, passenger) = (1, 2);
+        insert_loaded_paradrop_pair(&mut sim, plane, passenger);
+        let plane_entity = sim.substrate.entities.get_mut(plane).unwrap();
+        plane_entity.position.exact_z_leptons = Some(1500);
+        let mut locomotor = LocomotorState::for_test_kind(LocomotorKind::Fly);
+        locomotor.altitude = SimFixed::from_num(1500);
+        plane_entity.locomotor = Some(locomotor);
+        let effects = crate::sim::world::FrameEffects::default();
+
+        drop_payload(&mut sim, plane, &rules, None, effects);
+        let rider = sim.substrate.entities.get(passenger).unwrap();
+        assert!(matches!(rider.passenger_role, PassengerRole::Inside { .. }));
+        assert!(rider.on_bridge, "the refusal keeps OnBridge");
+
+        // The plane flies on; its next drop is over plain ground at (51, 24).
+        let plane_entity = sim.substrate.entities.get_mut(plane).unwrap();
+        ground_pose::set_position_world_xy(
+            &mut plane_entity.position,
+            [50 * 256 + 128, 24 * 256 + 128],
+        );
+        drop_payload(&mut sim, plane, &rules, None, effects);
+        let rider = sim.substrate.entities.get(passenger).unwrap();
+        assert_eq!((rider.position.rx, rider.position.ry), (51, 24));
+        assert!(rider.on_bridge);
+
+        let max_fall_rate = rules.general.parachute_max_fall_rate;
+        let mut frames = 0;
+        while !sim.advance_fall(passenger, max_fall_rate, Some(&rules), None, effects) {
+            frames += 1;
+            assert!(frames < 10_000, "the fall ends");
+        }
+        let rider = sim.substrate.entities.get(passenger).unwrap();
+        assert!(rider.on_bridge);
+        assert_eq!(
+            ground_pose::object_world_z_leptons(rider, sim.resolved_terrain.as_ref()),
+            lepton::BRIDGE_DECK_HEIGHT_LEPTONS,
+            "it stands at the deck's height over level-0 ground"
+        );
+        assert_eq!(rider.occupancy_list_layer(), Some(MovementLayer::Bridge));
+        let cell = sim.substrate.occupancy.get(51, 24).unwrap();
+        assert_eq!(cell.snapshot_layer(MovementLayer::Bridge), vec![passenger]);
+        assert!(cell.is_empty_on(MovementLayer::Ground));
     }
 
     /// A drop: the passenger at a free spot of the landing cell, ChuteSound at

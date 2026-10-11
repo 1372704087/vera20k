@@ -9,7 +9,7 @@ use crate::sim::bridge_state::BridgeEndpointRecord;
 use crate::sim::cell_rect::{
     CellRef, PlayfieldBounds, cell_is_in_playfield_height_aware, get_cellclass_fallback,
 };
-use crate::sim::pathfinding::zone_build::HIGH_BRIDGE_HIERARCHY_DIRECTIONS;
+use crate::sim::pathfinding::zone_build::hierarchy::HIGH_BRIDGE_HIERARCHY_DIRECTIONS;
 use crate::sim::pathfinding::zone_hierarchy::{ZoneEdgeRecord, ZoneHierarchy};
 
 /// Original5851B0 directly appends six directed edges per level. Preserve

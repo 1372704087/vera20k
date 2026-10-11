@@ -92,7 +92,7 @@ fn a_shot_before_an_unarmed_occupant_rearms_without_an_rng_draw() {
             &world.interner,
         )
         .expect("the armed occupant's gun");
-        let shot = super::world_receiver::AdmittedFire {
+        let shot = super::world_fire::AdmittedFire {
             snap: super::build_attacker_snapshot(
                 building,
                 super::TargetKind::Cell(14, 10),
@@ -114,7 +114,7 @@ fn a_shot_before_an_unarmed_occupant_rearms_without_an_rng_draw() {
         };
         let mut emitted = super::CombatEmit::default();
         assert!(
-            super::world_receiver::emit_admitted_fire(
+            super::world_fire::emit_admitted_fire(
                 &mut world,
                 &rules,
                 shot,

@@ -750,7 +750,7 @@ fn attack_arm(
         // `0x0044B284`: uncloak, a Gattling type's decay (`0x0044B2AC`), then
         // the `0x0044B14E` tail.
         FireError::Cloaked => {
-            crate::sim::combat::world_receiver::start_uncloaking_to_fire(sim, rules, id);
+            crate::sim::combat::world_fire::start_uncloaking_to_fire(sim, rules, id);
             gattling_step(sim, id, rules, StageCall::Update, ctx.effects);
             aim_turret(sim, id, rules, target);
             clear_ai_counter(sim, id);
@@ -932,7 +932,7 @@ fn fire_arm(
         None => {
             *bridge_state_changed |= sim
                 .commit_fire_visit(
-                    crate::sim::combat::world_receiver::FireVisit::Building {
+                    crate::sim::combat::world_fire::FireVisit::Building {
                         id,
                         shot: BuildingShot::Mission { weapon, target },
                     },
@@ -1158,7 +1158,7 @@ pub(super) fn process_delayed_fire(
             {
                 *bridge_state_changed |= sim
                     .commit_fire_visit(
-                        crate::sim::combat::world_receiver::FireVisit::Building {
+                        crate::sim::combat::world_fire::FireVisit::Building {
                             id,
                             shot: BuildingShot::Delayed { slot, target },
                         },

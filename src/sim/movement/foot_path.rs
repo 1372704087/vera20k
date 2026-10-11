@@ -939,7 +939,7 @@ impl Simulation {
         use crate::sim::pathfinding::zone_hierarchy::{
             ZonePrecheckExclusions, ZonePrecheckOutcome, ZonePrecheckThreat, zone_precheck_flat,
         };
-        use crate::sim::pathfinding::zone_search::live_hierarchy_projection;
+        use crate::sim::pathfinding::zone_search::native_path_entry::live_hierarchy_projection;
 
         let actor = self
             .substrate

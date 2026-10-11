@@ -1003,7 +1003,7 @@ fn animation_binding_keeps_literal_types_and_exact_image_sections() {
     .unwrap();
     let rules = RuleSet::from_processed_rules(&processed).unwrap();
     let mut art = ArtRegistry::from_ini(&art_ini);
-    art.apply_anim_type_read_states(&rules.anim_type_art_read_states);
+    art.apply_anim_type_read_states(rules.anim_type_art_read_states());
     assert_eq!(art.resolve_anim_image_id(" FX"), "REAL");
     assert_eq!(art.resolve_anim_image_id("FX"), "WRONG");
     // Generic object resolution intentionally retains its established behavior.
@@ -1024,7 +1024,7 @@ fn animation_binding_keeps_literal_types_and_exact_image_sections() {
     assert_eq!(d.raw_shp_frame_count, None, "orphan D.SHP must not bind");
     assert_eq!((d.end, d.loop_end, d.rate_logic_frames), (0, 0, 1));
     let mut tolerant = ArtRegistry::from_ini(&art_ini);
-    tolerant.apply_anim_type_read_states(&rules.anim_type_art_read_states);
+    tolerant.apply_anim_type_read_states(rules.anim_type_art_read_states());
     assert_eq!(
         tolerant.bind_anim_class_assets(&roots, &assets, "TEM", "TEMPERATE"),
         0

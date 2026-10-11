@@ -93,8 +93,8 @@ fn debris_contact_matches_original_tree_damage_gates_radius_and_retirement() {
         assert_eq!(
             sim.substrate
                 .pending_delete
-                .iter()
-                .filter(|&&queued| queued == id)
+                .object_tickets()
+                .filter(|&queued| queued == id)
                 .count(),
             row["delete_count"].as_u64().unwrap() as usize,
             "{label}"

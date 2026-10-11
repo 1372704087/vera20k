@@ -48,7 +48,7 @@ pub fn skirmish_player_capacity(ini: &IniFile) -> i32 {
 
 /// Number of waypoint slots the scenario reader walks: keys `"0"` through
 /// `"701"`. Anything numbered at or above this is never read.
-const WAYPOINT_SLOT_COUNT: u32 = 0x2BE;
+pub(crate) const WAYPOINT_SLOT_COUNT: u32 = 0x2BE;
 
 /// Packing divisor for a waypoint value: `rx = value % 1000`, `ry = value / 1000`.
 ///

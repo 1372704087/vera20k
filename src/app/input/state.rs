@@ -53,6 +53,8 @@ struct SavedBuildingPlacement {
 }
 
 pub(crate) struct MatchInputState {
+    /// Presentation display depth; ScenarioSession owns the gameplay lock.
+    pub(crate) cursor_visibility: crate::app::input::cursor::CursorVisibility,
     pub(crate) camera_x: f32,
     pub(crate) camera_y: f32,
     /// Camera-owned requests awaiting Tactical__AI's next single commit.
@@ -128,6 +130,7 @@ impl MatchInputState {
     /// Construct the match input owner with the ordinary startup defaults.
     pub(crate) fn new(hotkey_bindings: crate::app::input::hotkeys::HotkeyBindings) -> Self {
         Self {
+            cursor_visibility: Default::default(),
             minimap_dragging: false,
             selection_state: crate::sim::selection::SelectionState::new(),
             selection_order: Vec::new(),
@@ -348,5 +351,25 @@ impl MatchInputState {
                 .as_ref()
                 .is_some_and(|saved| saved.preview.is_some()),
         }
+    }
+
+    /// TAction46 clears the active display modes before Lock684240 cancels
+    /// the tactical drag through6938C0/4AEAD0/6DA160. Selection membership,
+    /// camera requests/focus and physical held-key state survive this call.
+    pub(crate) fn cancel_tactical_gesture_and_targeting(&mut self) {
+        self.targeting_mode = None;
+        self.building_placement_preview = None;
+        self.minimap_dragging = false;
+        self.selection_state.cancel_drag();
+        self.tactical_mouse.cancel_mouse_drag();
+    }
+
+    /// KeyboardClear54F720 drains accepted input and Lock/Unlock clear the
+    /// command latch. Edges are synchronous in this app, so no second ring
+    /// exists; discard only app command latches. Physical key state remains
+    /// owned by ordinary press/release delivery, not this bounded receipt.
+    pub(crate) fn clear_command_latches(&mut self) {
+        self.type_select.clear_held();
+        self.queued_order_mode = crate::app::types::OrderMode::Move;
     }
 }

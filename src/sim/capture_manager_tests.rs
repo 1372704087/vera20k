@@ -456,7 +456,7 @@ fn a_single_link_controller_releases_its_victim_first() {
     assert!(!released.mind_control.is_mind_controlled());
     assert!(released.mind_control.ring_anim.is_none());
     assert!(sim.anim(ring).is_none_or(|anim| {
-        !anim.in_logic_vector && sim.substrate.pending_delete.contains(&ring)
+        !anim.in_logic_vector && sim.substrate.pending_delete.contains_object(&ring)
     }));
     assert_eq!(voc_sounds(&sim), ["MindCleared"]);
     assert_eq!(victims(&sim, yuri), [second]);

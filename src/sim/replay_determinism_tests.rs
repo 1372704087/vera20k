@@ -31,6 +31,7 @@ fn make_test_sim() -> Simulation {
         structure_upgrades: [None, None, None],
         structure_ai_sellable: false,
         structure_ai_repairable: false,
+        trigger_tag: None,
     };
     sim.spawn_from_map(&[entity], None);
     sim
@@ -142,6 +143,7 @@ fn replay_reapplies_header_seed() {
             structure_upgrades: [None, None, None],
             structure_ai_sellable: false,
             structure_ai_repairable: false,
+            trigger_tag: None,
         };
         sim.spawn_from_map(&[entity], None);
         sim

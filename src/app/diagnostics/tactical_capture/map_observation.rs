@@ -2667,48 +2667,45 @@ impl TacticalCaptureSession {
                 button(state, ElementState::Pressed);
                 let mouse = &state.match_state.input.tactical_mouse;
                 let gadgets = &state.match_state.match_presentation.in_game_gadgets;
-                let press_captured = if matches!(
-                    scheduled.gesture,
-                    MapGesture::Sidebar { .. } | MapGesture::CommandBar { .. }
-                ) {
-                    let expected = if let MapGesture::Sidebar { target, .. } = &scheduled.gesture {
-                        let slot = sidebar_slot.expect("resolved sidebar slot");
-                        match target {
-                            MapSidebarTarget::Tab { .. } => {
-                                gadgets.handles.as_ref().map(|handles| handles.tabs[slot])
+                // A consumed gadget press still reaches the shared physical
+                // button owner; only tactical capture depends on its route.
+                let physical_press_observed =
+                    mouse.left_held() == !right && mouse.right_held() == right;
+                let press_captured = physical_press_observed
+                    && if matches!(
+                        scheduled.gesture,
+                        MapGesture::Sidebar { .. } | MapGesture::CommandBar { .. }
+                    ) {
+                        let expected = if let MapGesture::Sidebar { target, .. } =
+                            &scheduled.gesture
+                        {
+                            let slot = sidebar_slot.expect("resolved sidebar slot");
+                            match target {
+                                MapSidebarTarget::Tab { .. } => {
+                                    gadgets.handles.as_ref().map(|handles| handles.tabs[slot])
+                                }
+                                MapSidebarTarget::Cameo { .. } => gadgets.cameos.get(slot).copied(),
+                                MapSidebarTarget::ScrollUp {} => {
+                                    gadgets.handles.as_ref().map(|handles| handles.scroll_up)
+                                }
+                                MapSidebarTarget::ScrollDown {} => {
+                                    gadgets.handles.as_ref().map(|handles| handles.scroll_down)
+                                }
+                                MapSidebarTarget::Repair {} => {
+                                    gadgets.handles.as_ref().map(|handles| handles.repair)
+                                }
+                                MapSidebarTarget::Sell {} => {
+                                    gadgets.handles.as_ref().map(|handles| handles.sell)
+                                }
                             }
-                            MapSidebarTarget::Cameo { .. } => gadgets.cameos.get(slot).copied(),
-                            MapSidebarTarget::ScrollUp {} => {
-                                gadgets.handles.as_ref().map(|handles| handles.scroll_up)
-                            }
-                            MapSidebarTarget::ScrollDown {} => {
-                                gadgets.handles.as_ref().map(|handles| handles.scroll_down)
-                            }
-                            MapSidebarTarget::Repair {} => {
-                                gadgets.handles.as_ref().map(|handles| handles.repair)
-                            }
-                            MapSidebarTarget::Sell {} => {
-                                gadgets.handles.as_ref().map(|handles| handles.sell)
-                            }
-                        }
+                        } else {
+                            command_bar.as_ref().map(|(_, handle)| *handle)
+                        };
+                        let routed = gadgets.out.consumed_by.or(gadgets.focus.sticky);
+                        expected.is_some() && routed == expected && !mouse.captured
                     } else {
-                        command_bar.as_ref().map(|(_, handle)| *handle)
+                        mouse.captured
                     };
-                    let routed = gadgets.out.consumed_by.or(gadgets.focus.sticky);
-                    expected.is_some()
-                        && routed == expected
-                        && gadgets.left_held == !right
-                        && gadgets.right_held == right
-                        && !mouse.left_held
-                        && !mouse.captured
-                        && !mouse.right_held
-                } else {
-                    mouse.left_held == !right
-                        && mouse.captured
-                        && mouse.right_held == right
-                        && gadgets.left_held == !right
-                        && gadgets.right_held == right
-                };
                 if matches!(scheduled.gesture, MapGesture::Drag { .. }) {
                     move_cursor(state, to);
                 }
@@ -2751,16 +2748,6 @@ impl TacticalCaptureSession {
             };
             let neutral_input_restored = crate::app::input::camera::camera_input_idle(state)
                 && !state.match_state.input.selection_state.is_band_box_active()
-                && !state
-                    .match_state
-                    .match_presentation
-                    .in_game_gadgets
-                    .left_held
-                && !state
-                    .match_state
-                    .match_presentation
-                    .in_game_gadgets
-                    .right_held
                 && [
                     state.match_state.input.cursor_x,
                     state.match_state.input.cursor_y,

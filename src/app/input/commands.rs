@@ -803,6 +803,14 @@ pub(super) fn schedule_command_in_sim(
     owner: &str,
     payload: Command,
 ) -> Option<u64> {
+    // The ordinary client producer is behind the native54F200/6930A0 lock
+    // gates. Escape's modal remains usable: its speed/exit records have
+    // their existing authoritative owners and are not tactical orders.
+    if sim.session.input_locked()
+        && !matches!(&payload, Command::SetGameSpeed { .. } | Command::ExitMatch)
+    {
+        return None;
+    }
     let execute_tick = sim.session.tick;
     let owner_id = match &payload {
         Command::SetGameSpeed { speed } => {
@@ -966,6 +974,55 @@ mod tests {
     use crate::sim::game_entity::GameEntity;
     use crate::sim::house_state::HouseState;
     use crate::sim::world::Simulation;
+
+    #[test]
+    fn cinematic_lock_rejects_tactical_commands_but_keeps_escape_options_usable() {
+        let mut sim = Simulation::new();
+        let local = sim.interner.intern("Local");
+        let kind = sim.interner.intern("FixtureType");
+        sim.houses
+            .insert(local, HouseState::new(local, 0, None, true, 0, 10));
+        sim.session.house_order.push(local);
+        sim.session.set_input_locked(true);
+        let before_hash = sim.state_hash();
+        let before_names = sim.interner.len();
+        for payload in [
+            Command::Stop { entity_id: 11 },
+            Command::SellBuilding { entity_id: 12 },
+            Command::ToggleRepair { entity_id: 13 },
+            Command::PlaceReadyBuilding {
+                type_id: kind,
+                rx: 20,
+                ry: 21,
+            },
+            Command::LaunchSuperWeapon {
+                sw_type_id: kind,
+                target_rx: 22,
+                target_ry: 23,
+            },
+        ] {
+            assert_eq!(schedule_command_in_sim(&mut sim, "Unknown", payload), None);
+        }
+        assert!(sim.pending_command_snapshot().is_empty());
+        assert_eq!(sim.interner.len(), before_names);
+        assert_eq!(sim.state_hash(), before_hash);
+
+        assert_eq!(
+            schedule_command_in_sim(&mut sim, "Local", Command::SetGameSpeed { speed: 4 }),
+            Some(0)
+        );
+        assert_eq!(
+            schedule_command_in_sim(&mut sim, "Local", Command::ExitMatch),
+            Some(0)
+        );
+        assert_eq!(sim.pending_command_snapshot().len(), 2);
+        sim.session.set_input_locked(false);
+        assert_eq!(
+            schedule_command_in_sim(&mut sim, "Local", Command::Stop { entity_id: 11 }),
+            Some(0)
+        );
+        assert_eq!(sim.pending_command_snapshot().len(), 3);
+    }
 
     #[test]
     fn options_game_speed_queues_once_without_immediate_sim_mutation() {

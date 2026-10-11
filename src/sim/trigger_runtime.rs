@@ -1,30 +1,28 @@
-//! Minimal runtime evaluation for map-authored triggers.
+//! Native map-authored live Tag/Trigger ownership.
 //!
-//! This is intentionally narrow: it executes a small, high-value subset of
-//! RA2/YR trigger behavior that already fits the current engine structure.
-//! Supported today:
-//! - Event 47: elapsed scenario time
-//! - Event 27/28 and 36/37: global/local variable set/clear
-//! - Action 22: force trigger
-//! - Action 28/29: set/clear global variable
-//! - Action 40: change visible map area
-//! - Action 53/54: enable/disable trigger
-//! - Action 48/112: center camera at waypoint
-//! - Action 137/138: set/clear a House's alternate base cell
-//!
-//! Simulation owns construction and dispatch; TriggerRuntime stores its private
-//! serialized state. Live Tag instances, timers and native polling order remain
-//! to replace the legacy definition queue below.
+//! Type registration follows Full_Init686B20's TeamType first references,
+//! physical TriggerType reads and physical TagType reads. Runtime construction,
+//! timer writes, Logic55AFB0 polling and deferred deletion all mutate this one
+//! Simulation-owned, serialized authority. Reproducible bounded native histories:
+//! tools/spatial_oracle/tag_lifecycle.{py,json,meta.json}.
 
-use std::collections::{BTreeMap, BTreeSet, HashMap, VecDeque};
+use std::collections::{BTreeMap, BTreeSet};
 use std::hash::{Hash, Hasher};
 
-use crate::map::actions::ActionEntry;
-use crate::map::events::{EventCondition, EventMap};
-use crate::map::trigger_graph::LinkedTrigger;
+use crate::map::actions::{ActionDefinitionReference, ActionEntry, DefinitionSelector};
+use crate::map::cell_index::NativeCellIdentity;
+use crate::map::events::EventCondition;
+#[cfg(test)]
+use crate::map::events::EventMap;
+use crate::map::resolved_terrain::NativeCellQuery;
+#[cfg(test)]
 use crate::map::triggers::TriggerMap;
+#[cfg(test)]
 use crate::map::variable_names::LocalVariableMap;
-use crate::sim::world::{Simulation, TriggerInputs};
+use crate::rules::ini_parser::is_native_none_type_name;
+use crate::rules::ini_value::{crt_atoi, truncate_native_bytes};
+use crate::sim::timer::CdTimer;
+use crate::sim::world::{FrameEffects, SimSoundEvent, Simulation, TriggerInputs};
 
 const ACTION_FORCE_TRIGGER: i32 = 22;
 const ACTION_SET_GLOBAL: i32 = 28;
@@ -53,108 +51,541 @@ const LOGICAL_FRAMES_PER_SECOND: i32 = crate::util::fixed_math::RA2_LOGIC_FRAMES
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum TriggerEffect {
-    CenterCameraAtWaypoint { waypoint: u32, immediate: bool },
-    MissionAnnouncement { text: String },
-    MissionResult { title: String, detail: String },
+    CameraAtCoord {
+        coord: [i32; 3],
+        velocity: Option<i32>,
+    },
+    RecentEventCell {
+        cell: (i16, i16),
+    },
+    InputLockChanged {
+        locked: bool,
+        was_locked: bool,
+    },
+    LocalizedMessage {
+        csf_label: String,
+    },
+    MissionAnnouncement {
+        text: String,
+    },
+    MissionResult {
+        title: String,
+        detail: String,
+    },
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 enum MissionAnnouncementKind {
     Victory,
     Defeat,
 }
 
-#[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-pub struct TriggerRuntime {
-    /// `BTreeSet` (not `HashSet`) so save files have a deterministic iteration
-    /// order — required for replay/lockstep correctness.
-    globals_set: BTreeSet<u32>,
-    locals_set: BTreeSet<u32>,
-    disabled_triggers: BTreeSet<String>,
-    fired_one_shot_triggers: BTreeSet<String>,
-    last_announcement: Option<MissionAnnouncementKind>,
+/// Original definition pointers translated to retained registry ordinals.
+/// Resolve once while Read6DD5B0 executes; later constructors cannot change the
+/// meaning of a short index or make a missing reference spring a new instance.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+enum DefinitionReference {
+    Team(usize),
+    Trigger(usize),
+    Tag(usize),
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+struct RuntimeAction {
+    entry: ActionEntry,
+    reference: Option<DefinitionReference>,
+    /// Original Read6DD5B0 materializes +90 once, including Vox753250.
+    value: Option<i32>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+struct TriggerType {
+    id: String,
+    owner: Option<String>,
+    linked: Option<usize>,
+    enabled: bool,
+    /// Literal Type+9C/9D/9E order, indexed by Scenario difficulty0/1/2.
+    difficulty: [bool; 3],
+    events: Vec<EventCondition>,
+    actions: Vec<RuntimeAction>,
+}
+
+impl TriggerType {
+    // Constructor726C80, not a header manufactured from retail defaults.
+    fn new(id: String) -> Self {
+        Self {
+            id,
+            owner: None,
+            linked: None,
+            enabled: true,
+            difficulty: [true; 3],
+            events: Vec::new(),
+            actions: Vec::new(),
+        }
+    }
+    fn admits_difficulty(&self, difficulty: i32) -> bool {
+        usize::try_from(difficulty)
+            .ok()
+            .and_then(|i| self.difficulty.get(i))
+            .copied()
+            .unwrap_or(true)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+struct TagType {
+    id: String,
+    /// TagType6E6080 stores a separate48-byte display name used by6E5E70.
+    name: String,
+    repeat: i32,
+    trigger: Option<usize>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+struct RuntimeDefinitions {
+    team_types: Vec<String>,
+    /// TeamType+D0 references resolved during physical Read6F1341. This is
+    /// the sole owner; Team constructors consume the retained ordinal and
+    /// never re-run a factory or infer the pointer from a truncated Type ID.
+    team_tags: Vec<Option<usize>>,
+    trigger_types: Vec<TriggerType>,
+    tag_types: Vec<TagType>,
+}
+
+impl RuntimeDefinitions {
+    fn team_type(&mut self, name: &str) -> Option<usize> {
+        if is_native_none_type_name(name) {
+            return None;
+        }
+        if let Some(i) = self
+            .team_types
+            .iter()
+            .position(|id| id.eq_ignore_ascii_case(name))
+        {
+            return Some(i);
+        }
+        let index = self.team_types.len();
+        self.team_types
+            .push(truncate_native_bytes(name, 24).to_string());
+        self.team_tags.push(None);
+        Some(index)
+    }
+    fn trigger_type(&mut self, name: &str) -> Option<usize> {
+        if is_native_none_type_name(name) {
+            return None;
+        }
+        if let Some(i) = self
+            .trigger_types
+            .iter()
+            .position(|typ| typ.id.eq_ignore_ascii_case(name))
+        {
+            return Some(i);
+        }
+        let index = self.trigger_types.len();
+        self.trigger_types.push(TriggerType::new(
+            truncate_native_bytes(name, 24).to_string(),
+        ));
+        Some(index)
+    }
+    fn tag_type(&mut self, name: &str) -> Option<usize> {
+        if is_native_none_type_name(name) {
+            return None;
+        }
+        if let Some(i) = self
+            .tag_types
+            .iter()
+            .position(|typ| typ.id.eq_ignore_ascii_case(name))
+        {
+            return Some(i);
+        }
+        let index = self.tag_types.len();
+        let id = truncate_native_bytes(name, 24).to_string();
+        self.tag_types.push(TagType {
+            name: id.clone(),
+            id,
+            repeat: 0,
+            trigger: None,
+        });
+        Some(index)
+    }
+    fn resolve_action(
+        &mut self,
+        entry: ActionEntry,
+        eva: Option<&crate::rules::sound_ini::EvaRegistry>,
+    ) -> RuntimeAction {
+        let reference = match entry.definition_reference() {
+            Some(ActionDefinitionReference::Team(selector)) => match selector {
+                DefinitionSelector::Index(i) => usize::try_from(i)
+                    .ok()
+                    .filter(|i| *i < self.team_types.len()),
+                DefinitionSelector::Name(name) => self.team_type(name),
+            }
+            .map(DefinitionReference::Team),
+            Some(ActionDefinitionReference::Trigger(selector)) => match selector {
+                DefinitionSelector::Index(i) => usize::try_from(i)
+                    .ok()
+                    .filter(|i| *i < self.trigger_types.len()),
+                DefinitionSelector::Name(name) => self.trigger_type(name),
+            }
+            .map(DefinitionReference::Trigger),
+            Some(ActionDefinitionReference::Tag(selector)) => match selector {
+                DefinitionSelector::Index(i) => usize::try_from(i)
+                    .ok()
+                    .filter(|i| *i < self.tag_types.len()),
+                DefinitionSelector::Name(name) => self.tag_type(name),
+            }
+            .map(DefinitionReference::Tag),
+            None => None,
+        };
+        let parameter_type = entry.params.first().map_or(0, |v| crt_atoi(v));
+        let value = if parameter_type == 6 {
+            // Original753250 scans the raw, untrimmed name. Missing names
+            // materialize -1; no cue-name resolution runs during Execute.
+            Some(
+                entry
+                    .params
+                    .get(1)
+                    .and_then(|name| eva.and_then(|catalog| catalog.index_of(name)))
+                    .unwrap_or(-1),
+            )
+        } else {
+            entry.literal_value()
+        };
+        RuntimeAction {
+            entry,
+            reference,
+            value,
+        }
+    }
+    fn read_map(
+        map: &crate::map::map_file::MapFile,
+        teams: &crate::rules::team_ai_ini::TeamAiIniRegistry,
+        eva: Option<&crate::rules::sound_ini::EvaRegistry>,
+    ) -> Self {
+        let mut definitions = Self::default();
+        // Full_Init687984/68798D: reads are transactions, not the final merged
+        // TeamType vector. Team.Tag can first-construct TagTypes here.
+        for team in teams.team_type_read_sequence() {
+            let Some(index) = definitions.team_type(&team.id) else {
+                continue;
+            };
+            // Read6F131E retains +D0 on an absent/empty ReadString; a
+            // nonempty value calls6E6310, including either null literal.
+            // Only this physical pass can construct a new TagType identity.
+            let tag = team.physical_read_section().read_string("Tag", "", 128);
+            if !tag.is_empty() {
+                let resolved = definitions.tag_type(&tag);
+                definitions.team_tags[index] = resolved;
+            }
+        }
+        if let Some(section) = map.ini.section("Triggers") {
+            for key in section.keys() {
+                if section.read_name(key, 24).is_none() {
+                    continue;
+                }
+                let Some(index) = definitions.trigger_type(key) else {
+                    continue;
+                };
+                let id = definitions.trigger_types[index].id.to_ascii_uppercase();
+                let Some(record) = map.triggers.get(&id) else {
+                    continue;
+                };
+                //7272D6 resolves the linked Type before events and actions.
+                let linked = record
+                    .linked_trigger_id
+                    .as_deref()
+                    .and_then(|name| definitions.trigger_type(name));
+                let events = map
+                    .events
+                    .get(&id)
+                    .map_or_else(Vec::new, |record| record.conditions.clone());
+                // Events are prepended, but their reference factories ran in
+                // source order before the retained reverse traversal.
+                for event in events.iter().rev() {
+                    if let Some(team) = event.team_name.as_deref() {
+                        definitions.team_type(team);
+                    }
+                }
+                let actions = map
+                    .actions
+                    .get(&id)
+                    .map_or_else(Vec::new, |record| record.entries.clone());
+                let actions = actions
+                    .into_iter()
+                    .map(|entry| definitions.resolve_action(entry, eva))
+                    .collect();
+                definitions.trigger_types[index] = TriggerType {
+                    id: definitions.trigger_types[index].id.clone(),
+                    owner: record.owner.clone(),
+                    linked,
+                    enabled: record.enabled,
+                    difficulty: [
+                        record.difficulty.easy,
+                        record.difficulty.medium,
+                        record.difficulty.hard,
+                    ],
+                    events,
+                    actions,
+                };
+            }
+        }
+        if let Some(section) = map.ini.section("Tags") {
+            for key in section.keys() {
+                if section.read_name(key, 24).is_none() {
+                    continue;
+                }
+                let Some(index) = definitions.tag_type(key) else {
+                    continue;
+                };
+                let id = definitions.tag_types[index].id.to_ascii_uppercase();
+                let Some(record) = map.tags.get(&id) else {
+                    continue;
+                };
+                let repeat = record.fields.first().map_or(0, |value| crt_atoi(value));
+                let trigger = record
+                    .fields
+                    .get(2)
+                    .and_then(|name| definitions.trigger_type(name));
+                definitions.tag_types[index].repeat = repeat;
+                definitions.tag_types[index].name =
+                    record.fields.get(1).map_or_else(String::new, |name| {
+                        truncate_native_bytes(name, 48).to_string()
+                    });
+                definitions.tag_types[index].trigger = trigger;
+            }
+        }
+        definitions
+    }
+    fn classification(&self, tag_type: usize) -> u8 {
+        // TagType6E61F0 -> TriggerType7271E0; enabled and difficulty bytes do
+        // not gate registration. Invalid cyclic definitions are rejected by
+        // the bounded Rust traversal rather than reproducing native hangs.
+        let mut next = self.tag_types[tag_type].trigger;
+        let mut visited = BTreeSet::new();
+        let mut flags = 0;
+        while let Some(index) = next {
+            if !visited.insert(index) {
+                break;
+            }
+            let typ = &self.trigger_types[index];
+            for event in &typ.events {
+                flags |= event_classification(event.kind);
+            }
+            for action in &typ.actions {
+                flags |= action_classification(action.entry.kind);
+            }
+            next = typ.linked;
+        }
+        flags
+    }
+
+    fn has_action(&self, tag_type: usize, kind: i32) -> bool {
+        // TagType6E6220 -> TriggerType726F80 follows definition links.
+        let mut next = self.tag_types[tag_type].trigger;
+        let mut visited = BTreeSet::new();
+        while let Some(index) = next {
+            if !visited.insert(index) {
+                break;
+            }
+            let typ = &self.trigger_types[index];
+            if typ.actions.iter().any(|a| a.entry.kind == kind) {
+                return true;
+            }
+            next = typ.linked;
+        }
+        false
+    }
+}
+
+// Original jump-table bytes71F700/71F744/71F780/71F7C0 and6E3F08.
+// These are classification only, never substitutes for event predicates.
+fn event_classification(kind: i32) -> u8 {
+    let mut flags = 0;
+    if matches!(kind, 0 | 1 | 4 | 8 | 24 | 25 | 26 | 31 | 53 | 54 | 59) {
+        flags |= 1;
+    }
+    if matches!(
+        kind,
+        0 | 1 | 2 | 4 | 6 | 7 | 8 | 29 | 33 | 34 | 35 | 38 | 39 | 40 | 41 | 42 | 43 | 44 | 48 | 49
+    ) {
+        flags |= 2;
+    }
+    if matches!(kind, 8 | 24) {
+        flags |= 4;
+    }
+    if matches!(
+        kind,
+        3 | 5
+            | 8
+            | 9
+            | 10
+            | 11
+            | 12
+            | 15
+            | 16
+            | 17
+            | 18
+            | 19
+            | 20
+            | 21
+            | 22
+            | 30
+            | 32
+            | 52
+            | 55
+            | 56
+            | 57
+            | 58
+    ) {
+        flags |= 8;
+    }
+    if matches!(
+        kind,
+        8 | 13 | 14 | 23 | 27 | 28 | 36 | 37 | 45 | 46 | 47 | 50 | 51 | 60 | 61
+    ) {
+        flags |= 16;
+    }
+    flags
+}
+fn action_classification(kind: i32) -> u8 {
+    if matches!(kind, 14 | 32 | 60 | 61 | 62 | 91 | 111) {
+        2
+    } else {
+        0
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+struct LiveTrigger {
+    type_index: usize,
+    timer: CdTimer,
+    completed: u32,
+    enabled: bool,
+    pending: bool,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+struct LiveTag {
+    type_index: usize,
+    ///6E4F44 prepends instances, reversing definition-construction order.
+    triggers: Vec<usize>,
+    refs: i32,
+    attached_cell: (i16, i16),
+    pending: bool,
+    dispatch_guard: bool,
+}
+/// Team IDs and Techno stable IDs belong to separate identity domains.
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, serde::Serialize, serde::Deserialize,
+)]
+enum TagAttachment {
+    Object(u64),
+    Team(u64),
+}
+
+#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
+pub struct TriggerRuntime {
+    globals_set: BTreeSet<u32>,
+    locals_set: BTreeSet<u32>,
+    definitions: RuntimeDefinitions,
+    tags: Vec<Option<LiveTag>>,
+    triggers: Vec<Option<LiveTrigger>>,
+    /// Native registry order survives storage holes and stable-removal.
+    tag_order: Vec<usize>,
+    trigger_order: Vec<usize>,
+    logic_tags: Vec<usize>,
+    map_tags: Vec<usize>,
+    house_tags: BTreeMap<crate::sim::intern::InternedId, Vec<usize>>,
+    attachments: BTreeMap<TagAttachment, usize>,
+    /// CellClass allocation identity, including the process-wide Dummy. Two
+    /// authored coordinates can resolve to one retained cell attachment.
+    cell_tags: BTreeMap<NativeCellIdentity, usize>,
+    /// Scenario+34AA/34A9/34AB/34BE, consumed in Logic55AFB0 order.
+    dirty: [bool; 4],
+    logic_cursor: i32,
+    map_cursor: i32,
+    definitions_prepared: bool,
+    classified: bool,
+    last_announcement: Option<MissionAnnouncementKind>,
+    #[cfg(test)]
+    fixture_awaiting_records: bool,
+    #[cfg(test)]
+    fixture_difficulty: Option<i32>,
+    #[cfg(test)]
+    #[serde(skip)]
+    action_trace: Vec<(i32, i32)>,
+    #[cfg(test)]
+    #[serde(skip)]
+    dispatch_trace: Vec<(usize, i32)>,
+    #[cfg(test)]
+    #[serde(skip)]
+    freed_trace: Vec<&'static str>,
+    /// Native stock comparison abandons its real first-poll stack at the same
+    /// first gameplay action boundary; no action receives a success substitute.
+    #[cfg(test)]
+    #[serde(skip)]
+    stop_before_action: Option<i32>,
+}
+
+impl PartialEq for TriggerRuntime {
+    fn eq(&self, other: &Self) -> bool {
+        self.globals_set == other.globals_set
+            && self.locals_set == other.locals_set
+            && self.definitions == other.definitions
+            && self.tags == other.tags
+            && self.triggers == other.triggers
+            && self.tag_order == other.tag_order
+            && self.trigger_order == other.trigger_order
+            && self.logic_tags == other.logic_tags
+            && self.map_tags == other.map_tags
+            && self.house_tags == other.house_tags
+            && self.attachments == other.attachments
+            && self.cell_tags == other.cell_tags
+            && self.dirty == other.dirty
+            && self.logic_cursor == other.logic_cursor
+            && self.map_cursor == other.map_cursor
+            && self.definitions_prepared == other.definitions_prepared
+            && self.classified == other.classified
+            && self.last_announcement == other.last_announcement
+    }
+}
+impl Eq for TriggerRuntime {}
+
 impl TriggerRuntime {
-    /// Fold mutable trigger state into the simulation's lockstep hash.
-    ///
-    /// The map definitions are static input, but these latches decide which
-    /// later YR LogicClass trigger actions may run after a save or replay.
+    pub(crate) fn has_live_tag(&self, id: usize) -> bool {
+        self.tag(id).is_some()
+    }
+    pub(crate) fn has_live_trigger(&self, id: usize) -> bool {
+        self.trigger(id).is_some()
+    }
     pub(crate) fn hash_state(&self, hasher: &mut impl Hasher) {
-        self.globals_set.len().hash(hasher);
-        for value in &self.globals_set {
-            value.hash(hasher);
-        }
-
-        self.locals_set.len().hash(hasher);
-        for value in &self.locals_set {
-            value.hash(hasher);
-        }
-
-        self.disabled_triggers.len().hash(hasher);
-        for value in &self.disabled_triggers {
-            value.hash(hasher);
-        }
-
-        self.fired_one_shot_triggers.len().hash(hasher);
-        for value in &self.fired_one_shot_triggers {
-            value.hash(hasher);
-        }
-
-        match self.last_announcement {
-            None => 0u8.hash(hasher),
-            Some(MissionAnnouncementKind::Victory) => 1u8.hash(hasher),
-            Some(MissionAnnouncementKind::Defeat) => 2u8.hash(hasher),
-        }
+        // Definition ordinals, timers, active registration order, attachments
+        // and the deferred queue affect later actions and are all retained.
+        // Observers never participate in this fold.
+        self.globals_set.hash(hasher);
+        self.locals_set.hash(hasher);
+        self.definitions.hash(hasher);
+        self.tags.hash(hasher);
+        self.triggers.hash(hasher);
+        self.tag_order.hash(hasher);
+        self.trigger_order.hash(hasher);
+        self.logic_tags.hash(hasher);
+        self.map_tags.hash(hasher);
+        self.house_tags.hash(hasher);
+        self.attachments.hash(hasher);
+        self.cell_tags.hash(hasher);
+        self.dirty.hash(hasher);
+        self.logic_cursor.hash(hasher);
+        self.map_cursor.hash(hasher);
+        self.definitions_prepared.hash(hasher);
+        self.classified.hash(hasher);
+        self.last_announcement.hash(hasher);
     }
-
-    fn from_map(triggers: &TriggerMap, local_variables: &LocalVariableMap) -> Self {
-        let mut runtime = TriggerRuntime::default();
-        for trigger in triggers.values() {
-            if !trigger.enabled || !trigger.difficulty.medium {
-                runtime.disabled_triggers.insert(trigger.id.clone());
-            }
-        }
-        for local in local_variables.values() {
-            if local.initially_set {
-                runtime.locals_set.insert(local.index);
-            }
-        }
-        runtime
+    fn tag(&self, index: usize) -> Option<&LiveTag> {
+        self.tags.get(index)?.as_ref()
     }
-
-    fn is_trigger_ready(
-        &self,
-        linked: &LinkedTrigger,
-        triggers: &TriggerMap,
-        events: &EventMap,
-        current_frame: u32,
-        simulation: &Simulation,
-    ) -> bool {
-        if self.disabled_triggers.contains(&linked.trigger_id) {
-            return false;
-        }
-
-        let Some(trigger) = triggers.get(&linked.trigger_id) else {
-            return false;
-        };
-        if !trigger.repeating && self.fired_one_shot_triggers.contains(&linked.trigger_id) {
-            return false;
-        }
-
-        let Some(event_id) = &linked.event_id else {
-            return false;
-        };
-        let Some(event) = events.get(event_id) else {
-            return false;
-        };
-        !event.conditions.is_empty()
-            && event
-                .conditions
-                .iter()
-                .all(|condition| self.evaluate_event(condition, current_frame, simulation))
+    fn trigger(&self, index: usize) -> Option<&LiveTrigger> {
+        self.triggers.get(index)?.as_ref()
     }
-
     fn evaluate_event(
         &self,
         condition: &EventCondition,
@@ -215,135 +646,1328 @@ impl TriggerRuntime {
 }
 
 impl Simulation {
-    /// Seed map trigger state on the staged Simulation before objects are loaded.
-    /// App and headless construction share this call; replacing/restoring the
-    /// Simulation preserves its serialized state instead of reinitializing it.
-    pub(crate) fn initialize_map_triggers(
-        &mut self,
-        triggers: &TriggerMap,
-        local_variables: &LocalVariableMap,
-    ) {
-        self.trigger_runtime = TriggerRuntime::from_map(triggers, local_variables);
-    }
-
-    /// Execute map actions on the installed Simulation owner. Short runtime
-    /// borrows keep nested gameplay callbacks on this same authoritative state.
-    /// The live Tag/Trigger migration must replace the legacy definition queue
-    /// below without ever lifting TriggerRuntime out of Simulation.
-    pub(crate) fn advance_triggers(&mut self, inputs: TriggerInputs<'_>) -> Vec<TriggerEffect> {
-        let TriggerInputs {
-            graph,
-            triggers,
-            events,
-            actions,
-            waypoints,
-            rules,
-        } = inputs;
-        let current_frame = self.session.binary_frame;
-        let linked_by_id: BTreeMap<&str, &LinkedTrigger> = graph
-            .triggers
-            .iter()
-            .map(|linked| (linked.trigger_id.as_str(), linked))
-            .collect();
-
-        let mut queue: VecDeque<String> = graph
-            .triggers
-            .iter()
-            .filter(|linked| {
-                self.trigger_runtime
-                    .is_trigger_ready(linked, triggers, events, current_frame, self)
-            })
-            .map(|linked| linked.trigger_id.clone())
-            .collect();
-        let mut queued: BTreeSet<String> = queue.iter().cloned().collect();
-        let mut effects: Vec<TriggerEffect> = Vec::new();
-
-        while let Some(trigger_id) = queue.pop_front() {
-            queued.remove(&trigger_id);
-            let Some(trigger) = triggers.get(&trigger_id) else {
-                continue;
-            };
-            let Some(linked) = linked_by_id.get(trigger_id.as_str()).copied() else {
-                continue;
-            };
-            if !self
-                .trigger_runtime
-                .is_trigger_ready(linked, triggers, events, current_frame, self)
+    /// Validate this owner's retained identities before the restore coordinator
+    /// publishes a candidate. No map re-read or live constructor runs on load.
+    /// Destruction may leave orphan Triggers until their shared725C70 tickets
+    /// are consumed, so that native intermediate state remains admissible.
+    pub(crate) fn validate_restored_trigger_runtime(&self) -> Result<(), String> {
+        let runtime = &self.trigger_runtime;
+        let definitions = &runtime.definitions;
+        if definitions.team_tags.len() != definitions.team_types.len()
+            || definitions
+                .team_tags
+                .iter()
+                .flatten()
+                .any(|&tag| tag >= definitions.tag_types.len())
+        {
+            return Err("TeamType has an unresolved retained TagType reference".to_string());
+        }
+        if runtime.globals_set.iter().any(|&index| index >= 50)
+            || runtime.locals_set.iter().any(|&index| index >= 100)
+        {
+            return Err("Scenario variable index is outside its native owner".to_string());
+        }
+        for (index, typ) in definitions.trigger_types.iter().enumerate() {
+            if typ
+                .linked
+                .is_some_and(|linked| linked >= definitions.trigger_types.len())
             {
-                continue;
+                return Err(format!("TriggerType {index} has an unresolved linked type"));
             }
-
-            if let Some(action) = actions.get(&trigger_id) {
-                for entry in &action.entries {
-                    self.apply_trigger_action(
-                        entry,
-                        &mut effects,
-                        &mut queue,
-                        &mut queued,
-                        triggers,
-                        trigger,
-                        rules,
-                        waypoints,
-                    );
+            for action in &typ.actions {
+                let resolves = match action.reference {
+                    Some(DefinitionReference::Team(index)) => index < definitions.team_types.len(),
+                    Some(DefinitionReference::Trigger(index)) => {
+                        index < definitions.trigger_types.len()
+                    }
+                    Some(DefinitionReference::Tag(index)) => index < definitions.tag_types.len(),
+                    None => true,
+                };
+                if !resolves {
+                    return Err(format!(
+                        "TriggerType {index} has an unresolved action reference"
+                    ));
                 }
             }
-
-            if let Some(linked_trigger_id) = &trigger.linked_trigger_id
-                && triggers.contains_key(linked_trigger_id)
+        }
+        for (index, typ) in definitions.tag_types.iter().enumerate() {
+            if typ
+                .trigger
+                .is_some_and(|trigger| trigger >= definitions.trigger_types.len())
             {
-                enqueue_trigger(&mut queue, &mut queued, linked_trigger_id.clone());
-            }
-
-            if !trigger.repeating {
-                self.trigger_runtime
-                    .fired_one_shot_triggers
-                    .insert(trigger_id);
+                return Err(format!("TagType {index} has an unresolved TriggerType"));
             }
         }
+        validate_live_registry("Tag", &runtime.tags, &runtime.tag_order)?;
+        validate_live_registry("Trigger", &runtime.triggers, &runtime.trigger_order)?;
+        let mut trigger_parents = BTreeSet::new();
+        for (index, tag) in runtime
+            .tags
+            .iter()
+            .enumerate()
+            .filter_map(|(index, tag)| tag.as_ref().map(|tag| (index, tag)))
+        {
+            let Some(typ) = definitions.tag_types.get(tag.type_index) else {
+                return Err(format!("Tag {index} has an unresolved TagType"));
+            };
+            let mut chain = Vec::new();
+            let mut visited = BTreeSet::new();
+            let mut next = typ.trigger;
+            while let Some(type_index) = next {
+                if !visited.insert(type_index) {
+                    break;
+                }
+                chain.push(type_index);
+                next = definitions.trigger_types[type_index].linked;
+            }
+            chain.reverse();
+            let mut remaining = chain.as_slice();
+            for &trigger in &tag.triggers {
+                let Some(live) = runtime.trigger(trigger) else {
+                    return Err(format!(
+                        "Tag {index} has an unresolved live Trigger {trigger}"
+                    ));
+                };
+                if !trigger_parents.insert(trigger) {
+                    return Err(format!("Trigger {trigger} is linked by multiple live Tags"));
+                }
+                let Some(position) = remaining.iter().position(|&typ| typ == live.type_index)
+                else {
+                    return Err(format!(
+                        "Tag {index} has a Trigger outside its retained linked-type order"
+                    ));
+                };
+                remaining = &remaining[position + 1..];
+            }
+        }
+        let queued_triggers: BTreeSet<_> = self
+            .substrate
+            .pending_delete
+            .retained_tickets()
+            .filter_map(|ticket| match ticket {
+                crate::sim::world::DeferredDeleteTicket::Trigger(index) => Some(index),
+                _ => None,
+            })
+            .collect();
+        for (index, trigger) in runtime
+            .triggers
+            .iter()
+            .enumerate()
+            .filter_map(|(index, trigger)| trigger.as_ref().map(|trigger| (index, trigger)))
+        {
+            if trigger.type_index >= definitions.trigger_types.len() {
+                return Err(format!("Trigger {index} has an unresolved TriggerType"));
+            }
+            if !trigger_parents.contains(&index) && !queued_triggers.contains(&index) {
+                return Err(format!(
+                    "Trigger {index} has neither a live Tag nor a deferred destructor"
+                ));
+            }
+        }
+        for (name, tags, flag) in [
+            ("Logic", &runtime.logic_tags, 16),
+            ("Map", &runtime.map_tags, 4),
+        ] {
+            let mut seen = BTreeSet::new();
+            for &index in tags {
+                let Some(tag) = runtime.tag(index) else {
+                    return Err(format!("{name} references unresolved Tag {index}"));
+                };
+                if !seen.insert(index) || definitions.classification(tag.type_index) & flag == 0 {
+                    return Err(format!(
+                        "{name} has an invalid registration for Tag {index}"
+                    ));
+                }
+            }
+        }
+        for (&house, tags) in &runtime.house_tags {
+            if !self.houses.contains_key(&house) {
+                return Err(format!(
+                    "House Tag list references unresolved House {}",
+                    house.index()
+                ));
+            }
+            let mut seen = BTreeSet::new();
+            for &index in tags {
+                let Some(tag) = runtime.tag(index) else {
+                    return Err(format!("House references unresolved Tag {index}"));
+                };
+                if !seen.insert(index) || definitions.classification(tag.type_index) & 8 == 0 {
+                    return Err(format!("House has an invalid registration for Tag {index}"));
+                }
+            }
+        }
+        let mut references = vec![0i32; runtime.tags.len()];
+        for (&attachment, &index) in &runtime.attachments {
+            if runtime.tag(index).is_none() {
+                return Err(format!("{attachment:?} references unresolved Tag {index}"));
+            }
+            let resolves = match attachment {
+                TagAttachment::Object(id) => {
+                    references[index] = references[index].wrapping_add(1);
+                    self.classify_object(id).is_some()
+                }
+                TagAttachment::Team(id) => self.team_script_vm.team(id).is_some(),
+            };
+            if !resolves {
+                return Err(format!(
+                    "Tag {index} has an unresolved {attachment:?} attachment"
+                ));
+            }
+        }
+        for (&cell, &index) in &runtime.cell_tags {
+            if runtime.tag(index).is_none() {
+                return Err(format!("Cell {cell:?} references unresolved Tag {index}"));
+            }
+            let resolves = self
+                .resolved_terrain
+                .as_ref()
+                .is_some_and(|terrain| match cell {
+                    NativeCellIdentity::Real(index) => {
+                        terrain.cells().get(index).is_some_and(|cell| {
+                            terrain.native_cell_identity((cell.rx as i16, cell.ry as i16))
+                                == NativeCellIdentity::Real(index)
+                        })
+                    }
+                    NativeCellIdentity::Dummy => true,
+                });
+            if !resolves {
+                return Err(format!("Tag {index} has an unresolved {cell:?} attachment"));
+            }
+            references[index] = references[index].wrapping_add(1);
+        }
+        for (index, tag) in runtime
+            .tags
+            .iter()
+            .enumerate()
+            .filter_map(|(index, tag)| tag.as_ref().map(|tag| (index, tag)))
+        {
+            if tag.refs != references[index] {
+                return Err(format!(
+                    "Tag {index} reference count disagrees with its Object/Cell attachments"
+                ));
+            }
+        }
+        Ok(())
+    }
 
+    pub(crate) fn trigger_definitions_prepared(&self) -> bool {
+        self.trigger_runtime.definitions_prepared
+    }
+    /// Full_Init687984..6879CB registry ingress. No live instance is created
+    /// until a Cell/Object attachment or Fill classification requires it.
+    pub(crate) fn initialize_trigger_definitions(
+        &mut self,
+        map: &crate::map::map_file::MapFile,
+        teams: &crate::rules::team_ai_ini::TeamAiIniRegistry,
+        eva: Option<&crate::rules::sound_ini::EvaRegistry>,
+    ) {
+        self.trigger_runtime = TriggerRuntime {
+            definitions: RuntimeDefinitions::read_map(map, teams, eva),
+            definitions_prepared: true,
+            locals_set: map
+                .local_variables
+                .values()
+                .filter(|v| v.initially_set)
+                .map(|v| v.index)
+                .collect(),
+            ..TriggerRuntime::default()
+        };
+    }
+
+    fn trigger_difficulty(&self) -> i32 {
+        #[cfg(test)]
+        if let Some(difficulty) = self.trigger_runtime.fixture_difficulty {
+            return difficulty;
+        }
+        self.session
+            .campaign_house_difficulties()
+            .map_or(1, |(player, _)| player.table_index() as i32)
+    }
+
+    /// Legacy unit fixtures declare one synthetic Tag per Trigger. This seam
+    /// supplies fixture definitions only; construction, polling and actions use
+    /// the same production owner. Map loading always uses the physical reader.
+    #[cfg(test)]
+    fn initialize_map_triggers(&mut self, triggers: &TriggerMap, locals: &LocalVariableMap) {
+        let mut ids: Vec<_> = triggers.keys().collect();
+        ids.sort();
+        let mut definitions = RuntimeDefinitions::default();
+        for id in &ids {
+            definitions.trigger_type(id);
+        }
+        for id in ids {
+            let index = definitions.trigger_type(id).unwrap();
+            let record = &triggers[id];
+            let linked = record
+                .linked_trigger_id
+                .as_deref()
+                .and_then(|id| definitions.trigger_type(id));
+            let typ = &mut definitions.trigger_types[index];
+            typ.owner = record.owner.clone();
+            typ.linked = linked;
+            typ.enabled = record.enabled;
+            typ.difficulty = [
+                record.difficulty.easy,
+                record.difficulty.medium,
+                record.difficulty.hard,
+            ];
+            definitions.tag_types.push(TagType {
+                id: id.clone(),
+                name: id.clone(),
+                repeat: 0,
+                trigger: Some(index),
+            });
+        }
+        self.trigger_runtime = TriggerRuntime {
+            definitions,
+            definitions_prepared: true,
+            locals_set: locals
+                .values()
+                .filter(|v| v.initially_set)
+                .map(|v| v.index)
+                .collect(),
+            fixture_awaiting_records: true,
+            ..TriggerRuntime::default()
+        };
+    }
+
+    #[cfg(test)]
+    fn install_pending_trigger_fixture(&mut self, inputs: TriggerInputs<'_>) {
+        if !self.trigger_runtime.fixture_awaiting_records {
+            return;
+        }
+        let count = self.trigger_runtime.definitions.trigger_types.len();
+        for index in 0..count {
+            let id = self.trigger_runtime.definitions.trigger_types[index]
+                .id
+                .to_ascii_uppercase();
+            let events = inputs
+                .events
+                .get(&id)
+                .map_or_else(Vec::new, |r| r.conditions.clone());
+            let entries = inputs
+                .actions
+                .get(&id)
+                .map_or_else(Vec::new, |r| r.entries.clone());
+            let actions = entries
+                .into_iter()
+                .map(|entry| self.trigger_runtime.definitions.resolve_action(entry, None))
+                .collect();
+            let typ = &mut self.trigger_runtime.definitions.trigger_types[index];
+            typ.events = events;
+            typ.actions = actions;
+        }
+        self.trigger_runtime.fixture_awaiting_records = false;
+        self.classify_map_triggers(inputs.rules);
+    }
+
+    /// Original Tag6E52A0 includes pending-but-not-yet-destroyed instances.
+    fn shared_trigger_tag(&mut self, type_index: usize) -> usize {
+        if let Some(index) = self.trigger_runtime.tag_order.iter().copied().find(|&i| {
+            self.trigger_runtime
+                .tag(i)
+                .is_some_and(|tag| tag.type_index == type_index)
+        }) {
+            return index;
+        }
+        self.construct_trigger_tag(type_index)
+    }
+
+    fn construct_trigger_tag(&mut self, type_index: usize) -> usize {
+        //6E4DE0/725FA0 call Abstract410170, whose ID remains-1: no
+        // Create_ID410230 call and no Scenario numeric-ID draw occurs here.
+        let tag_index = self.trigger_runtime.tags.len();
+        self.trigger_runtime.tags.push(Some(LiveTag {
+            type_index,
+            triggers: Vec::new(),
+            refs: 0,
+            attached_cell: (0, 0),
+            pending: false,
+            dispatch_guard: false,
+        }));
+        self.trigger_runtime.tag_order.push(tag_index);
+        let mut next = self.trigger_runtime.definitions.tag_types[type_index].trigger;
+        let mut visited = BTreeSet::new();
+        let difficulty = self.trigger_difficulty();
+        while let Some(type_index) = next {
+            if !visited.insert(type_index) {
+                break;
+            }
+            let index = self.trigger_runtime.triggers.len();
+            self.trigger_runtime.triggers.push(Some(LiveTrigger {
+                type_index,
+                timer: CdTimer::started(self.session.binary_frame as i32, 0),
+                completed: 0,
+                enabled: true,
+                pending: false,
+            }));
+            self.trigger_runtime.trigger_order.push(index);
+            // Reset726400 runs BEFORE enabled/difficulty admission.
+            self.reset_trigger_timers(index);
+            let typ = &self.trigger_runtime.definitions.trigger_types[type_index];
+            let enabled = typ.enabled && typ.admits_difficulty(difficulty);
+            next = typ.linked;
+            self.trigger_runtime.triggers[index]
+                .as_mut()
+                .unwrap()
+                .enabled = enabled;
+            self.trigger_runtime.tags[tag_index]
+                .as_mut()
+                .unwrap()
+                .triggers
+                .insert(0, index);
+        }
+        tag_index
+    }
+
+    fn reset_trigger_timers(&mut self, index: usize) {
+        let Some(trigger) = self.trigger_runtime.trigger(index) else {
+            return;
+        };
+        let type_index = trigger.type_index;
+        let event_count = self.trigger_runtime.definitions.trigger_types[type_index]
+            .events
+            .len();
+        for ordinal in 0..event_count {
+            let event = &self.trigger_runtime.definitions.trigger_types[type_index].events[ordinal];
+            let duration = match event.kind {
+                13 => event.value.wrapping_mul(LOGICAL_FRAMES_PER_SECOND),
+                51 => {
+                    let value = event.value;
+                    let drawn = self.scenario_rng.next_range_i32_inclusive(0, value);
+                    (value / 2)
+                        .wrapping_add(drawn)
+                        .wrapping_mul(LOGICAL_FRAMES_PER_SECOND)
+                }
+                _ => continue,
+            };
+            let trigger = self.trigger_runtime.triggers[index].as_mut().unwrap();
+            trigger
+                .timer
+                .start(self.session.binary_frame as i32, duration);
+            trigger.completed &= !(1u32.wrapping_shl(ordinal as u32));
+        }
+    }
+
+    /// Native4AD1B3 ordered CellTags reader. Run after Cell storage is installed
+    /// and before authored Techno attachments/Fill. Reads through shared INI
+    /// readers; registry/instance order is never taken from a HashMap scan.
+    pub(crate) fn install_authored_cell_trigger_tags(
+        &mut self,
+        map: &crate::map::map_file::MapFile,
+    ) {
+        let Some(section) = map.ini.section("CellTags") else {
+            return;
+        };
+        // Basic68A13D pushes default0; use the existing production reader.
+        let format = map.basic.new_ini_format.unwrap_or(0);
+        for key in section.keys() {
+            let Some(name) = section.read_name(key, 128) else {
+                continue;
+            };
+            //4AD20C resolves the allocating TagType factory before admission.
+            let Some(type_index) = self.trigger_runtime.definitions.tag_type(name) else {
+                continue;
+            };
+            let packed = crt_atoi(key);
+            let stride = if format < 4 { 128 } else { 1000 };
+            let cell = ((packed % stride) as i16, (packed / stride) as i16);
+            let identity = self.trigger_cell_identity(cell);
+            if self.trigger_runtime.cell_tags.contains_key(&identity) {
+                continue;
+            }
+            let tag = self.shared_trigger_tag(type_index);
+            self.trigger_runtime.tags[tag]
+                .as_mut()
+                .unwrap()
+                .attached_cell = cell;
+            //4AD2C9 repeats5657A0 after live construction; a miss stamps the
+            // same retained Dummy a second time before CellReplace485250.
+            let identity = self.trigger_cell_identity(cell);
+            self.replace_cell_trigger_tag(identity, Some(tag));
+        }
+    }
+
+    /// Fill684D47..684EC1 registers in retained TagType order: map, Logic,
+    /// then House. Registration does not increase the attachment refcount.
+    pub(crate) fn classify_map_triggers(&mut self, rules: Option<&crate::rules::ruleset::RuleSet>) {
+        if self.trigger_runtime.classified {
+            return;
+        }
+        for type_index in 0..self.trigger_runtime.definitions.tag_types.len() {
+            let flags = self.trigger_runtime.definitions.classification(type_index);
+            if flags & 4 != 0 {
+                let tag = self.shared_trigger_tag(type_index);
+                self.trigger_runtime.map_tags.push(tag);
+            }
+            if flags & 16 != 0 {
+                let tag = self.shared_trigger_tag(type_index);
+                self.trigger_runtime.logic_tags.push(tag);
+            }
+            if flags & 8 != 0 {
+                let tag = self.shared_trigger_tag(type_index);
+                let owner = self.trigger_runtime.definitions.tag_types[type_index]
+                    .trigger
+                    .and_then(|t| {
+                        self.trigger_runtime.definitions.trigger_types[t]
+                            .owner
+                            .as_deref()
+                    });
+                if let Some(house) = resolve_trigger_house(self, owner, rules) {
+                    self.trigger_runtime
+                        .house_tags
+                        .entry(house)
+                        .or_default()
+                        .push(tag);
+                }
+            }
+        }
+        // Fill684EC3 counts each AllowWin TagType after registration, even
+        // disabled ones. It counts definition families, not attached refs.
+        for type_index in 0..self.trigger_runtime.definitions.tag_types.len() {
+            if !self.trigger_runtime.definitions.has_action(type_index, 15) {
+                continue;
+            }
+            let owner = self.trigger_runtime.definitions.tag_types[type_index]
+                .trigger
+                .and_then(|t| {
+                    self.trigger_runtime.definitions.trigger_types[t]
+                        .owner
+                        .as_deref()
+                });
+            if let Some(house) = resolve_trigger_house(self, owner, rules)
+                && let Some(house) = self.houses.get_mut(&house)
+            {
+                house.register_allow_win_tag_type();
+            }
+        }
+        self.trigger_runtime.classified = true;
+    }
+
+    fn trigger_cell_identity(&self, cell: (i16, i16)) -> NativeCellIdentity {
+        let terrain = self
+            .resolved_terrain
+            .as_ref()
+            .expect("live CellTags require installed native map cell storage");
+        NativeCellQuery::canonical(terrain).lookup(cell)
+    }
+
+    fn replace_cell_trigger_tag(&mut self, cell: NativeCellIdentity, tag: Option<usize>) {
+        if let Some(previous) = self.trigger_runtime.cell_tags.remove(&cell)
+            && let Some(old) = self.trigger_runtime.tags[previous].as_mut()
+        {
+            old.refs = old.refs.wrapping_sub(1);
+        }
+        if let Some(tag) = tag {
+            self.trigger_runtime.cell_tags.insert(cell, tag);
+            let live = self.trigger_runtime.tags[tag].as_mut().unwrap();
+            live.refs = live.refs.wrapping_add(1);
+        }
+    }
+
+    fn replace_trigger_tag_attachment(
+        &mut self,
+        attachment: TagAttachment,
+        tag: Option<usize>,
+    ) -> bool {
+        if let Some(previous) = self.trigger_runtime.attachments.remove(&attachment)
+            && let Some(old) = self.trigger_runtime.tags[previous].as_mut()
+            && matches!(attachment, TagAttachment::Object(_))
+        {
+            old.refs = old.refs.wrapping_sub(1);
+        }
+        if let Some(tag) = tag {
+            self.trigger_runtime.attachments.insert(attachment, tag);
+            let live = self.trigger_runtime.tags[tag].as_mut().unwrap();
+            if matches!(attachment, TagAttachment::Object(_)) {
+                live.refs = live.refs.wrapping_add(1);
+            }
+        }
+        tag.is_some()
+    }
+
+    /// Object5F5B50 attachment funnel. An absent/null authored reference clears
+    /// the current attachment without destroying a zero-reference Tag.
+    pub(crate) fn attach_object_trigger_tag(&mut self, object: u64, name: Option<&str>) {
+        let type_index = name.and_then(|name| {
+            self.trigger_runtime
+                .definitions
+                .tag_types
+                .iter()
+                .position(|typ| {
+                    typ.id.eq_ignore_ascii_case(name) || typ.name.eq_ignore_ascii_case(name)
+                })
+        });
+        let tag = type_index.map(|typ| self.shared_trigger_tag(typ));
+        self.replace_trigger_tag_attachment(TagAttachment::Object(object), tag);
+    }
+    /// Team constructor6E8D76..6E8D99 allocates an independent Tag rather
+    /// than sharing the map TagType instance. Team+70 itself is uncounted;
+    /// members enter the ordinary Object5F5B50 reference-count funnel.
+    pub(crate) fn attach_team_trigger_tag(
+        &mut self,
+        team: u64,
+        team_type: crate::sim::intern::InternedId,
+    ) {
+        let definitions = &self.trigger_runtime.definitions;
+        let name = self.interner.resolve(team_type);
+        let type_index = definitions
+            .team_types
+            .iter()
+            .position(|id| id.eq_ignore_ascii_case(name))
+            .and_then(|index| definitions.team_tags[index]);
+        let tag = type_index.map(|typ| self.construct_trigger_tag(typ));
+        self.replace_trigger_tag_attachment(TagAttachment::Team(team), tag);
+    }
+
+    pub(crate) fn attach_team_member_trigger_tag(&mut self, team: u64, object: u64) {
+        // AddMember6EA582..6EA587 skips attachment when Team+70 is NULL,
+        // retaining an authored Object Tag. The B3/Passengers admission gate
+        // belongs to the shared Team caller; Object5F5B50 owns references.
+        // Executed controls: tools/spatial_oracle/team_creation.member_tag.
+        let Some(tag) = self
+            .trigger_runtime
+            .attachments
+            .get(&TagAttachment::Team(team))
+            .copied()
+        else {
+            return;
+        };
+        self.replace_trigger_tag_attachment(TagAttachment::Object(object), Some(tag));
+    }
+
+    /// Team RemoveMember6EA892..6EA8B5 may clear only the Team's own Tag.
+    /// Its caller retains the native House admission gate; authored object
+    /// attachments belonging to another Tag remain intact.
+    pub(crate) fn clear_team_member_trigger_tag(&mut self, team: u64, object: u64) {
+        if let Some(&tag) = self
+            .trigger_runtime
+            .attachments
+            .get(&TagAttachment::Team(team))
+            && self
+                .trigger_runtime
+                .attachments
+                .get(&TagAttachment::Object(object))
+                == Some(&tag)
+        {
+            self.replace_trigger_tag_attachment(TagAttachment::Object(object), None);
+        }
+    }
+
+    /// Destructor6E8E75..6E8EAB follows member removal. Only a zero-reference
+    /// Tag is queued, then the direct Team pointer is cleared without a draw.
+    pub(crate) fn clear_team_trigger_tag(&mut self, team: u64) {
+        if let Some(&tag) = self
+            .trigger_runtime
+            .attachments
+            .get(&TagAttachment::Team(team))
+            && self
+                .trigger_runtime
+                .tag(tag)
+                .is_some_and(|tag| tag.refs == 0)
+        {
+            self.mark_live_tag_for_delete(tag);
+        }
+        self.replace_trigger_tag_attachment(TagAttachment::Team(team), None);
+    }
+
+    fn mark_live_trigger_for_delete(&mut self, index: usize) {
+        if let Some(trigger) = self
+            .trigger_runtime
+            .triggers
+            .get_mut(index)
+            .and_then(Option::as_mut)
+        {
+            trigger.pending = true;
+            self.substrate.pending_delete.queue_trigger(index);
+        }
+    }
+    fn mark_live_tag_for_delete(&mut self, index: usize) {
+        if let Some(tag) = self
+            .trigger_runtime
+            .tags
+            .get_mut(index)
+            .and_then(Option::as_mut)
+        {
+            tag.pending = true;
+            self.substrate.pending_delete.queue_tag(index);
+        }
+    }
+    fn detach_live_tag(&mut self, index: usize) {
+        //7258D0 -> every Object/Cell, Map577920 and Logic55B880. This does
+        // not set Tag.pending; ProcessTriggerEvent queues its removal separately.
+        self.trigger_runtime.logic_tags.retain(|&tag| tag != index);
+        self.trigger_runtime.map_tags.retain(|&tag| tag != index);
+        for tags in self.trigger_runtime.house_tags.values_mut() {
+            tags.retain(|&tag| tag != index);
+        }
+        let attachments: Vec<_> = self
+            .trigger_runtime
+            .attachments
+            .iter()
+            .filter_map(|(&id, &tag)| (tag == index).then_some(id))
+            .collect();
+        for attachment in attachments {
+            self.replace_trigger_tag_attachment(attachment, None);
+        }
+        let cells: Vec<_> = self
+            .trigger_runtime
+            .cell_tags
+            .iter()
+            .filter_map(|(&cell, &tag)| (tag == index).then_some(cell))
+            .collect();
+        for cell in cells {
+            self.replace_cell_trigger_tag(cell, None);
+        }
+    }
+
+    /// Trigger deleting destructor726950 selected by the common725C70 owner.
+    /// Pointer expiry splices this identity out of every live Tag chain.
+    pub(crate) fn delete_live_trigger(&mut self, index: usize) {
+        if self.trigger_runtime.trigger(index).is_none() {
+            return;
+        }
+        for tag in self.trigger_runtime.tags.iter_mut().flatten() {
+            tag.triggers.retain(|&t| t != index);
+        }
+        self.trigger_runtime.trigger_order.retain(|&t| t != index);
+        self.trigger_runtime.triggers[index] = None;
+        #[cfg(test)]
+        self.trigger_runtime.freed_trace.push("trigger");
+    }
+
+    /// Tag destructor6E4F60 selected by the common725C70 owner. It can
+    /// append Trigger tickets; the same global live scan consumes them later.
+    pub(crate) fn delete_live_tag(
+        &mut self,
+        index: usize,
+        rules: Option<&crate::rules::ruleset::RuleSet>,
+        game_state: i32,
+        started: bool,
+    ) {
+        let Some(tag) = self.trigger_runtime.tag(index) else {
+            return;
+        };
+        let typ = tag.type_index;
+        let triggers = tag.triggers.clone();
+        self.detach_live_tag(index);
+        // Active-start destructor6E4F60 searches AFTER detach:
+        // Find=-1 therefore still decrements the signed cursor.
+        let flags = self.trigger_runtime.definitions.classification(typ);
+        self.adjust_tag_destructor_cursors(flags, game_state, started);
+        if (game_state as u8) != 0
+            && started
+            && self.trigger_runtime.definitions.has_action(typ, 15)
+        {
+            // Destructor uses the live reversed-chain head's owner.
+            let owner = triggers
+                .first()
+                .and_then(|&t| self.trigger_runtime.trigger(t))
+                .and_then(|t| {
+                    self.trigger_runtime.definitions.trigger_types[t.type_index]
+                        .owner
+                        .as_deref()
+                });
+            if let Some(house) = resolve_trigger_house(self, owner, rules)
+                && let Some(house) = self.houses.get_mut(&house)
+            {
+                house.removed_allow_win_tag(self.session.binary_frame as i32);
+            }
+        }
+        for trigger in triggers {
+            self.substrate.pending_delete.queue_trigger(trigger);
+        }
+        self.trigger_runtime.tag_order.retain(|&t| t != index);
+        self.trigger_runtime.tags[index] = None;
+        #[cfg(test)]
+        self.trigger_runtime.freed_trace.push("tag");
+    }
+    fn adjust_tag_destructor_cursors(&mut self, flags: u8, game_state: i32, started: bool) {
+        if (game_state as u8) == 0 || !started {
+            return;
+        }
+        for (bit, cursor, count) in [
+            (
+                16,
+                &mut self.trigger_runtime.logic_cursor,
+                self.trigger_runtime.logic_tags.len(),
+            ),
+            (
+                4,
+                &mut self.trigger_runtime.map_cursor,
+                self.trigger_runtime.map_tags.len(),
+            ),
+        ] {
+            if flags & bit != 0 && *cursor >= -1 {
+                *cursor = cursor.wrapping_sub(1);
+                if *cursor < 0 && count == 0 {
+                    *cursor = 0;
+                }
+            }
+        }
+    }
+
+    fn register_live_trigger_event(
+        &mut self,
+        index: usize,
+        event_kind: i32,
+        force: bool,
+        repeat: bool,
+    ) -> bool {
+        //7264C0 admits enabled/nonpending instances; Force flag bypasses all
+        // predicates, but repetition still resets timers before Spring.
+        let Some(trigger) = self.trigger_runtime.trigger(index) else {
+            return false;
+        };
+        if !trigger.enabled || trigger.pending {
+            return false;
+        }
+        let type_index = trigger.type_index;
+        let mut result = true;
+        if !force {
+            let event_count = self.trigger_runtime.definitions.trigger_types[type_index]
+                .events
+                .len();
+            for ordinal in 0..event_count {
+                let bit = 1u32.wrapping_shl(ordinal as u32);
+                if self.trigger_runtime.trigger(index).unwrap().completed & bit != 0 {
+                    continue;
+                }
+                let condition =
+                    &self.trigger_runtime.definitions.trigger_types[type_index].events[ordinal];
+                //71E940 timer/global/time predicates are type-dispatched;
+                // discrete events compare the supplied event code.
+                let matched = match condition.kind {
+                    13 | 51 => self
+                        .trigger_runtime
+                        .trigger(index)
+                        .unwrap()
+                        .timer
+                        .expired(self.session.binary_frame as i32),
+                    2 => event_kind == 2,
+                    _ => self.trigger_runtime.evaluate_event(
+                        condition,
+                        self.session.binary_frame,
+                        self,
+                    ),
+                };
+                if !matched {
+                    result = false;
+                    continue;
+                }
+                //726564..726582 first tests the mutable persistence flag
+                // passed to71E940, seeded by the Tag's repeat==2 argument.
+                // The selected discrete predicate2 does not write that flag;
+                // repeat0/1 therefore must not retain its completion bit.
+                //71F950/71F9C0 then select the latchable event kinds. Native
+                // controls: tag_lifecycle completion_mode_0/completion_mode_2.
+                if repeat
+                    && matches!(
+                        condition.kind,
+                        2 | 3
+                            | 4
+                            | 7
+                            | 18
+                            | 19
+                            | 20
+                            | 21
+                            | 22
+                            | 23
+                            | 24
+                            | 25
+                            | 26
+                            | 29
+                            | 33
+                            | 34
+                            | 35
+                            | 38
+                            | 39
+                            | 40
+                            | 41
+                            | 42
+                            | 43
+                            | 48
+                            | 49
+                            | 50
+                            | 53
+                            | 54
+                    )
+                {
+                    self.trigger_runtime.triggers[index]
+                        .as_mut()
+                        .unwrap()
+                        .completed |= bit;
+                }
+            }
+        }
+        if result && repeat {
+            self.reset_trigger_timers(index);
+        }
+        result
+    }
+
+    /// TechnoDiscovered6F4A18's synchronous Tag6E53A0 ingress. The existing
+    /// attachment/dispatch owner retains the neutral call even when no event
+    /// matches. Initial SOV01 GTGCAN tags contain only Event48; the native
+    /// full55 footprint excludes all authored initial Event4 residents.
+    /// General Event4 predicate/action coverage remains a later chain.
+    pub(crate) fn dispatch_object_discovery(
+        &mut self,
+        object: u64,
+        context: crate::sim::world::UninitContext<'_>,
+    ) {
+        let Some(&tag) = self
+            .trigger_runtime
+            .attachments
+            .get(&TagAttachment::Object(object))
+        else {
+            return;
+        };
+        let mut effects = Vec::new();
+        self.dispatch_live_tag_event(
+            tag,
+            4,
+            Some(object),
+            (0, 0),
+            false,
+            &mut effects,
+            context.rules(),
+            context.registry(),
+            context.effects(),
+        );
+        self.publish_trigger_effects(effects);
+    }
+
+    fn spring_live_trigger(
+        &mut self,
+        index: usize,
+        effects: &mut Vec<TriggerEffect>,
+        rules: Option<&crate::rules::ruleset::RuleSet>,
+        overlay_registry: Option<&crate::rules::overlay_types::OverlayTypeRegistry>,
+        frame_effects: FrameEffects<'_>,
+    ) -> bool {
+        //7265C0 deliberately does not call RegisterEvent. Force22 springs
+        // directly, but disabled/pending instances still reject it.
+        let Some(trigger) = self.trigger_runtime.trigger(index) else {
+            return false;
+        };
+        if !trigger.enabled || trigger.pending {
+            return false;
+        }
+        let type_index = trigger.type_index;
+        let count = self.trigger_runtime.definitions.trigger_types[type_index]
+            .actions
+            .len();
+        let mut result = false;
+        for ordinal in 0..count {
+            let action =
+                self.trigger_runtime.definitions.trigger_types[type_index].actions[ordinal].clone();
+            result |= self.apply_live_trigger_action(
+                &action,
+                type_index,
+                effects,
+                rules,
+                overlay_registry,
+                frame_effects,
+            );
+        }
+        result
+    }
+
+    fn dispatch_live_tag_event(
+        &mut self,
+        index: usize,
+        event_kind: i32,
+        object: Option<u64>,
+        cell: (i16, i16),
+        force: bool,
+        effects: &mut Vec<TriggerEffect>,
+        rules: Option<&crate::rules::ruleset::RuleSet>,
+        overlay_registry: Option<&crate::rules::overlay_types::OverlayTypeRegistry>,
+        frame_effects: FrameEffects<'_>,
+    ) -> bool {
+        #[cfg(test)]
+        self.trigger_runtime
+            .dispatch_trace
+            .push((index, event_kind));
+        let Some(tag) = self.trigger_runtime.tag(index) else {
+            return false;
+        };
+        if tag.pending || tag.dispatch_guard {
+            return false;
+        }
+        let repeat = self.trigger_runtime.definitions.tag_types[tag.type_index].repeat;
+        let chain = tag.triggers.clone();
+        self.trigger_runtime.tags[index]
+            .as_mut()
+            .unwrap()
+            .dispatch_guard = true;
+        let mut result = false;
+        let mut detach_attachment = false;
+        let mut detach_all = false;
+        for trigger in chain {
+            if !self.register_live_trigger_event(trigger, event_kind, force, repeat == 2) {
+                continue;
+            }
+            match repeat {
+                0 => {
+                    self.spring_live_trigger(
+                        trigger,
+                        effects,
+                        rules,
+                        overlay_registry,
+                        frame_effects,
+                    );
+                    self.mark_live_trigger_for_delete(trigger);
+                    result = true;
+                    detach_attachment = true;
+                    detach_all = true;
+                }
+                1 => {
+                    if self.trigger_runtime.tag(index).unwrap().refs == 1 {
+                        self.spring_live_trigger(
+                            trigger,
+                            effects,
+                            rules,
+                            overlay_registry,
+                            frame_effects,
+                        );
+                        self.mark_live_trigger_for_delete(trigger);
+                        result = true;
+                        detach_all = true;
+                    }
+                    detach_attachment = true;
+                }
+                2 => {
+                    self.spring_live_trigger(
+                        trigger,
+                        effects,
+                        rules,
+                        overlay_registry,
+                        frame_effects,
+                    );
+                    result = true;
+                }
+                _ => {}
+            }
+        }
+        self.trigger_runtime.tags[index]
+            .as_mut()
+            .unwrap()
+            .dispatch_guard = false;
+        if detach_attachment {
+            if let Some(object) = object
+                && self
+                    .trigger_runtime
+                    .attachments
+                    .get(&TagAttachment::Object(object))
+                    == Some(&index)
+            {
+                self.replace_trigger_tag_attachment(TagAttachment::Object(object), None);
+            }
+            if cell != (0, 0) {
+                let identity = self.trigger_cell_identity(cell);
+                self.replace_cell_trigger_tag(identity, None);
+            }
+        }
+        if detach_all {
+            self.detach_live_tag(index);
+            self.substrate.pending_delete.queue_tag(index);
+        }
+        result
+    }
+
+    fn set_trigger_variable(&mut self, global: bool, index: i32, set: bool) -> bool {
+        if !(0..if global { 50 } else { 100 }).contains(&index) {
+            return false;
+        }
+        let values = if global {
+            &mut self.trigger_runtime.globals_set
+        } else {
+            &mut self.trigger_runtime.locals_set
+        };
+        let previous = values.contains(&(index as u32));
+        if set {
+            values.insert(index as u32);
+        } else {
+            values.remove(&(index as u32));
+        }
+        if previous != set {
+            self.trigger_runtime.dirty[0] = true;
+            let events = if global { [27, 28] } else { [36, 37] };
+            //689670/689910 -> Tag6E57F0/6E5820 ->7263A0/7263D0:
+            // Tag registry order, then each reversed live chain, including
+            // disabled instances. This differs from Enable53's global array.
+            let mut tag_ordinal = 0;
+            while tag_ordinal < self.trigger_runtime.tag_order.len() {
+                let tag = self.trigger_runtime.tag_order[tag_ordinal];
+                let chain = self.trigger_runtime.tag(tag).unwrap().triggers.clone();
+                for live in chain {
+                    let typ = self.trigger_runtime.trigger(live).unwrap().type_index;
+                    if self.trigger_runtime.definitions.trigger_types[typ]
+                        .events
+                        .iter()
+                        .any(|e| events.contains(&e.kind) && e.value == index)
+                    {
+                        self.reset_trigger_timers(live);
+                    }
+                }
+                tag_ordinal += 1;
+            }
+        }
+        previous
+    }
+
+    /// Logic55AFB0 reads the mutable list length and dirty bytes afresh for
+    /// every Tag. A removed current Tag shifts the next entry, which is skipped
+    /// until the next visit; an enabled later Tag can fire during this pass.
+    pub(crate) fn advance_triggers(
+        &mut self,
+        inputs: TriggerInputs<'_>,
+        overlay_registry: Option<&crate::rules::overlay_types::OverlayTypeRegistry>,
+        frame_effects: FrameEffects<'_>,
+    ) -> Vec<TriggerEffect> {
+        #[cfg(test)]
+        self.install_pending_trigger_fixture(inputs);
+        let mut effects = Vec::new();
+        self.trigger_runtime.logic_cursor = 0;
+        while let Some(&tag) = self
+            .trigger_runtime
+            .logic_tags
+            .get(self.trigger_runtime.logic_cursor as usize)
+        {
+            let mut fired = false;
+            if self.trigger_runtime.dirty[3] {
+                fired = self.dispatch_live_tag_event(
+                    tag,
+                    50,
+                    None,
+                    (0, 0),
+                    false,
+                    &mut effects,
+                    inputs.rules,
+                    overlay_registry,
+                    frame_effects,
+                );
+            }
+            if !fired && self.trigger_runtime.dirty[0] {
+                for event in [27, 28, 36, 37] {
+                    if self.dispatch_live_tag_event(
+                        tag,
+                        event,
+                        None,
+                        (0, 0),
+                        false,
+                        &mut effects,
+                        inputs.rules,
+                        overlay_registry,
+                        frame_effects,
+                    ) {
+                        fired = true;
+                        break;
+                    }
+                }
+            }
+            if !fired && self.trigger_runtime.dirty[2] {
+                for event in [45, 46] {
+                    if self.dispatch_live_tag_event(
+                        tag,
+                        event,
+                        None,
+                        (0, 0),
+                        false,
+                        &mut effects,
+                        inputs.rules,
+                        overlay_registry,
+                        frame_effects,
+                    ) {
+                        fired = true;
+                        break;
+                    }
+                }
+            }
+            if !fired {
+                fired = self.dispatch_live_tag_event(
+                    tag,
+                    13,
+                    None,
+                    (0, 0),
+                    false,
+                    &mut effects,
+                    inputs.rules,
+                    overlay_registry,
+                    frame_effects,
+                );
+            }
+            if !fired {
+                self.dispatch_live_tag_event(
+                    tag,
+                    51,
+                    None,
+                    (0, 0),
+                    false,
+                    &mut effects,
+                    inputs.rules,
+                    overlay_registry,
+                    frame_effects,
+                );
+            }
+            // Scenario countdown14 expiry still belongs to its timer owner;
+            // the campaign opening has no started countdown.
+            self.trigger_runtime.logic_cursor = self.trigger_runtime.logic_cursor.wrapping_add(1);
+        }
+        self.trigger_runtime.dirty = [false; 4];
         effects
     }
 
-    fn apply_trigger_action(
+    fn apply_live_trigger_action(
         &mut self,
-        action: &ActionEntry,
+        action: &RuntimeAction,
+        type_index: usize,
         effects: &mut Vec<TriggerEffect>,
-        queue: &mut VecDeque<String>,
-        queued: &mut BTreeSet<String>,
-        triggers: &TriggerMap,
-        trigger: &crate::map::triggers::MapTrigger,
         rules: Option<&crate::rules::ruleset::RuleSet>,
-        waypoints: &HashMap<u32, crate::map::waypoints::Waypoint>,
-    ) {
+        overlay_registry: Option<&crate::rules::overlay_types::OverlayTypeRegistry>,
+        frame_effects: FrameEffects<'_>,
+    ) -> bool {
+        #[cfg(test)]
+        if self.trigger_runtime.stop_before_action == Some(action.entry.kind) {
+            std::panic::panic_any(action.entry.kind);
+        }
+        #[cfg(test)]
+        self.trigger_runtime
+            .action_trace
+            .push((action.entry.kind, action.value.unwrap_or(0)));
+        let reference = action.reference;
+        let value = action.value;
+        let action = &action.entry;
+        let trigger_owner = self.trigger_runtime.definitions.trigger_types[type_index]
+            .owner
+            .clone();
         match action.kind {
-            ACTION_FORCE_TRIGGER => {
-                if let Some(target) = parse_trigger_id_param(&action.params, 0) {
-                    enqueue_trigger(queue, queued, target);
+            4 | 7 => {
+                let Some(DefinitionReference::Team(team)) = reference else {
+                    return false;
+                };
+                let Some(rules) = rules else {
+                    return false;
+                };
+                let team_id = self
+                    .interner
+                    .intern(&self.trigger_runtime.definitions.team_types[team]);
+                if action.kind == 4 {
+                    return self
+                        .trigger_create_team(team_id, rules, overlay_registry, frame_effects)
+                        .is_some();
+                }
+                // Reinforcement6E2DC0 uses TeamType.House and its own
+                // authored Waypoint: TAction's trailing destination is ignored.
+                let (result, recent_event) = self.spawn_team_reinforcements(
+                    team_id,
+                    -1,
+                    rules,
+                    overlay_registry,
+                    frame_effects,
+                );
+                if let Some(cell) = recent_event {
+                    effects.push(TriggerEffect::RecentEventCell { cell });
+                }
+                return result;
+            }
+            11 => {
+                // Execute6DE0A8 skips an empty inline label. CSF resolution
+                // and MessageList5D3BA0 remain ordered presentation consumers.
+                let label = action.csf_label();
+                if !label.is_empty() {
+                    effects.push(TriggerEffect::LocalizedMessage {
+                        csf_label: label.to_string(),
+                    });
+                }
+            }
+            17 => {
+                let (Some(rules), Some(waypoint)) = (rules, value) else {
+                    return false;
+                };
+                return self.trigger_reveal_at_waypoint(
+                    waypoint,
+                    crate::sim::world::UninitContext::new(Some(rules), overlay_registry)
+                        .with_effects(frame_effects),
+                );
+            }
+            21 => {
+                let Some(index) = value else {
+                    return false;
+                };
+                self.sound_events.push(SimSoundEvent::TriggerEva { index });
+                frame_effects.flush_sound(self, rules);
+            }
+            41 => {
+                let (Some(rules), Some(index), Some(waypoint)) =
+                    (rules, value, action.waypoint_index)
+                else {
+                    return false;
+                };
+                return self.trigger_play_anim_at_waypoint(rules, index, waypoint as i32);
+            }
+            46 | 47 => {
+                let locked = action.kind == 46;
+                let was_locked = self.session.input_locked();
+                self.session.set_input_locked(locked);
+                effects.push(TriggerEffect::InputLockChanged { locked, was_locked });
+            }
+            ACTION_FORCE_TRIGGER | ACTION_ENABLE_TRIGGER | ACTION_DISABLE_TRIGGER => {
+                if let Some(DefinitionReference::Trigger(target)) = reference {
+                    let difficulty = self.trigger_difficulty();
+                    let mut ordinal = 0;
+                    while ordinal < self.trigger_runtime.trigger_order.len() {
+                        let live = self.trigger_runtime.trigger_order[ordinal];
+                        if self
+                            .trigger_runtime
+                            .trigger(live)
+                            .is_some_and(|t| t.type_index == target)
+                        {
+                            match action.kind {
+                                ACTION_FORCE_TRIGGER => {
+                                    self.spring_live_trigger(
+                                        live,
+                                        effects,
+                                        rules,
+                                        overlay_registry,
+                                        frame_effects,
+                                    );
+                                }
+                                ACTION_ENABLE_TRIGGER => {
+                                    if self.trigger_runtime.definitions.trigger_types[target]
+                                        .admits_difficulty(difficulty)
+                                    {
+                                        self.trigger_runtime.triggers[live]
+                                            .as_mut()
+                                            .unwrap()
+                                            .enabled = true;
+                                        self.reset_trigger_timers(live);
+                                    }
+                                }
+                                ACTION_DISABLE_TRIGGER => {
+                                    self.trigger_runtime.triggers[live]
+                                        .as_mut()
+                                        .unwrap()
+                                        .enabled = false;
+                                }
+                                _ => unreachable!(),
+                            }
+                        }
+                        ordinal += 1;
+                    }
                 }
             }
             ACTION_SET_GLOBAL | ACTION_CLEAR_GLOBAL | ACTION_SET_LOCAL | ACTION_CLEAR_LOCAL => {
-                // gamemd 6DD8B0 cases28/29/56/57 read materialized +90,
-                // then Scenario setters689670/689910 reject out-of-range
-                // indices. ParamType and the four auxiliary dwords are not
-                // variable indices. Live timer-reset fanout is still pending
-                // the Tag/Trigger instance migration.
                 let global = matches!(action.kind, ACTION_SET_GLOBAL | ACTION_CLEAR_GLOBAL);
-                let limit = if global { 50 } else { 100 };
-                let Some(index) = action
-                    .literal_value()
-                    .filter(|index| (0..limit).contains(index))
-                else {
-                    return;
-                };
-                let values = if global {
-                    &mut self.trigger_runtime.globals_set
-                } else {
-                    &mut self.trigger_runtime.locals_set
-                };
-                if matches!(action.kind, ACTION_SET_GLOBAL | ACTION_SET_LOCAL) {
-                    values.insert(index as u32);
-                } else {
-                    values.remove(&(index as u32));
+                if let Some(index) = value {
+                    self.set_trigger_variable(
+                        global,
+                        index,
+                        matches!(action.kind, ACTION_SET_GLOBAL | ACTION_SET_LOCAL),
+                    );
                 }
             }
             ACTION_CHANGE_VISIBLE_MAP_AREA => {
@@ -355,61 +1979,51 @@ impl Simulation {
                     let _ = self.change_visible_map_area(raw_local_size, rules);
                 }
             }
-            ACTION_ENABLE_TRIGGER => {
-                if let Some(target) = parse_trigger_id_param(&action.params, 0) {
-                    self.trigger_runtime.disabled_triggers.remove(&target);
-                    if triggers.contains_key(&target) {
-                        enqueue_trigger(queue, queued, target);
-                    }
-                }
-            }
-            ACTION_DISABLE_TRIGGER => {
-                if let Some(target) = parse_trigger_id_param(&action.params, 0) {
-                    self.trigger_runtime.disabled_triggers.insert(target);
-                }
-            }
-            ACTION_CENTER_CAMERA => {
-                if let Some(waypoint) = action.waypoint_index {
-                    effects.push(TriggerEffect::CenterCameraAtWaypoint {
-                        waypoint,
-                        immediate: false,
-                    });
-                }
-            }
-            ACTION_JUMP_CAMERA => {
-                if let Some(waypoint) = action.waypoint_index {
-                    effects.push(TriggerEffect::CenterCameraAtWaypoint {
-                        waypoint,
-                        immediate: true,
-                    });
-                }
+            ACTION_CENTER_CAMERA | ACTION_JUMP_CAMERA => {
+                // Execute6DD8B0 resolves GetWaypoint68BCC0 and native Cell
+                // ground/bridge state before FocusOn/CenterMap. Presentation
+                // receives the immutable coordinate; the shared simulation
+                // query also retains any process CellClass Dummy writes.
+                let Some(coord) = action
+                    .waypoint_index
+                    .and_then(|index| self.trigger_waypoint_coord(index as i32))
+                else {
+                    return false;
+                };
+                let velocity = if action.kind == ACTION_CENTER_CAMERA {
+                    let Some(velocity) = value else { return false };
+                    Some(velocity)
+                } else {
+                    None
+                };
+                effects.push(TriggerEffect::CameraAtCoord { coord, velocity });
             }
             ACTION_SET_ALTERNATE_BASE => {
-                let Some(house_id) = resolve_trigger_house(self, trigger.owner.as_deref(), rules)
+                let Some(house_id) = resolve_trigger_house(self, trigger_owner.as_deref(), rules)
                 else {
-                    return;
+                    return false;
                 };
                 let Some(waypoint_index) = action.waypoint_index else {
-                    return;
+                    return false;
                 };
-                let Some(waypoint) = waypoints.get(&waypoint_index) else {
-                    return;
+                let Some(cell) = self.session.waypoint_cell(waypoint_index as i32) else {
+                    return false;
                 };
-                if (waypoint.rx, waypoint.ry) == (0, 0) {
-                    return;
+                if cell == (0, 0) {
+                    return false;
                 }
                 // gamemd-derived: `TriggerAction__Execute @ 0x006DD8B0`
                 // case 137 calls `FUN_006E44E0`, which rejects the packed-zero
                 // waypoint and writes only `HouseClass+0x5494` through
                 // `FUN_0050DFE0`.
                 if let Some(house) = self.houses.get_mut(&house_id) {
-                    house.alternate_base_center = (waypoint.rx, waypoint.ry);
+                    house.alternate_base_center = (cell.0 as u16, cell.1 as u16);
                 }
             }
             ACTION_CLEAR_ALTERNATE_BASE => {
-                let Some(house_id) = resolve_trigger_house(self, trigger.owner.as_deref(), rules)
+                let Some(house_id) = resolve_trigger_house(self, trigger_owner.as_deref(), rules)
                 else {
-                    return;
+                    return false;
                 };
                 // gamemd-derived: `TriggerAction__Execute @ 0x006DD8B0`
                 // case 138 calls `FUN_006E4540`, which writes packed zero only
@@ -447,19 +2061,27 @@ impl Simulation {
                 };
                 effects.push(TriggerEffect::MissionResult { title, detail });
             }
-            _ => {}
+            _ => return false,
         }
+        true
     }
 }
 
-fn enqueue_trigger(
-    queue: &mut VecDeque<String>,
-    queued: &mut BTreeSet<String>,
-    trigger_id: String,
-) {
-    if queued.insert(trigger_id.clone()) {
-        queue.push_back(trigger_id);
+fn validate_live_registry<T>(
+    family: &str,
+    entries: &[Option<T>],
+    order: &[usize],
+) -> Result<(), String> {
+    let mut seen = BTreeSet::new();
+    for &index in order {
+        if !seen.insert(index) || entries.get(index).is_none_or(Option::is_none) {
+            return Err(format!("{family} registry has an invalid identity {index}"));
+        }
     }
+    if seen.len() != entries.iter().flatten().count() {
+        return Err(format!("{family} storage and active registry disagree"));
+    }
+    Ok(())
 }
 
 /// Resolve a trigger's canonical HouseType owner to the first registered House.
@@ -498,11 +2120,6 @@ fn parse_visible_map_area(fields: &[String]) -> Option<[i32; 4]> {
     Some([atoi(2)?, atoi(3)?, atoi(4)?, atoi(5)?])
 }
 
-fn parse_trigger_id_param(fields: &[String], index: usize) -> Option<String> {
-    let id = fields.get(index)?.trim();
-    (!id.is_empty()).then(|| id.to_ascii_uppercase())
-}
-
 fn count_techtype(sim: &Simulation, type_id: &str) -> usize {
     sim.substrate
         .entities
@@ -518,3 +2135,7 @@ fn count_techtype(sim: &Simulation, type_id: &str) -> usize {
 #[cfg(test)]
 #[path = "trigger_runtime_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "trigger_runtime_native_tests.rs"]
+mod native_tests;

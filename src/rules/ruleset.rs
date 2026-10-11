@@ -1138,10 +1138,11 @@ pub struct GeneralRules {
     /// Message-insert sound from [AudioVisual] IncomingMessage (retail
     /// `MessageText`). Plays on every non-silent message-list insert.
     pub incoming_message_sound: Option<String>,
-    /// Chat/system message lifetime in MINUTES from [AudioVisual]
-    /// MessageDelay (retail `.6`). The exact native minutes→ticks binding is
-    /// untraced (plan deferred item); the driver converts minutes→ms.
-    pub message_delay_minutes: f32,
+    /// `[AudioVisual] MessageDelay=` native ReadDouble in6691E0 retains
+    /// Rules+14C0. Constructor665650 initializes binary64 .6. Action11
+    /// 6DE0EF..6DE100 converts MessageDelay*900 through the native ftol into
+    /// MessageList's 16ms buckets, independently of simulation pacing.
+    pub message_delay_minutes: crate::util::native_x87::NativeF64Bits,
     /// `[AudioVisual] SpeakDelay=` in MINUTES (retail `2`): the EVA advice
     /// repeat interval. `RulesClass::ReadAudioVisual` reads key
     /// `"SpeakDelay"` (`0x0083A270`) through `INIClass::ReadDouble @
@@ -2180,7 +2181,9 @@ impl Default for GeneralRules {
             building_slam: None,
             gui_tab_sound: None,
             incoming_message_sound: None,
-            message_delay_minutes: 0.6,
+            message_delay_minutes: crate::util::native_x87::NativeF64Bits::from_bits(
+                0x3FE3_3333_3333_3333,
+            ),
             speak_delay_minutes: 0.0,
             gui_combo_open_sound: None,
             gui_combo_close_sound: None,
@@ -2662,6 +2665,8 @@ impl GeneralRules {
         // ReadGeneral.66B34B/66B372 pass AudioVisual to5283D0 and store raw
         // doubles in Rules+1708/+1700; a missing General section cannot skip them.
         let audio_visual = ini.section_or_empty("AudioVisual");
+        let message_delay_minutes =
+            audio_visual.read_double_bits("MessageDelay", defaults.message_delay_minutes);
         let detail = defaults.detail.read_pass(audio_visual);
         let pose_dir = audio_visual.read_int("PoseDir", defaults.pose_dir);
         let deploy_dir = audio_visual
@@ -2703,6 +2708,7 @@ impl GeneralRules {
         });
         let Some(general) = ini.section("General") else {
             return Self {
+                message_delay_minutes,
                 detail,
                 pose_dir,
                 deploy_dir,
@@ -3158,7 +3164,7 @@ impl GeneralRules {
             incoming_message_sound: audio_visual
                 .read_name("IncomingMessage", 0x80)
                 .map(str::to_owned),
-            message_delay_minutes: audio_visual.read_double("MessageDelay", 0.6) as f32,
+            message_delay_minutes,
             speak_delay_minutes: audio_visual.read_double("SpeakDelay", 0.0),
             gui_combo_open_sound: audio_visual
                 .read_name("GUIComboOpenSound", 0x80)
@@ -3498,6 +3504,11 @@ pub struct RuleSet {
     pub production: ProductionRules,
     /// Global gameplay constants (vision, gap generator, etc.).
     pub general: GeneralRules,
+    /// `[General] RevealTriggerRadius`, Rules+62C: ctor665EDE stores5;
+    /// ReadGeneral67181C..671836 uses ReadInt5276D0 over the retained field,
+    /// without clamping. Ordered rule passes use the shared typed projection.
+    /// Executed reader controls: tools/spatial_oracle/trigger_action_values.
+    reveal_trigger_radius: i32,
     /// Signed, unclamped `[AI] AIBaseSpacing`; constructor default is 1.
     pub ai_base_spacing: i32,
     /// Source-ordered `[General] Shipyard=` BuildingType identities.
@@ -3645,7 +3656,7 @@ pub struct RuleSet {
     pub anim_type_names: BTreeSet<String>,
     /// Ordered native registry receipt: whether this type actually reached a
     /// successful fixed-ART ReadINI before the final rules pass completed.
-    pub anim_type_art_read_states: Vec<(String, bool)>,
+    anim_type_art_read_states: Vec<(String, bool)>,
     /// GPU-independent SHP frame counts used by particle timing. Bound once
     /// from the active assets and ART data.
     effect_assets: crate::rules::effect_asset_catalog::EffectAssetCatalog,
@@ -3678,6 +3689,10 @@ pub struct RuleSet {
 }
 
 impl RuleSet {
+    pub(crate) fn reveal_trigger_radius(&self) -> i32 {
+        self.reveal_trigger_radius
+    }
+
     /// Build from the active ordered rules sources.
     pub fn from_rules_layers(layers: &RulesLayerStack) -> Result<Self, RulesError> {
         Self::from_processed_rules(&layers.process()?)
@@ -4434,6 +4449,9 @@ impl RuleSet {
             color_add,
             production,
             general,
+            reveal_trigger_radius: ini
+                .section_or_empty("General")
+                .read_int("RevealTriggerRadius", 5),
             ai_base_spacing,
             shipyard_types,
             build_const_types,
@@ -5528,6 +5546,21 @@ impl RuleSet {
     /// Read the same bound ART owner used during construction and gameplay.
     pub fn art(&self) -> &crate::rules::art_data::ArtRegistry {
         &self.art_registry
+    }
+
+    /// AnimTypeArray8B4154's retained constructor order, including types
+    /// discovered before the master list and by later rules/ART readers.
+    /// TAction41 indexes this registry at6E2357; `[Animations]` numeric
+    /// labels and the membership-only BTreeSet are not ordinal catalogs.
+    pub(crate) fn anim_type_name_by_index(&self, index: i32) -> Option<&str> {
+        self.anim_type_art_read_states
+            .get(usize::try_from(index).ok()?)
+            .map(|(name, _)| name.as_str())
+    }
+
+    #[cfg(test)]
+    pub(crate) fn anim_type_art_read_states(&self) -> &[(String, bool)] {
+        &self.anim_type_art_read_states
     }
 
     pub(crate) fn bind_scheduler_anim_assets(

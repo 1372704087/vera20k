@@ -3919,7 +3919,7 @@ fn gsi_04_07_damage_postmortem_stock_barrel_delay_and_nested_order() {
     assert!(expired.dying && !expired.lifecycle.object_alive);
     assert!(!expired.in_logic_vector);
     assert!(!sim.substrate.occupancy.contains_entity(8, 5, center));
-    assert!(sim.substrate.pending_delete.contains(&center));
+    assert!(sim.substrate.pending_delete.contains_object(&center));
     assert_eq!(
         sim.overlay_grid.as_ref().unwrap().cell(8, 5).overlay_id,
         None,
@@ -4019,7 +4019,7 @@ fn gsi_04_07_damage_postmortem_exact_zero_callbacks_precede_restore() {
         "ObjectClass::Detach_All(1) deselects before detach"
     );
     assert!(sim.substrate.occupancy.contains_entity(8, 5, target_id));
-    assert!(!sim.substrate.pending_delete.contains(&target_id));
+    assert!(!sim.substrate.pending_delete.contains_object(&target_id));
     assert_eq!(
         target.killed_by, None,
         "the synchronous callback consumes attribution before HP1 restore"
@@ -4110,7 +4110,7 @@ fn gsi_04_07_damage_postmortem_exact_zero_callbacks_precede_restore() {
     assert_eq!(target.pending_c4_detonation, Some(original_pending));
     assert!(target.lifecycle.object_alive && target.in_logic_vector);
     assert!(sim.substrate.occupancy.contains_entity(8, 5, target_id));
-    assert!(!sim.substrate.pending_delete.contains(&target_id));
+    assert!(!sim.substrate.pending_delete.contains_object(&target_id));
     assert_eq!(sim.houses[&victim_owner].stats.buildings_lost(), 2);
     assert_eq!(sim.houses[&source_owner].stats.buildings_killed(), 2);
     assert_eq!(sim.houses[&source_owner].economy.score(), 1_400);
@@ -4232,7 +4232,7 @@ fn gsi_04_07_damage_postmortem_fresh_null_expiry_does_not_recredit_initial_kille
     let expired = sim.substrate.entities.get(expiry_target).unwrap();
     assert_eq!(expired.health.current, 0);
     assert_eq!(expired.killed_by, None);
-    assert!(sim.substrate.pending_delete.contains(&expiry_target));
+    assert!(sim.substrate.pending_delete.contains_object(&expiry_target));
     assert_eq!(
         (
             sim.houses[&owner_a].stats.buildings_killed(),

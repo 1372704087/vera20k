@@ -472,7 +472,7 @@ mod tests {
         assert_eq!(actor.lifecycle.object_alive, retired["alive"] == 1);
         assert_eq!(actor.lifecycle.cell_marked, retired["marked"] == 1);
         assert!(actor.lifecycle.in_limbo);
-        assert_eq!(sim.substrate.pending_delete, vec![1]);
+        assert_eq!(sim.substrate.pending_delete.object_ids(), vec![1]);
         assert_eq!(slot(retired, [10, 10]), "0x20000000");
         assert_eq!(sim.substrate.air_slots.holder(10, 10), Some(1));
 
@@ -485,7 +485,7 @@ mod tests {
         assert_eq!(sim.substrate.air_slots.holder(10, 10), None);
         assert_eq!(slot(destroyed, [12, 10]), "0x28060000");
         assert_eq!(sim.substrate.air_slots.holder(12, 10), Some(2));
-        assert_eq!(sim.substrate.pending_delete, vec![1]);
+        assert_eq!(sim.substrate.pending_delete.object_ids(), vec![1]);
     }
 
     #[test]

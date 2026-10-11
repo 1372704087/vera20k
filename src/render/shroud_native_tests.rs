@@ -99,11 +99,7 @@ fn native_shroud_selector_matches_every_retained_neighbor_mask() {
         );
     }
     // The native unrevealed/gap path chooses frame15 independently of mask.
-    let mut fog = FogState {
-        width: 32,
-        height: 32,
-        ..Default::default()
-    };
+    let mut fog = FogState::new(32, 32);
     let mut interner = crate::sim::intern::StringInterner::new();
     let owner = interner.intern("Local");
     fog.mark_visible_for_owner(owner, 1, 1);
@@ -138,11 +134,7 @@ fn production_shroud_rebuild_matches_original_tactical_scenes() {
         .filter(|row| row["input"]["full_redraw"] != false)
     {
         let input = &row["input"];
-        let mut fog = FogState {
-            width: 64,
-            height: 64,
-            ..Default::default()
-        };
+        let mut fog = FogState::new(64, 64);
         let default_clear = input["default_flags"].as_u64() == Some(24);
         let rectangle = input["revealed_rectangle"].as_array();
         for ry in 0..64 {
@@ -195,11 +187,7 @@ fn production_shroud_rebuild_workload_timing() {
     let owner = interner.intern("Local");
     let mut results = Vec::new();
     for scene in ["unrevealed", "frontier"] {
-        let mut fog = FogState {
-            width: map[0],
-            height: map[1],
-            ..Default::default()
-        };
+        let mut fog = FogState::new(map[0], map[1]);
         // Establish the viewer outside the measured view. The frontier's
         // sight setup is also excluded from rendering measurements.
         fog.mark_visible_for_owner(owner, 1, 1);

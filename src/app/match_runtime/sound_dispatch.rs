@@ -150,6 +150,7 @@ pub(super) fn dispatch_sim_sound_events(
     // Convert sim sound events to app-layer sound events for playback.
     for sim_event in events {
         let app_event: GameSoundEvent = match sim_event {
+            SimSoundEvent::TriggerEva { index } => GameSoundEvent::TriggerEva { index },
             SimSoundEvent::UnitVoiceVisit { owner } => GameSoundEvent::UnitVoiceVisit { owner },
             SimSoundEvent::UnitVoiceDestroyed { owner } => {
                 GameSoundEvent::UnitVoiceDestroyed { owner }
@@ -1159,6 +1160,47 @@ mod tests {
              [AudioVisual]\nBaseUnderAttackSound=Siren\n",
         ))
         .unwrap()
+    }
+
+    #[test]
+    fn trigger_eva_dispatch_preserves_original_index_history_without_listener_gates() {
+        let rows: Vec<serde_json::Value> = serde_json::from_str(crate::test_fixture::text(
+            "tools/spatial_oracle/trigger_action_values.json",
+        ))
+        .unwrap();
+        let history = rows
+            .iter()
+            .find(|row| row["case_kind"] == "eva_history")
+            .unwrap();
+        let indices: Vec<i32> = history["history"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .flat_map(|step| step["calls"].as_array().unwrap())
+            .filter(|call| call["call"] == "QueueVoice")
+            .map(|call| call["index"].as_i64().unwrap() as i32)
+            .collect();
+        assert_eq!(indices.len(), 7);
+        let mut output = SoundEventQueue::new();
+        dispatch_sim_sound_events(
+            indices
+                .iter()
+                .map(|&index| SimSoundEvent::TriggerEva { index }),
+            &Simulation::new(),
+            &dispatch_rules(),
+            None,
+            &mut |_| panic!("original TAction21 does not create or gate on a radar event"),
+            &mut output,
+        );
+        let observed: Vec<_> = output
+            .drain()
+            .into_iter()
+            .map(|event| match event {
+                GameSoundEvent::TriggerEva { index } => index,
+                other => panic!("unexpected event {other:?}"),
+            })
+            .collect();
+        assert_eq!(observed, indices);
     }
 
     /// Original458200 calls global Voc before radar15 and speaks only when

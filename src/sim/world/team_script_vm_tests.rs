@@ -46,8 +46,7 @@ fn recruiting_team_fixture() -> (Simulation, RuleSet, u64, [u64; 2]) {
     });
     let team_type = sim.interner.get("TT").expect("TT interned");
     let team = sim
-        .team_script_vm
-        .construct_team(team_type, owner, true, sim.session.binary_frame as i32)
+        .create_team(team_type, Some(owner), &rules)
         .expect("no Max= limit");
     (sim, rules, team, members)
 }
@@ -402,8 +401,7 @@ fn team_fixture(
     });
     let team_type = sim.interner.get("TT").expect("TT interned");
     let team = sim
-        .team_script_vm
-        .construct_team(team_type, owner, true, sim.session.binary_frame as i32)
+        .create_team(team_type, Some(owner), &rules)
         .expect("no Max= limit");
     (sim, rules, team, members, buildings)
 }

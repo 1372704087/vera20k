@@ -42,11 +42,7 @@ fn live(mut entity: GameEntity) -> GameEntity {
 }
 
 fn fog() -> FogState {
-    FogState {
-        width: 64,
-        height: 64,
-        ..FogState::default()
-    }
+    FogState::new(64, 64)
 }
 
 /// A destroyer at (10,10) and a hostile submarine one cell east.

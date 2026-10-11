@@ -386,6 +386,7 @@ fn map_entity(type_id: &str, category: EntityCategory, cell: (u16, u16)) -> MapE
         structure_upgrades: [None, None, None],
         structure_ai_sellable: false,
         structure_ai_repairable: false,
+        trigger_tag: None,
     }
 }
 
@@ -1010,7 +1011,7 @@ fn first_nonhuman_owner_entry_queues_hunt_from_ambush_but_repeat_does_not() {
             });
         crate::sim::mission::authority::queue_entity_mission_deferred(entity, ambush);
         assert_eq!(entity.mission.effective(), ambush);
-        sim.record_techno_discovery(id, other);
+        sim.discover_techno(id, other, crate::sim::world::UninitContext::default());
         let entity = sim.substrate.entities.get(id).unwrap();
         assert!(entity.discovery.discovered_by_other_house);
         assert_eq!(entity.mission.queued(), if first { hunt } else { ambush });

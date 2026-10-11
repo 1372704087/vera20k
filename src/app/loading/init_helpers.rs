@@ -256,7 +256,12 @@ pub(crate) fn load_rules_with_merged_ini(
     .into_parts();
     let no_map = IniFile::from_str("");
     let (rules, processed_ini, fixed_art_ini, receipt) = native_owner
-        .load_scenario(crate::rules::process_owner::NativeScenarioRulesPrefix::NonCampaign(mode_rules_override), map_rules_overrides.unwrap_or(&no_map))
+        .load_scenario(
+            crate::rules::process_owner::NativeScenarioRulesPrefix::NonCampaign(
+                mode_rules_override,
+            ),
+            map_rules_overrides.unwrap_or(&no_map),
+        )
         .map_err(|error| log::warn!("Failed native noncampaign rules rebuild: {error}"))
         .ok()?
         .into_parts();
@@ -310,6 +315,25 @@ pub(crate) fn tolerant_anim_class_roots(rules: &RuleSet) -> Vec<String> {
             .filter(|name| rules.anim_type_names.contains(name)),
     );
     roots
+}
+
+/// TAction41's numeric AnimType operands resolve through the same retained
+/// native registry as runtime construction (6E2357), after all rules passes.
+/// Bind through the existing scheduler closure before live triggers run.
+pub(crate) fn trigger_anim_class_roots(
+    rules: &RuleSet,
+    actions: &crate::map::actions::ActionMap,
+) -> Vec<String> {
+    actions
+        .values()
+        .flat_map(|action| &action.entries)
+        .filter(|action| action.kind == 41)
+        .filter_map(|action| action.literal_value())
+        .filter_map(|index| rules.anim_type_name_by_index(index))
+        .map(str::to_owned)
+        .collect::<BTreeSet<_>>()
+        .into_iter()
+        .collect()
 }
 
 /// Scheduler asset roots required by this map's surviving runtime objects.
@@ -952,7 +976,10 @@ mod tests {
         )
         .expect("cold startup");
         let (rules, processed_ini, fixed_art, _receipt) = owner
-            .load_scenario(crate::rules::process_owner::NativeScenarioRulesPrefix::NonCampaign(Some(mode)), map)
+            .load_scenario(
+                crate::rules::process_owner::NativeScenarioRulesPrefix::NonCampaign(Some(mode)),
+                map,
+            )
             .expect("noncampaign scenario rebuild")
             .into_parts();
         (rules, processed_ini, fixed_art)

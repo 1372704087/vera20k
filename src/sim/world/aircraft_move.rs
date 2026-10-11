@@ -53,14 +53,9 @@ impl Simulation {
     /// 13`, the Walk/Fly polar step), skipping cells outside the playfield
     /// and repeats of the last cell it tried. `target` again when none is.
     ///
-    /// A team member first asks `0x006EC300`, which answers false at each
-    /// exit before its waypoint read (`TeamScriptVm::
-    /// member_step_reads_waypoint`). RESIDUAL: that read. A formed team's
-    /// member on a move-to-waypoint step whose waypoint lies outside the
-    /// playfield keeps `target` natively; VERA has no waypoint table in the
-    /// simulation and searches. Trigger: campaign team aircraft sent past
-    /// the playfield. The map editor's early return (`[0x00A8E7AC]`) has no
-    /// game state.
+    /// Before searching, native preserves `target` during the shared
+    /// placement scope or when the shared Team6EC300 predicate finds a
+    /// formed action3 waypoint outside the height-aware playfield.
     pub(crate) fn aircraft_find_attack_cell(
         &mut self,
         id: u64,
@@ -68,6 +63,10 @@ impl Simulation {
         rules: &RuleSet,
     ) -> Option<NavTargetRef> {
         let target = target?;
+        if self.object_placement_scope_active() || self.member_team_is_moving_outside_playfield(id)
+        {
+            return Some(target);
+        }
         let mut claims = None;
         if self.foot_land_zone_clear(id, target, Some(rules)) {
             let coord = nav_target_coordinate(

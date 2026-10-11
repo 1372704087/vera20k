@@ -2859,7 +2859,7 @@ ConditionYellow=50%
             !sim.substrate.entities.contains(pax),
             "blocked occupant must reach UnInit and the shared test drain"
         );
-        assert!(!sim.substrate.pending_delete.contains(&pax));
+        assert!(!sim.substrate.pending_delete.contains_object(&pax));
     }
     /// A failed unload re-attaches an open-topped rider at the head it left,
     /// with its recorded size and `+0x82` still set: only a successful unload

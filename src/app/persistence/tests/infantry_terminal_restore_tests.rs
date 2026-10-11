@@ -191,8 +191,8 @@ fn infantry_terminal_fatal_frame_exit_preserves_delivered_cleanup_through_load()
         saved
             .substrate
             .pending_delete
-            .iter()
-            .filter(|&&id| id == victim)
+            .object_tickets()
+            .filter(|&id| id == victim)
             .count(),
         1
     );
@@ -257,7 +257,7 @@ fn infantry_terminal_fatal_frame_exit_preserves_delivered_cleanup_through_load()
     // first committed frame drains the already-delivered victim normally.
     assert!(next.tick.frame_committed);
     assert!(!restored.substrate.entities.contains(victim));
-    assert!(!restored.substrate.pending_delete.contains(&victim));
+    assert!(!restored.substrate.pending_delete.contains_object(&victim));
     assert_eq!(death_ids(&restored), effects);
     assert!(!next.sound_events.iter().any(|event| matches!(event,
         SimSoundEvent::AnimationStarted { sound_id, .. } if sound_id == "DEATHREPORT")));

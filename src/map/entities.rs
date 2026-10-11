@@ -47,8 +47,8 @@ impl From<crate::rules::object_type::ObjectCategory> for EntityCategory {
 /// A single entity placement parsed from a map file.
 ///
 /// Contains the minimum data needed to spawn an ECS entity.
-/// Advanced fields (trigger tags and remaining AI flags) are not yet parsed
-/// — they'll be added when trigger/AI systems are implemented.
+/// Trigger definitions resolve the authored tag while the concrete object is
+/// constructed, before Unlimbo. Remaining AI flags retain their reader bounds.
 #[derive(Debug, Clone)]
 pub struct MapEntity {
     /// House/faction name (e.g., "Americans", "Soviet", "Neutral").
@@ -103,6 +103,10 @@ pub struct MapEntity {
     /// building's Unlimbo (`0x0044FBF9`), false when the line stops short.
     /// False for other categories.
     pub structure_ai_repairable: bool,
+    /// Native Unit74346A/Aircraft41B2DD/Infantry51FD29/Building44FB33:
+    /// raw CRT token passed to TagType6E5E70 ID-or-display-name lookup.
+    /// The loader attaches the shared live Tag before class Unlimbo.
+    pub trigger_tag: Option<String>,
 }
 
 /// Field index of the `MISSION=` column in `[Units]`, `[Infantry]` and
@@ -245,6 +249,7 @@ fn parse_infantry_section(section: &IniSection, entities: &mut Vec<MapEntity>) {
             structure_upgrades: [None, None, None],
             structure_ai_sellable: false,
             structure_ai_repairable: false,
+            trigger_tag: fields.get(8).map(|value| (*value).to_owned()),
         });
     }
 }
@@ -356,6 +361,9 @@ fn parse_common_fields(fields: &[&str], category: EntityCategory, key: &str) -> 
         structure_upgrades: [None, None, None],
         structure_ai_sellable: false,
         structure_ai_repairable: false,
+        trigger_tag: fields
+            .get(if category == EntityCategory::Structure { 6 } else { 7 })
+            .map(|value| (*value).to_owned()),
     })
 }
 

@@ -473,10 +473,8 @@ impl Simulation {
         // PendingDeleteList is an independent ordered substrate fact. The
         // length delimiter distinguishes queue boundaries before the ordered
         // IDs are folded (duplicates are intentionally preserved here).
-        self.substrate.pending_delete.len().hash(&mut hasher);
-        for id in &self.substrate.pending_delete {
-            id.hash(&mut hasher);
-        }
+        self.substrate.pending_delete.hash_state(&mut hasher);
+        self.load_objects.hash_state(&mut hasher);
 
         self.substrate.fold_raw_cell_occupation(&mut hasher);
         self.substrate.fold_hidden_occupation(&mut hasher);
@@ -923,6 +921,7 @@ impl Simulation {
             house.hash_native_construction(hasher);
             house.hash_difficulty_biases(hasher);
             house.hash_scenario_parameters(hasher);
+            house.hash_allow_win_tags(hasher);
             house.hash_super_weapon_cells(hasher);
             house.repair_delay().to_bits().hash(hasher);
             house.repair_start_latch.hash(hasher);
@@ -1089,10 +1088,11 @@ impl Simulation {
             fog.shroud_knowledge_raw().hash(hasher);
             // The CellClass ground bits the aircraft queries read.
             fog.ground_flags_raw().hash(hasher);
+            fog.hash_map_cell_edge_cache(hasher);
         }
         self.fog.gap_sources.hash(hasher);
         self.fog.sight_admissions.hash(hasher);
-        self.fog.whole_map_revealed_owners.hash(hasher);
+        self.fog.hash_whole_map_reveal_state(hasher);
         b"fogged-object-footprints-v1".hash(hasher);
         self.fog.next_fogged_object_id.hash(hasher);
         self.fog.fogged_object_cells.hash(hasher);
@@ -2369,11 +2369,11 @@ mod lifecycle_hash_tests {
         let mut empty = Simulation::new();
         let empty_hash = empty.state_hash();
 
-        empty.substrate.pending_delete.push(1);
+        empty.substrate.pending_delete.queue_object(1);
         let one_hash = empty.state_hash();
-        empty.substrate.pending_delete.push(2);
+        empty.substrate.pending_delete.queue_object(2);
         let ordered_hash = empty.state_hash();
-        empty.substrate.pending_delete.swap(0, 1);
+        empty.substrate.pending_delete.swap_for_test(0, 1);
         let reversed_hash = empty.state_hash();
 
         assert_ne!(empty_hash, one_hash);

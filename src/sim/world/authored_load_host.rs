@@ -258,7 +258,9 @@ impl AuthoredOverlayLoadHost for SimulationAuthoredLoadHost<'_> {
     }
 
     fn finish_common(&mut self, handle: Self::Handle) -> Result<(), Self::Error> {
-        self.sim.load_objects.finish_common(handle)?;
+        self.sim
+            .load_objects
+            .finish_common(handle, &mut self.sim.substrate.pending_delete)?;
         Ok(())
     }
 
@@ -268,7 +270,13 @@ impl AuthoredOverlayLoadHost for SimulationAuthoredLoadHost<'_> {
     }
 
     fn drain_deferred(&mut self) -> Result<(), Self::Error> {
-        self.sim.load_objects.drain_deferred()?;
+        self.sim.process_pending_delete_with(
+            Some(self.rules),
+            None,
+            crate::sim::world::FrameEffects::default(),
+            0,
+            false,
+        );
         Ok(())
     }
 }

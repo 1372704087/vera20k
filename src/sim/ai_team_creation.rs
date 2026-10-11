@@ -145,8 +145,7 @@ pub(crate) fn update_team_creation(
     }
     let team_types = select_team_types(sim, rules, owner, frame_effects);
     for team_type in team_types {
-        sim.team_script_vm
-            .construct_team(team_type, owner, game_mode_nonzero, frame);
+        sim.create_team(team_type, Some(owner), rules);
     }
     if let Some(house) = sim.houses.get_mut(&owner) {
         let delay = house.difficulty_value(&rules.general.team_delays);

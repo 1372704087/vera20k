@@ -394,13 +394,23 @@ impl ClientRadarEvents {
             surface_size,
             config,
         ));
+        self.remember_event_cell((source.cell.0 as i16, source.cell.1 as i16));
+        true
+    }
+
+    /// RecentEventCellRing::Push660B80 stores the supplied CellStruct in
+    /// the same review ring as InitRadarEvent65FC6E..65FC99. Reinforcement
+    /// arrival65DB97 reaches this leaf directly, without creating an outline
+    /// or an EVA request. Packed cell halves are copied without clamping.
+    /// The slot labels are private; the existing ring retains insertion and
+    /// Spacebar review order, including overwriting the oldest of eight cells.
+    pub(super) fn remember_event_cell(&mut self, cell: (i16, i16)) {
         let index = self
             .newest_ring_index
             .map_or(0, |index| (index + 1) % CYCLE_RING_LEN);
-        self.cycle_cells[index] = Some(source.cell);
+        self.cycle_cells[index] = Some((cell.0 as u16, cell.1 as u16));
         self.newest_ring_index = Some(index);
         self.cycle_index = Some(index);
-        true
     }
 
     /// Admit a simulation-published request at `current_frame`.

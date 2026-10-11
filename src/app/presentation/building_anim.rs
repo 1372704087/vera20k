@@ -143,6 +143,17 @@ impl SoundPlaybackInputs<'_> {
                         audio_indices,
                     );
                 }
+                GameSoundEvent::TriggerEva { index } => {
+                    let _ = sfx.queue_eva(
+                        *index,
+                        Some(crate::rules::sound_ini::EvaType::Interrupt),
+                        eva_registry,
+                        eva_side,
+                        registry,
+                        assets,
+                        audio_indices,
+                    );
+                }
                 GameSoundEvent::EvaRemove { event: eva_event } => {
                     sfx.remove_eva(eva_event, eva_registry);
                 }

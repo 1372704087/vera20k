@@ -55,6 +55,10 @@ pub struct QueueEffect {
     pub stop_stream: bool,
     /// The request was inserted into a queue or the pending slot.
     pub inserted: bool,
+    /// The original QueueVoice reaches PlayNextQueued752760 after its
+    /// admission guards, including a duplicate or insertion discard. A
+    /// suspended/current-entry rejection does not pump the queue.
+    pub advance_queue: bool,
 }
 
 /// One announcement request as `VoxClass::PlayEVA` resolves it.
@@ -103,7 +107,8 @@ impl VoxQueue {
     ///
     /// Then `FindInQueues`: a node for this entry **with the same type** is a
     /// duplicate and the request is dropped (`0x00752566`); otherwise
-    /// `InsertIntoQueue`. The caller runs `PlayNextQueued` afterwards.
+    /// `InsertIntoQueue`. QueueVoice itself then runs `PlayNextQueued`; the
+    /// stream owner follows `QueueEffect::advance_queue` for that call.
     pub fn queue_voice(
         &mut self,
         request: VoxRequest<'_>,
@@ -121,6 +126,7 @@ impl VoxQueue {
         {
             return effect;
         }
+        effect.advance_queue = true;
         let eva_type = type_override.unwrap_or(request.eva_type);
         let priority = request.priority;
 
@@ -370,6 +376,10 @@ impl VoxQueue {
         self.pending.as_ref().map(|node| node.event.as_str())
     }
 }
+
+#[cfg(test)]
+#[path = "vox_opening_tests.rs"]
+mod opening_tests;
 
 #[cfg(test)]
 mod tests {

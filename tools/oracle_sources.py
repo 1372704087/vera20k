@@ -228,7 +228,8 @@ class Pin:
     current: str | None = None
     # The metadata field holding the pin; any but SOURCE_FIELD is compared as evidence.
     field: str = SOURCE_FIELD
-    # How the path was found: 'path', 'content', 'history' or 'name' (a guess).
+    # How the path was found: 'path', 'content', 'history' (content at the
+    # sidecar's commit or earlier in the named file) or 'name' (a guess).
     found_by: str | None = None
 
     @property
@@ -261,13 +262,34 @@ class History:
     """Tool sources as of the commit that last wrote each sidecar.
 
     A pin whose content no longer exists is resolved by the file that had that
-    content when its sidecar was committed.
+    content when its sidecar was committed. A squash merge drops the branch that
+    produced a sidecar, so that commit can already hold a newer producer; the
+    file the pin's label names then proves it by any earlier committed content.
     """
 
     def __init__(self, root: Path = REPO):
         self.root = root
         self.last = {}
         self.commits = {}
+        self.paths = {}
+
+    def contents(self, objects: list[str]) -> list[bytes | None]:
+        """`git cat-file --batch` bodies in request order; None for a missing object."""
+        batch = subprocess.run(['git', 'cat-file', '--batch'], cwd=self.root, check=True,
+                               capture_output=True,
+                               input=''.join(f'{name}\n' for name in objects).encode()).stdout
+        bodies, offset = [], 0
+        for _ in objects:
+            header_end = batch.index(b'\n', offset)
+            header = batch[offset:header_end]
+            offset = header_end + 1
+            if header.endswith(b' missing'):
+                bodies.append(None)
+                continue
+            size = int(header.split()[2])
+            bodies.append(batch[offset:offset + size])
+            offset += size + 1
+        return bodies
 
     def digests(self, sidecar: str) -> dict[str, str]:
         if sidecar not in self.last:
@@ -279,21 +301,30 @@ class History:
             listing = git('ls-tree', '-r', '-z', commit, '--', 'tools', root=self.root).split('\0')
             blobs = [(entry.split('\t', 1)[1], entry.split()[2]) for entry in listing
                      if entry.endswith('.py') and ' blob ' in entry]
-            batch = subprocess.run(['git', 'cat-file', '--batch'], cwd=self.root, check=True,
-                                   capture_output=True,
-                                   input=''.join(f'{blob}\n' for _, blob in blobs).encode()).stdout
-            found, offset = {}, 0
-            for path, _ in blobs:
-                header_end = batch.index(b'\n', offset)
-                size = int(batch[offset:header_end].split()[2])
-                body = batch[header_end + 1:header_end + 1 + size]
-                offset = header_end + 1 + size + 1
+            found = {}
+            for (path, _), body in zip(blobs, self.contents([blob for _, blob in blobs])):
                 try:
                     found.setdefault(text_sha256(body), path)
                 except UnicodeDecodeError:
                     continue
             self.commits[commit] = found
         return self.commits[commit]
+
+    def versions(self, path: str) -> set[str]:
+        """Every committed content of one source file."""
+        if path not in self.paths:
+            commits = git('log', '--format=%H', '--', path, root=self.root).split()
+            found = set()
+            for body in self.contents([f'{commit}:{path}' for commit in commits]):
+                if body is None:
+                    # The commit that deleted the file.
+                    continue
+                try:
+                    found.add(text_sha256(body))
+                except UnicodeDecodeError:
+                    continue
+            self.paths[path] = found
+        return self.paths[path]
 
 
 def payload_name(sidecar: str) -> str:
@@ -327,8 +358,12 @@ def inspect(sidecar: str, metadata: dict, sources: Sources, history: History | N
     producer = producer_file(replay, sources)
     near = Path(sidecar).parent.as_posix()
 
-    def earlier(digest):
-        return history.digests(sidecar).get(digest) if history else None
+    def earlier(digest, named=None):
+        if not history:
+            return None
+        if path := history.digests(sidecar).get(digest):
+            return path
+        return named if named and digest in history.versions(named) else None
 
     def pin(name, digest, where=SOURCE_FIELD):
         found = Pin(name, digest, field=where)
@@ -342,7 +377,7 @@ def inspect(sidecar: str, metadata: dict, sources: Sources, history: History | N
             named = sources.named(name, near, producer)
             if matches := sources.by_digest.get(digest):
                 found.path, found.found_by = named if named in matches else matches[0], 'content'
-            elif path := earlier(digest):
+            elif path := earlier(digest, named):
                 found.path, found.found_by = path, 'history'
             elif named:
                 found.path, found.found_by = named, 'name'

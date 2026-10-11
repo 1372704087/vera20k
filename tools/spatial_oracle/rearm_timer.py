@@ -14,7 +14,7 @@ Executes, case by case:
 Nothing is stubbed: both blocks are straight-line reads and writes of the Techno and
 the frame counter.
 
-Rust consumers: src/sim/combat/world_receiver.rs (fireat_rearm_frames, the rearm write
+Rust consumers: src/sim/combat/world_fire.rs (fireat_rearm_frames, the rearm write
 in emit_admitted_fire) and src/sim/timer.rs (CdTimer::remaining, read by
 src/sim/world/techno_ai/mission_handlers.rs evaluate_foot_guard_cadence).
 """

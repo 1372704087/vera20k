@@ -439,7 +439,7 @@ impl Simulation {
         // the current dynamic Logic suffix before the next actor visit.
         bridge_changed |= self
             .commit_fire_visit(
-                crate::sim::combat::world_receiver::FireVisit::InfantryTarget(id),
+                crate::sim::combat::world_fire::FireVisit::InfantryTarget(id),
                 rules,
                 registry,
                 effects,

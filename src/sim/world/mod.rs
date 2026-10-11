@@ -1902,7 +1902,7 @@ impl Simulation {
     ) -> crate::sim::combat::CombatTickResult {
         let mut run =
             crate::sim::combat::world_receiver::ReceiverRun::default().with_effects(frame_effects);
-        let mut result = crate::sim::combat::world_receiver::tick_combat(
+        let mut result = crate::sim::combat::world_fire::tick_combat(
             self,
             &mut run,
             rules,
@@ -1921,13 +1921,13 @@ impl Simulation {
     /// dynamic Logic object slot. The caller retains frame invalidations.
     pub(crate) fn commit_fire_visit(
         &mut self,
-        visit: crate::sim::combat::world_receiver::FireVisit,
+        visit: crate::sim::combat::world_fire::FireVisit,
         rules: &RuleSet,
         overlay_registry: Option<&crate::rules::overlay_types::OverlayTypeRegistry>,
         frame_effects: FrameEffects<'_>,
     ) -> damage_consequences::DamageCommitReceipt {
         #[cfg(test)]
-        if let crate::sim::combat::world_receiver::FireVisit::Building { id, shot } = &visit
+        if let crate::sim::combat::world_fire::FireVisit::Building { id, shot } = &visit
             && crate::sim::combat::receiver_fixture::substitute_building_fire(
                 self, *id, *shot, rules,
             )
@@ -1940,8 +1940,8 @@ impl Simulation {
         }
         #[cfg(test)]
         let observed_direct = match &visit {
-            crate::sim::combat::world_receiver::FireVisit::Direct { id, .. } => Some(*id),
-            crate::sim::combat::world_receiver::FireVisit::Building { id, .. } => Some(*id),
+            crate::sim::combat::world_fire::FireVisit::Direct { id, .. } => Some(*id),
+            crate::sim::combat::world_fire::FireVisit::Building { id, .. } => Some(*id),
             _ => None,
         };
         #[cfg(test)]
@@ -1952,7 +1952,7 @@ impl Simulation {
             crate::sim::combat::world_receiver::ReceiverRun::default().with_effects(frame_effects);
         let mut emit = crate::sim::combat::CombatEmit::default();
         let mut pings = Vec::new();
-        crate::sim::combat::world_receiver::visit_fire(
+        crate::sim::combat::world_fire::visit_fire(
             self,
             &mut run,
             visit,

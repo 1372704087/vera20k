@@ -719,7 +719,7 @@ pub struct GameEntity {
     ///   drawn gap mid-burst, the full reload after the burst's last shot),
     ///   halved for a berserk firer (`0x006FF274..0x006FF2CB`). Its DiskLaser
     ///   path stores the value unhalved, fires the disk laser and returns
-    ///   (`0x006FE4A4..0x006FE4EF`). Ported (`world_receiver::emit_admitted_fire`);
+    ///   (`0x006FE4A4..0x006FE4EF`). Ported (`world_fire::emit_admitted_fire`);
     ///   VERA fires a DiskLaser weapon through the ordinary path, keeping only
     ///   the unhalved rearm.
     /// - `AircraftClass::Drop_Payload` restarts it with no duration

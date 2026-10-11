@@ -352,7 +352,7 @@ fn building_fireat_reads_the_retained_target_for_its_launch_coordinate() {
         // FireAt6FE268 passes the live source to GetFLH; its explicit
         // target argument never replaces BuildingFireFacing445E50's +2B4.
         sim.commit_fire_visit(
-            super::world_receiver::FireVisit::Building {
+            super::world_fire::FireVisit::Building {
                 id: source,
                 shot: super::BuildingShot::Mission {
                     weapon: 0,
@@ -426,7 +426,7 @@ fn fatal_coil_bolt_releases_navigation_before_the_next_logic_reader() {
     .collect();
     assert!(!cells.is_empty(), "the live GAPOWR blocks its foundation");
     sim.commit_fire_visit(
-        super::world_receiver::FireVisit::Building {
+        super::world_fire::FireVisit::Building {
             id: source,
             shot: super::BuildingShot::Mission {
                 weapon: 0,

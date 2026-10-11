@@ -33,6 +33,10 @@ class CandidateSourceAdmissionTests(unittest.TestCase):
     def candidate_metadata(self):
         meta = copy.deepcopy(rt.metadata())
         self.assertNotIn('unregistered-initialized-candidate', meta['helper_profiles'])
+        # These tests cover admission and restoration, not whether the saved
+        # candidate map still matches today's shared helpers: bind the copy to them.
+        meta['initialized_candidate_helper_files'] = {
+            path: rt.sha(rt.REPO_ROOT / path) for path in meta['initialized_candidate_helper_files']}
         return meta
 
     def assert_registered_maps_preserved(self, meta, callers, profiles):

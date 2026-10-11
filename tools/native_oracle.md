@@ -198,7 +198,9 @@ Run them as modules (`python -m ...`). Imports do not emulate or write files;
 reference. A missing reference or mismatch fails; checking never creates or fixes it.
 `--write` explicitly replaces the payload and its `.meta.json` sidecar. Review any
 changed values against native evidence before accepting them. This is not a way to
-make failing Rust tests green.
+make failing Rust tests green. `--refresh-sources` replays like `--check` and then
+records only the current source pins and replay command (see below); it never
+writes a payload or archive.
 
 The NULL boundary corpus preserves the ordinary `track_destination` corpus. Run
 `python -m tools.spatial_oracle.track_destination --null-boundary --check` to replay
@@ -230,6 +232,33 @@ environment. Existing references without sidecars remain checkable, with an expl
 message that their historical environment is unknown. Regeneration can record the
 current environment; it cannot recover historical provenance.
 
+Two fields are source provenance, not evidence: `source_normalized_lf_sha256`
+(the declared sources that last reproduced the payload, keyed by repository path)
+and `replay_command` (how that run was invoked). An edit to a shared helper leaves
+them stale without changing any native result, so `--check` compares everything
+else exactly and only reports their drift. `--refresh-sources` records them after a
+replay reproduced the payload, archive and every other field exactly.
+
+### After editing a shared source
+
+[`tools/oracle_sources.py`](oracle_sources.py) lists the corpora whose recorded
+sources include changed files and replays them. It needs only Git to list; replays
+run with its interpreter:
+
+```sh
+python -m tools.oracle_sources affected               # changes since the origin/main merge base
+python -m tools.oracle_sources affected tools/native_inspect.py --replay
+python -m tools.oracle_sources stale --replay --timeout 1800
+```
+
+`--replay` runs each corpus's recorded (or declared, or same-named) producer with
+`--refresh-sources`, one at a time, and reports `REFRESHED`/`CURRENT`, `CHANGED`
+(native output or evidence metadata differs: review it), `BLOCKED` with the
+producer's own error (usually the missing input it needs) or `UNKNOWN` when no
+replay command is recorded yet. Report changed and blocked corpora in the PR;
+replaying a corpus is never required to keep `--check` passing after an
+unrelated helper edit.
+
 ## Add a comparison
 
 Start with `tools/color_oracle/hsv_to_rgb.py` for a complete example. Establish the
@@ -257,6 +286,8 @@ branches and boundaries. Avoid a second Python implementation of the algorithm.
   through metadata construction before comparison/publication, and owns the
   `source_normalized_lf_sha256` field. List the producer and its relevant helpers;
   this is a run consistency check, not a source lock or an import-time attestation.
+  Do not list the Rust consumers: the native run executes no Rust, their own tests
+  compare them, and a pin on them only prompts replays after unrelated Rust edits.
 * Consume native outputs in a focused Rust test of the actual production function.
   Assert case identity/coverage as well as output equality, and review the connection
   to callers independently. The HSV example checks 2,304 inputs, not all 256³ inputs

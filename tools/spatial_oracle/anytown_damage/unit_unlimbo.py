@@ -2079,31 +2079,9 @@ def source_paths():
     # Reuse the existing Mission's transitive inventory, preserving its historical
     # receipt. New outputs bind current source hashes without republishing old ones.
     paths = foot_missions.source_paths()
+    # The native run executes no Rust; the Rust consumers' own tests compare them.
     for relative in ('tools/spatial_oracle/anytown_damage/unit_unlimbo.py',
-                     'tools/spatial_oracle/anytown_damage/navigation_inputs.py',
-                     'src/rules/object_type.rs', 'src/rules/native_processing.rs',
-                     'src/sim/stage.rs',
-                     'src/sim/cell_kernel.rs', 'src/sim/combat/in_range.rs',
-                     'src/sim/movement/navcom.rs', 'src/sim/movement/foot_approach.rs',
-                     'src/sim/world/world_spawn.rs', 'src/sim/world/lifecycle.rs',
-                     'src/sim/world/object_entry.rs',
-                     'src/sim/movement/ground_pose.rs', 'src/sim/movement/slope_transition.rs',
-                     'src/sim/door.rs', 'src/sim/game_entity.rs', 'src/sim/gate_runtime.rs',
-                     'src/sim/docking/building_dock.rs', 'src/sim/movement/track_host.rs',
-                     'src/sim/movement/per_cell.rs', 'src/sim/production/production_queue.rs',
-                     'src/sim/production/factory.rs',
-                     'src/sim/production/production_queue_tests.rs',
-                     'src/sim/world/techno_ai.rs',
-                     'src/sim/world/techno_ai/building_missions.rs',
-                     'src/sim/world/techno_ai/mission_handlers.rs',
-                     'src/sim/world/techno_ai/factory_unload_tests.rs',
-                     'src/sim/world/projectile_collision.rs',
-                     'src/sim/movement/building_coordinate.rs', 'src/sim/movement/mod.rs',
-                     'src/sim/production/production_spawn.rs',
-                     'src/sim/world/unit_unlimbo_tests.rs',
-                     'src/rules/ini_parser.rs', 'src/rules/ini_parser_tests.rs',
-                     'src/rules/ini_value.rs', 'src/rules/retail_ini_fixture.rs',
-                     'src/rules/ruleset.rs'):
+                     'tools/spatial_oracle/anytown_damage/navigation_inputs.py'):
         paths[relative] = REPO / relative
     return paths
 

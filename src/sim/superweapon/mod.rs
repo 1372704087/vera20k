@@ -180,6 +180,10 @@ fn strength_receiver_event(
 /// Tracks charging progress, readiness, and power suspension.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct SuperWeaponInstance {
+    /// Actual AbstractClass+10 identity assigned by the admitted Scenario
+    /// before House registration. Synthetic fixtures leave it unavailable.
+    #[serde(default)]
+    native_unique_id: Option<i32>,
     /// Which SuperWeaponType this instance represents (interned ID of the INI section name).
     pub type_id: InternedId,
     /// Which house owns this instance.
@@ -265,15 +269,18 @@ impl SuperWeaponInstance {
         sw.recharge_time_frames
     }
 
-    /// Create a new inactive instance.
-    pub fn new(type_id: InternedId, owner: InternedId) -> Self {
+    /// SuperClass constructor6CAF90: its charge timer starts at currentFrame
+    /// with duration0; flags6C..70 begin false. The House constructs all types
+    /// before its own attack-timer draw. See campaign_start --houses receipts.
+    pub fn new(type_id: InternedId, owner: InternedId, frame: i32) -> Self {
         Self {
+            native_unique_id: None,
             type_id,
             owner,
             is_active: false,
             is_ready: false,
             is_suspended: false,
-            charge_start_tick: -1,
+            charge_start_tick: frame,
             charge_duration: 0,
             charge_drain_state: -1,
             ready_tick: -1,
@@ -283,6 +290,18 @@ impl SuperWeaponInstance {
             fade_coords: [0; 3],
             timer_place: None,
         }
+    }
+
+    pub(crate) fn bind_native_identity(&mut self, id: i32) {
+        assert!(
+            self.native_unique_id.is_none(),
+            "Super construction bound once"
+        );
+        self.native_unique_id = Some(id);
+    }
+
+    pub(crate) const fn native_unique_id(&self) -> Option<i32> {
+        self.native_unique_id
     }
 
     /// Launch case 10's arm (`0x006CD135..0x006CD162`).
@@ -923,14 +942,17 @@ fn provided_supers<'r>(
 /// RESIDUAL: a warp is VERA's only way offline
 /// ([`GameEntity::building_online`](crate::sim::game_entity::GameEntity::building_online)).
 /// `BuildingClass::GoOffline @ 0x00452360`, which also sets the owner's
-/// `+0x1FC` (`0x004523B8`), is not ported, nor its callers: the power
-/// toggle event (`0x004C6D9A`), trigger action 61 (`0x006DDFB9`) and a
-/// map's powered-down building (`0x0044FD23`). Trigger: a player powers
-/// down every building that provides a powered Super. Effect: native holds
-/// the Super until one is powered up; VERA has no toggle. Frequency:
-/// a player's choice. No retail map powers a superweapon building down:
-/// its 338 map texts hold one powered-down `[Structures]` entry and one
-/// action 61, neither on one.
+/// `+0x1FC` (`0x004523B8`), is not ported, nor its callers: trigger action
+/// 61 (`0x006DDFB9`), a map's powered-down building (`0x0044FD23`) and the
+/// power toggle event (`0x004C6D9A`). No player input reaches the event:
+/// BandBox_LeftUp queues it for the TogglePower action (`0x004ABFB3`), which
+/// DetermineAction returns only in power-toggle mode (`DisplayClass+0x11B2`,
+/// `0x00692815`), and `SetTogglePowerMode @ 0x004AC820`, the mode's only
+/// writer of 1, is called with 0 by all six of its callers. Trigger: a map
+/// powers down every building that provides a powered Super. Effect: native
+/// holds the Super until one is powered up. Dormant: the 338 retail map
+/// texts hold one powered-down `[Structures]` entry and one action 61,
+/// neither on a superweapon building.
 fn offline_only_supers(
     sim: &Simulation,
     rules: &RuleSet,
@@ -1053,7 +1075,7 @@ pub fn refresh_super_weapons_for_owner(sim: &mut Simulation, rules: &RuleSet, ow
         let sw = rules.super_weapon(&sw_str);
         let instance = weapons
             .entry(sw_iid)
-            .or_insert_with(|| SuperWeaponInstance::new(sw_iid, owner));
+            .or_insert_with(|| SuperWeaponInstance::new(sw_iid, owner, 0));
         let recharge = sw.map_or(4500, |sw| instance.recharge_time(sw));
         instance.activate(recharge, sim.session.binary_frame);
         // `0x006CB5D2..0x006CB63B`: a `ShowTimer=` Super whose owner is not
@@ -1113,7 +1135,7 @@ mod frame_tests {
     #[test]
     fn charge_progress_uses_full_recharge_time_across_suspend_resume() {
         let id = InternedId::from_index(1);
-        let mut instance = SuperWeaponInstance::new(id, id);
+        let mut instance = SuperWeaponInstance::new(id, id, 0);
         instance.activate(10, 100);
 
         assert_eq!(instance.charge_progress(104, 10), 0.4);
@@ -1131,7 +1153,7 @@ mod frame_tests {
     #[test]
     fn charge_progress_uses_full_recharge_time_across_frame_wrap() {
         let id = InternedId::from_index(1);
-        let mut instance = SuperWeaponInstance::new(id, id);
+        let mut instance = SuperWeaponInstance::new(id, id, 0);
         instance.activate(4, u32::MAX - 1);
 
         assert_eq!(instance.charge_progress(0, 4), 0.5);
@@ -1159,7 +1181,7 @@ mod frame_tests {
         let mut sim = Simulation::new();
         let owner = sim.interner.intern("Americans");
         let sw = sim.interner.intern("NukeSpecial");
-        let mut instance = SuperWeaponInstance::new(sw, owner);
+        let mut instance = SuperWeaponInstance::new(sw, owner, 0);
         instance.activate(10, sim.session.binary_frame);
         sim.super_weapons
             .entry(owner)

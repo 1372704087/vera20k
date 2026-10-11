@@ -1155,10 +1155,11 @@ impl FactoryRegistry {
     /// `0x0050924D`, lifted at `0x00509283`). VERA has no such hold. Its only
     /// offline factory is one in a temporal warp (`GameEntity::building_online`),
     /// whose start runs no update (`0x004521C0`). GoOffline's callers are not
-    /// ported: the power toggle event (`0x004C6D9A`), a trigger action
-    /// (`0x006DDFB9`) and a map's powered-down building (`0x0044FD23`).
-    /// Trigger: a building event while every factory of the kind is offline.
-    /// Effect: VERA keeps building. Frequency: rare.
+    /// ported: a trigger action (`0x006DDFB9`), a map's powered-down building
+    /// (`0x0044FD23`) and the power toggle event (`0x004C6D9A`), which no
+    /// player input reaches (`superweapon::offline_only_supers`). Trigger: a
+    /// building event while every factory of the kind is offline. Effect:
+    /// VERA keeps building. Frequency: rare.
     pub(super) fn plan_revalidation(
         &self,
         sim: &crate::sim::world::Simulation,

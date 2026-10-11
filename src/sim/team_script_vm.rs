@@ -173,8 +173,8 @@ pub struct TeamTypeIniMetadata {
     #[serde(default)]
     droppod: bool,
     /// `OnlyTargetHouseEnemy=` (`+0xF7`, ReadBool at `0x006F13D4`,
-    /// constructor 0 at `0x006F07F7`): action 0's scan takes only the
-    /// house's current enemy's objects.
+    /// constructor 0 at `0x006F07F7`): action 0's scan, and the building
+    /// actions 46 and 47 look for, take only the house's current enemy's.
     #[serde(default)]
     only_target_house_enemy: bool,
     pub source: TeamAiDefinitionSource,

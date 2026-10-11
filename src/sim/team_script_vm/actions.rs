@@ -12,22 +12,43 @@
 //! attack_actions_leads.md` with `coordinate_attack.asm`,
 //! `gather_enemy_base.asm` and `asm/team_action_attack_quarry_6ED090.asm`.
 //! Native execution: `tools/team_recruit_oracle.py`'s `guard`, `regroup`
-//! (with its draw) and `own_building` rows replay in `recruit_oracle_tests`.
+//! (with its draw), `own_building` and `target_building` rows replay in
+//! `recruit_oracle_tests`.
 //!
 //! RESIDUALS:
-//! - Actions other than 0, 2, 5, 6, 11, 19, 21, 24, 49, 53, 54, 55, 57, 58,
-//!   62 and 63 are not ported. A team that reaches one stays on it, as a
-//!   native handler that has not finished does, and records the first as its
-//!   refusal; the rest of its update runs. Trigger: 55 of the 163 retail
-//!   AIMD TeamTypes reach one; the first they reach is 14 (16 TeamTypes), 46
-//!   (15), 47 (12), 61 (9) or 9 (3). Effect: the
-//!   team idles on that action for good, keeping its members and its
-//!   TeamType's `Max=` slot, and nothing else sends those units out. Action
-//!   56 (`0x006EFE60`), the Chronosphere's other script action, takes
-//!   `(mode << 16) | BuildingType index` and picks its target with
-//!   `Find_Best_Target_Building @ 0x006EEBD0`, which actions 46 and 47 need
-//!   too; no AIMD script names it, but four scripts of the retail campaign
-//!   map SOV02SMD.MAP do, whose teams idle on it.
+//! - Actions other than 0, 2, 5, 6, 11, 19, 21, 24, 46, 47, 49, 53, 54, 55,
+//!   57, 58, 62 and 63 are not ported. A team that reaches one stays on it,
+//!   as a native handler that has not finished does, and records the first
+//!   as its refusal; the rest of its update runs. Trigger: 30 of the 163
+//!   retail AIMD TeamTypes reach one; the first they reach is 14 (16
+//!   TeamTypes), 61 (9) or 9 (5). Effect: the team idles on that action for
+//!   good, keeping its members and its TeamType's `Max=` slot, and nothing
+//!   else sends those units out. Action 56 (`0x006EFE60`), the
+//!   Chronosphere's other script action, picks its building with
+//!   [`target_building_pick`] too; no AIMD script names it, but four scripts
+//!   of the retail campaign map SOV02SMD.MAP do, whose teams idle on it.
+//! - Actions 46 and 47 give their members a building to attack or near. A
+//!   spy (`Infiltrate=`) acts on such a target in arms VERA lacks:
+//!   `Assign_Target`'s `Infiltrate=` arm (`0x0051B2B1..0x0051B33F`), which
+//!   sends it to the building, Infantry Mission_Attack's computer
+//!   `Infiltrate=` arm (`0x0051F3E0..0x0051F4D2`, `mission_handlers`
+//!   residual GSI-07.06), then PerCellProcess's infiltration arm
+//!   (`mission::capture` residual, #813). Trigger: the retail Allied AI's spy
+//!   teams, whose scripts run actions 0, 47 and 46; the "Allied Spy vs ..."
+//!   AI triggers (normal or hard, weight 50 to 70) create them, and so do
+//!   the "Allied Tanya vs ..." ones (hard) as their second team. Effect: the
+//!   spy stands by the building where native infiltrates it. The same
+//!   Mission_Attack's demolition arm (`C4=`) is unported too; the retail
+//!   teams that would reach it with action 46 first idle on action 14.
+//! - An `Engineer=` member that action 46 parks beside its building has a
+//!   native way in that VERA lacks: Coordinate_Attack's retarget puts it on
+//!   Guard every 8 frames, a computer engineer hit on Guard or AreaGuard
+//!   queues Hunt (InfantryClass::ReceiveDamage `0x00518C19..0x00518C3F`),
+//!   and Mission_Hunt's engineer arm (`0x004D53C0`, `mission_handlers`
+//!   residual) walks it into its target. Neither is ported. Trigger: an enemy
+//!   shoots a retail tech-capture team's engineer standing by its building.
+//!   Effect: native's engineer hunts, and may capture what its scan finds;
+//!   VERA's keeps standing.
 //! - `Coordinate_Attack` keeps a cell target that only a terrain object
 //!   blocks: a team target holds no terrain object. Trigger: a cell target,
 //!   which no ported caller gives (`Greatest_Threat`'s wall fallback is not
@@ -39,10 +60,10 @@
 //!   answers false). Trigger: a member deploying when its team attacks.
 //!   Effect: it stops deploying and attacks.
 //! - A non-aircraft member's ammunition (`+0x2FC`) is not tracked and reads
-//!   as its `Ammo=`: action 0 never finds such a team spent. Trigger: a
-//!   team of units with `Ammo=` above 0. Effect: the team keeps attacking
-//!   where native would move on once all are empty.
-
+//!   as its `Ammo=`: actions 0 and 46 never find such a team spent
+//!   (`team_out_of_ammo`). Trigger: a team of units with `Ammo=` above 0.
+//!   Effect: the team keeps attacking where native would move on once all
+//!   are empty.
 //! - `Coordinate_Move`'s far branch reads Foot `+0x68E` (a target the
 //!   tank-bunker scans acquired), which no ported code writes: it reads
 //!   clear, so an `Aggressive=` team's fighting member keeps fighting.
@@ -68,7 +89,7 @@ use super::{TeamScriptAction, TeamScriptRefusal, TeamTarget, script_action_at};
 pub(super) const fn action_is_ported(action_id: i32) -> bool {
     matches!(
         action_id,
-        0 | 2 | 5 | 6 | 11 | 19 | 21 | 24 | 49 | 53 | 54 | 55 | 57 | 58 | 62 | 63
+        0 | 2 | 5 | 6 | 11 | 19 | 21 | 24 | 46 | 47 | 49 | 53 | 54 | 55 | 57 | 58 | 62 | 63
     )
 }
 
@@ -307,6 +328,21 @@ impl Simulation {
                     team.advance_pending = true;
                 }
             }
+            46 => self.team_action_attack_enemy_building(
+                team_id,
+                action.argument,
+                first,
+                rules,
+                registry,
+                frame_effects,
+            ),
+            47 => self.team_action_move_to_enemy_building(
+                team_id,
+                action.argument,
+                rules,
+                registry,
+                frame_effects,
+            ),
             // `0x006E94BA`, and `0x006E9CE1` which also records success
             // (`+0x84`), counted when the team is destroyed.
             24 | 49 => {
@@ -648,38 +684,32 @@ impl Simulation {
     }
 
     /// `FindOwnBuilding @ 0x006EEEA0` over the leader's house's buildings
-    /// (House `+0x68`, in order, with no liveness filter): of BuildingType
-    /// index `argument & 0xFFFF`, the highest score (signed, the first on a
-    /// tie; none at or below -1): mode 0 `0x7FFFFFFF - threat`, 1 `threat`
-    /// from the retained House map, 2 `0x7FFFFFFF - distance`, 3
-    /// `distance`, the distance between the building's and the leader's
-    /// Locations (`0x0041C380`); any other mode picks none.
+    /// (House `+0x68`, in order, with no liveness filter) of BuildingType
+    /// index `argument & 0xFFFF`, by mode `argument >> 16`
+    /// ([`own_building_pick`]).
     fn team_find_own_building(&self, leader: u64, argument: i32) -> Option<u64> {
         let index = argument & 0xFFFF;
         let mode = (argument as u32) >> 16;
         let leader = self.substrate.entities.get(leader)?;
         let house =
             crate::sim::house_state::house_state_for_owner_id(&self.houses, leader.owner())?;
-        let from = position_world_coord(&leader.position);
+        let terrain = self.resolved_terrain.as_ref();
         let buildings: Vec<(u64, [i32; 3])> = house
             .base_projection
             .buildings()
             .iter()
             .filter_map(|&id| {
                 let building = self.substrate.entities.get(id)?;
-                (building.base_plan_type_index == index).then(|| {
-                    let location = position_world_coord(&building.position);
-                    (id, [location.x, location.y, location.z])
-                })
+                (building.base_plan_type_index == index)
+                    .then(|| (id, location_xyz(building, terrain)))
             })
             .collect();
-        own_building_pick(&buildings, [from.x, from.y, from.z], mode, |location| {
-            self.house_threat_at_cell(
-                leader.owner(),
-                ((location[0] / 256) as i16, (location[1] / 256) as i16),
-            )
-            .expect("FindOwnBuilding requires its native House threat source")
-        })
+        own_building_pick(
+            &buildings,
+            location_xyz(leader, terrain),
+            mode,
+            |building| self.building_threat(leader.owner(), building),
+        )
     }
 
     /// Action 58's destination (`0x006EE6A5..0x006EE7C8`): FNPC from the
@@ -1150,17 +1180,202 @@ impl Simulation {
         let Some(team) = self.team_script_vm.teams.get(&team_id) else {
             return;
         };
-        let finished = team.mission_target.is_none()
-            || team.members().all(|member| {
-                self.substrate.entities.get(member).is_some_and(|entity| {
-                    self.object_type(entity.type_ref(), rules)
-                        .is_some_and(|object| object.ammo > 0 && member_ammo(entity, object) <= 0)
-                })
-            });
+        let finished = team.mission_target.is_none() || self.team_out_of_ammo(team_id, rules);
         if finished && let Some(team) = self.team_script_vm.teams.get_mut(&team_id) {
             team.advance_pending = true;
         }
         self.team_coordinate_attack(team_id, rules, registry, frame_effects);
+    }
+
+    /// Every member carries ammunition (`Ammo=` above 0, type `+0x684`) and
+    /// has none left (`+0x2FC`, [`member_ammo`]), as a team without members
+    /// does. Actions 0 (`0x006ED17C..0x006ED19A`) and 46
+    /// (`0x006EE396..0x006EE3BC`) walk the members from the first and stop
+    /// attacking only then.
+    fn team_out_of_ammo(&self, team_id: u64, rules: &RuleSet) -> bool {
+        self.team_script_vm.teams.get(&team_id).is_none_or(|team| {
+            team.members().all(|member| {
+                self.substrate.entities.get(member).is_some_and(|entity| {
+                    self.object_type(entity.type_ref(), rules)
+                        .is_some_and(|object| object.ammo > 0 && member_ammo(entity, object) <= 0)
+                })
+            })
+        })
+    }
+
+    /// Script action 46 (`0x006EE310`), attack enemy building: on its first
+    /// frame a team with no mission target and a member takes as one the
+    /// building [`Self::team_find_target_building`] picks for its first
+    /// member (`+0x54`). With a mission target the team attacks it
+    /// ([`Self::team_coordinate_attack`]) until it is out of ammunition
+    /// ([`Self::team_out_of_ammo`]); then, or without a mission target, it
+    /// drops the mission target and the action finishes.
+    ///
+    /// `Coordinate_Attack` gives an `Engineer=` member Attack. No arm on that
+    /// path turns it into Capture: Infantry Mission_Attack (`0x0051F3E0`)
+    /// converts only a computer's `Infiltrate=`, `Occupier=` or `Assaulter=`
+    /// man, Foot Mission_Attack (`0x004D4DC0`) and its Approach (`0x004D5690`)
+    /// have no engineer arm, and an infantryman may enter the building's
+    /// cell, as its NavCom or Target, only on Enter, Capture, Eaten or
+    /// Sabotage, or an engineer on Guard, AreaGuard or Patrol, never on
+    /// Attack (`0x0051C2E1..0x0051C41C`).
+    fn team_action_attack_enemy_building(
+        &mut self,
+        team_id: u64,
+        argument: i32,
+        first: bool,
+        rules: &RuleSet,
+        registry: Option<&OverlayTypeRegistry>,
+        frame_effects: FrameEffects<'_>,
+    ) {
+        let Some(team) = self.team_script_vm.teams.get(&team_id) else {
+            return;
+        };
+        // `0x006EE317..0x006EE383`.
+        let unit = team
+            .members()
+            .next()
+            .filter(|_| first && team.mission_target.is_none());
+        if let Some(unit) = unit
+            && let Some(building) = self.team_find_target_building(team_id, unit, argument)
+        {
+            self.team_assign_mission_target(
+                team_id,
+                Some(TeamTarget::Object(building)),
+                rules,
+                registry,
+                frame_effects,
+            );
+        }
+        let Some(team) = self.team_script_vm.teams.get(&team_id) else {
+            return;
+        };
+        if team.mission_target.is_some() && !self.team_out_of_ammo(team_id, rules) {
+            self.team_coordinate_attack(team_id, rules, registry, frame_effects);
+            return;
+        }
+        // `0x006EE3BE..0x006EE3C8`.
+        self.team_assign_mission_target(team_id, None, rules, registry, frame_effects);
+        if let Some(team) = self.team_script_vm.teams.get_mut(&team_id) {
+            team.advance_pending = true;
+        }
+    }
+
+    /// Script action 47 (`0x006EE3F0`, `first` unread), move to enemy
+    /// building: each frame a team with no mission target and a member looks
+    /// for the building [`Self::team_find_target_building`] picks for its
+    /// first member (`+0x54`); with one, the mission target becomes the
+    /// passable cell nearest it in that member's zone, as action 58 finds it
+    /// ([`Self::team_building_approach_cell`]), or none. A team with a member
+    /// that is still without one finishes the action. Either way the team
+    /// moves ([`Self::team_coordinate_move`]).
+    fn team_action_move_to_enemy_building(
+        &mut self,
+        team_id: u64,
+        argument: i32,
+        rules: &RuleSet,
+        registry: Option<&OverlayTypeRegistry>,
+        frame_effects: FrameEffects<'_>,
+    ) {
+        let Some(team) = self.team_script_vm.teams.get(&team_id) else {
+            return;
+        };
+        let unit = team
+            .members()
+            .next()
+            .filter(|_| team.mission_target.is_none());
+        if let Some(unit) = unit {
+            // `0x006EE411..0x006EE591`.
+            if let Some(building) = self.team_find_target_building(team_id, unit, argument) {
+                let target =
+                    self.team_building_approach_cell(unit, building, rules)
+                        .map(|(x, y)| TeamTarget::Cell {
+                            x: x as i16,
+                            y: y as i16,
+                        });
+                self.team_assign_mission_target(team_id, target, rules, registry, frame_effects);
+            }
+            // `0x006EE59A..0x006EE5A3`.
+            if let Some(team) = self.team_script_vm.teams.get_mut(&team_id)
+                && team.mission_target.is_none()
+            {
+                team.advance_pending = true;
+            }
+        }
+        self.team_coordinate_move(team_id, rules, registry, frame_effects);
+    }
+
+    /// `Find_Best_Target_Building @ 0x006EEBD0` as actions 46 and 47 call it
+    /// (`0x006EE32B..0x006EE376`, `0x006EE411..0x006EE45D`) for the team's
+    /// first member `unit`: BuildingType index `argument & 0xFFFF`, mode
+    /// `(argument >> 16) & 0xFFFF`, the unit's house's enemy (`+0x5600`) and
+    /// the TeamType's `OnlyTargetHouseEnemy=` (`+0xF7`), over every building
+    /// in construction order (BuildingClass::Array, [`target_building_pick`]).
+    fn team_find_target_building(&self, team_id: u64, unit: u64, argument: i32) -> Option<u64> {
+        let index = argument & 0xFFFF;
+        let mode = (argument as u32) >> 16;
+        let unit_entity = self.substrate.entities.get(unit)?;
+        let owner = unit_entity.owner();
+        let enemy = self.houses.get(&owner).and_then(|house| house.enemy_house);
+        let asker = self.interner.resolve(owner);
+        let terrain = self.resolved_terrain.as_ref();
+        let buildings: Vec<TargetBuilding> = self
+            .substrate
+            .entities
+            .iter_sorted()
+            .filter(|(_, building)| {
+                building.category == EntityCategory::Structure
+                    && building.base_plan_type_index == index
+            })
+            .map(|(id, building)| TargetBuilding {
+                id,
+                location: location_xyz(building, terrain),
+                enemy_owned: Some(building.owner()) == enemy,
+                allied: crate::map::houses::is_allied_with(
+                    &self.house_alliances,
+                    asker,
+                    self.interner.resolve(building.owner()),
+                ),
+                passive: self
+                    .houses
+                    .get(&building.owner())
+                    .is_some_and(|house| house.multiplay_passive),
+            })
+            .collect();
+        let vm = &self.team_script_vm;
+        let only_enemy = vm
+            .teams
+            .get(&team_id)
+            .and_then(|team| team.team_type_id)
+            .and_then(|id| vm.team_type_ini.get(&id))
+            .is_some_and(|metadata| metadata.only_target_house_enemy);
+        target_building_pick(
+            &buildings,
+            location_xyz(unit_entity, terrain),
+            mode,
+            only_enemy,
+            |building| self.building_threat(owner, building),
+        )
+    }
+
+    /// The threat `owner`'s house map holds at the cell of `building`'s
+    /// GetCoords (vt+0x48, its foundation centre; `0x0056BCD0`), as
+    /// FindOwnBuilding and Find_Best_Target_Building score it.
+    fn building_threat(&self, owner: InternedId, building: u64) -> i32 {
+        let coords = self
+            .substrate
+            .entities
+            .get(building)
+            .map(|building| {
+                crate::sim::movement::ground_pose::object_get_coords(
+                    building,
+                    self.resolved_terrain.as_ref(),
+                )
+            })
+            .expect("a scored building is live");
+        let cell = crate::util::lepton::lepton_to_cell_packed;
+        self.house_threat_at_cell(owner, (cell(coords.x), cell(coords.y)))
+            .expect("building scoring requires its native House threat source")
     }
 
     /// `Coordinate_Attack @ 0x006EB490`: the team attacks its move target,
@@ -1402,34 +1617,108 @@ fn member_ammo(entity: &GameEntity, object: &crate::rules::object_type::ObjectTy
         .map_or(object.ammo, |ammo| ammo.current)
 }
 
-/// `FindOwnBuilding @ 0x006EEEA0`'s pick among `buildings` (id, location)
-/// by `mode`: 0 lowest threat, 1 highest, 2 nearest `from` (the leader's
-/// location), 3 farthest, by the approximated 3D distance; the first of
-/// equal scores, none for another mode. Modes0/1 read the shared retained
-/// House grid through native56BCD0; distance-only modes never query threat.
+/// An object's Location (`+0x9C`) as the building finders read it.
+fn location_xyz(
+    entity: &GameEntity,
+    terrain: Option<&crate::map::resolved_terrain::ResolvedTerrainGrid>,
+) -> [i32; 3] {
+    let location = crate::sim::movement::ground_pose::object_location(entity, terrain);
+    [location.x, location.y, location.z]
+}
+
+/// The score `FindOwnBuilding` (`0x006EEF02..0x006EF0C1`) and
+/// `Find_Best_Target_Building` (`0x006EEC6D..0x006EEE1F`) give a building by
+/// `mode`: 0 `0x7FFFFFFF - threat`, 1 `threat`, the threat the scorer's
+/// house holds at the building's GetCoords cell (each axis rounded toward
+/// zero, `0x006EEC91..0x006EECB9`, `0x0056BCD0`); 2 `0x7FFFFFFF - distance`,
+/// 3 `distance`, between the two
+/// Locations (`Sqrt_Approx`, ftol); any other mode -1, which no building
+/// beats. Distance modes never read the threat.
+fn building_pick_score(
+    mode: u32,
+    threat: impl FnOnce() -> i32,
+    location: [i32; 3],
+    from: [i32; 3],
+) -> i32 {
+    let distance = || crate::util::native_x87::distance_3d_leptons(location, from);
+    match mode {
+        0 => i32::MAX.wrapping_sub(threat()),
+        1 => threat(),
+        2 => i32::MAX.wrapping_sub(distance()),
+        3 => distance(),
+        _ => -1,
+    }
+}
+
+/// `FindOwnBuilding @ 0x006EEEA0`'s pick among `buildings` (id, Location)
+/// from `from` (the leader's Location): the highest
+/// [`building_pick_score`] (signed, the first on a tie, none at or below
+/// -1). `threat_at` answers a building's threat.
 pub(super) fn own_building_pick(
     buildings: &[(u64, [i32; 3])],
     from: [i32; 3],
     mode: u32,
-    mut threat_at: impl FnMut([i32; 3]) -> i32,
+    mut threat_at: impl FnMut(u64) -> i32,
 ) -> Option<u64> {
     let mut best = None;
     let mut best_score = -1i32;
     for &(id, location) in buildings {
-        let distance = || crate::util::native_x87::distance_3d_leptons(location, from);
-        let score = match mode {
-            0 => i32::MAX.wrapping_sub(threat_at(location)),
-            1 => threat_at(location),
-            2 => i32::MAX.wrapping_sub(distance()),
-            3 => distance(),
-            _ => -1,
-        };
+        let score = building_pick_score(mode, || threat_at(id), location, from);
         if score > best_score {
             best_score = score;
             best = Some(id);
         }
     }
     best
+}
+
+/// A building of the searched type on `Find_Best_Target_Building`'s walk.
+pub(super) struct TargetBuilding {
+    pub(super) id: u64,
+    /// Location (`+0x9C`).
+    pub(super) location: [i32; 3],
+    /// Its owner is the enemy house the caller passes.
+    pub(super) enemy_owned: bool,
+    /// The unit's house is allied with its owner (`IsAlliedWith @
+    /// 0x004F9A50`, true for the house itself).
+    pub(super) allied: bool,
+    /// Its owner's type is `MultiplayPassive=` (HouseType `+0x1A6`).
+    pub(super) passive: bool,
+}
+
+/// `Find_Best_Target_Building @ 0x006EEBD0`'s walk (`0x006EEC0D..0x006EEE55`)
+/// over the buildings of the searched type in BuildingClass::Array order:
+/// one of the enemy, of a house the unit's is not allied with, or of an
+/// allied passive house is scored ([`building_pick_score`] from `from`, the
+/// unit's Location). The highest of the enemy's buildings and of all
+/// (signed, the first on a tie, none at or below -1) are kept, and
+/// `only_enemy` (`OnlyTargetHouseEnemy=`) picks the enemy's
+/// (`0x006EEE5B..0x006EEE7A`). The original also returns the enemy's when it
+/// beats the overall best (`0x006EEE6D`), which it never can.
+pub(super) fn target_building_pick(
+    buildings: &[TargetBuilding],
+    from: [i32; 3],
+    mode: u32,
+    only_enemy: bool,
+    mut threat_at: impl FnMut(u64) -> i32,
+) -> Option<u64> {
+    let (mut enemy_best, mut enemy_score) = (None, -1i32);
+    let (mut any_best, mut any_score) = (None, -1i32);
+    for building in buildings {
+        if !building.enemy_owned && building.allied && !building.passive {
+            continue;
+        }
+        let score = building_pick_score(mode, || threat_at(building.id), building.location, from);
+        if score > enemy_score && building.enemy_owned {
+            enemy_score = score;
+            enemy_best = Some(building.id);
+        }
+        if score > any_score {
+            any_score = score;
+            any_best = Some(building.id);
+        }
+    }
+    if only_enemy { enemy_best } else { any_best }
 }
 
 #[cfg(test)]

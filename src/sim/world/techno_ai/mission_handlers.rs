@@ -1214,8 +1214,12 @@ pub(crate) fn foot_enter_idle_mode_selection(
 /// - `Engineer` and not `C4` and no weapon ability 14 (`0x004D53C0`) →
 ///   `Queue_Mission(Capture)`. Trigger: a berserked or Hunt-ordered engineer
 ///   that acquires a target. Stock carriers: `ENGINEER`, `SENGINEER`,
-///   `YENGINEER`. Frequency: rare — engineers are rarely in a Chaos Drone's
-///   splash and are never given a Hunt order by a player.
+///   `YENGINEER`. Frequency: rare in VERA — engineers are rarely in a Chaos
+///   Drone's splash and are never given a Hunt order by a player. Native also
+///   hunts with a computer engineer hit on Guard or AreaGuard
+///   (InfantryClass::ReceiveDamage `0x00518C19..0x00518C3F`, unported), such
+///   as a retail tech-capture team's engineer that script action 46 parks by
+///   its building (`team_script_vm::actions` residual).
 /// - `C4` or weapon ability 14, with a **BuildingClass** target
 ///   (`0x004D5416`) → `Set_Destination(target)`, `Queue_Mission(Sabotage)`.
 ///   Trigger: a berserked demolition infantryman holding a building.

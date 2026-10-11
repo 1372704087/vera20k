@@ -400,8 +400,13 @@ fn ensure_movement_inputs(sim: &mut Simulation, rules: &RuleSet) {
     }
 }
 
-/// Every unit's ground locomotor Process, in live-object order.
-fn process_units(sim: &mut Simulation, rules: &RuleSet) {
+/// Every unit's ground locomotor Process, in live-object order, with the
+/// overlay registry the miner walk read: cell entry reads the ore's type.
+fn process_units(
+    sim: &mut Simulation,
+    rules: &RuleSet,
+    registry: &crate::rules::overlay_types::OverlayTypeRegistry,
+) {
     for id in sim.substrate.entities.keys_sorted() {
         if sim
             .substrate
@@ -412,7 +417,7 @@ fn process_units(sim: &mut Simulation, rules: &RuleSet) {
             sim.process_ground_locomotor_one(
                 id,
                 Some(rules),
-                None,
+                Some(registry),
                 crate::sim::world::FrameEffects::default(),
             )
             .expect("unit Process");
@@ -462,7 +467,11 @@ fn tick_miners_n(sim: &mut Simulation, rules: &RuleSet, n: usize) {
         }
         super::miner_system::tick_miners(sim, rules, &config);
         tick_stages(sim);
-        process_units(sim, rules);
+        process_units(
+            sim,
+            rules,
+            crate::sim::tiberium::test_support::overlay_registry(),
+        );
         sim.session.tick += 1;
     }
 }
@@ -1482,7 +1491,7 @@ fn tick_miners_overlay_n(
         sim.session.binary_frame = sim.session.binary_frame.wrapping_add(1);
         super::miner_system::tick_miners_test_walk(sim, rules, &config, Some(registry));
         tick_stages(sim);
-        process_units(sim, rules);
+        process_units(sim, rules, registry);
         sim.session.tick += 1;
     }
 }

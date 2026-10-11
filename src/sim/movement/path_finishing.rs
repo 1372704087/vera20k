@@ -144,7 +144,6 @@ impl PathFinishingContext for Finishing<'_> {
                 bypass_grid: false,
                 is_infantry: self.facts.is_infantry,
                 mover_is_crusher: self.facts.mover_is_crusher,
-                wall: None,
             })
             .is_clear()
             {

@@ -15,8 +15,7 @@
 //! - sim/ NEVER depends on render/, ui/, audio/, net/.
 
 use super::cell_entry::{
-    CanEnterCellContext, CanEnterCellResult, CanEnterLayerContext, WallArmContext,
-    evaluate_can_enter_cell, search_cell_cost_decision,
+    CanEnterCellContext, CanEnterLayerContext, evaluate_can_enter_cell, search_cell_cost_decision,
 };
 use super::terrain_cost::TerrainCostGrid;
 use super::zone_hierarchy::ZoneLevelGraph;
@@ -875,8 +874,9 @@ pub trait SearchFootEntry {
 ///
 /// These facts travel together through every search entry, so they travel as
 /// one value. `urgency` drives the code-2 escalation, `mover_is_crusher` and
-/// `is_infantry` select the `Can_Enter_Cell` class arm, and `wall_cost` is the
-/// optional producer for the Foot `+0x1AC` cost class (ledger I9b).
+/// `is_infantry` select the `Can_Enter_Cell` class arm, `foot_entry` is the
+/// live Foot `+0x1AC` receiver, and `search_cost_classifier` classifies the
+/// cells a reduced search (no `foot_entry`) refuses.
 ///
 /// This deliberately excludes `allow_zone_hierarchy` and `playfield_bounds`
 /// (hierarchy admission, not per-neighbour cost) and both movement-zone
@@ -893,7 +893,7 @@ pub struct MoverSearchFacts<'a> {
     pub urgency: u8,
     pub mover_is_crusher: bool,
     pub is_infantry: bool,
-    pub wall_cost: Option<&'a dyn SearchCellCostClassifier>,
+    pub search_cost_classifier: Option<&'a dyn SearchCellCostClassifier>,
     pub foot_entry: Option<&'a dyn SearchFootEntry>,
 }
 
@@ -1591,53 +1591,7 @@ pub fn is_cell_passable_for_category_on_layer(
     is_infantry: bool,
     mover_is_crusher: bool,
 ) -> bool {
-    evaluate_cell_entry_for_category_on_layer(
-        grid,
-        x,
-        y,
-        terrain_layer,
-        movement_zone,
-        speed_type,
-        resolved_terrain,
-        terrain_costs,
-        bypass_grid,
-        is_infantry,
-        mover_is_crusher,
-        None,
-    )
-    .is_clear()
-}
-
-/// Result-preserving sibling of [`is_cell_passable_for_category_on_layer`].
-///
-/// The bool form answers "may this mover step here", which necessarily flattens
-/// the wall arm's 4 and 5 into the same `false` as a hard 7. Ledger row I9b needs
-/// that distinction at the runtime crossing: `UnitClass::Can_Enter_Cell
-/// @ 0x0073F0A0` accumulates `max(code, 4)` for an allied wall (`0x0073F4EB`) and
-/// `max(code, 5)` for a non-allied one (`0x0073F50E`) rather than refusing, and
-/// the Drive dispatch at `0x004B3A97` routes exactly those two codes into the
-/// blocking-object / wall-cell Override.
-///
-/// Passing `wall: None` is bit-identical to the bool path by construction: the
-/// bool path is now this function. `CanEnterCellContext::wall` is consumed as
-/// `ctx.wall.and_then(..)` when the arm computes `wall_attack_code`, so `None`
-/// short-circuits to the same `HardBlocked` the bool reported as `false`.
-pub fn evaluate_cell_entry_for_category_on_layer(
-    grid: &PathGrid,
-    x: u16,
-    y: u16,
-    terrain_layer: MovementLayer,
-    movement_zone: Option<MovementZone>,
-    speed_type: Option<SpeedType>,
-    resolved_terrain: Option<&ResolvedTerrainGrid>,
-    terrain_costs: Option<&TerrainCostGrid>,
-    bypass_grid: bool,
-    is_infantry: bool,
-    mover_is_crusher: bool,
-    wall: Option<WallArmContext<'_>>,
-) -> CanEnterCellResult {
     evaluate_can_enter_cell(CanEnterCellContext {
-        wall,
         target: (x, y),
         terrain_layer,
         movement_zone,
@@ -1649,6 +1603,7 @@ pub fn evaluate_cell_entry_for_category_on_layer(
         is_infantry,
         mover_is_crusher,
     })
+    .is_clear()
 }
 
 pub fn is_cell_passable_for_mover_on_layer_with_speed(
@@ -1663,7 +1618,6 @@ pub fn is_cell_passable_for_mover_on_layer_with_speed(
     bypass_grid: bool,
 ) -> bool {
     evaluate_can_enter_cell(CanEnterCellContext {
-        wall: None,
         target: (x, y),
         terrain_layer,
         movement_zone,
@@ -2567,7 +2521,7 @@ pub fn find_path_with_costs(
             urgency,
             mover_is_crusher,
             is_infantry,
-            wall_cost: None,
+            search_cost_classifier: None,
             foot_entry: None,
         },
     )
@@ -2602,7 +2556,7 @@ pub(crate) fn find_path_with_costs_marker(
             urgency: facts.urgency,
             mover_is_crusher: facts.mover_is_crusher,
             is_infantry: facts.is_infantry,
-            search_cost_classifier: facts.wall_cost,
+            search_cost_classifier: facts.search_cost_classifier,
             foot_entry: facts.foot_entry,
             movement_zone,
             resolved_terrain,
@@ -2696,7 +2650,7 @@ pub fn find_layered_path(
             urgency,
             mover_is_crusher,
             is_infantry,
-            wall_cost: None,
+            search_cost_classifier: None,
             foot_entry: None,
         },
     )
@@ -2743,7 +2697,7 @@ pub(crate) fn find_layered_path_marker(
             urgency: facts.urgency,
             mover_is_crusher: facts.mover_is_crusher,
             is_infantry: facts.is_infantry,
-            search_cost_classifier: facts.wall_cost,
+            search_cost_classifier: facts.search_cost_classifier,
             foot_entry: facts.foot_entry,
             ..Default::default()
         },

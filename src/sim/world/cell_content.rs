@@ -1,14 +1,46 @@
-//! Live CellClass object-list queries shared by bridge and debris callbacks.
+//! Live CellClass object-list and overlay queries shared by bridge, debris,
+//! cell-entry and movement callbacks.
 //!
-//! Occupancy owns entity list order; ProductionState owns Terrain membership.
-//! This view adds no stored links. Callers choose the native before/after-hit
-//! continuation point (BlowUpBridge47DD96 versus AnimClass423A83).
+//! Occupancy owns entity list order; ProductionState owns Terrain membership;
+//! OverlayGrid owns a real cell's overlay. This view adds no stored links.
+//! Callers choose the native before/after-hit continuation point
+//! (BlowUpBridge47DD96 versus AnimClass423A83).
 
 use super::Simulation;
+use crate::map::cell_index::NativeCellIdentity;
 use crate::sim::movement::locomotor::MovementLayer;
 use crate::sim::occupancy::CellObjectMember;
+use crate::sim::overlay_grid::OverlayCell;
 
 impl Simulation {
+    /// Cell+0x44 overlay index, +0x11E data and +0x50 wall owner of a cell
+    /// already looked up, as Mark (0x005FC570), DestroyOverlay (0x00480CB0),
+    /// ore growth and the bridge writers leave them during play. OverlayGrid
+    /// owns a real cell's; the shared dummy keeps its own index and data. The
+    /// terrain's bridge facts mirror only the map's overlays and the bridges,
+    /// so walls built or destroyed in play never reach them.
+    pub(crate) fn cell_overlay(&self, cell: NativeCellIdentity) -> OverlayCell {
+        let Some(terrain) = self.resolved_terrain.as_ref() else {
+            return OverlayCell::default();
+        };
+        match cell {
+            NativeCellIdentity::Real(index) => {
+                let c = &terrain.cells()[index];
+                self.overlay_grid
+                    .as_ref()
+                    .map_or_else(OverlayCell::default, |grid| *grid.cell(c.rx, c.ry))
+            }
+            NativeCellIdentity::Dummy => {
+                let (identity, state) = terrain.shared_cell_dummy().overlay_identity_state();
+                OverlayCell {
+                    overlay_id: u8::try_from(identity).ok(),
+                    overlay_data: state,
+                    wall_owner: None,
+                }
+            }
+        }
+    }
+
     pub(crate) fn cell_objects(
         &self,
         cell: (u16, u16),

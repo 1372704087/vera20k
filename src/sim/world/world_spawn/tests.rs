@@ -1457,16 +1457,9 @@ fn techno_constructor_wall_rejection_precedes_mutation_and_keeps_graph_draws_spe
     let wall_cell = (6, 5);
     let mut overlays = crate::sim::overlay_grid::OverlayGrid::new(10, 10);
     overlays.place_overlay(wall_cell.0, wall_cell.1, 1, 0);
+    // Unit73F0A0 reads the Cell's live overlay identity, which OverlayGrid
+    // owns.
     sim.overlay_grid = Some(overlays);
-    // Unit73F0A0 reads the native Cell's overlay identity. OverlayGrid's
-    // presentation record alone does not supply that class-admission input.
-    sim.resolved_terrain
-        .as_mut()
-        .unwrap()
-        .cell_mut(wall_cell.0, wall_cell.1)
-        .unwrap()
-        .bridge_facts
-        .overlay_id = Some(1);
 
     let parent_id = sim
         .construct_object_limbo_at_height("CARRIER", "Americans", 2, 2, 9, 0, &rules)

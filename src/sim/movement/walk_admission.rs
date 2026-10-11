@@ -545,38 +545,23 @@ impl Simulation {
                 return Err("Walk Override requires a Terrain target owner".into());
             }
             None => {
+                //75BAF3..75BB49: three lookups of the Cell, for its +0x44,
+                //its OverlayType's +0x2A8 and the Attack target.
                 let first = self.walk_lookup_cell(cell)?;
-                let terrain = self.resolved_terrain.as_ref().unwrap();
-                let overlay = match first {
-                    NativeCellIdentity::Real(index) => terrain.cells()[index]
-                        .bridge_facts
-                        .overlay_id
-                        .map(i32::from)
-                        .unwrap_or(-1),
-                    NativeCellIdentity::Dummy => {
-                        terrain.shared_cell_dummy().overlay_identity_state().0
-                    }
-                };
-                if overlay == -1 {
+                if self.cell_overlay(first).overlay_id.is_none() {
                     return Ok(());
                 }
                 let second = self.walk_lookup_cell(cell)?;
-                let terrain = self.resolved_terrain.as_ref().unwrap();
-                let overlay = match second {
-                    NativeCellIdentity::Real(index) => {
-                        terrain.cells()[index].bridge_facts.overlay_id
-                    }
-                    NativeCellIdentity::Dummy => {
-                        u8::try_from(terrain.shared_cell_dummy().overlay_identity_state().0).ok()
-                    }
-                };
-                let wall = overlay
+                let wall = self
+                    .cell_overlay(second)
+                    .overlay_id
                     .and_then(|overlay| registry.and_then(|registry| registry.flags(overlay)))
                     .is_some_and(|flags| flags.wall);
                 if !wall {
                     return Ok(());
                 }
                 let target_cell = self.walk_lookup_cell(cell)?;
+                let terrain = self.resolved_terrain.as_ref().unwrap();
                 let at = terrain.native_cell_coord(target_cell);
                 Some(TargetKind::Cell(at.0 as u16, at.1 as u16))
             }

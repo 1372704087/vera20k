@@ -431,3 +431,41 @@ fn accepted_descriptor_height_survives_selected_list_transition() {
         );
     }
 }
+
+/// The live Foot `+0x1AC` class decides how A* crosses a wall line. Classes 4
+/// and 5 still expand (`AStar_main_loop @ 0x00429A90` refuses only 7), at 60x
+/// and 20x the step (`AStar_compute_edge_cost @ 0x00429830`, table
+/// `0x0081870C`): crossing one 20x cell beats a 32-step detour, 60x does not.
+#[test]
+fn a_wall_class_from_the_live_entry_prices_the_crossing() {
+    // Column x=3 is a wall line on a 7x17 board, open only at its foot.
+    struct WallLine(u8);
+    impl SearchFootEntry for WallLine {
+        fn classify(&self, query: SearchEntryQuery) -> Result<u8, String> {
+            Ok(match query.candidate {
+                SearchEntryCandidate::CopiedCoord((3, y)) if y < 16 => self.0,
+                _ => 0,
+            })
+        }
+    }
+    let grid = PathGrid::new(7, 17);
+    let crosses = |class: u8| {
+        let entry = WallLine(class);
+        let route = astar_search(
+            &grid,
+            (0, 0),
+            MovementLayer::Ground,
+            (6, 0),
+            &AStarOptions {
+                foot_entry: Some(&entry),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        assert_eq!(route.last().map(|step| (step.rx, step.ry)), Some((6, 0)));
+        route.iter().any(|step| step.rx == 3 && step.ry < 16)
+    };
+    assert!(crosses(5), "an enemy wall costs 20x: cross it");
+    assert!(!crosses(4), "an allied wall costs 60x: take the gap");
+    assert!(!crosses(7), "a refused wall never expands");
+}

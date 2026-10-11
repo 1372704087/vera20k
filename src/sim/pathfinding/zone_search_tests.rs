@@ -685,7 +685,7 @@ fn wrapper_rejection_precedes_the_marker_transaction() {
                 urgency: 2,
                 mover_is_crusher: false,
                 is_infantry: false,
-                wall_cost: None,
+                search_cost_classifier: None,
             },
             Some(&counts),
         );

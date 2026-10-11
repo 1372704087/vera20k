@@ -1601,7 +1601,6 @@ fn finish_concrete_death(
             anim_house,
             rules,
             overlay_registry,
-            &mut effects.immediate_uninit_ids,
             frame_effects,
         );
         concrete_smudge_plans.push(ConcreteDeathSmudgePlan::Infantry(postlude));
@@ -1668,7 +1667,11 @@ fn finish_concrete_death(
     for plan in concrete_smudge_plans {
         match plan {
             ConcreteDeathSmudgePlan::Infantry(postlude) => {
-                postlude.commit(world, rules, effects);
+                let uninit = callbacks_enabled(world).then(|| {
+                    crate::sim::world::UninitContext::new(Some(rules), overlay_registry)
+                        .with_effects(frame_effects)
+                });
+                postlude.commit(world, rules, effects, uninit);
             }
             ConcreteDeathSmudgePlan::Building => {
                 // DestructionEffects (`0x004415F0`): the building's own anims

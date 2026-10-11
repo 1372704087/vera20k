@@ -9,7 +9,6 @@
 
 use super::PassengerRole;
 use crate::rules::ruleset::RuleSet;
-use crate::sim::movement::locomotor::MovementLayer;
 use crate::sim::world::{
     FrameEffects, PlacementEvidence, RevealOutcome, RevealPosition, RevealRequest, Simulation,
     UninitContext,
@@ -35,8 +34,8 @@ pub(crate) enum DepartureFailure {
     NotReady,
     Placement,
     GroundReveal(RevealOutcome),
-    ParachuteAttach(MovementLayer),
-    ParachuteReveal(RevealOutcome, MovementLayer),
+    ParachuteAttach,
+    ParachuteReveal(RevealOutcome),
 }
 
 /// Run one complete cargo-head attempt. Only the passenger ID is exposed to the
@@ -110,7 +109,7 @@ fn restore_departure(
     effects: FrameEffects<'_>,
 ) {
     let reveal_outcome = match failure {
-        DepartureFailure::GroundReveal(outcome) | DepartureFailure::ParachuteReveal(outcome, _) => {
+        DepartureFailure::GroundReveal(outcome) | DepartureFailure::ParachuteReveal(outcome) => {
             Some(outcome)
         }
         _ => None,
@@ -126,20 +125,16 @@ fn restore_departure(
         DepartureRoute::Paradrop => match failure {
             DepartureFailure::MissingPassenger => sim.clear_radio_contacts_for(passenger_id),
             DepartureFailure::NotReady | DepartureFailure::Placement => {}
-            DepartureFailure::ParachuteAttach(prior_layer)
-            | DepartureFailure::ParachuteReveal(_, prior_layer) => {
+            DepartureFailure::ParachuteAttach | DepartureFailure::ParachuteReveal(_) => {
                 sim.clear_radio_contacts_for(passenger_id);
                 if let Some(passenger) = sim.substrate.entities.get_mut(passenger_id) {
-                    if matches!(failure, DepartureFailure::ParachuteReveal(..)) {
+                    if matches!(failure, DepartureFailure::ParachuteReveal(_)) {
                         passenger.parachute_state = None;
                     }
                     passenger.passenger_role = PassengerRole::Inside {
                         transport_id,
                         open_topped,
                     };
-                    if let Some(locomotor) = passenger.locomotor.as_mut() {
-                        locomotor.layer = prior_layer;
-                    }
                 }
             }
             DepartureFailure::NoCargo | DepartureFailure::GroundReveal(_) => {

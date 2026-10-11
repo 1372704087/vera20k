@@ -85,11 +85,15 @@ class DriftTests(unittest.TestCase):
 
 
 class FakeHistory:
-    def __init__(self, digests):
+    def __init__(self, digests, versions=None):
         self.found = digests
+        self.committed = versions or {}
 
     def digests(self, sidecar):
         return self.found
+
+    def versions(self, path):
+        return self.committed.get(path, set())
 
 
 class DependentTests(unittest.TestCase):
@@ -141,6 +145,16 @@ class DependentTests(unittest.TestCase):
                              FakeHistory({digest('runner v1'): 'tools/native_oracle.py'}))
         self.assertEqual([(pin.path, pin.state, pin.found_by) for pin in corpus.pins],
                          [('tools/native_oracle.py', 'changed', 'history')])
+
+    def test_a_squash_merged_label_is_proven_by_its_named_files_earlier_content(self):
+        # The squash commit that wrote the sidecar already holds runner v2.
+        history = FakeHistory({}, {'tools/native_oracle.py': {digest('runner v1')}})
+        corpus = self.corpus({'tools.native_oracle': digest('runner v1')}, history)
+        self.assertEqual([(pin.path, pin.state, pin.found_by) for pin in corpus.pins],
+                         [('tools/native_oracle.py', 'changed', 'history')])
+        # Content the named file never held stays a guess.
+        corpus = self.corpus({'tools.native_oracle': digest('runner v0')}, history)
+        self.assertEqual([pin.found_by for pin in corpus.pins], ['name'])
 
     def test_pins_in_other_fields_are_found_and_cannot_be_refreshed(self):
         corpus = self.corpus(
@@ -289,6 +303,15 @@ class GitTests(unittest.TestCase):
                          'tools/helper.py')
         self.assertEqual(sources.History(self.root).digests('tools/never.meta.json'), {})
 
+    def test_history_lists_every_committed_content_of_a_file(self):
+        self.commit(**{'tools/helper.py': 'v1'})
+        self.commit(**{'tools/helper.py': 'v2', 'tools/other.py': 'other'})
+        self.git('rm', '-q', 'tools/helper.py')
+        self.commit()
+        history = sources.History(self.root)
+        self.assertEqual(history.versions('tools/helper.py'), {digest('v1'), digest('v2')})
+        self.assertEqual(history.versions('tools/never.py'), set())
+
     def test_a_rename_lists_both_paths_and_the_old_content(self):
         self.commit(**{'tools/old.py': 'body'})
         base = subprocess.run(['git', 'rev-parse', 'HEAD'], cwd=self.root, check=True,
@@ -301,7 +324,8 @@ class GitTests(unittest.TestCase):
 
 class RepositoryTests(unittest.TestCase):
     def test_checkout_scan_proves_every_recorded_pin(self):
-        """Every pin names a file by its path, or by content now or when its sidecar was written."""
+        """Every pin names a file by its path, or by content now, at its sidecar's commit or
+        earlier in its named file."""
         try:
             every = sources.corpora(sources.Sources.tracked())
             shallow = sources.git('rev-parse', '--is-shallow-repository').strip() == 'true'

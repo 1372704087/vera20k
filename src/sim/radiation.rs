@@ -11,10 +11,18 @@
 //! ## Float exception
 //! Cell levels and the falloff/decay kernel are carried as `f64` with
 //! truncate-toward-zero staging at every integer boundary — the same
-//! documented float exception as `combat::damage` (the original engine
-//! computes this exact pipeline in doubles; IEEE `+ - * / sqrt` are
-//! bit-deterministic, so lockstep safety is preserved). Site bookkeeping
-//! (level/duration/remaining/steps) is integer math.
+//! documented float exception as `combat::damage`. IEEE `+ - * /` are
+//! bit-deterministic, so lockstep safety is preserved. Site bookkeeping
+//! (level/duration/remaining/steps) is integer math, and the cell distance is
+//! the original's ([`cell_distance_leptons`]).
+//!
+//! RESIDUAL: the original runs the falloff and decay kernel on the x87 with
+//! truncating rounding (`FIDIV`/`FIMUL` at `0x0065BAE6`, `0x0065BC8B`,
+//! `0x0065BE1E`); these `f64` operations round to nearest. Trigger: every
+//! radiation site. Effect: a cell level can differ from the original's in its
+//! low bits, which moves the damaging level (`damaging_level`) only where its
+//! truncation lands on a whole number. Downstream: radiation damage and the
+//! state hash.
 
 use std::collections::BTreeMap;
 
@@ -25,9 +33,10 @@ use crate::rules::ruleset::RadiationRules;
 use crate::sim::light_sources::LightingEvent;
 use crate::sim::timer::CdTimer;
 use crate::util::lepton::{UnsupportedGroundSlope, ground_height_leptons};
+use crate::util::native_x87::sqrt_approx_length;
 
 /// Leptons per cell edge (cell-center to cell-center step).
-const LEPTONS_PER_CELL: i64 = crate::util::lepton::LEPTONS_PER_CELL_I32 as i64;
+const LEPTONS_PER_CELL: i32 = crate::util::lepton::LEPTONS_PER_CELL_I32;
 
 /// Fallback square bound when no terrain grid is loaded (headless tests):
 /// the engine-native full grid extent.
@@ -93,26 +102,34 @@ fn cell_height_leptons(
     terrain: Option<&ResolvedTerrainGrid>,
     rx: u16,
     ry: u16,
-) -> Result<i64, UnsupportedGroundSlope> {
+) -> Result<i32, UnsupportedGroundSlope> {
     let Some(cell) = terrain.and_then(|t| t.cell(rx, ry)) else {
         return Ok(0);
     };
     let world_x = i32::from(rx).wrapping_mul(256).wrapping_add(128);
     let world_y = i32::from(ry).wrapping_mul(256).wrapping_add(128);
-    ground_height_leptons(cell.level, cell.slope_type, world_x, world_y).map(i64::from)
+    ground_height_leptons(cell.level, cell.slope_type, world_x, world_y)
 }
 
-/// 3D cell-center distance in whole leptons, truncated toward zero.
+/// The distance a radiation site measures from its centre cell to a cell
+/// (`RadSiteClass::GetRadLevelAt`, `SetCellRadLevels`,
+/// `DecreaseCellRadLevels` and `DecayCellRadLevels` at `0x0065B93E`,
+/// `0x0065BA6C`, `0x0065BC19`, `0x0065BDAC`): the centre's cell coordinate
+/// less the cell's, as `(dx² + dz²) + dy²` through `Sqrt_Approx` and
+/// `Math::ftol` ([`sqrt_approx_length`]).
 fn cell_distance_leptons(
     terrain: Option<&ResolvedTerrainGrid>,
-    a: (u16, u16),
-    b: (u16, u16),
+    centre: (u16, u16),
+    cell: (u16, u16),
 ) -> Result<i32, UnsupportedGroundSlope> {
-    let dx = (b.0 as i64 - a.0 as i64) * LEPTONS_PER_CELL;
-    let dy = (b.1 as i64 - a.1 as i64) * LEPTONS_PER_CELL;
-    let dz = cell_height_leptons(terrain, b.0, b.1)? - cell_height_leptons(terrain, a.0, a.1)?;
-    let dist_sq = (dx * dx + dy * dy + dz * dz) as f64;
-    Ok(dist_sq.sqrt() as i32)
+    let across = |from: u16, to: u16| (i32::from(from) - i32::from(to)) * LEPTONS_PER_CELL;
+    let dz = cell_height_leptons(terrain, centre.0, centre.1)?
+        - cell_height_leptons(terrain, cell.0, cell.1)?;
+    Ok(sqrt_approx_length([
+        across(centre.0, cell.0),
+        dz,
+        across(centre.1, cell.1),
+    ]))
 }
 
 /// Linear falloff contribution of `site` at `cell`:
@@ -315,7 +332,7 @@ impl RadiationState {
                     RadSite {
                         center,
                         spread: det.spread,
-                        radius_leptons: det.spread * LEPTONS_PER_CELL as i32 + 128,
+                        radius_leptons: det.spread * LEPTONS_PER_CELL + 128,
                         level,
                         level_steps: 0,
                         duration,
@@ -451,6 +468,46 @@ mod tests {
             cell_distance_leptons(Some(&terrain), (0, 0), (1, 0)),
             Ok(299)
         );
+    }
+
+    /// `RadSiteClass::GetRadLevelAt` (`0x0065B93E..0x0065B98F`) executed on
+    /// each row's two cell coordinates (`tools/spatial_oracle/
+    /// sqrt_approx_distances.py`). The terrain gives each cell the row's Z: a
+    /// whole level, or 52 for a level-0 ramp centre.
+    #[test]
+    fn cell_distance_matches_original_rows() {
+        let corpus: serde_json::Value = serde_json::from_str(crate::test_fixture::text(
+            "tools/spatial_oracle/sqrt_approx_distances.json",
+        ))
+        .unwrap();
+        let rows = corpus["radiation"].as_array().unwrap();
+        for row in rows {
+            let coords: [[i32; 3]; 2] = [row["centre"].clone(), row["cell"].clone()]
+                .map(|v| serde_json::from_value(v).unwrap());
+            let cell_of = |[x, y, _]: [i32; 3]| ((x / 256) as u16, (y / 256) as u16);
+            let cells = (0..8)
+                .flat_map(|ry| (0..8).map(move |rx| (rx, ry)))
+                .map(
+                    |(rx, ry)| match coords.iter().find(|&&coord| cell_of(coord) == (rx, ry)) {
+                        Some(&[_, _, 52]) => terrain_cell(rx, ry, 0, 1),
+                        Some(&[_, _, z]) => terrain_cell(rx, ry, (z / 104) as u8, 0),
+                        None => terrain_cell(rx, ry, 0, 0),
+                    },
+                )
+                .collect();
+            let terrain = ResolvedTerrainGrid::from_cells(8, 8, cells);
+            for coord in coords {
+                let (rx, ry) = cell_of(coord);
+                assert_eq!(cell_height_leptons(Some(&terrain), rx, ry), Ok(coord[2]));
+            }
+            assert_eq!(
+                cell_distance_leptons(Some(&terrain), cell_of(coords[0]), cell_of(coords[1])),
+                Ok(row["expected"].as_i64().unwrap() as i32),
+                "{}",
+                row["name"]
+            );
+        }
+        assert_eq!(rows.len(), 4);
     }
 
     fn stock_rules() -> RadiationRules {

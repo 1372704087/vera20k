@@ -29,7 +29,6 @@ use crate::sim::components::DriveCoord;
 use crate::sim::debug_event_log::DebugEventKind;
 use crate::sim::entity_store::EntityStore;
 use crate::sim::intern::InternedId;
-use crate::util::fixed_math::isqrt_i64;
 
 const TELEPORT_WARP_DRAW_FLAGS: u32 = 0x600;
 
@@ -713,7 +712,7 @@ impl crate::sim::world::Simulation {
         Ok(arm_teleport(
             self.substrate.entities.get_mut(id).unwrap(),
             destination,
-            target,
+            self.resolved_terrain.as_ref(),
             &rules.general,
             is_harvester,
         ))
@@ -781,21 +780,27 @@ pub(crate) fn warp_destination_reached(
         })
 }
 
-/// Arm the warp: the destination request (`0x007181DB`) and its chrono delay,
-/// from the Euclidean lepton distance (`compute_chrono_delay`). A harvester
-/// (the Chrono Miner) takes no delay, so its Relocate finishes in one frame.
+/// Arm the warp: the destination request (`0x007181DB`) and its chrono delay
+/// (`compute_chrono_delay`). A harvester (the Chrono Miner) takes no delay, so
+/// its Relocate finishes in one frame.
+///
+/// Process measures the delay's distance when the warp starts
+/// (`0x00719447..0x007194AC`): the owner's GetCoords less the destination, as
+/// `(dx² + dz²) + dy²` through `Sqrt_Approx` and `Math::ftol`. VERA arms it
+/// at the request, from the same coordinates while the owner stays put.
 fn arm_teleport(
     entity: &mut crate::sim::game_entity::GameEntity,
     destination: DriveCoord,
-    target: (u16, u16),
+    terrain: Option<&crate::map::resolved_terrain::ResolvedTerrainGrid>,
     rules: &GeneralRules,
     is_harvester: bool,
 ) -> bool {
-    // Compute distance in leptons (1 cell = 256 leptons) for chrono delay.
-    let dx = (entity.position.rx as i32 - target.0 as i32) * 256;
-    let dy = (entity.position.ry as i32 - target.1 as i32) * 256;
-    let dist_sq = (dx as i64) * (dx as i64) + (dy as i64) * (dy as i64);
-    let distance_leptons = isqrt_i64(dist_sq) as i32;
+    let owner = super::ground_pose::object_get_coords(entity, terrain);
+    let distance_leptons = crate::util::native_x87::sqrt_approx_length([
+        owner.x.wrapping_sub(destination.x),
+        owner.z.wrapping_sub(destination.z),
+        owner.y.wrapping_sub(destination.y),
+    ]);
     let chrono_ticks = if is_harvester {
         0
     } else {
@@ -1016,7 +1021,7 @@ mod tests {
         assert!(arm_teleport(
             owner,
             DriveCoord::cell(20, 20, 0),
-            (20, 20),
+            None,
             &rules,
             false
         ));
@@ -1026,7 +1031,7 @@ mod tests {
         assert!(arm_teleport(
             owner,
             DriveCoord::cell(20, 20, 0),
-            (20, 20),
+            None,
             &rules,
             false
         ));
@@ -1048,7 +1053,7 @@ mod tests {
         assert!(arm_teleport(
             entities.get_mut(1).unwrap(),
             DriveCoord::cell(20, 20, 0),
-            (20, 20),
+            None,
             &rules,
             false
         ));
@@ -1107,6 +1112,50 @@ mod tests {
         assert_eq!(compute_chrono_delay(&rules, 5120), 16);
     }
 
+    /// Process `0x00719454..0x007194AC` executed on each row's owner GetCoords
+    /// and destination (`tools/spatial_oracle/sqrt_approx_distances.py`). A
+    /// factor of one with no minimum arms the distance itself as the delay.
+    #[test]
+    fn chrono_distance_matches_original_rows() {
+        let corpus: serde_json::Value = serde_json::from_str(crate::test_fixture::text(
+            "tools/spatial_oracle/sqrt_approx_distances.json",
+        ))
+        .unwrap();
+        let rules = GeneralRules {
+            chrono_trigger: true,
+            chrono_distance_factor: 1,
+            chrono_minimum_delay: 0,
+            chrono_range_minimum: 0,
+            ..default_rules()
+        };
+        let rows = corpus["teleport"].as_array().unwrap();
+        for row in rows {
+            let [owner, destination] = [&row["owner"], &row["destination"]]
+                .map(|v| serde_json::from_value::<[i32; 3]>(v.clone()).unwrap());
+            let mut entity = teleport_owner(1, "CLEG", 0, 0);
+            super::super::ground_pose::set_position_world_xy(
+                &mut entity.position,
+                [owner[0], owner[1]],
+            );
+            entity.position.exact_z_leptons = Some(owner[2]);
+            let [x, y, z] = destination;
+            assert!(arm_teleport(
+                &mut entity,
+                DriveCoord { x, y, z },
+                None,
+                &rules,
+                false
+            ));
+            assert_eq!(
+                i64::from(entity.teleport_state().unwrap().being_warped_ticks()),
+                row["expected"].as_i64().unwrap(),
+                "{}",
+                row["name"]
+            );
+        }
+        assert_eq!(rows.len(), 4);
+    }
+
     /// Harvester units skip the chrono lock entirely — when is_harvester=true
     /// the lock duration is 0 regardless of distance.
     #[test]
@@ -1120,7 +1169,7 @@ mod tests {
         assert!(arm_teleport(
             entities.get_mut(1).unwrap(),
             DriveCoord::cell(90, 90, 0),
-            (90, 90),
+            None,
             &rules,
             true
         ));
@@ -1146,7 +1195,7 @@ mod tests {
         assert!(arm_teleport(
             entities.get_mut(1).unwrap(),
             DriveCoord::cell(20, 20, 0),
-            (20, 20),
+            None,
             &rules,
             true
         ));
@@ -1175,7 +1224,7 @@ mod tests {
         assert!(arm_teleport(
             entities.get_mut(1).unwrap(),
             DriveCoord::cell(20, 20, 0),
-            (20, 20),
+            None,
             &rules,
             false
         ));

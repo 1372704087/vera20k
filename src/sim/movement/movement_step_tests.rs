@@ -9,7 +9,38 @@ use crate::sim::movement::track_process::{TrackFamily, TrackInvocation};
 use crate::sim::movement::{DriveLocomotionRuntime, ShipLocomotionRuntime};
 use crate::sim::occupancy::OccupancyGrid;
 use crate::sim::world::Simulation;
-use crate::util::fixed_math::SIM_ONE;
+use crate::util::fixed_math::{SIM_ONE, SimFixed};
+
+/// WalkLocomotionClass::ProcessMovement `0x0075BD33..0x0075BD70` executed on
+/// each row's owner and head (`tools/spatial_oracle/sqrt_approx_distances.py`):
+/// a head the owner stands less than 17 leptons from completes.
+#[test]
+fn walk_head_completion_matches_original_rows() {
+    let corpus: serde_json::Value = serde_json::from_str(crate::test_fixture::text(
+        "tools/spatial_oracle/sqrt_approx_distances.json",
+    ))
+    .unwrap();
+    let rows = corpus["walk"].as_array().unwrap();
+    for row in rows {
+        let [owner, head] = [&row["owner"], &row["head"]]
+            .map(|v| serde_json::from_value::<[i32; 3]>(v.clone()).unwrap());
+        let mut entity = GameEntity::test_default(1, "E1", "Americans", 0, 0);
+        crate::sim::movement::ground_pose::set_position_world_xy(
+            &mut entity.position,
+            [owner[0], owner[1]],
+        );
+        let mut locomotor = LocomotorState::for_test_kind(LocomotorKind::Walk);
+        let [x, y, z] = head;
+        locomotor.set_step_head(Some(DriveCoord { x, y, z }));
+        assert_eq!(
+            completed_walk_head(&entity.position, &Some(locomotor)).is_some(),
+            row["expected"].as_i64().unwrap() < 17,
+            "{}",
+            row["name"]
+        );
+    }
+    assert_eq!(rows.len(), 5);
+}
 
 /// Body/hull in-place turn duration = abs(delta_8bit) / ROT native frames
 /// (gamemd DriveLocomotionClass::Do_Turn on the hull FacingClass at the

@@ -12,7 +12,8 @@ use crate::sim::house_state::HouseState;
 use crate::sim::intern::InternedId;
 use crate::sim::pathfinding::PathGrid;
 use crate::sim::pathfinding::terrain_speed::TerrainSpeedConfig;
-use crate::util::fixed_math::{SIM_ONE, SIM_ZERO, SimFixed, isqrt_i64};
+use crate::util::fixed_math::{SIM_ONE, SIM_ZERO, SimFixed};
+use crate::util::native_x87::sqrt_approx_length;
 
 /// The native Process_Movement fresh arm's publication for its candidate
 /// Cell (`track_fresh`), with Road's row when the retained height is two or
@@ -85,10 +86,9 @@ fn publish_target_fraction(entity: &mut GameEntity, requested: SimFixed) {
 /// Map[destination] (0x00565730) has the structural flag 0x100. A null
 /// destination is looked up as (0, 0); there is no null check.
 ///
-/// PRECISION: native sums binary64 squares, takes `Sqrt_Approx` (0x004CAC40,
-/// binary32) and truncates. The integer square root floors, so the two differ
-/// by one lepton where binary32 rounding reaches the next integer, which
-/// matters only at exactly SlowdownDistance.
+/// The distance is `(dz² + dy²) + dx²` of the Foot coordinate less the
+/// destination, through `Sqrt_Approx` (0x004CAC40) and `Math::ftol`
+/// ([`sqrt_approx_length`]).
 ///
 /// Ship adds the global at 0xB0782C, Drive the one at 0x8A07C4. Each has one
 /// writer, a static initializer of 4 x its class height step (Ship 0x69EBD0,
@@ -120,13 +120,11 @@ fn braking_distance(
     .unwrap_or(0);
     let destination_z = super::ground_pose::z_at_height(ground, 0, structural);
     let current = super::ground_pose::object_location(entity, terrain);
-    let delta = |a: i32, b: i32| i64::from(a.wrapping_sub(b));
-    let (dx, dy, dz) = (
-        delta(current.x, destination.x),
-        delta(current.y, destination.y),
-        delta(current.z, destination_z),
-    );
-    isqrt_i64(dx * dx + dy * dy + dz * dz) as i32
+    sqrt_approx_length([
+        current.z.wrapping_sub(destination_z),
+        current.y.wrapping_sub(destination.y),
+        current.x.wrapping_sub(destination.x),
+    ])
 }
 
 /// One TrackProcess invocation consumes its retained class target, even when
@@ -416,7 +414,7 @@ mod tests {
             );
             compared += 1;
         }
-        assert_eq!(compared, 88);
+        assert_eq!(compared, 90);
     }
 
     /// Every executed Drive/Ship prefix row through the one production port:
@@ -515,6 +513,6 @@ mod tests {
             );
             compared += 1;
         }
-        assert_eq!(compared, 116);
+        assert_eq!(compared, 118);
     }
 }

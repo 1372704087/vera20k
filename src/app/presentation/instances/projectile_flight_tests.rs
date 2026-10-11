@@ -39,6 +39,10 @@ fn original_cannon_launch_motion_and_live_bridge_draw_form_one_production_chain(
     else {
         return;
     };
+    // The level Cannon arc takes its pitch from the Acos table (48A9D0).
+    if crate::map::retail_trig::verified_acos_table_or_skip("native flight comparison").is_none() {
+        return;
+    }
     let mut rules = RuleSet::from_ini_with_fixed_art_for_test(&rules_ini, &art_ini).unwrap();
     rules.install_art_data(ArtRegistry::from_ini(&art_ini));
     let corpus: Value = serde_json::from_str(crate::test_fixture::text(

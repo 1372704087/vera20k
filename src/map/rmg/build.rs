@@ -61,12 +61,7 @@ pub fn wheel_impassable_from_rules(rules: &TerrainRules) -> [bool; LAND_TYPES] {
 }
 
 /// The facts the generator needs, snapshotted so the run does not borrow
-/// `TheaterData`.
-///
-/// Mostly theater and rules, plus one thing that is neither: the sine table,
-/// which comes out of the retail executable. It rides here because this is
-/// already the "everything a run needs, resolved once" bundle, and threading a
-/// second parameter through every entry point would say less.
+/// `TheaterData`: theater and rules, plus the river's sine table.
 #[derive(Debug, Clone)]
 pub struct ResolvedTheaterInputs {
     pub ids: TileIds,

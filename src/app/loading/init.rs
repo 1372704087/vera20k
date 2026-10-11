@@ -2361,7 +2361,7 @@ pub(crate) fn load_map_initial_with_assets(
     crate::map::retail_trig::install_from_dir(&ra2_dir);
     if !crate::map::retail_trig::wave_tables_available() {
         anyhow::bail!(
-            "{} does not provide the verified gamemd Acos table required by stock Sonic Wave simulation",
+            "{} does not provide the verified gamemd Acos table required by stock arcing projectile and Sonic Wave simulation",
             ra2_dir.join("gamemd.exe").display()
         );
     }
@@ -3616,8 +3616,8 @@ mod random_map_retail_tests {
         let Some(ra2) = retail_dir() else {
             panic!("set RA2_DIR to the retail RA2/YR install directory");
         };
-        // The .SED lives in a scratch directory, while verified native tables
-        // belong to the retail install, like the AssetManager supplied below.
+        // The .SED lives in a scratch directory, while the verified Acos table
+        // belongs to the retail install, like the AssetManager supplied below.
         crate::map::retail_trig::install_from_dir(&ra2);
 
         let mut structures_placed = 0usize;

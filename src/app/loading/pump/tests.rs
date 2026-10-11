@@ -422,7 +422,7 @@ fn loading_replacement_and_terminal_retirement_preserve_cache_and_admission_orde
     ));
 }
 
-/// Uses the production initial-map reader and real retail trig tables;
+/// Uses the production initial-map reader and the real retail Acos table;
 /// assertions distinguish initial read failure from context admission.
 #[test]
 #[ignore = "requires RA2_DIR with verified retail gamemd.exe"]

@@ -268,16 +268,19 @@ fn original_direct_fireat_keeps_argument_speed_separate_from_live_tarcom_aim() {
         .iter()
         .map(|component| u64::from_str_radix(component.as_str().unwrap(), 16).unwrap())
         .collect::<Vec<_>>();
-    // The direction is FireAt's sine-table lookups (`0x004CACB0`), so its
-    // bits are exact against the checked retail table.
-    assert_eq!(
-        bullet
-            .velocity
-            .native()
-            .map(|component| component.bits())
-            .as_slice(),
-        expected_velocity
-    );
+    // The level Cannon arc takes its pitch from the Acos table (48A9D0), so
+    // its bits are exact only against the retail Acos table.
+    if crate::map::retail_trig::verified_acos_table_or_skip("native FireAt velocity bits").is_some()
+    {
+        assert_eq!(
+            bullet
+                .velocity
+                .native()
+                .map(|component| component.bits())
+                .as_slice(),
+            expected_velocity
+        );
+    }
 
     // A valid argument does not become the fallback for null TarCom. The
     // native second Direct call reaches70BCB0, returns zero, and emits no

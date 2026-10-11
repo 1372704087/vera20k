@@ -40,7 +40,7 @@ these exact retail executables, including under optimized Python:
 No executable is distributed here.
 This restriction belongs to these comparison tools alone, because their harnesses
 run code at fixed addresses of that build: the game and the Rust tests accept any
-retail `gamemd.exe`, locate its math tables by their contents and check every byte.
+retail `gamemd.exe`, locate its Acos table by its contents and check every byte.
 
 ### Steam compatibility and evidence identity
 

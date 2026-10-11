@@ -112,7 +112,11 @@ pub(crate) fn preregister_runtime_overlay_names(
             || selected_crate_ids.contains(&Some(overlay_id));
         let is_low_bridge =
             is_bridge_overlay_index(overlay_id) && !is_high_bridge_index(overlay_id);
-        if !is_wall && !is_low_bridge && !is_crate && !is_tiberium {
+        // BuildingClass::AfterDestruction @ 0x00441F60 writes the IsRubble
+        // overlay onto a LeaveRubble foundation; the draw swaps in the
+        // building's art, but the overlay pass still admits the cell by name.
+        let is_rubble = flags.is_some_and(|flags| flags.is_rubble);
+        if !is_wall && !is_low_bridge && !is_crate && !is_tiberium && !is_rubble {
             continue;
         }
         let Some(name) = resolve_overlay_name_for_render(overlay_registry, overlay_id) else {
@@ -241,7 +245,8 @@ pub(crate) fn build_overlay_atlas_from_map(
     // Register overlay identities the sim can create after map load. Walls can
     // be placed by production; low bridges replace their CellClass identity as
     // damage/collapse/repair advances while the map-pack entry stays fixed.
-    // TIBTRE and natural spreading allocate new resource variants as well.
+    // TIBTRE and natural spreading allocate new resource variants as well,
+    // and a destroyed LeaveRubble building marks the rubble overlay.
     let (wall_ids_added, low_bridge_ids_added, crate_ids_added) =
         preregister_runtime_overlay_names(&overlay_registry, crate_rules, &mut overlay_names);
     if wall_ids_added > 0 {
@@ -2839,6 +2844,29 @@ mod tests {
                 assert_eq!(names.get(&id).map(String::as_str), registry.name(id));
             }
         }
+    }
+
+    #[test]
+    fn runtime_overlay_names_include_the_rubble_overlay_absent_from_the_map() {
+        // BuildingClass::AfterDestruction @ 0x00441F60 writes overlay 0xEF
+        // onto a LeaveRubble foundation at runtime; a map with no authored
+        // rubble must still name it, or the overlay pass drops the cell
+        // before its IsRubble arm draws the building's rubble frame.
+        let mut text = String::from("[OverlayTypes]\n");
+        for overlay_id in 0..=0xEFu8 {
+            text.push_str(&format!("{overlay_id}=DUMMY{overlay_id}\n"));
+        }
+        text.push_str("[DUMMY239]\nIsRubble=yes\n");
+        let registry = OverlayTypeRegistry::from_ini(&IniFile::from_str(&text), None);
+        let mut names = BTreeMap::new();
+
+        preregister_runtime_overlay_names(
+            &registry,
+            &crate::rules::crate_rules::CrateRules::default(),
+            &mut names,
+        );
+
+        assert_eq!(names.get(&0xEF).map(String::as_str), Some("DUMMY239"));
     }
 
     #[test]

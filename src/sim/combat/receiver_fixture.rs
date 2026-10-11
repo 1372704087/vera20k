@@ -737,7 +737,7 @@ pub(crate) fn resolve_attacker_fire(
             if let Some(fog) = fog {
                 world.fog = fog.clone();
             }
-            world_receiver::resolve_attacker_fire(
+            world_fire::resolve_attacker_fire(
                 world,
                 rules,
                 overlay_registry,
@@ -850,7 +850,7 @@ pub(crate) fn tick_combat_with_fog_and_main_rng_with_terrain_area(
                 world.fixture_building_visit(id, rules, overlay_registry);
             }
             let fire_requests = std::mem::take(&mut world.fire_requests);
-            let mut result = world_receiver::tick_combat(
+            let mut result = world_fire::tick_combat(
                 world,
                 run,
                 rules,

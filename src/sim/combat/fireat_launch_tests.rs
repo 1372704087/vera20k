@@ -233,7 +233,7 @@ fn original_direct_fireat_keeps_argument_speed_separate_from_live_tarcom_aim() {
     let argument_target =
         super::TargetKind::Cell((argument.x / 256) as u16, (argument.y / 256) as u16);
     duel.sim.commit_fire_visit(
-        super::world_receiver::FireVisit::Direct {
+        super::world_fire::FireVisit::Direct {
             id: source,
             target: argument_target,
             weapon_index: 0,
@@ -303,7 +303,7 @@ fn original_direct_fireat_keeps_argument_speed_separate_from_live_tarcom_aim() {
         .collect::<Vec<_>>();
     assert!(null["bullet"].is_null());
     duel.sim.commit_fire_visit(
-        super::world_receiver::FireVisit::Direct {
+        super::world_fire::FireVisit::Direct {
             id: source,
             target: argument_target,
             weapon_index: 0,

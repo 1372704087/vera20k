@@ -105,7 +105,7 @@ Regression tests are `sim::combat::fire_coord::tests::`:
 The production dispatch regression
 `sim::combat::ifv_fireat_tests::empty_fv_two_shot_fireat_matches_native_muzzles_ids_rearm_and_rng`
 sets the declared source pose, Scenario ID21, Seed31 and frames0/4, then calls
-`world_receiver::emit_admitted_fire` for each shot, using a supplied admission
+`world_fire::emit_admitted_fire` for each shot, using a supplied admission
 receipt at the same post-gate boundary as native6FE4F2. Physical HoverMissile
 Range is6 (1536leptons), MinimumRange1 (256); the prior Range5 description was
 incorrect. This comparison does not execute ordinary admission or establish

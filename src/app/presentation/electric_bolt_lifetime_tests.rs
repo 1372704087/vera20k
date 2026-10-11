@@ -4,7 +4,7 @@
 use super::*;
 use crate::rules::retail_ini_fixture::retail_battle_rules_for_map;
 use crate::sim::combat::TargetKind;
-use crate::sim::combat::world_receiver::FireVisit;
+use crate::sim::combat::world_fire::FireVisit;
 use crate::sim::house_state::HouseState;
 use crate::sim::projectile::ProjectileCoord;
 use crate::sim::rng::{MainRng, SimRng};

@@ -4,7 +4,7 @@
 //! prefix/RNG and dispatch frames are supplied on both sides. This does not
 //! execute the native Unit scheduler or intervening Bullet/world AI.
 
-use super::{CombatEmit, TargetKind, build_attacker_snapshot, world_receiver};
+use super::{CombatEmit, TargetKind, build_attacker_snapshot, world_fire};
 use crate::rules::{art_data::ArtRegistry, ruleset::RuleSet};
 use crate::sim::movement::FacingClass;
 use crate::sim::native_identity::NativeUniqueIdCursor;
@@ -153,7 +153,7 @@ fn empty_fv_two_shot_fireat_matches_native_muzzles_ids_rearm_and_rng() {
             &world.interner,
         )
         .unwrap();
-        let shot = world_receiver::AdmittedFire {
+        let shot = world_fire::AdmittedFire {
             target_type_ref: snapshot.type_id,
             snap: snapshot,
             obj: fv_type,
@@ -166,7 +166,7 @@ fn empty_fv_two_shot_fireat_matches_native_muzzles_ids_rearm_and_rng() {
             ),
             is_garrison: false,
         };
-        world_receiver::emit_admitted_fire(
+        world_fire::emit_admitted_fire(
             &mut world,
             &rules,
             shot,

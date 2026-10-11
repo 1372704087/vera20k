@@ -62,6 +62,7 @@ mod threat_posed;
 pub(crate) use threat_posed::live_threat_posed;
 pub(crate) mod threat_range;
 pub(crate) mod veterancy;
+pub(crate) mod world_fire;
 pub(crate) mod world_receiver;
 
 #[cfg(test)]

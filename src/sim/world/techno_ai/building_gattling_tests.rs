@@ -758,7 +758,7 @@ fn gattling_cadence_matches_the_original() {
 }
 
 /// Every `report_gate` row through
-/// [`crate::sim::combat::world_receiver::per_shot_report`]: a Gattling type
+/// [`crate::sim::combat::world_fire::per_shot_report`]: a Gattling type
 /// plays no per-shot report whatever its list; any other plays
 /// `Report[(u16)+0x3C8 % Count]` unless the list is empty.
 #[test]
@@ -776,7 +776,7 @@ fn per_shot_report_matches_the_original() {
         ));
         let weapon =
             crate::rules::weapon_type::WeaponType::from_ini_section("W", ini.section("W").unwrap());
-        let played = crate::sim::combat::world_receiver::per_shot_report(
+        let played = crate::sim::combat::world_fire::per_shot_report(
             &weapon,
             input["gattling"] == true,
             input["sequence"].as_u64().unwrap() as u16,

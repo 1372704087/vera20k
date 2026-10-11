@@ -153,7 +153,7 @@ impl From<&AttackerSnapshot> for FireSource {
             veterancy: snap.veterancy,
             garrison_fire_index: snap.garrison.as_ref().map(|garrison| garrison.fire_index),
             // A building's FireAt runs inside the visit whose TarCom its shot
-            // carries (`world_receiver::fireat_tarcom`).
+            // carries (`world_fire::fireat_tarcom`).
             tar_com: snap.building_shot.map(|shot| shot.target()),
         }
     }

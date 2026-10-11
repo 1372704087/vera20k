@@ -120,7 +120,7 @@ fn fixture(input: &Value) -> (Simulation, RuleSet, u64, Vec<InternedId>) {
                 crate::rules::locomotor_type::LocomotorKind::Walk,
             ),
         );
-        cargo.board_forced(passenger_id, 1);
+        cargo.add_occupant(passenger_id, 1);
         sim.substrate.entities.insert(passenger);
     }
     building.passenger_role = PassengerRole::Transport { cargo };
@@ -184,7 +184,6 @@ fn allegiance_matches_native_decisions_for_valid_rosters() {
         let actual_owners: Vec<_> = cargo
             .passengers
             .iter()
-            .rev()
             .map(|id| sim.substrate.entities.get(*id).unwrap().owner())
             .collect();
         let expected_owners: Vec<_> = expected["occupant_owners_after_callback"]

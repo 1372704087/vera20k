@@ -1516,8 +1516,8 @@ pub struct DestroyedGarrisonBuilding {
     pub z: u8,
     pub foundation_w: u16,
     pub foundation_h: u16,
-    /// Snapshot of `cargo.passengers` at time of death. LIFO order preserved
-    /// (eject helper iterates in reverse).
+    /// Snapshot of `cargo.passengers` at time of death, in admission order
+    /// (the eject helper walks it last to first).
     pub passenger_ids: Vec<u64>,
 }
 
@@ -3045,8 +3045,7 @@ pub(crate) fn build_attacker_snapshot(
 ///    the key, so every garrison kill lands here: its occupants promote, the
 ///    building never does. FireAt has already advanced the index past the
 ///    shooter (`0x006FF031..0x006FF085`) when its bullet kills, so with
-///    several occupants the NEXT one in line is paid. (VERA's line runs in
-///    reverse entry order: see `passenger::PassengerCargo`.)
+///    several occupants the NEXT one in line is paid.
 ///    RESIDUAL: native reads that slot unchecked; VERA pays nobody when the
 ///    index is past the occupant count ([`combat_weapon::firing_occupant_id`]).
 ///    Trigger: occupants leaving, but not all of them, between the shot and

@@ -476,12 +476,14 @@ impl Simulation {
     }
 
     /// `InfantryClass::Per_Cell_Process @ 0x00519630`: for reason 2 its
-    /// Engineer building receiver (`0x00519948..0x0051A02E`), tethered radio8
-    /// release (`0x0051A7F8..0x0051A812`), then the Foot body for a live owner
+    /// occupier arm (`0x00519675..0x00519739`,
+    /// [`Self::infantry_per_cell_occupy`]), Engineer building receiver
+    /// (`0x00519948..0x0051A02E`), tethered radio8 release
+    /// (`0x0051A7F8..0x0051A812`), then the Foot body for a live owner
     /// (`0x0051A9EB` tests only IsAlive, `+0x90`).
     ///
     /// RESIDUAL: the override's other reason-2 arms (other Capture branches, Eaten, Enter,
-    /// the transport and C4 receivers, `0x00519675..0x0051A9E8`) are not
+    /// the transport and C4 receivers, `0x0051973C..0x0051A9E8`) are not
     /// dispatched from here. Some have ports with their own owners and
     /// callers (`capture_manager`, `passenger`, `world_orders`); native runs
     /// them inside this call, before the Foot body, and several return
@@ -495,6 +497,12 @@ impl Simulation {
         registry: Option<&OverlayTypeRegistry>,
         effects: FrameEffects<'_>,
     ) -> Result<bool, FrameAdvanceError> {
+        if reason == PerCellReason::Arrival
+            && let Some(rules) = rules
+            && self.infantry_per_cell_occupy(id, rules, registry, effects)?
+        {
+            return Ok(false);
+        }
         let entry = match rules {
             Some(rules) if reason == PerCellReason::Arrival => {
                 self.infantry_per_cell_engineer_entry(id, rules, registry, effects)?
@@ -527,6 +535,91 @@ impl Simulation {
             }
         }
         Ok(entry.bridge_state_changed)
+    }
+
+    /// The occupier arm (`0x00519675..0x00519739`): an `Occupier=` or
+    /// `Assaulter=` infantryman on Capture (vt+0x184) whose NavCom is the
+    /// first ground building of the cell it reached (`0x0047C520`) asks
+    /// that building `CanBeOccupiedBy`. Refused, it drops its destination
+    /// (vt+0x480(0, 1)) and scatters from the building's coordinate
+    /// (vt+0x174(coord, 1, 1)); admitted, it goes in
+    /// ([`crate::sim::passenger::add_garrison_occupant`]). Either way the
+    /// call returns before the Foot body. Answers whether the arm ran.
+    ///
+    /// RESIDUAL: the building's attached Tag is told it was entered
+    /// (`TagClass::Raise_Event(1, ...)`, `0x00519710..0x00519725`) before
+    /// the infantryman goes in; VERA attaches no Tags to objects. Trigger: a
+    /// map building with a Tag garrisoned this way. Effect: its "entered by"
+    /// trigger does not spring. A building a house builds has no Tag.
+    fn infantry_per_cell_occupy(
+        &mut self,
+        id: u64,
+        rules: &RuleSet,
+        registry: Option<&OverlayTypeRegistry>,
+        effects: FrameEffects<'_>,
+    ) -> Result<bool, FrameAdvanceError> {
+        let Some(infantry) = self.substrate.entities.get(id) else {
+            return Ok(false);
+        };
+        if infantry.mission.effective().known() != Some(MissionType::Capture)
+            || !self
+                .object_type(infantry.type_ref(), rules)
+                .is_some_and(|object| object.occupier || object.assaulter)
+        {
+            return Ok(false);
+        }
+        let Some(building) = (match infantry.navigation.nav_com {
+            Some(
+                NavTargetRef::Entity { id }
+                | NavTargetRef::Object { id }
+                | NavTargetRef::Building { id },
+            ) => Some(id),
+            _ => None,
+        })
+        .filter(|&building| {
+            self.substrate
+                .entities
+                .get(building)
+                .is_some_and(|entity| entity.category == EntityCategory::Structure)
+        }) else {
+            return Ok(false);
+        };
+        let (rx, ry) = (infantry.position.rx, infantry.position.ry);
+        if self
+            .substrate
+            .occupancy
+            .first_building_on_layer(rx, ry, MovementLayer::Ground)
+            != Some(building)
+        {
+            return Ok(false);
+        }
+        if crate::sim::passenger::building_can_be_occupied_by(self, rules, building, id) {
+            crate::sim::passenger::add_garrison_occupant(
+                self, rules, id, building, registry, effects,
+            );
+            return Ok(true);
+        }
+        self.assign_null_destination(id, Some(rules), registry, effects);
+        let Some(coord) = self.substrate.entities.get(building).map(|entity| {
+            super::ground_pose::object_get_coords(entity, self.resolved_terrain.as_ref())
+        }) else {
+            return Ok(true);
+        };
+        self.infantry_scatter_from(
+            id,
+            (coord.x, coord.y),
+            super::ScatterFlags::new(true, true),
+            rules,
+            registry,
+            effects,
+        )
+        .map_err(|cause| FrameAdvanceError {
+            tick: self.session.tick,
+            binary_frame: self.session.binary_frame,
+            entity_id: id,
+            cause,
+        })?;
+        Ok(true)
     }
 
     fn per_cell_owner_alive(&self, id: u64) -> bool {

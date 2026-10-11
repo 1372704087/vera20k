@@ -685,6 +685,17 @@ pub(crate) fn dispatch_foot_mission(
         (EntityCategory::Unit | EntityCategory::Infantry, Some(MissionType::Rescue)) => {
             evaluate_foot_rescue(sim, id, rules, ctx)
         }
+        // `FootClass::Mission_Capture @ 0x004D4B20` (vt+0x214), which neither
+        // class overrides.
+        (EntityCategory::Unit | EntityCategory::Infantry, Some(MissionType::Capture)) => {
+            MissionHandlerEvaluation::cadence(crate::sim::mission::capture::mission_capture(
+                sim,
+                rules,
+                ctx.overlay_registry,
+                id,
+                ctx.effects,
+            ))
+        }
         // SKIP/PROVE (GSI-07.09) — Mission 4 Retreat is a dead slot for foot
         // objects, and pass 1's reason was wrong. `FootClass::Mission_Retreat @
         // 0x004DA2C0` (slot `+0x230`, proven from the dispatch jump table at
@@ -1191,11 +1202,11 @@ pub(crate) fn foot_enter_idle_mode_selection(
 /// flag clear, as native does.
 ///
 /// RESIDUAL — **the three type arms are not committed.** All three end in a
-/// `Set_Destination(Target, 1)` plus a `Queue_Mission` that VERA cannot yet
-/// execute: `Capture` and `Sabotage` are driven here by the order path's
-/// NavCom / `c4_plant` goal state and its own movement issue, not by
-/// a mission handler, and neither mission has a dispatch arm — queueing one
-/// from here would park the object on a selector whose timer nothing re-arms.
+/// `Set_Destination(Target, 1)` plus a `Queue_Mission`. Capture has its
+/// handler (`mission::capture`); Sabotage is driven by the order path's
+/// `c4_plant` goal state and its own movement issue and has no dispatch arm,
+/// so queueing it from here would park the object on a selector whose timer
+/// nothing re-arms.
 /// - `Engineer` and not `C4` and no weapon ability 14 (`0x004D53C0`) →
 ///   `Queue_Mission(Capture)`. Trigger: a berserked or Hunt-ordered engineer
 ///   that acquires a target. Stock carriers: `ENGINEER`, `SENGINEER`,
@@ -1209,8 +1220,8 @@ pub(crate) fn foot_enter_idle_mode_selection(
 ///   Frequency: **zero on stock data** — no retail section sets the key.
 /// Player effect while they are absent: such a unit shoots what it found
 /// instead of walking in to capture or plant. Downstream risk: closing them
-/// means giving Capture and Sabotage real handler arms, which is the engineer /
-/// terrorist mission work, not this row.
+/// means giving Sabotage a real handler arm, which is the terrorist mission
+/// work, not this row.
 ///
 /// RESIDUAL — **the infantry no-flags arm's `Set_Destination(NULL, 1)`**
 /// (`0x004D54C6`) is not committed: it is a movement-owned write, and the
@@ -1697,10 +1708,12 @@ pub(super) fn evaluate_foot_area_guard(
 /// The head `FootClass::Mission_Guard` (`0x004D5076..0x004D50CD`) and
 /// `Mission_AreaGuard` (`0x004D6ACC..0x004D6B22`) share: with `+0x68F` set
 /// the Foot runs its Bio Reactor seek (vt+0x340,
-/// [`Simulation::foot_enter_bio_reactor`]), whose answer is unread, and the
-/// handler returns the current mission's `ftol(Rate × 900)` with no draw.
-/// `+0x690` (vt+0x348) and `+0x691` (vt+0x34C) follow; no VERA code sets
-/// them (`sim::building_entry`).
+/// [`Simulation::foot_enter_bio_reactor`]), else with `+0x690` set its
+/// garrison seek (vt+0x348, [`Simulation::foot_enter_battle_bunker`]);
+/// either answer is unread, and the handler returns the then-current
+/// mission's `ftol(Rate × 900)` (`0x005B3A00`) with no draw: Capture's,
+/// once a garrison seek has commenced it. `+0x691` (vt+0x34C) follows; no
+/// VERA code sets it (`sim::building_entry`).
 fn foot_building_entry_head(
     sim: &mut Simulation,
     rules: &RuleSet,
@@ -1708,17 +1721,22 @@ fn foot_building_entry_head(
     mission: MissionType,
     ctx: super::ObjectAiCtx<'_>,
 ) -> Option<MissionHandlerEvaluation> {
-    if !sim
+    let latches = sim.substrate.entities.get(id)?.building_entry;
+    if latches.should_enter_absorber() {
+        let _ = sim.foot_enter_bio_reactor(id, rules, ctx.overlay_registry, ctx.effects);
+    } else if latches.should_enter_occupiable() {
+        let _ = sim.foot_enter_battle_bunker(id, rules, ctx.overlay_registry, ctx.effects);
+    } else {
+        return None;
+    }
+    let current = sim
         .substrate
         .entities
         .get(id)
-        .is_some_and(|entity| entity.building_entry.should_enter_absorber())
-    {
-        return None;
-    }
-    let _ = sim.foot_enter_bio_reactor(id, rules, ctx.overlay_registry, ctx.effects);
+        .and_then(|entity| entity.mission.current().known())
+        .unwrap_or(mission);
     Some(MissionHandlerEvaluation::cadence(mission_cadence(
-        rules, mission,
+        rules, current,
     )))
 }
 
@@ -1787,10 +1805,11 @@ fn foot_building_entry_head(
 ///   plants; VERA's shoots it instead. Frequency: every Guard dispatch of such
 ///   a computer-owned infantryman with a building target.
 ///   `+0xEC2` is UNCHECKED.
-/// - **the other two building-entry latches.** The head
+/// - **the third building-entry latch.** The head
 ///   ([`foot_building_entry_head`]) tests `+0x68F`, then `+0x690` (vt+0x348)
-///   and `+0x691` (vt+0x34C); no VERA code sets the last two (script actions
-///   63 and 64, `sim::building_entry`), so their arms never run.
+///   and `+0x691` (vt+0x34C); no VERA code sets the last (script action 64,
+///   which no retail script uses, `sim::building_entry`), so its arm never
+///   runs.
 /// - **Tesla charging adjacency** (0x004D5116-0x004D51D2; AreaGuard4D6F44).
 ///   A secondary weapon's ElectricAssault warhead (`+0x158`)
 ///   admits an adjacent allied Overpowerable building (`+0x1575`, reader460029).

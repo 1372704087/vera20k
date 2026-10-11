@@ -14,9 +14,23 @@
 //! `0x004DFC6B`) and by Mission_Unload's eject (`0x0044DBEA`), and read by
 //! those two heads and `Is_Seeking_Building_Entry @ 0x004E0080`.
 //!
+//! `FootClass::EnterBattleBunker @ 0x004DFCB0` (vt+0x348, inherited too)
+//! sends a Foot to garrison the nearest of its house's occupiable buildings
+//! that admits it, on a Capture order that `InfantryClass::PerCellProcess`'s
+//! occupier arm completes (`sim::movement::per_cell`,
+//! [`crate::sim::passenger::add_garrison_occupant`]). Its live callers are
+//! script action 63 (`0x006E9EC8`) and the same two heads while `+0x690`
+//! holds. `+0x690` is cleared by the Foot constructor, written by this seek
+//! (`0x004DFDA9`, `0x004DFDC0`) and, for a human house's occupant, by
+//! AddGarrisonOccupant (`0x005229FA`) and SellBuilding's eject
+//! (`0x004580E2`, `passenger::garrison_eject`), and read by the heads and
+//! `Is_Seeking_Building_Entry`.
+//!
 //! Native execution: `tools/team_recruit_oracle.py`'s `bio_reactor` rows
 //! (the CAN_LOAD answers, the walk order, the distance, ties, the latch and
-//! the reissue test) replay in this module's tests.
+//! the reissue test) and `battle_bunker` rows (the walk, the distance, the
+//! admission asked only of a nearer building, the latch and the reissue
+//! test) replay in this module's tests.
 //!
 //! RESIDUALS:
 //! - The entry runs through VERA's Boarding adapter
@@ -40,11 +54,11 @@
 //! - Mission_Unload's eject clears the latch of a human house's passenger
 //!   (`0x0044DBEA`); VERA's absorbers do not eject on Unload
 //!   (`techno_ai::building_missions`), so nothing clears it there.
-//! - `+0x690` and `+0x691` (vt+0x348 `0x004DFCB0`, vt+0x34C `0x004DFE00`,
-//!   script actions 63 and 64) and the grinder and tank-bunker seeks
-//!   (vt+0x33C `0x004DFA70`, vt+0x344 `0x004DFF40`, actions 60 and 61,
-//!   DecideUnitFate's choice 2) are not ported: no VERA code sets the other
-//!   two latches, so they read clear.
+//! - `+0x691` (vt+0x34C `0x004DFE00`, script action 64, which no retail
+//!   script uses) and the grinder and tank-bunker seeks (vt+0x33C
+//!   `0x004DFA70`, vt+0x344 `0x004DFF40`, actions 60 and 61, DecideUnitFate's
+//!   choice 2) are not ported: no VERA code sets that latch, so it reads
+//!   clear.
 
 use crate::map::entities::EntityCategory;
 use crate::rules::overlay_types::OverlayTypeRegistry;
@@ -66,6 +80,8 @@ use crate::util::native_x87::object_distance;
 pub(crate) struct BuildingEntryLatches {
     /// `+0x68F` ShouldEnterAbsorber.
     should_enter_absorber: bool,
+    /// `+0x690` ShouldEnterOccupiable.
+    should_enter_occupiable: bool,
 }
 
 impl BuildingEntryLatches {
@@ -74,10 +90,22 @@ impl BuildingEntryLatches {
         self.should_enter_absorber
     }
 
+    /// `+0x690`, which the heads test after `+0x68F`.
+    pub(crate) const fn should_enter_occupiable(self) -> bool {
+        self.should_enter_occupiable
+    }
+
     /// `FootClass::Is_Seeking_Building_Entry @ 0x004E0080`: any of
-    /// `+0x68F`/`+0x690`/`+0x691` (the last two read clear, module residual).
+    /// `+0x68F`/`+0x690`/`+0x691` (the last reads clear, module residual).
     pub(crate) const fn seeking(self) -> bool {
-        self.should_enter_absorber
+        self.should_enter_absorber || self.should_enter_occupiable
+    }
+
+    /// The clear of a human house's occupant's `+0x691` and `+0x690` by
+    /// AddGarrisonOccupant (`0x005229F4..0x005229FA`) and SellBuilding's
+    /// eject (`0x004580DB..0x004580E2`).
+    pub(crate) fn clear_occupy_seeks(&mut self) {
+        self.should_enter_occupiable = false;
     }
 }
 
@@ -101,6 +129,36 @@ fn pick_bio_reactor(
     }
     let reissue = best.is_some_and(|best| contact != Some(best) && pending != Some(best));
     (best, reissue)
+}
+
+/// EnterBattleBunker's walk (`0x004DFCE2..0x004DFD9B`): each occupiable
+/// building from the house list's last entry as `(id, distance)`. One
+/// strictly nearer than the best so far is asked `admits`
+/// (`BuildingClass::CanBeOccupiedBy`) and, admitting, becomes the best.
+fn pick_battle_bunker(
+    walk: impl IntoIterator<Item = (u64, i32)>,
+    mut admits: impl FnMut(u64) -> bool,
+) -> Option<u64> {
+    let mut best = None;
+    let mut best_distance = i32::MAX;
+    for (id, distance) in walk {
+        if distance < best_distance && admits(id) {
+            best_distance = distance;
+            best = Some(id);
+        }
+    }
+    best
+}
+
+/// EnterBattleBunker's reissue test (`0x004DFDBA..0x004DFDD2`): none when
+/// the Foot's NavCom is the pick already and its current mission Capture.
+fn battle_bunker_reissues(pick: u64, nav_com: Option<NavTargetRef>, mission: MissionId) -> bool {
+    let heading = matches!(
+        nav_com,
+        Some(NavTargetRef::Entity { id } | NavTargetRef::Object { id } | NavTargetRef::Building { id })
+            if id == pick
+    );
+    !(heading && mission == MissionId::from_known(MissionType::Capture))
 }
 
 impl Simulation {
@@ -198,12 +256,89 @@ impl Simulation {
         }
         true
     }
+
+    /// `FootClass::EnterBattleBunker @ 0x004DFCB0`. The house's occupiable
+    /// buildings (House+0xE0, [`Self::house_occupiables`]) are walked from
+    /// the last ([`pick_battle_bunker`]); a nearer one is asked
+    /// `BuildingClass::CanBeOccupiedBy` with the Foot when it is infantry,
+    /// else NULL, which refuses
+    /// ([`crate::sim::passenger::building_can_be_occupied_by`]). With none
+    /// the latch clears and the answer is false. With one the latch sets
+    /// and, unless [`battle_bunker_reissues`] says otherwise, the Foot takes
+    /// the building as its destination (vt+0x480(pick, 1)) and queues
+    /// Capture to commence now (vt+0x1E8(8, 1)); the answer is true.
+    pub(crate) fn foot_enter_battle_bunker(
+        &mut self,
+        id: u64,
+        rules: &RuleSet,
+        registry: Option<&OverlayTypeRegistry>,
+        effects: FrameEffects<'_>,
+    ) -> bool {
+        let Some(foot) = self.substrate.entities.get(id) else {
+            return false;
+        };
+        let terrain = self.resolved_terrain.as_ref();
+        let from = object_get_coords(foot, terrain);
+        let walk: Vec<(u64, i32)> = self
+            .house_occupiables(foot.owner(), rules)
+            .into_iter()
+            .rev()
+            .map(|building| {
+                // Distance's arithmetic between the two GetCoords (vt+0x48),
+                // inlined without its building trim (`0x004DFCF2..0x004DFD62`).
+                let distance = self
+                    .substrate
+                    .entities
+                    .get(building)
+                    .map_or(i32::MAX, |entity| {
+                        let to = object_get_coords(entity, terrain);
+                        object_distance([from.x, from.y, from.z], [to.x, to.y, to.z], None)
+                    });
+                (building, distance)
+            })
+            .collect();
+        let best = pick_battle_bunker(walk, |building| {
+            crate::sim::passenger::building_can_be_occupied_by(self, rules, building, id)
+        });
+        let Some(foot) = self.substrate.entities.get_mut(id) else {
+            return false;
+        };
+        foot.building_entry.should_enter_occupiable = best.is_some();
+        let Some(best) = best else {
+            return false;
+        };
+        if !battle_bunker_reissues(best, foot.navigation.nav_com, foot.mission.current()) {
+            return true;
+        }
+        let _ = self.assign_destination_represented(
+            id,
+            Some(NavTargetRef::object(best)),
+            Some(rules),
+            registry,
+            effects,
+        );
+        let now = self.session.binary_frame;
+        let _ = self.mission_queue_exact(
+            id,
+            MissionId::from_known(MissionType::Capture),
+            1,
+            now,
+            &LiveReadyInputProvider { rules },
+        );
+        true
+    }
 }
 
 /// Sets `+0x68F` as a seek that found an absorber would.
 #[cfg(test)]
 pub(crate) fn set_should_enter_absorber_for_test(entity: &mut GameEntity, value: bool) {
     entity.building_entry.should_enter_absorber = value;
+}
+
+/// Sets `+0x690` as a seek that found an occupiable building would.
+#[cfg(test)]
+pub(crate) fn set_should_enter_occupiable_for_test(entity: &mut GameEntity, value: bool) {
+    entity.building_entry.should_enter_occupiable = value;
 }
 
 #[cfg(test)]

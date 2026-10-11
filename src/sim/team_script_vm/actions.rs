@@ -15,12 +15,12 @@
 //! (with its draw) and `own_building` rows replay in `recruit_oracle_tests`.
 //!
 //! RESIDUALS:
-//! - Actions other than 0, 2, 5, 6, 11, 19, 24, 49, 53, 54, 55, 57, 58 and
-//!   62 are not ported. A team that reaches one stays on it, as a native
+//! - Actions other than 0, 2, 5, 6, 11, 19, 24, 49, 53, 54, 55, 57, 58, 62
+//!   and 63 are not ported. A team that reaches one stays on it, as a native
 //!   handler that has not finished does, and records the first as its
-//!   refusal; the rest of its update runs. Trigger: 73 of the 163 retail
-//!   AIMD TeamTypes reach one; the first they reach is 63 (17 TeamTypes), 14
-//!   (16), 46 (15), 47 (12), 61 (9), 9 (3) or 21 (1). Effect: the
+//!   refusal; the rest of its update runs. Trigger: 56 of the 163 retail
+//!   AIMD TeamTypes reach one; the first they reach is 14 (16 TeamTypes), 46
+//!   (15), 47 (12), 61 (9), 9 (3) or 21 (1). Effect: the
 //!   team idles on that action for good, keeping its members and its
 //!   TeamType's `Max=` slot, and nothing else sends those units out. Action
 //!   56 (`0x006EFE60`), the Chronosphere's other script action, takes
@@ -68,7 +68,7 @@ use super::{TeamScriptAction, TeamScriptRefusal, TeamTarget, script_action_at};
 pub(super) const fn action_is_ported(action_id: i32) -> bool {
     matches!(
         action_id,
-        0 | 2 | 5 | 6 | 11 | 19 | 24 | 49 | 53 | 54 | 55 | 57 | 58 | 62
+        0 | 2 | 5 | 6 | 11 | 19 | 24 | 49 | 53 | 54 | 55 | 57 | 58 | 62 | 63
     )
 }
 
@@ -313,12 +313,14 @@ impl Simulation {
                 registry,
                 frame_effects,
             ),
-            // `0x006E9E83..0x006E9EC7`: each member, in list order, seeks a
-            // Bio Reactor (Foot vt+0x340, [`Self::foot_enter_bio_reactor`]);
-            // one that does leaves the team (`Remove_Member(member, -1, 1)`,
-            // `0x006E9EAE`). The action is finished at once, also with no
-            // member (`0x006E953E`).
-            62 => {
+            // `0x006E9E83..0x006E9EC7` (62) and `0x006E9EC8..` (63): each
+            // member, in list order, seeks a Bio Reactor (Foot vt+0x340,
+            // [`Self::foot_enter_bio_reactor`]) or an occupiable building
+            // (vt+0x348, [`Self::foot_enter_battle_bunker`]); one that finds
+            // one leaves the team (`Remove_Member(member, -1, 1)`,
+            // `0x006E9EAE`, `0x006E9EF3`). The action is finished at once,
+            // also with no member (`0x006E953E`).
+            62 | 63 => {
                 let members: Vec<u64> = self
                     .team_script_vm
                     .teams
@@ -326,7 +328,12 @@ impl Simulation {
                     .map(|team| team.members().collect())
                     .unwrap_or_default();
                 for member in members {
-                    if self.foot_enter_bio_reactor(member, rules, registry, frame_effects) {
+                    let found = if action.action_id == 62 {
+                        self.foot_enter_bio_reactor(member, rules, registry, frame_effects)
+                    } else {
+                        self.foot_enter_battle_bunker(member, rules, registry, frame_effects)
+                    };
+                    if found {
                         self.team_remove_member(team_id, member, true, Some(rules), frame_effects);
                     }
                 }

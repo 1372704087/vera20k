@@ -31,6 +31,11 @@ Sections, each executed in a fresh emulator per case:
   (the house's absorber list walked from its end, the CAN_LOAD answers, the
   Sqrt_Approx distance and its ties, the latch +0x68F, the radio-contact and
   pending-entry test, the Enter and destination calls).
+- battle_bunker: FootClass::EnterBattleBunker 0x4DFCB0, action 63's Foot
+  seek (the house's occupiable list walked from its end, the distance, the
+  CanBeOccupiedBy 0x457CE0 answers asked only of a nearer building, with the
+  Foot or NULL, the latch +0x690, the NavCom-and-Capture test, the
+  destination and Capture calls).
 
 Control flow the rows do not vary (Calc_Center's action-10 branch, the
 TeamType waypoint origin, the recruited unit's passengers, action 54's leader
@@ -774,11 +779,109 @@ def bio_reactor():
     return rows
 
 
+# ---------------------------------------------------------------- battle_bunker
+
+ENTER_BATTLE_BUNKER = 0x4DFCB0
+CAN_BE_OCCUPIED_BY = 0x457CE0
+
+
+def battle_bunker_row(*, foot, bunkers, infantry=True, nav=None, mission=0, latch=False):
+    """`bunkers`: dicts of location and CanBeOccupiedBy answer, in House+0xE0
+    order; `nav`: a bunker's index as the Foot's NavCom (+0x5A4), else none;
+    `mission`: the Foot's current mission (+0xAC)."""
+    emu = TeamEmu()
+    house = HOUSES
+    foot_address = emu.object(0, xyz=foot, rtti=RTTI_INFANTRY if infantry else RTTI_UNIT)
+    emu.write32(foot_address + 0x21C, house)
+    emu.write8(foot_address + 0x690, int(latch))
+    emu.write32(foot_address + 0xAC, mission)
+    for slot, stub in ((0x1E8, STUB_QUEUE_MISSION), (0x480, STUB_ASSIGN_DESTINATION)):
+        emu.write32(OBJECT_VTABLE + slot, stub)
+    addresses = []
+    answers, coords = {}, {}
+    for index, bunker in enumerate(bunkers):
+        address = emu.object(index + 1, vtable=BUILDING_VTABLE, rtti=RTTI_BUILDING)
+        addresses.append(address)
+        answers[address] = bunker['answer']
+        coords[address] = bunker['xyz']
+        emu.write32(ARRAYS + index * 4, address)
+    emu.write32(house + 0xE4, ARRAYS)
+    emu.write32(house + 0xF0, len(bunkers))
+    emu.write32(foot_address + 0x5A4, 0 if nav is None else addresses[nav])
+
+    def index_of(address):
+        return None if address == 0 else TeamEmu.index_of(address) - 1
+
+    def can_be_occupied_by(e):
+        # NULL is refused by the original's first test (0x457CEB).
+        building, occupant = e.uc.reg_read(UC_X86_REG_ECX), e.arg(0)
+        e.events.append(['can_be_occupied_by', index_of(building),
+                         {0: None, foot_address: 'foot'}[occupant]])
+        return int(occupant != 0 and answers[building])
+
+    def building_coords(e):
+        out = e.arg(0)
+        for offset, value in zip((0, 4, 8), coords[e.uc.reg_read(UC_X86_REG_ECX)]):
+            e.write32(out + offset, value)
+        return out
+    emu.hook(CAN_BE_OCCUPIED_BY, can_be_occupied_by, 4)
+    emu.hook(STUB_BUILDING_COORDS, building_coords, 4)
+    emu.hook(STUB_QUEUE_MISSION, lambda e: e.events.append(
+        ['queue_mission', e.arg(0), e.arg(1)]) or 1, 8)
+    emu.hook(STUB_ASSIGN_DESTINATION, lambda e: e.events.append(
+        ['assign_destination', index_of(e.arg(0)), e.arg(1)]), 8)
+    result = emu.invoke(ENTER_BATTLE_BUNKER, ecx=foot_address) & 0xFF
+    return dict(foot=foot, bunkers=bunkers, infantry=infantry, nav=nav, mission=mission,
+                latch=latch, result=result, latch_after=emu.read8(foot_address + 0x690),
+                events=emu.events)
+
+
+def battle_bunker():
+    rng = random.Random(0x4DFCB0)
+    rows = []
+    for case in range(120):
+        span = (0x400, 0x4000, 0x40000, 0x7FFF00)[case % 4]
+        foot = [rng.randrange(0, span), rng.randrange(0, span), rng.randrange(0, 0x800)]
+        bunkers = [dict(xyz=[rng.randrange(0, span), rng.randrange(0, span),
+                             rng.randrange(0, 0x800)],
+                        answer=rng.choice((True, True, False)))
+                   for _ in range(rng.randrange(0, 6))]
+        nav = rng.randrange(len(bunkers)) if bunkers and case % 3 == 1 else None
+        rows.append(battle_bunker_row(foot=foot, bunkers=bunkers, infantry=case % 11 != 5,
+                                      nav=nav, mission=(0, 8, 5)[case % 3] if case % 7 else 8,
+                                      latch=case % 2 == 1))
+    taker = dict(answer=True)
+    # Equal distances: the walk from the end meets the later entry first and
+    # keeps it; a refusing building nearer than the best is asked and passed.
+    rows.append(battle_bunker_row(foot=[0x2000, 0x2000, 0],
+                                  bunkers=[dict(taker, xyz=[0x2100, 0x2000, 0]),
+                                           dict(taker, xyz=[0x2000, 0x2100, 0])]))
+    rows.append(battle_bunker_row(foot=[0x2000, 0x2000, 0],
+                                  bunkers=[dict(taker, xyz=[0x2080, 0x2000, 0]),
+                                           dict(answer=False, xyz=[0x2000, 0x2040, 0]),
+                                           dict(taker, xyz=[0x2000, 0x2100, 0])]))
+    # Distances that differ below a lepton tie after ftol.
+    rows.append(battle_bunker_row(foot=[0, 0, 0],
+                                  bunkers=[dict(taker, xyz=[300, 400, 0]),
+                                           dict(taker, xyz=[0, 500, 1])]))
+    # A vehicle: each nearer building is asked with NULL and refuses.
+    rows.append(battle_bunker_row(foot=[0x2000, 0x2000, 0], infantry=False, latch=True,
+                                  bunkers=[dict(answer=False, xyz=[0x2100, 0x2000, 0])]))
+    # None at all; the pick already NavCom on Capture; the pick NavCom on
+    # another mission; Capture toward another building.
+    rows.append(battle_bunker_row(foot=[0x2000, 0x2000, 0], latch=True, bunkers=[]))
+    two = [dict(taker, xyz=[0x2400, 0x2000, 0]), dict(taker, xyz=[0x3000, 0x2000, 0])]
+    rows.append(battle_bunker_row(foot=[0x2000, 0x2000, 0], bunkers=two, nav=0, mission=8))
+    rows.append(battle_bunker_row(foot=[0x2000, 0x2000, 0], bunkers=two, nav=0, mission=5))
+    rows.append(battle_bunker_row(foot=[0x2000, 0x2000, 0], bunkers=two, nav=1, mission=8))
+    return rows
+
+
 def generate():
     return dict(recalc=recalc(), center=center(), recruit=recruit(), distance=distance(),
                 guard=guard(), regroup=regroup(), own_building=own_building(),
                 gather=gather(), quarry=quarry(), attack_cadence=attack_cadence(),
-                bio_reactor=bio_reactor())
+                bio_reactor=bio_reactor(), battle_bunker=battle_bunker())
 
 
 if __name__ == '__main__':
@@ -790,7 +893,8 @@ if __name__ == '__main__':
                '54\'s point up to its FNPC call; FindOwnBuilding over one house\'s buildings; '
                'action 53 up to its FNPC call or its early return; Quarry_To_Threat; '
                'Coordinate_Attack\'s frame test; EnterBioReactor over one house\'s '
-               'absorber list with supplied CAN_LOAD answers.'),
+               'absorber list with supplied CAN_LOAD answers; EnterBattleBunker over one '
+               'house\'s occupiable list with supplied CanBeOccupiedBy answers.'),
         assumptions=['x87 control word 0x0E7F (PC53, chop), the harness default.',
                      'Fixture objects carry only the fields the entries read.',
                      'ScenarioInit (0xA8E7AC), the empty coordinate 0xB0E968 and the empty '
@@ -813,11 +917,16 @@ if __name__ == '__main__':
                        'EnterBioReactor\'s Transmit_Message (vt+0x278) answers the case\'s '
                        'CAN_LOAD reply and records it; Queue_Mission (vt+0x1E8) and '
                        'Assign_Destination (vt+0x480) record their calls; the pick is read '
-                       'from EDI at 0x4DFC52.'],
+                       'from EDI at 0x4DFC52.',
+                       'EnterBattleBunker\'s BuildingClass::CanBeOccupiedBy 0x457CE0 '
+                       'answers the case\'s admission for the Foot, refuses NULL as its '
+                       'first test (0x457CEB) does, and records its building and occupant; '
+                       'Queue_Mission and Assign_Destination record their calls.'],
         entry_points={'recalc': RECALC, 'calc_center': CALC_CENTER, 'recruit': RECRUIT,
                       'distance': DISTANCE, 'guard_case': GUARD_CASE,
                       'regroup_at_base': REGROUP_AT_BASE, 'find_own_building':
                       FIND_OWN_BUILDING, 'gather_at_enemy_base': GATHER_AT_ENEMY_BASE,
                       'quarry_to_threat': QUARRY_TO_THREAT, 'attack_cadence': CADENCE,
-                      'enter_bio_reactor': ENTER_BIO_REACTOR},
+                      'enter_bio_reactor': ENTER_BIO_REACTOR,
+                      'enter_battle_bunker': ENTER_BATTLE_BUNKER},
     ))

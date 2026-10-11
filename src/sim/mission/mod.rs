@@ -10,6 +10,7 @@
 //! `sim/` — never render/ui/audio/net.
 
 pub(crate) mod authority;
+pub(crate) mod capture;
 pub(crate) mod concrete_effects;
 pub(crate) mod enter;
 pub mod control;

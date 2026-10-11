@@ -725,7 +725,7 @@ impl ScanContext<'_> {
                         cargo,
                         self.rules,
                         &world.houses,
-                        None,
+                        world.path_grid(),
                     )
                 }))
     }

@@ -25,10 +25,13 @@
 //! with powerup 0 (Money) for `CrateBeneathIsMoney=` (`+0x1769`), else `0x14`
 //! (random at pickup). The lobby Crates option is not consulted. Every
 //! retail `CrateBeneath=` type also sets `LeaveRubble=`; when its rubble art
-//! binds, the origin cell already holds the passable rubble overlay, the
-//! placer's nearby-cell search lands there and the crate commit's no-overlay
-//! check refuses it, so no crate appears. That outcome composes the ported
-//! owners and has not been compared against native execution.
+//! binds, the origin cell already holds the passable rubble overlay. Where the
+//! origin is a direct candidate of the placer's nearby-cell search (it projects
+//! back to itself, as on flat ground or a level plateau) the search lands
+//! there and the crate commit's no-overlay check refuses it, so no crate
+//! appears; where higher ground hides the origin, the search may pick a
+//! neighbour instead. That outcome composes the ported owners and has not
+//! been compared against native execution.
 //!
 //! Evidence: instruction reading of `0x00441F60..0x0044222D` and its callees
 //! named above. The crate tail's draws are the placer's: one Scenario

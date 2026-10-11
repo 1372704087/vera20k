@@ -285,9 +285,10 @@ fn a_crate_beneath_building_leaves_a_crate_at_its_origin() {
 
 /// Every retail `CrateBeneath=` type also leaves rubble, and the rubble arm
 /// runs first: the origin cell then holds overlay 0xEF, the passable rubble
-/// cell is where Find_Nearby_Passable_Cell lands, and the crate commit's
-/// no-overlay check (`CrateSlot__ValidateCellAndCreateOverlay`, reached from
-/// `0x004A17C0`) refuses it before the slot is taken or its timer drawn.
+/// cell is where Find_Nearby_Passable_Cell lands on this flat fixture, and
+/// the crate commit's no-overlay check
+/// (`CrateSlot__ValidateCellAndCreateOverlay`, reached from `0x004A17C0`)
+/// refuses it before the slot is taken or its timer drawn.
 /// Composed from the two ported owners; not compared against native
 /// execution.
 #[test]
@@ -312,4 +313,15 @@ fn rubble_on_the_origin_cell_refuses_the_crate_beneath() {
             .iter()
             .all(|slot| slot.is_empty())
     );
+    // The refusal spends no Scenario draw. Death effects share the stream, so
+    // check the placer alone on the rubble-covered origin.
+    let rng_before = sim.scenario_rng.state();
+    assert!(!crate::sim::crates::place_crate(
+        &mut sim,
+        &rules,
+        &registry,
+        (10, 12),
+        Some(0)
+    ));
+    assert_eq!(sim.scenario_rng.state(), rng_before);
 }

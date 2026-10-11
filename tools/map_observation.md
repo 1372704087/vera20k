@@ -40,9 +40,9 @@ There are at most 256 bindings per command and 1024 per profile; each binding co
 one observation sample. The wrapper checks every substitution and preserves all
 other arguments. `VALID` continues to mean a valid capture, not a successful order.
 
-The [named Iron Curtain profile](map_observation.symbolic-iron-curtain.example.json)
+The [Iron Curtain profile](map_observation.iron-curtain.example.json)
 uses the existing stock scenario, two location-qualified tank selectors and a named
-superweapon. Its [expectations](map_observation.symbolic-iron-curtain.expectations.json)
+superweapon. Its [expectations](map_observation.iron-curtain.expectations.json)
 check readiness before the order and the observed charge restart afterward.
 
 Inspect a completed capture without restarting the game:
@@ -50,7 +50,7 @@ Inspect a completed capture without restarting the game:
 ```sh
 python -m tools.map_observation inspect --run /absolute/capture \
   --owner VERA-OBSERVER \
-  --expect /absolute/checkout/tools/map_observation.symbolic-iron-curtain.expectations.json \
+  --expect /absolute/checkout/tools/map_observation.iron-curtain.expectations.json \
   --output /absolute/inspection.json
 ```
 
@@ -1055,8 +1055,8 @@ Grand Cannon fixture's terrain with a pre-placed NAMISL, two NAPOWR and three
 Neutral MTNK at (40,62), (42,62) and (40,64), and no type overrides.
 `IgnoreGlobalAITriggers=yes` keeps the Yuri opponent from forming attack teams.
 `observe_super_weapons` adds the Super rows: NukeSpecial is granted on the
-first step (interned id 28, charge start 0, 9000 frames) and is ready from step
-9001. An ordinary `LaunchSuperWeapon` at step 9010 targets (41,63). Run it
+first step (charge start 0, 9000 frames) and is ready from step 9001. An ordinary
+`LaunchSuperWeapon` at step 9010 targets (41,63). Run it
 from the repository root; for an external profile copy, set
 `launch.selected_map_file` to the absolute path of the tracked map.
 
@@ -1121,8 +1121,8 @@ assets on an [authored map](map_observation/examples/chronosphere.map): the
 nuclear-missile fixture's terrain with the observer's GACSPH at (46,42) and two GAPOWR,
 its MTNK at (40,62) and (42,62), CLEG at (41,63) and E1 at (40,64), and a Neutral HTNK
 at (44,54) beside a Neutral GAPOWR at (46,54). `observe_super_weapons` adds the Super
-rows: ChronoSphereSpecial is granted on the first step (interned id 32, charge start 0,
-6300 frames) and is ready from step 6301. An ordinary `LaunchSuperWeapon` at step 6310
+rows: ChronoSphereSpecial is granted on the first step (charge start 0, 6300 frames) and
+is ready from step 6301. An ordinary `LaunchSuperWeapon` at step 6310
 aims the Chronosphere at (41,63); its launch selects the Chrono Warp, and a tactical
 click at the view's centre, (316,284) with `camera_cell` (45,55), fires it at step 6320
 through ordinary input. The loader looks a relative map name up in the retail root: run
@@ -1152,8 +1152,8 @@ assets on an [authored map](map_observation/examples/psychic_dominator.map): the
 Chronosphere fixture's terrain with the observer's YAPPET at (46,42) and two GAPOWR, its
 MTNK at (43,53), a Neutral HTNK at (44,54), a Neutral E1 at (45,55), a Neutral HTNK at
 (40,54) and a Neutral GAPOWR at (46,54). `observe_super_weapons` adds the Super rows:
-PsychicDominatorSpecial is granted on the first step (interned id 32, charge start 0,
-9000 frames) and is ready from step 9001. An ordinary `LaunchSuperWeapon` at step 9010
+PsychicDominatorSpecial is granted on the first step (charge start 0, 9000 frames) and
+is ready from step 9001. An ordinary `LaunchSuperWeapon` at step 9010
 aims it at (44,54). The loader looks a relative map name up in the retail root: run a
 profile copy whose `launch.selected_map_file` is the tracked map's absolute path.
 
@@ -1220,8 +1220,8 @@ starts Russia/Battle against a Yuri computer opponent (Easy) with stock rules an
 assets and the shroud on, on an [authored map](map_observation/examples/spy_plane.map):
 the nuclear-missile fixture's terrain with the observer's NARADR at (46,42) and two
 NAPOWR, and no other objects. `observe_super_weapons` adds the Super rows:
-SpyPlaneSpecial is granted on the first step (interned id 27, charge start 0, 3600
-frames) and is ready from step 3601. An ordinary `LaunchSuperWeapon` at step 3610
+SpyPlaneSpecial is granted on the first step (charge start 0, 3600 frames) and is ready
+from step 3601. An ordinary `LaunchSuperWeapon` at step 3610
 aims it at (61,61), where the computer's YACNST stands from step 14 under the
 observer's shroud. The loader looks a relative map name up in the retail root: run a
 profile copy whose `launch.selected_map_file` is the tracked map's absolute path.
@@ -1277,8 +1277,8 @@ starts America/Battle against a Yuri computer opponent (Easy) with stock rules a
 assets on an [authored map](map_observation/examples/paradrop.map): the Spy Plane
 fixture with the observer's AMRADR at (46,42), GAPOWR at (40,44) and CAAIRP at (42,38)
 in place of its NARADR and two NAPOWR, and the shroud off. `observe_super_weapons` adds
-the Super rows: AmericanParaDropSpecial (interned id 29) and ParaDropSpecial (35) are
-granted on the first step (charge start 0, 3600 frames) and are ready from step 3601.
+the Super rows: AmericanParaDropSpecial and ParaDropSpecial are granted on the first
+step (charge start 0, 3600 frames) and are ready from step 3601.
 Ordinary `LaunchSuperWeapon` commands aim the American paradrop at (52,50) at step 3610
 and the paradrop at (48,54) at step 3620. PDPLANE and E1 are the observed types. The
 loader looks a relative map name up in the retail root: run a profile copy whose
@@ -1354,10 +1354,11 @@ on an [authored map](map_observation/examples/iron_curtain.map): the Lightning S
 fixture with the observer's NAIRON at (46,42) and two NAPOWR in place of its GAWEAT and
 GAPOWR, and the observer's HTNK at (44,54) with an E2 at (45,55) beside it and a second
 HTNK at (44,58), outside the curtain's block. `observe_super_weapons` adds the Super
-rows: IronCurtainSpecial is granted on the first step (interned id 30, charge start 0,
-4500 frames) and is ready from step 4501. An ordinary `ForceAttack` at step 4440 sets
-the second HTNK (id 2) on the first (id 1), and an ordinary `LaunchSuperWeapon` at step
-4510 aims the curtain at (44,54). Run a profile copy whose `launch.selected_map_file` is
+rows: IronCurtainSpecial is granted on the first step (charge start 0, 4500 frames) and
+is ready from step 4501. An ordinary `ForceAttack` at step 4440 sets
+the second HTNK, at (44,58), on the first, at (44,54), and an ordinary
+`LaunchSuperWeapon` at step 4510 aims the curtain at (44,54). Run a profile copy whose
+`launch.selected_map_file` is
 the tracked map's absolute path.
 
 With release binary SHA-256
@@ -1464,8 +1465,8 @@ out as the Iron Curtain one: the computer's NACNST at (54,54), NATECH at (58,54)
 at (54,58) and (58,58) and NAWEAP at (64,52); the observer's NACNST at (32,33), NAMISL
 at (37,33) and NAPOWR at (32,38) and (36,38). `IgnoreGlobalAITriggers=yes` keeps the
 computer from forming attack teams, and Hard gives it `AISuperDefenseProbability=` 90.
-An ordinary `LaunchSuperWeapon` at step 9010 fires the observer's NukeSpecial (interned
-id 35 on this map) at (56,56), on the computer's yard. `observe_super_weapons` adds the
+An ordinary `LaunchSuperWeapon` at step 9010 fires the observer's NukeSpecial at (56,56),
+on the computer's yard. `observe_super_weapons` adds the
 Super rows; NATECH and NAMISL are the observed types (a yard's anim slots would
 overrun the sample budget). Run a profile copy whose `launch.selected_map_file` is the
 tracked map's absolute path.
@@ -1521,7 +1522,7 @@ starts America/Battle against a Yuri computer opponent (Easy) with stock rules a
 assets on an [authored map](map_observation/examples/lightning_storm.map): the Psychic
 Dominator fixture with the observer's GAWEAT in place of its YAPPET at (46,42).
 `observe_super_weapons` adds the Super rows: LightningStormSpecial is granted on the
-first step (interned id 31, charge start 0, 9000 frames) and is ready from step 9001. An
+first step (charge start 0, 9000 frames) and is ready from step 9001. An
 ordinary `LaunchSuperWeapon` at step 9010 aims it at the Neutral HTNK's cell (44,54).
 The loader looks a relative map name up in the retail root: run a profile copy whose
 `launch.selected_map_file` is the tracked map's absolute path.

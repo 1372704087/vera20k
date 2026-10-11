@@ -1,5 +1,5 @@
 {
-  "schema_version": "vera20k.map-observation-profile.v2",
+  "schema_version": "vera20k.map-observation-profile.v3",
   "launch": {
     "mode": {
       "id": 1,
@@ -120,7 +120,7 @@
       "owner": "VERA-OBSERVER",
       "payload": {
         "LaunchSuperWeapon": {
-          "sw_type_id": 29,
+          "sw_type_id": "AmericanParaDropSpecial",
           "target_rx": 52,
           "target_ry": 50
         }
@@ -131,7 +131,7 @@
       "owner": "VERA-OBSERVER",
       "payload": {
         "LaunchSuperWeapon": {
-          "sw_type_id": 35,
+          "sw_type_id": "ParaDropSpecial",
           "target_rx": 48,
           "target_ry": 54
         }

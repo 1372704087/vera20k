@@ -15,12 +15,12 @@
 //! (with its draw) and `own_building` rows replay in `recruit_oracle_tests`.
 //!
 //! RESIDUALS:
-//! - Actions other than 0, 2, 5, 6, 11, 19, 24, 49, 53, 54, 55, 57, 58, 62
-//!   and 63 are not ported. A team that reaches one stays on it, as a native
-//!   handler that has not finished does, and records the first as its
-//!   refusal; the rest of its update runs. Trigger: 56 of the 163 retail
+//! - Actions other than 0, 2, 5, 6, 11, 19, 21, 24, 49, 53, 54, 55, 57, 58,
+//!   62 and 63 are not ported. A team that reaches one stays on it, as a
+//!   native handler that has not finished does, and records the first as its
+//!   refusal; the rest of its update runs. Trigger: 55 of the 163 retail
 //!   AIMD TeamTypes reach one; the first they reach is 14 (16 TeamTypes), 46
-//!   (15), 47 (12), 61 (9), 9 (3) or 21 (1). Effect: the
+//!   (15), 47 (12), 61 (9) or 9 (3). Effect: the
 //!   team idles on that action for good, keeping its members and its
 //!   TeamType's `Max=` slot, and nothing else sends those units out. Action
 //!   56 (`0x006EFE60`), the Chronosphere's other script action, takes
@@ -68,7 +68,7 @@ use super::{TeamScriptAction, TeamScriptRefusal, TeamTarget, script_action_at};
 pub(super) const fn action_is_ported(action_id: i32) -> bool {
     matches!(
         action_id,
-        0 | 2 | 5 | 6 | 11 | 19 | 24 | 49 | 53 | 54 | 55 | 57 | 58 | 62 | 63
+        0 | 2 | 5 | 6 | 11 | 19 | 21 | 24 | 49 | 53 | 54 | 55 | 57 | 58 | 62 | 63
     )
 }
 
@@ -275,6 +275,32 @@ impl Simulation {
                     };
                     if let Some(entity) = self.substrate.entities.get_mut(member) {
                         crate::sim::infantry::apply_panic_force(object, entity);
+                    }
+                }
+                if let Some(team) = self.team_script_vm.teams.get_mut(&team_id) {
+                    team.advance_pending = true;
+                }
+            }
+            // `0x006E9650`: each member, in list order, scatters from the
+            // team code's zero coordinate (`0x00B0E968`, written only by its
+            // static initializer `0x006E8A30`), forced and not no-kidding
+            // (`vt+0x174(&zero, 1, 0)`); the action is finished at once.
+            21 => {
+                let members: Vec<u64> = self
+                    .team_script_vm
+                    .teams
+                    .get(&team_id)
+                    .map(|team| team.members().collect())
+                    .unwrap_or_default();
+                for member in members {
+                    if let Err(cause) = self.scatter_null(
+                        member,
+                        crate::sim::movement::ScatterFlags::new(true, false),
+                        rules,
+                        registry,
+                        frame_effects,
+                    ) {
+                        log::debug!("team member {member} did not scatter: {cause}");
                     }
                 }
                 if let Some(team) = self.team_script_vm.teams.get_mut(&team_id) {
@@ -1405,3 +1431,7 @@ pub(super) fn own_building_pick(
     }
     best
 }
+
+#[cfg(test)]
+#[path = "actions_tests.rs"]
+mod tests;

@@ -13,17 +13,18 @@
 //! `gather_enemy_base.asm` and `asm/team_action_attack_quarry_6ED090.asm`.
 //! Native execution: `tools/team_recruit_oracle.py`'s `guard`, `regroup`
 //! (with its draw), `own_building` and `target_building` rows replay in
-//! `recruit_oracle_tests`.
+//! `recruit_oracle_tests`, and its `load`, `wait_loaded` and `unload` rows
+//! (actions 14, 43 and 8) in `transport_tests`.
 //!
 //! RESIDUALS:
-//! - Actions other than 0, 2, 5, 6, 11, 19, 21, 24, 46, 47, 49, 53, 54, 55,
-//!   57, 58, 62 and 63 are not ported. A team that reaches one stays on it,
-//!   as a native handler that has not finished does, and records the first
-//!   as its refusal; the rest of its update runs. Trigger: 30 of the 163
-//!   retail AIMD TeamTypes reach one; the first they reach is 14 (16
-//!   TeamTypes), 61 (9) or 9 (5). Effect: the team idles on that action for
-//!   good, keeping its members and its TeamType's `Max=` slot, and nothing
-//!   else sends those units out. Action 56 (`0x006EFE60`), the
+//! - Actions other than 0, 2, 5, 6, 8, 11, 14, 19, 21, 24, 43, 46, 47, 49,
+//!   53, 54, 55, 57, 58, 62 and 63 are not ported. A team that reaches one
+//!   stays on it, as a native handler that has not finished does, and
+//!   records the first as its refusal; the rest of its update runs.
+//!   Trigger: 14 of the 163 retail AIMD TeamTypes reach one; the first they
+//!   reach is 61 (9 TeamTypes) or 9 (5). Effect: the team idles on that
+//!   action for good, keeping its members and its TeamType's `Max=` slot,
+//!   and nothing else sends those units out. Action 56 (`0x006EFE60`), the
 //!   Chronosphere's other script action, picks its building with
 //!   [`target_building_pick`] too; no AIMD script names it, but four scripts
 //!   of the retail campaign map SOV02SMD.MAP do, whose teams idle on it.
@@ -38,17 +39,35 @@
 //!   AI triggers (normal or hard, weight 50 to 70) create them, and so do
 //!   the "Allied Tanya vs ..." ones (hard) as their second team. Effect: the
 //!   spy stands by the building where native infiltrates it. The same
-//!   Mission_Attack's demolition arm (`C4=`) is unported too; the retail
-//!   teams that would reach it with action 46 first idle on action 14.
+//!   Mission_Attack's demolition arm (`C4=`, the Sabotage order) is unported
+//!   too. Trigger: the retail Tanya teams ("Allied Tanya vs ...", "Allied
+//!   Anti-Nuke Team - 1", "Allied Anti-Weather Team - 1"), whose Tanya
+//!   reaches action 46 once action 8 has unloaded her. Effect: she runs the
+//!   plain attack where native sends her in to plant C4.
 //! - An `Engineer=` member that action 46 parks beside its building has a
 //!   native way in that VERA lacks: Coordinate_Attack's retarget puts it on
 //!   Guard every 8 frames, a computer engineer hit on Guard or AreaGuard
 //!   queues Hunt (InfantryClass::ReceiveDamage `0x00518C19..0x00518C3F`),
 //!   and Mission_Hunt's engineer arm (`0x004D53C0`, `mission_handlers`
 //!   residual) walks it into its target. Neither is ported. Trigger: an enemy
-//!   shoots a retail tech-capture team's engineer standing by its building.
-//!   Effect: native's engineer hunts, and may capture what its scan finds;
-//!   VERA's keeps standing.
+//!   shoots such an engineer: a retail tech-capture team's by its tech
+//!   building, or one that action 8 unloaded from an "Allied IFV Rush vs
+//!   ..." or "Soviet Engineer vs ..." transport beside an enemy Construction
+//!   Yard. Effect: native's engineer hunts, and may capture what its scan
+//!   finds; VERA's keeps standing.
+//! - Action 14's passengers board through VERA's Boarding adapter
+//!   ([`crate::sim::passenger::begin_boarding`]), without the native radio
+//!   route: the Infantry destination setter's Enter arm contacts the
+//!   transport (`0x0051AC25..0x0051AD17`), and while it holds that contact
+//!   (`0x0065AE30`) action 14 orders no one else. While the adapter walks a
+//!   passenger, Mission_Enter (`0x004D9290`) is not run, so its DOCKING
+//!   probe and its Rate epilogue draw (RandomRanged(0, 2), Scenario stream)
+//!   are skipped each dispatch, as for the building-entry seeks
+//!   (`sim::building_entry`). Trigger: every retail transport team (16
+//!   TeamTypes) loading. Effect: native's passengers walk in one at a time;
+//!   VERA's are ordered one per update as each takes Enter, so they walk in
+//!   together and the team sets out sooner, and the Scenario stream misses
+//!   one draw per walking passenger per dispatch.
 //! - `Coordinate_Attack` keeps a cell target that only a terrain object
 //!   blocks: a team target holds no terrain object. Trigger: a cell target,
 //!   which no ported caller gives (`Greatest_Threat`'s wall fallback is not
@@ -69,6 +88,7 @@
 //!   clear, so an `Aggressive=` team's fighting member keeps fighting.
 
 use crate::map::entities::EntityCategory;
+use crate::rules::object_type::ObjectCategory;
 use crate::rules::overlay_types::OverlayTypeRegistry;
 use crate::rules::ruleset::RuleSet;
 use crate::sim::combat::ScanMission;
@@ -78,7 +98,8 @@ use crate::sim::game_entity::GameEntity;
 use crate::sim::intern::InternedId;
 use crate::sim::mission::{MissionId, MissionType};
 use crate::sim::movement::BlockingObject;
-use crate::sim::movement::ground_pose::position_world_coord;
+use crate::sim::movement::ground_pose::{object_get_coords, position_world_coord};
+use crate::sim::movement::locomotor::MovementLayer;
 use crate::sim::world::FrameEffects;
 use crate::sim::world::Simulation;
 
@@ -89,7 +110,26 @@ use super::{TeamScriptAction, TeamScriptRefusal, TeamTarget, script_action_at};
 pub(super) const fn action_is_ported(action_id: i32) -> bool {
     matches!(
         action_id,
-        0 | 2 | 5 | 6 | 11 | 19 | 21 | 24 | 46 | 47 | 49 | 53 | 54 | 55 | 57 | 58 | 62 | 63
+        0 | 2
+            | 5
+            | 6
+            | 8
+            | 11
+            | 14
+            | 19
+            | 21
+            | 24
+            | 43
+            | 46
+            | 47
+            | 49
+            | 53
+            | 54
+            | 55
+            | 57
+            | 58
+            | 62
+            | 63
     )
 }
 
@@ -270,6 +310,7 @@ impl Simulation {
                     team.advance_pending = true;
                 }
             }
+            8 => self.team_action_unload(team_id, action.argument, rules, registry, frame_effects),
             11 => self.team_action_do_mission(
                 team_id,
                 action.argument,
@@ -277,6 +318,7 @@ impl Simulation {
                 registry,
                 frame_effects,
             ),
+            14 => self.team_action_load_onto_transport(team_id, rules, registry, frame_effects),
             // `0x006E984B`: each member panics (`vt+0x518`, in list order).
             19 => {
                 let members: Vec<u64> = self
@@ -328,6 +370,7 @@ impl Simulation {
                     team.advance_pending = true;
                 }
             }
+            43 => self.team_action_wait_until_loaded(team_id, rules),
             46 => self.team_action_attack_enemy_building(
                 team_id,
                 action.argument,
@@ -489,6 +532,280 @@ impl Simulation {
             self.team_member_queue_mission_id(member, MissionId::from_raw(mission), rules);
             self.team_member_clear_target(member, rules);
             self.team_member_set_destination(member, None, rules, registry, frame_effects);
+        }
+    }
+
+    /// Whether team `team_id`'s TaskForce has an entry of an aircraft type
+    /// with `Passengers=` above 0, which makes actions 14 and 8 take only
+    /// aircraft as transports (`0x006ED203..0x006ED258`,
+    /// `0x006EF2BD..0x006EF323`); otherwise only vehicles. No retail
+    /// AircraftType has `Passengers=`.
+    fn team_air_transports(&self, team_id: u64, rules: &RuleSet) -> bool {
+        let vm = &self.team_script_vm;
+        vm.teams.get(&team_id).is_some_and(|team| {
+            vm.task_force_entries(team).iter().any(|entry| {
+                entry.member_type.category == ObjectCategory::Aircraft
+                    && rules
+                        .object_in_category(
+                            entry.member_type.category,
+                            self.interner.resolve(entry.member_type.id),
+                        )
+                        .is_some_and(|object| object.passengers > 0)
+            })
+        })
+    }
+
+    /// Script action 14 (`0x006ED200`, `first` unread), load onto transport.
+    /// The transport is the first member, in list order, whose type's
+    /// `Passengers=` is above its passenger count (`+0x114`) and that is a
+    /// vehicle, or an aircraft with [`Self::team_air_transports`]; with none
+    /// the action is finished (`0x006ED25A..0x006ED2CA`). While the transport
+    /// is in radio contact (`0x0065AE30`) the action waits. Otherwise, while
+    /// the team has more than one member (`+0x48`, read before each), each
+    /// member joins up as in `Regroup`, and the first live joined one other
+    /// than the transport whose mission (`vt+0x184`) is not Enter takes Enter
+    /// with its target cleared and the transport as its destination; the
+    /// action then returns, so one member is ordered per update
+    /// (`0x006ED492..0x006ED4BD`). While any live joined member but the
+    /// transport is left, the action waits. Once none is (a passenger leaves
+    /// the team as it boards, by its Conceal's Foot `Detach_All`,
+    /// `0x004D9744`), a `TransportsReturnOnUnload=` TeamType's transport
+    /// archives the cell holding its Location (`0x006ED43F..0x006ED47C`), and
+    /// the action is finished.
+    ///
+    /// VERA boards through the Boarding adapter
+    /// ([`crate::sim::passenger::begin_boarding`]), which opens no radio
+    /// contact, so the transport is never found in one here (module
+    /// residual).
+    fn team_action_load_onto_transport(
+        &mut self,
+        team_id: u64,
+        rules: &RuleSet,
+        registry: Option<&OverlayTypeRegistry>,
+        frame_effects: FrameEffects<'_>,
+    ) {
+        let transport_class = if self.team_air_transports(team_id, rules) {
+            EntityCategory::Aircraft
+        } else {
+            EntityCategory::Unit
+        };
+        let Some(team) = self.team_script_vm.teams.get(&team_id) else {
+            return;
+        };
+        let members: Vec<u64> = team.members().collect();
+        let transport = members.iter().copied().find(|&member| {
+            self.substrate.entities.get(member).is_some_and(|entity| {
+                entity.category == transport_class
+                    && self
+                        .object_type(entity.type_ref(), rules)
+                        .is_some_and(|object| {
+                            i64::from(entity.passenger_role.passenger_count())
+                                < i64::from(object.passengers)
+                        })
+            })
+        });
+        let Some(transport) = transport else {
+            if let Some(team) = self.team_script_vm.teams.get_mut(&team_id) {
+                team.advance_pending = true;
+            }
+            return;
+        };
+        if self
+            .substrate
+            .entities
+            .get(transport)
+            .is_some_and(|entity| !entity.radio_contacts.is_empty())
+        {
+            return;
+        }
+        let mut waiting = false;
+        for member in members {
+            if self
+                .team_script_vm
+                .teams
+                .get(&team_id)
+                .is_none_or(|team| team.members.len() <= 1)
+            {
+                break;
+            }
+            self.team_member_join_up(team_id, member, rules, registry, frame_effects);
+            let Some(entity) = self.substrate.entities.get(member) else {
+                continue;
+            };
+            if member == transport
+                || !member_is_live_joined(entity, self.team_member_initiated(team_id, member))
+            {
+                continue;
+            }
+            waiting = true;
+            if entity.mission.effective() != MissionId::from_known(MissionType::Enter) {
+                self.team_member_queue_mission(member, MissionType::Enter, rules);
+                self.team_member_clear_target(member, rules);
+                self.team_member_set_destination(
+                    member,
+                    Some(TeamTarget::Object(transport)),
+                    rules,
+                    registry,
+                    frame_effects,
+                );
+                if let Some(entity) = self.substrate.entities.get_mut(member) {
+                    crate::sim::passenger::begin_boarding(entity, transport);
+                }
+                return;
+            }
+        }
+        if waiting {
+            return;
+        }
+        let vm = &self.team_script_vm;
+        if vm
+            .teams
+            .get(&team_id)
+            .is_some_and(|team| vm.transports_return_on_unload(team))
+            && let Some(entity) = self.substrate.entities.get_mut(transport)
+        {
+            let cell = member_cell(entity);
+            entity.set_archive_target(Some(cell.target_kind()));
+        }
+        if let Some(team) = self.team_script_vm.teams.get_mut(&team_id) {
+            team.advance_pending = true;
+        }
+    }
+
+    /// Script action 43 (`0x006E9C22..0x006E9C5C`, inline), wait until
+    /// fully loaded: the action is finished once no member's type has
+    /// `Passengers=` above its passenger count (`+0x114`), also with no
+    /// member (`0x006E953E`); it reads no other member state. The two retail
+    /// Ivan teams (an HTK and three Crazy Ivans) never fill its five seats,
+    /// so they wait here for good.
+    fn team_action_wait_until_loaded(&mut self, team_id: u64, rules: &RuleSet) {
+        let Some(team) = self.team_script_vm.teams.get(&team_id) else {
+            return;
+        };
+        let loading = team.members().any(|member| {
+            self.substrate.entities.get(member).is_some_and(|entity| {
+                self.object_type(entity.type_ref(), rules)
+                    .is_some_and(|object| {
+                        i64::from(object.passengers)
+                            > i64::from(entity.passenger_role.passenger_count())
+                    })
+            })
+        });
+        if !loading && let Some(team) = self.team_script_vm.teams.get_mut(&team_id) {
+            team.advance_pending = true;
+        }
+    }
+
+    /// Script action 8 (`0x006EF110`, `first` unread), unload. Each member
+    /// joins up as in `Regroup` (`0x006EF13B..0x006EF1ED`); each live joined
+    /// one carrying a passenger (`+0x118`) keeps the action waiting, and
+    /// unless a building stands in the cell holding its GetCoords
+    /// (`Look_up_building_in_cell @ 0x0047C520`) or its mission (`vt+0x184`)
+    /// is Unload, drops its destination and target and queues Unload
+    /// (`0x006EF23A..0x006EF2A2`); each passenger it lets out rejoins the
+    /// team (`0x0073DC19`, [`crate::sim::transport_unload`]). Once none
+    /// carries one, each member, in list order (`0x006EF2BD..0x006EF43F`), is
+    /// a transport when its type's `Passengers=` is above 0 (and, with
+    /// [`Self::team_air_transports`], it is an aircraft), another member when
+    /// that is 0 (or it is not an aircraft there), else neither:
+    /// - a transport of a `TransportsReturnOnUnload=` TeamType leaves the
+    ///   team (`Remove_Member(member, -1, 0)`), drops its target, heads for
+    ///   its ArchiveTarget on Move (commencing at once when ready) and drops
+    ///   the archive;
+    /// - otherwise `argument` decides who leaves the team, dropping target
+    ///   and destination: 1 the other members, 2 the transports, 3 both, any
+    ///   other value none.
+    ///
+    /// The action is then finished.
+    fn team_action_unload(
+        &mut self,
+        team_id: u64,
+        argument: i32,
+        rules: &RuleSet,
+        registry: Option<&OverlayTypeRegistry>,
+        frame_effects: FrameEffects<'_>,
+    ) {
+        let Some(team) = self.team_script_vm.teams.get(&team_id) else {
+            return;
+        };
+        let members: Vec<u64> = team.members().collect();
+        let mut unloaded = true;
+        for &member in &members {
+            self.team_member_join_up(team_id, member, rules, registry, frame_effects);
+            let Some(entity) = self.substrate.entities.get(member) else {
+                continue;
+            };
+            if !member_is_live_joined(entity, self.team_member_initiated(team_id, member))
+                || entity.passenger_role.passenger_count() == 0
+            {
+                continue;
+            }
+            unloaded = false;
+            let coords = object_get_coords(entity, self.resolved_terrain.as_ref());
+            let on_building = self
+                .substrate
+                .occupancy
+                .first_building_on_layer(
+                    (coords.x / 256) as u16,
+                    (coords.y / 256) as u16,
+                    MovementLayer::Ground,
+                )
+                .is_some();
+            if on_building
+                || entity.mission.effective() == MissionId::from_known(MissionType::Unload)
+            {
+                continue;
+            }
+            self.team_member_set_destination(member, None, rules, registry, frame_effects);
+            self.team_member_clear_target(member, rules);
+            self.team_member_queue_mission(member, MissionType::Unload, rules);
+        }
+        if !unloaded {
+            return;
+        }
+        let transport_class = self
+            .team_air_transports(team_id, rules)
+            .then_some(EntityCategory::Aircraft);
+        let vm = &self.team_script_vm;
+        let returns = vm
+            .teams
+            .get(&team_id)
+            .is_some_and(|team| vm.transports_return_on_unload(team));
+        for member in members {
+            let Some(entity) = self.substrate.entities.get(member) else {
+                continue;
+            };
+            let passengers = self
+                .object_type(entity.type_ref(), rules)
+                .map_or(0, |object| object.passengers);
+            let transport =
+                passengers != 0 && transport_class.is_none_or(|class| entity.category == class);
+            if transport && passengers < 0 {
+                continue;
+            }
+            if transport && returns {
+                self.team_remove_member(team_id, member, false, Some(rules), frame_effects);
+                self.team_member_clear_target(member, rules);
+                let archive = self
+                    .substrate
+                    .entities
+                    .get(member)
+                    .and_then(GameEntity::archive_target)
+                    .map(TeamTarget::from);
+                self.team_member_set_destination(member, archive, rules, registry, frame_effects);
+                self.team_member_queue_mission(member, MissionType::Move, rules);
+                self.team_member_commence(member, rules);
+                self.team_member_clear_archive_target(member);
+            } else if (transport && matches!(argument, 2 | 3))
+                || (!transport && matches!(argument, 1 | 3))
+            {
+                self.team_remove_member(team_id, member, false, Some(rules), frame_effects);
+                self.team_member_clear_target(member, rules);
+                self.team_member_set_destination(member, None, rules, registry, frame_effects);
+            }
+        }
+        if let Some(team) = self.team_script_vm.teams.get_mut(&team_id) {
+            team.advance_pending = true;
         }
     }
 
@@ -1724,3 +2041,6 @@ pub(super) fn target_building_pick(
 #[cfg(test)]
 #[path = "actions_tests.rs"]
 mod tests;
+#[cfg(test)]
+#[path = "transport_actions_tests.rs"]
+mod transport_tests;

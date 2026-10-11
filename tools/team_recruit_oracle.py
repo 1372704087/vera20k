@@ -40,6 +40,13 @@ Sections, each executed in a fresh emulator per case:
   CanBeOccupiedBy 0x457CE0 answers asked only of a nearer building, with the
   Foot or NULL, the latch +0x690, the NavCom-and-Capture test, the
   destination and Capture calls).
+- load: action 14 0x6ED200 (the TaskForce's aircraft test, the transport
+  pick, the radio-contact wait, the join-up, one Enter order per update,
+  the completion and the TransportsReturnOnUnload= archive).
+- wait_loaded: action 43's inline test 0x6E9C22..0x6E9C5C.
+- unload: action 8 0x6EF110 (the join-up, the Unload orders with their
+  building and mission tests, then the sort into transports and others by
+  the argument and TransportsReturnOnUnload=).
 
 Control flow the rows do not vary (Calc_Center's action-10 branch, the
 TeamType waypoint origin, the recruited unit's passengers, action 54's leader
@@ -992,11 +999,286 @@ def battle_bunker():
     return rows
 
 
+# ---------------------------------------------------------------- transports
+
+LOAD_ONTO_TRANSPORT = 0x6ED200
+WAIT_LOADED = 0x6E9C22
+WAIT_LOADED_ENDS = {0x6E95AB: False, 0x6E953E: True, 0x6E9C55: True}
+UNLOAD = 0x6EF110
+REMOVE_MEMBER = 0x6EA870
+LOOK_UP_BUILDING = 0x47C520
+STUB_MISSION = STUBS + 0x1A0
+STUB_READY = STUBS + 0x1B0
+STUB_COMMENCE = STUBS + 0x1C0
+ACTION = FAKE + 0x352000
+PASSENGER = FAKE + 0x352100
+CONTACTS = FAKE + 0x352200
+NAV = FAKE + 0x352300
+ZONE_INDEX = 0x40
+CLASS_RTTI = {'infantry': RTTI_INFANTRY, 'unit': RTTI_UNIT, 'aircraft': RTTI_AIRCRAFT}
+
+
+def transport_team(*, members, entries, zone, stray, returns, action):
+    """A team for the transport actions. `members`, in list order: dicts of
+    class, type `Passengers=`, passenger count (+0x114, with a first
+    passenger +0x118 when not 0), the live bytes (+0x90, +0x6C, +0x81),
+    +0x689, a NavCom (+0x5A4), the current mission (vt+0x184), Ready_To_
+    Commence's answer, radio contact, an archive target (+0x218), whether a
+    building stands in its cell, and its location. `entries`: the TaskForce's
+    (class, `Passengers=`) types. The zone (+0x34) is an object at `zone`;
+    Stray= is Rules+0x171C, ScriptClass::Current answers `action`."""
+    emu = TeamEmu()
+    for slot, stub in ((0x184, STUB_MISSION), (0x1E8, STUB_QUEUE_MISSION),
+                       (0x480, STUB_ASSIGN_DESTINATION), (0x200, STUB_READY),
+                       (0x1EC, STUB_COMMENCE)):
+        emu.write32(OBJECT_VTABLE + slot, stub)
+    emu.write32(RULES + 0x171C, stray)
+    emu.write32(RULES + 0x1720, 0x7FFFFFFF)
+    emu.write8(TEAM_TYPE + 0xF4, int(returns))
+    emu.write32(TASK_FORCE + 0x9C, len(entries))
+    for slot, (kind, passengers) in enumerate(entries):
+        emu.write32(TASK_FORCE + 0xA4 + slot * 8, 1)
+        emu.write32(TASK_FORCE + 0xA8 + slot * 8,
+                    emu.techno_type_at(0x20 + slot, rtti=TYPE_RTTI[kind], passengers=passengers))
+    zone_address = emu.object(ZONE_INDEX, xyz=zone)
+    emu.write32(TEAM + 0x34, zone_address)
+    emu.write32(TEAM + 0x48, len(members))
+    addresses, missions, ready, buildings = [], {}, {}, {}
+    previous = None
+    for index, member in enumerate(members):
+        address = emu.object(index, xyz=member['xyz'], rtti=CLASS_RTTI[member['class']])
+        addresses.append(address)
+        emu.write8(address + 0x90, int(member['active']))
+        emu.write32(address + 0x6C, member['health'])
+        emu.write8(address + 0x81, int(member['limbo']))
+        emu.write8(address + 0x689, int(member['initiated']))
+        emu.write32(address + 0x114, member['count'])
+        emu.write32(address + 0x118, PASSENGER if member['count'] else 0)
+        emu.write32(address + 0x5A4, NAV if member['nav'] else 0)
+        if member['radio']:
+            emu.write32(address + 0xE4, CONTACTS)
+            emu.write32(address + 0xE8, 2)
+            emu.write32(CONTACTS + 4, NAV)
+        emu.write32(address + 0x218, CELL if member['archive'] else 0)
+        emu.techno_type[address] = emu.techno_type_at(index, passengers=member['passengers'])
+        missions[address] = member['mission']
+        ready[address] = int(member['ready'])
+        buildings[tuple(member['xyz'])] = member['on_building']
+        if previous is None:
+            emu.write32(TEAM + 0x54, address)
+        else:
+            emu.write32(previous + 0x5D8, address)
+        previous = address
+
+    def ref(address):
+        if address == 0:
+            return None
+        if address == CELL:
+            return 'cell'
+        if address == zone_address:
+            return 'zone'
+        return TeamEmu.index_of(address)
+
+    def member(e):
+        return ref(e.uc.reg_read(UC_X86_REG_ECX))
+
+    def current(e):
+        out = e.arg(0)
+        e.write32(out, action)
+        e.write32(out + 4, 0)
+        return out
+    last_cell = []
+
+    def cell_at(e):
+        coord = e.arg(0)
+        xyz = [i32(e.read32(coord + offset)) for offset in (0, 4, 8)]
+        e.events.append(['cell_at', xyz])
+        last_cell[:] = [tuple(xyz)]
+        return CELL
+
+    def building(e):
+        found = buildings[last_cell[0]]
+        e.events.append(['building', found])
+        return 0x1234 if found else 0
+    emu.hook(CURRENT_ACTION, current, 4)
+    emu.hook(GET_CELL_AT, cell_at, 4)
+    emu.hook(LOOK_UP_BUILDING, building, 0)
+    emu.hook(STUB_MISSION, lambda e: missions[e.uc.reg_read(UC_X86_REG_ECX)], 0)
+    emu.hook(STUB_QUEUE_MISSION, lambda e: e.events.append(
+        ['queue_mission', member(e), e.arg(0), e.arg(1)]), 8)
+    emu.hook(STUB_ASSIGN_DESTINATION, lambda e: e.events.append(
+        ['assign_destination', member(e), ref(e.arg(0)), e.arg(1)]), 8)
+
+    def ready_stub(e):
+        e.events.append(['ready', member(e)])
+        return ready[e.uc.reg_read(UC_X86_REG_ECX)]
+    emu.hook(STUB_READY, ready_stub, 0)
+    emu.hook(STUB_COMMENCE, lambda e: e.events.append(['commence', member(e)]) or 1, 0)
+    emu.hook(REMOVE_MEMBER, lambda e: e.events.append(
+        ['remove_member', ref(e.arg(0)), i32(e.arg(1)), e.arg(2)]) or 1, 12)
+    return emu, addresses
+
+
+def transport_outputs(emu, addresses):
+    return dict(finished=emu.read8(TEAM + 0x80),
+                initiated=[emu.read8(address + 0x689) for address in addresses],
+                archive=[{0: None, CELL: 'cell'}[emu.read32(address + 0x218)]
+                         for address in addresses],
+                events=emu.events)
+
+
+def transport_member(rng, *, kind=None):
+    kind = kind or rng.choice(('infantry', 'infantry', 'infantry', 'unit', 'unit', 'aircraft'))
+    if kind == 'infantry':
+        passengers = rng.choice((0, 0, 0, 0, 2))
+    elif kind == 'aircraft':
+        passengers = rng.choice((0, 2, 2))
+    else:
+        passengers = rng.choice((0, 1, 2, 2, 5, -1))
+    count = rng.randrange(0, passengers + 2) if passengers > 0 else rng.choice((0, 0, 0, 1))
+    return {'class': kind, 'passengers': passengers, 'count': count,
+            'active': rng.random() > 0.08, 'health': rng.choice((0, 1, 100, 100, 100, 100)),
+            'limbo': rng.random() < 0.08, 'initiated': rng.random() > 0.3,
+            'nav': rng.random() < 0.3, 'mission': rng.choice((5, 5, 7, 2, 0x10, 1)),
+            'ready': rng.random() < 0.6, 'radio': rng.random() < 0.15,
+            'archive': rng.random() < 0.4, 'on_building': rng.random() < 0.2,
+            'xyz': [rng.randrange(0x80, 0x1F80), rng.randrange(0x80, 0x1F80), 0]}
+
+
+def transport_case(rng):
+    members = [transport_member(rng) for _ in range(rng.randrange(0, 6))]
+    # Distinct cells, so the building answer is per member.
+    for member, cell in zip(members, rng.sample(range(1, 31 * 31), len(members))):
+        member['xyz'][0] = (cell % 31) * 256 + rng.randrange(0, 256)
+        member['xyz'][1] = (cell // 31) * 256 + rng.randrange(0, 256)
+    entries = [(kind, passengers) for kind, passengers in
+               rng.sample([('unit', 5), ('infantry', 0), ('aircraft', 0), ('aircraft', 2),
+                           ('unit', 0)], rng.randrange(0, 4))]
+    return dict(members=members, entries=entries,
+                zone=[rng.randrange(0x80, 0x1F80), rng.randrange(0x80, 0x1F80), 0],
+                stray=rng.choice((0x100, 0x200, 0x400, 0x800)), returns=rng.random() < 0.5)
+
+
+def load_row(*, members, entries, zone, stray, returns):
+    emu, addresses = transport_team(members=members, entries=entries, zone=zone, stray=stray,
+                                    returns=returns, action=14)
+    emu.write32(ACTION, 14)
+    emu.invoke(LOAD_ONTO_TRANSPORT, ecx=TEAM, args=(ACTION, 0))
+    return dict(members=members, entries=entries, zone=zone, stray=stray, returns=returns,
+                **transport_outputs(emu, addresses))
+
+
+def load():
+    rng = random.Random(0x6ED200)
+    rows = []
+    for case in range(80):
+        fields = transport_case(rng)
+        if case % 2 and fields['members']:
+            # A vehicle with free seats, so passengers are sent aboard.
+            member = rng.choice(fields['members'])
+            member.update({'class': 'unit', 'passengers': 2, 'count': 0, 'radio': False})
+        rows.append(load_row(**fields))
+
+    def plain(kind, passengers=0, count=0, **fields):
+        return dict({'class': kind, 'passengers': passengers, 'count': count, 'active': True,
+                     'health': 100, 'limbo': False, 'initiated': True, 'nav': False,
+                     'mission': 5, 'ready': True, 'radio': False, 'archive': False,
+                     'on_building': False, 'xyz': [0x800, 0x800, 0]}, **fields)
+
+    def at(index, member):
+        member['xyz'] = [0x480 + 0x200 * index, 0x900, 0]
+        return member
+    base = dict(entries=[('unit', 2), ('infantry', 0)], zone=[0x800, 0x900, 0], stray=0x200)
+    # A full transport before the free one; the first passenger is ordered,
+    # the next waits for the update after.
+    rows.append(load_row(members=[at(0, plain('infantry')), at(1, plain('unit', 2, 2)),
+                                  at(2, plain('unit', 2, 1)), at(3, plain('infantry'))],
+                         returns=False, **base))
+    # The first passenger is already on Enter, the second is ordered.
+    rows.append(load_row(members=[at(0, plain('infantry', mission=7)),
+                                  at(1, plain('unit', 2)), at(2, plain('infantry'))],
+                         returns=False, **base))
+    # Every passenger on Enter: the action waits.
+    rows.append(load_row(members=[at(0, plain('infantry', mission=7)),
+                                  at(1, plain('unit', 2)), at(2, plain('infantry', mission=7))],
+                         returns=False, **base))
+    # The transport in radio contact; alone (finished, archived or not).
+    rows.append(load_row(members=[at(0, plain('unit', 2, radio=True)), at(1, plain('infantry'))],
+                         returns=False, **base))
+    for returns in (False, True):
+        rows.append(load_row(members=[at(0, plain('unit', 2))], returns=returns, **base))
+    # A far member without a NavCom is sent to the zone; one with a NavCom is
+    # not; both stay unjoined, so the action finishes.
+    rows.append(load_row(members=[at(0, plain('unit', 2)),
+                                  dict(plain('infantry', initiated=False), xyz=[0x1E00, 0x1E00, 0]),
+                                  dict(plain('infantry', initiated=False, nav=True),
+                                       xyz=[0x1E00, 0x1C00, 0])],
+                         returns=True, **base))
+    # A near unjoined member joins and is ordered at once.
+    rows.append(load_row(members=[at(0, plain('unit', 2)),
+                                  dict(plain('infantry', initiated=False), xyz=[0x880, 0x900, 0])],
+                         returns=False, **base))
+    # No vehicle with a free seat; Passengers= 0 and negative; an aircraft
+    # entry with Passengers= wants an aircraft.
+    rows.append(load_row(members=[at(0, plain('unit', 0)), at(1, plain('unit', -1)),
+                                  at(2, plain('infantry', 2))], returns=False, **base))
+    rows.append(load_row(members=[at(0, plain('unit', 2)), at(1, plain('infantry'))],
+                         returns=False, entries=[('aircraft', 2)], zone=base['zone'],
+                         stray=base['stray']))
+    # Dead, inactive and limbo members are not ordered.
+    rows.append(load_row(members=[at(0, plain('unit', 2)), at(1, plain('infantry', health=0)),
+                                  at(2, plain('infantry', active=False)),
+                                  at(3, plain('infantry', limbo=True))],
+                         returns=True, **base))
+    return rows
+
+
+def wait_loaded_row(*, members):
+    emu, _ = transport_team(members=members, entries=[], zone=[0, 0, 0], stray=0, returns=False,
+                            action=43)
+    emu.uc.reg_write(UC_X86_REG_ESI, TEAM)
+    reached = emu.start(WAIT_LOADED, tuple(WAIT_LOADED_ENDS), ecx=TEAM)
+    return dict(members=members, finished=WAIT_LOADED_ENDS[reached])
+
+
+def wait_loaded():
+    rng = random.Random(0x6E9C22)
+    rows = []
+    for _ in range(40):
+        rows.append(wait_loaded_row(members=[transport_member(rng)
+                                             for _ in range(rng.randrange(0, 5))]))
+    return rows
+
+
+def unload_row(*, members, entries, zone, stray, returns, argument):
+    emu, addresses = transport_team(members=members, entries=entries, zone=zone, stray=stray,
+                                    returns=returns, action=8)
+    emu.write32(ACTION, 8)
+    emu.write32(ACTION + 4, argument)
+    emu.invoke(UNLOAD, ecx=TEAM, args=(ACTION, 0))
+    return dict(members=members, entries=entries, zone=zone, stray=stray, returns=returns,
+                argument=argument, **transport_outputs(emu, addresses))
+
+
+def unload():
+    rng = random.Random(0x6EF110)
+    rows = []
+    for case in range(100):
+        fields = transport_case(rng)
+        if case % 2:
+            # Nobody carries a passenger, so the members are sorted.
+            for member in fields['members']:
+                member['count'] = 0
+        rows.append(unload_row(argument=rng.choice((0, 1, 2, 3, 4, -1)), **fields))
+    return rows
+
+
 def generate():
     return dict(recalc=recalc(), center=center(), recruit=recruit(), distance=distance(),
                 guard=guard(), regroup=regroup(), own_building=own_building(),
                 target_building=target_building(), gather=gather(), quarry=quarry(), attack_cadence=attack_cadence(),
-                bio_reactor=bio_reactor(), battle_bunker=battle_bunker())
+                bio_reactor=bio_reactor(), battle_bunker=battle_bunker(), load=load(),
+                wait_loaded=wait_loaded(), unload=unload())
 
 
 if __name__ == '__main__':
@@ -1010,7 +1292,9 @@ if __name__ == '__main__':
                'action 53 up to its FNPC call or its early return; Quarry_To_Threat; '
                'Coordinate_Attack\'s frame test; EnterBioReactor over one house\'s '
                'absorber list with supplied CAN_LOAD answers; EnterBattleBunker over one '
-               'house\'s occupiable list with supplied CanBeOccupiedBy answers.'),
+               'house\'s occupiable list with supplied CanBeOccupiedBy answers; actions 14 '
+               'and 8 and action 43\'s inline test over up to five synthetic infantry, '
+               'vehicle and aircraft members.'),
         assumptions=['x87 control word 0x0E7F (PC53, chop), the harness default.',
                      'Fixture objects carry only the fields the entries read.',
                      'ScenarioInit (0xA8E7AC), the empty coordinate 0xB0E968 and the empty '
@@ -1042,7 +1326,16 @@ if __name__ == '__main__':
                        'EnterBattleBunker\'s BuildingClass::CanBeOccupiedBy 0x457CE0 '
                        'answers the case\'s admission for the Foot, refuses NULL as its '
                        'first test (0x457CEB) does, and records its building and occupant; '
-                       'Queue_Mission and Assign_Destination record their calls.'],
+                       'Queue_Mission and Assign_Destination record their calls.',
+                       'The transport actions: Get_Mission (vt+0x184) and Ready_To_Commence '
+                       '(vt+0x200) answer from the case; Queue_Mission, Assign_Destination, '
+                       'Assign_Target, Commence (vt+0x1EC) and TeamClass::Remove_Member '
+                       '0x6EA870 record their calls; MapClass::GetCellAt 0x565730 records its '
+                       'coordinate and answers one cell, for which Look_up_building_in_cell '
+                       '0x47C520 answers the member\'s case (its game-active gate 0xA8E9A0 is '
+                       'set in play); In_Radio_Contact 0x65AE30 and Set_ArchiveTarget '
+                       '0x70C610 run as original; action 43 runs from 0x6E9C22 to its '
+                       'branch targets.'],
         entry_points={'recalc': RECALC, 'calc_center': CALC_CENTER, 'recruit': RECRUIT,
                       'distance': DISTANCE, 'guard_case': GUARD_CASE,
                       'regroup_at_base': REGROUP_AT_BASE, 'find_own_building':
@@ -1050,5 +1343,7 @@ if __name__ == '__main__':
                       FIND_BEST_TARGET_BUILDING, 'gather_at_enemy_base': GATHER_AT_ENEMY_BASE,
                       'quarry_to_threat': QUARRY_TO_THREAT, 'attack_cadence': CADENCE,
                       'enter_bio_reactor': ENTER_BIO_REACTOR,
-                      'enter_battle_bunker': ENTER_BATTLE_BUNKER},
+                      'enter_battle_bunker': ENTER_BATTLE_BUNKER,
+                      'load_onto_transport': LOAD_ONTO_TRANSPORT, 'wait_loaded': WAIT_LOADED,
+                      'unload': UNLOAD},
     ))

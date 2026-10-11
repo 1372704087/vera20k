@@ -51,8 +51,8 @@ const STATE_EJECT: u32 = 3;
 const STATE_DONE: u32 = 4;
 
 /// Aircraft handler states on `aircraft+0xBC`. Native state 1 (written only
-/// at `0x0041541F`, inside the team arm) is not ported with the rest of that
-/// arm (the team residual on [`mission_unload`]).
+/// at `0x0041541F`, inside the NavCom arm) is not ported with the rest of
+/// that arm (the NavCom residual on [`mission_unload`]).
 const AIR_STATE_CHECK_LANDED: u32 = 0;
 const AIR_STATE_WAIT_STOP: u32 = 2;
 const AIR_STATE_EJECT: u32 = 3;
@@ -77,13 +77,6 @@ pub(crate) fn is_vehicle_transport_type(
 ) -> bool {
     sim.object_type(entity.type_ref(), rules)
         .is_some_and(|obj| obj.passengers > 0)
-}
-
-fn cargo_count(entity: &GameEntity) -> u32 {
-    entity
-        .passenger_role
-        .cargo()
-        .map_or(0, |cargo| cargo.count())
 }
 
 fn cell_from(base: (u16, u16), delta: (i32, i32)) -> Option<(u16, u16)> {
@@ -416,9 +409,8 @@ enum EjectOutcome {
 /// the FNPC placement cell for a vehicle passenger — and `LeaveTransportSound`
 /// plays at the transport (`0x0073DC28`..`0x0073DC67`). Any failure
 /// re-inserts the passenger with `AddPassenger` (`0x0073DC78`) and re-applies
-/// the gunner weapon (`0x0073DC96`). A transport in a team would add the
-/// passenger to it after `Set_Destination` (`0x0073DC0C..0x0073DC19`; the
-/// team residual on [`mission_unload`]).
+/// the gunner weapon (`0x0073DC96`). A transport in a team adds the passenger
+/// to it after `Set_Destination` (`0x0073DC0C..0x0073DC19`).
 ///
 /// Infantry `Unlimbo` (`InfantryClass::Unlimbo @ 0x0051DFF0`) runs
 /// `PlaceInfantryInCell` a second time from the already-adjusted sub-cell
@@ -583,6 +575,12 @@ fn eject_head_passenger(
             // class destination73DC06; it does not execute a player event.
             sim.queue_order_mission(pax_id, MissionType::Move);
             issue_ground_destination(sim, rules, pax_id, dest, overlay_registry, effects);
+            // `0x0073DC0C..0x0073DC19`: a transport in a team takes the
+            // passenger into it (`Add_Member(passenger, 0)`); boarding's
+            // Conceal had removed it from its own.
+            if let Some((team, _)) = sim.team_script_vm.team_for_member(transport_id) {
+                sim.team_add_member(team, pax_id, false, rules, overlay_registry, effects);
+            }
 
             if let Some(sound) = leave_sound {
                 let sound_id = sim.interner.intern(&sound);
@@ -646,7 +644,7 @@ pub(crate) fn unit_mission_unload(
                 }
                 return WAIT_MOVING_FRAMES;
             }
-            let cargo = cargo_count(entity);
+            let cargo = entity.passenger_role.passenger_count();
             let pick = pick_exit_octant(sim, entity);
             if let (true, Some((_exit_cell, face_octant))) = (cargo != 0, pick) {
                 // `FUN_0070DC60` → `Type+0x808 TurretCount > 0` (`0x00717880`):
@@ -679,7 +677,7 @@ pub(crate) fn unit_mission_unload(
             unload_epilogue(sim, rules, id)
         }
         STATE_EJECT => {
-            if cargo_count(entity) > entity.transport_unload_keep_count {
+            if entity.passenger_role.passenger_count() > entity.transport_unload_keep_count {
                 let _ = eject_head_passenger(sim, rules, id, overlay_registry, effects);
             } else if let Some(entity) = sim.substrate.entities.get_mut(id) {
                 entity.mission.set_handler_state(STATE_DONE);
@@ -769,12 +767,14 @@ fn aircraft_landed(
 /// transport ordered to unload while it has a NavCom. Dormant in retail
 /// (above).
 ///
-/// RESIDUAL: the team joins are not ported: each passenger ejected here
-/// (`0x0041556A..0x00415587`) and from a unit (`Team->Add_Member(passenger,
-/// 0)` at `0x0073DC0C..0x0073DC19`). Trigger: a team's transport unloads.
-/// Only script actions 8, 14 and 43 load or unload one, and they are not
-/// ported (`team_script_vm::actions`), so no ported path reaches these arms;
-/// once they are, passengers would leave their team at unload.
+/// RESIDUAL: the team join of each passenger ejected here
+/// (`0x0041556A..0x00415587`) is not ported; the vehicle arm's
+/// (`0x0073DC0C..0x0073DC19`) is. Unlike that arm it is gated on the
+/// passenger's own team (`+0x5D4` at `0x00415574`) and its `+0x424` byte
+/// before the aircraft's team adds it (`TeamClass::Add_Member`), so a
+/// passenger that left its team as it boarded is not added either. Trigger:
+/// an aircraft transport unloads a passenger that kept a team. Effect: it
+/// is not added to the aircraft's team. Dormant in retail (above).
 pub(crate) fn mission_unload(
     sim: &mut Simulation,
     id: u64,
@@ -815,7 +815,7 @@ pub(crate) fn mission_unload(
             1
         }
         AIR_STATE_EJECT => {
-            if cargo_count(entity) == 0 {
+            if entity.passenger_role.passenger_count() == 0 {
                 crate::sim::aircraft::enter_idle_mode_for(
                     sim,
                     id,
@@ -829,7 +829,7 @@ pub(crate) fn mission_unload(
                     .substrate
                     .entities
                     .get(id)
-                    .is_some_and(|entity| cargo_count(entity) == 0);
+                    .is_some_and(|entity| entity.passenger_role.passenger_count() == 0);
                 // `!ejected`: VERA's bounded escape from a refused ejection
                 // (native loses the passenger and keeps ejecting the rest;
                 // see [`eject_from_aircraft`]). The hold keeps the passenger

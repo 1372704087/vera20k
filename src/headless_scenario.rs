@@ -750,10 +750,30 @@ mod retail_construction_tests {
     /// XMP03T4 with the local house idle and three computer houses: Russia
     /// (Hard), Yuri (Normal) and France (Easy). Returns the computer houses.
     fn retail_skirmish() -> (HeadlessScenario, Vec<crate::sim::intern::InternedId>) {
+        use crate::skirmish_launch::{AiDifficulty, LaunchCountry};
+
+        retail_battle(
+            |_| {},
+            &[
+                (LaunchCountry::Russia, AiDifficulty::Hard),
+                (LaunchCountry::Yuri, AiDifficulty::Normal),
+                (LaunchCountry::France, AiDifficulty::Easy),
+            ],
+        )
+    }
+
+    /// XMP03T4 with the local house idle, as `configure` adjusts the battle
+    /// session, against the computer `opponents`. Returns the computer houses.
+    fn retail_battle(
+        configure: impl FnOnce(&mut crate::skirmish_launch::SkirmishLaunchSession),
+        opponents: &[(
+            crate::skirmish_launch::LaunchCountry,
+            crate::skirmish_launch::AiDifficulty,
+        )],
+    ) -> (HeadlessScenario, Vec<crate::sim::intern::InternedId>) {
         use crate::sim::intern::InternedId;
         use crate::skirmish_launch::{
-            AiDifficulty, LaunchCountry, LaunchStartPosition, LaunchTeam, PreFillHouseRoster,
-            SkirmishAiSlot,
+            LaunchStartPosition, LaunchTeam, PreFillHouseRoster, SkirmishAiSlot,
         };
 
         let ra2 = std::path::PathBuf::from(
@@ -763,12 +783,8 @@ mod retail_construction_tests {
         // extra starts at random, which the lobby never allows.
         let map = "XMP03T4.MAP";
         let mut session = battle_session(map);
-        let opponents = [
-            (LaunchCountry::Russia, AiDifficulty::Hard),
-            (LaunchCountry::Yuri, AiDifficulty::Normal),
-            (LaunchCountry::France, AiDifficulty::Easy),
-        ];
-        for (slot, (country, difficulty)) in opponents.into_iter().enumerate() {
+        configure(&mut session);
+        for (slot, &(country, difficulty)) in opponents.iter().enumerate() {
             session.opponents.push(SkirmishAiSlot {
                 country,
                 country_random: false,
@@ -883,39 +899,27 @@ mod retail_construction_tests {
         }
     }
 
-    /// Two retail Yuri TeamTypes whose members are spawned beside the Yuri
-    /// house's base once the bases stand: "Yuri Infantry - M1" (`05FFB46C-G`,
-    /// script `0,4 / 49 / 0,1`) and "Yuri Engineers" (`08B95EFC-G`,
-    /// `54 / 0,6 / 49 / 0,9 / 0,2`). Action 0's scan finds the first team
-    /// another house's infantry, which its members attack. For the second it
-    /// prints whether an engineer aimed at another house's building: in the
-    /// first run that team disbanded before frame 1000, not yet explained.
-    #[test]
-    #[ignore = "requires RA2_DIR with installed retail RA2/YR assets"]
-    fn retail_yuri_teams_attack() {
-        use crate::map::entities::EntityCategory;
+    /// Spawns `types` for the first house of `country`, in order, on free
+    /// infantry cells within 15 cells of its base centre.
+    fn spawn_beside_base(
+        sim: &mut Simulation,
+        rules: &crate::rules::ruleset::RuleSet,
+        country: &str,
+        types: &[&str],
+    ) -> (crate::sim::intern::InternedId, Vec<u64>) {
         use crate::sim::movement::locomotor::MovementLayer;
 
-        let (mut scenario, _) = retail_skirmish();
-        for _ in 0..1500 {
-            scenario.tick();
-        }
-        let runtime = &mut scenario.runtime;
-        let (sim, resources) = (&mut runtime.simulation, &runtime.resources);
-        let yuri_country = sim
-            .interner
-            .get("YuriCountry")
-            .expect("YuriCountry interned");
-        let yuri = sim
+        let country_id = sim.interner.get(country).expect("retail country interned");
+        let house = sim
             .houses
             .iter()
-            .find(|(_, house)| house.country == Some(yuri_country))
+            .find(|(_, house)| house.country == Some(country_id))
             .map(|(&id, _)| id)
-            .expect("a Yuri house");
-        let (bx, by) = sim.houses[&yuri]
+            .expect("a house of the country");
+        let (bx, by) = sim.houses[&house]
             .base_center
-            .expect("the Yuri base has a centre");
-        let owner = sim.interner.resolve(yuri).to_string();
+            .expect("the base has a centre");
+        let owner = sim.interner.resolve(house).to_string();
         let free: Vec<(u16, u16)> = (0..900)
             .filter_map(|n| {
                 let rx = u16::try_from(i32::from(bx) + n % 30 - 15).ok()?;
@@ -932,26 +936,53 @@ mod retail_construction_tests {
             })
             .collect();
         let mut free = free.into_iter();
-        let mut spawned = Vec::new();
-        for type_name in [
-            "INIT",
-            "INIT",
-            "INIT",
-            "INIT",
-            "INIT",
-            "YENGINEER",
-            "YENGINEER",
-            "YENGINEER",
-        ] {
-            let id = free
-                .by_ref()
-                .find_map(|(rx, ry)| {
-                    let z = sim.terrain_cell_level(rx, ry).unwrap_or(0);
-                    sim.spawn_object_at_height(type_name, &owner, rx, ry, 0, z, &resources.rules)
-                })
-                .expect("a free cell near the Yuri base");
-            spawned.push(id);
+        let spawned = types
+            .iter()
+            .map(|type_name| {
+                free.by_ref()
+                    .find_map(|(rx, ry)| {
+                        let z = sim.terrain_cell_level(rx, ry).unwrap_or(0);
+                        sim.spawn_object_at_height(type_name, &owner, rx, ry, 0, z, rules)
+                    })
+                    .expect("a free cell near the base")
+            })
+            .collect();
+        (house, spawned)
+    }
+
+    /// Two retail Yuri TeamTypes whose members are spawned beside the Yuri
+    /// house's base once the bases stand: "Yuri Infantry - M1" (`05FFB46C-G`,
+    /// script `0,4 / 49 / 0,1`) and "Yuri Engineers" (`08B95EFC-G`,
+    /// `54 / 0,6 / 49 / 0,9 / 0,2`). Action 0's scan finds the first team
+    /// another house's infantry, which its members attack. For the second it
+    /// prints whether an engineer aimed at another house's building: in the
+    /// first run that team disbanded before frame 1000, not yet explained.
+    #[test]
+    #[ignore = "requires RA2_DIR with installed retail RA2/YR assets"]
+    fn retail_yuri_teams_attack() {
+        use crate::map::entities::EntityCategory;
+
+        let (mut scenario, _) = retail_skirmish();
+        for _ in 0..1500 {
+            scenario.tick();
         }
+        let runtime = &mut scenario.runtime;
+        let (sim, resources) = (&mut runtime.simulation, &runtime.resources);
+        let (yuri, spawned) = spawn_beside_base(
+            sim,
+            &resources.rules,
+            "YuriCountry",
+            &[
+                "INIT",
+                "INIT",
+                "INIT",
+                "INIT",
+                "INIT",
+                "YENGINEER",
+                "YENGINEER",
+                "YENGINEER",
+            ],
+        );
         let factory_scan = crate::sim::world::direct_greatest_threat(
             sim,
             &resources.rules,
@@ -1053,5 +1084,243 @@ mod retail_construction_tests {
             infantry_attacked,
             "no Initiate aimed at another house's object"
         );
+    }
+
+    /// Two retail transport TeamTypes, each in a duel against an idle local
+    /// house that starts with only its MCV (`UnitCount=0`), deployed on the
+    /// first frame, so that undefended construction yard is the team's
+    /// least-threat target (mode 0):
+    /// - "Soviet Engineer vs Ally" (`0C143EFC-G`: an HTK and five SENGINEER,
+    ///   `58,131086 / 14 / 43 / 47,2 / 8,0 / 49 / 46,131074`), Russia against
+    ///   America;
+    /// - "Allied Tanya vs Soviet Con" (`0AD4D7BC-G`: a Night Hawk, Tanya,
+    ///   three GIs and a Guardian GI, `TransportsReturnOnUnload=yes`,
+    ///   `58,7 / 14 / 43 / 47,25 / 8,2 / 46,131097 / 49`), France against
+    ///   Russia.
+    ///
+    /// Each team's members are spawned beside the computer base once it
+    /// stands. The infantry board the transport, leaving the team (actions
+    /// 14 and 43); it carries them to the yard (47) and unloads them, and
+    /// they rejoin the team (8). Five riders fill the Night Hawk, so action
+    /// 14 finishes on its no-transport arm without archiving a cell (only a
+    /// transport with a seat left reaches `Set_ArchiveTarget @ 0x0070C610`),
+    /// and the unload sends it out of the team with no destination.
+    #[test]
+    #[ignore = "requires RA2_DIR with installed retail RA2/YR assets"]
+    fn retail_transport_teams_load_and_unload() {
+        use crate::sim::command::{Command, CommandEnvelope};
+        use crate::sim::passenger::PassengerRole;
+        use crate::skirmish_launch::{AiDifficulty, LaunchCountry};
+
+        for (local, opponent, country, team_type, types) in [
+            (
+                LaunchCountry::America,
+                LaunchCountry::Russia,
+                "Russians",
+                "0C143EFC-G",
+                [
+                    "HTK",
+                    "SENGINEER",
+                    "SENGINEER",
+                    "SENGINEER",
+                    "SENGINEER",
+                    "SENGINEER",
+                ],
+            ),
+            (
+                LaunchCountry::Russia,
+                LaunchCountry::France,
+                "French",
+                "0AD4D7BC-G",
+                ["SHAD", "TANY", "E1", "E1", "E1", "GGI"],
+            ),
+        ] {
+            let (mut scenario, _) = retail_battle(
+                |session| {
+                    session.local.country = local;
+                    session.options.unit_count = 0;
+                },
+                &[(opponent, AiDifficulty::Hard)],
+            );
+            let sim = scenario.sim();
+            let human = sim
+                .houses
+                .iter()
+                .find(|(_, house)| house.is_controlled_by_human(true))
+                .map(|(&id, _)| id)
+                .expect("the local house");
+            let mcv = sim
+                .substrate
+                .entities
+                .iter_sorted()
+                .find(|(_, entity)| entity.owner() == human)
+                .map(|(id, _)| id)
+                .expect("the local MCV");
+            let deploy = CommandEnvelope::new(
+                human,
+                sim.session.tick + 1,
+                Command::DeployMcv { entity_id: mcv },
+            );
+            scenario
+                .runtime
+                .advance_frame(
+                    &[deploy],
+                    SIM_TICK_MS,
+                    crate::sim::world::TickLane::Ordinary,
+                    crate::sim::world::FrameEffects::default(),
+                )
+                .expect("simulation frame failed; prior world mutations remain");
+            for _ in 0..1500 {
+                scenario.tick();
+            }
+            let runtime = &mut scenario.runtime;
+            let (sim, resources) = (&mut runtime.simulation, &runtime.resources);
+            let yards: Vec<String> = sim
+                .substrate
+                .entities
+                .iter_sorted()
+                .filter(|(_, entity)| entity.owner() == human)
+                .map(|(_, entity)| sim.interner.resolve(entity.type_ref()).to_string())
+                .collect();
+            eprintln!("{team_type}: the local house owns {yards:?}");
+            let (house, spawned) = spawn_beside_base(sim, &resources.rules, country, &types);
+            let id = sim
+                .interner
+                .get(team_type)
+                .expect("retail TeamType interned");
+            let frame = sim.session.binary_frame as i32;
+            // The computer house may already have made the team; then it
+            // recruits the new members.
+            let team_id = sim
+                .team_script_vm
+                .construct_team(id, house, true, frame)
+                .or_else(|| {
+                    sim.team_script_vm
+                        .teams_in_order()
+                        .find(|team| team.team_type_id() == Some(id) && team.owner() == house)
+                        .map(|team| team.id())
+                })
+                .expect("a team of the TeamType");
+            let (transport, infantry) = (spawned[0], &spawned[1..]);
+            // The first frame all the infantry were aboard the transport and
+            // its archive then, the first frame after that they were all
+            // members again, and the first frame the transport was not, with
+            // its NavCom then.
+            let (mut loaded, mut archive, mut unloaded) = (None, None, None);
+            let mut transport_left = None;
+            let mut present = (true, vec![true; spawned.len()]);
+            for frame in 1..=6_000u32 {
+                scenario.tick();
+                let sim = scenario.sim();
+                let team = sim.team_script_vm.team(team_id);
+                let aboard = infantry.iter().all(|&id| {
+                    sim.entities().get(id).is_some_and(|entity| {
+                        matches!(
+                            entity.passenger_role,
+                            PassengerRole::Inside { transport_id, .. } if transport_id == transport
+                        )
+                    })
+                });
+                if loaded.is_none() && aboard {
+                    loaded = Some(frame);
+                }
+                if loaded.is_some() && unloaded.is_none() {
+                    archive = sim
+                        .entities()
+                        .get(transport)
+                        .and_then(|entity| entity.archive_target());
+                }
+                let rejoined = team.is_some_and(|team| {
+                    infantry
+                        .iter()
+                        .all(|&id| team.members().any(|member| member == id))
+                });
+                if loaded.is_some() && unloaded.is_none() && rejoined {
+                    unloaded = Some(frame);
+                }
+                let now = (
+                    team.is_some(),
+                    spawned
+                        .iter()
+                        .map(|&id| sim.entities().get(id).is_some())
+                        .collect::<Vec<_>>(),
+                );
+                let changed = now != present;
+                present = now;
+                if frame % 250 == 0 || unloaded == Some(frame) || changed {
+                    let members: Vec<String> = spawned
+                        .iter()
+                        .map(|&id| {
+                            let Some(entity) = sim.entities().get(id) else {
+                                return format!("{id}:gone");
+                            };
+                            format!(
+                                "{}@({},{}) hp{} m{} {} nav {:?}{}",
+                                sim.interner.resolve(entity.type_ref()),
+                                entity.position.rx,
+                                entity.position.ry,
+                                entity.health.current,
+                                entity.mission.effective().raw(),
+                                match sim.team_script_vm.team_for_member(id) {
+                                    Some((member_team, _)) if member_team == team_id => "in",
+                                    Some(_) => "in another team",
+                                    None => "out",
+                                },
+                                entity.navigation.nav_com,
+                                match entity.passenger_role {
+                                    PassengerRole::Inside { .. } => " aboard",
+                                    PassengerRole::Boarding { .. } => " boarding",
+                                    _ => "",
+                                },
+                            )
+                        })
+                        .collect();
+                    match team {
+                        Some(team) => eprintln!(
+                            "frame {frame}: {team_type} action {} at line {}: {members:?}",
+                            team.current_action(&sim.team_script_vm),
+                            team.cursor(),
+                        ),
+                        None => eprintln!("frame {frame}: {team_type} is gone: {members:?}"),
+                    }
+                }
+                if let Some(done) = unloaded {
+                    if transport_left.is_none()
+                        && !team
+                            .is_some_and(|team| team.members().any(|member| member == transport))
+                    {
+                        transport_left = Some((
+                            frame,
+                            sim.entities()
+                                .get(transport)
+                                .and_then(|entity| entity.navigation.nav_com),
+                        ));
+                    }
+                    if frame >= done + 60 {
+                        break;
+                    }
+                }
+            }
+            eprintln!(
+                "{team_type}: aboard at {loaded:?}, transport archive {archive:?}, \
+                 rejoined after unloading at {unloaded:?}, transport left with its \
+                 NavCom at {transport_left:?}"
+            );
+            assert!(loaded.is_some(), "{team_type}: the infantry never boarded");
+            assert!(
+                unloaded.is_some(),
+                "{team_type}: the infantry never rejoined"
+            );
+            if team_type == "0AD4D7BC-G" {
+                assert_eq!(archive, None, "the full Night Hawk archived a cell");
+                assert_eq!(
+                    transport_left.map(|(_, nav_com)| nav_com),
+                    Some(None),
+                    "the Night Hawk left its team with no destination"
+                );
+            } else {
+                assert_eq!(transport_left, None, "the HTK left its team");
+            }
+        }
     }
 }

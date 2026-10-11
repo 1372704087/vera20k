@@ -109,16 +109,12 @@ mod tests {
 
     #[test]
     fn render_overlay_names_cover_every_registered_type() {
-        // Kinds the simulation writes after load (walls, low bridges, crates,
-        // ore variants, rubble) need no authored cell to be named.
+        // No kind or map entry pre-selects an identity: walls, crates, ore
+        // variants and rubble written after load are named like any other.
         let mut text = String::from("[OverlayTypes]\n");
         for overlay_id in 0..=0xEFu8 {
             text.push_str(&format!("{overlay_id}=TYPE{overlay_id}\n"));
         }
-        text.push_str(
-            "[TYPE1]\nWall=yes\n[TYPE2]\nCrate=yes\n[TYPE3]\nTiberium=yes\n\
-             [TYPE239]\nIsRubble=yes\n",
-        );
         let reg = OverlayTypeRegistry::from_ini(
             &crate::rules::ini_parser::IniFile::from_str(&text),
             None,
@@ -127,12 +123,8 @@ mod tests {
         let names = render_overlay_names(&reg);
 
         assert_eq!(names.len(), 0xF0);
-        for overlay_id in [1, 2, 3, 0x18, 0x50, 0xED, 0xEF] {
-            assert_eq!(
-                names.get(&overlay_id).map(String::as_str),
-                reg.name(overlay_id),
-                "{overlay_id:#x}"
-            );
+        for (&overlay_id, name) in &names {
+            assert_eq!(Some(name.as_str()), reg.name(overlay_id));
         }
         assert!(!names.contains_key(&0xF0), "unregistered index");
     }

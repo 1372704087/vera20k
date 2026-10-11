@@ -1825,7 +1825,6 @@ pub(crate) struct RandomMapStartupCrateProjection {
     pub(crate) wood_id: Option<u8>,
     pub(crate) common_id: Option<u8>,
     pub(crate) water_id: Option<u8>,
-    pub(crate) runtime_names: Vec<(u8, String)>,
     pub(crate) presented: Vec<(u16, u16, u8, u8)>,
     pub(crate) body_frame: u8,
 }
@@ -2266,19 +2265,6 @@ impl MapLoadInitial {
         );
         let crate_name_id =
             |name: Option<&str>| name.and_then(|name| overlay_registry.id_for_name(name));
-        let mut runtime_names =
-            crate::render::overlay_assets::render_overlay_names(&overlay_registry);
-        let selected_ids = [
-            crate_name_id(rules.crate_rules.wood_crate_img.as_deref()),
-            crate_name_id(rules.crate_rules.crate_img.as_deref()),
-            crate_name_id(rules.crate_rules.water_crate_img.as_deref()),
-        ];
-        runtime_names.retain(|id, _| {
-            overlay_registry
-                .flags(*id)
-                .is_some_and(|flags| flags.crate_type)
-                || selected_ids.contains(&Some(*id))
-        });
         let mut presented = Vec::new();
         connect_startup_crate_overlays(&mut presented, &simulation);
         let startup_crate = RandomMapStartupCrateProjection {
@@ -2292,7 +2278,6 @@ impl MapLoadInitial {
             wood_name: rules.crate_rules.wood_crate_img.clone(),
             common_name: rules.crate_rules.crate_img.clone(),
             water_name: rules.crate_rules.water_crate_img.clone(),
-            runtime_names: runtime_names.into_iter().collect(),
             presented: presented
                 .into_iter()
                 .map(|entry| (entry.rx, entry.ry, entry.overlay_id, entry.frame))

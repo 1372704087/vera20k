@@ -5,11 +5,9 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 use crate::assets::asset_manager::AssetManager;
 use crate::assets::pal_file::Palette;
 use crate::assets::shp_file::ShpFile;
-use crate::map::overlay::OverlayEntry;
 use crate::render::batch::{BatchRenderer, BatchTexture};
 use crate::render::overlay_atlas::{OverlaySpriteEntry, stored_frame_offset};
 use crate::rules::art_data::{self, ArtRegistry};
-use crate::rules::crate_rules::CrateRules;
 use crate::rules::ini_parser::IniFile;
 use crate::rules::overlay_types::{OverlayTypeFlags, OverlayTypeRegistry, is_high_bridge_index};
 use wgpu::util::DeviceExt;
@@ -97,43 +95,17 @@ pub fn is_high_bridge_body_identity(overlay_id: u8, name: &str) -> bool {
     is_high_bridge_index(overlay_id) || is_high_bridge_body_name(name)
 }
 
-fn needed_bridge_sprite_keys(
-    overlays: &[OverlayEntry],
-    overlay_names: &BTreeMap<u8, String>,
-    overlay_registry: &OverlayTypeRegistry,
-    crate_rules: &CrateRules,
-) -> HashSet<BridgeAtlasKey> {
-    let mut names = HashSet::new();
-    for entry in overlays {
-        if let Some(name) = overlay_names.get(&entry.overlay_id)
-            && is_high_bridge_body_identity(entry.overlay_id, name)
-        {
-            names.insert(name.clone());
-        }
-    }
-    for selected_name in [
-        crate_rules.wood_crate_img.as_deref(),
-        crate_rules.crate_img.as_deref(),
-        crate_rules.water_crate_img.as_deref(),
-    ]
-    .into_iter()
-    .flatten()
-    {
-        let Some(overlay_id) = overlay_registry.id_for_name(selected_name) else {
-            continue;
-        };
-        if crate::map::bridge_facts::high_bridge_stamp_for_overlay(overlay_id).is_none() {
-            continue;
-        }
-        let name = overlay_names
-            .get(&overlay_id)
-            .map(String::as_str)
-            .or_else(|| overlay_registry.name(overlay_id));
-        if let Some(name) = name {
-            names.insert(name.to_string());
-        }
-    }
-
+/// Every identity the bridge body and shadow builders may draw: each named
+/// type that routes as a high-bridge body. Bridge repair writes 0x18/0x19/
+/// 0xED/0xEE from the ramp family and direction (`sim::bridge_state::
+/// ramp_repair`), and a crate image may name one, so map-authored cells alone
+/// do not bound the set; gamemd loads every OverlayType's image.
+fn needed_bridge_sprite_keys(overlay_names: &BTreeMap<u8, String>) -> HashSet<BridgeAtlasKey> {
+    let names: HashSet<&String> = overlay_names
+        .iter()
+        .filter(|&(&overlay_id, name)| is_high_bridge_body_identity(overlay_id, name))
+        .map(|(_, name)| name)
+        .collect();
     let mut needed = HashSet::new();
     for name in names {
         for frame in 0u8..18u8 {
@@ -156,7 +128,6 @@ pub fn build_bridge_atlas(
     device: &wgpu::Device,
     queue: &wgpu::Queue,
     batch: &BatchRenderer,
-    overlays: &[OverlayEntry],
     overlay_names: &BTreeMap<u8, String>,
     asset_manager: &AssetManager,
     theater_palette: &Palette,
@@ -164,11 +135,10 @@ pub fn build_bridge_atlas(
     theater_ext: &str,
     theater_name: &str,
     overlay_registry: &OverlayTypeRegistry,
-    crate_rules: &CrateRules,
     rules_ini: &IniFile,
     art_registry: &ArtRegistry,
 ) -> Option<BridgeAtlas> {
-    let needed = needed_bridge_sprite_keys(overlays, overlay_names, overlay_registry, crate_rules);
+    let needed = needed_bridge_sprite_keys(overlay_names);
     if needed.is_empty() {
         return None;
     }
@@ -557,35 +527,40 @@ mod tests {
     }
 
     #[test]
-    fn startup_high_bridge_crate_roots_body_and_shadow_without_map_authored_high_overlay() {
+    fn every_high_bridge_identity_preloads_without_a_map_authored_cell() {
+        // Repair and crate scatter can write any of the four high-bridge
+        // indices; a renamed index still routes by number, and a canonical
+        // name routes by name. Low bridges and plain types stay out.
         let mut rules_text = String::from("[OverlayTypes]\n");
-        for id in 0..=0x18u8 {
-            let name = if id == 0x18 {
-                "HIGHANCHOR".to_string()
-            } else {
-                format!("OV{id:03}")
+        for id in 0..=0xEEu8 {
+            let name = match id {
+                0x18 => "HIGHANCHOR".to_string(),
+                0x19 => "BRIDGE2".to_string(),
+                0x30 => "BRIDGE1".to_string(),
+                0x50 => "LOBRDG07".to_string(),
+                0xED => "BRIDGEB1".to_string(),
+                0xEE => "BRIDGEB2".to_string(),
+                _ => format!("OV{id:03}"),
             };
             writeln!(&mut rules_text, "{id}={name}").unwrap();
         }
-        rules_text.push_str("[HIGHANCHOR]\nCrate=yes\n");
         let registry = OverlayTypeRegistry::from_ini(&IniFile::from_str(&rules_text), None);
-        let crate_rules = CrateRules {
-            wood_crate_img: Some("HIGHANCHOR".to_string()),
-            crate_img: Some("HIGHANCHOR".to_string()),
-            water_crate_img: Some("HIGHANCHOR".to_string()),
-            ..CrateRules::default()
-        };
 
-        let keys = needed_bridge_sprite_keys(&[], &BTreeMap::new(), &registry, &crate_rules);
+        let keys = needed_bridge_sprite_keys(&crate::render::overlay_assets::render_overlay_names(
+            &registry,
+        ));
 
-        assert_eq!(keys.len(), 36);
-        for frame in 0..18 {
-            for kind in [BridgeFrameKind::Body, BridgeFrameKind::Shadow] {
-                assert!(keys.contains(&BridgeAtlasKey {
-                    name: "HIGHANCHOR".to_string(),
-                    frame,
-                    kind,
-                }));
+        let names = ["HIGHANCHOR", "BRIDGE2", "BRIDGE1", "BRIDGEB1", "BRIDGEB2"];
+        assert_eq!(keys.len(), names.len() * 36);
+        for name in names {
+            for frame in 0..18 {
+                for kind in [BridgeFrameKind::Body, BridgeFrameKind::Shadow] {
+                    assert!(keys.contains(&BridgeAtlasKey {
+                        name: name.to_string(),
+                        frame,
+                        kind,
+                    }));
+                }
             }
         }
     }

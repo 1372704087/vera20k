@@ -21,7 +21,9 @@ fn point<const N: usize>(value: &Value) -> [i32; N] {
 
 fn hex_bytes(hex: &str) -> Vec<u8> {
     hex.as_bytes()
-        .chunks_exact(2)
+        .as_chunks::<2>()
+        .0
+        .iter()
         .map(|pair| u8::from_str_radix(std::str::from_utf8(pair).unwrap(), 16).unwrap())
         .collect()
 }
@@ -898,24 +900,12 @@ fn production_action_line_gpu_matches_original_surface() {
                         })
                     })
                     .collect();
-                let actual: Vec<[u8; 4]> = output[0]
-                    .chunks_exact(4)
-                    .map(|p| p.try_into().unwrap())
-                    .collect();
-                let expected: Vec<[u8; 4]> = expected
-                    .chunks_exact(4)
-                    .map(|p| p.try_into().unwrap())
-                    .collect();
+                let actual: Vec<[u8; 4]> = output[0].as_chunks::<4>().0.to_vec();
+                let expected: Vec<[u8; 4]> = expected.as_chunks::<4>().0.to_vec();
                 assert_native_pixels(&actual, &expected, size.map(|n| n as usize), 0, row);
-                assert!(
-                    output[1]
-                        .chunks_exact(4)
-                        .all(
-                            |bytes| crate::render::native_z::stored_z(f32::from_le_bytes(
-                                bytes.try_into().unwrap()
-                            )) == 12345
-                        )
-                );
+                assert!(output[1].as_chunks::<4>().0.iter().all(|bytes| {
+                    crate::render::native_z::stored_z(f32::from_le_bytes(*bytes)) == 12345
+                }));
             }
         }
     }

@@ -93,7 +93,6 @@ impl ParityDigest {
     ///
     /// Iteration order is the entity store's stable-id order and the house map's key
     /// order, both deterministic — the hash must not depend on traversal accidents.
-    #[allow(clippy::too_many_arguments)]
     pub fn capture(
         tick: u64,
         entities: &EntityStore,
@@ -106,8 +105,7 @@ impl ParityDigest {
         let mut entity_state_hash = FNV1A64_OFFSET_BASIS;
         let mut entity_count: u32 = 0;
         for entity in entities.values_sorted() {
-            entity_state_hash =
-                fnv1a64_fold_i32(entity_state_hash, i32::from(entity.health.current));
+            entity_state_hash = fnv1a64_fold_i32(entity_state_hash, entity.health.current);
             entity_state_hash = fnv1a64_fold_i32(
                 entity_state_hash,
                 absolute_axis(entity.position.rx, entity.position.sub_x),

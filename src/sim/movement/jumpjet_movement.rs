@@ -405,7 +405,6 @@ impl JumpjetRuntime {
 /// 54D6D0's Infantry (RTTI15) receiver: 4ACA10 selects the actual raw
 /// subcell, then ground height is sampled AGAIN at the returned XY. The
 /// second sample matters on slopes. No raw reservation is written here.
-#[allow(clippy::too_many_arguments)]
 pub(crate) fn infantry_destination_coordinate(
     input: DriveCoord,
     terrain: &crate::map::resolved_terrain::ResolvedTerrainGrid,

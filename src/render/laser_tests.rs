@@ -219,8 +219,10 @@ fn production_laser_pixels_match_original_software_surface() {
                         .copy_from_slice(&encoded(integer(&pixel[2]) as u16, format));
                 }
                 let mismatches = output[0]
-                    .chunks_exact(4)
-                    .zip(expected.chunks_exact(4))
+                    .as_chunks::<4>()
+                    .0
+                    .iter()
+                    .zip(expected.as_chunks::<4>().0)
                     .enumerate()
                     .filter(|(_, (a, b))| a != b)
                     .map(|(i, (a, b))| (i, a, b))

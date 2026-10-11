@@ -365,7 +365,6 @@ pub(crate) fn build_tooltip_instances(
 /// Returns `(fill quads, outline quads, text quads)`. `camera_offset` must be
 /// the live world camera: the UI pipeline subtracts it in the shader, so
 /// passing zero here walks the popup off screen.
-#[allow(clippy::too_many_arguments)]
 pub(crate) fn tooltip_quads(
     font: &crate::render::bit_font::BitFont,
     text: &str,

@@ -388,9 +388,15 @@ fn compare_shape_corpus(
                     + pixel[0].as_u64().unwrap()) as usize;
                 expected[index] = encoded(pixel[2].as_u64().unwrap() as u16, format);
             }
-            for (index, (pixel, expected)) in output[0].chunks_exact(4).zip(expected).enumerate() {
+            for (index, (pixel, expected)) in output[0]
+                .as_chunks::<4>()
+                .0
+                .iter()
+                .zip(expected)
+                .enumerate()
+            {
                 assert_eq!(
-                    pixel,
+                    *pixel,
                     expected,
                     "{format:?}, {}, pixel({}, {})",
                     input["name"],
@@ -400,9 +406,12 @@ fn compare_shape_corpus(
             }
             assert_eq!(row["z_unchanged"], true);
             assert!(
-                output[1].chunks_exact(4).all(
-                    |pixel| pixel == crate::render::native_z::stored_depth(old_z).to_le_bytes()
-                ),
+                output[1]
+                    .as_chunks::<4>()
+                    .0
+                    .iter()
+                    .all(|pixel| *pixel
+                        == crate::render::native_z::stored_depth(old_z).to_le_bytes()),
                 "{format:?}, {} retained depth",
                 input["name"]
             );

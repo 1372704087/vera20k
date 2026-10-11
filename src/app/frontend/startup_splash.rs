@@ -208,7 +208,7 @@ fn compose_startup_splash(
     client_height: usize,
 ) -> Result<Vec<u8>> {
     let mut canvas = vec![0u8; client_width * client_height * 4];
-    for pixel in canvas.chunks_exact_mut(4) {
+    for pixel in canvas.as_chunks_mut::<4>().0 {
         pixel[3] = 255;
     }
 
@@ -332,7 +332,6 @@ fn csf_text<'a>(csf: Option<&'a CsfFile>, key: &str, fallback: &'a str) -> Strin
     }
 }
 
-#[allow(clippy::too_many_arguments)]
 fn blit_rgba_clipped(
     destination: &mut [u8],
     destination_width: usize,

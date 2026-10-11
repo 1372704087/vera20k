@@ -540,6 +540,15 @@ fn injected(active: PublishFault, expected: PublishFault, message: &str) -> Resu
     Ok(())
 }
 
+#[cfg(not(windows))]
+fn sync_directory(path: &Path) -> Result<()> {
+    let directory = File::open(path)
+        .with_context(|| format!("cannot open staging directory {}", path.display()))?;
+    directory
+        .sync_all()
+        .with_context(|| format!("cannot sync staging directory {}", path.display()))
+}
+
 #[cfg(windows)]
 fn sync_directory(path: &Path) -> Result<()> {
     use std::os::windows::fs::OpenOptionsExt;
@@ -693,13 +702,4 @@ mod tests {
         );
         fs::remove_dir_all(parent).expect("remove test parent");
     }
-}
-
-#[cfg(not(windows))]
-fn sync_directory(path: &Path) -> Result<()> {
-    let directory = File::open(path)
-        .with_context(|| format!("cannot open staging directory {}", path.display()))?;
-    directory
-        .sync_all()
-        .with_context(|| format!("cannot sync staging directory {}", path.display()))
 }

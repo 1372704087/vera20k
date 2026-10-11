@@ -634,60 +634,57 @@ pub(crate) fn build_shp_instances(
                 );
             }
             // Building voxel guns remain inside their SHP hull's draw call.
-            if let Some(rules_obj) = state.rules().and_then(|r| r.object(type_str)) {
-                if rules_obj.turret_anim_is_voxel
-                    && let Some(unit_atlas) = &state.match_state.match_presentation.unit_atlas
-                {
-                    let turret_offset = art_reg
-                        .and_then(|art| art.resolve_metadata_entry(type_str, &rules_obj.image))
-                        .map_or(0, |art| art.turret_offset);
-                    // TechnoClass::Draw's curtain arm (`0x0070678D..0x007067E2`)
-                    // and BuildingClass::Draw's colour word (`0x0043DC1C..
-                    // 0x0043DDF1`, DrawBody's) on the voxel cache blit.
-                    let (turret_tint, turret_light) =
-                        crate::app::presentation::lighting::curtain_light(
-                            entity,
-                            tint,
-                            selected_palette_light,
-                            sim,
-                        );
-                    emit_building_turret_vxl(
-                        unit_atlas,
-                        &mut state
-                            .match_state
-                            .match_presentation
-                            .barrel_image_pitches
-                            .borrow_mut(),
-                        type_str,
-                        entity.body_facing_current(sim.session.binary_frame),
-                        entity.barrel_elevation().current(sim.session.binary_frame),
-                        entity.turret_anim_frame,
-                        entity.voxel_recoil(),
-                        turret_offset,
-                        sx,
-                        sy,
-                        lift_px,
-                        depth,
-                        turret_tint,
-                        // Building VXL43DA80 reads top directly;707194 selects
-                        // the scheme. SHP TerrainPalette/ExtraLight don't apply.
-                        turret_light,
-                        colour_word,
-                        draw_state,
-                        rules_obj.turret_anim_x,
-                        rules_obj.turret_anim_y,
-                        &mut building_pieces,
-                    );
-                }
+            if let Some(rules_obj) = state.rules().and_then(|r| r.object(type_str))
+                && rules_obj.turret_anim_is_voxel
+                && let Some(unit_atlas) = &state.match_state.match_presentation.unit_atlas
+            {
+                let turret_offset = art_reg
+                    .and_then(|art| art.resolve_metadata_entry(type_str, &rules_obj.image))
+                    .map_or(0, |art| art.turret_offset);
+                // TechnoClass::Draw's curtain arm (`0x0070678D..0x007067E2`)
+                // and BuildingClass::Draw's colour word (`0x0043DC1C..
+                // 0x0043DDF1`, DrawBody's) on the voxel cache blit.
+                let (turret_tint, turret_light) = crate::app::presentation::lighting::curtain_light(
+                    entity,
+                    tint,
+                    selected_palette_light,
+                    sim,
+                );
+                emit_building_turret_vxl(
+                    unit_atlas,
+                    &mut state
+                        .match_state
+                        .match_presentation
+                        .barrel_image_pitches
+                        .borrow_mut(),
+                    type_str,
+                    entity.body_facing_current(sim.session.binary_frame),
+                    entity.barrel_elevation().current(sim.session.binary_frame),
+                    entity.turret_anim_frame,
+                    entity.voxel_recoil(),
+                    turret_offset,
+                    sx,
+                    sy,
+                    lift_px,
+                    depth,
+                    turret_tint,
+                    // Building VXL43DA80 reads top directly;707194 selects
+                    // the scheme. SHP TerrainPalette/ExtraLight don't apply.
+                    turret_light,
+                    colour_word,
+                    draw_state,
+                    rules_obj.turret_anim_x,
+                    rules_obj.turret_anim_y,
+                    &mut building_pieces,
+                );
             }
         }
 
-        if entity.category == EntityCategory::Structure {
-            if let Some(parent) =
+        if entity.category == EntityCategory::Structure
+            && let Some(parent) =
                 ground_order.object_draw(entity.stable_id(), SpriteEncoding::Plain)
-            {
-                ground_objects.push(PlannedObjectInstance::building(parent, building_pieces));
-            }
+        {
+            ground_objects.push(PlannedObjectInstance::building(parent, building_pieces));
         }
     }
 }
@@ -1262,7 +1259,6 @@ fn anim_colour_word(
 /// Unit73C5F0 remains the body owner when its image is a TerrainType. Only
 /// the source texture and Cell Convert differ: no Terrain object, placement,
 /// sorting key, or Terrain71C1B0 draw constants are introduced.
-#[allow(clippy::too_many_arguments)]
 fn emit_unit_terrain_body(
     state: &AppState,
     entity: &crate::sim::game_entity::GameEntity,
@@ -1454,7 +1450,7 @@ pub(crate) fn resolve_object_shp_frame(
                     loco.active_kind() == crate::rules::locomotor_type::LocomotorKind::Jumpjet
                 })
             })
-            .and_then(|_| entity.attack_target.as_ref())
+            .and(entity.attack_target.as_ref())
             .and_then(|target| {
                 let sim = &state.match_state.sim_runtime.as_ref()?.simulation;
                 crate::sim::movement::turret::facing_toward_target(
@@ -1469,15 +1465,15 @@ pub(crate) fn resolve_object_shp_frame(
         // not evidence for native invalid-index shape-access behavior.
         return u16::try_from(animation::resolve_shp_frame(record, facing, stage)).ok();
     }
-    if let (Some(anim_state), Some(set)) = (entity.animation.as_ref(), sequence_set) {
-        if let Some(def) = set.get(&anim_state.sequence) {
-            return u16::try_from(animation::resolve_shp_frame(
-                def,
-                facing,
-                i32::from(anim_state.frame_index),
-            ))
-            .ok();
-        }
+    if let (Some(anim_state), Some(set)) = (entity.animation.as_ref(), sequence_set)
+        && let Some(def) = set.get(&anim_state.sequence)
+    {
+        return u16::try_from(animation::resolve_shp_frame(
+            def,
+            facing,
+            i32::from(anim_state.frame_index),
+        ))
+        .ok();
     }
     // Fallback when no sequence data was built for this type: the standing
     // block is frames 0..7, so the facing slot is the frame index. Uses the

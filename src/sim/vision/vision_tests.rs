@@ -254,7 +254,7 @@ fn test_recompute_visibility_tracks_multiple_owners() {
 #[test]
 fn test_allied_visibility_is_shared() {
     // The real House registry interns every viewer before source admission.
-    let alliance = intern::test_intern("Alliance");
+    let _alliance = intern::test_intern("Alliance");
     let mut store = EntityStore::new();
     spawn_with_vision(&mut store, 1, "Americans", 4, 4, 1);
     let mut alliances = HouseAllianceMap::new();
@@ -267,7 +267,7 @@ fn test_allied_visibility_is_shared() {
         .or_default()
         .insert("AMERICANS".to_string());
 
-    let mut fog = recompute_owner_visibility(
+    let fog = recompute_owner_visibility(
         &store,
         Some(&PathGrid::new(16, 16)),
         &alliances,
@@ -494,9 +494,11 @@ fn test_elevation_sight_bonus_disabled_when_zero() {
 
 #[test]
 fn test_reset_explored_for_owner() {
-    let mut fog = FogState::default();
-    fog.width = 10;
-    fog.height = 10;
+    let mut fog = FogState {
+        width: 10,
+        height: 10,
+        ..Default::default()
+    };
     fog.mark_visible_for_owner(intern::test_intern("Americans"), 3, 3);
     assert!(fog.is_cell_revealed(intern::test_intern("Americans"), 3, 3));
 

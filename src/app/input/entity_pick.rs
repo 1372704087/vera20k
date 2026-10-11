@@ -287,9 +287,7 @@ pub(crate) fn compute_click_selection_snapshot_with_playfield(
         interner,
     ) else {
         // Non-shift click clears selection; shift-click with no hit keeps it.
-        return if additive {
-            None
-        } else if current_selection.is_empty() {
+        return if additive || current_selection.is_empty() {
             None
         } else {
             Some(SelectionMutation {
@@ -347,7 +345,7 @@ pub(crate) fn compute_click_selection_snapshot_with_playfield(
     let selection_is_local = current_selection
         .first()
         .and_then(|id| entities.get(*id))
-        .is_some_and(|first| owner_is_local(first));
+        .is_some_and(&owner_is_local);
     let picked_is_local = owner_is_local(picked);
 
     if !additive || current_selection.is_empty() || !selection_is_local || !picked_is_local {
@@ -635,15 +633,15 @@ pub(crate) fn compute_type_select_tap_with_playfield(
         let own = interner.map_or("", |i| i.resolve(entity.type_ref()));
         push_exact_seed(&mut seeds, entity.type_ref());
         if let Some(object) = rules.and_then(|r| r.object(own)) {
-            if let Some(deploys_into) = object.deploys_into.as_deref() {
-                if let Some(type_ref) = interner.and_then(|i| i.get(deploys_into)) {
-                    push_exact_seed(&mut seeds, type_ref);
-                }
+            if let Some(deploys_into) = object.deploys_into.as_deref()
+                && let Some(type_ref) = interner.and_then(|i| i.get(deploys_into))
+            {
+                push_exact_seed(&mut seeds, type_ref);
             }
-            if let Some(undeploys_into) = object.undeploys_into.as_deref() {
-                if let Some(type_ref) = interner.and_then(|i| i.get(undeploys_into)) {
-                    push_exact_seed(&mut seeds, type_ref);
-                }
+            if let Some(undeploys_into) = object.undeploys_into.as_deref()
+                && let Some(type_ref) = interner.and_then(|i| i.get(undeploys_into))
+            {
+                push_exact_seed(&mut seeds, type_ref);
             }
         }
     }

@@ -319,8 +319,7 @@ pub(crate) fn grow_meander_arm(ctx: &mut BlobCtx<'_>, args: &MeanderArgs) -> boo
     let mut current = heap.pop(&nodes);
     if steps > 0 {
         let mut executed = 0;
-        loop {
-            let Some(index) = current else { break };
+        while let Some(index) = current {
             if !alive {
                 break;
             }

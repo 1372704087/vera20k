@@ -442,6 +442,10 @@ struct PreparedScenarioLoad {
     context: FreshScenarioLoadContextDescriptor,
 }
 
+#[allow(
+    clippy::large_enum_variant,
+    reason = "one stage per loading session; Prepared carries the Selected request onward"
+)]
 enum LoadingStage {
     Selected(LoadingRequest),
     Prepared(PreparedScenarioLoad),
@@ -640,7 +644,7 @@ impl LoadingSession {
 
 enum LoadingPump {
     Pending,
-    Finished(MapLoadResult),
+    Finished(Box<MapLoadResult>),
     Failed(anyhow::Error),
 }
 
@@ -1022,7 +1026,7 @@ fn pump_loading_after_present(state: &mut AppState) -> LoadingPump {
         }
     })();
     match result {
-        Ok(result) => LoadingPump::Finished(result),
+        Ok(result) => LoadingPump::Finished(Box::new(result)),
         Err(err) => {
             job.retire(&mut state.process_assets);
             LoadingPump::Failed(err)
@@ -1168,7 +1172,7 @@ fn prepare_loading_session(
                     assets,
                     process_assets.native_rules(),
                     mapgen_retention,
-                    resident.as_deref_mut(),
+                    resident,
                     &mut NoopProgressSink,
                 )
             };
@@ -1575,7 +1579,7 @@ pub(crate) fn ensure_native_loading_atlas(state: &mut AppState) -> anyhow::Resul
     let atlas = build_loading_screen_atlas_with_composition(
         &state.renderer.gpu,
         &state.renderer.batch_renderer,
-        &assets,
+        assets,
         variant,
         width,
         &progress_ramp,
@@ -1638,9 +1642,7 @@ fn encode_loading_screen(
         render::encode_blank_loading_frame(&state.renderer, encoder, destination);
         return Ok(LoadingRenderResult::NativeRendered);
     }
-    if let Err(err) = ensure_native_loading_atlas(state) {
-        return Err(err);
-    }
+    ensure_native_loading_atlas(state)?;
     if let Some(session) = state.frontend.loading_session.as_mut()
         && session.next_frame == NextLoadingFrame::First
         && let Some(native) = session.native.as_mut()
@@ -1688,7 +1690,7 @@ pub(crate) fn after_loading_frame_presented(state: &mut AppState) {
         LoadingPump::Pending => state.platform.window.request_redraw(),
         LoadingPump::Finished(result) => {
             log::debug!(target: "vera20k::loading_attempt", "install_begin");
-            super::transitions::finish_fresh_scenario_read(state, result);
+            super::transitions::finish_fresh_scenario_read(state, *result);
             log::debug!(target: "vera20k::loading_attempt", "install_end screen={:?} assets_available={} accepted={}", state.frontend.screen, state.process_assets.is_available(), state.match_state.startup.accepted().is_some());
         }
         LoadingPump::Failed(err) => fail_loading(state, policy, err),

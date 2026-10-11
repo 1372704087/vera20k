@@ -577,8 +577,8 @@ fn busy_factory_exit_original_rows_compare_receiver_archive_restoration_and_rng(
                     cell.yr_cell_land_type = 1;
                     cell.terrain_class = road.terrain_class;
                     cell.base_terrain_class = road.terrain_class;
-                    cell.speed_costs = road.speed_costs.clone();
-                    cell.base_speed_costs = road.speed_costs.clone();
+                    cell.speed_costs = road.speed_costs;
+                    cell.base_speed_costs = road.speed_costs;
                     cell
                 })
             })
@@ -604,8 +604,8 @@ fn busy_factory_exit_original_rows_compare_receiver_archive_restoration_and_rng(
             target.zone_type = native["zone_type"].as_u64().unwrap() as u8;
             target.terrain_class = semantics.terrain_class;
             target.base_terrain_class = semantics.terrain_class;
-            target.speed_costs = semantics.speed_costs.clone();
-            target.base_speed_costs = semantics.speed_costs.clone();
+            target.speed_costs = semantics.speed_costs;
+            target.base_speed_costs = semantics.speed_costs;
             target.final_tile_index = int(&native["tile"]);
             target.final_sub_tile = native["subtile"].as_u64().unwrap() as u8;
             target.bridge_facts.raw_flags = native["flags"].as_u64().unwrap() as u32;
@@ -921,12 +921,11 @@ fn human_mobile_completion_retains_identity_until_next_frame_place() {
                 &rules,
                 crate::sim::world::FrameEffects::default(),
             );
-            let completed = sim
-                .production
+
+            sim.production
                 .factories
                 .view(owner, ProductionCategory::Infantry)
-                .is_some_and(|factory| factory.complete_object().is_some());
-            completed
+                .is_some_and(|factory| factory.complete_object().is_some())
         })
         .expect("the paid native step ladder completes");
     assert!(sim.pending_command_snapshot().is_empty());
@@ -1069,7 +1068,10 @@ fn completion_prefix_records_one_place_and_playback_consumes_its_copy() {
             .lifecycle
             .in_limbo
     );
-    assert_eq!(live.pending_command_snapshot(), [future.clone()]);
+    assert_eq!(
+        live.pending_command_snapshot(),
+        std::slice::from_ref(&future)
+    );
 
     let (mut replay, _, _) = make();
     let due = replay.take_due_replay_commands(admitted.clone());

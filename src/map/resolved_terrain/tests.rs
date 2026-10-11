@@ -1183,7 +1183,7 @@ fn gsi_04_01_valid_isomap_lookup_does_not_stamp_dummy() {
 
 #[test]
 fn gsi_04_01_runtime_setter_uses_native_real_or_dummy_order() {
-    let mut grid = crate::map::resolved_terrain::test_grid(3, 3, |rx, ry| make_test_cell(rx, ry));
+    let mut grid = crate::map::resolved_terrain::test_grid(3, 3, make_test_cell);
     grid.test_set_native_allocated_cells(&[(1, 1)]);
     let dummy = grid.shared_cell_dummy();
     let stamp = BridgeFlagStamp::new((1, 1), 0, true);
@@ -1228,7 +1228,7 @@ fn gsi_04_01_runtime_setter_uses_native_real_or_dummy_order() {
 
 #[test]
 fn bridge_publication_retains_allocation_identity_across_other_lookups() {
-    let mut terrain = crate::map::resolved_terrain::test_grid(3, 3, |x, y| make_test_cell(x, y));
+    let mut terrain = crate::map::resolved_terrain::test_grid(3, 3, make_test_cell);
     terrain.test_set_native_allocated_cells(&[(1, 1)]);
     let real = terrain.native_cell_identity((-511, 2));
     assert_eq!(real, NativeCellIdentity::Real(4));
@@ -1255,7 +1255,7 @@ fn bridge_publication_retains_allocation_identity_across_other_lookups() {
 
 #[test]
 fn bridge_publication_overlapping_mark_preserves_literal_anchor_pointer() {
-    let mut terrain = crate::map::resolved_terrain::test_grid(7, 7, |x, y| make_test_cell(x, y));
+    let mut terrain = crate::map::resolved_terrain::test_grid(7, 7, make_test_cell);
     let first = terrain.native_cell_identity((3, 3));
     let second = terrain.native_cell_identity((4, 3));
     terrain.apply_runtime_bridge_mark_stamp(
@@ -1413,8 +1413,6 @@ fn authored_fill_defers_all_executable_projection() {
         );
         (grid, metrics)
     };
-    drop(eager_fill);
-    drop(eager_main_draw);
     let eager_cell = eager.cell(2, 3).expect("eager fixture cell");
     assert!(eager_cell.bridge_facts.has_structural_bridge());
     assert_eq!(eager_cell.bridge_facts.state_byte, 99);
@@ -1454,8 +1452,6 @@ fn authored_fill_defers_all_executable_projection() {
         );
         (fill, metrics)
     };
-    drop(pending_fill);
-    drop(pending_main_draw);
     assert_eq!(pending_fill_calls, eager_fill_calls);
     assert_eq!(
         pending_scenario_rng.logical_state(),
@@ -1807,8 +1803,6 @@ fn gsi_04_03a_level_prefill_wraps_before_absolute_last_isomap_overwrite() {
         assert!(!selector.generated_table());
         assert_eq!(selector.raw_draw_count(), 0);
     }
-    drop(main_draw);
-    drop(scenario_fill_ranged);
     assert_eq!(scenario_calls, 10);
     assert_eq!(
         scenario_rng.logical_state(),
@@ -1852,7 +1846,6 @@ fn gsi_04_02_clear_and_unknown_use_prior_cached_clear_and_equal_scenario_bounds(
             &mut scenario_fill_ranged,
             &SharedCellDummy::fresh(),
         );
-        drop(scenario_fill_ranged);
 
         assert_eq!(cells.len(), 10);
         assert!(
@@ -1955,8 +1948,6 @@ fn gsi_04_02_production_build_prefills_before_selector_and_skips_outside_slots()
         assert!(selector.raw_draw_count() > 0);
         main_draw_count = selector.raw_draw_count();
     }
-    drop(main_draw);
-    drop(scenario_fill_ranged);
     assert_eq!(
         scenario_rng.logical_state(),
         expected_scenario.logical_state()
@@ -2250,7 +2241,7 @@ fn direction_8_without_valid_tube_returns_zero_coord() {
 
 #[test]
 fn invalid_non_8_direction_does_not_wrap() {
-    let grid = crate::map::resolved_terrain::test_grid(3, 3, |rx, ry| make_test_cell(rx, ry));
+    let grid = crate::map::resolved_terrain::test_grid(3, 3, make_test_cell);
 
     assert_eq!(grid.step_coord_by_direction((1, 1), 9), None);
     assert_eq!(grid.step_coord_by_direction((1, 1), 255), None);
@@ -2300,7 +2291,6 @@ fn gsi_02_11_clear_fallback_calls_selector_even_with_pristine_only() {
         assert!(selector.generated_table());
         assert!(selector.raw_draw_count() > 0);
     }
-    drop(raw_draw);
     assert!(draws > 0);
 }
 
@@ -2353,7 +2343,6 @@ fn gsi_02_11_positive_registry_oor_uses_clear_and_invokes_selector() {
         assert!(selector.generated_table());
         assert!(selector.raw_draw_count() > 0);
     }
-    drop(raw_draw);
     assert!(draws > 0);
 }
 
@@ -3021,7 +3010,6 @@ fn gsi_02_11_damaged_tmp_cell_bypasses_selector_without_table_generation() {
         assert!(!selector.generated_table());
         assert_eq!(selector.raw_draw_count(), 0);
     }
-    drop(raw_draw);
     assert_eq!(variant, 0);
     assert_eq!(draws, 0);
     assert!(!cache.is_initialized());

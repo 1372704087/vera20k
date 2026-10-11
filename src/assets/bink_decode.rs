@@ -340,14 +340,8 @@ impl BinkDecoder {
         });
 
         let mut vlc_tables = Vec::with_capacity(16);
-        for t in 0..16 {
-            let mut codes = [0u8; 16];
-            let mut lens = [0u8; 16];
-            for i in 0..16 {
-                codes[i] = BINK_TREE_BITS[t][i];
-                lens[i] = BINK_TREE_LENS[t][i];
-            }
-            vlc_tables.push(VlcTable::build(&codes, &lens)?);
+        for (codes, lens) in BINK_TREE_BITS.iter().zip(&BINK_TREE_LENS) {
+            vlc_tables.push(VlcTable::build(codes, lens)?);
         }
 
         Ok(Self {
@@ -869,8 +863,8 @@ impl BinkDecoder {
         let ref_end = (bw - 1 + stride * (bh - 1)) * 8;
 
         let mut coordmap = [0usize; 64];
-        for i in 0..64 {
-            coordmap[i] = (i & 7) + (i >> 3) * stride;
+        for (i, coord) in coordmap.iter_mut().enumerate() {
+            *coord = (i & 7) + (i >> 3) * stride;
         }
 
         for by in 0..bh {
@@ -1321,11 +1315,11 @@ impl BinkDecoder {
         let start_bits = r.read_bits(3)? as i32;
         let mut mask: i32 = 1 << start_bits;
         while mask != 0 {
-            for i in 0..nz_coeff_count {
+            for &coeff in &nz_coeff[..nz_coeff_count] {
                 if !r.read_bit()? {
                     continue;
                 }
-                let p = nz_coeff[i] as usize;
+                let p = coeff as usize;
                 if block[p] < 0 {
                     block[p] = block[p].wrapping_sub(mask as i16);
                 } else {
@@ -1417,8 +1411,8 @@ impl BinkDecoder {
         scan: &[u8; 64],
     ) {
         block[0] = block[0].wrapping_mul(quant[0]) >> 11;
-        for i in 0..coef_count as usize {
-            let idx = coef_idx[i] as usize;
+        for &coef in &coef_idx[..coef_count as usize] {
+            let idx = coef as usize;
             let pos = scan[idx] as usize;
             block[pos] = block[pos].wrapping_mul(quant[idx]) >> 11;
         }
@@ -1428,6 +1422,7 @@ impl BinkDecoder {
     ///   - BLOCK_TYPES / SUB_BLOCK_TYPES / COLORS / PATTERN / RUN: u8.
     ///   - X_OFF / Y_OFF: i8 (motion offsets).
     ///   - INTRA_DC / INTER_DC: i16 (two bytes per value).
+    ///
     /// Port of `get_value` at libavcodec/bink.c:557-568.
     fn get_value(&mut self, bundle_num: usize) -> i32 {
         let b = &mut self.bundles[bundle_num];
@@ -1573,8 +1568,8 @@ impl HuffmanTree {
         let vlc_num = r.read_bits(4)?;
         if vlc_num == 0 {
             let mut syms = [0u8; 16];
-            for i in 0..16 {
-                syms[i] = i as u8;
+            for (i, sym) in syms.iter_mut().enumerate() {
+                *sym = i as u8;
             }
             return Ok(Self { vlc_num, syms });
         }
@@ -1583,9 +1578,9 @@ impl HuffmanTree {
             let mut len = r.read_bits(3)? as usize;
             let mut seen = [false; 16];
             let mut syms = [0u8; 16];
-            for i in 0..=len {
+            for sym in &mut syms[..=len] {
                 let s = r.read_bits(4)? as u8;
-                syms[i] = s;
+                *sym = s;
                 seen[s as usize] = true;
             }
             let mut i = 0usize;
@@ -1602,8 +1597,8 @@ impl HuffmanTree {
             let mut tmp1 = [0u8; 16];
             let mut tmp2 = [0u8; 16];
             let (mut in_arr, mut out_arr) = (&mut tmp1, &mut tmp2);
-            for i in 0..16 {
-                in_arr[i] = i as u8;
+            for (i, value) in in_arr.iter_mut().enumerate() {
+                *value = i as u8;
             }
             for i in 0..=len {
                 let size = 1usize << i;
@@ -1864,16 +1859,16 @@ mod tests {
     #[test]
     fn scale_block_doubles_each_pixel() {
         let mut src = [0u8; 64];
-        for i in 0..64 {
-            src[i] = i as u8;
+        for (i, value) in src.iter_mut().enumerate() {
+            *value = i as u8;
         }
         let mut dst = [0u8; 16 * 16];
         scale_block_8x8_to_16x16(&src, &mut dst, 16);
 
         assert_eq!(dst[0], 0);
         assert_eq!(dst[1], 0);
-        assert_eq!(dst[1 * 16 + 0], 0);
-        assert_eq!(dst[1 * 16 + 1], 0);
+        assert_eq!(dst[16], 0);
+        assert_eq!(dst[16 + 1], 0);
 
         // src[3,4] = src[3*8+4] = 28. Doubled into dst rows 6..8 cols 8..10.
         assert_eq!(dst[6 * 16 + 8], 28);

@@ -321,7 +321,7 @@ fn original_dead_missing_cell_candidate_runs_fire_probe_before_health_rejection(
         scanner: firer,
         los: Default::default(),
         rules: &rules,
-        interner: &interner,
+        interner,
         attacker: &snapshot,
         attacker_obj: obj,
         fog: None,

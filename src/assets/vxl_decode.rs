@@ -16,7 +16,6 @@ pub(crate) fn read_null_string(bytes: &[u8]) -> String {
 /// Uses the column start/end offset tables to locate each (x,y) column,
 /// then walks voxel spans along the Z axis. Each span contains a z_skip
 /// (gap before voxels), a count, then count×2 bytes of color+normal pairs.
-#[allow(clippy::too_many_arguments)]
 pub(crate) fn decode_limb_voxels(
     data: &[u8],
     body_start: usize,

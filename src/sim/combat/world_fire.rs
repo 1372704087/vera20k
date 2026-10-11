@@ -1000,10 +1000,10 @@ pub(super) fn emit_admitted_fire(
 ) -> Option<u64> {
     // Infantry51DF70 clears68D for every direct FireAt caller, including
     // Guard521432 and a launch subsequently refused by Techno6FDD50.
-    if shot.snap.category == EntityCategory::Infantry {
-        if let Some(actor) = world.substrate.entities.get_mut(shot.snap.stable_id) {
-            actor.mission_leaf.set_foot_firing_sequence(0);
-        }
+    if shot.snap.category == EntityCategory::Infantry
+        && let Some(actor) = world.substrate.entities.get_mut(shot.snap.stable_id)
+    {
+        actor.mission_leaf.set_foot_firing_sequence(0);
     }
     let AdmittedFire {
         snap,
@@ -2190,6 +2190,8 @@ pub(crate) fn tick_combat(
         (live_index.get(&id).copied().unwrap_or(usize::MAX), id)
     });
     for visit in visits {
+        // `Visit::Foot` exists only in test builds.
+        #[cfg_attr(not(test), expect(clippy::infallible_destructuring_match))]
         let snap = match visit {
             Visit::Attacker(snap) => snap,
             #[cfg(test)]
@@ -2302,63 +2304,62 @@ pub(crate) fn tick_combat(
                 &mut Vec::new(),
             );
         }
-        if !rad.is_empty() && binary_frame.is_multiple_of(rules.radiation.application_delay as u32)
+        if !rad.is_empty()
+            && binary_frame.is_multiple_of(rules.radiation.application_delay as u32)
+            && let Some(rad_warhead) = rules.warhead(&rules.radiation.site_warhead)
         {
-            if let Some(rad_warhead) = rules.warhead(&rules.radiation.site_warhead) {
-                let wh_iid = world.interner.intern(&rad_warhead.id);
-                // Victims are walked in live-LOGIC order (the same order the
-                // per-object AI would have applied this damage), stable-id
-                // fallback for entities absent from the live order.
-                let mut victim_ids: Vec<u64> = keys.clone();
-                victim_ids
-                    .sort_by_key(|&id| (live_index.get(&id).copied().unwrap_or(usize::MAX), id));
-                for &id in &victim_ids {
-                    let Some(entity) = world.substrate.entities.get(id) else {
-                        continue;
-                    };
-                    // Buildings never take radiation damage; corpses, limbo
-                    // (transported) and objects in the air are exempt.
-                    // FootClass::AI asks vt+0x54, IsInAir (`0x004DA588`).
-                    if entity.category == EntityCategory::Structure
-                        || entity.dying
-                        || !entity.is_alive()
-                        || entity.immune_to_radiation
-                        || entity.passenger_role.is_inside_transport()
-                        || crate::sim::movement::air_movement::is_high_flying(
-                            entity,
-                            world.resolved_terrain.as_ref(),
-                            Some((rules, &world.interner)),
-                        )
-                    {
-                        continue;
-                    }
-                    let level = rad.damaging_level(
-                        (entity.position.rx, entity.position.ry),
-                        rules.radiation.level_max,
-                    );
-                    if level <= 0 {
-                        continue;
-                    }
-                    // FootClass::AI @ 0x004DA530 passes the signed two-stage
-                    // ftol result directly to concrete ReceiveDamage at
-                    // distance zero. Verses and live defender modifiers belong
-                    // to that receiver, not this producer.
-                    let base = (level as f64 * rules.radiation.level_factor) as i32;
-                    damage_events.push(combat_aoe::AreaDamageReceiver::Entity(
-                        EntityDamageEvent::direct_receiver(
-                            id,
-                            base,
-                            0,
-                            RAD_NO_ATTACKER,
-                            None,
-                            wh_iid,
-                            ReceiverCallFlags {
-                                ignore_defenses: false,
-                                arg6: true,
-                            },
-                        ),
-                    ));
+            let wh_iid = world.interner.intern(&rad_warhead.id);
+            // Victims are walked in live-LOGIC order (the same order the
+            // per-object AI would have applied this damage), stable-id
+            // fallback for entities absent from the live order.
+            let mut victim_ids: Vec<u64> = keys.clone();
+            victim_ids.sort_by_key(|&id| (live_index.get(&id).copied().unwrap_or(usize::MAX), id));
+            for &id in &victim_ids {
+                let Some(entity) = world.substrate.entities.get(id) else {
+                    continue;
+                };
+                // Buildings never take radiation damage; corpses, limbo
+                // (transported) and objects in the air are exempt.
+                // FootClass::AI asks vt+0x54, IsInAir (`0x004DA588`).
+                if entity.category == EntityCategory::Structure
+                    || entity.dying
+                    || !entity.is_alive()
+                    || entity.immune_to_radiation
+                    || entity.passenger_role.is_inside_transport()
+                    || crate::sim::movement::air_movement::is_high_flying(
+                        entity,
+                        world.resolved_terrain.as_ref(),
+                        Some((rules, &world.interner)),
+                    )
+                {
+                    continue;
                 }
+                let level = rad.damaging_level(
+                    (entity.position.rx, entity.position.ry),
+                    rules.radiation.level_max,
+                );
+                if level <= 0 {
+                    continue;
+                }
+                // FootClass::AI @ 0x004DA530 passes the signed two-stage
+                // ftol result directly to concrete ReceiveDamage at
+                // distance zero. Verses and live defender modifiers belong
+                // to that receiver, not this producer.
+                let base = (level as f64 * rules.radiation.level_factor) as i32;
+                damage_events.push(combat_aoe::AreaDamageReceiver::Entity(
+                    EntityDamageEvent::direct_receiver(
+                        id,
+                        base,
+                        0,
+                        RAD_NO_ATTACKER,
+                        None,
+                        wh_iid,
+                        ReceiverCallFlags {
+                            ignore_defenses: false,
+                            arg6: true,
+                        },
+                    ),
+                ));
             }
         }
     }

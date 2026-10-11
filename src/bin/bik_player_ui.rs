@@ -7,13 +7,12 @@ use eframe::egui;
 pub fn draw_top_panel(app: &mut BikPlayerApp, ctx: &egui::Context) {
     egui::TopBottomPanel::top("top").show(ctx, |ui| {
         ui.horizontal(|ui| {
-            if ui.button("Open .bik…").clicked() {
-                if let Some(path) = rfd::FileDialog::new()
+            if ui.button("Open .bik…").clicked()
+                && let Some(path) = rfd::FileDialog::new()
                     .add_filter("Bink video", &["bik", "BIK"])
                     .pick_file()
-                {
-                    app.load_path(&path);
-                }
+            {
+                app.load_path(&path);
             }
             ui.separator();
 
@@ -95,10 +94,10 @@ pub fn draw_timeline(app: &mut BikPlayerApp, ctx: &egui::Context) {
         let mut idx = app.current_frame.min(n - 1);
         let slider_resp =
             ui.add(egui::Slider::new(&mut idx, 0..=(n - 1)).text(format!("frame / {}", n)));
-        if slider_resp.changed() {
-            if let Err(e) = crate::bik_player_playback::seek_to_frame(app, idx) {
-                app.status = format!("seek error: {}", e);
-            }
+        if slider_resp.changed()
+            && let Err(e) = crate::bik_player_playback::seek_to_frame(app, idx)
+        {
+            app.status = format!("seek error: {}", e);
         }
 
         // Keyframe markers (simple overlay).

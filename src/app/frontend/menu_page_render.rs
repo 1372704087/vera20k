@@ -485,7 +485,7 @@ mod tests {
     #[test]
     fn menu_page_policy_uses_native_art_without_mouse_hover_flash() {
         assert!(matches!(MENU_PAGE_BUTTON_POLICY.art_fit, ArtFit::Native));
-        assert!(!MENU_PAGE_BUTTON_POLICY.hover_flash);
+        const { assert!(!MENU_PAGE_BUTTON_POLICY.hover_flash) };
         assert_eq!(MENU_PAGE_BUTTON_POLICY.art_sink_y, 0.0);
     }
 

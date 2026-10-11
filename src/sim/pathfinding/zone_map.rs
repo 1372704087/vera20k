@@ -681,12 +681,11 @@ impl ZoneGrid {
                     }
                     // Constructor dummy tile65535 is outside both high sets
                     // in all six hash-bound retail theaters (bridge report).
-                    if let CellRef::Real(exit) = current {
-                        if terrain.high_bridge_tile_offset(exit).is_some()
-                            && exit.yr_cell_land_type != LandType::Rock.as_index()
-                        {
-                            selected = record.endpoint_b;
-                        }
+                    if let CellRef::Real(exit) = current
+                        && terrain.high_bridge_tile_offset(exit).is_some()
+                        && exit.yr_cell_land_type != LandType::Rock.as_index()
+                    {
+                        selected = record.endpoint_b;
                     }
                 }
             }
@@ -702,7 +701,6 @@ impl ZoneGrid {
     /// raw zone queries in that order. A missing topology is unavailable input,
     /// not a negative native predicate. Raw WORDFFFF and DWORDFFFFFFFF remain
     /// distinct. See walk_move_admission and walk_failed_path native corpora.
-    #[allow(clippy::too_many_arguments)]
     pub(crate) fn can_reach_native(
         &self,
         cells: &crate::map::resolved_terrain::NativeCellQuery<'_>,
@@ -996,9 +994,11 @@ impl ZoneGrid {
                 .get(cluster as usize)
                 .copied()
                 .unwrap_or(u16::MAX);
-            let projected = (raw > 1 && raw != u16::MAX)
-                .then_some(raw)
-                .unwrap_or(ZONE_INVALID);
+            let projected = if raw > 1 && raw != u16::MAX {
+                raw
+            } else {
+                ZONE_INVALID
+            };
             if let Some(map) = self.maps.get_mut(&movement_zone) {
                 map.set_ground_zone_at_index(cell_index, projected);
             }

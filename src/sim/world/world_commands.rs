@@ -28,6 +28,7 @@ use crate::sim::command::{
 };
 use crate::sim::components::OrderIntent;
 use crate::sim::mission::MissionType;
+#[cfg(test)]
 use crate::sim::movement;
 use crate::sim::movement::locomotor::MovementLayer;
 use crate::sim::overlay_grid::{
@@ -286,9 +287,7 @@ impl Simulation {
                 return None;
             }
             let entity_id = u64::try_from(typed.source_id).ok()?;
-            if self.substrate.entities.get(entity_id).is_none() {
-                return None;
-            }
+            self.substrate.entities.get(entity_id)?;
             let command = match typed.order {
                 MegaMissionOrder::Move { target_x, target_y } => Command::Move {
                     entity_id,
@@ -609,7 +608,7 @@ impl Simulation {
             speed,
             loco_layer,
             speed_type,
-            is_harvester: obj.map_or(false, |o| o.harvester),
+            is_harvester: obj.is_some_and(|o| o.harvester),
             #[cfg(test)]
             movement_zone: obj.map_or(MovementZone::Normal, |o| o.movement_zone),
             #[cfg(test)]
@@ -707,7 +706,8 @@ impl Simulation {
                     .entities
                     .get(*entity_id)
                     .is_some_and(|e| e.category == EntityCategory::Aircraft);
-                let result = if let Some(rules) = rules.filter(|_| aircraft) {
+
+                if let Some(rules) = rules.filter(|_| aircraft) {
                     // Event4C747C's virtual+480 is Aircraft41AA80: the NavCom
                     // and the locomotor's Move_To. Mission_Move flies it from
                     // there (`aircraft::move_mission`).
@@ -774,8 +774,7 @@ impl Simulation {
                         overlay_registry,
                         frame_effects,
                     )
-                };
-                result
+                }
             }
             Command::Stop { entity_id } => {
                 if !self.entity_owned_by_id(command_owner, *entity_id) {
@@ -1122,13 +1121,11 @@ impl Simulation {
                         frame_effects,
                     )
                 };
-                if issued {
-                    if let Some(e) = self.substrate.entities.get_mut(*entity_id) {
-                        e.order_intent = Some(OrderIntent::AttackMove {
-                            goal_rx: *target_rx,
-                            goal_ry: *target_ry,
-                        });
-                    }
+                if issued && let Some(e) = self.substrate.entities.get_mut(*entity_id) {
+                    e.order_intent = Some(OrderIntent::AttackMove {
+                        goal_rx: *target_rx,
+                        goal_ry: *target_ry,
+                    });
                 }
                 issued
             }
@@ -1377,18 +1374,16 @@ impl Simulation {
                     .and_then(|m| m.reserved_refinery);
                 let explicit_refinery_changed = explicit_refinery
                     .is_some_and(|refinery_id| previous_refinery != Some(refinery_id));
-                if explicit_refinery_changed {
-                    if let Some(old_refinery) = previous_refinery {
-                        // BREAK both ends: the old refinery's slot frees for
-                        // the next miner, and this miner loses the contact
-                        // that would let it path through that refinery.
-                        crate::sim::miner::miner_dock::break_contact(
-                            self,
-                            *entity_id,
-                            old_refinery,
-                            frame_effects,
-                        );
-                    }
+                if explicit_refinery_changed && let Some(old_refinery) = previous_refinery {
+                    // BREAK both ends: the old refinery's slot frees for
+                    // the next miner, and this miner loses the contact
+                    // that would let it path through that refinery.
+                    crate::sim::miner::miner_dock::break_contact(
+                        self,
+                        *entity_id,
+                        old_refinery,
+                        frame_effects,
+                    );
                 }
                 // Update miner state in EntityStore.
                 let Some(e) = self.substrate.entities.get_mut(*entity_id) else {
@@ -2185,10 +2180,10 @@ impl Simulation {
         ids.sort_unstable();
         ids.dedup();
         for stable_id in ids {
-            if self.takes_rally_point(stable_id, command_owner, rules) {
-                if let Some(entity) = self.substrate.entities.get_mut(stable_id) {
-                    entity.set_archive_target(Some(crate::sim::combat::TargetKind::Cell(rx, ry)));
-                }
+            if self.takes_rally_point(stable_id, command_owner, rules)
+                && let Some(entity) = self.substrate.entities.get_mut(stable_id)
+            {
+                entity.set_archive_target(Some(crate::sim::combat::TargetKind::Cell(rx, ry)));
             }
         }
         // `EVA_NewRallyPointEstablished` is not a sim fact: `BuildingClass::

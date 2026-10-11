@@ -678,7 +678,6 @@ fn ordinary_fresh_turn_and_drive_refusal_reach_entry_without_running_speed() {
                 entity.movement_target = Some(MovementTarget {
                     speed: SimFixed::from_num(330),
                     final_goal: Some((10, 8)),
-                    ..Default::default()
                 });
                 set_retained(
                     entity,
@@ -864,10 +863,9 @@ fn live_rotation_returns_before_fresh_selection_with_a_queued_path_and_no_displa
         entity.movement_target = Some(MovementTarget {
             speed: SimFixed::from_num(330),
             final_goal: Some((8, 6)),
-            ..Default::default()
         });
         let before_position = super::super::ground_pose::position_world_coord(&entity.position);
-        let before_facing = serde_json::to_value(&entity.body_facing).unwrap();
+        let before_facing = serde_json::to_value(entity.body_facing).unwrap();
         let before_queue = entity.navigation.path_replay.clone();
         let before_track = retained(entity, kind).2;
         let stats = sim
@@ -883,7 +881,7 @@ fn live_rotation_returns_before_fresh_selection_with_a_queued_path_and_no_displa
             before_position
         );
         assert_eq!(
-            serde_json::to_value(&entity.body_facing).unwrap(),
+            serde_json::to_value(entity.body_facing).unwrap(),
             before_facing
         );
         assert_eq!(entity.navigation.path_replay, before_queue);

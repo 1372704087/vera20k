@@ -870,11 +870,13 @@ mod tests {
     /// behind text, cursor on top. Pins the C8 tiebreaker constants.
     #[test]
     fn compose_depths_are_ordered_back_to_front() {
-        assert!(PARENT_BACKGROUND_DEPTH > MOVIE_DEPTH);
-        assert!(MOVIE_DEPTH > CHROME_DEPTH);
-        assert!(CHROME_DEPTH > BUTTON_DEPTH);
-        assert!(BUTTON_DEPTH > TEXT_DEPTH);
-        assert!(TEXT_DEPTH > CURSOR_DEPTH);
+        const {
+            assert!(PARENT_BACKGROUND_DEPTH > MOVIE_DEPTH);
+            assert!(MOVIE_DEPTH > CHROME_DEPTH);
+            assert!(CHROME_DEPTH > BUTTON_DEPTH);
+            assert!(BUTTON_DEPTH > TEXT_DEPTH);
+            assert!(TEXT_DEPTH > CURSOR_DEPTH);
+        }
     }
 
     #[test]

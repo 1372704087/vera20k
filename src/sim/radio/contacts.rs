@@ -49,7 +49,7 @@ impl Contacts {
 
     /// Membership test — the load-bearing `Can_Enter_Cell` reader.
     pub fn contains(&self, id: u64) -> bool {
-        self.slots.iter().any(|s| *s == Some(id))
+        self.slots.contains(&Some(id))
     }
 
     /// Slot index holding `id`, if any (the dock-pad index basis).
@@ -111,9 +111,7 @@ impl Contacts {
 
     /// Null every slot, preserving capacity (teardown / limbo).
     pub fn clear_all(&mut self) {
-        for s in &mut self.slots {
-            *s = None;
-        }
+        self.slots.fill(None);
     }
 
     /// Live ids in slot order (skips holes) — broadcast-BREAK order.

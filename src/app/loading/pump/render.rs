@@ -176,10 +176,6 @@ fn native_loading_row_layout(
     ))
 }
 
-#[expect(
-    clippy::too_many_arguments,
-    reason = "combines immutable family metadata with the shared loading text owner"
-)]
 fn build_native_loading_text_draws(
     font: &BitFont,
     solid_texel: LoadingScreenEntry,
@@ -317,7 +313,6 @@ fn build_native_loading_text_draws(
     draws
 }
 
-#[allow(clippy::too_many_arguments)]
 fn build_native_loading_text_draw(
     font: &BitFont,
     solid_texel: LoadingScreenEntry,
@@ -561,7 +556,6 @@ fn push_loading_progress_span(
     }
 }
 
-#[allow(clippy::too_many_arguments)]
 fn build_native_loading_frame_plan(
     font: &BitFont,
     atlas: &LoadingScreenAtlas,
@@ -605,10 +599,6 @@ fn build_native_loading_frame_plan(
 /// Used by the synchronous-repaint sink to mirror gamemd's per-milestone
 /// `WM_PAINT`. All wgpu ops take `&self`, so only shared references are needed.
 /// Returns an error on acquire/upload failure; the caller treats it as non-fatal.
-#[expect(
-    clippy::too_many_arguments,
-    reason = "borrows existing loading and render owners for the synchronous repaint"
-)]
 pub(super) fn present_native_loading(
     gpu: &GpuContext,
     presenter: &ShellSurfacePresenter,
@@ -663,10 +653,6 @@ pub(super) fn present_native_loading(
 
 /// One upload/draw/present encoding body serves the frame loop and native
 /// synchronous repaint, for both loading families.
-#[expect(
-    clippy::too_many_arguments,
-    reason = "borrows existing render owners for one frame"
-)]
 fn encode_native_loading_plan(
     gpu: &GpuContext,
     presenter: &ShellSurfacePresenter,

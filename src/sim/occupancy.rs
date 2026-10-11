@@ -968,6 +968,7 @@ impl CellOccupationGrid {
             .map_or(0, VehicleOccupationPlane::bits)
     }
 
+    #[cfg(test)]
     pub(crate) fn vehicle_bits_ignoring(
         &self,
         rx: u16,
@@ -1514,7 +1515,7 @@ impl OccupancyGrid {
     pub fn is_empty_on_layer(&self, rx: u16, ry: u16, layer: MovementLayer) -> bool {
         self.cells
             .get(&(rx, ry))
-            .map_or(true, |occ| occ.is_empty_on(layer))
+            .is_none_or(|occ| occ.is_empty_on(layer))
     }
 
     /// Count total occupants on a layer in a cell.
@@ -2618,8 +2619,10 @@ mod tests {
     #[test]
     fn gsi_04_05_hidden_garefn_exact_counter_contribution() {
         let mut grid = HiddenOccupationGrid::new();
-        let mut profile = crate::rules::object_type::BuildingHiddenOccupancyProfile::default();
-        profile.occupy_height = 2;
+        let mut profile = crate::rules::object_type::BuildingHiddenOccupancyProfile {
+            occupy_height: 2,
+            ..Default::default()
+        };
         profile.add_occupy[0] = Some((-1, 0));
         profile.add_occupy[1] = Some((-1, -1));
         profile.remove_occupy[0] = Some((3, 1));
@@ -2638,8 +2641,10 @@ mod tests {
     #[test]
     fn gsi_04_05_hidden_narefn_exact_counter_contribution() {
         let mut grid = HiddenOccupationGrid::new();
-        let mut profile = crate::rules::object_type::BuildingHiddenOccupancyProfile::default();
-        profile.occupy_height = 4;
+        let mut profile = crate::rules::object_type::BuildingHiddenOccupancyProfile {
+            occupy_height: 4,
+            ..Default::default()
+        };
         profile.remove_occupy = [
             Some((0, -2)),
             Some((1, -1)),
@@ -2702,8 +2707,10 @@ mod tests {
     #[test]
     fn gsi_04_05_hidden_refinery_hole_is_not_a_diagonal_source() {
         let mut grid = HiddenOccupationGrid::new();
-        let mut profile = crate::rules::object_type::BuildingHiddenOccupancyProfile::default();
-        profile.occupy_height = 4;
+        let profile = crate::rules::object_type::BuildingHiddenOccupancyProfile {
+            occupy_height: 4,
+            ..Default::default()
+        };
 
         grid.enter_building((10, 10), "3x3Refinery", profile, Some((32, 32)));
         assert_eq!(grid.count(12, 11), 0, "native offset (2,1) is a hole");
@@ -2736,8 +2743,10 @@ mod tests {
     #[test]
     fn gsi_04_05_hidden_off_map_cells_are_ignored_and_increment_wraps() {
         let mut grid = HiddenOccupationGrid::new();
-        let mut profile = crate::rules::object_type::BuildingHiddenOccupancyProfile::default();
-        profile.occupy_height = 3;
+        let mut profile = crate::rules::object_type::BuildingHiddenOccupancyProfile {
+            occupy_height: 3,
+            ..Default::default()
+        };
         profile.add_occupy[0] = Some((-1, 0));
         profile.add_occupy[1] = Some((4, 0));
         grid.enter_building((0, 0), "1x1", profile, Some((4, 4)));

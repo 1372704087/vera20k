@@ -53,7 +53,7 @@ fn apply_theme_action_to_output(
         output.stop();
     }
     if let Some(prepared) = action.start
-        && let Some(output) = output.as_deref_mut()
+        && let Some(output) = output
         && !output.submit(prepared)
     {
         // gamemd ignores PlayFile's return and still writes logical active.

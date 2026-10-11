@@ -412,10 +412,10 @@ pub fn allocate_sub_cell_with_preference(
     rng: &mut SimRng,
 ) -> Option<u8> {
     // Vehicle/structure blocks all infantry.
-    if let Some(o) = occ {
-        if o.has_blockers_on(layer) {
-            return None;
-        }
+    if let Some(o) = occ
+        && o.has_blockers_on(layer)
+    {
+        return None;
     }
     let infantry: Vec<(u64, u8)> = occ.map_or_else(Vec::new, |o| o.infantry(layer).collect());
     let stale_count: usize = infantry.len();
@@ -793,7 +793,6 @@ pub fn emit_crush_kill_sounds_at(
 /// ([`super::scatter::scatter_objects_admitted`]).
 ///
 /// `current_frame` feeds the Iron Curtain gate of the crush predicate.
-#[allow(clippy::too_many_arguments)]
 pub fn select_crush_victims(
     occ: &[u64],
     entities: &EntityStore,

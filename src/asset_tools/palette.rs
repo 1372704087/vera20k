@@ -214,13 +214,14 @@ pub fn infer(
     override_name: Option<&str>,
 ) -> PaletteInference {
     // (name, reason, confidence, production site, forced alpha policy)
-    let mut proposals: Vec<(
+    type Proposal = (
         String,
         String,
         &'static str,
         Option<&'static str>,
         Option<AlphaPolicy>,
-    )> = Vec::new();
+    );
+    let mut proposals: Vec<Proposal> = Vec::new();
     let mut propose = |name: String,
                        reason: String,
                        confidence: &'static str,

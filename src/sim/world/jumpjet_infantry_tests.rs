@@ -673,7 +673,7 @@ fn retail_dustbowl_shot_down_rocketeer_falls_and_leaves_no_body() {
                 .entities
                 .get(flak)
                 .and_then(|entity| entity.attack_target.as_ref())
-                .map(|attack| attack.target.clone()),
+                .map(|attack| attack.target),
         );
         if entity.is_none() {
             break;
@@ -966,7 +966,7 @@ fn shoot_the_rocketeer(
         None,
         crate::sim::combat::EntityDamageEvent::direct_receiver(
             1,
-            i32::from(health) + 100,
+            health + 100,
             0,
             shooter,
             Some(soviets),

@@ -315,7 +315,7 @@ fn playfield_hierarchy_bridge_projection_tracks_intact_and_destroyed_records() {
         active: true,
         bridge_kind: BridgeRecordKind::High,
     };
-    let intact = ZoneGrid::build_with_terrain(&grid, &terrain, &[record.clone()], 16, 16);
+    let intact = ZoneGrid::build_with_terrain(&grid, &terrain, &[record], 16, 16);
     let (intact_start, _, intact_inside) = resolve_hierarchy_endpoint_contract(
         Some(&intact),
         Some(&terrain),
@@ -2393,7 +2393,6 @@ fn tube_hierarchy_native_entry_prefix_matches_original_executable() {
 }
 
 // Preserve the existing height/projection assertions through the live entry owner.
-#[allow(clippy::too_many_arguments)]
 fn resolve_hierarchy_endpoint_contract(
     zones: Option<&ZoneGrid>,
     terrain: Option<&ResolvedTerrainGrid>,

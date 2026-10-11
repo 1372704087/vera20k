@@ -176,8 +176,8 @@ fn test_lookup_eva_sounds() {
             name
         );
         let (entry, data) = result.unwrap();
-        let audio =
-            decode_bag_audio(entry, data).expect(&format!("Should decode {} audio data", name));
+        let audio = decode_bag_audio(entry, data)
+            .unwrap_or_else(|| panic!("Should decode {} audio data", name));
         println!(
             "{}: {} samples, {} Hz",
             name,

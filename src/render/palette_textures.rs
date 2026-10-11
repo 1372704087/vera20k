@@ -295,8 +295,8 @@ mod tests {
             b: 0,
             a: 255,
         }; 256];
-        for i in 16..32 {
-            colors[i] = Color {
+        for (i, color) in colors.iter_mut().enumerate().take(32).skip(16) {
+            *color = Color {
                 r: i as u8,
                 g: 100,
                 b: 200,

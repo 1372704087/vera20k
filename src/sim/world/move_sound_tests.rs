@@ -426,7 +426,7 @@ fn assert_retail_idle_timeline(retail_dir: &std::path::Path, row: &Value) {
     let actor = sim.substrate.entities.get(id).unwrap();
     assert_eq!(actor_state(sim, id), expected_state(&steps[0]["before"]));
     assert!(actor.navigation.nav_com.is_none());
-    let position = actor.position.clone();
+    let position = actor.position;
     // The oracle starts from an already-live actor after setup. Align only
     // its declared frame/Main boundary; leave production movement and frame
     // dispatch intact. This is not a whole-map startup RNG comparison.

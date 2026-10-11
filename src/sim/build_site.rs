@@ -352,7 +352,6 @@ fn objects_admit(
 
 /// The overlay arm (`0x0047C88D..0x0047C9C7`). `wall_owner` is the House that
 /// Cell+0x50 names, if any.
-#[allow(clippy::too_many_arguments)]
 fn overlay_admits(
     rules: &RuleSet,
     registry: Option<&OverlayTypeRegistry>,

@@ -33,6 +33,17 @@ impl<Button: Copy + PartialEq> ShellButtonInteraction<Button> {
         self.pressed.take().filter(|held| Some(*held) == over)
     }
 }
+/// Shared type2/type3 frame selection, original612F36..612F5B.
+/// Disabled state changes text after this selection, not the SHP index.
+pub fn owner_button_frame(pressed: bool, highlighted: bool) -> usize {
+    if pressed {
+        1
+    } else if highlighted {
+        2
+    } else {
+        0
+    }
+}
 
 #[cfg(test)]
 mod tests {
@@ -80,16 +91,5 @@ mod tests {
         assert!(interaction.is_pressed(1));
         assert_eq!(interaction.release(Some(1)), Some(1));
         assert!(!interaction.is_pressed(1));
-    }
-}
-/// Shared type2/type3 frame selection, original612F36..612F5B.
-/// Disabled state changes text after this selection, not the SHP index.
-pub fn owner_button_frame(pressed: bool, highlighted: bool) -> usize {
-    if pressed {
-        1
-    } else if highlighted {
-        2
-    } else {
-        0
     }
 }

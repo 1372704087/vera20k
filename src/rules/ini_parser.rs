@@ -202,6 +202,10 @@ impl IniFile {
         Ok(Self::from_str(&text))
     }
 
+    #[expect(
+        clippy::should_implement_trait,
+        reason = "infallible constructor; FromStr would force a Result on every caller"
+    )]
     pub fn from_str(text: &str) -> Self {
         let mut ini = Self::empty();
         let mut current_section = None;
@@ -363,6 +367,7 @@ impl IniFile {
 
     /// Obtain the first compatibility section, creating it at the current tail.
     /// Native processing owns which values enter it; INI owns storage/order.
+    #[cfg(test)]
     pub(super) fn projection_section_mut(&mut self, name: &str) -> &mut IniSection {
         let index = if let Some(&index) = self.first_section.get(name) {
             index

@@ -263,10 +263,10 @@ fn gate_cell(rx: u16, ry: u16, input: &SparkleInput<'_>) -> Option<(bool, &'stat
         return None; // L17
     }
 
-    if let Some(occ) = input.occupancy.get(rx, ry) {
-        if !occ.occupants.is_empty() {
-            return None; // L18
-        }
+    if let Some(occ) = input.occupancy.get(rx, ry)
+        && !occ.occupants.is_empty()
+    {
+        return None; // L18
     }
 
     if !input.sandbox_full_visibility {
@@ -476,7 +476,7 @@ mod tests {
         // different splitmix64 outputs for the same cell (else L24
         // re-randomization would not happen).
         let key = coord_key(50, 50);
-        let s0 = splitmix64(key ^ 0);
+        let s0 = splitmix64(key);
         let s1 = splitmix64(key ^ 1);
         let s2 = splitmix64(key ^ 2);
         assert_ne!(s0, s1);
@@ -619,15 +619,15 @@ mod tests {
         // values should be in [peak - 31, peak] for each channel.
         for i in 0u64..1000 {
             let noisy = peak_with_noise(splitmix64(i), &WATER);
-            for ch in 0..3 {
+            for (ch, value) in noisy.iter().enumerate() {
                 let lo = WATER.peak_rgb[ch].saturating_sub(31);
                 let hi = WATER.peak_rgb[ch];
                 assert!(
-                    (lo..=hi).contains(&noisy[ch]),
+                    (lo..=hi).contains(value),
                     "water peak[{}] out of [-31, 0] noise range at i={}: {} (peak={})",
                     ch,
                     i,
-                    noisy[ch],
+                    value,
                     hi
                 );
             }
@@ -666,7 +666,7 @@ mod tests {
         // (else "moving sparkle" effect is lost). Tests via direct seed
         // derivation since the full compute_sparkle_for_cell needs fixtures.
         let cell = coord_key(50, 50);
-        let s0 = splitmix64(cell ^ 0);
+        let s0 = splitmix64(cell);
         let s1 = splitmix64(cell ^ 1);
         assert_ne!(sub_pos_from_seed(s0), sub_pos_from_seed(s1));
     }

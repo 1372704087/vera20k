@@ -137,24 +137,22 @@ pub(crate) fn render_game(
     // F10 cone: the render feed reads through SimView getters. This site
     // holds `&mut state.shroud_buffer`, so it keeps the field chain and views
     // the runtime directly for split borrows.
-    if let Some(ref mut shroud_buf) = state.match_state.match_presentation.shroud_buffer {
-        if !state.match_state.sandbox_full_visibility {
-            if let (Some(rt), Some(owner)) = (state.match_state.sim_runtime.as_ref(), &local_owner)
-            {
-                let view = rt.view();
-                let owner_id = view.interner().get(owner).unwrap_or_default();
-                shroud_buf.rebuild_if_needed(
-                    &state.renderer.gpu,
-                    view.fog(),
-                    owner_id,
-                    state.match_state.input.camera_x,
-                    state.match_state.input.camera_y,
-                    rw,
-                    rh,
-                    state.match_state.input.zoom_level,
-                );
-            }
-        }
+    if let Some(ref mut shroud_buf) = state.match_state.match_presentation.shroud_buffer
+        && !state.match_state.sandbox_full_visibility
+        && let (Some(rt), Some(owner)) = (state.match_state.sim_runtime.as_ref(), &local_owner)
+    {
+        let view = rt.view();
+        let owner_id = view.interner().get(owner).unwrap_or_default();
+        shroud_buf.rebuild_if_needed(
+            &state.renderer.gpu,
+            view.fog(),
+            owner_id,
+            state.match_state.input.camera_x,
+            state.match_state.input.camera_y,
+            rw,
+            rh,
+            state.match_state.input.zoom_level,
+        );
     }
 
     // One A source feeds both CPU surface admission and world palette blitters.

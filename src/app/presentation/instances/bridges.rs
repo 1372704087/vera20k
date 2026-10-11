@@ -140,7 +140,6 @@ fn bridge_body_z_adjust(depth_z: u8) -> f32 {
 /// Takes only the fields the body builder actually needs from `AppState`
 /// so the function is exercisable in unit tests with a pure-data mock atlas
 /// (`BridgeAtlasLookup` trait). The shadow builder uses the same lookup seam.
-#[allow(clippy::too_many_arguments)]
 pub fn build_bridge_body_instances_inner(
     terrain: &ResolvedTerrainGrid,
     atlas: &dyn BridgeAtlasLookup,
@@ -257,7 +256,7 @@ pub(crate) fn build_bridge_body_instances(
         terrain,
         atlas,
         &state.match_state.match_presentation.overlay_names,
-        &state.height_map(),
+        state.height_map(),
         state.match_state.match_presentation.lighting.grid(),
         origin_y,
         world_height,
@@ -273,7 +272,6 @@ pub(crate) fn build_bridge_body_instances(
 /// Tactical cell sweep (006D7031..006D71CD). Read raw live overlay/state/level;
 /// structural deck admission and body frame jitter do not apply to shadows.
 /// Native execution: tools/spatial_oracle/bridge_shadow_render.py.
-#[allow(clippy::too_many_arguments)]
 pub(crate) fn build_bridge_shadow_instances_inner(
     terrain: &ResolvedTerrainGrid,
     atlas: &dyn BridgeAtlasLookup,
@@ -637,7 +635,7 @@ mod tests {
         // RE doc §10 open Q2: BRIDGE_SHADOW_EW_DX may be -15 or -45.
         // BRIDGE_SHADOW_EW_DY verified at +7. Either way, the shift must be
         // non-zero — visual diff (Task 17) resolves the X value.
-        assert!(BRIDGE_SHADOW_EW_DX != 0 || BRIDGE_SHADOW_EW_DY != 0);
+        const { assert!(BRIDGE_SHADOW_EW_DX != 0 || BRIDGE_SHADOW_EW_DY != 0) };
     }
 
     #[test]

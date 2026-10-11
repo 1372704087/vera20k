@@ -569,7 +569,6 @@ pub(crate) fn exit_building(
 /// centre at height 0; no ordinary site answers the null coordinate that
 /// would take the upgrade arm at `0x00445614`, so a site of (0, 0) goes on to
 /// be refused.
-#[allow(clippy::too_many_arguments)]
 fn building_site(
     sim: &mut Simulation,
     rules: &RuleSet,

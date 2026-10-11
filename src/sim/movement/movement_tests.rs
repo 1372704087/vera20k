@@ -119,7 +119,7 @@ fn ordinary_drive_retires_selector_before_entering_an_explicit_tube() {
         sim.process_ground_locomotor_for_test(1, Some(&rules), Some(&grid), None)
             .unwrap();
         let entity = sim.substrate.entities.get(1).unwrap();
-        if entity.low_bridge_tube_state.is_some() {
+        if let Some(tube) = entity.low_bridge_tube_state {
             // Terminal4B22AF->4B1F5C writes residual and returns AL=0 at
             // 4B25F9; the outer Process continues into Process_Movement
             // (0x4B0647) and Process_Track(1) (0x4B0AAA), whose direction-8
@@ -140,7 +140,7 @@ fn ordinary_drive_retires_selector_before_entering_an_explicit_tube() {
                 -1
             );
             assert_eq!((entity.position.rx, entity.position.ry), (1, 0));
-            assert_eq!(entity.low_bridge_tube_state.unwrap().cursor, 0);
+            assert_eq!(tube.cursor, 0);
             assert_eq!(entity.navigation.path_replay.cursor, 2);
             assert_eq!(entity.navigation.path_replay.reference_cell, Some((1, 0)));
             assert_eq!(
@@ -285,7 +285,6 @@ fn test_drive_arrival_clears_navcom_same_tick() {
         // One live speed lepton plus residual7 pays the terminal point.
         speed: SimFixed::from_num(15),
         final_goal: Some((0, 0)),
-        ..Default::default()
     });
     e.lifecycle.in_limbo = false;
     entities.insert(e);
@@ -479,8 +478,8 @@ fn walk_path_timer_waits_without_double_aging_or_losing_owner_state() {
             let actor = sim.substrate.entities.get(1).unwrap();
             assert_eq!(actor.navigation.path_runtime, retained);
             assert_eq!(
-                serde_json::to_value(&actor.position).unwrap(),
-                serde_json::to_value(&position).unwrap()
+                serde_json::to_value(actor.position).unwrap(),
+                serde_json::to_value(position).unwrap()
             );
             assert!(
                 actor
@@ -593,7 +592,7 @@ fn drive_ship_slope_process_samples_stationary_retargets_and_keeps_rng() {
         vec![slope_cell(0, 5), slope_cell(1, 11)],
     );
     for kind in [LocomotorKind::Drive, LocomotorKind::Ship] {
-        let mut sim = Simulation::with_seed(0x51_0f_e);
+        let mut sim = Simulation::with_seed(0x510fe);
         let mut entity = GameEntity::test_default(1, "SLOPE", "Americans", 0, 0);
         entity.owner = sim.intern("Americans");
         entity.type_ref = sim.intern("SLOPE");
@@ -1645,14 +1644,13 @@ fn test_friendly_passable_path_goes_through_moving_friendly() {
 
 // --- 24-step path segmentation tests ---
 
+type RouteAndGoal = (Vec<(u16, u16)>, Option<(u16, u16)>);
+
 /// A Drive order on clear ground and its first Process: the order installs
 /// no route (Unit741970); the Process's Find_Path installs the segment.
 /// Returns the route that Find_Path installed from `start` and the adapter's
 /// goal.
-fn drive_first_process_route(
-    start: (u16, u16),
-    goal: (u16, u16),
-) -> (Vec<(u16, u16)>, Option<(u16, u16)>) {
+fn drive_first_process_route(start: (u16, u16), goal: (u16, u16)) -> RouteAndGoal {
     let mut sim = Simulation::with_seed(7);
     crate::sim::arena_fixture::supply_native_map(&mut sim);
     let grid = PathGrid::from_resolved_terrain(sim.resolved_terrain.as_ref().unwrap());
@@ -1956,7 +1954,6 @@ fn gsi_04_10_crusher_and_omnicrusher_never_enter_or_crush_a_terrain_object_cell(
         tank.movement_target = Some(MovementTarget {
             speed: SimFixed::from_num(1024),
             final_goal: Some((2, 0)),
-            ..Default::default()
         });
         entities.insert(tank);
 
@@ -2130,7 +2127,6 @@ fn gsi_06_13_fixture_mover(
     e.movement_target = Some(MovementTarget {
         speed: SimFixed::from_num(768),
         final_goal: Some(goal),
-        ..Default::default()
     });
     e.navigation.path_replay = crate::sim::components::FootPathQueue {
         directions,
@@ -2192,15 +2188,15 @@ fn group_gis_do_not_jump_or_lose_their_goal() {
                     dx * dx + dy * dy <= 32 * 32,
                     "unexpected jump seed={seed} tick={tick} GI={id} delta=({dx},{dy})"
                 );
-                if e.movement_target.is_some() {
-                    if e.locomotor.as_ref().unwrap().walk_destination_cell() != Some((3, 3)) {
-                        let dx = i32::from(p.rx) - 3;
-                        let dy = i32::from(p.ry) - 3;
-                        assert!(
-                            dx * dx + dy * dy <= 9,
-                            "only a GI that reached the destination may be scattered: seed={seed} tick={tick} id={id}"
-                        );
-                    }
+                if e.movement_target.is_some()
+                    && e.locomotor.as_ref().unwrap().walk_destination_cell() != Some((3, 3))
+                {
+                    let dx = i32::from(p.rx) - 3;
+                    let dy = i32::from(p.ry) - 3;
+                    assert!(
+                        dx * dx + dy * dy <= 9,
+                        "only a GI that reached the destination may be scattered: seed={seed} tick={tick} id={id}"
+                    );
                 }
             }
             if ids.iter().all(|&id| {

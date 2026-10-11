@@ -399,15 +399,16 @@ impl ResolvedTerrainGrid {
             current_cliff_eligible = true;
             if state.cliff_back_impassability != 0 {
                 let behind_cliff = self.authored_load_cell_is_behind_cliff(index);
-                if behind_cliff && state.cliff_back_impassability == 2 {
-                    if let Some(ground_blocked) = self.apply_authored_load_cliff_back_rock(
+                if behind_cliff
+                    && state.cliff_back_impassability == 2
+                    && let Some(ground_blocked) = self.apply_authored_load_cliff_back_rock(
                         state,
                         index,
                         base_cliff_eligible,
                         current_cliff_eligible,
-                    ) {
-                        current_land_ground_blocked = ground_blocked;
-                    }
+                    )
+                {
+                    current_land_ground_blocked = ground_blocked;
                 }
             }
             run_lat = true;
@@ -614,15 +615,16 @@ impl ResolvedTerrainGrid {
 
         if !early_overlay_branch && state.cliff_back_impassability != 0 {
             let behind_cliff = self.authored_load_cell_is_behind_cliff(index);
-            if behind_cliff && state.cliff_back_impassability == 2 {
-                if let Some(ground_blocked) = self.apply_authored_load_cliff_back_rock(
+            if behind_cliff
+                && state.cliff_back_impassability == 2
+                && let Some(ground_blocked) = self.apply_authored_load_cliff_back_rock(
                     state,
                     index,
                     base_cliff_eligible,
                     current_cliff_eligible,
-                ) {
-                    current_land_ground_blocked = ground_blocked;
-                }
+                )
+            {
+                current_land_ground_blocked = ground_blocked;
             }
         }
 

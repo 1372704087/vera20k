@@ -229,7 +229,7 @@ pub fn run_pipeline(
         // The third pass — freeing the vectors — has no analogue: the lists
         // are values and drop on their own.
         let playfield =
-            Playfield::from_local_size(map_w as i32, local_rect[0], local_rect[1], gen_w, gen_h);
+            Playfield::from_local_size(map_w, local_rect[0], local_rect[1], gen_w, gen_h);
         let connector_regions: Vec<ConnectorRegion> = regions
             .list
             .iter()

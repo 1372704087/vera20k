@@ -102,7 +102,6 @@ fn fixture(input: &Value) -> (Simulation, RuleSet) {
 fn dispatch(sim: &mut Simulation, rules: &RuleSet) -> CombatTickResult {
     let requests = crate::sim::combat::FireRequests {
         aircraft: crate::sim::aircraft::tick_aircraft_missions(sim, rules),
-        ..Default::default()
     };
     let mut run = ReceiverRun::default();
     tick_combat(
@@ -133,9 +132,8 @@ fn aircraft_release_control_matches_316_original_mission_suffixes() {
         let (mut sim, rules) = fixture(&row["input"]);
         let result = dispatch(&mut sim, &rules);
         let entity = sim.substrate.entities.get(1).unwrap();
-        assert_eq!(
+        assert!(
             entity.aircraft_ammo.as_ref().unwrap().release_pending(),
-            true,
             "{row}"
         );
         assert_eq!(

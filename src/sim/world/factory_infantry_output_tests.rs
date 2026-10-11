@@ -2037,8 +2037,10 @@ fn joined_two_paid_gi(route: OutputRoute) {
                     );
                 }
                 progress.placed_frame = Some(frame);
-            } else if progress.first_live_frame.is_none() {
-                assert_eq!(frame, progress.placed_frame.unwrap() + 1);
+            } else if let Some(placed_frame) = progress.placed_frame
+                && progress.first_live_frame.is_none()
+            {
+                assert_eq!(frame, placed_frame + 1);
                 assert_native_fields(
                     &state,
                     &golden["first_live"],
@@ -2108,11 +2110,11 @@ fn joined_two_paid_gi(route: OutputRoute) {
             }
             if let Some((rx, ry)) = rally_cell {
                 let walk = entity.locomotor.as_ref().unwrap();
-                if progress.release_frame.is_some()
+                if let Some(release_frame) = progress.release_frame
                     && progress.archive_handoff_frame.is_none()
                     && entity.archive_target().is_none()
                 {
-                    assert!(frame >= progress.release_frame.unwrap());
+                    assert!(frame >= release_frame);
                     assert_native_fields(
                         &state,
                         &golden["archive_handoff"],

@@ -276,7 +276,6 @@ pub(crate) struct NativeFreshIdPrefixCheckpoints {
 
 /// Fold the exact noncampaign Full_Init constructor generations without
 /// constructing a second registry or touching Scenario RNG.
-#[allow(clippy::too_many_arguments)]
 pub(crate) fn build_noncampaign_fresh_id_prefix(
     early_type_count: usize,
     first_super_weapon_type_count: usize,

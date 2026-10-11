@@ -594,7 +594,7 @@ impl SaveRepository {
 
 #[cfg(any(feature = "dev-ui", test))]
 fn sort_panel_entries_by_embedded_time(entries: &mut [SaveEntry]) {
-    entries.sort_by(|left, right| right.header.save_timestamp.cmp(&left.header.save_timestamp));
+    entries.sort_by_key(|entry| std::cmp::Reverse(entry.header.save_timestamp));
 }
 
 fn newest_modified_path(
@@ -686,7 +686,7 @@ mod tests {
         let accepted = match crate::app::match_bootstrap::classify_startup_session(&launch) {
             crate::app::match_bootstrap::StartupSessionClassification::AcceptedExplicitFixedBattle(
                 accepted,
-            ) => accepted,
+            ) => *accepted,
             other => panic!("startup fixture was not accepted: {other:?}"),
         };
         let mut next_correlation = 1;

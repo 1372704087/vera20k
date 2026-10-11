@@ -166,9 +166,9 @@ mod tests {
     #[test]
     fn clear_passable_for_all_ground() {
         // Terrain type 0 (Clear) should be passable for all non-water zone layers.
-        for layer in 0..10 {
+        for (layer, row) in MOVEMENT_ZONE_PASSABILITY.iter().enumerate().take(10) {
             assert_eq!(
-                MOVEMENT_ZONE_PASSABILITY[layer][0], PASS_OK,
+                row[0], PASS_OK,
                 "Zone layer {} should pass on Clear terrain",
                 layer
             );
@@ -179,14 +179,14 @@ mod tests {
     fn gsi_04_04_impassable_zone_type_retains_row_specific_one_or_two() {
         // Reduced ZoneType 6 is the native Impassable column.
         // Subterranean (row 6) and Fly (row 9) can enter; all others blocked.
-        for layer in 0..ZONE_LAYER_COUNT {
+        for (layer, row) in MOVEMENT_ZONE_PASSABILITY.iter().enumerate() {
             let expected = if layer == 6 || layer == 9 {
                 PASS_OK
             } else {
                 PASS_BLOCKED
             };
             assert_eq!(
-                MOVEMENT_ZONE_PASSABILITY[layer][6], expected,
+                row[6], expected,
                 "Zone layer {} on Impassable ZoneType",
                 layer
             );
@@ -195,13 +195,13 @@ mod tests {
 
     #[test]
     fn gsi_04_04_raw_three_is_only_outside_and_oob_sentinel() {
-        for layer in 0..ZONE_LAYER_COUNT {
+        for (layer, row) in MOVEMENT_ZONE_PASSABILITY.iter().enumerate() {
             assert_eq!(
-                MOVEMENT_ZONE_PASSABILITY[layer][7], PASS_OUTSIDE_SENTINEL,
+                row[7], PASS_OUTSIDE_SENTINEL,
                 "Zone layer {} on Outside ZoneType",
                 layer
             );
-            assert_ne!(MOVEMENT_ZONE_PASSABILITY[layer][6], PASS_OUTSIDE_SENTINEL);
+            assert_ne!(row[6], PASS_OUTSIDE_SENTINEL);
         }
         assert_eq!(
             passability_value(ZONE_LAYER_COUNT, 0),

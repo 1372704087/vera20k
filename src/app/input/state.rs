@@ -58,8 +58,8 @@ pub(crate) struct MatchInputState {
     /// Camera-owned requests awaiting Tactical__AI's next single commit.
     pub(crate) pending_camera_scroll: crate::app::input::camera::PendingCameraScroll,
     /// Current zoom level for the game viewport. 1.0 = native pixel scale,
-    /// >1.0 = zoomed in (world appears larger), <1.0 = zoomed out (see more map).
-    /// Animated each frame toward `zoom_target`.
+    /// above 1.0 = zoomed in (world appears larger), below 1.0 = zoomed out
+    /// (see more map). Animated each frame toward `zoom_target`.
     pub(crate) zoom_level: f32,
     /// Target zoom level — mouse wheel sets this; `zoom_level` eases toward it.
     pub(crate) zoom_target: f32,

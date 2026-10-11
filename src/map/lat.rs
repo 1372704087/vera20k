@@ -123,7 +123,14 @@ pub fn parse_lat_config(ini_data: &[u8], lookup: &TilesetLookup) -> LatConfig {
 
     // The array type keeps the empty Rough/Sand slices typed without a
     // speculative shared terrain abstraction.
-    let definitions: [(&str, &str, &str, &[(&str, i32)], LatEnableGuard); 4] = [
+    type LatDefinition = (
+        &'static str,
+        &'static str,
+        &'static str,
+        &'static [(&'static str, i32)],
+        LatEnableGuard,
+    );
+    let definitions: [LatDefinition; 4] = [
         (
             "Rough",
             "RoughTile",

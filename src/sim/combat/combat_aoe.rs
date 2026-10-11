@@ -77,7 +77,6 @@ pub(crate) struct AoELayerContext<'a> {
 /// producer can preserve exact inter-cell RNG order without moving those
 /// authorities into combat_aoe.
 pub(crate) trait AoECellPrelude {
-    #[allow(clippy::too_many_arguments)]
     fn before_cell(
         &mut self,
         rx: u16,
@@ -379,7 +378,6 @@ pub(crate) fn apply_aoe_damage_with_terrain<O: Into<AoEDamageOrigin>>(
     )
 }
 
-#[allow(clippy::too_many_arguments)]
 pub(crate) fn apply_aoe_damage_with_terrain_and_scenario<O: Into<AoEDamageOrigin>>(
     entities: &mut EntityStore,
     impact_rx: u16,
@@ -845,7 +843,6 @@ fn impact_is_above_ground(
         .is_ok_and(|ground_z| ground_z < impact.z_leptons)
 }
 
-#[allow(clippy::too_many_arguments)]
 fn push_airborne_aoe_damage(
     result: &mut AoEDamageResult,
     entities: &EntityStore,
@@ -925,7 +922,6 @@ fn push_airborne_aoe_damage(
     ));
 }
 
-#[allow(clippy::too_many_arguments)]
 fn push_entity_aoe_damage(
     result: &mut AoEDamageResult,
     entities: &EntityStore,
@@ -1017,7 +1013,6 @@ fn push_entity_aoe_damage(
     ));
 }
 
-#[allow(clippy::too_many_arguments)]
 fn push_terrain_aoe_damage(
     result: &mut AoEDamageResult,
     terrain_objects: Option<TerrainCollectionView<'_>>,
@@ -1383,8 +1378,7 @@ mod tests {
         let mut interner = test_interner();
         let warhead_ref = interner.intern("BlastWH");
         let occupancy = OccupancyGrid::new();
-        let mut terrain =
-            crate::map::resolved_terrain::test_grid(20, 20, |rx, ry| test_terrain_cell(rx, ry));
+        let mut terrain = crate::map::resolved_terrain::test_grid(20, 20, test_terrain_cell);
 
         let at_ground = apply_aoe_damage(
             &mut entities,
@@ -1487,8 +1481,7 @@ mod tests {
                 CellListInsertion::PrependNonBuilding,
             );
         }
-        let mut terrain =
-            crate::map::resolved_terrain::test_grid(24, 24, |rx, ry| test_terrain_cell(rx, ry));
+        let mut terrain = crate::map::resolved_terrain::test_grid(24, 24, test_terrain_cell);
 
         let result = apply_aoe_damage(
             &mut entities,
@@ -1602,8 +1595,7 @@ mod tests {
             None,
             CellListInsertion::AppendBuilding,
         );
-        let mut terrain =
-            crate::map::resolved_terrain::test_grid(12, 12, |rx, ry| test_terrain_cell(rx, ry));
+        let mut terrain = crate::map::resolved_terrain::test_grid(12, 12, test_terrain_cell);
 
         for (impact_z, expected_distance) in [(208, 0), (256, 48)] {
             let result = apply_aoe_damage(
@@ -1706,8 +1698,7 @@ mod tests {
                     CellListInsertion::PrependNonBuilding,
                 );
             }
-            let mut terrain =
-                crate::map::resolved_terrain::test_grid(12, 12, |rx, ry| test_terrain_cell(rx, ry));
+            let mut terrain = crate::map::resolved_terrain::test_grid(12, 12, test_terrain_cell);
             let aoe = apply_aoe_damage(
                 &mut entities,
                 5,
@@ -1893,8 +1884,7 @@ mod tests {
                 None,
                 CellListInsertion::PrependNonBuilding,
             );
-            let mut terrain =
-                crate::map::resolved_terrain::test_grid(10, 10, |rx, ry| test_terrain_cell(rx, ry));
+            let mut terrain = crate::map::resolved_terrain::test_grid(10, 10, test_terrain_cell);
             let mut overlays = OverlayGrid::new(10, 10);
             for &(rx, ry) in &[(3, 5), (5, 5), (7, 5)] {
                 overlays.place_overlay(rx, ry, 0, 0);
@@ -2070,8 +2060,7 @@ mod tests {
                 CellListInsertion::PrependNonBuilding,
             );
         }
-        let mut terrain =
-            crate::map::resolved_terrain::test_grid(48, 48, |rx, ry| test_terrain_cell(rx, ry));
+        let mut terrain = crate::map::resolved_terrain::test_grid(48, 48, test_terrain_cell);
         let mut interner = test_interner();
         let _handles =
             crate::sim::type_handle_table::ResolvedRuleHandles::resolve(&rules, &mut interner);
@@ -2528,8 +2517,7 @@ mod tests {
                     CellListInsertion::PrependNonBuilding,
                 );
             }
-            let mut terrain =
-                crate::map::resolved_terrain::test_grid(3, 3, |rx, ry| test_terrain_cell(rx, ry));
+            let mut terrain = crate::map::resolved_terrain::test_grid(3, 3, test_terrain_cell);
             let aoe = apply_aoe_damage(
                 &mut entities,
                 1,
@@ -2664,8 +2652,7 @@ mod tests {
                 None,
                 CellListInsertion::AppendBuilding,
             );
-            let mut terrain =
-                crate::map::resolved_terrain::test_grid(8, 8, |rx, ry| test_terrain_cell(rx, ry));
+            let mut terrain = crate::map::resolved_terrain::test_grid(8, 8, test_terrain_cell);
             let aoe = apply_aoe_damage(
                 &mut entities,
                 5,
@@ -2795,8 +2782,7 @@ mod tests {
                 CellListInsertion::PrependNonBuilding,
             );
         }
-        let mut terrain =
-            crate::map::resolved_terrain::test_grid(8, 8, |rx, ry| test_terrain_cell(rx, ry));
+        let mut terrain = crate::map::resolved_terrain::test_grid(8, 8, test_terrain_cell);
         let aoe = apply_aoe_damage(
             &mut entities,
             5,
@@ -2954,8 +2940,7 @@ mod tests {
             None,
             CellListInsertion::AppendBuilding,
         );
-        let mut terrain =
-            crate::map::resolved_terrain::test_grid(12, 12, |rx, ry| test_terrain_cell(rx, ry));
+        let mut terrain = crate::map::resolved_terrain::test_grid(12, 12, test_terrain_cell);
         let aoe = apply_aoe_damage(
             &mut entities,
             5,
@@ -3151,8 +3136,7 @@ mod tests {
                 CellListInsertion::PrependNonBuilding,
             );
         }
-        let mut terrain =
-            crate::map::resolved_terrain::test_grid(8, 8, |rx, ry| test_terrain_cell(rx, ry));
+        let mut terrain = crate::map::resolved_terrain::test_grid(8, 8, test_terrain_cell);
         let aoe = apply_aoe_damage(
             &mut entities,
             5,
@@ -3942,8 +3926,7 @@ mod tests {
             terrain_cells.insert((rx, 5), stable_id);
         }
 
-        let mut terrain =
-            crate::map::resolved_terrain::test_grid(12, 12, |rx, ry| test_terrain_cell(rx, ry));
+        let mut terrain = crate::map::resolved_terrain::test_grid(12, 12, test_terrain_cell);
         let result = apply_aoe_damage_with_terrain(
             &mut entities,
             5,

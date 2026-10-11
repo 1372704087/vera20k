@@ -134,132 +134,6 @@ impl App {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    struct RecordingShellWindowModeOperations {
-        shell_client_size: PhysicalSize<u32>,
-        current_size: PhysicalSize<u32>,
-        applied_size: Option<PhysicalSize<u32>>,
-        resizable_values: Vec<bool>,
-        requested_sizes: Vec<PhysicalSize<u32>>,
-        resized_surfaces: Vec<PhysicalSize<u32>>,
-        redraw_requests: usize,
-    }
-
-    impl RecordingShellWindowModeOperations {
-        fn new(shell_client_size: PhysicalSize<u32>, current_size: PhysicalSize<u32>) -> Self {
-            Self {
-                shell_client_size,
-                current_size,
-                applied_size: Some(shell_client_size),
-                resizable_values: Vec::new(),
-                requested_sizes: Vec::new(),
-                resized_surfaces: Vec::new(),
-                redraw_requests: 0,
-            }
-        }
-    }
-
-    impl ShellWindowModeOperations for RecordingShellWindowModeOperations {
-        fn shell_client_size(&self) -> PhysicalSize<u32> {
-            self.shell_client_size
-        }
-
-        fn set_resizable(&mut self, resizable: bool) {
-            self.resizable_values.push(resizable);
-        }
-
-        fn inner_size(&self) -> PhysicalSize<u32> {
-            self.current_size
-        }
-
-        fn request_inner_size(&mut self, size: PhysicalSize<u32>) -> Option<PhysicalSize<u32>> {
-            self.requested_sizes.push(size);
-            if self.applied_size.is_none() {
-                self.current_size = size;
-            }
-            self.applied_size
-        }
-
-        fn resize_surface_for_window_size(&mut self, size: PhysicalSize<u32>) {
-            self.resized_surfaces.push(size);
-        }
-
-        fn request_redraw(&mut self) {
-            self.redraw_requests += 1;
-        }
-    }
-
-    #[test]
-    fn shell_window_mode_requests_retained_target_only_when_size_differs() {
-        let target = PhysicalSize::new(640, 480);
-        let mut unequal =
-            RecordingShellWindowModeOperations::new(target, PhysicalSize::new(800, 600));
-
-        enter_shell_window_mode_with_operations(&mut unequal);
-
-        assert_eq!(unequal.resizable_values, [false]);
-        assert_eq!(unequal.requested_sizes, [target]);
-        assert_eq!(unequal.resized_surfaces, [target]);
-        assert_eq!(unequal.redraw_requests, 1);
-
-        let mut equal = RecordingShellWindowModeOperations::new(target, target);
-
-        enter_shell_window_mode_with_operations(&mut equal);
-
-        assert_eq!(equal.resizable_values, [false]);
-        assert!(equal.requested_sizes.is_empty());
-        assert!(equal.resized_surfaces.is_empty());
-        assert_eq!(equal.redraw_requests, 0);
-    }
-
-    #[test]
-    fn windows_none_resize_result_reads_back_the_applied_client_size() {
-        let shell = PhysicalSize::new(800, 600);
-        let game = PhysicalSize::new(640, 480);
-        let mut operations = RecordingShellWindowModeOperations::new(shell, shell);
-        operations.applied_size = None;
-        apply_window_mode(&mut operations, game, true);
-        assert_eq!(operations.resized_surfaces, [game]);
-        enter_shell_window_mode_with_operations(&mut operations);
-        assert_eq!(operations.requested_sizes, [game, shell]);
-        assert_eq!(operations.resized_surfaces, [game, shell]);
-    }
-
-    #[test]
-    fn game_mode_applies_the_returned_physical_size_before_resource_installation() {
-        let shell = PhysicalSize::new(800, 600);
-        let game = PhysicalSize::new(1024, 768);
-        let applied = PhysicalSize::new(1000, 740);
-        let mut operations = RecordingShellWindowModeOperations::new(shell, shell);
-        operations.applied_size = Some(applied);
-        apply_window_mode(&mut operations, game, true);
-        assert_eq!(operations.resizable_values, [true]);
-        assert_eq!(operations.requested_sizes, [game]);
-        assert_eq!(operations.resized_surfaces, [applied]);
-        assert_eq!(operations.redraw_requests, 1);
-    }
-
-    #[test]
-    fn launcher_options_escape_is_consumed_without_replacing_the_parent() {
-        let dialog = crate::ui::main_menu_dialogs::OptionsDialogState::default();
-        let mut slot = Some(dialog);
-        let identity_before = slot.as_ref().map(|value| value as *const _);
-
-        assert!(launcher_options_consumes_escape(&slot, true));
-        assert_eq!(
-            slot.as_ref().map(|value| value as *const _),
-            identity_before
-        );
-        assert!(!launcher_options_consumes_escape(&slot, false));
-
-        slot = None;
-        assert!(!launcher_options_consumes_escape(&slot, true));
-    }
-}
-
 impl ApplicationHandler for App {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
         if self.state.is_some() {
@@ -1180,5 +1054,131 @@ impl ApplicationHandler for App {
             crate::app::match_runtime::sim_tick::flush_replay_log(state);
         }
         log::logger().flush();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    struct RecordingShellWindowModeOperations {
+        shell_client_size: PhysicalSize<u32>,
+        current_size: PhysicalSize<u32>,
+        applied_size: Option<PhysicalSize<u32>>,
+        resizable_values: Vec<bool>,
+        requested_sizes: Vec<PhysicalSize<u32>>,
+        resized_surfaces: Vec<PhysicalSize<u32>>,
+        redraw_requests: usize,
+    }
+
+    impl RecordingShellWindowModeOperations {
+        fn new(shell_client_size: PhysicalSize<u32>, current_size: PhysicalSize<u32>) -> Self {
+            Self {
+                shell_client_size,
+                current_size,
+                applied_size: Some(shell_client_size),
+                resizable_values: Vec::new(),
+                requested_sizes: Vec::new(),
+                resized_surfaces: Vec::new(),
+                redraw_requests: 0,
+            }
+        }
+    }
+
+    impl ShellWindowModeOperations for RecordingShellWindowModeOperations {
+        fn shell_client_size(&self) -> PhysicalSize<u32> {
+            self.shell_client_size
+        }
+
+        fn set_resizable(&mut self, resizable: bool) {
+            self.resizable_values.push(resizable);
+        }
+
+        fn inner_size(&self) -> PhysicalSize<u32> {
+            self.current_size
+        }
+
+        fn request_inner_size(&mut self, size: PhysicalSize<u32>) -> Option<PhysicalSize<u32>> {
+            self.requested_sizes.push(size);
+            if self.applied_size.is_none() {
+                self.current_size = size;
+            }
+            self.applied_size
+        }
+
+        fn resize_surface_for_window_size(&mut self, size: PhysicalSize<u32>) {
+            self.resized_surfaces.push(size);
+        }
+
+        fn request_redraw(&mut self) {
+            self.redraw_requests += 1;
+        }
+    }
+
+    #[test]
+    fn shell_window_mode_requests_retained_target_only_when_size_differs() {
+        let target = PhysicalSize::new(640, 480);
+        let mut unequal =
+            RecordingShellWindowModeOperations::new(target, PhysicalSize::new(800, 600));
+
+        enter_shell_window_mode_with_operations(&mut unequal);
+
+        assert_eq!(unequal.resizable_values, [false]);
+        assert_eq!(unequal.requested_sizes, [target]);
+        assert_eq!(unequal.resized_surfaces, [target]);
+        assert_eq!(unequal.redraw_requests, 1);
+
+        let mut equal = RecordingShellWindowModeOperations::new(target, target);
+
+        enter_shell_window_mode_with_operations(&mut equal);
+
+        assert_eq!(equal.resizable_values, [false]);
+        assert!(equal.requested_sizes.is_empty());
+        assert!(equal.resized_surfaces.is_empty());
+        assert_eq!(equal.redraw_requests, 0);
+    }
+
+    #[test]
+    fn windows_none_resize_result_reads_back_the_applied_client_size() {
+        let shell = PhysicalSize::new(800, 600);
+        let game = PhysicalSize::new(640, 480);
+        let mut operations = RecordingShellWindowModeOperations::new(shell, shell);
+        operations.applied_size = None;
+        apply_window_mode(&mut operations, game, true);
+        assert_eq!(operations.resized_surfaces, [game]);
+        enter_shell_window_mode_with_operations(&mut operations);
+        assert_eq!(operations.requested_sizes, [game, shell]);
+        assert_eq!(operations.resized_surfaces, [game, shell]);
+    }
+
+    #[test]
+    fn game_mode_applies_the_returned_physical_size_before_resource_installation() {
+        let shell = PhysicalSize::new(800, 600);
+        let game = PhysicalSize::new(1024, 768);
+        let applied = PhysicalSize::new(1000, 740);
+        let mut operations = RecordingShellWindowModeOperations::new(shell, shell);
+        operations.applied_size = Some(applied);
+        apply_window_mode(&mut operations, game, true);
+        assert_eq!(operations.resizable_values, [true]);
+        assert_eq!(operations.requested_sizes, [game]);
+        assert_eq!(operations.resized_surfaces, [applied]);
+        assert_eq!(operations.redraw_requests, 1);
+    }
+
+    #[test]
+    fn launcher_options_escape_is_consumed_without_replacing_the_parent() {
+        let dialog = crate::ui::main_menu_dialogs::OptionsDialogState::default();
+        let mut slot = Some(dialog);
+        let identity_before = slot.as_ref().map(|value| value as *const _);
+
+        assert!(launcher_options_consumes_escape(&slot, true));
+        assert_eq!(
+            slot.as_ref().map(|value| value as *const _),
+            identity_before
+        );
+        assert!(!launcher_options_consumes_escape(&slot, false));
+
+        slot = None;
+        assert!(!launcher_options_consumes_escape(&slot, true));
     }
 }

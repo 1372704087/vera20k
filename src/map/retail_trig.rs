@@ -181,7 +181,7 @@ impl<'a> PeSections<'a> {
             .and_then(|tail| tail.get(..section_count * 40))
             .ok_or(TrigTableError::NotPeFile)?;
         let mut sections = Vec::with_capacity(section_count);
-        for header in headers.chunks_exact(40) {
+        for header in headers.as_chunks::<40>().0 {
             let virtual_size = u32_at(header, 8)? as usize;
             let rva = u32_at(header, 12)?;
             let raw_size = u32_at(header, 16)? as usize;
@@ -341,7 +341,9 @@ impl AcosTable {
             ACOS_RETAIL_FNV1A64,
         )?;
         let entries = bytes
-            .chunks_exact(4)
+            .as_chunks::<4>()
+            .0
+            .iter()
             .map(|c| f32::from_le_bytes([c[0], c[1], c[2], c[3]]))
             .collect();
         Ok(Self { entries })
@@ -449,6 +451,95 @@ pub fn radians_to_units(radians: f64) -> f64 {
 
 #[cfg(test)]
 mod executable_tests;
+
+/// Process-wide Acos table, installed once from the retail install.
+///
+/// A global because consumers sit at different engine layers and only startup
+/// knows where the retail install is. It is written once and read-only
+/// thereafter, so it cannot make a run non-deterministic.
+static ACOS_TABLE: OnceLock<Option<AcosTable>> = OnceLock::new();
+
+/// Read the Acos table out of `<ra2_dir>/gamemd.exe` and install it. Later
+/// calls are ignored; the first one wins.
+pub fn install_from_dir(ra2_dir: &Path) {
+    ACOS_TABLE.get_or_init(|| {
+        let path = ra2_dir.join("gamemd.exe");
+        match std::fs::read(&path) {
+            Ok(image) => match AcosTable::from_executable(&image) {
+                Ok(acos) => Some(acos),
+                Err(err) => {
+                    log::warn!(
+                        "retail Acos table {}: {err}; Acos consumers will be disabled",
+                        path.display()
+                    );
+                    None
+                }
+            },
+            Err(err) => {
+                log::warn!(
+                    "cannot read the retail Acos table from {}: {err}; \
+                     Acos consumers will be disabled",
+                    path.display()
+                );
+                None
+            }
+        }
+    });
+}
+
+fn installed_acos_table() -> Option<&'static AcosTable> {
+    ACOS_TABLE.get().and_then(Option::as_ref)
+}
+
+/// Stock Sonic Wave geometry is active, so a match may start only when the
+/// executable-backed Acos table is installed. The sine table never needs one.
+pub fn wave_tables_available() -> bool {
+    installed_acos_table().is_some()
+}
+
+/// Shared exact production Acos access for Wave and FireAt arc math. Tests
+/// without an installed table read `RA2_DIR`'s `gamemd.exe`, else fall back to
+/// the shape-only synthetic table; exact comparisons gate on
+/// [`verified_acos_table_or_skip`].
+pub(crate) fn required_acos_table() -> &'static AcosTable {
+    if let Some(acos) = installed_acos_table() {
+        return acos;
+    }
+
+    #[cfg(test)]
+    {
+        static TEST_TABLE: OnceLock<AcosTable> = OnceLock::new();
+        TEST_TABLE.get_or_init(|| {
+            std::env::var_os("RA2_DIR")
+                .and_then(|dir| {
+                    std::fs::read(std::path::PathBuf::from(dir).join("gamemd.exe")).ok()
+                })
+                .and_then(|image| AcosTable::from_executable(&image).ok())
+                .unwrap_or_else(AcosTable::synthetic)
+        })
+    }
+
+    #[cfg(not(test))]
+    panic!("the verified gamemd Acos table was not installed before native math");
+}
+
+/// The exact retail Acos table for a native-bit comparison, or `None` after a
+/// `SKIPPED` line when the test fallback is synthetic. A readiness run
+/// (`VERA20K_REQUIRE_RETAIL_INI` set) fails instead of skipping, so it also
+/// needs `RA2_DIR` to name a verified `gamemd.exe`.
+#[cfg(test)]
+pub(crate) fn verified_acos_table_or_skip(comparison: &str) -> Option<&'static AcosTable> {
+    let acos = required_acos_table();
+    if acos.matches_retail() {
+        return Some(acos);
+    }
+    assert!(
+        !crate::rules::retail_ini_fixture::require_retail_ini(),
+        "{comparison} requires RA2_DIR with a verified gamemd.exe Acos table"
+    );
+    eprintln!("SKIPPED: {comparison} needs RA2_DIR with a verified gamemd.exe Acos table");
+    None
+}
 
 #[cfg(test)]
 mod tests {
@@ -589,93 +680,4 @@ mod tests {
             TrigTableError::NotPeFile
         );
     }
-}
-
-/// Process-wide Acos table, installed once from the retail install.
-///
-/// A global because consumers sit at different engine layers and only startup
-/// knows where the retail install is. It is written once and read-only
-/// thereafter, so it cannot make a run non-deterministic.
-static ACOS_TABLE: OnceLock<Option<AcosTable>> = OnceLock::new();
-
-/// Read the Acos table out of `<ra2_dir>/gamemd.exe` and install it. Later
-/// calls are ignored; the first one wins.
-pub fn install_from_dir(ra2_dir: &Path) {
-    ACOS_TABLE.get_or_init(|| {
-        let path = ra2_dir.join("gamemd.exe");
-        match std::fs::read(&path) {
-            Ok(image) => match AcosTable::from_executable(&image) {
-                Ok(acos) => Some(acos),
-                Err(err) => {
-                    log::warn!(
-                        "retail Acos table {}: {err}; Acos consumers will be disabled",
-                        path.display()
-                    );
-                    None
-                }
-            },
-            Err(err) => {
-                log::warn!(
-                    "cannot read the retail Acos table from {}: {err}; \
-                     Acos consumers will be disabled",
-                    path.display()
-                );
-                None
-            }
-        }
-    });
-}
-
-fn installed_acos_table() -> Option<&'static AcosTable> {
-    ACOS_TABLE.get().and_then(Option::as_ref)
-}
-
-/// Stock Sonic Wave geometry is active, so a match may start only when the
-/// executable-backed Acos table is installed. The sine table never needs one.
-pub fn wave_tables_available() -> bool {
-    installed_acos_table().is_some()
-}
-
-/// Shared exact production Acos access for Wave and FireAt arc math. Tests
-/// without an installed table read `RA2_DIR`'s `gamemd.exe`, else fall back to
-/// the shape-only synthetic table; exact comparisons gate on
-/// [`verified_acos_table_or_skip`].
-pub(crate) fn required_acos_table() -> &'static AcosTable {
-    if let Some(acos) = installed_acos_table() {
-        return acos;
-    }
-
-    #[cfg(test)]
-    {
-        static TEST_TABLE: OnceLock<AcosTable> = OnceLock::new();
-        return TEST_TABLE.get_or_init(|| {
-            std::env::var_os("RA2_DIR")
-                .and_then(|dir| {
-                    std::fs::read(std::path::PathBuf::from(dir).join("gamemd.exe")).ok()
-                })
-                .and_then(|image| AcosTable::from_executable(&image).ok())
-                .unwrap_or_else(AcosTable::synthetic)
-        });
-    }
-
-    #[cfg(not(test))]
-    panic!("the verified gamemd Acos table was not installed before native math");
-}
-
-/// The exact retail Acos table for a native-bit comparison, or `None` after a
-/// `SKIPPED` line when the test fallback is synthetic. A readiness run
-/// (`VERA20K_REQUIRE_RETAIL_INI` set) fails instead of skipping, so it also
-/// needs `RA2_DIR` to name a verified `gamemd.exe`.
-#[cfg(test)]
-pub(crate) fn verified_acos_table_or_skip(comparison: &str) -> Option<&'static AcosTable> {
-    let acos = required_acos_table();
-    if acos.matches_retail() {
-        return Some(acos);
-    }
-    assert!(
-        !crate::rules::retail_ini_fixture::require_retail_ini(),
-        "{comparison} requires RA2_DIR with a verified gamemd.exe Acos table"
-    );
-    eprintln!("SKIPPED: {comparison} needs RA2_DIR with a verified gamemd.exe Acos table");
-    None
 }

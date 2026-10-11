@@ -111,9 +111,11 @@ fn read_resident_tmp(
     // Retain the words following the actual table as well, so a missing
     // selected-file entry is not automatically misclassified as a null one.
     let raw_pointer_words = bytes[16..]
-        .chunks_exact(4)
+        .as_chunks::<4>()
+        .0
+        .iter()
         .take(256)
-        .map(|word| u32::from_le_bytes(word.try_into().unwrap()))
+        .map(|word| u32::from_le_bytes(*word))
         .collect();
     Ok(ResidentBridgeTmp {
         entries,

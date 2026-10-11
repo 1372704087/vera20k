@@ -128,7 +128,6 @@ impl BitFont {
         self.cell_height as f32
     }
 
-    #[allow(clippy::too_many_arguments)]
     pub fn build_text(
         &self,
         text: &str,
@@ -205,7 +204,6 @@ impl BitFont {
     /// Every UTF-16 code unit consumes a one-based reveal position;
     /// spaces/tabs consume a unit without emitting a quad, and surrogate
     /// halves independently take the existing missing-glyph path.
-    #[allow(clippy::too_many_arguments)]
     pub fn build_text_path_a(
         &self,
         text: &str,
@@ -699,153 +697,6 @@ fn write_5x7_glyph_bitmap(
     }
 }
 
-#[cfg(test)]
-pub(crate) mod tests {
-    use super::*;
-
-    /// Build a measurement-only BitFont without a GPU context, for pure-logic
-    /// tests. Atlas/darken textures are left as None -- production callers
-    /// always populate both via `from_fnt`/`fallback_5x7`.
-    pub(crate) fn make_test_font(glyph_widths: &[(u16, u32)], space_width: u32) -> BitFont {
-        let mut glyphs = HashMap::new();
-        for (cp, w) in glyph_widths {
-            glyphs.insert(
-                *cp,
-                GlyphEntry {
-                    uv_origin: [0.0, 0.0],
-                    uv_size: [1.0, 1.0],
-                    pixel_width: *w as f32,
-                },
-            );
-        }
-        BitFont {
-            source_identity: None,
-            atlas_texture: None,
-            glyphs,
-            missing_glyph: Some(GlyphEntry {
-                uv_origin: [0.0, 0.0],
-                uv_size: [0.0, 0.0],
-                pixel_width: 5.0,
-            }),
-            cell_height: CELL_HEIGHT,
-            bitmap_rows: BITMAP_ROWS,
-            space_width,
-            char_spacing: CHAR_SPACING,
-            tab_width: TAB_WIDTH,
-            tab_origin: TAB_ORIGIN,
-            darken_texture: None,
-        }
-    }
-
-    #[test]
-    fn text_width_uses_fnt_space_width() {
-        let font = make_test_font(&[(b'a' as u16, 6), (b'b' as u16, 6)], 4);
-        // gamemd MeasureText: every char adds trailing spacing.
-        // "a b" = 6 + 4 + 6 + 3 * 1 = 19
-        assert_eq!(font.text_width("a b"), 19);
-    }
-
-    #[test]
-    fn text_width_with_tab() {
-        let font = make_test_font(&[(b'a' as u16, 6), (b'b' as u16, 6)], 4);
-        // 'a': x = 6, count = 1.
-        // '\t': x jumps to next 64-boundary = 64.
-        // 'b': x += 6 = 70, count = 2.
-        // End: x + count * char_spacing = 70 + 2 = 72.
-        assert_eq!(font.text_width("a\tb"), 72);
-    }
-
-    #[test]
-    fn text_width_with_missing_glyph() {
-        let font = make_test_font(&[(b'a' as u16, 6)], 4);
-        // 'X' not in table -> missing_glyph (width 5).
-        // "aX" = 6 + 5 + 2 * 1 = 13
-        assert_eq!(font.text_width("aX"), 13);
-    }
-
-    #[test]
-    fn wrap_layout_breaks_at_last_space() {
-        let font = make_test_font(&[(b'a' as u16, 6), (b'b' as u16, 6), (b'c' as u16, 6)], 4);
-        let layout = font.wrap_layout("ab c", 20);
-        assert_eq!(layout.lines.len(), 2);
-        assert_eq!(layout.height, CELL_HEIGHT * 2);
-    }
-
-    #[test]
-    fn wrap_layout_hard_cuts_no_space() {
-        let font = make_test_font(&[(b'a' as u16, 6)], 4);
-        let layout = font.wrap_layout("aaaa", 14);
-        assert!(layout.lines.len() >= 2);
-    }
-
-    #[test]
-    fn wrap_layout_single_char_overflow_accepted() {
-        let font = make_test_font(&[(b'a' as u16, 20)], 4);
-        let layout = font.wrap_layout("a", 10);
-        assert_eq!(layout.lines.len(), 1);
-        // gamemd-parity: char_spacing always trails. Single 'a' width = 20 + 1.
-        assert_eq!(layout.lines[0].width, 21);
-    }
-
-    #[test]
-    fn wrap_layout_crlf_one_newline() {
-        let font = make_test_font(&[(b'a' as u16, 6), (b'b' as u16, 6)], 4);
-        let layout = font.wrap_layout("a\r\nb", 1000);
-        assert_eq!(layout.lines.len(), 2);
-        assert_eq!(layout.height, CELL_HEIGHT * 2);
-    }
-
-    #[test]
-    fn wrap_layout_bare_cr_advances() {
-        let font = make_test_font(&[(b'a' as u16, 6), (b'b' as u16, 6)], 4);
-        let layout = font.wrap_layout("a\rb", 1000);
-        assert_eq!(layout.lines.len(), 2);
-    }
-
-    #[test]
-    fn missing_color_xor_produces_large_shift_for_white() {
-        // 0xFFFF ^ 0x5555 = 0xAAAA. Per-channel: R5 0x15 (21/31), G6 0x15 (21/63), B5 0x0A (10/31)
-        let xored = BitFont::missing_color_xor([1.0, 1.0, 1.0]);
-        assert!((xored[0] - 21.0 / 31.0).abs() < 0.01, "R = {}", xored[0]);
-        assert!((xored[1] - 21.0 / 63.0).abs() < 0.01, "G = {}", xored[1]);
-        assert!((xored[2] - 10.0 / 31.0).abs() < 0.01, "B = {}", xored[2]);
-    }
-
-    #[test]
-    fn path_a_tint_is_the_encoded_colorref() {
-        // UI tints multiply the encoded texel (`palette_light`): the terminal
-        // highlight unit's (248, 252, 30) must reach the surface as blue 30.
-        let font = make_test_font(&[(b'a' as u16, 6)], 4);
-        let reveal = PathAReveal {
-            count: 9,
-            range: 8,
-            base_rgb: [255, 255, 0],
-            highlight_rgb: [255, 255, 255],
-        };
-        let (instances, _) = font.build_text_path_a("a", 0.0, 0.0, 1.0, 0.5, [0.0; 2], 0, reveal);
-        assert_eq!(
-            instances[0].tint,
-            [248.0 / 255.0, 252.0 / 255.0, 30.0 / 255.0]
-        );
-    }
-
-    #[test]
-    fn missing_color_xor_starts_from_the_surface_unit() {
-        // Path-A yellow is (248, 252, 0) in bytes, (31, 63, 0) in units.
-        let xored = BitFont::missing_color_xor([248.0 / 255.0, 252.0 / 255.0, 0.0]);
-        assert_eq!(xored, [21.0 / 31.0, 21.0 / 63.0, 21.0 / 31.0]);
-    }
-
-    #[test]
-    fn missing_color_xor_produces_large_shift_for_black() {
-        // 0x0000 ^ 0x5555 = 0x5555. R5 0x0A (10/31), G6 0x2A (42/63), B5 0x15 (21/31)
-        let xored = BitFont::missing_color_xor([0.0, 0.0, 0.0]);
-        assert!((xored[0] - 10.0 / 31.0).abs() < 0.01);
-        assert!((xored[1] - 42.0 / 63.0).abs() < 0.01);
-        assert!((xored[2] - 21.0 / 31.0).abs() < 0.01);
-    }
-}
-
 /// The built-in 5x7 glyph table. Each entry is seven 5-character rows where `#`
 /// sets a pixel. Visible to the crate so the headless asset tools can burn
 /// labels into rendered sheets without a font dependency or a second table.
@@ -1248,4 +1099,151 @@ pub(crate) fn fallback_5x7_glyphs() -> Vec<(char, [&'static str; 7])> {
             ],
         ),
     ]
+}
+
+#[cfg(test)]
+pub(crate) mod tests {
+    use super::*;
+
+    /// Build a measurement-only BitFont without a GPU context, for pure-logic
+    /// tests. Atlas/darken textures are left as None -- production callers
+    /// always populate both via `from_fnt`/`fallback_5x7`.
+    pub(crate) fn make_test_font(glyph_widths: &[(u16, u32)], space_width: u32) -> BitFont {
+        let mut glyphs = HashMap::new();
+        for (cp, w) in glyph_widths {
+            glyphs.insert(
+                *cp,
+                GlyphEntry {
+                    uv_origin: [0.0, 0.0],
+                    uv_size: [1.0, 1.0],
+                    pixel_width: *w as f32,
+                },
+            );
+        }
+        BitFont {
+            source_identity: None,
+            atlas_texture: None,
+            glyphs,
+            missing_glyph: Some(GlyphEntry {
+                uv_origin: [0.0, 0.0],
+                uv_size: [0.0, 0.0],
+                pixel_width: 5.0,
+            }),
+            cell_height: CELL_HEIGHT,
+            bitmap_rows: BITMAP_ROWS,
+            space_width,
+            char_spacing: CHAR_SPACING,
+            tab_width: TAB_WIDTH,
+            tab_origin: TAB_ORIGIN,
+            darken_texture: None,
+        }
+    }
+
+    #[test]
+    fn text_width_uses_fnt_space_width() {
+        let font = make_test_font(&[(b'a' as u16, 6), (b'b' as u16, 6)], 4);
+        // gamemd MeasureText: every char adds trailing spacing.
+        // "a b" = 6 + 4 + 6 + 3 * 1 = 19
+        assert_eq!(font.text_width("a b"), 19);
+    }
+
+    #[test]
+    fn text_width_with_tab() {
+        let font = make_test_font(&[(b'a' as u16, 6), (b'b' as u16, 6)], 4);
+        // 'a': x = 6, count = 1.
+        // '\t': x jumps to next 64-boundary = 64.
+        // 'b': x += 6 = 70, count = 2.
+        // End: x + count * char_spacing = 70 + 2 = 72.
+        assert_eq!(font.text_width("a\tb"), 72);
+    }
+
+    #[test]
+    fn text_width_with_missing_glyph() {
+        let font = make_test_font(&[(b'a' as u16, 6)], 4);
+        // 'X' not in table -> missing_glyph (width 5).
+        // "aX" = 6 + 5 + 2 * 1 = 13
+        assert_eq!(font.text_width("aX"), 13);
+    }
+
+    #[test]
+    fn wrap_layout_breaks_at_last_space() {
+        let font = make_test_font(&[(b'a' as u16, 6), (b'b' as u16, 6), (b'c' as u16, 6)], 4);
+        let layout = font.wrap_layout("ab c", 20);
+        assert_eq!(layout.lines.len(), 2);
+        assert_eq!(layout.height, CELL_HEIGHT * 2);
+    }
+
+    #[test]
+    fn wrap_layout_hard_cuts_no_space() {
+        let font = make_test_font(&[(b'a' as u16, 6)], 4);
+        let layout = font.wrap_layout("aaaa", 14);
+        assert!(layout.lines.len() >= 2);
+    }
+
+    #[test]
+    fn wrap_layout_single_char_overflow_accepted() {
+        let font = make_test_font(&[(b'a' as u16, 20)], 4);
+        let layout = font.wrap_layout("a", 10);
+        assert_eq!(layout.lines.len(), 1);
+        // gamemd-parity: char_spacing always trails. Single 'a' width = 20 + 1.
+        assert_eq!(layout.lines[0].width, 21);
+    }
+
+    #[test]
+    fn wrap_layout_crlf_one_newline() {
+        let font = make_test_font(&[(b'a' as u16, 6), (b'b' as u16, 6)], 4);
+        let layout = font.wrap_layout("a\r\nb", 1000);
+        assert_eq!(layout.lines.len(), 2);
+        assert_eq!(layout.height, CELL_HEIGHT * 2);
+    }
+
+    #[test]
+    fn wrap_layout_bare_cr_advances() {
+        let font = make_test_font(&[(b'a' as u16, 6), (b'b' as u16, 6)], 4);
+        let layout = font.wrap_layout("a\rb", 1000);
+        assert_eq!(layout.lines.len(), 2);
+    }
+
+    #[test]
+    fn missing_color_xor_produces_large_shift_for_white() {
+        // 0xFFFF ^ 0x5555 = 0xAAAA. Per-channel: R5 0x15 (21/31), G6 0x15 (21/63), B5 0x0A (10/31)
+        let xored = BitFont::missing_color_xor([1.0, 1.0, 1.0]);
+        assert!((xored[0] - 21.0 / 31.0).abs() < 0.01, "R = {}", xored[0]);
+        assert!((xored[1] - 21.0 / 63.0).abs() < 0.01, "G = {}", xored[1]);
+        assert!((xored[2] - 10.0 / 31.0).abs() < 0.01, "B = {}", xored[2]);
+    }
+
+    #[test]
+    fn path_a_tint_is_the_encoded_colorref() {
+        // UI tints multiply the encoded texel (`palette_light`): the terminal
+        // highlight unit's (248, 252, 30) must reach the surface as blue 30.
+        let font = make_test_font(&[(b'a' as u16, 6)], 4);
+        let reveal = PathAReveal {
+            count: 9,
+            range: 8,
+            base_rgb: [255, 255, 0],
+            highlight_rgb: [255, 255, 255],
+        };
+        let (instances, _) = font.build_text_path_a("a", 0.0, 0.0, 1.0, 0.5, [0.0; 2], 0, reveal);
+        assert_eq!(
+            instances[0].tint,
+            [248.0 / 255.0, 252.0 / 255.0, 30.0 / 255.0]
+        );
+    }
+
+    #[test]
+    fn missing_color_xor_starts_from_the_surface_unit() {
+        // Path-A yellow is (248, 252, 0) in bytes, (31, 63, 0) in units.
+        let xored = BitFont::missing_color_xor([248.0 / 255.0, 252.0 / 255.0, 0.0]);
+        assert_eq!(xored, [21.0 / 31.0, 21.0 / 63.0, 21.0 / 31.0]);
+    }
+
+    #[test]
+    fn missing_color_xor_produces_large_shift_for_black() {
+        // 0x0000 ^ 0x5555 = 0x5555. R5 0x0A (10/31), G6 0x2A (42/63), B5 0x15 (21/31)
+        let xored = BitFont::missing_color_xor([0.0, 0.0, 0.0]);
+        assert!((xored[0] - 10.0 / 31.0).abs() < 0.01);
+        assert!((xored[1] - 42.0 / 63.0).abs() < 0.01);
+        assert!((xored[2] - 21.0 / 31.0).abs() < 0.01);
+    }
 }

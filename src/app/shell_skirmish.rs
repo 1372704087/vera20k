@@ -229,7 +229,7 @@ impl App {
                 let mut clock = crate::app::match_bootstrap::OrdinaryMatchSeedClock;
                 let startup = crate::app::match_bootstrap::prepare_match_startup(
                     correlation,
-                    accepted,
+                    *accepted,
                     &mut clock,
                 );
                 crate::app::loading::pump::LoadingRequest::accepted_skirmish(startup)
@@ -1111,14 +1111,17 @@ impl App {
         let released_button = crate::ui::skirmish_shell::hit_test_owner_draw_button(&layout, x, y);
         let pressed_button = state.frontend.skirmish_shell_state.pressed_owner_draw_button.take();
         state.frontend.skirmish_shell_last_painted_pressed_button = None;
-        if pressed_button.is_some() && pressed_button == released_button {
-            if let Some(button) = released_button {
-                crate::ui::skirmish_shell::handle_option_mouse_up(&mut state.frontend.skirmish_shell_state);
-                Self::drain_skirmish_shell_ui_sounds(state);
-                let action = crate::ui::skirmish_shell::action_for_owner_draw_button(button);
-                Self::handle_skirmish_shell_action(state, action);
-                return;
-            }
+        if pressed_button.is_some()
+            && pressed_button == released_button
+            && let Some(button) = released_button
+        {
+            crate::ui::skirmish_shell::handle_option_mouse_up(
+                &mut state.frontend.skirmish_shell_state,
+            );
+            Self::drain_skirmish_shell_ui_sounds(state);
+            let action = crate::ui::skirmish_shell::action_for_owner_draw_button(button);
+            Self::handle_skirmish_shell_action(state, action);
+            return;
         }
 
         // A release after a trackbar press goes to the trackbar, which holds
@@ -1226,10 +1229,10 @@ impl App {
         );
     }
 
-    fn skirmish_shell_ui_sound_id<'a>(
-        general: &'a crate::rules::ruleset::GeneralRules,
+    fn skirmish_shell_ui_sound_id(
+        general: &crate::rules::ruleset::GeneralRules,
         sound: crate::ui::skirmish_shell::SkirmishShellUiSound,
-    ) -> Option<&'a str> {
+    ) -> Option<&str> {
         match sound {
             crate::ui::skirmish_shell::SkirmishShellUiSound::GuiCheckboxSound => {
                 general.gui_checkbox_sound.as_deref()

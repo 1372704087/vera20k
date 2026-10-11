@@ -21,8 +21,8 @@
 //! visual.
 //!
 //! ## Deferred (tracked for follow-up tasks)
-//! - Damage application to cell occupants (Task C6). Counter bookkeeping
-//!   + FinalDamageState gate are in place; the apply call is the only
+//! - Damage application to cell occupants (Task C6). Counter bookkeeping and
+//!   FinalDamageState gate are in place; the apply call is the only
 //!   missing piece. Distance scaling (`distance/10`) and bridge-layer
 //!   awareness land with C6.
 //! - Wiring `move_fire` into the per-tick path — needs ground-height

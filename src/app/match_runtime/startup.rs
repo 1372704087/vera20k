@@ -20,8 +20,8 @@ enum StartupPhase {
     Noncertifying,
     Loading(MatchCorrelationId),
     Accepted {
-        startup: PreparedMatchStartup,
-        receipt: RustL0Receipt,
+        startup: Box<PreparedMatchStartup>,
+        receipt: Box<RustL0Receipt>,
     },
 }
 
@@ -58,13 +58,18 @@ impl MatchStartup {
         }
         .acknowledge()
         .map_err(|error| error.to_string())?;
-        self.phase = StartupPhase::Accepted { startup, receipt };
+        self.phase = StartupPhase::Accepted {
+            startup: Box::new(startup),
+            receipt: Box::new(receipt),
+        };
         Ok(())
     }
 
     pub(crate) fn accepted(&self) -> Option<(&PreparedMatchStartup, &RustL0Receipt)> {
         match &self.phase {
-            StartupPhase::Accepted { startup, receipt } => Some((startup, receipt)),
+            StartupPhase::Accepted { startup, receipt } => {
+                Some((startup.as_ref(), receipt.as_ref()))
+            }
             _ => None,
         }
     }

@@ -661,26 +661,26 @@ pub(super) fn push_dropdown_instances(
             );
         }
     }
-    if needs_scrollbar {
-        if let (Some(scrollbar), Some(thumb)) = (
+    if needs_scrollbar
+        && let (Some(scrollbar), Some(thumb)) = (
             combo_dropdown_scrollbar_rect(shell, layout, maps, open.id),
             combo_dropdown_scroll_thumb_rect(shell, layout, maps, open.id),
-        ) {
-            let pressed_part = shell
-                .dropdown_scroll_press
-                .filter(|pressed| pressed.id == open.id)
-                .map(|pressed| pressed.part);
-            let chrome = atlas.control_chrome();
-            paint_control(
-                out,
-                &chrome,
-                ControlPaint::ScrollBar {
-                    scrollbar,
-                    thumb,
-                    pressed_part,
-                },
-            );
-        }
+        )
+    {
+        let pressed_part = shell
+            .dropdown_scroll_press
+            .filter(|pressed| pressed.id == open.id)
+            .map(|pressed| pressed.part);
+        let chrome = atlas.control_chrome();
+        paint_control(
+            out,
+            &chrome,
+            ControlPaint::ScrollBar {
+                scrollbar,
+                thumb,
+                pressed_part,
+            },
+        );
     }
     push_ownerdraw_two_pixel_bevel_frame(out, atlas, dropdown, SHELL_DROPDOWN_DEPTH - 0.00003);
 }

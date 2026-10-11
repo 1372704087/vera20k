@@ -201,7 +201,7 @@ pub(crate) fn build_sidebar_view_with_spec(
     let selected_category = active_tab.category();
     let mut all_entries = std::mem::take(&mut strips[active_tab.tab_index()]);
     let total_items = all_entries.len();
-    let total_rows = (total_items + CAMEO_COLUMNS - 1) / CAMEO_COLUMNS;
+    let total_rows = total_items.div_ceil(CAMEO_COLUMNS);
 
     // Native screen capacity is independent of the item count.
     let layout = compute_layout_with_spec(layout_spec, screen_w, screen_h, total_rows);
@@ -551,7 +551,7 @@ fn collect_build_entries(
                 is_ready: sw.is_ready,
                 is_on_hold: false,
                 is_armed: armed_sw_section
-                    .map_or(false, |s| s.eq_ignore_ascii_case(&sw.display_name)),
+                    .is_some_and(|s| s.eq_ignore_ascii_case(&sw.display_name)),
                 is_superweapon: true,
                 super_weapon_section: Some(sw.display_name.clone()),
             });

@@ -21,8 +21,8 @@ const UNIT_PIPS_INFANTRY: u32 = 8;
 /// Horizontal pixel spacing between unit health pips (each pip drawn 2px apart).
 const UNIT_PIP_STEP_X: f32 = 2.0;
 
-/// Health bar offsets are baked into SelectionOverlay at load time
-/// (game constant + canvas centering combined).
+// Health bar offsets are baked into SelectionOverlay at load time
+// (game constant + canvas centering combined).
 
 /// Fixed pip step along the NW isometric edge.
 /// Each pip moves 4px left and 2px down, following the isometric 2:1 slope.
@@ -85,7 +85,7 @@ fn health_bar_hover_target(
         local_owner,
         state.match_state.sandbox_full_visibility,
         state.rules(),
-        &state.height_map(),
+        state.height_map(),
         crate::app::match_runtime::sim_tick::tactical_bridge_cells(sim),
     )?;
     match hover.kind {
@@ -1260,7 +1260,7 @@ pub(crate) fn build_cargo_pip_instances(state: &AppState, sw: f32, sh: f32) -> V
             .count() as u32;
         let total_bales: u32 = miner.cargo.len() as u32;
         let gem_pips: u32 = if total_bales > 0 {
-            (gem_bales * filled + total_bales - 1) / total_bales // round up
+            (gem_bales * filled).div_ceil(total_bales) // round up
         } else {
             0
         };
@@ -1344,7 +1344,7 @@ pub(crate) fn build_building_radius_ring_instances(
             .sim_runtime
             .as_ref()
             .map(|rt| &rt.simulation),
-        state.rules().map(|r| r),
+        state.rules(),
     ) else {
         return Vec::new();
     };

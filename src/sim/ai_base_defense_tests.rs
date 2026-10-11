@@ -143,10 +143,19 @@ fn the_threat_ratios_and_their_draws_match_native() {
     }
 }
 
+type DefenseTypeRow = (
+    &'static str,
+    [i32; 3],
+    bool,
+    &'static str,
+    i32,
+    &'static str,
+);
+
 /// The oracle's BuildingTypes in its array order: values (air, armor,
 /// infantry), `IsBaseDefense=`, owner, `TechLevel=`, prerequisites. Owners
 /// are countries: the house is the fourth, `C3`.
-const DEFENSE_TYPES: [(&str, [i32; 3], bool, &str, i32, &str); 14] = [
+const DEFENSE_TYPES: [DefenseTypeRow; 14] = [
     ("YARD", [0, 0, 0], false, "C3", 1, ""),
     ("POWR", [0, 0, 0], false, "C3", 1, ""),
     ("TECH", [0, 0, 0], false, "C3", 1, ""),

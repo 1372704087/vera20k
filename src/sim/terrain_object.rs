@@ -261,7 +261,6 @@ impl TerrainAreaState {
     }
 
     /// Enter the shared Object damage kernel for one captured Terrain receiver.
-    #[allow(clippy::too_many_arguments)]
     pub(crate) fn receive_area_damage(
         &mut self,
         stable_id: u64,
@@ -469,6 +468,134 @@ pub(crate) fn damage_terrain_object_at_cell(
     };
     let _ = area_state.restore_into(production, raw_occupation);
     result
+}
+
+/// Receive against live Terrain maps. The recursion guard belongs to the
+/// outer damage operation; no persisted authority leaves ProductionState.
+pub(crate) fn receive_terrain_damage_with_scenario(
+    terrain_objects: &mut BTreeMap<u64, TerrainObjectState>,
+    terrain_object_cells: &BTreeMap<(u16, u16), u64>,
+    finalizing_terrain: &mut BTreeSet<u64>,
+    stable_id: u64,
+    cell: (u16, u16),
+    raw_damage: i32,
+    distance_leptons: i32,
+    warhead: &WarheadType,
+    rules: &RuleSet,
+    interner: &StringInterner,
+    scenario_no_damage: bool,
+    ignore_defenses: bool,
+) -> TerrainAreaReceiveResult {
+    if finalizing_terrain.contains(&stable_id)
+        || terrain_object_cells.get(&cell) != Some(&stable_id)
+    {
+        return TerrainAreaReceiveResult::Ignored;
+    }
+
+    let Some(snapshot) = terrain_objects.get(&stable_id) else {
+        return TerrainAreaReceiveResult::Ignored;
+    };
+    // ObjectClass::ReceiveDamage 005F53A1..005F53B7 rejects these before
+    // either ordinary armor calculation or the forced direct-damage path.
+    if !snapshot.is_live() || snapshot.cell() != cell || snapshot.health <= 0 || raw_damage == 0 {
+        return TerrainAreaReceiveResult::Ignored;
+    }
+    let Some(terrain_type) =
+        rules.terrain_object_type_case_insensitive(interner.resolve(snapshot.type_ref))
+    else {
+        return TerrainAreaReceiveResult::Ignored;
+    };
+    if !warhead.wood || terrain_type.immune {
+        return TerrainAreaReceiveResult::Ignored;
+    }
+
+    // TerrainClass 0071B920 always checks Wood/Immune above, then forwards
+    // ignore_defenses to ObjectClass 005F5390. BlowUpBridge 0047DD70 passes
+    // true: current Health bypasses verses, falloff, NoDamage and MaxDamage.
+    let resolved_damage = if ignore_defenses {
+        raw_damage
+    } else {
+        damage::kernel::apply_warhead_damage(
+            raw_damage,
+            warhead.cell_spread_f64,
+            warhead.percent_at_max_f64,
+            &warhead.verses_f64,
+            damage::ArmorClass(armor_index(&terrain_type.armor) as u8),
+            distance_leptons,
+            scenario_no_damage,
+            rules.combat_damage.max_damage,
+        )
+    };
+    if resolved_damage == 0 {
+        return TerrainAreaReceiveResult::Ignored;
+    }
+
+    let terrain = terrain_objects
+        .get_mut(&stable_id)
+        .expect("captured Terrain receiver remains represented");
+    if resolved_damage < 0 {
+        terrain.health = terrain
+            .health
+            .wrapping_sub(resolved_damage)
+            .min(terrain.max_health);
+        return TerrainAreaReceiveResult::Damaged {
+            remaining: terrain.health,
+        };
+    }
+
+    let remaining = terrain.health.wrapping_sub(resolved_damage);
+    if remaining > 0 {
+        terrain.health = remaining;
+        return TerrainAreaReceiveResult::Damaged { remaining };
+    }
+
+    terrain.health = 0;
+    finalizing_terrain.insert(stable_id);
+    TerrainAreaReceiveResult::Lethal(TerrainLethalDamage {
+        stable_id,
+        cell,
+        spawns_tiberium: terrain_type.spawns_tiberium,
+    })
+}
+
+/// Finalize only after nested C4 receivers return, against the same live maps.
+pub(crate) fn finalize_terrain_lethal(
+    authority: TerrainAuthorityParts<'_>,
+    finalizing_terrain: &mut BTreeSet<u64>,
+    navigation_changed_cells: &mut Vec<(u16, u16)>,
+    lethal: TerrainLethalDamage,
+    resolved_terrain: Option<&mut ResolvedTerrainGrid>,
+) -> bool {
+    if !finalizing_terrain.contains(&lethal.stable_id) {
+        return false;
+    }
+    if authority.terrain_object_cells.get(&lethal.cell) != Some(&lethal.stable_id) {
+        finalizing_terrain.remove(&lethal.stable_id);
+        return false;
+    }
+
+    let removed_id = limbo_terrain_object_at_cell_parts(
+        TerrainAuthorityParts {
+            terrain_animations: &mut *authority.terrain_animations,
+            terrain_objects: &mut *authority.terrain_objects,
+            terrain_object_cells: &mut *authority.terrain_object_cells,
+            tiberium_spawning_terrain_cells: &mut *authority.tiberium_spawning_terrain_cells,
+            raw_occupation: &mut *authority.raw_occupation,
+        },
+        lethal.cell,
+        resolved_terrain,
+    );
+    let finalized = removed_id == Some(lethal.stable_id);
+    if finalized {
+        if let Some(terrain) = authority.terrain_objects.get_mut(&lethal.stable_id) {
+            terrain.lifecycle = TerrainObjectLifecycle::Destroyed;
+        }
+        if !navigation_changed_cells.contains(&lethal.cell) {
+            navigation_changed_cells.push(lethal.cell);
+        }
+    }
+    finalizing_terrain.remove(&lethal.stable_id);
+    finalized
 }
 
 #[cfg(test)]
@@ -1213,133 +1340,4 @@ mod tests {
             TerrainObjectLifecycle::Destroyed
         );
     }
-}
-
-/// Receive against live Terrain maps. The recursion guard belongs to the
-/// outer damage operation; no persisted authority leaves ProductionState.
-#[allow(clippy::too_many_arguments)]
-pub(crate) fn receive_terrain_damage_with_scenario(
-    terrain_objects: &mut BTreeMap<u64, TerrainObjectState>,
-    terrain_object_cells: &BTreeMap<(u16, u16), u64>,
-    finalizing_terrain: &mut BTreeSet<u64>,
-    stable_id: u64,
-    cell: (u16, u16),
-    raw_damage: i32,
-    distance_leptons: i32,
-    warhead: &WarheadType,
-    rules: &RuleSet,
-    interner: &StringInterner,
-    scenario_no_damage: bool,
-    ignore_defenses: bool,
-) -> TerrainAreaReceiveResult {
-    if finalizing_terrain.contains(&stable_id)
-        || terrain_object_cells.get(&cell) != Some(&stable_id)
-    {
-        return TerrainAreaReceiveResult::Ignored;
-    }
-
-    let Some(snapshot) = terrain_objects.get(&stable_id) else {
-        return TerrainAreaReceiveResult::Ignored;
-    };
-    // ObjectClass::ReceiveDamage 005F53A1..005F53B7 rejects these before
-    // either ordinary armor calculation or the forced direct-damage path.
-    if !snapshot.is_live() || snapshot.cell() != cell || snapshot.health <= 0 || raw_damage == 0 {
-        return TerrainAreaReceiveResult::Ignored;
-    }
-    let Some(terrain_type) =
-        rules.terrain_object_type_case_insensitive(interner.resolve(snapshot.type_ref))
-    else {
-        return TerrainAreaReceiveResult::Ignored;
-    };
-    if !warhead.wood || terrain_type.immune {
-        return TerrainAreaReceiveResult::Ignored;
-    }
-
-    // TerrainClass 0071B920 always checks Wood/Immune above, then forwards
-    // ignore_defenses to ObjectClass 005F5390. BlowUpBridge 0047DD70 passes
-    // true: current Health bypasses verses, falloff, NoDamage and MaxDamage.
-    let resolved_damage = if ignore_defenses {
-        raw_damage
-    } else {
-        damage::kernel::apply_warhead_damage(
-            raw_damage,
-            warhead.cell_spread_f64,
-            warhead.percent_at_max_f64,
-            &warhead.verses_f64,
-            damage::ArmorClass(armor_index(&terrain_type.armor) as u8),
-            distance_leptons,
-            scenario_no_damage,
-            rules.combat_damage.max_damage,
-        )
-    };
-    if resolved_damage == 0 {
-        return TerrainAreaReceiveResult::Ignored;
-    }
-
-    let terrain = terrain_objects
-        .get_mut(&stable_id)
-        .expect("captured Terrain receiver remains represented");
-    if resolved_damage < 0 {
-        terrain.health = terrain
-            .health
-            .wrapping_sub(resolved_damage)
-            .min(terrain.max_health);
-        return TerrainAreaReceiveResult::Damaged {
-            remaining: terrain.health,
-        };
-    }
-
-    let remaining = terrain.health.wrapping_sub(resolved_damage);
-    if remaining > 0 {
-        terrain.health = remaining;
-        return TerrainAreaReceiveResult::Damaged { remaining };
-    }
-
-    terrain.health = 0;
-    finalizing_terrain.insert(stable_id);
-    TerrainAreaReceiveResult::Lethal(TerrainLethalDamage {
-        stable_id,
-        cell,
-        spawns_tiberium: terrain_type.spawns_tiberium,
-    })
-}
-
-/// Finalize only after nested C4 receivers return, against the same live maps.
-pub(crate) fn finalize_terrain_lethal(
-    authority: TerrainAuthorityParts<'_>,
-    finalizing_terrain: &mut BTreeSet<u64>,
-    navigation_changed_cells: &mut Vec<(u16, u16)>,
-    lethal: TerrainLethalDamage,
-    resolved_terrain: Option<&mut ResolvedTerrainGrid>,
-) -> bool {
-    if !finalizing_terrain.contains(&lethal.stable_id) {
-        return false;
-    }
-    if authority.terrain_object_cells.get(&lethal.cell) != Some(&lethal.stable_id) {
-        finalizing_terrain.remove(&lethal.stable_id);
-        return false;
-    }
-
-    let removed_id = limbo_terrain_object_at_cell_parts(
-        TerrainAuthorityParts {
-            terrain_animations: &mut *authority.terrain_animations,
-            terrain_objects: &mut *authority.terrain_objects,
-            terrain_object_cells: &mut *authority.terrain_object_cells,
-            tiberium_spawning_terrain_cells: &mut *authority.tiberium_spawning_terrain_cells,
-            raw_occupation: &mut *authority.raw_occupation,
-        },
-        lethal.cell,
-        resolved_terrain,
-    );
-    let finalized = removed_id == Some(lethal.stable_id);
-    if finalized {
-        if let Some(terrain) = authority.terrain_objects.get_mut(&lethal.stable_id) {
-            terrain.lifecycle = TerrainObjectLifecycle::Destroyed;
-        }
-        if !navigation_changed_cells.contains(&lethal.cell) {
-            navigation_changed_cells.push(lethal.cell);
-        }
-    }
-    finalizing_terrain.remove(&lethal.stable_id);
-    finalized
 }

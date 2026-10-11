@@ -59,14 +59,14 @@ pub fn install_panic_hook(log_path: Option<&Path>) {
         // Capture while the panic stack is still live.
         let backtrace = Backtrace::force_capture();
 
-        if let Some(log_path) = &log_path {
-            if let Ok(mut file) = OpenOptions::new().append(true).open(log_path) {
-                let _ = writeln!(file, "\n========== PANIC ==========");
-                let _ = writeln!(file, "{info}");
-                let _ = writeln!(file, "\n{backtrace}");
-                let _ = writeln!(file, "===========================");
-                let _ = file.flush();
-            }
+        if let Some(log_path) = &log_path
+            && let Ok(mut file) = OpenOptions::new().append(true).open(log_path)
+        {
+            let _ = writeln!(file, "\n========== PANIC ==========");
+            let _ = writeln!(file, "{info}");
+            let _ = writeln!(file, "\n{backtrace}");
+            let _ = writeln!(file, "===========================");
+            let _ = file.flush();
         }
 
         let _ = write_exception_dump(info, &backtrace);

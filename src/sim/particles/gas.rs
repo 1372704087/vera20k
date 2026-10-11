@@ -143,9 +143,9 @@ pub(super) fn move_gas_with_wind(p: &mut Particle, pt: &ParticleType, tick: u64,
         return;
     }
     let we = pt.wind_effect as u64;
-    if we > 0 {
-        let period = (10 / we).max(1);
-        if tick % period == 0 {
+    if let Some(period) = 10u64.checked_div(we) {
+        let period = period.max(1);
+        if tick.is_multiple_of(period) {
             let idx = (wind_dir as usize).min(7);
             p.coords.x += GAS_WIND_DX[idx];
             p.coords.y += GAS_WIND_DY[idx];

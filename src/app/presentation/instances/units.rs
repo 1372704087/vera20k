@@ -855,7 +855,6 @@ fn body_pose(
 /// One posed body drawn on this frame's pose page. It joins its display
 /// layer in emission order like an atlas body; aircraft cast no VERA shadow
 /// (recorded on the draw passes).
-#[allow(clippy::too_many_arguments)]
 fn emit_pose_sprite(
     state: &AppState,
     pieces: &mut Vec<ObjectPieceInstance>,
@@ -1077,23 +1076,21 @@ fn unit_entry_for_slope_state(
     key: &UnitSpriteKey,
     slope_state: UnitRenderSlopeState,
 ) -> Option<(UnitSpriteEntry, UnitTextureSource)> {
-    if let Some(transition_key) = transition_key_for_unit(key, slope_state) {
-        if let Some(asset_manager) = state.process_assets.manager() {
-            if let Some(TransitionUnitSpriteEntry { page, entry }) = state
-                .renderer
-                .vxl_slope_transition_cache
-                .borrow_mut()
-                .get_or_render(
-                    &state.renderer.gpu,
-                    &state.renderer.batch_renderer,
-                    asset_manager,
-                    state.rules(),
-                    transition_key,
-                )
-            {
-                return Some((entry, UnitTextureSource::Transition(page)));
-            }
-        }
+    if let Some(transition_key) = transition_key_for_unit(key, slope_state)
+        && let Some(asset_manager) = state.process_assets.manager()
+        && let Some(TransitionUnitSpriteEntry { page, entry }) = state
+            .renderer
+            .vxl_slope_transition_cache
+            .borrow_mut()
+            .get_or_render(
+                &state.renderer.gpu,
+                &state.renderer.batch_renderer,
+                asset_manager,
+                state.rules(),
+                transition_key,
+            )
+    {
+        return Some((entry, UnitTextureSource::Transition(page)));
     }
 
     atlas_get_with_frame_fallback(atlas, key)
@@ -1104,7 +1101,6 @@ fn unit_entry_for_slope_state(
 /// First-fill mask owner for the supported ordinary flat ground path. The
 /// input entries are precisely the parts selected for this parent's draw;
 /// cache hits skip their pixel work and retain the first completed mask.
-#[allow(clippy::too_many_arguments)]
 fn prepare_unit_shadow(
     state: &AppState,
     atlas: &crate::render::unit_atlas::UnitAtlas,
@@ -1181,7 +1177,6 @@ fn shadow_lookup_key(mut key: UnitSpriteKey, native_shadow: bool) -> UnitSpriteK
 /// Cloak states suppress this shadow; aircraft and building VXL paths remain
 /// separate. The voxel pipeline reads depth and uses FX_SHADOW alpha darkening;
 /// packed RGB565 half and full native cache lifecycle remain outside this fix.
-#[allow(clippy::too_many_arguments)]
 fn emit_unit_shadow_sprite(
     native_shadow: bool,
     no_shadow: bool,
@@ -1304,10 +1299,8 @@ impl CompositeDrawBounds {
     }
 
     fn depth_rect(self, wants_split: bool) -> ([f32; 2], bool) {
-        if wants_split {
-            if let Some([_, y, _, height]) = self.native {
-                return ([y as f32, height as f32], true);
-            }
+        if wants_split && let Some([_, y, _, height]) = self.native {
+            return ([y as f32, height as f32], true);
         }
         (self.padded, false)
     }
@@ -1642,10 +1635,7 @@ fn emit_harvest_overlay(
     brightness: i32,
     draw_state: DrawState,
 ) -> Option<(usize, SpriteInstance)> {
-    let sprite_atlas = match &state.match_state.match_presentation.sprite_atlas {
-        Some(a) => a,
-        None => return None,
-    };
+    let sprite_atlas = state.match_state.match_presentation.sprite_atlas.as_ref()?;
     // Map body facing (0-255) to counter-clockwise SHP frame index (0..7).
     // +32 offset for isometric rotation (SHP frame 0 = screen-N, not cell-N).
     let facing_index: u16 = (8 - (body_facing.wrapping_add(32) / 32) as u16) % 8;

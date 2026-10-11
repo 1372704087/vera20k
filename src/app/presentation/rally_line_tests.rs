@@ -611,13 +611,9 @@ fn production_rally_gpu_matches_native_pixels_and_preserves_depth() {
                         row["input"]
                     );
                     assert!(
-                        output[1]
-                            .chunks_exact(4)
-                            .all(
-                                |bytes| crate::render::native_z::stored_z(f32::from_le_bytes(
-                                    bytes.try_into().unwrap()
-                                )) == 12345
-                            ),
+                        output[1].as_chunks::<4>().0.iter().all(|bytes| {
+                            crate::render::native_z::stored_z(f32::from_le_bytes(*bytes)) == 12345
+                        }),
                         "rally changed Z: {format:?}, {} pass{pass_id}",
                         row["input"]
                     );

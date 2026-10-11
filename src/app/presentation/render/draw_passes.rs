@@ -1029,7 +1029,6 @@ fn draw_pooled_depth_test_texture<'a>(
 }
 
 /// Submit the bridge shadow cell sweep between overlay bodies and objects.
-#[allow(clippy::too_many_arguments)]
 pub(super) fn draw_bridge_shadows(
     encoder: &mut wgpu::CommandEncoder,
     color: &wgpu::TextureView,

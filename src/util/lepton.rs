@@ -75,9 +75,10 @@ const SIM_FIXED_SCALE: i64 = 1 << 16;
 /// - Sub-cell 2: top-right (192,  64)
 /// - Sub-cell 3: bottom-left  ( 64, 192) — used for infantry placement
 /// - Sub-cell 4: bottom-right (192, 192) — used for infantry placement
-
+///
 /// Same values as `sim::cell_kernel::INFANTRY_SUBCELL_OFFSETS` (the
 /// native-ordered integer table); change both or neither.
+///
 /// Sub-cell center position (sub-cell 0, and fallback for vehicles).
 pub const SUBCELL_CENTER_X: SimFixed = SimFixed::lit("128");
 pub const SUBCELL_CENTER_Y: SimFixed = SimFixed::lit("128");
@@ -710,7 +711,7 @@ mod tests {
         // sqrt(256² + 256²) ≈ 362
         let len_i: i32 = len.to_num();
         assert!(
-            len_i >= 361 && len_i <= 363,
+            (361..=363).contains(&len_i),
             "diagonal len should be ~362, got {}",
             len_i
         );

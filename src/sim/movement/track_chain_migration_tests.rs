@@ -199,8 +199,8 @@ fn production_chain_code6_scatters_once_without_adopting_the_candidate() {
         "the Unit receiver sets a destination"
     );
     assert_eq!(
-        serde_json::to_value(&blocker.position).unwrap(),
-        serde_json::to_value(&before).unwrap(),
+        serde_json::to_value(blocker.position).unwrap(),
+        serde_json::to_value(before).unwrap(),
         "scatter does not teleport the occupant"
     );
     assert_old_chain_continues(&sim);

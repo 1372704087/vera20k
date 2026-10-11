@@ -19,16 +19,9 @@ const CAVEAT: &str = "Palette choice is inferred, not read from the asset. Only 
                       and an explicit override are declared; everything else is a heuristic. A \
                       plausible-looking image is not evidence the palette is correct.";
 
+#[derive(Default)]
 pub struct PaletteForOptions {
     pub palette_override: Option<String>,
-}
-
-impl Default for PaletteForOptions {
-    fn default() -> Self {
-        Self {
-            palette_override: None,
-        }
-    }
 }
 
 pub fn run(

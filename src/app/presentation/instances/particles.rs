@@ -46,7 +46,7 @@ pub(crate) fn build_particle_instances(state: &AppState, paged: &mut [Vec<Sprite
             .as_ref()
             .map(|rt| &rt.simulation),
         &state.match_state.match_presentation.sprite_atlas,
-        state.rules().map(|r| r),
+        state.rules(),
     ) {
         (Some(s), Some(a), Some(r)) => (s, a, r),
         _ => return,
@@ -137,14 +137,14 @@ pub(crate) fn build_particle_instances(state: &AppState, paged: &mut [Vec<Sprite
 fn warn_once_per_tier3_type(kind: ParticleSystemBehavesLike) {
     static SEEN: OnceLock<Mutex<HashSet<ParticleSystemBehavesLike>>> = OnceLock::new();
     let seen = SEEN.get_or_init(|| Mutex::new(HashSet::new()));
-    if let Ok(mut set) = seen.lock() {
-        if set.insert(kind) {
-            log::warn!(
-                "particles: render found Tier-3 system {:?} in store \
+    if let Ok(mut set) = seen.lock()
+        && set.insert(kind)
+    {
+        log::warn!(
+            "particles: render found Tier-3 system {:?} in store \
                  (spawn-side filter should have caught this); skipping",
-                kind
-            );
-        }
+            kind
+        );
     }
 }
 

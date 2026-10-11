@@ -340,10 +340,10 @@ fn find_or_allocate_definition<T>(
     }
 
     let id = interner.intern(requested);
-    if !definitions.contains_key(&id) {
+    definitions.entry(id).or_insert_with(|| {
         order.push(id);
-        definitions.insert(id, placeholder(id));
-    }
+        placeholder(id)
+    });
     DefinitionResolution::Exact(id)
 }
 

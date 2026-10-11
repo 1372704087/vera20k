@@ -260,16 +260,13 @@ impl DispatchPath {
 /// high bridges write `0`, accepted Tube endpoints write `1`. The historical
 /// `Low` Rust name is retained for compatibility. `MapClass__FindBridgeRecord`
 /// skips non-zero kinds, so callers must choose high-only vs all-record use.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize, Default,
+)]
 pub enum BridgeRecordKind {
+    #[default]
     High,
     Low,
-}
-
-impl Default for BridgeRecordKind {
-    fn default() -> Self {
-        Self::High
-    }
 }
 
 /// A bridge's map-load endpoint pair for zone connectivity.

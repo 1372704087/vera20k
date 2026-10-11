@@ -210,7 +210,7 @@ fn certify_bag_adpcm_block_invariants() {
                 }
                 let payload = block_end - pos - preamble;
                 let group = 4 * channels;
-                if payload % group != 0 {
+                if !payload.is_multiple_of(group) {
                     let line = format!(
                         "{mix_name} '{name}': {channels}ch block at {pos} real payload \
                          {payload} not a multiple of {group} — the native pads it \

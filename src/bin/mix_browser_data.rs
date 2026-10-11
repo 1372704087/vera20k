@@ -86,7 +86,7 @@ pub fn detect_file_type(data: &[u8]) -> String {
             let frames = u32::from_le_bytes([data[16], data[17], data[18], data[19]]);
             let limbs = u32::from_le_bytes([data[20], data[21], data[22], data[23]]);
             // Reasonable bounds: 1-999 frames, 1-50 limbs.
-            if frames >= 1 && frames < 1000 && limbs >= 1 && limbs < 50 {
+            if (1..1000).contains(&frames) && (1..50).contains(&limbs) {
                 let expected_size = 24 + limbs * 16 + frames * limbs * 48;
                 // Allow some tolerance (file may have padding).
                 if data.len() as u32 >= expected_size {
@@ -114,7 +114,7 @@ pub fn detect_file_type(data: &[u8]) -> String {
         let tile_w = u32::from_le_bytes([data[8], data[9], data[10], data[11]]);
         let tile_h = u32::from_le_bytes([data[12], data[13], data[14], data[15]]);
         // RA2 tiles are 60x30; template dims are small (1-20).
-        if tw >= 1 && tw <= 20 && th >= 1 && th <= 20 && tile_w == 60 && tile_h == 30 {
+        if (1..=20).contains(&tw) && (1..=20).contains(&th) && tile_w == 60 && tile_h == 30 {
             return format!("TMP ({}x{} template, {}x{} tiles)", tw, th, tile_w, tile_h);
         }
     }
@@ -124,7 +124,7 @@ pub fn detect_file_type(data: &[u8]) -> String {
         let sample_rate = u16::from_le_bytes([data[0], data[1]]);
         let compression = data[9];
         // Westwood IMA ADPCM = 99, uncompressed = 1.
-        if sample_rate >= 8000 && sample_rate <= 48000 && (compression == 1 || compression == 99) {
+        if (8000..=48000).contains(&sample_rate) && (compression == 1 || compression == 99) {
             let comp_name = if compression == 99 {
                 "IMA ADPCM"
             } else {

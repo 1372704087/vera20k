@@ -85,16 +85,11 @@ impl CsfFile {
         let mut entries: HashMap<String, String> = HashMap::with_capacity(label_count as usize);
         let mut offset: usize = 24;
 
-        loop {
-            match parse_label_entry(data, offset) {
-                Ok((key, value, next_offset)) => {
-                    entries.insert(key, value);
-                    offset = next_offset;
-                }
-                // Retail walks records until the next read/magic check fails;
-                // header counts are validated but are not the loop bound.
-                Err(_) => break,
-            }
+        // Retail walks records until the next read/magic check fails;
+        // header counts are validated but are not the loop bound.
+        while let Ok((key, value, next_offset)) = parse_label_entry(data, offset) {
+            entries.insert(key, value);
+            offset = next_offset;
         }
 
         log::info!(
@@ -330,7 +325,9 @@ fn parse_label_entry(data: &[u8], offset: usize) -> Result<(String, String, usiz
 fn decode_csf_string(encoded: &[u8]) -> String {
     let decoded_bytes: Vec<u8> = encoded.iter().map(|b| !b).collect();
     let u16_values: Vec<u16> = decoded_bytes
-        .chunks_exact(2)
+        .as_chunks::<2>()
+        .0
+        .iter()
         .map(|pair| u16::from_le_bytes([pair[0], pair[1]]))
         .collect();
     String::from_utf16_lossy(&normalize_whitespace(&u16_values))

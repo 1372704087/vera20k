@@ -546,7 +546,7 @@ fn evaluate_ground_cell_entry(ctx: CanEnterCellContext<'_>) -> CanEnterCellResul
         return evaluate_shared_cell_leaf(ctx, land_passable, true);
     }
 
-    let grid_ok = ctx.path_grid.map_or(true, |grid| {
+    let grid_ok = ctx.path_grid.is_none_or(|grid| {
         ctx.bypass_grid
             || if ctx.is_infantry {
                 grid.is_walkable_for_infantry(x, y)

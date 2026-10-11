@@ -492,6 +492,10 @@ impl WaveStore {
         self.waves.len()
     }
 
+    pub fn is_empty(&self) -> bool {
+        self.waves.is_empty()
+    }
+
     pub fn iter(&self) -> impl Iterator<Item = (&u64, &Wave)> {
         self.waves.iter()
     }

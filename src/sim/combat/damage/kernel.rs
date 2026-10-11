@@ -44,7 +44,6 @@ fn decoded_f32(value: f64) -> MaskedX87Value {
 /// The caller owns null-warhead admission because this API takes decoded fields.
 /// Infinity/NaN values follow masked x87 value semantics; status flags, traps and
 /// the rest of the FPU environment are outside this numeric receiver contract.
-#[allow(clippy::too_many_arguments)]
 pub(crate) fn apply_warhead_damage(
     damage: i32,
     cell_spread: f64,

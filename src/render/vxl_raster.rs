@@ -1330,10 +1330,10 @@ pub fn render_vxl(
     params: &VxlRenderParams,
     vpl: Option<&VplFile>,
 ) -> VxlSprite {
-    if let Some(draw) = prepare_native_draw(vxl, hva, params, vpl) {
-        if let Some(sprite) = draw.render_cpu() {
-            return sprite;
-        }
+    if let Some(draw) = prepare_native_draw(vxl, hva, params, vpl)
+        && let Some(sprite) = draw.render_cpu()
+    {
+        return sprite;
     }
     // Magnified previews, constructed diagnostic models, or invalid native
     // streams/crops use the prior general projection. Production stock VXLs
@@ -1734,8 +1734,8 @@ mod tests {
         let started = Instant::now();
         for unit in 0..128 {
             let blend = VxlSlopeBlend {
-                from_slope: (unit / 16) as u8,
-                to_slope: (unit % 16) as u8,
+                from_slope: (unit / 16),
+                to_slope: (unit % 16),
                 phase_num: 1,
                 phase_den: 3,
             };

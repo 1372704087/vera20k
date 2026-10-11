@@ -1332,7 +1332,7 @@ fn assert_ready_fatal_routes(corpus: &Value) {
         .filter(|route| route["input"]["route"] == "mtnk_105mm_ap_fatal")
     {
         let label = format!("original seed{}", int(&route["input"]["seed"]));
-        let mut fixture = Fixture::new(&corpus, &route["before"]);
+        let mut fixture = Fixture::new(corpus, &route["before"]);
         fixture.receiver_birth_floor = i32::MIN;
         fixture.assert_live_frame(
             route,

@@ -239,7 +239,9 @@ fn original_area_receipt_selects_nullify_after_em_effect_rng_and_before_return()
         let hex = world.scenario_rng.native_state_hex();
         let bytes = hex
             .as_bytes()
-            .chunks_exact(2)
+            .as_chunks::<2>()
+            .0
+            .iter()
             .map(|digits| u8::from_str_radix(std::str::from_utf8(digits).unwrap(), 16).unwrap())
             .collect::<Vec<_>>();
         assert_eq!(

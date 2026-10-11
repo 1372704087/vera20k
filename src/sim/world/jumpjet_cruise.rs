@@ -815,7 +815,6 @@ mod tests {
         entity.movement_target = Some(MovementTarget {
             speed: SimFixed::from_num(14),
             final_goal: Some((16, 10)),
-            ..Default::default()
         });
         sim.substrate.entities.insert(entity);
         sim

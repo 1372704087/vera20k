@@ -59,7 +59,9 @@ fn coordinate(point: Option<crate::sim::components::DriveCoord>) -> Value {
 fn rng_sha(hex: String) -> String {
     let bytes: Vec<_> = hex
         .as_bytes()
-        .chunks_exact(2)
+        .as_chunks::<2>()
+        .0
+        .iter()
         .map(|digits| u8::from_str_radix(std::str::from_utf8(digits).unwrap(), 16).unwrap())
         .collect();
     crate::util::sha256::sha256_hex(&bytes)
@@ -500,7 +502,7 @@ fn retail_fv_approach_matches_native_candidates_admission_and_queue() {
                 .as_ref()
                 .unwrap_or(&runtime.resources.rules);
             let sim = &mut runtime.simulation;
-            sim.resolve_type_handles(&rules);
+            sim.resolve_type_handles(rules);
             let actor = sim.substrate.entities.get_mut(id).unwrap();
             actor.attack_target = Some(AttackTarget::for_cell(87, 54));
             actor.in_playfield = row["input"].get("in_playfield").is_none_or(|v| v == 1);
@@ -519,7 +521,7 @@ fn retail_fv_approach_matches_native_candidates_admission_and_queue() {
                 assert!(sim.set_unit_destination(
                     id,
                     NavTargetRef::cell(rx, ry),
-                    &rules,
+                    rules,
                     true,
                     crate::sim::world::FrameEffects::default()
                 ));
@@ -579,7 +581,7 @@ fn retail_fv_approach_matches_native_candidates_admission_and_queue() {
             let result = sim
                 .approach_unit_cell_target(
                     id,
-                    &rules,
+                    rules,
                     Some(&runtime.resources.overlay_registry),
                     crate::sim::world::FrameEffects::default(),
                 )

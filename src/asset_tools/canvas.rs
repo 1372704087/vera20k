@@ -105,7 +105,7 @@ impl Rgba {
             return Self::default();
         };
         let mut data = vec![0u8; len];
-        for pixel in data.chunks_exact_mut(4) {
+        for pixel in data.as_chunks_mut::<4>().0 {
             pixel.copy_from_slice(&color);
         }
         Self { data, w, h }
@@ -591,7 +591,7 @@ mod tests {
     fn choose_scale_uses_the_long_edge_for_a_tile() {
         // 60x30 iso tile: 1024 / 60 = 17, long edge lands at 1020.
         assert_eq!(choose_scale(60, 30), 17);
-        assert!(60 * 17 <= MAX_LONG_EDGE && 60 * 17 >= MIN_LONG_EDGE);
+        const { assert!(60 * 17 <= MAX_LONG_EDGE && 60 * 17 >= MIN_LONG_EDGE) };
     }
 
     #[test]
@@ -761,7 +761,9 @@ mod tests {
         draw_text(&mut target, 1, 1, "A", HEADER_COLOR);
         let lit = target
             .data
-            .chunks_exact(4)
+            .as_chunks::<4>()
+            .0
+            .iter()
             .filter(|px| px[0] == 255 && px[1] == 255 && px[2] == 255)
             .count();
         assert!(lit > 0, "glyph 'A' should light some pixels");

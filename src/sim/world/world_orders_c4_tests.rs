@@ -198,7 +198,7 @@ fn c4_plant_happy_path_kills_building_and_seal_survives() {
         sim.substrate
             .entities
             .get(bld)
-            .map_or(true, |b| b.dying || b.health.current == 0),
+            .is_none_or(|b| b.dying || b.health.current == 0),
         "building must be destroyed at plant_start + c4_delay (plant_start={plant_start}, sim.session.tick={})",
         sim.session.tick
     );
@@ -324,7 +324,7 @@ fn c4_attacker_death_does_not_abort_detonation() {
         sim.substrate
             .entities
             .get(bld)
-            .map_or(true, |b| b.dying || b.health.current == 0),
+            .is_none_or(|b| b.dying || b.health.current == 0),
         "PARITY (OQ2): detonation must fire even after attacker death"
     );
 }
@@ -519,7 +519,7 @@ fn stop_cancels_walkup_but_not_already_claimed_plant() {
         sim.substrate
             .entities
             .get(bld)
-            .map_or(true, |b| b.dying || b.health.current == 0),
+            .is_none_or(|b| b.dying || b.health.current == 0),
         "claimed plant detonates on schedule even after Stop on attacker"
     );
 }

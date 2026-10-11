@@ -1169,8 +1169,10 @@ mod tests {
             preview
                 .image
                 .rgba
-                .chunks_exact(4)
-                .filter(|pixel| *pixel == [0, 0, 0, 255])
+                .as_chunks::<4>()
+                .0
+                .iter()
+                .filter(|pixel| **pixel == [0, 0, 0, 255])
                 .count(),
             3 * 4 * 4,
             "both assigned starts and the unassigned start are burned black"

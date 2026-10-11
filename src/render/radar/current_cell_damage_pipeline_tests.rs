@@ -53,7 +53,7 @@ fn cell(rx: u16, ry: u16) -> ResolvedTerrainCell {
 }
 
 fn simulation_fixture() -> (Simulation, crate::map::terrain::TerrainGrid) {
-    let mut terrain = crate::map::resolved_terrain::test_grid(SIDE, SIDE, |rx, ry| cell(rx, ry));
+    let mut terrain = crate::map::resolved_terrain::test_grid(SIDE, SIDE, cell);
     // Native572230 selects pavement from the raw tile independently of its
     // overlay-state write. Give synthetic tile42 the retail relative identity
     // BridgeBottomRight1=3 with BridgeSet base40; an overlay alone is not enough.

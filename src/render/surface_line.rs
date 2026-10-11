@@ -293,15 +293,15 @@ pub(crate) fn rasterize_z_clipped(
             z,
             clipped_start_x: a[0],
         });
-        for axis in 0..3 {
-            if axis == dominant || errors[axis] > 0 {
+        for (axis, error) in errors.iter_mut().enumerate() {
+            if axis == dominant || *error > 0 {
                 match axis {
                     0 => point[0] += 1,
                     1 => point[1] += y_step,
                     _ => adjustment += z_step,
                 }
                 if axis != dominant {
-                    errors[axis] -= 2 * count;
+                    *error -= 2 * count;
                 }
             }
         }

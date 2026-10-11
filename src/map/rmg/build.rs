@@ -492,11 +492,11 @@ mod tests {
         }
     }
 
+    type Projection = (Vec<i32>, Vec<(u16, u16, u8, u8)>, Vec<(u8, u16, u16)>);
+
     /// The comparable content of a generated map: what the emitter projected
     /// plus the start positions.
-    fn projection(
-        generated: &GeneratedMap,
-    ) -> (Vec<i32>, Vec<(u16, u16, u8, u8)>, Vec<(u8, u16, u16)>) {
+    fn projection(generated: &GeneratedMap) -> Projection {
         let tiles = generated
             .map_file
             .cells
@@ -835,9 +835,7 @@ mod tests {
         }
     }
 
-    fn snapshot_projection(
-        snapshot: &GenerationSnapshot,
-    ) -> (Vec<i32>, Vec<(u16, u16, u8, u8)>, Vec<(u8, u16, u16)>) {
+    fn snapshot_projection(snapshot: &GenerationSnapshot) -> Projection {
         let tiles = snapshot
             .map_file
             .cells

@@ -153,9 +153,9 @@ fn colors() -> HashMap<(u8, u8), [u8; 3]> {
     ])
 }
 
-fn projection<'a>(
+fn projection(
     grid: &TerrainGrid,
-    runtime: &'a SimRuntime,
+    runtime: &SimRuntime,
     presentation: &[MinimapOverlayDatum],
     bounds: PlayfieldBounds,
     colors: &HashMap<(u8, u8), [u8; 3]>,

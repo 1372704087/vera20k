@@ -386,7 +386,6 @@ pub(super) fn prepare_random_map_generation(
     })
 }
 
-#[allow(clippy::too_many_arguments)]
 pub(super) fn spawn_random_map_generation_worker(
     options: crate::map::rmg::RmgOptions,
     settings: crate::map::rmg::RmgSettings,
@@ -497,7 +496,9 @@ fn write_random_map_preview_to_dir(
     };
     let rgb: Vec<u8> = preview
         .rgba
-        .chunks_exact(4)
+        .as_chunks::<4>()
+        .0
+        .iter()
         .flat_map(|px| {
             crate::render::native_surface_format::ACTIVE_RETAIL_RGB565_PRESENTATION
                 .storage_roundtrip_rgb8([px[0], px[1], px[2]])
@@ -815,10 +816,9 @@ impl App {
             .skirmish_shell_state
             .random_map_setup_modal
             .as_mut()
+            && let Some(preview) = preview
         {
-            if let Some(preview) = preview {
-                modal.show_progress_preview(preview);
-            }
+            modal.show_progress_preview(preview);
         }
         true
     }
@@ -1499,7 +1499,8 @@ mod tests {
             "repeated Generate in one open dialog reuses the cached RMG map storage"
         );
 
-        let changes: [(&str, fn(&mut crate::map::rmg::RmgOptions)); 4] = [
+        type OptionsChange = fn(&mut crate::map::rmg::RmgOptions);
+        let changes: [(&str, OptionsChange); 4] = [
             ("theater", |changed| changed.theater = 1),
             ("num_players", |changed| changed.num_players = 3),
             ("width", |changed| changed.width = 1),
@@ -1618,8 +1619,10 @@ mod tests {
     }
 
     fn generated_preview(seed: i32, start_x: u16) -> crate::map::rmg::GeneratedMap {
-        let mut options = crate::map::rmg::RmgOptions::default();
-        options.seed = seed;
+        let options = crate::map::rmg::RmgOptions {
+            seed,
+            ..Default::default()
+        };
         crate::map::rmg::GeneratedMap {
             map_file: crate::map::rmg::emit::empty_map_file(&options, 32, 32),
             mapgen_continuation: Some(

@@ -180,7 +180,8 @@ mod locomotor_field_hash_tests {
     /// active fold are among them.
     #[test]
     fn every_active_and_stashed_locomotor_field_changes_current_hash() {
-        let mutations: [(&str, fn(&mut LocomotorState)); 7] = [
+        type Mutation = (&'static str, fn(&mut LocomotorState));
+        let mutations: [Mutation; 7] = [
             ("kind", |l| l.kind = LocomotorKind::Walk),
             ("powered", |l| l.powered = false),
             ("layer", |l| l.layer = MovementLayer::Bridge),
@@ -1184,7 +1185,7 @@ impl Simulation {
             return;
         };
         1u8.hash(hasher);
-        let mut entries: Vec<(u16, u16, Option<u16>, Option<(u16, u16)>, u8)> = grid
+        let mut entries: Vec<_> = grid
             .iter_occupied()
             .map(|(rx, ry, c)| (rx, ry, c.type_id, c.footprint_origin, c.frame_offset))
             .collect();
@@ -3348,7 +3349,8 @@ mod particle_hash_tests {
         base.particles.push(particle_with_spark(None));
         let base_hash = hash_with_system(base.clone());
         let owner_house = Simulation::new().interner.intern("Americans");
-        let edits: Vec<Box<dyn Fn(&mut ParticleSystem)>> = vec![
+        type Edit = Box<dyn Fn(&mut ParticleSystem)>;
+        let edits: Vec<Edit> = vec![
             Box::new(|s| s.offset = IVec3::new(1, 0, 0)),
             Box::new(|s| s.spawn_timer = SimFixed::from_num(1)),
             Box::new(|s| s.spark_spawn_frames = 1),

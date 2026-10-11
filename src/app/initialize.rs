@@ -238,7 +238,7 @@ impl App {
             })
         });
         if let Some(fnt) = startup_fnt.as_ref() {
-            bit_font = BitFont::from_fnt(&gpu, &batch_renderer, &fnt);
+            bit_font = BitFont::from_fnt(&gpu, &batch_renderer, fnt);
         }
         let mut startup_splash = if capture_dimensions.is_none() && main_menu_shell_error.is_none()
         {

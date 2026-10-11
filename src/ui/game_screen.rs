@@ -15,9 +15,10 @@
 /// - Loading → InGame (the loaded scenario starts)
 /// - Loading → MissionResult (the load fails or its startup is rejected)
 /// - InGame → MainMenu (user presses Escape)
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub enum GameScreen {
     /// The retail menu shell. No map is loaded yet.
+    #[default]
     MainMenu,
 
     /// Transitional state: map is being loaded.
@@ -31,10 +32,4 @@ pub enum GameScreen {
 
     /// Mission ended: victory, defeat, or script-forced end state.
     MissionResult { title: String, detail: String },
-}
-
-impl Default for GameScreen {
-    fn default() -> Self {
-        Self::MainMenu
-    }
 }

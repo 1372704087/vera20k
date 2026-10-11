@@ -620,7 +620,7 @@ fn select_facings(requested: &[u8], limit: usize) -> FacingSelection {
 /// Exact-only on purpose: labelling facing 70 as "E" would be a small lie
 /// burned into an image, and the degrees column already places it.
 fn compass_name(facing: u8) -> Option<&'static str> {
-    if facing % COMPASS_STEP != 0 {
+    if !facing.is_multiple_of(COMPASS_STEP) {
         return None;
     }
     COMPASS_NAMES
@@ -699,7 +699,11 @@ fn sprite_to_rgba(sprite: &VxlSprite, palette: &Palette) -> Option<Rgba> {
 }
 
 fn count_opaque(rgba: &[u8]) -> usize {
-    rgba.chunks_exact(4).filter(|pixel| pixel[3] != 0).count()
+    rgba.as_chunks::<4>()
+        .0
+        .iter()
+        .filter(|pixel| pixel[3] != 0)
+        .count()
 }
 
 /// Composite one facing onto the checkerboard and draw its markers.
@@ -814,7 +818,6 @@ fn cell_label(facing: u8, w: u32, h: u32) -> String {
 /// Header lines printed above the contact sheet. An agent that only looks at
 /// the image must still know which palette and which lighting table produced
 /// these colours.
-#[allow(clippy::too_many_arguments)]
 fn sheet_header(
     name: &str,
     source_archive: &str,
@@ -1301,7 +1304,7 @@ mod tests {
         assert_eq!(fit_scale(60, 50, 8), Some(8));
 
         let fitted = fit_scale(4000, 4000, 16).expect("reduced, not refused");
-        assert!(fitted >= MIN_SCALE && fitted < 16, "{fitted}");
+        assert!((MIN_SCALE..16).contains(&fitted), "{fitted}");
         // A corrupt header claiming a giant sprite fails instead of allocating.
         assert_eq!(fit_scale(60_000, 60_000, 1), None);
         assert_eq!(fit_scale(0, 0, 2), Some(2));

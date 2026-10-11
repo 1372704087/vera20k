@@ -29,8 +29,6 @@ use crate::rules::overlay_types::{
 };
 use crate::rules::tiberium_type::TiberiumTypeRegistry;
 
-/// Maximum atlas texture width for overlay sprites (pixels).
-
 /// Padding between sprites in the atlas to prevent texture bleeding.
 const SPRITE_PADDING: u32 = 1;
 
@@ -802,16 +800,16 @@ fn render_overlay_sprite(
     );
     // Debug override: force all tiberium overlays to render using one chosen image
     // (e.g. TIB01/TIB02/TIB03) to quickly validate sprite selection issues.
-    if flags.tiberium {
-        if let Some(forced_name) = forced_tiberium_image_name() {
-            candidates.insert(
-                0,
-                format!("{}.{}", forced_name.to_ascii_lowercase(), theater_ext),
-            );
-            candidates.insert(1, format!("{}.shp", forced_name.to_ascii_lowercase()));
-            candidates.insert(2, format!("{}.{}", forced_name, theater_ext));
-            candidates.insert(3, format!("{}.shp", forced_name));
-        }
+    if flags.tiberium
+        && let Some(forced_name) = forced_tiberium_image_name()
+    {
+        candidates.insert(
+            0,
+            format!("{}.{}", forced_name.to_ascii_lowercase(), theater_ext),
+        );
+        candidates.insert(1, format!("{}.shp", forced_name.to_ascii_lowercase()));
+        candidates.insert(2, format!("{}.{}", forced_name, theater_ext));
+        candidates.insert(3, format!("{}.shp", forced_name));
     }
 
     if let Some(alias) = decrement_numeric_suffix(&key.name) {
@@ -1115,7 +1113,7 @@ fn probe_terrain_shp_frame_count(
         };
         // Terrain SHPs store shadow frames in the second half (same layout
         // as buildings/bridges). Only the first half are normal image frames.
-        let normal = (shp.frames.len() / 2).max(1).min(255) as u8;
+        let normal = (shp.frames.len() / 2).clamp(1, 255) as u8;
         return normal;
     }
     1
@@ -1227,6 +1225,166 @@ mod mirage_tests;
 #[cfg(test)]
 #[path = "overlay_atlas_radar_tests.rs"]
 mod radar_tests;
+
+/// Shelf-pack rendered overlay sprites into a GPU texture atlas.
+fn pack_overlay_sprites(
+    device: &wgpu::Device,
+    queue: &wgpu::Queue,
+    batch: &BatchRenderer,
+    sprites: &[RenderedOverlay],
+    native_terrain: HashSet<String>,
+) -> OverlayAtlas {
+    let PackedOverlaySprites {
+        rgba,
+        source_indices,
+        entries,
+        width: atlas_width,
+        height: atlas_height,
+    } = pack_overlay_pixels(sprites, device.limits().max_texture_dimension_2d);
+    log::info!(
+        "Overlay atlas: {}x{} px ({:.1} MB), {} sprites",
+        atlas_width,
+        atlas_height,
+        (atlas_width as u64 * atlas_height as u64 * 5) as f64 / (1024.0 * 1024.0),
+        entries.len()
+    );
+
+    let texture: BatchTexture = batch.create_texture_on_device(
+        device,
+        queue,
+        &rgba,
+        atlas_width,
+        atlas_height,
+        Some(&source_indices),
+    );
+    OverlayAtlas {
+        texture,
+        entries,
+        native_terrain,
+    }
+}
+
+struct PackedOverlaySprites {
+    rgba: Vec<u8>,
+    source_indices: Vec<u8>,
+    entries: HashMap<OverlaySpriteKey, OverlaySpriteEntry>,
+    width: u32,
+    height: u32,
+}
+
+/// One placement/copy owner for both atlas planes, used by the real GPU upload.
+fn pack_overlay_pixels(sprites: &[RenderedOverlay], max_texture_dim: u32) -> PackedOverlaySprites {
+    // Sort by height descending for shelf packing efficiency.
+    let mut indices: Vec<usize> = (0..sprites.len()).collect();
+    indices.sort_by(|&a, &b| sprites[b].height.cmp(&sprites[a].height));
+
+    let total_area: u64 = sprites
+        .iter()
+        .map(|s| {
+            (s.width as u64 + SPRITE_PADDING as u64) * (s.height as u64 + SPRITE_PADDING as u64)
+        })
+        .sum();
+    let estimated_side: u32 = (total_area as f64).sqrt().ceil() as u32;
+    let mut atlas_width: u32 = estimated_side.clamp(64, max_texture_dim);
+
+    // Shelf-pack with retry: widen atlas if height exceeds GPU texture limit.
+    let placements: Vec<(usize, u32, u32)>;
+    let atlas_height: u32;
+    loop {
+        let mut trial: Vec<(usize, u32, u32)> = Vec::with_capacity(sprites.len());
+        let mut cx: u32 = 0;
+        let mut cy: u32 = 0;
+        let mut shelf_h: u32 = 0;
+        for &idx in &indices {
+            let w: u32 = sprites[idx].width;
+            let h: u32 = sprites[idx].height;
+            if cx + w > atlas_width {
+                cy += shelf_h + SPRITE_PADDING;
+                cx = 0;
+                shelf_h = 0;
+            }
+            trial.push((idx, cx, cy));
+            cx += w + SPRITE_PADDING;
+            shelf_h = shelf_h.max(h);
+        }
+        let trial_height: u32 = trial
+            .iter()
+            .map(|&(idx, _, py)| py + sprites[idx].height)
+            .max()
+            .unwrap_or(1);
+        if trial_height <= max_texture_dim {
+            placements = trial;
+            atlas_height = trial_height;
+            break;
+        }
+        if atlas_width >= max_texture_dim {
+            log::warn!(
+                "Overlay atlas height {} exceeds GPU limit {} at max width",
+                trial_height,
+                max_texture_dim
+            );
+            placements = trial;
+            atlas_height = trial_height.min(max_texture_dim);
+            break;
+        }
+        atlas_width = (atlas_width.saturating_mul(2)).min(max_texture_dim);
+    }
+
+    let mut rgba: Vec<u8> = vec![0u8; (atlas_width * atlas_height * 4) as usize];
+    let mut source_indices = vec![0u8; (atlas_width * atlas_height) as usize];
+    let mut entries: HashMap<OverlaySpriteKey, OverlaySpriteEntry> =
+        HashMap::with_capacity(placements.len());
+    let aw: f32 = atlas_width as f32;
+    let ah: f32 = atlas_height as f32;
+
+    for &(idx, px, py) in &placements {
+        let spr: &RenderedOverlay = &sprites[idx];
+        let w: u32 = spr.width;
+        let h: u32 = spr.height;
+
+        for y in 0..h {
+            let src_start: usize = (y * w * 4) as usize;
+            let src_end: usize = src_start + (w * 4) as usize;
+            let dst_start: usize = (((py + y) * atlas_width + px) * 4) as usize;
+            let dst_end: usize = dst_start + (w * 4) as usize;
+            if src_end <= spr.rgba.len() && dst_end <= rgba.len() {
+                rgba[dst_start..dst_end].copy_from_slice(&spr.rgba[src_start..src_end]);
+                source_indices[dst_start / 4..dst_end / 4]
+                    .copy_from_slice(&spr.source_indices[src_start / 4..src_end / 4]);
+            }
+        }
+
+        entries.insert(
+            spr.key.clone(),
+            OverlaySpriteEntry {
+                uv_origin: [px as f32 / aw, py as f32 / ah],
+                uv_size: [w as f32 / aw, h as f32 / ah],
+                pixel_size: [w as f32, h as f32],
+                offset_x: spr.offset_x,
+                offset_y: spr.offset_y,
+            },
+        );
+    }
+
+    PackedOverlaySprites {
+        rgba,
+        source_indices,
+        entries,
+        width: atlas_width,
+        height: atlas_height,
+    }
+}
+
+#[cfg(test)]
+impl OverlayAtlas {
+    pub(crate) fn from_test_texture(texture: BatchTexture) -> Self {
+        Self {
+            texture,
+            entries: HashMap::new(),
+            native_terrain: HashSet::new(),
+        }
+    }
+}
 
 #[cfg(test)]
 mod tests {
@@ -1603,166 +1761,6 @@ mod tests {
                 name: name.to_string(),
                 frame,
             }));
-        }
-    }
-}
-
-/// Shelf-pack rendered overlay sprites into a GPU texture atlas.
-fn pack_overlay_sprites(
-    device: &wgpu::Device,
-    queue: &wgpu::Queue,
-    batch: &BatchRenderer,
-    sprites: &[RenderedOverlay],
-    native_terrain: HashSet<String>,
-) -> OverlayAtlas {
-    let PackedOverlaySprites {
-        rgba,
-        source_indices,
-        entries,
-        width: atlas_width,
-        height: atlas_height,
-    } = pack_overlay_pixels(sprites, device.limits().max_texture_dimension_2d);
-    log::info!(
-        "Overlay atlas: {}x{} px ({:.1} MB), {} sprites",
-        atlas_width,
-        atlas_height,
-        (atlas_width as u64 * atlas_height as u64 * 5) as f64 / (1024.0 * 1024.0),
-        entries.len()
-    );
-
-    let texture: BatchTexture = batch.create_texture_on_device(
-        device,
-        queue,
-        &rgba,
-        atlas_width,
-        atlas_height,
-        Some(&source_indices),
-    );
-    OverlayAtlas {
-        texture,
-        entries,
-        native_terrain,
-    }
-}
-
-struct PackedOverlaySprites {
-    rgba: Vec<u8>,
-    source_indices: Vec<u8>,
-    entries: HashMap<OverlaySpriteKey, OverlaySpriteEntry>,
-    width: u32,
-    height: u32,
-}
-
-/// One placement/copy owner for both atlas planes, used by the real GPU upload.
-fn pack_overlay_pixels(sprites: &[RenderedOverlay], max_texture_dim: u32) -> PackedOverlaySprites {
-    // Sort by height descending for shelf packing efficiency.
-    let mut indices: Vec<usize> = (0..sprites.len()).collect();
-    indices.sort_by(|&a, &b| sprites[b].height.cmp(&sprites[a].height));
-
-    let total_area: u64 = sprites
-        .iter()
-        .map(|s| {
-            (s.width as u64 + SPRITE_PADDING as u64) * (s.height as u64 + SPRITE_PADDING as u64)
-        })
-        .sum();
-    let estimated_side: u32 = (total_area as f64).sqrt().ceil() as u32;
-    let mut atlas_width: u32 = estimated_side.clamp(64, max_texture_dim);
-
-    // Shelf-pack with retry: widen atlas if height exceeds GPU texture limit.
-    let placements: Vec<(usize, u32, u32)>;
-    let atlas_height: u32;
-    loop {
-        let mut trial: Vec<(usize, u32, u32)> = Vec::with_capacity(sprites.len());
-        let mut cx: u32 = 0;
-        let mut cy: u32 = 0;
-        let mut shelf_h: u32 = 0;
-        for &idx in &indices {
-            let w: u32 = sprites[idx].width;
-            let h: u32 = sprites[idx].height;
-            if cx + w > atlas_width {
-                cy += shelf_h + SPRITE_PADDING;
-                cx = 0;
-                shelf_h = 0;
-            }
-            trial.push((idx, cx, cy));
-            cx += w + SPRITE_PADDING;
-            shelf_h = shelf_h.max(h);
-        }
-        let trial_height: u32 = trial
-            .iter()
-            .map(|&(idx, _, py)| py + sprites[idx].height)
-            .max()
-            .unwrap_or(1);
-        if trial_height <= max_texture_dim {
-            placements = trial;
-            atlas_height = trial_height;
-            break;
-        }
-        if atlas_width >= max_texture_dim {
-            log::warn!(
-                "Overlay atlas height {} exceeds GPU limit {} at max width",
-                trial_height,
-                max_texture_dim
-            );
-            placements = trial;
-            atlas_height = trial_height.min(max_texture_dim);
-            break;
-        }
-        atlas_width = (atlas_width.saturating_mul(2)).min(max_texture_dim);
-    }
-
-    let mut rgba: Vec<u8> = vec![0u8; (atlas_width * atlas_height * 4) as usize];
-    let mut source_indices = vec![0u8; (atlas_width * atlas_height) as usize];
-    let mut entries: HashMap<OverlaySpriteKey, OverlaySpriteEntry> =
-        HashMap::with_capacity(placements.len());
-    let aw: f32 = atlas_width as f32;
-    let ah: f32 = atlas_height as f32;
-
-    for &(idx, px, py) in &placements {
-        let spr: &RenderedOverlay = &sprites[idx];
-        let w: u32 = spr.width;
-        let h: u32 = spr.height;
-
-        for y in 0..h {
-            let src_start: usize = (y * w * 4) as usize;
-            let src_end: usize = src_start + (w * 4) as usize;
-            let dst_start: usize = (((py + y) * atlas_width + px) * 4) as usize;
-            let dst_end: usize = dst_start + (w * 4) as usize;
-            if src_end <= spr.rgba.len() && dst_end <= rgba.len() {
-                rgba[dst_start..dst_end].copy_from_slice(&spr.rgba[src_start..src_end]);
-                source_indices[dst_start / 4..dst_end / 4]
-                    .copy_from_slice(&spr.source_indices[src_start / 4..src_end / 4]);
-            }
-        }
-
-        entries.insert(
-            spr.key.clone(),
-            OverlaySpriteEntry {
-                uv_origin: [px as f32 / aw, py as f32 / ah],
-                uv_size: [w as f32 / aw, h as f32 / ah],
-                pixel_size: [w as f32, h as f32],
-                offset_x: spr.offset_x,
-                offset_y: spr.offset_y,
-            },
-        );
-    }
-
-    PackedOverlaySprites {
-        rgba,
-        source_indices,
-        entries,
-        width: atlas_width,
-        height: atlas_height,
-    }
-}
-
-#[cfg(test)]
-impl OverlayAtlas {
-    pub(crate) fn from_test_texture(texture: BatchTexture) -> Self {
-        Self {
-            texture,
-            entries: HashMap::new(),
-            native_terrain: HashSet::new(),
         }
     }
 }

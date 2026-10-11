@@ -582,10 +582,9 @@ impl Simulation {
                 .as_infantry()
                 .is_some_and(|leaf| leaf.doing() == DO_PARADROP)
                 && !actor.is_falling_down()
-        }) {
-            if let Err(cause) = self.infantry_do_action(id, DO_READY, true, rules, effects) {
-                log::debug!("infantry {id} Paradrop completion: {cause}");
-            }
+        }) && let Err(cause) = self.infantry_do_action(id, DO_READY, true, rules, effects)
+        {
+            log::debug!("infantry {id} Paradrop completion: {cause}");
         }
         // Health zero is a retained death sequence, not UnInit. Keep its
         // native count boundary distinct from ordinary AI eligibility.

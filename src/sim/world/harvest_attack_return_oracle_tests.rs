@@ -270,9 +270,9 @@ impl Replay {
             assert_eq!(contact, native[field], "{context}: {field}");
         }
         compare_state(s, &json!({"input": input, "state": native}), context);
-        if e.miner.is_some() {
+        if let Some(miner) = e.miner.as_ref() {
             assert_eq!(
-                u8::from(e.miner.as_ref().unwrap().unload_active),
+                u8::from(miner.unload_active),
                 int(&native["unloading"]) as u8,
                 "{context}: unload latch"
             );

@@ -341,28 +341,24 @@ pub fn compute_wall_connectivity(
         let mut bitmask: u8 = 0;
 
         // Bit 0: North (Y − 1, screen top-right).
-        if ry > 0 {
-            if wall_cells.get(&(rx, ry - 1)) == Some(&entry.overlay_id) {
-                bitmask |= 1;
-            }
+        if ry > 0 && wall_cells.get(&(rx, ry - 1)) == Some(&entry.overlay_id) {
+            bitmask |= 1;
         }
         // Bit 1: East (X + 1, screen bottom-right).
-        if let Some(&id) = wall_cells.get(&(rx.wrapping_add(1), ry)) {
-            if id == entry.overlay_id {
-                bitmask |= 2;
-            }
+        if let Some(&id) = wall_cells.get(&(rx.wrapping_add(1), ry))
+            && id == entry.overlay_id
+        {
+            bitmask |= 2;
         }
         // Bit 2: South (Y + 1, screen bottom-left).
-        if let Some(&id) = wall_cells.get(&(rx, ry.wrapping_add(1))) {
-            if id == entry.overlay_id {
-                bitmask |= 4;
-            }
+        if let Some(&id) = wall_cells.get(&(rx, ry.wrapping_add(1)))
+            && id == entry.overlay_id
+        {
+            bitmask |= 4;
         }
         // Bit 3: West (X − 1, screen top-left).
-        if rx > 0 {
-            if wall_cells.get(&(rx - 1, ry)) == Some(&entry.overlay_id) {
-                bitmask |= 8;
-            }
+        if rx > 0 && wall_cells.get(&(rx - 1, ry)) == Some(&entry.overlay_id) {
+            bitmask |= 8;
         }
 
         entry.frame = bitmask;

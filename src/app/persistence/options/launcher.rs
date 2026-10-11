@@ -77,7 +77,7 @@ pub(crate) fn project_launcher_resolutions(
         .enumerate()
         .filter(|(_, row)| (row.width, row.height) == retained_pair)
         .map(|(index, _)| index)
-        .last();
+        .next_back();
 
     LauncherResolutionProjection {
         rows,

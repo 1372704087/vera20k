@@ -160,7 +160,7 @@ pub fn export_debug_palette_sheet(
     let canvas_w = cols * cell_w;
     let canvas_h = rows * cell_h;
     let mut rgba = vec![32u8; (canvas_w * canvas_h * 4) as usize];
-    for px in rgba.chunks_exact_mut(4) {
+    for px in rgba.as_chunks_mut::<4>().0 {
         px[3] = 255;
     }
 

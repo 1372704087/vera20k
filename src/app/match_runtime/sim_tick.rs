@@ -956,20 +956,20 @@ fn advance_one_simulation_frame(
                             .match_state
                             .match_presentation
                             .in_game_options
-                            .detail_level as u32,
+                            .detail_level,
                     );
             }
             // Parity capture, if requested. The sim has already finalized all
             // authoritative animation and particle work, so this observes the
             // exact state covered by the returned frame hash.
-            if tick_result.frame_committed {
-                if let Some(sink) = state.diag.parity_digest_sink.as_mut() {
-                    let digest = sim.parity_digest();
-                    if let Err(error) = sink.write(&digest) {
-                        // A failing diagnostic must never take the game down with it.
-                        log::error!("parity digest write failed, disabling capture: {error}");
-                        state.diag.parity_digest_sink = None;
-                    }
+            if tick_result.frame_committed
+                && let Some(sink) = state.diag.parity_digest_sink.as_mut()
+            {
+                let digest = sim.parity_digest();
+                if let Err(error) = sink.write(&digest) {
+                    // A failing diagnostic must never take the game down with it.
+                    log::error!("parity digest write failed, disabling capture: {error}");
+                    state.diag.parity_digest_sink = None;
                 }
             }
             census_tick = tick_result.frame_committed.then_some(tick_result.tick);
@@ -1335,7 +1335,7 @@ pub(crate) fn update_building_placement_preview(state: &mut AppState) {
             .sim_runtime
             .as_ref()
             .map(|rt| &rt.simulation),
-        state.rules().map(|r| r),
+        state.rules(),
     ) else {
         state.match_state.input.building_placement_preview = None;
         return;
@@ -1659,7 +1659,7 @@ pub(crate) fn screen_point_to_world_cell(
     world_point_to_cell(
         world_x,
         world_y,
-        &state.height_map(),
+        state.height_map(),
         state.sim_view().and_then(|view| {
             crate::app::match_runtime::sim_tick::tactical_bridge_cells(view.simulation())
         }),

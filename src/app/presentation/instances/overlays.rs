@@ -199,7 +199,6 @@ fn overlay_display_identity(
     (display_overlay_id, overlay_data)
 }
 
-#[allow(clippy::too_many_arguments)]
 pub(crate) fn build_anim_class_instances(
     state: &AppState,
     ground_objects: &mut Vec<

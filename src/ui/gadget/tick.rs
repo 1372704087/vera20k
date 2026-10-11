@@ -96,7 +96,6 @@ pub fn hit_test(list: &GadgetList, mx: i32, my: i32) -> Option<GadgetHandle> {
 /// holder (even masked-0), OR masked flags contain the keyboard bit (bounds
 /// bypassed), OR masked flags are non-zero AND the point is inside the
 /// half-open rect. Returns the Action result (non-zero = consumed).
-#[allow(clippy::too_many_arguments)]
 pub(crate) fn clicked_on(
     list: &mut GadgetList,
     handle: GadgetHandle,
@@ -810,7 +809,7 @@ mod tests {
             GadgetRect::new(0, 0, 1920, 1080),
             0x7F,
         ));
-        assert!(1920 * 1080 > crate::ui::gadget::HIT_SEED_AREA);
+        const { assert!(1920 * 1080 > crate::ui::gadget::HIT_SEED_AREA) };
         tick(&mut l, &mut f, &idle(5000, 5000), &mut out); // prime, hover off
         tick(
             &mut l,

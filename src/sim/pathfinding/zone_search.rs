@@ -403,7 +403,6 @@ pub fn find_path_zoned(
 }
 
 #[cfg(test)]
-#[allow(clippy::too_many_arguments)]
 pub(crate) fn find_path_zoned_marker(
     grid: &PathGrid,
     start: (u16, u16),
@@ -496,7 +495,6 @@ pub(crate) fn find_path_zoned_marker_detailed(
 }
 
 /// The flat search with the native entry's facts given directly (tests).
-#[allow(clippy::too_many_arguments)]
 #[cfg(test)]
 fn find_path_zoned_marker_inner(
     grid: &PathGrid,
@@ -551,7 +549,6 @@ fn find_path_zoned_marker_inner(
     .map(|steps| steps.into_iter().map(|step| (step.rx, step.ry)).collect())
 }
 
-#[allow(clippy::too_many_arguments)]
 fn find_flat_path_after_entry(
     grid: &PathGrid,
     start: (u16, u16),
@@ -623,7 +620,6 @@ fn find_flat_path_after_entry(
 }
 
 #[cfg(test)]
-#[allow(clippy::too_many_arguments)]
 pub(crate) fn find_layered_path_zoned_marker(
     grid: &PathGrid,
     ground_blocks: Option<&BTreeSet<(u16, u16)>>,

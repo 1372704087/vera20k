@@ -482,7 +482,6 @@ impl Simulation {
     }
 
     /// One object of Update_Position's walk (`0x007182DC..0x0071842A`).
-    #[allow(clippy::too_many_arguments)]
     fn chrono_telefrag(
         &mut self,
         id: u64,

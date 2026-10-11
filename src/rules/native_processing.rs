@@ -169,7 +169,7 @@ impl RulesLayerStack {
                 let (_, partial_trace, _, _, _, _) = processor.finish();
                 return Err(NativeRulesProcessingFailure {
                     error,
-                    partial_trace,
+                    partial_trace: Box::new(partial_trace),
                 });
             }
         }
@@ -197,12 +197,12 @@ impl RulesLayerStack {
 #[derive(Debug)]
 pub(crate) struct NativeRulesProcessingFailure {
     error: RulesError,
-    partial_trace: NativeTypeConstructionTrace,
+    partial_trace: Box<NativeTypeConstructionTrace>,
 }
 
 impl NativeRulesProcessingFailure {
     pub(crate) fn into_parts(self) -> (RulesError, NativeTypeConstructionTrace) {
-        (self.error, self.partial_trace)
+        (self.error, *self.partial_trace)
     }
 
     fn into_error(self) -> RulesError {
@@ -308,7 +308,7 @@ pub(crate) fn process_native_campaign_rules_prepass(
         let (_, partial_trace, _, _, _, _) = processor.finish();
         return Err(NativeRulesProcessingFailure {
             error,
-            partial_trace,
+            partial_trace: Box::new(partial_trace),
         });
     }
     let (_, trace, _, _, _, _) = processor.finish();
@@ -2558,16 +2558,15 @@ impl RulesPassProcessor {
             if let Some(members) = self.families.get(&family) {
                 for member in members {
                     let mut body = member.body.clone();
-                    if family == RulesTypeFamily::Weapon {
-                        if let Some(index) = member.weapon.projectile {
-                            // Compatibility graph discovery must follow the
-                            // retained pointer even after an empty key read.
-                            body.set(
-                                "Projectile",
-                                &self.families[&RulesTypeFamily::Projectile][index]
-                                    .native_stored_id,
-                            );
-                        }
+                    if family == RulesTypeFamily::Weapon
+                        && let Some(index) = member.weapon.projectile
+                    {
+                        // Compatibility graph discovery must follow the
+                        // retained pointer even after an empty key read.
+                        body.set(
+                            "Projectile",
+                            &self.families[&RulesTypeFamily::Projectile][index].native_stored_id,
+                        );
                     }
                     ini.replace_first_section(body);
                 }

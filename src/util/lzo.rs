@@ -296,12 +296,9 @@ fn copy_match(dst: &mut [u8], op: usize, distance: usize, count: usize) -> Resul
     if op + count > dst.len() {
         return Err(LzoError::OutputOverflow);
     }
-    let mut src_pos: usize = op - distance;
-    let mut dst_pos: usize = op;
-    for _ in 0..count {
-        dst[dst_pos] = dst[src_pos];
-        src_pos += 1;
-        dst_pos += 1;
+    let src_start = op - distance;
+    for i in 0..count {
+        dst[op + i] = dst[src_start + i];
     }
     Ok(())
 }

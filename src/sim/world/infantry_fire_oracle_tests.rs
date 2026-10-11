@@ -881,8 +881,7 @@ fn original_single_listener_expiry_clears_pending_shot_and_shortens_passive_time
         let expiry_after = case["input"]["expiry_after_completed_ai_calls"]
             .as_u64()
             .unwrap() as usize;
-        let mut calls = 0;
-        for frame in case["frames"].as_array().unwrap() {
+        for (calls, frame) in case["frames"].as_array().unwrap().iter().enumerate() {
             if calls == expiry_after {
                 let expiry = &case["expiry"];
                 fixture.sim.session.binary_frame =
@@ -934,7 +933,6 @@ fn original_single_listener_expiry_clears_pending_shot_and_shortens_passive_time
             source_ai_visit(&mut fixture.sim, fixture.actor, &rules);
             assert_source(&fixture, &frame["after"], name);
             assert_rng(&fixture.sim, &frame["rng_after"], name);
-            calls += 1;
         }
     }
     assert_eq!(compared, 2);

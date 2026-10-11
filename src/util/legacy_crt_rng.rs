@@ -8,6 +8,32 @@ pub struct LegacyCrtRng {
     state: u32,
 }
 
+impl Default for LegacyCrtRng {
+    fn default() -> Self {
+        // CRT thread-context initializer 0x007D13F8, called by startup and by
+        // lazy context allocation. This does not prove the first Save sees 1:
+        // other active consumers can have drawn or reseeded before it.
+        Self::with_seed(1)
+    }
+}
+
+impl LegacyCrtRng {
+    pub const fn with_seed(state: u32) -> Self {
+        Self { state }
+    }
+
+    /// `_srand` 0x007CB49D replaces context+0x14 without drawing.
+    pub fn seed(&mut self, state: u32) {
+        self.state = state;
+    }
+
+    /// `_rand` 0x007CB4AA, arithmetic at 0x007CB4AF..0x007CB4CB.
+    pub fn draw15(&mut self) -> u16 {
+        self.state = self.state.wrapping_mul(0x343fd).wrapping_add(0x269ec3);
+        ((self.state >> 16) & 0x7fff) as u16
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -36,31 +62,5 @@ mod tests {
             rng.seed(seed);
             assert_eq!(u64::from(rng.draw15()), draws[0]["value"].as_u64().unwrap());
         }
-    }
-}
-
-impl Default for LegacyCrtRng {
-    fn default() -> Self {
-        // CRT thread-context initializer 0x007D13F8, called by startup and by
-        // lazy context allocation. This does not prove the first Save sees 1:
-        // other active consumers can have drawn or reseeded before it.
-        Self::with_seed(1)
-    }
-}
-
-impl LegacyCrtRng {
-    pub const fn with_seed(state: u32) -> Self {
-        Self { state }
-    }
-
-    /// `_srand` 0x007CB49D replaces context+0x14 without drawing.
-    pub fn seed(&mut self, state: u32) {
-        self.state = state;
-    }
-
-    /// `_rand` 0x007CB4AA, arithmetic at 0x007CB4AF..0x007CB4CB.
-    pub fn draw15(&mut self) -> u16 {
-        self.state = self.state.wrapping_mul(0x343fd).wrapping_add(0x269ec3);
-        ((self.state >> 16) & 0x7fff) as u16
     }
 }

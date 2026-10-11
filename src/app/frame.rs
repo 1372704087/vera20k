@@ -664,13 +664,13 @@ impl App {
                 "main-menu title receipt was stale at present commit"
             );
         }
-        if let Some(dialog) = state.frontend.keyboard_dialog.as_mut() {
-            if let Some(receipt) = dialog.title_receipt.take() {
-                anyhow::ensure!(
-                    dialog.title.record_presented(receipt),
-                    "keyboard title receipt was stale at present commit"
-                );
-            }
+        if let Some(dialog) = state.frontend.keyboard_dialog.as_mut()
+            && let Some(receipt) = dialog.title_receipt.take()
+        {
+            anyhow::ensure!(
+                dialog.title.record_presented(receipt),
+                "keyboard title receipt was stale at present commit"
+            );
         }
         if let Some(session) = shell_capture.as_deref_mut() {
             session.after_present(state, presented_shell)?;
@@ -684,12 +684,10 @@ impl App {
             let surface_format = state.renderer.gpu.config.format;
             if shell_capture_current_frame {
                 shell_capture
-                    .as_deref_mut()
                     .expect("shell capture session exists when readback completes")
                     .complete(state, surface_format, &pixels)?;
             } else {
                 tactical_capture
-                    .as_deref_mut()
                     .expect("tactical capture session exists when readback completes")
                     .complete_after_readback(state, surface_format, &pixels)?;
             }

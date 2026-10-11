@@ -205,13 +205,12 @@ fn stock_cloak_tick_facts(
     // residuals on `can_auto_cloak` above — `object.cloakable` inside
     // `is_cloakable` is that byte's stock seed, and the crate-granted and
     // `CloakStop=`-while-moving halves are both unreachable in stock data.
-    let should_uncloak = if is_cloakable && !emp_active && !paralyzed && !chrono_active {
-        false
-    } else if rank_cloak {
-        false
-    } else {
-        !cloaked_by_own_house
-    };
+    let should_uncloak =
+        if (is_cloakable && !emp_active && !paralyzed && !chrono_active) || rank_cloak {
+            false
+        } else {
+            !cloaked_by_own_house
+        };
     Some(crate::sim::cloak_disguise::CloakTickFacts::new(
         current_frame,
         state_zero_head_allows,

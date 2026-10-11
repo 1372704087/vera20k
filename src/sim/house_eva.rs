@@ -107,18 +107,16 @@ pub(crate) fn update_house_eva(sim: &mut Simulation, rules: &RuleSet, owner: Int
         .is_some_and(|power| power.is_low_power);
     if !short {
         guard = false;
-    } else if owns_construction_yard(sim, rules, owner) {
-        if !guard {
-            sim.sound_events.push(SimSoundEvent::HouseEva {
-                owner,
-                event: EVA_LOW_POWER,
-            });
-            guard = true;
-        }
-        // `0x004F8D6B..0x004F8DA6` re-arms `House+0x57BC` here; that
-        // timer has no reader (`search_instructions "0x57bc]"`: the
-        // constructor write and this write only), so it is not modelled.
+    } else if owns_construction_yard(sim, rules, owner) && !guard {
+        sim.sound_events.push(SimSoundEvent::HouseEva {
+            owner,
+            event: EVA_LOW_POWER,
+        });
+        guard = true;
     }
+    // `0x004F8D6B..0x004F8DA6` re-arms `House+0x57BC` here; that
+    // timer has no reader (`search_instructions "0x57bc]"`: the
+    // constructor write and this write only), so it is not modelled.
 
     if let Some(house) = sim.houses.get_mut(&owner) {
         house.eva_funds_timer = timer;

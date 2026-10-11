@@ -59,12 +59,14 @@ pub use self::production_repair::{RepairControl, toggle_repair};
 pub(crate) use self::production_repair::{
     can_repair_building, engineer_repair, repair_step_cost, update_repair_and_power,
 };
+#[cfg(test)]
+pub(crate) use self::production_sell::begin_selling;
 pub(crate) use self::production_sell::sell_back;
 #[cfg(test)]
 pub(crate) use self::production_sell::sell_building_now_for_test;
 pub use self::production_sell::{SellOrder, can_sell_building};
 pub(crate) use self::production_sell::{
-    archive_less_sale, begin_selling, sell_complete, sell_stage_one, sell_stage_zero, type_refund,
+    archive_less_sale, sell_complete, sell_stage_one, sell_stage_zero, type_refund,
     undeploy_target,
 };
 pub(crate) use self::production_tech::all_build_options_for_owner;

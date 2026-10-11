@@ -1187,8 +1187,7 @@ fn per_cell_factory_clearance_precedes_ready_and_preserves_foot_stop_scope() {
     });
     let position = unit.position;
     let drive = serde_json::to_value(
-        &unit
-            .locomotor
+        unit.locomotor
             .as_ref()
             .and_then(|l| l.selected_drive_runtime())
             .and_then(|r| r.retained())
@@ -1243,8 +1242,7 @@ fn per_cell_factory_clearance_precedes_ready_and_preserves_foot_stop_scope() {
     );
     assert_eq!(
         serde_json::to_value(
-            &unit
-                .locomotor
+            unit.locomotor
                 .as_ref()
                 .and_then(|l| l.selected_drive_runtime())
                 .and_then(|r| r.retained())

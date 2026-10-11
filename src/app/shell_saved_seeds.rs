@@ -164,10 +164,10 @@ impl App {
                 Self::finish_saved_seed_write(state, file_name, description);
             }
             SavedSeedPromptPurpose::Delete { file_name } if affirmative => {
-                if let Some(dir) = Self::saved_seed_dir(state) {
-                    if let Err(error) = native_file_name::delete(&dir, &file_name) {
-                        log::warn!("saved seed: could not delete {file_name}: {error}");
-                    }
+                if let Some(dir) = Self::saved_seed_dir(state)
+                    && let Err(error) = native_file_name::delete(&dir, &file_name)
+                {
+                    log::warn!("saved seed: could not delete {file_name}: {error}");
                 }
                 let layout = Self::skirmish_saved_seed_layout(state, SavedSeedMode::Delete);
                 let rows = SeedListGeometry::new(layout.list, 0, 0).visible_rows;
@@ -219,15 +219,14 @@ impl App {
                         modal.options = options.clone();
                         modal.begin_generate();
                         Self::close_saved_seed_browser(state);
-                        if !Self::start_random_map_generation(state, &options, false) {
-                            if let Some(modal) = state
+                        if !Self::start_random_map_generation(state, &options, false)
+                            && let Some(modal) = state
                                 .frontend
                                 .skirmish_shell_state
                                 .random_map_setup_modal
                                 .as_mut()
-                            {
-                                modal.fail_generate();
-                            }
+                        {
+                            modal.fail_generate();
                         }
                     }
                     Err(error) => log::warn!("saved seed: could not read {file_name}: {error}"),

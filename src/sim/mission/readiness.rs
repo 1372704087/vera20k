@@ -183,16 +183,15 @@ pub(crate) fn unit_ready_to_commence<W: UnitReadyWorld + ?Sized>(
         {
             return Ok(false);
         }
-    } else if let Some(building) = view.world.building_under_in_stored_order(view.position)? {
-        if building.weapons_factory
-            && crate::util::lepton::lepton_to_cell_packed(view.position.x)
-                == crate::util::lepton::lepton_to_cell_packed(building.anchor.x)
-            && crate::util::lepton::lepton_to_cell_packed(view.position.y).wrapping_sub(
-                crate::util::lepton::lepton_to_cell_packed(building.anchor.y),
-            ) == 1
-        {
-            return Ok(false);
-        }
+    } else if let Some(building) = view.world.building_under_in_stored_order(view.position)?
+        && building.weapons_factory
+        && crate::util::lepton::lepton_to_cell_packed(view.position.x)
+            == crate::util::lepton::lepton_to_cell_packed(building.anchor.x)
+        && crate::util::lepton::lepton_to_cell_packed(view.position.y).wrapping_sub(
+            crate::util::lepton::lepton_to_cell_packed(building.anchor.y),
+        ) == 1
+    {
+        return Ok(false);
     }
 
     Ok(true)

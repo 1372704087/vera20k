@@ -293,7 +293,7 @@ pub(crate) fn draw_debug_panel(ctx: &egui::Context, state: &AppState) {
                 }
 
                 // Show building footprint info for structures near cursor.
-                if let Some(rules) = state.rules().map(|r| r) {
+                if let Some(rules) = state.rules() {
                     for entity in sim.entities().values() {
                         if entity.category != EntityCategory::Structure {
                             continue;
@@ -307,9 +307,9 @@ pub(crate) fn draw_debug_panel(ctx: &egui::Context, state: &AppState) {
                         let ey: u16 = entity.position.ry;
                         // Check if cursor is within this building's footprint.
                         if cursor_rx >= ex
-                            && cursor_rx < ex + fw as u16
+                            && cursor_rx < ex + fw
                             && cursor_ry >= ey
-                            && cursor_ry < ey + fh as u16
+                            && cursor_ry < ey + fh
                         {
                             ui.colored_label(
                                 egui::Color32::from_rgb(160, 120, 0),
@@ -376,7 +376,7 @@ pub(crate) fn draw_debug_panel(ctx: &egui::Context, state: &AppState) {
                                 // Show first few path steps with walkability.
                                 let grid = path_grid;
                                 for (i, &(px, py)) in path.iter().take(8).enumerate() {
-                                    let w = grid.map_or(true, |g| g.is_walkable(px, py));
+                                    let w = grid.is_none_or(|g| g.is_walkable(px, py));
                                     let marker = if i == 0 { ">" } else { " " };
                                     let color = if w {
                                         egui::Color32::from_rgb(20, 120, 20)

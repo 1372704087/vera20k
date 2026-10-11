@@ -335,21 +335,21 @@ pub(crate) fn drain_common_step(sim: &mut Simulation, stable_id: u64, rules: &Ru
     {
         let delay = rules.general.drain_money_frame_delay;
         // Native divides by the raw dword; a zero delay would fault there.
-        if delay != 0 && (sim.session.binary_frame as i32).wrapping_rem(delay) == 0 {
-            if let Some(drainer_owner) = sim
+        if delay != 0
+            && (sim.session.binary_frame as i32).wrapping_rem(delay) == 0
+            && let Some(drainer_owner) = sim
                 .substrate
                 .entities
                 .get(drainer_id)
                 .map(|drainer| drainer.owner())
-            {
-                let mut amount = rules.general.drain_money_amount;
-                let available = available_money(sim, victim_owner);
-                if available < amount {
-                    amount = available;
-                }
-                spend_money(sim, victim_owner, amount);
-                add_credits(sim, drainer_owner, amount);
+        {
+            let mut amount = rules.general.drain_money_amount;
+            let available = available_money(sim, victim_owner);
+            if available < amount {
+                amount = available;
             }
+            spend_money(sim, victim_owner, amount);
+            add_credits(sim, drainer_owner, amount);
         }
     }
 

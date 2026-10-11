@@ -63,7 +63,6 @@ impl StagedRadarTerrainUpdate {
 /// Stage one newly published simulation batch through the retained radar
 /// terrain layers. Final upload and acknowledgement are separate ordered
 /// commits; see [`StagedRadarTerrainUpdate::finish_with_upload`].
-#[allow(clippy::too_many_arguments)]
 pub(crate) fn stage_radar_terrain_dirty_generation(
     layers: RadarTerrainUpdateLayers<'_>,
     authority: CurrentRadarCellAuthority<'_>,

@@ -13,7 +13,8 @@ use crate::sim::pathfinding::cell_entry::{CanEnterCellContext, evaluate_can_ente
 use crate::sim::pathfinding::path_smooth::{self, PathFinishingContext};
 use crate::sim::pathfinding::terrain_cost::TerrainCostGrid;
 use crate::sim::pathfinding::{
-    LayeredEntityBlockMap, LayeredPathStep, PathGrid, SearchFootEntry, SearchMarkerOverlay,
+    LayeredEntityBlockMap, LayeredPath, LayeredPathStep, PathGrid, SearchFootEntry,
+    SearchMarkerOverlay,
 };
 use crate::util::native_x87::NativeF64Bits;
 use std::collections::BTreeSet;
@@ -180,7 +181,6 @@ impl PathFinishingContext for Finishing<'_> {
     }
 }
 
-#[allow(clippy::too_many_arguments)]
 pub(super) fn finish(
     path: Vec<LayeredPathStep>,
     context: PathfindingContext<'_>,
@@ -193,7 +193,7 @@ pub(super) fn finish(
     bridge_blocks: Option<&BTreeSet<(u16, u16)>>,
     entity_blocks: Option<&LayeredEntityBlockMap>,
     markers: Option<&SearchMarkerOverlay>,
-) -> Result<(Vec<(u16, u16)>, Vec<MovementLayer>), String> {
+) -> Result<LayeredPath, String> {
     if path.is_empty() {
         return Ok((Vec::new(), Vec::new()));
     }

@@ -521,6 +521,20 @@ fn create_r8_texture(
     texture.create_view(&Default::default())
 }
 
+fn decrement_numeric_suffix(name: &str) -> Option<String> {
+    let split: usize = name.rfind(|c: char| !c.is_ascii_digit())?;
+    if split + 1 >= name.len() {
+        return None;
+    }
+    let (prefix, digits) = name.split_at(split + 1);
+    let width: usize = digits.len();
+    let n: u32 = digits.parse().ok()?;
+    if n == 0 {
+        return None;
+    }
+    Some(format!("{}{:0width$}", prefix, n - 1, width = width))
+}
+
 #[cfg(test)]
 mod tests {
     use std::fmt::Write as _;
@@ -636,18 +650,4 @@ mod tests {
             );
         }
     }
-}
-
-fn decrement_numeric_suffix(name: &str) -> Option<String> {
-    let split: usize = name.rfind(|c: char| !c.is_ascii_digit())?;
-    if split + 1 >= name.len() {
-        return None;
-    }
-    let (prefix, digits) = name.split_at(split + 1);
-    let width: usize = digits.len();
-    let n: u32 = digits.parse().ok()?;
-    if n == 0 {
-        return None;
-    }
-    Some(format!("{}{:0width$}", prefix, n - 1, width = width))
 }

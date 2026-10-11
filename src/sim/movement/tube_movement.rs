@@ -88,7 +88,6 @@ pub fn pending_path_tube_id(
 /// teardown. The direction-8 head is consumed immediately (Walk 0x0075B3E0
 /// shifts Foot+5E0; Drive 0x004B1362), preserving the route tail for the
 /// post-tube object turn.
-#[allow(clippy::too_many_arguments)]
 pub(crate) fn begin_path_tube_step(
     foot_occupation_enabled: &mut bool,
     path_replay: &mut crate::sim::components::FootPathQueue,
@@ -248,7 +247,6 @@ fn detach_for_tube(
 /// whenever the entity was active at entry, including a successful final which
 /// cleared the state; the caller must therefore suppress ordinary movement for
 /// the remainder of this tick.
-#[allow(clippy::too_many_arguments)]
 pub(crate) fn tick_active_tube_object(
     entities: &mut EntityStore,
     entity_id: u64,
@@ -357,7 +355,6 @@ pub(crate) fn tick_active_tube_object(
     true
 }
 
-#[allow(clippy::too_many_arguments)]
 fn finalize_tube_object(
     entities: &mut EntityStore,
     entity_id: u64,

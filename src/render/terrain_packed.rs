@@ -356,7 +356,6 @@ impl TerrainDrawRenderer {
     /// Pixel-local, equal-policy composites commute only when their complete
     /// conservative rectangles are disjoint. Reuse the destination-edit tile
     /// scheduler; displaced neighbor reads remain strict sequential fences.
-    #[allow(clippy::too_many_arguments)]
     pub(crate) fn draw_packed_span(
         &mut self,
         encoder: &mut wgpu::CommandEncoder,
@@ -434,7 +433,6 @@ impl TerrainDrawRenderer {
         stats
     }
 
-    #[allow(clippy::too_many_arguments)]
     pub(crate) fn draw_packed_composite(
         &mut self,
         encoder: &mut wgpu::CommandEncoder,

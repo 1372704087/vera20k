@@ -415,20 +415,19 @@ pub(crate) fn render_keyboard_shell(
     if let Some(owner) = bindings
         .command_at(dialog.captured)
         .filter(|_| dialog.current_owner_visible)
-    {
-        if let Some(row) = dialog.commands.iter().find(|row| {
+        && let Some(row) = dialog.commands.iter().find(|row| {
             catalog
                 .get(row.command_index)
                 .is_some_and(|metadata| metadata.command == owner)
-        }) {
-            texts.push(text(
-                font,
-                &row.name,
-                layout.current_owner,
-                ShellAlign::NONE,
-                SHELL_CONTROL_TEXT_DEPTH,
-            ));
-        }
+        })
+    {
+        texts.push(text(
+            font,
+            &row.name,
+            layout.current_owner,
+            ShellAlign::NONE,
+            SHELL_CONTROL_TEXT_DEPTH,
+        ));
     }
     //620F60 ignores the supplied0x24 flags; it paints at the inset origin.
     texts.push(text(

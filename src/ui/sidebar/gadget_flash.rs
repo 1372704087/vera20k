@@ -342,8 +342,10 @@ mod tests {
 
     #[test]
     fn tick_when_disabled_and_idle_is_noop() {
-        let mut g = GadgetFlash::default();
-        g.disabled = true;
+        let mut g = GadgetFlash {
+            disabled: true,
+            ..Default::default()
+        };
         assert!(!g.tick());
     }
 

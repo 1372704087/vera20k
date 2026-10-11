@@ -304,7 +304,9 @@ fn both_selected_gi_samples_decode_to_every_original_callback_pcm_byte() {
         assert_eq!(decoded.channels, 2);
         let actual: Vec<u8> = decoded
             .samples
-            .chunks_exact(2)
+            .as_chunks::<2>()
+            .0
+            .iter()
             .flat_map(|frame| {
                 assert_eq!(frame[0].to_bits(), frame[1].to_bits(), "native mono upmix");
                 ((frame[0] * 32768.0) as i16).to_le_bytes()
@@ -514,12 +516,9 @@ pub(super) fn retained_draws(main: &MainRng) -> PlaybackDraws {
     PlaybackDraws::new(move |low, high| main.ranged(low, high))
 }
 
-pub(super) fn recorded_draws(
-    main: &MainRng,
-) -> (
-    PlaybackDraws,
-    std::sync::Arc<std::sync::Mutex<Vec<(i32, i32, i32)>>>,
-) {
+type RangeLog = std::sync::Arc<std::sync::Mutex<Vec<(i32, i32, i32)>>>;
+
+pub(super) fn recorded_draws(main: &MainRng) -> (PlaybackDraws, RangeLog) {
     let main = main.draws();
     let ranges = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
     let log = std::sync::Arc::clone(&ranges);

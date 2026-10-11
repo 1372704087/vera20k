@@ -483,15 +483,11 @@ mod tests {
             let table = layout.table;
             assert_eq!(table.game_label, at(GAME_LABEL), "{w}x{h}");
             assert_eq!(table.time_label, at(TIME_LABEL), "{w}x{h}");
-            assert_eq!(
-                table.header.cells(),
-                HEADER_IDS.map(|control| at(control)),
-                "{w}x{h}"
-            );
+            assert_eq!(table.header.cells(), HEADER_IDS.map(&at), "{w}x{h}");
             for (row, ids) in table.rows.iter().zip(ROW_CELL_IDS) {
-                assert_eq!(row.cells(), ids.map(|control| at(control)), "{w}x{h}");
+                assert_eq!(row.cells(), ids.map(&at), "{w}x{h}");
             }
-            assert_eq!(table.bands, BANDS.map(|control| at(control)), "{w}x{h}");
+            assert_eq!(table.bands, BANDS.map(at), "{w}x{h}");
         }
     }
 

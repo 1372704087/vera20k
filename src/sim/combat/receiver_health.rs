@@ -24,7 +24,6 @@ pub(super) struct ReceiverHealthCommit {
     pub(super) threat_feedback: Option<(InternedId, InternedId, i32, i32, i32)>,
 }
 
-#[allow(clippy::too_many_arguments)]
 pub(super) fn commit_receiver_health(
     event: &EntityDamageEvent,
     entities: &mut EntityStore,

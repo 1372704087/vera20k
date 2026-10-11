@@ -20,7 +20,7 @@ use crate::sim::pathfinding::terrain_cost::TerrainCostGrid;
 use crate::sim::pathfinding::zone_map::{ZONE_INVALID, ZoneGrid};
 use crate::sim::pathfinding::zone_search;
 use crate::sim::pathfinding::{
-    MAX_PATH_SEGMENT_STEPS, PathGrid, SearchMarkerOverlay, truncate_layered_path,
+    LayeredPath, MAX_PATH_SEGMENT_STEPS, PathGrid, SearchMarkerOverlay, truncate_layered_path,
 };
 
 use super::{MoverPathFacts, PathfindingContext};
@@ -189,7 +189,7 @@ fn nearest_move_goal(
 
     let check = |x: u16, y: u16| {
         is_move_goal_walkable(grid, (x, y), movement_zone, resolved_terrain)
-            && blocked_cells.map_or(true, |blocks| !blocks.contains(&(x, y)))
+            && blocked_cells.is_none_or(|blocks| !blocks.contains(&(x, y)))
     };
     if check(goal.0, goal.1) {
         return Some(goal);
@@ -226,7 +226,7 @@ pub(super) fn resolve_requested_move_goal(
     max_radius: u16,
 ) -> Option<(u16, u16)> {
     if is_move_goal_walkable(grid, goal, movement_zone, resolved_terrain)
-        && blocked_cells.map_or(true, |blocks| !blocks.contains(&goal))
+        && blocked_cells.is_none_or(|blocks| !blocks.contains(&goal))
     {
         return Some(goal);
     }
@@ -371,7 +371,7 @@ pub(super) fn find_move_path(
     entity_block_map: Option<&LayeredEntityBlockMap>,
     facts: MoverPathFacts,
     allow_zone_hierarchy: bool,
-) -> Option<(Vec<(u16, u16)>, Vec<MovementLayer>)> {
+) -> Option<LayeredPath> {
     find_move_path_with_marker(
         ctx,
         layered_pathing,
@@ -391,7 +391,6 @@ pub(super) fn find_move_path(
     )
 }
 
-#[allow(clippy::too_many_arguments)]
 pub(super) fn find_move_path_with_marker(
     ctx: PathfindingContext<'_>,
     layered_pathing: bool,
@@ -408,7 +407,7 @@ pub(super) fn find_move_path_with_marker(
     marker_overlay: Option<&SearchMarkerOverlay>,
     facts: MoverPathFacts,
     allow_zone_hierarchy: bool,
-) -> Option<(Vec<(u16, u16)>, Vec<MovementLayer>)> {
+) -> Option<LayeredPath> {
     find_move_path_with_marker_detailed(
         ctx,
         layered_pathing,
@@ -439,7 +438,6 @@ pub(super) enum MovePathFailure {
     Search(zone_search::PathSearchFailure),
 }
 
-#[allow(clippy::too_many_arguments)]
 pub(super) fn find_move_path_with_marker_detailed(
     ctx: PathfindingContext<'_>,
     layered_pathing: bool,
@@ -457,7 +455,7 @@ pub(super) fn find_move_path_with_marker_detailed(
     facts: MoverPathFacts,
     allow_zone_hierarchy: bool,
     foot_entry: Option<&dyn crate::sim::pathfinding::SearchFootEntry>,
-) -> Result<(Vec<(u16, u16)>, Vec<MovementLayer>), MovePathFailure> {
+) -> Result<LayeredPath, MovePathFailure> {
     let grid = ctx.path_grid.ok_or(MovePathFailure::MissingGrid)?;
     let zone_grid = ctx.zone_grid;
     #[cfg(test)]
@@ -658,9 +656,7 @@ mod tests {
     #[test]
     fn path_failure_detail_distinguishes_missing_grid_from_executed_search() {
         use crate::sim::pathfinding::zone_search::PathSearchFailure;
-        fn search(
-            grid: Option<&PathGrid>,
-        ) -> Result<(Vec<(u16, u16)>, Vec<MovementLayer>), MovePathFailure> {
+        fn search(grid: Option<&PathGrid>) -> Result<LayeredPath, MovePathFailure> {
             find_move_path_with_marker_detailed(
                 PathfindingContext {
                     wall_tables: None,

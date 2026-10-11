@@ -98,8 +98,8 @@ fn income_spending_and_factory_refund_share_the_runtime_wallet() {
     );
 }
 
-/// Two funded human owners (Americans, Alliance), each owning a Construction Yard
-/// + Barracks + War Factory + Air Force HQ, so the [`build_catalog_rules`] units
+/// Two funded human owners (Americans, Alliance), each owning a Construction Yard +
+/// Barracks + War Factory + Air Force HQ, so the [`build_catalog_rules`] units
 /// (E1 / MTNK / ORCA) are Strict-mode buildable. No power plant is needed — none of
 /// these structures drains power, so the producer runs at full rate.
 ///

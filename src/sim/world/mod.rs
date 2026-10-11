@@ -83,6 +83,7 @@ mod substrate;
 mod techno_ai;
 pub(crate) use techno_ai::ObjectAiCtx;
 pub(crate) use techno_ai::direct_greatest_threat;
+#[cfg(test)]
 pub(crate) use techno_ai::dispatch_foot_mission;
 pub(crate) use techno_ai::enter_idle_mode;
 pub(crate) use techno_ai::foot_enter_idle_mode_selection;
@@ -1328,7 +1329,6 @@ pub(crate) fn mark_wall_radar_dirty_cell(
     }
 }
 
-#[allow(clippy::too_many_arguments)]
 fn dispatch_tiberium_reduction_inline(
     request: &crate::sim::combat::TiberiumReductionRequest,
     rules: &RuleSet,
@@ -1392,7 +1392,6 @@ pub(crate) struct SimulationAreaDamageCellPrelude<'a> {
 }
 
 impl crate::sim::combat::combat_aoe::AoECellPrelude for SimulationAreaDamageCellPrelude<'_> {
-    #[allow(clippy::too_many_arguments)]
     fn before_cell(
         &mut self,
         rx: u16,
@@ -1471,7 +1470,6 @@ impl crate::sim::combat::combat_aoe::AoECellPrelude for SimulationAreaDamageCell
     }
 }
 
-#[allow(clippy::too_many_arguments)]
 pub(crate) fn simulation_area_damage_cell_prelude<'a>(
     rules: &'a RuleSet,
     warhead: &crate::rules::warhead_type::WarheadType,
@@ -1515,7 +1513,6 @@ pub(crate) fn simulation_area_damage_cell_prelude<'a>(
     }
 }
 
-#[allow(clippy::too_many_arguments)]
 pub(crate) fn repair_wall_damage_navigation_authorities(
     terrain_costs: &mut BTreeMap<SpeedType, TerrainCostGrid>,
     zone_grid: &mut Option<ZoneGrid>,
@@ -1673,7 +1670,6 @@ impl WallDamageTransactionHost for SimulationWallRuntimeHost<'_> {
     }
 }
 
-#[allow(clippy::too_many_arguments)]
 fn dispatch_smudge_inline(
     request: &crate::sim::combat::SmudgeSpawnRequest,
     rules: &RuleSet,
@@ -2059,9 +2055,7 @@ impl Simulation {
         interner: &StringInterner,
         terrain: Option<&ResolvedTerrainGrid>,
     ) -> Option<crate::sim::wave::Wave> {
-        let Some(weapon) = rules.weapon(interner.resolve(event.weapon_id)) else {
-            return None;
-        };
+        let weapon = rules.weapon(interner.resolve(event.weapon_id))?;
         let wave_type = if weapon.is_sonic {
             0
         } else if weapon.is_mag_beam {
@@ -2075,9 +2069,7 @@ impl Simulation {
             // RESIDUAL: a Building's vt+0xA4 (`0x004500A0`) adds its type's
             // unparsed `TargetCoordOffset=`, set on the three stock shipyards.
             crate::sim::combat::TargetKind::Entity(id) => {
-                let Some(entity) = entities.get(id) else {
-                    return None;
-                };
+                let entity = entities.get(id)?;
                 let coords = crate::sim::movement::ground_pose::object_get_coords(entity, terrain);
                 ProjectileCoord::new(coords.x, coords.y, coords.z)
             }
@@ -2352,7 +2344,7 @@ impl Simulation {
                             self.trace_lifecycle_for_test(
                                 LifecycleTestEvent::WaveDamageReceiverSelected {
                                     wave_id: request.wave_id,
-                                    target_id: target_id,
+                                    target_id,
                                     scenario_rng_state: self.scenario_rng.state(),
                                 },
                             );
@@ -4104,7 +4096,7 @@ impl Simulation {
         stable_id
     }
 
-    /// Native Reveal's append: +0x98 guard → tail-append → set flag. Idempotent.
+    // Native Reveal's append: +0x98 guard → tail-append → set flag. Idempotent.
     // Reveal/Conceal and raw LogicVector transactions live in lifecycle.rs.
 
     /// Debug-only invariant: the active order and each stored object's
@@ -6328,7 +6320,6 @@ impl Simulation {
     /// the returned facts instead of reaching back into Simulation-owned
     /// transient queues. `SimRuntime::advance_frame` is the sole production
     /// caller (F09); headless and replay execution go through the runtime.
-    #[allow(clippy::too_many_arguments)]
     pub(crate) fn advance_app_frame(
         &mut self,
         commands: &[CommandEnvelope],
@@ -6415,7 +6406,6 @@ impl Simulation {
     /// only through `advance_app_frame` (F09). The fixture-only `advance_tick`
     /// adapter and the replay fixture runners are `#[cfg(test)]`; gameplay
     /// supplies its map definitions through `trigger_inputs`.
-    #[allow(clippy::too_many_arguments)]
     pub(crate) fn advance_master_frame(
         &mut self,
         commands: &[CommandEnvelope],

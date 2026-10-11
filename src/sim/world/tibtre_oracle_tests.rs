@@ -243,7 +243,9 @@ fn compare(s: &Scene, coords: &[(u16, u16)], native: &Value, context: &str) {
     let bytes = s.sim.scenario_rng.native_state_hex();
     let bytes: Vec<_> = bytes
         .as_bytes()
-        .chunks_exact(2)
+        .as_chunks::<2>()
+        .0
+        .iter()
         .map(|b| u8::from_str_radix(std::str::from_utf8(b).unwrap(), 16).unwrap())
         .collect();
     assert_eq!(

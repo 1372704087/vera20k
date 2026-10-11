@@ -790,7 +790,6 @@ impl Simulation {
             super::movement_commands::schedule_track_process(actor, (rx, ry), speed);
         } else {
             self.assign_null_destination(id, rules, registry, frame_effects);
-            return;
         }
     }
 

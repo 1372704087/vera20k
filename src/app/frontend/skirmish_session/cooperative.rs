@@ -649,10 +649,12 @@ mod tests {
     #[test]
     fn country_draw_uses_global_bound_and_unbounded_retries() {
         let registry = registry();
-        let mut progress = CooperativeProgressRecord::default();
-        progress.valid = true;
-        progress.campaign_type = 0;
-        progress.current_map = 0;
+        let progress = CooperativeProgressRecord {
+            valid: true,
+            campaign_type: 0,
+            current_map: 0,
+            ..Default::default()
+        };
         let roster = roster();
 
         let mut rng = SimRng::new(31);
@@ -678,10 +680,12 @@ mod tests {
     #[test]
     fn country_name_alias_resolves_to_global_roster_index() {
         let registry = registry();
-        let mut progress = CooperativeProgressRecord::default();
-        progress.valid = true;
-        progress.campaign_type = 1;
-        progress.current_map = 0;
+        let progress = CooperativeProgressRecord {
+            valid: true,
+            campaign_type: 1,
+            current_map: 0,
+            ..Default::default()
+        };
         let mut rng = SimRng::new(1);
         assert_eq!(
             draw_country_for_progress(
@@ -715,10 +719,12 @@ mod tests {
         );
         assert_eq!(rng.state(), before);
 
-        let mut progress = CooperativeProgressRecord::default();
-        progress.valid = true;
-        progress.campaign_type = 0;
-        progress.current_map = 1;
+        let progress = CooperativeProgressRecord {
+            valid: true,
+            campaign_type: 0,
+            current_map: 1,
+            ..Default::default()
+        };
         let no_match_roster = vec![CooperativeCountryRosterEntry::new(
             "Russians",
             Some("Russia"),

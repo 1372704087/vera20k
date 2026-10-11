@@ -246,14 +246,22 @@ fn retail_in_game_shell_art_preserves_side_route_and_frame_transparency() {
         let art = super::in_game_shell::load(route, &palette);
         let tile = art.panel_tile.as_ref().expect("SIDE2B frame zero");
         assert_eq!((tile.width, tile.height), (168, 50));
-        assert!(tile.rgba.chunks_exact(4).all(|pixel| pixel[3] == 255));
+        assert!(
+            tile.rgba
+                .as_chunks::<4>()
+                .0
+                .iter()
+                .all(|pixel| pixel[3] == 255)
+        );
         for button in &art.buttons {
             let button = button.as_ref().expect("SIDEBTTN frame");
             assert_eq!((button.width, button.height), (125, 25));
             assert_eq!(
                 button
                     .rgba
-                    .chunks_exact(4)
+                    .as_chunks::<4>()
+                    .0
+                    .iter()
                     .filter(|pixel| pixel[3] == 0)
                     .count(),
                 skipped_pixels,
@@ -336,7 +344,7 @@ fn retail_modal_backgrounds_use_ui_palette_for_every_theme_and_size() {
     ] {
         let archive = assets.archive(archive_name).unwrap();
         let (entries, identity) =
-            super::in_game_shell::load_backgrounds(&assets, &archive, archive_name, theme, names)
+            super::in_game_shell::load_backgrounds(&assets, archive, archive_name, theme, names)
                 .unwrap();
         assert_eq!(identity.logical_name, palette_name);
         assert_eq!(identity.source_archive.as_deref(), Some(archive_name));
@@ -356,7 +364,7 @@ fn retail_modal_backgrounds_use_ui_palette_for_every_theme_and_size() {
             // Compare every production pixel to the retail palette triplet's
             // original72ADE0 six-bit expansion and N=1 RGB565 store. The shared
             // converter arithmetic also has native palette.json coverage above.
-            for (&index, rgba) in frame.pixels.iter().zip(entry.rgba.chunks_exact(4)) {
+            for (&index, rgba) in frame.pixels.iter().zip(entry.rgba.as_chunks::<4>().0) {
                 assert_eq!(rgba[3], if index == 0 { 0 } else { 255 });
                 if index == 0 {
                     continue;
@@ -426,7 +434,12 @@ fn retail_radar_histories_match_original_4912b0_stores() {
                 c.zero_counts[i]
             );
             assert_eq!(
-                frames[i].chunks_exact(4).filter(|p| p[3] == 0).count(),
+                frames[i]
+                    .as_chunks::<4>()
+                    .0
+                    .iter()
+                    .filter(|p| p[3] == 0)
+                    .count(),
                 c.zero_counts[i]
             );
         }
@@ -456,7 +469,9 @@ fn retail_radar_histories_match_original_4912b0_stores() {
                 let bytes: Vec<u8> = radar
                     .surface
                     .rgba
-                    .chunks_exact(4)
+                    .as_chunks::<4>()
+                    .0
+                    .iter()
                     .flat_map(|p| {
                         (((u16::from(p[0]) >> 3) << 11)
                             | ((u16::from(p[1]) >> 2) << 5)

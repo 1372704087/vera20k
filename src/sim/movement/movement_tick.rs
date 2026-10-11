@@ -230,7 +230,6 @@ impl FootPathRequest {
     /// A Drive/Ship `Find_Path(cell, append, urgency)` issued inside
     /// Process_Movement (`track_fresh`): the no-queue arm, the code-2 ladder
     /// and the last-word extension.
-    #[allow(clippy::too_many_arguments)]
     pub(crate) fn track(
         entities: &EntityStore,
         entity_id: u64,
@@ -385,7 +384,6 @@ enum VisitEntry {
 /// its deferred-effect tail, exactly as the former outer-loop continue did.
 /// Track callback suspension will resume below the one-time mover preparation,
 /// rather than invoke this complete visit again.
-#[allow(clippy::too_many_arguments)]
 fn advance_ordinary_mover(
     entities: &mut EntityStore,
     entity_id: u64,
@@ -638,10 +636,9 @@ fn advance_ordinary_mover(
         path_grid,
     );
     if let Some(coord) = movement_step::walk_boundary_crossing(&entity.position) {
-        entity.position = walk_position_before_step
+        entity.position = *walk_position_before_step
             .as_ref()
-            .expect("only Walk can suspend a boundary")
-            .clone();
+            .expect("only Walk can suspend a boundary");
         *walk_boundary = Some((entity_id, coord));
         return;
     }
@@ -733,7 +730,6 @@ impl MovementPassCache {
     /// The kept plane brought current through the touch log. The synchronous
     /// Foot path request reads it between its Mark(0) and Mark(1), so the
     /// requester's own removal is included without a whole-world rebuild.
-    #[allow(clippy::too_many_arguments)]
     pub(crate) fn blocker_plane(
         &mut self,
         entities: &mut EntityStore,
@@ -794,7 +790,6 @@ impl MovementPassCache {
 
     /// On the blocker field alone, so a pass can hold the plane while it
     /// updates the block index beside it.
-    #[allow(clippy::too_many_arguments)]
     fn blocker_plane_in<'a>(
         blocker: &'a mut BlockerPlaneCache,
         touched: super::block_index::TouchedBacklog,
@@ -902,7 +897,6 @@ impl MovementPassCache {
 /// Resuming after a world callback must not repeat it: it runs Tube movement
 /// and the idle Walk tail. Returns the owner of an object that still advances
 /// as an ordinary mover.
-#[allow(clippy::too_many_arguments)]
 fn prepare_movement_visit(
     entities: &mut EntityStore,
     entity_id: u64,
@@ -976,7 +970,6 @@ fn prepare_movement_visit(
 }
 
 #[cfg(test)]
-#[allow(clippy::too_many_arguments)]
 pub(crate) fn tick_movement_with_grids(
     entities: &mut EntityStore,
     live_order: Option<&[u64]>,
@@ -1177,7 +1170,6 @@ impl PendingMovementPass {
 }
 
 /// One object's ground movement visit, up to its first world callback.
-#[allow(clippy::too_many_arguments)]
 pub(crate) fn begin_movement(
     entities: &mut EntityStore,
     entity_id: u64,

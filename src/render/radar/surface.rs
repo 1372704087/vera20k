@@ -14,7 +14,7 @@ pub(in crate::render) struct RadarSurface {
 impl RadarSurface {
     pub fn new(width: u32, height: u32) -> Self {
         let mut rgba = vec![0; (width * height * 4) as usize];
-        for pixel in rgba.chunks_exact_mut(4) {
+        for pixel in rgba.as_chunks_mut::<4>().0 {
             pixel[3] = 255;
         }
         Self {
@@ -28,7 +28,13 @@ impl RadarSurface {
     }
     pub fn paint_frame(&mut self, frame: &[u8]) {
         assert_eq!(frame.len(), self.rgba.len());
-        for (dest, source) in self.rgba.chunks_exact_mut(4).zip(frame.chunks_exact(4)) {
+        for (dest, source) in self
+            .rgba
+            .as_chunks_mut::<4>()
+            .0
+            .iter_mut()
+            .zip(frame.as_chunks::<4>().0)
+        {
             if source[3] != 0 {
                 dest.copy_from_slice(source);
             }

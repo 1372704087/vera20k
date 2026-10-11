@@ -37,12 +37,12 @@ const DEFAULT_WEIGHT: SimFixed = SimFixed::lit("2.0");
 /// Parameters:
 ///   - `rocking`: target's rocking state (mutated in place).
 ///   - `force`: pre-saturated [0, 4.0] force magnitude from the source-side
-///      computation (defensively re-clamped here).
+///     computation (defensively re-clamped here).
 ///   - `weight`: target's Weight (default 2.0; retail range 0.5–5). Heavier
-///      units rock less per equivalent force. L12c — observable parity:
-///      MUST NOT be dropped.
+///     units rock less per equivalent force. L12c — observable parity:
+///     MUST NOT be dropped.
 ///   - `dx`, `dy`: target_position − source_position in sim units. Only the
-///      direction matters; magnitude cancels in the normalization.
+///     direction matters; magnitude cancels in the normalization.
 ///
 /// **NO PRODUCTION CALLER** — see the module header. Every drift below is
 /// therefore latent: it costs nothing today and must be settled in the slice

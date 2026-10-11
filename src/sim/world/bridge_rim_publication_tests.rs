@@ -24,19 +24,21 @@ fn stock_world(rules: &RuleSet, input: &Value) -> Simulation {
     let mut terrain = ResolvedTerrainGrid::from_cells(512, height, cells);
     let mut allocated = Vec::new();
     let mut grid = OverlayGrid::new(512, height);
+    type RimRow = (
+        u16,
+        u16,
+        i32,
+        u8,
+        u32,
+        Option<u8>,
+        u8,
+        Option<(u16, u16)>,
+        u8,
+        u8,
+    );
     for row in rows {
-        let (x, y, tile, subtile, flags, overlay, state, anchor, level, land): (
-            u16,
-            u16,
-            i32,
-            u8,
-            u32,
-            Option<u8>,
-            u8,
-            Option<(u16, u16)>,
-            u8,
-            u8,
-        ) = serde_json::from_value(row.clone()).unwrap();
+        let (x, y, tile, subtile, flags, overlay, state, anchor, level, land): RimRow =
+            serde_json::from_value(row.clone()).unwrap();
         let index = usize::from(y) * 512 + usize::from(x);
         allocated.push((x, y));
         let cell = &mut terrain.cells[index];

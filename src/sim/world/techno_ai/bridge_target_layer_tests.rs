@@ -417,10 +417,8 @@ fn move_retail_fv(
             .advance_frame(
                 if frame == 0 {
                     std::slice::from_ref(&command)
-                } else if let Some(stop) = stop.as_ref() {
-                    std::slice::from_ref(stop)
                 } else {
-                    &[]
+                    stop.as_slice()
                 },
                 crate::headless_scenario::SIM_TICK_MS,
                 crate::sim::world::TickLane::Ordinary,

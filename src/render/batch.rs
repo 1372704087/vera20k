@@ -331,6 +331,12 @@ pub struct InstanceBufferPool {
 /// need reallocation. 64 instances × 48 bytes = 3 KB — negligible VRAM.
 const MIN_POOL_CAPACITY: usize = 64;
 
+impl Default for InstanceBufferPool {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl InstanceBufferPool {
     /// Create an empty pool. Buffers are allocated lazily on first use.
     pub fn new() -> Self {
@@ -1555,7 +1561,6 @@ impl BatchRenderer {
         );
     }
 
-    #[allow(clippy::too_many_arguments)]
     pub(crate) fn update_camera_on_queue(
         &self,
         queue: &wgpu::Queue,

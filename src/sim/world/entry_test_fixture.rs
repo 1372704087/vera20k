@@ -77,8 +77,8 @@ pub(crate) fn fixture_with_rules_and_fixed_art(
     for y in 0..33 {
         for x in 0..33 {
             let c = terrain.cell_mut(x, y).unwrap();
-            c.speed_costs = costs.clone();
-            c.base_speed_costs = costs.clone();
+            c.speed_costs = costs;
+            c.base_speed_costs = costs;
         }
     }
     let bounds =

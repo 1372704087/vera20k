@@ -224,7 +224,7 @@ fn options_from_bytes(bytes: &[u8], current: &RmgOptions, default_description: &
     // Unlike the integer keys, Description uses the localized default passed
     // at 0x00597AFD to INIClass__ReadCommaHexUTF16, not the current description.
     options.description = default_description.into();
-    if let Ok(ini) = crate::rules::ini_parser::IniFile::from_bytes(&bytes) {
+    if let Ok(ini) = crate::rules::ini_parser::IniFile::from_bytes(bytes) {
         options.apply_sed(&ini);
     }
     options.normalize();

@@ -90,7 +90,7 @@ impl CommandBarLayout {
     }
 
     pub fn slot(self, slot: usize) -> Option<Rect> {
-        (slot < self.tile_count).then(|| Rect {
+        (slot < self.tile_count).then_some(Rect {
             x: self.background.x + slot as f32 * self.background.w,
             ..self.background
         })

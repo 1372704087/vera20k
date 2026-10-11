@@ -89,7 +89,6 @@ fn first_buildable_shipyard<'a>(
     )
 }
 
-#[allow(clippy::too_many_arguments)]
 fn naval_query<'a>(
     path_grid: &'a PathGrid,
     resolved_terrain: &'a crate::map::resolved_terrain::ResolvedTerrainGrid,
@@ -197,8 +196,10 @@ mod tests {
     use crate::sim::game_entity::GameEntity;
 
     fn water_cell(rx: u16, ry: u16) -> ResolvedTerrainCell {
-        let mut speed_costs = SpeedCostProfile::default();
-        speed_costs.float = Some(100);
+        let speed_costs = SpeedCostProfile {
+            float: Some(100),
+            ..Default::default()
+        };
         ResolvedTerrainCell {
             tileset_index: None,
             land_type: LandType::Water.as_index(),

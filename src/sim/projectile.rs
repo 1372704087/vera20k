@@ -1202,26 +1202,17 @@ impl ProjectileNukeImpact {
 pub(crate) struct NukeImpactContext<'a> {
     interner: &'a StringInterner,
     nuke_ball_type: &'a dyn Fn() -> bool,
-    anim_live: &'a dyn Fn(AnimId) -> bool,
 }
 
 impl<'a> NukeImpactContext<'a> {
     /// `interner` resolves the warhead IDs for the `NUKE` test;
     /// `nuke_ball_type` answers whether `AnimTypeClass::FindIndex("NUKEBALL")
     /// @ 0x00427CB0` finds a type (`0x00467EB1`), asked only at a `NUKE`
-    /// impact; `anim_live` answers whether an anim still lives. Its UnInit
-    /// clears a waiting bullet's `+0x154` (`BulletClass::PointerExpired
-    /// 0x004685BE`, reached through the holder list `0x00B0F5B8`); VERA
-    /// reuses no anim id, so a dead one's id finds nothing.
-    pub(crate) fn new(
-        interner: &'a StringInterner,
-        nuke_ball_type: &'a dyn Fn() -> bool,
-        anim_live: &'a dyn Fn(AnimId) -> bool,
-    ) -> Self {
+    /// impact.
+    pub(crate) fn new(interner: &'a StringInterner, nuke_ball_type: &'a dyn Fn() -> bool) -> Self {
         Self {
             interner,
             nuke_ball_type,
-            anim_live,
         }
     }
 }
@@ -1542,6 +1533,10 @@ impl ProjectileStore {
 
     /// Original Bullet466705..466822. No target or Cell query precedes the
     /// optional Trailer constructor at the resulting Flight boundary.
+    /// `anim_live` answers whether the awaited anim still lives. Its UnInit
+    /// clears a waiting bullet's `+0x154` (`BulletClass::PointerExpired
+    /// 0x004685BE`, reached through the holder list `0x00B0F5B8`); VERA
+    /// reuses no anim id, so a dead one's id finds nothing.
     pub(crate) fn begin_ai_visit(
         &mut self,
         id: u64,
@@ -1563,9 +1558,10 @@ impl ProjectileStore {
     }
 
     /// Test adapter joining the shared AI head and continuation without the
-    /// world's intervening Trailer constructor or retirement transaction.
+    /// world's intervening Trailer constructor or retirement transaction. An
+    /// awaited anim counts as dead; a test needing a live one calls
+    /// [`Self::begin_ai_visit`] itself.
     #[cfg(test)]
-    #[allow(clippy::too_many_arguments)]
     pub(crate) fn advance_one(
         &mut self,
         id: u64,
@@ -1584,9 +1580,7 @@ impl ProjectileStore {
         ) -> Option<ProjectileCollisionResponse>,
         nuke: Option<&NukeImpactContext<'_>>,
     ) -> Option<ProjectileAdvanceResult> {
-        let head = self.begin_ai_visit(id, |anim| {
-            nuke.is_some_and(|context| (context.anim_live)(anim))
-        })?;
+        let head = self.begin_ai_visit(id, |_| false)?;
         self.advance_after_head(
             head,
             binary_frame,
@@ -1602,7 +1596,6 @@ impl ProjectileStore {
         )
     }
 
-    #[allow(clippy::too_many_arguments)]
     pub(crate) fn advance_after_head(
         &mut self,
         head: ProjectileAiHead,
@@ -1765,13 +1758,12 @@ impl ProjectileStore {
                     // above ground. Then a negative altitude, then the
                     // bridge-deck crossing test. No gravity is applied on
                     // this arm at all.
-                    if candidate.z > detonation_altitude {
-                        impact_flag = true;
-                    } else if previous_position.z.wrapping_sub(projectile_ground_z(
-                        terrain,
-                        shared_cell_dummy,
-                        previous_position,
-                    )) < 0
+                    if candidate.z > detonation_altitude
+                        || previous_position.z.wrapping_sub(projectile_ground_z(
+                            terrain,
+                            shared_cell_dummy,
+                            previous_position,
+                        )) < 0
                     {
                         impact_flag = true;
                     } else if let Some(surface) =

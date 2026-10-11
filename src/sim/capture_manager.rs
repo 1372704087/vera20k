@@ -53,12 +53,12 @@
 //! byte `+0x2C4` stays set, and IsMindControlled reads it with `+0x2C0`.
 //!
 //! RESIDUALS:
-//! - DecideUnitFate's "Put in Grinder"/"Put in Bio Reactor" arms
-//!   (`0x004DFA70`/`0x004DFB70`) walk the house's grinder and absorber lists,
-//!   which VERA does not keep, so they fall back to Hunt. Trigger: an
-//!   AI-owned controller (or an AI house getting a unit back) rolling them.
-//!   Effect: the unit hunts where native may send it into a Grinder or Bio
-//!   Reactor. Frequency: AI Yuri games with those buildings.
+//! - DecideUnitFate's "Put in Grinder" arm (`0x004DFA70`, Foot vt+0x33C)
+//!   is not ported and falls back to Hunt. Trigger: an AI-owned controller
+//!   (or an AI house getting a unit back) rolling it (the retail tables'
+//!   second weight: 5 Normal, 40 Wounded, 5 LowPower, 75 LowMoney, of 100).
+//!   Effect: the unit hunts where native may send it into one of the
+//!   house's Grinders. Frequency: AI Yuri games with a Grinder.
 //! - The link line (`DrawLinks @ 0x00472160`, the node timer from
 //!   `MindControlAttackLineFrames=`), the overload flash counter (`+0x44`)
 //!   and the Mastermind's `PipScale=MindControl` pips (`0x0070A15C` ->
@@ -760,8 +760,10 @@ impl Simulation {
     /// `MindControlDecision=` decides by it instead of the roll, which is
     /// still drawn (`0x00472586..0x004725A9`). "Add To Team" puts a unit that
     /// did not change house on this call into the controller's team
-    /// (constrained `Add_Member @ 0x006EA4F0`), else it hunts. The Grinder
-    /// and Bio Reactor arms are module residuals.
+    /// (constrained `Add_Member @ 0x006EA4F0`), else it hunts; "Put in Bio
+    /// Reactor" sends it to the house's nearest absorber that takes it
+    /// (`sim::building_entry`), else it hunts. The Grinder arm is a module
+    /// residual.
     fn decide_unit_fate(
         &mut self,
         controller_id: u64,
@@ -829,8 +831,8 @@ impl Simulation {
         {
             choice = decision;
         }
-        // 2 "Put in Grinder" and 3 "Put in Bio Reactor" fall back to Hunt
-        // here (module residual); 5 "Do Nothing" keeps orders.
+        // 2 "Put in Grinder" falls back to Hunt here (module residual); 5 "Do
+        // Nothing" keeps orders.
         if choice == 5 {
             return;
         }
@@ -839,6 +841,15 @@ impl Simulation {
             && unit_is_foot
             && let Some(team_id) = controller_team
             && self.team_add_member(team_id, unit_id, true, rules, registry, frame_effects)
+        {
+            return;
+        }
+        // `0x0047261F..0x0047262E` -> `0x004725E5`: 3 "Put in Bio Reactor"
+        // keeps the seek's orders when it found one (a building's vt+0x340
+        // is the `0x00459E00` stub, false); otherwise the unit hunts.
+        if choice == 3
+            && unit_is_foot
+            && self.foot_enter_bio_reactor(unit_id, rules, registry, frame_effects)
         {
             return;
         }

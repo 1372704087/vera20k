@@ -3,6 +3,8 @@
 //! House+68 (buildings) and House+140 (FactoryPlants) change membership at
 //! Unlimbo, pointer expiry and ChangeOwner; constructor/destructor tracking
 //! (`0x004FF700`/`0x004FF550`, `sim::house_tracking`) counts separately.
+//! The absorbers list (House+0xB0) moves with House+68 under a type gate, so
+//! it is read as a filtered view ([`Simulation::house_absorbers`]).
 use super::*;
 use crate::rules::ruleset::HouseCostFactors;
 use crate::sim::components::DriveCoord;
@@ -501,6 +503,34 @@ impl Simulation {
             "a House's `Cost*Mult=` copy differs from its type's: project it at creation"
         );
         rules.cost_of(object, self.house_cost_factors(owner).as_ref())
+    }
+
+    /// House+0xB0, the absorbers (Items `+0xB4`, Count `+0xC0`), in vector
+    /// order. Unlimbo appends a `UnitAbsorb=`/`InfantryAbsorb=` building
+    /// (Type `+0x16AE`/`+0x16AF`, `0x004412D4..0x00441335`) ahead of its
+    /// House+68 append; ChangeOwner removes it from the old House ahead of
+    /// House+68 (`0x00448836..0x0044885A`) and appends it to the new one
+    /// ahead of House+68 (`0x00448F22..0x00448F42`), under the same gate;
+    /// pointer expiry stable-removes it from both (`0x004FBAC0..0x004FBAFE`,
+    /// `0x004FBC1C`). Each list therefore sees the same appends and
+    /// removals, and House+0xB0 is House+68 filtered by the gate, in order.
+    pub(crate) fn house_absorbers(&self, owner: InternedId, rules: &RuleSet) -> Vec<u64> {
+        let Some(house) = self.houses.get(&owner) else {
+            return Vec::new();
+        };
+        house
+            .base_projection
+            .buildings()
+            .iter()
+            .copied()
+            .filter(|&id| {
+                self.substrate
+                    .entities
+                    .get(id)
+                    .and_then(|entity| self.object_type(entity.type_ref(), rules))
+                    .is_some_and(|object| object.unit_absorb || object.infantry_absorb)
+            })
+            .collect()
     }
 
     pub(super) fn register_house_base_building(&mut self, id: u64, rules: &RuleSet) {

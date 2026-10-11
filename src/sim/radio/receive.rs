@@ -275,8 +275,39 @@ fn building_can_load(
     {
         return RadioResponse::Negatory;
     }
+    // 0x0043C43B..0x0043C4F2, an absorber (UnitAbsorb +0x16AE /
+    // InfantryAbsorb +0x16AF): a Unit or an infantryman it does not absorb,
+    // or a sender controlling something (0x004722C0), is refused. With a
+    // free passenger slot (+0x114 against +0x5E0) and the sender's Size=
+    // within SizeLimit= it answers ROGER; otherwise the later arms decide.
+    // Size= and SizeLimit= are native doubles that VERA reads as integers
+    // (equal on every retail value).
+    if absorbs {
+        let class_refused = match unit.category {
+            EntityCategory::Unit => !building_type.unit_absorb,
+            EntityCategory::Infantry => !building_type.infantry_absorb,
+            _ => false,
+        };
+        if class_refused
+            || unit
+                .capture_manager
+                .as_ref()
+                .is_some_and(|manager| manager.has_any())
+        {
+            return RadioResponse::Negatory;
+        }
+        let passengers = building
+            .passenger_role
+            .cargo()
+            .map_or(0, |cargo| cargo.count());
+        if i64::from(passengers) < i64::from(building_type.passengers)
+            && unit_type.size <= building_type.size_limit
+        {
+            return RadioResponse::Roger;
+        }
+    }
     // Other building mechanisms retain their existing owner/residual.
-    if absorbs || building_type.grinding || building_type.bunker {
+    if building_type.grinding || building_type.bunker {
         return RadioResponse::None;
     }
     if building_type.unit_repair {

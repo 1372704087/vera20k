@@ -924,6 +924,10 @@ pub struct GameEntity {
     /// Native Foot/Unit+500 entry target, independent of Radio contacts.
     /// Unit741D9F installs it; Foot70D84F/70D889 and expiry clear it.
     pending_entry: Option<u64>,
+    /// Foot `+0x68F..+0x691`, cleared by the Foot constructor
+    /// (`0x004D33D2..0x004D33DE`) and written only by `sim::building_entry`.
+    #[serde(default)]
+    pub(crate) building_entry: crate::sim::building_entry::BuildingEntryLatches,
     /// Aircraft ammo tracking and airfield docking state.
     /// Present on all Aircraft, including signed negative native Ammo counts.
     /// Non-aircraft entities have no aircraft ammo owner.
@@ -1729,6 +1733,7 @@ impl GameEntity {
             bomb: None,
             berserk: BerserkState::default(),
             pending_entry: None,
+            building_entry: Default::default(),
             aircraft_ammo: None,
             // Infantry get sub-cell 2 (first distinct position) at spawn so
             // they don't all pile up at cell center when multiple are created.

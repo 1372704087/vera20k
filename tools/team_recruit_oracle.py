@@ -27,6 +27,10 @@ Sections, each executed in a fresh emulator per case:
 - quarry: Quarry_To_Threat 0x645BB0 and its jump table 0x645BF8.
 - attack_cadence: Coordinate_Attack's signed Frame % 8 == 4 test
   0x6EB59A..0x6EB5AE.
+- bio_reactor: FootClass::EnterBioReactor 0x4DFB70, action 62's Foot seek
+  (the house's absorber list walked from its end, the CAN_LOAD answers, the
+  Sqrt_Approx distance and its ties, the latch +0x68F, the radio-contact and
+  pending-entry test, the Enter and destination calls).
 
 Control flow the rows do not vary (Calc_Center's action-10 branch, the
 TeamType waypoint origin, the recruited unit's passengers, action 54's leader
@@ -36,8 +40,9 @@ from pathlib import Path
 import random
 import struct
 
-from unicorn.x86_const import (UC_X86_REG_EBX, UC_X86_REG_ECX, UC_X86_REG_ESI,
-                               UC_X86_REG_ESP, UC_X86_REG_FPCW)
+from unicorn import UC_HOOK_CODE
+from unicorn.x86_const import (UC_X86_REG_EBX, UC_X86_REG_ECX, UC_X86_REG_EDI,
+                               UC_X86_REG_ESI, UC_X86_REG_ESP, UC_X86_REG_FPCW)
 
 from tools.ai_base_building_oracle import FAKE, FRAME, RULES, STUBS, Emu, u32
 from tools.native_oracle import (NATIVE_FPCW, RET_MAGIC, STACK_BASE, STACK_SIZE,
@@ -68,6 +73,9 @@ STUB_CAN_ENTER = STUBS + 0x130
 STUB_SET_TARGET = STUBS + 0x140
 STUB_DELETE = STUBS + 0x150
 STUB_BUILDING_COORDS = STUBS + 0x160
+STUB_TRANSMIT = STUBS + 0x170
+STUB_QUEUE_MISSION = STUBS + 0x180
+STUB_ASSIGN_DESTINATION = STUBS + 0x190
 
 GET_COORDS = 0x5F65A0
 SCENARIO_INIT = 0xA8E7AC
@@ -657,10 +665,120 @@ def own_building():
     return rows
 
 
+# ---------------------------------------------------------------- bio_reactor
+
+ENTER_BIO_REACTOR = 0x4DFB70
+BIO_REACTOR_PICKED = 0x4DFC52
+CAN_LOAD = 0xF
+
+
+def bio_reactor_row(*, foot, absorbers, contact=None, pending=None, latch=False):
+    """`absorbers`: dicts of location and CAN_LOAD answer, in House+0xB0
+    order; `contact`/`pending`: an absorber's index, else none."""
+    emu = TeamEmu()
+    house = HOUSES
+    foot_address = emu.object(0, xyz=foot)
+    emu.write32(foot_address + 0x21C, house)
+    emu.write8(foot_address + 0x68F, int(latch))
+    for slot, stub in ((0x278, STUB_TRANSMIT), (0x1E8, STUB_QUEUE_MISSION),
+                       (0x480, STUB_ASSIGN_DESTINATION)):
+        emu.write32(OBJECT_VTABLE + slot, stub)
+    addresses = []
+    answers, coords = {}, {}
+    for index, absorber in enumerate(absorbers):
+        address = emu.object(index + 1, vtable=BUILDING_VTABLE, rtti=RTTI_BUILDING)
+        addresses.append(address)
+        answers[address] = absorber['answer']
+        coords[address] = absorber['xyz']
+        emu.write32(ARRAYS + index * 4, address)
+    emu.write32(house + 0xB4, ARRAYS)
+    emu.write32(house + 0xC0, len(absorbers))
+    contacts = ARRAYS + 0x1000
+    emu.write32(contacts, 0 if contact is None else addresses[contact])
+    emu.write32(foot_address + 0xE4, contacts)
+    emu.write32(foot_address + 0x500, 0 if pending is None else addresses[pending])
+
+    def index_of(address):
+        return None if address == 0 else TeamEmu.index_of(address) - 1
+
+    def transmit(e):
+        message, to = e.arg(0), e.arg(1)
+        e.events.append(['transmit', message, index_of(to)])
+        return answers[to]
+
+    def building_coords(e):
+        out = e.arg(0)
+        for offset, value in zip((0, 4, 8), coords[e.uc.reg_read(UC_X86_REG_ECX)]):
+            e.write32(out + offset, value)
+        return out
+    emu.hook(STUB_TRANSMIT, transmit, 8)
+    emu.hook(STUB_BUILDING_COORDS, building_coords, 4)
+    emu.hook(STUB_QUEUE_MISSION, lambda e: e.events.append(
+        ['queue_mission', e.arg(0), e.arg(1)]) or 1, 8)
+    emu.hook(STUB_ASSIGN_DESTINATION, lambda e: e.events.append(
+        ['assign_destination', index_of(e.arg(0)), e.arg(1)]), 8)
+    emu.uc.hook_add(UC_HOOK_CODE, lambda uc, *_: emu.events.append(
+        ['picked', index_of(uc.reg_read(UC_X86_REG_EDI))]),
+        begin=BIO_REACTOR_PICKED, end=BIO_REACTOR_PICKED)
+    result = emu.invoke(ENTER_BIO_REACTOR, ecx=foot_address) & 0xFF
+    return dict(foot=foot, absorbers=absorbers, contact=contact, pending=pending, latch=latch,
+                result=result, latch_after=emu.read8(foot_address + 0x68F),
+                events=emu.events)
+
+
+def bio_reactor():
+    rng = random.Random(0x4DFB70)
+    rows = []
+    for case in range(120):
+        span = (0x400, 0x4000, 0x40000, 0x7FFF00)[case % 4]
+        foot = [rng.randrange(0, span), rng.randrange(0, span), rng.randrange(0, 0x800)]
+        absorbers = [dict(xyz=[rng.randrange(0, span), rng.randrange(0, span),
+                               rng.randrange(0, 0x800)],
+                          answer=rng.choice((1, 1, 1, 10, 0)))
+                     for _ in range(rng.randrange(0, 6))]
+        contact = pending = None
+        if absorbers and case % 3 == 1:
+            contact = rng.randrange(len(absorbers))
+        if absorbers and case % 5 == 2:
+            pending = rng.randrange(len(absorbers))
+        rows.append(bio_reactor_row(foot=foot, absorbers=absorbers, contact=contact,
+                                    pending=pending, latch=case % 2 == 1))
+    taker = dict(answer=1)
+    # Equal distances: the walk from the end meets the later entry first and
+    # keeps it; a nearer one later in the walk replaces it.
+    rows.append(bio_reactor_row(foot=[0x2000, 0x2000, 0],
+                                absorbers=[dict(taker, xyz=[0x2100, 0x2000, 0]),
+                                           dict(taker, xyz=[0x2000, 0x2100, 0])]))
+    rows.append(bio_reactor_row(foot=[0x2000, 0x2000, 0],
+                                absorbers=[dict(taker, xyz=[0x2080, 0x2000, 0]),
+                                           dict(taker, xyz=[0x2000, 0x2100, 0])]))
+    # Distances that differ below a lepton tie after ftol.
+    rows.append(bio_reactor_row(foot=[0, 0, 0],
+                                absorbers=[dict(taker, xyz=[300, 400, 0]),
+                                           dict(taker, xyz=[0, 500, 1])]))
+    # Only a refusing absorber is nearest; none takes it; none at all.
+    rows.append(bio_reactor_row(foot=[0x2000, 0x2000, 0],
+                                absorbers=[dict(taker, xyz=[0x2800, 0x2000, 0]),
+                                           dict(answer=10, xyz=[0x2010, 0x2000, 0])]))
+    rows.append(bio_reactor_row(foot=[0x2000, 0x2000, 0], latch=True,
+                                absorbers=[dict(answer=10, xyz=[0x2800, 0x2000, 0]),
+                                           dict(answer=0, xyz=[0x2010, 0x2000, 0])]))
+    rows.append(bio_reactor_row(foot=[0x2000, 0x2000, 0], latch=True, absorbers=[]))
+    # The pick is already the radio contact or the pending entry; another
+    # absorber is.
+    two = [dict(taker, xyz=[0x2400, 0x2000, 0]), dict(taker, xyz=[0x3000, 0x2000, 0])]
+    rows.append(bio_reactor_row(foot=[0x2000, 0x2000, 0], absorbers=two, contact=0))
+    rows.append(bio_reactor_row(foot=[0x2000, 0x2000, 0], absorbers=two, pending=0))
+    rows.append(bio_reactor_row(foot=[0x2000, 0x2000, 0], absorbers=two, contact=1,
+                                pending=1))
+    return rows
+
+
 def generate():
     return dict(recalc=recalc(), center=center(), recruit=recruit(), distance=distance(),
                 guard=guard(), regroup=regroup(), own_building=own_building(),
-                gather=gather(), quarry=quarry(), attack_cadence=attack_cadence())
+                gather=gather(), quarry=quarry(), attack_cadence=attack_cadence(),
+                bio_reactor=bio_reactor())
 
 
 if __name__ == '__main__':
@@ -671,7 +789,8 @@ if __name__ == '__main__':
                'a Foot or a building of every foundation; the action 5 guard timer; action '
                '54\'s point up to its FNPC call; FindOwnBuilding over one house\'s buildings; '
                'action 53 up to its FNPC call or its early return; Quarry_To_Threat; '
-               'Coordinate_Attack\'s frame test.'),
+               'Coordinate_Attack\'s frame test; EnterBioReactor over one house\'s '
+               'absorber list with supplied CAN_LOAD answers.'),
         assumptions=['x87 control word 0x0E7F (PC53, chop), the harness default.',
                      'Fixture objects carry only the fields the entries read.',
                      'ScenarioInit (0xA8E7AC), the empty coordinate 0xB0E968 and the empty '
@@ -690,10 +809,15 @@ if __name__ == '__main__':
                        'Base_Center 0x50DF30 answers the case\'s centres ([0, 0] for none, '
                        'z 0); RandomRanged 0x65C7E0 answers from the case and records its '
                        'range.',
-                       'FindOwnBuilding\'s threat map read 0x56BCD0 answers 0.'],
+                       'FindOwnBuilding\'s threat map read 0x56BCD0 answers 0.',
+                       'EnterBioReactor\'s Transmit_Message (vt+0x278) answers the case\'s '
+                       'CAN_LOAD reply and records it; Queue_Mission (vt+0x1E8) and '
+                       'Assign_Destination (vt+0x480) record their calls; the pick is read '
+                       'from EDI at 0x4DFC52.'],
         entry_points={'recalc': RECALC, 'calc_center': CALC_CENTER, 'recruit': RECRUIT,
                       'distance': DISTANCE, 'guard_case': GUARD_CASE,
                       'regroup_at_base': REGROUP_AT_BASE, 'find_own_building':
                       FIND_OWN_BUILDING, 'gather_at_enemy_base': GATHER_AT_ENEMY_BASE,
-                      'quarry_to_threat': QUARRY_TO_THREAT, 'attack_cadence': CADENCE},
+                      'quarry_to_threat': QUARRY_TO_THREAT, 'attack_cadence': CADENCE,
+                      'enter_bio_reactor': ENTER_BIO_REACTOR},
     ))

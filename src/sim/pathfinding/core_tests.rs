@@ -1267,7 +1267,6 @@ fn infantry_under_span_admission_reads_ground_speed_with_deck_cost_grid() {
             for speed_type in [None, Some(SpeedType::Foot)] {
                 assert_eq!(
                     evaluate_can_enter_cell(CanEnterCellContext {
-                        wall: None,
                         target: (0, 0),
                         terrain_layer: MovementLayer::Ground,
                         movement_zone: Some(MovementZone::Infantry),
@@ -1349,7 +1348,6 @@ fn unit_under_span_admission_reads_ground_row_beneath_deck() {
             assert_eq!(costs.cost_at(0, 0), 100, "coarse grid describes the deck");
             assert_eq!(
                 evaluate_can_enter_cell(CanEnterCellContext {
-                    wall: None,
                     target: (0, 0),
                     terrain_layer: MovementLayer::Ground,
                     movement_zone: Some(zone),
@@ -1369,7 +1367,6 @@ fn unit_under_span_admission_reads_ground_row_beneath_deck() {
             // row beneath it.
             assert!(
                 evaluate_can_enter_cell(CanEnterCellContext {
-                    wall: None,
                     target: (0, 0),
                     terrain_layer: MovementLayer::Bridge,
                     movement_zone: Some(zone),
@@ -1405,7 +1402,6 @@ fn infantry_under_span_admission_preserves_wall_and_grid_blocks() {
         let costs = TerrainCostGrid::from_resolved_terrain(&terrain, SpeedType::Foot);
         assert!(
             !evaluate_can_enter_cell(CanEnterCellContext {
-                wall: None,
                 target: (0, 0),
                 terrain_layer: MovementLayer::Ground,
                 movement_zone: Some(MovementZone::Infantry),
@@ -1431,7 +1427,6 @@ fn infantry_under_span_admission_preserves_missing_target_rejection() {
     for path_grid in [None, Some(&grid)] {
         assert!(
             !evaluate_can_enter_cell(CanEnterCellContext {
-                wall: None,
                 target: (1, 0),
                 terrain_layer: MovementLayer::Ground,
                 movement_zone: Some(MovementZone::Infantry),
@@ -2491,7 +2486,7 @@ fn astar_hierarchy_marker_follows_the_marked_straight_path() {
             urgency: 0,
             mover_is_crusher: false,
             is_infantry: false,
-            wall_cost: None,
+            search_cost_classifier: None,
             foot_entry: None,
         },
     )

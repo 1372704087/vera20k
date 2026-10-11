@@ -1455,13 +1455,10 @@ fn unit_entry_scope_and_actual_game_mode_match_independent_original_controls() {
             off_108: int(&bounds[4]),
         });
         if input["kind"] == "crate" {
-            sim.resolved_terrain
+            sim.overlay_grid
                 .as_mut()
                 .unwrap()
-                .cell_mut(11, 10)
-                .unwrap()
-                .bridge_facts
-                .overlay_id = Some(0);
+                .place_overlay(11, 10, 0, 0);
         }
         sim.session.game_mode_nonzero = int(&input["actual_game_mode"]) != 0;
         assert_rng(&sim, &row["rng"], "before_hex", &name);

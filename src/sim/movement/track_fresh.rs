@@ -996,14 +996,8 @@ impl Simulation {
     /// Cell+44, the overlay index of a Cell (the shared dummy has its own).
     fn track_overlay(&self, cell: (i16, i16)) -> Option<u8> {
         let terrain = self.resolved_terrain.as_ref()?;
-        match terrain.native_cell_identity(cell) {
-            crate::map::cell_index::NativeCellIdentity::Real(index) => {
-                terrain.cells()[index].bridge_facts.overlay_id
-            }
-            crate::map::cell_index::NativeCellIdentity::Dummy => {
-                u8::try_from(terrain.shared_cell_dummy().overlay_identity_state().0).ok()
-            }
-        }
+        self.cell_overlay(terrain.native_cell_identity(cell))
+            .overlay_id
     }
 
     /// OverlayType +22D (Crushable) and +2A8 (Wall).

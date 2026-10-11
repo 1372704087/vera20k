@@ -55,7 +55,7 @@ pub(crate) fn fixture_with_rules_and_fixed_art(
     ini.merge(&IniFile::from_str(extra));
     let mut rules = RuleSet::from_ini_with_fixed_art_for_test(&ini, art).unwrap();
     rules.install_art_data(crate::rules::art_data::ArtRegistry::from_ini(art));
-    let registry = crate::rules::overlay_types::OverlayTypeRegistry::from_ini(&ini, None);
+    let registry = crate::rules::overlay_types::OverlayTypeRegistry::from_ini(&ini, Some(art));
     let mut terrain = ResolvedTerrainGrid::from_cells(
         33,
         33,

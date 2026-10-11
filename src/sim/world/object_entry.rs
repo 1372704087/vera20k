@@ -29,6 +29,10 @@ mod unit_entry_tests;
 #[path = "infantry_entry_priority_tests.rs"]
 mod infantry_entry_priority_tests;
 
+#[cfg(test)]
+#[path = "wall_entry_tests.rs"]
+mod wall_entry_tests;
+
 /// The +1AC decision reads live simulation state without borrowing the bridge
 /// publisher. Native Map lookups still stamp the canonical shared Dummy through
 /// its existing interior-mutable owner, in the same order as movement/repair.
@@ -707,17 +711,8 @@ fn classify_foot_entry<'a>(
     let mut entry_result: u8 = 0;
     let mut stationary_infantry = 0u32;
     let mut crush_latch = false;
-    let overlay = match cell {
-        Cell::Real(index) => live.terrain().cells()[index].bridge_facts.overlay_id,
-        Cell::Dummy => u8::try_from(
-            live.terrain()
-                .shared_cell_dummy()
-                .overlay_identity_state()
-                .0,
-        )
-        .ok(),
-    };
-    if let Some(overlay) = overlay {
+    let live_overlay = live.sim.cell_overlay(cell);
+    if let Some(overlay) = live_overlay.overlay_id {
         let flags = live
             .registry
             .and_then(|r| r.flags(overlay))
@@ -729,23 +724,35 @@ fn classify_foot_entry<'a>(
             return Ok(7);
         }
         if flags.wall {
-            let allied = live
-                .sim
-                .overlay_grid
-                .as_ref()
-                .and_then(|g| g.cell(p.0 as u16, p.1 as u16).wall_owner)
-                .is_some_and(|o| mover.friendly(live, o));
-            if !infantry
-                && ((flags.crushable && crusher)
-                    || obj.movement_zone == crate::rules::locomotor_type::MovementZone::CrusherAll)
+            //4F9A10 asks the mover's House: its own index, or its Allies bit
+            //for Cell+0x50 (-1 is no ally). A one-way ally of the mover is not.
+            let allied = live_overlay.wall_owner.is_some_and(|o| {
+                crate::map::houses::is_allied_with(
+                    &live.sim.house_alliances,
+                    live.sim.interner.resolve(e.owner()),
+                    live.sim.interner.resolve(o),
+                )
+            });
+            let warhead = weapon0
+                .and_then(|w| w.warhead.as_deref())
+                .and_then(|name| live.rules.warhead(name));
+            if infantry {
+                //51C1BB..51C223: a wall at damage stage DamageLevels (+0x2A0)
+                //is no wall to Infantry. Otherwise the primary warhead needs
+                //Wall= (772AC0); Infantry has no crusher or Wood= route.
+                if u16::from(live_overlay.overlay_data >> 4) != flags.damage_levels {
+                    if !combat_weapon::is_armed(e, obj) || !warhead.is_some_and(|w| w.wall) {
+                        return Ok(7);
+                    }
+                    entry_result = entry_result.max(if allied { 4 } else { 5 });
+                }
+            } else if (flags.crushable && crusher)
+                || obj.movement_zone == crate::rules::locomotor_type::MovementZone::CrusherAll
             {
                 if allied {
                     entry_result = entry_result.max(4);
                 }
             } else {
-                let warhead = weapon0
-                    .and_then(|w| w.warhead.as_deref())
-                    .and_then(|name| live.rules.warhead(name));
                 if !combat_weapon::is_armed(e, obj)
                     || !warhead.is_some_and(|w| w.wall || (w.wood && flags.armor_is_wood))
                 {

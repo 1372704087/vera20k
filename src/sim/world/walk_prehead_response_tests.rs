@@ -108,7 +108,6 @@ fn fixture(row: &Value) -> (Simulation, RuleSet, OverlayTypeRegistry, u64, Optio
     let candidate = terrain.cell_mut(10, 10).unwrap();
     candidate.level = input["candidate_level"].as_i64().unwrap_or(2) as u8;
     candidate.bridge_facts.raw_flags = input["candidate_flags"].as_u64().unwrap_or(0) as u32;
-    candidate.bridge_facts.overlay_id = input.get("wall").map(|_| 0);
     if input["current_missing"] == true {
         let allocated: Vec<(u16, u16)> = (0..33)
             .flat_map(|y| (0..33).map(move |x| (x, y)))
@@ -131,6 +130,14 @@ fn fixture(row: &Value) -> (Simulation, RuleSet, OverlayTypeRegistry, u64, Optio
     }
     if input["target_zone_rejected"] == true {
         base.zone_ids[10 * 33 + 11] = 1;
+    }
+    // The wall stands in OverlayGrid alone, as one built in play does; the
+    // Override reads the live Cell+0x44 (75BAF3).
+    if input.get("wall").is_some() {
+        sim.overlay_grid
+            .as_mut()
+            .unwrap()
+            .place_overlay(10, 10, 0, 0);
     }
     let current = input.get("current").map(coord).unwrap_or(DriveCoord {
         x: 2496,

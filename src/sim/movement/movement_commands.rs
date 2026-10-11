@@ -260,7 +260,7 @@ pub(crate) fn issue_move_command_with_destination(
     // so terrain-object occupation is read at sub-cell granularity for infantry
     // and whole-cell for everything else, and reads the crusher flags from the
     // mover's own type. urgency=0: an initial move command.
-    let path_facts = super::MoverPathFacts::from_entity_without_wall_arm(entity, 0);
+    let path_facts = super::MoverPathFacts::from_entity(entity, 0);
     // `AStar @ 0x0042CAD6` uses hierarchy only for a mover whose stored
     // TechnoClass+0x3D5 byte is true. Authority is explicit: resolved terrain
     // and MapClass bounds have independent lifetimes in headless fixtures and
@@ -388,7 +388,6 @@ pub(crate) fn issue_move_command_with_destination(
             let zone_mz = movement_zone.unwrap_or(MovementZone::Normal);
             let Some((appended, _)) = find_move_path(
                 PathfindingContext {
-                    wall_tables: None,
                     path_grid: Some(grid),
                     zone_grid,
                     resolved_terrain,
@@ -426,7 +425,6 @@ pub(crate) fn issue_move_command_with_destination(
     }
     let zone_mz = movement_zone.unwrap_or(MovementZone::Normal);
     let ctx = PathfindingContext {
-        wall_tables: None,
         path_grid: Some(grid),
         zone_grid,
         resolved_terrain,

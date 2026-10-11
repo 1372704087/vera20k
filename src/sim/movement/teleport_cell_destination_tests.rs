@@ -116,6 +116,8 @@ fn fixture(row: &Value, rules: &RuleSet) -> (Simulation, u64, InternedId) {
             })
         })
         .collect();
+    // Overlays as the map loader leaves them: the overlay cell and the bridge facts.
+    let mut overlays = crate::sim::overlay_grid::OverlayGrid::new(32, 32);
     for native in before["cells"].as_array().unwrap() {
         let (x, y) = pair(&native["coord"]);
         let cell = &mut cells[usize::from(y) * 32 + usize::from(x)];
@@ -123,11 +125,13 @@ fn fixture(row: &Value, rules: &RuleSet) -> (Simulation, u64, InternedId) {
         cell.slope_type = native["slope"].as_u64().unwrap() as u8;
         if let Some(overlay) = native.get("overlay_id") {
             cell.bridge_facts.overlay_id = overlay.as_i64().and_then(|id| u8::try_from(id).ok());
+            overlays.cell_mut(x, y).overlay_id = cell.bridge_facts.overlay_id;
         }
         cell.bridge_facts.raw_flags = native["structural_flags"].as_u64().unwrap() as u32;
         assert_eq!(native["land"], 0, "fixture has only native land0");
     }
     sim.install_resolved_terrain_for_new_map(ResolvedTerrainGrid::from_cells(32, 32, cells));
+    sim.overlay_grid = Some(overlays);
     let owner = sim.interner.intern("Americans");
     let mut house = HouseState::new(owner, 0, None, input["human"].as_bool().unwrap(), 0, 10);
     house.player_control = row["human_input"]["player_control_byte"].as_u64().unwrap() != 0;
@@ -827,9 +831,10 @@ fn overlay_destination_without_registered_inputs_is_atomic() {
     let row = row_named(&data, "guard_two_distinct_cells");
     for missing in [None, Some(&empty)] {
         let (mut sim, id, _) = fixture(row, &rules);
-        let terrain = sim.resolved_terrain.as_mut().unwrap();
-        let cell = terrain.native_cell_identity((12, 10));
-        terrain.write_native_cell_overlay(cell, Some(ore));
+        sim.overlay_grid
+            .as_mut()
+            .unwrap()
+            .place_overlay(12, 10, ore, 0);
         let before = (
             bincode::serialize(sim.substrate.entities.get(id).unwrap()).unwrap(),
             bincode::serialize(&sim.substrate.raw_cell_occupation).unwrap(),

@@ -124,11 +124,12 @@ fn unit(
             (false, true, None) => 6,
             other => panic!("unmapped overlay {other:?}"),
         };
-        terrain
-            .cell_mut(x as u16, y as u16)
+        // In OverlayGrid alone, as an overlay built in play stands: the
+        // track's crush, coercion and Override tests read the live Cell+0x44.
+        sim.overlay_grid
+            .as_mut()
             .unwrap()
-            .bridge_facts
-            .overlay_id = Some(id);
+            .place_overlay(x as u16, y as u16, id, 0);
     }
     // The oracle writes Cell+EC = Tunnel; its unconstructed UnitType leaves
     // ObjectType+0x235 (ctor 0x5F716E: 1) clear, so its Mark skips the

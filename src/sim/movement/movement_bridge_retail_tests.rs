@@ -470,7 +470,6 @@ fn diagnose_rejected_order(
             ("all", true, true, true, true, true),
         ] {
             let ctx = PathfindingContext {
-                wall_tables: None,
                 path_grid: Some(&grid),
                 zone_grid: if use_zone {
                     sim.zone_grid.as_ref()
@@ -503,7 +502,7 @@ fn diagnose_rejected_order(
                 movement_zone.unwrap_or(MovementZone::Normal),
                 movement_zone,
                 use_blocks.then_some(&block_map),
-                super::MoverPathFacts::without_wall_arm(0, false, false),
+                super::MoverPathFacts::fixture(0, false, false),
                 true,
             );
             println!(
@@ -515,7 +514,6 @@ fn diagnose_rejected_order(
         // Exact production argument set.
         let production = find_move_path(
             PathfindingContext {
-                wall_tables: None,
                 path_grid: Some(&grid),
                 zone_grid: sim.zone_grid.as_ref(),
                 resolved_terrain: sim.resolved_terrain.as_ref(),
@@ -533,7 +531,7 @@ fn diagnose_rejected_order(
             movement_zone.unwrap_or(MovementZone::Normal),
             movement_zone,
             Some(&block_map),
-            super::MoverPathFacts::without_wall_arm(0, true, false),
+            super::MoverPathFacts::fixture(0, true, false),
             true,
         );
         println!(
@@ -544,7 +542,6 @@ fn diagnose_rejected_order(
         // Same, minus one input at a time.
         let without_occupation = find_move_path(
             PathfindingContext {
-                wall_tables: None,
                 path_grid: Some(&grid),
                 zone_grid: sim.zone_grid.as_ref(),
                 resolved_terrain: sim.resolved_terrain.as_ref(),
@@ -562,7 +559,7 @@ fn diagnose_rejected_order(
             movement_zone.unwrap_or(MovementZone::Normal),
             movement_zone,
             Some(&block_map),
-            super::MoverPathFacts::without_wall_arm(0, true, false),
+            super::MoverPathFacts::fixture(0, true, false),
             true,
         );
         println!(
@@ -571,7 +568,6 @@ fn diagnose_rejected_order(
         );
         let without_neighbors = find_move_path(
             PathfindingContext {
-                wall_tables: None,
                 path_grid: Some(&grid),
                 zone_grid: sim.zone_grid.as_ref(),
                 resolved_terrain: sim.resolved_terrain.as_ref(),
@@ -589,7 +585,7 @@ fn diagnose_rejected_order(
             movement_zone.unwrap_or(MovementZone::Normal),
             movement_zone,
             Some(&block_map),
-            super::MoverPathFacts::without_wall_arm(0, true, false),
+            super::MoverPathFacts::fixture(0, true, false),
             true,
         );
         println!(
@@ -598,7 +594,6 @@ fn diagnose_rejected_order(
         );
         let without_block_map = find_move_path(
             PathfindingContext {
-                wall_tables: None,
                 path_grid: Some(&grid),
                 zone_grid: sim.zone_grid.as_ref(),
                 resolved_terrain: sim.resolved_terrain.as_ref(),
@@ -616,7 +611,7 @@ fn diagnose_rejected_order(
             movement_zone.unwrap_or(MovementZone::Normal),
             movement_zone,
             None,
-            super::MoverPathFacts::without_wall_arm(0, true, false),
+            super::MoverPathFacts::fixture(0, true, false),
             true,
         );
         println!(
@@ -652,7 +647,6 @@ fn diagnose_rejected_order(
         for goal in goals {
             let reached = find_move_path(
                 PathfindingContext {
-                    wall_tables: None,
                     path_grid: Some(&grid),
                     zone_grid: sim.zone_grid.as_ref(),
                     resolved_terrain: sim.resolved_terrain.as_ref(),
@@ -670,7 +664,7 @@ fn diagnose_rejected_order(
                 movement_zone.unwrap_or(MovementZone::Normal),
                 movement_zone,
                 Some(&block_map),
-                super::MoverPathFacts::without_wall_arm(0, true, false),
+                super::MoverPathFacts::fixture(0, true, false),
                 true,
             );
             println!(

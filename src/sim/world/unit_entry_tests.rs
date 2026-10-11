@@ -407,13 +407,10 @@ fn compare_rows(json: &str, expected_count: usize, repair_projection: bool) {
                 .raw_flags = 0x100;
         }
         if input.get("wall").is_some() {
-            sim.resolved_terrain
+            sim.overlay_grid
                 .as_mut()
                 .unwrap()
-                .cell_mut(11, 10)
-                .unwrap()
-                .bridge_facts
-                .overlay_id = Some(0);
+                .place_overlay(11, 10, 0, 0);
             if let Some(owner) = match input["wall_owner"].as_i64().unwrap_or(-1) {
                 0 => Some(ours),
                 1 => Some(enemy),

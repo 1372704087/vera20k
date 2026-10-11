@@ -48,7 +48,6 @@ use crate::sim::intern::InternedId;
 #[cfg(test)]
 use crate::sim::lifecycle_request::LifecycleRequest;
 use crate::sim::pathfinding::PathGrid;
-use crate::sim::pathfinding::cell_entry::WallArmTables;
 #[cfg(test)]
 use crate::sim::pathfinding::terrain_cost::TerrainCostGrid;
 #[cfg(test)]
@@ -208,37 +207,19 @@ pub(super) struct PathfindingContext<'a> {
     pub resolved_terrain: Option<&'a ResolvedTerrainGrid>,
     pub playfield_bounds: Option<PlayfieldBounds>,
     pub blocker_neighbor_counts: Option<&'a crate::sim::pathfinding::BlockerNeighborCounts>,
-    /// Map-global tables the wall arm reads, carried once per pass (ledger I9b).
-    ///
-    /// The search calls the Foot `+0x1AC` slot per neighbour and prices the
-    /// returned class through `AStar_compute_edge_cost @ 0x00429830`; a wall
-    /// answers 4 or 5, which expand at 60x and 20x rather than blocking. `None`
-    /// keeps the pre-I9b search, where a wall is simply impassable.
-    ///
-    /// This carries the *tables*, not a built classifier: the classifier is
-    /// per mover and is constructed at the search boundary from these plus the
-    /// mover's own facts. Holding a per-mover `&dyn` on a per-pass `Copy` struct
-    /// was a granularity mismatch.
-    pub wall_tables: Option<WallArmTables<'a>>,
 }
 
 /// The mover's own facts a path search needs, carried as one value.
 ///
-/// Three of these — `urgency`, `mover_is_crusher`, `is_infantry` — used to
-/// travel as loose positional arguments through `find_move_path`,
-/// `find_move_path_with_marker` and `..._detailed`, eighteen parameters at the
-/// widest. Wiring the wall arm's search half (ledger I9b) needs four more: the
-/// mover's house for the ally test, `Is_Armed` (`0x0073F48F`), and the primary
-/// warhead's `Wall=` and `Wood=` (`0x0073F4A9`, `0x0073F4B3`). Adding those
-/// positionally is the exact shape ledger row I9c records as a landed
-/// regression — a mover fact derived independently per call site, where the
-/// callers without context quietly passed `false` and crushers detoured around
-/// sandbags they would have driven through.
+/// They used to travel as loose positional arguments through `find_move_path`,
+/// `find_move_path_with_marker` and `..._detailed`. Ledger row I9c records
+/// what that shape cost: a mover fact derived independently per call site,
+/// where the callers without context quietly passed `false` and crushers
+/// detoured around sandbags they would have driven through.
 ///
 /// So they travel together and are derived in two places only, both from the
-/// mover itself: `from_snapshot` on the tick path and
-/// `from_entity_without_wall_arm` where no snapshot exists. No caller supplies
-/// a fact.
+/// mover itself: `from_snapshot` on the tick path and `from_entity` where no
+/// snapshot exists. No caller supplies a fact.
 ///
 /// RESIDUAL: `mover_is_crusher` here is `Crusher=` or `OmniCrusher=`, and the
 /// search uses it both for the entity soft-block exemption and for the
@@ -255,10 +236,6 @@ pub(super) struct MoverPathFacts {
     pub mover_is_crusher: bool,
     pub is_infantry: bool,
     pub speed_type: Option<SpeedType>,
-    pub owner: Option<InternedId>,
-    pub is_armed: bool,
-    pub warhead_wall: bool,
-    pub warhead_wood: bool,
     /// A slave's deposit Cells (`SlaveManagerClass 0x006B0880`), which its
     /// `Can_Enter_Cell` admits past the master's footprint.
     pub slave_deposit_cells: [Option<(u16, u16)>; 2],
@@ -273,10 +250,6 @@ impl MoverPathFacts {
             mover_is_crusher: snap.crush_capability().can_crush_units(),
             is_infantry: snap.category == EntityCategory::Infantry,
             speed_type: snap.speed_type,
-            owner: Some(snap.owner),
-            is_armed: snap.is_armed,
-            warhead_wall: snap.warhead_wall,
-            warhead_wood: snap.warhead_wood,
             slave_deposit_cells: snap.slave_deposit_cells,
         }
     }
@@ -290,50 +263,37 @@ impl MoverPathFacts {
     /// `false`, and the same tank planned as a crusher or not depending on
     /// which function issued its move.
     ///
-    /// RESIDUAL (ledger I9b): the wall arm is off on these searches, so a wall
-    /// the mover could shoot answers 7, a hard block, where retail prices it at
-    /// 20x or 60x. The armed flag and primary warhead need the rules, which
-    /// this signature does not take, and they would have no consumer yet: the
-    /// order path's context carries no wall tables, and the process-entry and
-    /// Drive tick contexts carry them with `interner: None`, which keeps the
-    /// arm off there too. Wiring this constructor alone would not give retail
-    /// behavior. Walk orders already get the arm (`walk_path.rs`).
-    /// - Trigger: an armed Drive, Ship or Hover unit ordered to a goal it can
-    ///   reach only through a wall its warhead can hit.
-    /// - Effect: a detour, or no path at all when the goal is walled in, where
-    ///   retail drives at the wall and shoots it.
-    /// - Frequency: uncommon; walled-in goals in base assaults.
-    /// - Downstream risk: enabling it changes search results in the lockstep
+    /// RESIDUAL: these searches run without the live Foot `+0x1AC` receiver,
+    /// so a wall the mover could shoot is a hard block, where native's
+    /// `Can_Enter_Cell` answers 4 or 5 and `AStar_compute_edge_cost
+    /// @ 0x00429830` prices it at 60x or 20x.
+    /// - Trigger: an order that still searches when given (a Jumpjet's object
+    ///   order, or a mover with no represented class setter) to a goal it can
+    ///   reach only through a wall its warhead can hit. Drive, Ship, Hover,
+    ///   Walk and Teleport orders and Jumpjet cell orders accept first and
+    ///   search in their own turn, with the live receiver.
+    /// - Effect: the order is redirected or refused where retail accepts it.
+    /// - Frequency: rare.
+    /// - Downstream risk: changing it changes search results in the lockstep
     ///   stream, so it is a movement-parity change with its own evidence.
-    pub fn from_entity_without_wall_arm(
-        entity: &crate::sim::game_entity::GameEntity,
-        urgency: u8,
-    ) -> Self {
+    pub fn from_entity(entity: &crate::sim::game_entity::GameEntity, urgency: u8) -> Self {
         Self {
             urgency,
             mover_is_crusher: bump_crush::CrushCapability::of(entity).can_crush_units(),
             is_infantry: entity.category == EntityCategory::Infantry,
             speed_type: None,
-            owner: None,
-            is_armed: false,
-            warhead_wall: false,
-            warhead_wood: false,
             slave_deposit_cells: [None, None],
         }
     }
 
     /// Hand-built facts for a search fixture with no entity behind it.
     #[cfg(test)]
-    pub fn without_wall_arm(urgency: u8, mover_is_crusher: bool, is_infantry: bool) -> Self {
+    pub fn fixture(urgency: u8, mover_is_crusher: bool, is_infantry: bool) -> Self {
         Self {
             urgency,
             mover_is_crusher,
             is_infantry,
             speed_type: None,
-            owner: None,
-            is_armed: false,
-            warhead_wall: false,
-            warhead_wood: false,
             slave_deposit_cells: [None, None],
         }
     }
@@ -350,18 +310,6 @@ pub(super) struct MoverSnapshot {
     pub omni_crusher: bool,
     pub regular_crusher: bool,
     pub owner: InternedId,
-    /// `TechnoClass::Is_Armed @ 0x00701120` (vtable `+0x2AC`). An unarmed mover
-    /// leaves the wall arm through the shared epilogue at `0x0073FCD0`.
-    ///
-    /// Resolved here, per mover, rather than at each path-request site: ledger
-    /// row I9c is what happens when a mover fact is derived independently per
-    /// caller and the callers without context quietly pass `false`.
-    pub is_armed: bool,
-    /// Slot-0 warhead `Wall=` (`WarheadTypeClass+0x144`).
-    pub warhead_wall: bool,
-    /// Slot-0 warhead `Wood=` (`+0x147`), which the arm admits only against an
-    /// overlay whose own `Armor` is wood, and only for Units.
-    pub warhead_wood: bool,
     pub on_bridge: bool,
     pub locomotor: Option<locomotor::LocomotorState>,
     /// Native AStar hierarchy admission reads the stored TechnoClass+0x3D5

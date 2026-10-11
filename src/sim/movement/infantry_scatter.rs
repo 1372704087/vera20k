@@ -571,12 +571,10 @@ impl Simulation {
             //after slot refusal. Check only retained input availability here;
             //canonical Dummy lookup, admission and RNG keep their native order.
             for (x, y) in [(rx as i16, ry as i16), (0, 0)] {
-                let overlay = match terrain.native_fixed_cell_index(x, y) {
-                    Some(index) => terrain.cells()[index].bridge_facts.overlay_id,
-                    None => {
-                        u8::try_from(terrain.shared_cell_dummy().overlay_identity_state().0).ok()
-                    }
-                };
+                let cell = terrain
+                    .native_fixed_cell_index(x, y)
+                    .map_or(NativeCellIdentity::Dummy, NativeCellIdentity::Real);
+                let overlay = self.cell_overlay(cell).overlay_id;
                 if overlay.is_some_and(|id| registry.and_then(|r| r.flags(id)).is_none()) {
                     return false;
                 }
@@ -598,23 +596,17 @@ impl Simulation {
             return true;
         }
         let xyz = super::foot_coordinate::current_coordinate(actor);
-        let (cell, overlay, cost) =
+        let (cell, cost) =
             match terrain.native_fixed_cell_index((xyz.x / 256) as i16, (xyz.y / 256) as i16) {
-                Some(index) => {
-                    let cell = &terrain.cells()[index];
-                    (
-                        NativeCellIdentity::Real(index),
-                        cell.bridge_facts.overlay_id,
-                        cell.speed_costs.cost_for_speed_type(object.speed_type),
-                    )
-                }
-                None => (
-                    NativeCellIdentity::Dummy,
-                    u8::try_from(terrain.shared_cell_dummy().overlay_identity_state().0).ok(),
-                    None,
+                Some(index) => (
+                    NativeCellIdentity::Real(index),
+                    terrain.cells()[index]
+                        .speed_costs
+                        .cost_for_speed_type(object.speed_type),
                 ),
+                None => (NativeCellIdentity::Dummy, None),
             };
-        let wall = match overlay {
+        let wall = match self.cell_overlay(cell).overlay_id {
             Some(overlay) => {
                 let Some(flags) = registry.and_then(|registry| registry.flags(overlay)) else {
                     return false;
@@ -871,24 +863,20 @@ impl Simulation {
         }
         let raw = &self.substrate.raw_cell_occupation;
         let key = RawCellKey::from_native(terrain, cell);
-        let (level, overlay, cost) = match cell {
+        let (level, cost) = match cell {
             NativeCellIdentity::Real(index) => {
                 let c = &terrain.cells()[index];
                 (
                     i16::from(c.level as i8),
-                    c.bridge_facts.overlay_id,
                     c.speed_costs.cost_for_speed_type(speed),
                 )
             }
-            NativeCellIdentity::Dummy => {
-                let dummy = terrain.shared_cell_dummy();
-                (
-                    i16::from(dummy.snapshot().level),
-                    u8::try_from(dummy.overlay_identity_state().0).ok(),
-                    None,
-                )
-            }
+            NativeCellIdentity::Dummy => (
+                i16::from(terrain.shared_cell_dummy().snapshot().level),
+                None,
+            ),
         };
+        let overlay = self.cell_overlay(cell).overlay_id;
         let mut input = IsClearToMoveRequest {
             speed_type: speed,
             movement_zone: MovementZone::Normal,

@@ -53,32 +53,6 @@ pub(super) fn snapshot_mover(
     rules: Option<&crate::rules::ruleset::RuleSet>,
 ) -> Option<MoverSnapshot> {
     let e = entities.get(entity_id)?;
-    // Allocation-free type resolution: two index operations, the same hop
-    // `Simulation::object_type` takes. Going through `RuleSet::object(&str)`
-    // here costs one `String` per mover per tick - that is what 038aadfd did and
-    // 2b877fec reverted. Absent tables resolve to `None`, which leaves the wall
-    // facts false and the arm declining, i.e. exact pre-I9b behaviour.
-    let obj = type_handles.zip(rules).and_then(|(handles, rules)| {
-        handles
-            .handle_for(e.type_ref())
-            .map(|h| rules.object_by_handle(h))
-    });
-    let is_armed = obj.is_some_and(|obj| crate::sim::combat::combat_weapon::is_armed(e, obj));
-    // Gated on `is_armed`, the way native gates it: `Can_Enter_Cell` tests the
-    // armed vtable slot at `0x0073F487` (`CALL [EAX+0x2AC]`, `JZ 0x0073FCD0`)
-    // and only then fetches weapon 0 at `0x0073F497`/`0x0073F49B`. Ungated,
-    // this ran the lookup for every mover every tick, and `RuleSet::weapon`
-    // falls back to a full linear scan when the key misses - which is exactly
-    // what `Primary=none` on `[CMIN]`, `[TRUCKA]` and `[TRUCKB]` produces, so
-    // every Chrono Miner and truck scanned all weapon sections per movement
-    // tick. An unarmed mover cannot take the wall arm anyway.
-    let (warhead_wall, warhead_wood) = if is_armed {
-        obj.zip(rules).map_or((false, false), |(obj, rules)| {
-            crate::sim::combat::combat_weapon::primary_warhead_wall_flags(e, obj, rules)
-        })
-    } else {
-        (false, false)
-    };
     Some(MoverSnapshot {
         category: e.category,
         speed_type: e.locomotor.as_ref().map(|l| l.speed_type),
@@ -90,9 +64,6 @@ pub(super) fn snapshot_mover(
         omni_crusher: e.omni_crusher,
         regular_crusher: e.regular_crusher,
         owner: e.owner(),
-        is_armed,
-        warhead_wall,
-        warhead_wood,
         on_bridge: e.on_bridge,
         locomotor: e.locomotor.clone(),
         allow_zone_hierarchy: playfield_bounds.is_none() || e.in_playfield,

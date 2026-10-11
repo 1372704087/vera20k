@@ -409,9 +409,10 @@ fn restoration_callbacks_forward_overlay_inputs_before_any_destination_write() {
     });
     mover.navigation.nav_com = Some(NavTargetRef::cell(8, 9));
     mover.navigation.suspended_nav_com = Some(destination);
-    let terrain = sim.resolved_terrain.as_mut().unwrap();
-    let cell = terrain.native_cell_identity((12, 7));
-    terrain.write_native_cell_overlay(cell, Some(overlay));
+    // In OverlayGrid, which owns a real cell's overlay.
+    let mut overlays = crate::sim::overlay_grid::OverlayGrid::new(32, 32);
+    overlays.place_overlay(12, 7, overlay, 0);
+    sim.overlay_grid = Some(overlays);
     let before = (
         bincode::serialize(sim.substrate.entities.get(1).unwrap()).unwrap(),
         bincode::serialize(&sim.substrate.raw_cell_occupation).unwrap(),

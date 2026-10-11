@@ -610,9 +610,7 @@ fn lepton_cell(coord: ProjectileCoord) -> (i32, i32) {
     (coord.x / 256, coord.y / 256)
 }
 
-const NEGATIVE_2048_F32: NativeF32Bits = NativeF32Bits::from_bits(0xc500_0000);
 const TRIG_SCALE_F32: NativeF32Bits = NativeF32Bits::from_bits(0x4522_f983);
-const PI_OVER_TWO_F64: NativeF64Bits = NativeF64Bits::from_bits(0x3ff9_21fb_5444_2d18);
 const TAN_PI_OVER_EIGHT_F64: NativeF64Bits = NativeF64Bits::from_bits(0x3fda_8279_a061_eb64);
 const INV_TAN_PI_OVER_EIGHT_F64: NativeF64Bits = NativeF64Bits::from_bits(0x4003_504f_2e96_fc59);
 
@@ -742,12 +740,11 @@ fn transform_type0_vertex(
     }
 }
 
-fn type0_nonmagnetic_geometry_with_tables(
+fn type0_nonmagnetic_geometry(
     source: ProjectileCoord,
     raw_target: ProjectileCoord,
-    trig: &TrigTable,
-    acos: &AcosTable,
 ) -> Type0NonmagneticGeometry {
+    let (trig, acos) = (TrigTable::embedded(), AcosTable::retail());
     // Type 0's endpoint factor is exactly 1.0: +C0 is the owner, +B4 is the
     // target with its post-ftol Sonic Z adjustment.
     let target = ProjectileCoord::new(
@@ -804,11 +801,7 @@ fn type0_nonmagnetic_geometry_with_tables(
     // The index is kept for the machine fixtures only.
     #[cfg_attr(not(test), expect(unused_variables))]
     let (acos_index, mut angle) = if horizontal == 0 {
-        let entry = NativeF32Bits::from_bits(acos.entry(0).to_bits());
-        (
-            0,
-            X87Chop53::sub(load_f64(PI_OVER_TWO_F64), load_f32(entry)),
-        )
+        (0, acos.acos_lookup_nan())
     } else {
         let mut numerator = X87Chop53::load_i32(angle_dx_i32);
         if X87Chop53::compare(numerator, angle_length) == X87Ordering::Greater {
@@ -820,16 +813,7 @@ fn type0_nonmagnetic_geometry_with_tables(
         }
         let ratio = X87Chop53::div(numerator, angle_length)
             .expect("nonzero Wave angle length divides in finite x87 domain");
-        let scaled = X87Chop53::mul(
-            X87Chop53::add(ratio, load_f32(NativeF32Bits::ONE)),
-            load_f32(NEGATIVE_2048_F32),
-        );
-        let raw_index = x87_ftol_i32(scaled).wrapping_neg() as usize;
-        let entry = NativeF32Bits::from_bits(acos.entry(raw_index).to_bits());
-        (
-            raw_index,
-            X87Chop53::sub(load_f64(PI_OVER_TWO_F64), load_f32(entry)),
-        )
+        acos.acos_lookup(ratio)
     };
     if target.y > source.y {
         angle = X87Chop53::neg(angle);
@@ -903,21 +887,6 @@ fn type0_nonmagnetic_geometry_with_tables(
     }
 }
 
-fn installed_wave_math_tables() -> (&'static TrigTable, &'static AcosTable) {
-    (
-        TrigTable::embedded(),
-        crate::map::retail_trig::required_acos_table(),
-    )
-}
-
-fn type0_nonmagnetic_geometry(
-    source: ProjectileCoord,
-    raw_target: ProjectileCoord,
-) -> Type0NonmagneticGeometry {
-    let (trig, acos) = installed_wave_math_tables();
-    type0_nonmagnetic_geometry_with_tables(source, raw_target, trig, acos)
-}
-
 fn legacy_nonmagnetic_edges(source: ProjectileCoord, target: ProjectileCoord) -> WaveEdgeGeometry {
     // Preserve the pre-existing type-3 projection until its separate helper at
     // 0x00762070 is exactified. Type 0 never reaches this host-float path.
@@ -976,11 +945,6 @@ mod tests {
         }
     }
 
-    fn exact_retail_wave_tables() -> Option<(&'static TrigTable, &'static AcosTable)> {
-        crate::map::retail_trig::verified_acos_table_or_skip("exact Wave fixtures")
-            .map(|acos| (TrigTable::embedded(), acos))
-    }
-
     #[test]
     fn constructor_uses_strict_239_240_xy_edge() {
         assert!(!Wave::new(0, point(0, 0, 0), point(239, 0, 999)).constructor_distance_is_live());
@@ -989,9 +953,6 @@ mod tests {
 
     #[test]
     fn type0_nonmagnetic_geometry_matches_all_eight_machine_octants() {
-        let Some((trig, acos)) = exact_retail_wave_tables() else {
-            return;
-        };
         struct Fixture {
             target: (i32, i32),
             horizontal: i32,
@@ -1117,11 +1078,9 @@ mod tests {
         ];
 
         for (direction, fixture) in fixtures.into_iter().enumerate() {
-            let geometry = type0_nonmagnetic_geometry_with_tables(
+            let geometry = type0_nonmagnetic_geometry(
                 point(4096, 4096, 0),
                 point(fixture.target.0, fixture.target.1, 0),
-                trig,
-                acos,
             );
             assert_eq!(
                 geometry.horizontal, fixture.horizontal,
@@ -1162,9 +1121,6 @@ mod tests {
 
     #[test]
     fn type0_nonmagnetic_geometry_matches_signed_edges_and_nonflat_z() {
-        let Some((trig, acos)) = exact_retail_wave_tables() else {
-            return;
-        };
         let fixtures = [
             (
                 point(1024, 1024, 0),
@@ -1238,7 +1194,7 @@ mod tests {
             ),
         ];
         for (source, target, horizontal, sqrt_bits, expected, cells, direction) in fixtures {
-            let geometry = type0_nonmagnetic_geometry_with_tables(source, target, trig, acos);
+            let geometry = type0_nonmagnetic_geometry(source, target);
             let edges = [
                 geometry.edges.firer_a,
                 geometry.edges.firer_b,
@@ -1255,15 +1211,7 @@ mod tests {
 
     #[test]
     fn converged_live_type0_geometry_keeps_native_exceptional_quad() {
-        let Some((trig, acos)) = exact_retail_wave_tables() else {
-            return;
-        };
-        let geometry = type0_nonmagnetic_geometry_with_tables(
-            point(4096, 4096, 0),
-            point(4096, 4096, 0),
-            trig,
-            acos,
-        );
+        let geometry = type0_nonmagnetic_geometry(point(4096, 4096, 0), point(4096, 4096, 0));
         let edges = [
             geometry.edges.firer_a,
             geometry.edges.firer_b,

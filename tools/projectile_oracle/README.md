@@ -81,9 +81,7 @@ numeric components; it supplies the connections and admitted collision commits.
 The Rust runtime test establishes that integration only for these two fixtures;
 it does not certify the whole native scheduler or collisions.
 
-Both run in the lib suite. Their comparisons need the Acos table from a verified
-`gamemd.exe`, so they print `SKIPPED` unless `RA2_DIR` names that install, and a
-readiness run (`VERA20K_REQUIRE_RETAIL_INI=1`) fails instead of skipping.
+Both run in the lib suite without an installed game.
 Python import/help regression tests run in `python -m tools.run_tests` without
 retail files. Native comparison and Rust regression are separate evidence levels.
 
@@ -191,17 +189,14 @@ Negative and zero inputs characterize solver boundaries; they are not claims
 about values admitted by retail weapon rules. No upstream FireAt/type/INI loading,
 trajectory, timer, RNG or detach equivalence is established. The word results are
 retained native observations without a direct Rust consumer. The angle consumer
-checks native failure predicates and successful raw binary64 values. It needs the
-Acos table from a verified `gamemd.exe`, so it skips unless `RA2_DIR` names that
-install. Run it alone with:
+checks native failure predicates and successful raw binary64 values. It runs in
+the lib suite; run it alone with:
 
 ```sh
 python -m tools.cargo_run -- test -p vera20k --lib original_arc_solver_domain_and_failure_predicates
 ```
 
-[The validation record](arc_domain.validation.json) records the native replay,
-unchanged golden hash and actual retail-backed Rust run. Shared import/help
-coverage for all migrated projectile and animation producers lives in
-`tools.tests.test_oracle_lifecycle`; each producer runs in a fresh interpreter,
-in normal and optimized Python. `tools.tests.test_arc_domain` separately verifies
+Shared import/help coverage for all migrated projectile and animation producers
+lives in `tools.tests.test_oracle_lifecycle`; each producer runs in a fresh
+interpreter, in normal and optimized Python. `tools.tests.test_arc_domain` separately verifies
 that a failed first or second solver cannot publish partial/error observations.

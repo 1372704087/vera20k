@@ -1,34 +1,22 @@
 //! Retail math tables: the shared sine/cosine table and `Acos_lookup`'s
-//! arcsine table.
+//! arcsine table. Neither reads an installed game.
 //!
-//! The river carver steers by a floating-point heading and resolves it through
-//! two table lookups every step. The sine table is **not reproducible from a
-//! formula**: computing `sin` in double precision and rounding disagrees with it
-//! on 4997 of its first 10240 indexed entries, and so does the correctly-rounded
-//! true sine, by up to one unit in the last place. It is an artifact of whatever
-//! generated it
-//! in the original build. It is not even exactly periodic — one of the 2048
-//! wrap-around pairs disagrees, which is what an accumulating recurrence looks
-//! like and what a per-index evaluation does not.
-//!
-//! So the bytes have to be the retail ones, and each table has one source. The
-//! sine table's is the repository's checked copy of the retail bytes
+//! The sine table is the repository's checked copy of the retail bytes
 //! ([`crate::util::native_trig::RETAIL_SINE_TABLE`], hashed whole against
-//! [`RETAIL_FNV1A64`] by this module's tests), so the game, headless runs and
-//! tests all read the exact entries without an install. The Acos table has no
-//! checked copy: [`install_from_dir`] reads it out of the player's `gamemd.exe`
-//! at load time, the same way the rest of the engine reads retail `.mix`
-//! assets. Executable versions may place it at a different address:
-//! compatibility depends on the table's contents, not the executable's
-//! checksum, language, signature or other unrelated bytes.
+//! [`RETAIL_FNV1A64`] by this module's tests). Rounding a double-precision sine
+//! to nearest disagrees with it on 4997 of its first 10240 indexed entries.
+//! Truncating instead, gamemd's x87 rounding mode, reproduces every entry except
+//! 4096 and 8192, whose tiny residues of sin pi and sin 2pi differ from double
+//! precision's. So the sine bytes stay the retail ones.
+//!
+//! The Acos table is computed ([`AcosTable::retail`]). Tests hash it against
+//! the retail bytes and, with `RA2_DIR` set, compare it byte for byte with the
+//! player's `gamemd.exe`.
 //!
 //! Both trig functions share one table. Cosine is the same data read a quarter
 //! period further along, so there is a single array and two index derivations.
 
-use std::fmt;
-
-use crate::util::native_x87::{NativeF32Bits, X87Chop53, X87Value};
-use std::path::Path;
+use crate::util::native_x87::{NativeF32Bits, NativeF64Bits, X87Chop53, X87Value};
 use std::sync::OnceLock;
 
 /// Virtual address of the sine table in the retail image.
@@ -58,57 +46,20 @@ pub const UNITS_PER_TURN: f64 = (2 * PERIOD) as f64;
 /// image, machine-derived by reading all 40964 bytes out of the binary. This is
 /// the whole-table check: it is a genuine exhaustive comparison, not a sample.
 pub const RETAIL_FNV1A64: u64 = 0x74ac_b749_b33d_5aa7;
-// First four entries read from the reference table at TABLE_VA. These prefixes
-// only locate candidates; the complete table must still pass its FNV check.
+
+/// Virtual address of `Acos_lookup @ 0x004CADB0`'s signed arcsine table.
 #[cfg(test)]
-const TABLE_PREFIX: &[u8] = &[
-    0x00, 0x00, 0x00, 0x00, 0xd9, 0x0f, 0x49, 0x3a, 0xd5, 0x0f, 0xc9, 0x3a, 0xdb, 0xcb, 0x16, 0x3b,
-];
-
-/// Virtual address and exact size of `Acos_lookup @ 0x004CADB0`'s signed
-/// arcsine table. `WaveClass` indexes the inclusive endpoints, hence 4097
-/// entries rather than 4096.
 const ACOS_TABLE_VA: u32 = 0x0085_9094;
+/// Entries. `WaveClass` indexes the inclusive endpoints, hence 4097 rather than
+/// 4096.
 pub const ACOS_TABLE_LEN: usize = 0x1001;
+/// FNV-1a (64-bit) over the retail table's 16388 little-endian bytes, read out
+/// of the binary.
 pub const ACOS_RETAIL_FNV1A64: u64 = 0x9251_751b_f328_3bc1;
-const ACOS_TABLE_PREFIX: &[u8] = &[
-    0xda, 0x0f, 0xc9, 0xbf, 0xcf, 0x0f, 0xc5, 0xbf, 0x94, 0x67, 0xc3, 0xbf, 0x04, 0x22, 0xc2, 0xbf,
-];
-
-/// Something went wrong reading the table out of the executable.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum TrigTableError {
-    NotPeFile,
-    UnmappedAddress(u32),
-    Truncated { need: usize, have: usize },
-    TableNotFound(u32),
-}
-
-impl fmt::Display for TrigTableError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::NotPeFile => write!(f, "not a valid PE32 executable"),
-            Self::UnmappedAddress(va) => {
-                write!(f, "address {va:#010x} is not inside any section")
-            }
-            Self::Truncated { need, have } => {
-                write!(
-                    f,
-                    "executable data needs {need} bytes, only {have} available"
-                )
-            }
-            Self::TableNotFound(va) => {
-                write!(
-                    f,
-                    "required math table (reference address {va:#010x}) was not found in \
-                     executable sections; the original uncompressed table bytes are required"
-                )
-            }
-        }
-    }
-}
-
-impl std::error::Error for TrigTableError {}
+/// `[0x007E8978]`: binary32 -2048, `Acos_lookup`'s negative index scale.
+const ACOS_INDEX_SCALE: NativeF32Bits = NativeF32Bits::from_bits(0xc500_0000);
+/// `[0x007E2820]`: binary64 pi/2, which `Acos_lookup` subtracts the entry from.
+const ACOS_PI_HALF: NativeF64Bits = NativeF64Bits::from_bits(0x3ff9_21fb_5444_2d18);
 
 /// The retail sine table at `0x0084F084`, read by `Math::SinFromTable` and
 /// `Math::CosFromTable`.
@@ -117,152 +68,11 @@ pub struct TrigTable {
     entries: Vec<f32>,
 }
 
-/// Retail binary32 table consumed by `Acos_lookup @ 0x004CADB0`.
+/// `Acos_lookup @ 0x004CADB0`'s signed arcsine table. The lookup indexes it
+/// by `(x + 1) * 2048` and returns pi/2 minus the entry.
 #[derive(Debug, Clone)]
 pub struct AcosTable {
     entries: Vec<f32>,
-}
-
-#[derive(Debug)]
-struct FileSection<'a> {
-    rva: u32,
-    file_offset: usize,
-    bytes: &'a [u8],
-}
-
-#[derive(Debug)]
-struct PeSections<'a> {
-    image_base: u32,
-    sections: Vec<FileSection<'a>>,
-}
-
-impl<'a> PeSections<'a> {
-    /// Read only initialized, file-backed section data. In particular, a
-    /// section's zero-filled virtual tail and the certificate overlay are not
-    /// table storage. PE32 layout: https://learn.microsoft.com/en-us/windows/win32/debug/pe-format
-    fn parse(image: &'a [u8]) -> Result<Self, TrigTableError> {
-        let u16_at = |bytes: &[u8], off: usize| -> Result<u16, TrigTableError> {
-            let word = bytes
-                .get(off..)
-                .and_then(|tail| tail.get(..2))
-                .ok_or(TrigTableError::NotPeFile)?;
-            Ok(u16::from_le_bytes([word[0], word[1]]))
-        };
-        let u32_at = |bytes: &[u8], off: usize| -> Result<u32, TrigTableError> {
-            let word = bytes
-                .get(off..)
-                .and_then(|tail| tail.get(..4))
-                .ok_or(TrigTableError::NotPeFile)?;
-            Ok(u32::from_le_bytes([word[0], word[1], word[2], word[3]]))
-        };
-
-        if image.get(..2) != Some(b"MZ") {
-            return Err(TrigTableError::NotPeFile);
-        }
-        let pe = image
-            .get(u32_at(image, 0x3c)? as usize..)
-            .ok_or(TrigTableError::NotPeFile)?;
-        if pe.get(..4) != Some(b"PE\0\0") {
-            return Err(TrigTableError::NotPeFile);
-        }
-        let section_count = usize::from(u16_at(pe, 6)?);
-        let optional_size = usize::from(u16_at(pe, 20)?);
-        let optional_and_sections = pe.get(24..).ok_or(TrigTableError::NotPeFile)?;
-        let optional = optional_and_sections
-            .get(..optional_size)
-            .ok_or(TrigTableError::NotPeFile)?;
-        // PE32+, or a short optional header, must never be decoded as PE32.
-        if optional.len() < 96 || u16_at(optional, 0)? != 0x10b {
-            return Err(TrigTableError::NotPeFile);
-        }
-        let image_base = u32_at(optional, 28)?;
-        let headers = optional_and_sections
-            .get(optional_size..)
-            .and_then(|tail| tail.get(..section_count * 40))
-            .ok_or(TrigTableError::NotPeFile)?;
-        let mut sections = Vec::with_capacity(section_count);
-        for header in headers.as_chunks::<40>().0 {
-            let virtual_size = u32_at(header, 8)? as usize;
-            let rva = u32_at(header, 12)?;
-            let raw_size = u32_at(header, 16)? as usize;
-            let file_offset = u32_at(header, 20)? as usize;
-            if raw_size == 0 {
-                continue;
-            }
-            let raw = image
-                .get(file_offset..)
-                .and_then(|tail| tail.get(..raw_size))
-                .ok_or(TrigTableError::Truncated {
-                    need: raw_size,
-                    have: image.len().saturating_sub(file_offset),
-                })?;
-            let mapped_size = if virtual_size == 0 {
-                raw_size
-            } else {
-                raw_size.min(virtual_size)
-            };
-            sections.push(FileSection {
-                rva,
-                file_offset,
-                bytes: &raw[..mapped_size],
-            });
-        }
-        Ok(Self {
-            image_base,
-            sections,
-        })
-    }
-
-    fn at_va(&self, va: u32) -> Option<(usize, &'a [u8])> {
-        let rva = va.checked_sub(self.image_base)?;
-        self.sections.iter().find_map(|section| {
-            let within = rva.checked_sub(section.rva)? as usize;
-            (within < section.bytes.len())
-                .then(|| (section.file_offset + within, &section.bytes[within..]))
-        })
-    }
-}
-
-/// Translate a VA to initialized section bytes, excluding virtual zero-fill.
-#[cfg(test)]
-pub(crate) fn file_offset_of(image: &[u8], va: u32) -> Result<usize, TrigTableError> {
-    PeSections::parse(image)?
-        .at_va(va)
-        .map(|(offset, _)| offset)
-        .ok_or(TrigTableError::UnmappedAddress(va))
-}
-
-/// The reference VA is only a fast path. Releases can move identical data
-/// without changing the math consumed by VERA20k. A short native prefix avoids
-/// hashing a whole table at every offset; both paths check every table byte.
-fn find_table_bytes<'a>(
-    image: &'a [u8],
-    reference_va: u32,
-    byte_len: usize,
-    prefix: &[u8],
-    expected_fnv: u64,
-) -> Result<&'a [u8], TrigTableError> {
-    let pe = PeSections::parse(image)?;
-    let matches = |bytes: &[u8]| {
-        crate::util::fnv::fnv1a64_fold_bytes(crate::util::fnv::FNV1A64_OFFSET_BASIS, bytes)
-            == expected_fnv
-    };
-    if let Some((_, bytes)) = pe.at_va(reference_va)
-        && let Some(table) = bytes.get(..byte_len)
-        && matches(table)
-    {
-        return Ok(table);
-    }
-    for section in &pe.sections {
-        if let Some(table) = section
-            .bytes
-            .windows(byte_len)
-            .find(|bytes| bytes.starts_with(prefix) && matches(bytes))
-        {
-            return Ok(table);
-        }
-    }
-    Err(TrigTableError::TableNotFound(reference_va))
 }
 
 impl TrigTable {
@@ -331,50 +141,73 @@ impl TrigTable {
 }
 
 impl AcosTable {
-    /// Read the signed arcsine table out of a retail `gamemd.exe` image.
-    pub fn from_executable(image: &[u8]) -> Result<Self, TrigTableError> {
-        let bytes = find_table_bytes(
-            image,
-            ACOS_TABLE_VA,
-            ACOS_TABLE_LEN * 4,
-            ACOS_TABLE_PREFIX,
-            ACOS_RETAIL_FNV1A64,
-        )?;
-        let entries = bytes
-            .as_chunks::<4>()
-            .0
-            .iter()
-            .map(|c| f32::from_le_bytes([c[0], c[1], c[2], c[3]]))
-            .collect();
-        Ok(Self { entries })
-    }
-
-    pub fn fnv1a64(&self) -> u64 {
-        let mut hash = crate::util::fnv::FNV1A64_OFFSET_BASIS;
-        for entry in &self.entries {
-            hash = crate::util::fnv::fnv1a64_fold_bytes(hash, &entry.to_le_bytes());
-        }
-        hash
-    }
-
-    pub fn matches_retail(&self) -> bool {
-        self.entries.len() == ACOS_TABLE_LEN && self.fnv1a64() == ACOS_RETAIL_FNV1A64
+    /// The retail table, computed once.
+    ///
+    /// Entry `i` is `asin(i / 2048 - 1)` in double precision, stored to binary32
+    /// with truncation (`FSTP m32real` under gamemd's chop mode). That reproduces
+    /// all 4097 retail entries ([`ACOS_RETAIL_FNV1A64`]). The image's table is
+    /// static data: the only code that writes it, `0x004CB200` (no caller),
+    /// copies each entry onto itself. Every double result lies at least 37,325
+    /// ulps from a truncation boundary, and none but entry 2048's zero is an
+    /// exact binary32, so any `asin` within a few ulps of correct builds the same
+    /// table on every platform.
+    pub(crate) fn retail() -> &'static Self {
+        static TABLE: OnceLock<AcosTable> = OnceLock::new();
+        TABLE.get_or_init(|| Self {
+            entries: (0..ACOS_TABLE_LEN)
+                .map(|index| {
+                    let angle = (index as f64 / 2048.0 - 1.0).asin();
+                    let angle = X87Chop53::load_f64(NativeF64Bits::from_bits(angle.to_bits()))
+                        .expect("an arcsine of [-1, 1] is finite");
+                    let stored = X87Chop53::store_f32(angle).expect("|asin| <= pi/2 fits binary32");
+                    f32::from_bits(stored.bits())
+                })
+                .collect(),
+        })
     }
 
     pub fn entry(&self, index: usize) -> f32 {
         self.entries[index]
     }
 
-    /// A shape-compatible table used only by unit tests that exercise Wave
-    /// lifetime/cell mechanics without a retail installation. Exact geometry
-    /// fixtures gate on [`verified_acos_table_or_skip`].
+    /// `Acos_lookup @ 0x004CADB0` for a finite argument: `FLD double x;
+    /// FADD 1.0f; FMUL -2048.0f; Math::ftol`, then the entry at `0x00859094`
+    /// minus four times that offset, subtracted from double pi/2. Returns the
+    /// entry index with the angle.
+    pub(crate) fn acos_lookup(&self, argument: X87Value) -> (usize, X87Value) {
+        let argument = X87Chop53::store_f64(argument)
+            .and_then(X87Chop53::load_f64)
+            .expect("Acos_lookup takes a finite double");
+        let scaled = X87Chop53::mul(
+            X87Chop53::add(argument, X87Chop53::load_i32(1)),
+            X87Chop53::load_f32(ACOS_INDEX_SCALE).expect("finite binary32 scale"),
+        );
+        let index = X87Chop53::ftol_i32_low_masked(scaled).wrapping_neg() as usize;
+        (index, self.lookup_angle(index))
+    }
+
+    /// `Acos_lookup` for a NaN argument (a native 0/0): `Math::ftol` returns the
+    /// integer indefinite `0x80000000`, which `SHL 2` wraps to offset zero, so
+    /// the lookup reads entry 0.
+    pub(crate) fn acos_lookup_nan(&self) -> X87Value {
+        self.lookup_angle(0)
+    }
+
+    fn lookup_angle(&self, index: usize) -> X87Value {
+        let entry = NativeF32Bits::from_bits(self.entries[index].to_bits());
+        X87Chop53::sub(
+            X87Chop53::load_f64(ACOS_PI_HALF).expect("finite binary64 pi/2"),
+            X87Chop53::load_f32(entry).expect("finite Acos entry"),
+        )
+    }
+
     #[cfg(test)]
-    pub fn synthetic() -> Self {
-        Self {
-            entries: (0..ACOS_TABLE_LEN)
-                .map(|i| ((i as f64 - 2048.0) / 2048.0).asin() as f32)
-                .collect(),
+    fn fnv1a64(&self) -> u64 {
+        let mut hash = crate::util::fnv::FNV1A64_OFFSET_BASIS;
+        for entry in &self.entries {
+            hash = crate::util::fnv::fnv1a64_fold_bytes(hash, &entry.to_le_bytes());
         }
+        hash
     }
 }
 
@@ -450,96 +283,9 @@ pub fn radians_to_units(radians: f64) -> f64 {
 }
 
 #[cfg(test)]
-mod executable_tests;
-
-/// Process-wide Acos table, installed once from the retail install.
-///
-/// A global because consumers sit at different engine layers and only startup
-/// knows where the retail install is. It is written once and read-only
-/// thereafter, so it cannot make a run non-deterministic.
-static ACOS_TABLE: OnceLock<Option<AcosTable>> = OnceLock::new();
-
-/// Read the Acos table out of `<ra2_dir>/gamemd.exe` and install it. Later
-/// calls are ignored; the first one wins.
-pub fn install_from_dir(ra2_dir: &Path) {
-    ACOS_TABLE.get_or_init(|| {
-        let path = ra2_dir.join("gamemd.exe");
-        match std::fs::read(&path) {
-            Ok(image) => match AcosTable::from_executable(&image) {
-                Ok(acos) => Some(acos),
-                Err(err) => {
-                    log::warn!(
-                        "retail Acos table {}: {err}; Acos consumers will be disabled",
-                        path.display()
-                    );
-                    None
-                }
-            },
-            Err(err) => {
-                log::warn!(
-                    "cannot read the retail Acos table from {}: {err}; \
-                     Acos consumers will be disabled",
-                    path.display()
-                );
-                None
-            }
-        }
-    });
-}
-
-fn installed_acos_table() -> Option<&'static AcosTable> {
-    ACOS_TABLE.get().and_then(Option::as_ref)
-}
-
-/// Stock Sonic Wave geometry is active, so a match may start only when the
-/// executable-backed Acos table is installed. The sine table never needs one.
-pub fn wave_tables_available() -> bool {
-    installed_acos_table().is_some()
-}
-
-/// Shared exact production Acos access for Wave and FireAt arc math. Tests
-/// without an installed table read `RA2_DIR`'s `gamemd.exe`, else fall back to
-/// the shape-only synthetic table; exact comparisons gate on
-/// [`verified_acos_table_or_skip`].
-pub(crate) fn required_acos_table() -> &'static AcosTable {
-    if let Some(acos) = installed_acos_table() {
-        return acos;
-    }
-
-    #[cfg(test)]
-    {
-        static TEST_TABLE: OnceLock<AcosTable> = OnceLock::new();
-        TEST_TABLE.get_or_init(|| {
-            std::env::var_os("RA2_DIR")
-                .and_then(|dir| {
-                    std::fs::read(std::path::PathBuf::from(dir).join("gamemd.exe")).ok()
-                })
-                .and_then(|image| AcosTable::from_executable(&image).ok())
-                .unwrap_or_else(AcosTable::synthetic)
-        })
-    }
-
-    #[cfg(not(test))]
-    panic!("the verified gamemd Acos table was not installed before native math");
-}
-
-/// The exact retail Acos table for a native-bit comparison, or `None` after a
-/// `SKIPPED` line when the test fallback is synthetic. A readiness run
-/// (`VERA20K_REQUIRE_RETAIL_INI` set) fails instead of skipping, so it also
-/// needs `RA2_DIR` to name a verified `gamemd.exe`.
+pub(crate) mod executable;
 #[cfg(test)]
-pub(crate) fn verified_acos_table_or_skip(comparison: &str) -> Option<&'static AcosTable> {
-    let acos = required_acos_table();
-    if acos.matches_retail() {
-        return Some(acos);
-    }
-    assert!(
-        !crate::rules::retail_ini_fixture::require_retail_ini(),
-        "{comparison} requires RA2_DIR with a verified gamemd.exe Acos table"
-    );
-    eprintln!("SKIPPED: {comparison} needs RA2_DIR with a verified gamemd.exe Acos table");
-    None
-}
+mod executable_tests;
 
 #[cfg(test)]
 mod tests {
@@ -631,27 +377,41 @@ mod tests {
         );
     }
 
-    /// The installed image carries the same sine bytes and the Acos table this
-    /// port was written against.
+    /// The exhaustive check of the computed Acos table: every entry feeds the
+    /// hash, and the expected value was read out of the binary.
+    #[test]
+    fn the_computed_acos_table_is_the_retail_table() {
+        let acos = AcosTable::retail();
+        assert_eq!(acos.entries.len(), ACOS_TABLE_LEN);
+        assert_eq!(acos.fnv1a64(), ACOS_RETAIL_FNV1A64);
+        // Truncation, not rounding: asin(-1) stores one ulp short of -pi/2.
+        assert_eq!(acos.entry(0).to_bits(), 0xbfc9_0fda);
+        assert_eq!(acos.entry(2048).to_bits(), 0);
+        assert_eq!(acos.entry(4096).to_bits(), 0x3fc9_0fda);
+    }
+
+    /// The installed image carries the checked sine bytes and the computed Acos
+    /// table, byte for byte, at their retail addresses.
     #[test]
     fn the_retail_image_matches_the_checked_tables_byte_for_byte() {
         let Some(image) = retail_executable() else {
             eprintln!("skipped: set RA2_DIR to the retail install to run this");
             return;
         };
-        let sine = find_table_bytes(
-            &image,
-            TABLE_VA,
-            TABLE_LEN * 4,
-            TABLE_PREFIX,
-            RETAIL_FNV1A64,
-        )
-        .expect("read the sine table");
-        assert_eq!(sine, crate::util::native_trig::RETAIL_SINE_TABLE.as_slice());
-        let acos = AcosTable::from_executable(&image).expect("read the Acos table");
-        assert_eq!(acos.entries.len(), ACOS_TABLE_LEN);
-        assert_eq!(acos.fnv1a64(), ACOS_RETAIL_FNV1A64);
-        assert!(acos.matches_retail());
+        let table_at = |va: u32, len: usize| {
+            let offset = executable::file_offset_of(&image, va).expect("mapped table address");
+            image[offset..offset + len].to_vec()
+        };
+        assert_eq!(
+            table_at(TABLE_VA, TABLE_LEN * 4),
+            crate::util::native_trig::RETAIL_SINE_TABLE.as_slice()
+        );
+        let computed: Vec<u8> = AcosTable::retail()
+            .entries
+            .iter()
+            .flat_map(|entry| entry.to_le_bytes())
+            .collect();
+        assert_eq!(table_at(ACOS_TABLE_VA, ACOS_TABLE_LEN * 4), computed);
     }
 
     #[test]
@@ -671,13 +431,5 @@ mod tests {
         // The quarter-period offset really does behave like a cosine.
         assert_eq!(table.sin(0), 0.0);
         assert_eq!(table.cos(0), 1.0);
-    }
-
-    #[test]
-    fn a_non_pe_input_is_refused_rather_than_misread() {
-        assert_eq!(
-            AcosTable::from_executable(b"not an executable").unwrap_err(),
-            TrigTableError::NotPeFile
-        );
     }
 }

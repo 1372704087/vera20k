@@ -39,8 +39,9 @@ these exact retail executables, including under optimized Python:
 
 No executable is distributed here.
 This restriction belongs to these comparison tools alone, because their harnesses
-run code at fixed addresses of that build: the game and the Rust tests accept any
-retail `gamemd.exe`, locate its Acos table by its contents and check every byte.
+run code at fixed addresses of that build. The game reads no `gamemd.exe` bytes.
+The Rust table checks read the `RA2_DIR` executable's math tables at the same
+retail addresses and compare every byte, without checking the file hash.
 
 ### Steam compatibility and evidence identity
 

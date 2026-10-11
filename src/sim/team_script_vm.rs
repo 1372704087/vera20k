@@ -179,7 +179,11 @@ pub struct TeamTypeIniMetadata {
     guard_slower: bool,
     /// `TransportsReturnOnUnload=` (`+0xF4`, ReadBool at `0x006F13EE`): a
     /// transport member keeps its ArchiveTarget as the script advances
-    /// (`0x006E9393`).
+    /// (`0x006E9393`); action 14 archives the loading cell there and action
+    /// 8 sends the unloaded transport out of the team to it. A transport its
+    /// riders fill ends action 14 on the no-transport arm unarchived, so
+    /// action 8 gives it no destination, as in every retail TeamType with the
+    /// key but the two Ivan teams.
     #[serde(default)]
     transports_return_on_unload: bool,
     /// `MindControlDecision=` (`+0xC0`, ReadInt at `0x006F1139`, constructor
@@ -495,6 +499,19 @@ impl TeamTarget {
         match self {
             Self::Cell { x, y } => crate::sim::combat::TargetKind::Cell(x as u16, y as u16),
             Self::Object(id) => crate::sim::combat::TargetKind::Entity(id),
+        }
+    }
+}
+
+impl From<crate::sim::combat::TargetKind> for TeamTarget {
+    /// A TarCom or ArchiveTarget (`+0x218`) as a team target.
+    fn from(target: crate::sim::combat::TargetKind) -> Self {
+        match target {
+            crate::sim::combat::TargetKind::Cell(x, y) => Self::Cell {
+                x: x as i16,
+                y: y as i16,
+            },
+            crate::sim::combat::TargetKind::Entity(id) => Self::Object(id),
         }
     }
 }
@@ -1019,6 +1036,14 @@ impl TeamScriptVm {
             .and_then(|team| team.team_type_id)
             .and_then(|id| self.team_type_ini.get(&id))
             .is_some_and(|metadata| metadata.avoid_threats)
+    }
+
+    /// The TeamType's `TransportsReturnOnUnload=` (`+0xF4`), false for a
+    /// team without one.
+    fn transports_return_on_unload(&self, team: &TeamScriptState) -> bool {
+        team.team_type_id
+            .and_then(|id| self.team_type_ini.get(&id))
+            .is_some_and(|metadata| metadata.transports_return_on_unload)
     }
 
     /// The team's TaskForce entries, none for a team without a TeamType.

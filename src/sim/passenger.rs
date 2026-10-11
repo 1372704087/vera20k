@@ -222,6 +222,11 @@ impl PassengerRole {
         }
     }
 
+    /// The passenger count (`+0x114`): the cargo's, none for a non-transport.
+    pub fn passenger_count(&self) -> u32 {
+        self.cargo().map_or(0, PassengerCargo::count)
+    }
+
     /// Returns a mutable reference to the cargo hold if this entity is a transport.
     pub fn cargo_mut(&mut self) -> Option<&mut PassengerCargo> {
         match self {
@@ -522,6 +527,26 @@ fn passenger_stands_on_garrison(passenger_cell: (u16, u16), building: &GameEntit
         && u32::from(passenger_cell.0) < u32::from(rx) + u32::from(width)
         && passenger_cell.1 >= ry
         && u32::from(passenger_cell.1) < u32::from(ry) + u32::from(height)
+}
+
+/// Hands a Foot ordered to enter `target` to the Boarding adapter
+/// ([`tick_passenger_system`]), which walks it in without the native radio
+/// route; building-entry seeks (`sim::building_entry`) and team script
+/// action 14 start one here. The adapter keeps one role per object, so a
+/// Foot that is itself a transport or a passenger keeps its role and only
+/// the order it was given.
+pub(crate) fn begin_boarding(foot: &mut GameEntity, target: u64) {
+    if matches!(
+        foot.category,
+        EntityCategory::Infantry | EntityCategory::Unit
+    ) && matches!(
+        foot.passenger_role,
+        PassengerRole::None | PassengerRole::Boarding { .. }
+    ) {
+        foot.passenger_role = PassengerRole::Boarding {
+            target_transport_id: target,
+        };
+    }
 }
 
 /// Advance passenger boarding each tick. For entities with `boarding_state`, check if they arrived at

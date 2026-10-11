@@ -60,7 +60,6 @@
 //!   choice 2) are not ported: no VERA code sets that latch, so it reads
 //!   clear.
 
-use crate::map::entities::EntityCategory;
 use crate::rules::overlay_types::OverlayTypeRegistry;
 use crate::rules::ruleset::RuleSet;
 use crate::sim::components::NavTargetRef;
@@ -68,7 +67,6 @@ use crate::sim::game_entity::GameEntity;
 use crate::sim::mission::authority::LiveReadyInputProvider;
 use crate::sim::mission::{MissionId, MissionType};
 use crate::sim::movement::ground_pose::object_get_coords;
-use crate::sim::passenger::PassengerRole;
 use crate::sim::radio::{RadioMessage, RadioPayload, RadioResponse, transmit};
 use crate::sim::world::{FrameEffects, Simulation};
 use crate::util::native_x87::object_distance;
@@ -240,19 +238,8 @@ impl Simulation {
         );
         // The Boarding adapter carries the entry to the absorber (module
         // residual).
-        if let Some(foot) = self.substrate.entities.get_mut(id)
-            && matches!(
-                foot.category,
-                EntityCategory::Infantry | EntityCategory::Unit
-            )
-            && matches!(
-                foot.passenger_role,
-                PassengerRole::None | PassengerRole::Boarding { .. }
-            )
-        {
-            foot.passenger_role = PassengerRole::Boarding {
-                target_transport_id: best,
-            };
+        if let Some(foot) = self.substrate.entities.get_mut(id) {
+            crate::sim::passenger::begin_boarding(foot, best);
         }
         true
     }

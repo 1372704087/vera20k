@@ -80,9 +80,7 @@ regressions failed on the unchanged implementation. The existing Repair owner
 was corrected without adding state or another port. After these fixes, all 13
 native service tests, 17 connected depot tests and the one ungated global replay
 test passed. Those focused checks validate the later fixes in the already
-tested modules; the full pre-review result is retained separately.
-[The critic disposition and actual logs](depot_service_validation/critic-disposition.json)
-record the two findings and owner validation. There was no second critic pass.
+tested modules. There was no second critic pass.
 
 The normal ungated
 `global_skirmish_replay_is_deterministic_and_baseline_stable` assertion passed
@@ -97,14 +95,13 @@ goldens. Both replay packages remain unchanged.
 
 The map-observer Python suite passed 80 tests in normal mode and 80 with `-O`.
 The field ratchet passed 2537 versus 2538 at the merge base. `git diff --check`
-passed. Actual log hashes and release/runtime identities are in the
-[validation receipt](../map_observation.depot-repair.validation.json).
+passed.
 
 The final release label is `depot-repair-service-reviewed-20261003`, executable
 SHA-256 `0d08bda55cc1a6226b8b2ea89fb46c2952a6feb52049f8c9d52b5adb0f02ad73`,
 source SHA-256 `7dea934557ef804d7fe4204b70d8cbf9cef15780db543c892fe6f4b5a9ac623b`.
 It was built at dirty base `f1783f83d` after the review fixes. Earlier release
-identities and validation remain retained; they are not substituted for this
+identities and validation are not substituted for this
 candidate's focused checks or retail repeat.
 The final [retail profile](../map_observation.depot-repair.example.json) uses
 ordinary gameplay commands and the normal loader/exact-step Metal capture.
@@ -113,11 +110,10 @@ held at HP40 and cash0 for 607 frames, then paid 45 steps of 8 HP/2 credits
 (total 90), reached HP400 and cleared both contacts at frame6856. It physically
 departed at 6869 and reached the exit cell at 6899; final cash160, spent5990
 and harvested0. All complete projected observations equal the prior release.
-[The final runtime summary](depot_service_validation/postreview-runtime-summary.json)
-retains each command, run/offline identity and comparison. The corrected alternate
+The corrected alternate
 power/no-contact fallback branches have separate native/Rust controls; this
 success scenario does not project them. The final Metal readback was inspected;
-it is byte-identical to the retained frame and carries no native pixel claim.
+it is byte-identical to the earlier frame and carries no native pixel claim.
 
 ## Coverage and residuals
 

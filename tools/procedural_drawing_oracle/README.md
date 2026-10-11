@@ -35,8 +35,7 @@ and timer checks, the physical retail reader checks and all27 rendering tests.
 The action GPU comparison now covers157 inputs in two sRGB formats at four
 zooms (1256 draws), preserving depth. These include31 Attack rows; the existing
 five1px clipped Move residuals retain their prior bounded CPU-presentation claim.
-Initial failures were fixture setup and one test-only getter export; failure
-logs remain with the checks, not silently replaced by the passing run.
+Initial failures were fixture setup and one test-only getter export.
 
 Clean release `procedural-unit-attack-production-v1` from`ee20ca9fe` has
 executable SHA`4b4a83ceed0f074bab7dd0461c2bfef33f6e26a55c5842e8f43601eaad06e18c`.
@@ -53,14 +52,12 @@ Scenario/full-frame emulation. The final candidate has identical `src`, Cargo
 manifests and build script to the captured release; later changes retain the
 evidence and its comparison tooling. Full retail library validation passes
 9675 tests (239 ignored), Clippy passes with retained warnings, and all606 Python
-tests pass (5 optional skips). The field ratchet remains2505/2505. Exact logs,
-source-tree identities and archive rechecks are in the
-[validation receipt](validation/unit-attack-checks/receipt.json). The single
-fresh read-only [critic](validation/unit-attack-review.md) found no actionable
+tests pass (5 optional skips). The field ratchet remains2505/2505. The single
+fresh read-only critic found no actionable
 defect in this chain. No runtime changes followed review; the whole drawing
 goal remains open.
 
-The [workload report](validation/action-line-attack-workload-first.json) uses
+The workload measurement uses
 the actual production builder and pooled GPU upload. At20k selected overlapping
 Attack sources and one moving target:34 spans/4216 bytes, mean CPU construction
 11.909ms, CPU staging0.0357ms, submission-through-completion1.540ms. Two warmups
@@ -124,30 +121,27 @@ python -m tools.procedural_drawing_oracle.rally_production check \
   --archive tools/procedural_drawing_oracle/unit-move-production-validation
 ```
 
-The [rally consumer check](validation/unit-move-rally-consumer.json) compares the
-new release with the retained rally v4: all 480000 frame pixels and 1501 state
-boundaries are identical. Original capture directories and labeled binaries remain
+The rally consumer check compared the
+new release with rally v4: all 480000 frame pixels and 1501 state
+boundaries were identical. Original capture directories and labeled binaries remain
 with the build/capture owners; no extra executable was copied into this packet.
-The final v2 release repeats that exact result; its shared-owner comparison and
-the build/native/Rust/Python output are preserved in
-[`validation/unit-move-checks`](validation/unit-move-checks/receipt.json).
+The final v2 release repeats that exact result.
 
 Dense selections compose native opaque stores into a temporary logical pixel
 grid in forward Techno order, then emit disjoint row spans. Small selections keep
-the same direct raster. The existing workload test retains
-[before](validation/action-line-workload-before.json) and
-[after](validation/action-line-workload-after.json) samples: two warmups, twenty
+the same direct raster. The existing workload test measured before and after
+the change: two warmups, twenty
 measurements, optimized build, 632×568 tactical pixels in an 800×600 target.
 At 20000 selected overlapping Move lines, spans fall from 979995 to 63 and upload
 bytes from 121519380 to 7812. Mean CPU construction falls from 14.422 to 8.266ms;
 CPU staging from 10.939 to 0.025ms; submission-through-completion wall time from
 27.244 to 1.538ms. One-line construction remains about 0.005ms. The synthetic
 sources overlap and repeat; this is not a dispersed 20000-unit game or FPS claim.
-The [final integrated run](validation/action-line-workload-final.json) retains
+The final integrated run measured
 the same63 spans/7812 bytes: CPU construction8.541ms, staging0.022ms and
 completion1.533ms. Full retail lib9671 passed/239 ignored, Clippy passed,
 Python594 passed/5 optional skips, and the field ratchet remained2505/2505.
-The [single fresh critic](validation/unit-move-review.md) found no blocking
+The single fresh critic found no blocking
 implementation defect. Its reproduction-command finding and the stale command
 owner description are corrected; the exact module command passes without PYTHONPATH.
 
@@ -276,47 +270,32 @@ terrain, frame, camera and native Gold House RGB. The separate
 connects these inputs to the production layered retail rules, ART, House color
 and full rally builder without a synthetic type or tint override.
 
-[The retained comparison receipt](production-validation/receipt.json) and40
-compressed original capture files are portable. Recheck them with:
-
-```sh
-python -m tools.procedural_drawing_oracle.rally_production check \
-  --archive tools/procedural_drawing_oracle/production-validation
-```
-
 For each pair, all480,000 frame pixels were compared. Exactly76 changed, all
 inside the native mask and equal to native RGB565 stores; the declared
 unobstructed floor covers62 exact stores. All1501 actor/terrain observations are
 identical except the factory ArchiveTarget becomes null after Stop. Thirty
 native stores covered by the barracks remain identical to the stopped frame:
 this does not certify native building occlusion. The shrouded pair also does not
-certify native revelation history. The archive recheck validates retained bytes
-and receipts; original executable identity was checked when recording, not
-reclaimed from a new machine's filesystem.
+certify native revelation history.
 
 The first four captures use
-[build v2](validation/production-build-v2.manifest.json). After the single critic's
-selection-owner fix, [final build v4](validation/production-build-v4.manifest.json)
+build v2. After the single critic's
+selection-owner fix, final build v4
 (SHA256 `c3aaa9ba6e930ca359cbddc1f2b7a7569e148f6b28365d6947fa95a830b72404`)
-produced the archive's fifth capture, `rally-clear-v4`. The existing map-observation
+produced a fifth capture, `rally-clear-v4`. The existing map-observation
 comparator matched its complete frame, initial/final state and all1501 observation
-boundaries against v2. The portable archive checks this candidate against native
-stores again. Its measured last60-frame wall mean was8.503ms, including simulation,
-observation and pacing. Earlier v3 output also matched v2; that historical result
-and its build manifest remain in the validation logs, with original runs preserved
-locally. No runtime Rust changed after the v4 build.
-[Preserved logs and identities](validation/log-identities.json) record the
-focused tests, native regeneration and release builds. The full retail lib run
+boundaries against v2. Its measured last60-frame wall mean was8.503ms, including simulation,
+observation and pacing. Earlier v3 output also matched v2. No runtime Rust changed
+after the v4 build. The full retail lib run
 passed9648 tests and failed one obsolete fullscreen-shroud source-order assertion
 (238 ignored). The assertion and selected action-line order were fixed; all44
 subsequent rendering tests passed, including GPU checks. Clippy passed twice;
 the second run has723 warnings after removing five new warnings in touched code.
 All122 final cleanup checks passed, including actual A/shroud GPU checks and
-coordinate-query consumers. The single fresh [critic](validation/critic-review.md)
+coordinate-query consumers. The single fresh critic
 found quadratic selection acquisition outside the original rally timing. The
 shared owner now uses membership indexes and deque insertion for input, recovery
-and reconciliation. Native insertion/order evidence is retained in
-[the instruction packet](validation/selection-order.instructions.json). Hash-set
+and reconciliation. Hash-set
 iteration never determines order; successful-add voices keep candidate order.
 After the fix, the full retail suite passed9651 tests (238 ignored), Clippy
 passed (723 warnings retained), Python passed580 tests (five optional skips),
@@ -334,10 +313,7 @@ measured frames, optimized Apple M4/Metal; no concurrent native emulation:
 | Recover missing20k armed ledger | 34.5089ms | 4.3806ms |
 | Pending20k selection command | 1.0610ms | 1.0769ms |
 
-The resulting order is checked in full. Read the raw
-[before](validation/rally-selection-before.json) and
-[after](validation/rally-selection-after.json) samples, including the separate
-selection subset, upload/encode and submission-completion measurements. This
+The resulting order is checked in full. This
 closes the critic's performance finding; it does not measure whole-match FPS.
 
 ## Measured rendering cost
@@ -358,9 +334,7 @@ before/after measurements above for selection plus rally preparation.
 | Indexed A blitter,20,000 instances, neutral A | excluded | 0.0418ms | 3.835ms |
 | Indexed A blitter,20,000 instances, live A | excluded | 0.0356ms | 3.780ms |
 
-[Rally samples](validation/rally-perf-release.json) retain interval definitions.
-The A-blitter measurements are in `validation/release-validation.log.gz`; the
-small wall difference is not a claimed speedup. That broader run passed21 tests
+The small A-blitter wall difference is not a claimed speedup. That broader run passed21 tests
 and failed an unrelated existing tree benchmark's unavailable-timestamp assertion,
 tracked in [issue1037](https://github.com/YuriPlanet/vera20k/issues/1037).
 
@@ -368,9 +342,7 @@ Immutable SHROUD row spans remove repeated transparent-pixel scanning. For a
 256x256 map, CPU rebuild means fell from1.061 to0.146ms at1280x720 unrevealed and
 from16.780 to2.487ms at5120x2880 (minimum zoom). Frontier means fell from0.562 to
 0.153ms and8.759 to1.444ms. All13 focused native/scene/GPU checks passed afterward.
-[Before](validation/shroud-perf-release.json) and
-[after](validation/shroud-perf-row-spans-release.json) retain each sample and
-excluded work. Allocation/resize and unchanged-frame dirty gating are excluded.
+Allocation/resize and unchanged-frame dirty gating are excluded.
 
 The actual1500-step release captures report last60 frame wall means of8.75/8.77ms
 (clear rally/Stop) and8.55/8.42ms (shrouded rally/Stop). This existing frame timer

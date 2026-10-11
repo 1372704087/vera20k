@@ -223,9 +223,6 @@ outside this evidence. All21 named GI controls have successful original executio
 A failed observer, wrapper or budget remains a separate failed receipt and does
 not establish a native gameplay result.
 
-The connected Rust consumers, final retail checks and production observation are
-preserved in the [command-owner validation archive](validation/README.md).
-
 ## Ordinary stock MTNK Cell controls
 
 The additive Unit rows use the same history, input, event, observer and selector
@@ -319,13 +316,6 @@ files. The two full current public publication
 wrappers and complete default no-rally/rally payload comparisons retain their
 historical source/data maps in the shared factory metadata. Saved checks do
 not replace a fresh selected whole-history replay.
-
-The historical GI validation manifest's native SHA
-`b90c182f52a7504741de7f0a9bf65570ed1999e42da10adbd7c46e778494a151`
-resolves to the decompressed
-[pre-Unit GI21 manifest seal](compatibility/sealed-gi21-pre-unit-manifest.json.gz).
-It does not bind the evolving active37 manifest. The historical GI validation
-archive remains unchanged.
 
 Free-MTNK component controls do not certify whole startup, display input, map
 loading, factory/depot contacts, other locomotor families, networking or save/load.

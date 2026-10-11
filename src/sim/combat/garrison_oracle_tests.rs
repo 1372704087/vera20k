@@ -55,8 +55,8 @@ fn a_shot_before_an_unarmed_occupant_rearms_without_an_rng_draw() {
             EntityCategory::Structure,
         );
         let mut cargo = PassengerCargo::new(5, 0);
-        // The existing cargo writer prepends; establish armed, then unarmed.
-        for (id, kind) in [(3, "UNARMED"), (2, "ARMED")] {
+        // Occupants in admission order: armed, then unarmed.
+        for (id, kind) in [(2, "ARMED"), (3, "UNARMED")] {
             let mut occupant = GameEntity::test_default_of_category(
                 id,
                 kind,
@@ -70,7 +70,7 @@ fn a_shot_before_an_unarmed_occupant_rearms_without_an_rng_draw() {
                 transport_id: 1,
                 open_topped: false,
             };
-            assert!(cargo.board(id, 1));
+            cargo.add_occupant(id, 1);
             world.substrate.entities.insert(occupant);
         }
         assert_eq!(cargo.passengers, [2, 3]);
@@ -233,8 +233,7 @@ pub(super) fn for_each_native_case(
         );
         let mut cargo = PassengerCargo::new(5, 0);
         let mut entities = EntityStore::new();
-        // Cargo's writer prepends: reverse the supplied native array when boarding.
-        for (index, occupant) in occupants.iter().enumerate().rev() {
+        for (index, occupant) in occupants.iter().enumerate() {
             let id = index as u64 + 2;
             let mut entity = GameEntity::test_default_of_category(
                 id,
@@ -245,7 +244,7 @@ pub(super) fn for_each_native_case(
                 EntityCategory::Infantry,
             );
             entity.set_veterancy_rank((occupant["veterancy"].as_f64().unwrap() * 100.0) as u16);
-            assert!(cargo.board(id, 1));
+            cargo.add_occupant(id, 1);
             entities.insert(entity);
         }
         cargo.garrison_fire_index = input["fire_index"].as_u64().unwrap() as u8;

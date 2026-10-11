@@ -928,7 +928,9 @@ use crate::sim::world::Simulation;
 // are retained by their existing owners. Prior bincode records cannot resume.
 // 322 -> 323: each object keeps its Foot building-entry latches (+0x68F).
 // Prior bincode records lack them.
-const SNAPSHOT_VERSION: u32 = 323;
+// 323 -> 324: the latches add +0x690, and a garrison's occupants are kept in
+// admission order. Prior records lack the latch and hold occupants reversed.
+const SNAPSHOT_VERSION: u32 = 324;
 
 const SNAPSHOT_PRODUCT_MAGIC: [u8; 8] = *b"VERA20K\0";
 const SNAPSHOT_ENVELOPE_VERSION: u32 = 1;
@@ -3982,7 +3984,8 @@ mod tests {
         // 320 -> 321: particle constructors retain native IDs and their cursor.
         // 321 -> 322: campaign Session and complete House initialization state.
         // 322 -> 323: the Foot building-entry latches.
-        assert_eq!(super::SNAPSHOT_VERSION, 323);
+        // 323 -> 324: the +0x690 latch and garrison admission order.
+        assert_eq!(super::SNAPSHOT_VERSION, 324);
     }
 
     #[test]

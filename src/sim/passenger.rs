@@ -43,18 +43,17 @@ use crate::sim::world::{ConcealOutcome, FrameEffects, SimSoundEvent, Simulation,
 /// head, so every native consumer — transport unload, paradrop, sell eject —
 /// releases the LAST boarded passenger first.
 ///
-/// RESIDUAL: a garrisoned building's occupants natively live in a separate
-/// `Occupants` vector that APPENDS (`AddGarrisonOccupant 0x00522947..
-/// 0x0052297C`), so its firing order (`+0x69C`, index 0 first) is entry
-/// order, while a sale removes them last to first (`0x004580A9..
-/// 0x0045819E`). VERA keeps garrisons in this cargo's prepend order, so a
-/// garrison fires newest-first and the kill credit (`Record_The_Kill`'s
-/// occupant arm) walks the same reversed line. Trigger: a garrison holding
-/// two or more occupants. Effect: which occupant fires, and is paid, next.
+/// A garrisoned building's occupants natively live in a separate `Occupants`
+/// vector instead (Items `+0x688`, Count `+0x694`), which
+/// [`add_garrison_occupant`] APPENDS to ([`Self::add_occupant`]): index 0 is
+/// the earliest admission, which fires first (`+0x69C`) and names the owner
+/// a civilian building takes (`0x00458313`), while a sale removes them last
+/// to first (`0x004580A9..0x0045819E`).
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct PassengerCargo {
-    /// Stable IDs of entities currently inside, head first: the most recently
-    /// boarded passenger sits at index 0 (LIFO unload).
+    /// Stable IDs of entities currently inside: a transport's head first
+    /// (the most recently boarded at index 0, LIFO unload), a garrison's in
+    /// admission order.
     pub passengers: Vec<u64>,
     /// `Size=` captured for each entry in `passengers`, at the same index.
     ///
@@ -108,6 +107,16 @@ impl PassengerCargo {
         self.passenger_sizes.insert(0, passenger_size);
         self.total_size += passenger_size;
         true
+    }
+
+    /// Append a garrison occupant: `Occupants.AddItem` in
+    /// `AddGarrisonOccupant` (`0x0052293B..0x0052297C`). The vector grows
+    /// past `MaxNumberOccupants=`; `CanBeOccupiedBy`'s count test is the
+    /// admission.
+    pub(crate) fn add_occupant(&mut self, stable_id: u64, passenger_size: u32) {
+        self.passengers.push(stable_id);
+        self.passenger_sizes.push(passenger_size);
+        self.total_size += passenger_size;
     }
 
     /// Add a passenger without normal transport capacity/size gates.
@@ -287,6 +296,10 @@ pub fn can_enter_transport(
         return false;
     }
     if transport_obj.can_be_occupied {
+        // No captive test: Receive_Radio's (`0x0043C5CB..0x0043C5DC`) is in
+        // its Hospital=/Armory= arm (`0x0043C58F`), and neither the garrison
+        // order's route (What_Action `0x0051E6A8`, PerCellProcess
+        // `0x00519675`) nor CanBeOccupiedBy has one.
         return can_dock_occupier_garrison(
             passenger,
             transport,
@@ -338,6 +351,17 @@ pub fn can_enter_transport(
     cargo.can_accept(passenger_obj.size)
 }
 
+/// `BuildingClass::CanBeOccupiedBy @ 0x00457CE0` for an infantryman: the
+/// building's type is `CanBeOccupied=`, it is not under construction or
+/// being sold, it stands in the playfield and is not warped out; the
+/// infantryman is an `Occupier=` of the building's house (or the building's
+/// house is `MultiplayPassive=`), the building is neither full nor at red
+/// health, and the infantryman is not mind-controlled.
+///
+/// RESIDUALS: the playfield test (`MapClass::IsCoordsInPlayfield`) is the
+/// path grid's bounds; the `Assaulter=` arm (`0x00457DAD..0x00457DD3`: an
+/// assaulter may enter an occupied building of a house it is not allied
+/// with) is not represented. No retail infantry is an assaulter.
 pub fn can_dock_occupier_garrison(
     passenger: &GameEntity,
     building: &GameEntity,
@@ -381,18 +405,37 @@ pub fn can_dock_occupier_garrison(
     ) {
         return false;
     }
-    // BuildingClass::CanDock `0x00457D98` and Receive_Radio `0x0043C5CB..
-    // 0x0043C5EF` refuse an infantry that controls a captive or is itself
-    // controlled.
-    if passenger
-        .capture_manager
-        .as_ref()
-        .is_some_and(|manager| manager.has_any())
-        || passenger.mind_control.is_mind_controlled()
-    {
+    // `0x00457D98`: `TechnoClass::IsMindControlled`.
+    !passenger.mind_control.is_mind_controlled()
+}
+
+/// [`can_dock_occupier_garrison`] by id, as `CanBeOccupiedBy`'s callers that
+/// pass `this` when it is infantry and NULL otherwise (which it refuses):
+/// `FootClass::EnterBattleBunker` and `InfantryClass::PerCellProcess`.
+pub(crate) fn building_can_be_occupied_by(
+    sim: &Simulation,
+    rules: &RuleSet,
+    building_id: u64,
+    infantry_id: u64,
+) -> bool {
+    let Some((infantry, building, infantry_obj, building_obj, cargo)) =
+        garrison_parts(sim, rules, infantry_id, building_id)
+    else {
+        return false;
+    };
+    if infantry.category != EntityCategory::Infantry {
         return false;
     }
-    true
+    can_dock_occupier_garrison(
+        infantry,
+        building,
+        infantry_obj,
+        building_obj,
+        cargo,
+        rules,
+        &sim.houses,
+        sim.path_grid(),
+    )
 }
 
 /// Read the target owner's `MultiplayPassive` house-type fact.
@@ -410,25 +453,40 @@ fn owner_is_multiplay_passive(
         .is_some_and(|house| house.multiplay_passive)
 }
 
+/// The passenger, building, their types and the building's cargo, by id:
+/// what the garrison admission tests read.
+fn garrison_parts<'a>(
+    sim: &'a Simulation,
+    rules: &'a RuleSet,
+    passenger_id: u64,
+    building_id: u64,
+) -> Option<(
+    &'a GameEntity,
+    &'a GameEntity,
+    &'a ObjectType,
+    &'a ObjectType,
+    &'a PassengerCargo,
+)> {
+    let passenger = sim.substrate.entities.get(passenger_id)?;
+    let building = sim.substrate.entities.get(building_id)?;
+    Some((
+        passenger,
+        building,
+        sim.object_type(passenger.type_ref(), rules)?,
+        sim.object_type(building.type_ref(), rules)?,
+        building.passenger_role.cargo()?,
+    ))
+}
+
 pub fn can_entity_enter_garrison(
     sim: &Simulation,
     rules: &RuleSet,
     passenger_id: u64,
     building_id: u64,
 ) -> bool {
-    let Some(passenger) = sim.substrate.entities.get(passenger_id) else {
-        return false;
-    };
-    let Some(building) = sim.substrate.entities.get(building_id) else {
-        return false;
-    };
-    let Some(passenger_obj) = sim.object_type(passenger.type_ref(), rules) else {
-        return false;
-    };
-    let Some(building_obj) = sim.object_type(building.type_ref(), rules) else {
-        return false;
-    };
-    let Some(cargo) = building.passenger_role.cargo() else {
+    let Some((passenger, building, passenger_obj, building_obj, cargo)) =
+        garrison_parts(sim, rules, passenger_id, building_id)
+    else {
         return false;
     };
     can_enter_transport(
@@ -580,8 +638,6 @@ fn process_boarding_passenger(
     let transport_gunner = transport_obj.map(|obj| obj.gunner).unwrap_or(false);
     let transport_open_topped = transport_obj.map(|obj| obj.open_topped).unwrap_or(false);
 
-    let entering_owner = sim.substrate.entities.get(pax_id).map(|pax| pax.owner());
-
     let can_board = sim
         .substrate
         .entities
@@ -632,6 +688,25 @@ fn process_boarding_passenger(
         {
             sim.invalidate_house_power(owner, false);
         }
+        // RESIDUAL: a player's garrison order reaches the garrison through
+        // this adapter (an Enter order). Native's is a Capture order
+        // (`InfantryClass::What_Action` answers action 9 at `0x0051E6A8`,
+        // which `FootClass::ClickedAction` turns into mission Capture at
+        // `0x004D74E0`), so the infantryman goes in through PerCellProcess's
+        // occupier arm, which asks `CanBeOccupiedBy` again on arrival and
+        // turns a refused one away (`sim::movement::per_cell`), and none of
+        // the steps above run. Trigger: every player garrison order. Effect:
+        // a building that turned unfit during the walk (red health, sold,
+        // another owner) is entered anyway, and the order clears the
+        // occupant's archived target and mission count.
+        if transport_obj.is_some_and(|object| object.can_be_occupied) {
+            if !add_garrison_occupant(sim, rules, pax_id, transport_id, registry, effects)
+                && let Some(pax) = sim.substrate.entities.get_mut(pax_id)
+            {
+                pax.passenger_role = PassengerRole::None;
+            }
+            return;
+        }
         // CargoClass::AddPassenger conceals the passenger before splicing it
         // into the cargo chain. Techno Limbo owns BREAK, Mark removal, and
         // LogicVector removal in that order.
@@ -675,34 +750,6 @@ fn process_boarding_passenger(
             // invariant is broken.
             let _ = sim.reveal_entity_with_context(pax_id, context);
             return;
-        }
-
-        //Building52298D refreshes its spatial threat after appending the
-        //occupant, before the first-occupant Mark/discovery tail. Ordinary
-        //transport cargo does not call Techno70F6E0 here.
-        if transport_obj.is_some_and(|object| object.can_be_occupied) {
-            sim.refresh_spatial_threat(transport_id, rules, None);
-        }
-
-        let first_occupant = sim
-            .substrate
-            .entities
-            .get(transport_id)
-            .and_then(|t| t.passenger_role.cargo())
-            .is_some_and(|c| c.count() == 1);
-        if first_occupant
-            && rules
-                .object(&transport_type_str)
-                .is_some_and(|o| o.can_be_occupied)
-            && let (Some(owner), Some(t)) =
-                (entering_owner, sim.substrate.entities.get(transport_id))
-        {
-            let rx = t.position.rx;
-            let ry = t.position.ry;
-            sim.sound_events
-                .push(SimSoundEvent::StructureGarrisoned { owner });
-            sim.sound_events
-                .push(SimSoundEvent::BuildingGarrisonedSfx { owner, rx, ry });
         }
 
         if let Some(pax) = sim.substrate.entities.get_mut(pax_id) {
@@ -769,6 +816,96 @@ fn process_boarding_passenger(
     } else if let Some(pax) = sim.substrate.entities.get_mut(pax_id) {
         pax.passenger_role = PassengerRole::None;
     }
+}
+
+/// `InfantryClass::AddGarrisonOccupant @ 0x00522910`, the one way into a
+/// garrison: `InfantryClass::PerCellProcess`'s occupier arm
+/// (`sim::movement::per_cell`) and VERA's Boarding adapter call it. An
+/// `Occupier=` infantryman leaves the map (Limbo, vt+0xD4) and is appended
+/// to the building's occupants ([`PassengerCargo::add_occupant`]); the
+/// building's spatial threat is refreshed (`0x0052297F..0x0052298D`). The
+/// first occupant marks the building for redraw (Mark(2), `0x0052299B`) and
+/// plays `EVA_StructureGarrisoned` and `BuildingGarrisonedSound=` at the
+/// infantryman (`0x005229A8..0x005229E0`, the app plays them for the
+/// player's own house). A human house's occupant drops its occupy seeks
+/// (`+0x690`, `+0x691`; `0x005229E5..0x005229FA`); a computer's keeps them,
+/// so once ejected its Guard head seeks a bunker again. Answers whether the
+/// infantryman went in.
+///
+/// RESIDUALS: the `Assaulter=` arm (`0x00522A09..0x00522A45`: the
+/// building's occupants are killed, and the assaulter drops its destination
+/// and scatters) is not represented; no retail infantry is an assaulter.
+/// VERA's passenger also drops its target (native Limbo keeps TarCom) and
+/// its movement and order state; an ejected occupant starts without a
+/// target.
+pub(crate) fn add_garrison_occupant(
+    sim: &mut Simulation,
+    rules: &RuleSet,
+    pax_id: u64,
+    building_id: u64,
+    registry: Option<&crate::rules::overlay_types::OverlayTypeRegistry>,
+    effects: FrameEffects<'_>,
+) -> bool {
+    let Some(pax) = sim.substrate.entities.get(pax_id) else {
+        return false;
+    };
+    let owner = pax.owner();
+    let (rx, ry) = (pax.position.rx, pax.position.ry);
+    let Some(pax_size) = sim
+        .object_type(pax.type_ref(), rules)
+        .filter(|object| object.occupier)
+        .map(|object| object.size)
+    else {
+        return false;
+    };
+    if !sim
+        .substrate
+        .entities
+        .get(building_id)
+        .is_some_and(|building| building.passenger_role.cargo().is_some())
+    {
+        return false;
+    }
+    let context = UninitContext::new(Some(rules), registry).with_effects(effects);
+    if sim.techno_limbo_with_context(pax_id, context) != ConcealOutcome::Concealed {
+        return false;
+    }
+    let Some(count) = sim
+        .substrate
+        .entities
+        .get_mut(building_id)
+        .and_then(|building| building.passenger_role.cargo_mut())
+        .map(|cargo| {
+            cargo.add_occupant(pax_id, pax_size);
+            cargo.count()
+        })
+    else {
+        return false;
+    };
+    if let Some(pax) = sim.substrate.entities.get_mut(pax_id) {
+        pax.passenger_role = PassengerRole::Inside {
+            transport_id: building_id,
+            open_topped: false,
+        };
+        pax.movement_target = None;
+        pax.attack_target = None;
+        pax.passively_acquired_target = false;
+        pax.order_intent = None;
+    }
+    sim.refresh_spatial_threat(building_id, rules, None);
+    if count == 1 {
+        let _ = sim.mark_entity_refresh(building_id);
+        sim.sound_events
+            .push(SimSoundEvent::StructureGarrisoned { owner });
+        sim.sound_events
+            .push(SimSoundEvent::BuildingGarrisonedSfx { owner, rx, ry });
+    }
+    if sim.houses.get(&owner).is_some_and(|house| house.is_human)
+        && let Some(pax) = sim.substrate.entities.get_mut(pax_id)
+    {
+        pax.building_entry.clear_occupy_seeks();
+    }
+    true
 }
 
 /// Gunner caller dispatch to UnitClass +4D4 (746420). Temporal ownership
@@ -946,10 +1083,8 @@ pub(crate) fn reconcile_civilian_garrison_owner_for_building(
     let cargo = building.passenger_role.cargo();
     let current_owner = building.owner();
     let cargo_empty = cargo.is_none_or(PassengerCargo::is_empty);
-    //458313 reads Occupants[0], the earliest admission. The retained cargo
-    //representation stores it at the tail; firing/ejection ordering is a
-    //separate residual recorded on PassengerCargo.
-    let first_passenger = cargo.and_then(|cargo| cargo.passengers.last().copied());
+    //458313 reads Occupants[0], the earliest admission.
+    let first_passenger = cargo.and_then(|cargo| cargo.passengers.first().copied());
 
     let Some(civilian_owner) = sim.civilian_side_house(rules) else {
         // A malformed roster can leave the native empty arm passing NULL to
@@ -1551,10 +1686,15 @@ ConditionYellow=50%
         let first = spawn_boarding_occupier(&mut sim, &rules, "E1", "Russians", bldg, 10, 10);
         let second = spawn_boarding_occupier(&mut sim, &rules, "E1", "Americans", bldg, 11, 10);
 
-        if let Some(building) = sim.substrate.entities.get_mut(bldg) {
-            let cargo = building.passenger_role.cargo_mut().expect("cargo exists");
-            assert!(cargo.board(first, 1));
-            assert!(cargo.board(second, 1));
+        for occupant in [first, second] {
+            assert!(add_garrison_occupant(
+                &mut sim,
+                &rules,
+                occupant,
+                bldg,
+                None,
+                crate::sim::world::FrameEffects::default(),
+            ));
         }
 
         let changed = reconcile_civilian_garrison_owner_for_building(

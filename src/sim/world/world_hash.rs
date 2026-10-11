@@ -1325,7 +1325,7 @@ impl Simulation {
                 pending.hash(hasher);
             }
             if entity.building_entry.seeking() {
-                b"foot-building-entry-68f".hash(hasher);
+                b"foot-building-entry-68f-690".hash(hasher);
                 entity.building_entry.hash(hasher);
             }
             entity.native_unique_id.hash(hasher);

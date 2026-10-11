@@ -1527,7 +1527,7 @@ fn allied_target_drop_step(sim: &mut Simulation, id: u64, rules: &RuleSet) {
                 cargo,
                 rules,
                 &sim.houses,
-                None,
+                sim.path_grid(),
             )
         });
     let engineer = infantry && obj.engineer;

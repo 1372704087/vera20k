@@ -515,6 +515,33 @@ impl Simulation {
     /// `0x004FBC1C`). Each list therefore sees the same appends and
     /// removals, and House+0xB0 is House+68 filtered by the gate, in order.
     pub(crate) fn house_absorbers(&self, owner: InternedId, rules: &RuleSet) -> Vec<u64> {
+        self.house_buildings_where(owner, rules, |object| {
+            object.unit_absorb || object.infantry_absorb
+        })
+    }
+
+    /// House+0xE0, the occupiable buildings (Items `+0xE4`, Count `+0xF0`),
+    /// in vector order. Unlimbo appends a `CanBeOccupied=` building whose
+    /// `TechLevel=` is above -1 (Type `+0x157B`, `+0x634`;
+    /// `0x0044138C..0x004413EC`) between its House+0xB0 and House+68
+    /// appends; ChangeOwner moves it under the same gate between those two
+    /// lists' moves (`0x004488E0..0x00448933`, `0x00448FDA..0x00449030`);
+    /// pointer expiry stable-removes it (`0x004FBB27..0x004FBB67`). As with
+    /// [`Self::house_absorbers`], it is House+68 filtered by the gate, in
+    /// order. On retail rules only the Battle Bunker (`NABNKR`) passes.
+    pub(crate) fn house_occupiables(&self, owner: InternedId, rules: &RuleSet) -> Vec<u64> {
+        self.house_buildings_where(owner, rules, |object| {
+            object.can_be_occupied && object.tech_level > -1
+        })
+    }
+
+    /// The house's buildings (House+68, in order) whose type passes `gate`.
+    fn house_buildings_where(
+        &self,
+        owner: InternedId,
+        rules: &RuleSet,
+        gate: impl Fn(&ObjectType) -> bool,
+    ) -> Vec<u64> {
         let Some(house) = self.houses.get(&owner) else {
             return Vec::new();
         };
@@ -528,7 +555,7 @@ impl Simulation {
                     .entities
                     .get(id)
                     .and_then(|entity| self.object_type(entity.type_ref(), rules))
-                    .is_some_and(|object| object.unit_absorb || object.infantry_absorb)
+                    .is_some_and(&gate)
             })
             .collect()
     }

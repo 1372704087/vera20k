@@ -29,8 +29,8 @@
 //!   Weeder takes its own guard arm.
 //! - `Can_Add`'s lifted-object link (`+0x2B0`) has no VERA writer: the
 //!   Magnetron is not ported, so that test passes. Of its building-entry
-//!   flags (`0x004E0080`) only the Bio Reactor seek's `+0x68F` is written
-//!   (`sim::building_entry`).
+//!   flags (`0x004E0080`) only the Bio Reactor and Battle Bunker seeks'
+//!   `+0x68F` and `+0x690` are written (`sim::building_entry`).
 //! - `Recruit` adds a recruited unit's passengers (`0x006EADE8..0x006EAE17`);
 //!   a passenger is in limbo, which `Can_Add` refuses while `ScenarioInit`
 //!   is 0, so the loop adds nothing in play and is not ported.
@@ -38,10 +38,9 @@
 //!   no ported reader.
 //! - `Remove_Member`'s callers in unported owners do not remove: the
 //!   Magnetron's lift (`0x00710349`), a building's occupant release with
-//!   Hunt (`0x0045812B`), and script actions 8, 60, 61, 63 and 64 and the
-//!   team change and merge (`0x006EF392`, `0x006EF416`, `0x006E9E24`,
-//!   `0x006E9E69`, `0x006E9EF3`, `0x006E9F38`, `0x006E96FD`,
-//!   `0x006ECFF8`).
+//!   Hunt (`0x0045812B`), and script actions 8, 60, 61 and 64 and the team
+//!   change and merge (`0x006EF392`, `0x006EF416`, `0x006E9E24`,
+//!   `0x006E9E69`, `0x006E9F38`, `0x006E96FD`, `0x006ECFF8`).
 //! - The removal loops in `0x006ECB50` (`0x006ECB7C..0x006ECCBC`) and
 //!   `0x0070F890` (`0x0070F8C7`) are not ported: neither function has a call
 //!   or a pointer anywhere in the executable (`tools.native_inspect calls`

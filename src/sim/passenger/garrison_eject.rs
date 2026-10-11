@@ -221,6 +221,16 @@ fn place_garrison_passenger_at_cell(
     if !matches!(reveal, RevealOutcome::Revealed { .. }) {
         return false;
     }
+    // `0x004580CB..0x004580E2`: a human house's occupant drops its garrison
+    // seeks (`+0x691`, `+0x690`).
+    if let Some(pax) = sim.substrate.entities.get_mut(passenger_id)
+        && sim
+            .houses
+            .get(&pax.owner())
+            .is_some_and(|house| house.is_human)
+    {
+        pax.building_entry.clear_occupy_seeks();
+    }
     sellbuilding_direct_scatter_handoff(
         sim,
         rules,

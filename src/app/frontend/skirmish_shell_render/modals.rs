@@ -103,11 +103,14 @@ pub(super) fn push_choose_map_background_instances(
     let background = choose_map_background_entry(atlas, modal_layout);
     let interior = backdrop_interior(background.is_some());
     if let Some(background) = background {
+        let (x, y) = modal_layout
+            .scale
+            .dialog_origin_or((modal_layout.screen.x, modal_layout.screen.y));
         push_entry_grown(
             out,
             background,
-            modal_layout.screen.x,
-            modal_layout.screen.y,
+            x,
+            y,
             modal_layout.scale,
             SHELL_PARENT_BACKGROUND_DEPTH,
         );

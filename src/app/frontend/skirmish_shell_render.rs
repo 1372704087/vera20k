@@ -328,11 +328,14 @@ fn build_skirmish_shell_instances(
 
     // The RA2 skirmish skin shares the common shell's art and SHELL.PAL.
     if let Some(background) = generic_shell_background_entry(atlas, layout) {
+        let (x, y) = layout
+            .scale
+            .dialog_origin_or((layout.screen.x, layout.screen.y));
         push_entry_grown(
             &mut instances,
             background,
-            layout.screen.x,
-            layout.screen.y,
+            x,
+            y,
             layout.scale,
             SHELL_PARENT_BACKGROUND_DEPTH,
         );

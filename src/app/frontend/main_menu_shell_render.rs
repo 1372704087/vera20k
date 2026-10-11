@@ -238,8 +238,14 @@ pub(crate) fn shell_parent_background_instances(
     screen_h: i32,
     scale: crate::ui::shell::geom::ShellScale,
 ) -> Vec<SpriteInstance> {
+    // A scaled page is authored at 800 wide, so it takes the large art.
+    let art_w = if scale.is_retail() {
+        screen_w
+    } else {
+        crate::ui::shell::geom::SHELL_BASE_W
+    };
     let Some(entry) = select_parent_background(
-        screen_w,
+        art_w,
         atlas.parent_background_640_mnscrns,
         atlas.parent_background_large_mnscrnl,
     ) else {

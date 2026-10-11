@@ -74,7 +74,7 @@ pub(crate) struct LauncherOptionsLayout {
     pub(crate) buttons: [(LauncherParentResult, RectPx); 3],
     /// The mapping the rects are in: [`ShellScale::RETAIL`] centres the
     /// authored dialog in the window, otherwise the authored dialog is
-    /// stretched over it. Control sub-rects and art fits key on this.
+    /// scaled to fit it, centred. Control sub-rects and art fits key on this.
     pub(crate) scale: ShellScale,
     offset_x: i32,
     offset_y: i32,

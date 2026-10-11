@@ -434,11 +434,13 @@ fn build_native_loading_instances(
             scale,
         );
     } else {
-        // Standard art hangs off the same base origin as its row and copy.
+        // Standard art hangs off the same base origin as its row and copy,
+        // mapped through the scale as they are.
+        let [x, y] = scale.scale_point(base_origin);
         push_entry_scaled(
             &mut instances,
             atlas.background,
-            [base_origin[0] as f32, base_origin[1] as f32],
+            [x as f32, y as f32],
             scale.art_size(
                 atlas.background.pixel_size[0],
                 atlas.background.pixel_size[1],

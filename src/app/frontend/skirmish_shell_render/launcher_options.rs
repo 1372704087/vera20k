@@ -223,7 +223,7 @@ pub(super) fn launcher_background_instances(
 ) -> Vec<SpriteInstance> {
     let common = crate::ui::skirmish_shell::compute_layout_on(scale, width, height);
     let mut out = Vec::new();
-    let background = if width == 640 {
+    let background = if common.authored_width() == 640 {
         atlas.generic_background_640_mnscrns_shell
     } else {
         atlas.generic_background_large_mnscrnl_shell

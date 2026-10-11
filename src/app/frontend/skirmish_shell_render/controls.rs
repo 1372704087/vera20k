@@ -16,10 +16,11 @@ use crate::ui::skirmish_shell::{
     DropdownMetrics, DropdownScrollbarPart, RectPx, SkirmishCheckboxId, SkirmishComboId,
     SkirmishComboItem, SkirmishShellLayout, SkirmishShellState, SkirmishTrackbarId,
     checkbox_icon_rect, combo_arrow_rect, combo_dropdown_content_rect,
-    combo_dropdown_needs_scrollbar, combo_dropdown_rect, combo_dropdown_scroll_thumb_rect,
-    combo_dropdown_scrollbar_rect, combo_dropdown_visible_row_count, combo_enabled,
-    combo_face_rect, combo_items, combo_swatch_rect, player_name_edit_text_rect,
-    player_row_visible, selected_combo_item_index, trackbar_visual_value,
+    combo_dropdown_needs_scrollbar, combo_dropdown_rect, combo_dropdown_row_rect,
+    combo_dropdown_scroll_thumb_rect, combo_dropdown_scrollbar_rect,
+    combo_dropdown_visible_row_count, combo_enabled, combo_face_rect, combo_items,
+    combo_swatch_rect, player_name_edit_text_rect, player_row_visible, selected_combo_item_index,
+    trackbar_visual_value,
 };
 
 use super::chrome::{
@@ -739,8 +740,7 @@ pub(super) fn push_dropdown_instances(
         if let SkirmishComboItem::Color(color_index) = item {
             // The row sits on the grid the item text and the pointer hit tests
             // use; its swatch keeps the authored 2-pixel inset, grown with it.
-            let row_h = DropdownMetrics::scaled(layout.scale).row_h;
-            let row = RectPx::new(content.x, content.y + idx as i32 * row_h, content.w, row_h);
+            let row = combo_dropdown_row_rect(content, layout.scale, idx);
             let swatch = layout
                 .scale
                 .derive_rect(row, |row| RectPx::new(row.x + 2, row.y + 2, row.w - 4, 19));
@@ -791,15 +791,12 @@ pub(super) fn dropdown_selected_row_rect(
     if selected < top_index || selected >= top_index + visible_rows {
         return None;
     }
-    // The row grid the item text and both pointer hit tests use
-    // (`DropdownMetrics::scaled`), so the highlight covers exactly the row a
-    // click selects.
-    let row_h = DropdownMetrics::scaled(scale).row_h;
-    Some(RectPx::new(
-        content.x,
-        content.y + (selected - top_index) as i32 * row_h,
-        content.w,
-        row_h,
+    // The row grid the item text and both pointer hit tests use, so the
+    // highlight covers exactly the row a click selects.
+    Some(combo_dropdown_row_rect(
+        content,
+        scale,
+        selected - top_index,
     ))
 }
 

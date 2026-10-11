@@ -18,15 +18,14 @@ use crate::ui::shell::modal::BodyOkLayout;
 use crate::ui::shell::static_reveal::StaticPaint;
 use crate::ui::shell::trackbar::value_text_rect;
 use crate::ui::skirmish_shell::{
-    COMBO_DROPDOWN_ROW_H, COMBO_FACE_H, COMBO_TEXT_LEFT_INSET, ChooseMapModalButton,
-    ChooseMapModalLayout, DropdownMetrics, OwnerDrawButton, RandomMapSetupControl,
-    RandomMapSetupLayout, RectPx, SETUP_COMBO_ROWS, SavedSeedLayout, SkirmishAiRowType,
-    SkirmishCheckboxId, SkirmishComboId, SkirmishComboItem, SkirmishCountryChoice,
-    SkirmishShellLayout, SkirmishShellOpponent, SkirmishShellState, SkirmishTrackbarId,
-    checkbox_text_rect, combo_dropdown_content_rect, combo_dropdown_rect,
-    combo_dropdown_visible_row_count, combo_enabled, combo_items, combo_text_rect,
-    player_name_edit_text_rect, player_row_visible, random_map_setup_dropdown_rect,
-    setup_combo_items, trackbar_visual_value,
+    COMBO_FACE_H, COMBO_TEXT_LEFT_INSET, ChooseMapModalButton, ChooseMapModalLayout,
+    DropdownMetrics, OwnerDrawButton, RandomMapSetupControl, RandomMapSetupLayout, RectPx,
+    SETUP_COMBO_ROWS, SavedSeedLayout, SkirmishAiRowType, SkirmishCheckboxId, SkirmishComboId,
+    SkirmishComboItem, SkirmishCountryChoice, SkirmishShellLayout, SkirmishShellOpponent,
+    SkirmishShellState, SkirmishTrackbarId, checkbox_text_rect, combo_dropdown_content_rect,
+    combo_dropdown_rect, combo_dropdown_visible_row_count, combo_enabled, combo_items,
+    combo_text_rect, player_name_edit_text_rect, player_row_visible,
+    random_map_setup_dropdown_rect, setup_combo_items, trackbar_visual_value,
 };
 
 use super::controls::trackbar_rect_for_id;
@@ -277,16 +276,10 @@ pub(super) fn combo_dropdown_text_rect_for_current_renderer(
     visible_row: usize,
     scale: ShellScale,
 ) -> TextRect {
-    // `ComboDropWin` draws from x+3 to the row right edge. The row is laid out on
-    // the authored 23-pixel track and stretched with the dropdown, so the caption
-    // fills the same band the pointer hit test selects.
-    let base = scale.base_rect(content);
-    let row = scale.scale_rect(RectPx::new(
-        base.x,
-        base.y + visible_row as i32 * COMBO_DROPDOWN_ROW_H,
-        base.w,
-        COMBO_DROPDOWN_ROW_H,
-    ));
+    // `ComboDropWin` draws from x+3 to the row right edge. The row is on the
+    // grid the highlight and the pointer hit tests use, so the caption fills the
+    // same band a click selects.
+    let row = crate::ui::skirmish_shell::combo_dropdown_row_rect(content, scale, visible_row);
     let inset_x = (COMBODROPWIN_TEXT_INSET_X as f32 * scale.factor()).round() as i32;
     TextRect {
         x: row.x + inset_x,
@@ -1602,6 +1595,7 @@ pub(super) fn push_saved_browser_prompt_text<I>(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ui::skirmish_shell::COMBO_DROPDOWN_ROW_H;
 
     #[test]
     fn combo_face_text_under_open_dropdown_is_suppressed() {

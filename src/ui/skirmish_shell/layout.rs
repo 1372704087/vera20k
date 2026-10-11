@@ -53,6 +53,18 @@ impl DropdownMetrics {
         }
     }
 }
+/// Visible row `visible_row` of an open combo dropdown, on the one row grid the
+/// item text, the highlight, the colour swatches and both pointer hit tests
+/// share: [`DropdownMetrics::row_h`] steps from the content top.
+pub fn combo_dropdown_row_rect(content: RectPx, scale: ShellScale, visible_row: usize) -> RectPx {
+    let row_h = DropdownMetrics::scaled(scale).row_h;
+    RectPx::new(
+        content.x,
+        content.y + visible_row as i32 * row_h,
+        content.w,
+        row_h,
+    )
+}
 pub const PLAYER_NAME_EDIT_CLIENT_INSET: i32 = 1;
 pub const PLAYER_NAME_EDIT_TEXT_LEFT_INSET: i32 = 2;
 pub const CHOOSE_MAP_MODAL_W: i32 = 533;
@@ -213,16 +225,12 @@ pub struct SkirmishShellLayout {
 
 impl SkirmishShellLayout {
     /// Where the shell's own art sits: gamemd's [`dialog_origin`] on the retail
-    /// layout, and the scaled dialog's top-left (its `screen` rect) once the
-    /// 800x600 space is scaled into the window — every child rect already
-    /// carries that scale.
+    /// layout, and the scaled dialog's top-left once the 800x600 space is
+    /// scaled into the window — every child rect already carries that scale.
     pub fn shell_origin(&self) -> (i32, i32) {
-        if self.scale.is_retail() {
-            let (x, y) = dialog_origin(self.screen.w, self.screen.h);
-            (self.screen.x + x, self.screen.y + y)
-        } else {
-            (self.screen.x, self.screen.y)
-        }
+        let (x, y) = dialog_origin(self.screen.w, self.screen.h);
+        self.scale
+            .dialog_origin_or((self.screen.x + x, self.screen.y + y))
     }
 
     /// The live height of the shell space: the authored 600 rows letterboxed
@@ -235,7 +243,7 @@ impl SkirmishShellLayout {
                 self.screen.h
             }
         } else {
-            self.screen.h
+            self.scale.dialog_rect().h
         }
     }
 
@@ -1058,7 +1066,8 @@ pub fn compute_saved_seed_layout(
 //
 // Each layout scales the verified 800x600 dialog to fit the live window. The
 // `ScaledRects` impls below are exhaustive struct literals, so a rect field
-// added to a layout must be scaled too or the crate stops building.
+// added to a layout must be scaled too or the crate stops building. `screen`
+// is the exception: it stays the whole window, as on the retail layout.
 
 impl ScaledRects for SkirmishRightPanelTextRects {
     fn scaled_rects(&self, scale: ShellScale) -> Self {
@@ -1126,7 +1135,7 @@ impl ScaledRects for SkirmishShellLayout {
     fn scaled_rects(&self, scale: ShellScale) -> Self {
         SkirmishShellLayout {
             scale,
-            screen: self.screen.scaled_rects(scale),
+            screen: scale.window(),
             right_panel: self.right_panel.scaled_rects(scale),
             right_panel_text: self.right_panel_text.scaled_rects(scale),
             start_button: self.start_button.scaled_rects(scale),
@@ -1150,7 +1159,7 @@ impl ScaledRects for ChooseMapModalLayout {
     fn scaled_rects(&self, scale: ShellScale) -> Self {
         ChooseMapModalLayout {
             scale,
-            screen: self.screen.scaled_rects(scale),
+            screen: scale.window(),
             dialog: self.dialog.scaled_rects(scale),
             mode_list: self.mode_list.scaled_rects(scale),
             map_list: self.map_list.scaled_rects(scale),
@@ -1171,7 +1180,7 @@ impl ScaledRects for RandomMapSetupLayout {
     fn scaled_rects(&self, scale: ShellScale) -> Self {
         RandomMapSetupLayout {
             scale,
-            screen: self.screen.scaled_rects(scale),
+            screen: scale.window(),
             dialog: self.dialog.scaled_rects(scale),
             label_rects: self.label_rects.scaled_rects(scale),
             control_rects: self.control_rects.scaled_rects(scale),
@@ -1196,7 +1205,7 @@ impl ScaledRects for SavedSeedLayout {
     fn scaled_rects(&self, scale: ShellScale) -> Self {
         SavedSeedLayout {
             scale,
-            screen: self.screen.scaled_rects(scale),
+            screen: scale.window(),
             dialog: self.dialog.scaled_rects(scale),
             title: self.title.scaled_rects(scale),
             prompt: self.prompt.scaled_rects(scale),
@@ -1310,6 +1319,24 @@ mod tests {
         name: &'static str,
         actual: RectPx,
         expected: RectPx,
+    }
+
+    #[test]
+    fn responsive_layouts_keep_the_window_as_screen_and_centre_the_shell() {
+        // 16:9: the height limits the factor to 1.8, so the 1440x1080 shell sits
+        // 240 px in from either side.
+        let shell = compute_responsive_layout(1920, 1080);
+        assert_eq!(shell.screen, RectPx::new(0, 0, 1920, 1080));
+        assert_eq!(shell.shell_origin(), (240, 0));
+        assert_eq!(shell.shell_height(), 1080);
+        // The seed prompts and the eject box centre in `screen`, as their hit
+        // tests centre in the window.
+        let seeds = compute_responsive_saved_seed_layout(SavedSeedMode::Save, 1920, 1080);
+        assert_eq!(seeds.screen, RectPx::new(0, 0, 1920, 1080));
+        let chooser = compute_responsive_choose_map_modal_layout(1920, 1080);
+        assert_eq!(chooser.screen, RectPx::new(0, 0, 1920, 1080));
+        // Its own full-size dialog is the centred shell, not the window.
+        assert_eq!(chooser.dialog, RectPx::new(240, 0, 1440, 1080));
     }
 
     #[test]

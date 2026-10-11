@@ -178,6 +178,24 @@ impl ShellScale {
         RectPx::new((self.screen_w - w) / 2, (self.screen_h - h) / 2, w, h)
     }
 
+    /// The whole window this scale maps into. A layout's `screen` is this on
+    /// both paths: prompts, the eject box and the input side centre in it.
+    pub fn window(self) -> RectPx {
+        RectPx::new(0, 0, self.screen_w, self.screen_h)
+    }
+
+    /// Where art drawn from the dialog's top-left corner sits in the window:
+    /// `retail`, wherever the retail page puts it, on the retail mapping, and
+    /// the scaled dialog's corner otherwise.
+    pub fn dialog_origin_or(self, retail: (i32, i32)) -> (i32, i32) {
+        if self.is_retail() {
+            retail
+        } else {
+            let dialog = self.dialog_rect();
+            (dialog.x, dialog.y)
+        }
+    }
+
     /// Is this the retail mapping — place the 800x600 shell in the window, never
     /// scale it? Callers that keep a native-size draw for the retail layout
     /// test this instead of inferring it from a rect.

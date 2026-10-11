@@ -2283,9 +2283,9 @@ mod tests {
 
     #[test]
     fn flat_clear_ground_anchors_an_end_piece() {
-        let (mut grid, scratch) = harness();
+        let (grid, scratch) = harness();
         assert!(end_area_is_placeable(
-            &mut grid,
+            &grid,
             &scratch,
             &ids(),
             (40, 48, 6, 3)
@@ -2305,7 +2305,7 @@ mod tests {
             let (mut grid, scratch) = harness();
             grid.get_mut(bx, by).expect("native cell").level = 9;
             assert!(
-                end_area_is_placeable(&mut grid, &scratch, &ids(), (40, 48, 6, 3)),
+                end_area_is_placeable(&grid, &scratch, &ids(), (40, 48, 6, 3)),
                 "{label} is outside the end area"
             );
         }
@@ -2314,7 +2314,7 @@ mod tests {
         let (mut grid, scratch) = harness();
         grid.get_mut(45, 50).expect("native cell").level = 9;
         assert!(!end_area_is_placeable(
-            &mut grid,
+            &grid,
             &scratch,
             &ids(),
             (40, 48, 6, 3)
@@ -2326,7 +2326,7 @@ mod tests {
         let (mut grid, scratch) = harness();
         grid.get_mut(42, 49).expect("native cell").level = 8;
         assert!(!end_area_is_placeable(
-            &mut grid,
+            &grid,
             &scratch,
             &ids(),
             (40, 48, 6, 3)
@@ -2341,7 +2341,7 @@ mod tests {
             let (mut grid, scratch) = harness();
             grid.get_mut(42, 49).expect("native cell").tile = base;
             assert!(
-                !end_area_is_placeable(&mut grid, &scratch, &ids(), (40, 48, 6, 3)),
+                !end_area_is_placeable(&grid, &scratch, &ids(), (40, 48, 6, 3)),
                 "{label} must refuse"
             );
         }
@@ -2366,7 +2366,7 @@ mod tests {
         let (mut grid, scratch) = harness();
         grid.get_mut(42, 49).expect("native cell").tile = PAVED_ROAD;
         assert!(!end_area_is_placeable(
-            &mut grid,
+            &grid,
             &scratch,
             &overlapping,
             (40, 48, 6, 3)
@@ -2380,7 +2380,7 @@ mod tests {
             let (mut grid, scratch) = harness();
             grid.get_mut(42, 49).expect("native cell").tile = base;
             assert!(
-                end_area_is_placeable(&mut grid, &scratch, &ids(), (40, 48, 6, 3)),
+                end_area_is_placeable(&grid, &scratch, &ids(), (40, 48, 6, 3)),
                 "{label} must be accepted"
             );
         }
@@ -2393,7 +2393,7 @@ mod tests {
         let (mut grid, scratch) = harness();
         grid.get_mut(42, 49).expect("native cell").tile = WATER;
         assert!(!end_area_is_placeable(
-            &mut grid,
+            &grid,
             &scratch,
             &ids(),
             (40, 48, 6, 3)
@@ -2413,7 +2413,7 @@ mod tests {
         let (mut grid, scratch) = harness();
         grid.get_mut(42, 49).expect("native cell").tile = GREEN;
         assert!(!end_area_is_placeable(
-            &mut grid,
+            &grid,
             &scratch,
             &ids(),
             (40, 48, 6, 3)
@@ -2428,7 +2428,7 @@ mod tests {
         let (mut grid, scratch) = harness();
         grid.get_mut(42, 49).expect("native cell").overlay = 0x4A;
         assert!(end_area_is_placeable(
-            &mut grid,
+            &grid,
             &scratch,
             &ids(),
             (40, 48, 6, 3)
@@ -2441,8 +2441,8 @@ mod tests {
         // the probes gone this returns true, which is what makes the fixture
         // worth having — the corner test is the only thing standing between the
         // placer and an end piece off the edge of the map.
-        let (rect, mut grid, scratch) = off_diamond_rect();
-        assert!(!end_area_is_placeable(&mut grid, &scratch, &ids(), rect));
+        let (rect, grid, scratch) = off_diamond_rect();
+        assert!(!end_area_is_placeable(&grid, &scratch, &ids(), rect));
     }
 
     #[test]

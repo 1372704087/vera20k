@@ -148,7 +148,7 @@ pub(crate) fn live_hierarchy_projection(
     bounds: Option<PlayfieldBounds>,
 ) -> Result<(u16, u16), &'static str> {
     let c = live_cell_coord(original);
-    let flags = live_cell_flags(&original);
+    let flags = live_cell_flags(original);
     if !enabled || flags & 0x100 == 0 {
         return Ok(c);
     }
@@ -194,7 +194,6 @@ pub(crate) fn live_hierarchy_projection(
     }))
 }
 
-#[allow(clippy::too_many_arguments)]
 pub(super) fn prepare_native_path_entry(
     zones: Option<&ZoneGrid>,
     terrain: Option<&ResolvedTerrainGrid>,

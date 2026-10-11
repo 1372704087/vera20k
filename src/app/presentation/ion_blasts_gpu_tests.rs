@@ -189,7 +189,9 @@ fn production_ripple_matches_original_draw_all() {
             let reads = [gpu.read(&mut encoder, &color)];
             let output = gpu.finish(encoder, &reads, SIZE);
             let words: Vec<u16> = output[0]
-                .chunks_exact(4)
+                .as_chunks::<4>()
+                .0
+                .iter()
                 .map(|pixel| word(pixel, format))
                 .collect();
             let changed = words

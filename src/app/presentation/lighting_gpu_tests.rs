@@ -8,6 +8,7 @@
 //! - In [Lighting], change Ambient=1.000000 to Ambient=0.300000.
 //! - Immediately after [Structures], insert this stock-type structure row:
 //!   9000000=Neutral,GALITE,256,53,113,0,None,0,0,1,0,0,None,None,None,0,0
+//!
 //! No rules/type overrides are needed. Set RA2_DIR to the retail installation,
 //! VERA20K_LAMP_PROBE_MAP to the absolute diagnostic map path, and optionally
 //! VERA20K_LAMP_PROBE_OUTPUT to a PNG output directory. Run:

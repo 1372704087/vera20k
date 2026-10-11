@@ -434,7 +434,7 @@ mod tests {
     fn six_family_sim(
         order: [usize; FAMILY_COUNT],
     ) -> (Simulation, [ChecksumObject; FAMILY_COUNT]) {
-        let mut sim = Simulation::with_seed(0x16_11_2026);
+        let mut sim = Simulation::with_seed(0x16112026);
 
         let entity_id = sim.allocate_stable_id();
         let mut entity = GameEntity::test_default(entity_id, "ORCA", "Americans", 3, 4);

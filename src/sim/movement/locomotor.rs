@@ -311,10 +311,11 @@ impl LocomotorState {
     }
 
     pub(crate) fn set_step_head(&mut self, head: Option<crate::sim::components::DriveCoord>) {
-        match (self.kind, &mut self.runtime_payload) {
-            (LocomotorKind::Walk, LocomotorRuntimePayload::Walk(state)) => state.head = head,
-            // Hover's head has one writer, its ProcessMovement (`hover_process`).
-            _ => {}
+        // Hover's head has one writer, its ProcessMovement (`hover_process`).
+        if let (LocomotorKind::Walk, LocomotorRuntimePayload::Walk(state)) =
+            (self.kind, &mut self.runtime_payload)
+        {
+            state.head = head;
         }
     }
 

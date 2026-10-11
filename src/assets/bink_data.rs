@@ -585,9 +585,9 @@ mod tests {
     #[test]
     fn every_tree_covers_its_code_space_exactly() {
         // Kraft inequality: sum of 2^(maxlen - len_i) over all symbols == 2^maxlen.
-        for t in 0..16 {
-            let max_len = *BINK_TREE_LENS[t].iter().max().unwrap() as u32;
-            let total: u32 = BINK_TREE_LENS[t]
+        for (t, lens) in BINK_TREE_LENS.iter().enumerate() {
+            let max_len = *lens.iter().max().unwrap() as u32;
+            let total: u32 = lens
                 .iter()
                 .map(|&l| if l == 0 { 0 } else { 1 << (max_len - l as u32) })
                 .sum();
@@ -597,9 +597,9 @@ mod tests {
 
     #[test]
     fn patterns_are_permutations_of_0_to_63() {
-        for p in 0..16 {
+        for (p, pattern) in BINK_PATTERNS.iter().enumerate() {
             let mut seen = [false; 64];
-            for &v in &BINK_PATTERNS[p] {
+            for &v in pattern {
                 assert!(v < 64);
                 seen[v as usize] = true;
             }

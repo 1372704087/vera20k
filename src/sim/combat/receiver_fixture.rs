@@ -168,7 +168,6 @@ pub(crate) struct FixturePolicy {
 
 /// Adapters preserve the old phase's supplied state, without bootstrapping a
 /// scenario or admitting fixture objects into the production Logic vector.
-#[allow(clippy::too_many_arguments)]
 fn with_world<R>(
     entities: &mut EntityStore,
     occupancy: &mut OccupancyGrid,
@@ -325,7 +324,6 @@ impl combat_aoe::AoECellPrelude for DeferredCellPrelude<'_> {
     }
 }
 
-#[allow(clippy::too_many_arguments)]
 pub(crate) fn tick_combat(
     entities: &mut EntityStore,
     occupancy: &mut OccupancyGrid,
@@ -358,7 +356,6 @@ pub(crate) fn tick_combat(
     )
 }
 
-#[allow(clippy::too_many_arguments)]
 pub(crate) fn tick_combat_with_fog(
     entities: &mut EntityStore,
     occupancy: &mut OccupancyGrid,
@@ -410,7 +407,6 @@ pub(crate) fn tick_combat_with_fog(
     )
 }
 
-#[allow(clippy::too_many_arguments)]
 pub(crate) fn tick_combat_with_fog_and_main_rng(
     entities: &mut EntityStore,
     occupancy: &mut OccupancyGrid,
@@ -469,7 +465,6 @@ pub(crate) fn tick_combat_with_fog_and_main_rng(
     )
 }
 
-#[allow(clippy::too_many_arguments)]
 pub(crate) fn commit_damage_events(
     damage_events: &[EntityDamageEvent],
     entities: &mut EntityStore,
@@ -523,7 +518,6 @@ pub(crate) fn commit_damage_events(
     )
 }
 
-#[allow(clippy::too_many_arguments)]
 pub(crate) fn commit_area_damage_receivers(
     receivers: &[combat_aoe::AreaDamageReceiver],
     entities: &mut EntityStore,
@@ -571,7 +565,6 @@ pub(crate) fn commit_area_damage_receivers(
     )
 }
 
-#[allow(clippy::too_many_arguments)]
 pub(crate) fn handle_entity_deaths(
     entities: &mut EntityStore,
     occupancy: &mut OccupancyGrid,
@@ -628,7 +621,6 @@ pub(crate) fn handle_entity_deaths(
     )
 }
 
-#[allow(clippy::too_many_arguments)]
 pub(crate) fn emit_projectile_detonations(
     detonations: &[ProjectileDetonation],
     entities: &mut EntityStore,
@@ -686,7 +678,6 @@ pub(crate) fn emit_projectile_detonations(
     )
 }
 
-#[allow(clippy::too_many_arguments)]
 pub(crate) fn resolve_attacker_fire(
     snap: &AttackerSnapshot,
     entities: &mut EntityStore,
@@ -752,7 +743,6 @@ pub(crate) fn resolve_attacker_fire(
     )
 }
 
-#[allow(clippy::too_many_arguments)]
 pub(crate) fn tick_combat_with_fog_and_main_rng_with_terrain_area(
     entities: &mut EntityStore,
     occupancy: &mut OccupancyGrid,

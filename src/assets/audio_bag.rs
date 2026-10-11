@@ -182,19 +182,18 @@ impl AudioIndex {
             return Some(result);
         }
         // Try with .aud extension (entries may include the extension).
-        if !name.contains('.') {
-            if let Some(result) = self.get_exact(&format!("{}.aud", name)) {
-                return Some(result);
-            }
+        if !name.contains('.')
+            && let Some(result) = self.get_exact(&format!("{}.aud", name))
+        {
+            return Some(result);
         }
         // Try stripping .aud extension (caller may include it but index doesn't).
         if let Some(stem) = name
             .strip_suffix(".aud")
             .or_else(|| name.strip_suffix(".AUD"))
+            && let Some(result) = self.get_exact(stem)
         {
-            if let Some(result) = self.get_exact(stem) {
-                return Some(result);
-            }
+            return Some(result);
         }
         None
     }
@@ -268,7 +267,9 @@ pub fn decode_bag_audio(entry: &AudioBagEntry, data: &[u8]) -> Option<BagAudio> 
         super::ima_adpcm::decode_blocks(data, entry.channels(), entry.chunk_size)
     } else if entry.is_16bit() {
         // Raw 16-bit signed PCM (little-endian).
-        data.chunks_exact(2)
+        data.as_chunks::<2>()
+            .0
+            .iter()
             .map(|c| i16::from_le_bytes([c[0], c[1]]))
             .collect()
     } else {

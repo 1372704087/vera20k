@@ -178,7 +178,7 @@ fn replay(key: &str, count: usize, visit: impl Fn(&GuardFacts, &mut Recorder) ->
 
 #[test]
 fn mission_guard_matches_the_original() {
-    replay("mission_guard", 433, |facts, host| guard_visit(facts, host));
+    replay("mission_guard", 433, guard_visit);
 }
 
 #[test]

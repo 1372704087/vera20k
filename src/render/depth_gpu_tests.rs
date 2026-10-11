@@ -452,7 +452,9 @@ impl Gpu {
         readback
             .finish(&self.device, submission, Duration::from_secs(10))
             .expect("read actual GPU pixels")
-            .chunks_exact(4)
+            .as_chunks::<4>()
+            .0
+            .iter()
             .map(|bgra| [bgra[2], bgra[1], bgra[0], bgra[3]])
             .collect()
     }
@@ -482,7 +484,7 @@ fn color_descriptor(size: [u32; 2]) -> wgpu::TextureDescriptor<'static> {
 fn cliff_depth_lanes() -> Layer {
     let mut terrain = Layer::solid(Shader::Terrain, RED, -31.0);
     // Native TMP ground rows: 31, 30, 19, 18, 10, 9, 8, 31.
-    for row in terrain.z_bytes.chunks_exact_mut(SIDE as usize) {
+    for row in terrain.z_bytes.as_chunks_mut::<{ SIDE as usize }>().0 {
         row.copy_from_slice(&[0, 1, 12, 13, 21, 22, 23, 0]);
     }
     terrain
@@ -1261,13 +1263,15 @@ fn native_palette_tables_match_all_ordinary_shader_pixels() {
                 })
                 .collect();
             let actual = gpu.render_sized(&layers, [256, fixture.rows]);
-            for (pixel, (got, bytes)) in
-                actual.iter().zip(fixture.bytes.chunks_exact(2)).enumerate()
+            for (pixel, (got, bytes)) in actual
+                .iter()
+                .zip(fixture.bytes.as_chunks::<2>().0)
+                .enumerate()
             {
                 let word = if pixel % 256 == 0 {
                     0
                 } else {
-                    u16::from_le_bytes(bytes.try_into().unwrap())
+                    u16::from_le_bytes(*bytes)
                 };
                 let stored = [
                     ((word >> 11) as u8) << 3,

@@ -277,7 +277,6 @@ pub(crate) struct TacticalViewport {
 /// owners retain foundation offsets and native ground/slope/bridge semantics.
 /// No RNG draws, timer writes, detach calls, Z reads or Z writes occur here.
 /// Evidence: tools/procedural_drawing_oracle/rally.{py,json,meta.json}.
-#[allow(clippy::too_many_arguments)]
 pub(crate) fn build_factory_rally_line_instances(
     sim: Option<&Simulation>,
     rules: Option<&RuleSet>,

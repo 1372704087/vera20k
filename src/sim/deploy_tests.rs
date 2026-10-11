@@ -433,7 +433,7 @@ fn deploy_mcv_waits_for_target_building_deploy_facing() {
     // Do_Turn toward the yard's DeployFacing; the deploy waits for the turn.
     assert_eq!(entity.body_facing.destination(), 0x8000);
     assert!(
-        sim.interner.get("GACNST").map_or(true, |yard| !sim
+        sim.interner.get("GACNST").is_none_or(|yard| !sim
             .substrate
             .entities
             .values()
@@ -1348,9 +1348,8 @@ pub(crate) fn assert_native_deploy_state(sim: &Simulation, id: u64, row: &serde_
         .as_array()
         .unwrap()
         .iter()
-        .filter_map(|event| {
-            (event["address"] == "007509E0").then(|| event["sound"].as_u64().unwrap())
-        })
+        .filter(|&event| event["address"] == "007509E0")
+        .map(|event| event["sound"].as_u64().unwrap())
         .map(|sound| match sound {
             101 => "GIDeploy",
             102 => "GIUndeploy",

@@ -662,7 +662,7 @@ mod tests {
 
     #[test]
     fn prefix_filtering_is_case_insensitive_and_anchored() {
-        let entries = vec![
+        let entries = [
             entry("IGISEA", 0, 0),
             entry("IGIDIE", 64, 0),
             entry("CEVA048", 128, 0),

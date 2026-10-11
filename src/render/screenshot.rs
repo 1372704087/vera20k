@@ -55,7 +55,7 @@ impl<T> PresentedFrameSlots<T> {
 
     fn presented(&self) -> Option<&T> {
         self.presented_valid
-            .then(|| self.presented.as_ref())
+            .then_some(self.presented.as_ref())
             .flatten()
     }
 
@@ -353,7 +353,7 @@ fn rgb565_pixels_from_bgra(pixels: &[u8], pixel_count: u32) -> Result<Vec<u8>> {
         )
         .context("screenshot RGB byte count does not fit this platform")?,
     );
-    for bgra in pixels.chunks_exact(4) {
+    for bgra in pixels.as_chunks::<4>().0 {
         rgb.extend_from_slice(&active_retail_rgb565_expansion(bgra));
     }
     Ok(rgb)

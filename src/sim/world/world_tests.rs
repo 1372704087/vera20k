@@ -6552,7 +6552,7 @@ fn test_execute_tick_delay_blocks_early_execution() {
         },
     );
 
-    let _ = sim.advance_tick(&[delayed.clone()], None, Some(&grid), None, 33);
+    let _ = sim.advance_tick(std::slice::from_ref(&delayed), None, Some(&grid), None, 33);
     assert!(
         sim.substrate
             .entities
@@ -6561,7 +6561,7 @@ fn test_execute_tick_delay_blocks_early_execution() {
             .is_none()
     );
 
-    let _ = sim.advance_tick(&[delayed.clone()], None, Some(&grid), None, 33);
+    let _ = sim.advance_tick(std::slice::from_ref(&delayed), None, Some(&grid), None, 33);
     assert!(
         sim.substrate
             .entities
@@ -8090,7 +8090,7 @@ fn level_has_single_source_of_truth_for_vision_height_derivation() {
     assert_eq!(heights.len(), (width as usize) * (height as usize));
 
     // Index = ry * width + rx; the elevated cell at (1,1) must report level 4.
-    let idx = (1usize) * (width as usize) + 1usize;
+    let idx = (width as usize) + 1usize;
     assert_eq!(heights[idx], 4, "elevated cell should report level 4");
 
     // Flat cells stay at 0.
@@ -9629,6 +9629,9 @@ fn idle_objects_are_handed_out_only_for_their_own_turn() {
     }
 }
 
+/// Per tick, each cell two or more group members shared and who shared it.
+type SharedCellsByTick = Vec<(u64, BTreeMap<(u16, u16), Vec<u64>>)>;
+
 /// FAITHFUL CASE: eight vehicles selected as a group, one Move order each to
 /// a single destination cell, issued in one batch exactly as a group order is.
 ///
@@ -9722,7 +9725,7 @@ fn repro_group_move_of_eight_vehicles_to_one_cell() {
     // (c) per-tick cell sharing during transit, with (d) sampled AT the
     // sharing tick — the grid must be read while the two movers are still
     // co-located, not after they have moved on.
-    let mut shared_by_tick: Vec<(u64, BTreeMap<(u16, u16), Vec<u64>>)> = Vec::new();
+    let mut shared_by_tick: SharedCellsByTick = Vec::new();
     let mut shared_snapshots: Vec<String> = Vec::new();
     let mut watch = StackingWatch::default();
     for tick in 0..400u64 {
@@ -9871,7 +9874,7 @@ fn repro_group_move_short_range_traces_every_tick() {
 
     let _ = sim.advance_tick(&commands, Some(&rules), Some(&grid), None, 100);
 
-    let mut shared_by_tick: Vec<(u64, BTreeMap<(u16, u16), Vec<u64>>)> = Vec::new();
+    let mut shared_by_tick: SharedCellsByTick = Vec::new();
     let mut trace: Vec<String> = Vec::new();
     let mut watch = StackingWatch::default();
     for tick in 0..400u64 {

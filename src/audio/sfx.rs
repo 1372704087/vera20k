@@ -422,7 +422,7 @@ fn apply_pan(samples: &mut [f32], pan: i32) {
     if left == 1.0 && right == 1.0 {
         return;
     }
-    for frame in samples.chunks_exact_mut(2) {
+    for frame in samples.as_chunks_mut::<2>().0 {
         frame[0] *= left;
         frame[1] *= right;
     }
@@ -547,6 +547,7 @@ impl PlayShifts {
 ///    Decay - 1)]`, otherwise `samples[Attack]` (the first body sample —
 ///    never a round-robin). With `ALL`: every body sample in order.
 /// 3. `Decay > 0`: load `samples[RandomRanged(count - Decay, count - 1)]`.
+///
 /// Then `PreparePlayout @ 0x00404700` / `AdvancePlaylist @ 0x004047B0` play
 /// the loaded buffers: the attack buffer first when `Control=ATTACK`, the
 /// decay buffer after repetition ends when `Control=DECAY`, and the rest in `RandomRanged(0,
@@ -1211,12 +1212,11 @@ fn open_sfx_sink() -> Result<MixerDeviceSink, rodio::DeviceSinkError> {
                 .ok()?
                 .with_buffer_size(rodio::cpal::BufferSize::Fixed(frames))
                 .open_stream()
-                .map(|sink| {
+                .inspect(|_| {
                     log::info!(
                         "SFX output buffer: {frames} frames at {} Hz",
                         config.sample_rate()
                     );
-                    sink
                 })
                 .map_err(|e| log::warn!("SFX low-latency output unavailable ({e}); using default"))
                 .ok()
@@ -2316,24 +2316,23 @@ fn load_sfx(
     audio_index: Option<&crate::assets::audio_bag::AudioIndex>,
 ) -> Option<DecodedAudio> {
     // Try the selected audio.bag index first (voices, EVA announcements).
-    if let Some(index) = audio_index {
-        if let Some((entry, data)) = index.get(filename) {
-            if let Some(bag_audio) = crate::assets::audio_bag::decode_bag_audio(entry, data) {
-                // Convert i16 → f32 stereo.
-                let stereo = upmix_i16_to_f32_stereo(&bag_audio.samples_i16, bag_audio.channels);
-                return Some(DecodedAudio {
-                    samples: stereo,
-                    sample_rate: bag_audio.sample_rate,
-                    channels: 2,
-                    native_frame_bytes: bag_audio.channels
-                        * if entry.is_16bit() || entry.is_ima_adpcm() {
-                            2
-                        } else {
-                            1
-                        },
-                });
-            }
-        }
+    if let Some(index) = audio_index
+        && let Some((entry, data)) = index.get(filename)
+        && let Some(bag_audio) = crate::assets::audio_bag::decode_bag_audio(entry, data)
+    {
+        // Convert i16 → f32 stereo.
+        let stereo = upmix_i16_to_f32_stereo(&bag_audio.samples_i16, bag_audio.channels);
+        return Some(DecodedAudio {
+            samples: stereo,
+            sample_rate: bag_audio.sample_rate,
+            channels: 2,
+            native_frame_bytes: bag_audio.channels
+                * if entry.is_16bit() || entry.is_ima_adpcm() {
+                    2
+                } else {
+                    1
+                },
+        });
     }
 
     // Try MIX asset lookup (exact name, then with .wav extension).
@@ -2440,7 +2439,9 @@ fn decode_ima_adpcm(data: &[u8], channels: u16, block_align: u16) -> Vec<f32> {
 fn decode_pcm(pcm: &[u8], channels: u16, bits_per_sample: u16) -> Vec<f32> {
     match (bits_per_sample, channels) {
         (16, _) => pcm
-            .chunks_exact(2)
+            .as_chunks::<2>()
+            .0
+            .iter()
             .map(|c| i16::from_le_bytes([c[0], c[1]]) as f32 / 32768.0)
             .collect(),
         (8, _) => pcm.iter().map(|&b| (b as f32 - 128.0) / 128.0).collect(),
@@ -3406,7 +3407,9 @@ mod tests {
         // the expected length and every expected sample remain native outputs.
         let actual: Vec<u8> = decoded
             .samples
-            .chunks_exact(2)
+            .as_chunks::<2>()
+            .0
+            .iter()
             .flat_map(|pair| {
                 assert_eq!(pair[0].to_bits(), pair[1].to_bits(), "mono upmix");
                 let scaled = pair[0] * 32768.0;

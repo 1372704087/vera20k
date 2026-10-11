@@ -345,6 +345,10 @@ impl TilesetLookup {
         self.entries.len()
     }
 
+    pub fn is_empty(&self) -> bool {
+        self.entries.is_empty()
+    }
+
     /// Get the tileset bounds table (tileset_index → start, count).
     pub fn bounds(&self) -> &[TilesetBounds] {
         &self.tileset_bounds
@@ -460,10 +464,7 @@ fn checked_tileset_ordinal(ordinal: u32) -> Result<u16, MapError> {
     })
 }
 
-fn read_tileset_row<'a>(
-    ini: &'a IniFile,
-    ordinal: u32,
-) -> Result<Option<(&'a IniSection, i32)>, MapError> {
+fn read_tileset_row(ini: &IniFile, ordinal: u32) -> Result<Option<(&IniSection, i32)>, MapError> {
     let section_name = format!("TileSet{ordinal:04}");
     let section = ini.section(&section_name);
     let tiles_in_set = section.map_or(-1, |section| section.read_int("TilesInSet", -1));
@@ -504,11 +505,7 @@ fn parse_tileset_sections(ini: &IniFile, extension: &str) -> Result<TilesetLooku
     // candidates in ordinal order and terminates only when ReadInt returns the
     // exact signed -1 sentinel. `%04d` is a minimum width, not a 10,000-row cap.
     let mut idx = 0u32;
-    loop {
-        let Some((section, tiles_in_set)) = read_tileset_row(ini, idx)? else {
-            break;
-        };
-
+    while let Some((section, tiles_in_set)) = read_tileset_row(ini, idx)? {
         // 0x40-byte ReadStrings (`0x005460C0`, `0x005460E5`). An absent
         // `FileName` reads the native default `TILE`; Rust keeps that set
         // blank instead (every retail tileset names its file).
@@ -530,10 +527,7 @@ fn parse_tileset_sections(ini: &IniFile, extension: &str) -> Result<TilesetLooku
         // than the terminating -1, but its compatibility cursor above still
         // advances. Positive counts retain missing/blank registry slots.
         let represented_count = usize::try_from(tiles_in_set).unwrap_or(0);
-        let attempted_slots = entries
-            .len()
-            .checked_add(represented_count)
-            .unwrap_or(usize::MAX);
+        let attempted_slots = entries.len().saturating_add(represented_count);
         if attempted_slots > MAX_USABLE_TILE_SLOTS {
             return Err(MapError::TilesetRegistryTooLarge {
                 attempted: attempted_slots,
@@ -1084,17 +1078,17 @@ fn load_exact_palette(
     theater_name: &str,
     palette_kind: &str,
 ) -> Option<Palette> {
-    if let Some((data, source)) = asset_manager.get_with_source(name) {
-        if let Ok(palette) = Palette::from_bytes_gamemd_ui(&data) {
-            log::info!(
-                "Theater {}: {} palette '{}' from {}",
-                theater_name,
-                palette_kind,
-                name,
-                source
-            );
-            return Some(palette);
-        }
+    if let Some((data, source)) = asset_manager.get_with_source(name)
+        && let Ok(palette) = Palette::from_bytes_gamemd_ui(&data)
+    {
+        log::info!(
+            "Theater {}: {} palette '{}' from {}",
+            theater_name,
+            palette_kind,
+            name,
+            source
+        );
+        return Some(palette);
     }
     log::warn!(
         "Theater {}: {} palette '{}' unavailable",

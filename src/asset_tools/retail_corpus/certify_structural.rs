@@ -749,7 +749,9 @@ fn walk_raw_csf_label_with_text(
             .get(pos + 8..pos + 8 + char_count * 2)
             .ok_or("string data past EOF")?;
         let decoded: Vec<u16> = bytes
-            .chunks_exact(2)
+            .as_chunks::<2>()
+            .0
+            .iter()
             .map(|p| u16::from_le_bytes([!p[0], !p[1]]))
             .collect();
         values.push(String::from_utf16_lossy(&decoded));

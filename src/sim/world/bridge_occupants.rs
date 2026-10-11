@@ -135,7 +135,7 @@ impl BridgeOccupantHost for Occupants<'_, '_> {
                 .substrate
                 .entities
                 .get(id)
-                .map_or(0, |e| i32::from(e.health.current)),
+                .map_or(0, |e| e.health.current),
             CellObjectMember::Terrain(id) => self
                 .live
                 .sim

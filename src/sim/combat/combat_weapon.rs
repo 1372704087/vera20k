@@ -771,17 +771,17 @@ fn techno_what_weapon_should_i_use(
     }
     // K @ 0x006F3558: DrainWeapon secondary vs a Drainable non-ally while not
     // already draining.
-    if secondary.drain_weapon {
-        if let Some(TargetFacts::Techno {
+    if secondary.drain_weapon
+        && let Some(TargetFacts::Techno {
             obj: target_obj,
             is_ally,
             ..
         }) = techno
-        {
-            if target_obj.drainable && !attacker.drain_target_active && !is_ally {
-                return 1;
-            }
-        }
+        && target_obj.drainable
+        && !attacker.drain_target_active
+        && !is_ally
+    {
+        return 1;
     }
     // L @ 0x006F35A8: AreaFire secondary while unloading.
     if secondary.area_fire && attacker.mission_is_unload {
@@ -799,12 +799,10 @@ fn techno_what_weapon_should_i_use(
         is_ally: true,
         ..
     } = target
+        && secondary_warhead.is_some_and(|warhead| warhead.electric_assault)
+        && target_obj.overpowerable
     {
-        if secondary_warhead.is_some_and(|warhead| warhead.electric_assault)
-            && target_obj.overpowerable
-        {
-            return 1;
-        }
+        return 1;
     }
     // O @ 0x006F3648: an aircraft pushed to spawn-retreat/collision.
     if attacker.kind == TechnoKind::Aircraft && attacker.aircraft_spawn_collision {
@@ -1039,7 +1037,6 @@ pub(crate) fn cell_target_facts(
 /// GetWeapon has no weapon, so the caller can still ask GetFireError. `None`
 /// means a supplied target is gone. A null target still enters the native
 /// selection ladder.
-#[allow(clippy::too_many_arguments)]
 pub(crate) fn select_weapon_against<'a>(
     rules: &'a RuleSet,
     attacker_entity: &GameEntity,
@@ -1067,7 +1064,6 @@ pub(crate) fn select_weapon_against<'a>(
 
 /// The SelectWeapon owner with a caller-owned native query identity. Input
 /// probes pass an isolated identity; simulation retains the canonical Dummy.
-#[allow(clippy::too_many_arguments)]
 pub(crate) fn select_weapon_against_in_query<'a>(
     rules: &'a RuleSet,
     attacker_entity: &GameEntity,

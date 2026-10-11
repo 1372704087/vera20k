@@ -250,10 +250,11 @@ impl RetailOptionsProfile {
     /// A later INI read uses these values as its per-key defaults, so a present
     /// profile key overrides the switch while a missing key leaves it intact.
     pub(crate) fn from_startup(startup: &RetailStartupOptions) -> Self {
-        let mut profile = Self::default();
-        profile.screen_width = startup.screen_width;
-        profile.screen_height = startup.screen_height;
-        profile
+        Self {
+            screen_width: startup.screen_width,
+            screen_height: startup.screen_height,
+            ..Default::default()
+        }
     }
 
     /// Apply only the two Video fields read before window creation.

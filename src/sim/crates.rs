@@ -1467,7 +1467,7 @@ pub(crate) mod tests {
         let rules = crate_ruleset("CrateMinimum=1\nCrateMaximum=1\n");
         let registry = crate_registry();
         let grid = PathGrid::test_all_passable(MAP, MAP);
-        let mut sim = sim_with_grid(0xA11C_E);
+        let mut sim = sim_with_grid(0xA11CE);
         sim.install_fixture_path_grid(Some(&grid));
         let mut replay = sim.scenario_rng.clone();
 
@@ -1542,7 +1542,7 @@ pub(crate) mod tests {
         let rules = crate_ruleset("CrateMinimum=1\nCrateMaximum=1\n");
         let registry = crate_registry();
         let grid = PathGrid::test_all_passable(MAP, MAP);
-        let mut sim = sim_with_grid(0xF411_ED);
+        let mut sim = sim_with_grid(0xF411ED);
         sim.install_fixture_path_grid(Some(&grid));
         // Empty diamond: every FNPC candidate fails the mandatory anchor gate
         // (and the independent final playfield gate would reject it too).
@@ -1623,7 +1623,7 @@ pub(crate) mod tests {
         let rules = crate_ruleset("CrateMinimum=1\nCrateMaximum=1\n");
         let registry = crate_registry();
         let grid = PathGrid::test_all_passable(MAP, MAP);
-        let mut sim = sim_with_grid(0x47C5_50);
+        let mut sim = sim_with_grid(0x47C550);
         sim.install_fixture_path_grid(Some(&grid));
         let mut replay = sim.scenario_rng.clone();
         let rx = replay.next_range_u32_inclusive(1, u32::from(MAP - 1)) as u16;
@@ -2194,7 +2194,7 @@ pub(crate) mod tests {
             water_crate_img: Some("RAILCRATE".to_owned()),
             ..CrateRules::default()
         };
-        let mut sim = sim_with_grid(0x14_09_0001);
+        let mut sim = sim_with_grid(0x14090001);
         let cell = (12, 13);
         sim.substrate
             .raw_cell_occupation
@@ -2236,7 +2236,7 @@ pub(crate) mod tests {
             "[Clear]\nTrack=100%\n",
         );
         let cell = (12, 13);
-        let mut visible = sim_with_grid(0x14_09_0002);
+        let mut visible = sim_with_grid(0x14090002);
         visible
             .substrate
             .raw_cell_occupation
@@ -2261,7 +2261,7 @@ pub(crate) mod tests {
         assert_eq!(grid.cell(cell.0, cell.1).overlay_data, 0x02);
         assert_eq!(grid.cell(cell.0 + 1, cell.1).overlay_data, 0x08);
 
-        let mut blocked = sim_with_grid(0x14_09_0003);
+        let mut blocked = sim_with_grid(0x14090003);
         let trackless =
             crate_ruleset_with_images("WALLCRATE", "WALLCRATE", "WALLCRATE", "[Clear]\nTrack=0%\n");
         assert_eq!(
@@ -2296,7 +2296,7 @@ pub(crate) mod tests {
         );
         let registry = OverlayTypeRegistry::from_ini(&ini, None);
         let rules = RuleSet::from_ini(&ini).unwrap();
-        let mut sim = sim_with_grid(0x14_09_0004);
+        let mut sim = sim_with_grid(0x14090004);
         let cell = (12, 13);
         for neighbor in [(11, 12), (12, 12), (13, 13), (12, 14)] {
             sim.overlay_grid
@@ -2345,7 +2345,7 @@ pub(crate) mod tests {
         rules.replace_art_registry_for_test(art);
         let cell = (12, 13);
 
-        let mut visible = sim_with_grid(0x14_09_0005);
+        let mut visible = sim_with_grid(0x14090005);
         let lighting = LightingProfileUnits {
             ambient_percent: 80,
             red_percent: 100,
@@ -2393,7 +2393,7 @@ pub(crate) mod tests {
         assert_eq!(restored_anim.remap(), visible_anim.remap());
         assert_eq!(restored_anim.z_adjust, visible_anim.z_adjust);
 
-        let mut ghost = sim_with_grid(0x14_09_0006);
+        let mut ghost = sim_with_grid(0x14090006);
         ghost
             .substrate
             .raw_cell_occupation
@@ -2424,7 +2424,7 @@ pub(crate) mod tests {
             None
         );
 
-        let mut terrain_object = sim_with_grid(0x14_09_0007);
+        let mut terrain_object = sim_with_grid(0x14090007);
         terrain_object
             .production
             .terrain_object_cells
@@ -2461,7 +2461,7 @@ pub(crate) mod tests {
             ..CrateRules::default()
         };
         let cell = (12, 13);
-        let mut sim = sim_with_grid(0x14_09_0008);
+        let mut sim = sim_with_grid(0x14090008);
         for target in [(12, 13), (12, 12), (12, 11), (12, 10), (12, 14)] {
             write_crate_mark_raw_data(&mut sim, (target.0 as i16, target.1 as i16), 7);
         }
@@ -2519,7 +2519,7 @@ pub(crate) mod tests {
         }
         assert_eq!(terrain.cell(12, 10).unwrap().bridge_facts.state_byte, 7);
 
-        let mut terrain_blocked = sim_with_grid(0x14_09_0009);
+        let mut terrain_blocked = sim_with_grid(0x14090009);
         write_crate_mark_raw_data(&mut terrain_blocked, (12, 13), 7);
         let _ = terrain_blocked
             .overlay_grid
@@ -2582,7 +2582,7 @@ pub(crate) mod tests {
             ..CrateRules::default()
         };
         let cell = (12, 13);
-        let mut sim = sim_with_grid(0x14_09_000A);
+        let mut sim = sim_with_grid(0x1409000A);
 
         assert_eq!(
             validate_and_stamp_candidate(
@@ -2626,7 +2626,7 @@ pub(crate) mod tests {
             ..CrateRules::default()
         };
         let origin = (20, 20);
-        let mut sim = sim_with_grid(0x14_09_0008);
+        let mut sim = sim_with_grid(0x14090008);
         sim.overlay_grid
             .as_mut()
             .unwrap()
@@ -2670,7 +2670,7 @@ pub(crate) mod tests {
             Some(crate::map::resolved_terrain::BridgeDirection::Low)
         );
 
-        let mut occupied = sim_with_grid(0x14_09_0009);
+        let mut occupied = sim_with_grid(0x14090009);
         occupied
             .overlay_grid
             .as_mut()
@@ -2708,7 +2708,7 @@ pub(crate) mod tests {
             water_crate_img: Some("EDGELOW".to_owned()),
             ..CrateRules::default()
         };
-        let mut sim = sim_with_grid(0x14_09_0012);
+        let mut sim = sim_with_grid(0x14090012);
         let before = sim.scenario_rng.state();
 
         assert_eq!(
@@ -2753,7 +2753,7 @@ pub(crate) mod tests {
                 water_crate_img: Some(name.to_owned()),
                 ..CrateRules::default()
             };
-            let mut sim = sim_with_grid(0x14_09_0010 + u64::from(id));
+            let mut sim = sim_with_grid(0x14090010 + u64::from(id));
             let before = sim.scenario_rng.state();
             assert_eq!(
                 validate_and_stamp_candidate(

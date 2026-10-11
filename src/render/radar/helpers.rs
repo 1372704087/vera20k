@@ -29,9 +29,6 @@ pub(super) const MINIMAP_DEPTH: f32 = 0.0;
 /// Shrouded / unexplored area color (pure black, matches original PutPixel(0)).
 pub(super) const COLOR_SHROUD: [u8; 4] = [0, 0, 0, 255];
 
-/// Fog-of-war dimming factor for revealed (previously seen) cells.
-/// Original engine uses SHR 1 = exact halving.
-
 const THEATER_BRIGHTNESS_DEFAULT: f32 = 1.0;
 const THEATER_BRIGHTNESS_SNOW: f32 = 0.8;
 

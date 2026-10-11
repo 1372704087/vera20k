@@ -819,7 +819,12 @@ mod tests {
         assert_eq!(&dark[8..12], &[240, 248, 240, 7]);
         assert_eq!(&dark[12..16], &[0, 0, 8, 255]);
         // Presenter view: every non-zero 565 unit drops by exactly one.
-        for (before, after) in texels.chunks_exact(4).zip(dark.chunks_exact(4)) {
+        for (before, after) in texels
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .zip(dark.as_chunks::<4>().0)
+        {
             assert_eq!(after[0] >> 3, (before[0] >> 3).saturating_sub(1));
             assert_eq!(after[1] >> 2, (before[1] >> 2).saturating_sub(1));
             assert_eq!(after[2] >> 3, (before[2] >> 3).saturating_sub(1));

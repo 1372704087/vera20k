@@ -186,7 +186,7 @@ mod tests {
         TerrainCommand::new(
             DestinationEditCommand {
                 index,
-                piece: if index % 2 == 0 {
+                piece: if index.is_multiple_of(2) {
                     super::super::TerrainPiece::Body
                 } else {
                     super::super::TerrainPiece::Shadow

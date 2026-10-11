@@ -165,12 +165,23 @@ pub fn resolve_installed_kind(value: Option<&str>) -> LocomotorKind {
 ///
 /// Variant order matches the binary enum table at 0x81DA58 in gamemd.exe.
 #[derive(
-    Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, serde::Serialize, serde::Deserialize,
+    Debug,
+    Clone,
+    Copy,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    Hash,
+    serde::Serialize,
+    serde::Deserialize,
+    Default,
 )]
 pub enum SpeedType {
     /// Infantry default. Can traverse most land terrain.
     Foot = 0,
     /// Most vehicles. Cannot cross water, limited on rough terrain.
+    #[default]
     Track,
     /// Wheeled vehicles. Slower on rough terrain than Track.
     Wheel,
@@ -188,12 +199,6 @@ pub enum SpeedType {
     /// distinct from Track; native invalid-index gameplay is not established.
     /// Last in declaration order to preserve existing serialized variant tags.
     Invalid = -1,
-}
-
-impl Default for SpeedType {
-    fn default() -> Self {
-        Self::Track
-    }
 }
 
 impl SpeedType {
@@ -275,12 +280,14 @@ impl SpeedType {
     Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, serde::Serialize, serde::Deserialize,
 )]
 #[repr(i8)]
+#[derive(Default)]
 pub enum MovementZone {
     /// Invalid parser result. Retail stores `-1` for unknown strings rather than
     /// silently falling back to Normal; downstream runtime behavior still needs
     /// a dedicated trace before it should be used for parity claims.
     Invalid = -1,
     /// Row 0: only movement class 0 is passable.
+    #[default]
     Normal = 0,
     /// Row 1: classes 0 and 1 are passable.
     Crusher = 1,
@@ -306,12 +313,6 @@ pub enum MovementZone {
     WaterBeach = 11,
     /// Row 12: classes 0, 1, and 2 are passable.
     CrusherAll = 12,
-}
-
-impl Default for MovementZone {
-    fn default() -> Self {
-        Self::Normal
-    }
 }
 
 impl MovementZone {

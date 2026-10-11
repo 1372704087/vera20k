@@ -139,7 +139,6 @@ impl ResolvedTerrainGrid {
     /// dummy already attached. This is required before the post-Resize
     /// OverlayPack `SetBridgeDirection_*` pass; binding afterward loses every
     /// missing-neighbor write to the shared fallback object.
-    #[allow(clippy::too_many_arguments)]
     pub(crate) fn build_with_variant_selector_and_shared_dummy(
         map: &MapFile,
         theater_data: Option<&TheaterData>,
@@ -177,7 +176,6 @@ impl ResolvedTerrainGrid {
     /// diamond, pristine TMP metadata, and variant selection only. Executable
     /// map-load effects are deliberately deferred until the staged Simulation
     /// owns native identity and can run the consuming overlay transaction.
-    #[allow(clippy::too_many_arguments)]
     pub(crate) fn build_pending_authored_with_variant_selector_and_shared_dummy(
         map: &MapFile,
         theater_data: Option<&TheaterData>,
@@ -219,7 +217,7 @@ impl ResolvedTerrainGrid {
         cliff_back_impassability: u8,
         overlay_load_source: OverlayLoadSource,
         projection: TerrainBuildProjection,
-        mut scenario_fill_ranged: Option<&mut dyn FnMut(u32, u32) -> u32>,
+        scenario_fill_ranged: Option<&mut dyn FnMut(u32, u32) -> u32>,
         mut variant_selector: Option<&mut TileVariantSelectionContext<'_, '_>>,
         shared_cell_dummy: Option<SharedCellDummy>,
         pixel_conversion_bounds: PixelConversionBounds,
@@ -230,10 +228,9 @@ impl ResolvedTerrainGrid {
             .unwrap_or(0);
         let materialized_size_diamond = variant_selector.is_some();
         let playfield = materialized_size_diamond.then(|| Playfield::from_header(&map.header));
-        let raw_cells = if let (Some(selector), Some(fill_ranged)) = (
-            variant_selector.as_deref_mut(),
-            scenario_fill_ranged.as_deref_mut(),
-        ) {
+        let raw_cells = if let (Some(selector), Some(fill_ranged)) =
+            (variant_selector.as_deref_mut(), scenario_fill_ranged)
+        {
             materialize_map_load_cells(
                 map,
                 theater_data.map(|theater| &theater.lookup),
@@ -487,15 +484,14 @@ impl ResolvedTerrainGrid {
                     );
                     apply_selected_presentation_metadata(&mut metadata, &selected_metadata);
                 }
-                if !pristine_subtile_entry_failed {
-                    if let Some(slope_type) = load_slope_lookup
+                if !pristine_subtile_entry_failed
+                    && let Some(slope_type) = load_slope_lookup
                         .as_ref()
                         .and_then(|slopes| slopes.get(&(rx, ry)))
                         .copied()
-                    {
-                        metadata.slope_type = slope_type;
-                        metadata.has_ramp = slope_type != 0;
-                    }
+                {
+                    metadata.slope_type = slope_type;
+                    metadata.has_ramp = slope_type != 0;
                 }
                 let damaged_radar = damaged_variant_radar_metadata(
                     &mut metadata_cache,
@@ -535,29 +531,26 @@ impl ResolvedTerrainGrid {
                     && !uses_clear_fallback
                     && !sparse_subtile_fallback
                     && !overlay_effects.claims_cell_attributes
-                {
-                    if let Some(anim) =
+                    && let Some(anim) =
                         theater_data.and_then(|td| td.lookup.tile_anim(presentation_tile_id))
-                    {
-                        if anim.attaches_to == i32::from(presentation_sub_tile) {
-                            let (offset_x, offset_y) = pixel_conversion_bounds
-                                .offset_to_leptons(anim.x_offset, anim.y_offset);
-                            tile_animations.push(TerrainTileAnimation {
-                                rx,
-                                ry,
-                                anim_name: anim.anim_name.clone(),
-                                world_x: offset_x
-                                    .wrapping_add(i32::from(rx).wrapping_mul(LEPTONS_PER_CELL))
-                                    .wrapping_add(CELL_CENTRE_LEPTONS),
-                                world_y: offset_y
-                                    .wrapping_add(i32::from(ry).wrapping_mul(LEPTONS_PER_CELL))
-                                    .wrapping_add(CELL_CENTRE_LEPTONS),
-                                world_z: i32::from(level as i8)
-                                    * crate::util::lepton::GROUND_LEVEL_HEIGHT_LEPTONS,
-                                z_adjust: anim.z_adjust,
-                            });
-                        }
-                    }
+                    && anim.attaches_to == i32::from(presentation_sub_tile)
+                {
+                    let (offset_x, offset_y) =
+                        pixel_conversion_bounds.offset_to_leptons(anim.x_offset, anim.y_offset);
+                    tile_animations.push(TerrainTileAnimation {
+                        rx,
+                        ry,
+                        anim_name: anim.anim_name.clone(),
+                        world_x: offset_x
+                            .wrapping_add(i32::from(rx).wrapping_mul(LEPTONS_PER_CELL))
+                            .wrapping_add(CELL_CENTRE_LEPTONS),
+                        world_y: offset_y
+                            .wrapping_add(i32::from(ry).wrapping_mul(LEPTONS_PER_CELL))
+                            .wrapping_add(CELL_CENTRE_LEPTONS),
+                        world_z: i32::from(level as i8)
+                            * crate::util::lepton::GROUND_LEVEL_HEIGHT_LEPTONS,
+                        z_adjust: anim.z_adjust,
+                    });
                 }
                 let canonical_ramp = canonical_ramp_from_slope_type(metadata.slope_type);
                 // The registered pristine TMP owns the base snapshot. Overlay
@@ -568,15 +561,13 @@ impl ResolvedTerrainGrid {
                 let base_speed_costs = metadata.speed_costs;
                 let base_ground_walk_blocked = canonical_ramp.is_none() && metadata.ground_blocked;
                 let base_build_blocked = metadata.build_blocked || canonical_ramp.is_some();
-                if !sparse_subtile_fallback {
-                    if let Some(land) = overlay_effects.effective_land {
-                        apply_canonical_land_to_metadata(
-                            &mut metadata,
-                            land,
-                            overlay_effects.effective_land_speed_costs,
-                            overlay_effects.effective_land_ground_blocked,
-                        );
-                    }
+                if !sparse_subtile_fallback && let Some(land) = overlay_effects.effective_land {
+                    apply_canonical_land_to_metadata(
+                        &mut metadata,
+                        land,
+                        overlay_effects.effective_land_speed_costs,
+                        overlay_effects.effective_land_ground_blocked,
+                    );
                 }
                 let base_cliff_back_eligible = if sparse_subtile_fallback {
                     base_land_type == LandType::Clear.as_index()
@@ -869,8 +860,10 @@ impl ResolvedTerrainGrid {
                 [(0, -1), (-1, 0), (2, 2), (1, 1), (-1, 1), (1, -1)];
             let rock_lt = LandType::Rock.as_index();
             let mut rock_terrain_class = LandType::Rock.terrain_class();
-            let mut rock_speed_costs = SpeedCostProfile::default();
-            rock_speed_costs.wheel = Some(0);
+            let mut rock_speed_costs = SpeedCostProfile {
+                wheel: Some(0),
+                ..Default::default()
+            };
             let mut rock_is_water = LandType::Rock.is_water();
             let mut rock_is_rough = LandType::Rock.is_rough();
             let mut rock_is_road = LandType::Rock.is_road();
@@ -987,7 +980,7 @@ impl ResolvedTerrainGrid {
             })
             .collect();
 
-        let grid = Self {
+        Self {
             width,
             height,
             cells,
@@ -1042,8 +1035,7 @@ impl ResolvedTerrainGrid {
                 }
                 _ => None,
             },
-        };
-        grid
+        }
     }
 
     pub fn build_height_map(&self) -> BTreeMap<(u16, u16), u8> {

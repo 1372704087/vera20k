@@ -818,16 +818,16 @@ impl TacticalScript {
                 ));
             }
         }
-        if let Some(last_wall_ms) = self.last_wall_ms {
-            if observation.wall_elapsed_ms < last_wall_ms {
-                return Err(violation(
-                    TacticalFailureCode::ClockDrift,
-                    format!(
-                        "wall elapsed time moved backwards from {last_wall_ms} to {}",
-                        observation.wall_elapsed_ms
-                    ),
-                ));
-            }
+        if let Some(last_wall_ms) = self.last_wall_ms
+            && observation.wall_elapsed_ms < last_wall_ms
+        {
+            return Err(violation(
+                TacticalFailureCode::ClockDrift,
+                format!(
+                    "wall elapsed time moved backwards from {last_wall_ms} to {}",
+                    observation.wall_elapsed_ms
+                ),
+            ));
         }
         let expected_total_sim_ms = observation.tick.saturating_mul(u64::from(SIM_TICK_MS));
         if observation.total_sim_ms != expected_total_sim_ms {

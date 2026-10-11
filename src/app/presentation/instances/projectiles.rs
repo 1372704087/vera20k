@@ -136,7 +136,6 @@ pub(crate) fn build_projectile_visual_instances(
 
 /// Shared production adapter used by full SHP/atlas/GPU native comparisons.
 /// Retained Display membership is admission; storage alone never draws a Bullet.
-#[allow(clippy::too_many_arguments)]
 pub(crate) fn projectile_draw_instance(
     projectile: &Projectile,
     kind: &ProjectileType,

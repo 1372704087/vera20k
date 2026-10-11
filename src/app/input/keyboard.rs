@@ -186,13 +186,13 @@ pub(crate) fn commit_close(state: &mut AppState, exit: KeyboardExit) {
         return;
     };
     if exit.binding_action() == BindingExit::Save {
-        if let Some(config) = state.platform.game_config.as_ref() {
-            if let Err(error) = crate::app::persistence::keyboard::save(
+        if let Some(config) = state.platform.game_config.as_ref()
+            && let Err(error) = crate::app::persistence::keyboard::save(
                 &config.paths.ra2_dir,
                 &state.match_state.input.hotkey_bindings,
-            ) {
-                log::warn!("Could not save KeyboardMD.ini: {error}");
-            }
+            )
+        {
+            log::warn!("Could not save KeyboardMD.ini: {error}");
         }
     } else if exit.binding_action() == BindingExit::Reload {
         // IDCANCEL5FB6D4 reloads CURRENT disk, including a preceding Reset All.

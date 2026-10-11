@@ -448,15 +448,15 @@ fn pick_map_ini(archive: &MixArchive) -> Result<IniFile, MapError> {
     if entries.is_empty() {
         return Err(MapError::MissingIsoMapPack);
     }
-    entries.sort_by(|a, b| b.size.cmp(&a.size));
+    entries.sort_by_key(|a| std::cmp::Reverse(a.size));
     for entry in &entries {
         let Some(data) = archive.get_by_id(entry.id) else {
             continue;
         };
-        if let Ok(ini) = IniFile::from_bytes(data) {
-            if ini.section("Map").is_some() {
-                return Ok(ini);
-            }
+        if let Ok(ini) = IniFile::from_bytes(data)
+            && ini.section("Map").is_some()
+        {
+            return Ok(ini);
         }
     }
     Err(MapError::MissingIsoMapPack)

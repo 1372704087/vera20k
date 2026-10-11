@@ -30,7 +30,6 @@ pub(super) enum ComponentOrigin {
 }
 
 impl Simulation {
-    #[allow(clippy::too_many_arguments)]
     pub(super) fn construct_runtime_techno(
         &mut self,
         type_id: &str,

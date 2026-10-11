@@ -221,7 +221,6 @@ pub(super) fn scatter_dispatch_allowed(
 /// one cell list, in list order, its gate hands `Scatter(coord, forced,
 /// no_kidding)`. Without no-kidding the list is first pre-scanned for an
 /// elite, which releases every occupant.
-#[allow(clippy::too_many_arguments)]
 pub(super) fn scatter_objects_admitted(
     occupants: &[u64],
     no_kidding: bool,

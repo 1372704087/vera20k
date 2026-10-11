@@ -1820,10 +1820,10 @@ impl ArtRegistry {
         let type_upper: String = type_id.to_uppercase();
 
         for key in [type_upper.as_str(), resolved.image_id.as_str()] {
-            if let Some(entry) = self.get(key) {
-                if let Some(ref pal) = entry.palette {
-                    return Some(pal.clone());
-                }
+            if let Some(entry) = self.get(key)
+                && let Some(ref pal) = entry.palette
+            {
+                return Some(pal.clone());
             }
         }
 

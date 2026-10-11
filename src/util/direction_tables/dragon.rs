@@ -35,8 +35,8 @@ mod tests {
             5, 4, 3, 2, 1, 0, 31, 30, 29,
         ];
         assert_eq!(DRAGON_FRAME_TABLE, expected);
-        for i in 0..32 {
-            assert_eq!(DRAGON_FRAME_TABLE[i], (28 - i as i32) & 31);
+        for (i, &frame) in DRAGON_FRAME_TABLE.iter().enumerate() {
+            assert_eq!(frame, (28 - i as i32) & 31);
         }
     }
 

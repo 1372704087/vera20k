@@ -206,9 +206,8 @@ fn pick_exit_octant(sim: &Simulation, entity: &GameEntity) -> Option<((u16, u16)
 
     let mut best_score: i32 = -1;
     let mut best_octant: usize = 0;
-    for octant in 0..8usize {
-        let open = cell_from(base, CELL_DELTAS[octant])
-            .is_some_and(|cell| octant_cell_open(sim, cell, owner));
+    for (octant, &delta) in CELL_DELTAS.iter().enumerate() {
+        let open = cell_from(base, delta).is_some_and(|cell| octant_cell_open(sim, cell, owner));
         let mut score: i32 = if open { 0x80 } else { -0x80 };
         let dir8 = i32::from(((octant as u32) << 5) as u8 as i8);
         score -= (dir8 - rear8).abs();
@@ -474,7 +473,8 @@ fn eject_head_passenger(
             let mut strict_pass = true;
             let mut i: usize = 0;
             // `(exit cell, beyond cell on the strict pass, octant)`.
-            let mut placement: Option<((u16, u16), Option<(u16, u16)>, usize)> = None;
+            type Placement = ((u16, u16), Option<(u16, u16)>, usize);
+            let mut placement: Option<Placement> = None;
             while i < 8 {
                 let octant = (start + i) & 7;
                 let exit_cell = cell_from(base, CELL_DELTAS[octant]);

@@ -127,7 +127,9 @@ pub fn tmp_terrain_to_land_type(tmp_terrain_type: u8) -> LandType {
         .unwrap_or(LandType::Clear)
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize, Default,
+)]
 pub enum TerrainClass {
     Clear,
     Rough,
@@ -142,13 +144,8 @@ pub enum TerrainClass {
     Wall,
     Railroad,
     Tunnel,
+    #[default]
     Unknown,
-}
-
-impl Default for TerrainClass {
-    fn default() -> Self {
-        Self::Unknown
-    }
 }
 
 impl LandType {

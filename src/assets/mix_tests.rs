@@ -74,15 +74,15 @@ fn load_ra2_with_nested(dir: &Path) -> Option<(MixArchive, Vec<MixArchive>)> {
     let mut nested: Vec<MixArchive> = Vec::new();
 
     for &name in ALL_NESTED_NAMES {
-        if let Some(data) = ra2_mix.get_by_name(name) {
-            if let Ok(archive) = MixArchive::from_bytes(data.to_vec()) {
-                eprintln!(
-                    "  Loaded nested: {} ({} entries)",
-                    name,
-                    archive.entry_count()
-                );
-                nested.push(archive);
-            }
+        if let Some(data) = ra2_mix.get_by_name(name)
+            && let Ok(archive) = MixArchive::from_bytes(data.to_vec())
+        {
+            eprintln!(
+                "  Loaded nested: {} ({} entries)",
+                name,
+                archive.entry_count()
+            );
+            nested.push(archive);
         }
     }
 
@@ -420,7 +420,7 @@ fn test_dump_pip_shp_frame_info() {
                     shp.frames.len()
                 );
                 for (i, f) in shp.frames.iter().enumerate() {
-                    if i < 5 || (i >= 13 && i <= 20) {
+                    if i < 5 || (13..=20).contains(&i) {
                         eprintln!(
                             "  frame {:2}: pos=({:3},{:3}) size={}x{}",
                             i, f.frame_x, f.frame_y, f.frame_width, f.frame_height

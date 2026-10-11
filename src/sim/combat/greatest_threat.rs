@@ -280,7 +280,6 @@ pub(crate) enum ThreatReference {
 /// `scorer_enemy_house` is the scorer house's current enemy (`+0x5600`,
 /// written by `HouseClass::UpdateAngerNodes @ 0x00504842`); a candidate it
 /// owns earns `[General] EnemyHouseThreatBonus=` (`0x0070CEE6..0x0070CF19`).
-#[allow(clippy::too_many_arguments)]
 pub(crate) fn calculate_threat_score(
     entities: &EntityStore,
     scorer_id: u64,
@@ -895,7 +894,6 @@ impl ThreatScanOutcome {
 /// `zone_grid` supplies `MapClass`'s per-movement-zone connectivity for the
 /// flat walk's gate ([`WalkArgs::zone`]) and the ring walk's per-cell gate
 /// ([`scan_cell_for_target`]).
-#[allow(clippy::too_many_arguments)]
 pub(crate) fn greatest_threat(
     entities: &EntityStore,
     occupancy: &OccupancyGrid,
@@ -1197,7 +1195,6 @@ fn attacks_allies(
 /// `Greatest_Threat`'s mask: the caller's literal through the scanner's
 /// `+0x3C4` override ([`threat_mask`]), then the preamble's class rewrites
 /// (`0x006F8EC8..0x006F8F25`). `None` is an override's `return 0`.
-#[allow(clippy::too_many_arguments)]
 fn scanner_mask<'r>(
     rules: &'r RuleSet,
     attacker: &AttackerSnapshot,
@@ -3871,9 +3868,9 @@ mod tests {
     /// authored `Verses=2%` sits just above it and survives while 1% does not.
     #[test]
     fn verses_floor_rejects_one_percent_but_not_two() {
-        assert!(0.01_f64 <= VERSES_FLOOR);
-        assert!(0.02_f64 > VERSES_FLOOR);
-        assert!(0.0_f64 <= VERSES_FLOOR);
+        const { assert!(0.01_f64 <= VERSES_FLOOR) };
+        const { assert!(0.02_f64 > VERSES_FLOOR) };
+        const { assert!(0.0_f64 <= VERSES_FLOOR) };
     }
 }
 

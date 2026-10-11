@@ -1022,9 +1022,9 @@ mod tests {
             f.frame_y,
             f.pixels.len()
         );
-        for i in 0..256 {
-            if hist[i] > 0 {
-                eprintln!("  idx {i:3} count {}", hist[i]);
+        for (i, &count) in hist.iter().enumerate() {
+            if count > 0 {
+                eprintln!("  idx {i:3} count {count}");
             }
         }
         // Dump MPLS.PAL RGB for the house-color band 16..31 (raw 6-bit *4 not applied here).
@@ -1151,7 +1151,11 @@ mod tests {
             let icon = render_pcx_entry(&assets, variant.side_icon_pcx())
                 .unwrap_or_else(|| panic!("{variant:?} country insignia should decode"));
             assert!(
-                icon.rgba.chunks_exact(4).any(|pixel| pixel[3] == 0),
+                icon.rgba
+                    .as_chunks::<4>()
+                    .0
+                    .iter()
+                    .any(|pixel| pixel[3] == 0),
                 "{variant:?} country insignia should contain transparent keyed pixels"
             );
         }

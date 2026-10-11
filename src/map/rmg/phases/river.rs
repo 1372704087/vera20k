@@ -149,7 +149,7 @@ fn launch(ctx: &mut BlobCtx<'_>, gauss_first: bool) -> Launch {
                 .mul(TruncF64::from_f64(f64::from(EDGES)))
                 .to_f64(),
         );
-        if value <= EDGES - 1 {
+        if value < EDGES {
             break value;
         }
     };

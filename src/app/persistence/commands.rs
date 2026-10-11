@@ -130,62 +130,6 @@ fn sanitize_save_name(raw: &str) -> String {
     out
 }
 
-#[cfg(test)]
-mod save_name_tests {
-    use super::sanitize_save_name;
-    use crate::sim::snapshot::GameSnapshot;
-    use crate::sim::world::Simulation;
-
-    #[test]
-    fn empty_returns_empty() {
-        assert_eq!(sanitize_save_name(""), "");
-        assert_eq!(sanitize_save_name("   "), "");
-        assert_eq!(sanitize_save_name("\t\n"), "");
-    }
-
-    #[test]
-    fn strips_path_separators() {
-        assert_eq!(sanitize_save_name("../foo"), ".._foo");
-        assert_eq!(sanitize_save_name("a/b\\c"), "a_b_c");
-    }
-
-    #[test]
-    fn strips_windows_reserved_chars() {
-        assert_eq!(sanitize_save_name("a:b*c?d\"e<f>g|h"), "a_b_c_d_e_f_g_h");
-    }
-
-    #[test]
-    fn keeps_normal_chars() {
-        assert_eq!(sanitize_save_name("miner stuck repro"), "miner stuck repro");
-        assert_eq!(sanitize_save_name("dock_fix_a"), "dock_fix_a");
-    }
-
-    #[test]
-    fn caps_at_64_chars() {
-        let long: String = "x".repeat(100);
-        let out = sanitize_save_name(&long);
-        assert_eq!(out.len(), 64);
-    }
-
-    #[test]
-    fn trims_whitespace() {
-        assert_eq!(sanitize_save_name("  hello  "), "hello");
-    }
-
-    #[test]
-    fn gsi_17_02_unicode_filename_cap_preserves_exact_envelope_description() {
-        let raw_description = "保存".repeat(40);
-        let filename_part = sanitize_save_name(&raw_description);
-        assert_eq!(filename_part.chars().count(), 64);
-
-        let mut sim = Simulation::new();
-        sim.session.map_name = "OFFICIAL.MAP".to_string();
-        let bytes = GameSnapshot::save_validated(&sim, 1, 2, &raw_description, 3);
-        let header = GameSnapshot::read_header(&bytes).expect("current VERA header");
-        assert_eq!(header.description, raw_description);
-    }
-}
-
 pub(crate) fn quickload(state: &mut AppState) {
     let path = match state
         .persistence
@@ -258,5 +202,61 @@ fn log_prepared_load_error(
         PreparedLoadError::FactoryState(source) => {
             log::error!("Load: restoration validation failed: {source}")
         }
+    }
+}
+
+#[cfg(test)]
+mod save_name_tests {
+    use super::sanitize_save_name;
+    use crate::sim::snapshot::GameSnapshot;
+    use crate::sim::world::Simulation;
+
+    #[test]
+    fn empty_returns_empty() {
+        assert_eq!(sanitize_save_name(""), "");
+        assert_eq!(sanitize_save_name("   "), "");
+        assert_eq!(sanitize_save_name("\t\n"), "");
+    }
+
+    #[test]
+    fn strips_path_separators() {
+        assert_eq!(sanitize_save_name("../foo"), ".._foo");
+        assert_eq!(sanitize_save_name("a/b\\c"), "a_b_c");
+    }
+
+    #[test]
+    fn strips_windows_reserved_chars() {
+        assert_eq!(sanitize_save_name("a:b*c?d\"e<f>g|h"), "a_b_c_d_e_f_g_h");
+    }
+
+    #[test]
+    fn keeps_normal_chars() {
+        assert_eq!(sanitize_save_name("miner stuck repro"), "miner stuck repro");
+        assert_eq!(sanitize_save_name("dock_fix_a"), "dock_fix_a");
+    }
+
+    #[test]
+    fn caps_at_64_chars() {
+        let long: String = "x".repeat(100);
+        let out = sanitize_save_name(&long);
+        assert_eq!(out.len(), 64);
+    }
+
+    #[test]
+    fn trims_whitespace() {
+        assert_eq!(sanitize_save_name("  hello  "), "hello");
+    }
+
+    #[test]
+    fn gsi_17_02_unicode_filename_cap_preserves_exact_envelope_description() {
+        let raw_description = "保存".repeat(40);
+        let filename_part = sanitize_save_name(&raw_description);
+        assert_eq!(filename_part.chars().count(), 64);
+
+        let mut sim = Simulation::new();
+        sim.session.map_name = "OFFICIAL.MAP".to_string();
+        let bytes = GameSnapshot::save_validated(&sim, 1, 2, &raw_description, 3);
+        let header = GameSnapshot::read_header(&bytes).expect("current VERA header");
+        assert_eq!(header.description, raw_description);
     }
 }

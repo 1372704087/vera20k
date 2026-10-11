@@ -80,7 +80,7 @@ const STEPS: [(i32, i32); 4] = [(1, 0), (-1, 0), (0, 1), (0, -1)];
 fn offset(cell: (u16, u16), step: (i32, i32)) -> Option<(u16, u16)> {
     let x = i32::from(cell.0) + step.0;
     let y = i32::from(cell.1) + step.1;
-    (x >= 0 && y >= 0).then(|| (x as u16, y as u16))
+    (x >= 0 && y >= 0).then_some((x as u16, y as u16))
 }
 
 /// Find the longest straight run of structural deck cells that is entered and
@@ -118,10 +118,7 @@ fn find_high_bridge_span(grid: &PathGrid) -> Option<HighBridgeSpan> {
                 }
                 let mut deck = vec![(x, y)];
                 let mut cursor = (x, y);
-                loop {
-                    let Some(next) = offset(cursor, step) else {
-                        break;
-                    };
+                while let Some(next) = offset(cursor, step) {
                     let Some(cell) = grid.cell(next.0, next.1) else {
                         break;
                     };
@@ -1385,10 +1382,7 @@ fn enumerate_low_bridge_spans(
                 }
                 let mut deck = vec![(x, y)];
                 let mut cursor = (x, y);
-                loop {
-                    let Some(next) = offset(cursor, step) else {
-                        break;
-                    };
+                while let Some(next) = offset(cursor, step) {
                     if !is_low_deck_cell(terrain, next) {
                         break;
                     }
@@ -2343,7 +2337,8 @@ fn tank_repathing_around_a_deck_blocker_stays_on_the_bridge_layer() {
         "the blocker's ordinary Move onto the deck at {park_cell:?} was refused"
     );
     // (tick, blocker z, on_bridge, structural, terrain level, crosser cell)
-    let mut blocker_parked: Option<(u64, u8, bool, bool, u8, (u16, u16))> = None;
+    type BlockerParked = (u64, u8, bool, bool, u8, (u16, u16));
+    let mut blocker_parked: Option<BlockerParked> = None;
 
     // --- 3. Record, watching the live path layers every frame. ---
     let mut rows: Vec<TickRow> = Vec::new();
@@ -3183,10 +3178,7 @@ fn build_under_span_transect(
     // Extend backwards along `-perp` first so `band` reads in `perp` order.
     let mut back = Vec::new();
     let mut cursor = through;
-    loop {
-        let Some(next) = offset(cursor, (-perp.0, -perp.1)) else {
-            break;
-        };
+    while let Some(next) = offset(cursor, (-perp.0, -perp.1)) {
         match grid.cell(next.0, next.1) {
             Some(cell) if cell.bridge_structural => {
                 back.push(next);
@@ -3197,13 +3189,10 @@ fn build_under_span_transect(
     }
     let band_start = cursor;
     back.reverse();
-    back.extend(band.drain(..));
+    back.append(&mut band);
     band = back;
     let mut cursor = through;
-    loop {
-        let Some(next) = offset(cursor, perp) else {
-            break;
-        };
+    while let Some(next) = offset(cursor, perp) {
         match grid.cell(next.0, next.1) {
             Some(cell) if cell.bridge_structural => {
                 band.push(next);
@@ -3240,7 +3229,6 @@ fn build_under_span_transect(
 /// Everything the passability instruments say about one cell, ground plane
 /// first. Printed for every cell of a transect so the geometry section of the
 /// report is a measurement rather than a summary.
-#[allow(clippy::too_many_arguments)]
 fn print_under_cell_row(
     label: &str,
     cell: (u16, u16),

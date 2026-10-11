@@ -86,7 +86,7 @@ impl NativeSurfacePresentationProfile {
     pub(crate) fn apply_packed_color_key_rgba8(self, rgba: &mut [u8], transparent_rgb: [u8; 3]) {
         assert_eq!(rgba.len() % 4, 0, "RGBA8 input must contain whole pixels");
         let transparent_word = self.format.pack_rgb8(transparent_rgb);
-        for pixel in rgba.chunks_exact_mut(4) {
+        for pixel in rgba.as_chunks_mut::<4>().0 {
             if self.format.pack_rgb8([pixel[0], pixel[1], pixel[2]]) == transparent_word {
                 pixel[3] = 0;
             }

@@ -46,6 +46,334 @@ pub(crate) fn house_color_map_for_launch_session(
     colors
 }
 
+/// Returns true for faction names that represent real players (not neutral/civilian).
+fn is_playable_faction_name(name: &str) -> bool {
+    let up = name.to_ascii_uppercase();
+    !matches!(
+        up.as_str(),
+        "NEUTRAL" | "SPECIAL" | "CIVILIAN" | "GOODGUY" | "BADGUY" | "JP"
+    )
+}
+
+/// Collect building type IDs that can be spawned at runtime and need atlas pre-loading.
+///
+/// Scans all objects with `DeploysInto=` set in rules.ini to find deploy targets
+/// (e.g., AMCV→GACNST). Data-driven — no hardcoded MCV/ConYard type pairs. It
+/// covers every object type in the rules, since units with DeploysInto can
+/// appear via production or scripted events even without being on the map yet.
+pub fn deployable_building_types(rules: Option<&RuleSet>) -> Vec<&str> {
+    let Some(rules) = rules else {
+        return Vec::new();
+    };
+    let mut result: Vec<&str> = Vec::new();
+    for obj in rules.all_objects() {
+        if let Some(target_id) = &obj.deploys_into
+            && let Some(target_obj) = rules.object(target_id)
+            && !result
+                .iter()
+                .any(|r| r.eq_ignore_ascii_case(&target_obj.id))
+        {
+            result.push(&target_obj.id);
+        }
+    }
+    result
+}
+
+pub(crate) fn preregister_runtime_overlay_names(
+    overlay_registry: &OverlayTypeRegistry,
+    crate_rules: &crate::rules::crate_rules::CrateRules,
+    overlay_names: &mut BTreeMap<u8, String>,
+) -> (u32, u32, u32) {
+    let selected_crate_ids = [
+        crate_rules
+            .wood_crate_img
+            .as_deref()
+            .and_then(|name| overlay_registry.id_for_name(name)),
+        crate_rules
+            .crate_img
+            .as_deref()
+            .and_then(|name| overlay_registry.id_for_name(name)),
+        crate_rules
+            .water_crate_img
+            .as_deref()
+            .and_then(|name| overlay_registry.id_for_name(name)),
+    ];
+    let mut wall_ids_added: u32 = 0;
+    let mut low_bridge_ids_added: u32 = 0;
+    let mut crate_ids_added: u32 = 0;
+    for overlay_id in 0u8..=u8::MAX {
+        let flags = overlay_registry.flags(overlay_id);
+        let is_wall = flags.is_some_and(|flags| flags.wall);
+        // Place487190 selects any flat resource variant after map load,
+        // including a map with no authored ore. The atlas already preloads
+        // these shapes; its draw-name projection must cover the same IDs.
+        let is_tiberium = flags.is_some_and(|flags| flags.tiberium);
+        let is_crate = flags.is_some_and(|flags| flags.crate_type)
+            || selected_crate_ids.contains(&Some(overlay_id));
+        let is_low_bridge =
+            is_bridge_overlay_index(overlay_id) && !is_high_bridge_index(overlay_id);
+        if !is_wall && !is_low_bridge && !is_crate && !is_tiberium {
+            continue;
+        }
+        let Some(name) = resolve_overlay_name_for_render(overlay_registry, overlay_id) else {
+            continue;
+        };
+        if let std::collections::btree_map::Entry::Vacant(entry) = overlay_names.entry(overlay_id) {
+            entry.insert(name);
+            if is_wall {
+                wall_ids_added += 1;
+            }
+            if is_low_bridge {
+                low_bridge_ids_added += 1;
+            }
+            if is_crate {
+                crate_ids_added += 1;
+            }
+        }
+    }
+    (wall_ids_added, low_bridge_ids_added, crate_ids_added)
+}
+
+type OverlayAtlasBuild = (
+    Option<OverlayAtlas>,
+    Option<BridgeAtlas>,
+    Option<BridgeRailingAtlas>,
+    BTreeMap<u8, String>,
+    Vec<OverlayEntry>,
+    HashMap<(u8, u8), [u8; 3]>,
+);
+
+/// Build overlay sprite atlas and name mapping from map data + rules.ini.
+pub(crate) fn build_overlay_atlas_from_map(
+    map_data: &MapFile,
+    asset_manager: &AssetManager,
+    gpu: &GpuContext,
+    batch: &BatchRenderer,
+    theater_ext: &str,
+    rules_ini: &IniFile,
+    crate_rules: &crate::rules::crate_rules::CrateRules,
+    art_registry: &ArtRegistry,
+    mirage_terrain_types: &[String],
+    theater_iso_palette: Option<&Palette>,
+    theater_unit_palette: Option<&Palette>,
+    theater_tiberium_palette: Option<&Palette>,
+    smudge_types: Option<&crate::rules::smudge_type::SmudgeTypeRegistry>,
+    bridge_railing_tile_bases: Option<BridgeRailingTileBases>,
+) -> OverlayAtlasBuild {
+    let force_tib_remap_enabled: bool = std::env::var("RA2_FORCE_TIB3_TO_TIB01")
+        .ok()
+        .map(|v| {
+            let n = v.trim().to_ascii_lowercase();
+            n == "1" || n == "true" || n == "yes" || n == "on"
+        })
+        .unwrap_or(false);
+    if force_tib_remap_enabled {
+        log::warn!("Debug overlay remap enabled: TIB3_20 -> TIB01");
+    }
+    let tib_id_offset: isize = std::env::var("RA2_TIB_ID_OFFSET")
+        .ok()
+        .and_then(|s| s.parse::<isize>().ok())
+        .unwrap_or(0);
+    if tib_id_offset != 0 {
+        log::warn!(
+            "Debug resource ID offset enabled: RA2_TIB_ID_OFFSET={}",
+            tib_id_offset
+        );
+    }
+
+    let overlay_registry: OverlayTypeRegistry = OverlayTypeRegistry::from_ini(rules_ini, None);
+    let tiberium_types = TiberiumTypeRegistry::from_ini(rules_ini);
+
+    // Compute wall connectivity bitmasks on a mutable clone so the atlas
+    // and AppState see correct auto-tiled frames (0–15 per wall type).
+    let mut wall_overlays: Vec<OverlayEntry> = map_data.overlays.clone();
+    let walls_updated: u32 =
+        crate::map::overlay::compute_wall_connectivity(&mut wall_overlays, &overlay_registry);
+    if walls_updated > 0 {
+        log::info!("Wall connectivity: {} wall entries updated", walls_updated);
+    }
+
+    // Log first 20 overlay types for diagnostic verification.
+    let max_diag: usize = 20.min(overlay_registry.len());
+    for i in 0..max_diag {
+        if let Some(name) = overlay_registry.name(i as u8) {
+            let mapped = resolve_overlay_name_for_render(&overlay_registry, i as u8)
+                .unwrap_or_else(|| name.to_string());
+            let flags = overlay_registry.flags(i as u8);
+            let tib: bool = flags.map(|f| f.tiberium).unwrap_or(false);
+            let wall: bool = flags.map(|f| f.wall).unwrap_or(false);
+            log::info!(
+                "  OverlayType[{:3}] = {:20} mapped={:20} tib={} wall={}",
+                i,
+                name,
+                mapped,
+                tib,
+                wall
+            );
+        }
+    }
+
+    // Build ID → name mapping for render-time lookups.
+    let mut overlay_names: BTreeMap<u8, String> = BTreeMap::new();
+    let mut unmapped_count: u32 = 0;
+    let mut unmapped_ids: std::collections::HashSet<u8> = std::collections::HashSet::new();
+    for entry in &map_data.overlays {
+        if let Some(mapped_name) =
+            resolve_overlay_name_for_render(&overlay_registry, entry.overlay_id)
+        {
+            overlay_names.entry(entry.overlay_id).or_insert(mapped_name);
+        } else {
+            unmapped_count += 1;
+            unmapped_ids.insert(entry.overlay_id);
+        }
+    }
+    if !unmapped_ids.is_empty() {
+        let mut ids: Vec<u8> = unmapped_ids.into_iter().collect();
+        ids.sort();
+        log::warn!("Unmapped overlay IDs (not in registry): {:?}", ids,);
+    }
+    log::info!(
+        "Overlay name mapping: {} IDs mapped, {} unmapped entries",
+        overlay_names.len(),
+        unmapped_count,
+    );
+    // Register overlay identities the sim can create after map load. Walls can
+    // be placed by production; low bridges replace their CellClass identity as
+    // damage/collapse/repair advances while the map-pack entry stays fixed.
+    // TIBTRE and natural spreading allocate new resource variants as well.
+    let (wall_ids_added, low_bridge_ids_added, crate_ids_added) =
+        preregister_runtime_overlay_names(&overlay_registry, crate_rules, &mut overlay_names);
+    if wall_ids_added > 0 {
+        log::info!(
+            "Pre-registered {} wall overlay type(s) in overlay_names for player placement",
+            wall_ids_added
+        );
+    }
+    if low_bridge_ids_added > 0 {
+        log::info!(
+            "Pre-registered {} low-bridge overlay variant(s) in overlay_names",
+            low_bridge_ids_added
+        );
+    }
+    if crate_ids_added > 0 {
+        log::info!(
+            "Pre-registered {} crate overlay type(s) in overlay_names for startup/runtime placement",
+            crate_ids_added
+        );
+    }
+
+    // Log resource overlays for diagnostic visibility.
+    for (id, name) in &overlay_names {
+        let flags = overlay_registry.flags(*id);
+        let tib: bool = flags.map(|f| f.tiberium).unwrap_or(false);
+        if tib {
+            log::info!("  Resource overlay: id={} name={}", id, name);
+        }
+    }
+
+    // Use theater-provided palettes if available, otherwise fall back to search.
+    let theater_palette: Option<Palette> = theater_iso_palette.cloned().or_else(|| {
+        let pal_names: &[&str] = &["isotem.pal", "isosno.pal", "isourb.pal", "temperat.pal"];
+        pal_names.iter().find_map(|name| {
+            let data: Vec<u8> = asset_manager.get(name)?;
+            Palette::from_bytes(&data).ok()
+        })
+    });
+    let unit_palette: Option<Palette> = theater_unit_palette.cloned().or_else(|| {
+        let pal_names: &[&str] = &["unittem.pal", "unitsno.pal", "uniturb.pal", "unit.pal"];
+        pal_names.iter().find_map(|name| {
+            let data: Vec<u8> = asset_manager.get(name)?;
+            Palette::from_bytes(&data).ok()
+        })
+    });
+    // Tiberium palette: the original engine uses a dedicated palette (e.g., temperat.pal) for
+    // ore/gem overlays, distinct from both the iso palette and the unit palette.
+    let tiberium_palette: Option<Palette> = theater_tiberium_palette.cloned().or_else(|| {
+        let pal_names: &[&str] = &["temperat.pal", "snow.pal", "urban.pal"];
+        pal_names.iter().find_map(|name| {
+            let data: Vec<u8> = asset_manager.get(name)?;
+            Palette::from_bytes(&data).ok()
+        })
+    });
+
+    let overlay_radar_colors: HashMap<(u8, u8), [u8; 3]> =
+        overlay_atlas::compute_overlay_radar_colors(
+            asset_manager,
+            &overlay_registry,
+            &overlay_names,
+            theater_ext,
+            &map_data.header.theater,
+            rules_ini,
+            art_registry,
+        );
+
+    let atlas: Option<OverlayAtlas> = theater_palette.as_ref().and_then(|theater_pal| {
+        // If no unit palette, fall back to theater palette for everything.
+        let unit_pal: &Palette = unit_palette.as_ref().unwrap_or(theater_pal);
+        let tib_pal: &Palette = tiberium_palette.as_ref().unwrap_or(theater_pal);
+        overlay_atlas::build_overlay_atlas(
+            gpu,
+            batch,
+            &wall_overlays,
+            &map_data.terrain_objects,
+            mirage_terrain_types,
+            asset_manager,
+            theater_pal,
+            unit_pal,
+            tib_pal,
+            theater_ext,
+            &map_data.header.theater,
+            &overlay_registry,
+            &tiberium_types,
+            crate_rules,
+            rules_ini,
+            art_registry,
+            smudge_types,
+        )
+    });
+
+    let bridge_atlas: Option<BridgeAtlas> = theater_palette.as_ref().and_then(|theater_pal| {
+        let unit_pal: &Palette = unit_palette.as_ref().unwrap_or(theater_pal);
+        bridge_atlas::build_bridge_atlas(
+            &gpu.device,
+            &gpu.queue,
+            batch,
+            &wall_overlays,
+            &overlay_names,
+            asset_manager,
+            theater_pal,
+            unit_pal,
+            theater_ext,
+            &map_data.header.theater,
+            &overlay_registry,
+            crate_rules,
+            rules_ini,
+            art_registry,
+        )
+    });
+
+    let bridge_railing_atlas: Option<BridgeRailingAtlas> =
+        theater_palette.as_ref().and_then(|theater_pal| {
+            bridge_railing_atlas::build_bridge_railing_atlas(
+                gpu,
+                batch,
+                asset_manager,
+                theater_pal,
+                theater_ext,
+                bridge_railing_tile_bases,
+            )
+        });
+
+    (
+        atlas,
+        bridge_atlas,
+        bridge_railing_atlas,
+        overlay_names,
+        wall_overlays,
+        overlay_radar_colors,
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -2539,330 +2867,4 @@ mod tests {
             "late-allocated configured identity registers even with Crate=false"
         );
     }
-}
-
-/// Returns true for faction names that represent real players (not neutral/civilian).
-fn is_playable_faction_name(name: &str) -> bool {
-    let up = name.to_ascii_uppercase();
-    !matches!(
-        up.as_str(),
-        "NEUTRAL" | "SPECIAL" | "CIVILIAN" | "GOODGUY" | "BADGUY" | "JP"
-    )
-}
-
-/// Collect building type IDs that can be spawned at runtime and need atlas pre-loading.
-///
-/// Scans all objects with `DeploysInto=` set in rules.ini to find deploy targets
-/// (e.g., AMCV→GACNST). Data-driven — no hardcoded MCV/ConYard type pairs. It
-/// covers every object type in the rules, since units with DeploysInto can
-/// appear via production or scripted events even without being on the map yet.
-pub fn deployable_building_types(rules: Option<&RuleSet>) -> Vec<&str> {
-    let Some(rules) = rules else {
-        return Vec::new();
-    };
-    let mut result: Vec<&str> = Vec::new();
-    for obj in rules.all_objects() {
-        if let Some(target_id) = &obj.deploys_into
-            && let Some(target_obj) = rules.object(target_id)
-            && !result
-                .iter()
-                .any(|r| r.eq_ignore_ascii_case(&target_obj.id))
-        {
-            result.push(&target_obj.id);
-        }
-    }
-    result
-}
-
-pub(crate) fn preregister_runtime_overlay_names(
-    overlay_registry: &OverlayTypeRegistry,
-    crate_rules: &crate::rules::crate_rules::CrateRules,
-    overlay_names: &mut BTreeMap<u8, String>,
-) -> (u32, u32, u32) {
-    let selected_crate_ids = [
-        crate_rules
-            .wood_crate_img
-            .as_deref()
-            .and_then(|name| overlay_registry.id_for_name(name)),
-        crate_rules
-            .crate_img
-            .as_deref()
-            .and_then(|name| overlay_registry.id_for_name(name)),
-        crate_rules
-            .water_crate_img
-            .as_deref()
-            .and_then(|name| overlay_registry.id_for_name(name)),
-    ];
-    let mut wall_ids_added: u32 = 0;
-    let mut low_bridge_ids_added: u32 = 0;
-    let mut crate_ids_added: u32 = 0;
-    for overlay_id in 0u8..=u8::MAX {
-        let flags = overlay_registry.flags(overlay_id);
-        let is_wall = flags.is_some_and(|flags| flags.wall);
-        // Place487190 selects any flat resource variant after map load,
-        // including a map with no authored ore. The atlas already preloads
-        // these shapes; its draw-name projection must cover the same IDs.
-        let is_tiberium = flags.is_some_and(|flags| flags.tiberium);
-        let is_crate = flags.is_some_and(|flags| flags.crate_type)
-            || selected_crate_ids.contains(&Some(overlay_id));
-        let is_low_bridge =
-            is_bridge_overlay_index(overlay_id) && !is_high_bridge_index(overlay_id);
-        if !is_wall && !is_low_bridge && !is_crate && !is_tiberium {
-            continue;
-        }
-        let Some(name) = resolve_overlay_name_for_render(overlay_registry, overlay_id) else {
-            continue;
-        };
-        if let std::collections::btree_map::Entry::Vacant(entry) = overlay_names.entry(overlay_id) {
-            entry.insert(name);
-            if is_wall {
-                wall_ids_added += 1;
-            }
-            if is_low_bridge {
-                low_bridge_ids_added += 1;
-            }
-            if is_crate {
-                crate_ids_added += 1;
-            }
-        }
-    }
-    (wall_ids_added, low_bridge_ids_added, crate_ids_added)
-}
-
-/// Build overlay sprite atlas and name mapping from map data + rules.ini.
-pub(crate) fn build_overlay_atlas_from_map(
-    map_data: &MapFile,
-    asset_manager: &AssetManager,
-    gpu: &GpuContext,
-    batch: &BatchRenderer,
-    theater_ext: &str,
-    rules_ini: &IniFile,
-    crate_rules: &crate::rules::crate_rules::CrateRules,
-    art_registry: &ArtRegistry,
-    mirage_terrain_types: &[String],
-    theater_iso_palette: Option<&Palette>,
-    theater_unit_palette: Option<&Palette>,
-    theater_tiberium_palette: Option<&Palette>,
-    smudge_types: Option<&crate::rules::smudge_type::SmudgeTypeRegistry>,
-    bridge_railing_tile_bases: Option<BridgeRailingTileBases>,
-) -> (
-    Option<OverlayAtlas>,
-    Option<BridgeAtlas>,
-    Option<BridgeRailingAtlas>,
-    BTreeMap<u8, String>,
-    Vec<OverlayEntry>,
-    HashMap<(u8, u8), [u8; 3]>,
-) {
-    let force_tib_remap_enabled: bool = std::env::var("RA2_FORCE_TIB3_TO_TIB01")
-        .ok()
-        .map(|v| {
-            let n = v.trim().to_ascii_lowercase();
-            n == "1" || n == "true" || n == "yes" || n == "on"
-        })
-        .unwrap_or(false);
-    if force_tib_remap_enabled {
-        log::warn!("Debug overlay remap enabled: TIB3_20 -> TIB01");
-    }
-    let tib_id_offset: isize = std::env::var("RA2_TIB_ID_OFFSET")
-        .ok()
-        .and_then(|s| s.parse::<isize>().ok())
-        .unwrap_or(0);
-    if tib_id_offset != 0 {
-        log::warn!(
-            "Debug resource ID offset enabled: RA2_TIB_ID_OFFSET={}",
-            tib_id_offset
-        );
-    }
-
-    let overlay_registry: OverlayTypeRegistry = OverlayTypeRegistry::from_ini(rules_ini, None);
-    let tiberium_types = TiberiumTypeRegistry::from_ini(rules_ini);
-
-    // Compute wall connectivity bitmasks on a mutable clone so the atlas
-    // and AppState see correct auto-tiled frames (0–15 per wall type).
-    let mut wall_overlays: Vec<OverlayEntry> = map_data.overlays.clone();
-    let walls_updated: u32 =
-        crate::map::overlay::compute_wall_connectivity(&mut wall_overlays, &overlay_registry);
-    if walls_updated > 0 {
-        log::info!("Wall connectivity: {} wall entries updated", walls_updated);
-    }
-
-    // Log first 20 overlay types for diagnostic verification.
-    let max_diag: usize = 20.min(overlay_registry.len());
-    for i in 0..max_diag {
-        if let Some(name) = overlay_registry.name(i as u8) {
-            let mapped = resolve_overlay_name_for_render(&overlay_registry, i as u8)
-                .unwrap_or_else(|| name.to_string());
-            let flags = overlay_registry.flags(i as u8);
-            let tib: bool = flags.map(|f| f.tiberium).unwrap_or(false);
-            let wall: bool = flags.map(|f| f.wall).unwrap_or(false);
-            log::info!(
-                "  OverlayType[{:3}] = {:20} mapped={:20} tib={} wall={}",
-                i,
-                name,
-                mapped,
-                tib,
-                wall
-            );
-        }
-    }
-
-    // Build ID → name mapping for render-time lookups.
-    let mut overlay_names: BTreeMap<u8, String> = BTreeMap::new();
-    let mut unmapped_count: u32 = 0;
-    let mut unmapped_ids: std::collections::HashSet<u8> = std::collections::HashSet::new();
-    for entry in &map_data.overlays {
-        if let Some(mapped_name) =
-            resolve_overlay_name_for_render(&overlay_registry, entry.overlay_id)
-        {
-            overlay_names.entry(entry.overlay_id).or_insert(mapped_name);
-        } else {
-            unmapped_count += 1;
-            unmapped_ids.insert(entry.overlay_id);
-        }
-    }
-    if !unmapped_ids.is_empty() {
-        let mut ids: Vec<u8> = unmapped_ids.into_iter().collect();
-        ids.sort();
-        log::warn!("Unmapped overlay IDs (not in registry): {:?}", ids,);
-    }
-    log::info!(
-        "Overlay name mapping: {} IDs mapped, {} unmapped entries",
-        overlay_names.len(),
-        unmapped_count,
-    );
-    // Register overlay identities the sim can create after map load. Walls can
-    // be placed by production; low bridges replace their CellClass identity as
-    // damage/collapse/repair advances while the map-pack entry stays fixed.
-    // TIBTRE and natural spreading allocate new resource variants as well.
-    let (wall_ids_added, low_bridge_ids_added, crate_ids_added) =
-        preregister_runtime_overlay_names(&overlay_registry, crate_rules, &mut overlay_names);
-    if wall_ids_added > 0 {
-        log::info!(
-            "Pre-registered {} wall overlay type(s) in overlay_names for player placement",
-            wall_ids_added
-        );
-    }
-    if low_bridge_ids_added > 0 {
-        log::info!(
-            "Pre-registered {} low-bridge overlay variant(s) in overlay_names",
-            low_bridge_ids_added
-        );
-    }
-    if crate_ids_added > 0 {
-        log::info!(
-            "Pre-registered {} crate overlay type(s) in overlay_names for startup/runtime placement",
-            crate_ids_added
-        );
-    }
-
-    // Log resource overlays for diagnostic visibility.
-    for (id, name) in &overlay_names {
-        let flags = overlay_registry.flags(*id);
-        let tib: bool = flags.map(|f| f.tiberium).unwrap_or(false);
-        if tib {
-            log::info!("  Resource overlay: id={} name={}", id, name);
-        }
-    }
-
-    // Use theater-provided palettes if available, otherwise fall back to search.
-    let theater_palette: Option<Palette> = theater_iso_palette.cloned().or_else(|| {
-        let pal_names: &[&str] = &["isotem.pal", "isosno.pal", "isourb.pal", "temperat.pal"];
-        pal_names.iter().find_map(|name| {
-            let data: Vec<u8> = asset_manager.get(name)?;
-            Palette::from_bytes(&data).ok()
-        })
-    });
-    let unit_palette: Option<Palette> = theater_unit_palette.cloned().or_else(|| {
-        let pal_names: &[&str] = &["unittem.pal", "unitsno.pal", "uniturb.pal", "unit.pal"];
-        pal_names.iter().find_map(|name| {
-            let data: Vec<u8> = asset_manager.get(name)?;
-            Palette::from_bytes(&data).ok()
-        })
-    });
-    // Tiberium palette: the original engine uses a dedicated palette (e.g., temperat.pal) for
-    // ore/gem overlays, distinct from both the iso palette and the unit palette.
-    let tiberium_palette: Option<Palette> = theater_tiberium_palette.cloned().or_else(|| {
-        let pal_names: &[&str] = &["temperat.pal", "snow.pal", "urban.pal"];
-        pal_names.iter().find_map(|name| {
-            let data: Vec<u8> = asset_manager.get(name)?;
-            Palette::from_bytes(&data).ok()
-        })
-    });
-
-    let overlay_radar_colors: HashMap<(u8, u8), [u8; 3]> =
-        overlay_atlas::compute_overlay_radar_colors(
-            asset_manager,
-            &overlay_registry,
-            &overlay_names,
-            theater_ext,
-            &map_data.header.theater,
-            rules_ini,
-            art_registry,
-        );
-
-    let atlas: Option<OverlayAtlas> = theater_palette.as_ref().and_then(|theater_pal| {
-        // If no unit palette, fall back to theater palette for everything.
-        let unit_pal: &Palette = unit_palette.as_ref().unwrap_or(theater_pal);
-        let tib_pal: &Palette = tiberium_palette.as_ref().unwrap_or(theater_pal);
-        overlay_atlas::build_overlay_atlas(
-            gpu,
-            batch,
-            &wall_overlays,
-            &map_data.terrain_objects,
-            mirage_terrain_types,
-            asset_manager,
-            theater_pal,
-            unit_pal,
-            tib_pal,
-            theater_ext,
-            &map_data.header.theater,
-            &overlay_registry,
-            &tiberium_types,
-            crate_rules,
-            rules_ini,
-            art_registry,
-            smudge_types,
-        )
-    });
-
-    let bridge_atlas: Option<BridgeAtlas> = theater_palette.as_ref().and_then(|theater_pal| {
-        let unit_pal: &Palette = unit_palette.as_ref().unwrap_or(theater_pal);
-        bridge_atlas::build_bridge_atlas(
-            &gpu.device,
-            &gpu.queue,
-            batch,
-            &wall_overlays,
-            &overlay_names,
-            asset_manager,
-            theater_pal,
-            unit_pal,
-            theater_ext,
-            &map_data.header.theater,
-            &overlay_registry,
-            crate_rules,
-            rules_ini,
-            art_registry,
-        )
-    });
-
-    let bridge_railing_atlas: Option<BridgeRailingAtlas> =
-        theater_palette.as_ref().and_then(|theater_pal| {
-            bridge_railing_atlas::build_bridge_railing_atlas(
-                gpu,
-                batch,
-                asset_manager,
-                theater_pal,
-                theater_ext,
-                bridge_railing_tile_bases,
-            )
-        });
-
-    (
-        atlas,
-        bridge_atlas,
-        bridge_railing_atlas,
-        overlay_names,
-        wall_overlays,
-        overlay_radar_colors,
-    )
 }

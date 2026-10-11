@@ -463,7 +463,7 @@ mod tests {
             .collect();
 
         for (tag, data) in &corpus {
-            let Some(covered) = covered_tag(*tag) else {
+            let Some(covered) = covered_tag(tag) else {
                 unsniffed += 1;
                 unsniffed_bytes += data.len() as u64;
                 continue;

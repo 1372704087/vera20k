@@ -2407,7 +2407,7 @@ mod tests {
         let location = host.location;
         assert_eq!(
             reference_height(&eastbound_flight(4.0), &host, location),
-            (0 + BRIDGE_DECK_HEIGHT_LEPTONS) / 2
+            BRIDGE_DECK_HEIGHT_LEPTONS / 2
         );
         // Stationary: no look-ahead, and the current cell has no bridge.
         assert_eq!(reference_height(&eastbound_flight(0.0), &host, location), 0);

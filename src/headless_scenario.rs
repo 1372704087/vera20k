@@ -241,10 +241,7 @@ pub(crate) fn load_with_launch(
             &mut variant_selector,
             shared_cell_dummy,
         );
-    drop(variant_selector);
     drop(variant_draw);
-    drop(scenario_fill_ranged);
-    drop(scenario_fill_rng);
 
     // Pending authored Fill has no eager Tile##Anim list. Bind damage-fire
     // roots now and let the authored host bind each actually reached map Anim

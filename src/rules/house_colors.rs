@@ -188,8 +188,9 @@ mod tests {
 
     #[test]
     fn gsi_02_13_build_scheme_ramp_matches_native_intermediate_modulation() {
+        type Case = (&'static str, [u8; 3], [[u8; 2]; RAMP_SIZE]);
         #[rustfmt::skip]
-        let cases: &[(&str, [u8; 3], [[u8; 2]; RAMP_SIZE])] = &[
+        let cases: &[Case] = &[
             ("Gold", [43, 239, 255], [
                 [183,250],[189,231],[196,222],[202,211],
                 [208,199],[213,185],[218,170],[222,154],
@@ -217,8 +218,9 @@ mod tests {
     /// Exact active-YR per-shade RGB oracles for representative stock schemes.
     #[test]
     fn gsi_02_13_build_scheme_ramp_matches_golden_stock_values() {
+        type Case = (&'static str, [u8; 3], [[u8; 3]; 16]);
         #[rustfmt::skip]
-        let cases: &[(&str, [u8; 3], [[u8; 3]; 16])] = &[
+        let cases: &[Case] = &[
             ("Gold", [43, 239, 255], [
                 [248,250,70],[229,231,59],[220,222,51],[209,211,43],
                 [197,199,36],[183,185,30],[168,170,24],[152,154,19],

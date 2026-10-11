@@ -1682,13 +1682,12 @@ fn bunker_receive(
         }
         RadioMessage::DockNow => {
             // Commit: start the install machine if the bunker is idle.
-            if let Some(b) = sim.substrate.entities.get_mut(bld) {
-                if let Some(rt) = b.bunker_runtime.as_mut() {
-                    if rt.state == BunkerState::Idle {
-                        rt.state = BunkerState::ArriveWait;
-                        rt.installing_unit = Some(unit);
-                    }
-                }
+            if let Some(b) = sim.substrate.entities.get_mut(bld)
+                && let Some(rt) = b.bunker_runtime.as_mut()
+                && rt.state == BunkerState::Idle
+            {
+                rt.state = BunkerState::ArriveWait;
+                rt.installing_unit = Some(unit);
             }
             RadioResponse::Roger
         }

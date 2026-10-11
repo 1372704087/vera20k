@@ -252,8 +252,7 @@ fn shp_z_adjust_in_runtime(
         world_z.wrapping_sub(surface)
     } else {
         world_z.wrapping_sub(
-            i32::from(entity.position.z as i8)
-                * crate::util::lepton::GROUND_LEVEL_HEIGHT_LEPTONS as i32,
+            i32::from(entity.position.z as i8) * crate::util::lepton::GROUND_LEVEL_HEIGHT_LEPTONS,
         )
     };
     if height_above_ground == 0 {

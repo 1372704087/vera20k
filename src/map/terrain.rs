@@ -1220,13 +1220,12 @@ mod tests {
         }
     }
 
+    type LiveTileDraw = (Vec<(u16, u8, u8)>, Vec<(f32, f32)>);
+
     /// Draws the level-4 grid cell against a live cell holding `live` (tile,
     /// subtile, level, Recalc variant), with an atlas holding `resident`
     /// tiles. Returns every lookup and the drawn (screen y, z_adjust).
-    fn draw_live_tile(
-        live: (i32, u8, u8, u8),
-        resident: &[u16],
-    ) -> (Vec<(u16, u8, u8)>, Vec<(f32, f32)>) {
+    fn draw_live_tile(live: (i32, u8, u8, u8), resident: &[u16]) -> LiveTileDraw {
         let mut cell = crate::map::resolved_terrain::test_flat_cell(0, 0);
         (
             cell.final_tile_index,

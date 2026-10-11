@@ -42,17 +42,16 @@ pub(crate) fn set_walk_destination_coord(
         return;
     };
     let mut coord = coord;
-    if coord != (DriveCoord { x: 0, y: 0, z: 0 }) {
-        if let Some(terrain) = terrain {
-            let cell =
-                terrain.native_cell_identity(((coord.x / 256) as i16, (coord.y / 256) as i16));
-            if terrain.native_cell_flags(cell) & 0x100 != 0 {
-                coord.z = coord
-                    .z
-                    .wrapping_add(crate::util::lepton::native_pixel_height_leptons(
-                        WALK_BRIDGE_LIFT_PIXELS,
-                    ));
-            }
+    if coord != (DriveCoord { x: 0, y: 0, z: 0 })
+        && let Some(terrain) = terrain
+    {
+        let cell = terrain.native_cell_identity(((coord.x / 256) as i16, (coord.y / 256) as i16));
+        if terrain.native_cell_flags(cell) & 0x100 != 0 {
+            coord.z = coord
+                .z
+                .wrapping_add(crate::util::lepton::native_pixel_height_leptons(
+                    WALK_BRIDGE_LIFT_PIXELS,
+                ));
         }
     }
     loco.set_walk_destination(Some(coord));
@@ -437,10 +436,10 @@ fn drive_stop_moving(entity: &mut GameEntity) {
     // rest tail4B0828, which also tests queue emptiness. Several ordinary
     // arrival returns skip that tail. Preserve the existing adapter timing
     // here until that continuation is wired; this is not Stop parity.
-    if loco.track_head(TrackFamily::Drive).is_none() {
-        if entity.foot_speed.applied_fraction() > SIM_ZERO {
-            entity.foot_speed.set_speed_fraction(SIM_ZERO);
-        }
+    if loco.track_head(TrackFamily::Drive).is_none()
+        && entity.foot_speed.applied_fraction() > SIM_ZERO
+    {
+        entity.foot_speed.set_speed_fraction(SIM_ZERO);
     }
 }
 
@@ -482,10 +481,10 @@ fn ship_stop_moving(entity: &mut GameEntity) {
     // OPEN Process-host correction: this preexisting adapter applies the
     // rest speed before the native Process-tail admission. FootStop4DF0D0
     // does NOT clear Foot+5E0; explicit abandonment is a separate owner call.
-    if loco.track_head(TrackFamily::Ship).is_none() {
-        if entity.foot_speed.applied_fraction() > SIM_ZERO {
-            entity.foot_speed.set_speed_fraction(SIM_ZERO);
-        }
+    if loco.track_head(TrackFamily::Ship).is_none()
+        && entity.foot_speed.applied_fraction() > SIM_ZERO
+    {
+        entity.foot_speed.set_speed_fraction(SIM_ZERO);
     }
 }
 

@@ -381,7 +381,7 @@ mod tests {
         let entity = entities.get(1).expect("entity");
 
         let (_, ground_sy) = ground_screen_position(&entity.position);
-        let (_, sy) = screen_position(&entity);
+        let (_, sy) = screen_position(entity);
         // The fall's 400 leptons, not the locomotor's 1500, and below the
         // extra-pixel threshold.
         assert_eq!(

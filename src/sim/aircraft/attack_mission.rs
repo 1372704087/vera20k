@@ -62,10 +62,10 @@ pub(crate) fn enter_attack_state(entity: &mut crate::sim::game_entity::GameEntit
     if matches!(state, 0 | 1 | 3 | 10) && entity.mission_leaf.as_aircraft().is_some() {
         entity.mission_leaf.set_aircraft_action_latch(false);
     }
-    if matches!(state, 1 | 3 | 10) {
-        if let Some(ammo) = entity.aircraft_ammo.as_mut() {
-            ammo.consume_release(state == 10);
-        }
+    if matches!(state, 1 | 3 | 10)
+        && let Some(ammo) = entity.aircraft_ammo.as_mut()
+    {
+        ammo.consume_release(state == 10);
     }
 }
 

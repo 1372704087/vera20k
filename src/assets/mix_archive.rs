@@ -382,8 +382,8 @@ impl MixArchive {
             });
         }
 
-        let file_count: u16 = read_u16_le(&data, NEW_FORMAT_HEADER_SIZE);
-        let _body_size: u32 = read_u32_le(&data, NEW_FORMAT_HEADER_SIZE + 2);
+        let file_count: u16 = read_u16_le(data, NEW_FORMAT_HEADER_SIZE);
+        let _body_size: u32 = read_u32_le(data, NEW_FORMAT_HEADER_SIZE + 2);
 
         let index_start: usize = NEW_FORMAT_HEADER_SIZE + INDEX_HEADER_SIZE;
         let index_end: usize = index_start + file_count as usize * INDEX_ENTRY_SIZE;
@@ -397,7 +397,7 @@ impl MixArchive {
             });
         }
 
-        let entries: Vec<MixEntry> = Self::parse_entries(&data, index_start, file_count)?;
+        let entries: Vec<MixEntry> = Self::parse_entries(data, index_start, file_count)?;
         let body_offset: usize = index_end;
 
         Ok((entries, body_offset))
@@ -418,7 +418,7 @@ impl MixArchive {
         }
 
         // body_size at offset 2 (skip file_count which is the first 2 bytes).
-        let _body_size: u32 = read_u32_le(&data, 2);
+        let _body_size: u32 = read_u32_le(data, 2);
 
         let index_start: usize = INDEX_HEADER_SIZE;
         let index_end: usize = index_start + file_count as usize * INDEX_ENTRY_SIZE;
@@ -432,7 +432,7 @@ impl MixArchive {
             });
         }
 
-        let entries: Vec<MixEntry> = Self::parse_entries(&data, index_start, file_count)?;
+        let entries: Vec<MixEntry> = Self::parse_entries(data, index_start, file_count)?;
         let body_offset: usize = index_end;
 
         Ok((entries, body_offset))

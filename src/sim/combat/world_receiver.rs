@@ -40,7 +40,6 @@ fn respond_to_base_attack(
     base_defense_response::respond_to_base_attack(world, rules, victim_id, attacker_id, effects);
 }
 
-#[allow(clippy::too_many_arguments)]
 pub(crate) fn collect_area(
     world: &mut Simulation,
     rules: &RuleSet,
@@ -129,7 +128,6 @@ pub(crate) fn collect_area(
 /// the area's receivers around `impact` committed in order, then its bridge
 /// continuation (`0x00489E87`). `origin` is the source object, the source
 /// house and the warhead's id. Returns whether a bridge changed.
-#[allow(clippy::too_many_arguments)]
 pub(crate) fn apply_area_damage(
     world: &mut Simulation,
     rules: &RuleSet,
@@ -170,7 +168,6 @@ pub(crate) fn apply_area_damage(
 /// C4 at `0x0071BABF`, a dying carrier's bomb at `0x0070267F`): the receivers
 /// commit in `run`, then the bridge continuation. Their effects and pings go
 /// back to the receiver that set the area off.
-#[allow(clippy::too_many_arguments)]
 pub(crate) fn apply_area_damage_in_run(
     world: &mut Simulation,
     run: &mut ReceiverRun,
@@ -342,7 +339,7 @@ pub(crate) fn commit_area_with_dispatch(
     let current_tick = receiver_tick(world);
 
     let isolation_armed =
-        area_near_center_ic_isolation_armed(receivers, &mut world.substrate.entities, current_tick);
+        area_near_center_ic_isolation_armed(receivers, &world.substrate.entities, current_tick);
     let mut effects = DeathEffects::default();
     let mut under_attack_events = Vec::new();
     let mut dispatched = false;
@@ -470,7 +467,7 @@ pub(crate) fn commit_terrain(
         event.distance_leptons,
         &warhead,
         rules,
-        &mut world.interner,
+        &world.interner,
         world.session.no_damage,
         ignore_defenses,
     );
@@ -540,7 +537,7 @@ pub(crate) fn commit_entities(
     // before the arming record. The per-record check below remains live so an
     // earlier receiver or nested death effect can change later protection.
     let near_center_ic_isolation = near_center_ic_isolation_override.unwrap_or_else(|| {
-        near_center_ic_isolation_armed(damage_events, &mut world.substrate.entities, current_tick)
+        near_center_ic_isolation_armed(damage_events, &world.substrate.entities, current_tick)
     });
 
     for event in damage_events {
@@ -564,9 +561,9 @@ pub(crate) fn commit_entities(
         }
         match apply_building_receive_prelude(
             event,
-            &mut world.substrate.entities,
+            &world.substrate.entities,
             rules,
-            &mut world.interner,
+            &world.interner,
             &mut world.houses,
             current_tick,
         ) {
@@ -710,7 +707,7 @@ pub(crate) fn commit_entities(
             event,
             &mut world.substrate.entities,
             rules,
-            &mut world.interner,
+            &world.interner,
             &world.house_alliances,
             attacker_owner,
             live_source_owner,
@@ -856,28 +853,26 @@ pub(crate) fn commit_entities(
                     .with_effects(run.effects()),
             );
         }
-        if postmortem_candidate.is_some() {
-            if callbacks_enabled(world) {
-                world.apply_fatal_lifecycle_stage(
-                    rules,
-                    FatalLifecycleStage::PostMortemExactZero {
-                        killer_owner: attacker_owner,
-                    },
-                    target_id,
-                    fatal_category,
-                    crate::sim::world::UninitContext::with_rules(rules)
-                        .with_registry(overlay_registry)
-                        .with_effects(run.effects()),
-                );
-            };
-        }
+        if postmortem_candidate.is_some() && callbacks_enabled(world) {
+            world.apply_fatal_lifecycle_stage(
+                rules,
+                FatalLifecycleStage::PostMortemExactZero {
+                    killer_owner: attacker_owner,
+                },
+                target_id,
+                fatal_category,
+                crate::sim::world::UninitContext::with_rules(rules)
+                    .with_registry(overlay_registry)
+                    .with_effects(run.effects()),
+            );
+        };
         if let Some((victim_owner, source_owner, final_damage, strength, cost)) = threat_feedback {
             let delta = receiver_anger_delta(final_damage, strength, cost);
             update_anger_nodes(
                 &mut world.houses,
                 &world.session.house_order,
                 &world.house_alliances,
-                &mut world.interner,
+                &world.interner,
                 victim_owner,
                 source_owner,
                 delta,
@@ -925,19 +920,19 @@ pub(crate) fn commit_entities(
             target.was_attacked_by_enemy = true;
         }
 
-        if let Some((category, state)) = smoke_maintenance {
-            if callbacks_enabled(world) {
-                world.apply_fatal_lifecycle_stage(
-                    rules,
-                    FatalLifecycleStage::MaintainDamageSmoke { state },
-                    target_id,
-                    category,
-                    crate::sim::world::UninitContext::with_rules(rules)
-                        .with_registry(overlay_registry)
-                        .with_effects(run.effects()),
-                );
-            };
-        }
+        if let Some((category, state)) = smoke_maintenance
+            && callbacks_enabled(world)
+        {
+            world.apply_fatal_lifecycle_stage(
+                rules,
+                FatalLifecycleStage::MaintainDamageSmoke { state },
+                target_id,
+                category,
+                crate::sim::world::UninitContext::with_rules(rules)
+                    .with_registry(overlay_registry)
+                    .with_effects(run.effects()),
+            );
+        };
         if healing_only {
             finish_building_art_receiver(
                 world,
@@ -1922,7 +1917,6 @@ pub(crate) fn area_routes_to_wall(
 /// ordinary receivers and their recursive deaths, before returning to the
 /// caller. In particular Bullet469033 completes it before cluster RNG469057.
 /// A negative nonzero packet still reaches the native strength draw.
-#[allow(clippy::too_many_arguments)]
 pub(crate) fn continue_area_bridge_damage(
     world: &mut Simulation,
     rules: &RuleSet,
@@ -2123,7 +2117,6 @@ fn bullet_location(
 /// their receivers: an `Inviso=` bullet first scatters the anim coordinate
 /// by one raw Scenario draw (`0x0049F420`, radius 0x20; the damage keeps the
 /// impact), then the AnimList anim and its smudge.
-#[allow(clippy::too_many_arguments)]
 fn emit_detonation_anim(
     world: &mut Simulation,
     rules: &RuleSet,

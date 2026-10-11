@@ -397,7 +397,7 @@ fn build_gclock_cpu_atlas_from_bytes(
         // offsets and sub-canvas frame sizes correctly.
         let mut entry = render_shp(&shp, palette, i)?;
         // Set alpha = 128 for non-transparent pixels (gamemd flag 0x004 = 50% translucent).
-        for pixel in entry.rgba.chunks_exact_mut(4) {
+        for pixel in entry.rgba.as_chunks_mut::<4>().0 {
             if pixel[3] > 0 {
                 pixel[3] = 128;
             }
@@ -407,7 +407,7 @@ fn build_gclock_cpu_atlas_from_bytes(
 
     // Pack into a grid texture. 8 columns keeps it roughly square for typical 54-frame SHPs.
     let cols = 8u32.min(frame_count as u32);
-    let rows = (frame_count as u32 + cols - 1) / cols;
+    let rows = (frame_count as u32).div_ceil(cols);
     let tex_w = cols * frame_w;
     let tex_h = rows * frame_h;
     let mut atlas_rgba = vec![0u8; (tex_w * tex_h * 4) as usize];
@@ -492,10 +492,10 @@ fn resolve_theme_palette_with_source(
     mix_name: &str,
     palette_name: &str,
 ) -> Option<(Palette, String)> {
-    if let Some(bytes) = mix.get_by_name(palette_name) {
-        if let Ok(palette) = decode_sidebar_palette(bytes) {
-            return Some((palette, mix_name.to_string()));
-        }
+    if let Some(bytes) = mix.get_by_name(palette_name)
+        && let Ok(palette) = decode_sidebar_palette(bytes)
+    {
+        return Some((palette, mix_name.to_string()));
     }
 
     let (bytes, source_archive) = asset_manager.get_with_source_ref(palette_name)?;
@@ -535,7 +535,7 @@ fn build_theme_atlas(
 ) -> Option<SidebarChromeAtlas> {
     let mix = asset_manager.archive(mix_name)?;
     let (theme_palette, theme_palette_source_archive) =
-        resolve_theme_palette_with_source(asset_manager, &mix, mix_name, palette_name)?;
+        resolve_theme_palette_with_source(asset_manager, mix, mix_name, palette_name)?;
     let side_route = SidebarSideRoute::for_theme(asset_manager, theme);
     let generic_palette_name = "SIDEBAR.PAL";
     let generic_palette_source = side_route.resolve(generic_palette_name)?;
@@ -554,30 +554,30 @@ fn build_theme_atlas(
     // Required pieces — without these, skip the theme entirely.
     let radar = render_entry(
         asset_manager,
-        &mix,
+        mix,
         radar_name,
         &theme_palette,
         RADAR_DEFAULT_FRAME,
     )?;
-    let radar_identity = theme_asset_identity(asset_manager, &mix, mix_name, radar_name);
+    let radar_identity = theme_asset_identity(asset_manager, mix, mix_name, radar_name);
 
     // Pre-render all radar.shp frames for the opening/closing animation.
     let (radar_frames, radar_frame_size, radar_content_insets) =
-        render_all_radar_frames(asset_manager, &mix, radar_name, &theme_palette);
+        render_all_radar_frames(asset_manager, mix, radar_name, &theme_palette);
     let side1 = render_side_entry(side_route, "side1.shp", &generic_palette, 0)?;
     let side2 = render_side_entry(side_route, "side2.shp", &generic_palette, 0)?;
     let side3 = render_side_entry(side_route, "side3.shp", &generic_palette, 0)?;
 
     // Optional pieces — gracefully degrade if missing.
-    let tabs = render_entry(asset_manager, &mix, "tabs.shp", &tabs_palette, 0);
+    let tabs = render_entry(asset_manager, mix, "tabs.shp", &tabs_palette, 0);
 
     // Tab buttons: 4 tabs × 5 frames each. Missing frames in retail fall
     // back to None; the renderer skips that frame's draw if not present.
     // Frame 0 = idle, 1 = active-tab, 2 = disabled, 3 = pressed-idle,
     // 4 = pressed-active. See SIDEBAR_REPAIR_SELL_BUTTON §5.
     let mut tab_frame_entries: [[Option<RenderedChromeEntry>; 5]; 4] = Default::default();
-    for tab in 0..4 {
-        for frame in 0..5 {
+    for (tab, tab_entries) in tab_frame_entries.iter_mut().enumerate() {
+        for (frame, slot) in tab_entries.iter_mut().enumerate() {
             let entry = render_side_entry(
                 side_route,
                 &format!("tab0{tab}.shp"),
@@ -589,26 +589,26 @@ fn build_theme_atlas(
                     "tab0{tab}.shp frame {frame} missing in MIX — gadget state {frame} will fall back to idle"
                 );
             }
-            tab_frame_entries[tab][frame] = entry;
+            *slot = entry;
         }
     }
 
     let mut repair_frame_entries: [Option<RenderedChromeEntry>; 5] = Default::default();
-    for frame in 0..5 {
+    for (frame, slot) in repair_frame_entries.iter_mut().enumerate() {
         let entry = render_side_entry(side_route, "repair.shp", &generic_palette, frame);
         if entry.is_none() && frame > 0 {
             log::warn!("repair.shp frame {frame} missing in MIX");
         }
-        repair_frame_entries[frame] = entry;
+        *slot = entry;
     }
 
     let mut sell_frame_entries: [Option<RenderedChromeEntry>; 5] = Default::default();
-    for frame in 0..5 {
+    for (frame, slot) in sell_frame_entries.iter_mut().enumerate() {
         let entry = render_side_entry(side_route, "sell.shp", &generic_palette, frame);
         if entry.is_none() && frame > 0 {
             log::warn!("sell.shp frame {frame} missing in MIX");
         }
-        sell_frame_entries[frame] = entry;
+        *slot = entry;
     }
 
     // 652E90 + 653010: both top controls use the generic SIDEBAR.PAL
@@ -639,27 +639,29 @@ fn build_theme_atlas(
     if scroll_down_entries[0].is_none() {
         log::warn!("r-dn.shp missing in MIX — strip scroll-down button will not render");
     }
-    let power = render_entry(asset_manager, &mix, "power.shp", &theme_palette, 0);
+    let power = render_entry(asset_manager, mix, "power.shp", &theme_palette, 0);
     // 63FB20 uses the actual SHP frame/canvas; transparent samples keep
     // their skipped-store meaning and the renderer advances by 3 pixels.
     let powerp_rendered: Vec<RenderedChromeEntry> = (0..5)
         .filter_map(|i| render_side_entry(side_route, "powerp.shp", &generic_palette, i))
         .collect();
-    let top_strip_left = render_entry_by_id(&mix, TOP_STRIP_LEFT_ID, &tabs_palette, 0);
+    let top_strip_left = render_entry_by_id(mix, TOP_STRIP_LEFT_ID, &tabs_palette, 0);
     let top_strip_sidebar = render_side_entry(side_route, "top.shp", &generic_palette, 0);
     let top_strip_thin = render_side_entry(side_route, "credits.shp", &generic_palette, 0);
     let unknown_top_housing = render_side_entry(side_route, "addon.shp", &generic_palette, 0);
-    let unknown_mid_panel = render_entry_by_id(&mix, UNKNOWN_MID_PANEL_ID, &theme_palette, 0);
+    let unknown_mid_panel = render_entry_by_id(mix, UNKNOWN_MID_PANEL_ID, &theme_palette, 0);
     let ([background_large, background_medium, background_small], background_palette) =
         background_names
-            .and_then(|names| in_game_shell::load_backgrounds(asset_manager, &mix, mix_name, theme, names))
+            .and_then(|names| {
+                in_game_shell::load_backgrounds(asset_manager, mix, mix_name, theme, names)
+            })
             .map(|(entries, identity)| (entries, Some(identity)))
             .unwrap_or(([None, None, None], None));
     let background_identities = background_names.map(|(large, medium, small)| {
         [
-            theme_asset_identity(asset_manager, &mix, mix_name, large),
-            theme_asset_identity(asset_manager, &mix, mix_name, medium),
-            theme_asset_identity(asset_manager, &mix, mix_name, small),
+            theme_asset_identity(asset_manager, mix, mix_name, large),
+            theme_asset_identity(asset_manager, mix, mix_name, medium),
+            theme_asset_identity(asset_manager, mix, mix_name, small),
         ]
     });
     let source_identity = SidebarChromeAtlasIdentity {
@@ -679,7 +681,7 @@ fn build_theme_atlas(
     };
     let excluded_extra_ids = known_loose_piece_ids(radar_name);
     let extra_rendered = collect_extra_entries(
-        &mix,
+        mix,
         &theme_palette,
         &tabs_palette,
         background_names,
@@ -730,22 +732,14 @@ fn build_theme_atlas(
     if let Some(ref t) = tabs {
         all_entries.push(t);
     }
-    for tab in 0..4 {
-        for frame in 0..5 {
-            if let Some(ref entry) = tab_frame_entries[tab][frame] {
-                all_entries.push(entry);
-            }
-        }
+    for entry in tab_frame_entries.iter().flatten().flatten() {
+        all_entries.push(entry);
     }
-    for frame in 0..5 {
-        if let Some(ref entry) = repair_frame_entries[frame] {
-            all_entries.push(entry);
-        }
+    for entry in repair_frame_entries.iter().flatten() {
+        all_entries.push(entry);
     }
-    for frame in 0..5 {
-        if let Some(ref entry) = sell_frame_entries[frame] {
-            all_entries.push(entry);
-        }
+    for entry in sell_frame_entries.iter().flatten() {
+        all_entries.push(entry);
     }
     for entry in top_button_entries.iter().flatten().flatten() {
         all_entries.push(entry);
@@ -870,7 +864,7 @@ fn build_theme_atlas(
     let top_button_frames = top_button_entries.each_ref().map(|frames| {
         frames.each_ref().map(|entry| {
             entry.as_ref().map(|entry| {
-                let uv = blit_entry(&mut rgba, atlas_width, atlas_height, y, &entry);
+                let uv = blit_entry(&mut rgba, atlas_width, atlas_height, y, entry);
                 y += entry.height + CHROME_PADDING;
                 uv
             })
@@ -940,8 +934,8 @@ fn build_theme_atlas(
         side3.width,
         side3.height,
     );
-    for tab in 0..4 {
-        if let Some(ref entry) = tab_frame_entries[tab][0] {
+    for (tab, tab_entries) in tab_frame_entries.iter().enumerate() {
+        if let Some(ref entry) = tab_entries[0] {
             log::info!("  tab0{} (5 frames): {}x{}", tab, entry.width, entry.height);
         }
     }

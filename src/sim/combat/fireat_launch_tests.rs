@@ -663,7 +663,7 @@ impl Duel {
             .substrate
             .entities
             .get(id)
-            .map_or(0, |entity| i32::from(entity.health.current))
+            .map_or(0, |entity| entity.health.current)
     }
 
     fn location(&self, id: u64) -> ProjectileCoord {

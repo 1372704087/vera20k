@@ -221,7 +221,6 @@ impl Simulation {
     /// draw stored at `TechnoClass +0x3C8` (`0x006F3259`) before the entity
     /// enters its store.
     #[doc(hidden)]
-    #[allow(clippy::too_many_arguments)]
     pub fn insert_synthetic_techno_for_diagnostics(
         &mut self,
         rx: u16,
@@ -618,7 +617,6 @@ impl Simulation {
         type_resolves && owner_resolves
     }
 
-    #[allow(clippy::too_many_arguments)]
     fn spawn_attached_map_upgrade(
         &mut self,
         parent_stable_id: u64,
@@ -801,7 +799,6 @@ impl Simulation {
     /// Immediate construction with the match's live OverlayTypeClass table.
     /// Production callers use this boundary whenever the constructed type may
     /// be a Unit, so its virtual Unlimbo sees the same overlay facts as native.
-    #[allow(clippy::too_many_arguments)]
     pub(crate) fn spawn_object_with_overlay_registry(
         &mut self,
         type_id: &str,
@@ -840,7 +837,6 @@ impl Simulation {
         )
     }
 
-    #[allow(clippy::too_many_arguments)]
     pub(crate) fn spawn_object_at_height_with_overlay_context(
         &mut self,
         type_id: &str,
@@ -866,7 +862,6 @@ impl Simulation {
         .expect("fresh Techno constructor initialization cannot fail")
     }
 
-    #[allow(clippy::too_many_arguments)]
     pub(crate) fn spawn_object_at_height_with_overlay_registry(
         &mut self,
         type_id: &str,
@@ -890,7 +885,6 @@ impl Simulation {
         )
     }
 
-    #[allow(clippy::too_many_arguments)]
     fn spawn_object_at_height_with_init(
         &mut self,
         type_id: &str,
@@ -953,7 +947,6 @@ impl Simulation {
         .expect("fresh Techno constructor initialization cannot fail")
     }
 
-    #[allow(clippy::too_many_arguments)]
     fn spawn_object_limbo_at_height_with_init(
         &mut self,
         type_id: &str,
@@ -1015,7 +1008,6 @@ impl Simulation {
     /// object, without repeating its constructor draw, manager initialization
     /// or Add_Tracking. Failure restores this same identity to limbo so a
     /// caller may try another coordinate.
-    #[allow(clippy::too_many_arguments)]
     pub(crate) fn reveal_constructed_object_at_height(
         &mut self,
         stable_id: u64,
@@ -1066,7 +1058,6 @@ impl Simulation {
         )
     }
 
-    #[allow(clippy::too_many_arguments)]
     pub(crate) fn reveal_constructed_object_at_height_with_overlay_context(
         &mut self,
         stable_id: u64,
@@ -1479,31 +1470,31 @@ impl Simulation {
                 .with_effects(frame_effects)
                 .with_unlimbo_facing(facing),
         );
-        if matches!(outcome, RevealOutcome::Revealed { .. }) {
-            if let Some(rules) = rules {
-                self.allocate_building_light(stable_id, rules);
-                if self
-                    .substrate
-                    .entities
-                    .get(stable_id)
-                    .is_some_and(|entity| {
-                        entity.category == EntityCategory::Structure && !entity.building_up()
-                    })
-                {
-                    if let Some(entity) = self.substrate.entities.get_mut(stable_id) {
-                        entity.initialize_building_idle_body(self.session.binary_frame as i32);
-                    }
-                    // Map import carries ScenarioInit explicitly. Runtime
-                    //Construction enters through its own mission dispatcher.
-                    self.grand_opening(
-                        stable_id,
-                        false,
-                        scenario_initialization,
-                        rules,
-                        overlay_registry,
-                        frame_effects,
-                    );
+        if matches!(outcome, RevealOutcome::Revealed { .. })
+            && let Some(rules) = rules
+        {
+            self.allocate_building_light(stable_id, rules);
+            if self
+                .substrate
+                .entities
+                .get(stable_id)
+                .is_some_and(|entity| {
+                    entity.category == EntityCategory::Structure && !entity.building_up()
+                })
+            {
+                if let Some(entity) = self.substrate.entities.get_mut(stable_id) {
+                    entity.initialize_building_idle_body(self.session.binary_frame as i32);
                 }
+                // Map import carries ScenarioInit explicitly. Runtime
+                //Construction enters through its own mission dispatcher.
+                self.grand_opening(
+                    stable_id,
+                    false,
+                    scenario_initialization,
+                    rules,
+                    overlay_registry,
+                    frame_effects,
+                );
             }
         }
         (stable_id, outcome)

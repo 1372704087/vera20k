@@ -121,7 +121,6 @@ pub(crate) struct AttackerSnapshot {
 ///
 /// `zone_grid` is `MapClass`'s per-movement-zone connectivity, which mask 0 uses
 /// to refuse candidates its own movement zone cannot reach.
-#[allow(clippy::too_many_arguments)]
 pub(crate) fn acquire_best_target_for_entity(
     entities: &EntityStore,
     occupancy: &crate::sim::occupancy::OccupancyGrid,
@@ -141,10 +140,10 @@ pub(crate) fn acquire_best_target_for_entity(
         return super::greatest_threat::ThreatScanOutcome::default();
     };
     // Aircraft with 0 ammo should not acquire new targets — need to reload.
-    if let Some(ref ammo) = entity.aircraft_ammo {
-        if ammo.current == 0 {
-            return super::greatest_threat::ThreatScanOutcome::default();
-        }
+    if let Some(ref ammo) = entity.aircraft_ammo
+        && ammo.current == 0
+    {
+        return super::greatest_threat::ThreatScanOutcome::default();
     }
     let Some(obj) = rules.object(interner.resolve(entity.type_ref())) else {
         return super::greatest_threat::ThreatScanOutcome::default();
@@ -180,7 +179,6 @@ pub(crate) fn acquire_best_target_for_entity(
 /// `attacker_id`'s `Greatest_Threat` through its `+0x3C4` override, without
 /// the passive block's gates: team script action 0 calls the override
 /// directly (`0x006ED15E`).
-#[allow(clippy::too_many_arguments)]
 pub(crate) fn greatest_threat_for_entity(
     entities: &EntityStore,
     occupancy: &crate::sim::occupancy::OccupancyGrid,
@@ -240,7 +238,6 @@ pub(crate) fn greatest_threat_for_entity(
 /// engineer scores highest — and that a base defence with several attackers in
 /// reach commits to the one in the innermost band rather than the nearest by
 /// Euclidean distance.
-#[allow(clippy::too_many_arguments)]
 pub(crate) fn acquire_best_target(
     entities: &EntityStore,
     occupancy: &crate::sim::occupancy::OccupancyGrid,
@@ -566,6 +563,15 @@ pub(crate) fn should_retaliate(
         })
 }
 
+/// Original708A8E stores the old score;708A9F..A8 refuses on C0.
+pub(super) fn retaliation_score_refuses(current: MaskedX87Value, attacker: MaskedX87Value) -> bool {
+    let current = X87Chop53::load_f64(X87Chop53::store_f64_masked_chop(current));
+    matches!(
+        X87Chop53::compare(attacker, current),
+        X87Ordering::Less | X87Ordering::Unordered
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -688,13 +694,4 @@ mod tests {
             Some(2)
         );
     }
-}
-
-/// Original708A8E stores the old score;708A9F..A8 refuses on C0.
-pub(super) fn retaliation_score_refuses(current: MaskedX87Value, attacker: MaskedX87Value) -> bool {
-    let current = X87Chop53::load_f64(X87Chop53::store_f64_masked_chop(current));
-    matches!(
-        X87Chop53::compare(attacker, current),
-        X87Ordering::Less | X87Ordering::Unordered
-    )
 }

@@ -167,7 +167,6 @@ fn install_stationary_path_request(sim: &mut Simulation) {
     entity.movement_target = Some(MovementTarget {
         final_goal: Some((8, 6)),
         speed: SIM_ZERO,
-        ..Default::default()
     });
 }
 

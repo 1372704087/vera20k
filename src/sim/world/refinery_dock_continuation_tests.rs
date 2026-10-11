@@ -696,10 +696,10 @@ fn shared_enter_radio_and_depot_arrival_match_original_controls() {
     for row in rows {
         // All GameEntity categories are Techno; a non-Techno pointer has no
         // represented counterpart. Its native row stays saved as a boundary.
-        if row["input"]["name"] != "pending_not_techno" {
-            if std::panic::catch_unwind(|| replay(row)).is_err() {
-                failures.push(row["input"]["name"].as_str().unwrap());
-            }
+        if row["input"]["name"] != "pending_not_techno"
+            && std::panic::catch_unwind(|| replay(row)).is_err()
+        {
+            failures.push(row["input"]["name"].as_str().unwrap());
         }
     }
     assert!(failures.is_empty(), "failed native controls: {failures:?}");

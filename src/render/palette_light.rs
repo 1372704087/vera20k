@@ -368,7 +368,7 @@ mod tests {
         assert_eq!(domain["bytes_per_result"], 3);
         let hex = domain["rgb_hex"].as_str().unwrap();
         assert_eq!(hex.len(), 65536 * 6);
-        for (word, bytes) in hex.as_bytes().chunks_exact(6).enumerate() {
+        for (word, bytes) in hex.as_bytes().as_chunks::<6>().0.iter().enumerate() {
             let expected: [u8; 3] = std::array::from_fn(|channel| {
                 u8::from_str_radix(
                     std::str::from_utf8(&bytes[channel * 2..channel * 2 + 2]).unwrap(),
@@ -389,10 +389,10 @@ mod tests {
     fn all_clamped_base_scales_match_original_x87_bytes() {
         let golden =
             crate::test_fixture::bytes("tools/palette_oracle/fixtures/base-scales-0-2000.bin");
-        for (light, value) in golden.chunks_exact(4).enumerate() {
+        for (light, value) in golden.as_chunks::<4>().0.iter().enumerate() {
             assert_eq!(
                 native_scale16(light as i32),
-                u32::from_le_bytes(value.try_into().unwrap()),
+                u32::from_le_bytes(*value),
                 "light={light}"
             );
         }

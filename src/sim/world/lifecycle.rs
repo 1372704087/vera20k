@@ -747,6 +747,7 @@ impl Simulation {
 
     /// ObjectClass::Reveal: clear limbo for the attempt, commit coordinates,
     /// Mark(PUT), expose display, then append eligible LogicClass membership.
+    #[cfg(test)]
     pub(crate) fn try_reveal_entity(
         &mut self,
         stable_id: u64,
@@ -2251,10 +2252,10 @@ impl Simulation {
     /// sets the flag only after insertion succeeds.
     fn register_logic_object(&mut self, stable_id: u64) -> bool {
         let kind = self.classify_object(stable_id);
-        if let Some(kind) = kind {
-            if self.logic_membership_flag(stable_id, kind) {
-                return true;
-            }
+        if let Some(kind) = kind
+            && self.logic_membership_flag(stable_id, kind)
+        {
+            return true;
         }
         let Some(kind) = kind else {
             return false;
@@ -3608,7 +3609,6 @@ impl Simulation {
     /// The broadcast passes over listeners that
     /// [`Self::entity_expiry_listener_acts`] rejects, so a field compared here
     /// must be tested there too.
-    #[allow(clippy::too_many_arguments)]
     pub(super) fn notify_entity_pointer_expired(
         &mut self,
         listener_id: u64,
@@ -4231,14 +4231,11 @@ impl Simulation {
                 let target_matches = self.projectiles.get(listener_id).is_some_and(|projectile| {
                     projectile.target == ProjectileTarget::Entity(expired_id)
                 });
-                let projectile_replacement_target = if !target_matches
-                    || expired_is_high_flying
-                    || expired_target_cell.is_none()
-                    || expired_target_cell == Some(NULL_TARGET_CELL_SENTINEL)
+                let projectile_replacement_target = if let Some((rx, ry)) = expired_target_cell
+                    && target_matches
+                    && !expired_is_high_flying
+                    && (rx, ry) != NULL_TARGET_CELL_SENTINEL
                 {
-                    ProjectileTarget::None
-                } else {
-                    let (rx, ry) = expired_target_cell.expect("checked target cell");
                     match context.terrain().or(self.resolved_terrain.as_ref()) {
                         Some(terrain) => match crate::sim::cell_rect::get_cellclass_fallback(
                             Some(terrain),
@@ -4256,6 +4253,8 @@ impl Simulation {
                         // stable-cell fallback. Production is terrain-backed.
                         None => ProjectileTarget::Cell { rx, ry },
                     }
+                } else {
+                    ProjectileTarget::None
                 };
                 let present = self.projectiles.pointer_expired(
                     listener_id,
@@ -4316,6 +4315,7 @@ impl Simulation {
         self.uninit_with_context(stable_id, UninitContext::default());
     }
 
+    #[cfg(test)]
     pub(crate) fn uninit_with_rules(&mut self, stable_id: u64, rules: &RuleSet) {
         self.uninit_with_context(stable_id, UninitContext::with_rules(rules));
     }

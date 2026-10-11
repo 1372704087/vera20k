@@ -146,7 +146,7 @@ fn impact_matches_native() {
         );
         store.get_mut(id).unwrap().on_bridge = row["on_bridge"].as_bool().unwrap();
         let nuke_ball = || super::nuke::nuke_ball_type(&rules);
-        let context = NukeImpactContext::new(&interner, &nuke_ball, &|_| false);
+        let context = NukeImpactContext::new(&interner, &nuke_ball);
 
         let impact = store.get_mut(id).unwrap().nuke_impact(
             &context,
@@ -211,9 +211,8 @@ fn impact_effects_match_native() {
         let waits = int(&row["waits"]) != 0;
         // The bullet's side of the block (on its clamped Location, which
         // stands over this map's floor), then the world's.
-        let never = |_: AnimId| false;
         let nuke_ball = || waits;
-        let context = NukeImpactContext::new(&sim.interner, &nuke_ball, &never);
+        let context = NukeImpactContext::new(&sim.interner, &nuke_ball);
         let dummy = SharedCellDummy::fresh();
         let impact = sim
             .projectiles
@@ -339,7 +338,7 @@ fn wait_matches_native() {
             let at = ProjectileCoord::new(2660, 3122, 1000);
             let id = store.spawn(1, nuke_spawn(&mut interner, "NUKE", at));
             let anim_live = |id: AnimId| live && id == anim;
-            let context = NukeImpactContext::new(&interner, &|| true, &anim_live);
+            let context = NukeImpactContext::new(&interner, &|| true);
             let dummy = SharedCellDummy::fresh();
             if waits {
                 let bullet = store.get_mut(id).unwrap();
@@ -347,9 +346,10 @@ fn wait_matches_native() {
                 store.await_anim(id, held);
             }
 
+            let head = store.begin_ai_visit(id, anim_live).unwrap();
             let result = store
-                .advance_one(
-                    id,
+                .advance_after_head(
+                    head,
                     1,
                     |_| None,
                     None,
@@ -961,8 +961,7 @@ fn retail_nuke_wait_and_flash_survive_save_and_load() {
     let spawn = nuke_spawn(&mut sim.interner, "NUKE", at);
     sim.admit_projectile(id, spawn);
     // The impact as `BulletClass::AI` takes it, then five frames of the wait.
-    let never = |_: AnimId| false;
-    let context = NukeImpactContext::new(&sim.interner, &|| true, &never);
+    let context = NukeImpactContext::new(&sim.interner, &|| true);
     let impact = sim
         .projectiles
         .get_mut(id)

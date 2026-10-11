@@ -144,7 +144,7 @@ pub(crate) fn seed_draw(rng: &mut RmgRng, dim: i32) -> i32 {
     loop {
         let draw = TruncF64::from_f64(f64::from(rng.next_u32()));
         let value = x87::ftol(draw.mul(span).mul(scale).to_f64());
-        if value <= dim - 1 {
+        if value < dim {
             return value;
         }
     }

@@ -112,6 +112,10 @@ pub struct SparkCollisionWorld<'a> {
     rules: &'a RuleSet,
 }
 
+/// Selector calls in order: `(role, world x, world y)`.
+#[cfg(test)]
+type SparkSelectionTranscript = Vec<(SparkCellSelectionRole, i32, i32)>;
+
 impl<'a> SparkCollisionWorld<'a> {
     pub fn new(sim: &'a Simulation, rules: &'a RuleSet) -> Result<Self, SparkWorldError> {
         if sim.resolved_terrain.is_none() {
@@ -134,8 +138,7 @@ impl<'a> SparkCollisionWorld<'a> {
     pub(super) fn query_with_transcript(
         &self,
         motion: SparkMotionStep,
-    ) -> Result<(SparkCollisionFacts, Vec<(SparkCellSelectionRole, i32, i32)>), SparkWorldError>
-    {
+    ) -> Result<(SparkCollisionFacts, SparkSelectionTranscript), SparkWorldError> {
         let terrain = self
             .sim
             .resolved_terrain

@@ -83,19 +83,21 @@ impl SuppliedHost {
                 anchor: None,
             },
         };
+        type RimRow = (
+            i16,
+            i16,
+            i32,
+            u8,
+            u32,
+            Option<u8>,
+            u8,
+            Option<RimCoord>,
+            u8,
+            u8,
+        );
         for row in input["cells"].as_array().unwrap() {
-            let (x, y, tile, subtile, flags, overlay, state, anchor, _, _): (
-                i16,
-                i16,
-                i32,
-                u8,
-                u32,
-                Option<u8>,
-                u8,
-                Option<RimCoord>,
-                u8,
-                u8,
-            ) = serde_json::from_value(row.clone()).unwrap();
+            let (x, y, tile, subtile, flags, overlay, state, anchor, _, _): RimRow =
+                serde_json::from_value(row.clone()).unwrap();
             host.source_order.push((x, y));
             host.cells.insert(
                 (x, y),

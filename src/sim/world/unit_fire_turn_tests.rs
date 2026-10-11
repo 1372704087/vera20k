@@ -37,7 +37,7 @@ fn fixture_with_first(first_type: &str) -> (Simulation, RuleSet, u64, u64) {
     rules.install_art_data(crate::rules::art_data::ArtRegistry::from_ini(
         &IniFile::from_str("[TANK]\nPrimaryFireFLH=0,0,128\n"),
     ));
-    let mut sim = Simulation::with_seed(0x7365_e1);
+    let mut sim = Simulation::with_seed(0x7365e1);
     for name in ["Americans", "Russians"] {
         let owner = sim.interner.intern(name);
         sim.houses

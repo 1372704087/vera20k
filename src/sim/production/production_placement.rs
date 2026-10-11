@@ -546,7 +546,7 @@ fn evaluate_building_placement(
             })
             .map(|e| {
                 let type_str = sim.interner.resolve(e.type_ref());
-                let bn = rules.object(type_str).map_or(false, |o| o.base_normal);
+                let bn = rules.object(type_str).is_some_and(|o| o.base_normal);
                 format!(
                     "{}@({},{}) bn={}",
                     type_str, e.position.rx, e.position.ry, bn

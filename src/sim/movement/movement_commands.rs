@@ -369,59 +369,59 @@ pub(crate) fn issue_move_command_with_destination(
         // Remaining adapter families can append to their prepared path.
         // Ordinary Drive/Ship requests have already published the destination.
         let entity_mut = entities.get_mut(entity_id);
-        if let Some(entity_mut) = entity_mut {
-            if let Some(ref mut movement) = entity_mut.movement_target {
-                // The adapter keeps its goal, not its cells: the queued
-                // search starts where the previous order ends. RESIDUAL: a
-                // second append starts from the first order's goal, where the
-                // removed cell copy started from the first append's end; the
-                // search only gates acceptance (a Jumpjet object order queued
-                // twice), and its cells were never read.
-                let append_start = movement.final_goal.unwrap_or((start_rx, start_ry));
-                // The setters record any destination unsearched, so a goal in
-                // the append start's cell is admitted without asking the core.
-                if append_start == effective_target {
-                    return true;
-                }
-                let append_layer = current_layer;
-                let zone_mz = movement_zone.unwrap_or(MovementZone::Normal);
-                let Some((appended, _)) = find_move_path(
-                    PathfindingContext {
-                        wall_tables: None,
-                        path_grid: Some(grid),
-                        zone_grid,
-                        resolved_terrain,
-                        playfield_bounds,
-                        blocker_neighbor_counts,
-                    },
-                    layered_pathing,
-                    append_start,
-                    append_layer,
-                    effective_target,
-                    terrain_costs,
-                    // Pass the merged entity_blocks set to both layered slots so
-                    // the layered A* sees building footprints regardless of which
-                    // layer it expands.
-                    merged_entity_blocks_ref,
-                    merged_entity_blocks_ref,
-                    merged_entity_blocks_ref,
-                    zone_mz,
-                    movement_zone,
-                    entity_block_map,
-                    path_facts,
-                    allow_zone_hierarchy,
-                ) else {
-                    return false;
-                };
-                debug_assert!(appended.len() >= 2, "AStar routes leave the start cell");
-                movement.speed = speed;
-                entity_mut
-                    .navigation
-                    .path_runtime
-                    .start_blocked(timing.binary_frame, 0);
-                entity_mut.navigation.path_runtime.path_blocked = false;
+        if let Some(entity_mut) = entity_mut
+            && let Some(ref mut movement) = entity_mut.movement_target
+        {
+            // The adapter keeps its goal, not its cells: the queued
+            // search starts where the previous order ends. RESIDUAL: a
+            // second append starts from the first order's goal, where the
+            // removed cell copy started from the first append's end; the
+            // search only gates acceptance (a Jumpjet object order queued
+            // twice), and its cells were never read.
+            let append_start = movement.final_goal.unwrap_or((start_rx, start_ry));
+            // The setters record any destination unsearched, so a goal in
+            // the append start's cell is admitted without asking the core.
+            if append_start == effective_target {
                 return true;
             }
+            let append_layer = current_layer;
+            let zone_mz = movement_zone.unwrap_or(MovementZone::Normal);
+            let Some((appended, _)) = find_move_path(
+                PathfindingContext {
+                    wall_tables: None,
+                    path_grid: Some(grid),
+                    zone_grid,
+                    resolved_terrain,
+                    playfield_bounds,
+                    blocker_neighbor_counts,
+                },
+                layered_pathing,
+                append_start,
+                append_layer,
+                effective_target,
+                terrain_costs,
+                // Pass the merged entity_blocks set to both layered slots so
+                // the layered A* sees building footprints regardless of which
+                // layer it expands.
+                merged_entity_blocks_ref,
+                merged_entity_blocks_ref,
+                merged_entity_blocks_ref,
+                zone_mz,
+                movement_zone,
+                entity_block_map,
+                path_facts,
+                allow_zone_hierarchy,
+            ) else {
+                return false;
+            };
+            debug_assert!(appended.len() >= 2, "AStar routes leave the start cell");
+            movement.speed = speed;
+            entity_mut
+                .navigation
+                .path_runtime
+                .start_blocked(timing.binary_frame, 0);
+            entity_mut.navigation.path_runtime.path_blocked = false;
+            return true;
         }
     }
     let zone_mz = movement_zone.unwrap_or(MovementZone::Normal);
@@ -712,9 +712,5 @@ pub(super) fn prepare_destination_execution(
         )
     }))
     .then_some(target);
-    entity.movement_target = Some(MovementTarget {
-        speed,
-        final_goal,
-        ..Default::default()
-    });
+    entity.movement_target = Some(MovementTarget { speed, final_goal });
 }

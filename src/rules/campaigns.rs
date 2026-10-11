@@ -67,14 +67,11 @@ impl CampaignRegistry {
         };
         for key in list.keys() {
             let incoming = list.read_string(key, "", 32);
-            let index = self.find_index(&incoming).map_or_else(
-                || {
-                    let index = self.entries.len();
-                    self.entries.push(CampaignDefinition::new(&incoming));
-                    index
-                },
-                |index| index,
-            );
+            let index = self.find_index(&incoming).unwrap_or_else(|| {
+                let index = self.entries.len();
+                self.entries.push(CampaignDefinition::new(&incoming));
+                index
+            });
             let entry = &mut self.entries[index];
             // AbstractType::ReadINI410A60 admits only the stored exact-case
             // section. A missing body preserves the constructor/current state.

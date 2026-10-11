@@ -1454,8 +1454,7 @@ fn repair_receiver_failure_stops_runtime_before_consumption_or_frame_commit() {
             crate::sim::world::TickLane::Ordinary,
             crate::sim::world::FrameEffects::default(),
         )
-        .err()
-        .expect("missing receiver must fail the actual runtime frame");
+        .expect_err("missing receiver must fail the actual runtime frame");
     assert_eq!(error.entity_id, engineer);
     assert_eq!((error.tick, error.binary_frame), frame);
     assert!(error.cause.contains("missing ObjectType"), "{error}");
@@ -1742,7 +1741,7 @@ fn repair_queries_unrelated_rocketeer_after_move_and_snapshot_restore() {
                     e.mission.current(),
                     e.navigation.nav_com,
                     e.locomotor.as_ref().and_then(|l| l.step_head()),
-                    e.lifecycle.clone(),
+                    e.lifecycle,
                     e.movement_target.clone()
                 )),
                 world.substrate.occupancy.first_building_on_layer(

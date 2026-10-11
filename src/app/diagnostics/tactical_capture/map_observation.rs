@@ -2143,14 +2143,14 @@ impl TacticalCaptureSession {
 
     fn map_state(&self) -> Result<&MapObservation> {
         match &self.controller {
-            CaptureController::Map(map) => Ok(map),
+            CaptureController::Map(map) => Ok(map.as_ref()),
             _ => bail!("map controller is absent"),
         }
     }
 
     fn map_state_mut(&mut self) -> Result<&mut MapObservation> {
         match &mut self.controller {
-            CaptureController::Map(map) => Ok(map),
+            CaptureController::Map(map) => Ok(map.as_mut()),
             _ => bail!("map controller is absent"),
         }
     }

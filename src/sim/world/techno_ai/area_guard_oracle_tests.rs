@@ -310,7 +310,9 @@ fn delivered_command(f: &SuppliedFootFixture, row: &Value, boundary: &Value) -> 
         .as_str()
         .unwrap()
         .as_bytes()
-        .chunks_exact(2)
+        .as_chunks::<2>()
+        .0
+        .iter()
         .map(|pair| u8::from_str_radix(std::str::from_utf8(pair).unwrap(), 16).unwrap())
         .collect();
     let record = MegaMissionRecord::decode(&CommandRecord::decode_exact(&bytes).unwrap()).unwrap();

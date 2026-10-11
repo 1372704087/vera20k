@@ -443,6 +443,7 @@ impl Simulation {
     /// supplies no class action. Bridge fallout uses ReceiveDamage.
     /// No ReceiveDamage effects are introduced on these compatibility paths.
     /// Returns false for other categories, whose existing lifetime stays local.
+    #[cfg(test)]
     pub(crate) fn begin_raw_infantry_death(&mut self, id: u64) -> bool {
         let Some(entity) = self.substrate.entities.get_mut(id) else {
             return false;

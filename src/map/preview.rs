@@ -155,7 +155,7 @@ pub fn decode_preview_pack(
     }
 
     let mut rgba = Vec::with_capacity(expected_preview_rgba_len(width, height)?);
-    for pixel in rgb.chunks_exact(3) {
+    for pixel in rgb.as_chunks::<3>().0 {
         push_rgba_from_preview_pixel(&mut rgba, pixel);
     }
 

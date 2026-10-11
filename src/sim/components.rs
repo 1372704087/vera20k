@@ -1025,25 +1025,31 @@ mod tests {
 
     #[test]
     fn rocking_active_angle_is_not_neutral() {
-        let mut r = RockingState::default();
-        r.angle_sideways = SimFixed::lit("0.01");
+        let r = RockingState {
+            angle_sideways: SimFixed::lit("0.01"),
+            ..Default::default()
+        };
         assert!(!r.is_neutral());
     }
 
     #[test]
     fn rocking_within_deadband_is_neutral() {
-        let mut r = RockingState::default();
         // SimFixed precision is ~1.5e-5, so 1e-5 rounds to 0; pick a value
         // strictly between the smallest representable nonzero and DEADBAND.
         // DEADBAND is 2e-5; SIM_EPSILON is ~1.5e-5 — exactly one delta below.
-        r.angle_sideways = SimFixed::DELTA;
+        let r = RockingState {
+            angle_sideways: SimFixed::DELTA,
+            ..Default::default()
+        };
         assert!(r.is_neutral());
     }
 
     #[test]
     fn rocking_ship_rocking_is_not_neutral() {
-        let mut r = RockingState::default();
-        r.is_ship_rocking = true;
+        let r = RockingState {
+            is_ship_rocking: true,
+            ..Default::default()
+        };
         assert!(!r.is_neutral());
     }
 

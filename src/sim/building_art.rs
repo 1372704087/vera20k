@@ -1449,12 +1449,12 @@ mod native_slot_tests {
             );
             let replacements = row["output"]["replacements"].as_array().unwrap();
             let mut previous_new = None;
-            for n in 0..21 {
+            for (n, &old_slot) in old.iter().enumerate() {
                 let new = sim.entities().get(id).unwrap().building_anim_slots[n];
                 if let Some(expected) = replacements.iter().find(|r| r["slot"] == n) {
                     let anim = sim.anim(new.unwrap()).unwrap();
-                    assert_ne!(new, old[n], "{row}");
-                    assert!(sim.anim(old[n].unwrap()).is_none());
+                    assert_ne!(new, old_slot, "{row}");
+                    assert!(sim.anim(old_slot.unwrap()).is_none());
                     assert_eq!(
                         sim.interner.resolve(anim.type_id),
                         expected["name"].as_str().unwrap()
@@ -1464,7 +1464,7 @@ mod native_slot_tests {
                     assert!(previous_new.is_none_or(|previous| previous < anim.stable_id));
                     previous_new = Some(anim.stable_id);
                 } else {
-                    assert_eq!(new, old[n], "native row retains slot{n}: {row}");
+                    assert_eq!(new, old_slot, "native row retains slot{n}: {row}");
                 }
             }
             checked += 1;

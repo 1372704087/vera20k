@@ -400,6 +400,10 @@ impl<'r> DefenseChoice<'r> {
         }
         let mut least = 999_999;
         let mut weakest = None;
+        #[expect(
+            clippy::needless_range_loop,
+            reason = "sums three per-category quadrant tables in native order"
+        )]
         for quadrant in 0..4 {
             let total = sums[2][quadrant]
                 .wrapping_add(sums[1][quadrant])

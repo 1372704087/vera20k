@@ -1192,6 +1192,8 @@ fn load_tiberium_pip_atlas(
     Some((Some(texture), max_w, max_h, adj_x, adj_y))
 }
 
+type PipbrdAtlas = (Option<BatchTexture>, u32, u32, u32, u32, f32, f32, f32, f32);
+
 /// Load pipbrd.shp and pack 2 health bar background frames into a horizontal strip atlas.
 ///
 /// pipbrd.shp frame layout:
@@ -1205,7 +1207,7 @@ fn load_pipbrd_atlas(
     gpu: &GpuContext,
     batch: &BatchRenderer,
     assets: Option<&AssetManager>,
-) -> Option<(Option<BatchTexture>, u32, u32, u32, u32, f32, f32, f32, f32)> {
+) -> Option<PipbrdAtlas> {
     let assets = assets?;
     let shp_data = assets.get("pipbrd.shp")?;
     let shp = ShpFile::from_bytes(&shp_data).ok()?;

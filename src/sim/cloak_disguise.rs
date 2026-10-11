@@ -127,7 +127,6 @@ impl VisualCharacterQuery {
 /// executable controls: tools/procedural_drawing_oracle/translucent_blitter_a.json.
 /// This query has no RNG, timer writes or detach calls. Rules owns the live
 /// signed stage count; Techno discovery owns +41A, never the cloak component.
-#[allow(clippy::too_many_arguments)]
 pub(crate) fn visual_character(
     state: i32,
     progress: i32,
@@ -196,7 +195,6 @@ pub(crate) fn visual_character(
 
 impl CloakTickFacts {
     /// Capture live owner inputs once at the native AI visit.
-    #[allow(clippy::too_many_arguments)]
     pub fn new(
         current_frame: i32,
         state_zero_head_allows: bool,

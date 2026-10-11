@@ -131,7 +131,6 @@ impl Simulation {
     /// continuation 0x4B28BE) or an idle Move's Enter_Idle_Mode answered true
     /// (0x4B26C5). `held`: the owner block sets of the movement pass that
     /// makes the call, which its path requests search with.
-    #[allow(clippy::too_many_arguments)]
     pub(crate) fn run_track_process_movement(
         &mut self,
         id: u64,
@@ -608,7 +607,6 @@ impl Simulation {
     }
 
     /// The accepted first candidate, 0x4B357F..0x4B45F6.
-    #[allow(clippy::too_many_arguments)]
     fn track_fresh_accept(
         &mut self,
         call: &FreshCall<'_>,

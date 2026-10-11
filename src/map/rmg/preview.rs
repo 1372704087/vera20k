@@ -513,7 +513,9 @@ mod tests {
         assert!(
             image
                 .rgba
-                .chunks_exact(4)
+                .as_chunks::<4>()
+                .0
+                .iter()
                 .any(|px| px[..3] == BLACK_PIXEL_SUBSTITUTE),
             "the black cell was substituted"
         );
@@ -526,7 +528,9 @@ mod tests {
         let image = render_preview(&cells, &waypoints).expect("image");
         let marker_pixels = image
             .rgba
-            .chunks_exact(4)
+            .as_chunks::<4>()
+            .0
+            .iter()
             .filter(|px| px[..3] == MARKER_RGB)
             .count();
         assert!(marker_pixels > 0, "markers are baked into the image");

@@ -286,7 +286,7 @@ fn test_composite_layers_depth_correct() {
     let out = composite_vxl_layers(&[body.clone(), turret]);
     assert_eq!(out.width, 2);
     assert_eq!(out.height, 2);
-    let idx = (1 * out.width + 1) as usize;
+    let idx = (out.width + 1) as usize;
     assert_eq!(out.palette_indices[idx], 200);
 
     // Turret behind body (depth 0.5 < body's 1.0) — body pixel wins.
@@ -299,7 +299,7 @@ fn test_composite_layers_depth_correct() {
         offset_y: 1.0,
     };
     let out2 = composite_vxl_layers(&[body, turret_behind]);
-    let idx2 = (1 * out2.width + 1) as usize;
+    let idx2 = (out2.width + 1) as usize;
     // Body pixel should remain (depth 1.0 > 0.5).
     assert_eq!(out2.palette_indices[idx2], 10);
 }

@@ -255,7 +255,6 @@ pub(super) struct StepResult {
 }
 
 /// Complete guided arm through 467B7A, before coordinate commit/shared probe.
-#[allow(clippy::too_many_arguments)]
 pub(super) fn step(
     projectile: &mut super::Projectile,
     target_position: Coord,

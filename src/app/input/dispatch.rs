@@ -369,7 +369,7 @@ pub(crate) fn tactical_mouse(state: &mut AppState, button: MouseButton, btn_stat
                                     CLICK_SELECT_RADIUS,
                                     state.rules(),
                                     Some(&sim.houses),
-                                    &state.height_map(),
+                                    state.height_map(),
                                     crate::app::match_runtime::sim_tick::tactical_bridge_cells(sim),
                                     Some(&sim.interner),
                                 );
@@ -398,7 +398,7 @@ pub(crate) fn tactical_mouse(state: &mut AppState, button: MouseButton, btn_stat
                                         shift,
                                         state.rules(),
                                         Some(&sim.houses),
-                                        &state.height_map(),
+                                        state.height_map(),
                                         crate::app::match_runtime::sim_tick::tactical_bridge_cells(
                                             sim,
                                         ),
@@ -420,7 +420,7 @@ pub(crate) fn tactical_mouse(state: &mut AppState, button: MouseButton, btn_stat
                                     shift,
                                     state.rules(),
                                     Some(&sim.houses),
-                                    &state.height_map(),
+                                    state.height_map(),
                                     crate::app::match_runtime::sim_tick::tactical_bridge_cells(sim),
                                     Some(&sim.interner),
                                     sim.playfield_bounds.is_some(),
@@ -653,15 +653,14 @@ pub(crate) fn minimap_mouse(state: &mut AppState, button: MouseButton, btn_state
                 state.match_state.input.minimap_dragging = false;
             }
         }
-        MouseButton::Right => {
+        MouseButton::Right
             // A right-press centers the view on the clicked cell (no command);
             // right-release just releases the gadget's sticky capture.
             if btn_state.is_pressed()
                 && crate::app::presentation::sidebar_render::is_cursor_over_minimap(state)
-            {
+            => {
                 crate::app::presentation::sidebar_render::update_camera_from_minimap_cursor(state);
             }
-        }
         _ => {}
     }
 }
@@ -1294,15 +1293,15 @@ pub(crate) fn report_black_cell_causes(state: &mut AppState) {
                 missing_tile_anywhere += 1;
             }
         }
-        if let Some((id, fog_state)) = fog {
-            if !fog_state.is_cell_revealed(id, cell.rx, cell.ry) {
-                unrevealed += 1;
-                if unrevealed_samples.len() < 12 {
-                    unrevealed_samples.push((cell.rx, cell.ry));
-                }
-                // An unrevealed cell is never drawn, so its tile is irrelevant.
-                continue;
+        if let Some((id, fog_state)) = fog
+            && !fog_state.is_cell_revealed(id, cell.rx, cell.ry)
+        {
+            unrevealed += 1;
+            if unrevealed_samples.len() < 12 {
+                unrevealed_samples.push((cell.rx, cell.ry));
             }
+            // An unrevealed cell is never drawn, so its tile is irrelevant.
+            continue;
         }
         if let Some(atlas) = state.match_state.match_presentation.tile_atlas.as_ref() {
             let key = crate::map::theater::TileKey {
@@ -1855,10 +1854,8 @@ fn handle_dev_hotkey_pressed(state: &mut AppState, code: winit::keyboard::KeyCod
         KeyCode::KeyJ => {
             toggle_debug_pause(state);
         }
-        KeyCode::Period => {
-            if state.match_state.paused() {
-                state.diag.debug_frame_step_requested = true;
-            }
+        KeyCode::Period if state.match_state.paused() => {
+            state.diag.debug_frame_step_requested = true;
         }
         _ => {}
     }
@@ -1986,10 +1983,10 @@ pub(crate) fn selected_stable_ids_in_order(
     };
     let mut ordered = Vec::new();
     for &id in selection_order {
-        if let Some(entity) = sim.entities().get(id) {
-            if selection_order_pending || entity.selected {
-                ordered.push(id);
-            }
+        if let Some(entity) = sim.entities().get(id)
+            && (selection_order_pending || entity.selected)
+        {
+            ordered.push(id);
         }
     }
     if selection_order_pending {
@@ -2931,12 +2928,11 @@ fn jump_camera_to_base(state: &mut AppState) {
             // First pass: look for a ConYard (structure with UndeploysInto=).
             let conyard = sim.entities().values().find(|e| {
                 e.category == EntityCategory::Structure
-                    && owner_name.map_or(true, |o| {
-                        sim.interner.resolve(e.owner()).eq_ignore_ascii_case(o)
-                    })
+                    && owner_name
+                        .is_none_or(|o| sim.interner.resolve(e.owner()).eq_ignore_ascii_case(o))
                     && rules
                         .and_then(|r| r.object(sim.interner.resolve(e.type_ref())))
-                        .map_or(false, |o| o.undeploys_into.is_some())
+                        .is_some_and(|o| o.undeploys_into.is_some())
             });
             if let Some(entity) = conyard {
                 log::info!(
@@ -2950,12 +2946,11 @@ fn jump_camera_to_base(state: &mut AppState) {
             // Second pass: look for an MCV (unit with DeploysInto=).
             let mcv = sim.entities().values().find(|e| {
                 e.category != EntityCategory::Structure
-                    && owner_name.map_or(true, |o| {
-                        sim.interner.resolve(e.owner()).eq_ignore_ascii_case(o)
-                    })
+                    && owner_name
+                        .is_none_or(|o| sim.interner.resolve(e.owner()).eq_ignore_ascii_case(o))
                     && rules
                         .and_then(|r| r.object(sim.interner.resolve(e.type_ref())))
-                        .map_or(false, |o| o.deploys_into.is_some())
+                        .is_some_and(|o| o.deploys_into.is_some())
             });
             if let Some(entity) = mcv {
                 log::info!(

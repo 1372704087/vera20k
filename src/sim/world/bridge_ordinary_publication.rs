@@ -265,10 +265,10 @@ impl OrdinaryBridgeHost for LiveOrdinary<'_, '_> {
             .as_mut()
             .unwrap()
             .write_native_cell_overlay(cell, Some(overlay));
-        if let Some((x, y)) = self.live.real_coord(cell) {
-            if let Some(grid) = self.live.sim.overlay_grid.as_mut() {
-                grid.write_bridge_overlay_identity(x, y, overlay);
-            }
+        if let Some((x, y)) = self.live.real_coord(cell)
+            && let Some(grid) = self.live.sim.overlay_grid.as_mut()
+        {
+            grid.write_bridge_overlay_identity(x, y, overlay);
         }
         self.live.retain_real_write(cell);
     }

@@ -20,8 +20,6 @@ use crate::render::batch::BatchRenderer;
 use crate::render::batch::BatchTexture;
 use crate::render::gpu::GpuContext;
 
-/// Maximum atlas texture width (pixels). 4096 is safe for all GPU targets.
-
 /// Padding between tiles in the atlas (pixels). Prevents texture bleeding
 /// from bilinear filtering at tile boundaries.
 const TILE_PADDING: u32 = 1;
@@ -348,7 +346,7 @@ mod tests {
         );
 
         let mut sorted: Vec<TileKey> = tiles.keys().copied().collect();
-        sorted.sort_by(|a, b| a.tile_id.cmp(&b.tile_id));
+        sorted.sort_by_key(|a| a.tile_id);
 
         // Atlas width of 130 fits 2 tiles per row (60 + 1 + 60 = 121 < 130).
         let placements: Vec<(TileKey, u32, u32)> = shelf_pack(&sorted, &tiles, 130);
@@ -375,7 +373,7 @@ mod tests {
         );
 
         let mut sorted: Vec<TileKey> = tiles.keys().copied().collect();
-        sorted.sort_by(|a, b| a.tile_id.cmp(&b.tile_id));
+        sorted.sort_by_key(|a| a.tile_id);
 
         let placements: Vec<(TileKey, u32, u32)> = shelf_pack(&sorted, &tiles, 256);
         assert_eq!(placements.len(), 1);

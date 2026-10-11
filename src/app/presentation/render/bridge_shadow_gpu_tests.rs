@@ -765,9 +765,14 @@ fn retail_high_bridge_damage_and_repair_reach_shadow_pixels() {
             ];
             let output = gpu.finish(encoder, &reads, size);
             let mut changed = 0usize;
-            for (rgba, raw_z) in output[0].chunks_exact(4).zip(output[1].chunks_exact(4)) {
-                let edited = rgba != [255; 4];
-                let stored = stored_z(f32::from_le_bytes(raw_z.try_into().unwrap()));
+            for (rgba, raw_z) in output[0]
+                .as_chunks::<4>()
+                .0
+                .iter()
+                .zip(output[1].as_chunks::<4>().0)
+            {
+                let edited = *rgba != [255; 4];
+                let stored = stored_z(f32::from_le_bytes(*raw_z));
                 assert_eq!(
                     edited,
                     stored != 65535,
@@ -803,7 +808,7 @@ fn retail_high_bridge_damage_and_repair_reach_shadow_pixels() {
             receipts.push(receipt);
             if let Some(path) = &output_dir {
                 let mut rgba = output[0].clone();
-                for pixel in rgba.chunks_exact_mut(4) {
+                for pixel in rgba.as_chunks_mut::<4>().0 {
                     pixel.swap(0, 2);
                 }
                 image::save_buffer(

@@ -708,7 +708,12 @@ pub(crate) fn zone_precheck_flat(
     Ok(ZonePrecheckOutcome::Passed(result))
 }
 
-#[allow(clippy::too_many_arguments)]
+/// Active threat coefficient paired with the padded House threat lookup.
+type ActiveZoneThreat<'a> = (
+    crate::util::native_x87::X87Value,
+    &'a dyn Fn(i32) -> Result<i32, String>,
+);
+
 fn search_precheck_level(
     graph: &ZoneLevelGraph,
     level: usize,
@@ -717,10 +722,7 @@ fn search_precheck_level(
     movement_zone: MovementZone,
     parent_marked: Option<&BTreeSet<ZoneId>>,
     exclusions: &ZonePrecheckExclusions,
-    threat: Option<(
-        crate::util::native_x87::X87Value,
-        &dyn Fn(i32) -> Result<i32, String>,
-    )>,
+    threat: Option<ActiveZoneThreat<'_>>,
 ) -> Result<Option<PrecheckLevelResult>, String> {
     if graph.record(start).is_none() || graph.record(goal).is_none() {
         return Ok(None);

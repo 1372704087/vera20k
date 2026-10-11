@@ -329,7 +329,9 @@ fn native_ifv_bridge_impact_orders_live_selection_debris_ids_and_rng() {
         let hex = world.scenario_rng.native_state_hex();
         let bytes: Vec<u8> = hex
             .as_bytes()
-            .chunks_exact(2)
+            .as_chunks::<2>()
+            .0
+            .iter()
             .map(|digits| u8::from_str_radix(std::str::from_utf8(digits).unwrap(), 16).unwrap())
             .collect();
         assert_eq!(

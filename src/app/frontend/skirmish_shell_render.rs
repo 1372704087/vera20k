@@ -486,9 +486,9 @@ fn render_skirmish_shell_with_atlas(
     // While a job is in flight the shell keeps asking for frames -- nothing else
     // is driving redraws, and without this the dialog would freeze on the first
     // "working" frame until the player moved the mouse.
-    if crate::app::App::poll_random_map_generation(state) {
-        state.platform.window.request_redraw();
-    } else if state.frontend.random_map_generation.is_some() {
+    if crate::app::App::poll_random_map_generation(state)
+        || state.frontend.random_map_generation.is_some()
+    {
         state.platform.window.request_redraw();
     }
     let layout = compute_layout(state.render_width(), state.render_height());
@@ -1034,8 +1034,8 @@ mod tests {
 
     #[test]
     fn preview_backdrop_sits_behind_fitted_preview_surface() {
-        assert!(SHELL_PREVIEW_BACKDROP_DEPTH > SHELL_PREVIEW_SURFACE_DEPTH);
-        assert!(SHELL_PREVIEW_BACKDROP_DEPTH < 0.00080);
+        const { assert!(SHELL_PREVIEW_BACKDROP_DEPTH > SHELL_PREVIEW_SURFACE_DEPTH) };
+        const { assert!(SHELL_PREVIEW_BACKDROP_DEPTH < 0.00080) };
     }
 
     #[test]

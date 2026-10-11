@@ -341,7 +341,9 @@ impl SimRng {
         assert_eq!(hex.len(), 0x3f4 * 2, "native Random object byte count");
         let bytes: Vec<u8> = hex
             .as_bytes()
-            .chunks_exact(2)
+            .as_chunks::<2>()
+            .0
+            .iter()
             .map(|pair| u8::from_str_radix(std::str::from_utf8(pair).unwrap(), 16).unwrap())
             .collect();
         assert_eq!(&bytes[1..4], &[0, 0, 0], "unmodeled native padding");
@@ -611,7 +613,9 @@ mod tests {
         fn retained(hex: &str) -> SimRng {
             let bytes: Vec<_> = hex
                 .as_bytes()
-                .chunks_exact(2)
+                .as_chunks::<2>()
+                .0
+                .iter()
                 .map(|pair| u8::from_str_radix(std::str::from_utf8(pair).unwrap(), 16).unwrap())
                 .collect();
             assert_eq!(bytes.len(), 0x3f4);

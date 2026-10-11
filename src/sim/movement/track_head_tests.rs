@@ -212,7 +212,6 @@ fn chained_queue_consumption_preserves_the_native_replay_reference() {
         directions: vec![2, 3, 4],
         cursor: 2,
         reference_cell: Some((10, 9)),
-        ..Default::default()
     };
     crate::sim::movement::path_markers::consume_path_replay(&mut queue, 1);
     assert_eq!(queue.cursor, 3);

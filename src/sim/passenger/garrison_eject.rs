@@ -357,10 +357,10 @@ pub(crate) fn eject_garrison_occupants(
 
     // Clear player-sell cargo only. Native SellBuilding is an ejection helper;
     // empty-garrison ownership reversion belongs to reconciliation/unload.
-    if let Some(building) = sim.substrate.entities.get_mut(building_id) {
-        if let Some(cargo) = building.passenger_role.cargo_mut() {
-            cargo.clear_contents();
-        }
+    if let Some(building) = sim.substrate.entities.get_mut(building_id)
+        && let Some(cargo) = building.passenger_role.cargo_mut()
+    {
+        cargo.clear_contents();
     }
 
     //SellBuilding4581D6 refreshes after its complete occupant ejection.
@@ -489,10 +489,10 @@ pub(crate) fn sell_building_occupants(
         UninitContext::new(Some(rules), registry).with_effects(frame_effects),
     );
 
-    if let Some(building) = sim.substrate.entities.get_mut(building_id) {
-        if let Some(cargo) = building.passenger_role.cargo_mut() {
-            cargo.clear_contents();
-        }
+    if let Some(building) = sim.substrate.entities.get_mut(building_id)
+        && let Some(cargo) = building.passenger_role.cargo_mut()
+    {
+        cargo.clear_contents();
     }
 
     //SellBuilding4581D6 refreshes after its complete occupant ejection.

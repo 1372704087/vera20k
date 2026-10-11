@@ -338,7 +338,6 @@ pub fn can_enter_transport(
     cargo.can_accept(passenger_obj.size)
 }
 
-#[allow(clippy::too_many_arguments)]
 pub fn can_dock_occupier_garrison(
     passenger: &GameEntity,
     building: &GameEntity,
@@ -355,10 +354,10 @@ pub fn can_dock_occupier_garrison(
     if building.building_up() || building.building_down() {
         return false;
     }
-    if let Some(grid) = path_grid {
-        if building.position.rx >= grid.width() || building.position.ry >= grid.height() {
-            return false;
-        }
+    if let Some(grid) = path_grid
+        && (building.position.rx >= grid.width() || building.position.ry >= grid.height())
+    {
+        return false;
     }
     // `BuildingClass::CanDock @ 0x00457D3E`: a building being warped out
     // admits nobody.
@@ -690,22 +689,20 @@ fn process_boarding_passenger(
             .entities
             .get(transport_id)
             .and_then(|t| t.passenger_role.cargo())
-            .map_or(false, |c| c.count() == 1);
+            .is_some_and(|c| c.count() == 1);
         if first_occupant
             && rules
                 .object(&transport_type_str)
-                .map_or(false, |o| o.can_be_occupied)
-        {
-            if let (Some(owner), Some(t)) =
+                .is_some_and(|o| o.can_be_occupied)
+            && let (Some(owner), Some(t)) =
                 (entering_owner, sim.substrate.entities.get(transport_id))
-            {
-                let rx = t.position.rx;
-                let ry = t.position.ry;
-                sim.sound_events
-                    .push(SimSoundEvent::StructureGarrisoned { owner });
-                sim.sound_events
-                    .push(SimSoundEvent::BuildingGarrisonedSfx { owner, rx, ry });
-            }
+        {
+            let rx = t.position.rx;
+            let ry = t.position.ry;
+            sim.sound_events
+                .push(SimSoundEvent::StructureGarrisoned { owner });
+            sim.sound_events
+                .push(SimSoundEvent::BuildingGarrisonedSfx { owner, rx, ry });
         }
 
         if let Some(pax) = sim.substrate.entities.get_mut(pax_id) {
@@ -2356,10 +2353,10 @@ ConditionYellow=50%
         let bldg = spawn_garrison_building(&mut sim, &rules, "CAGAS01", "Americans", 10, 10);
 
         // Pre-populate with one occupant (simulating a previous successful board).
-        if let Some(t) = sim.substrate.entities.get_mut(bldg) {
-            if let Some(cargo) = t.passenger_role.cargo_mut() {
-                cargo.board(9999, 1);
-            }
+        if let Some(t) = sim.substrate.entities.get_mut(bldg)
+            && let Some(cargo) = t.passenger_role.cargo_mut()
+        {
+            cargo.board(9999, 1);
         }
         let _pax = spawn_boarding_occupier(&mut sim, &rules, "E1", "Americans", bldg, 10, 10);
 
@@ -2584,11 +2581,11 @@ ConditionYellow=50%
         };
         sim.substrate.entities.insert(ge);
         // Add to building's cargo.
-        if let Some(bldg) = sim.substrate.entities.get_mut(building_id) {
-            if let Some(cargo) = bldg.passenger_role.cargo_mut() {
-                let obj = rules.object(type_ref).expect("type exists");
-                cargo.board(stable_id, obj.size.max(1));
-            }
+        if let Some(bldg) = sim.substrate.entities.get_mut(building_id)
+            && let Some(cargo) = bldg.passenger_role.cargo_mut()
+        {
+            let obj = rules.object(type_ref).expect("type exists");
+            cargo.board(stable_id, obj.size.max(1));
         }
         // Supplied first-board ownership precedes the native AddOccupant's
         // threat-refresh tail. The building helper already constructs the

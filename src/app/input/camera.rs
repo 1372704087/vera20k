@@ -472,7 +472,7 @@ pub(crate) fn tactical_centre_cell(state: &AppState) -> (u16, u16) {
     crate::app::match_runtime::sim_tick::world_point_to_cell(
         world_x,
         world_y,
-        &state.height_map(),
+        state.height_map(),
         state.sim_view().and_then(|view| {
             crate::app::match_runtime::sim_tick::tactical_bridge_cells(view.simulation())
         }),
@@ -2264,8 +2264,10 @@ mod tests {
     /// progress keeps the right drag from stealing the camera.
     #[test]
     fn left_button_wins_the_per_frame_mouse_block() {
-        let mut mouse = TacticalMouseState::default();
-        mouse.right_held = true;
+        let mut mouse = TacticalMouseState {
+            right_held: true,
+            ..Default::default()
+        };
         mouse.begin_right_drag((100.0, 100.0));
         assert!(mouse.right_drag_owns_frame());
         mouse.left_held = true;
@@ -2374,8 +2376,10 @@ mod tests {
     /// whether to run its cancel ladder.
     #[test]
     fn a_left_release_mid_pan_ends_the_pan_but_keeps_the_threshold_latch() {
-        let mut mouse = TacticalMouseState::default();
-        mouse.right_held = true;
+        let mut mouse = TacticalMouseState {
+            right_held: true,
+            ..Default::default()
+        };
         mouse.begin_right_drag((100.0, 100.0));
         mouse.right_threshold_crossed = true;
         mouse.right_pan_engaged = true;
@@ -2449,8 +2453,10 @@ mod tests {
 
         // R-down, L-down, L-up, R-up. The left press is swallowed, but its
         // release still runs the body and takes the capture away from the pan.
-        let mut mouse = TacticalMouseState::default();
-        mouse.right_held = true;
+        let mut mouse = TacticalMouseState {
+            right_held: true,
+            ..Default::default()
+        };
         mouse.begin_right_drag((100.0, 100.0));
         assert!(!mouse.begin_left_press());
         assert!(mouse.left_held, "the live button byte is recorded anyway");
@@ -2461,8 +2467,10 @@ mod tests {
 
         // R-down, L-down, R-up, L-up. The right release already cleared the
         // byte, so the trailing left release does nothing at all.
-        let mut mouse = TacticalMouseState::default();
-        mouse.right_held = true;
+        let mut mouse = TacticalMouseState {
+            right_held: true,
+            ..Default::default()
+        };
         mouse.begin_right_drag((100.0, 100.0));
         assert!(!mouse.begin_left_press());
         mouse.right_held = false;

@@ -193,7 +193,9 @@ fn palette_words_match_original_filesystem_converter() {
         .as_str()
         .unwrap()
         .as_bytes()
-        .chunks_exact(2)
+        .as_chunks::<2>()
+        .0
+        .iter()
         .map(|pair| u8::from_str_radix(std::str::from_utf8(pair).unwrap(), 16).unwrap())
         .collect();
     let actual = ElectricBoltPalette::from_palette(
@@ -406,8 +408,10 @@ fn production_electric_bolt_pixels_match_native_with_bounded_edge_residuals() {
                     }
                     assert_eq!(output[0].len(), expected.len());
                     let different: Vec<_> = output[0]
-                        .chunks_exact(4)
-                        .zip(expected.chunks_exact(4))
+                        .as_chunks::<4>()
+                        .0
+                        .iter()
+                        .zip(expected.as_chunks::<4>().0)
                         .enumerate()
                         .filter(|(_, (a, b))| a != b)
                         .collect();

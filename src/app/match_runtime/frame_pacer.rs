@@ -120,11 +120,12 @@ impl ScenarioElapsedClock {
 
     /// Sample the retail raw accumulator without changing clock state.
     fn elapsed_buckets(&self, now_ms: u64) -> u32 {
-        self.accumulated_buckets.wrapping_add(
-            (self.start_bucket != ELAPSED_CLOCK_STOPPED)
-                .then(|| frame_bucket(now_ms).wrapping_sub(self.start_bucket))
-                .unwrap_or(0),
-        )
+        self.accumulated_buckets
+            .wrapping_add(if self.start_bucket != ELAPSED_CLOCK_STOPPED {
+                frame_bucket(now_ms).wrapping_sub(self.start_bucket)
+            } else {
+                0
+            })
     }
 
     /// gamemd provenance: Score elapsed-time formatting; verified

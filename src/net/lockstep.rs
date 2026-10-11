@@ -683,22 +683,21 @@ impl SynchronizedCommandQueue {
                 }
                 match command.record.opcode() {
                     FRAMEINFO_EVENT_OPCODE => {
-                        if command.record.frame_stamp() == current_frame {
-                            if let DispatchMode::Network {
+                        if command.record.frame_stamp() == current_frame
+                            && let DispatchMode::Network {
                                 checksum_history,
                                 frame_info_gate,
                             } = mode
-                            {
-                                if !frame_info_gate.allows_compare(current_frame) {
-                                    summary.timing_consumed += 1;
-                                    command.record.mark_processed();
-                                    continue;
-                                }
-                                let frame_info = FrameInfo::decode(&command.record)
-                                    .expect("opcode was checked above");
-                                checksum_history.compare(frame_info)?;
-                                summary.frame_info_compared += 1;
+                        {
+                            if !frame_info_gate.allows_compare(current_frame) {
+                                summary.timing_consumed += 1;
+                                command.record.mark_processed();
+                                continue;
                             }
+                            let frame_info = FrameInfo::decode(&command.record)
+                                .expect("opcode was checked above");
+                            checksum_history.compare(frame_info)?;
+                            summary.frame_info_compared += 1;
                         }
                         summary.timing_consumed += 1;
                     }

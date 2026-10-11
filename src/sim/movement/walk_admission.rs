@@ -114,7 +114,6 @@ impl Simulation {
 
     ///75B696: one response owner for the live classifier and the corpus's
     ///explicitly supplied result boundary. Neither caller repeats admission.
-    #[allow(clippy::too_many_arguments)]
     fn finish_walk_admission_response(
         &mut self,
         request: WalkAdmissionRequest,

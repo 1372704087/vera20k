@@ -67,7 +67,7 @@ fn prepared_startup(
     let accepted = match crate::app::match_bootstrap::classify_startup_session(&launch) {
         crate::app::match_bootstrap::StartupSessionClassification::AcceptedExplicitFixedBattle(
             accepted,
-        ) => accepted,
+        ) => *accepted,
         other => panic!("fixture was not accepted: {other:?}"),
     };
     let correlation = crate::app::match_bootstrap::allocate_match_correlation(next).unwrap();
@@ -1356,8 +1356,10 @@ fn gsi_04_12_stock_ffa_preview_can_only_supply_loading_fallback_pixels() {
         prepared
             .image
             .rgba
-            .chunks_exact(4)
-            .filter(|pixel| *pixel == [0, 0, 0, 255])
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .filter(|pixel| **pixel == [0, 0, 0, 255])
             .count(),
         3 * 4 * 4,
         "all three valid FFA starts are burned black"
@@ -1425,7 +1427,7 @@ fn loading_request_moves_exact_startup_authority_once() {
     let accepted = match crate::app::match_bootstrap::classify_startup_session(&session) {
         crate::app::match_bootstrap::StartupSessionClassification::AcceptedExplicitFixedBattle(
             accepted,
-        ) => accepted,
+        ) => *accepted,
         other => panic!("fixture was not accepted: {other:?}"),
     };
     let mut next = 1;

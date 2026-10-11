@@ -16,7 +16,6 @@ use crate::sim::components::AnimClassSpawnDescriptor;
 use crate::sim::world::Simulation;
 
 /// Per-match resource inputs bound at construction and read during frame advancement.
-
 pub struct SimResources {
     /// Rules-semantic overlay registry for the loaded match.
     pub overlay_registry: crate::rules::overlay_types::OverlayTypeRegistry,
@@ -600,7 +599,6 @@ enum ScenarioPopulationError {
     NativeIdentity(#[from] crate::sim::native_identity::NativeMapTubeConstructionError),
 }
 
-#[allow(clippy::too_many_arguments)]
 pub(crate) fn populate_staged_scenario_with_generated_inits<F>(
     sim: &mut Simulation,
     map_data: &crate::map::map_file::MapFile,
@@ -639,7 +637,6 @@ where
     }
 }
 
-#[allow(clippy::too_many_arguments)]
 fn populate_staged_scenario_inner<F>(
     sim: &mut Simulation,
     map_data: &crate::map::map_file::MapFile,
@@ -902,7 +899,6 @@ pub(crate) enum AuthoredScenarioLoadError {
 /// One `LoadCellRecalcState` and one native-ID cursor span raw Tubes,
 /// OverlayPack + first Recalc, Terrain/queues/Technos/Smudges, scalar deletion,
 /// and the final anti-diagonal Recalc sweep.
-#[allow(clippy::too_many_arguments)]
 pub(crate) fn finalize_and_populate_staged_authored_scenario<F>(
     sim: &mut Simulation,
     map_data: &mut crate::map::map_file::MapFile,
@@ -1148,12 +1144,8 @@ pub(crate) fn finalize_constructed_scenario(
     }
     // Move the already-resolved CellClass overlay state into Simulation,
     // then reconstruct map-wall ownership now that buildings exist.
-    if sim.resolved_terrain.is_some() {
+    if let Some(rt) = sim.resolved_terrain.as_ref() {
         let (grid_width, grid_height) = (overlay_grid.width(), overlay_grid.height());
-        let rt = sim
-            .resolved_terrain
-            .as_ref()
-            .expect("terrain checked above");
         let buildings: Vec<crate::sim::overlay_grid::MapWallOwnerCandidate> = sim
             .substrate
             .entities

@@ -71,7 +71,7 @@ pub(super) fn advance_state(
     let denom = (parity_bit + 1).saturating_add(pt.state_ai_advance).max(1);
 
     p.state_advance_counter = p.state_advance_counter.wrapping_add(1);
-    if p.state_advance_counter % denom != 0 {
+    if !p.state_advance_counter.is_multiple_of(denom) {
         return;
     }
 

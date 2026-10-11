@@ -312,9 +312,9 @@ fn vehicle_shadow_after_body_preserves_body_and_clipped_read_only_depth() {
         pixel(4, 5)[1] < pixel(2, 5)[1],
         "overlapping read-only shadows compound in order"
     );
-    for p in output[1].chunks_exact(4) {
+    for p in output[1].as_chunks::<4>().0 {
         assert_eq!(
-            crate::render::native_z::stored_z(f32::from_le_bytes(p.try_into().unwrap())),
+            crate::render::native_z::stored_z(f32::from_le_bytes(*p)),
             65535
         );
     }

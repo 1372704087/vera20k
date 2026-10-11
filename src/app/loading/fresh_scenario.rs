@@ -52,7 +52,7 @@ pub(crate) enum FreshStartupProvenance {
 enum FreshScenarioPrefixReceipt {
     StockOffline {
         launch: MatchLaunchDescriptor,
-        scenario_prefix: PreFillScenarioPrefixPlan,
+        scenario_prefix: Box<PreFillScenarioPrefixPlan>,
     },
     Campaign {
         startup: crate::app::match_bootstrap::PreparedCampaignStartup,
@@ -86,7 +86,7 @@ pub(crate) struct StockOfflineFreshScenarioParts {
 
 #[derive(Debug)]
 pub(crate) enum FreshScenarioParts {
-    StockOffline(StockOfflineFreshScenarioParts),
+    StockOffline(Box<StockOfflineFreshScenarioParts>),
     Campaign {
         physical_source: LoadedMapSource,
         signed_new_ini_format: i32,
@@ -236,7 +236,7 @@ impl FreshScenarioLoadContextDescriptor {
             match_seed,
             prefix: FreshScenarioPrefixReceipt::StockOffline {
                 launch,
-                scenario_prefix,
+                scenario_prefix: Box::new(scenario_prefix),
             },
         })
     }
@@ -368,15 +368,15 @@ impl FreshScenarioLoadContextDescriptor {
             FreshScenarioPrefixReceipt::StockOffline {
                 launch,
                 scenario_prefix,
-            } => FreshScenarioParts::StockOffline(StockOfflineFreshScenarioParts {
+            } => FreshScenarioParts::StockOffline(Box::new(StockOfflineFreshScenarioParts {
                 physical_source: self.physical_source,
                 materialization: self.materialization,
                 signed_new_ini_format: self.signed_new_ini_format,
                 startup_provenance: self.startup_provenance,
                 match_seed: self.match_seed,
                 launch,
-                scenario_prefix,
-            }),
+                scenario_prefix: *scenario_prefix,
+            })),
             FreshScenarioPrefixReceipt::Campaign { startup } => FreshScenarioParts::Campaign {
                 physical_source: self.physical_source,
                 signed_new_ini_format: self.signed_new_ini_format,
@@ -388,7 +388,7 @@ impl FreshScenarioLoadContextDescriptor {
     #[cfg(test)]
     pub(crate) fn into_stock_offline_parts(self) -> StockOfflineFreshScenarioParts {
         match self.into_parts() {
-            FreshScenarioParts::StockOffline(parts) => parts,
+            FreshScenarioParts::StockOffline(parts) => *parts,
             FreshScenarioParts::Campaign { .. } => {
                 panic!("campaign is not a stock-offline fixture")
             }

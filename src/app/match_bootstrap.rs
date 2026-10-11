@@ -65,7 +65,7 @@ pub enum UnverifiedStartupReason {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum StartupSessionClassification {
-    AcceptedExplicitFixedBattle(AcceptedBattleSession),
+    AcceptedExplicitFixedBattle(Box<AcceptedBattleSession>),
     UnverifiedLegacy(UnverifiedStartupReason),
 }
 
@@ -248,9 +248,9 @@ pub fn classify_startup_session(session: &SkirmishLaunchSession) -> StartupSessi
         }
     }
 
-    StartupSessionClassification::AcceptedExplicitFixedBattle(AcceptedBattleSession {
+    StartupSessionClassification::AcceptedExplicitFixedBattle(Box::new(AcceptedBattleSession {
         launch: session.clone(),
-    })
+    }))
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, thiserror::Error)]
@@ -487,7 +487,7 @@ mod tests {
 
     fn accepted_session() -> AcceptedBattleSession {
         match classify_startup_session(&explicit_session()) {
-            StartupSessionClassification::AcceptedExplicitFixedBattle(session) => session,
+            StartupSessionClassification::AcceptedExplicitFixedBattle(session) => *session,
             other => panic!("explicit fixture was not accepted: {other:?}"),
         }
     }

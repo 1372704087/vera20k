@@ -1074,8 +1074,8 @@ pub fn astar_search(
             if (cx, cy) == goal && current.height == goal_height {
                 // Use the node's push-time layer flag (same value came_from was keyed on).
                 return Ok(reconstruct_path_dual(
-                    &ground_from,
-                    &bridge_from,
+                    ground_from,
+                    bridge_from,
                     start_idx,
                     start_on_bridge,
                     c_idx,
@@ -1213,10 +1213,9 @@ pub fn astar_search(
                 let neighbor_is_bridge_deck = is_at_bridge_level(current.height, neighbor_cell);
                 if let Some(gate) = options.hierarchy_gate
                     && !neighbor_is_bridge_deck
+                    && !gate.allows(nx, ny)
                 {
-                    if !gate.allows(nx, ny) {
-                        continue;
-                    }
+                    continue;
                 }
 
                 // Original429F54 calls the complete Foot+1AC for every reached
@@ -1279,35 +1278,34 @@ pub fn astar_search(
                         })
                     })
                 };
-                if let Some(refused_class) = refused_cost_class {
-                    if refused_class >= 7 {
-                        // Impassable-destination abort. When the goal cell is
-                        // refused and the search has reached a cell adjacent to
-                        // it, gamemd leaves the main loop immediately and drops
-                        // into the success tail — "walk as close to the blocked
-                        // target as you can". The tail additionally requires the
-                        // aborting node to be at least one real step from the
-                        // start, so a start-adjacent blocked goal fails outright.
-                        if (nx, ny) == goal
-                            && blocked_goal_height_matches(current.height, goal_height)
-                        {
-                            if c_idx == start_idx && on_bridge == start_on_bridge {
-                                return Err(PathSearchFailure::CellSearchExhausted);
-                            }
-                            // Use the current node's push-time layer flag (same
-                            // value came_from was keyed on when pushed).
-                            return Ok(reconstruct_path_dual(
-                                &ground_from,
-                                &bridge_from,
-                                start_idx,
-                                start_on_bridge,
-                                c_idx,
-                                on_bridge,
-                                w,
-                            ));
+                if let Some(refused_class) = refused_cost_class
+                    && refused_class >= 7
+                {
+                    // Impassable-destination abort. When the goal cell is
+                    // refused and the search has reached a cell adjacent to
+                    // it, gamemd leaves the main loop immediately and drops
+                    // into the success tail — "walk as close to the blocked
+                    // target as you can". The tail additionally requires the
+                    // aborting node to be at least one real step from the
+                    // start, so a start-adjacent blocked goal fails outright.
+                    if (nx, ny) == goal && blocked_goal_height_matches(current.height, goal_height)
+                    {
+                        if c_idx == start_idx && on_bridge == start_on_bridge {
+                            return Err(PathSearchFailure::CellSearchExhausted);
                         }
-                        continue;
+                        // Use the current node's push-time layer flag (same
+                        // value came_from was keyed on when pushed).
+                        return Ok(reconstruct_path_dual(
+                            ground_from,
+                            bridge_from,
+                            start_idx,
+                            start_on_bridge,
+                            c_idx,
+                            on_bridge,
+                            w,
+                        ));
                     }
+                    continue;
                 }
 
                 // Entity blocks (layer-separated). Goal exempt.
@@ -1358,10 +1356,8 @@ pub fn astar_search(
                 // direction tiebreaks at `0x0081872C`. Both `Can_Enter_Cell`
                 // implementations reduce the land row to `== 0.0 → class 7`, so
                 // no gradation reaches the cost class either.
-                let terrain_cost: u8 = if neighbor_use_bridge {
-                    100 // bridge layer: no terrain cost modifiers
-                } else if is_water_mover {
-                    100
+                let terrain_cost: u8 = if neighbor_use_bridge || is_water_mover {
+                    100 // bridge layer or water mover: no terrain cost modifiers
                 } else if let Some(cost_grid) = options.terrain_costs {
                     cost_grid.cost_at(nx, ny)
                 } else {
@@ -1438,23 +1434,23 @@ pub fn astar_search(
                         );
                         step_cost *= multiplier;
                     }
-                } else if (nx, ny) != goal && !options.mover_is_crusher {
-                    if let Some(map) = options.entity_block_map {
-                        if let Some(entry) = map.get(layer_context.object_list_layer, &(nx, ny)) {
-                            let mult = match entry.cost_code {
-                                2 => compute_code2_multiplier(
-                                    options.urgency,
-                                    (nx, ny),
-                                    layer_context.object_list_layer,
-                                    map,
-                                ),
-                                5 => CODE5_MULT_ENEMY,
-                                6 => CODE6_MULT_STATIONARY_ALLY,
-                                _ => 1,
-                            };
-                            step_cost *= mult;
-                        }
-                    }
+                } else if (nx, ny) != goal
+                    && !options.mover_is_crusher
+                    && let Some(map) = options.entity_block_map
+                    && let Some(entry) = map.get(layer_context.object_list_layer, &(nx, ny))
+                {
+                    let mult = match entry.cost_code {
+                        2 => compute_code2_multiplier(
+                            options.urgency,
+                            (nx, ny),
+                            layer_context.object_list_layer,
+                            map,
+                        ),
+                        5 => CODE5_MULT_ENEMY,
+                        6 => CODE6_MULT_STATIONARY_ALLY,
+                        _ => 1,
+                    };
+                    step_cost *= mult;
                 }
 
                 step_cost = apply_search_marker_cost(step_cost, options.marker_overlay, (nx, ny));
@@ -1496,40 +1492,36 @@ pub fn astar_search(
             // Direction 8 is a TubeClass jump. It is not an adjacent neighbor and
             // must not use the normal terrain/height/corner-cut predicates. Auto
             // low-bridge shells have path_len=0 and remain predicate-only.
-            if !on_bridge {
-                if let Some(((nx, ny), path_len)) =
+            if !on_bridge
+                && let Some(((nx, ny), path_len)) =
                     explicit_tube_edge(options.resolved_terrain, (cx, cy))
-                {
-                    if nx < grid.width()
-                        && ny < grid.height()
-                        && search_cell_allocated(options.resolved_terrain, (nx, ny))
-                    {
-                        let n_idx = ny as usize * w + nx as usize;
-                        if !ground_closed[n_idx] {
-                            let neighbor_cell = grid.cell(nx, ny).unwrap_or(&DEFAULT_BLOCKED_CELL);
-                            let neighbor_height = neighbor_cell.signed_level();
-                            let tube_steps = i32::try_from(path_len).unwrap_or(1).max(1);
-                            let tentative_g =
-                                current.g_cost + STEP_COST * tube_steps + TUBE_DIR_TIEBREAK;
+                && nx < grid.width()
+                && ny < grid.height()
+                && search_cell_allocated(options.resolved_terrain, (nx, ny))
+            {
+                let n_idx = ny as usize * w + nx as usize;
+                if !ground_closed[n_idx] {
+                    let neighbor_cell = grid.cell(nx, ny).unwrap_or(&DEFAULT_BLOCKED_CELL);
+                    let neighbor_height = neighbor_cell.signed_level();
+                    let tube_steps = i32::try_from(path_len).unwrap_or(1).max(1);
+                    let tentative_g = current.g_cost + STEP_COST * tube_steps + TUBE_DIR_TIEBREAK;
 
-                            // Same close-on-generation rule as the compass edges.
-                            ground_g[n_idx] = tentative_g;
-                            ground_from[n_idx] = PathDescriptor {
-                                parent: encode_from(c_idx, on_bridge),
-                                height: neighbor_height,
-                            };
-                            ground_closed[n_idx] = true;
-                            let h = euclidean_heuristic(nx, ny, goal.0, goal.1);
-                            open.push(Reverse(AStarNode {
-                                f_cost: tentative_g + h,
-                                g_cost: tentative_g,
-                                x: nx,
-                                y: ny,
-                                height: neighbor_height,
-                                on_bridge: false,
-                            }));
-                        }
-                    }
+                    // Same close-on-generation rule as the compass edges.
+                    ground_g[n_idx] = tentative_g;
+                    ground_from[n_idx] = PathDescriptor {
+                        parent: encode_from(c_idx, on_bridge),
+                        height: neighbor_height,
+                    };
+                    ground_closed[n_idx] = true;
+                    let h = euclidean_heuristic(nx, ny, goal.0, goal.1);
+                    open.push(Reverse(AStarNode {
+                        f_cost: tentative_g + h,
+                        g_cost: tentative_g,
+                        x: nx,
+                        y: ny,
+                        height: neighbor_height,
+                        on_bridge: false,
+                    }));
                 }
             }
         }
@@ -1586,7 +1578,6 @@ pub fn is_cell_passable_for_mover(
 /// `is_infantry` selects the sub-cell view of terrain-object occupation: retail
 /// terrain objects close a cell to infantry only when every functional sub-cell
 /// bit is set.
-#[allow(clippy::too_many_arguments)]
 pub fn is_cell_passable_for_category_on_layer(
     grid: &PathGrid,
     x: u16,
@@ -1631,7 +1622,6 @@ pub fn is_cell_passable_for_category_on_layer(
 /// bool path is now this function. `CanEnterCellContext::wall` is consumed as
 /// `ctx.wall.and_then(..)` when the arm computes `wall_attack_code`, so `None`
 /// short-circuits to the same `HardBlocked` the bool reported as `false`.
-#[allow(clippy::too_many_arguments)]
 pub fn evaluate_cell_entry_for_category_on_layer(
     grid: &PathGrid,
     x: u16,
@@ -1661,7 +1651,6 @@ pub fn evaluate_cell_entry_for_category_on_layer(
     })
 }
 
-#[allow(clippy::too_many_arguments)]
 pub fn is_cell_passable_for_mover_on_layer_with_speed(
     grid: &PathGrid,
     x: u16,
@@ -2075,7 +2064,7 @@ impl PathGrid {
         allow: Option<(u16, u16)>,
     ) -> Option<(u16, u16)> {
         if self.is_walkable(x, y)
-            && (allow == Some((x, y)) || entity_blocks.map_or(true, |b| !b.contains(&(x, y))))
+            && (allow == Some((x, y)) || entity_blocks.is_none_or(|b| !b.contains(&(x, y))))
         {
             return Some((x, y));
         }
@@ -2096,7 +2085,7 @@ impl PathGrid {
                     let cy = cy as u16;
                     if self.is_walkable(cx, cy)
                         && (allow == Some((cx, cy))
-                            || entity_blocks.map_or(true, |b| !b.contains(&(cx, cy))))
+                            || entity_blocks.is_none_or(|b| !b.contains(&(cx, cy))))
                     {
                         return Some((cx, cy));
                     }
@@ -2117,8 +2106,7 @@ impl PathGrid {
     ) -> Option<(u16, u16)> {
         let check = |cx: u16, cy: u16| -> bool {
             self.is_any_layer_walkable(cx, cy)
-                && (allow == Some((cx, cy))
-                    || entity_blocks.map_or(true, |b| !b.contains(&(cx, cy))))
+                && (allow == Some((cx, cy)) || entity_blocks.is_none_or(|b| !b.contains(&(cx, cy))))
         };
         if check(x, y) {
             return Some((x, y));
@@ -2587,7 +2575,6 @@ pub fn find_path_with_costs(
     .map(|steps| steps.into_iter().map(|step| (step.rx, step.ry)).collect())
 }
 
-#[allow(clippy::too_many_arguments)]
 pub(crate) fn find_path_with_costs_marker(
     grid: &PathGrid,
     start: (u16, u16),
@@ -2645,12 +2632,15 @@ pub fn truncate_path(path: Vec<(u16, u16)>, max_steps: usize) -> Vec<(u16, u16)>
     }
 }
 
+/// A path's cells and the movement layer of each cell, index-aligned.
+pub type LayeredPath = (Vec<(u16, u16)>, Vec<MovementLayer>);
+
 /// Truncate a layered path (coords + layers) to at most `max_steps` movement steps.
 pub fn truncate_layered_path(
     path: Vec<(u16, u16)>,
     layers: Vec<MovementLayer>,
     max_steps: usize,
-) -> (Vec<(u16, u16)>, Vec<MovementLayer>) {
+) -> LayeredPath {
     debug_assert_eq!(
         path.len(),
         layers.len(),
@@ -2713,7 +2703,6 @@ pub fn find_layered_path(
     .ok()
 }
 
-#[allow(clippy::too_many_arguments)]
 pub(crate) fn find_layered_path_marker(
     grid: &PathGrid,
     ground_blocks: Option<&BTreeSet<(u16, u16)>>,

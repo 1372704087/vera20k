@@ -257,7 +257,7 @@ mod tests {
 
         // Measure "Ready" — should be a reasonable width.
         let w = fnt.text_width("Ready");
-        assert!(w >= 15 && w <= 60, "Ready width = {}", w);
+        assert!((15..=60).contains(&w), "Ready width = {}", w);
     }
 
     #[test]

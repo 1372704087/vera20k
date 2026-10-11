@@ -75,15 +75,15 @@ impl ResolvedTerrainGrid {
         // scratch on every overlay change and keeps no separate blocked bit, so
         // neither value may outlive the land that produced it.
         let mut land_ground_blocked = terrain_cell.base_ground_walk_blocked;
-        if let Some(flags) = land_flags {
-            if let Some(land) = retained_overlay_land(flags, terrain_cell.slope_type) {
-                apply_overlay_land(terrain_cell, land, flags.land_speed_costs);
-                // The ramp exemption is a property of the tile, not the land row,
-                // so it survives the override exactly as it does in the pristine
-                // value baked into `base_ground_walk_blocked`.
-                land_ground_blocked =
-                    terrain_cell.canonical_ramp.is_none() && flags.land_ground_blocked;
-            }
+        if let Some(flags) = land_flags
+            && let Some(land) = retained_overlay_land(flags, terrain_cell.slope_type)
+        {
+            apply_overlay_land(terrain_cell, land, flags.land_speed_costs);
+            // The ramp exemption is a property of the tile, not the land row,
+            // so it survives the override exactly as it does in the pristine
+            // value baked into `base_ground_walk_blocked`.
+            land_ground_blocked =
+                terrain_cell.canonical_ramp.is_none() && flags.land_ground_blocked;
         }
 
         terrain_cell.overlay_blocks = new_blocks;

@@ -446,7 +446,9 @@ fn build_fields(format: &str, data: &[u8], archive: &str, name: &str, size: u32)
 /// Distinct RGB triplets in a palette's source bytes.
 fn unique_palette_colors(data: &[u8]) -> usize {
     let mut colors: Vec<[u8; 3]> = data
-        .chunks_exact(3)
+        .as_chunks::<3>()
+        .0
+        .iter()
         .take(PAL_ENTRY_COUNT)
         .map(|rgb| [rgb[0], rgb[1], rgb[2]])
         .collect();
@@ -936,7 +938,7 @@ mod tests {
         data.truncate(20);
         let fields = build_fields("shp", &data, "ra2.mix", "broken.shp", data.len() as u32);
         assert!(fields.parse_failed);
-        assert!(fields.map.get("w").is_none());
+        assert!(!fields.map.contains_key("w"));
         assert_eq!(
             fields.map.get("name").map(String::as_str),
             Some("broken.shp")

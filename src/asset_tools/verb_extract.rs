@@ -265,8 +265,7 @@ mod tests {
         std::fs::create_dir_all(&path).expect("temp collision directory");
 
         let err = prepare_target(&dir, &path, "rulesmd.ini")
-            .err()
-            .expect("a directory on the destination path is an error");
+            .expect_err("a directory on the destination path is an error");
         assert!(err.error.contains("is a directory"), "{}", err.error);
         let hint = err.hint.expect("the error names the flag that helps");
         assert!(hint.contains("--out"), "{hint}");

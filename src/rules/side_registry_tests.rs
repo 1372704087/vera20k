@@ -216,7 +216,7 @@ fn ordered_country_side_histories_match_original_and_survive_process_handoff() {
                 let side = country["side"].as_i64().unwrap();
                 assert_eq!(
                     rules.country_side_index(id),
-                    (side >= 0).then(|| SideIdx(side as u8)),
+                    (side >= 0).then_some(SideIdx(side as u8)),
                     "{context}: projected Country binding"
                 );
             }

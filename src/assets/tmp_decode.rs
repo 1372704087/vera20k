@@ -332,7 +332,6 @@ fn diamond_byte_count(tile_width: u32, tile_height: u32) -> Result<usize, AssetE
 ///
 /// Diamond rows expand from 4 pixels wide, growing by 4 each row until the
 /// midpoint, then shrinking back.
-#[allow(clippy::too_many_arguments)]
 fn unpack_diamond(
     data: &[u8],
     tile_width: u32,
@@ -344,7 +343,7 @@ fn unpack_diamond(
 ) -> Result<(), AssetError> {
     let buf_width: usize = usize::try_from(buf_width)
         .map_err(|_| invalid_tmp("Decoded tile width does not fit usize".to_string()))?;
-    if buf_width == 0 || buf.len() % buf_width != 0 {
+    if buf_width == 0 || !buf.len().is_multiple_of(buf_width) {
         return Err(invalid_tmp(format!(
             "Decoded pixel buffer length {} does not match width {}",
             buf.len(),
@@ -396,7 +395,6 @@ fn unpack_diamond(
 }
 
 /// Overlay covered extra colors after the diamond and carry matching depth.
-#[allow(clippy::too_many_arguments)]
 fn overlay_extra(
     extra_data: &[u8],
     extra_z_data: Option<&[u8]>,
@@ -412,7 +410,7 @@ fn overlay_extra(
 ) -> Result<(), AssetError> {
     let buf_width: usize = usize::try_from(buf_width)
         .map_err(|_| invalid_tmp("Decoded tile width does not fit usize".to_string()))?;
-    if buf_width == 0 || pixels.len() != depth.len() || pixels.len() % buf_width != 0 {
+    if buf_width == 0 || pixels.len() != depth.len() || !pixels.len().is_multiple_of(buf_width) {
         return Err(invalid_tmp(
             "Decoded color/depth buffers have inconsistent dimensions".to_string(),
         ));
@@ -498,7 +496,7 @@ mod tests {
         assert_eq!((tile.offset_x, tile.offset_y), (-2, -1));
         assert_eq!(&tile.pixels[0..2], &[70, 71]);
         assert_eq!(&tile.depth[0..2], &[201, 202]);
-        let diamond_first: usize = 1 * tile.pixel_width as usize + 4;
+        let diamond_first: usize = (tile.pixel_width as usize) + 4;
         assert_eq!(tile.pixels[diamond_first], 1);
         assert_eq!(tile.depth[diamond_first], 30);
     }

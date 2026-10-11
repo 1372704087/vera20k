@@ -229,7 +229,7 @@ pub fn producer_candidates_for_owner_category(
             ));
         }
     }
-    preferred_factories.sort_by(|a, b| a.0.cmp(&b.0));
+    preferred_factories.sort_by_key(|a| a.0);
     preferred_factories
 }
 

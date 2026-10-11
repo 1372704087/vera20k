@@ -98,7 +98,7 @@ impl BinkAudioDecoder {
 
         let frame_len = 1usize << frame_len_bits;
         let overlap_len = frame_len / 16;
-        let sample_rate_half = (sample_rate as u64 + 1) / 2;
+        let sample_rate_half = (sample_rate as u64).div_ceil(2);
 
         // Scaling factor differs by transform.
         let root = if use_dct {
@@ -109,8 +109,8 @@ impl BinkAudioDecoder {
 
         // Quantization table.
         let mut quant_table = [0f32; 96];
-        for i in 0..96 {
-            quant_table[i] = (i as f32 * 0.15289164787221953823f32).exp() * root;
+        for (i, q) in quant_table.iter_mut().enumerate() {
+            *q = (i as f32 * 0.152_891_65_f32).exp() * root;
         }
 
         // Number of bands.
@@ -269,10 +269,10 @@ impl BinkAudioDecoder {
 
         // Band quantizer indices (one byte per band).
         // Per binkaudio.c:201-204.
-        for i in 0..self.num_bands {
+        for q in &mut quant[..self.num_bands] {
             let value = gb.read_bits(8)? as usize;
             let clamped = value.min(95);
-            quant[i] = self.quant_table[clamped];
+            *q = self.quant_table[clamped];
         }
 
         // RLE-coded coefficient decode loop.
@@ -291,7 +291,7 @@ impl BinkAudioDecoder {
             };
             let j = j.min(self.frame_len);
 
-            let width = gb.read_bits(4)? as u32;
+            let width = gb.read_bits(4)?;
             if width == 0 {
                 // Zero-fill the run.
                 for slot in &mut self.coeffs[i..j] {
@@ -693,7 +693,7 @@ mod tests {
             }
             // Fill from i=2 to frame_len with zero-width runs.
             // Each run: bit 0 (no RLE escape), then 4-bit width=0, advances by 8 coefficients.
-            let runs = (d.frame_len - 2 + 7) / 8;
+            let runs = (d.frame_len - 2).div_ceil(8);
             for _ in 0..runs {
                 push(0, 1, &mut acc, &mut nbits, &mut bits); // no escape
                 push(0, 4, &mut acc, &mut nbits, &mut bits); // width = 0

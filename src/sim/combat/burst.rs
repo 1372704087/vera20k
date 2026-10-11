@@ -16,6 +16,29 @@ pub struct WeaponBurst {
     index: i32,
 }
 
+impl WeaponBurst {
+    pub(crate) fn index(self) -> i32 {
+        self.index
+    }
+
+    pub(crate) fn next_index(self) -> i32 {
+        self.index.wrapping_add(1)
+    }
+
+    /// Store 0: Assign_Target's null arm (`0x006FCF5B`) and a missile launch
+    /// that set the index to its slot's parity (`SpawnManagerClass::AI`,
+    /// `0x006B7585`).
+    pub(crate) fn reset(&mut self) {
+        self.index = 0;
+    }
+
+    pub(crate) fn complete_shot(&mut self, burst: i32) {
+        // Native faults on Burst=0. Aircraft never calls FireAt for that
+        // value; the ordinary caller retains its existing max(1) policy.
+        self.index = self.next_index().wrapping_rem(burst);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -266,28 +289,5 @@ mod tests {
             1,
             "same-target early exit precedes reset"
         );
-    }
-}
-
-impl WeaponBurst {
-    pub(crate) fn index(self) -> i32 {
-        self.index
-    }
-
-    pub(crate) fn next_index(self) -> i32 {
-        self.index.wrapping_add(1)
-    }
-
-    /// Store 0: Assign_Target's null arm (`0x006FCF5B`) and a missile launch
-    /// that set the index to its slot's parity (`SpawnManagerClass::AI`,
-    /// `0x006B7585`).
-    pub(crate) fn reset(&mut self) {
-        self.index = 0;
-    }
-
-    pub(crate) fn complete_shot(&mut self, burst: i32) {
-        // Native faults on Burst=0. Aircraft never calls FireAt for that
-        // value; the ordinary caller retains its existing max(1) policy.
-        self.index = self.next_index().wrapping_rem(burst);
     }
 }

@@ -614,7 +614,6 @@ fn tile_label(index: usize, tile: &TmpTile) -> String {
 
 /// Header lines above the composite. An agent that only looks at the image must
 /// still know which palette and which layout produced it.
-#[allow(clippy::too_many_arguments)]
 fn sheet_header(
     name: &str,
     source_archive: &str,
@@ -1240,7 +1239,7 @@ mod tests {
         assert_eq!(fit_scale(180, 90, 5), Some(5));
         // A large composite is reduced rather than refused.
         let fitted = fit_scale(4000, 4000, 16).unwrap();
-        assert!(fitted >= MIN_SCALE && fitted < 16, "{fitted}");
+        assert!((MIN_SCALE..16).contains(&fitted), "{fitted}");
         assert_eq!(fit_scale(60_000, 60_000, 1), None);
     }
 
@@ -1316,7 +1315,9 @@ mod tests {
 
         let lit = art
             .data
-            .chunks_exact(4)
+            .as_chunks::<4>()
+            .0
+            .iter()
             .filter(|px| px[0] == TILE_LABEL_COLOR[0] && px[1] == TILE_LABEL_COLOR[1])
             .count();
         assert!(lit > 0, "the on-canvas caption should light some pixels");

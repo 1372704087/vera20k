@@ -315,7 +315,6 @@ impl Simulation {
     /// compares equal only to another `None`. A member whose `Can_Enter_Cell`
     /// VERA cannot read (a retired receiver, a missing type or overlay registry)
     /// refuses the candidate with 7 and a warning; native has no such outcome.
-    #[allow(clippy::too_many_arguments)]
     fn group_destination_candidate_facts(
         &self,
         rules: &RuleSet,

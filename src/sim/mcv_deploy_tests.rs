@@ -265,7 +265,7 @@ fn facing_matches_original_drive_oracle() {
         serde_json::from_str(crate::test_fixture::text("tools/mcv_deploy_oracle.json")).unwrap();
     for row in vectors["turns"].as_array().unwrap() {
         let rate = row["rate"].as_u64().unwrap() as u16;
-        if rate % 256 != 0 {
+        if !rate.is_multiple_of(256) {
             continue;
         } // native sub-byte rates are outside rules ROT constructor
         let mut facing =

@@ -768,7 +768,7 @@ fn drive_ship_slope_production_spawn_unlimbo_snaps_without_manual_rocking_state(
         ("SHIP", (4, 2), 9, 104),
         ("TTRAIN", (6, 2), 12, 104),
     ] {
-        let mut sim = Simulation::with_seed(0x51_0f_e);
+        let mut sim = Simulation::with_seed(0x510fe);
         sim.session.binary_frame = 37;
         sim.playfield_bounds = Some(crate::sim::cell_rect::PlayfieldBounds {
             base: 0,
@@ -827,7 +827,7 @@ fn drive_ship_slope_production_spawn_unlimbo_snaps_without_manual_rocking_state(
 #[test]
 fn zero_speed_foot_drive_ship_payloads_survive_all_world_spawn_paths() {
     let rules = zero_speed_drive_ship_slope_rules();
-    let mut sim = Simulation::with_seed(0x51_0f_e);
+    let mut sim = Simulation::with_seed(0x510fe);
     sim.session.binary_frame = 71;
     sim.playfield_bounds = Some(crate::sim::cell_rect::PlayfieldBounds {
         base: 0,
@@ -943,7 +943,7 @@ fn zero_speed_foot_drive_ship_payloads_survive_all_world_spawn_paths() {
 
 #[test]
 fn drive_ship_slope_failed_reveal_does_not_snap_or_consume_rng() {
-    let mut sim = Simulation::with_seed(0x51_0f_e);
+    let mut sim = Simulation::with_seed(0x510fe);
     sim.session.binary_frame = 40;
     install_common_raw_terrain(&mut sim, 8, 8, 0, None);
     sim.resolved_terrain
@@ -6149,7 +6149,7 @@ fn terminal_type_zero_wave_with_empty_recorded_vector_has_no_damage_area_tail() 
     assert!(sim.object_ai_visit_one(wave_id, Some(&rules), ObjectAiCtx::default()));
 
     assert_eq!(sim.scenario_rng.logical_state(), expected_rng);
-    assert!(sim.active_wave_links.get(&firer_id).is_none());
+    assert!(!sim.active_wave_links.contains_key(&firer_id));
     assert!(sim.pending_wave_damage_requests.is_empty());
     assert!(sim.dynamic_terrain_cells.is_empty());
     assert!(sim.radar_terrain_dirty_cells.is_empty());
@@ -6359,16 +6359,14 @@ fn wave_walks_nonbuilding_terrain_building_order_and_terrain_owns_wood_gate() {
             .collect::<Vec<_>>();
         (
             selected,
-            i32::from(sim.substrate.entities.get(unit_id).unwrap().health.current),
+            sim.substrate.entities.get(unit_id).unwrap().health.current,
             sim.production.terrain_objects[&terrain_id].health,
-            i32::from(
-                sim.substrate
-                    .entities
-                    .get(building_id)
-                    .unwrap()
-                    .health
-                    .current,
-            ),
+            sim.substrate
+                .entities
+                .get(building_id)
+                .unwrap()
+                .health
+                .current,
         )
     }
 

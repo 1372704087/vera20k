@@ -493,7 +493,9 @@ mod tests {
     fn assert_native_rng(rng: &crate::sim::rng::SimRng, hex: &str) {
         let bytes: Vec<u8> = hex
             .as_bytes()
-            .chunks_exact(2)
+            .as_chunks::<2>()
+            .0
+            .iter()
             .map(|pair| u8::from_str_radix(std::str::from_utf8(pair).unwrap(), 16).unwrap())
             .collect();
         let word = |offset| u32::from_le_bytes(bytes[offset..offset + 4].try_into().unwrap());
@@ -715,7 +717,6 @@ mod tests {
 /// request reads it. Pre-head CanEnter75B690 remains the caller's
 /// responsibility.
 #[cfg(test)]
-#[allow(clippy::too_many_arguments)]
 pub(super) fn prepare_step_head(
     entities: &mut crate::sim::entity_store::EntityStore,
     id: u64,
@@ -768,7 +769,6 @@ pub(super) enum StepHead {
 /// priority/subcell/raw-occupation owner, up to the stored head: the crate
 /// question (`CellClass::PickupCrate @ 0x00481A00` at `0x0075C56C`) and the
 /// Mark tail follow in the caller and [`commit_walk_head`].
-#[allow(clippy::too_many_arguments)]
 pub(super) fn select_step_head_at(
     entities: &mut crate::sim::entity_store::EntityStore,
     id: u64,
@@ -959,7 +959,6 @@ pub(super) fn commit_walk_head(
 /// head: the test adapters' complete chooser. Production asks the crate
 /// question between the two (`walk_admission`).
 #[cfg(test)]
-#[allow(clippy::too_many_arguments)]
 pub(super) fn prepare_step_head_at(
     entities: &mut crate::sim::entity_store::EntityStore,
     id: u64,

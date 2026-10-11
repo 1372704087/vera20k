@@ -24,7 +24,10 @@ fn generated_frames_match_the_original() {
     let frames = RippleFrames::generate(TrigTable::embedded());
     let rows = native["frames"].as_array().unwrap();
     assert_eq!(rows.len(), FRAME_COUNT);
-    let frames = frames.bytes().chunks_exact(FRAME_WIDTH * FRAME_HEIGHT);
+    let frames = frames
+        .bytes()
+        .as_chunks::<{ FRAME_WIDTH * FRAME_HEIGHT }>()
+        .0;
     for (n, (row, frame)) in rows.iter().zip(frames).enumerate() {
         let digest = format!("{:#018x}", fnv1a64_fold_bytes(FNV1A64_OFFSET_BASIS, frame));
         let written = frame.iter().filter(|&&byte| byte != 0xff).count();

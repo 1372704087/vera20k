@@ -132,7 +132,6 @@ fn scan_building_anim_frame_count(
 /// their damaged or garrisoned variants) for one house colour. `scanned`
 /// holds the counts this build has read, so each animation's SHP header is
 /// read once per build.
-#[allow(clippy::too_many_arguments)]
 fn register_building_anim(
     needed: &mut HashSet<ShpSpriteKey>,
     scanned: &mut HashMap<String, u16>,
@@ -1124,7 +1123,6 @@ fn infantry_asset_frames(
 /// Return decoded Infantry sources for the render pass to consume, so every
 /// type is decoded whole once and its frame membership is computed once per refresh,
 /// independently of the number of entities or house colours.
-#[allow(clippy::too_many_arguments)]
 fn insert_new_object_keys<'a>(
     needed: &mut HashSet<ShpSpriteKey>,
     new_objects: &HashSet<(String, HouseColorIndex)>,
@@ -1982,7 +1980,6 @@ fn load_shp_source<'a>(
 
 /// Load and render a single SHP sprite, with the RGBA its indices resolve to.
 #[cfg(test)]
-#[allow(clippy::too_many_arguments)]
 fn render_shp_sprite<'a>(
     asset_manager: &'a AssetManager,
     palette: &Palette,

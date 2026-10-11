@@ -123,7 +123,7 @@ pub fn run(
                     .cmp(&b.name.to_ascii_lowercase())
             })
         }),
-        SortKey::Size => rows.sort_by(|a, b| b.size.cmp(&a.size)),
+        SortKey::Size => rows.sort_by_key(|row| std::cmp::Reverse(row.size)),
         SortKey::Hash => rows.sort_by(|a, b| a.entry_id.cmp(&b.entry_id)),
     }
 

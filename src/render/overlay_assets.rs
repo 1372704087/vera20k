@@ -75,10 +75,10 @@ pub fn resolve_overlay_name_for_render(
         let shifted = overlay_id as isize + offset;
         if (0..=u8::MAX as isize).contains(&shifted) {
             let shifted_id = shifted as u8;
-            if let Some(candidate) = reg.name(shifted_id) {
-                if is_resource_overlay_name(candidate) {
-                    resolved_id = shifted_id;
-                }
+            if let Some(candidate) = reg.name(shifted_id)
+                && is_resource_overlay_name(candidate)
+            {
+                resolved_id = shifted_id;
             }
         }
     }

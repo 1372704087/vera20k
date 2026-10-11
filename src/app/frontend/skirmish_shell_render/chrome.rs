@@ -656,16 +656,14 @@ pub(super) fn push_right_panel_base_instances(
             );
         }
     }
-    if overlay_frame10_active {
-        if let Some(overlay) = atlas.right_panel_overlay_sdbtnanm_frame10 {
-            for row in 0..layout.right_panel.tile_count {
-                push_entry(
-                    out,
-                    overlay,
-                    right_panel_overlay_rect(layout, row, overlay),
-                    RIGHT_PANEL_OVERLAY_DEPTH,
-                );
-            }
+    if overlay_frame10_active && let Some(overlay) = atlas.right_panel_overlay_sdbtnanm_frame10 {
+        for row in 0..layout.right_panel.tile_count {
+            push_entry(
+                out,
+                overlay,
+                right_panel_overlay_rect(layout, row, overlay),
+                RIGHT_PANEL_OVERLAY_DEPTH,
+            );
         }
     }
     if let Some(bottom) = atlas.right_panel_bottom_sdbtm {
@@ -699,25 +697,25 @@ pub(super) fn push_steady_optional_chrome_instances(
     layout: &SkirmishShellLayout,
     profile: ShellDialogChromeProfile,
 ) {
-    if profile.draws_top_highlight() {
-        if let Some(top_highlight) = atlas.right_panel_top_highlight_sdtp_frame1 {
-            push_entry(
-                out,
-                top_highlight,
-                layout.right_panel.top,
-                SHELL_LOWER_STRIP_DEPTH - 0.00001,
-            );
-        }
+    if profile.draws_top_highlight()
+        && let Some(top_highlight) = atlas.right_panel_top_highlight_sdtp_frame1
+    {
+        push_entry(
+            out,
+            top_highlight,
+            layout.right_panel.top,
+            SHELL_LOWER_STRIP_DEPTH - 0.00001,
+        );
     }
-    if profile.draws_map_button() {
-        if let Some(sdmpbtn) = atlas.sd_map_button {
-            push_entry(
-                out,
-                sdmpbtn,
-                sdmpbtn_rect(layout, sdmpbtn),
-                SHELL_LOWER_STRIP_DEPTH - 0.00002,
-            );
-        }
+    if profile.draws_map_button()
+        && let Some(sdmpbtn) = atlas.sd_map_button
+    {
+        push_entry(
+            out,
+            sdmpbtn,
+            sdmpbtn_rect(layout, sdmpbtn),
+            SHELL_LOWER_STRIP_DEPTH - 0.00002,
+        );
     }
 }
 

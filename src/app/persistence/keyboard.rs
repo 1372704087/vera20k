@@ -18,10 +18,10 @@ pub(crate) fn save(root: &Path, bindings: &HotkeyBindings) -> std::io::Result<()
 }
 pub(crate) fn reset(root: &Path, archive: Option<&[u8]>) -> HotkeyBindings {
     // Native delete failure has no dialog: reload whatever file remains.
-    if let Err(error) = std::fs::remove_file(path(root)) {
-        if error.kind() != std::io::ErrorKind::NotFound {
-            log::warn!("Could not reset KeyboardMD.ini: {error}");
-        }
+    if let Err(error) = std::fs::remove_file(path(root))
+        && error.kind() != std::io::ErrorKind::NotFound
+    {
+        log::warn!("Could not reset KeyboardMD.ini: {error}");
     }
     reload(root, archive)
 }

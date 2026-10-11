@@ -737,7 +737,7 @@ where
         return Ok(AppLaunchMode::Interactive);
     };
     ensure!(
-        first == OsString::from(CAPTURE_FLAG),
+        first == CAPTURE_FLAG,
         "unknown argument {:?}; ordinary VERA20k launch takes no arguments",
         first
     );

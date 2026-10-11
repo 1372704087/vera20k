@@ -787,7 +787,7 @@ fn native_step(history_id: &str, command: &str, occurrence: usize) -> &'static s
         .iter()
         .find(|row| row["id"].as_str() == Some(history_id))
         .unwrap_or_else(|| panic!("native ready-building history {history_id}"));
-    &history["steps"]
+    history["steps"]
         .as_array()
         .unwrap()
         .iter()

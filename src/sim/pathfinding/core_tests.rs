@@ -445,7 +445,8 @@ fn test_path_step_count_chebyshev_open_grid() {
     // count from (sx,sy) to (gx,gy) on an open grid is max(|dx|, |dy|).
     // Path length includes the start cell, so it equals chebyshev + 1.
     let grid: PathGrid = PathGrid::new(20, 20);
-    let cases: &[((u16, u16), (u16, u16), usize)] = &[
+    type Case = ((u16, u16), (u16, u16), usize);
+    let cases: &[Case] = &[
         ((0, 0), (5, 0), 6),    // pure cardinal: 5 E steps -> 6 cells
         ((0, 0), (0, 7), 8),    // pure cardinal: 7 S steps -> 8 cells
         ((0, 0), (4, 4), 5),    // pure diagonal: 4 SE steps -> 5 cells

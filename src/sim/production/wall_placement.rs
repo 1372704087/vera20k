@@ -38,7 +38,6 @@ pub(super) fn linked_overlay_id(
 /// in nearest-to-click order. Rust stores GuardRange in I16F16 cells, so
 /// integer conversion is the equivalent of native's signed fixed-point shift
 /// by 8.
-#[allow(clippy::too_many_arguments)]
 fn scan_autofill_direction(
     sim: &Simulation,
     rules: &RuleSet,
@@ -204,7 +203,6 @@ pub(super) fn stamp_wall(
     true
 }
 
-#[allow(clippy::too_many_arguments)]
 fn stamp_wall_transaction(
     grid: &mut crate::sim::overlay_grid::OverlayGrid,
     registry: &OverlayTypeRegistry,

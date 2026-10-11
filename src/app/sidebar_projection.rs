@@ -505,10 +505,7 @@ pub(crate) fn prepare_saved_order(
 /// the list holds fewer than two names (`CreditsClass::Draw @ 0x004A2505`:
 /// `CMP [Rules+0x6dc],2 / JL skip`). Index 0 while counting up, 1 while
 /// counting down (`0x004A2520`/`0x004A252A`).
-pub(crate) fn credit_tick_sound<'a>(
-    credit_ticks: &'a [String],
-    tick: CreditTick,
-) -> Option<&'a str> {
+pub(crate) fn credit_tick_sound(credit_ticks: &[String], tick: CreditTick) -> Option<&str> {
     if credit_ticks.len() < 2 {
         return None;
     }

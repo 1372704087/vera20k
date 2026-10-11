@@ -170,7 +170,6 @@ impl MiddleMarkSink for GridMarks<'_, '_, '_, '_> {
 
 /// Middle's marks at `coord` (the anim's vt+0x48 coordinate) on the world's
 /// smudge grid.
-#[allow(clippy::too_many_arguments)]
 pub(crate) fn dispatch_anim_middle_marks(
     marks: &AnimMiddleMarks,
     coord: SimCoord,
@@ -217,7 +216,6 @@ fn rng_below_half_normalized(rng: &mut SimRng) -> bool {
 /// Native execution: `tools/spatial_oracle/smudge_can_place.py`
 /// (`centre_mark`, all 22 foundations) and, on retail Dustbowl through the
 /// production receiver, `building_death_anims.py`.
-#[allow(clippy::too_many_arguments)]
 pub(crate) fn try_dispatch_building_destruction_smudges(
     rx: u16,
     ry: u16,
@@ -309,7 +307,6 @@ fn survivor_smudge_cell_passable(
 /// One producer-ordered SpawnSurvivors cell: a passable cell rolls a scorch
 /// or crater at the native magnitude0x80 offset. Its constructor/UnInit must
 /// finish before the producer advances to another cell or RNG draw.
-#[allow(clippy::too_many_arguments)]
 fn try_dispatch_building_survivor_smudge(
     cell_rx: u16,
     cell_ry: u16,
@@ -375,7 +372,6 @@ fn try_dispatch_building_survivor_smudge(
 }
 
 /// Commit one producer-ordered request before returning to its native caller.
-#[allow(clippy::too_many_arguments)]
 pub(crate) fn dispatch_smudge_request(
     req: &SmudgeSpawnRequest,
     art: &ArtRegistry,

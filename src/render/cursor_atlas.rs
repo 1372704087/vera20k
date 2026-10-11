@@ -608,7 +608,7 @@ fn maybe_export_mouse_sheet(shp: &ShpFile, palette: &Palette) {
 
     let max_frames = shp.frames.len();
     let cols = 10u32;
-    let rows = ((max_frames as u32) + cols - 1) / cols;
+    let rows = (max_frames as u32).div_ceil(cols);
     let cell_w = shp.width as u32;
     let cell_h = shp.height as u32;
     let sheet_w = cols * cell_w;

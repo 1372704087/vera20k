@@ -330,7 +330,7 @@ fn idle_wait_frames(frequency: f64, fraction: u32) -> u32 {
 fn idle_action_for_roll(roll: u32) -> IdleAction {
     match roll {
         1 | 2 | 7 => IdleAction::Fidget2,
-        3 | 4 | 5 => IdleAction::Fidget1,
+        3..=5 => IdleAction::Fidget1,
         6 | 8..=IDLE_ROLL_MAX => IdleAction::TurnInPlace,
         _ => IdleAction::Nothing,
     }
@@ -1298,7 +1298,9 @@ mod tests {
         let bits = |hex: &str| {
             let bytes: Vec<_> = hex
                 .as_bytes()
-                .chunks_exact(2)
+                .as_chunks::<2>()
+                .0
+                .iter()
                 .map(|pair| u8::from_str_radix(std::str::from_utf8(pair).unwrap(), 16).unwrap())
                 .collect();
             f64::from_le_bytes(bytes.try_into().unwrap())

@@ -161,10 +161,7 @@ impl NativeReplayHeader {
     /// Replace the native C-string buffer, truncating to leave a NUL byte.
     pub fn set_scenario_name(&mut self, name: &str) {
         self.scenario_name.fill(0);
-        let len = name
-            .as_bytes()
-            .len()
-            .min(NATIVE_REPLAY_SCENARIO_NAME_LEN - 1);
+        let len = name.len().min(NATIVE_REPLAY_SCENARIO_NAME_LEN - 1);
         self.scenario_name[..len].copy_from_slice(&name.as_bytes()[..len]);
     }
 
@@ -816,7 +813,6 @@ impl ReplayRunner {
     /// recorded map. Overlay-backed simulation authority (including miner
     /// resource queries) must see the same registry on record and replay.
     #[cfg(test)]
-    #[allow(clippy::too_many_arguments)]
     pub(crate) fn run_fixture_with_overlay_registry(
         sim: &mut Simulation,
         replay: &ReplayLog,
@@ -841,7 +837,6 @@ impl ReplayRunner {
     /// logs own commands and hashes. Production replay execution is
     /// `run_runtime`.
     #[cfg(test)]
-    #[allow(clippy::too_many_arguments)]
     pub(crate) fn run_fixture_master_frame(
         sim: &mut Simulation,
         replay: &ReplayLog,
@@ -1118,9 +1113,11 @@ mod tests {
             .unwrap();
         assert_eq!(playback.state, (77, 0x1234_5678, "arena.map".to_owned()));
 
-        let mut initialized = NativeReplayHeader::default();
-        initialized.version = 0x1122_3344;
-        initialized.seed = 0xaabb_ccdd;
+        let initialized = NativeReplayHeader {
+            version: 0x1122_3344,
+            seed: 0xaabb_ccdd,
+            ..Default::default()
+        };
         let partial = [0xaa, 0xbb];
         let playback = NativeReplayStream::initialize(&partial, initialized, |loaded| {
             Ok::<_, ()>((loaded.version, loaded.seed))
@@ -1564,7 +1561,7 @@ mod tests {
 
         let due = sim.take_due_replay_commands([place.clone(), future.clone()]);
 
-        assert_eq!(due, [place.clone()]);
+        assert_eq!(due, std::slice::from_ref(&place));
         assert_eq!(
             sim.pending_command_snapshot(),
             &[unrelated, place, future],

@@ -673,7 +673,7 @@ fn move_order_cancels_a_running_unload() {
             break;
         }
     }
-    assert!(out >= 2 && out < 5, "unload in progress ({out} out)");
+    assert!((2..5).contains(&out), "unload in progress ({out} out)");
 
     assert!(fx.apply(Command::Move {
         entity_id: bfrt,
@@ -795,7 +795,8 @@ fn nighthawk_ejects_five_passengers_to_scanned_neighbours() {
     assert!(fx.apply(Command::UnloadPassengers { transport_id: shad }));
 
     // (id, reveal frame, mission, destination) captured the tick each surfaces.
-    let mut out: Vec<(u64, u32, MissionId, Option<(u16, u16)>)> = Vec::new();
+    type Surfaced = (u64, u32, MissionId, Option<(u16, u16)>);
+    let mut out: Vec<Surfaced> = Vec::new();
     for _ in 0..200 {
         fx.tick();
         for &id in &pax {

@@ -30,13 +30,15 @@ mod sound_boundary_tests;
 /// Limbo6F6C6B similarly release at their reached boundaries. No callback or
 /// simulation reference survives this scope.
 /// Source: `tools/input_oracle/gattling_loop.json` and its native harness.
+type RadarAdmission<'a> =
+    dyn FnMut(crate::sim::radar::RadarEventRequest, u64, &RuleSet) -> bool + 'a;
+
 pub(crate) struct FrameSoundBoundary<'a> {
     delivered: Cell<usize>,
     playback: RefCell<Option<(&'a mut SfxPlayer, SoundPlaybackInputs<'a>)>>,
     local_owner: Option<&'a str>,
     output: RefCell<&'a mut SoundEventQueue>,
-    admit_radar:
-        RefCell<&'a mut dyn FnMut(crate::sim::radar::RadarEventRequest, u64, &RuleSet) -> bool>,
+    admit_radar: RefCell<&'a mut RadarAdmission<'a>>,
 }
 
 impl<'a> FrameSoundBoundary<'a> {
@@ -44,7 +46,7 @@ impl<'a> FrameSoundBoundary<'a> {
         playback: Option<(&'a mut SfxPlayer, SoundPlaybackInputs<'a>)>,
         local_owner: Option<&'a str>,
         output: &'a mut SoundEventQueue,
-        admit_radar: &'a mut dyn FnMut(crate::sim::radar::RadarEventRequest, u64, &RuleSet) -> bool,
+        admit_radar: &'a mut RadarAdmission<'a>,
     ) -> Self {
         Self {
             delivered: Cell::new(0),
@@ -626,7 +628,7 @@ pub(super) fn dispatch_sim_sound_events(
                 // admitted it. A second owner filter here would incorrectly
                 // suppress mode-0 PlayerControl output.
                 let eva_event = radar
-                    .is_some_and(|request| admit_radar(request))
+                    .is_some_and(&mut *admit_radar)
                     .then(|| "EVA_BridgeRepaired".to_string());
                 if sound_id.is_empty() && eva_event.is_none() {
                     continue;
@@ -772,8 +774,8 @@ pub(super) fn dispatch_sim_sound_events(
                 // `0x00448477 CreateRadarEvent(10)` is reached only past the
                 // old-or-new-owner `0x0050B6F0` tests (`0x004483C6`,
                 // `0x004483D1`; flag read at `0x004483EF`).
-                let radar_accepted = (local_is_old || local_is_new)
-                    && radar.is_some_and(|request| admit_radar(request));
+                let radar_accepted =
+                    (local_is_old || local_is_new) && radar.is_some_and(&mut *admit_radar);
                 let capture_event = capture_eva_event.map(|id| sim.interner.resolve(id));
                 for event in eva_producers::capture_eva_events(
                     tech_building,
@@ -1121,8 +1123,8 @@ pub(super) fn super_weapon_messages(
 }
 
 /// The sound source of a flat cell event. Native `VocClass::PlayAt`
-/// callers pass an object or cell coordinate — the cell centre `(cell << 8)
-/// + 0x80` — so the projected point is the cell's diamond centre, not the
+/// callers pass an object or cell coordinate — the cell centre
+/// `(cell << 8) + 0x80` — so the projected point is the cell's diamond centre, not the
 /// tile's north-west corner.
 fn sound_source_at_cell(rx: u16, ry: u16) -> SoundSource {
     let screen = crate::app::input::camera::cell_centre_world_point(rx, ry, 0);
@@ -1940,13 +1942,14 @@ mod tests {
     fn stock_audio_visual() -> crate::rules::ruleset::GeneralRules {
         // The parse of each key from stock `[AudioVisual]` text is pinned in
         // `rules::ruleset::tests::superweapon_activate_sounds_parse_their_stock_values`.
-        let mut general = crate::rules::ruleset::GeneralRules::default();
-        general.psychic_dominator_activate_sound = Some("PsychicDominatorActivate".to_string());
-        general.genetic_mutator_activate_sound = Some("GeneticMutatorActivate".to_string());
-        general.psychic_reveal_activate_sound = Some("PsychicRevealActivate".to_string());
-        general.dig_sound = Some("NukeSiren".to_string());
-        general.storm_sound = Some("WeatherIntro".to_string());
-        general
+        crate::rules::ruleset::GeneralRules {
+            psychic_dominator_activate_sound: Some("PsychicDominatorActivate".to_string()),
+            genetic_mutator_activate_sound: Some("GeneticMutatorActivate".to_string()),
+            psychic_reveal_activate_sound: Some("PsychicRevealActivate".to_string()),
+            dig_sound: Some("NukeSiren".to_string()),
+            storm_sound: Some("WeatherIntro".to_string()),
+            ..Default::default()
+        }
     }
 
     /// The whole `SuperClass::Launch @ 0x006CC390` cue table, one row per

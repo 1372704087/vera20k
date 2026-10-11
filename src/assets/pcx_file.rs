@@ -83,7 +83,7 @@ impl PcxFile {
     pub fn to_rgba(&self, transparent_index: Option<u8>) -> Vec<u8> {
         if self.is_direct_rgb() {
             let mut rgba = Vec::with_capacity(self.pixels.len() / 3 * 4);
-            for rgb in self.pixels.chunks_exact(3) {
+            for rgb in self.pixels.as_chunks::<3>().0 {
                 rgba.extend_from_slice(&[rgb[0], rgb[1], rgb[2], 255]);
             }
             return rgba;
@@ -106,8 +106,8 @@ impl PcxFile {
     pub fn to_rgba_with_color_key(&self, transparent_rgb: [u8; 3]) -> Vec<u8> {
         if self.is_direct_rgb() {
             let mut rgba = Vec::with_capacity(self.pixels.len() / 3 * 4);
-            for rgb in self.pixels.chunks_exact(3) {
-                let a = if rgb == transparent_rgb { 0 } else { 255 };
+            for rgb in self.pixels.as_chunks::<3>().0 {
+                let a = if *rgb == transparent_rgb { 0 } else { 255 };
                 rgba.extend_from_slice(&[rgb[0], rgb[1], rgb[2], a]);
             }
             return rgba;
@@ -212,7 +212,7 @@ fn decode_pcx_rle(encoded: &[u8], expected_scan: usize) -> Result<Vec<u8>, Asset
             let count = (byte & 0x3F) as usize;
             let value = encoded[i];
             i += 1;
-            scan.extend(std::iter::repeat(value).take(count));
+            scan.extend(std::iter::repeat_n(value, count));
         } else {
             scan.push(byte);
         }

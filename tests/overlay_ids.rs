@@ -78,22 +78,22 @@ fn print_overlay_id_mapping_for_dustbowl() {
     println!("\nResource-like overlay IDs (TIB/GEM):");
     let mut found_any = false;
     for (id, count) in &by_count {
-        if let Some(name) = reg.name(*id) {
-            if name.starts_with("TIB") || name.starts_with("GEM") {
-                found_any = true;
-                println!("  id={:3} count={:4} name={}", id, count, name);
-                if let Some(sec) = rules_ini.section(name) {
-                    let tib_type = sec.read_name("TiberiumType", 0x80).unwrap_or("(none)");
-                    let image = sec.read_name("Image", 0x80).unwrap_or("(none)");
-                    let tib_flag = sec.read_name("Tiberium", 0x80).unwrap_or("(none)");
-                    println!(
-                        "    [{}] Tiberium={} TiberiumType={} Image={}",
-                        name, tib_flag, tib_type, image
-                    );
-                    if let Some(tib_sec) = rules_ini.section(tib_type) {
-                        let color = tib_sec.read_name("Color", 0x80).unwrap_or("(none)");
-                        println!("    [{}] Color={}", tib_type, color);
-                    }
+        if let Some(name) = reg.name(*id)
+            && (name.starts_with("TIB") || name.starts_with("GEM"))
+        {
+            found_any = true;
+            println!("  id={:3} count={:4} name={}", id, count, name);
+            if let Some(sec) = rules_ini.section(name) {
+                let tib_type = sec.read_name("TiberiumType", 0x80).unwrap_or("(none)");
+                let image = sec.read_name("Image", 0x80).unwrap_or("(none)");
+                let tib_flag = sec.read_name("Tiberium", 0x80).unwrap_or("(none)");
+                println!(
+                    "    [{}] Tiberium={} TiberiumType={} Image={}",
+                    name, tib_flag, tib_type, image
+                );
+                if let Some(tib_sec) = rules_ini.section(tib_type) {
+                    let color = tib_sec.read_name("Color", 0x80).unwrap_or("(none)");
+                    println!("    [{}] Color={}", tib_type, color);
                 }
             }
         }
@@ -120,7 +120,7 @@ fn print_overlay_id_mapping_for_dustbowl() {
 
     if !tib_frames.is_empty() {
         let mut frames: Vec<(u8, u32)> = tib_frames.into_iter().collect();
-        frames.sort_by(|a, b| a.0.cmp(&b.0));
+        frames.sort_by_key(|a| a.0);
         println!("\nFrame histogram for overlay id=168 (TIB3_20):");
         for (frame, count) in frames {
             println!("  frame={:3} count={}", frame, count);
@@ -220,7 +220,7 @@ fn inspect_tib20_frames() {
                     let mut sum_r: u64 = 0;
                     let mut sum_g: u64 = 0;
                     let mut sum_b: u64 = 0;
-                    for px in rgba.chunks_exact(4) {
+                    for px in rgba.as_chunks::<4>().0 {
                         if px[3] > 0 {
                             non_transparent += 1;
                             sum_r += px[0] as u64;
@@ -814,7 +814,7 @@ fn inspect_pips_shp() {
                                 }
                             }
                             let mut top: Vec<(u8, usize)> = idx_counts.into_iter().collect();
-                            top.sort_by(|a, b| b.1.cmp(&a.1));
+                            top.sort_by_key(|&(_, count)| std::cmp::Reverse(count));
                             top.truncate(5);
                             // Show palette colors for the top indices.
                             let color_info: String = if let Some(ref p) = pal {

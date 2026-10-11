@@ -110,7 +110,7 @@ fn ready_and_place(
         rules,
         owner,
         ProductionPlacement::Building {
-            type_id: type_id,
+            type_id,
             cell: (rx, ry)
         },
         None,
@@ -3759,10 +3759,10 @@ fn sell_player_built_garrisoned_building_demolishes_and_ejects_alive() {
         open_topped: false,
     };
     sim.substrate.entities.insert(pax);
-    if let Some(t) = sim.substrate.entities.get_mut(30) {
-        if let Some(c) = t.passenger_role.cargo_mut() {
-            c.board(31, 1);
-        }
+    if let Some(t) = sim.substrate.entities.get_mut(30)
+        && let Some(c) = t.passenger_role.cargo_mut()
+    {
+        c.board(31, 1);
     }
     // Accepted Building AddOccupant52298D refreshes after the append.
     sim.refresh_spatial_threat(30, &rules, None);

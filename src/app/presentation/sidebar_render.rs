@@ -339,7 +339,7 @@ pub(crate) fn is_cursor_over_minimap(state: &AppState) -> bool {
         .match_presentation
         .radar_anim
         .as_ref()
-        .map_or(true, |ra| ra.is_minimap_visible());
+        .is_none_or(|ra| ra.is_minimap_visible());
     if !minimap_visible {
         return false;
     }

@@ -150,10 +150,10 @@ pub fn seek_to_frame(app: &mut BikPlayerApp, target: usize) -> Result<(), String
         for i in kf..=target {
             if let Ok(pkts) = file.audio_packets(i) {
                 for ap in pkts {
-                    if ap.track_index == 0 {
-                        if let Ok(samples) = adec.decode_packet(ap.bytes) {
-                            sink.push(&samples);
-                        }
+                    if ap.track_index == 0
+                        && let Ok(samples) = adec.decode_packet(ap.bytes)
+                    {
+                        sink.push(&samples);
                     }
                 }
             }

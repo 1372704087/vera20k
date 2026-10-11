@@ -79,7 +79,6 @@ struct RallyCellClick {
 
 /// Original4438B8..44395C literal caller arguments, using the existing
 /// Map56D230 zone and Map56DC20 FNPC owners rather than a second path search.
-#[allow(clippy::too_many_arguments)]
 fn resolve_rally_cell_click(
     cells: &NativeCellQuery<'_>,
     zones: &ZoneGrid,

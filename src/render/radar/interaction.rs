@@ -346,7 +346,7 @@ mod tests {
     }
 
     fn click_terrain(width: u16, height: u16) -> crate::map::resolved_terrain::ResolvedTerrainGrid {
-        crate::map::resolved_terrain::test_grid(width, height, |rx, ry| terrain_cell(rx, ry))
+        crate::map::resolved_terrain::test_grid(width, height, terrain_cell)
     }
 
     #[test]

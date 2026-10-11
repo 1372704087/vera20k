@@ -228,15 +228,15 @@ impl ConcreteMissionEffects for RepresentedConcreteMissionEffects<'_> {
                 // this does not stamp the shared dummy during preflight.
                 return Err(AuthorityUnavailable::DestinationSetter(receiver));
             }
-            if sim.infantry_setter_receiver(receiver, destination, rules) {
-                if !sim.infantry_destination_inputs_available(
+            if sim.infantry_setter_receiver(receiver, destination, rules)
+                && !sim.infantry_destination_inputs_available(
                     receiver,
                     destination,
                     rules,
                     self.overlay_registry,
-                ) {
-                    return Err(AuthorityUnavailable::DestinationSetter(receiver));
-                }
+                )
+            {
+                return Err(AuthorityUnavailable::DestinationSetter(receiver));
             }
         }
         Ok(RepresentedPrepared { receiver })

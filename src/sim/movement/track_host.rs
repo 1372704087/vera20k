@@ -388,12 +388,11 @@ impl Simulation {
                 // Native clears Head_To and selector before target+4C, then
                 // queries the owner's physical cell and fresh +4C height.
                 let reached = self.track_reached_destination(id, family, rules)?;
-                if let Some(entity) = self.substrate.entities.get_mut(id) {
-                    if reached {
-                        if let Some(loco) = entity.locomotor.as_mut() {
-                            loco.store_track_destination(family, None);
-                        }
-                    }
+                if let Some(entity) = self.substrate.entities.get_mut(id)
+                    && reached
+                    && let Some(loco) = entity.locomotor.as_mut()
+                {
+                    loco.store_track_destination(family, None);
                 }
                 // Retire only the completed order adapter before PerCell. The
                 // native terminal tail has no legacy finalizer/body-turn reset;
@@ -435,13 +434,11 @@ impl Simulation {
                         }
                     }
                 }
-                if !reached {
-                    if let Some(entity) = self.substrate.entities.get_mut(id) {
-                        if entity.movement_target.is_none() {
-                            entity.navigation.pending_arrival_clear =
-                                entity.navigation.nav_com.is_some();
-                        }
-                    }
+                if !reached
+                    && let Some(entity) = self.substrate.entities.get_mut(id)
+                    && entity.movement_target.is_none()
+                {
+                    entity.navigation.pending_arrival_clear = entity.navigation.nav_com.is_some();
                 }
                 if self.track_navigation_gate(id, rules, effects) {
                     return Ok(TrackPass::aborted(moved));
@@ -547,8 +544,9 @@ impl Simulation {
             let Some((live, _, _)) = self.track_state(id, family) else {
                 return Ok(TrackPass::paid(moved));
             };
-            if chain_allowed && call.is_at_chain_cursor(&live) {
-                if self.track_try_chain(
+            if chain_allowed
+                && call.is_at_chain_cursor(&live)
+                && self.track_try_chain(
                     id,
                     family,
                     &mut call,
@@ -557,11 +555,11 @@ impl Simulation {
                     registry,
                     observe,
                     effects,
-                )? {
-                    chain_allowed = false;
-                    if !self.track_survives(id) {
-                        return Ok(TrackPass::paid(moved));
-                    }
+                )?
+            {
+                chain_allowed = false;
+                if !self.track_survives(id) {
+                    return Ok(TrackPass::paid(moved));
                 }
             }
             let Some(entity) = self.substrate.entities.get_mut(id) else {
@@ -681,16 +679,15 @@ impl Simulation {
                 ry: at.1,
                 layer,
             };
-            if let Some(entity) = self.substrate.entities.get_mut(id) {
-                if let Some(loco) = entity.locomotor.as_mut() {
-                    loco.forget_track_occupation(mark);
-                }
+            if let Some(entity) = self.substrate.entities.get_mut(id)
+                && let Some(loco) = entity.locomotor.as_mut()
+            {
+                loco.forget_track_occupation(mark);
             }
         }
         layer
     }
 
-    #[allow(clippy::too_many_arguments)]
     fn track_place(
         &mut self,
         id: u64,
@@ -733,43 +730,39 @@ impl Simulation {
             // Crossing uses actual current cell; this predicate instead uses
             // the previous transformed cached point (or current at cursor0).
             let grid = self.path_grid.as_deref();
-            if let Some(entity) = self.substrate.entities.get_mut(id) {
-                if let Some((source, destination)) = grid.and_then(|grid| {
+            if let Some(entity) = self.substrate.entities.get_mut(id)
+                && let Some((source, destination)) = grid.and_then(|grid| {
                     grid.cell(previous_track_cell.0, previous_track_cell.1)
                         .zip(grid.cell(selected_cell.0, selected_cell.1))
-                }) {
-                    use super::movement_bridge::{BridgeStateUpdate, BridgeTransition};
-                    let update = match super::movement_bridge::compute_bridge_transition(
-                        source,
-                        destination,
-                    ) {
+                })
+            {
+                use super::movement_bridge::{BridgeStateUpdate, BridgeTransition};
+                let update =
+                    match super::movement_bridge::compute_bridge_transition(source, destination) {
                         BridgeTransition::Enter => BridgeStateUpdate::Set,
                         BridgeTransition::Exit => BridgeStateUpdate::Clear,
                         BridgeTransition::NoChange => BridgeStateUpdate::Unchanged,
                     };
-                    super::movement_bridge::apply_bridge_layer_state(
-                        &mut entity.locomotor,
-                        &mut entity.on_bridge,
-                        update,
-                    );
-                }
-            }
-        }
-        if terminal {
-            if let Some(entity) = self.substrate.entities.get_mut(id) {
-                set_height(
-                    &mut entity.position,
-                    entity.on_bridge,
-                    0,
-                    self.resolved_terrain.as_ref(),
-                    self.path_grid.as_deref(),
+                super::movement_bridge::apply_bridge_layer_state(
+                    &mut entity.locomotor,
+                    &mut entity.on_bridge,
+                    update,
                 );
             }
         }
-        if let Some(marked) = saved_marked {
-            if let Some(entity) = self.substrate.entities.get_mut(id) {
-                entity.lifecycle.cell_marked = marked;
-            }
+        if terminal && let Some(entity) = self.substrate.entities.get_mut(id) {
+            set_height(
+                &mut entity.position,
+                entity.on_bridge,
+                0,
+                self.resolved_terrain.as_ref(),
+                self.path_grid.as_deref(),
+            );
+        }
+        if let Some(marked) = saved_marked
+            && let Some(entity) = self.substrate.entities.get_mut(id)
+        {
+            entity.lifecycle.cell_marked = marked;
         }
         if crossing {
             self.foot_mark_put_observed(
@@ -844,20 +837,19 @@ impl Simulation {
             }
         });
         let layer = self.track_raw_mark_at(id, supplied, put);
-        if put {
-            if let Some(entity) = self.substrate.entities.get_mut(id) {
-                if let Some(loco) = entity.locomotor.as_mut() {
-                    loco.publish_track_occupation(
-                        family,
-                        Some(DriveOccupationFootprint {
-                            rx: cell(supplied).0,
-                            ry: cell(supplied).1,
-                            layer,
-                        }),
-                        handoff_mark,
-                    );
-                }
-            }
+        if put
+            && let Some(entity) = self.substrate.entities.get_mut(id)
+            && let Some(loco) = entity.locomotor.as_mut()
+        {
+            loco.publish_track_occupation(
+                family,
+                Some(DriveOccupationFootprint {
+                    rx: cell(supplied).0,
+                    ry: cell(supplied).1,
+                    layer,
+                }),
+                handoff_mark,
+            );
         }
     }
 

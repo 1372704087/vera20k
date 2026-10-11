@@ -680,7 +680,7 @@ pub fn superweapon_views_for_owner(
         return Vec::new();
     };
     let mut views = Vec::new();
-    for (_, inst) in weapons {
+    for inst in weapons.values() {
         if !inst.is_active {
             continue;
         }
@@ -744,12 +744,12 @@ pub fn tick_superweapon_instances(sim: &mut Simulation, rules: &RuleSet) {
         let is_low_power = sim
             .power_states
             .get(&owner_id)
-            .map_or(false, |ps| ps.is_low_power);
+            .is_some_and(|ps| ps.is_low_power);
 
         let Some(weapons) = sim.super_weapons.get_mut(&owner_id) else {
             continue;
         };
-        for (_, inst) in weapons.iter_mut() {
+        for inst in weapons.values_mut() {
             // SuperClass::AI's head runs for every Super, granted or not,
             // ahead of its grant test (`0x006CBCFE`).
             if let Some(coords) = inst.step_fade() {
@@ -787,12 +787,13 @@ pub fn tick_superweapon_instances(sim: &mut Simulation, rules: &RuleSet) {
             }
 
             // Charge advancement
-            if inst.charge_start_tick != -1 && !inst.is_suspended {
-                if inst.charge_timer().expired(current_frame as i32) {
-                    inst.is_ready = true;
-                    inst.ready_tick = current_frame as i32;
-                    became_ready.push((owner_id, inst.type_id));
-                }
+            if inst.charge_start_tick != -1
+                && !inst.is_suspended
+                && inst.charge_timer().expired(current_frame as i32)
+            {
+                inst.is_ready = true;
+                inst.ready_tick = current_frame as i32;
+                became_ready.push((owner_id, inst.type_id));
             }
         }
     }

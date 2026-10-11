@@ -83,7 +83,7 @@ impl AnimWorldCoord {
     /// screen position comes from the exact `z` field, which may sit between
     /// levels (a muzzle, an airburst).
     pub(crate) fn to_cell_sub_z(
-        &self,
+        self,
     ) -> (
         u16,
         u16,
@@ -1310,38 +1310,38 @@ impl Simulation {
             return false;
         };
 
-        if let Some(trailer_name) = config.trailer_anim.as_deref() {
-            if trailer_cadence_matches(
+        if let Some(trailer_name) = config.trailer_anim.as_deref()
+            && trailer_cadence_matches(
                 u64::from(self.session.binary_frame),
                 config.trailer_seperation,
-            ) && rules.art().anim_runtime_config(trailer_name).is_some()
-            {
-                let trailer_type = self.interner.intern(trailer_name);
-                let descriptor = AnimClassSpawnDescriptor {
-                    type_name: trailer_type,
-                    rx: 0,
-                    ry: 0,
-                    sub_x: crate::util::fixed_math::SIM_ZERO,
-                    sub_y: crate::util::fixed_math::SIM_ZERO,
-                    z: 0,
-                    delay: 1,
-                    loop_count: 1,
-                    draw_flags: TRAILER_DRAW_FLAGS,
-                    z_adjust: 0,
-                    reverse: false,
-                    use_cell_drawer: false,
-                    terrain_attached: false,
-                    draw_runtime: AnimDrawRuntime::default(),
-                };
-                // RESIDUAL: this unwrap relies on the binder having bound the
-                // parent's whole `TrailerAnim=` closure. The strict binder
-                // guarantees it; the tolerant one ends a chain at the first
-                // type with no sprite, so a tolerantly bound parent with an
-                // unbindable trailer would panic here. Trigger: modded art
-                // only; no retail trailer chain starts from a tolerant root.
-                self.spawn_anim_at_world(rules, descriptor, world_coord)
-                    .expect("validated trailer closure must remain spawnable");
-            }
+            )
+            && rules.art().anim_runtime_config(trailer_name).is_some()
+        {
+            let trailer_type = self.interner.intern(trailer_name);
+            let descriptor = AnimClassSpawnDescriptor {
+                type_name: trailer_type,
+                rx: 0,
+                ry: 0,
+                sub_x: crate::util::fixed_math::SIM_ZERO,
+                sub_y: crate::util::fixed_math::SIM_ZERO,
+                z: 0,
+                delay: 1,
+                loop_count: 1,
+                draw_flags: TRAILER_DRAW_FLAGS,
+                z_adjust: 0,
+                reverse: false,
+                use_cell_drawer: false,
+                terrain_attached: false,
+                draw_runtime: AnimDrawRuntime::default(),
+            };
+            // RESIDUAL: this unwrap relies on the binder having bound the
+            // parent's whole `TrailerAnim=` closure. The strict binder
+            // guarantees it; the tolerant one ends a chain at the first
+            // type with no sprite, so a tolerantly bound parent with an
+            // unbindable trailer would panic here. Trigger: modded art
+            // only; no retail trailer chain starts from a tolerant root.
+            self.spawn_anim_at_world(rules, descriptor, world_coord)
+                .expect("validated trailer closure must remain spawnable");
         }
 
         if first_guard {
@@ -4559,7 +4559,7 @@ mod tests {
         );
         let health = sim.substrate.entities.get(tank).unwrap().health.current;
         assert!(
-            health < 300 && health >= 280,
+            (280..300).contains(&health),
             "HE splash of 20 at most, got {health}"
         );
         assert_eq!(sim.combat_light_requests.len(), 1);

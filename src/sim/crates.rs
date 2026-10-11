@@ -285,57 +285,133 @@ fn place_one_random_crate(
         else {
             continue;
         };
-        if cell == (0, 0)
-            || !cell_is_in_playfield_height_aware(
-                (i32::from(cell.0), i32::from(cell.1)),
-                sim.playfield_bounds,
-                sim.resolved_terrain.as_ref(),
-            )
-        {
-            continue;
-        }
-        // A cell that already carries ore, a wall, a bridge piece or another
-        // crate cannot take one.
-        if sim
-            .overlay_grid
-            .as_ref()
-            .is_some_and(|grid| grid.cell(cell.0, cell.1).overlay_id.is_some())
-        {
-            continue;
-        }
-        let accepted = validate_and_stamp_candidate_with_rules_and_lighting(
+        if let Some(accepted) = place_overlay_and_init_timer(
             sim,
             rules,
             overlay_registry,
+            slot_index,
             cell,
             lighting_profile,
             forced_failure,
-        );
-
-        // `CrateSlot__PlaceOverlayAndInitTimer @ 0x004A17C0`: accepted ghosts
-        // and visible overlays both write the packed coordinate before drawing
-        // and installing start/aux/duration timer words.
-        {
-            let slot = sim.crate_authority.slot_mut(slot_index);
-            slot.cell_x = cell.0 as i16;
-            slot.cell_y = cell.1 as i16;
+        ) {
+            return match accepted {
+                AcceptedCellResult::Ghost => OneCrateResult::AcceptedGhost,
+                AcceptedCellResult::Visible => OneCrateResult::AcceptedVisible,
+            };
         }
-        let timer_draw = sim.scenario_rng.next_range_u32_inclusive(0, 0x7fff_fffe);
-        let (start_frame, aux, duration) = state::crate_timer_words(
-            rules.crate_rules.regen,
-            timer_draw,
-            sim.session.binary_frame as i32,
-        );
-        let slot = sim.crate_authority.slot_mut(slot_index);
-        slot.start_frame = start_frame;
-        slot.aux = aux;
-        slot.duration = duration;
-        return match accepted {
-            AcceptedCellResult::Ghost => OneCrateResult::AcceptedGhost,
-            AcceptedCellResult::Visible => OneCrateResult::AcceptedVisible,
-        };
     }
     OneCrateResult::HardRejected
+}
+
+/// `CrateSlot__PlaceOverlayAndInitTimer @ 0x004A17C0` for the empty slot
+/// `slot_index`: `CrateSlot__ValidateCellAndCreateOverlay` at `cell` (playfield,
+/// no overlay, then the crate Mark), and on acceptance the slot coordinate and
+/// its one Scenario timer draw. `None` when the cell is refused, before any
+/// draw. Shared by the random placer (`0x0056BD40`) and `MapClass::Place_Crate
+/// @ 0x0056BEC0`.
+fn place_overlay_and_init_timer(
+    sim: &mut Simulation,
+    rules: &RuleSet,
+    overlay_registry: &OverlayTypeRegistry,
+    slot_index: usize,
+    cell: (u16, u16),
+    lighting_profile: LightingProfileUnits,
+    forced_failure: ForcedPostPrecheckFailure,
+) -> Option<AcceptedCellResult> {
+    if cell == (0, 0)
+        || !cell_is_in_playfield_height_aware(
+            (i32::from(cell.0), i32::from(cell.1)),
+            sim.playfield_bounds,
+            sim.resolved_terrain.as_ref(),
+        )
+    {
+        return None;
+    }
+    // A cell that already carries ore, a wall, a bridge piece or another
+    // crate cannot take one.
+    if sim
+        .overlay_grid
+        .as_ref()
+        .is_some_and(|grid| grid.cell(cell.0, cell.1).overlay_id.is_some())
+    {
+        return None;
+    }
+    let accepted = validate_and_stamp_candidate_with_rules_and_lighting(
+        sim,
+        rules,
+        overlay_registry,
+        cell,
+        lighting_profile,
+        forced_failure,
+    );
+
+    // `CrateSlot__PlaceOverlayAndInitTimer @ 0x004A17C0`: accepted ghosts
+    // and visible overlays both write the packed coordinate before drawing
+    // and installing start/aux/duration timer words.
+    {
+        let slot = sim.crate_authority.slot_mut(slot_index);
+        slot.cell_x = cell.0 as i16;
+        slot.cell_y = cell.1 as i16;
+    }
+    let timer_draw = sim.scenario_rng.next_range_u32_inclusive(0, 0x7fff_fffe);
+    let (start_frame, aux, duration) = state::crate_timer_words(
+        rules.crate_rules.regen,
+        timer_draw,
+        sim.session.binary_frame as i32,
+    );
+    let slot = sim.crate_authority.slot_mut(slot_index);
+    slot.start_frame = start_frame;
+    slot.aux = aux;
+    slot.duration = duration;
+    Some(accepted)
+}
+
+/// `MapClass::Place_Crate @ 0x0056BEC0` at `cell` with a fixed powerup slot,
+/// or `None` for the random one (`0x14`). The requested cell's land type
+/// selects the snap (Float on water, else Track) through the same
+/// Find_Nearby_Passable_Cell arguments as the random placer (`0x0056BF08..
+/// 0x0056BF69`); the first empty slot then takes one
+/// [`place_overlay_and_init_timer`] attempt (`0x0056BF7B..0x0056BFBC`). On
+/// acceptance a fixed powerup is written to the snapped cell's overlay data
+/// byte (`0x0056BFC2..0x0056BFF9`), which the pickup reads as its stored
+/// selection. No retry and no draw before the commit.
+pub(crate) fn place_crate(
+    sim: &mut Simulation,
+    rules: &RuleSet,
+    overlay_registry: &OverlayTypeRegistry,
+    cell: (i16, i16),
+    powerup: Option<u8>,
+) -> bool {
+    let requested = (i32::from(cell.0), i32::from(cell.1));
+    let Some(frame) = crate_random_frame(sim) else {
+        return false;
+    };
+    let surface = crate_surface_at_packed(sim, requested);
+    let Some(snapped) = snap_to_passable_with_radius(sim, requested, surface, frame.radius_cap)
+    else {
+        return false;
+    };
+    let Some(slot_index) = sim.crate_authority.first_empty_index() else {
+        return false;
+    };
+    let lighting = sim.scenario_normal_lighting;
+    if place_overlay_and_init_timer(
+        sim,
+        rules,
+        overlay_registry,
+        slot_index,
+        snapped,
+        lighting,
+        ForcedPostPrecheckFailure::None,
+    )
+    .is_none()
+    {
+        return false;
+    }
+    if let Some(powerup) = powerup {
+        write_crate_mark_raw_data(sim, (snapped.0 as i16, snapped.1 as i16), powerup);
+    }
+    true
 }
 
 /// Active Map rectangle used by random placement ([`Simulation::map_rect`]);
@@ -1459,6 +1535,55 @@ pub(crate) mod tests {
             crate_cells(&first, &registry),
             crate_cells(&other_cursor, &registry),
             "a different scenario cursor must scatter crates differently"
+        );
+    }
+
+    /// `MapClass::Place_Crate @ 0x0056BEC0`: one commit at the snapped
+    /// requested cell with only the slot timer's draw; a fixed powerup lands
+    /// in the overlay data byte, the random one (`0x14`) leaves the Mark's.
+    #[test]
+    fn place_crate_commits_at_the_requested_cell_with_one_timer_draw() {
+        let rules = crate_ruleset("");
+        let registry = crate_registry();
+        let grid = PathGrid::test_all_passable(MAP, MAP);
+        let wood = registry.id_for_name("WOOD").unwrap();
+        for (powerup, data) in [(Some(0u8), 0u8), (None, u8::MAX)] {
+            let mut sim = sim_with_grid(0x5EED);
+            sim.install_fixture_path_grid(Some(&grid));
+            let mut replay = sim.scenario_rng.clone();
+
+            assert!(place_crate(&mut sim, &rules, &registry, (12, 14), powerup));
+
+            replay.next_range_u32_inclusive(0, 0x7fff_fffe);
+            assert_eq!(sim.scenario_rng.state(), replay.state(), "{powerup:?}");
+            let cell = *sim.overlay_grid.as_ref().unwrap().cell(12, 14);
+            assert_eq!((cell.overlay_id, cell.overlay_data), (Some(wood), data));
+            let slot = sim.crate_authority.slots()[0];
+            assert_eq!((slot.cell_x, slot.cell_y), (12, 14));
+        }
+    }
+
+    /// A full slot table refuses after the snap, before any draw or write.
+    #[test]
+    fn place_crate_with_a_full_slot_table_places_nothing() {
+        let rules = crate_ruleset("");
+        let registry = crate_registry();
+        let grid = PathGrid::test_all_passable(MAP, MAP);
+        let mut sim = sim_with_grid(0x5EED);
+        sim.install_fixture_path_grid(Some(&grid));
+        for index in 0..sim.crate_authority.slots().len() {
+            let slot = sim.crate_authority.slot_mut(index);
+            slot.cell_x = 1;
+            slot.cell_y = 1;
+        }
+        let before = sim.scenario_rng.state();
+
+        assert!(!place_crate(&mut sim, &rules, &registry, (12, 14), Some(0)));
+
+        assert_eq!(sim.scenario_rng.state(), before);
+        assert_eq!(
+            sim.overlay_grid.as_ref().unwrap().cell(12, 14).overlay_id,
+            None
         );
     }
 

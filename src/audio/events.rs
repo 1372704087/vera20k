@@ -221,6 +221,13 @@ pub enum GameSoundEvent {
         sound_id: String,
         source: Option<SoundSource>,
     },
+    /// One independent `VocClass::PlayAtCoord750E20` request. Unlike
+    /// direct7509E0, it retains its source and re-drives/reaps at750EC0.
+    /// Selected damage callers702760/7027A9/442706 use this route.
+    VocAtCoord {
+        sound_id: String,
+        source: SoundSource,
+    },
 
     /// Positional SFX from [AudioVisual] BuildingGarrisonedSound — plays at
     /// the building's screen position when the first occupant enters.
@@ -290,23 +297,6 @@ pub enum GameSoundEvent {
         sound_id: String,
     },
 
-    /// The global `[AudioVisual] BuildingDamageSound` cue for a struck
-    /// building whose type carries no `DamageSound=` of its own.
-    ///
-    /// `BuildingClass::ReceiveDamage @ 0x00442230` plays it at the building's
-    /// own coordinate (`0x004426DB LEA ECX,[ESI+0x9C]`,
-    /// `0x00442700 MOV ECX,[Rules+0x714]`,
-    /// `0x00442706 CALL VocClass::PlayAtCoord @ 0x00750E20`). The gate is
-    /// `0x004426D2 CMP [type+0x538],-1` and the arm is only reached for the
-    /// damage-state crossings 2 and 3 (`0x00442476 JMP [EAX*4 + 0x00442C18]`),
-    /// both decided sim-side.
-    BuildingDamagedSfx {
-        /// sound.ini ID from `[AudioVisual] BuildingDamageSound=`.
-        sound_id: String,
-        /// Screen position for spatial audio.
-        source: Option<SoundSource>,
-    },
-
     /// A superweapon fired: its `[AudioVisual]` cue and/or its EVA warning.
     ///
     /// `SuperClass::Launch @ 0x006CC390` decides both per `Type=` case; see
@@ -373,6 +363,7 @@ impl GameSoundEvent {
             | Self::CloakSound { sound_id, .. }
             | Self::WallCrushed { sound_id, .. }
             | Self::VocAt { sound_id, .. }
+            | Self::VocAtCoord { sound_id, .. }
             | Self::UiSound { sound_id }
             | Self::CreditTick { sound_id }
             | Self::BaseUnderAttackSfx { sound_id }
@@ -381,7 +372,6 @@ impl GameSoundEvent {
             | Self::BunkerWalls { sound_id, .. }
             | Self::ChuteSound { sound_id, .. }
             | Self::BridgeRepaired { sound_id, .. }
-            | Self::BuildingDamagedSfx { sound_id, .. }
             | Self::SuperWeaponActivated { sound_id, .. } => sound_id,
             Self::AnimationStopped { stop_sound_id, .. } => stop_sound_id.as_deref().unwrap_or(""),
             Self::AnimationReleased { .. }
@@ -417,8 +407,8 @@ impl GameSoundEvent {
             | Self::BunkerWalls { source, .. }
             | Self::ChuteSound { source, .. }
             | Self::BridgeRepaired { source, .. }
-            | Self::BuildingDamagedSfx { source, .. }
             | Self::SuperWeaponActivated { source, .. } => *source,
+            Self::VocAtCoord { source, .. } => Some(*source),
             _ => None,
         }
     }
@@ -523,36 +513,20 @@ impl GameSoundEvent {
 /// ReceiveDamage702695 owns its result-2 admission and ordered Main draws;
 /// it never enters the per-Techno acknowledgement latch.
 ///
-/// **Still absent on the damage side: the per-type `DamageSound=` cue.**
-/// `TechnoTypeClass+0x538` is parsed but only *read as a gate*. Native plays
-/// it from arm `0x00702713`/`0x00702717` of the same switch — **index 1 of the
-/// table at `0x00702D24`, the ordinary NON-crossing hit** (damage result 1),
-/// not the crossings the global rides. So the per-type and the global cue are
-/// mutually exclusive by *result*, not merely by the `-1` gate: a type with
-/// its own `DamageSound=` gets a clang on every ordinary hit and **nothing**
-/// on a crossing, while a type without one is silent on ordinary hits and
-/// sounds the global on crossings. The arm also plays the sound **twice** —
-/// two identical blocks at `0x00702760` and `0x007027A9`, each re-reading
-/// `[type+0x538]` and the same coordinate `[ESI+0x9C]`.
-/// Trigger: any non-crossing hit on a type that authors the key. Player
-/// effect: those types are silent under ordinary fire where native double-taps
-/// a clang. Frequency: all 34 stock authors are civilian/neutral props (30
-/// `CA*` structures plus `AMMOCRAT` on `BuildingMetalDamaged`, 4 `CAARMY0*` on
-/// `Dummy`) — no player-built structure and no unit authors it, so this is
-/// "whenever you shoot civilian scenery", common on urban maps and absent from
-/// a pure base fight. Downstream risk: landing it needs a distinct
-/// `DamageState::Damaged` (result 1) emission, which VERA classifies but does
-/// not currently route.
+/// Per-type `DamageSound=` uses two distinct retained750E20 requests on an
+/// ordinary result1 hit (Techno702760/7027A9), with full direct Location.
+/// The global442706 path uses the same transport after the Techno tail.
+/// Private rules references bind against the fixed process SoundRegistry:
+/// cold invalid is absent; later absent/empty/unregistered reads retain the
+/// prior valid reference (45FE50/6691E0). No raw audio-bag fallback applies.
+/// Stock authors are civilian props: 30 Metal and4 Dummy, so the per-hit
+/// effect is common when shooting scenery. These requests survive actor
+/// Stop/destruction, use the common audio pump, and retire via750EC0/750FA0.
 ///
-/// **Also unrecorded until now: an unresolvable per-type `DamageSound=`.**
-/// `TechnoTypeClass+0x538` is `-1` both when the key is absent *and* when the
-/// name resolves to no Voc, so native falls back to the global in both cases;
-/// VERA's `damage_sound: Option<String>` is `Some` for any non-empty string
-/// and suppresses the global. Trigger: a type naming a sound that is not in
-/// `soundmd.ini`. Player effect: that structure is silent where native plays
-/// the global cue. Frequency: never on retail — `BuildingMetalDamaged` and
-/// `Dummy` both register. Downstream risk: none; closing it means resolving
-/// the name against the sound registry, which lives above `rules/`.
+/// Residual: other750E20 families, including global BuildingDie and mixed
+/// superweapon callers, still use their existing direct presentation paths.
+/// This can affect camera movement/retry/cleanup at those triggers; their
+/// own caller migrations are separate chains, not blanket source-based routing.
 ///
 /// **Partly closed.** `TurretRotateSound=` is landed: the building update's
 /// rotation sample and the `TechnoClass::AI_Update` block drive the type's own

@@ -51,6 +51,10 @@ use crate::util::native_x87::{NativeF32Bits, NativeF64Bits};
 #[path = "building_abandoned_sound_tests.rs"]
 mod building_abandoned_sound_tests;
 
+#[cfg(test)]
+#[path = "building_damage_sound_tests.rs"]
+mod building_damage_sound_tests;
+
 /// Country-level fields needed by gameplay systems.
 #[derive(Debug, Clone)]
 pub struct CountryRules {
@@ -928,6 +932,11 @@ pub struct GeneralRules {
     pub building_die_sound: Option<String>,
     /// Struck-building cue from `[AudioVisual] BuildingDamageSound=` (stock
     /// `BuildingDamaged`), stored at `Rules+0x714`.
+    /// Original gamemd (SHA2561cdd1180e490...) ctor665650 stores -1 at666045;
+    /// ReadAudioVisual6691E0's block66AC98..66ACDD passes literal83A460,
+    /// empty889F64 and capacity128 to ReadString528A10, then7514D0.
+    /// The fixed-catalog process binder retains earlier valid references for
+    /// absent, empty or unregistered later values; no unresolved name escapes.
     ///
     /// gamemd: `BuildingClass::ReceiveDamage @ 0x00442230` plays it at the
     /// building's own coordinate (`0x004426DB LEA ECX,[ESI+0x9C]`,
@@ -943,7 +952,7 @@ pub struct GeneralRules {
     /// ConditionRed) — reach the gate at `0x004426D2 CMP [type+0x538],-1`.
     /// A type with its own `DamageSound=` takes `JNZ 0x0044270B` and the
     /// global is skipped.
-    pub building_damage_sound: Option<String>,
+    building_damage_sound: Option<String>,
     /// Thunder cues from `[AudioVisual] LightningSounds=` (stock a single
     /// `WeatherStrike`), in source order.
     ///
@@ -2622,6 +2631,11 @@ pub(crate) fn ambient_change_terms(rate: f64, step: f64) -> (bool, i32, i32) {
 }
 
 impl GeneralRules {
+    /// The Rules+714 reference resolved by the fixed SOUNDMD process binder.
+    pub fn building_damage_sound(&self) -> Option<&str> {
+        self.building_damage_sound.as_deref()
+    }
+
     /// Drive4B3A65, Ship6A30B4 and Foot/Walk's timer producers retain the
     /// configured double until FLD/FMUL900/ftol7C5F00. In particular, authored
     /// decimal .01 is parsed through float by ReadDouble5283D0 and converts to
@@ -3073,9 +3087,7 @@ impl GeneralRules {
             building_die_sound: audio_visual
                 .read_name("BuildingDieSound", 0x80)
                 .map(str::to_owned),
-            building_damage_sound: audio_visual
-                .read_name("BuildingDamageSound", 0x80)
-                .map(str::to_owned),
+            building_damage_sound: None,
             // `CCINIClass::ReadSoundList @ 0x00525430`: `ReadString(..., "",
             // buf, 0x80)` first (so the whole value is byte-cut and trimmed
             // once), then `strtok` on `","` (`0x00817F70`) with the tokens
@@ -3845,6 +3857,9 @@ impl RuleSet {
         self.general.building_abandoned_sound = ini
             .section("AudioVisual")
             .and_then(|section| sounds.read_rules_reference(section, "BuildingAbandonedSound"));
+        self.general.building_damage_sound = ini
+            .section("AudioVisual")
+            .and_then(|section| sounds.read_rules_reference(section, "BuildingDamageSound"));
         self.general.building_repaired_sound = ini
             .section("AudioVisual")
             .and_then(|section| sounds.read_rules_reference(section, "BuildingRepairedSound"));
@@ -3856,6 +3871,7 @@ impl RuleSet {
             .and_then(|section| sounds.read_rules_reference(section, "GuardSound"));
         for object in &mut self.object_list {
             let section = ini.section(&object.id);
+            object.bind_damage_sound_reference(section, sounds);
             object.voice_select = section.map_or_else(Vec::new, |section| {
                 sounds.read_rules_sound_list(section, "VoiceSelect")
             });
@@ -7803,24 +7819,21 @@ BuildingGarrisonedSound=BuildingGarrisoned
     /// building's type has no `DamageSound=` of its own
     /// (`0x004426D2 CMP [type+0x538],-1`).
     #[test]
-    fn building_damage_sound_parses_and_an_absent_key_is_silence() {
+    fn building_damage_sound_remains_unbound_without_the_fixed_catalog() {
         let stock = GeneralRules::from_ini(&IniFile::from_str(
             "[General]\nFlightLevel=500\n[AudioVisual]\nBuildingDamageSound=BuildingDamaged\n",
         ));
-        assert_eq!(
-            stock.building_damage_sound.as_deref(),
-            Some("BuildingDamaged")
-        );
+        assert_eq!(stock.building_damage_sound(), None);
 
         let absent = GeneralRules::from_ini(&IniFile::from_str(
             "[General]\nFlightLevel=500\n[AudioVisual]\n",
         ));
-        assert_eq!(absent.building_damage_sound, None);
+        assert_eq!(absent.building_damage_sound(), None);
 
         let empty = GeneralRules::from_ini(&IniFile::from_str(
             "[General]\nFlightLevel=500\n[AudioVisual]\nBuildingDamageSound=\n",
         ));
-        assert_eq!(empty.building_damage_sound, None);
+        assert_eq!(empty.building_damage_sound(), None);
     }
 
     /// `[AudioVisual] LightningSounds=` goes through `CCINIClass::ReadSoundList

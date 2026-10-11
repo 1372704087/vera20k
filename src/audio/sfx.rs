@@ -37,8 +37,9 @@ use crate::assets::asset_manager::AssetManager;
 use crate::assets::aud_file;
 use crate::audio::arbiter::{
     self, ArbiterAction, EntryFacts, EventId, EventToken, HandleOwner, PlayRequest,
-    PlaybackService, SoundArbiter,
+    PlaybackService, SoundArbiter, combine_linear,
 };
+use crate::audio::events::SoundSource;
 use crate::audio::voice_queue::VoiceQueue;
 use crate::audio::vox::{VoxNode, VoxQueue, VoxRequest};
 use crate::rules::sound_ini::{
@@ -49,6 +50,10 @@ use crate::util::native_x87::X87Chop53;
 mod observation;
 mod playback;
 use playback::{PlaybackControl, PlaylistCursor, RingSource};
+#[cfg(test)]
+mod coordinate_playback_tests;
+#[cfg(test)]
+mod coordinate_sound_tests;
 #[cfg(test)]
 mod gattling_loop_tests;
 #[cfg(test)]
@@ -88,8 +93,12 @@ fn native_abs(value: i32) -> i32 {
 /// scales leptons by the fixed native 60/30-pixel tile (`iVar3 = (x*0x3c)/2 +
 /// (y*-0x3c)/2`, `>> 8`) and subtracts the view origin (`this+0xB0/+0xB4`).
 /// That fixed scale is VERA's world-pixel frame — `map::terrain::TILE_WIDTH`
-/// 60, `TILE_HEIGHT` 30 — so at `zoom == 1.0` `client_point` is the native
-/// client point exactly.
+/// 60, `TILE_HEIGHT` 30. VERA adds `WORLD_ROW_BIAS_PX`15 to absolute Y
+/// (`util::lepton`); its camera origin is in that same translated frame.
+/// Native view(Vx,Vy) therefore maps to VERA origin(Vx,Vy+15). At zoom1,
+/// subtracting matching origins preserves the native client point. Native
+/// projection includes AdjustForZ and its startup-owned coefficient6D1BDD;
+/// declared fixture coefficients must not substitute for that initializer.
 ///
 /// **Zoom is VERA-internal; gamemd has no zoom.** `tactical_width`/`_height`
 /// are the *device* pixels of the tactical viewport, and VERA's projection is
@@ -355,27 +364,6 @@ fn attenuation_amplitude(hundredths_db: i16) -> f32 {
         return 0.0;
     }
     10f64.powf(f64::from(hundredths_db) / 2000.0) as f32
-}
-
-/// Product of two native linear volumes: `DSoundBuffer::CombineInterps
-/// FUN_004010C0` (`0x004010C7..0x004010D6`), `(a * b) >> 14`.
-///
-/// **VERA-internal, gamemd equivalent UNCHECKED: both `.clamp`s.** The native
-/// volume path is `SHR EDX,0x10; SHR EAX,0x10; IMUL EDX,EAX; SHR EDX,0xe`
-/// (`disassemble_function 0x004010C0`, read this session) — no bound at all;
-/// the two operands are merely the top halves of 32-bit fixed-point fields, so
-/// native accepts anything up to `0xFFFF` on each side and can return well
-/// past `0x4000`. (The *pan* path at `0x00401116..0x0040114C` does clamp to
-/// `0..0x4000`; the volume path does not, so this is not borrowed from there.)
-/// Trigger: an operand outside `0..=0x4000`, which no VERA producer can make —
-/// `SoundEntry::volume_linear` comes out of the native `[0, 1]` clamp times
-/// 16384, and [`PlayShifts::volume_linear`] is `0x4000 - ((vshift << 14)/100)`
-/// with `vshift` already held to `0..=100` by native `SetVShift @ 0x00406620`.
-/// Player effect: none reachable. Frequency: never. Downstream risk: the guard
-/// is what keeps [`native_volume_amplitude`]'s fixed 101-entry table index in
-/// bounds, where Rust would panic and gamemd would read past the table.
-pub fn combine_linear(a: i32, b: i32) -> i32 {
-    (a.clamp(0, VOLUME_SCALE) * b.clamp(0, VOLUME_SCALE)) >> 14
 }
 
 /// Amplitude the DirectSound layer produces for one combined linear volume:
@@ -1141,6 +1129,11 @@ pub struct SfxPlayer {
     /// The decision half: channel pool, `Priority=`, `Limit=`, pre-delay,
     /// looping leash, ramps and the many-sounds limiter.
     arbiter: SoundArbiter,
+    /// Voc750E20's independent 200-node pool, in native admission order.
+    /// Coordinates survive source-object Stop/destruction. SoundArbiter owns
+    /// the associated Voc handles and events; this list owns their lifecycle.
+    coordinate_requests: Vec<CoordinateSoundRequest>,
+    next_coordinate_request: u64,
     /// Decoded payloads the arbiter has not started yet.
     pending: BTreeMap<EventId, PendingPlayback>,
     /// Started outputs, keyed by the arbiter event holding the channel.
@@ -1178,6 +1171,19 @@ pub struct SfxPlayer {
     /// edge the way `GamePause::Enter`/`Exit` do.
     paused: bool,
 }
+
+/// Native750E20 copies +20/+24/+28 and initializes nested suspend depth+30.
+/// `source` is that immutable coordinate in VERA's world-pixel/cell frame.
+/// The gain cache is derived by the app's existing spatial context before
+/// every common pump and is applied only in the admitted750EC0 phase.
+struct CoordinateSoundRequest {
+    id: u64,
+    source: SoundSource,
+    gain: Option<SpatialGain>,
+    suspend_depth: i32,
+}
+
+const MAX_COORDINATE_REQUESTS: usize = 200;
 
 /// Device period the SFX sink asks for, about 10 ms of frames.
 ///
@@ -1237,6 +1243,8 @@ impl SfxPlayer {
         Some(Self {
             _device: device,
             arbiter: SoundArbiter::new(0),
+            coordinate_requests: Vec::with_capacity(MAX_COORDINATE_REQUESTS),
+            next_coordinate_request: 1,
             pending: BTreeMap::new(),
             live: BTreeMap::new(),
             pcm_observer: None,
@@ -1332,36 +1340,50 @@ impl SfxPlayer {
     /// positional re-drives use [`Self::update_looping_sound`].
     pub fn play_animation_sound_spatial(
         &mut self,
-        anim_id: u64,
+        owner: impl Into<HandleOwner>,
         sound_id: &str,
         gain: SpatialGain,
         registry: &SoundRegistry,
     ) -> bool {
+        let owner = owner.into();
+        let Some(entry) = registered_entry(sound_id, registry) else {
+            // Original7509E0 binds a null Voc for an invalid index; the raw
+            // audio-bag fallback is not reachable from this native function.
+            self.stop_animation_sound(owner);
+            return false;
+        };
         // `VocClass::PlayAt`'s handle-level interrupt: a live event that
         // belongs to a different entry is stopped before the new one starts.
         // This — not `Control=interrupt` — is what makes a re-issued cue cut
         // its predecessor.
-        self.stop_animation_sound(anim_id);
-        let facts = entry_facts(sound_id, registry);
+        let key = registry_key(sound_id);
+        let existing = self.arbiter.validate_loop_handle(owner);
+        let event = if self.arbiter.loop_handle_key(owner) == Some(key.as_str()) {
+            existing
+        } else {
+            self.stop_animation_sound(owner);
+            None
+        };
+        let facts = EntryFacts::from(entry);
         let base_linear = combine_linear(gain.volume_linear(), facts.entry_volume_linear);
-        let Some(event) =
+        let Some(event) = event.or_else(|| {
             self.submit_request(sound_id, facts, base_linear, gain.pan, SfxChannel::Sound)
-        else {
+        }) else {
+            // Original750AAE/4060F0 keeps the valid Voc even when both pool
+            // allocations fail. An uncounted loop can retry on a later visit.
+            self.arbiter
+                .keep_loop_sound(owner, &key, facts.is_loopable());
             return false;
         };
+        self.arbiter
+            .set_volume(event, gain.volume_linear(), self.now_ms);
+        self.arbiter.set_pan(event, gain.pan, self.now_ms);
         // The handle is bound either way: a one-shot still belongs to its
         // owner so `stop_animation_sound` can find it, it is just not leashed
         // (`UpdateState` state 3 checks `Control & LOOP` first).
-        self.arbiter.set_loop_handle(
-            HandleOwner::Positional(anim_id),
-            Some(event),
-            &registry_key(sound_id),
-        );
+        self.arbiter.set_loop_handle(owner, Some(event), &key);
         if let Some(observer) = &mut self.pcm_observer {
-            observer.bind_owner(
-                self.arbiter.event_token(event).expect("new event"),
-                HandleOwner::Positional(anim_id),
-            );
+            observer.bind_owner(self.arbiter.event_token(event).expect("new event"), owner);
         }
         true
     }
@@ -1378,35 +1400,24 @@ impl SfxPlayer {
     /// Returns whether the owner holds a live event afterwards.
     pub fn update_looping_sound(
         &mut self,
-        anim_id: u64,
+        owner: impl Into<HandleOwner>,
         gain: Option<SpatialGain>,
         registry: &SoundRegistry,
     ) -> bool {
-        if let Some(event) = self
-            .arbiter
-            .validate_loop_handle(HandleOwner::Positional(anim_id))
-        {
+        let owner = owner.into();
+        if let Some(event) = self.arbiter.validate_loop_handle(owner) {
             let Some(gain) = gain else {
                 // `if (0.0 < fVar3) {...} else { SoundEvent__Stop; }` then
                 // `SetLoopHandle(handle, 0, voc)`.
-                let key = self
-                    .arbiter
-                    .loop_handle_key(HandleOwner::Positional(anim_id))
-                    .map(str::to_owned);
+                let key = self.arbiter.loop_handle_key(owner).map(str::to_owned);
                 self.arbiter.stop(event);
                 self.release_output(event);
                 match key {
                     Some(key) => {
                         let loopable = entry_facts(&key, registry).is_loopable();
-                        self.arbiter.keep_loop_sound(
-                            HandleOwner::Positional(anim_id),
-                            &key,
-                            loopable,
-                        );
+                        self.arbiter.keep_loop_sound(owner, &key, loopable);
                     }
-                    None => self
-                        .arbiter
-                        .clear_loop_handle(HandleOwner::Positional(anim_id)),
+                    None => self.arbiter.clear_loop_handle(owner),
                 }
                 return false;
             };
@@ -1416,20 +1427,12 @@ impl SfxPlayer {
             self.arbiter.set_pan(event, gain.pan, now);
             return true;
         }
-        let (Some(gain), Some(key)) = (
-            gain,
-            self.arbiter
-                .kept_loop_key(HandleOwner::Positional(anim_id))
-                .map(str::to_owned),
-        ) else {
+        let (Some(gain), Some(key)) = (gain, self.arbiter.kept_loop_key(owner).map(str::to_owned))
+        else {
             return false;
         };
-        let started = self.play_animation_sound_spatial(anim_id, &key, gain, registry);
-        if started
-            && let Some(event) = self
-                .arbiter
-                .validate_loop_handle(HandleOwner::Positional(anim_id))
-        {
+        let started = self.play_animation_sound_spatial(owner, &key, gain, registry);
+        if started && let Some(event) = self.arbiter.validate_loop_handle(owner) {
             // Original750DB3: SkipAttack4052E0 belongs to reallocation,
             // including an initial request whose positional gain was zero.
             self.arbiter.mark_started(event);
@@ -1443,17 +1446,146 @@ impl SfxPlayer {
     /// passed), so the owner's update starts the loop once it is audible.
     pub fn bind_inaudible_animation_sound(
         &mut self,
-        anim_id: u64,
+        owner: impl Into<HandleOwner>,
         sound_id: &str,
         registry: &SoundRegistry,
     ) {
-        self.stop_animation_sound(anim_id);
-        let loopable = entry_facts(sound_id, registry).is_loopable();
-        self.arbiter.keep_loop_sound(
-            HandleOwner::Positional(anim_id),
-            &registry_key(sound_id),
-            loopable,
-        );
+        let owner = owner.into();
+        self.stop_animation_sound(owner);
+        let Some(entry) = registered_entry(sound_id, registry) else {
+            return;
+        };
+        let loopable = EntryFacts::from(entry).is_loopable();
+        self.arbiter
+            .keep_loop_sound(owner, &registry_key(sound_id), loopable);
+    }
+
+    /// `VocClass::PlayAtCoord750E20`: retain an independent coordinate
+    /// request, including an initially inaudible one. The 200-node request
+    /// pool is distinct from SoundArbiter's 300 events. Original750EC0 reaps
+    /// it only after its handle has neither a live event nor an uncounted
+    /// loop to retry. Actor Stop/destruction does not own this request.
+    ///
+    /// The return value reports Rust request admission, not native EAX (an
+    /// inaudible native call returns zero even though its node is retained).
+    pub(crate) fn play_sound_at_coord(
+        &mut self,
+        sound_id: &str,
+        source: SoundSource,
+        gain: Option<SpatialGain>,
+        registry: &SoundRegistry,
+    ) -> bool {
+        if registered_entry(sound_id, registry).is_none()
+            || self.coordinate_requests.len() == MAX_COORDINATE_REQUESTS
+        {
+            return false;
+        }
+        let id = self.next_coordinate_request;
+        self.next_coordinate_request = id
+            .checked_add(1)
+            .expect("coordinate request identity exhausted");
+        let owner = HandleOwner::Coordinate(id);
+        match gain {
+            Some(gain) => {
+                self.play_animation_sound_spatial(owner, sound_id, gain, registry);
+            }
+            None => self.bind_inaudible_animation_sound(owner, sound_id, registry),
+        }
+        // Original750E20 initializes +30 to zero, even when existing
+        // requests/events are already suspended by a modal or movie.
+        self.coordinate_requests.push(CoordinateSoundRequest {
+            id,
+            source,
+            gain,
+            suspend_depth: 0,
+        });
+        true
+    }
+
+    /// Refresh this derived gain cache from the current listener/shroud.
+    /// The app owns that context; audio retains only immutable source facts.
+    /// Applying the gain and retiring requests remain in admitted750EC0.
+    pub(crate) fn refresh_coordinate_sound_gains(
+        &mut self,
+        mut gain_for: impl FnMut(&str, SoundSource) -> Option<SpatialGain>,
+    ) {
+        for request in &mut self.coordinate_requests {
+            request.gain = self
+                .arbiter
+                .handle_sound_key(HandleOwner::Coordinate(request.id))
+                .and_then(|key| gain_for(key, request.source));
+        }
+    }
+
+    /// Passive capture diagnostics of the actual request owner. This creates
+    /// no request, validates no handle, and influences no audio/RNG decision.
+    pub(crate) fn coordinate_sound_observation(&self) -> Vec<serde_json::Value> {
+        self.coordinate_requests
+            .iter()
+            .map(|request| {
+                serde_json::json!({
+                    "request_id": request.id,
+                    "sound_id": self.arbiter.handle_sound_key(HandleOwner::Coordinate(request.id)),
+                    "source_world_pixels": [request.source.screen_x, request.source.screen_y],
+                    "source_cell": [request.source.rx, request.source.ry],
+                    "suspend_depth": request.suspend_depth,
+                })
+            })
+            .collect()
+    }
+
+    /// AudioPump406FC1's750EC0 phase follows Sound4041D0 and precedes Vox.
+    /// A suspended node skips its re-drive but still validates and retires.
+    fn service_coordinate_sounds(&mut self, registry: &SoundRegistry) {
+        let mut index = 0;
+        while index < self.coordinate_requests.len() {
+            let request = &self.coordinate_requests[index];
+            let owner = HandleOwner::Coordinate(request.id);
+            let (gain, suspended) = (request.gain, request.suspend_depth > 0);
+            if !suspended {
+                self.update_looping_sound(owner, gain, registry);
+            }
+            if self.arbiter.validate_loop_handle(owner).is_some()
+                || self.arbiter.kept_loop_key(owner).is_some()
+            {
+                index += 1;
+            } else {
+                self.arbiter.clear_loop_handle(owner);
+                self.coordinate_requests.remove(index);
+            }
+        }
+    }
+
+    /// Original751040 increments each existing node's depth and suspends
+    /// its resolved event through4053E0. This follows the global event pass,
+    /// so a live coordinate event gains two suspend levels on a pause edge.
+    fn suspend_coordinate_sounds(&mut self, now_ms: u64) {
+        for request in &mut self.coordinate_requests {
+            request.suspend_depth = request.suspend_depth.wrapping_add(1);
+            if let Some(event) = self
+                .arbiter
+                .validate_loop_handle(HandleOwner::Coordinate(request.id))
+            {
+                self.arbiter.suspend_event(event, now_ms);
+            }
+        }
+    }
+
+    /// Original751080 resumes only nodes whose prior depth was nonzero,
+    /// decrementing/clamping their own depth independently of event depth.
+    fn resume_coordinate_sounds(&mut self, now_ms: u64) {
+        for request in &mut self.coordinate_requests {
+            if request.suspend_depth == 0 {
+                continue;
+            }
+            request.suspend_depth = request.suspend_depth.wrapping_sub(1).max(0);
+            if let Some(event) = self
+                .arbiter
+                .validate_loop_handle(HandleOwner::Coordinate(request.id))
+            {
+                self.arbiter.resume_event(event, now_ms);
+            }
+        }
     }
 
     /// `SoundEvent::Release @ 0x00406060` on one owner's handle: an uncounted
@@ -1515,16 +1647,13 @@ impl SfxPlayer {
 
     /// `VocHandle::StopAndClear405D40`: hard-stop the event owned by
     /// `anim_id`, then clear its handle. Idempotent.
-    pub fn stop_animation_sound(&mut self, anim_id: u64) {
-        if let Some(event) = self
-            .arbiter
-            .validate_loop_handle(HandleOwner::Positional(anim_id))
-        {
+    pub fn stop_animation_sound(&mut self, owner: impl Into<HandleOwner>) {
+        let owner = owner.into();
+        if let Some(event) = self.arbiter.validate_loop_handle(owner) {
             self.arbiter.stop(event);
             self.release_output(event);
         }
-        self.arbiter
-            .clear_loop_handle(HandleOwner::Positional(anim_id));
+        self.arbiter.clear_loop_handle(owner);
     }
 
     /// `TechnoClass::Queue_Voice @ 0x00708D90` — latch one object's
@@ -1920,6 +2049,7 @@ impl SfxPlayer {
         }
         // The many-sounds scaler moved, so every live output's amplitude has.
         self.apply_live_output_scales();
+        self.service_coordinate_sounds(registry);
         // AudioPump406FBC/406FC1/406FC6 services Sound before Vox752760,
         // all behind the same strict >33ms wall-clock gate. Original stock
         // UnitReady controls retain a pending node at 1033 and start at 1034
@@ -2053,7 +2183,9 @@ impl SfxPlayer {
         self.vox.set_paused(paused);
         if paused {
             self.arbiter.suspend_all(now_ms);
+            self.suspend_coordinate_sounds(now_ms);
         } else {
+            self.resume_coordinate_sounds(now_ms);
             self.arbiter.resume_all(now_ms);
         }
         let outputs = self.live.values().chain(self.eva_player.iter());
@@ -2129,6 +2261,13 @@ impl SfxPlayer {
 
     /// Hard-stop every SFX/voice source and discard queued announcements.
     pub fn stop_all(&mut self) {
+        // Original750FA0: StopAndClear405D40, unlink and return every
+        // coordinate node before clearing the common Sound system. The
+        // existing world-transition callers share this owner.
+        let requests = std::mem::take(&mut self.coordinate_requests);
+        for request in requests {
+            self.stop_animation_sound(HandleOwner::Coordinate(request.id));
+        }
         for event in self.live.keys().copied().collect::<Vec<_>>() {
             let token = self.output_token(event);
             if let (Some(observer), Some(token)) = (&mut self.pcm_observer, token) {
@@ -2188,7 +2327,9 @@ impl SfxPlayer {
             let pending: Vec<_> = self.pending.values().map(|value| value.token).collect();
             let live: Vec<_> = self.live.values().filter_map(|value| value.token).collect();
             observer.snapshot(&self.arbiter, &pending, &live);
-            observer.finish()
+            let mut report = observer.finish();
+            report.coordinate_request_count_at_finish = Some(self.coordinate_requests.len());
+            report
         })
     }
 
@@ -3596,7 +3737,7 @@ mod tests {
                 })
                 .unwrap();
             assert!(player.play_animation_sound_spatial(
-                7,
+                7_u64,
                 "SquidMove",
                 SpatialGain::CENTRED_FULL,
                 definitions.sounds()
@@ -3623,7 +3764,7 @@ mod tests {
             match operation {
                 "release" => player.release_animation_sound(7),
                 "detach" => player.detach_animation_sound(7),
-                _ => player.stop_animation_sound(7),
+                _ => player.stop_animation_sound(7_u64),
             }
             assert!(player.handle_sound_id(7).is_none());
             while !player.observed_pcm_settled() {

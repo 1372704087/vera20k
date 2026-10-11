@@ -8,6 +8,65 @@ use crate::rules::ruleset::RuleSet;
 use crate::sim::radar::{RadarEventRequest, RadarEventType};
 use crate::sim::world::{SimSoundEvent, Simulation, SoundBoundary};
 
+/// Original6D2140 controls execute the registered Tactical startup writer,
+/// signed XY arithmetic, height rounding and view subtraction. The app's
+/// existing projection owner supplies the retained750E20 request coordinate;
+/// VERA's world-pixel Y and camera Y both include WORLD_ROW_BIAS_PX.
+#[test]
+fn coordinate_request_sources_match_executed_native_projection_controls() {
+    let fixture: serde_json::Value = serde_json::from_str(crate::test_fixture::text(
+        "tools/spatial_oracle/building_damage_sound_joined.json",
+    ))
+    .unwrap();
+    let controls = fixture["receiver_controls"]["projection_controls"]
+        .as_array()
+        .unwrap();
+    assert_eq!(controls.len(), 24);
+    let rules = RuleSet::from_ini(&IniFile::from_str("")).unwrap();
+    let sim = Simulation::new();
+    let before_rng = sim.rng_state();
+    let mut output = SoundEventQueue::new();
+    for control in controls {
+        let input = &control["input"];
+        let axis = |index: usize| input["coordinate"][index].as_i64().unwrap() as i32;
+        dispatch_sim_sound_events(
+            [SimSoundEvent::VocAtCoord {
+                sound_id: "NativeProjectionControl".into(),
+                coordinate: crate::sim::components::DriveCoord {
+                    x: axis(0),
+                    y: axis(1),
+                    z: axis(2),
+                },
+            }],
+            &sim,
+            &rules,
+            None,
+            &mut |_| panic!("coordinate requests have no radar admission"),
+            &mut output,
+        );
+        let events = output.drain();
+        assert_eq!(events.len(), 1);
+        assert!(matches!(
+            &events[0],
+            crate::audio::events::GameSoundEvent::VocAtCoord { .. }
+        ));
+        let source = events[0].source().unwrap();
+        let view = &input["listener"]["view_xy"];
+        let expected_x = control["output"][0].as_i64().unwrap() + view[0].as_i64().unwrap();
+        let (_, world_row_origin) = crate::util::lepton::absolute_leptons_to_screen(0, 0, 0);
+        let expected_y = (control["output"][1].as_i64().unwrap() + view[1].as_i64().unwrap())
+            as f32
+            + world_row_origin;
+        assert_eq!(
+            source.screen_pos(),
+            (expected_x as f32, expected_y),
+            "native projection input {:?}",
+            input["coordinate"]
+        );
+    }
+    assert_eq!(sim.rng_state(), before_rng);
+}
+
 #[test]
 fn frame_boundary_consumes_each_prefix_once_and_preserves_later_facts() {
     let rules = RuleSet::from_ini(&IniFile::from_str("")).unwrap();

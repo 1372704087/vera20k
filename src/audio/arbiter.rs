@@ -25,6 +25,27 @@ use std::collections::BTreeMap;
 
 use crate::rules::sound_ini::{VOLUME_SCALE, control};
 
+/// Product of two native linear volumes: `DSoundBuffer::CombineInterps
+/// FUN_004010C0` (`0x004010C7..0x004010D6`), `(a * b) >> 14`.
+///
+/// **VERA-internal, gamemd equivalent UNCHECKED: both `.clamp`s.** The native
+/// volume path is `SHR EDX,0x10; SHR EAX,0x10; IMUL EDX,EAX; SHR EDX,0xe`
+/// (`disassemble_function 0x004010C0`, read this session) — no bound at all;
+/// the two operands are merely the top halves of 32-bit fixed-point fields, so
+/// native accepts anything up to `0xFFFF` on each side and can return well
+/// past `0x4000`. (The *pan* path at `0x00401116..0x0040114C` does clamp to
+/// `0..0x4000`; the volume path does not, so this is not borrowed from there.)
+/// Trigger: an operand outside `0..=0x4000`, which no VERA producer can make —
+/// `SoundEntry::volume_linear` comes out of the native `[0, 1]` clamp times
+/// 16384, and [`crate::audio::sfx::PlayShifts::volume_linear`] is `0x4000 - ((vshift << 14)/100)`
+/// with `vshift` already held to `0..=100` by native `SetVShift @ 0x00406620`.
+/// Player effect: none reachable. Frequency: never. Downstream risk: the guard
+/// is what keeps [`crate::audio::sfx::native_volume_amplitude`]'s fixed 101-entry table index in
+/// bounds, where Rust would panic and gamemd would read past the table.
+pub(super) fn combine_linear(a: i32, b: i32) -> i32 {
+    (a.clamp(0, VOLUME_SCALE) * b.clamp(0, VOLUME_SCALE)) >> 14
+}
+
 /// Ordinary SoundEvent channels after the process stream initializers.
 ///
 /// `AudioSystem::Init @ 0x00406B10` calls `DSoundChannel::CreateAll @
@@ -379,6 +400,14 @@ pub(crate) struct EventToken {
 pub enum HandleOwner {
     Positional(u64),
     UnitVoice(u64),
+    /// A Voc750E20 request owns its handle independently of the source object.
+    Coordinate(u64),
+}
+
+impl From<u64> for HandleOwner {
+    fn from(object: u64) -> Self {
+        Self::Positional(object)
+    }
 }
 
 /// Service-time work at the two native phases that may consume Main RNG.
@@ -647,6 +676,17 @@ impl SoundArbiter {
         let entry = self.entry_index(&request.key);
         self.entries[entry as usize].facts = Some(request.facts);
 
+        // Original405190 owns full-pool DEAD-only reaping and one retry,
+        // shared by750920/7509E0. Finished state4 remains occupied until
+        // its ordinary Sound service actually stops it.
+        if self.events.len() == MAX_SOUND_EVENTS && self.events.iter().all(Option::is_some) {
+            for id in self.order.clone() {
+                if self.event(id).is_some_and(EventRec::is_dead) {
+                    self.reap(id);
+                }
+            }
+        }
+
         let slot = match self.events.iter().position(Option::is_none) {
             Some(slot) => slot,
             None if self.events.len() < MAX_SOUND_EVENTS => {
@@ -660,14 +700,15 @@ impl SoundArbiter {
         self.serial = self.serial.wrapping_add(1).max(1);
 
         // `InterpGroup::Init @ 0x00401000` seeds volume to 0x4000 and pan to
-        // 0x2000; `SoundEvent::SetVolume/SetPan` then snap them because the
-        // event is not yet in state 3.
+        // 0x2000. Pending SetVolume4061D0 sets and ticks immediately; pending
+        // SetPan406270 only sets its target, leaving current at the centre
+        // until Sound service ticks the group. Executed pending controls:
+        // tools/spatial_oracle/building_damage_sound_joined.json.
         let mut volume = VolumeInterp::new(VOLUME_SCALE, now_ms);
         volume.set_target_immediate(request.volume_linear.clamp(0, VOLUME_SCALE));
         volume.tick(now_ms);
         let mut pan = VolumeInterp::new(VOLUME_SCALE / 2, now_ms);
         pan.set_target_immediate(request.pan.clamp(0, VOLUME_SCALE));
-        pan.tick(now_ms);
 
         self.events[slot] = Some(EventRec {
             entry,
@@ -897,7 +938,13 @@ impl SoundArbiter {
             EventState::Playing => 3,
             EventState::Finished => 4,
         };
-        Some(serde_json::json!({"state": state, "flags": event.flags, "serial": event.serial}))
+        Some(serde_json::json!({
+            "state": state, "flags": event.flags, "serial": event.serial,
+            "volume_current_fixed": event.volume.current,
+            "volume_target_fixed": event.volume.target,
+            "pan_current_fixed": event.pan.current,
+            "pan_target_fixed": event.pan.target,
+        }))
     }
 
     pub(crate) fn token_has_channel(&self, token: EventToken) -> bool {
@@ -915,8 +962,14 @@ impl SoundArbiter {
 
     /// `SoundEvent::SetVolume @ 0x004061D0`: snap while the event has not
     /// started, glide once it is playing.
+    /// Input is spatial linear volume. Both native arms multiply by entry
+    /// +1C then SHR14 (4061EF..4061FB /406225..406233);750A84 and750DDB
+    /// supply that same input on initial reuse and retained re-drive.
     pub fn set_volume(&mut self, id: EventId, linear: i32, now_ms: u64) {
-        let linear = linear.clamp(0, VOLUME_SCALE);
+        let Some(event) = self.event(id) else {
+            return;
+        };
+        let linear = combine_linear(linear, self.facts_of(event).entry_volume_linear);
         let Some(event) = self.event_mut(id) else {
             return;
         };
@@ -928,7 +981,8 @@ impl SoundArbiter {
         }
     }
 
-    /// `SoundEvent::SetPan @ 0x00406270`, the same snap/glide rule.
+    /// `SoundEvent::SetPan @ 0x00406270`: playing uses407170; pending only
+    /// tail-jumps407150. Unlike volume, it does not immediately tick4071C0.
     pub fn set_pan(&mut self, id: EventId, pan: i32, now_ms: u64) {
         let pan = pan.clamp(0, VOLUME_SCALE);
         let Some(event) = self.event_mut(id) else {
@@ -938,7 +992,6 @@ impl SoundArbiter {
             event.pan.set_target(pan, now_ms);
         } else {
             event.pan.set_target_immediate(pan);
-            event.pan.tick(now_ms);
         }
     }
 
@@ -1015,30 +1068,40 @@ impl SoundArbiter {
     /// only starting and the pre-delay clock stop.
     pub fn suspend_all(&mut self, now_ms: u64) {
         for id in self.order.clone() {
-            let Some(event) = self.event_mut(id) else {
-                continue;
-            };
-            if event.suspend_depth == 0 && event.state == EventState::PreDelay {
-                event.predelay_remaining_ms = event.predelay_deadline_ms.saturating_sub(now_ms);
-            }
-            event.suspend_depth += 1;
+            self.suspend_event(id, now_ms);
         }
+    }
+
+    /// `SoundEvent::Suspend4053E0`, shared by404FD0 and coordinate751040.
+    pub(crate) fn suspend_event(&mut self, id: EventId, now_ms: u64) {
+        let Some(event) = self.event_mut(id) else {
+            return;
+        };
+        if event.suspend_depth == 0 && event.state == EventState::PreDelay {
+            event.predelay_remaining_ms = event.predelay_deadline_ms.saturating_sub(now_ms);
+        }
+        event.suspend_depth = event.suspend_depth.wrapping_add(1);
     }
 
     /// `SoundSystem::ResumeAll @ 0x00405040` (`GamePause::Exit @ 0x00406F40`):
     /// decrement, clamped at zero, and re-absolutise the pre-delay.
     pub fn resume_all(&mut self, now_ms: u64) {
         for id in self.order.clone() {
-            let Some(event) = self.event_mut(id) else {
-                continue;
-            };
-            if event.suspend_depth == 0 {
-                continue;
-            }
-            event.suspend_depth = (event.suspend_depth - 1).max(0);
-            if event.suspend_depth == 0 && event.state == EventState::PreDelay {
-                event.predelay_deadline_ms = now_ms.saturating_add(event.predelay_remaining_ms);
-            }
+            self.resume_event(id, now_ms);
+        }
+    }
+
+    /// `SoundEvent::Resume405430`, shared by751080 and405040.
+    pub(crate) fn resume_event(&mut self, id: EventId, now_ms: u64) {
+        let Some(event) = self.event_mut(id) else {
+            return;
+        };
+        if event.suspend_depth == 0 {
+            return;
+        }
+        event.suspend_depth = event.suspend_depth.wrapping_sub(1).max(0);
+        if event.suspend_depth == 0 && event.state == EventState::PreDelay {
+            event.predelay_deadline_ms = now_ms.saturating_add(event.predelay_remaining_ms);
         }
     }
 
@@ -1738,6 +1801,10 @@ impl PlaybackService for TestPlayback {
 #[cfg(test)]
 #[path = "arbiter_move_sound_tests.rs"]
 mod move_sound_tests;
+
+#[cfg(test)]
+#[path = "arbiter_coordinate_tests.rs"]
+pub(super) mod coordinate_tests;
 
 #[cfg(test)]
 mod tests {

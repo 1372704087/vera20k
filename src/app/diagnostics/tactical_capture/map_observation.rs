@@ -844,7 +844,8 @@ fn sound_state(state: &AppState, profile: &MapCaptureProfile) -> Result<Value> {
                 "gattling_stage": entity.gattling.stage(), "gattling_value": entity.gattling.value()}))
     }).collect::<Vec<_>>();
     let snapshot = json!({"main_rng_cursor": [rng.main.index_a, rng.main.index_b],
-        "scenario_rng_cursor": [rng.scenario.index_a, rng.scenario.index_b], "actors": actors});
+        "scenario_rng_cursor": [rng.scenario.index_a, rng.scenario.index_b], "actors": actors,
+        "coordinate_requests": state.audio.sfx_player.as_ref().map(|sfx| sfx.coordinate_sound_observation())});
     ensure!(
         sound_state_sample_count(&snapshot) <= MAX_OBSERVATION_SAMPLES,
         "sound state exceeds sample budget"
@@ -854,6 +855,7 @@ fn sound_state(state: &AppState, profile: &MapCaptureProfile) -> Result<Value> {
 
 fn sound_state_sample_count(state: &Value) -> usize {
     2 + state["actors"].as_array().map_or(0, Vec::len)
+        + state["coordinate_requests"].as_array().map_or(0, Vec::len)
 }
 
 fn pcm_report(report: PcmObservationReport, tail_ms: u64, settled: bool) -> Value {
@@ -3636,6 +3638,9 @@ mod tests {
         row.remove("gattling_stage");
         row.remove("gattling_value");
         assert_eq!(sound_state_sample_count(&historical), 3);
+        let mut retained_requests = audio.clone();
+        retained_requests["coordinate_requests"] = json!([{}, {}]);
+        assert_eq!(sound_state_sample_count(&retained_requests), 5);
         for available in [2, 3] {
             let mut frames = MapObservation {
                 sample_count: MAX_OBSERVATION_SAMPLES - available,

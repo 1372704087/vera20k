@@ -1,7 +1,7 @@
-//! Rust regression tests for `BuildingClass::AfterDestruction`'s rubble arm,
-//! driven through the production damage receiver. Expectations follow the
-//! instruction reading recorded in `building_rubble`; they are not native
-//! goldens.
+//! Rust regression tests for `BuildingClass::AfterDestruction`'s rubble arm
+//! and crate tail, driven through the production damage receiver.
+//! Expectations follow the instruction reading recorded in
+//! `building_after_destruction`; they are not native goldens.
 
 use std::fmt::Write as _;
 
@@ -24,6 +24,9 @@ const RULES: &str = "\
 0=RUIN
 1=PLAIN
 2=SHORT
+3=CASH
+4=GIFT
+5=BOTH
 [Warheads]
 0=KILLWH
 [RUIN]
@@ -34,6 +37,22 @@ Strength=100
 [SHORT]
 Strength=100
 LeaveRubble=yes
+[CASH]
+Strength=100
+CrateBeneath=yes
+CrateBeneathIsMoney=yes
+[GIFT]
+Strength=100
+CrateBeneath=yes
+[BOTH]
+Strength=100
+LeaveRubble=yes
+CrateBeneath=yes
+CrateBeneathIsMoney=yes
+[CrateRules]
+CrateImg=SILVER
+WoodCrateImg=WOOD
+WaterCrateImg=WATER
 [KILLWH]
 Verses=100%,100%,100%,100%,100%,100%,100%,100%,100%,100%,100%
 ";
@@ -45,6 +64,12 @@ Foundation=2x2
 Foundation=2x2
 [SHORT]
 Foundation=2x2
+[CASH]
+Foundation=2x2
+[GIFT]
+Foundation=2x2
+[BOTH]
+Foundation=2x2
 ";
 
 fn rules() -> RuleSet {
@@ -55,6 +80,13 @@ fn rules() -> RuleSet {
     .expect("rubble rules");
     // RUIN's image carries rubble; SHORT's is too short (no art bound).
     rules.set_building_rubble_art_for_test(
+        "BOTH",
+        RubbleArt {
+            shp: "BOTH.SHP".into(),
+            body_frame: 3,
+        },
+    );
+    rules.set_building_rubble_art_for_test(
         "RUIN",
         RubbleArt {
             shp: "RUIN.SHP".into(),
@@ -64,18 +96,22 @@ fn rules() -> RuleSet {
     rules
 }
 
-/// Dense table whose index 0xEF is an `IsRubble=yes` type, as in retail.
+/// Dense table whose index 0xEF is an `IsRubble=yes` type, as in retail,
+/// with the three crate images at 1..=3.
 fn registry() -> OverlayTypeRegistry {
     let mut ini = String::from("[OverlayTypes]\n");
     for id in 0..=u16::from(RUBBLE_OVERLAY_INDEX) {
-        let name = if id == u16::from(RUBBLE_OVERLAY_INDEX) {
-            "RUBBLE_OVERLAY".to_owned()
-        } else {
-            format!("OV{id:03}")
+        let name = match id {
+            1 => "SILVER".to_owned(),
+            2 => "WOOD".to_owned(),
+            3 => "WATER".to_owned(),
+            _ if id == u16::from(RUBBLE_OVERLAY_INDEX) => "RUBBLE_OVERLAY".to_owned(),
+            _ => format!("OV{id:03}"),
         };
         writeln!(ini, "{id}={name}").unwrap();
     }
     ini.push_str("[RUBBLE_OVERLAY]\nIsRubble=yes\nDrawFlat=true\nNoUseTileLandType=true\n");
+    ini.push_str("[SILVER]\nCrate=yes\n[WOOD]\nCrate=yes\n[WATER]\nCrate=yes\n");
     OverlayTypeRegistry::from_ini(&IniFile::from_str(&ini), None)
 }
 
@@ -91,6 +127,16 @@ fn sim() -> Simulation {
         32,
         crate::map::resolved_terrain::test_clear_cell,
     ));
+    // A playfield and map size the crate placer reads (as the crate tests'
+    // fixture installs them).
+    sim.playfield_bounds = Some(crate::sim::cell_rect::PlayfieldBounds {
+        base: 20,
+        off_fc: -128,
+        off_100: -128,
+        off_104: 256,
+        off_108: 256,
+    });
+    sim.playfield_size_height = Some(20);
     sim
 }
 
@@ -200,4 +246,70 @@ fn no_rubble_without_leave_rubble_or_rubble_art() {
             assert_eq!(overlay(&sim, cell).overlay_id, None, "{kind} {cell:?}");
         }
     }
+}
+
+/// The crate tail places one crate at the north-west cell, whether or not
+/// the type leaves rubble: Money (data 0) for `CrateBeneathIsMoney=`, else the
+/// crate Mark's byte for a random powerup at pickup. Its only draw is the
+/// slot timer's.
+#[test]
+fn a_crate_beneath_building_leaves_a_crate_at_its_origin() {
+    let rules = rules();
+    let registry = registry();
+    let wood = registry.id_for_name("WOOD").unwrap();
+    for (kind, data) in [("CASH", 0u8), ("GIFT", u8::MAX)] {
+        let mut sim = sim();
+        let id = sim
+            .spawn_object_at_height(kind, "Americans", 10, 12, 0, 0, &rules)
+            .expect("building spawns");
+        assert!(sim.rebuild_dynamic_navigation(&rules));
+
+        kill(&mut sim, &rules, &registry, id);
+
+        let cell = overlay(&sim, (10, 12));
+        assert_eq!(
+            (cell.overlay_id, cell.overlay_data),
+            (Some(wood), data),
+            "{kind}"
+        );
+        let occupied: Vec<_> = sim
+            .crate_authority
+            .slots()
+            .iter()
+            .filter(|slot| !slot.is_empty())
+            .map(|slot| (slot.cell_x, slot.cell_y))
+            .collect();
+        assert_eq!(occupied, [(10, 12)], "{kind}");
+    }
+}
+
+/// Every retail `CrateBeneath=` type also leaves rubble, and the rubble arm
+/// runs first: the origin cell then holds overlay 0xEF, the passable rubble
+/// cell is where Find_Nearby_Passable_Cell lands, and the crate commit's
+/// no-overlay check (`CrateSlot__ValidateCellAndCreateOverlay`, reached from
+/// `0x004A17C0`) refuses it before the slot is taken or its timer drawn.
+/// Composed from the two ported owners; not compared against native
+/// execution.
+#[test]
+fn rubble_on_the_origin_cell_refuses_the_crate_beneath() {
+    let rules = rules();
+    let registry = registry();
+    let mut sim = sim();
+    let id = sim
+        .spawn_object_at_height("BOTH", "Americans", 10, 12, 0, 0, &rules)
+        .expect("BOTH spawns");
+    assert!(sim.rebuild_dynamic_navigation(&rules));
+
+    kill(&mut sim, &rules, &registry, id);
+
+    assert_eq!(
+        overlay(&sim, (10, 12)).overlay_id,
+        Some(RUBBLE_OVERLAY_INDEX)
+    );
+    assert!(
+        sim.crate_authority
+            .slots()
+            .iter()
+            .all(|slot| slot.is_empty())
+    );
 }

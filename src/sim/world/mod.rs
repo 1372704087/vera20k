@@ -18,10 +18,10 @@ pub(crate) mod authored_load_host;
 pub(crate) mod bridge_orchestrator;
 #[cfg(test)]
 pub(crate) mod bridge_test_evidence;
-pub(crate) mod building_anim;
-mod building_rubble;
+mod building_after_destruction;
 #[cfg(test)]
-mod building_rubble_tests;
+mod building_after_destruction_tests;
+pub(crate) mod building_anim;
 mod building_scatter;
 mod cell_content;
 mod crash;
@@ -1886,7 +1886,7 @@ impl Simulation {
                 }
                 // `BuildingClass::AfterDestruction @ 0x00441F60` follows the
                 // dying building's UnInit and reads its type and Location.
-                let rubble = (category == EntityCategory::Structure)
+                let destroyed_building = (category == EntityCategory::Structure)
                     .then(|| self.substrate.entities.get(stable_id))
                     .flatten()
                     .map(|building| {
@@ -1896,8 +1896,8 @@ impl Simulation {
                         )
                     });
                 self.uninit_with_context(stable_id, uninit_context);
-                if let Some((type_id, origin)) = rubble {
-                    self.leave_building_rubble(
+                if let Some((type_id, origin)) = destroyed_building {
+                    self.building_after_destruction(
                         rules,
                         uninit_context.registry(),
                         type_id,

@@ -1211,6 +1211,15 @@ pub struct ObjectType {
     /// (`0x0045E279`).
     pub leave_rubble: bool,
 
+    /// `CrateBeneath=` (BuildingType `+0x1767`, read at `0x00460EC1`) and
+    /// `CrateBeneathIsMoney=` (`+0x1769`, read at `0x00460EDB`): a destroyed
+    /// building places a crate at its origin cell, money or a random powerup
+    /// (`BuildingClass::AfterDestruction @ 0x00441F60`). Both keep the current
+    /// value as the read default; the constructor's is false (`0x0045E273`,
+    /// `0x0045E284`).
+    pub crate_beneath: bool,
+    pub crate_beneath_is_money: bool,
+
     /// Whether garrisoned infantry can fire from this building.
     /// Parsed from `CanOccupyFire=yes` in rules.ini. Building must also
     /// have `CanBeOccupied=yes` and at least one occupant for fire to occur.
@@ -2627,6 +2636,10 @@ impl ObjectType {
             can_be_occupied: section.read_bool("CanBeOccupied", false),
             leave_rubble: category == ObjectCategory::Building
                 && section.read_bool("LeaveRubble", false),
+            crate_beneath: category == ObjectCategory::Building
+                && section.read_bool("CrateBeneath", false),
+            crate_beneath_is_money: category == ObjectCategory::Building
+                && section.read_bool("CrateBeneathIsMoney", false),
             can_occupy_fire: section.read_bool("CanOccupyFire", false),
             show_occupant_pips: section.read_bool("ShowOccupantPips", true),
             bridge_repair_hut: section.read_bool("BridgeRepairHut", false),
@@ -5062,6 +5075,31 @@ mod tests {
             )
             .no_shadow
         );
+    }
+
+    /// The production reader on retail `rulesmd.ini`: `CrateBeneath=` and
+    /// `CrateBeneathIsMoney=` (BuildingTypeClass::ReadINI `0x00460EC1`,
+    /// `0x00460EDB`), defaulting to the constructor's false.
+    #[test]
+    fn retail_crate_beneath_reads() {
+        use crate::rules::ruleset::RuleSet;
+
+        let Some((ini, _)) = crate::rules::retail_ini_fixture::retail_rules_and_art() else {
+            return;
+        };
+        let rules = RuleSet::from_ini(&ini).unwrap();
+        for (id, beneath, money) in [
+            ("CAWASH01", true, true),
+            ("CARUS07", true, false),
+            ("GAPOWR", false, false),
+        ] {
+            let object = rules.object(id).unwrap();
+            assert_eq!(
+                (object.crate_beneath, object.crate_beneath_is_money),
+                (beneath, money),
+                "{id}"
+            );
+        }
     }
 
     #[test]

@@ -422,6 +422,7 @@ impl Simulation {
                     owner,
                     lent,
                     &mut self.substrate.entities,
+                    self.resolved_terrain.as_ref(),
                     &self.house_alliances,
                     &self.interner,
                     Some(rules),
@@ -431,6 +432,7 @@ impl Simulation {
             None => borrowed.insert(self.movement_pass_cache.lend_block_set(
                 owner,
                 &mut self.substrate.entities,
+                self.resolved_terrain.as_ref(),
                 &self.house_alliances,
                 &self.interner,
                 Some(rules),

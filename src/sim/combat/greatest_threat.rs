@@ -1069,10 +1069,11 @@ pub(crate) fn greatest_threat(
     // Airborne prepass: the mask's AA bit gates the entire pass
     // (6F8F3A -> 6F91A7), independently of target weapon selection.
     // Actual AirTracker registration alone does not grant eligibility:
-    // 6F9251 requires Object+74, then6F925C rejects live +78 Ground(2).
-    // Ground and Bridge selected-list layers both denote that native Ground.
-    // The existing cell_list_layer_for_entity adapter handles landed Fly here;
-    // its complete Jumpjet54B8D0 query remains a separate unresolved boundary.
+    // 6F9251 requires Object+74, then6F9261 rejects live +78 Ground(2).
+    // cell_list_layer_for_entity answers Some exactly when that layer query
+    // is Ground, Ground and Bridge lists alike: a Jumpjet still tracked below
+    // two levels, taking off or descending (Jumpjet54B8D0), is skipped
+    // although its path layer stays Air. Touchdown untracks it (54C9DC).
     // Never rewrite stored Cell lists or AirTracker membership from this gate.
     //
     // DRIFT — sweep order. Native iterates a 20x20 bucket grid
@@ -2404,6 +2405,30 @@ mod tests {
         // An AA-only Guard scanner's mask is 5 and its flags word only the
         // Aircraft bit; `OR EBX,0x8002 @ 0x006F91C2` lets the pre-pass take
         // a jumpjet infantryman anyway.
+        assert_eq!(aa_only_scan_of_tracked_jumpjet_at(400), Some(2));
+    }
+
+    #[test]
+    fn air_prepass_skips_a_jumpjet_whose_layer_query_answers_ground() {
+        // `0x006F9261`: the pre-pass asks a marked candidate's layer (vt+0x78)
+        // and skips one that answers Ground (2). A Jumpjet's answer
+        // (`0x0054B8D0`) is Ground below two levels, 208 leptons, although its
+        // path layer stays Air, so the AA-only scanner leaves a tracked
+        // Jumpjet taking off or descending below two levels alone and takes
+        // one at two levels.
+        for (altitude, expected) in [(0, None), (207, None), (208, Some(2))] {
+            assert_eq!(
+                aa_only_scan_of_tracked_jumpjet_at(altitude),
+                expected,
+                "altitude {altitude}"
+            );
+        }
+    }
+
+    /// An AA-only Guard tank at (5, 5) scans for a marked enemy Jumpjet
+    /// infantryman at (6, 5), `altitude` leptons up and already in the
+    /// AirTracker.
+    fn aa_only_scan_of_tracked_jumpjet_at(altitude: i32) -> Option<u64> {
         use crate::rules::locomotor_type::LocomotorKind;
         use crate::sim::movement::locomotor::LocomotorState;
         use crate::sim::world::Simulation;
@@ -2440,13 +2465,13 @@ mod tests {
         sim.interner = test_interner();
         let mut locomotor = LocomotorState::for_test_kind(LocomotorKind::Jumpjet);
         locomotor.layer = MovementLayer::Air;
-        locomotor.altitude = SimFixed::from_num(200);
+        locomotor.altitude = SimFixed::from_num(altitude);
         sim.substrate.entities.get_mut(2).unwrap().locomotor = Some(locomotor);
         sim.add_entity_occupancy(1);
         // The fixture starts after native takeoff's explicit AirTracker Add;
         // Mark alone does not register a Jumpjet or establish its+560 Cell.
         sim.aircraft_tracker_add(2);
-        let target = super::super::acquire_best_target_for_entity(
+        super::super::acquire_best_target_for_entity(
             &sim.substrate.entities,
             &sim.substrate.occupancy,
             &rules,
@@ -2461,8 +2486,7 @@ mod tests {
             Some(&sim),
             None,
         )
-        .target();
-        assert_eq!(target, Some(2));
+        .target()
     }
 
     #[test]

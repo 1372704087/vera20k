@@ -7,12 +7,12 @@
 //! movement pass, so that walk ran once per moving object per frame.
 //!
 //! The sets are a pure function of the entities (plus rules, which a match does
-//! not change, and the alliance graph). This index keeps each owner's sets
-//! between passes and re-derives only the entities the store handed out
-//! mutably since (`EntityStore::take_touched`), at exactly the points where the
-//! sets used to be rebuilt, so a pass sees what a fresh build would give it.
-//! Move orders read the same kept sets (`Simulation::issue_ground_move`).
-//! Debug builds make that fresh build and compare.
+//! not change, the terrain the layer query reads, and the alliance graph). This index keeps each owner's sets between passes and re-derives
+//! only the entities the store handed out mutably since
+//! (`EntityStore::take_touched`), at exactly the points where the sets used to
+//! be rebuilt, so a pass sees what a fresh build would give it. Move orders
+//! read the same kept sets (`Simulation::issue_ground_move`). Debug builds make
+//! that fresh build and compare.
 //!
 //! One rule says what an entity contributes ([`contribution`]) and one insert
 //! says what an occupant does to its cell's entry ([`insert_unit`]); the
@@ -27,6 +27,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use crate::map::entities::EntityCategory;
 use crate::map::houses::HouseAllianceMap;
+use crate::map::resolved_terrain::ResolvedTerrainGrid;
 use crate::rules::ruleset::RuleSet;
 use crate::sim::entity_store::{EntityStore, TouchReader};
 use crate::sim::game_entity::GameEntity;
@@ -117,9 +118,13 @@ fn moving_next_cell(entity: &GameEntity) -> Option<(u16, u16)> {
     ))
 }
 
-/// The one rule for what an entity contributes.
+/// The one rule for what an entity contributes. An occupant contributes on
+/// the cell list Mark keeps it in (`cell_list_layer_for_entity`): a landed
+/// aircraft or a landed or low Jumpjet does, although its path layer stays
+/// Air.
 fn contribution(
     entity: &GameEntity,
+    terrain: Option<&ResolvedTerrainGrid>,
     interner: &StringInterner,
     rules: Option<&RuleSet>,
 ) -> Option<Contribution> {
@@ -133,7 +138,7 @@ fn contribution(
     if entity.passenger_role.is_inside_transport() {
         return None;
     }
-    let layer = entity.occupancy_list_layer()?;
+    let layer = crate::sim::occupancy::cell_list_layer_for_entity(entity, terrain)?;
     let cell = (entity.position.rx, entity.position.ry);
     // Buildings always block (they never move). Always ground layer.
     // With rules, expand to the full foundation so A* sees every occupied
@@ -279,13 +284,14 @@ impl Placements {
         &mut self,
         id: u64,
         entities: &EntityStore,
+        terrain: Option<&ResolvedTerrainGrid>,
         interner: &StringInterner,
         rules: Option<&RuleSet>,
         dirty: &mut Dirty,
     ) {
         let now = entities
             .get(id)
-            .and_then(|entity| contribution(entity, interner, rules));
+            .and_then(|entity| contribution(entity, terrain, interner, rules));
         if self.placed.get(&id) == now.as_ref() {
             return;
         }
@@ -297,13 +303,14 @@ impl Placements {
 
     fn of_everyone(
         entities: &EntityStore,
+        terrain: Option<&ResolvedTerrainGrid>,
         interner: &StringInterner,
         rules: Option<&RuleSet>,
     ) -> Self {
         let mut placements = Self::default();
         let mut dirty = Dirty::default();
         for entity in entities.values() {
-            if let Some(contribution) = contribution(entity, interner, rules) {
+            if let Some(contribution) = contribution(entity, terrain, interner, rules) {
                 placements.place(entity.stable_id(), contribution, &mut dirty);
             }
         }
@@ -391,6 +398,7 @@ impl OwnerView {
 /// the index.
 pub(crate) fn build_owner_block_set(
     entities: &EntityStore,
+    terrain: Option<&ResolvedTerrainGrid>,
     owner: &str,
     alliances: &HouseAllianceMap,
     interner: &StringInterner,
@@ -399,7 +407,7 @@ pub(crate) fn build_owner_block_set(
     let mut product = OwnerBlockSet::default();
     let mut friendly_to: BTreeMap<InternedId, bool> = BTreeMap::new();
     for entity in entities.values() {
-        match contribution(entity, interner, rules) {
+        match contribution(entity, terrain, interner, rules) {
             Some(Contribution::Structure(blocked)) => product.0.extend(blocked),
             Some(Contribution::Unit(unit)) => {
                 let friendly = *friendly_to.entry(unit.owner).or_insert_with(|| {
@@ -458,6 +466,14 @@ pub(crate) struct OwnerBlockIndex {
     /// Which rules the placements were derived under, by address: a building's
     /// blocked cells come from its type. Never dereferenced.
     rules_seen: Option<usize>,
+    /// Which terrain, by address: the layer query reads its ground and, for
+    /// a Jumpjet, its bridge flag. Never dereferenced. It tells no terrain
+    /// from some and one grid from another; a grid edited or replaced in the
+    /// same place keeps its address. Of what the query reads, play changes
+    /// only bridge flags, which move the answer only for a Jumpjet exactly at
+    /// deck height over the bridge, and that Jumpjet re-derives when next
+    /// touched.
+    terrain_seen: Option<usize>,
     last_loan: u64,
     /// Drained from the store but not yet re-derived here.
     pending: TouchedBacklog,
@@ -506,6 +522,7 @@ impl OwnerBlockIndex {
     fn sync_placements(
         &mut self,
         entities: &mut EntityStore,
+        terrain: Option<&ResolvedTerrainGrid>,
         alliances: &HouseAllianceMap,
         interner: &StringInterner,
         rules: Option<&RuleSet>,
@@ -515,9 +532,11 @@ impl OwnerBlockIndex {
             self.alliances_seen = Some(alliances.clone());
         }
         let rules_now = rules.map(|rules| std::ptr::from_ref(rules) as usize);
-        if self.rules_seen != rules_now {
+        let terrain_now = terrain.map(|terrain| std::ptr::from_ref(terrain) as usize);
+        if self.rules_seen != rules_now || self.terrain_seen != terrain_now {
             self.placements = None;
             self.rules_seen = rules_now;
+            self.terrain_seen = terrain_now;
         }
         self.drain_log(entities);
         let touched = std::mem::take(&mut self.pending);
@@ -526,7 +545,7 @@ impl OwnerBlockIndex {
                 let mut dirty = Dirty::default();
                 // A set: each entity is re-derived once.
                 for id in touched.ids {
-                    placements.rederive(id, entities, interner, rules, &mut dirty);
+                    placements.rederive(id, entities, terrain, interner, rules, &mut dirty);
                 }
                 // A view that stopped being asked for would collect dirt for
                 // ever; past this point building it afresh is cheaper.
@@ -538,7 +557,7 @@ impl OwnerBlockIndex {
                 });
             }
             None => {
-                self.placements = Some(Placements::of_everyone(entities, interner, rules));
+                self.placements = Some(Placements::of_everyone(entities, terrain, interner, rules));
                 self.owners.clear();
                 #[cfg(test)]
                 {
@@ -557,11 +576,12 @@ impl OwnerBlockIndex {
         &mut self,
         owner: InternedId,
         entities: &mut EntityStore,
+        terrain: Option<&ResolvedTerrainGrid>,
         alliances: &HouseAllianceMap,
         interner: &StringInterner,
         rules: Option<&RuleSet>,
     ) -> LentOwnerBlockSet {
-        self.sync_placements(entities, alliances, interner, rules);
+        self.sync_placements(entities, terrain, alliances, interner, rules);
         let placements = self.placements.as_ref().expect("synced above");
         let owner_name = interner.resolve(owner);
         self.last_loan += 1;
@@ -583,7 +603,9 @@ impl OwnerBlockIndex {
             }
         };
         view.loan = loan;
-        debug_assert_current(&sets, entities, owner_name, alliances, interner, rules);
+        debug_assert_current(
+            &sets, entities, terrain, owner_name, alliances, interner, rules,
+        );
         LentOwnerBlockSet { loan, sets }
     }
 
@@ -593,11 +615,12 @@ impl OwnerBlockIndex {
         owner: InternedId,
         lent: &mut LentOwnerBlockSet,
         entities: &mut EntityStore,
+        terrain: Option<&ResolvedTerrainGrid>,
         alliances: &HouseAllianceMap,
         interner: &StringInterner,
         rules: Option<&RuleSet>,
     ) {
-        self.sync_placements(entities, alliances, interner, rules);
+        self.sync_placements(entities, terrain, alliances, interner, rules);
         let placements = self.placements.as_ref().expect("synced above");
         let owner_name = interner.resolve(owner);
         match self.owners.get_mut(&owner) {
@@ -619,7 +642,9 @@ impl OwnerBlockIndex {
                 lent.loan = view.loan;
             }
         }
-        debug_assert_current(&lent.sets, entities, owner_name, alliances, interner, rules);
+        debug_assert_current(
+            &lent.sets, entities, terrain, owner_name, alliances, interner, rules,
+        );
     }
 
     /// Take back what [`Self::lend_current`] handed out. Sets whose view was
@@ -637,6 +662,7 @@ impl OwnerBlockIndex {
 fn debug_assert_current(
     product: &OwnerBlockSet,
     entities: &EntityStore,
+    terrain: Option<&ResolvedTerrainGrid>,
     owner: &str,
     alliances: &HouseAllianceMap,
     interner: &StringInterner,
@@ -644,7 +670,8 @@ fn debug_assert_current(
 ) {
     debug_assert!(
         !crate::sim::touch_log::live_read_check_enabled()
-            || *product == build_owner_block_set(entities, owner, alliances, interner, rules),
+            || *product
+                == build_owner_block_set(entities, terrain, owner, alliances, interner, rules),
         "owner block sets for {owner} diverged from a build of the whole world"
     );
 }
@@ -719,10 +746,10 @@ mod tests {
         let before = index.world_rebuilds;
         for owner in OWNERS {
             let id = test_intern(owner);
-            let lent = index.lend_current(id, entities, alliances, &interner, Some(rules));
+            let lent = index.lend_current(id, entities, None, alliances, &interner, Some(rules));
             assert_eq!(
                 lent.sets,
-                build_owner_block_set(entities, owner, alliances, &interner, Some(rules)),
+                build_owner_block_set(entities, None, owner, alliances, &interner, Some(rules)),
                 "{owner}: the kept sets differ from a build of the whole world"
             );
             index.give_back(id, lent);
@@ -801,6 +828,95 @@ mod tests {
         );
         assert_eq!(at((5, 6)).unwrap().cost_code, 5);
         assert!(at((7, 5)).is_none());
+    }
+
+    #[test]
+    fn a_landed_jumpjet_soft_blocks_its_cell_and_a_flying_one_does_not() {
+        // A Jumpjet's path layer stays Air on the ground. Mark lists it by its
+        // layer query (`0x0054B8D0`), which answers Ground below two levels,
+        // so A* meets a landed one in the cell list like any enemy occupant.
+        use crate::rules::locomotor_type::LocomotorKind;
+        use crate::sim::movement::locomotor::LocomotorState;
+        use crate::util::fixed_math::SimFixed;
+
+        let rules = rules();
+        let alliances = HouseAllianceMap::new();
+        let mut entities = EntityStore::new();
+        entities.insert(unit(2, "Americans", (20, 20)));
+        let mut jumpjet = unit(1, "Russians", (7, 5));
+        jumpjet.locomotor = Some(LocomotorState::for_test_kind(LocomotorKind::Jumpjet));
+        entities.insert(jumpjet);
+        let mut index = OwnerBlockIndex::default();
+        lend_and_check(&mut index, &mut entities, &alliances, &rules);
+        assert_eq!(code(&index, "Americans", MovementLayer::Ground, (7, 5)), 5);
+
+        entities
+            .get_mut(1)
+            .unwrap()
+            .locomotor
+            .as_mut()
+            .unwrap()
+            .altitude = SimFixed::from_num(400);
+        lend_and_check(&mut index, &mut entities, &alliances, &rules);
+        assert!(
+            kept(&index, "Americans")
+                .1
+                .get(MovementLayer::Ground, &(7, 5))
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn a_jumpjet_on_high_ground_is_measured_from_the_terrain() {
+        // An exact Z of 416 is a Jumpjet landed on level-4 ground, or one two
+        // levels and more up over level 0: only the terrain tells them apart.
+        // The second lend gets another grid, which no entity touch reports.
+        use crate::rules::locomotor_type::LocomotorKind;
+        use crate::sim::movement::locomotor::LocomotorState;
+
+        let rules = rules();
+        let alliances = HouseAllianceMap::new();
+        let mut entities = EntityStore::new();
+        entities.insert(unit(2, "Americans", (12, 12)));
+        let mut jumpjet = unit(1, "Russians", (7, 5));
+        jumpjet.locomotor = Some(LocomotorState::for_test_kind(LocomotorKind::Jumpjet));
+        jumpjet.position.exact_z_leptons = Some(416);
+        entities.insert(jumpjet);
+        // After the units, which intern their houses.
+        let interner = test_interner();
+        let terrain_with_level = |level: u8| {
+            let cells = (0..16)
+                .flat_map(|y| {
+                    (0..16).map(move |x| {
+                        let level = if (x, y) == (7, 5) { level } else { 0 };
+                        crate::sim::world::common_raw_test_terrain_cell(x, y, level, false)
+                    })
+                })
+                .collect();
+            ResolvedTerrainGrid::from_cells(16, 16, cells)
+        };
+        // Both grids stay alive, so their addresses differ.
+        let (level_0, level_4) = (terrain_with_level(0), terrain_with_level(4));
+        let americans = test_intern("Americans");
+        let mut index = OwnerBlockIndex::default();
+        for (terrain, expected) in [(&level_0, None), (&level_4, Some(5))] {
+            let lent = index.lend_current(
+                americans,
+                &mut entities,
+                Some(terrain),
+                &alliances,
+                &interner,
+                Some(&rules),
+            );
+            assert_eq!(
+                lent.sets
+                    .1
+                    .get(MovementLayer::Ground, &(7, 5))
+                    .map(|entry| entry.cost_code),
+                expected
+            );
+            index.give_back(americans, lent);
+        }
     }
 
     #[test]
@@ -941,7 +1057,14 @@ mod tests {
             let which = next(2) as usize;
             let owner = test_intern(OWNERS[which]);
             let world = |entities: &EntityStore| {
-                build_owner_block_set(entities, OWNERS[which], &alliances, &interner, Some(&rules))
+                build_owner_block_set(
+                    entities,
+                    None,
+                    OWNERS[which],
+                    &alliances,
+                    &interner,
+                    Some(&rules),
+                )
             };
             match (next(6), held.take()) {
                 // A pass takes the sets and keeps them across further edits.
@@ -949,6 +1072,7 @@ mod tests {
                     let lent = index.lend_current(
                         owner,
                         &mut entities,
+                        None,
                         &alliances,
                         &interner,
                         Some(&rules),
@@ -963,12 +1087,14 @@ mod tests {
                         held_owner,
                         &mut lent,
                         &mut entities,
+                        None,
                         &alliances,
                         &interner,
                         Some(&rules),
                     );
                     let expected = build_owner_block_set(
                         &entities,
+                        None,
                         OWNERS[held_which],
                         &alliances,
                         &interner,
@@ -985,6 +1111,7 @@ mod tests {
                     let lent = index.lend_current(
                         owner,
                         &mut entities,
+                        None,
                         &alliances,
                         &interner,
                         Some(&rules),
@@ -1013,7 +1140,7 @@ mod tests {
         let interner = test_interner();
         let mut index = OwnerBlockIndex::default();
         let lend = |index: &mut OwnerBlockIndex, entities: &mut EntityStore| {
-            index.lend_current(owner, entities, &alliances, &interner, Some(&rules))
+            index.lend_current(owner, entities, None, &alliances, &interner, Some(&rules))
         };
         let first = lend(&mut index, &mut entities);
         // A second pass asks while the first still holds the sets.
@@ -1035,6 +1162,7 @@ mod tests {
             owner,
             &mut lent,
             &mut entities,
+            None,
             &alliances,
             &interner,
             Some(&rules),

@@ -1499,6 +1499,7 @@ fn test_friendly_passable_moving_unit_not_blocked() {
     let alliances = HouseAllianceMap::new();
     let (blocks, _penalty) = block_index::build_owner_block_set(
         &entities,
+        None,
         "Americans",
         &alliances,
         &test_interner(),
@@ -1575,6 +1576,7 @@ fn test_enemy_unit_always_blocks_even_when_moving() {
     let alliances = HouseAllianceMap::new();
     let (blocks, _penalty) = block_index::build_owner_block_set(
         &entities,
+        None,
         "Americans",
         &alliances,
         &test_interner(),

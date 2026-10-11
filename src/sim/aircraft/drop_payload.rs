@@ -1159,7 +1159,6 @@ mod tests {
             lepton::BRIDGE_DECK_HEIGHT_LEPTONS,
             "it stands at the deck's height over level-0 ground"
         );
-        assert_eq!(rider.occupancy_list_layer(), Some(MovementLayer::Bridge));
         let cell = sim.substrate.occupancy.get(51, 24).unwrap();
         assert_eq!(cell.snapshot_layer(MovementLayer::Bridge), vec![passenger]);
         assert!(cell.is_empty_on(MovementLayer::Ground));

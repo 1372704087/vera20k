@@ -8,7 +8,7 @@
 //! Radar events themselves are client-local: native `RadarClass` keeps one
 //! event array per process beside its radar surfaces. The simulation therefore
 //! only names the event it reached ([`RadarEventRequest`]);
-//! `render::radar_events` owns admission, dedup, animation and the Spacebar
+//! `render::radar::events` owns admission, dedup, animation and the Spacebar
 //! review ring.
 //!
 //! ## Dependency rules

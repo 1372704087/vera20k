@@ -5,8 +5,8 @@ use crate::map::entities::EntityCategory;
 use crate::map::playfield::PlayfieldBounds;
 use crate::map::resolved_terrain::{RadarColorMetadata, ResolvedTerrainCell};
 use crate::map::terrain::build_terrain_grid_from_resolved;
-use crate::render::minimap_projection::MinimapPlayfieldProjection;
-use crate::render::radar_terrain_updates::{
+use crate::render::radar::projection::MinimapPlayfieldProjection;
+use crate::render::radar::terrain_updates::{
     RadarTerrainUpdateLayers, stage_radar_terrain_dirty_generation,
 };
 use crate::rules::ini_parser::IniFile;

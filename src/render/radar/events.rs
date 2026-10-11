@@ -20,7 +20,7 @@ use crate::rules::radar_event_config::RadarEventConfig;
 use crate::sim::radar::RadarEventType;
 use crate::util::native_x87::{NativeF32Bits, NativeF64Bits, X87Chop53, X87Ordering};
 
-use super::native_radar_surface::native_event_initial_radius;
+use super::geometry::native_event_initial_radius;
 
 const CYCLE_RING_LEN: usize = 8;
 const CYCLE_RESTART: Duration = Duration::from_millis(1600);
@@ -579,5 +579,5 @@ fn draw_line(
 }
 
 #[cfg(test)]
-#[path = "radar_events_tests.rs"]
+#[path = "events_tests.rs"]
 mod tests;

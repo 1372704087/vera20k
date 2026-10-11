@@ -7,8 +7,8 @@ use std::collections::BTreeMap;
 
 use crate::util::native_x87::{NativeF32Bits, NativeF64Bits, X87Chop53, X87Value};
 
-use super::native_radar_surface::NativeRadarSurfaceGeometry;
-use super::native_surface_format::RGB565;
+use super::geometry::NativeRadarSurfaceGeometry;
+use crate::render::native_surface_format::RGB565;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) struct NativeRadarCellColors {
@@ -282,5 +282,5 @@ fn native_ftol(value: X87Value) -> i32 {
 }
 
 #[cfg(test)]
-#[path = "native_radar_terrain_tests.rs"]
+#[path = "terrain_tests.rs"]
 mod tests;

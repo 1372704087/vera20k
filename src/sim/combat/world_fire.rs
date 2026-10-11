@@ -1898,9 +1898,7 @@ pub(crate) fn visit_fire(
                 && !(actor.passenger_role.is_inside_transport()
                     && !actor.passenger_role.in_open_transport())
             {
-                let snap = (!combat_fire_gate::fire_blocked(actor))
-                    .then(|| shot_target(actor, None))
-                    .flatten()
+                let snap = shot_target(actor, None)
                     .map(|target| build_attacker_snapshot(actor, target, None));
                 let mut fire_error = None;
                 if let Some(snap) = snap {
@@ -2103,9 +2101,6 @@ pub(crate) fn tick_combat(
         &mut under_attack_events,
     );
 
-    // Pre-scan: collect entities whose attack routine does not run.
-    let fire_blocked = combat_fire_gate::collect_fire_blocked_entities(&world.substrate.entities);
-
     let keys: Vec<u64> = world.substrate.entities.keys_sorted();
 
     // Infantry Guard521320 owns radiation self-fire inside its class visit.
@@ -2154,14 +2149,9 @@ pub(crate) fn tick_combat(
         if entity.category == EntityCategory::Aircraft && !requested {
             continue;
         }
-        // Skip snapshot for entities blocked by locomotor state.
-        let blocked = !requested && fire_blocked.contains(&id);
         let Some(attack_target) = shot_target(entity, None) else {
             continue;
         };
-        if blocked {
-            continue;
-        }
         snapshots.push(build_attacker_snapshot(entity, attack_target, None));
     }
     // The remaining class hosts retain their existing phase order. Foot firers

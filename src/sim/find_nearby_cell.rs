@@ -12,8 +12,8 @@
 //! Determinism contract:
 //! - The square-ring candidate ORDER is fully deterministic; it feeds both the
 //!   frame-counter modulo index and the nearest-distance tie-break.
-//! - Nearest-distance uses integer squared Euclidean distance (`dx*dx + dy*dy`)
-//!   so the comparison stays fixed-point per the sim layering invariant.
+//! - Nearest-distance compares the game's table roots of `dy*dy + dx*dx`
+//!   ([`nearest_to_target`]); the earlier of two equal roots wins.
 //! - `frame_counter % pool.len()` reproduces the engine's same-tick aliasing by
 //!   construction: two no-target calls on the same frame with the same candidate
 //!   count return the same index. Do NOT add any per-call perturbation.
@@ -30,6 +30,7 @@ use crate::sim::occupancy::{OccupancyGrid, RawCellOccupationGrid};
 use crate::sim::overlay_grid::OverlayGrid;
 use crate::sim::pathfinding::PathGrid;
 use crate::sim::pathfinding::zone_map::ZoneGrid;
+use crate::util::native_x87::{X87Chop53, sqrt_approx_f32};
 
 /// Hard radius cap for the ring search.
 ///
@@ -272,20 +273,36 @@ where
         // The Building443860 corpus preserves these boundary controls but does
         // not certify their stack-dependent output as gameplay parity.
         None => pool[(frame_counter as usize) % pool.len()],
-        // Target given: nearest by integer squared Euclidean distance; ties resolve
-        // to the earlier ring-order candidate (stable, no frame/RNG input).
-        Some((tx, ty)) => pool
-            .iter()
-            .copied()
-            .min_by_key(|c| {
-                let dx = (c.cell.0 - tx) as i64;
-                let dy = (c.cell.1 - ty) as i64;
-                dx * dx + dy * dy
-            })
-            .expect("pool is non-empty"),
+        Some(target) => {
+            pool[nearest_to_target(pool.iter().map(|c| c.cell), target).expect("pool is non-empty")]
+        }
     };
 
     cell_to_u16(chosen.cell)
+}
+
+/// The index of the candidate `Find_Nearby_Passable_Cell` picks for a target
+/// (`0x0056E6F0..0x0056E780`): the first whose `Sqrt_Approx` distance, of
+/// `dy*dy + dx*dx` in 32-bit integers, is strictly below the best so far. The
+/// best starts at 100000.0, above any such root, so the first candidate always
+/// takes it. Squares from 16384 (128 cells) on can share a table root, and the
+/// earlier candidate then keeps the pick.
+fn nearest_to_target(
+    cells: impl IntoIterator<Item = (i32, i32)>,
+    target: (i32, i32),
+) -> Option<usize> {
+    cells
+        .into_iter()
+        .enumerate()
+        .min_by_key(|&(_, (x, y))| {
+            let [dx, dy] = [x.wrapping_sub(target.0), y.wrapping_sub(target.1)];
+            let squared = dy.wrapping_mul(dy).wrapping_add(dx.wrapping_mul(dx));
+            // A root is nonnegative, so its bits order as its value.
+            sqrt_approx_f32(X87Chop53::load_i32(squared))
+                .expect("an i32 is a finite f32")
+                .bits()
+        })
+        .map(|(index, _)| index)
 }
 
 /// Walk concentric square (Chebyshev-perimeter) rings outward from the seed,
@@ -1760,6 +1777,25 @@ mod tests {
             pick.0 >= 4,
             "nearest-to-target should not lean away from the target"
         );
+    }
+
+    /// `Find_Nearby_Passable_Cell`'s target pick executed on each row's
+    /// candidate array (`tools/spatial_oracle/sqrt_approx_distances.py`).
+    #[test]
+    fn nearest_to_target_matches_original_rows() {
+        let corpus: serde_json::Value = serde_json::from_str(crate::test_fixture::text(
+            "tools/spatial_oracle/sqrt_approx_distances.json",
+        ))
+        .unwrap();
+        let rows = corpus["nearest"].as_array().unwrap();
+        for row in rows {
+            let cells: Vec<(i32, i32)> = serde_json::from_value(row["candidates"].clone()).unwrap();
+            let target: (i32, i32) = serde_json::from_value(row["target"].clone()).unwrap();
+            let expected: (i32, i32) = serde_json::from_value(row["expected"].clone()).unwrap();
+            let index = nearest_to_target(cells.iter().copied(), target).unwrap();
+            assert_eq!(cells[index], expected, "{}", row["name"]);
+        }
+        assert_eq!(rows.len(), 6);
     }
 
     /// With the map's playfield diamond threaded into the query, occupancy rejects

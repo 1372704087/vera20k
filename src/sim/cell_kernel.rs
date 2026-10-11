@@ -5,7 +5,6 @@
 
 use crate::map::cell_index::NativeCellIdentity;
 use crate::map::resolved_terrain::NativeCellQuery;
-use crate::util::fixed_math::isqrt_i64;
 
 #[cfg(test)]
 use crate::util::lepton::BRIDGE_DECK_HEIGHT_LEPTONS;
@@ -215,13 +214,17 @@ pub fn nearest_eligible_in_order<T>(
 }
 
 /// `CellClass::PlaceInfantryInCell` @ `0x00481180` preference. Low bytes are
-/// intentional. (There is no `CellClass::FindInfantrySubposition`.)
+/// intentional. (There is no `CellClass::FindInfantrySubposition`.) The
+/// centre test is `dx² + dy²` through `Sqrt_Approx` and `Math::ftol`
+/// (`0x004811C6..0x004811EC`).
 pub fn infantry_preferred_spot(point: CellQueryPoint) -> u8 {
     let x = point.x & 0xff;
     let y = point.y & 0xff;
-    let dx = i64::from(x - CELL_CENTER_LEPTONS);
-    let dy = i64::from(y - CELL_CENTER_LEPTONS);
-    if isqrt_i64(dx * dx + dy * dy) < 60 {
+    if crate::util::native_x87::sqrt_approx_length([
+        x - CELL_CENTER_LEPTONS,
+        y - CELL_CENTER_LEPTONS,
+    ]) < 60
+    {
         return 0;
     }
     let bits = u8::from(x > CELL_CENTER_LEPTONS) | (u8::from(y > CELL_CENTER_LEPTONS) << 1);
@@ -357,6 +360,23 @@ mod tests {
             4
         );
         assert_eq!(infantry_preferred_spot(CellQueryPoint { x: 68, y: 68 }), 0);
+        let corpus: serde_json::Value = serde_json::from_str(crate::test_fixture::text(
+            "tools/spatial_oracle/sqrt_approx_distances.json",
+        ))
+        .unwrap();
+        // PlaceInfantryInCell 0x00481180..0x00481212 executed on each row's
+        // coordinate (tools/spatial_oracle/sqrt_approx_distances.py).
+        let rows = corpus["infantry"].as_array().unwrap();
+        for row in rows {
+            let [x, y, _]: [i32; 3] = serde_json::from_value(row["coord"].clone()).unwrap();
+            assert_eq!(
+                i64::from(infantry_preferred_spot(CellQueryPoint { x, y })),
+                row["expected"].as_i64().unwrap(),
+                "{}",
+                row["name"]
+            );
+        }
+        assert_eq!(rows.len(), 8);
         assert_eq!(select_infantry_subcell(0, 0, false, Some(0)), Some(2));
         assert_eq!(select_infantry_subcell(2, 1 << 2, false, None), Some(4));
         assert_eq!(

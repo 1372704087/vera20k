@@ -4372,6 +4372,43 @@
     },
     {
       "getter": {
+        "applied_bits": "3fd1eb851eb851eb",
+        "crate_bits": "3ff0000000000000",
+        "faster": false,
+        "flag_owner": -1,
+        "house_bits": "3f800000",
+        "raw": 17,
+        "veteran_bits": "3ff8000000000000"
+      },
+      "input": {
+        "accel_bits": "3f9eb851eb851eb8",
+        "applied_bits": "3fd0000000000000",
+        "current": [
+          3689,
+          2176,
+          208
+        ],
+        "decel_bits": "3f60624dd2f1a9fc",
+        "family": "drive",
+        "resolved_destination": [
+          2688,
+          2176,
+          208
+        ],
+        "target_bits": "3ff0000000000000"
+      },
+      "output": {
+        "applied_bits": "3fd1eb851eb851eb",
+        "budget": 11,
+        "distance": 1000,
+        "getters": 1,
+        "propagate": true,
+        "setters": 1,
+        "target_bits": "3ff0000000000000"
+      }
+    },
+    {
+      "getter": {
         "applied_bits": "3ff0000000000000",
         "crate_bits": "3ff0000000000000",
         "faster": false,
@@ -6532,6 +6569,43 @@
         "applied_bits": "3fe8f5c28f5c28f5",
         "budget": -3,
         "distance": 512,
+        "getters": 1,
+        "propagate": true,
+        "setters": 1,
+        "target_bits": "3ff0000000000000"
+      }
+    },
+    {
+      "getter": {
+        "applied_bits": "3fd1eb851eb851eb",
+        "crate_bits": "3ff0000000000000",
+        "faster": false,
+        "flag_owner": -1,
+        "house_bits": "3f800000",
+        "raw": 17,
+        "veteran_bits": "3ff8000000000000"
+      },
+      "input": {
+        "accel_bits": "3f9eb851eb851eb8",
+        "applied_bits": "3fd0000000000000",
+        "current": [
+          3689,
+          2176,
+          208
+        ],
+        "decel_bits": "3f60624dd2f1a9fc",
+        "family": "ship",
+        "resolved_destination": [
+          2688,
+          2176,
+          208
+        ],
+        "target_bits": "3ff0000000000000"
+      },
+      "output": {
+        "applied_bits": "3fd1eb851eb851eb",
+        "budget": 11,
+        "distance": 1000,
         "getters": 1,
         "propagate": true,
         "setters": 1,

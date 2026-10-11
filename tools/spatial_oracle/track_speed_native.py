@@ -246,6 +246,9 @@ def generate():
     base_cases += [dict(current=[2176, 2176, z], bridge=b, faster=True, crate=1.2,
                        retry=r, residual=-3, applied=0.75)
                    for z in (-731, 208, 624) for b in (False, True) for r in (False, True)]
+    # 1001 leptons east of the destination: Sqrt_Approx's table root of
+    # 1001^2 truncates to 1000, one short of the exact root.
+    base_cases += [dict(current=[3689, 2176, 208])]
     for family in ('drive', 'ship'):
         cases.extend(prefix(dict(case, family=family)) for case in base_cases)
     return dict(getters=getters, prefixes=cases,

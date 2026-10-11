@@ -95,59 +95,6 @@ pub fn sim_from_f64(val: f64) -> SimFixed {
 // Math helpers
 // ---------------------------------------------------------------------------
 
-/// Euclidean distance for SimFixed values: `sqrt(dx² + dy²)`.
-///
-/// Widens to `I48F16` (i64-backed) for the intermediate `dx*dx + dy*dy` to
-/// avoid I16F16 overflow when dx or dy exceed ~181. The caller must still
-/// bound the final distance to SimFixed's range: widening the intermediate
-/// does not widen the result. A subcell delta of 256 on each axis gives
-/// `sqrt(256² + 256²) ≈ 362`, within that range.
-pub fn fixed_distance(dx: SimFixed, dy: SimFixed) -> SimFixed {
-    use fixed::types::I48F16;
-    let dx_w = I48F16::from(dx);
-    let dy_w = I48F16::from(dy);
-    let sum = dx_w * dx_w + dy_w * dy_w;
-    if sum <= I48F16::ZERO {
-        return SIM_ZERO;
-    }
-    // Newton's method sqrt in the wider type.
-    let two = I48F16::from_num(2u8);
-    let mut guess = if sum < two { sum } else { sum / two };
-    for _ in 0..16 {
-        if guess <= I48F16::ZERO {
-            return SIM_ZERO;
-        }
-        guess = (guess + sum / guess) / two;
-    }
-    // Both types use 16 fractional bits, so truncate the backing i64→i32.
-    SimFixed::from_bits(guess.to_bits() as i32)
-}
-
-/// Integer square root of an `i64` via Newton's method.
-///
-/// Returns `sqrt(val)` as `i64`. Used for lepton-space distance where the
-/// squared distance exceeds i32 range. 32 iterations guarantees convergence
-/// for the full i64 positive range.
-///
-/// Returns 0 for zero or negative inputs.
-pub fn isqrt_i64(val: i64) -> i64 {
-    if val <= 0 {
-        return 0;
-    }
-    // Initial guess: use bit-length to pick a reasonable start.
-    // guess = 1 << ((bit_length(val) + 1) / 2)
-    let bits: u32 = 64 - (val as u64).leading_zeros();
-    let mut guess: i64 = 1i64 << bits.div_ceil(2);
-    for _ in 0..32 {
-        let next: i64 = (guess + val / guess) / 2;
-        if next >= guess {
-            break;
-        }
-        guess = next;
-    }
-    guess
-}
-
 /// Facing calculation from a screen-relative coordinate delta.
 ///
 /// Returns the high byte of the active-retail full-word conversion. Computed

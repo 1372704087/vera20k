@@ -4,7 +4,6 @@
 use crate::rules::locomotor_type::LocomotorKind;
 use crate::sim::components::Position;
 use crate::sim::movement::locomotor::LocomotorState;
-use crate::util::fixed_math::{SimFixed, fixed_distance};
 
 /// Result of vehicle rotation — tells the caller whether to skip this tick.
 pub(super) enum RotationResult {
@@ -44,7 +43,9 @@ pub(super) fn handle_vehicle_rotation(
 #[path = "movement_step_tests.rs"]
 mod tests;
 
-/// Walk75BD70 completes a retained subcell head within 17 world leptons.
+/// Walk75BD70 completes a retained subcell head within 17 world leptons: the
+/// owner's XY less the head's, `dx² + dy²` through `Sqrt_Approx` and
+/// `Math::ftol` (`0x0075BD33..0x0075BD70`).
 pub(super) fn completed_walk_head(
     position: &Position,
     locomotor: &Option<LocomotorState>,
@@ -54,11 +55,9 @@ pub(super) fn completed_walk_head(
         .filter(|l| l.kind == LocomotorKind::Walk)?;
     let head = loco.step_head()?;
     let [x, y] = super::ground_pose::position_world_xy(position);
-    (fixed_distance(
-        SimFixed::from_num(head.x.wrapping_sub(x)),
-        SimFixed::from_num(head.y.wrapping_sub(y)),
-    ) < SimFixed::from_num(17))
-    .then_some(head)
+    (crate::util::native_x87::sqrt_approx_length([x.wrapping_sub(head.x), y.wrapping_sub(head.y)])
+        < 17)
+        .then_some(head)
 }
 
 /// Walk Process's paid-step boundary (0x0075C0F3..0x0075C117): after a paid

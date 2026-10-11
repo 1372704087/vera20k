@@ -13,8 +13,8 @@
 //!   point. It re-exports/delegates the 8-way primitives from here (see
 //!   `CELL_DELTAS`, `dir_from_facing8`) and ADDS what this module does not
 //!   own: 16-bit facings, lepton deltas, DRAGON frames, muzzle rotation.
-//! - **`facing_table.rs`** owns facing→movement *vectors* (sin/cos) only; it
-//!   quantizes nothing.
+//! - **`native_trig.rs`** owns facing→movement *vectors* and FLH rotations
+//!   read from the retail sine table; it owns no direction quantization.
 //!
 //! Do not add a new facing/direction conversion without checking all three
 //! headers — a fourth parallel helper is how definition drift starts.

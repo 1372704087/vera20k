@@ -31,7 +31,8 @@ pub struct BlobCtx<'a> {
     /// The generation-wide Gaussian state — Marsaglia polar, and its cached
     /// twin persists across blobs, so the driver owns it.
     pub gauss: &'a mut Gaussian,
-    /// The retail sine table, for the river's heading.
+    /// The retail sine table, for the river's heading; `None` only in unit
+    /// tests that skip rivers.
     pub trig: Option<&'a crate::map::retail_trig::TrigTable>,
     /// Map rect dims (the +0xF4/+0xF8 pair): seed draws scale by these.
     pub map_w: i32,
@@ -451,7 +452,7 @@ mod tests {
         let block_table = blocks();
         let mut rng = RmgRng::new(1234);
         let mut gauss = Gaussian::default();
-        let trig = crate::map::retail_trig::TrigTable::synthetic();
+        let trig = crate::map::retail_trig::TrigTable::embedded();
         let mut ctx = BlobCtx {
             grid: &mut grid,
             scratch: &mut scratch,
@@ -459,7 +460,7 @@ mod tests {
             blocks: &block_table,
             rng: &mut rng,
             gauss: &mut gauss,
-            trig: Some(&trig),
+            trig: Some(trig),
             map_w: 30,
             map_h: 24,
             rollback_level: 4,
@@ -501,7 +502,7 @@ mod tests {
             let block_table = blocks();
             let mut rng = RmgRng::new(77);
             let mut gauss = Gaussian::default();
-            let trig = crate::map::retail_trig::TrigTable::synthetic();
+            let trig = crate::map::retail_trig::TrigTable::embedded();
             let mut ctx = BlobCtx {
                 grid: &mut grid,
                 scratch: &mut scratch,
@@ -509,7 +510,7 @@ mod tests {
                 blocks: &block_table,
                 rng: &mut rng,
                 gauss: &mut gauss,
-                trig: Some(&trig),
+                trig: Some(trig),
                 map_w: 30,
                 map_h: 24,
                 rollback_level: 4,
@@ -574,7 +575,7 @@ mod tests {
         let block_table = blocks();
         let mut rng = RmgRng::new(5);
         let mut gauss = Gaussian::default();
-        let trig = crate::map::retail_trig::TrigTable::synthetic();
+        let trig = crate::map::retail_trig::TrigTable::embedded();
         let mut ctx = BlobCtx {
             grid: &mut grid,
             scratch: &mut scratch,
@@ -582,7 +583,7 @@ mod tests {
             blocks: &block_table,
             rng: &mut rng,
             gauss: &mut gauss,
-            trig: Some(&trig),
+            trig: Some(trig),
             map_w: 20,
             map_h: 16,
             rollback_level: 4,

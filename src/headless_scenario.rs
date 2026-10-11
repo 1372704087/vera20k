@@ -120,7 +120,7 @@ pub(crate) fn load_with_launch(
     crate::map::retail_trig::install_from_dir(retail_dir);
     if !crate::map::retail_trig::wave_tables_available() {
         return Err(format!(
-            "{} does not provide the verified gamemd sine/Acos tables required by stock Sonic Wave simulation",
+            "{} does not provide the verified gamemd Acos table required by stock arcing projectile and Sonic Wave simulation",
             retail_dir.join("gamemd.exe").display()
         ));
     }

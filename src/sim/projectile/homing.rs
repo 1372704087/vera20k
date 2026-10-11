@@ -270,7 +270,7 @@ pub(super) fn step(
     let previous_position = projectile.position;
     let mut impact_flag = false;
     let mut impact_reason = super::ProjectileDetonationReason::Collision;
-    let (trig, _) = crate::map::retail_trig::required_math_tables();
+    let trig = TrigTable::embedded();
     let ramped = ramp(projectile.velocity, &mut guidance, binary_frame);
     let turn = turn_word(
         &guidance,
@@ -433,7 +433,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "requires verified gamemd.exe math tables"]
     fn original_guided_boundaries_preserve_null_aircraft_and_signed_controls() {
         use super::super::{ProjectileStore, ProjectileTarget};
         let corpus: Value = serde_json::from_str(crate::test_fixture::text(
@@ -539,7 +538,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "requires retail INIs and verified gamemd.exe math tables"]
     fn original_ifv_launch_and_125_flight_visits_match_bits_and_live_bridge_transitions() {
         use super::super::{ProjectileStore, ProjectileTarget, ProjectileTrajectory, launch};
         let Some((ini, art)) = crate::rules::retail_ini_fixture::retail_rules_and_art() else {
@@ -553,8 +551,6 @@ mod tests {
             .unwrap();
         assert_eq!(weapon.speed, 102);
         assert_eq!(kind.rot, 60);
-        let (trig, _) = crate::map::retail_trig::required_math_tables();
-        assert!(trig.matches_retail());
         let corpus: Value = serde_json::from_str(crate::test_fixture::text(
             "tools/projectile_oracle/ifv_launch.json",
         ))
@@ -703,10 +699,8 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "requires RA2_DIR with verified gamemd.exe math tables"]
     fn original_guided_steps_preserve_velocity_phase_and_bridge_clearance() {
-        let (trig, _) = crate::map::retail_trig::required_math_tables();
-        assert!(trig.matches_retail());
+        let trig = TrigTable::embedded();
         let corpus: Value = serde_json::from_str(crate::test_fixture::text(
             "tools/projectile_oracle/guided_step.json",
         ))

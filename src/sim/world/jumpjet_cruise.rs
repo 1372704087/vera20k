@@ -18,7 +18,7 @@ use super::Simulation;
 use crate::map::cell_index::NativeCellIdentity;
 use crate::map::entities::EntityCategory;
 use crate::map::resolved_terrain::ResolvedTerrainGrid;
-use crate::map::retail_trig::{TrigTable, required_math_tables};
+use crate::map::retail_trig::TrigTable;
 use crate::rules::locomotor_type::LocomotorKind;
 use crate::rules::overlay_types::OverlayTypeRegistry;
 use crate::rules::ruleset::RuleSet;
@@ -600,7 +600,7 @@ impl Simulation {
         }
         self.apply_jumpjet_adapter_order(stable_id, rules);
         let frame = self.session.binary_frame;
-        let (trig, _) = required_math_tables();
+        let trig = TrigTable::embedded();
         let stats = self.with_jumpjet_process(stable_id, |runtime, sim| {
             let entry_state = runtime.phase();
             let mut host = CruiseHost {
@@ -734,20 +734,6 @@ mod tests {
     use crate::sim::movement::jumpjet_movement::jumpjet_flight::STATE_ASCEND;
     use crate::sim::movement::locomotor::LocomotorState;
     use serde_json::Value;
-
-    fn retail_tables_present() -> bool {
-        let (trig, _) = required_math_tables();
-        if !trig.matches_retail() {
-            // With RA2_DIR set, a mismatched table is a failure, not a skip.
-            assert!(
-                std::env::var_os("RA2_DIR").is_none(),
-                "RA2_DIR is set but the retail sine table does not match"
-            );
-            eprintln!("skipped: set RA2_DIR to the retail install to run this");
-            return false;
-        }
-        true
-    }
 
     fn native_row(name: &str) -> Value {
         let rows: Value = serde_json::from_str(crate::test_fixture::text(
@@ -1066,9 +1052,7 @@ mod tests {
     /// east.
     #[test]
     fn production_cruise_flies_the_native_east_cruise_frames() {
-        if retail_tables_present() {
-            fly_native_row("east_cruise", 0x40);
-        }
+        fly_native_row("east_cruise", 0x40);
     }
 
     /// Production parity for `east_from_west_facing`: the takeoff seed snaps the
@@ -1076,9 +1060,7 @@ mod tests {
     /// from there instead of starting from the linked `0x4000`.
     #[test]
     fn production_cruise_turns_from_the_body_facing() {
-        if retail_tables_present() {
-            fly_native_row("east_from_west_facing", 0xC0);
-        }
+        fly_native_row("east_from_west_facing", 0xC0);
     }
 
     /// An explicit class NULL destination mid-cruise runs Foot's

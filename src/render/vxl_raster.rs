@@ -245,7 +245,7 @@ fn voxel_rocket_locomotor_matrix(step: u8, pitch: f32) -> Mat4 {
     if pitch == 0.0 {
         return facing;
     }
-    let (trig, _) = crate::map::retail_trig::required_math_tables();
+    let trig = crate::map::retail_trig::TrigTable::embedded();
     let angle = Fpu::load_f32(NativeF32Bits::from_bits((-pitch).to_bits()))
         .expect("CurrentPitch is finite");
     // The table entries are binary32, so the stores are exact.
@@ -271,7 +271,7 @@ fn voxel_rocket_locomotor_matrix(step: u8, pitch: f32) -> Mat4 {
 /// the whole voxels [`jumpjet_tilt_offsets`] keeps the tilted body's rim on;
 /// the rotations are glam's, within 2e-3 of the table's, as the Fly arm's.
 fn voxel_jumpjet_tilt_locomotor_matrix(step: u8, angles: [f32; 2], half_sizes: [f32; 2]) -> Mat4 {
-    let (trig, _) = crate::map::retail_trig::required_math_tables();
+    let trig = crate::map::retail_trig::TrigTable::embedded();
     let [x, y, z] = jumpjet_tilt_offsets(trig, angles, half_sizes);
     let product = |left, right| native::matrix_product(left, right).expect("finite tilt matrix");
     let lift = Mat4::from_translation(Vec3::new(0.0, 0.0, z as f32));
@@ -2366,15 +2366,6 @@ mod tests {
     /// facing step, and the camera product the aircraft draw takes of it.
     #[test]
     fn rocket_draw_matrix_matches_native() {
-        let (trig, _) = crate::map::retail_trig::required_math_tables();
-        if !trig.matches_retail() {
-            assert!(
-                std::env::var_os("RA2_DIR").is_none(),
-                "RA2_DIR is set but the retail sine table does not match"
-            );
-            eprintln!("skipped: set RA2_DIR to the retail install to run this");
-            return;
-        }
         let vectors: serde_json::Value = serde_json::from_str(crate::test_fixture::text(
             "tools/rocket_oracle/draw_matrix.json",
         ))
@@ -2658,15 +2649,6 @@ mod tests {
     /// bit; the rotations within 2e-3 of the table's.
     #[test]
     fn jumpjet_tilt_draw_matrix_matches_native() {
-        let (trig, _) = crate::map::retail_trig::required_math_tables();
-        if !trig.matches_retail() {
-            assert!(
-                std::env::var_os("RA2_DIR").is_none(),
-                "RA2_DIR is set but the retail sine table does not match"
-            );
-            eprintln!("skipped: set RA2_DIR to the retail install to run this");
-            return;
-        }
         let corpus: serde_json::Value = serde_json::from_str(crate::test_fixture::text(
             "tools/spatial_oracle/jumpjet_crash.json",
         ))

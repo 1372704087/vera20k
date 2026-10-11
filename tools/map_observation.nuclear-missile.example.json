@@ -1,5 +1,5 @@
 {
-  "schema_version": "vera20k.map-observation-profile.v2",
+  "schema_version": "vera20k.map-observation-profile.v3",
   "launch": {
     "mode": {
       "id": 1,
@@ -120,7 +120,7 @@
       "owner": "VERA-OBSERVER",
       "payload": {
         "LaunchSuperWeapon": {
-          "sw_type_id": 28,
+          "sw_type_id": "NukeSpecial",
           "target_rx": 41,
           "target_ry": 63
         }

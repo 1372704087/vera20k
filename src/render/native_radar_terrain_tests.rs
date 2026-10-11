@@ -34,15 +34,6 @@ fn height_constrained_surface_matches_native_weighted_sampler_every_pixel() {
 }
 
 #[test]
-fn rgb565_pack_and_expand_match_local_active_directdraw_format() {
-    assert_eq!(pack_rgb565(255, 255, 255), 0xffff);
-    assert_eq!(pack_rgb565(255, 0, 0), 0xf800);
-    assert_eq!(pack_rgb565(0, 255, 0), 0x07e0);
-    assert_eq!(pack_rgb565(0, 0, 255), 0x001f);
-    assert_eq!(unpack_rgb565(pack_rgb565(77, 88, 99)), [72, 88, 96, 255]);
-}
-
-#[test]
 fn overlay_color_replaces_both_halves_before_weighted_generation() {
     let geometry = NativeRadarSurfaceGeometry::from_raw_rect(0, 0, 2, 1).unwrap();
     let surface = NativeRadarTerrainSurface::new(
@@ -60,7 +51,7 @@ fn overlay_color_replaces_both_halves_before_weighted_generation() {
         surface
             .generated_rgb565()
             .iter()
-            .all(|&pixel| pixel == pack_rgb565(77, 88, 99))
+            .all(|&pixel| pixel == RGB565.pack_rgb8([77, 88, 99]))
     );
 }
 
@@ -172,11 +163,11 @@ fn disassembly_reference(
                 ))
                 .min(255) as u8
             };
-            result.push(pack_rgb565(
+            result.push(RGB565.pack_rgb8([
                 convert(accum[0]),
                 convert(accum[1]),
                 convert(accum[2]),
-            ));
+            ]));
             x0 = x1;
         }
         y0 = y1_stored;

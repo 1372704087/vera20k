@@ -1297,6 +1297,65 @@ fn retail_berserk_gi_targets_its_own_house() {
     }
 }
 
+/// The scan's ally test is the scanner's house asking (`0x006F7F22`): a GI
+/// takes a man whose house allies its own only one way, as a paranoid
+/// computer's GIs take the Neutral house's, and spares one its own house
+/// allies.
+#[test]
+fn retail_gi_scan_asks_only_its_own_house_about_allies() {
+    let Some((ini, art)) = crate::rules::retail_ini_fixture::retail_rules_and_art() else {
+        return;
+    };
+    let rules = RuleSet::from_ini_with_fixed_art_for_test(&ini, &art).expect("retail rules");
+    let mut sim = Simulation::with_seed(0x5CA7);
+    crate::sim::arena_fixture::flat_ground(&mut sim, &rules);
+    for name in ["Russians", "Americans"] {
+        let id = sim.interner.intern(name);
+        sim.houses
+            .insert(id, HouseState::new(id, 0, None, false, 0, 10));
+        sim.session.house_order.push(id);
+    }
+    let gi = sim
+        .spawn_object("E1", "Russians", 10, 10, 0, &rules)
+        .unwrap();
+    let other = sim
+        .spawn_object("E1", "Americans", 11, 10, 0, &rules)
+        .unwrap();
+    let one_way = |sim: &mut Simulation, asker: &str, ally: &str| {
+        let alliances = crate::map::houses::HouseAllianceMap::from([(
+            asker.to_ascii_uppercase(),
+            std::collections::BTreeSet::from([ally.to_ascii_uppercase()]),
+        )]);
+        sim.install_house_alliances(
+            crate::sim::house_diplomacy::HouseAllianceAdmission::Admitted(alliances),
+            &rules,
+        );
+    };
+    let scan = |sim: &mut Simulation, mask| {
+        sim.greatest_threat_represented(
+            &rules,
+            None,
+            gi,
+            mask,
+            None,
+            crate::sim::combat::combat_targeting::greatest_threat_for_entity,
+        )
+    };
+    let masks = [ScanMission::Guard, ScanMission::Hunt];
+    one_way(&mut sim, "Americans", "Russians");
+    for mask in masks {
+        assert_eq!(
+            scan(&mut sim, mask),
+            Some(other),
+            "allied one way, {mask:?}"
+        );
+    }
+    one_way(&mut sim, "Russians", "Americans");
+    for mask in masks {
+        assert_eq!(scan(&mut sim, mask), None, "its own ally, {mask:?}");
+    }
+}
+
 /// Through the frame: a berserk computer GI on the Hunt the gas queued shoots
 /// its own house's man. Hunt's scan takes him, the allied-target drop spares
 /// a berserk owner (`0x006FA45D`) and GetFireError admits the shot

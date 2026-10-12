@@ -462,6 +462,11 @@ charge start, duration and remaining frames, and the Force Shield's fade countdo
 budget. `false` or an absent field adds nothing; version 1 rejects the option,
 and present null/nonboolean values are invalid.
 
+Optional v2 `observe_diplomacy: true` adds a `diplomacy` object to each observed
+House row: `allies`, the other Houses its own ally mask names in House array
+order, and `enemy`, the House its anger chose (null for none). It follows the
+same presence rules as `observe_super_weapons`.
+
 `render.frame_wall_mean_ms`, when present, reads the existing frame timer's last
 up-to-60 intervals. It includes simulation, diagnostic observation, rendering and
 presentation pacing. It is cadence metadata, not GPU duration or ordinary play

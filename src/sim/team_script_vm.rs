@@ -955,6 +955,16 @@ impl TeamScriptVm {
         self.teams.get(&id)
     }
 
+    /// Puts team `id` on script line `line` (0-based) as action 6 does
+    /// (`0x006E98AE`): its next step runs that line with `first` set.
+    #[cfg(test)]
+    pub(crate) fn seek_line_for_test(&mut self, id: u64, line: i32) {
+        if let Some(team) = self.teams.get_mut(&id) {
+            team.cursor = line.wrapping_sub(1);
+            team.advance_pending = true;
+        }
+    }
+
     /// `entity_id`'s team (`FootClass+0x5D4`) and whether its TeamType is
     /// `IsBaseDefense=` (`+0xF6`).
     pub(crate) fn team_for_member(&self, entity_id: u64) -> Option<(u64, bool)> {

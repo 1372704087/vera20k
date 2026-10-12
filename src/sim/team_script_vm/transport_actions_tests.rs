@@ -1,6 +1,7 @@
 //! Rust regression tests for the transport script actions 14 (load onto
-//! transport), 43 (wait until fully loaded) and 8 (unload), and for the team
-//! join of a passenger a team's transport lets out.
+//! transport), 43 (wait until fully loaded) and 8 (unload), for the team
+//! join of a passenger a team's transport lets out, and the native replay of
+//! action 9 (deploy), which orders Unload as action 8 does.
 
 use super::*;
 use crate::rules::ini_parser::IniFile;
@@ -467,15 +468,11 @@ fn unload_argument_decides_who_leaves_the_team() {
     }
 }
 
-/// Through the production readers: every retail AIMD TeamType whose script
-/// names action 14 runs only ported actions, and 5 of the 163 TeamTypes
-/// still reach an unported one, action 9 first.
-#[test]
-fn the_retail_transport_scripts_run_ported_actions() {
+/// The retail rules and AIMD through the production readers, installed in a
+/// simulation; `None` without the retail INIs.
+fn retail_team_ai() -> Option<(RuleSet, Simulation)> {
     use crate::rules::retail_ini_fixture::{retail_ini, retail_rules_and_art};
-    let Some((rules_ini, art_ini)) = retail_rules_and_art() else {
-        return;
-    };
+    let (rules_ini, art_ini) = retail_rules_and_art()?;
     let rules = RuleSet::from_ini_with_fixed_art_for_test(&rules_ini, &art_ini).unwrap();
     let aimd = retail_ini("aimd.ini").expect("retail AIMD");
     let registry = TeamAiIniRegistry::from_sources(&aimd, &IniFile::from_str(""), true);
@@ -484,6 +481,17 @@ fn the_retail_transport_scripts_run_ported_actions() {
     sim.resolve_type_handles(&rules);
     sim.install_team_ai_registry(&registry, &rules)
         .expect("retail AIMD installs");
+    Some((rules, sim))
+}
+
+/// Through the production readers: every retail AIMD TeamType whose script
+/// names action 14 runs only ported actions, and none of the 163 TeamTypes'
+/// scripts names an unported one.
+#[test]
+fn the_retail_transport_scripts_run_ported_actions() {
+    let Some((_, sim)) = retail_team_ai() else {
+        return;
+    };
     let vm = &sim.team_script_vm;
     let mut transport_teams = 0;
     let mut first_unported = std::collections::BTreeMap::new();
@@ -506,7 +514,58 @@ fn the_retail_transport_scripts_run_ported_actions() {
     }
     assert_eq!(vm.team_types.len(), 163);
     assert_eq!(transport_teams, 16);
-    assert_eq!(first_unported, [(9, 5)].into());
+    assert!(first_unported.is_empty(), "{first_unported:?}");
+}
+
+/// Through the production readers: the five retail AIMD TeamTypes whose
+/// scripts name action 9 each bring members of one of its arms. The three
+/// "MCV" teams carry one MCV that `DeploysInto=` a `ConstructionYard=`
+/// building; the two "SChop" teams carry two `IsSimpleDeployer=` Siege
+/// Choppers.
+#[test]
+fn the_retail_deploy_teams_bring_members_action_9_deploys() {
+    let Some((rules, sim)) = retail_team_ai() else {
+        return;
+    };
+    let vm = &sim.team_script_vm;
+    let mut teams: Vec<(&str, Vec<(&str, i32, bool, bool)>)> = vm
+        .team_types
+        .values()
+        .filter(|team_type| {
+            vm.scripts[&team_type.script_id]
+                .actions
+                .iter()
+                .any(|action| action.action_id == 9)
+        })
+        .map(|team_type| {
+            let members = vm.task_forces[&team_type.task_force_id]
+                .entries
+                .iter()
+                .map(|entry| {
+                    let name = sim.interner.resolve(entry.member_type.id);
+                    let object = rules.object(name).expect("member type");
+                    let yard = object
+                        .deploys_into
+                        .as_deref()
+                        .and_then(|building| rules.object(building))
+                        .is_some_and(|building| building.construction_yard);
+                    (name, entry.count, yard, object.is_simple_deployer)
+                })
+                .collect();
+            (sim.interner.resolve(team_type.id), members)
+        })
+        .collect();
+    teams.sort();
+    assert_eq!(
+        teams,
+        [
+            ("043F29AC-G", vec![("AMCV", 1, true, false)]),
+            ("043F83EC-G", vec![("SMCV", 1, true, false)]),
+            ("043F89AC-G", vec![("PCV", 1, true, false)]),
+            ("07C3092C-G", vec![("SCHP", 2, false, true)]),
+            ("07C460CC-G", vec![("SCHP", 2, false, true)]),
+        ]
+    );
 }
 
 /// `tools/team_recruit_oracle.py`'s rows of `section`.
@@ -528,20 +587,52 @@ fn point(value: &serde_json::Value) -> [i32; 3] {
     [int(&value[0]), int(&value[1]), int(&value[2])]
 }
 
-/// The oracle rows' types: one per class and `Passengers=` they use.
+/// The oracle rows' types: one per class and `Passengers=` they use, and
+/// the deploy rows' deployers with the building `UD` and `UDS` deploy into.
 const ORACLE_RULES: &str = "\
 [InfantryTypes]
 0=I0
 1=I2
+2=ID
 [VehicleTypes]
 0=U0
 1=U1
 2=U2
 3=U5
 4=UN
+5=UD
+6=US
+7=UDS
 [AircraftTypes]
 0=A0
 1=A2
+[BuildingTypes]
+0=BD
+[Clear]
+Buildable=yes
+[ID]
+Strength=100
+Speed=4
+Deployer=yes
+Locomotor={4A582744-9839-11D1-B709-00A024DDAFD1}
+[UD]
+Strength=300
+Speed=6
+DeploysInto=BD
+Locomotor={4A582741-9839-11D1-B709-00A024DDAFD1}
+[US]
+Strength=300
+Speed=6
+IsSimpleDeployer=yes
+Locomotor={4A582741-9839-11D1-B709-00A024DDAFD1}
+[UDS]
+Strength=300
+Speed=6
+DeploysInto=BD
+IsSimpleDeployer=yes
+Locomotor={4A582741-9839-11D1-B709-00A024DDAFD1}
+[BD]
+Strength=1000
 [I0]
 Strength=100
 Speed=4
@@ -586,6 +677,23 @@ Passengers=2
 Locomotor={4A582746-9839-11D1-B709-00A024DDAFD1}
 ";
 
+/// `BD`'s foundation: a member's cell and the one east of it.
+const ORACLE_ART: &str = "[BD]\nFoundation=2x1\n";
+
+/// A deploy row member's type, by its `DeploysInto=`, `IsSimpleDeployer=`
+/// and `Deployer=`.
+fn deploy_type(member: &serde_json::Value) -> &'static str {
+    let class = member["class"].as_str().unwrap();
+    match (class, flag(&member["deploys"]), flag(&member["simple"])) {
+        ("unit", false, false) => "U0",
+        ("unit", true, false) => "UD",
+        ("unit", false, true) => "US",
+        ("unit", true, true) => "UDS",
+        ("infantry", ..) if flag(&member["deployer"]) => "ID",
+        _ => oracle_type(class, 0),
+    }
+}
+
 fn oracle_type(class: &str, passengers: i32) -> &'static str {
     match (class, passengers) {
         ("infantry", 0) => "I0",
@@ -609,7 +717,9 @@ const ORACLE_ARCHIVE: crate::sim::combat::TargetKind = crate::sim::combat::Targe
 /// contact, archive target and building; the zone is an infantryman at the
 /// row's location; the team runs TeamType `ROW` (the row's TaskForce
 /// entries and `TransportsReturnOnUnload=`) on a script of `action` alone,
-/// under the row's `Stray=`.
+/// under the row's `Stray=`. Action 9's objects are spawned on their own
+/// cells instead, which a building's foundation is tested from, and a
+/// member whose placement the row refuses has a `BD` east of it.
 struct OracleTeam {
     sim: Simulation,
     rules: RuleSet,
@@ -637,7 +747,7 @@ impl OracleTeam {
         let returns = row.get("returns").is_some_and(flag);
         let mut rules = RuleSet::from_ini_with_fixed_art_for_test(
             &IniFile::from_str(ORACLE_RULES),
-            &IniFile::from_str(""),
+            &IniFile::from_str(ORACLE_ART),
         )
         .expect("oracle rules");
         if let Some(stray) = row.get("stray") {
@@ -661,9 +771,15 @@ impl OracleTeam {
         sim.resolve_type_handles(&rules);
         sim.install_team_ai_registry(&registry, &rules)
             .expect("the row's AIMD installs");
+        let deploy = action == 9;
         let place = |sim: &mut Simulation, name: &str, slot: u16, [x, y, z]: [i32; 3]| {
+            let (rx, ry) = if deploy {
+                ((x / 256) as u16, (y / 256) as u16)
+            } else {
+                (1 + 2 * slot, 30)
+            };
             let id = sim
-                .spawn_object_at_height(name, "Russians", 1 + 2 * slot, 30, 0, 0, &rules)
+                .spawn_object_at_height(name, "Russians", rx, ry, 0, 0, &rules)
                 .unwrap_or_else(|| panic!("{name} spawns"));
             let entity = sim.substrate.entities.get_mut(id).unwrap();
             crate::sim::movement::ground_pose::put_location(
@@ -681,9 +797,24 @@ impl OracleTeam {
         let mut members = Vec::new();
         for (slot, member) in row["members"].as_array().unwrap().iter().enumerate() {
             let passengers = int(&member["passengers"]);
-            let name = oracle_type(member["class"].as_str().unwrap(), passengers);
+            let name = if deploy {
+                deploy_type(member)
+            } else {
+                oracle_type(member["class"].as_str().unwrap(), passengers)
+            };
             let [x, y, z] = point(&member["xyz"]);
             let id = place(&mut sim, name, slot as u16, [x, y, z]);
+            if deploy && flag(&member["deploys"]) && !flag(&member["can_place"]) {
+                sim.spawn_object(
+                    "BD",
+                    "Russians",
+                    (x / 256 + 1) as u16,
+                    (y / 256) as u16,
+                    0,
+                    &rules,
+                )
+                .expect("the blocking building spawns");
+            }
             if flag(&member["on_building"]) {
                 sim.substrate.occupancy.add(
                     (x / 256) as u16,
@@ -920,5 +1051,54 @@ fn unload_matches_the_original() {
             FrameEffects::default(),
         );
         team.check(row, case, false);
+    }
+}
+
+/// Action 9 against the `deploy` rows (`0x006ED4D0`): the join-up, a
+/// `DeploysInto=` unit's Unload test, its placement question with its own
+/// cell as the origin, then the site flush for its house or the orders, the
+/// simple and infantry deployers' Unload orders, and the completion. Each
+/// member Mark lifted is put back in its cell. The rows' placement answers
+/// hold here by the `BD` beside a refused member; Flush_For_Placement is a
+/// recording stub in the oracle, and that building ends its scan here.
+#[test]
+fn deploy_matches_the_original() {
+    for (case, row) in oracle_rows("deploy").iter().enumerate() {
+        let mut team = OracleTeam::new(row, 9);
+        team.sim
+            .team_action_deploy(team.team, &team.rules, None, FrameEffects::default());
+        team.check(row, case, false);
+        let owner = team.sim.interner.get("Russians");
+        for event in row["events"].as_array().unwrap() {
+            let kind = event[0].as_str().unwrap();
+            if !matches!(kind, "mark" | "can_place" | "flush") {
+                continue;
+            }
+            let index = usize::try_from(event[1].as_u64().unwrap()).unwrap();
+            let id = team.members[index];
+            let entity = team.sim.substrate.entities.get(id).unwrap();
+            let at = format!("case {case} member {index}");
+            let cell = [i64::from(entity.position.rx), i64::from(entity.position.ry)];
+            match kind {
+                "mark" => assert!(
+                    entity.lifecycle.cell_marked
+                        && team.sim.substrate.occupancy.contains_entity(
+                            entity.position.rx,
+                            entity.position.ry,
+                            id
+                        ),
+                    "{at}: put back"
+                ),
+                "can_place" => {
+                    assert_eq!(event[2], serde_json::json!(cell), "{at}: origin");
+                    assert_eq!(int(&event[3]), 0, "{at}: for no house");
+                }
+                _ => {
+                    assert_eq!(event[2], serde_json::json!(cell), "{at}: flush origin");
+                    assert_eq!(event[3], "house", "{at}: flushed for its house");
+                    assert_eq!(Some(entity.owner()), owner, "{at}: its house");
+                }
+            }
+        }
     }
 }

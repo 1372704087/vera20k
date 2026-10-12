@@ -487,3 +487,225 @@ fn the_retail_tech_capture_scripts_run_ported_actions() {
         .count();
     assert_eq!(running, 6);
 }
+
+/// Action 9's types: an MCV that deploys into a 4x3 yard, a simple
+/// deployer, a `Deployer=` infantryman and a plain one, on buildable ground.
+const DEPLOY_RULES: &str = "\
+[InfantryTypes]
+0=E1
+1=GI
+[VehicleTypes]
+0=AMCV
+1=SIEGE
+[BuildingTypes]
+0=YARD
+[Clear]
+Buildable=yes
+[E1]
+Strength=125
+Speed=4
+Locomotor={4A582744-9839-11D1-B709-00A024DDAFD1}
+[GI]
+Strength=125
+Speed=4
+Deployer=yes
+Locomotor={4A582744-9839-11D1-B709-00A024DDAFD1}
+[AMCV]
+Strength=1000
+Speed=5
+ROT=5
+DeploysInto=YARD
+Locomotor={4A582741-9839-11D1-B709-00A024DDAFD1}
+[SIEGE]
+Strength=300
+Speed=6
+IsSimpleDeployer=yes
+Locomotor={4A582741-9839-11D1-B709-00A024DDAFD1}
+[YARD]
+Strength=1000
+ConstructionYard=yes
+DeployFacing=4
+[Guard]
+Rate=0.016
+[Unload]
+Rate=0.016
+";
+
+struct DeployTeam {
+    sim: Simulation,
+    rules: RuleSet,
+    grid: crate::sim::pathfinding::PathGrid,
+    team: u64,
+    members: Vec<u64>,
+}
+
+impl DeployTeam {
+    /// The Russians, a computer house that does not build its own base, on
+    /// a flat arena, with one object per `(type, cell)` as a team running
+    /// action 9, then action 2 (stay).
+    fn new(spawns: &[(&str, u16, u16)]) -> Self {
+        let rules = RuleSet::from_ini_with_fixed_art_for_test(
+            &IniFile::from_str(DEPLOY_RULES),
+            &IniFile::from_str("[YARD]\nFoundation=4x3\n"),
+        )
+        .expect("deploy rules");
+        let mut sim = Simulation::with_seed(0x6ED4D0);
+        let owner = sim.interner.intern("Russians");
+        sim.houses
+            .insert(owner, HouseState::new(owner, 1, None, false, 0, 10));
+        sim.session.house_order.push(owner);
+        let grid = crate::sim::arena_fixture::flat_arena(&mut sim, &rules);
+        let members: Vec<u64> = spawns
+            .iter()
+            .map(|&(name, rx, ry)| {
+                sim.spawn_object_at_height(name, "Russians", rx, ry, 0, 0, &rules)
+                    .expect("member spawns")
+            })
+            .collect();
+        let script = sim.interner.intern("DEPLOY SCRIPT");
+        sim.team_script_vm.register_script(TeamScriptDefinition {
+            id: script,
+            source: TeamAiDefinitionSource::FixedAimd,
+            actions: [(9, 0), (2, 0)]
+                .into_iter()
+                .map(|(action_id, argument)| TeamScriptAction {
+                    action_id,
+                    argument,
+                })
+                .collect(),
+        });
+        let team = sim
+            .team_script_vm
+            .create_team(owner, script, members.clone(), 0);
+        Self {
+            sim,
+            rules,
+            grid,
+            team,
+            members,
+        }
+    }
+
+    fn tick(&mut self) {
+        let commands = self.sim.take_due_commands();
+        self.sim
+            .advance_tick(&commands, Some(&self.rules), Some(&self.grid), None, 33);
+    }
+
+    /// Runs action 9 for the team once, outside a frame.
+    fn deploy_action(&mut self) {
+        self.sim
+            .team_action_deploy(self.team, &self.rules, None, FrameEffects::default());
+    }
+
+    /// The action is finished (`+0x80`).
+    fn finished(&self) -> bool {
+        self.sim
+            .team_script_vm
+            .team(self.team)
+            .is_some_and(|team| team.advance_pending())
+    }
+
+    /// Whether `id` was ordered to Unload: queued, or already its mission.
+    fn unloading(&self, id: u64) -> bool {
+        let unload = MissionId::from_known(MissionType::Unload);
+        self.sim.substrate.entities.get(id).is_some_and(|entity| {
+            entity.mission.queued() == unload || entity.mission.current() == unload
+        })
+    }
+
+    /// The cells of the yards standing.
+    fn yards(&self) -> Vec<(u16, u16)> {
+        self.sim
+            .substrate
+            .entities
+            .values()
+            .filter(|entity| {
+                !entity.dying && self.sim.interner.resolve(entity.type_ref()) == "YARD"
+            })
+            .map(|entity| (entity.position.rx, entity.position.ry))
+            .collect()
+    }
+
+    /// The team is gone or past action 9.
+    fn past_deploy(&self) -> bool {
+        self.sim
+            .team_script_vm
+            .team(self.team)
+            .is_none_or(|team| team.cursor() >= 1)
+    }
+}
+
+/// Action 9 (`0x006ED4D0`) on a team's MCV standing on clear ground: the
+/// yard may stand from the MCV's cell, so the MCV drops its destination and
+/// queues Unload, and its Mission_Unload deploys it (the yard one cell up
+/// and left of it, as Deploy places). The action holds while the MCV is in
+/// the team; the MCV leaves it as it becomes the yard, and the team moves on.
+#[test]
+fn script_action_9_deploys_the_team_s_mcv() {
+    let mut team = DeployTeam::new(&[("AMCV", 20, 22)]);
+    let mcv = team.members[0];
+    team.tick();
+    assert!(team.unloading(mcv), "the MCV was ordered to Unload");
+    assert!(!team.past_deploy(), "the MCV holds the action");
+    for _ in 0..120 {
+        if !team.yards().is_empty() && team.past_deploy() {
+            break;
+        }
+        team.tick();
+    }
+    assert_eq!(team.yards(), [(19, 21)]);
+    assert!(team.past_deploy(), "the team moved on");
+}
+
+/// A Russian E1 inside the yard's foundation from the MCV's cell refuses the
+/// placement: Flush_For_Placement (`0x0045EE70`) scatters its cell, the MCV
+/// gets no order, is put back in its cell, and the action holds. Asked
+/// again with the site clear, it is ordered to Unload, and it deploys.
+#[test]
+fn script_action_9_clears_the_site_before_the_mcv_deploys() {
+    let mut team = DeployTeam::new(&[("AMCV", 20, 22)]);
+    let mcv = team.members[0];
+    let e1 = team
+        .sim
+        .spawn_object_at_height("E1", "Russians", 23, 24, 0, 0, &team.rules)
+        .expect("E1 spawns");
+    team.deploy_action();
+    assert!(!team.unloading(mcv), "a refused site orders nothing");
+    assert!(!team.finished());
+    assert!(team.sim.substrate.occupancy.contains_entity(20, 22, mcv));
+    let e1_entity = team.sim.substrate.entities.get(e1).unwrap();
+    assert!(
+        e1_entity.navigation.nav_com.is_some() || e1_entity.movement_target.is_some(),
+        "the E1 was scattered"
+    );
+
+    team.sim.despawn_entity(e1);
+    team.deploy_action();
+    assert!(team.unloading(mcv), "a clear site orders Unload");
+    assert!(!team.finished());
+    for _ in 0..120 {
+        if !team.yards().is_empty() {
+            break;
+        }
+        team.tick();
+    }
+    assert_eq!(team.yards(), [(19, 21)]);
+}
+
+/// A simple deployer and a `Deployer=` infantryman are ordered to Unload, a
+/// plain infantryman is not, and with no `DeploysInto=` unit the action is
+/// finished at once.
+#[test]
+fn script_action_9_orders_the_deployers_and_finishes() {
+    let mut team = DeployTeam::new(&[("SIEGE", 10, 10), ("GI", 12, 10), ("E1", 13, 10)]);
+    team.deploy_action();
+    let [siege, gi, e1] = team.members[..] else {
+        panic!("three members");
+    };
+    assert!(team.unloading(siege) && team.unloading(gi));
+    assert!(!team.unloading(e1));
+    assert!(team.finished(), "the action finished");
+    team.tick();
+    assert!(team.past_deploy());
+}

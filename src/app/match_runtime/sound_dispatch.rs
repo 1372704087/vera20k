@@ -580,10 +580,6 @@ pub(super) fn dispatch_sim_sound_events(
                     source: Some(sound_source_at_cell(rx, ry)),
                 }
             }
-            SimSoundEvent::C4Planted { rx, ry } => GameSoundEvent::C4Planted {
-                sound_id: "SealPlaceBomb".to_string(),
-                source: Some(sound_source_at_cell(rx, ry)),
-            },
             SimSoundEvent::BunkerWallsUp { rx, ry } => {
                 // Walls-up cue on install; skip when the rules key is empty.
                 let sound_id =

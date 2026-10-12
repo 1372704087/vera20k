@@ -3432,10 +3432,6 @@ impl Simulation {
                 .nav_queue
                 .iter()
                 .any(|target| Self::nav_ref_targets_expired(target, expired_id))
-            || listener
-                .c4_plant
-                .as_ref()
-                .is_some_and(|plant| plant.target_building_id == expired_id)
             || listener.pending_entry() == Some(expired_id)
             || listener.spawn_owner_id == Some(expired_id)
             || listener
@@ -3920,10 +3916,6 @@ impl Simulation {
             .iter()
             .any(|target| Self::nav_ref_targets_expired(target, expired_id));
 
-        let clear_c4_plant = listener
-            .c4_plant
-            .as_ref()
-            .is_some_and(|plant| plant.target_building_id == expired_id);
         // Techno707AE7..707AF5 clears private pending+500 only on control1.
         // Non-destructive DetachAll(false) retains this independent entry;
         // radio contact expiry owns the admitted visit.
@@ -3958,7 +3950,6 @@ impl Simulation {
             || clear_suspended_nav_com
             || clear_nav_com
             || prune_nav_queue
-            || clear_c4_plant
             || clear_dock
             || clear_airfield
             || clear_refinery
@@ -3991,9 +3982,6 @@ impl Simulation {
                 .navigation
                 .nav_queue
                 .retain(|target| !Self::nav_ref_targets_expired(target, expired_id));
-        }
-        if clear_c4_plant {
-            listener.c4_plant = None;
         }
         if clear_dock {
             crate::sim::docking::building_dock::expire_reference(listener, expired_id);

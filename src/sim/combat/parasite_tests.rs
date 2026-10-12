@@ -387,6 +387,13 @@ fn drone_bites_on_its_weapon_rate_until_the_host_dies_then_drops_off() {
     let mut arena = Arena::new(&rules);
     let drone = arena.spawn(&rules, "DRON", "Russians", (10, 10));
     let tank = arena.spawn(&rules, "MTNK", "Americans", (11, 10));
+    // A player's tank: ReceiveDamage's scatter tail moves a computer's host
+    // off its cell at a bite (`0x00702C8A`).
+    let owner = arena.sim.entities().get(tank).unwrap().owner();
+    arena.sim.houses.insert(
+        owner,
+        crate::sim::house_state::HouseState::new(owner, 0, None, true, 0, 10),
+    );
     arena.infect(&rules, drone, tank);
     assert!(arena.in_limbo(drone));
 
@@ -461,13 +468,15 @@ fn a_paid_repair_radio_request_releases_the_drone_after_the_heal() {
     let mut arena = Arena::new(&rules);
     let drone = arena.spawn(&rules, "DRON", "Russians", (10, 10));
     let tank = arena.spawn(&rules, "MTNK", "Americans", (11, 10));
-    arena.hit(&rules, tank, None, 10, "AP");
-    arena.infect(&rules, drone, tank);
+    // A player's tank, before the sourceless hit: ReceiveDamage's scatter tail
+    // moves a computer's (`0x00702C8A`).
     let owner = arena.sim.entities().get(tank).unwrap().owner();
     arena.sim.houses.insert(
         owner,
         crate::sim::house_state::HouseState::new(owner, 0, None, true, 0, 10),
     );
+    arena.hit(&rules, tank, None, 10, "AP");
+    arena.infect(&rules, drone, tank);
     let hp = arena.health(tank).unwrap();
     assert!(hp <= 290);
     assert_eq!(

@@ -5150,8 +5150,9 @@ impl Simulation {
     ///   `+0x484(0, !depot-contact)` when NavCom == 0 && TarCom == 0
     ///   (virtual slot; miner reachability unestablished).
     /// - `FootClass::ReceiveDamage @ 0x004D74C7`, gated on
-    ///   `MissionControl[current].NoThreat && !Zombie`; no retail mission
-    ///   sets either, so the call is unreachable on stock data.
+    ///   `MissionControl[current].NoThreat && !Zombie` (retail `[Harmless]`)
+    ///   for a teamless Foot hit by a source; the damage receiver
+    ///   (`combat::world_receiver`) calls it.
     fn change_owner_mission_half(
         &mut self,
         stable_id: u64,

@@ -8,7 +8,6 @@ use super::*;
 
 pub(super) struct ReceiverHealthCommit {
     pub(super) building_entry_frame: Option<i32>,
-    pub(super) became_fatal: bool,
     pub(super) state: damage::DamageState,
     pub(super) entered_techno_death: bool,
     pub(super) reached_exact_zero: bool,
@@ -105,13 +104,19 @@ pub(super) fn commit_receiver_health(
         } else {
             receive_outcome.post_object_damage.unwrap_or(packet)
         };
+        // Past the anger write, Object's result 5 (ObjectAlive already clear)
+        // returns at once (`0x00701E71`, `0x00701F80..0x00701F91`): no reveal,
+        // death arm or survivor tail.
+        let already_dead = state == damage::DamageState::AlreadyDead;
         //701FCB..70202E precedes the exact-zero override below. Native0/4
-        //skip; admitted result1/2/3/5 resets the reveal block even if the
+        //skip; admitted result1/2/3 resets the reveal block even if the
         //actor is already revealed. No RNG is drawn by this consequence.
         if reached_survivor_postlude
-            && !matches!(
+            && matches!(
                 state,
-                damage::DamageState::Unaffected | damage::DamageState::Dead
+                damage::DamageState::Damaged
+                    | damage::DamageState::Yellow
+                    | damage::DamageState::Red
             )
             && target_type.can_disguise
             && !target_type.perma_disguise
@@ -124,13 +129,13 @@ pub(super) fn commit_receiver_health(
                 .receive_damage_reveal(binary_frame, final_packet, target.category);
         }
         // Techno70202E tests exact0 after Object returns. Negative healed HP
-        // remains on its ordinary tail; ObjectAlive/result5 is a different gate.
-        entered_techno_death =
-            became_fatal || (reached_survivor_postlude && target.health.current == 0);
+        // remains on its ordinary tail.
+        entered_techno_death = became_fatal
+            || (reached_survivor_postlude && !already_dead && target.health.current == 0);
         if entered_techno_death {
             fatal_category = target.category;
         }
-        let survivor_tail = reached_survivor_postlude && !entered_techno_death;
+        let survivor_tail = reached_survivor_postlude && !already_dead && !entered_techno_death;
         uncloak_after_damage = survivor_tail;
         let hostile_source = attacker_id != RAD_NO_ATTACKER
             && attacker_owner.is_some_and(|source_owner| {
@@ -172,7 +177,6 @@ pub(super) fn commit_receiver_health(
     Some(ReceiverHealthCommit {
         building_entry_frame,
         state,
-        became_fatal,
         entered_techno_death,
         reached_exact_zero,
         postmortem_candidate,

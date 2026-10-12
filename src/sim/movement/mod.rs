@@ -102,7 +102,7 @@ pub(crate) mod ready_producer;
 mod scatter;
 #[cfg(test)]
 pub(crate) use infantry_scatter::answered_process;
-pub(crate) use scatter::ScatterFlags;
+pub(crate) use scatter::{DamageRetaliation, ScatterFlags};
 mod scatter_cell;
 pub(crate) mod slope_transition;
 mod track_continuation;

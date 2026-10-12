@@ -418,6 +418,12 @@ fn infantry_damage_scatter_reaches_the_ordinary_walk_process() {
     .unwrap();
     let e = sim.substrate.entities.get_mut(victim).unwrap();
     e.mission_leaf.set_infantry_doing_verified(-1).unwrap();
+    // A Target for the hit, so TechnoClass::ReceiveDamage's own scatter tail
+    // refuses (`0x00702C58`) and the source Scatter is the only one. That
+    // Scatter reads it only in a non-Fraidycat gate (`0x0051D19A`) and in
+    // Can_Enter_Cell against candidate occupants (`0x0051C3C2`); the
+    // attacker is two cells away.
+    e.attack_target = Some(crate::sim::combat::AttackTarget::new(attacker));
     let before = position_world_coord(&e.position);
     let facing = e.body_facing;
     let attacker_house = sim.substrate.entities.get(attacker).unwrap().owner();
@@ -456,14 +462,9 @@ fn infantry_damage_scatter_reaches_the_ordinary_walk_process() {
     // Isolate the damage-created destination's ordinary Walk continuation.
     // The independently native-compared5200B0 panic tail can issue another
     // NULL Scatter immediately on arrival while this Fraidycat's fear>50.
-    sim.substrate
-        .entities
-        .get_mut(victim)
-        .unwrap()
-        .infantry
-        .as_mut()
-        .unwrap()
-        .fear_level = 0;
+    let e = sim.substrate.entities.get_mut(victim).unwrap();
+    e.infantry.as_mut().unwrap().fear_level = 0;
+    e.attack_target = None;
     // The same production tick host that handles normal orders must consume
     // the damage-created request. The native corpus proves the first FindPath
     // boundary; this regression continues through our real search/head/step.

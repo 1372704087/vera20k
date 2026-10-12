@@ -624,3 +624,121 @@ fn unit_null_arm_matches_original_execution() {
     }
     assert_eq!(checked, 4);
 }
+
+/// `TechnoClass::ReceiveDamage`'s scatter tail on both retaliation arms
+/// (tools/spatial_oracle/receive_damage_scatter): every executed row through
+/// the production gate with the same class, owner, rank and Foot facts. An
+/// admitted row is native's `Scatter(null, 1, 0)` call; a null locomotor
+/// past the mission and tether gates is its E_POINTER call. Infantry rows
+/// also take the production call: a refusal leaves the man and the Scenario
+/// stream untouched, and an admitted stationary man's null arm spends its
+/// draw (headless, it finds no cell).
+#[test]
+fn receive_damage_scatter_gates_match_original_execution() {
+    let rows: serde_json::Value = serde_json::from_str(crate::test_fixture::text(
+        "tools/spatial_oracle/receive_damage_scatter.json",
+    ))
+    .unwrap();
+    let mut checked = 0;
+    for row in rows.as_array().unwrap() {
+        let input = &row["input"];
+        let flag = |key: &str| input[key].as_bool().unwrap_or(false);
+        let ability = |key: &str| if flag(key) { "SCATTER" } else { "" };
+        let type_keys = format!(
+            "VeteranAbilities={}\nEliteAbilities={}\n",
+            ability("veteran_scatter"),
+            ability("elite_scatter"),
+        );
+        let rules = RuleSet::from_ini(&crate::rules::ini_parser::IniFile::from_str(&format!(
+            "[General]\nFixture=1\n[InfantryTypes]\n0=E1\n[VehicleTypes]\n0=MTNK\n\
+             [AircraftTypes]\n0=ORCA\n\
+             [BuildingTypes]\n0=GAPOWR\n[E1]\n{type_keys}[MTNK]\n{type_keys}[ORCA]\n{type_keys}\
+             [GAPOWR]\n[Guard]\nScatter={}\n[CombatDamage]\nPlayerScatter={}\n",
+            input["mission_scatter"].as_bool().unwrap_or(true),
+            flag("player_scatter"),
+        )))
+        .unwrap();
+        let (type_name, category) = match input["kind"].as_str().unwrap_or("infantry") {
+            "infantry" => ("E1", EntityCategory::Infantry),
+            "unit" => ("MTNK", EntityCategory::Unit),
+            "aircraft" => ("ORCA", EntityCategory::Aircraft),
+            "building" => ("GAPOWR", EntityCategory::Structure),
+            other => panic!("unknown receiver {other}"),
+        };
+        let actor = GameEntity::test_default_of_category(1, type_name, "Allies", 5, 5, category);
+        let mut actor = with_mission(&actor, MissionType::Guard);
+        actor.set_veterancy_rank(input["rank"].as_u64().unwrap_or(0) as u16 * 100);
+        if !flag("null_locomotor") {
+            let mut locomotor = LocomotorState::for_test_kind(LocomotorKind::Walk);
+            locomotor.set_walk_destination(flag("moving").then(|| DriveCoord::cell(6, 5, 0)));
+            actor.locomotor = Some(locomotor);
+        }
+        if flag("tether") {
+            actor.dock_entered_with = Some(9);
+        }
+        if flag("target") {
+            actor.attack_target = Some(crate::sim::combat::AttackTarget::new(9));
+        }
+        if flag("nav") {
+            actor.navigation.nav_com = Some(NavTargetRef::cell(9, 9));
+        }
+        let owner = actor.owner();
+        let mut sim = Simulation::new();
+        sim.interner = crate::sim::intern::test_interner();
+        let mut house = HouseState::new(owner, 0, None, flag("human"), 0, 10);
+        house.player_control = flag("player_control");
+        sim.houses.insert(owner, house);
+        sim.session.game_mode_nonzero = input["game_mode_nonzero"].as_bool().unwrap_or(true);
+        sim.substrate.entities.insert(actor);
+        let retaliation = match input["retaliation"].as_str().unwrap() {
+            "accepted" => DamageRetaliation::Accepted,
+            "refused" => DamageRetaliation::Refused,
+            other => panic!("unknown retaliation {other}"),
+        };
+        let human = sim.owner_is_human(owner);
+        let admitted = receive_damage_scatter_admitted(
+            sim.substrate.entities.get(1).unwrap(),
+            retaliation,
+            human,
+            &rules,
+            &sim.interner,
+        );
+        let scatter = row["scatter"].as_bool().unwrap();
+        match row["stop"].as_str().unwrap() {
+            "0x702c3f" => assert!(admitted.is_err(), "{input}"),
+            _ => assert_eq!(admitted, Ok(scatter), "{input}"),
+        }
+        if scatter {
+            let arguments = &row["arguments"];
+            assert_eq!(arguments["coordinate_xyz"], serde_json::json!([0, 0, 0]));
+            assert_eq!(
+                (arguments["forced"] == 1, arguments["no_kidding"] == 1),
+                (
+                    RECEIVE_DAMAGE_SCATTER_FLAGS.forced,
+                    RECEIVE_DAMAGE_SCATTER_FLAGS.no_kidding
+                ),
+            );
+        }
+        if category == EntityCategory::Infantry && admitted.is_ok() {
+            let before = serde_json::to_value(sim.substrate.entities.get(1).unwrap()).unwrap();
+            let rng = sim.scenario_rng.state();
+            sim.receive_damage_scatter(
+                1,
+                retaliation,
+                &rules,
+                None,
+                crate::sim::world::FrameEffects::default(),
+            )
+            .unwrap();
+            if !scatter {
+                let after = serde_json::to_value(sim.substrate.entities.get(1).unwrap()).unwrap();
+                assert_eq!(after, before, "{input}");
+                assert_eq!(sim.scenario_rng.state(), rng, "{input}");
+            } else if !flag("moving") {
+                assert_ne!(sim.scenario_rng.state(), rng, "{input}");
+            }
+        }
+        checked += 1;
+    }
+    assert_eq!(checked, 263);
+}

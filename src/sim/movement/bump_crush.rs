@@ -870,14 +870,6 @@ pub(super) fn scatter_movement_speed(
     super::order_speed(entity, obj, rules, houses)
 }
 
-/// One accepted nonfatal Infantry damage scatter, selected before the
-/// receiver's fear callback mutates the target.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct InfantryDamageScatter {
-    pub(crate) destination: (u16, u16),
-    pub(crate) speed: SimFixed,
-}
-
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------

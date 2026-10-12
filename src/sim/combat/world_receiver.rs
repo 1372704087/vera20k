@@ -5,6 +5,7 @@
 
 use super::world_fire::{object_get_coords, retaliation_reaches};
 use super::*;
+use crate::sim::movement::{DamageRetaliation, ScatterFlags};
 use crate::sim::world::techno_ai_cloak::emit_configured_cloak_sound;
 use crate::sim::world::{FrameEffects, Simulation};
 
@@ -689,7 +690,6 @@ pub(crate) fn commit_entities(
         }
         let Some(receiver_health::ReceiverHealthCommit {
             building_entry_frame,
-            became_fatal,
             state: receive_state,
             entered_techno_death,
             reached_exact_zero,
@@ -724,7 +724,8 @@ pub(crate) fn commit_entities(
         // Each request reaches the existing synchronous sound boundary before
         // later receiver consequences can spend Main.
         // The exact-zero override70202E takes the death arm instead.
-        if receive_state == damage::DamageState::Damaged && !entered_techno_death && sound_enabled {
+        let result_one_arm = receive_state == damage::DamageState::Damaged && !entered_techno_death;
+        if result_one_arm && sound_enabled {
             for _ in 0..2 {
                 if let Some(target) = world.substrate.entities.get(target_id)
                     && let Some(sound_id) = rules
@@ -773,13 +774,14 @@ pub(crate) fn commit_entities(
         }
 
         // gamemd-derived: `TechnoClass__ReceiveDamage @
-        // 0x007027AE..0x007027EE` invokes the protected-Techno response after
-        // ObjectClass has committed health/visual state and before the dead
-        // branch. `ShouldProtect+0x3CF` has no active YR writer; `ToProtect=`
-        // is the exact live gate retained here.
-        // RESIDUAL (#1422): that tail belongs to result 1 only; this call is
-        // not yet gated on the damage result.
-        let protected_techno_response = attacker_id != RAD_NO_ATTACKER
+        // 0x007027AE..0x007027EE`, the tail of result 1's own arm, invokes the
+        // protected-Techno response after ObjectClass has committed
+        // health/visual state. Unaffected hits, threshold crossings and kills
+        // never reach it. `ShouldProtect+0x3CF` has no active YR writer;
+        // `ToProtect=` is the exact live gate retained here. An owner a human
+        // controls (`0x0050B730` at `0x007027D2`) refuses.
+        let protected_techno_response = result_one_arm
+            && attacker_id != RAD_NO_ATTACKER
             && world
                 .substrate
                 .entities
@@ -788,10 +790,8 @@ pub(crate) fn commit_entities(
                     rules
                         .object(world.interner.resolve(target.type_ref()))
                         .is_some_and(|object| object.to_protect)
-                        && world
-                            .houses
-                            .get(&target.owner())
-                            .is_some_and(|house| !house.is_human)
+                        && world.houses.contains_key(&target.owner())
+                        && !world.owner_is_human(target.owner())
                 });
         if protected_techno_response {
             respond_to_base_attack(
@@ -970,135 +970,21 @@ pub(crate) fn commit_entities(
             continue;
         }
 
-        if let Some((damage, _reached_survivor_postlude, _hostile_source)) = positive_postlude {
-            // InfantryClass's concrete receiver dispatches Scatter only for a
-            // surviving result state (1..=3), after HP has changed and before
-            // fear or the shared Techno postlude. The attacker coordinate is
-            // read while the source is still represented, including nested
-            // DeathWeapon receiver recursion.
-            let surviving_infantry_result = matches!(
-                receive_state,
-                damage::DamageState::Damaged
-                    | damage::DamageState::Yellow
-                    | damage::DamageState::Red
-            );
-            let attacker_coord = (attacker_id != RAD_NO_ATTACKER)
-                .then(|| world.substrate.entities.get(attacker_id))
-                .flatten()
-                .map(|attacker| {
-                    (
-                        i32::from(attacker.position.rx)
-                            .wrapping_mul(256)
-                            .wrapping_add(attacker.position.sub_x.to_num::<i32>()),
-                        i32::from(attacker.position.ry)
-                            .wrapping_mul(256)
-                            .wrapping_add(attacker.position.sub_y.to_num::<i32>()),
-                    )
-                });
-            let scatter = if surviving_infantry_result {
-                attacker_coord.and_then(|attacker_coord| {
-                    world.select_infantry_damage_scatter(
-                        target_id, attacker_coord, rules, overlay_registry,
-                        run.effects(),
-                    ).unwrap_or_else(|cause| {
-                        panic!("damage Scatter requires valid live infantry entry state for {target_id}: {cause}")
-                    })
-                })
-            } else {
-                None
+        // TechnoClass::ReceiveDamage's retaliation tail. `ShouldRetaliate`
+        // (`0x007087C0`, called at `0x00702A43`) answers 0 for a null source.
+        // An accepted source within reach takes `Override_Mission`
+        // (`vt+0x1F4`, `0x00702B41`); either answer then reaches the scatter
+        // tail (`0x00702B47..0x00702D0B`), whose Scatter can run its locomotor
+        // Process at once.
+        if synchronous_retaliation {
+            let retaliates = attacker_id != RAD_NO_ATTACKER && {
+                #[cfg(test)]
+                death
+                    .receiver_stage_trace
+                    .push(ReceiverStageTrace::ShouldRetaliate { target_id });
+                combat_targeting::should_retaliate(world, rules, target_id, attacker_id)
             };
-            if let Some(scatter) = scatter {
-                if let Some(target) = world.substrate.entities.get_mut(target_id) {
-                    queue_entity_mission_deferred(target, MissionId::from_known(MissionType::Move));
-                }
-                let walk = world
-                    .assign_infantry_walk_destination(
-                        target_id,
-                        crate::sim::components::NavTargetRef::cell(
-                            scatter.destination.0,
-                            scatter.destination.1,
-                        ),
-                        scatter.speed,
-                        rules,
-                        overlay_registry,
-                        run.effects(),
-                    )
-                    .unwrap_or_else(|cause| {
-                        panic!("damage Scatter destination for {target_id}: {cause}")
-                    });
-                // A Teleport man's setter is represented: a false answer is its
-                // Move_To's refusal (`0x0071820F`), which stands.
-                let teleport = world
-                    .substrate
-                    .entities
-                    .get(target_id)
-                    .and_then(|target| target.locomotor.as_ref())
-                    .is_some_and(|locomotor| {
-                        locomotor.active_kind()
-                            == crate::rules::locomotor_type::LocomotorKind::Teleport
-                    });
-                if !walk && !teleport {
-                    // A Jumpjet man: Infantry setter `0x0051AA40`, whose Foot
-                    // tail (`0x004D94B0`: NavCom, Jumpjet Move_To, timer tail)
-                    // is `issue_air_cell_destination`. RESIDUAL: its JumpJet
-                    // arms before the tail (same-cell return, vt+0x500 stop
-                    // while moving, Walk piggyback switch) are unported.
-                    // Trigger: a damaged Jumpjet infantryman that scatters;
-                    // retail JUMPJET is Fearless=yes, so none with retail data.
-                    world.issue_air_cell_destination(
-                        target_id,
-                        scatter.destination,
-                        scatter.speed,
-                        Some(rules),
-                        run.effects(),
-                    );
-                }
-            }
-
-            let Some(target) = world.substrate.entities.get_mut(target_id) else {
-                continue;
-            };
-            if let Some(obj) = rules.object(world.interner.resolve(target.type_ref())) {
-                infantry::apply_fear_from_damage(
-                    obj,
-                    target,
-                    damage,
-                    true,
-                    rules.general.condition_red,
-                    rules.general.condition_yellow,
-                );
-            }
-            // `UnitClass::ReceiveDamage @ 0x00737C90`: `0x00737D69 CMP EAX,4`
-            // sends result 4 to the death branch (`+0x3B8`
-            // `Death_Announcement`, `Death_Explosion`); the `Harvester=` ping
-            // (`0x007384B9..0x00738530`) sits only in the `result != 4` arm,
-            // on any non-zero result, with or without a source. A building's
-            // ping is its retaliation block's, below.
-            if damage > 0
-                && !became_fatal
-                && target.category != EntityCategory::Structure
-                && rules
-                    .object(world.interner.resolve(target.type_ref()))
-                    .is_some_and(|obj| obj.harvester)
-            {
-                under_attack_events.push(UnderAttackEvent {
-                    rx: target.position.rx,
-                    ry: target.position.ry,
-                    owner: target.owner(),
-                    miner: true,
-                    structure: false,
-                });
-            }
-        }
-
-        if synchronous_retaliation && attacker_id != RAD_NO_ATTACKER {
-            #[cfg(test)]
-            death
-                .receiver_stage_trace
-                .push(ReceiverStageTrace::ShouldRetaliate { target_id });
-            if combat_targeting::should_retaliate(world, rules, target_id, attacker_id)
-                && retaliation_reaches(world, rules, target_id, attacker_id)
-            {
+            if retaliates && retaliation_reaches(world, rules, target_id, attacker_id) {
                 world.override_mission_on_damage_response(
                     target_id,
                     attacker_id,
@@ -1106,16 +992,21 @@ pub(crate) fn commit_entities(
                     run.effects(),
                 );
             }
-            // RESIDUAL — ReceiveDamage's scatter tail (`0x00702B47..0x00702D0B`)
-            // is not ported. Past the Override, a Foot with no Target and no
-            // NavCom scatters when `[CombatDamage] PlayerScatter=`
-            // (`Rules+0x17ED`) is set or its rank holds the SCATTER ability; the
-            // refused arm (`0x00702BFE`) has its own gate on the mission's
-            // `Scatter=`. Scatter (vt+0x174, `InfantryClass::Scatter @
-            // 0x0051D0D0`) draws `RandomRanged` on the Scenario RNG
-            // (`0x0051D2BA`). Effect: native steps a hit infantryman aside and
-            // makes one Scenario draw VERA does not make, so the RNG stream
-            // diverges from the first such hit. The next combat increment.
+            let retaliation = if retaliates {
+                DamageRetaliation::Accepted
+            } else {
+                DamageRetaliation::Refused
+            };
+            match world.receive_damage_scatter(
+                target_id,
+                retaliation,
+                rules,
+                overlay_registry,
+                run.effects(),
+            ) {
+                Ok(changed) => death.bridge_state_changed |= changed,
+                Err(cause) => log::debug!("damaged {target_id} did not scatter: {cause}"),
+            }
         }
 
         if entered_techno_death {
@@ -1230,6 +1121,159 @@ pub(crate) fn commit_entities(
                 (attacker_id != RAD_NO_ATTACKER).then_some(attacker_id),
                 rules,
             );
+        }
+        // FootClass::ReceiveDamage's own tail, then the concrete Foot
+        // receivers once it returns (`0x00518042`, `0x00737D52`), all after
+        // the retaliation and scatter tail and the team report above. Both
+        // concrete receivers return on 5 and take 4 to their death arms;
+        // Infantry returns on 0 (`0x0051805B`) and Unit skips its ping on 0
+        // (`0x007384BB`), so what follows runs for 1..=3.
+        if let Some((damage, survivor_tail, _hostile_source)) = positive_postlude
+            && survivor_tail
+            && matches!(
+                receive_state,
+                damage::DamageState::Damaged
+                    | damage::DamageState::Yellow
+                    | damage::DamageState::Red
+            )
+        {
+            // The source's Location, read after the Techno tail; a source no
+            // longer represented is a null source.
+            let attacker_coord = (attacker_id != RAD_NO_ATTACKER)
+                .then(|| world.substrate.entities.get(attacker_id))
+                .flatten()
+                .map(|attacker| {
+                    (
+                        i32::from(attacker.position.rx)
+                            .wrapping_mul(256)
+                            .wrapping_add(attacker.position.sub_x.to_num::<i32>()),
+                        i32::from(attacker.position.ry)
+                            .wrapping_mul(256)
+                            .wrapping_add(attacker.position.sub_y.to_num::<i32>()),
+                    )
+                });
+            // FootClass (`0x004D746D..0x004D74C7`): a teamless Foot hit by a
+            // source, whose current mission's MissionControl sets `NoThreat=`
+            // and clears `Zombie=` (`0x005B3A00` +4, +5), takes
+            // `Enter_Idle_Mode(0, 1)` (vt+0x484). Retail `[Harmless]` is such
+            // a mission.
+            if attacker_coord.is_some()
+                && world
+                    .substrate
+                    .entities
+                    .get(target_id)
+                    .is_some_and(|target| {
+                        matches!(
+                            target.category,
+                            EntityCategory::Infantry
+                                | EntityCategory::Unit
+                                | EntityCategory::Aircraft
+                        ) && target
+                            .mission
+                            .current()
+                            .known()
+                            .and_then(|mission| rules.mission_control.entry(mission))
+                            .is_some_and(|entry| entry.no_threat && !entry.zombie)
+                    })
+                && world.team_script_vm.team_for_member(target_id).is_none()
+            {
+                crate::sim::world::enter_idle_mode(
+                    world,
+                    target_id,
+                    rules,
+                    overlay_registry,
+                    run.effects(),
+                );
+            }
+            let (is_infantry, has_locomotor) =
+                world
+                    .substrate
+                    .entities
+                    .get(target_id)
+                    .map_or((false, false), |target| {
+                        (
+                            target.category == EntityCategory::Infantry,
+                            target.locomotor.is_some(),
+                        )
+                    });
+            // InfantryClass (`0x00518BF2..0x00518C3F`): a computer's
+            // `Engineer=` man whose Get_Mission (vt+0x184) is Guard or
+            // Area_Guard queues Hunt, with or without a source.
+            let engineer_hunts = is_infantry
+                && world
+                    .substrate
+                    .entities
+                    .get(target_id)
+                    .is_some_and(|target| {
+                        !world.owner_is_human(target.owner())
+                            && rules
+                                .object(world.interner.resolve(target.type_ref()))
+                                .is_some_and(|obj| obj.engineer)
+                            && matches!(
+                                target.mission.effective().known(),
+                                Some(MissionType::Guard | MissionType::AreaGuard)
+                            )
+                    });
+            if engineer_hunts && let Some(target) = world.substrate.entities.get_mut(target_id) {
+                queue_entity_mission_deferred(target, MissionId::from_known(MissionType::Hunt));
+            }
+            // Then, only with a source, `Scatter(source Location, 0, 0)`
+            // (`0x00518C56`) before the fear latch; a null source jumps to the
+            // fear ladder (`0x00518C47`). A locomotor-less man is refused, as
+            // in `Simulation::receive_damage_scatter`.
+            if is_infantry
+                && has_locomotor
+                && let Some(source) = attacker_coord
+                && let Err(cause) = world.infantry_scatter_from(
+                    target_id,
+                    source,
+                    ScatterFlags::new(false, false),
+                    rules,
+                    overlay_registry,
+                    run.effects(),
+                )
+            {
+                log::debug!(
+                    "damaged infantry {target_id} did not scatter from its source: {cause}"
+                );
+            }
+            if let Some(target) = world.substrate.entities.get_mut(target_id) {
+                if let Some(obj) = rules.object(world.interner.resolve(target.type_ref())) {
+                    infantry::apply_fear_from_damage(
+                        obj,
+                        target,
+                        damage,
+                        attacker_coord.is_some(),
+                        rules.general.condition_red,
+                        rules.general.condition_yellow,
+                    );
+                }
+                // UnitClass (`0x007384B9..0x00738530`): the `Harvester=` ping,
+                // with or without a source. A building's ping is its
+                // retaliation block's, below.
+                // RESIDUAL (#1431): the Unit's computer-owner response that follows
+                // (`0x00738535..0x0073866E`), which result 0 also reaches
+                // (`0x007384BB`), is not ported. A teamless, untethered unit
+                // hit by a non-allied source drives at a crushable source when
+                // it is a `Crusher=` (`0x007438F0`, Queue_Mission Move), or as
+                // a `Harvester=`/`Weeder=` at or below ConditionYellow
+                // (vt+0x2B8 positive) queues Enter on a `Dock=` building.
+                // Trigger: an AI tank shot by infantry, or a damaged AI miner.
+                // Effect: neither charges nor retreats.
+                if target.category != EntityCategory::Structure
+                    && rules
+                        .object(world.interner.resolve(target.type_ref()))
+                        .is_some_and(|obj| obj.harvester)
+                {
+                    under_attack_events.push(UnderAttackEvent {
+                        rx: target.position.rx,
+                        ry: target.position.ry,
+                        owner: target.owner(),
+                        miner: true,
+                        structure: false,
+                    });
+                }
+            }
         }
         if receive_state != damage::DamageState::AlreadyDead
             && world

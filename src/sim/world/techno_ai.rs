@@ -3058,6 +3058,13 @@ mod tests {
             ],
             Some(rules),
         );
+        // A human's probe: ReceiveDamage's scatter tail moves a computer's
+        // unarmed unit off the reach edge (`0x00702C8A`); this measures reach.
+        let soviet = sim.interner.intern("Soviet");
+        sim.houses.insert(
+            soviet,
+            crate::sim::house_state::HouseState::new(soviet, 1, None, true, 0, 10),
+        );
         // PerCellProcess boards from the garrison's own foundation cell.
         let occupant = sim.substrate.entities.get_mut(2).unwrap();
         occupant.position.rx = 10;

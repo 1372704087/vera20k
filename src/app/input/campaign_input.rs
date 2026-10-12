@@ -150,4 +150,25 @@ mod tests {
         }
         assert_eq!(compared, 8);
     }
+
+    #[test]
+    fn leaving_the_menus_hides_the_pointer_only_while_the_game_is_locked() {
+        // A cutscene hides the pointer; the menus show it; a load keeps
+        // that depth; leaving reads the lock of the game now running.
+        for (locked_on_leaving, visible) in [(false, true), (true, false)] {
+            let mut cursor = CursorVisibility::default();
+            cursor.apply_input_lock(true, false);
+            cursor.show_for_menus();
+            assert!(cursor.is_visible());
+            cursor.leave_menus(locked_on_leaving);
+            assert_eq!(cursor.is_visible(), visible);
+        }
+        // Resumed during the cutscene, its unlock still shows the pointer.
+        let mut cursor = CursorVisibility::default();
+        cursor.apply_input_lock(true, false);
+        cursor.show_for_menus();
+        cursor.leave_menus(true);
+        cursor.apply_input_lock(false, true);
+        assert!(cursor.is_visible());
+    }
 }

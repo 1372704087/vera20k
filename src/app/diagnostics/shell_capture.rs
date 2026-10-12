@@ -59,6 +59,7 @@ const CHECKPOINT_CAMPAIGN_SOV1_OPENING_ARROWS: &str = "campaign-sov1-opening-arr
 const CHECKPOINT_CAMPAIGN_SOV1_OPENING_UNLOCKED: &str = "campaign-sov1-opening-unlocked";
 const CHECKPOINT_CAMPAIGN_SOV1_OPENING_RESTORE_UNLOCKED: &str =
     "campaign-sov1-opening-restore-unlocked";
+const CHECKPOINT_CAMPAIGN_ALL1_OPENING_LOAD_UNLOCKED: &str = "campaign-all1-opening-load-unlocked";
 const CHECKPOINT_CAMPAIGN_BACK_RETURN: &str = "campaign-back-return";
 const CHECKPOINT_LOAD_SAVED_GAME_0XB7_STEADY: &str = "load-saved-game-0xb7-steady";
 const CHECKPOINT_LOAD_SAVED_GAME_0XB7_ENTRY_PREFIX: &str = "load-saved-game-0xb7-entry-tick-";
@@ -194,8 +195,9 @@ pub enum ShellCaptureCheckpoint {
     /// First installed campaign, then physical Escape/B5 Abort/B6 Leave and
     /// ordinary queued EXIT/audio teardown, read back on the settled main menu.
     CampaignAbortReturn(crate::ui::campaign_shell::CampaignSide),
-    /// The authored SOV01 opening, through the normal loader and exact
-    /// production sim/app steps. These receipts are integration observations.
+    /// An authored campaign opening (SOV01, or ALL01 for the in-lock load),
+    /// through the normal loader and exact production sim/app steps. These
+    /// receipts are integration observations.
     CampaignOpening(movies::OpeningTarget),
     /// Ordinary Back from campaign selection to the recreated Single Player.
     CampaignBackReturn,
@@ -479,6 +481,9 @@ impl ShellCaptureCheckpoint {
             CHECKPOINT_CAMPAIGN_SOV1_OPENING_RESTORE_UNLOCKED => Ok(Self::CampaignOpening(
                 movies::OpeningTarget::RestoreUnlocked,
             )),
+            CHECKPOINT_CAMPAIGN_ALL1_OPENING_LOAD_UNLOCKED => Ok(Self::CampaignOpening(
+                movies::OpeningTarget::LoadUnlockedWhileLocked,
+            )),
             CHECKPOINT_CAMPAIGN_BACK_RETURN => Ok(Self::CampaignBackReturn),
             CHECKPOINT_LOAD_SAVED_GAME_0XB7_STEADY => Ok(Self::LoadSavedGame0xB7Steady),
             CHECKPOINT_OPTIONS_0XD5_STEADY => Ok(Self::Options0xD5Steady),
@@ -563,6 +568,9 @@ impl ShellCaptureCheckpoint {
             }
             Self::CampaignOpening(movies::OpeningTarget::RestoreUnlocked) => {
                 CHECKPOINT_CAMPAIGN_SOV1_OPENING_RESTORE_UNLOCKED
+            }
+            Self::CampaignOpening(movies::OpeningTarget::LoadUnlockedWhileLocked) => {
+                CHECKPOINT_CAMPAIGN_ALL1_OPENING_LOAD_UNLOCKED
             }
             Self::CampaignBackReturn => CHECKPOINT_CAMPAIGN_BACK_RETURN,
             Self::LoadSavedGame0xB7Steady => CHECKPOINT_LOAD_SAVED_GAME_0XB7_STEADY,
@@ -662,7 +670,7 @@ impl ShellCaptureCheckpoint {
                 target: movies::CampaignStartTarget::AbortReturn,
             },
             Self::CampaignOpening(target) => movies::MoviesTarget::CampaignStart {
-                side: crate::ui::campaign_shell::CampaignSide::Soviet,
+                side: target.side(),
                 target: movies::CampaignStartTarget::Opening(target),
             },
             Self::CampaignBackReturn => movies::MoviesTarget::CampaignBack,
@@ -2036,30 +2044,41 @@ mod tests {
             assert_eq!(checkpoint.as_str(), name);
             assert_eq!(checkpoint.movies_target(), Some(target));
         }
-        for (name, target) in [
+        for (name, target, side) in [
             (
                 CHECKPOINT_CAMPAIGN_SOV1_OPENING_LOCKED,
                 movies::OpeningTarget::Locked,
+                Soviet,
             ),
             (
                 CHECKPOINT_CAMPAIGN_SOV1_OPENING_PAN,
                 movies::OpeningTarget::CameraPan,
+                Soviet,
             ),
             (
                 CHECKPOINT_CAMPAIGN_SOV1_OPENING_FLASH,
                 movies::OpeningTarget::Flash,
+                Soviet,
             ),
             (
                 CHECKPOINT_CAMPAIGN_SOV1_OPENING_ARROWS,
                 movies::OpeningTarget::Arrows,
+                Soviet,
             ),
             (
                 CHECKPOINT_CAMPAIGN_SOV1_OPENING_UNLOCKED,
                 movies::OpeningTarget::Unlocked,
+                Soviet,
             ),
             (
                 CHECKPOINT_CAMPAIGN_SOV1_OPENING_RESTORE_UNLOCKED,
                 movies::OpeningTarget::RestoreUnlocked,
+                Soviet,
+            ),
+            (
+                CHECKPOINT_CAMPAIGN_ALL1_OPENING_LOAD_UNLOCKED,
+                movies::OpeningTarget::LoadUnlockedWhileLocked,
+                Allied,
             ),
         ] {
             let checkpoint = ShellCaptureCheckpoint::parse(name).expect("opening checkpoint");
@@ -2067,7 +2086,7 @@ mod tests {
             assert_eq!(
                 checkpoint.movies_target(),
                 Some(movies::MoviesTarget::CampaignStart {
-                    side: Soviet,
+                    side,
                     target: movies::CampaignStartTarget::Opening(target),
                 })
             );

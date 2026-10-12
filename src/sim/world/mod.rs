@@ -80,6 +80,7 @@ mod rally_cell_input;
 mod rocket_flight;
 pub use frame_error::FrameAdvanceError;
 pub(crate) use world_orders::EngineerBuildingAction;
+pub(crate) use world_orders::UnitRepairAction;
 mod shroud_refresh;
 mod track_cell_recalc;
 #[cfg(test)]

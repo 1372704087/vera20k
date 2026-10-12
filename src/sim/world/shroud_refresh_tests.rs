@@ -637,3 +637,81 @@ fn native_trigger_reveal_all_fifty_five_startup_actions_match_original_empty_res
             .any(|flags| flags & 8 != 0)
     );
 }
+
+/// `MapClass::RevealEntireMap @ 0x00577F30` on a map Size: the CellIterator
+/// walk (`0x00578350`/`0x00578290`) explores exactly the Size diamond, and
+/// each cell's CellChangeNotify runs before the next cell: radar terrain
+/// marks in walk order and the discovery of a resident on unseen ground.
+#[test]
+fn reveal_entire_map_walks_the_size_diamond_and_notifies_each_cell() {
+    let mut sim = Simulation::with_seed(31);
+    let player = sim.interner.intern("Player");
+    let other = sim.interner.intern("Other");
+    sim.session.current_house = Some(player);
+    // A campaign CellPUT discovers only on unshrouded ground, so the resident
+    // stays undiscovered until the walk reaches its cell.
+    sim.session.game_mode_nonzero = false;
+    for (owner, human) in [(player, true), (other, false)] {
+        sim.houses
+            .insert(owner, HouseState::new(owner, 0, None, human, 0, 10));
+    }
+    // A Size 6x4 diamond spans rx and ry 1..=9; 10x10 storage ends the walk
+    // at the first cell past it, as an allocated map does.
+    let (width, height) = (6u32, 4u32);
+    let side = (width + height) as u16;
+    sim.install_resolved_terrain_for_new_map(crate::map::resolved_terrain::test_grid(
+        side,
+        side,
+        crate::map::resolved_terrain::test_flat_cell,
+    ));
+    sim.fog = crate::sim::vision::FogState::new(side, side);
+    sim.install_playfield_from_map_header(&crate::map::map_file::MapHeader {
+        theater: "TEMPERATE".to_string(),
+        fill: "Clear".to_string(),
+        level: 0,
+        width,
+        height,
+        local_left: 0,
+        local_top: 0,
+        local_width: width,
+        local_height: height,
+    });
+    let walk: Vec<(u16, u16)> = sim
+        .resolved_terrain
+        .as_ref()
+        .unwrap()
+        .native_cell_iterator(width as i32)
+        .map(|cell| (cell.rx, cell.ry))
+        .collect();
+    assert_eq!(walk.len(), 4 * (2 * 6 - 1));
+    let resident = actor(
+        &mut sim,
+        other,
+        walk[20],
+        (128, 128),
+        EntityCategory::Infantry,
+    );
+    put(&mut sim, resident, walk[20], false);
+    assert_eq!(discovery(&sim, resident), json!([0, 0, 0]));
+    assert!(sim.radar_terrain_dirty_cells.is_empty());
+
+    let ((), calls) =
+        trace_reveal_calls(|| sim.reveal_entire_map(Some(player), UninitContext::default()));
+
+    for &(rx, ry) in &walk {
+        assert!(sim.fog.is_cell_revealed(player, rx, ry), "{rx},{ry}");
+    }
+    for (rx, ry) in [(0, 0), (9, 0), (0, 9), (9, 9)] {
+        assert!(!sim.fog.is_cell_revealed(player, rx, ry), "{rx},{ry}");
+    }
+    // On flat ground only CellChangeNotify's first diagonal rung, the cell
+    // itself, passes the height test.
+    assert_eq!(
+        calls.discovery_queries,
+        walk.iter()
+            .copied()
+            .collect::<std::collections::BTreeSet<_>>()
+    );
+    assert_eq!(sim.radar_terrain_dirty_cells, walk);
+    assert_eq!(discovery(&sim, resident), json!([0, 1, 0]));
+}

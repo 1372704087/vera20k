@@ -1026,14 +1026,20 @@ impl FogState {
         }
     }
 
-    /// Lift unexplored shroud for one viewer without granting current sight.
+    /// Explore `owner`'s whole buffer for fog-only fixtures, without granting
+    /// current sight. The game reveals a map through
+    /// `Simulation::reveal_map_for_owner` (`MapClass::Reveal @ 0x00577D90`) or
+    /// `Simulation::reveal_entire_map` (`MapClass::RevealEntireMap @
+    /// 0x00577F30`).
+    #[cfg(test)]
     pub fn reveal_all_for_owner(&mut self, owner: InternedId) {
         let cells = self.rectangular_cells();
         self.transition_whole_map_for_owner(owner, cells, false, false);
     }
 
-    /// Whole-map reveal over the actual allocated-cell iterator. Repeated
+    /// [`Self::reveal_all_for_owner`] over the given cells only. Repeated
     /// materialization is suppressed by the native House240 counterpart.
+    #[cfg(test)]
     pub fn reveal_cells_for_owner<I>(&mut self, owner: InternedId, cells: I)
     where
         I: IntoIterator<Item = (u16, u16)>,

@@ -1419,11 +1419,10 @@ fn apply_resolved_skirmish_launch_session(
     // after the complete house pass, including zero-budget runs.
     let _ = sim.scenario_rng.next_range_u32_inclusive(0, 0xffff);
 
-    let local_human_owner = slots
-        .iter()
-        .find(|slot| slot.is_human)
-        .map(|slot| slot.owner_name.as_str());
-    apply_launch_shroud_option(sim, local_human_owner);
+    apply_launch_shroud_option(
+        sim,
+        crate::sim::world::UninitContext::new(Some(rules), overlay_registry),
+    );
 
     SkirmishLaunchApplyResult {
         local_owner,
@@ -1458,20 +1457,24 @@ fn project_pre_fill_start_assignment(
     assign_launch_base_centers(sim, slots, &start_assignment.placements);
 }
 
-/// Apply the lobby's one-shot unexplored-shroud choice to the local human
-/// viewer plane. AI houses keep their own unexplored knowledge and the reveal
-/// never grants VERA's current-sight flag.
-pub(crate) fn apply_launch_shroud_option(sim: &mut Simulation, local_owner: Option<&str>) {
+/// `Read_Scenario`'s `Shroud=no` start (`0x006849D0..0x006849E7`): with
+/// Rules+0x14AE clear, `RevealEntireMap(NULL)` explores the whole map for the
+/// current house ([`Simulation::reveal_entire_map`]). AI houses keep their own
+/// unexplored planes; no sight, gap pass or map-clear byte is written.
+///
+/// RESIDUAL: native reveals after `Post_Map_Init` (`0x00684990`), so after
+/// the startup crates, AI credits and alliances that VERA's
+/// `finalize_scenario_post_map` runs later. The reveal reads none of them,
+/// and a noncampaign CellPUT already discovered every object for the current
+/// house (`discover_cell_put_object`), so no effect is known.
+pub(crate) fn apply_launch_shroud_option(
+    sim: &mut Simulation,
+    context: crate::sim::world::UninitContext<'_>,
+) {
     if sim.session.game_options.shroud {
         return;
     }
-    let Some(owner) = local_owner.and_then(|owner| sim.interner.get(owner)) else {
-        return;
-    };
-    if !sim.houses.get(&owner).is_some_and(|house| house.is_human) {
-        return;
-    }
-    sim.reveal_launch_map_for_owner(owner);
+    sim.reveal_entire_map(None, context);
 }
 
 fn assign_launch_base_centers(

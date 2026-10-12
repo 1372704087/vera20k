@@ -50,21 +50,33 @@
 //!   it.
 //! - The trigger-held original owner (`+0x2CC`/`+0x2E0`,
 //!   HouseClass::TransferUnitsTo) is not ported.
-//! - MPlayer_Defeated's local-player branch (`0x004FC1E7..0x004FC307`: the
-//!   whole-map reveal `0x00577F30` and the defeat UI), its capture-the-flag
-//!   cleanup (Flag_Remove `0x004FBE40` at `0x004FC112..0x004FC15E`, Scenario
-//!   flag `0x10`), the Harvester-Truce UnInit loop (`0x004FC163`, Scenario flag
-//!   `0x800`) and Computer_Paranoid (`0x00501640`) are not ported; the flags
-//!   are off in stock skirmish. Of the local branch only the map-clear byte is
-//!   kept (see `mplayer_defeated`). Trigger: the local player is defeated.
-//!   Effect: the shroud stays in place for the loser.
+//! - MPlayer_Defeated's capture-the-flag cleanup (Flag_Remove `0x004FBE40` at
+//!   `0x004FC112..0x004FC15E`, Scenario flag `0x10`), the Harvester-Truce
+//!   UnInit loop (`0x004FC163`, Scenario flag `0x800`) and Computer_Paranoid
+//!   (`0x00501640`) are not ported; the flags are off in stock skirmish.
+//! - The local-player branch (`0x004FC1B0..0x004FC307`) is ported for the
+//!   whole-map reveal, the radar and Session `+0x300` (see `mplayer_defeated`;
+//!   `local_player_defeated` names the ported readers). Its client UI is not:
+//!   beacons deleted (`0x00431410`), the command bar closed (`0x006D1660`),
+//!   planning and beacon modes left (`0x00637A10`, `0x004AC960`), and the
+//!   bytes `0x00A8D108..0x00A8D10F` that Taunt and dialog `0x73` read set and
+//!   that dialog refreshed (`0x004FC239..0x004FC25D`). Nor are Session
+//!   `+0x300`'s UI readers: band-box and type selection (`0x004AC03F`,
+//!   `0x00732950`), the planning, beacon, cheer and taunt commands
+//!   (`0x00731A50`, `0x00731A30`, `0x00730F30`, `0x0053636C`), the sidebar tab
+//!   (`0x006D08F5`), `RadarClass::SetRadarMode` (`0x00656CCC`), MakeAlly's
+//!   alliance line (`0x004F9E49`) and the dialog and session readers
+//!   (`0x004F1534`, `0x00657F4A`, `0x0078D52A`, `0x004E20BA`, `0x004F10FD`,
+//!   `0x0055EE60` and others). Trigger: the local player is defeated. Effect:
+//!   for the savour delay (retail `SavourDelay=.1`) those UI states and
+//!   commands stay as they were; a defeated house owns nothing left to command.
 
 use crate::rules::overlay_types::OverlayTypeRegistry;
 use crate::rules::ruleset::RuleSet;
 use crate::sim::combat::{EntityDamageEvent, RAD_NO_ATTACKER, ReceiverCallFlags};
 use crate::sim::intern::InternedId;
 use crate::sim::world::FrameEffects;
-use crate::sim::world::{SimSoundEvent, Simulation};
+use crate::sim::world::{SimSoundEvent, Simulation, UninitContext};
 
 impl Simulation {
     /// The house rung with its defeat pass: see [`Self::house_rung`].
@@ -148,7 +160,12 @@ impl Simulation {
                 if let Some(rules) = rules {
                     self.house_blowup_all(owner, rules, registry, frame_effects);
                 }
-                self.mplayer_defeated(owner, outcome_tick, savour_frames);
+                self.mplayer_defeated(
+                    owner,
+                    outcome_tick,
+                    savour_frames,
+                    UninitContext::new(rules, registry).with_effects(frame_effects),
+                );
             }
             self.raise_house_tags(owner, rules, registry, frame_effects);
             if let Some(rules) = rules {
@@ -269,26 +286,64 @@ impl Simulation {
         }
     }
 
-    /// `HouseClass::MPlayer_Defeated @ 0x004FC0B0`, the represented part: the
-    /// Defeated flag, the announcement (`0x004FC30F..0x004FC3BC`, any
-    /// non-passive house; the app decides local or other), the map-clear byte
-    /// `+0x241` (written at `0x004FC328` for another player's house, through
-    /// the whole-map reveal at `0x00577F48` for the local player's) and the
-    /// loss.
-    fn mplayer_defeated(&mut self, owner: InternedId, outcome_tick: u64, savour_frames: u64) {
+    /// `HouseClass::MPlayer_Defeated @ 0x004FC0B0`, the represented part:
+    /// - the Defeated flag (`+0x1F5`, `0x004FC0C2`);
+    /// - for the current house (`PlayerPtr`, `0x004FC1B0..0x004FC1B7`), the
+    ///   whole-map reveal ([`Self::reveal_entire_map`] at `0x004FC20F`, which
+    ///   also writes the map-clear byte `+0x241`) and the radar switched on
+    ///   (`RadarClass::SetTacticalMapAvailable(1)` at `0x004FC21B`), which
+    ///   Session `+0x300` keeps on ([`Self::local_player_defeated`]);
+    /// - for any other house, the map-clear byte alone (`0x004FC328`), behind
+    ///   a `MultiplayPassive=` test (`0x004FC30F`) that the defeat gate's own
+    ///   ([`Self::house_holds_nothing`]) already passed;
+    /// - the announcement (`0x004FC262..0x004FC2EA` for the current house,
+    ///   `0x004FC343..0x004FC3BC` for another; the app decides which) and the
+    ///   loss.
+    fn mplayer_defeated(
+        &mut self,
+        owner: InternedId,
+        outcome_tick: u64,
+        savour_frames: u64,
+        context: UninitContext<'_>,
+    ) {
+        if let Some(house) = self.houses.get_mut(&owner) {
+            house.is_defeated = true;
+        }
+        if self.session.current_house == Some(owner) {
+            self.reveal_entire_map(Some(owner), context);
+            self.power_states
+                .entry(owner)
+                .or_default()
+                .set_tactical_map_available();
+        } else if let Some(house) = self.houses.get_mut(&owner) {
+            house.map_is_clear = true;
+        }
         self.sound_events
             .push(SimSoundEvent::PlayerDefeated { house: owner });
-        let accepted = self.houses.get_mut(&owner).is_some_and(|house| {
-            house.is_defeated = true;
-            house.map_is_clear = true;
-            house.flag_to_lose(outcome_tick, savour_frames)
-        });
+        let accepted = self
+            .houses
+            .get_mut(&owner)
+            .is_some_and(|house| house.flag_to_lose(outcome_tick, savour_frames));
         if accepted {
             self.sound_events.push(SimSoundEvent::MatchOutcome {
                 owner,
                 kind: crate::sim::house_state::HouseOutcomeKind::Defeat,
             });
         }
+    }
+
+    /// Session `+0x300` (`0x00A8B538`), written when the current house is
+    /// defeated (`0x004FC205`; the other writer, `0x005C3ABE`, is the
+    /// cooperative mode's). VERA reads it as the current house's Defeated
+    /// flag, which only [`Self::mplayer_defeated`] sets. Its readers here are
+    /// the House radar recheck (`0x004F84FB`), the Lightning Storm's outages
+    /// (`0x00539FE0`), the superweapon EVA lines (`0x004468DA`, `0x006CCCF0`
+    /// and the other `SuperClass::Launch` cases) and selection navigation.
+    pub(crate) fn local_player_defeated(&self) -> bool {
+        self.session
+            .current_house
+            .and_then(|house| self.houses.get(&house))
+            .is_some_and(|house| house.is_defeated)
     }
 
     /// `HouseClass::Blowup_All @ 0x004FC6D0` (see the module doc).

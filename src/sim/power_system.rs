@@ -104,6 +104,19 @@ impl PowerState {
         self.radar_dirty = true;
     }
 
+    /// `RadarClass::SetTacticalMapAvailable(1)` from the current house's
+    /// defeat (`0x004FC21B`): the radar comes on whatever the house owns.
+    pub(crate) fn set_tactical_map_available(&mut self) {
+        self.radar_available = true;
+    }
+
+    /// House+5779 cleared without a radar recheck: once the current house is
+    /// defeated `HouseClass::Update` skips `0x00508DF0` (`0x004F84FB`), and
+    /// `HouseClass::Update_SpySat @ 0x00508F60` still clears the byte.
+    pub(crate) fn skip_radar_recheck(&mut self) {
+        self.radar_dirty = false;
+    }
+
     /// A state its House update already assessed: nothing to recheck.
     #[cfg(test)]
     pub(crate) fn settled_for_test() -> Self {

@@ -11414,3 +11414,30 @@ fn a_group_spread_asks_infantry_with_a_flagged_targets_deck_height() {
     }
     assert_eq!(targets, [(20, 20), (20, 20)]);
 }
+
+/// The radar-terrain batch de-duplicates through its derived index, rebuilt
+/// whenever another writer appended or the batch was acknowledged: a cell the
+/// wall writer appended is not appended again, and an acknowledged cell
+/// re-arms.
+#[test]
+fn radar_terrain_dirty_marks_deduplicate_across_other_writers_and_clears() {
+    let mut sim = Simulation::new();
+    sim.mark_radar_terrain_dirty_cells([(1, 1), (2, 2), (1, 1)]);
+    assert_eq!(sim.radar_terrain_dirty_cells, [(1, 1), (2, 2)]);
+    let generation = sim.radar_terrain_dirty_generation;
+    sim.mark_radar_terrain_dirty_cells([(2, 2)]);
+    assert_eq!(sim.radar_terrain_dirty_generation, generation);
+    mark_wall_radar_dirty_cell(
+        &mut sim.radar_terrain_dirty_cells,
+        &mut sim.radar_terrain_dirty_generation,
+        (3, 3),
+    );
+    sim.mark_radar_terrain_dirty_cells([(3, 3), (4, 4)]);
+    assert_eq!(
+        sim.radar_terrain_dirty_cells,
+        [(1, 1), (2, 2), (3, 3), (4, 4)]
+    );
+    assert!(sim.acknowledge_radar_terrain_dirty(sim.radar_terrain_dirty_generation));
+    sim.mark_radar_terrain_dirty_cells([(1, 1)]);
+    assert_eq!(sim.radar_terrain_dirty_cells, [(1, 1)]);
+}

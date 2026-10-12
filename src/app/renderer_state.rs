@@ -28,6 +28,9 @@ pub(crate) struct RendererState {
     /// The sidebar's own surface, made by the first match frame and following
     /// the frame and the Sidebar size (`render_game`).
     pub(crate) sidebar_surface: Option<crate::app::presentation::sidebar_surface::SidebarSurface>,
+    /// The active-game shells' own surface, made by the first one painted and
+    /// following the frame (`in_game_shell::render_shell_frame`).
+    pub(crate) in_game_shell_surface: Option<crate::render::scaled_copy::ScaledSurface>,
     /// Optional diagnostic GUI; absent from the normal game build.
     #[cfg(feature = "dev-ui")]
     pub(super) debug_ui: EguiIntegration,

@@ -24,9 +24,12 @@ pub(crate) fn render_saved_game_shell(
     encoder: &mut wgpu::CommandEncoder,
     destination: &wgpu::Texture,
 ) -> anyhow::Result<()> {
-    let width = state.render_width() as i32;
-    let height = state.render_height() as i32;
-    let (shell, button_size) = in_game_shell::current_in_game_shell_layout(state)
+    let in_game_shell::InGameShellGeometry {
+        width,
+        height,
+        layout: shell,
+        button_size,
+    } = in_game_shell::current_in_game_shell_layout(state)
         .expect("active saved-game shell geometry");
     let browser = state
         .match_state

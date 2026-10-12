@@ -565,9 +565,9 @@ impl GameSoundEvent {
 ///
 /// **Superweapon launch cues are landed** — see
 /// [`GameSoundEvent::SuperWeaponActivated`] and
-/// [`crate::app::match_runtime::sound_dispatch::superweapon_launch_cue`]. One
-/// residual remains there: the EVA suppression flag `[0x00A8B538]` has no VERA
-/// equivalent (VERA has no defeated-spectator state).
+/// [`crate::app::match_runtime::sound_dispatch::superweapon_launch_cue`]. Their
+/// EVA suppression flag `[0x00A8B538]` is the current house's defeat
+/// ([`crate::sim::world::Simulation::local_player_defeated`]).
 #[derive(Debug, Default)]
 pub struct SoundEventQueue {
     events: Vec<GameSoundEvent>,

@@ -21,19 +21,12 @@ pub(crate) fn button_states(state: &AppState) -> [PauseMenuButtonState; 6] {
 }
 
 fn hit(state: &AppState) -> Option<PauseMenuButton> {
-    let (shell, size) =
-        crate::app::frontend::skirmish_shell_render::current_in_game_shell_layout(state)?;
-    let layout = pause_menu_layout(
-        state.render_width() as i32,
-        state.render_height() as i32,
-        shell,
-        size,
-    );
-    let (x, y) = state.cursor_position();
+    let shell = crate::app::frontend::skirmish_shell_render::current_in_game_shell_layout(state)?;
+    let layout = pause_menu_layout(shell.width, shell.height, shell.layout, shell.button_size);
+    let (x, y) = crate::app::frontend::skirmish_shell_render::in_game_shell_cursor(state);
     let states = button_states(state);
     PauseMenuButton::ALL.into_iter().find(|button| {
-        states[*button as usize].enabled
-            && layout.buttons[*button as usize].contains(x.round() as i32, y.round() as i32)
+        states[*button as usize].enabled && layout.buttons[*button as usize].contains(x, y)
     })
 }
 

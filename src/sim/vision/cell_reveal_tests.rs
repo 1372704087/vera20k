@@ -271,3 +271,98 @@ fn native_trigger_reveal_retained_cache_admission_matches_original_histories() {
         );
     }
 }
+
+/// RevealCell4AA050 over every cell of a bare 5x4 plane in row order. With no
+/// terrain, off-plane neighbors read the never-explored Dummy. Each cell is
+/// explored and notifies once, fresh; no counter or current sight moves; only
+/// cells whose eight neighbors are all on the plane open (`0x10`).
+#[test]
+fn reveal_cell_explores_every_cell_and_opens_only_surrounded_ones() {
+    let viewer = crate::sim::intern::test_intern("Player");
+    let mut fog = FogState::new(5, 4);
+    let mut notified = Vec::new();
+    for y in 0..4 {
+        for x in 0..5 {
+            let notify = fog
+                .reveal_cell(viewer, (x, y), None)
+                .expect("an unexplored cell changes");
+            assert!(notify.fresh);
+            notified.push(notify.cell);
+        }
+    }
+    let rows: Vec<_> = (0..4).flat_map(|y| (0..5).map(move |x| (x, y))).collect();
+    assert_eq!(notified, rows);
+    let view = &fog.by_owner[&viewer];
+    for (x, y) in rows {
+        let index = view.index(x, y).unwrap();
+        let surrounded = (1..4).contains(&x) && (1..3).contains(&y);
+        let expected = if surrounded { 0x18 } else { 0x08 };
+        assert_eq!(view.ground_flags[index], expected, "ground at {x},{y}");
+        assert_eq!(
+            view.shroud_knowledge[index].counter, 1,
+            "counter at {x},{y}"
+        );
+        assert!(fog.is_cell_revealed(viewer, x, y));
+        assert!(!fog.is_cell_visible(viewer, x, y));
+        assert!(fog.is_ground_unshrouded(viewer, x, y));
+    }
+    assert_eq!(view.dummy_visibility, DummyVisibility::default());
+}
+
+/// The neighbor branch that opens a cell (`0x004AA17C..0x004AA204`) stores its
+/// eight neighbors' frames but not its own. On a 3x3 plane only the middle
+/// cell can be surrounded: opened as the last corner's neighbor, it keeps the
+/// frame its last other neighbor gave it. Revealed last itself, its own -1
+/// frame opens it.
+#[test]
+fn reveal_cell_opens_a_surrounded_neighbor_without_storing_its_frame() {
+    let viewer = crate::sim::intern::test_intern("Player");
+    let middle = (1, 1);
+    let plane = |last: (u16, u16)| {
+        let mut fog = FogState::new(3, 3);
+        for y in 0..3 {
+            for x in 0..3 {
+                if (x, y) != last {
+                    fog.reveal_cell(viewer, (x, y), None);
+                }
+            }
+        }
+        fog
+    };
+    let open = |fog: &FogState, cell: (u16, u16)| {
+        let view = &fog.by_owner[&viewer];
+        view.ground_flags[view.index(cell.0, cell.1).unwrap()] & 0x10 != 0
+    };
+
+    let corner = (2, 2);
+    let mut fog = plane(corner);
+    let (before, _) = fog.by_owner[&viewer].map_cell_edge_cache_for_test(middle);
+    assert!(before[0] >= 0, "the corner is still unexplored: {before:?}");
+    assert_eq!(
+        fog.map_cell_edge_frame(viewer, middle, false, None),
+        before[0]
+    );
+    assert!(fog.reveal_cell(viewer, corner, None).unwrap().fresh);
+    assert!(open(&fog, middle));
+    assert!(!open(&fog, corner), "a corner borders the unexplored Dummy");
+    assert_eq!(
+        fog.by_owner[&viewer].map_cell_edge_cache_for_test(middle).0,
+        before
+    );
+    assert_eq!(fog.map_cell_edge_frame(viewer, middle, false, None), -1);
+    // Its own visit stores the -1 and notifies the change, not fresh.
+    assert!(!fog.reveal_cell(viewer, middle, None).unwrap().fresh);
+    assert_eq!(
+        fog.by_owner[&viewer].map_cell_edge_cache_for_test(middle).0[0],
+        -1
+    );
+
+    let mut fog = plane(middle);
+    assert!(!open(&fog, middle));
+    assert!(fog.reveal_cell(viewer, middle, None).unwrap().fresh);
+    assert!(open(&fog, middle));
+    assert_eq!(
+        fog.by_owner[&viewer].map_cell_edge_cache_for_test(middle).0[0],
+        -1
+    );
+}

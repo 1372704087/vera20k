@@ -377,7 +377,11 @@ fn gap_operational_owner_change_reveals_sight_before_new_gap_and_death_removes()
 fn gap_operational_events_invalidate_map_reveal_latch_including_friendly_reentry() {
     let (mut sim, rules, viewer, owner, _) = fixture();
     sim.session.game_options.shroud = false;
-    crate::sim::scenario_bootstrap::apply_launch_shroud_option(&mut sim, Some("Americans"));
+    sim.session.current_house = Some(viewer);
+    crate::sim::scenario_bootstrap::apply_launch_shroud_option(
+        &mut sim,
+        crate::sim::world::UninitContext::with_rules(&rules),
+    );
     assert!(sim.fog.whole_map_revealed_for_owner(viewer));
     insert(&mut sim, 1, owner, "GAGAP", 12, 12);
     sim.visit_building_operational(1, &rules, None, crate::sim::world::FrameEffects::default());
@@ -395,7 +399,11 @@ fn gap_operational_events_invalidate_map_reveal_latch_including_friendly_reentry
 
     let (mut sim, rules, viewer, _, _) = fixture();
     sim.session.game_options.shroud = false;
-    crate::sim::scenario_bootstrap::apply_launch_shroud_option(&mut sim, Some("Americans"));
+    sim.session.current_house = Some(viewer);
+    crate::sim::scenario_bootstrap::apply_launch_shroud_option(
+        &mut sim,
+        crate::sim::world::UninitContext::with_rules(&rules),
+    );
     insert(&mut sim, 1, viewer, "GAGAP", 12, 12);
     sim.visit_building_operational(1, &rules, None, crate::sim::world::FrameEffects::default());
     assert!(

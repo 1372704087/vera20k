@@ -15,7 +15,8 @@ use draw_order::{
 mod in_game_options;
 mod in_game_shell;
 pub(crate) use in_game_shell::{
-    current_in_game_shell_layout, native_in_game_shell_active, render_in_game_options_shell,
+    current_in_game_shell_layout, in_game_shell_cursor, in_game_shell_size,
+    native_in_game_shell_active, render_in_game_options_shell,
 };
 mod pause_menu;
 pub(crate) use pause_menu::render_pause_menu_shell;
@@ -317,13 +318,6 @@ fn build_skirmish_shell_instances(
         right_panel_frame10_overlay_active(shell),
     );
 
-    // The teardown slide repaints the dialog over every child and runs to its
-    // end without dispatching messages (`0x00622C4F`, `0x006071E0`): only the
-    // dialog's own paint and the button frames show.
-    if !leaving {
-        push_player_name_edit_instances(&mut instances, atlas, font, layout, shell);
-    }
-
     push_lower_strip_instance(&mut instances, atlas, layout);
 
     // The RA2 skirmish skin shares the common shell's art and SHELL.PAL.
@@ -387,10 +381,16 @@ fn build_skirmish_shell_instances(
             }
         }
     }
+    // The teardown slide repaints the dialog over every child and runs to its
+    // end without dispatching messages (`0x00622C4F`, `0x006071E0`): only the
+    // dialog's own paint and the button frames show.
     if leaving {
         return instances;
     }
 
+    // The player-name edit is a dialog child, so it follows the parent
+    // background: this batch has no depth test and paints in queue order.
+    push_player_name_edit_instances(&mut instances, atlas, font, layout, shell);
     push_combo_instances(&mut instances, atlas, color_schemes, layout, shell, maps);
     push_checkbox_instances(&mut instances, atlas, layout, shell);
     push_trackbar_instances(&mut instances, atlas, layout, shell);

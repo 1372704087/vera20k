@@ -183,5 +183,42 @@ fn building_voxel_guns_seed_their_blit_z_with_turret_anim_z_adjust() {
             (anim_z_adjust - lift_px) as f32,
             "z_adjust {anim_z_adjust} lift {lift_px}"
         );
+        assert_eq!(
+            pieces[0].instance.depth, 0.5,
+            "the adjustment is a blit Z term, not a sort bias"
+        );
+    }
+}
+
+/// The retail types the adjustment reaches, read through the production rules
+/// owner rather than restated here. `TESLA`/`ATESLA` set the key without a voxel
+/// turret, so `0x43E900`'s `TurretAnimIsVoxel` gate leaves their value unused.
+#[test]
+fn retail_voxel_turret_buildings_supply_the_z_adjustment_the_blit_seeds_from() {
+    let Some(retail) = crate::rules::retail_ini_fixture::retail_battle_rules() else {
+        return;
+    };
+    let rules = &retail.rules;
+    for (type_id, z_adjust) in [
+        ("NASAM", -20),
+        ("NALASR", -20),
+        ("NAFLAK", -40),
+        ("YAGGUN", -40),
+        ("YAREFN", -50),
+        ("GTGCAN", -60),
+        ("CAOUTP", -140),
+        ("CAEAST02", -150),
+    ] {
+        let object = rules.object(type_id).expect("retail building type");
+        assert!(
+            object.turret_anim_is_voxel,
+            "{type_id} draws its turret as a VXL"
+        );
+        assert_eq!(object.turret_anim_z_adjust, z_adjust, "{type_id}");
+    }
+    for type_id in ["TESLA", "ATESLA"] {
+        let object = rules.object(type_id).expect("retail building type");
+        assert!(!object.turret_anim_is_voxel, "{type_id}");
+        assert_eq!(object.turret_anim_z_adjust, -100, "{type_id}");
     }
 }

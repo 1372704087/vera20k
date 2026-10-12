@@ -706,15 +706,19 @@ pub(crate) fn build_shp_instances(
 /// The blit Z seed is Building vtable `0x7E3EBC+0x2EC` (`0x43E900`): it returns
 /// `-AdjustForZ(this+0xA4)` plus `TurretAnimZAdjust` (`type+0x11E8`) when
 /// `TurretAnimIsVoxel` (`type+0x16C5`) admits the voxel arm. The voxel blits pass
-/// it as their Z argument (`0x7073F1` in the uncached `0x707280`, `0x707706` in
-/// the cached `0x707480`, unit composite `0x73B33D..0x73B412`). Shared
-/// `Techno` draw `0x705E00` reaches the same slot only for `GetType() == 15`, and
-/// Building is type 6 (`0x459EC0`), so a building's own SHP draws never take the
-/// adjustment: it belongs to the guns alone. Without it a gun loses the depth
-/// test to its own body and is clipped by the base it stands on (retail `NASAM`
-/// `-20`, `NAFLAK`/`YAGGUN` `-40`, `YAREFN` `-50`, `GTGCAN` `-60`, `CAOUTP`
-/// `-140`, `CAEAST02` `-150`; `TESLA`/`ATESLA`/`NALASR` set the key but have no
-/// voxel turret, so the gate leaves their value unused).
+/// it as their Z argument: `0x707206`/`0x7073F1` (uncached `0x707280`) and
+/// `0x707706` (cached `0x707480`), plus the unit draws `0x73B33D`/`0x73B3B2`/
+/// `0x73B412`, `0x73C772` and `0x73D236`. Shared `Techno` draw `0x705E00` reaches
+/// the slot only on its `GetType()` 2 and 15 arms; Building is type 6 (`0x459EC0`)
+/// and jumps past it, so a building's own SHP draw never takes the adjustment:
+/// Without it a gun loses the depth test to its own body and is clipped by the
+/// base it stands on. Retail voxel-turret values: `NASAM`/`NALASR` `-20`,
+/// `NAFLAK`/`YAGGUN` `-40`, `YAREFN` `-50`, `GTGCAN` `-60`, `CAOUTP` `-140`,
+/// `CAEAST02` `-150`; `TESLA`/`ATESLA` set `-100` with no `TurretAnimIsVoxel`.
+///
+/// RESIDUAL: the gun blit carries no BUILDNGZ z-shape, while the cached native
+/// route reaches `0x437A10`, whose second-shape arm subtracts a per-pixel z byte.
+/// Pre-existing; the adjustment now rides on top of it.
 ///
 /// It is not a ground-layer sort bias: the building's cell sort key reads only
 /// `TurretAnimIsVoxel` (+32 leptons) and `Gate` (-16 leptons), so the turret

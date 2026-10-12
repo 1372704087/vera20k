@@ -87,6 +87,8 @@ pub(crate) struct LauncherOptionsLayout {
     pub(crate) scale: ShellScale,
     offset_x: i32,
     offset_y: i32,
+    /// The window, which a match shares: the zoom list depends on it.
+    screen: (u32, u32),
 }
 
 impl LauncherOptionsLayout {
@@ -159,7 +161,18 @@ impl LauncherOptionsLayout {
             scale,
             offset_x,
             offset_y,
+            screen: (width.max(0) as u32, height.max(0) as u32),
         }
+    }
+
+    /// The window size the zoom choices are for.
+    pub(crate) fn screen(&self) -> (u32, u32) {
+        self.screen
+    }
+
+    /// The Zoom list's rows, top to bottom.
+    pub(crate) fn zoom_choices(&self) -> Vec<Zoom> {
+        Zoom::choices(self.screen.0, self.screen.1)
     }
 
     fn label_rect(&self, x: i32, y: i32, w: i32, h: i32) -> RectPx {
@@ -191,11 +204,13 @@ pub(crate) struct LauncherShellLabel<'a> {
     pub(crate) title: bool,
 }
 
-/// The open Zoom list: one row per [`Zoom`], in order.
+/// The open Zoom list: one row per [`LauncherOptionsLayout::zoom_choices`],
+/// in order.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct LauncherZoomPopup {
     pub(crate) rect: RectPx,
     pub(crate) row_height: i32,
+    pub(crate) rows: usize,
     pub(crate) selected: usize,
     pub(crate) hovered: Option<usize>,
 }
@@ -205,7 +220,7 @@ impl LauncherZoomPopup {
         self.rect
             .contains(x, y)
             .then(|| ((y - self.rect.y) / self.row_height) as usize)
-            .filter(|row| *row < Zoom::ALL.len())
+            .filter(|row| *row < self.rows)
     }
 
     pub(crate) fn row_rect(self, row: usize) -> RectPx {
@@ -326,8 +341,13 @@ impl OptionsDialogState {
         }
     }
 
-    pub(crate) fn shell_selected_zoom_text(&self) -> &'static str {
-        self.zoom.label()
+    /// The zoom the face shows: a fixed choice this window can't reach shows
+    /// as the step it gives way to.
+    pub(crate) fn shell_selected_zoom(&self, layout: &LauncherOptionsLayout) -> Zoom {
+        match self.zoom {
+            Zoom::Auto => Zoom::Auto,
+            fixed => Zoom::Percent(fixed.percent(layout.screen.0, layout.screen.1)),
+        }
     }
     pub(crate) fn shell_button_hovered(&self, id: LauncherParentResult) -> bool {
         self.shell_interaction.hovered_button == Some(id)
@@ -341,21 +361,25 @@ impl OptionsDialogState {
             return None;
         }
         // The list box hangs under the painted face; its rows use this
-        // window's dropdown device metrics, the same the combo pages use. The
-        // four zoom rows fit the five whole rows the template's 74-DLU drop
-        // allocation admits (ComboDropWin `0x006180CF..0x00618205`), so the
-        // list never scrolls.
+        // window's dropdown device metrics, the same the combo pages use.
+        // Unlike the template's 74-DLU drop allocation (ComboDropWin
+        // `0x006180CF..0x00618205`, five whole rows), it grows with the zoom
+        // steps the window allows, so it never scrolls: a 4K window's nine
+        // rows still end well above the page's bottom edge.
         let metrics = DropdownMetrics::scaled(layout.scale);
         let face = combo_face_rect(layout.zoom, layout.scale);
+        let choices = layout.zoom_choices();
+        let shown = self.shell_selected_zoom(layout);
         Some(LauncherZoomPopup {
             rect: RectPx::new(
                 layout.zoom.x,
                 face.y + face.h + 1,
                 layout.zoom.w,
-                Zoom::ALL.len() as i32 * metrics.row_h,
+                choices.len() as i32 * metrics.row_h,
             ),
             row_height: metrics.row_h,
-            selected: self.zoom.row(),
+            rows: choices.len(),
+            selected: choices.iter().position(|zoom| *zoom == shown).unwrap_or(0),
             hovered: self.shell_interaction.popup_hovered,
         })
     }
@@ -438,11 +462,12 @@ impl OptionsDialogState {
             // (GUIComboCloseSound) before selection or outside dismissal.
             self.pending_events
                 .push(LauncherOptionsEvent::Cue(LauncherCue::ComboClose));
-            if let Some(index) = self
+            if let Some(zoom) = self
                 .shell_popup(layout)
                 .and_then(|popup| popup.row_at(x, y))
+                .and_then(|row| layout.zoom_choices().get(row).copied())
             {
-                self.select_zoom(index);
+                self.select_zoom(zoom);
             } else {
                 self.zoom_popup_open = false;
             }
@@ -823,20 +848,42 @@ mod tests {
         state.shell_mouse_down(520, 95, &layout);
         state.drain_output();
         let popup = state.shell_popup(&layout).unwrap();
-        assert_eq!(popup.selected, 0);
-        assert_eq!(popup.rect.h, Zoom::ALL.len() as i32 * popup.row_height);
+        // 800x600 has room for Auto and 100% only.
+        assert_eq!((popup.rows, popup.selected), (2, 0));
+        assert_eq!(popup.rect.h, 2 * popup.row_height);
         let row = popup.row_rect(1);
         state.shell_mouse_move(row.x + 10, row.y + 5, &layout);
         assert_eq!(state.shell_popup(&layout).unwrap().hovered, Some(1));
         state.shell_mouse_down(row.x + 10, row.y + 5, &layout);
-        assert_eq!(state.shell_selected_zoom_text(), "Normal");
+        assert_eq!(state.shell_selected_zoom(&layout), Zoom::Percent(100));
         assert!(state.shell_popup(&layout).is_none());
         assert_eq!(
             state.drain_output().events,
             [
                 LauncherOptionsEvent::Cue(LauncherCue::ComboClose),
-                LauncherOptionsEvent::ZoomSelected(Zoom::Normal)
+                LauncherOptionsEvent::ZoomSelected(Zoom::Percent(100))
             ]
+        );
+
+        // A bigger window lists more steps, and a choice it can't reach
+        // shows and selects as the step it gives way to.
+        let mut state = OptionsDialogState::new(
+            LauncherOptionsLabels::resolve(&|_| None),
+            LauncherOptionsValues::default(),
+            Zoom::Percent(300),
+            true,
+        );
+        state.zoom_popup_open = true;
+        let layout = LauncherOptionsLayout::responsive(1920, 1080);
+        assert_eq!(state.shell_selected_zoom(&layout), Zoom::Percent(200));
+        let popup = state.shell_popup(&layout).unwrap();
+        assert_eq!((popup.rows, popup.selected), (4, 3));
+        let below = popup.row_rect(4);
+        state.shell_mouse_down(below.x + 10, below.y + 5, &layout);
+        assert_eq!(
+            state.zoom,
+            Zoom::Percent(300),
+            "below the last row picks nothing"
         );
     }
 

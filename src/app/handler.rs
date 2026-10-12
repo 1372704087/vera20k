@@ -33,7 +33,7 @@ impl App {
     }
 
     /// Keep the zoom pass matching the window and the Options choices: a
-    /// source target of the window size over the zoom factor, in the window's
+    /// source target of the window size over the zoom, in the window's
     /// shape or the original 4:3, or none when that is the whole window. The
     /// match reads its size through `render_width`/`render_height`, so a
     /// resize mid-match re-projects the battlefield and sidebar the same way.
@@ -45,14 +45,14 @@ impl App {
         );
         use crate::render::upscale_pass::{FrameShape, ZoomGeometry};
         let profile = &state.persistence.options_profile;
-        let (factor, shape) = if state.platform.capture_client_size.is_some() {
-            (1, FrameShape::Window)
+        let (percent, shape) = if state.platform.capture_client_size.is_some() {
+            (100, FrameShape::Window)
         } else if profile.original_shape {
-            (profile.zoom.factor(width, height), FrameShape::Original)
+            (profile.zoom.percent(width, height), FrameShape::Original)
         } else {
-            (profile.zoom.factor(width, height), FrameShape::Window)
+            (profile.zoom.percent(width, height), FrameShape::Window)
         };
-        let geometry = ZoomGeometry::new(width, height, factor, shape);
+        let geometry = ZoomGeometry::new(width, height, percent, shape);
         if geometry.is_whole_window(width, height) {
             state.renderer.upscale_pass = None;
         } else if let Some(pass) = state.renderer.upscale_pass.as_mut() {

@@ -969,7 +969,8 @@ mod tests {
             b"[VERA]\nFullScreen=yes\nZoom=2\nOriginalShape=yes\n",
         );
         assert!(load.retained_profile.full_screen);
-        assert_eq!(load.retained_profile.zoom, Zoom::Large);
+        // The first release saved the whole factor.
+        assert_eq!(load.retained_profile.zoom, Zoom::Percent(200));
         assert!(load.retained_profile.original_shape);
         // A value this build doesn't know reads as Auto.
         let unknown = load_snapshot(&RetailStartupOptions::default(), b"[VERA]\nZoom=9\n");
@@ -977,19 +978,19 @@ mod tests {
 
         let profile = RetailOptionsProfile {
             full_screen: true,
-            zoom: Zoom::Huge,
+            zoom: Zoom::Percent(150),
             original_shape: true,
             ..RetailOptionsProfile::default()
         };
         let output =
             String::from_utf8(profile.transform_ra2md(b"[Video]\r\nScreenWidth=800\r\n")).unwrap();
         assert!(
-            output.contains("[VERA]\r\nFullScreen=yes\r\nZoom=3\r\nOriginalShape=yes\r\n"),
+            output.contains("[VERA]\r\nFullScreen=yes\r\nZoom=150\r\nOriginalShape=yes\r\n"),
             "{output}"
         );
         let reread = load_snapshot(&RetailStartupOptions::default(), output.as_bytes());
         assert!(reread.retained_profile.full_screen);
-        assert_eq!(reread.retained_profile.zoom, Zoom::Huge);
+        assert_eq!(reread.retained_profile.zoom, Zoom::Percent(150));
         assert!(reread.retained_profile.original_shape);
     }
 

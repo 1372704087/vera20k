@@ -78,6 +78,9 @@ pub(crate) struct MatchInputState {
     pub(crate) view_bookmarks: crate::app::input::camera::ViewBookmarks,
     pub(crate) cursor_x: f32,
     pub(crate) cursor_y: f32,
+    /// The match zoom `cursor_x`/`cursor_y` are in; `None` is window pixels.
+    /// `AppState::sync_cursor_space` keeps it matching the current screen.
+    pub(crate) cursor_zoom: Option<crate::render::upscale_pass::ZoomGeometry>,
     pub(crate) keys_held: HashSet<KeyCode>,
     pub(crate) hotkey_bindings: crate::app::input::hotkeys::HotkeyBindings,
     pub(crate) hotkey_modifiers: ModifiersState,
@@ -155,6 +158,7 @@ impl MatchInputState {
             view_bookmarks: crate::app::input::camera::ViewBookmarks::default(),
             cursor_x: 0.0,
             cursor_y: 0.0,
+            cursor_zoom: None,
             keys_held: HashSet::new(),
             hotkey_bindings,
             hotkey_modifiers: ModifiersState::empty(),

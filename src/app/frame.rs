@@ -639,7 +639,7 @@ impl App {
             .submit(std::iter::once(encoder.finish()));
         output.present();
         // wgpu 27 requires released surface references before reconfiguration;
-        // the diagnostic action and loading commit below may resize the window.
+        // the diagnostic action below may resize the window.
         // https://docs.rs/wgpu/27.0.1/wgpu/struct.Surface.html#method.configure
         drop(view);
         state

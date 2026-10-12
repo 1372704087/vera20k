@@ -2184,14 +2184,14 @@ impl TacticalCaptureSession {
             state.match_state.configured_input_delay_ticks == u64::from(profile.input_delay_ticks),
             "configured input delay differs from observation profile"
         );
-        let config = state
+        state
             .platform
             .game_config
             .as_ref()
             .context("map observation requires config.toml")?;
         ensure!(
-            !config.graphics.upscale && state.renderer.upscale_pass.is_none(),
-            "map observation requires native-resolution rendering (upscale=false)"
+            state.renderer.upscale_pass.is_none(),
+            "map observation requires native-resolution rendering (no zoom)"
         );
         let cwd = std::env::current_dir()?;
         let inputs = json!({

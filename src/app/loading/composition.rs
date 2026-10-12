@@ -46,9 +46,9 @@ pub(crate) const fn loading_art_viewport_size(render_width: u32) -> [i32; 2] {
 }
 
 /// The mapping the loading screen paints in. gamemd centers the art viewport in
-/// the window and draws it 1:1; the family's fill-window switch instead scales the
-/// authored dialog to fit the window, centred, so every authored rect maps through
-/// this scale. [`ShellScale::RETAIL`] leaves every path exactly as gamemd has it.
+/// the window and draws it 1:1; a window the shell family fits instead scales the
+/// authored dialog to fit it, centred, so every authored rect maps through this
+/// scale. [`ShellScale::RETAIL`] leaves every path exactly as gamemd has it.
 pub(crate) fn loading_screen_scale(fill_window: bool, render_size: [u32; 2]) -> ShellScale {
     if fill_window {
         ShellScale::from_screen(render_size[0] as i32, render_size[1] as i32)
@@ -1353,7 +1353,7 @@ mod tests {
         assert_eq!(chrome.bar, RectPx::new(0, 1120, 1600, 80));
         assert_eq!(chrome.progress_point, [328, 1134]);
 
-        // gamemd's own mapping stays untouched by the switch: the same dialog is
+        // gamemd's own mapping is untouched by the fit: the same dialog is
         // centered at 1:1 and the identity scale leaves each layer where it is.
         let centered = loading_text_rects([1600, 1200], &battle, ShellScale::RETAIL);
         assert_eq!(

@@ -63,7 +63,6 @@ impl App {
         state.audio.set_master_output_scale(1.0);
         state.match_state.match_audio.reset_for_new_match();
         state.frontend.screen = GameScreen::MainMenu;
-        Self::enter_shell_window_mode(state);
         state.match_state.input.zoom_level = 1.0;
         state.match_state.input.zoom_target = 1.0;
         state.platform.window.set_cursor_visible(true);
@@ -714,9 +713,6 @@ impl App {
                 detail,
                 model,
             }) => {
-                // Victory 006857AE restores the shell pair before score
-                // construction/run at 00685884/0068588B, not after Continue.
-                Self::enter_shell_window_mode(state);
                 Self::open_score_page(state, model, title, detail);
             }
             Some(crate::app::match_runtime::scenario_exit::ScenarioExitDestination::MainMenu) => {

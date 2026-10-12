@@ -33,8 +33,9 @@ pub(crate) fn owner_draw_button_label_rect(rect: RectPx, pressed: bool) -> RectP
 }
 
 /// Default software cursor in screen space (camera at the origin): the raw
-/// pointer minus the hotspot, sized to the current animation frame, drawn
-/// from the sequence's frame-0 texture. `None` without a software cursor.
+/// pointer minus the hotspot, sized to the current animation frame and grown
+/// with a fitted menu's art, drawn from the sequence's frame-0 texture. `None`
+/// without a software cursor.
 pub(crate) fn software_cursor(
     state: &AppState,
     depth: f32,
@@ -47,14 +48,15 @@ pub(crate) fn software_cursor(
     let sequence = cursor.get(crate::app::types::CursorId::Default)?;
     let frame = crate::app::input::cursor::current_software_cursor_frame(sequence)?;
     let texture = &sequence.frames.first()?.texture;
+    let scale = crate::app::frontend::shell_layout::menu_cursor_scale(state);
     Some((
         texture,
         SpriteInstance {
             position: [
-                state.match_state.input.cursor_x - sequence.hotspot[0],
-                state.match_state.input.cursor_y - sequence.hotspot[1],
+                state.match_state.input.cursor_x - sequence.hotspot[0] * scale,
+                state.match_state.input.cursor_y - sequence.hotspot[1] * scale,
             ],
-            size: [frame.width, frame.height],
+            size: [frame.width * scale, frame.height * scale],
             uv_origin: [0.0, 0.0],
             uv_size: [1.0, 1.0],
             depth,

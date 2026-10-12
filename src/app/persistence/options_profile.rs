@@ -20,6 +20,8 @@ const VIDEO_SECTION: &str = "Video";
 const AUDIO_SECTION: &str = "Audio";
 const WONLINE_SECTION: &str = "WOnline";
 const NETWORK_SECTION: &str = "Network";
+/// VERA's own display preferences. gamemd never reads this section.
+const VERA_SECTION: &str = "VERA";
 /// Destination units `OptionsClass__ReadFromINI` passes for NetID (`push 0xC8`).
 const NET_ID_UNITS: usize = 0xC8;
 const SCREEN_SIZE_UNSET: i32 = -1;
@@ -84,6 +86,14 @@ pub(crate) struct RetailOptionsProfile {
     // `[0x00B7690C]`, outside OptionsClass. Read-only here; this route never
     // writes it back.
     pub(crate) wol_lobby_music: i32,
+
+    // [VERA]: VERA's display preferences, not part of OptionsClass.
+    /// Whether the window opens full screen. While the game runs the window
+    /// itself owns this; `App::follow_window_full_screen` copies its state
+    /// back every event-loop pass, so each write saves what the player sees.
+    pub(crate) full_screen: bool,
+    /// The Options page's battle zoom.
+    pub(crate) zoom: crate::ui::main_menu_dialogs::options::Zoom,
 }
 
 /// The two process-start products obtained from one physical `RA2MD.INI`
@@ -131,6 +141,8 @@ impl Default for RetailOptionsProfile {
             in_game_music: true,
             movie_progress: crate::ui::movies_credits_shell::MovieProgress::default(),
             wol_lobby_music: 1,
+            full_screen: false,
+            zoom: crate::ui::main_menu_dialogs::options::Zoom::Auto,
         }
     }
 }
@@ -148,6 +160,8 @@ pub(crate) struct FormattedProfileSections {
     /// `[Network] NetID` only. Native also writes Socket/NetCard/DestNet from
     /// network fields this profile does not model; their bytes are preserved.
     pub(crate) network: [(&'static str, String); 1],
+    /// VERA's own section, written after the native ones.
+    pub(crate) vera: [(&'static str, String); 2],
 }
 
 impl RetailOptionsLoad {
@@ -322,32 +336,28 @@ impl RetailOptionsProfile {
         if let Some(wonline) = ini.section(WONLINE_SECTION) {
             self.wol_lobby_music = wonline.read_int("LobMusic", self.wol_lobby_music);
         }
+
+        if let Some(vera) = ini.section(VERA_SECTION) {
+            self.full_screen = vera.read_bool("FullScreen", self.full_screen);
+            self.zoom = crate::ui::main_menu_dialogs::options::Zoom::from_ini_value(
+                vera.read_int("Zoom", self.zoom.ini_value()),
+            );
+        }
     }
 
-    /// Mutate the early-read live pair through startup fallback and return its
-    /// window-safe pixel projection.
+    /// Mutate the early-read live pair through startup fallback.
     ///
     /// If either field is still the exact `-1` sentinel, retail replaces both
     /// as one pair. The later full read may then reapply a present single key
     /// over this fallback for retained profile state. Explicit non-sentinel
-    /// zero/negative values are retained, while their platform projection is
-    /// bounded to one pixel.
-    fn resolve_screen_size(&mut self) -> ScreenSize {
+    /// zero/negative values are retained. VERA sizes no window from the pair:
+    /// it only round-trips to RA2MD.INI.
+    fn resolve_screen_size(&mut self) {
         // Retail provenance: pre-window screen-pair fallback — `WinMain` @
         // `0x006BB9A0`, branch `0x006BD94A..0x006BD9B5`.
         if self.screen_width == SCREEN_SIZE_UNSET || self.screen_height == SCREEN_SIZE_UNSET {
             self.screen_width = DEFAULT_SCREEN_WIDTH;
             self.screen_height = DEFAULT_SCREEN_HEIGHT;
-        }
-        self.game_screen_size()
-    }
-
-    /// Current match preference, including launcher edits, projected only at
-    /// the platform boundary. Scenario start 00683DBB reads A8EB84/88 here.
-    pub(crate) fn game_screen_size(&self) -> ScreenSize {
-        ScreenSize {
-            width: self.screen_width.max(1) as u32,
-            height: self.screen_height.max(1) as u32,
         }
     }
 
@@ -400,6 +410,10 @@ impl RetailOptionsProfile {
                 ("InGameMusic", format_bool(self.in_game_music).to_string()),
             ],
             network: [("NetID", encode_net_id(self.movie_progress))],
+            vera: [
+                ("FullScreen", format_bool(self.full_screen).to_string()),
+                ("Zoom", self.zoom.ini_value().to_string()),
+            ],
         }
     }
 
@@ -409,7 +423,8 @@ impl RetailOptionsProfile {
         let output = apply_formatted_section(input, OPTIONS_SECTION, &formatted.options);
         let output = apply_formatted_section(&output, VIDEO_SECTION, &formatted.video);
         let output = apply_formatted_section(&output, AUDIO_SECTION, &formatted.audio);
-        apply_formatted_section(&output, NETWORK_SECTION, &formatted.network)
+        let output = apply_formatted_section(&output, NETWORK_SECTION, &formatted.network);
+        apply_formatted_section(&output, VERA_SECTION, &formatted.vera)
     }
 
     /// Commit the complete modeled profile with one read and one write.
@@ -753,19 +768,12 @@ mod tests {
             let mut load = load_snapshot(&RetailStartupOptions::default(), ini.as_bytes());
             assert_eq!(load.startup_shell_screen, RETAIL_SHELL_SIZE);
             assert_eq!(
-                load.retained_profile.game_screen_size(),
-                ScreenSize { width, height }
+                (
+                    load.retained_profile.screen_width,
+                    load.retained_profile.screen_height
+                ),
+                (width, height)
             );
-            load.retained_profile.screen_width = 1280;
-            load.retained_profile.screen_height = 960;
-            assert_eq!(
-                load.retained_profile.game_screen_size(),
-                ScreenSize {
-                    width: 1280,
-                    height: 960
-                }
-            );
-            assert_eq!(load.startup_shell_screen, RETAIL_SHELL_SIZE);
         }
     }
 
@@ -783,11 +791,11 @@ mod tests {
             }
         );
         assert_eq!(
-            load.retained_profile.game_screen_size(),
-            ScreenSize {
-                width: 1024,
-                height: 768
-            }
+            (
+                load.retained_profile.screen_width,
+                load.retained_profile.screen_height
+            ),
+            (1024, 768)
         );
     }
 
@@ -926,20 +934,50 @@ mod tests {
     }
 
     #[test]
-    fn explicit_invalid_screen_values_are_retained_but_projected_safely() {
+    fn explicit_invalid_screen_values_are_retained() {
         let mut profile = RetailOptionsProfile {
             screen_width: 0,
             screen_height: -20,
             ..RetailOptionsProfile::default()
         };
-        assert_eq!(
-            profile.resolve_screen_size(),
-            ScreenSize {
-                width: 1,
-                height: 1,
-            }
-        );
+        profile.resolve_screen_size();
         assert_eq!((profile.screen_width, profile.screen_height), (0, -20));
+    }
+
+    #[test]
+    fn vera_display_preferences_round_trip_in_their_own_section() {
+        use crate::ui::main_menu_dialogs::options::Zoom;
+        let defaults = load_snapshot(
+            &RetailStartupOptions::default(),
+            b"[Video]\nScreenWidth=800\n",
+        );
+        assert!(!defaults.retained_profile.full_screen);
+        assert_eq!(defaults.retained_profile.zoom, Zoom::Auto);
+
+        let load = load_snapshot(
+            &RetailStartupOptions::default(),
+            b"[VERA]\nFullScreen=yes\nZoom=2\n",
+        );
+        assert!(load.retained_profile.full_screen);
+        assert_eq!(load.retained_profile.zoom, Zoom::Large);
+        // A value this build doesn't know reads as Auto.
+        let unknown = load_snapshot(&RetailStartupOptions::default(), b"[VERA]\nZoom=9\n");
+        assert_eq!(unknown.retained_profile.zoom, Zoom::Auto);
+
+        let profile = RetailOptionsProfile {
+            full_screen: true,
+            zoom: Zoom::Huge,
+            ..RetailOptionsProfile::default()
+        };
+        let output =
+            String::from_utf8(profile.transform_ra2md(b"[Video]\r\nScreenWidth=800\r\n")).unwrap();
+        assert!(
+            output.contains("[VERA]\r\nFullScreen=yes\r\nZoom=3\r\n"),
+            "{output}"
+        );
+        let reread = load_snapshot(&RetailStartupOptions::default(), output.as_bytes());
+        assert!(reread.retained_profile.full_screen);
+        assert_eq!(reread.retained_profile.zoom, Zoom::Huge);
     }
 
     #[test]
@@ -1063,6 +1101,7 @@ IsScoreRepeat=no\r\nIsScoreShuffle=no\r\nSoundLatency=9\r\nInGameMusic=yes\r\n\
             (VIDEO_SECTION, formatted.video.as_slice()),
             (AUDIO_SECTION, formatted.audio.as_slice()),
             (NETWORK_SECTION, formatted.network.as_slice()),
+            (VERA_SECTION, formatted.vera.as_slice()),
         ] {
             let section = parsed.section(section_name).unwrap();
             for (key, expected) in values {

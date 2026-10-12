@@ -24,12 +24,12 @@ fn hit(state: &AppState) -> Option<PauseMenuButton> {
     let (shell, size) =
         crate::app::frontend::skirmish_shell_render::current_in_game_shell_layout(state)?;
     let layout = pause_menu_layout(
-        state.renderer.gpu.config.width as i32,
-        state.renderer.gpu.config.height as i32,
+        state.render_width() as i32,
+        state.render_height() as i32,
         shell,
         size,
     );
-    let (x, y) = state.window_cursor_position();
+    let (x, y) = state.cursor_position();
     let states = button_states(state);
     PauseMenuButton::ALL.into_iter().find(|button| {
         states[*button as usize].enabled

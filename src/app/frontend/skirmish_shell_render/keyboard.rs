@@ -89,8 +89,8 @@ pub(crate) fn render_keyboard_shell(
     destination: &wgpu::Texture,
 ) -> anyhow::Result<()> {
     use crate::app::frontend::shell_transition::ShellSlideKind;
-    let width = state.renderer.gpu.config.width as i32;
-    let height = state.renderer.gpu.config.height as i32;
+    let width = state.render_width() as i32;
+    let height = state.render_height() as i32;
     let title_text = localized_label(state, KEYBOARD_PAGE.title_key, "Keyboard Options");
     let now = Instant::now();
     let active = state

@@ -32,7 +32,6 @@ impl App {
 
     /// State 4: create Movies & Credits `0x101`.
     pub(super) fn open_movies_credits_page(state: &mut AppState) {
-        Self::enter_shell_window_mode(state);
         Self::destroy_current_shell_dialog(state);
         state.frontend.movie_list = None;
         state.frontend.shell_route = ShellRoute::MoviesAndCredits;
@@ -63,7 +62,6 @@ impl App {
     /// State `0xE`: create movie list `0x129` with the rows `0x005FC000` adds
     /// and the retained selection `DAT_00825C80`.
     pub(super) fn open_movie_list(state: &mut AppState) {
-        Self::enter_shell_window_mode(state);
         Self::destroy_current_shell_dialog(state);
         state.frontend.movie_list = Some(MovieListState::open(
             state.persistence.options_profile.movie_progress,

@@ -209,6 +209,7 @@ pub(crate) struct TacticalCaptureSettings {
     pub(crate) output_height: u32,
     pub(crate) surface_formats: Vec<String>,
     pub(crate) vsync: bool,
+    /// Always false: a capture never zooms. The sealed profiles keep the key.
     pub(crate) upscale: bool,
     pub(crate) extra_animations: bool,
     pub(crate) exact_step_hz: u32,

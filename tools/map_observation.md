@@ -468,8 +468,8 @@ presentation pacing. It is cadence metadata, not GPU duration or ordinary play
 FPS, and does not participate in deterministic comparisons.
 
 Build through the shared Cargo owner, then run from the checkout with an existing
-`config.toml` pointing at retail assets. Set `graphics.upscale = false` for the
-native-resolution capture. All supplied paths must be absolute without symlink
+`config.toml` pointing at retail assets; the capture always renders at native
+resolution. All supplied paths must be absolute without symlink
 ancestors; use canonical temporary paths on macOS. The output parent must exist,
 and the output directory itself must not exist.
 

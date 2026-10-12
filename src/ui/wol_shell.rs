@@ -548,8 +548,7 @@ mod tests {
     #[test]
     fn responsive_layout_stretches_the_page_and_the_left_side() {
         let base = compute_layout(800, 600);
-        // Identity at the authored size: with the switch off the page is what
-        // it is today.
+        // Identity at the authored size, where the retail layout is used.
         let same = compute_responsive_layout(800, 600);
         assert_eq!(same.page.title, base.page.title);
         assert_eq!(same.status_help, base.status_help);

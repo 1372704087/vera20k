@@ -37,9 +37,12 @@ impl crate::app::persistence::options::launcher::LauncherPreviewOperations for A
     fn play_cue(&mut self, cue: crate::ui::main_menu_dialogs::options::LauncherCue) {
         App::play_launcher_options_cue(self, cue);
     }
-    fn store_resolution(&mut self, width: i32, height: i32) {
-        self.persistence.options_profile.screen_width = width;
-        self.persistence.options_profile.screen_height = height;
+    fn store_zoom(&mut self, zoom: crate::ui::main_menu_dialogs::options::Zoom) {
+        self.persistence.options_profile.zoom = zoom;
+        App::sync_zoom_pass(self);
+    }
+    fn set_full_screen(&mut self, full_screen: bool) {
+        App::set_full_screen(self, full_screen);
     }
 }
 
@@ -342,7 +345,6 @@ impl App {
         // 0x0072D780 releases the score art.
         state.frontend.score_art = None;
         state.frontend.screen = GameScreen::MainMenu;
-        Self::enter_shell_window_mode(state);
         state.match_state.input.zoom_level = 1.0;
         state.match_state.input.zoom_target = 1.0;
         Self::resume_shell_after_match(state);
@@ -367,7 +369,6 @@ impl App {
     }
 
     pub(super) fn open_single_player_shell(state: &mut AppState) {
-        Self::enter_shell_window_mode(state);
         // Native destroys 0xE2 (including child 0x71A) before constructing
         // 0x100. Invalidate at the route edge rather than waiting for a paint:
         // a queued Back/Escape can otherwise return to 0xE2 before 0x100 draws
@@ -486,8 +487,8 @@ impl App {
     }
 
     /// Construct a fresh launcher Options primary from the current retained
-    /// profile, current-monitor dimension pairs, live CSF table, and frozen
-    /// process-start common audio gate. No display mode is applied here.
+    /// profile, the window's full-screen state, live CSF table, and frozen
+    /// process-start common audio gate. Nothing is applied here.
     pub(crate) fn open_launcher_options_dialog(state: &mut AppState) {
         // State 5 destroys `0xE2` (and its RA2TS static) before Options runs;
         // closing Options creates a new `0xE2` with its own entry slide.
@@ -511,24 +512,10 @@ impl App {
                 .and_then(|csf| csf.get(key))
                 .map(str::to_owned)
         });
-        let mode_pairs: Vec<_> = state
-            .platform
-            .window
-            .current_monitor()
-            .map(|monitor| {
-                monitor
-                    .video_modes()
-                    .map(|mode| {
-                        let size = mode.size();
-                        (size.width, size.height)
-                    })
-                    .collect()
-            })
-            .unwrap_or_default();
         let dialog = launcher_dialog_from_profile(
             &state.persistence.options_profile,
             labels,
-            mode_pairs,
+            state.platform.window.fullscreen().is_some(),
             state.audio.launcher_audio_available,
         );
         state.frontend.options_dialog = Some(dialog);

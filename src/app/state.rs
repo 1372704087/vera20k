@@ -46,7 +46,7 @@ pub(crate) fn reset_scenario_exit_runtime(state: &mut AppState) {
 
 impl AppState {
     /// Current projection: frontend/result use physical window pixels; tactical
-    /// rendering and pending tactical installation use the optional upscaler.
+    /// rendering and pending tactical installation use the optional zoom pass.
     /// Loading artwork explicitly uses GPU/window dimensions in loading::pump.
     fn render_dimensions(&self) -> (u32, u32) {
         platform::render_dimensions(
@@ -70,15 +70,61 @@ impl AppState {
         self.render_dimensions().1
     }
 
-    /// Modal shells use physical window pixels, while the retained tactical
-    /// cursor stays in battlefield source pixels even during an upscaled match.
-    pub(crate) fn window_cursor_position(&self) -> (f32, f32) {
+    /// The zoom pass a match frame goes through: the battlefield and the
+    /// active-game shells draw into it at the source size. Loading and the
+    /// menus never zoom.
+    pub(crate) fn match_zoom_pass(&self) -> Option<&crate::render::upscale_pass::UpscalePass> {
+        (self.frontend.screen == crate::ui::game_screen::GameScreen::InGame)
+            .then_some(self.renderer.upscale_pass.as_ref())
+            .flatten()
+    }
+
+    /// The zoom between the window and the match frame, whose cursor, layout
+    /// and drawing all use source pixels.
+    pub(crate) fn tactical_zoom(&self) -> Option<crate::render::upscale_pass::ZoomGeometry> {
+        self.match_zoom_pass().map(|pass| pass.geometry())
+    }
+
+    /// Store a pointer position given in window pixels, in the space this
+    /// screen reads it in.
+    pub(crate) fn set_cursor_from_window(&mut self, x: f32, y: f32) {
+        let zoom = self.tactical_zoom();
+        let input = &mut self.match_state.input;
+        (input.cursor_x, input.cursor_y) = zoom.map_or((x, y), |zoom| zoom.window_to_source(x, y));
+        input.cursor_zoom = zoom;
+    }
+
+    /// Move the stored cursor into the space the current screen reads it in,
+    /// before each window event: leaving a zoomed match or resizing one would
+    /// otherwise leave it in the old space until the pointer moves.
+    pub(crate) fn sync_cursor_space(&mut self) {
+        let zoom = self.tactical_zoom();
+        let input = &mut self.match_state.input;
+        if input.cursor_zoom != zoom {
+            (input.cursor_x, input.cursor_y) =
+                cursor_in_space((input.cursor_x, input.cursor_y), input.cursor_zoom, zoom);
+            input.cursor_zoom = zoom;
+        }
+    }
+
+    /// The pointer in the pixels the current screen paints and hit-tests in:
+    /// the match frame's during a match (source pixels when zoomed), the
+    /// window's elsewhere.
+    pub(crate) fn cursor_position(&self) -> (f32, f32) {
         (
-            self.match_state.input.cursor_x * self.renderer.gpu.config.width as f32
-                / self.render_width().max(1) as f32,
-            self.match_state.input.cursor_y * self.renderer.gpu.config.height as f32
-                / self.render_height().max(1) as f32,
+            self.match_state.input.cursor_x,
+            self.match_state.input.cursor_y,
         )
+    }
+
+    /// The status cards paint in window pixels, even over a zoomed match.
+    pub(crate) fn window_cursor_position(&self) -> (f32, f32) {
+        let (x, y) = (
+            self.match_state.input.cursor_x,
+            self.match_state.input.cursor_y,
+        );
+        self.tactical_zoom()
+            .map_or((x, y), |zoom| zoom.source_to_window(x, y))
     }
 
     /// Whether the software cursor (mouse.shp) should be active this frame.
@@ -211,6 +257,49 @@ pub(crate) fn process_main_draws(
     match runtime {
         Some(runtime) => runtime.simulation.presentation_main_draws(),
         None => frontend.draws(),
+    }
+}
+
+/// A stored cursor point re-expressed for a new space (`None` is window
+/// pixels). Leaving a zoom or changing it maps the point through the window.
+/// Entering one from window pixels keeps it: the tactical install
+/// (`loading::transitions`) has already placed it in source pixels.
+fn cursor_in_space(
+    point: (f32, f32),
+    from: Option<crate::render::upscale_pass::ZoomGeometry>,
+    to: Option<crate::render::upscale_pass::ZoomGeometry>,
+) -> (f32, f32) {
+    let Some(from) = from else {
+        return point;
+    };
+    let (x, y) = from.source_to_window(point.0, point.1);
+    to.map_or((x, y), |to| to.window_to_source(x, y))
+}
+
+#[cfg(test)]
+mod cursor_space_tests {
+    use super::cursor_in_space;
+    use crate::render::upscale_pass::ZoomGeometry;
+
+    #[test]
+    fn leaving_or_resizing_a_zoomed_match_keeps_the_pointer_in_place() {
+        let zoomed = ZoomGeometry::new(1600, 1200, 2);
+        // Source (400, 300) is window (800, 600), where the menus read it.
+        assert_eq!(
+            cursor_in_space((400.0, 300.0), Some(zoomed), None),
+            (800.0, 600.0)
+        );
+        // Resized to 1925x1083 at 3x: the frame starts at window x = 1.
+        let resized = ZoomGeometry::new(1925, 1083, 3);
+        assert_eq!(
+            cursor_in_space((400.0, 300.0), Some(zoomed), Some(resized)),
+            (799.0 / 3.0, 200.0)
+        );
+        // Entering a match keeps the point the tactical install placed.
+        assert_eq!(
+            cursor_in_space((320.0, 200.0), None, Some(zoomed)),
+            (320.0, 200.0)
+        );
     }
 }
 

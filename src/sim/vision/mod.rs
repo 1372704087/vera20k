@@ -995,9 +995,9 @@ impl FogState {
         a == b || are_houses_friendly(&self.alliances, interner.resolve(a), interner.resolve(b))
     }
 
-    /// Clear all explored/revealed state for the given owner.
-    /// `MapClass::Reset_Shroud @ 0x00577AB0` for one house; spy infiltration
-    /// and the Darkness crate reset an owner's map knowledge with it.
+    /// Clear all explored/revealed state for the given owner: the map half
+    /// of `MapClass::Reset_Shroud @ 0x00577AB0`, whose one port is
+    /// `Simulation::reset_shroud_for_owner`.
     pub fn reset_explored_for_owner(&mut self, owner: InternedId) {
         let cells = self.rectangular_cells();
         self.transition_whole_map_for_owner(owner, cells, true, false);

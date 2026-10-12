@@ -376,13 +376,6 @@ pub(crate) fn apply_map_load_result(state: &mut AppState, result: init::MapLoadR
         crate::ui::messages::PauseAwareClock::default();
     // The window keeps its title: gamemd names it once at CreateWindowExA
     // (`0x00777CC5`) and imports no SetWindowText.
-    state.platform.window.set_cursor_visible(
-        state
-            .match_state
-            .match_presentation
-            .software_cursor
-            .is_none(),
-    );
 
     // Install current sim authority before the first camera/minimap frame. A
     // campaign trigger may already have changed LocalSize before presentation

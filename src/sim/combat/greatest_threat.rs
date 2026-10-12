@@ -634,6 +634,13 @@ struct ScanContext<'a> {
     /// ...and, in the Techno walk, unless it is a healer or a computer
     /// house's `Engineer=` infantryman (`0x006F9C9B..0x006F9CE7`).
     scans_allies: bool,
+    /// Berserk (`+0x298`) and not a healer, whose own arm comes first
+    /// (`0x006F8A30..0x006F8A71`): the cell walk takes the first Techno, ally
+    /// or not (`0x006F8AAA`, `0x006F8BD0`).
+    berserk_walks_allies: bool,
+    /// Berserk and not riding a mind-controlled `OpenTopped=` transport:
+    /// Evaluate_Candidate skips its ally test (`0x006F7F0C`, `0x006F7FE9`).
+    berserk_skips_ally_test: bool,
     /// The world GetFireError reads for Evaluate_Candidate's probe
     /// (`0x006F7CE8`). Every production caller supplies it; `None` only in
     /// unit tests of the walk and the score, which then skip the probe.
@@ -926,6 +933,7 @@ pub(crate) fn greatest_threat(
         attacker.category,
         EntityCategory::Infantry | EntityCategory::Unit
     ) && super::combat_weapon::weapon_damage_value(scanner, attacker_obj, rules) < 0;
+    let controlled_transport = rides_controlled_transport(entities, rules, interner, scanner);
     // House+54E0 within `0xF00` leptons, centre to centre (vt+0x48 of both):
     // `(dx² + dz²) + dy²` through `Sqrt_Approx` and ftol
     // (`0x0051E16E..0x0051E1F6`).
@@ -1043,11 +1051,13 @@ pub(crate) fn greatest_threat(
         mask,
         scan_coord,
         standing,
-        attacks_allies: attacks_allies(entities, rules, interner, scanner),
+        attacks_allies: scanner.berserk.active || controlled_transport,
         scans_allies: healer
             || (attacker.category == EntityCategory::Infantry
                 && !standing.human
                 && attacker_obj.engineer),
+        berserk_walks_allies: scanner.berserk.active && !healer,
+        berserk_skips_ally_test: scanner.berserk.active && !controlled_transport,
         fire_world,
     };
 
@@ -1195,25 +1205,25 @@ pub(crate) fn greatest_threat(
     result(best)
 }
 
-/// Berserk (`+0x298`), or riding an `OpenTopped=` transport (`+0x11C`,
-/// TechnoType `+0x5E4`) that is mind-controlled (`+0x2C0`).
-fn attacks_allies(
+/// Riding an `OpenTopped=` transport (`+0x11C`, TechnoType `+0x5E4`) that
+/// is mind-controlled (`+0x2C0`): `[ESP+0x13]` in the walks, `BL` in
+/// Evaluate_Candidate (`0x006F7EA2..0x006F7ED8`).
+fn rides_controlled_transport(
     entities: &EntityStore,
     rules: &RuleSet,
     interner: &StringInterner,
     scanner: &GameEntity,
 ) -> bool {
-    scanner.berserk.active
-        || scanner
-            .passenger_role
-            .inside_transport_id()
-            .and_then(|transport| entities.get(transport))
-            .is_some_and(|transport| {
-                transport.mind_control.controller().is_some()
-                    && rules
-                        .object(interner.resolve(transport.type_ref()))
-                        .is_some_and(|obj| obj.open_topped)
-            })
+    scanner
+        .passenger_role
+        .inside_transport_id()
+        .and_then(|transport| entities.get(transport))
+        .is_some_and(|transport| {
+            transport.mind_control.controller().is_some()
+                && rules
+                    .object(interner.resolve(transport.type_ref()))
+                    .is_some_and(|obj| obj.open_topped)
+        })
 }
 
 /// `Greatest_Threat`'s mask: the caller's literal through the scanner's
@@ -1428,15 +1438,19 @@ fn global_list_scan(ctx: &ScanContext<'_>, flags: u32, zone: Option<u32>) -> Opt
 ///
 /// The walk stops at the first hostile Techno in the selected list; allied
 /// entries are stepped over but do not end the walk, and if the list runs out
-/// with only allies the cell contributes nothing (the post-check at
-/// `0x006F8909` rejects the ally the walk was left holding). The result is that
+/// with only allies the cell contributes nothing (the post-walk test at
+/// `0x006F8B56..0x006F8BE0` rejects the ally the walk was left holding). The
+/// result is that
 /// a cell holding three enemy infantry offers only the list head — if the gate
 /// then rejects that one, the other two are never seen.
 ///
 /// A cell outside the scanner's zone offers nothing; see [`greatest_threat`].
 ///
-/// Not modelled: the ally arms (`0x006F8A30..0x006F8B49`). A healer takes the
-/// first damaged ally instead of the first hostile, and a berserk or
+/// A berserk scanner that is not a healer takes the first Techno, ally or not
+/// (`0x006F8AAA`), and the post-walk test passes an ally on (`0x006F8BD0`).
+///
+/// Not modelled: the other ally arms (`0x006F8A30..0x006F8B49`). A healer
+/// takes the first damaged ally instead of the first hostile, and an
 /// `AttackFriendlies=` scanner, a passenger of a mind-controlled `OpenTopped=`
 /// transport, an `InfantryClass+0x6D8` infantryman or an Area Guard computer
 /// engineer may take an ally; see the G10 residual in [`evaluate_candidate`].
@@ -1489,7 +1503,7 @@ fn scan_cell_for_target(
         let Some(candidate) = ctx.entities.get(occupant.entity_id) else {
             continue;
         };
-        if !ctx.is_ally(candidate) {
+        if ctx.berserk_walks_allies || !ctx.is_ally(candidate) {
             return Some(occupant.entity_id);
         }
     }
@@ -1626,21 +1640,29 @@ fn evaluate_candidate(
         return None;
     }
 
-    // G10/G11 — the ally arm and the self test.
+    // G10/G11 — the ally arm and the self test (`0x006F7EA2..0x006F8001`). A
+    // berserk scanner skips the ally test (`0x006F7F0C`, `0x006F7FE9`) unless
+    // it rides a mind-controlled `OpenTopped=` transport.
     //
-    // RESIDUAL — G10's exceptions (`0x006F7EA2..0x006F8001`) and the cell
-    // walk's ally arms ([`scan_cell_for_target`]) are not ported, so every ally
-    // is rejected here. Natively a healer takes a damaged ally, a computer
-    // engineer a damaged own building, and a berserk or `AttackFriendlies=`
-    // scanner, or a passenger of a mind-controlled `OpenTopped=` transport,
-    // takes allies as it takes enemies. Trigger: an idle medic or mechanic
-    // beside a wounded ally; a unit a Chaos Drone gassed. Effect: no automatic
-    // healing, and a berserk unit attacks only enemies. Frequency: common
-    // wherever medics, mechanics or Chaos Drones play. Downstream: target
-    // choice only; until this lands the walks' ally exceptions
-    // ([`ScanContext::attacks_allies`], [`ScanContext::scans_allies`]) change
-    // nothing.
-    if candidate.stable_id() == ctx.attacker.stable_id || ctx.is_ally(candidate) {
+    // RESIDUAL — G10's other exceptions and the cell walk's other ally arms
+    // ([`scan_cell_for_target`]) are not ported, so every other scanner
+    // rejects every ally here. Natively a healer (retail: an IFV carrying an
+    // engineer, `[FV] Weapon2=RepairBullet`) takes a damaged ally, a computer
+    // engineer a damaged own building, and an `AttackFriendlies=` scanner (no
+    // retail type) or an `InfantryClass+0x6D8` infantryman takes allies as it
+    // takes enemies. A passenger of a mind-controlled `OpenTopped=` transport,
+    // berserk or not, instead rejects what its controller's house is allied
+    // with (`0x006F7FED..0x006F7FFB`). Trigger: an idle repair IFV beside a
+    // damaged vehicle; a guarding computer engineer near a damaged building; a
+    // mind-controlled transport carrying passengers. Effect: no automatic
+    // repair, and such passengers spare their own house's allies but attack
+    // their controller's. Frequency: whenever a repair IFV or a guarding
+    // computer engineer idles near damage. Downstream: target choice only; for
+    // these scanners the walks' ally exceptions ([`ScanContext::attacks_allies`],
+    // [`ScanContext::scans_allies`]) change nothing until this lands.
+    if candidate.stable_id() == ctx.attacker.stable_id
+        || (!ctx.berserk_skips_ally_test && ctx.is_ally(candidate))
+    {
         return None;
     }
     if candidate.passenger_role.is_inside_transport() {

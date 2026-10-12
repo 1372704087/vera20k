@@ -220,8 +220,7 @@ impl TacticalCaptureSession {
             .as_ref()
             .context("tactical capture requires a loaded config.toml")?;
         ensure!(
-            config.graphics.vsync == capture.vsync
-                && config.graphics.extra_animations == capture.extra_animations,
+            config.graphics.extra_animations == capture.extra_animations,
             "live graphics toggles differ from the sealed tactical profile"
         );
         // Sealed profiles record `upscale = false`; captures never zoom.

@@ -669,9 +669,10 @@ impl Simulation {
     ///   setter, so a missing or disagreeing +34 completes the class setter
     ///   toward NavCom. Before Process the Foot is then moving, as native, and
     ///   the Guard/Unload tail (0x4B08D1) cannot strand it.
-    /// - Teleport, Fly and Jumpjet: the class setter itself with the
-    ///   destination's cell (Teleport: `Simulation::teleport_destination`; the
-    ///   air setter `issue_air_cell_destination`). NavCom is cleared first, as
+    /// - Teleport, Fly and Jumpjet: the class setter itself, a Jumpjet's with
+    ///   the destination (an object too, `Simulation::jumpjet_destination`),
+    ///   the others with its cell (Teleport: `Simulation::teleport_destination`;
+    ///   the air setter `issue_air_cell_destination`). NavCom is cleared first, as
     ///   the native setter finds it (the restore's NavCom is the override's
     ///   order, not the saved one), so the Unit setter's unchanged-NavCom
     ///   return cannot swallow the call.
@@ -747,7 +748,7 @@ impl Simulation {
                 self.finish_class_destination(
                     id,
                     kind,
-                    cell(coord),
+                    (target, cell(coord)),
                     speed,
                     rules,
                     registry,
@@ -772,7 +773,7 @@ impl Simulation {
                 self.finish_class_destination(
                     id,
                     kind,
-                    (rx, ry),
+                    (NavTargetRef::cell(rx, ry), (rx, ry)),
                     speed,
                     rules,
                     registry,
@@ -835,7 +836,7 @@ impl Simulation {
                         .is_ok())
             }
             EntityCategory::Infantry => {
-                self.infantry_setter_receiver(id, requested, rules)
+                self.infantry_setter_receiver(id, rules)
                     && self.infantry_destination_inputs_available(id, requested, rules, registry)
             }
             _ => false,
@@ -855,12 +856,14 @@ impl Simulation {
     }
 
     /// [`Self::complete_pending_order`]'s class setter for a Teleport, Fly or
-    /// Jumpjet owner, called with NavCom cleared.
+    /// Jumpjet owner, called with NavCom cleared. `destination` is the target
+    /// and its cell: a Jumpjet's class setter takes the target itself, an
+    /// object too; Teleport and Fly take the cell.
     fn finish_class_destination(
         &mut self,
         id: u64,
         kind: LocomotorKind,
-        cell: (u16, u16),
+        destination: (NavTargetRef, (u16, u16)),
         speed: SimFixed,
         rules: Option<&RuleSet>,
         registry: Option<&OverlayTypeRegistry>,
@@ -869,10 +872,14 @@ impl Simulation {
         if let Some(actor) = self.substrate.entities.get_mut(id) {
             super::navcom::foot_stop_moving(actor);
         }
+        let (target, cell) = destination;
         if kind == LocomotorKind::Teleport {
             self.teleport_destination(id, cell, rules, registry, frame_effects);
-        } else {
-            self.issue_air_cell_destination(id, cell, speed, rules, frame_effects);
+        } else if self
+            .jumpjet_destination(id, target, speed, rules, registry, frame_effects)
+            .is_none()
+        {
+            self.issue_air_cell_destination(id, cell, speed, rules, registry, frame_effects);
         }
     }
 

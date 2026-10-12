@@ -512,6 +512,7 @@ mod tests {
             (20, 15),
             SimFixed::from_num(10),
             None,
+            None,
             crate::sim::world::FrameEffects::default(),
         );
         assert!(ok);
@@ -562,6 +563,7 @@ mod tests {
             (20, 15),
             SimFixed::from_num(10),
             Some(&rules),
+            None,
             crate::sim::world::FrameEffects::default(),
         ));
 
@@ -602,6 +604,7 @@ mod tests {
             1,
             (10, 10),
             SimFixed::from_num(10),
+            None,
             None,
             crate::sim::world::FrameEffects::default(),
         );

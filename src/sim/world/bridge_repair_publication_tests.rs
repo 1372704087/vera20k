@@ -1912,6 +1912,7 @@ fn jumpjet_stop_command_keeps_native_moving_and_selected_coordinate() {
         (20, 15),
         SimFixed::from_num(9),
         Some(&rules),
+        None,
         crate::sim::world::FrameEffects::default()
     ));
     let before = sim

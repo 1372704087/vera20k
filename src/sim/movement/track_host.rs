@@ -1133,7 +1133,7 @@ impl Simulation {
                     EntityCategory::Unit => self.unit_setter_receiver(id, Some(rules)),
                     EntityCategory::Infantry => {
                         let target = crate::sim::components::NavTargetRef::cell(rx, ry);
-                        self.infantry_setter_receiver(id, target, rules)
+                        self.infantry_setter_receiver(id, rules)
                             && self
                                 .infantry_destination_inputs_available(id, target, rules, registry)
                     }

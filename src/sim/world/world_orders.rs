@@ -614,6 +614,7 @@ impl Simulation {
                     (goal_rx, goal_ry),
                     speed,
                     rules,
+                    overlay_registry,
                     frame_effects,
                 );
             } else {

@@ -6,14 +6,16 @@ use serde_json::Value;
 
 use crate::rules::ini_parser::IniFile;
 use crate::rules::ruleset::RuleSet;
+use crate::sim::combat::TargetKind;
 use crate::sim::combat::veterancy::{VeterancyRank, rank_of};
 use crate::sim::command::{Command, CommandEnvelope};
 use crate::sim::house_state::HouseState;
 use crate::sim::intern::InternedId;
+use crate::sim::mission::{MissionId, MissionType};
 use crate::sim::power_system::PowerState;
 use crate::sim::spy_infiltration::InfiltrationEffect;
 use crate::sim::superweapon::SuperWeaponInstance;
-use crate::sim::world::{SimSoundEvent, Simulation};
+use crate::sim::world::{FrameEffects, SimSoundEvent, Simulation};
 
 /// The oracle's `infiltrate` rows.
 pub(crate) fn rows() -> Vec<Value> {
@@ -451,6 +453,68 @@ fn a_spy_sent_into_an_enemy_power_plant_blacks_it_out() {
     assert_eq!(blackout.duration(), 1000);
     assert!(blackout.remaining(frame as i32) > 0);
     assert_eq!(sim.entities().get(plant).unwrap().owner(), russians);
+}
+
+/// The computer's way in: a computer house's spy handed an enemy power
+/// plant on Attack, as a team's action 46 hands it one. `Assign_Target`'s
+/// infiltration arm heads it for the plant, Mission_Attack's computer arm
+/// puts it on Capture, and it walks in and blacks the plant's owner out.
+#[test]
+fn a_computer_spy_attacking_a_power_plant_goes_in() {
+    let rules = arena_rules();
+    let (mut sim, grid) = arena(&rules);
+    // Off the sixteenth frame, whose AI would let go of a target the
+    // unarmed spy cannot fire at before its mission runs
+    // (`0x006FA472..0x006FA4CB`); a team's next update hands it back.
+    sim.session.binary_frame = 1;
+    let spy = spawn(&mut sim, &rules, "SPY", "Russians", 6, 10);
+    let plant = spawn(&mut sim, &rules, "PLANT", "Americans", 10, 10);
+    let (americans, russians) = (
+        sim.interner.get("Americans").unwrap(),
+        sim.interner.get("Russians").unwrap(),
+    );
+    let now = sim.session.binary_frame;
+    sim.mission_assign_exact(spy, MissionId::from_known(MissionType::Attack), now)
+        .unwrap();
+    sim.assign_target_represented(
+        spy,
+        Some(TargetKind::Entity(plant)),
+        Some(&rules),
+        None,
+        FrameEffects::default(),
+    )
+    .unwrap();
+    let mut events = Vec::new();
+    let mut captured = false;
+    assert!(
+        run_until(&mut sim, &rules, &grid, 300, &mut events, |sim| {
+            let Some(spy) = sim.entities().get(spy) else {
+                return true;
+            };
+            captured |= spy.mission.current() == MissionId::from_known(MissionType::Capture);
+            !spy.lifecycle.object_alive
+        }),
+        "the spy never went in"
+    );
+    assert!(captured, "the spy never took Capture");
+    let infiltrations: Vec<_> = events
+        .iter()
+        .filter_map(|event| match event {
+            SimSoundEvent::BuildingInfiltrated {
+                owner,
+                infiltrator,
+                effect,
+                ..
+            } => Some((*owner, *infiltrator, *effect)),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        infiltrations,
+        [(americans, russians, InfiltrationEffect::Power)]
+    );
+    let frame = sim.session.binary_frame;
+    assert!(sim.power_states[&americans].blackout_remaining(frame) > 0);
 }
 
 /// An `Infiltrate=` infantryman that is not an `Agent=` takes the Capture

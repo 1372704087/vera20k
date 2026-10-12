@@ -1307,11 +1307,23 @@ pub(crate) fn try_queue_context_order_at_screen_point(
                 }
             }
 
-            // Object51E3B0 Engineer decisions precede CanBeOccupiedBy and C4;
-            // its infiltration arm (0x0051EE3B) follows them, but retail's one
-            // infiltrator, SPY, takes none of the arms between. Consume each
-            // Engineer's and spy's terminal action while retaining the other
-            // selected actors for their own actions below.
+            // Object51E3B0 Engineer decisions precede CanBeOccupiedBy and C4.
+            // Consume each Engineer's and spy's terminal action while retaining
+            // the other selected actors for their own actions below.
+            //
+            // RESIDUAL: natively the infiltration arm (0x0051EE3B) follows the
+            // garrison (0x0051E668) and C4 (0x0051E9C1) arms; it runs before
+            // them here so that a mixed selection keeps both orders. Trigger: a
+            // modded Infiltrate= type that is also C4=, over a CanC4= building
+            // it may enter. Retail's one infiltrator, SPY, takes none of the
+            // arms between, and an Occupier= one is garrisoned on arrival
+            // either way. Effect: it infiltrates where native may plant C4.
+            //
+            // RESIDUAL: force fire skips these producers, but the infiltration
+            // arm reads no modifier. Its one action test is base action Attack
+            // (0x0051EE62), which force fire keeps. Trigger: a Ctrl+click with
+            // a spy on a building it may enter. Effect: VERA's force attack with
+            // its MakeupKit where native enters. Rare.
             let mut consumed_building_action = false;
             if context_actions_enabled && let Some(target) = hover.as_ref() {
                 for producer in [engineer_capture_orders, infiltrator_capture_orders] {

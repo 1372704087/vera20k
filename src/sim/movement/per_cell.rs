@@ -599,26 +599,7 @@ impl Simulation {
             );
             return Ok(true);
         }
-        self.assign_null_destination(id, Some(rules), registry, effects);
-        let Some(coord) = self.substrate.entities.get(building).map(|entity| {
-            super::ground_pose::object_get_coords(entity, self.resolved_terrain.as_ref())
-        }) else {
-            return Ok(true);
-        };
-        self.infantry_scatter_from(
-            id,
-            (coord.x, coord.y),
-            super::ScatterFlags::new(true, true),
-            rules,
-            registry,
-            effects,
-        )
-        .map_err(|cause| FrameAdvanceError {
-            tick: self.session.tick,
-            binary_frame: self.session.binary_frame,
-            entity_id: id,
-            cause,
-        })?;
+        self.turn_away_from_building(id, building, rules, registry, effects)?;
         Ok(true)
     }
 

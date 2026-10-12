@@ -561,6 +561,12 @@ pub struct GameEntity {
     /// selected-unit effects and parasite reselect. The app keeps input order and
     /// pending commands separately, then reconciles that ledger after the frame.
     pub selected: bool,
+    /// TechnoClass+1C8: offline for want of a powering building (a Robot
+    /// Tank). Deactivate (`0x0070FC90`) raises it and Reactivate
+    /// (`0x0070FBE0`) clears it, both in `sim::powered_unit`; selection,
+    /// orders, fire, the select voice and the voxel draw read it.
+    #[serde(default)]
+    pub(crate) deactivated: bool,
     /// A building's repair byte (`BuildingClass+0x6E8`), which only
     /// `production::toggle_repair` sets; the repair step pays for each
     /// `RepairStep=` of health while it is on.
@@ -899,6 +905,11 @@ pub struct GameEntity {
     /// Building+6C8: last4555D0 result, sampled for every Building by43FB20.
     #[serde(default)]
     pub building_last_operational: bool,
+    /// Building+662: this `PowersUnit=` building counts among its house's
+    /// powered centers (House+2D8). The operational edge (`0x004549B0`) and
+    /// Removed_From_Game (`0x0050267D`) own it, in `sim::powered_unit`.
+    #[serde(default)]
+    pub(crate) building_powered_center: bool,
     /// Building+6EA, constructor43B996 true; distinct from operational6C8.
     #[serde(default = "default_true")]
     pub building_stuff_enabled: bool,
@@ -1770,6 +1781,7 @@ impl GameEntity {
             gap_generator: crate::sim::vision::GapGeneratorRuntime::default(),
             is_voxel,
             selected: false,
+            deactivated: false,
             repairing: false,
             in_logic_vector: false,
             lifecycle: ObjectLifecycle::default(),
@@ -1824,6 +1836,7 @@ impl GameEntity {
             building_anim_effect_replay: [false; 21],
             building_storage: Default::default(),
             building_last_operational: false,
+            building_powered_center: false,
             building_stuff_enabled: true,
             building_has_engineer: false,
             building_actually_placed: false,

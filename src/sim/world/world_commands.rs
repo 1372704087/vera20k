@@ -132,9 +132,8 @@ fn trace_wall_sell_zone_repair_step(
 impl Simulation {
     /// G/command-bar Guard730D60 chooses each admitted actor's current
     /// navigation Cell before Player_Send_Command6FFBE0 emits mission11.
-    /// IsControllable700C40 owns the human/bunker/warp/slave gates; after
-    /// that predicate the additional IsActive7010D0 test is the current
-    /// weapon pair. Unit slave-manager/Harvester fallback bypasses both.
+    /// It admits an actor both IsControllable700C40 and IsActive7010D0
+    /// accept. Unit slave-manager/Harvester fallback bypasses both.
     /// Existing controllability lifecycle residuals remain documented at
     /// that owner. This is an input producer, never an event-execution gate.
     pub(crate) fn area_guard_key_command(&self, id: u64, rules: &RuleSet) -> Option<Command> {
@@ -142,9 +141,8 @@ impl Simulation {
         if actor.category == EntityCategory::Structure {
             return None;
         }
-        let object = self.object_type(actor.type_ref(), rules)?;
-        let ordinary = self.techno_player_controllable(id, rules)
-            && combat::combat_weapon::is_armed(actor, object);
+        let ordinary =
+            self.techno_player_controllable(id, rules) && self.techno_is_active(id, rules);
         let miner = actor.category == EntityCategory::Unit
             && (actor.slave_manager.is_some() || actor.is_harvester());
         if !ordinary && !miner {

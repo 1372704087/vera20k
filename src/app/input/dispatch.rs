@@ -2521,17 +2521,30 @@ fn queue_selection_snapshot_command(state: &mut AppState, selected_ids: Vec<u64>
     );
 }
 
+/// `StopCommandClass::Execute @ 0x00730EA0` issues Stop to each selected
+/// object it may control (vt+0xA0) or that is active (vt+0x9C,
+/// `0x00730ECD..0x00730EE3`), so an offline Robot Tank a click selected stays
+/// put.
+///
+/// RESIDUAL: a refused event push ending the walk (`0x00730EF5`) and the
+/// closing `Rules+0x720` sound are not ported.
 fn queue_stop_for_selected(state: &mut AppState) {
-    let selected_ids = selected_stable_ids_in_order(
-        state
-            .match_state
-            .sim_runtime
-            .as_ref()
-            .map(|rt| &rt.simulation),
+    let sim = state
+        .match_state
+        .sim_runtime
+        .as_ref()
+        .map(|rt| &rt.simulation);
+    let mut selected_ids = selected_stable_ids_in_order(
+        sim,
         state.rules(),
         &state.match_state.input.selection_order,
         state.match_state.input.selection_order_pending,
     );
+    if let (Some(sim), Some(rules)) = (sim, state.rules()) {
+        selected_ids.retain(|&id| {
+            sim.techno_player_controllable(id, rules) || sim.techno_is_active(id, rules)
+        });
+    }
     if selected_ids.is_empty() {
         return;
     }

@@ -206,6 +206,7 @@ impl<'a> FireSubject<'a> {
             enslaved: firer.slave.owner().is_some(),
             warped_out: firer.is_warped_out(),
             warping_in: firer.is_warping_in(),
+            robot_offline: firer.deactivated,
             on_bridge: firer.on_bridge,
             z: self.terrain().map_or(0, |terrain| {
                 crate::sim::movement::ground_pose::object_world_z_leptons(firer, Some(terrain))

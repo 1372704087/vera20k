@@ -517,6 +517,16 @@ impl Simulation {
         // cleanup. A live dying-animation diversion must not skip that edge.
         if let Some(rules) = rules {
             self.visit_building_operational(id, rules, ctx.overlay_registry, ctx.effects);
+            // `UnitClass::AI` opens with an offline Unit's sparks
+            // (`0x007360C9..0x007361A4`), ahead of its tube and Temporal tests.
+            if self
+                .substrate
+                .entities
+                .get(id)
+                .is_some_and(|entity| entity.category == EntityCategory::Unit)
+            {
+                self.deactivated_unit_sparks(id, rules);
+            }
         }
         let Some(entity) = self.substrate.entities.get(id) else {
             return ObjectAiOutcome::default();

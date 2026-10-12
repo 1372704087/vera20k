@@ -3896,6 +3896,9 @@ impl RuleSet {
             object.voice_select_enslaved = section.map_or_else(Vec::new, |section| {
                 sounds.read_rules_sound_list(section, "VoiceSelectEnslaved")
             });
+            object.voice_select_deactivated = section.map_or_else(Vec::new, |section| {
+                sounds.read_rules_sound_list(section, "VoiceSelectDeactivated")
+            });
             object.move_sound = section.map_or_else(Vec::new, |section| {
                 sounds.read_rules_sound_list(section, "MoveSound")
             });
@@ -3924,6 +3927,12 @@ impl RuleSet {
             // category-gated even though only buildings consume it.
             object.turret_rotate_sound = section
                 .and_then(|section| sounds.read_rules_reference(section, "TurretRotateSound"));
+            // TechnoType7138D1/71390D read ActivateSound (+0x5A8) and
+            // DeactivateSound (+0x5AC) the same way, for every techno type.
+            object.activate_sound =
+                section.and_then(|section| sounds.read_rules_reference(section, "ActivateSound"));
+            object.deactivate_sound =
+                section.and_then(|section| sounds.read_rules_reference(section, "DeactivateSound"));
             // ObjectType5F93C1 reads AmbientSound (+0x1F4) the same way, for
             // every object type.
             object.ambient_sound =

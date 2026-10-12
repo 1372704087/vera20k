@@ -178,9 +178,8 @@ fn combatant_selection(
             .get(*id)
             .is_some_and(|entity| entity.lifecycle.object_alive && player_owned(entity.owner()))
     };
-    // Final7325C0 calls the existing dynamic13C prefix and Object138 owner.
-    // RobotOffline+1C8 requires the separate powered-unit lifecycle; the
-    // existing prefix documents that unmodeled prerequisite.
+    // Final7325C0 calls the existing dynamic13C prefix (which refuses the
+    // offline latch +1C8) and Object138 owner.
     let combatant = |id: &u64| {
         sim.entities().get(*id).is_some_and(|entity| {
             entity.category != EntityCategory::Structure

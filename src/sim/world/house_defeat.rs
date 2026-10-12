@@ -51,9 +51,9 @@
 //! - The trigger-held original owner (`+0x2CC`/`+0x2E0`,
 //!   HouseClass::TransferUnitsTo) is not ported.
 //! - MPlayer_Defeated's capture-the-flag cleanup (Flag_Remove `0x004FBE40` at
-//!   `0x004FC112..0x004FC15E`, Scenario flag `0x10`), the Harvester-Truce
-//!   UnInit loop (`0x004FC163`, Scenario flag `0x800`) and Computer_Paranoid
-//!   (`0x00501640`) are not ported; the flags are off in stock skirmish.
+//!   `0x004FC112..0x004FC15E`, Scenario flag `0x10`) and the Harvester-Truce
+//!   UnInit loop (`0x004FC163`, Scenario flag `0x800`) are not ported; their
+//!   Scenario flags are off in stock skirmish.
 //! - The local-player branch (`0x004FC1B0..0x004FC307`) is ported for the
 //!   whole-map reveal, the radar and Session `+0x300` (see `mplayer_defeated`;
 //!   `local_player_defeated` names the ported readers). Its client UI is not:
@@ -288,6 +288,8 @@ impl Simulation {
 
     /// `HouseClass::MPlayer_Defeated @ 0x004FC0B0`, the represented part:
     /// - the Defeated flag (`+0x1F5`, `0x004FC0C2`);
+    /// - for a computer house at `[IQ] MaxIQLevels` under `[AI] Paranoid`,
+    ///   Computer_Paranoid (`0x004FC10D`, `sim::house_diplomacy`);
     /// - for the current house (`PlayerPtr`, `0x004FC1B0..0x004FC1B7`), the
     ///   whole-map reveal ([`Self::reveal_entire_map`] at `0x004FC20F`, which
     ///   also writes the map-clear byte `+0x241`) and the radar switched on
@@ -308,6 +310,20 @@ impl Simulation {
     ) {
         if let Some(house) = self.houses.get_mut(&owner) {
             house.is_defeated = true;
+        }
+        // 0x004FC0BC..0x004FC10D: a computer house at the skirmish IQ, defeated
+        // under `[AI] Paranoid` in a nonzero game mode, turns the computers
+        // left paranoid.
+        let game_mode_nonzero = self.session.game_mode_nonzero;
+        if let Some(rules) = context.rules()
+            && game_mode_nonzero
+            && rules.general.paranoid
+            && self.houses.get(&owner).is_some_and(|house| {
+                house.current_iq == rules.general.max_iq_levels
+                    && !house.is_controlled_by_human(game_mode_nonzero)
+            })
+        {
+            self.computer_paranoid(rules, context.registry(), context.effects());
         }
         if self.session.current_house == Some(owner) {
             self.reveal_entire_map(Some(owner), context);

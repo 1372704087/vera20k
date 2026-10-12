@@ -403,11 +403,13 @@ fn detach_targeters_on_cloak(
 ///     n = myCell + g_DirectionOffsets[dir];
 ///     if (!Is_Cell_In_Playfield(n, 1)) continue;
 ///     o = CellClass::Find_Nearest_Object(n, coord(0,0), 0);
-///     if (o && !Is_Ally_ByObject(this, o)
+///     if (o && !o->Owner->Is_Ally_ByObject(this)
 ///           && (oType->Sensors(+0xC9D) || o->HasWeaponAbility(0xC)))
 ///     { vt+0xFC(); break; }
 ///   }
 /// ```
+///
+/// The neighbour's House asks about the mover (`0x004D87E8..0x004D87EF`).
 ///
 /// This is the "drive a Destroyer next to a moving submarine and it surfaces"
 /// rule. Note what it is NOT: the stationary case is not covered — a Destroyer
@@ -436,7 +438,6 @@ pub(crate) fn uncloak_on_sensor_neighbour_after_cell_entry(
         return false;
     }
     let owner = mover.owner();
-    let owner_str = sim.interner.resolve(owner).to_owned();
     let (rx, ry) = (i32::from(mover.position.rx), i32::from(mover.position.ry));
 
     let mut triggered = false;
@@ -461,8 +462,12 @@ pub(crate) fn uncloak_on_sensor_neighbour_after_cell_entry(
         let Some(other) = sim.substrate.entities.get(nearest) else {
             continue;
         };
-        let other_owner_str = sim.interner.resolve(other.owner());
-        if sim.fog.is_friendly(&owner_str, other_owner_str) || other.owner() == owner {
+        if crate::sim::combat::combat_weapon::is_ally_by_object(
+            Some(&sim.house_alliances),
+            &sim.interner,
+            other.owner(),
+            owner,
+        ) {
             continue;
         }
         let detects = rules

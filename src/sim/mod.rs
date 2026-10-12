@@ -156,6 +156,7 @@ pub(crate) mod tiberium_germinate;
 
 // --- Per-match settings, per-player state ---
 pub mod game_options;
+pub(crate) mod house_diplomacy; // ally graph: install, MakeAlly/MakeEnemy, Computer_Paranoid
 pub mod house_state;
 pub(crate) mod house_strategy;
 pub mod house_tracking;

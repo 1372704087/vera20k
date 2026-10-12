@@ -169,9 +169,8 @@ pub fn are_houses_friendly(alliances: &HouseAllianceMap, a: &str, b: &str) -> bo
 ///
 /// gamemd's `HouseClass::IsAlliedWith` reads only the *asker's* own ally
 /// bitfield, so alliance is one-way until both sides set their bit; a house is
-/// always allied with itself. [`are_houses_friendly`] deliberately keeps its
-/// symmetric OR for the many "don't shoot / don't crush / don't block" call
-/// sites; use this one where the native code needs the asymmetric answer.
+/// always allied with itself. [`are_houses_friendly`] keeps its symmetric OR
+/// for the call sites not yet traced to their native asker (#582).
 pub fn is_allied_with(alliances: &HouseAllianceMap, asker: &str, other: &str) -> bool {
     if asker.eq_ignore_ascii_case(other) {
         return true;
@@ -190,7 +189,8 @@ pub fn are_houses_mutually_allied(alliances: &HouseAllianceMap, a: &str, b: &str
     is_allied_with(alliances, a, b) && is_allied_with(alliances, b, a)
 }
 
-fn normalize_house_name(name: &str) -> String {
+/// The ally graph's key for a house name.
+pub(crate) fn normalize_house_name(name: &str) -> String {
     name.trim().to_ascii_uppercase()
 }
 

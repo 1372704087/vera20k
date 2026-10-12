@@ -1038,7 +1038,9 @@ pub struct Simulation {
     pub(crate) load_objects: LoadObjectLifecycle,
     /// Deterministic fog/shroud visibility state.
     pub fog: FogState,
-    /// Static alliance graph derived from map house data.
+    /// Each house's ally mask (`HouseClass+0x5788`) as a directed graph,
+    /// written by `sim::house_diplomacy`: the scenario's install, then
+    /// MakeAlly and MakeEnemy.
     pub house_alliances: HouseAllianceMap,
     /// Object substrate — the active-object order plus the monotonic id and
     /// enter-order counters. The single owner the lifecycle contract

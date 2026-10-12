@@ -774,7 +774,7 @@ mod tests {
     fn ordinary_frontend_size_is_independent_of_game_profile_and_launcher_edits() {
         for (width, height) in [(640, 480), (800, 600), (1024, 768)] {
             let ini = format!("[Video]\nScreenWidth={width}\nScreenHeight={height}\n");
-            let mut load = load_snapshot(&RetailStartupOptions::default(), ini.as_bytes());
+            let load = load_snapshot(&RetailStartupOptions::default(), ini.as_bytes());
             assert_eq!(load.startup_shell_screen, RETAIL_SHELL_SIZE);
             assert_eq!(
                 (

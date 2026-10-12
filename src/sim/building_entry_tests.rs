@@ -7,6 +7,8 @@ use serde_json::{Value, json};
 use super::*;
 use crate::rules::ini_parser::IniFile;
 use crate::rules::team_ai_ini::TeamAiDefinitionSource;
+use crate::sim::docking::bunker_install::BunkerState;
+use crate::sim::game_entity::BunkerLink;
 use crate::sim::house_state::HouseState;
 use crate::sim::passenger::PassengerRole;
 use crate::sim::pathfinding::PathGrid;
@@ -20,12 +22,15 @@ const RULES: &str = "\
 [VehicleTypes]
 0=LTNK
 1=TRNS
+2=YTNK
+3=CAOS
 [BuildingTypes]
 0=YAPOWR
 1=GAPOWR
 2=UABSORB
 3=NABNKR
 4=CAGAS01
+5=NATBNK
 [Guard]
 Rate=.030
 [Capture]
@@ -64,6 +69,23 @@ Strength=300
 Speed=6
 Passengers=2
 Locomotor={4A582741-9839-11D1-B709-00A024DDAFD1}
+[YTNK]
+Strength=375
+Speed=6
+Turret=yes
+Primary=AGGattling
+Locomotor={4A582741-9839-11D1-B709-00A024DDAFD1}
+[CAOS]
+Strength=200
+Speed=6
+Turret=yes
+Primary=ChaosAttack
+Bunkerable=no
+Locomotor={4A582741-9839-11D1-B709-00A024DDAFD1}
+[NATBNK]
+Strength=1000
+Bunker=yes
+NumberImpassableRows=0
 [YAPOWR]
 Strength=700
 InfantryAbsorb=yes
@@ -79,7 +101,7 @@ SizeLimit=15
 ";
 
 const ART: &str = "[YAPOWR]\nFoundation=2x2\n[GAPOWR]\nFoundation=2x2\n[UABSORB]\nFoundation=2x2\n\
-                   [NABNKR]\nFoundation=2x2\n[CAGAS01]\nFoundation=2x2\n";
+                   [NABNKR]\nFoundation=2x2\n[CAGAS01]\nFoundation=2x2\n[NATBNK]\nFoundation=2x2\n";
 
 fn rules() -> RuleSet {
     RuleSet::from_ini_with_fixed_art_for_test(&IniFile::from_str(RULES), &IniFile::from_str(ART))
@@ -162,36 +184,16 @@ fn run_until(
     done(sim)
 }
 
-/// A team running script action 62, then 49, of `members`.
-fn bio_reactor_team(sim: &mut Simulation, members: Vec<u64>) -> u64 {
-    let script = sim.interner.intern("BIO SCRIPT");
+/// A team running script action `action_id` (a seek), then 49, of
+/// `members`.
+fn seek_team(sim: &mut Simulation, action_id: i32, members: Vec<u64>) -> u64 {
+    let script = sim.interner.intern(&format!("SEEK {action_id}"));
     sim.team_script_vm.register_script(TeamScriptDefinition {
         id: script,
         source: TeamAiDefinitionSource::FixedAimd,
         actions: vec![
             TeamScriptAction {
-                action_id: 62,
-                argument: 0,
-            },
-            TeamScriptAction {
-                action_id: 49,
-                argument: 0,
-            },
-        ],
-    });
-    let owner = sim.interner.intern("YuriCountry");
-    sim.team_script_vm.create_team(owner, script, members, 0)
-}
-
-/// A team running script action 63, then 49, of `members`.
-fn battle_bunker_team(sim: &mut Simulation, members: Vec<u64>) -> u64 {
-    let script = sim.interner.intern("BUNKER SCRIPT");
-    sim.team_script_vm.register_script(TeamScriptDefinition {
-        id: script,
-        source: TeamAiDefinitionSource::FixedAimd,
-        actions: vec![
-            TeamScriptAction {
-                action_id: 63,
+                action_id,
                 argument: 0,
             },
             TeamScriptAction {
@@ -206,6 +208,16 @@ fn battle_bunker_team(sim: &mut Simulation, members: Vec<u64>) -> u64 {
 
 fn garrison_seek(sim: &mut Simulation, rules: &RuleSet, id: u64) -> bool {
     sim.foot_enter_battle_bunker(id, rules, None, FrameEffects::default())
+}
+
+fn tank_bunker_seek(sim: &mut Simulation, rules: &RuleSet, id: u64) -> bool {
+    sim.foot_enter_tank_bunker(id, rules, None, FrameEffects::default())
+}
+
+/// The bunker's install machine state and the unit it holds.
+fn install_state(sim: &Simulation, bunker: u64) -> (BunkerState, Option<u64>) {
+    let runtime = entity(sim, bunker).bunker_runtime.unwrap();
+    (runtime.state, runtime.installing_unit)
 }
 
 fn occupants(sim: &Simulation, building: u64) -> Vec<u64> {
@@ -310,7 +322,7 @@ fn the_bio_reactor_pick_matches_native() {
 /// building is asked (with the Foot, or NULL for a vehicle, which refuses),
 /// ties keep the later building, and the pick, its reissue
 /// (Assign_Destination(pick, 1), then Queue_Mission(Capture, 1)), the answer
-/// and the latch are [`pick_battle_bunker`]'s and
+/// and the latch are [`pick_nearest_admitted`]'s and
 /// [`battle_bunker_reissues`]' over [`object_distance`].
 #[test]
 fn the_battle_bunker_pick_matches_native() {
@@ -326,7 +338,7 @@ fn the_battle_bunker_pick_matches_native() {
         let foot = xyz(&row["foot"]);
         let infantry = row["infantry"] == true;
         let mut seen = Vec::new();
-        let best = pick_battle_bunker(
+        let best = pick_nearest_admitted(
             (0..bunkers.len() as u64).rev().map(|index| {
                 let to = xyz(&bunkers[index as usize]["xyz"]);
                 (index, object_distance(foot, to, None))
@@ -582,7 +594,7 @@ fn script_action_62_sends_the_members_a_reactor_takes() {
     let _reactor = spawn(&mut sim, &rules, "YAPOWR", "YuriCountry", 18, 10);
     let infantry = spawn(&mut sim, &rules, "INIT", "YuriCountry", 10, 10);
     let tank = spawn(&mut sim, &rules, "LTNK", "YuriCountry", 10, 12);
-    let team = bio_reactor_team(&mut sim, vec![infantry, tank]);
+    let team = seek_team(&mut sim, 62, vec![infantry, tank]);
 
     sim.run_team_ai_pass(&rules, None, FrameEffects::default());
 
@@ -613,7 +625,7 @@ fn a_seeking_foot_is_not_recruited() {
     let rules = rules();
     let (mut sim, _) = arena(&rules);
     let infantry = spawn(&mut sim, &rules, "INIT", "YuriCountry", 10, 10);
-    let team = bio_reactor_team(&mut sim, Vec::new());
+    let team = seek_team(&mut sim, 62, Vec::new());
     assert_eq!(sim.team_can_add(team, infantry, true, &rules), Some(0));
 
     set_should_enter_absorber_for_test(sim.substrate.entities.get_mut(infantry).unwrap(), true);
@@ -629,7 +641,7 @@ fn a_bio_reactor_team_member_walks_into_the_reactor() {
     let (mut sim, grid) = arena(&rules);
     let reactor = spawn(&mut sim, &rules, "YAPOWR", "YuriCountry", 16, 10);
     let infantry = spawn(&mut sim, &rules, "INIT", "YuriCountry", 10, 10);
-    let team = bio_reactor_team(&mut sim, vec![infantry]);
+    let team = seek_team(&mut sim, 62, vec![infantry]);
 
     assert!(run_until(&mut sim, &rules, &grid, 300, |sim| {
         entity(sim, infantry).passenger_role.inside_transport_id() == Some(reactor)
@@ -650,7 +662,7 @@ fn a_seeker_whose_reactor_dies_gives_up_and_can_be_recruited() {
     let (mut sim, grid) = arena(&rules);
     let reactor = spawn(&mut sim, &rules, "YAPOWR", "YuriCountry", 24, 10);
     let infantry = spawn(&mut sim, &rules, "INIT", "YuriCountry", 10, 10);
-    let _team = bio_reactor_team(&mut sim, vec![infantry]);
+    let _team = seek_team(&mut sim, 62, vec![infantry]);
     assert!(run_until(&mut sim, &rules, &grid, 30, |sim| {
         matches!(
             entity(sim, infantry).passenger_role,
@@ -669,7 +681,7 @@ fn a_seeker_whose_reactor_dies_gives_up_and_can_be_recruited() {
         foot.mission.current(),
         MissionId::from_known(MissionType::Enter)
     );
-    let team = bio_reactor_team(&mut sim, Vec::new());
+    let team = seek_team(&mut sim, 62, Vec::new());
     assert!(sim.team_can_add(team, infantry, true, &rules).is_some());
 }
 
@@ -684,7 +696,7 @@ fn a_seeker_beaten_to_the_last_slot_gives_up() {
     absorb(&mut sim, &rules, reactor, 4);
     let near = spawn(&mut sim, &rules, "INIT", "YuriCountry", 12, 10);
     let far = spawn(&mut sim, &rules, "INIT", "YuriCountry", 8, 10);
-    let _team = bio_reactor_team(&mut sim, vec![near, far]);
+    let _team = seek_team(&mut sim, 62, vec![near, far]);
     assert!(run_until(&mut sim, &rules, &grid, 30, |sim| {
         [near, far]
             .iter()
@@ -795,7 +807,7 @@ fn script_action_63_sends_the_members_a_bunker_admits() {
     let _bunker = spawn(&mut sim, &rules, "NABNKR", "YuriCountry", 18, 10);
     let infantry = spawn(&mut sim, &rules, "E1", "YuriCountry", 10, 10);
     let tank = spawn(&mut sim, &rules, "LTNK", "YuriCountry", 10, 12);
-    let team = battle_bunker_team(&mut sim, vec![infantry, tank]);
+    let team = seek_team(&mut sim, 63, vec![infantry, tank]);
 
     sim.run_team_ai_pass(&rules, None, FrameEffects::default());
 
@@ -821,7 +833,7 @@ fn a_battle_bunker_team_member_garrisons_the_bunker() {
     let (mut sim, grid) = arena(&rules);
     let bunker = spawn(&mut sim, &rules, "NABNKR", "YuriCountry", 16, 10);
     let infantry = spawn(&mut sim, &rules, "E1", "YuriCountry", 10, 10);
-    let team = battle_bunker_team(&mut sim, vec![infantry]);
+    let team = seek_team(&mut sim, 63, vec![infantry]);
 
     assert!(run_until(&mut sim, &rules, &grid, 600, |sim| {
         entity(sim, infantry).passenger_role.inside_transport_id() == Some(bunker)
@@ -893,7 +905,7 @@ fn two_occupiers_garrison_in_arrival_order_and_fire_in_that_order() {
     let bunker = spawn(&mut sim, &rules, "NABNKR", "YuriCountry", 16, 10);
     let near = spawn(&mut sim, &rules, "E1", "YuriCountry", 13, 10);
     let far = spawn(&mut sim, &rules, "E1", "YuriCountry", 8, 12);
-    let _team = battle_bunker_team(&mut sim, vec![far, near]);
+    let _team = seek_team(&mut sim, 63, vec![far, near]);
 
     assert!(run_until(&mut sim, &rules, &grid, 900, |sim| {
         occupants(sim, bunker).len() == 2
@@ -925,7 +937,7 @@ fn an_occupier_turned_away_at_a_full_bunker_gives_up() {
     let (mut sim, grid) = arena(&rules);
     let bunker = spawn(&mut sim, &rules, "NABNKR", "YuriCountry", 16, 10);
     let infantry = spawn(&mut sim, &rules, "E1", "YuriCountry", 10, 10);
-    let _team = battle_bunker_team(&mut sim, vec![infantry]);
+    let _team = seek_team(&mut sim, 63, vec![infantry]);
     assert!(run_until(&mut sim, &rules, &grid, 30, |sim| {
         entity(sim, infantry)
             .building_entry
@@ -1052,4 +1064,255 @@ fn a_retail_battle_bunker_admits_a_conscript() {
     assert_eq!(sim.house_occupiables(owner, rules), [bunker]);
     assert!(garrison_seek(&mut sim, rules, conscript));
     assert!(!garrison_seek(&mut sim, rules, rhino));
+}
+
+/// EnterTankBunker over its house's tank bunkers (House+0xC8): one held by
+/// its occupant (`+0x2E4`), one held by a unit on its way in (the adapter's
+/// stand-in for the first radio contact, module residual), one with
+/// another radio contact and another house's bunker all stand nearer than
+/// the free bunker that takes the tank. The tank commences Enter, the
+/// bunker holds it as its installing unit, and it heads there.
+#[test]
+fn the_nearest_free_own_tank_bunker_takes_the_tank() {
+    let rules = rules();
+    let (mut sim, _) = arena(&rules);
+    let owner = sim.interner.intern("YuriCountry");
+    let far = spawn(&mut sim, &rules, "NATBNK", "YuriCountry", 24, 10);
+    let free = spawn(&mut sim, &rules, "NATBNK", "YuriCountry", 18, 10);
+    let occupied = spawn(&mut sim, &rules, "NATBNK", "YuriCountry", 13, 6);
+    let claimed = spawn(&mut sim, &rules, "NATBNK", "YuriCountry", 13, 14);
+    let contacted = spawn(&mut sim, &rules, "NATBNK", "YuriCountry", 6, 13);
+    let _enemy = spawn(&mut sim, &rules, "NATBNK", "Americans", 6, 7);
+    assert_eq!(
+        sim.house_bunkers(owner, &rules),
+        [far, free, occupied, claimed, contacted]
+    );
+    let occupant = spawn(&mut sim, &rules, "YTNK", "YuriCountry", 2, 2);
+    sim.substrate
+        .entities
+        .get_mut(occupied)
+        .unwrap()
+        .bunker_occupant = Some(occupant);
+    let claimer = spawn(&mut sim, &rules, "YTNK", "YuriCountry", 14, 18);
+    assert!(tank_bunker_seek(&mut sim, &rules, claimer));
+    assert_eq!(
+        install_state(&sim, claimed),
+        (BunkerState::ArriveWait, Some(claimer))
+    );
+    let caller = spawn(&mut sim, &rules, "YTNK", "YuriCountry", 4, 16);
+    assert_eq!(
+        transmit(
+            &mut sim,
+            caller,
+            contacted,
+            RadioMessage::Hello,
+            RadioPayload::default(),
+            Some(&rules),
+            FrameEffects::default(),
+        ),
+        RadioResponse::Roger
+    );
+    let tank = spawn(&mut sim, &rules, "YTNK", "YuriCountry", 10, 10);
+
+    assert!(tank_bunker_seek(&mut sim, &rules, tank));
+
+    let foot = entity(&sim, tank);
+    assert_eq!(
+        foot.mission.current(),
+        MissionId::from_known(MissionType::Enter)
+    );
+    assert_eq!(foot.bunker_link, BunkerLink::Approaching(free));
+    assert!(foot.navigation.nav_com.is_some());
+    assert_eq!(
+        install_state(&sim, free),
+        (BunkerState::ArriveWait, Some(tank))
+    );
+    assert_eq!(install_state(&sim, far), (BunkerState::Idle, None));
+}
+
+/// EnterTankBunker answers false and orders nothing when `0x0070FB50`
+/// refuses the Foot (a `Bunkerable=no` Chaos Drone, a turretless and
+/// unarmed tank, an infantryman) or when every bunker of its house is held.
+#[test]
+fn a_refused_foot_or_a_held_tank_bunker_gets_no_order() {
+    let rules = rules();
+    let (mut sim, _) = arena(&rules);
+    let bunker = spawn(&mut sim, &rules, "NATBNK", "YuriCountry", 16, 10);
+    let drone = spawn(&mut sim, &rules, "CAOS", "YuriCountry", 10, 10);
+    let lasher = spawn(&mut sim, &rules, "LTNK", "YuriCountry", 10, 12);
+    let infantry = spawn(&mut sim, &rules, "INIT", "YuriCountry", 10, 14);
+    for id in [drone, lasher, infantry] {
+        let mission = entity(&sim, id).mission;
+        assert!(!tank_bunker_seek(&mut sim, &rules, id));
+        assert_eq!(entity(&sim, id).mission, mission);
+        assert_eq!(entity(&sim, id).bunker_link, BunkerLink::None);
+    }
+    assert_eq!(install_state(&sim, bunker), (BunkerState::Idle, None));
+
+    let occupant = spawn(&mut sim, &rules, "YTNK", "YuriCountry", 2, 2);
+    sim.substrate
+        .entities
+        .get_mut(bunker)
+        .unwrap()
+        .bunker_occupant = Some(occupant);
+    let tank = spawn(&mut sim, &rules, "YTNK", "YuriCountry", 12, 16);
+    let mission = entity(&sim, tank).mission;
+
+    assert!(!tank_bunker_seek(&mut sim, &rules, tank));
+
+    let foot = entity(&sim, tank);
+    assert_eq!(foot.mission, mission);
+    assert_eq!(foot.navigation.nav_com, None);
+    assert_eq!(foot.bunker_link, BunkerLink::None);
+}
+
+/// Equidistant tank bunkers through the production walk: the house's list
+/// is walked from its last and only a strictly nearer bunker replaces the
+/// pick (`0x004E0009`, `JGE`), so the one built later takes the tank,
+/// whichever side it stands.
+#[test]
+fn of_equidistant_tank_bunkers_the_later_built_takes_the_tank() {
+    let rules = rules();
+    for cells in [[(13, 8), (8, 13)], [(8, 13), (13, 8)]] {
+        let (mut sim, _) = arena(&rules);
+        let tank = spawn(&mut sim, &rules, "YTNK", "YuriCountry", 10, 10);
+        let bunkers =
+            cells.map(|(rx, ry)| spawn(&mut sim, &rules, "NATBNK", "YuriCountry", rx, ry));
+        let coords = |id| {
+            let coords = object_get_coords(entity(&sim, id), sim.resolved_terrain.as_ref());
+            [coords.x, coords.y, coords.z]
+        };
+        let [first, later] =
+            bunkers.map(|bunker| object_distance(coords(tank), coords(bunker), None));
+        assert_eq!(first, later, "the bunkers stand equally far");
+
+        assert!(tank_bunker_seek(&mut sim, &rules, tank));
+
+        assert_eq!(
+            entity(&sim, tank).bunker_link,
+            BunkerLink::Approaching(bunkers[1])
+        );
+    }
+}
+
+/// Script action 61 (`0x006E9E3E`) through the team pass: of two Gattling
+/// Tanks and a Chaos Drone with one free bunker, the first tank in the
+/// list takes it and leaves the team; the second, though nearer, finds it
+/// held and the drone is refused, so both stay. The action is finished.
+#[test]
+fn script_action_61_sends_the_members_a_tank_bunker_takes() {
+    let rules = rules();
+    let (mut sim, _) = arena(&rules);
+    let bunker = spawn(&mut sim, &rules, "NATBNK", "YuriCountry", 18, 10);
+    let first = spawn(&mut sim, &rules, "YTNK", "YuriCountry", 10, 10);
+    let drone = spawn(&mut sim, &rules, "CAOS", "YuriCountry", 10, 12);
+    let second = spawn(&mut sim, &rules, "YTNK", "YuriCountry", 14, 12);
+    let team = seek_team(&mut sim, 61, vec![first, drone, second]);
+
+    sim.run_team_ai_pass(&rules, None, FrameEffects::default());
+
+    let state = sim.team_script_vm.team(team).unwrap();
+    assert_eq!(state.members().collect::<Vec<_>>(), [drone, second]);
+    assert!(state.advance_pending());
+    assert_eq!(sim.team_script_vm.team_for_member(first), None);
+    let foot = entity(&sim, first);
+    assert_eq!(foot.bunker_link, BunkerLink::Approaching(bunker));
+    assert_eq!(
+        foot.mission.current(),
+        MissionId::from_known(MissionType::Enter)
+    );
+    assert_eq!(entity(&sim, second).bunker_link, BunkerLink::None);
+}
+
+/// Through the production frame: a team's action 61 drives its Gattling
+/// Tank into the house's Tank Bunker, whose install machine seats it, and
+/// the emptied team is destroyed.
+#[test]
+fn a_tank_bunker_team_member_drives_in_and_installs() {
+    let rules = rules();
+    let (mut sim, grid) = arena(&rules);
+    let bunker = spawn(&mut sim, &rules, "NATBNK", "YuriCountry", 16, 10);
+    let tank = spawn(&mut sim, &rules, "YTNK", "YuriCountry", 10, 10);
+    let team = seek_team(&mut sim, 61, vec![tank]);
+
+    assert!(run_until(&mut sim, &rules, &grid, 900, |sim| {
+        entity(sim, bunker).bunker_occupant == Some(tank)
+    }));
+
+    assert_eq!(
+        entity(&sim, tank).bunker_link,
+        BunkerLink::Installed(bunker)
+    );
+    assert_eq!(install_state(&sim, bunker), (BunkerState::Occupied, None));
+    assert!(sim.team_script_vm.team(team).is_none());
+}
+
+/// A bunker destroyed while a seeker drives to it, or a seeker destroyed on
+/// its way: the despawn teardown drops the adapter's approach link on the
+/// other side, as an expiry drops a radio contact both ways, so once the
+/// object is deleted a save names nothing gone and loads.
+#[test]
+fn a_tank_bunker_approach_ends_with_either_side() {
+    let rules = rules();
+    for bunker_goes in [true, false] {
+        let (mut sim, grid) = arena(&rules);
+        let bunker = spawn(&mut sim, &rules, "NATBNK", "YuriCountry", 18, 10);
+        let tank = spawn(&mut sim, &rules, "YTNK", "YuriCountry", 10, 10);
+        assert!(tank_bunker_seek(&mut sim, &rules, tank));
+        let gone = if bunker_goes { bunker } else { tank };
+
+        sim.despawn_entity(gone);
+
+        if bunker_goes {
+            assert_eq!(entity(&sim, tank).bunker_link, BunkerLink::None);
+        } else {
+            assert_eq!(install_state(&sim, bunker), (BunkerState::Idle, None));
+        }
+        assert!(run_until(&mut sim, &rules, &grid, 30, |sim| {
+            !sim.substrate.entities.contains(gone)
+        }));
+        let bytes = crate::sim::snapshot::GameSnapshot::save_validated(&sim, 0, 0, "Approach", 0);
+        let mut restored = crate::sim::snapshot::GameSnapshot::load(&bytes)
+            .unwrap()
+            .sim;
+        restored.restore_after_snapshot_load().unwrap();
+    }
+}
+
+/// Retail rules (every layer, gamemd-exact): of the members the nine "Yuri
+/// Unit Hunter" TeamTypes field, the Tank Bunker admits only the Lasher and
+/// the Gattling Tank. The Mastermind has no `Turret=`, the Magnetron and
+/// the Chaos Drone are `Bunkerable=no`, and infantry are not `Bunkerable=`
+/// by default. The Lasher's seek takes the bunker.
+#[test]
+fn a_retail_tank_bunker_admits_the_lasher_and_the_gattling_tank() {
+    let Some(retail) = crate::rules::retail_ini_fixture::retail_battle_rules_for_map("XMP03T4.MAP")
+    else {
+        return;
+    };
+    let rules = &retail.rules;
+    let (mut sim, _) = arena(rules);
+    let owner = sim.interner.intern("YuriCountry");
+    let bunker = spawn(&mut sim, rules, "NATBNK", "YuriCountry", 20, 10);
+    assert_eq!(sim.house_bunkers(owner, rules), [bunker]);
+    let members = [
+        "LTNK", "YTNK", "MIND", "TELE", "CAOS", "INIT", "YURI", "VIRUS",
+    ];
+    let mut admitted = Vec::new();
+    for (column, kind) in (4..).step_by(2).zip(members) {
+        let id = spawn(&mut sim, rules, kind, "YuriCountry", column, 16);
+        if can_auto_deploy_here(&sim, id, rules) {
+            admitted.push((kind, id));
+        }
+    }
+    assert_eq!(
+        admitted.iter().map(|&(kind, _)| kind).collect::<Vec<_>>(),
+        ["LTNK", "YTNK"]
+    );
+
+    assert!(tank_bunker_seek(&mut sim, rules, admitted[0].1));
+    assert_eq!(
+        entity(&sim, admitted[0].1).bunker_link,
+        BunkerLink::Approaching(bunker)
+    );
 }

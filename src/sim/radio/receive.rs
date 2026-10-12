@@ -1702,7 +1702,9 @@ fn bunker_receive(
 }
 
 /// Sim-state admission gate (no rules): own-owner, alive, not occupied, idle.
-/// The rules-gated Bunkerable+weapon check runs at command time (EnterBunker).
+/// The rules-gated half (`bunker_link::can_auto_deploy_here`, `0x0070FB50`)
+/// runs before the adapter asks (the EnterBunker order and the tank bunker
+/// seek).
 fn bunker_admits(sim: &Simulation, bld: u64, unit: u64) -> bool {
     let Some(unit) = sim.substrate.entities.get(unit) else {
         return false;

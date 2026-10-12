@@ -18,13 +18,13 @@
 //!
 //! RESIDUALS:
 //! - Actions other than 0, 2, 3, 5, 6, 8, 11, 14, 19, 21, 24, 43, 46, 47,
-//!   49, 50, 53, 54, 55, 57, 58, 62 and 63 are not ported. A team that
+//!   49, 50, 53, 54, 55, 57, 58, 61, 62 and 63 are not ported. A team that
 //!   reaches one stays on it, as a native handler that has not finished
 //!   does, and records the first as its refusal; the rest of its update
-//!   runs. Trigger: 14 of the 163 retail AIMD TeamTypes reach one; the
-//!   first they reach is 61 (9 TeamTypes) or 9 (5). Effect: the team idles
-//!   on that action for good, keeping its members and its TeamType's `Max=`
-//!   slot, and nothing else sends those units out. Action 56
+//!   runs. Trigger: 5 of the 163 retail AIMD TeamTypes reach one, action 9
+//!   first. Effect: the team idles on that action for good, keeping its
+//!   members and its TeamType's `Max=` slot, and nothing else sends those
+//!   units out. Action 56
 //!   (`0x006EFE60`), the Chronosphere's other script action, picks its
 //!   building with [`target_building_pick`] too; no AIMD script names it,
 //!   but four scripts of the retail campaign map SOV02SMD.MAP do, whose
@@ -120,6 +120,7 @@ pub(super) const fn action_is_ported(action_id: i32) -> bool {
             | 55
             | 57
             | 58
+            | 61
             | 62
             | 63
     )
@@ -438,14 +439,16 @@ impl Simulation {
                 registry,
                 frame_effects,
             ),
-            // `0x006E9E83..0x006E9EC7` (62) and `0x006E9EC8..` (63): each
-            // member, in list order, seeks a Bio Reactor (Foot vt+0x340,
-            // [`Self::foot_enter_bio_reactor`]) or an occupiable building
-            // (vt+0x348, [`Self::foot_enter_battle_bunker`]); one that finds
-            // one leaves the team (`Remove_Member(member, -1, 1)`,
+            // `0x006E9E3E..0x006E9E82` (61), `0x006E9E83..0x006E9EC7` (62)
+            // and `0x006E9EC8..` (63): each member, in list order, seeks a
+            // tank bunker (Foot vt+0x344, [`Self::foot_enter_tank_bunker`]),
+            // a Bio Reactor (vt+0x340, [`Self::foot_enter_bio_reactor`]) or
+            // an occupiable building (vt+0x348,
+            // [`Self::foot_enter_battle_bunker`]); one that finds one leaves
+            // the team (`Remove_Member(member, -1, 1)`, `0x006E9E69`,
             // `0x006E9EAE`, `0x006E9EF3`). The action is finished at once,
             // also with no member (`0x006E953E`).
-            62 | 63 => {
+            61..=63 => {
                 let members: Vec<u64> = self
                     .team_script_vm
                     .teams
@@ -453,10 +456,10 @@ impl Simulation {
                     .map(|team| team.members().collect())
                     .unwrap_or_default();
                 for member in members {
-                    let found = if action.action_id == 62 {
-                        self.foot_enter_bio_reactor(member, rules, registry, frame_effects)
-                    } else {
-                        self.foot_enter_battle_bunker(member, rules, registry, frame_effects)
+                    let found = match action.action_id {
+                        61 => self.foot_enter_tank_bunker(member, rules, registry, frame_effects),
+                        62 => self.foot_enter_bio_reactor(member, rules, registry, frame_effects),
+                        _ => self.foot_enter_battle_bunker(member, rules, registry, frame_effects),
                     };
                     if found {
                         self.team_remove_member(team_id, member, true, Some(rules), frame_effects);

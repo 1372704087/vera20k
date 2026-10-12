@@ -161,9 +161,11 @@ pub enum BunkerLink {
     /// Not heading to or inside any bunker.
     #[default]
     None,
-    /// Ordered into bunker `id`, still approaching (pre-install). Cleared on any
-    /// retask, which lets the building install machine reset. (The explicit
-    /// unit-side marker is the abort signal the install machine reads.)
+    /// Ordered into bunker `id`, still approaching (pre-install); the install
+    /// machine resets once this marker no longer names its bunker. Cleared by
+    /// the install and by either side's despawn
+    /// (`bunker_link::break_links_on_despawn`); a retask leaves it
+    /// (`sim::building_entry` residual).
     Approaching(u64),
     /// Installed inside bunker `id` (reciprocal of `building.bunker_occupant`).
     Installed(u64),

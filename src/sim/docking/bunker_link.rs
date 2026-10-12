@@ -19,24 +19,18 @@ use crate::util::fixed_math::SIM_ONE;
 /// Exit-search ring limit for the normal release (mirrors the refinery exit).
 const BUNKER_EXIT_SEARCH_MAX_RADIUS: i32 = 16;
 
-/// The per-unit half of the bunker admission gate: a Bunkerable vehicle that has
-/// a primary weapon. (Movement-zone / busy-guard sub-checks are not reproduced —
-/// they exclude no stock bunkerable vehicle.) Resolved against `rules`, so this is
-/// called from the command dispatch (which has `rules`), never from the radio bus.
+/// The tank bunker admission at `0x0070FB50`: the object's type is
+/// `Bunkerable=` (`+0xD2E`) and has a `Turret=` (`+0xCA1`), its current
+/// weapon (vt+0x3F4, `GetCurrentWeapon @ 0x0070E1A0`) has a type, its
+/// `SpeedType=` (`+0x67C`) is not Hover (3), and a Foot is not being eaten by
+/// a parasite (`+0x694`, `0x0070FBAF..0x0070FBC3`). For a Foot the weapon
+/// test is [`crate::sim::combat::combat_weapon::is_armed`]'s.
 ///
-/// RESIDUAL (UNCHECKED, deferred): the weapon half is `obj.primary()` — the
-/// native `Primary` field (`TechnoTypeClass+0x898`), which for a `TurretCount>0`
-/// type is filled from `Weapon1=`, see `ObjectType::read_weapon_arrays` — and
-/// the native predicate for this gate has not been located. The two plausible
-/// candidates now agree on every stock type: `[SREF]` carries `Comet` in
-/// `+0x898`, so it is admitted whether the native gate is the raw field or
-/// `TechnoClass::Is_Armed` (vtable `+0x2AC`, `combat_weapon::is_armed`). The
-/// candidates could still differ for a `TurretCount>0` type whose *current*
-/// gunner slot is empty while slot 0 is not; none exists on retail data.
-/// Trigger: ordering a bunkerable vehicle into a `[NATBNK]` Tank Bunker.
-/// Frequency: near zero — `[NATBNK]` is the Yuri Tank Bunker
-/// (`Prerequisite=YACNST`), so a non-Yuri player needs an alliance or a
-/// capture. Downstream: none.
+/// Native callers: the bunker's radio receiver (`0x0043C512`, `0x0043C86A`)
+/// and `FootClass::EnterTankBunker` (`0x004DFF4F`,
+/// [`Simulation::foot_enter_tank_bunker`]). VERA's EnterBunker order asks
+/// it in place of the receiver, and the app's cursor and click order ask it
+/// too. Resolved against `rules`, so the radio bus never calls it.
 pub fn can_auto_deploy_here(sim: &Simulation, unit_id: u64, rules: &RuleSet) -> bool {
     let Some(unit) = sim.substrate.entities.get(unit_id) else {
         return false;
@@ -44,8 +38,11 @@ pub fn can_auto_deploy_here(sim: &Simulation, unit_id: u64, rules: &RuleSet) -> 
     let Some(obj) = sim.object_type(unit.type_ref(), rules) else {
         return false;
     };
-    // CanEnterBunker 0x0070FBAF..0x0070FBC3: an infected Foot is refused.
-    obj.bunkerable && obj.primary().is_some() && unit.parasite_eating_me.is_none()
+    obj.bunkerable
+        && obj.has_turret
+        && crate::sim::combat::combat_weapon::is_armed(unit, obj)
+        && obj.speed_type != crate::rules::locomotor_type::SpeedType::Hover
+        && unit.parasite_eating_me.is_none()
 }
 
 /// Bunker install state 5 (459301..459337): reciprocal links, deselection,
@@ -353,15 +350,28 @@ pub(crate) fn clear_bunker(
 }
 
 /// Despawn safety net: if `id` is a bunker with an occupant, or a unit installed
-/// in a bunker, clear the reciprocal side. No anims/sound/placement.
+/// in a bunker, clear the reciprocal side. No anims/sound/placement. The
+/// entry adapter's approach link (the bunker's installing unit and the unit's
+/// `Approaching` marker), which stands in for the radio contact a native
+/// expiry drops both ways, is cleared the same way: a bunker gone while a unit
+/// drives to it releases that unit, and a unit gone on its way frees the
+/// bunker.
 pub fn break_links_on_despawn(sim: &mut Simulation, id: u64) {
     let Some(e) = sim.substrate.entities.get(id) else {
         return;
     };
     let occupant = e.bunker_occupant;
     let host = e.bunker_link.installed_in();
+    let approaching = e.bunker_runtime.and_then(|runtime| runtime.installing_unit);
+    let approached = e.bunker_link.approaching();
     if let Some(unit_id) = occupant
         && let Some(u) = sim.substrate.entities.get_mut(unit_id)
+    {
+        u.bunker_link = BunkerLink::None;
+    }
+    if let Some(unit_id) = approaching
+        && let Some(u) = sim.substrate.entities.get_mut(unit_id)
+        && u.bunker_link == BunkerLink::Approaching(id)
     {
         u.bunker_link = BunkerLink::None;
     }
@@ -372,6 +382,16 @@ pub fn break_links_on_despawn(sim: &mut Simulation, id: u64) {
         if let Some(rt) = b.bunker_runtime.as_mut() {
             *rt = BunkerRuntime::idle();
         }
+    }
+    if let Some(building_id) = approached
+        && let Some(rt) = sim
+            .substrate
+            .entities
+            .get_mut(building_id)
+            .and_then(|b| b.bunker_runtime.as_mut())
+        && rt.installing_unit == Some(id)
+    {
+        *rt = BunkerRuntime::idle();
     }
 }
 
@@ -460,10 +480,17 @@ mod tests {
 
     pub(super) fn rules() -> RuleSet {
         RuleSet::from_ini(&IniFile::from_str(
-            "[VehicleTypes]\n0=TANK\n1=NOGUN\n\n[InfantryTypes]\n\n[AircraftTypes]\n\n\
+            "[VehicleTypes]\n0=TANK\n1=NOGUN\n2=NOTURRET\n3=HOVER\n4=NOBUNKER\n\n\
+             [InfantryTypes]\n0=GI\n\n[AircraftTypes]\n\n\
              [BuildingTypes]\n0=NATBNK\n\n\
-             [TANK]\nStrength=400\nArmor=heavy\nSpeed=6\nBunkerable=yes\nPrimary=120mm\n\n\
-             [NOGUN]\nStrength=400\nArmor=heavy\nSpeed=6\nBunkerable=yes\n\n\
+             [TANK]\nStrength=400\nArmor=heavy\nSpeed=6\nTurret=yes\nPrimary=120mm\n\n\
+             [NOGUN]\nStrength=400\nArmor=heavy\nSpeed=6\nTurret=yes\n\n\
+             [NOTURRET]\nStrength=400\nArmor=heavy\nSpeed=6\nPrimary=120mm\n\n\
+             [HOVER]\nStrength=400\nArmor=heavy\nSpeed=6\nTurret=yes\nPrimary=120mm\n\
+             SpeedType=Hover\n\n\
+             [NOBUNKER]\nStrength=400\nArmor=heavy\nSpeed=6\nTurret=yes\nPrimary=120mm\n\
+             Bunkerable=no\n\n\
+             [GI]\nStrength=125\nSpeed=4\nTurret=yes\nPrimary=120mm\n\n\
              [NATBNK]\nStrength=1000\nArmor=heavy\nBunker=yes\n",
         ))
         .expect("rules parse")
@@ -542,14 +569,23 @@ mod tests {
         sim.substrate.entities.insert(ge);
     }
 
+    /// `0x0070FB50`: `Bunkerable=` (a vehicle's default), `Turret=`, a
+    /// current weapon and a SpeedType other than Hover; an infantryman is
+    /// not `Bunkerable=` by default.
     #[test]
-    fn can_auto_deploy_requires_bunkerable_and_a_weapon() {
+    fn can_auto_deploy_wants_a_turreted_armed_bunkerable_non_hover_type() {
         let mut sim = Simulation::new();
         let rules = rules();
-        spawn_tank(&mut sim, 1, "Americans", "TANK"); // bunkerable + primary
-        spawn_tank(&mut sim, 2, "Americans", "NOGUN"); // bunkerable, no primary
-        assert!(can_auto_deploy_here(&sim, 1, &rules));
-        assert!(!can_auto_deploy_here(&sim, 2, &rules));
+        let types = ["TANK", "NOGUN", "NOTURRET", "HOVER", "NOBUNKER", "GI"];
+        for (id, type_name) in (1..).zip(types) {
+            spawn_tank(&mut sim, id, "Americans", type_name);
+        }
+        let admitted: Vec<_> = (1..)
+            .zip(types)
+            .filter(|&(id, _)| can_auto_deploy_here(&sim, id, &rules))
+            .map(|(_, type_name)| type_name)
+            .collect();
+        assert_eq!(admitted, ["TANK"]);
     }
 
     #[test]

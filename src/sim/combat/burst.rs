@@ -135,7 +135,7 @@ mod tests {
             "[VehicleTypes]\n0=TANK\n1=APC\n\
              [InfantryTypes]\n0=TANY\n1=ENGINEER\n\
              [BuildingTypes]\n0=DEPOT\n1=ENEMY\n2=BUNKER\n\
-             [TANK]\nStrength=200\nSpeed=6\nPrimary=Gun\nBunkerable=yes\n\
+             [TANK]\nStrength=200\nSpeed=6\nPrimary=Gun\nTurret=yes\n\
              [APC]\nStrength=200\nPassengers=5\nSizeLimit=2\n\
              [TANY]\nStrength=100\nSpeed=4\nC4=yes\nPrimary=Gun\n\
              [ENGINEER]\nStrength=100\nSpeed=4\nEngineer=yes\n\

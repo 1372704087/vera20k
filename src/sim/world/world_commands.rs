@@ -2067,71 +2067,29 @@ impl Simulation {
                 if !crate::sim::docking::bunker_link::can_auto_deploy_here(self, *unit_id, rules) {
                     return false;
                 }
-                // Admission query over the bus; commit only on ROGER.
-                if crate::sim::radio::transmit(
-                    self,
-                    *unit_id,
+                let unit_id = *unit_id;
+                self.begin_bunker_entry(
+                    unit_id,
                     *bunker_id,
-                    crate::sim::radio::RadioMessage::CanEnter,
-                    crate::sim::radio::RadioPayload::default(),
-                    None,
+                    rules,
+                    overlay_registry,
                     frame_effects,
-                ) != crate::sim::radio::RadioResponse::Roger
-                {
-                    return false;
-                }
-                // Commit: start the install machine (ArriveWait + installing_unit).
-                crate::sim::radio::transmit(
-                    self,
-                    *unit_id,
-                    *bunker_id,
-                    crate::sim::radio::RadioMessage::DockNow,
-                    crate::sim::radio::RadioPayload::default(),
-                    None,
-                    frame_effects,
-                );
-                // Retask onto Enter (no dock reservation), mark the unit as
-                // approaching THIS bunker (the install machine's keep-alive gate).
-                self.queue_megamission(*unit_id, MissionType::Enter, Some(rules), frame_effects);
-                // Event4C7467 dispatches the class target setter before Dest.
-                let _ = self.assign_target_represented(*unit_id, None, Some(rules));
-                if let Some(e) = self.substrate.entities.get_mut(*unit_id) {
-                    e.order_intent = None;
-                    e.c4_plant = None;
-                    e.bunker_link = crate::sim::game_entity::BunkerLink::Approaching(*bunker_id);
-                }
-                // Issue an approach move toward the bunker cell (mirror EnterTransport).
-                let bunker_cell = self
-                    .substrate
-                    .entities
-                    .get(*bunker_id)
-                    .map(|b| (b.position.rx, b.position.ry));
-                if let Some((brx, bry)) = bunker_cell {
-                    let info = self.resolve_move_info(*unit_id, Some(rules));
-                    let speed = info
-                        .as_ref()
-                        .map(|i| i.speed)
-                        .unwrap_or(ra2_speed_to_leptons_per_second(4));
-                    let speed_type = info
-                        .as_ref()
-                        .map(|i| i.speed_type)
-                        .unwrap_or(SpeedType::Track);
-                    self.issue_ground_move(
-                        GroundMove {
-                            entity_id: *unit_id,
-                            target: (brx, bry),
-                            speed,
-                            queue: false,
-                            speed_type: Some(speed_type),
-                            owner_blocks: true,
-                            object_destination: None,
-                        },
-                        Some(rules),
-                        overlay_registry,
-                        frame_effects,
-                    );
-                }
-                true
+                    |sim| {
+                        // Retask onto Enter (no dock reservation).
+                        sim.queue_megamission(
+                            unit_id,
+                            MissionType::Enter,
+                            Some(rules),
+                            frame_effects,
+                        );
+                        // Event4C7467 dispatches the class target setter before Dest.
+                        let _ = sim.assign_target_represented(unit_id, None, Some(rules));
+                        if let Some(e) = sim.substrate.entities.get_mut(unit_id) {
+                            e.order_intent = None;
+                            e.c4_plant = None;
+                        }
+                    },
+                )
             }
             Command::EjectBunker { bunker_id } => {
                 let Some(rules) = rules else { return false };
@@ -2395,6 +2353,82 @@ impl Simulation {
         self.substrate.entities.get(stable_id).is_some_and(|e| {
             e.lifecycle.object_alive && e.health.current != 0 && !e.lifecycle.in_limbo
         })
+    }
+
+    /// VERA's tank bunker entry adapter, in place of the native radio
+    /// handshake with the bunker (its receiver's bunker arms, `0x0043C4F8`
+    /// and `0x0043C75A`). The bunker answers CAN_LOAD; on ROGER, DOCK_NOW
+    /// starts its install machine, `retask` gives the unit its Enter, and
+    /// the unit, marked as approaching this bunker (the install machine's
+    /// keep-alive), drives to the bunker's cell. False, with nothing
+    /// changed, when the bunker refuses. Shared by the EnterBunker order and
+    /// [`Self::foot_enter_tank_bunker`].
+    pub(crate) fn begin_bunker_entry(
+        &mut self,
+        unit_id: u64,
+        bunker_id: u64,
+        rules: &RuleSet,
+        overlay_registry: Option<&crate::rules::overlay_types::OverlayTypeRegistry>,
+        frame_effects: FrameEffects<'_>,
+        retask: impl FnOnce(&mut Self),
+    ) -> bool {
+        if crate::sim::radio::transmit(
+            self,
+            unit_id,
+            bunker_id,
+            crate::sim::radio::RadioMessage::CanEnter,
+            crate::sim::radio::RadioPayload::default(),
+            None,
+            frame_effects,
+        ) != crate::sim::radio::RadioResponse::Roger
+        {
+            return false;
+        }
+        crate::sim::radio::transmit(
+            self,
+            unit_id,
+            bunker_id,
+            crate::sim::radio::RadioMessage::DockNow,
+            crate::sim::radio::RadioPayload::default(),
+            None,
+            frame_effects,
+        );
+        retask(self);
+        if let Some(e) = self.substrate.entities.get_mut(unit_id) {
+            e.bunker_link = crate::sim::game_entity::BunkerLink::Approaching(bunker_id);
+        }
+        // Issue an approach move toward the bunker cell (mirror EnterTransport).
+        let bunker_cell = self
+            .substrate
+            .entities
+            .get(bunker_id)
+            .map(|b| (b.position.rx, b.position.ry));
+        if let Some((brx, bry)) = bunker_cell {
+            let info = self.resolve_move_info(unit_id, Some(rules));
+            let speed = info
+                .as_ref()
+                .map(|i| i.speed)
+                .unwrap_or(ra2_speed_to_leptons_per_second(4));
+            let speed_type = info
+                .as_ref()
+                .map(|i| i.speed_type)
+                .unwrap_or(SpeedType::Track);
+            self.issue_ground_move(
+                GroundMove {
+                    entity_id: unit_id,
+                    target: (brx, bry),
+                    speed,
+                    queue: false,
+                    speed_type: Some(speed_type),
+                    owner_blocks: true,
+                    object_destination: None,
+                },
+                Some(rules),
+                overlay_registry,
+                frame_effects,
+            );
+        }
+        true
     }
 
     /// Whether a re-issued Enter order onto `destination_id` is the native
@@ -3605,8 +3639,8 @@ mod tests {
         RuleSet::from_ini(&IniFile::from_str(
             "[VehicleTypes]\n0=TANK\n1=NOGUN\n\n[InfantryTypes]\n\n[AircraftTypes]\n\n\
              [BuildingTypes]\n0=NATBNK\n\n\
-             [TANK]\nStrength=400\nArmor=heavy\nSpeed=6\nBunkerable=yes\nPrimary=120mm\n\n\
-             [NOGUN]\nStrength=400\nArmor=heavy\nSpeed=6\nBunkerable=yes\n\n\
+             [TANK]\nStrength=400\nArmor=heavy\nSpeed=6\nTurret=yes\nPrimary=120mm\n\n\
+             [NOGUN]\nStrength=400\nArmor=heavy\nSpeed=6\nTurret=yes\n\n\
              [NATBNK]\nStrength=1000\nArmor=heavy\nBunker=yes\n",
         ))
         .expect("bunker rules")

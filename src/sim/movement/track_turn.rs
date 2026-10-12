@@ -179,11 +179,7 @@ impl Simulation {
                 {
                     // The empty-route adapter for its readers; the next
                     // visit's Process_Movement follows +34 without it.
-                    super::movement_commands::schedule_track_process(
-                        entity,
-                        ((coord.x / 256) as u16, (coord.y / 256) as u16),
-                        speed,
-                    );
+                    super::movement_commands::schedule_track_process(entity, speed);
                 }
             }
             return false;

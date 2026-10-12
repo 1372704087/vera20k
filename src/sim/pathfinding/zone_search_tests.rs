@@ -1629,10 +1629,10 @@ fn gsi_04_12_drive_pending_continuation_keeps_hierarchy_context_and_raw_route() 
         .expect("continued Drive mover");
     assert_eq!(continued.navigation.nav_com, Some(NavTargetRef::cell(3, 0)));
     assert!(!continued.navigation.pending_arrival_clear);
-    let movement = continued
-        .movement_target
-        .as_ref()
-        .expect("pending Drive continuation should rebuild the hierarchy route");
+    assert!(
+        continued.movement_target.is_some(),
+        "pending Drive continuation should rebuild the hierarchy route"
+    );
     let route = installed_route(continued, (1, 0));
     assert_eq!(route.first().copied(), Some((1, 0)));
     assert!(
@@ -1640,7 +1640,6 @@ fn gsi_04_12_drive_pending_continuation_keeps_hierarchy_context_and_raw_route() 
         "the Process search starts on the bridge layer: AStar 0x00429A90 takes the start height from the Foot's OnBridge byte"
     );
     assert_eq!(route.last().copied(), Some((3, 0)));
-    assert_eq!(movement.final_goal, None);
     assert_eq!(
         crate::sim::movement::movement_goal_cell(continued),
         Some((3, 0))

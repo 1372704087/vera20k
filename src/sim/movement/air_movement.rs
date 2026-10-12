@@ -566,10 +566,10 @@ mod tests {
         ));
 
         let e = sim.substrate.entities.get(id).expect("has entity");
+        assert!(e.movement_target.is_some(), "the order itself is accepted");
         assert_eq!(
-            e.movement_target.as_ref().and_then(|t| t.final_goal),
-            Some((20, 15)),
-            "the order itself is accepted"
+            e.navigation.nav_com,
+            Some(crate::sim::components::NavTargetRef::cell(20, 15)),
         );
         assert_eq!(
             e.navigation.nav_com,

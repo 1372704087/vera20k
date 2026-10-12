@@ -6831,7 +6831,6 @@ fn gsi_04_05_stop_preserves_committed_drive_until_reserved_head_finishes() {
     let stopped = sim.substrate.entities.get(1).unwrap();
     assert_eq!(stopped.navigation.nav_com, None);
     assert!(stopped.movement_target.is_some());
-    let stopped_target = stopped.movement_target.as_ref().unwrap();
     // The route is cut at the committed head: Stop retires every Foot+5E0
     // word beyond it and the head stays the committed track head.
     assert!(
@@ -6847,7 +6846,6 @@ fn gsi_04_05_stop_preserves_committed_drive_until_reserved_head_finishes() {
         ((head.x / 256) as u16, (head.y / 256) as u16),
         (committed_head.rx, committed_head.ry)
     );
-    assert_eq!(stopped_target.final_goal, None);
     assert_eq!(
         crate::sim::movement::movement_goal_cell(stopped),
         Some((committed_head.rx, committed_head.ry))
@@ -7100,10 +7098,10 @@ fn gsi_13_06_stop_preserves_committed_ship_segment_and_speed_state() {
     assert!(sim.apply_command("Americans", &Command::Stop { entity_id: 1 }, None,));
 
     let stopped = sim.substrate.entities.get(1).unwrap();
-    let target = stopped
-        .movement_target
-        .as_ref()
-        .expect("committed Ship segment survives Stop");
+    assert!(
+        stopped.movement_target.is_some(),
+        "committed Ship segment survives Stop"
+    );
     // Stop retires every Foot+5E0 word beyond the committed head; the head
     // itself is pinned below.
     assert!(
@@ -7113,7 +7111,6 @@ fn gsi_13_06_stop_preserves_committed_ship_segment_and_speed_state() {
             .remaining_directions()
             .is_empty()
     );
-    assert_eq!(target.final_goal, None);
     assert_eq!(
         crate::sim::movement::movement_goal_cell(stopped),
         Some(committed_cell)

@@ -31,7 +31,6 @@ fn mtnk_rules() -> RuleSet {
 /// (`order_route`); the adapter keeps only the goal.
 fn moving_target() -> MovementTarget {
     MovementTarget {
-        final_goal: Some((6, 5)),
         ..MovementTarget::default()
     }
 }

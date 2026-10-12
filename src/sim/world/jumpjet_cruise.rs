@@ -308,9 +308,9 @@ impl JumpjetFlightHost for CruiseHost<'_> {
         let frame_effects = self.frame_effects;
         let speed = self.sim.jumpjet_order_speed(id, rules);
         runtime.with_owner_call(self.sim, id, |sim| {
-            sim.jumpjet_cell_destination(
+            sim.jumpjet_destination(
                 id,
-                (cell.0 as u16, cell.1 as u16),
+                crate::sim::components::NavTargetRef::cell(cell.0 as u16, cell.1 as u16),
                 speed,
                 rules,
                 frame_effects,
@@ -361,7 +361,7 @@ impl JumpjetFlightHost for CruiseHost<'_> {
         let speed = self.sim.jumpjet_order_speed(id, rules);
         runtime.with_owner_call(self.sim, id, |sim| {
             sim.jumpjet_stop_moving(id, rules, registry, frame_effects);
-            sim.publish_jumpjet_destination(id, speed);
+            sim.publish_jumpjet_order_adapter(id, speed);
         });
         runtime.phase()
     }
@@ -518,10 +518,6 @@ impl Simulation {
     /// through the class setter (`vt+0x480(archive, 1)`); otherwise
     /// `0x004DF0D0` clears the NavCom pair and the owner scatters from a null
     /// coordinate with `(1, 0)`. Without a contact nothing runs.
-    ///
-    /// RESIDUAL: an object ArchiveTarget takes its cell here, not the object's
-    /// `+0x4C` coordinate the Foot setter reads. Dormant: a factory's rally
-    /// (`SetRally`) is always a cell.
     pub(crate) fn jumpjet_lift_off_notify(
         &mut self,
         id: u64,
@@ -552,20 +548,21 @@ impl Simulation {
         let archive = owner.archive_target();
         let nav_com = owner.navigation.nav_com.map(TargetKind::from);
         if let Some(archive) = archive.filter(|archive| Some(*archive) != nav_com) {
-            let cell = match archive {
-                TargetKind::Cell(rx, ry) => Some((rx, ry)),
-                TargetKind::Entity(target) => self
-                    .substrate
-                    .entities
-                    .get(target)
-                    .map(|target| (target.position.rx, target.position.ry)),
-            };
-            let Some(cell) = cell else {
+            // An archived object that is gone gives no coordinate.
+            if let TargetKind::Entity(target) = archive
+                && self.substrate.entities.get(target).is_none()
+            {
                 return;
-            };
+            }
             // Native does not read the setter's answer.
             let speed = self.jumpjet_order_speed(id, Some(rules));
-            self.jumpjet_cell_destination(id, cell, speed, Some(rules), frame_effects);
+            self.jumpjet_destination(
+                id,
+                crate::sim::components::NavTargetRef::from(archive),
+                speed,
+                Some(rules),
+                frame_effects,
+            );
             return;
         }
         if let Some(owner) = self.substrate.entities.get_mut(id) {
@@ -598,7 +595,6 @@ impl Simulation {
         {
             return None;
         }
-        self.apply_jumpjet_adapter_order(stable_id, rules);
         let frame = self.session.binary_frame;
         let trig = TrigTable::embedded();
         let stats = self.with_jumpjet_process(stable_id, |runtime, sim| {
@@ -620,8 +616,8 @@ impl Simulation {
                 entry_state == STATE_TRANSLATE && matches!(state, STATE_HOLD | STATE_DESCEND);
             let height = host.height_above_ground();
             let entity = host.sim.substrate.entities.get_mut(stable_id).unwrap();
-            // Adapter goal is only a remaining order projection; it cannot
-            // overwrite the private class fields after a reentrant callback.
+            // The order adapter retires with the flight; the class fields
+            // keep the destination.
             if host.touched_down || ended_cruise {
                 entity.movement_target = None;
             }
@@ -647,77 +643,6 @@ impl Simulation {
         })?;
         Some(stats)
     }
-
-    /// Remaining object-order adapter: a supplied goal reaches Move_To and
-    /// retains its selected cell. Its producer migration remains in issue689.
-    ///
-    /// An absent projection is not a Stop command. Original Process54AEC0
-    /// reads the class moving/phase fields; `state1_free_unmarked` frame102
-    /// in jumpjet_states.json reaches only Process→State3 and retains its
-    /// destination, NavCom and timers. Explicit Stop reaches the class setter
-    /// through assign_null_destination instead.
-    fn apply_jumpjet_adapter_order(&mut self, id: u64, rules: Option<&RuleSet>) {
-        let goal = {
-            let Some(entity) = self.substrate.entities.get(id) else {
-                return;
-            };
-            let Some(runtime) = entity
-                .locomotor
-                .as_ref()
-                .and_then(|locomotor| locomotor.jumpjet_runtime())
-            else {
-                return;
-            };
-            if entity.crashing {
-                return;
-            }
-            match entity.movement_target.as_ref().and_then(|t| t.final_goal) {
-                Some(goal) => {
-                    let flying_to = (
-                        lepton_to_cell_packed(runtime.destination().x),
-                        lepton_to_cell_packed(runtime.destination().y),
-                    );
-                    if runtime.moving()
-                        && runtime.destination() != JumpjetRuntime::NULL
-                        && flying_to == (goal.0 as i16, goal.1 as i16)
-                    {
-                        return;
-                    }
-                    goal
-                }
-                None => return,
-            }
-        };
-        let speed = self.jumpjet_order_speed(id, rules);
-        let request = crate::sim::movement::target_cell_coord(
-            goal.0,
-            goal.1,
-            self.resolved_terrain
-                .as_ref()
-                .map(crate::map::resolved_terrain::NativeCellQuery::canonical)
-                .as_ref(),
-        );
-        if let Some(entity) = self.substrate.entities.get_mut(id) {
-            entity.navigation.nav_com =
-                Some(crate::sim::components::NavTargetRef::cell(goal.0, goal.1));
-            entity.navigation.nav_com_aux = None;
-        }
-        self.jumpjet_move_to(id, request, rules);
-        let moving = self.substrate.entities.get(id).is_some_and(|entity| {
-            entity
-                .locomotor
-                .as_ref()
-                .and_then(|locomotor| locomotor.jumpjet_runtime())
-                .is_some_and(|runtime| runtime.moving())
-        });
-        if moving {
-            self.publish_jumpjet_destination(id, speed);
-        } else if let Some(entity) = self.substrate.entities.get_mut(id) {
-            // A refused Move_To leaves the owner where it was; the goal
-            // retires instead of being retried every frame.
-            entity.movement_target = None;
-        }
-    }
 }
 
 #[cfg(test)]
@@ -728,7 +653,6 @@ mod native_tests;
 mod tests {
     use super::*;
     use crate::rules::jumpjet_params::JumpjetParams;
-    use crate::sim::components::MovementTarget;
     use crate::sim::game_entity::GameEntity;
     use crate::sim::movement::ground_pose::position_world_coord;
     use crate::sim::movement::jumpjet_movement::jumpjet_flight::STATE_ASCEND;
@@ -749,9 +673,10 @@ mod tests {
     }
 
     /// A Unit Jumpjet with the corpus BASE type block, fresh from `link`
-    /// (state 0, locomotor facing `0x4000`), hovering at 500 at cell (10,10)
-    /// with a move to cell (16,10). The terrain is the oracle fixture: level 0
-    /// and flat, except cell (9,10) at level 2 with slope 1.
+    /// (state 0, locomotor facing `0x4000`), hovering at 500 at cell (10,10);
+    /// [`order_east`] gives it its move to cell (16,10). The terrain is the
+    /// oracle fixture: level 0 and flat, except cell (9,10) at level 2 with
+    /// slope 1.
     fn hovering_jumpjet(body_facing: u8) -> Simulation {
         let mut sim = Simulation::new();
         super::super::lifecycle_tests::install_common_raw_terrain(&mut sim, 24, 16, 0, None);
@@ -812,12 +737,32 @@ mod tests {
         locomotor.altitude = SimFixed::from_num(500);
 
         entity.locomotor = Some(locomotor);
-        entity.movement_target = Some(MovementTarget {
-            speed: SimFixed::from_num(14),
-            final_goal: Some((16, 10)),
-        });
         sim.substrate.entities.insert(entity);
         sim
+    }
+
+    /// The fixture's order to cell (16,10) at frame 1001, as Foot's setter
+    /// gives it: the Cell NavCom (`0x004D9510`), then the Jumpjet's `Move_To`
+    /// with the cell's coordinate (`0x004D965D`), and the order's adapter.
+    fn order_east(sim: &mut Simulation) {
+        sim.session.binary_frame = 1001;
+        let request = crate::sim::movement::target_cell_coord(
+            16,
+            10,
+            sim.resolved_terrain
+                .as_ref()
+                .map(crate::map::resolved_terrain::NativeCellQuery::canonical)
+                .as_ref(),
+        );
+        sim.substrate
+            .entities
+            .get_mut(1)
+            .expect("jumpjet")
+            .navigation
+            .nav_com = Some(crate::sim::components::NavTargetRef::cell(16, 10));
+        sim.jumpjet_move_to(1, request, None)
+            .expect("Move_To on the fixture map");
+        sim.publish_jumpjet_order_adapter(1, SimFixed::from_num(14));
     }
 
     /// Park a Jumpjet with no order in a given native state and run the tick.
@@ -876,6 +821,7 @@ mod tests {
         sim.add_entity_occupancy(1);
         assert!(sim.substrate.occupancy.contains_entity(10, 10, 1));
         assert_eq!(sim.substrate.raw_cell_occupation.ground_bits(10, 10), 0x20);
+        order_east(&mut sim);
         for frame in 0..80 {
             sim.session.binary_frame = 1001 + frame;
             sim.tick_air_movement_with_cell_lists_one(
@@ -944,7 +890,7 @@ mod tests {
                 .with_phase_for_test(STATE_HOLD)
                 .with_moving_for_test(true);
         }
-        sim.session.binary_frame = 1001;
+        order_east(&mut sim);
         sim.tick_air_movement_with_cell_lists_one(
             1,
             None,
@@ -989,6 +935,7 @@ mod tests {
         let row = native_row(name);
         let frames = row["output"]["frames"].as_array().expect("frames");
         let mut sim = hovering_jumpjet(body_facing);
+        order_east(&mut sim);
         for (index, expected) in frames.iter().enumerate() {
             sim.session.binary_frame = 1001 + index as u32;
             let stats = sim.tick_air_movement_with_cell_lists_one(
@@ -1070,6 +1017,7 @@ mod tests {
     #[test]
     fn a_null_destination_stops_at_the_cell_under_the_owner() {
         let mut sim = hovering_jumpjet(0x40);
+        order_east(&mut sim);
         for frame in 0..20 {
             sim.session.binary_frame = 1001 + frame;
             sim.tick_air_movement_with_cell_lists_one(

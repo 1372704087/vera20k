@@ -284,7 +284,6 @@ fn test_drive_arrival_clears_navcom_same_tick() {
     e.movement_target = Some(MovementTarget {
         // One live speed lepton plus residual7 pays the terminal point.
         speed: SimFixed::from_num(15),
-        final_goal: Some((0, 0)),
     });
     e.lifecycle.in_limbo = false;
     entities.insert(e);
@@ -347,7 +346,7 @@ fn test_drive_queue_command_reissues_destination_without_navqueue_append() {
     // The queued Drive order re-enters the ordinary setter: the destination
     // is replaced and the first Process requests the route.
     let entity = entities.get(1).expect("entity exists");
-    let movement = entity.movement_target.as_ref().expect("movement target");
+    assert!(entity.movement_target.is_some(), "movement target");
     assert!(
         entity
             .navigation
@@ -355,7 +354,6 @@ fn test_drive_queue_command_reissues_destination_without_navqueue_append() {
             .remaining_directions()
             .is_empty()
     );
-    assert_eq!(movement.final_goal, None);
     assert_eq!(movement_goal_cell(entity), Some((4, 0)));
     assert_eq!(
         entity
@@ -378,17 +376,16 @@ fn test_drive_queue_command_reissues_destination_without_navqueue_append() {
 }
 
 /// The fixture Drive types: a Unit's Process reads its type.
-/// The order-time adapter (here a Jumpjet's) admits a destination in the
-/// mover's own cell without asking the AStar core, whose start-equals-goal
-/// exit has no route for it (0x00429BF3..0x00429C0A): the setters record any
-/// destination unsearched. A queued order to the same cell appends nothing.
+/// The order-time adapter (here a fixture mover with no class setter) admits
+/// a destination in the mover's own cell without asking the AStar core, whose
+/// start-equals-goal exit has no route for it (0x00429BF3..0x00429C0A): the
+/// setters record any destination unsearched. A queued order to the same cell
+/// appends nothing.
 #[test]
 fn order_time_admission_accepts_a_goal_in_the_start_cell() {
     let mut entities = EntityStore::new();
     let grid = PathGrid::new(10, 10);
-    let mut e = GameEntity::test_default(1, "JUMPJET", "Americans", 5, 5);
-    e.locomotor = Some(LocomotorState::for_test_kind(LocomotorKind::Jumpjet));
-    entities.insert(e);
+    entities.insert(GameEntity::test_default(1, "MOVER", "Americans", 5, 5));
     for queue in [false, true] {
         assert!(
             issue_move_command(
@@ -407,7 +404,7 @@ fn order_time_admission_accepts_a_goal_in_the_start_cell() {
         );
     }
     let movement = entities.get(1).unwrap().movement_target.as_ref().unwrap();
-    assert_eq!(movement.final_goal, Some((5, 5)));
+    assert_eq!(movement.speed, SimFixed::from_num(1024));
 }
 
 fn drive_type_rules() -> crate::rules::ruleset::RuleSet {
@@ -1265,8 +1262,7 @@ fn gsi_06_02_cross_zone_move_order_is_accepted_without_redirect() {
         "gamemd accepts a ground move order across a disconnected boundary"
     );
     let entity = entities.get(1).unwrap();
-    let target = entity.movement_target.as_ref().unwrap();
-    assert_eq!(target.final_goal, None);
+    assert!(entity.movement_target.is_some());
     assert_eq!(movement_goal_cell(entity), Some((4, 0)));
     assert!(
         entity
@@ -1372,8 +1368,8 @@ fn test_issue_move_command_sets_path() {
         .as_ref()
         .expect("should have MovementTarget");
     // The command-time search only admits the order; the adapter keeps the
-    // goal and speed, and the first Process's Find_Path installs the route.
-    assert_eq!(target.final_goal, Some((7, 3)));
+    // speed stamp, and the first Process's Find_Path installs the route.
+    assert_eq!(target.speed, SimFixed::from_num(768));
     assert!(
         entity
             .navigation
@@ -1955,7 +1951,6 @@ fn gsi_04_10_crusher_and_omnicrusher_never_enter_or_crush_a_terrain_object_cell(
         );
         tank.movement_target = Some(MovementTarget {
             speed: SimFixed::from_num(1024),
-            final_goal: Some((2, 0)),
         });
         entities.insert(tank);
 
@@ -2128,7 +2123,6 @@ fn gsi_06_13_fixture_mover(
     let goal = *path.last().expect("non-empty path");
     e.movement_target = Some(MovementTarget {
         speed: SimFixed::from_num(768),
-        final_goal: Some(goal),
     });
     e.navigation.path_replay = crate::sim::components::FootPathQueue {
         directions,

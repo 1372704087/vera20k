@@ -609,6 +609,19 @@ pub(super) fn capability_cursor_for_hover(
             };
         }
 
+        // The infiltration arm (`0x0051EE3B..0x0051EEEF`): a spy over a
+        // building it can enter takes Capture (9), whose cursor is Enter
+        // (`DisplayClass::SetCursorFromAction` 0x004AAE90, row 0x19). Retail's
+        // one infiltrator, SPY, takes none of the arms between.
+        if matches!(
+            hover.kind,
+            HoverTargetKind::FriendlyStructure | HoverTargetKind::EnemyStructure
+        ) && rules
+            .is_some_and(|rules| sim.infiltrator_building_action(best_id, hover.stable_id, rules))
+        {
+            return CursorFeedbackKind::Enter;
+        }
+
         // 2. C4 plant: SEAL / Tanya / Psi-Corp Trooper hovering an enemy
         //    structure with CanC4=yes, not InvisibleInGame, not iron-curtained.
         //    SabotageCursor flag remains in the data model (parsed in

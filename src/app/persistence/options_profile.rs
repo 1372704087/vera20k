@@ -94,6 +94,9 @@ pub(crate) struct RetailOptionsProfile {
     pub(crate) full_screen: bool,
     /// The Options page's battle zoom.
     pub(crate) zoom: crate::ui::main_menu_dialogs::options::Zoom,
+    /// Whether battles keep gamemd's 4:3 screen shape, with bars on a window
+    /// of any other shape, instead of filling the window.
+    pub(crate) original_shape: bool,
 }
 
 /// The two process-start products obtained from one physical `RA2MD.INI`
@@ -143,6 +146,7 @@ impl Default for RetailOptionsProfile {
             wol_lobby_music: 1,
             full_screen: false,
             zoom: crate::ui::main_menu_dialogs::options::Zoom::Auto,
+            original_shape: false,
         }
     }
 }
@@ -161,7 +165,7 @@ pub(crate) struct FormattedProfileSections {
     /// network fields this profile does not model; their bytes are preserved.
     pub(crate) network: [(&'static str, String); 1],
     /// VERA's own section, written after the native ones.
-    pub(crate) vera: [(&'static str, String); 2],
+    pub(crate) vera: [(&'static str, String); 3],
 }
 
 impl RetailOptionsLoad {
@@ -342,6 +346,7 @@ impl RetailOptionsProfile {
             self.zoom = crate::ui::main_menu_dialogs::options::Zoom::from_ini_value(
                 vera.read_int("Zoom", self.zoom.ini_value()),
             );
+            self.original_shape = vera.read_bool("OriginalShape", self.original_shape);
         }
     }
 
@@ -413,6 +418,10 @@ impl RetailOptionsProfile {
             vera: [
                 ("FullScreen", format_bool(self.full_screen).to_string()),
                 ("Zoom", self.zoom.ini_value().to_string()),
+                (
+                    "OriginalShape",
+                    format_bool(self.original_shape).to_string(),
+                ),
             ],
         }
     }
@@ -953,13 +962,15 @@ mod tests {
         );
         assert!(!defaults.retained_profile.full_screen);
         assert_eq!(defaults.retained_profile.zoom, Zoom::Auto);
+        assert!(!defaults.retained_profile.original_shape);
 
         let load = load_snapshot(
             &RetailStartupOptions::default(),
-            b"[VERA]\nFullScreen=yes\nZoom=2\n",
+            b"[VERA]\nFullScreen=yes\nZoom=2\nOriginalShape=yes\n",
         );
         assert!(load.retained_profile.full_screen);
         assert_eq!(load.retained_profile.zoom, Zoom::Large);
+        assert!(load.retained_profile.original_shape);
         // A value this build doesn't know reads as Auto.
         let unknown = load_snapshot(&RetailStartupOptions::default(), b"[VERA]\nZoom=9\n");
         assert_eq!(unknown.retained_profile.zoom, Zoom::Auto);
@@ -967,17 +978,19 @@ mod tests {
         let profile = RetailOptionsProfile {
             full_screen: true,
             zoom: Zoom::Huge,
+            original_shape: true,
             ..RetailOptionsProfile::default()
         };
         let output =
             String::from_utf8(profile.transform_ra2md(b"[Video]\r\nScreenWidth=800\r\n")).unwrap();
         assert!(
-            output.contains("[VERA]\r\nFullScreen=yes\r\nZoom=3\r\n"),
+            output.contains("[VERA]\r\nFullScreen=yes\r\nZoom=3\r\nOriginalShape=yes\r\n"),
             "{output}"
         );
         let reread = load_snapshot(&RetailStartupOptions::default(), output.as_bytes());
         assert!(reread.retained_profile.full_screen);
         assert_eq!(reread.retained_profile.zoom, Zoom::Huge);
+        assert!(reread.retained_profile.original_shape);
     }
 
     #[test]

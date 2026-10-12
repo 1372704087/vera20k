@@ -9,7 +9,7 @@ ra2_dir = "C:/Westwood/RA2"
 [graphics]
 vsync = true
 extra_animations = true   # cosmetic effects: water/ore sparkles (future: laser pulses, particle trails)
-# Full screen and zoom are on the in-game Options page (saved in RA2MD.INI).
+# Full screen, zoom and the original 4:3 shape are on the Options page (saved in RA2MD.INI).
 
 [gameplay]
 sim_tick_hz = 15

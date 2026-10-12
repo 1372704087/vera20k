@@ -5,14 +5,26 @@
 //! menu) into a source target the window size divided by the zoom factor;
 //! this pass then copies it to the window with each source pixel as a
 //! `factor` x `factor` block, centred. A window that doesn't divide evenly
-//! keeps a black border narrower than one block. The front-end menus never
-//! come here: they fit the window on their own.
+//! keeps a black border narrower than one block. With the original 4:3 shape
+//! the frame is the largest 4:3 rectangle that fits, centred between black
+//! bars, so the pass runs even at factor 1. The front-end menus never come
+//! here: they fit the window on their own.
 //!
 //! Depends on: `render/gpu.rs` (GpuContext)
 
 use super::gpu::GpuContext;
 
 const SHADER_SRC: &str = include_str!("upscale_zoom.wgsl");
+
+/// The match frame's shape.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum FrameShape {
+    /// The window's own: a wider window shows more battlefield.
+    #[default]
+    Window,
+    /// gamemd's 4:3 screen, with black bars on a window of any other shape.
+    Original,
+}
 
 /// Where a zoomed frame sits in the window.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -26,10 +38,17 @@ pub struct ZoomGeometry {
 }
 
 impl ZoomGeometry {
-    pub fn new(window_width: u32, window_height: u32, factor: u32) -> Self {
+    pub fn new(window_width: u32, window_height: u32, factor: u32, shape: FrameShape) -> Self {
         let factor = factor.max(1);
-        let src_width = (window_width / factor).max(1);
-        let src_height = (window_height / factor).max(1);
+        let mut src_width = (window_width / factor).max(1);
+        let mut src_height = (window_height / factor).max(1);
+        if shape == FrameShape::Original {
+            if src_width * 3 > src_height * 4 {
+                src_width = (src_height * 4 / 3).max(1);
+            } else {
+                src_height = (src_width * 3 / 4).max(1);
+            }
+        }
         Self {
             factor,
             src_width,
@@ -39,6 +58,11 @@ impl ZoomGeometry {
                 window_height.saturating_sub(src_height * factor) / 2,
             ),
         }
+    }
+
+    /// Whether the frame is the whole window, unscaled: no pass is needed.
+    pub fn is_whole_window(self, window_width: u32, window_height: u32) -> bool {
+        self.factor == 1 && (self.src_width, self.src_height) == (window_width, window_height)
     }
 
     /// A window point in source pixels. The border clamps to the frame's edge.
@@ -374,13 +398,13 @@ mod tests {
     #[test]
     fn zoom_centres_whole_blocks_and_maps_points_both_ways() {
         // An even window: the frame covers it exactly.
-        let wide = ZoomGeometry::new(3440, 1440, 2);
+        let wide = ZoomGeometry::new(3440, 1440, 2, FrameShape::Window);
         assert_eq!(
             (wide.src_width, wide.src_height, wide.origin),
             (1720, 720, (0, 0))
         );
         // An odd window keeps a border under one block, split evenly.
-        let odd = ZoomGeometry::new(1925, 1083, 3);
+        let odd = ZoomGeometry::new(1925, 1083, 3, FrameShape::Window);
         assert_eq!(
             (odd.src_width, odd.src_height, odd.origin),
             (641, 361, (1, 0))
@@ -390,11 +414,35 @@ mod tests {
         // The border clamps to the frame's edge pixels.
         assert_eq!(odd.window_to_source(0.0, 1082.0), (0.0, 360.0));
         // Factor 1 is the identity.
-        let plain = ZoomGeometry::new(800, 600, 1);
+        let plain = ZoomGeometry::new(800, 600, 1, FrameShape::Window);
         assert_eq!(
             (plain.src_width, plain.src_height, plain.origin),
             (800, 600, (0, 0))
         );
         assert_eq!(plain.window_to_source(399.5, 299.5), (399.5, 299.5));
+        assert!(plain.is_whole_window(800, 600));
+        assert!(!wide.is_whole_window(3440, 1440));
+    }
+
+    #[test]
+    fn original_shape_keeps_a_4_3_frame_between_centred_bars() {
+        let frame = |w, h, factor| {
+            let zoom = ZoomGeometry::new(w, h, factor, FrameShape::Original);
+            (zoom.src_width, zoom.src_height, zoom.origin)
+        };
+        // A widescreen gets bars at the sides, at any zoom.
+        assert_eq!(frame(1920, 1080, 1), (1440, 1080, (240, 0)));
+        assert_eq!(frame(1920, 1080, 2), (720, 540, (240, 0)));
+        // A taller screen gets them above and below.
+        assert_eq!(frame(1280, 1024, 1), (1280, 960, (0, 32)));
+        // A 4:3 window is unchanged, and at factor 1 needs no pass.
+        assert_eq!(frame(1600, 1200, 2), (800, 600, (0, 0)));
+        let whole = ZoomGeometry::new(1024, 768, 1, FrameShape::Original);
+        assert!(whole.is_whole_window(1024, 768));
+        let barred = ZoomGeometry::new(1920, 1080, 1, FrameShape::Original);
+        assert!(!barred.is_whole_window(1920, 1080));
+        // The bars clamp to the frame's edge, like the zoom's own border.
+        assert_eq!(barred.window_to_source(100.0, 500.0), (0.0, 500.0));
+        assert_eq!(barred.source_to_window(0.0, 0.0), (240.0, 0.0));
     }
 }

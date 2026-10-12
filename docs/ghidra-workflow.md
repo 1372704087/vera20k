@@ -126,10 +126,13 @@ when cloned into their own manager. Do not use this route to fork a callback typ
   misplaced (`unaff_retaddr`, `in_stack_`, a parameter where another is pushed). For a
   call whose stack change it does not know, the decompiler assumes the call pops
   nothing, unless paths that meet pin the value. That covers every virtual or COM call,
-  and every direct call to a function without a stored purge. A call that pops its
-  arguments then leaves the rest of that path off by those bytes. `__alloca_probe`
-  (0x7CA650) is MSVC's `_chkstk`, which Ghidra's stack analysis does not model, so the
-  decompiles of its 30 callers place their locals above the return address. The
+  and every direct call to a function without a stored purge (since 2026-10-12 only
+  functions with no RET lack one). A call that pops its arguments then leaves the rest
+  of that path off by those bytes. `__alloca_probe` (0x7CA650) is MSVC's `_chkstk`. It
+  has Ghidra's `alloca_probe` call fixup since 2026-10-12, so the decompile models the
+  probe and marks each call `replaced with injection: alloca_probe`. Where a CRT string
+  helper probes a size computed at run time, ESP has no constant offset after it, and
+  the decompiler warns `Unable to track spacebase fully for stack`. The
   repository's [`ghidra_compare
   frames`](../tools/ghidra_compare.md#stack-frames-against-the-native-instructions)
   command compares the decompiler's offsets with ESP computed from the code. Typing the
@@ -517,8 +520,9 @@ Notes for readers:
   - two endless loops that stand in for element compares, and their two wrappers.
 
   `_com_issue_error` cannot return either, but it stays unmarked and untyped; its plate
-  says why. No switch table has a case the flows lack. 10,088 functions without a
-  prototype still have an unknown stack purge.
+  says why. No switch table has a case the flows lack. On 2026-10-12 the 2,742
+  functions without a prototype whose RETs agree got their stored purge; the ones still
+  without one have no RET.
 - **Stack-address inputs.** The 2026-10-01 pass assigned an ECX input to 923 functions:
   735 were `__thiscall`, and 188 were `__fastcall` because they read EDX first too.
   `this` was `void *`, and each prototype declared the stack bytes its RETs pop. Those
@@ -838,7 +842,11 @@ Receiver tools, checked on staging copies:
   function without a stored purge also counts 4 bytes for each register parameter, and
   callers read the stack that many bytes off after each call (8 with ECX and EDX). Write
   `__stdcall` with only the stack parameters first, then the `__fastcall` prototype. No
-  endpoint reads a purge; the signature census of a staging copy does.
+  endpoint reads a purge; the signature census of a staging copy does. No endpoint
+  writes a purge or a call fixup either, and naming a function after a fixup's target
+  (`__alloca_probe`) does not install the fixup: only analysis does. Both need an
+  `analyzeHeadless` script with the shared server stopped; the signatures research
+  folder (see `LOCAL.md`) has `SetPurge.java` and `SetCallFixup.java`.
   For a native caller-cleanup `__cdecl` helper whose purge is unknown, use a
   zero-argument `__stdcall` prelude before the full `__cdecl` prototype. On 2026-10-03,
   directly typing comparators `0x52B6A0`/`0x52B720` stored 8 despite their bare native

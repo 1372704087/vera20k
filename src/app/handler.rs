@@ -32,23 +32,28 @@ impl App {
         crate::app::presentation::sidebar_render::refresh_sidebar_projection(state);
     }
 
-    /// Keep the zoom pass matching the window and the Options zoom: a source
-    /// target of the window size over the factor, or none at factor 1. The
+    /// Keep the zoom pass matching the window and the Options choices: a
+    /// source target of the window size over the zoom factor, in the window's
+    /// shape or the original 4:3, or none when that is the whole window. The
     /// match reads its size through `render_width`/`render_height`, so a
     /// resize mid-match re-projects the battlefield and sidebar the same way.
-    /// A sealed capture never zooms.
+    /// A sealed capture never zooms or takes bars.
     pub(crate) fn sync_zoom_pass(state: &mut AppState) {
         let (width, height) = (
             state.renderer.gpu.config.width,
             state.renderer.gpu.config.height,
         );
-        let factor = if state.platform.capture_client_size.is_some() {
-            1
+        use crate::render::upscale_pass::{FrameShape, ZoomGeometry};
+        let profile = &state.persistence.options_profile;
+        let (factor, shape) = if state.platform.capture_client_size.is_some() {
+            (1, FrameShape::Window)
+        } else if profile.original_shape {
+            (profile.zoom.factor(width, height), FrameShape::Original)
         } else {
-            state.persistence.options_profile.zoom.factor(width, height)
+            (profile.zoom.factor(width, height), FrameShape::Window)
         };
-        let geometry = crate::render::upscale_pass::ZoomGeometry::new(width, height, factor);
-        if factor == 1 {
+        let geometry = ZoomGeometry::new(width, height, factor, shape);
+        if geometry.is_whole_window(width, height) {
             state.renderer.upscale_pass = None;
         } else if let Some(pass) = state.renderer.upscale_pass.as_mut() {
             pass.set_geometry(&state.renderer.gpu, geometry);

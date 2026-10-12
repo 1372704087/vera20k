@@ -437,3 +437,128 @@ fn losing_the_last_building_blows_up_the_army_next_frame() {
     );
     assert!(sim.substrate.entities.get(enemy_base).is_some());
 }
+
+/// Two houses on a bare 40x40 plane in a short game, `house0` the current
+/// house; each owns one counted building.
+fn two_house_plane(rules: &RuleSet) -> (Simulation, Vec<InternedId>, [u64; 2]) {
+    let (mut sim, houses) = sim_with_houses(&[0, 1]);
+    sim.fog.width = 40;
+    sim.fog.height = 40;
+    sim.session.game_options.short_game = true;
+    sim.session.current_house = Some(houses[0]);
+    let own = sim
+        .spawn_object_at_height("GAREFN", "house0", 10, 10, 0, 0, rules)
+        .unwrap();
+    let enemy = sim
+        .spawn_object_at_height("NAREFN", "house1", 30, 30, 0, 0, rules)
+        .unwrap();
+    (sim, houses, [own, enemy])
+}
+
+const CORNERS: [(u16, u16); 4] = [(0, 0), (39, 0), (0, 39), (39, 39)];
+
+/// MPlayer_Defeated's local branch through the production frame: the current
+/// house's defeat explores its whole plane (RevealEntireMap), writes its
+/// map-clear byte and switches its radar on, which no later House update
+/// rechecks (`0x004F84FB`).
+#[test]
+fn a_local_defeat_reveals_the_whole_map_and_keeps_the_radar_on() {
+    let rules = rules(3);
+    let (mut sim, houses, [own, _]) = two_house_plane(&rules);
+    let step = |sim: &mut Simulation| {
+        sim.advance_tick(&[], Some(&rules), None, None, 67);
+    };
+    step(&mut sim);
+    for (x, y) in CORNERS {
+        assert!(!sim.fog.is_cell_revealed(houses[0], x, y));
+    }
+    assert!(!crate::sim::radar::has_radar_for_owner(
+        &sim, &rules, "house0"
+    ));
+
+    sim.uninit_with_rules(own, &rules);
+    step(&mut sim);
+    step(&mut sim);
+    let local = &sim.houses[&houses[0]];
+    assert!(local.is_defeated && local.map_is_clear);
+    assert!(sim.local_player_defeated());
+    assert!(sim.fog.whole_map_revealed_for_owner(houses[0]));
+    for (x, y) in CORNERS {
+        assert!(sim.fog.is_cell_revealed(houses[0], x, y), "{x},{y}");
+        assert!(sim.fog.is_ground_unshrouded(houses[0], x, y), "{x},{y}");
+        assert!(!sim.fog.is_cell_revealed(houses[1], x, y), "{x},{y}");
+    }
+    assert!(!sim.fog.whole_map_revealed_for_owner(houses[1]));
+    assert!(crate::sim::radar::has_radar_for_owner(
+        &sim, &rules, "house0"
+    ));
+    sim.power_states
+        .get_mut(&houses[0])
+        .unwrap()
+        .recheck_radar();
+    step(&mut sim);
+    assert!(
+        crate::sim::radar::has_radar_for_owner(&sim, &rules, "house0"),
+        "no House rechecks radar after the local defeat"
+    );
+}
+
+/// Another house's defeat writes its map-clear byte alone
+/// (`0x004FC30C..0x004FC328`): no plane is explored and radar rechecks go on.
+#[test]
+fn another_house_defeat_writes_only_its_map_clear_byte() {
+    let rules = rules(3);
+    let (mut sim, houses, [_, enemy]) = two_house_plane(&rules);
+    let step = |sim: &mut Simulation| {
+        sim.advance_tick(&[], Some(&rules), None, None, 67);
+    };
+    step(&mut sim);
+    sim.uninit_with_rules(enemy, &rules);
+    step(&mut sim);
+    step(&mut sim);
+    let other = &sim.houses[&houses[1]];
+    assert!(other.is_defeated && other.map_is_clear);
+    assert!(!sim.local_player_defeated());
+    assert!(!sim.houses[&houses[0]].map_is_clear);
+    for house in &houses {
+        assert!(!sim.fog.whole_map_revealed_for_owner(*house));
+    }
+    assert!(!sim.fog.is_cell_revealed(houses[0], 39, 39));
+    assert!(!sim.fog.is_cell_revealed(houses[1], 0, 0));
+}
+
+/// RevealEntireMap's guards (`0x00577F30..0x00577FAD`): NULL reveals to the
+/// current house without a map-clear byte; once House+240 is set a second
+/// call only writes the named house's byte; another house gets its byte and
+/// nothing else.
+#[test]
+fn reveal_entire_map_reveals_once_and_only_to_the_current_house() {
+    let (mut sim, houses) = sim_with_houses(&[0, 1]);
+    sim.fog.width = 8;
+    sim.fog.height = 8;
+    let context = crate::sim::world::UninitContext::default();
+    sim.reveal_entire_map(None, context);
+    assert!(
+        !sim.fog.whole_map_revealed_for_owner(houses[0]),
+        "no current house, no PlayerPtr"
+    );
+
+    sim.session.current_house = Some(houses[0]);
+    sim.reveal_entire_map(None, context);
+    assert!(!sim.houses[&houses[0]].map_is_clear);
+    assert!(sim.fog.whole_map_revealed_for_owner(houses[0]));
+    assert!(sim.fog.is_cell_revealed(houses[0], 7, 7));
+    let plane = bincode::serialize(&sim.fog.by_owner[&houses[0]]).unwrap();
+
+    sim.reveal_entire_map(Some(houses[0]), context);
+    assert!(sim.houses[&houses[0]].map_is_clear);
+    assert_eq!(
+        bincode::serialize(&sim.fog.by_owner[&houses[0]]).unwrap(),
+        plane
+    );
+
+    sim.reveal_entire_map(Some(houses[1]), context);
+    assert!(sim.houses[&houses[1]].map_is_clear);
+    assert!(!sim.fog.whole_map_revealed_for_owner(houses[1]));
+    assert!(!sim.fog.is_cell_revealed(houses[1], 7, 7));
+}

@@ -679,6 +679,36 @@ mod tests {
         );
     }
 
+    /// RevealEntireMap (a local defeat or Shroud=no) lifts the full shroud from
+    /// unseen ground for the current house alone.
+    #[test]
+    fn a_whole_map_reveal_lifts_the_full_shroud_for_the_current_house() {
+        let mut sim = crate::sim::world::Simulation::with_seed(0x577F30);
+        sim.fog.width = 8;
+        sim.fog.height = 6;
+        let local = sim.interner.intern("Player");
+        let other = sim.interner.intern("Computer");
+        sim.session.current_house = Some(local);
+        assert_eq!(
+            cell_fill(&sim.fog, local, 3, 2, &SHROUD_EDGE_LUT),
+            CellFill::Frame(15)
+        );
+
+        sim.reveal_entire_map(
+            Some(local),
+            crate::sim::world::UninitContext::new(None, None),
+        );
+
+        assert_eq!(
+            cell_fill(&sim.fog, local, 3, 2, &SHROUD_EDGE_LUT),
+            CellFill::None
+        );
+        assert_eq!(
+            cell_fill(&sim.fog, other, 3, 2, &SHROUD_EDGE_LUT),
+            CellFill::Frame(15)
+        );
+    }
+
     #[test]
     fn shroud_current_sight_keeps_tactical_cell_bright_until_pending_boundary() {
         use crate::map::entities::EntityCategory;

@@ -355,10 +355,11 @@ mod tests {
             ai,
             crate::sim::vision::OwnerVisibility::new(sim.fog.width, sim.fog.height),
         );
+        sim.session.current_house = Some(local);
         let scenario_rng_before = sim.scenario_rng.state();
         let main_rng_before = sim.main_rng.state();
 
-        apply_launch_shroud_option(&mut sim, Some("Player"));
+        apply_launch_shroud_option(&mut sim, crate::sim::world::UninitContext::new(None, None));
 
         for (rx, ry) in [(0, 0), (7, 0), (0, 5), (7, 5), (3, 2)] {
             assert!(sim.fog.is_cell_revealed(local, rx, ry));
@@ -372,7 +373,7 @@ mod tests {
     }
 
     #[test]
-    fn gsi_04_18_shroud_yes_and_nonhuman_local_candidates_stay_unexplored() {
+    fn gsi_04_18_shroud_yes_and_a_missing_current_house_stay_unexplored() {
         let mut shrouded = Simulation::with_seed(0x418);
         shrouded.fog.width = 8;
         shrouded.fog.height = 6;
@@ -380,33 +381,28 @@ mod tests {
         shrouded
             .houses
             .insert(human, HouseState::new(human, 0, None, true, 10_000, 10));
-        apply_launch_shroud_option(&mut shrouded, Some("Player"));
+        let context = crate::sim::world::UninitContext::new(None, None);
+        apply_launch_shroud_option(&mut shrouded, context);
         assert!(!shrouded.fog.is_cell_revealed(human, 7, 5));
 
+        // RevealEntireMap(NULL) reveals to PlayerPtr alone.
         shrouded.session.game_options.shroud = false;
-        let ai = shrouded.interner.intern("Computer");
-        shrouded
-            .houses
-            .insert(ai, HouseState::new(ai, 1, None, false, 10_000, 10));
-        apply_launch_shroud_option(&mut shrouded, Some("Computer"));
-        assert!(!shrouded.fog.is_cell_revealed(ai, 7, 5));
+        apply_launch_shroud_option(&mut shrouded, context);
+        assert!(!shrouded.fog.is_cell_revealed(human, 7, 5));
+        assert!(!shrouded.fog.whole_map_revealed_for_owner(human));
     }
 
     #[test]
     fn gsi_04_18_explicit_launch_applies_shroud_no_with_bases_off() {
         let mut sim = Simulation::with_seed(0x418);
-        sim.fog.width = 64;
-        sim.fog.height = 64;
+        // The map's Size 64x64 diamond spans rx and ry 1..=127.
+        sim.fog.width = 128;
+        sim.fog.height = 128;
         let mut session = test_session();
         session.options.shroud = false;
         session.options.bases = false;
         session.options.unit_count = 0;
-        let mut terrain = test_terrain(64, 64);
-        let allocated = (0..64u16)
-            .flat_map(|ry| (0..64u16).map(move |rx| (rx, ry)))
-            .filter(|cell| *cell != (5, 5))
-            .collect::<Vec<_>>();
-        terrain.test_set_native_allocated_cells(&allocated);
+        let terrain = test_terrain(128, 128);
         sim.resolved_terrain = Some(terrain.clone());
         let starts = test_launch_starts();
         let map = test_map_with_starts(&starts);
@@ -423,15 +419,18 @@ mod tests {
         assert_eq!(result.spawned_mcvs, 0);
         let local = sim.interner.get("Player").expect("local house");
         let ai = sim.interner.get("Computer1").expect("AI house");
-        for (rx, ry) in [(0, 0), (63, 0), (0, 63), (63, 63), (32, 32)] {
+        // The diamond's four corners and centre.
+        for (rx, ry) in [(1, 64), (64, 1), (127, 64), (64, 127), (64, 64)] {
             assert!(sim.fog.is_cell_revealed(local, rx, ry));
             assert!(!sim.fog.is_cell_visible(local, rx, ry));
             assert!(!sim.fog.is_cell_revealed(ai, rx, ry));
         }
-        assert!(
-            !sim.fog.is_cell_revealed(local, 5, 5),
-            "the rectangular buffer hole outside the native Size diamond stays shrouded"
-        );
+        for (rx, ry) in [(0, 0), (127, 0), (0, 127), (127, 127)] {
+            assert!(
+                !sim.fog.is_cell_revealed(local, rx, ry),
+                "the CellIterator never walks storage outside the Size diamond"
+            );
+        }
         assert!(!sim.houses[&local].map_is_clear);
     }
 

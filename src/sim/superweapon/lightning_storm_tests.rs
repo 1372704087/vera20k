@@ -419,8 +419,9 @@ fn assert_rng(sim: &Simulation, row: &Value) {
 /// `LightningStorm::Start @ 0x00539EB0` against the native rows: the empty
 /// cell's redraws over MapRect, the deferred branch's countdown minimum and
 /// duration, a raging storm's retarget, and the start's radar event,
-/// outages (allies and the defeated skipped), the player's recheck,
-/// UpdateLighting and its PrintText block.
+/// outages (allies and the defeated skipped, and every house once Session
+/// `+0x300` is set), the player's recheck, UpdateLighting and its PrintText
+/// block. VERA's Session `+0x300` is the current house's Defeated flag.
 #[test]
 fn storm_start_matches_native_rows() {
     let oracle = oracle();
@@ -439,6 +440,10 @@ fn storm_start_matches_native_rows() {
             row["houses"].as_array().unwrap(),
             row["player"].as_u64().map(|player| player as usize),
         );
+        if int(&row["mute"]) != 0 {
+            let player = sim.session.current_house.expect("a muted row's player");
+            sim.houses.get_mut(&player).unwrap().is_defeated = true;
+        }
         sim.lightning_storm = LightningStorm::for_test(
             flag(&row["active"]),
             false,
@@ -458,13 +463,11 @@ fn storm_start_matches_native_rows() {
         );
         assert_globals(&sim, &houses, &row["storm"], row);
         assert_eq!(Calls::of(&sim, 0), Calls::expected(row), "{row}");
-        if int(&row["mute"]) == 0 {
-            assert_eq!(
-                house_states(&sim, &houses),
-                expected_house_states(row),
-                "{row}"
-            );
-        }
+        assert_eq!(
+            house_states(&sim, &houses),
+            expected_house_states(row),
+            "{row}"
+        );
         assert_rng(&sim, row);
     }
 }

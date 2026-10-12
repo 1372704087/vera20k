@@ -398,7 +398,7 @@ pub(super) fn dispatch_sim_sound_events(
                 // only the event name; the consumer resolves the side.
                 let eva_event = cue
                     .eva_event
-                    .filter(|_| local_owner_name.is_some())
+                    .filter(|_| local_owner_name.is_some() && !sim.local_player_defeated())
                     .map(str::to_string);
                 let activated = (cue.sound_id.is_some() || eva_event.is_some()).then(|| {
                     GameSoundEvent::SuperWeaponActivated {
@@ -858,11 +858,7 @@ pub(super) fn dispatch_sim_sound_events(
                 };
                 let owner_name = sim.interner.resolve(owner).to_string();
                 let type_name = sim.interner.resolve(sw_type).to_string();
-                let local_defeated = sim
-                    .interner
-                    .get(local_name)
-                    .and_then(|id| sim.houses.get(&id))
-                    .is_some_and(|house| house.is_defeated);
+                let local_defeated = sim.local_player_defeated();
                 // `0x004468FA..0x00446935`: `AuxBuilding=` absent, or
                 // the building's own house owns one
                 // (`CountOwnedInstances` on `Owner+0x5550`).
@@ -1054,8 +1050,8 @@ pub(crate) struct SuperWeaponLaunchCue {
 /// Every EVA call sits behind `MOV EAX,[0x00A8B538] ; TEST ; JNZ` and nothing
 /// else — not the launching house — so an enemy launch announces itself too.
 /// `0x00A8B538` is the client-side defeated/spectating flag
-/// (`HouseClass::MPlayer_Defeated @ 0x004FC205` sets it to 1); VERA has no
-/// equivalent state, so the gate is unmodelled and always open here.
+/// (`HouseClass::MPlayer_Defeated @ 0x004FC205` sets it to 1); the dispatch
+/// reads it as [`crate::sim::world::Simulation::local_player_defeated`].
 pub(crate) fn superweapon_launch_cue(
     kind: crate::rules::superweapon_type::SuperWeaponKind,
     general: &crate::rules::ruleset::GeneralRules,
@@ -1826,8 +1822,8 @@ mod tests {
     /// `EVA_GeneticMutatorReady` (`0x006CDA5D`) or `EVA_PsychicRevealReady`
     /// (`0x006CD7DD`), the last two through the shared `0x006CD51E`. One
     /// launch event carries a case's sound and line, so case 0's order, its
-    /// sound first, is not compared. Left out: the mute rows (`0x00A8B538`;
-    /// VERA has no such byte, the launches' RESIDUAL). The player's charged
+    /// sound first, is not compared. The mute rows (`0x00A8B538` set) defeat
+    /// the current house, VERA's reading of that byte. The player's charged
     /// case 0 rows that find no silo pin the `nuke.rs` RESIDUAL: native drops
     /// the Ready line, VERA runs no tail.
     #[test]
@@ -1849,13 +1845,13 @@ mod tests {
             serde_json::from_str(crate::test_fixture::text("tools/superweapon_oracle.json"))
                 .unwrap();
         for (section, name, sound, expected) in [
-            ("nuke_launch", "NukeSpecial", "NukeSiren", 11),
-            ("iron_curtain_launch", "IronCurtainSpecial", "", 17),
+            ("nuke_launch", "NukeSpecial", "NukeSiren", 12),
+            ("iron_curtain_launch", "IronCurtainSpecial", "", 18),
             (
                 "genetic_launch",
                 "GeneticConverterSpecial",
                 "GeneticMutatorActivate",
-                16,
+                18,
             ),
             (
                 "psychic_launch",
@@ -1866,9 +1862,6 @@ mod tests {
         ] {
             let mut compared = 0;
             for row in oracle[section].as_array().unwrap() {
-                if row["mute"] == true {
-                    continue;
-                }
                 let events = row["events"].as_array().unwrap();
                 // Case 0 launches only with a silo to fly the missile.
                 let launches = row["charged"] == true
@@ -1878,6 +1871,14 @@ mod tests {
                 // still drops the Ready line natively; VERA reports nothing.
                 let residual = row["charged"] == true && !launches && row["player"] == true;
                 let mut sim = Simulation::new();
+                if row["mute"] == true {
+                    let local = sim.interner.intern("Local");
+                    let mut house =
+                        crate::sim::house_state::HouseState::new(local, 0, None, true, 0, 10);
+                    house.is_defeated = true;
+                    sim.houses.insert(local, house);
+                    sim.session.current_house = Some(local);
+                }
                 let owner = sim.interner.intern(if row["player"] == true {
                     "Local"
                 } else {

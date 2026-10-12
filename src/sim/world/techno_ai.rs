@@ -24,7 +24,7 @@ mod target_scan;
 pub(crate) use mission_handlers::dispatch_foot_mission;
 pub(crate) use mission_handlers::enter_idle_mode;
 pub(crate) use mission_handlers::foot_enter_idle_mode_selection;
-pub(crate) use mission_handlers::foot_unlimbo_idle_mode;
+pub(crate) use mission_handlers::techno_unlimbo_idle_mode;
 #[cfg(test)]
 use mission_handlers::*;
 pub(crate) use target_scan::direct_greatest_threat;

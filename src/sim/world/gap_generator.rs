@@ -222,14 +222,7 @@ impl Simulation {
         }
         self.fog.alliances = self.house_alliances.clone();
         let config = self.sight_reveal_config(rules);
-        let heights = config
-            .reveal_by_height()
-            .then(|| {
-                self.path_grid
-                    .as_ref()
-                    .map(|grid| grid.ground_height_grid())
-            })
-            .flatten();
+        let heights = self.sight_height_grid(&config);
         let ability = vision::entity_has_sight_ability(entity, &self.interner, rules);
         vision::reveal_entity_vision(
             &mut self.fog,

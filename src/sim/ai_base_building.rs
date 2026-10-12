@@ -603,6 +603,17 @@ fn building_site(
 /// (`0x00445329..0x0044533F`). A computer house's yard stands in the Logic
 /// vector, which is re-read, so the new building's first Update follows
 /// later in the same frame ([`BuildingUp::placed_by_computer`]).
+///
+/// RESIDUAL: the build-up goes in after the Unlimbo, whose DiscoveredBy(owner)
+/// (`0x00440E5C..0x00440E7C`, `0x0044D5D0`) therefore opens the building at
+/// once. Native Unlimbo queues Construction first (`0x006F6E2A`,
+/// `0x0044D6BD..0x0044D6D0`), and DiscoveredBy's computer arm asks
+/// Get_Mission (vt+0x184, `0x0044D679`), which answers the queued mission
+/// while none is current, so the building opens when its build-up ends.
+/// Trigger: every building a computer house's yard places. Effect: its
+/// opening (power policy, free unit, superweapon grant, a `RevealToAll=`
+/// sight) comes at placement, its build-up's length early. Frequency: every
+/// computer house's building in a skirmish.
 fn place_building(
     sim: &mut Simulation,
     rules: &RuleSet,

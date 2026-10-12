@@ -3889,14 +3889,7 @@ impl Simulation {
         // Buildings are explicitly excluded. Rust's owned equivalent commits
         // the sight reveal immediately, before this action returns.
         let reveal_config = self.sight_reveal_config(rules);
-        let height_grid = reveal_config
-            .reveal_by_height()
-            .then(|| {
-                self.path_grid
-                    .as_ref()
-                    .map(|grid| grid.ground_height_grid())
-            })
-            .flatten();
+        let height_grid = self.sight_height_grid(&reveal_config);
         for (stable_id, _, reveal) in membership_updates {
             if reveal && let Some(entity) = self.substrate.entities.get(stable_id) {
                 let sight_ability =
@@ -5993,11 +5986,7 @@ impl Simulation {
         // (preserving FLAG_REVEALED) then re-reveals from entity positions.
         // No allocation or merge_revealed_from pass needed.
         let path_grid = self.path_grid.as_deref();
-        let height_grid = if config.reveal_by_height() {
-            path_grid.map(PathGrid::ground_height_grid)
-        } else {
-            None
-        };
+        let height_grid = self.sight_height_grid(config);
 
         vision::recompute_owner_visibility_in_place(
             &mut self.fog,

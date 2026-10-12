@@ -2899,10 +2899,20 @@ impl Simulation {
         {
             //6F6B16 ordinary sight release precedes TypeCD1 gap removal at
             //6F6B6A; both precede Object Limbo. Repeated Limbo emits neither.
-            // A `RevealToAll=` type's branch (`0x006F6AEF..0x006F6B06`)
-            // releases the sight its opening showed the current house.
-            self.fog.release_entity_sight(stable_id);
-            self.fog.release_alternate_sight(stable_id);
+            // A `RevealToAll=` type takes the branch at `0x006F6AEF..0x006F6B06`
+            // instead: ReReveal(0, 0, 1, PlayerPtr) releases its sight for the
+            // current house in place of its owner's.
+            let reveal_to_all = context.rules().filter(|&rules| {
+                self.substrate
+                    .entities
+                    .get(stable_id)
+                    .and_then(|entity| self.object_type(entity.type_ref(), rules))
+                    .is_some_and(|object| object.reveal_to_all)
+            });
+            match reveal_to_all {
+                Some(rules) => self.rereveal_sight_to_current_house(stable_id, rules),
+                None => self.fog.release_entity_sight(stable_id),
+            }
             self.remove_building_gap_before_limbo(stable_id);
             // Steam gamemd3e81a617, TechnoLimbo6F6B98..6F6BA0 clears an
             // OpenTopped hull's own rider targets before HouseRemoved6F6BD1.

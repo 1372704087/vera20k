@@ -44,20 +44,5 @@
   },
   "command": "PYTHONDONTWRITEBYTECODE=1 python -m tools.projectile_oracle.projectile_trailer --check",
   "input_environment": "RA2_DIR or VERA20K_GAMEMD_EXE selects the supported executable; VERA20K_PROJECTILE_RENDER_ASSETS selects the extracted files identified in the payload sources.",
-  "source_normalized_lf_sha256": {
-    "tools/projectile_oracle/projectile_trailer.py": "f72b755b4128507f7f4b28778bc31a5a1ca85d1621617b01aa0285e63a377ed0",
-    "tools/projectile_oracle/guided_step.py": "2109693736e94e182354adf0218e0d85fc1ddfdcc78ab9e92a09aff5a07e67a2",
-    "tools/projectile_oracle/ifv_impact.py": "4373fc12cac9455b0603dbd10c3c6c43ab53c104f8e7d8a6f7b93b1a55764544",
-    "tools/projectile_oracle/ifv_launch.py": "5758aff2cf2001b16d44956847f7526efdf5ab0f23c5838e8ebe321d3ac9775d",
-    "tools/projectile_oracle/bridge_render_inputs.py": "2f05d2e7e917aef585553502830947ea8ca121eab2d886d2c9ba4df7c935727d",
-    "tools/projectile_oracle/bridge_render_art_state.py": "57ce9e4492a47b320d218135b61b9017fa3d1ad39424d108f2089193f7b8bc73",
-    "tools/projectile_oracle/flat_art.py": "2f663fbb2b8c88925dd8aa46e8be9216d580ec033bac3e08a138bcd0b272b7c6",
-    "tools/rules_oracle/bridge_anim_inputs.py": "fc0d267d9c8453ba3090bfacd056af5207f47cb1170651cce5b0c41c80e90a2e",
-    "tools/rules_oracle/bridge_anim_lists.py": "2a7a96ea1e24f1129161e8fe5608c0ab69ac584ee6ad78fa91c43bd3ad072045",
-    "tools/spatial_oracle/building_body_rules.py": "4c01dd452ccf63c0058e8b58cb751c1e13933fcc25b9ef639cb57c628f4e8643",
-    "tools/spatial_oracle/map_queries.py": "f1c798f50bf8a69ebe53c6d0e2327ce395ad99ba5c7017e74e353757770f4305",
-    "tools/rmg_oracle/gen_rng_vectors.py": "c1e75b4eade453c1331ddc140365eb687a70e06d64852a9b786856fd5bb530ad",
-    "tools/native_oracle.py": "67a69b8e446a8134fbff1128c1fe15025350f329fc25585af29ea725746f2ceb"
-  },
   "payload_sha256": "8453dd55300842ab7400029d27ff1ba59420ccf6546600dafa4c0b8521e633b5"
 }

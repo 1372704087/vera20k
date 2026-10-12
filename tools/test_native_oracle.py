@@ -506,15 +506,14 @@ class IdentityAndReferenceTests(unittest.TestCase):
                         source_paths=sources)
         self.assertEqual(before, (self.target.read_bytes(), sidecar.read_bytes()))
 
-    def test_source_drift_is_reported_but_not_a_mismatch(self):
+    def test_a_source_edit_without_native_change_passes_and_pins_nothing(self):
         source = self.target.parent / 'helper.py'
         source.write_text('# helper\n', encoding='utf-8')
         self.finish({'value': 42}, '--write', source_paths={'helper': source})
+        self.assertNotIn('source_normalized_lf_sha256', self.sidecar())
         before = self.files()
         source.write_text('# helper edited without changing native output\n', encoding='utf-8')
-        output = self.finish({'value': 42}, source_paths={'helper': source})
-        self.assertIn('recorded sources differ (changed: helper)', output)
-        self.assertIn('PASS', output)
+        self.assertIn('PASS', self.finish({'value': 42}, source_paths={'helper': source}))
         self.assertEqual(before, self.files())
         with self.assertRaisesRegex(oracle.OracleMismatch, 'Reference mismatch'):
             self.finish({'value': 43}, source_paths={'helper': source})
@@ -523,86 +522,29 @@ class IdentityAndReferenceTests(unittest.TestCase):
                         provenance=dict(self.metadata, unicorn_core=[2, 2, 0]))
         self.assertEqual(before, self.files())
 
-    def test_refresh_sources_records_only_source_provenance_after_identical_replay(self):
-        source = self.target.parent / 'helper.py'
-        source.write_text('# helper\n', encoding='utf-8')
-        self.finish({'value': 42}, '--write', source_paths={'helper': source})
-        payload, recorded = self.target.read_bytes(), self.sidecar()
-        source.write_text('# helper edited\n', encoding='utf-8')
+    def test_the_replay_command_is_recorded_but_not_evidence(self):
         with patch.object(oracle.oracle_sources, 'replay_command',
                           return_value='python -m tools.synthetic --mode'):
-            output = self.finish({'value': 42}, '--refresh-sources', source_paths={'helper': source})
-        self.assertIn('REFRESHED', output)
-        self.assertEqual(self.target.read_bytes(), payload)
-        refreshed = self.sidecar()
-        self.assertEqual(oracle.oracle_sources.evidence(refreshed), oracle.oracle_sources.evidence(recorded))
-        self.assertEqual(refreshed['source_normalized_lf_sha256'],
-                         {'helper': hashlib.sha256(b'# helper edited\n').hexdigest()})
-        self.assertEqual(refreshed['replay_command'], 'python -m tools.synthetic --mode')
+            self.finish({'value': 42}, '--write')
+        self.assertEqual(self.sidecar()['replay_command'], 'python -m tools.synthetic --mode')
         before = self.files()
-        self.assertIn('already current', self.finish({'value': 42}, '--refresh-sources',
-                                                      source_paths={'helper': source}))
+        with patch.object(oracle.oracle_sources, 'replay_command',
+                          return_value='python -m tools.synthetic --other'):
+            self.assertIn('PASS', self.finish({'value': 42}))
         self.assertEqual(before, self.files())
 
-    def test_refresh_sources_never_accepts_changed_evidence(self):
-        source = self.target.parent / 'helper.py'
-        source.write_text('# helper\n', encoding='utf-8')
-        self.finish({'value': 42}, '--write', source_paths={'helper': source})
-        source.write_text('# helper edited\n', encoding='utf-8')
-        before = self.files()
-        with self.assertRaisesRegex(oracle.OracleMismatch, r'Reference mismatch.*expected 42, got 43'):
-            self.finish({'value': 43}, '--refresh-sources', source_paths={'helper': source})
-        with self.assertRaisesRegex(oracle.OracleMismatch, 'Provenance mismatch'):
-            self.finish({'value': 42}, '--refresh-sources', source_paths={'helper': source},
-                        provenance=dict(self.metadata, scope='a different claim'))
-        self.assertEqual(before, self.files())
-        self.target.with_suffix('.meta.json').unlink()
-        with self.assertRaisesRegex(oracle.OracleError, 'No provenance sidecar to refresh') as refused:
-            self.finish({'value': 42}, '--refresh-sources', source_paths={'helper': source})
-        self.assertNotIsInstance(refused.exception, oracle.OracleMismatch)
-        self.assertFalse(self.target.with_suffix('.meta.json').exists())
+    def test_a_legacy_source_pin_from_another_branch_passes_and_write_drops_it(self):
+        self.finish({'value': 42}, '--write')
+        legacy = dict(self.sidecar(), source_normalized_lf_sha256={'tools/helper.py': '0' * 64})
+        self.target.with_suffix('.meta.json').write_text(json.dumps(legacy, indent=2) + '\n',
+                                                         encoding='utf-8')
+        self.assertIn('PASS', self.finish({'value': 42}))
+        self.finish({'value': 42}, '--write')
+        self.assertNotIn('source_normalized_lf_sha256', self.sidecar())
 
-    def test_refresh_sources_checks_the_archive_before_refreshing_both_sidecars(self):
-        source = self.target.parent / 'helper.py'
-        source.write_text('# helper\n', encoding='utf-8')
-        data = {'value': 42, 'raw': [1, 2, 3]}
-        projection = lambda raw: {'value': raw['value']}
-        self.finish(data, '--write', projection=projection, source_paths={'helper': source})
-        source.write_text('# helper edited\n', encoding='utf-8')
-        before = self.files()
-        archive = self.target.with_suffix('.raw.json.gz')
-        archive.write_bytes(gzip.compress(b'{"value":42,"raw":[1,2,4]}', mtime=0))
-        tampered = self.files()
-        with self.assertRaisesRegex(oracle.OracleMismatch, 'Full raw archive mismatch'):
-            self.finish(data, '--refresh-sources', projection=projection, source_paths={'helper': source})
-        self.assertEqual(tampered, self.files())
-        archive.write_bytes(before['vectors.raw.json.gz'])
-        self.finish(data, '--refresh-sources', projection=projection, source_paths={'helper': source})
-        after = self.files()
-        for name in ('vectors.json', 'vectors.raw.json.gz'):
-            self.assertEqual(after[name], before[name])
-        edited = hashlib.sha256(b'# helper edited\n').hexdigest()
-        for suffix in ('.meta.json', '.raw.meta.json'):
-            self.assertEqual(self.sidecar(suffix)['source_normalized_lf_sha256'], {'helper': edited})
-
-    def test_repository_sources_are_recorded_by_path_and_legacy_labels_still_compare(self):
-        source = self.target.parent / 'tools' / 'helper.py'
-        source.parent.mkdir()
-        source.write_text('# helper\n', encoding='utf-8')
-        with patch.object(oracle.oracle_sources, 'REPO', self.target.parent.resolve()):
-            self.finish({'value': 42}, '--write', source_paths={'helper': source})
-            self.assertEqual(list(self.sidecar()['source_normalized_lf_sha256']), ['tools/helper.py'])
-            # A sidecar written before path keys names the producer's label.
-            legacy = self.sidecar()
-            legacy['source_normalized_lf_sha256'] = {'helper': legacy['source_normalized_lf_sha256']['tools/helper.py']}
-            self.target.with_suffix('.meta.json').write_text(json.dumps(legacy, indent=2) + '\n', encoding='utf-8')
-            self.assertNotIn('recorded sources differ', self.finish({'value': 42}, source_paths={'helper': source}))
-            self.finish({'value': 42}, '--refresh-sources', source_paths={'helper': source})
-            self.assertEqual(list(self.sidecar()['source_normalized_lf_sha256']), ['tools/helper.py'])
-
-    def test_producer_cannot_supply_source_provenance_directly(self):
+    def test_producer_cannot_supply_source_pins_or_the_replay_command(self):
         for name in ('source_normalized_lf_sha256', 'replay_command'):
-            with self.subTest(name=name), self.assertRaisesRegex(oracle.OracleError, 'through source_paths'):
+            with self.subTest(name=name), self.assertRaisesRegex(oracle.OracleError, 'pin no sources'):
                 self.finish({'value': 42}, '--write', provenance=dict(self.metadata, **{name: {}}))
         self.assertFalse(self.target.exists())
 

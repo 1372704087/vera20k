@@ -33,8 +33,8 @@ PYTHONPATH=. PYTHONDONTWRITEBYTECODE=1 python -m tools.spatial_oracle.unit_entry
 
 `--write` deliberately publishes the selected new corpus and its `.meta.json`;
 the existing default Mission corpus and Unit entry payloads are preserved.
-The new metadata binds normalized current generator/dependency hashes and
-original executable spans. Generation fails on source drift. Native `.text`
+The new metadata binds the original executable spans. Generation fails if a
+declared source changes while it runs. Native `.text`
 remains `4cd5557a7490debc493ff965afc4483d8d2f1065f434f6b665cbb8fc4835b0cc`.
 
 Mission's `BulletReader` and the inherited `Rules` fixtures share

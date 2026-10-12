@@ -30,10 +30,5 @@
     "camera_copy": "0x00754BE0",
     "matrix_product": "0x005AF980"
   },
-  "source_normalized_lf_sha256": {
-    "producer": "11122049c22160167452e9d946507f7b53838eebaa5af999cd952b1972c1399d",
-    "shared_barrel_pitch": "6397225b4aa64defb9199960858d894287673b6a82a051a486d8e9c3dafbe7fc",
-    "shared_lighting": "482f0dcd8d85186dc18b4e6eae504d03651d32a681a34b15f4705d3065d37f9d"
-  },
   "payload_sha256": "b54caa78f664939d925cf41b66d5202356f5eada8b56a1ae58d2b11a278b3a5e"
 }

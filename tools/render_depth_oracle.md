@@ -37,14 +37,12 @@ Original virtual methods and instructions remain unpatched.
 Native binary SHA-256:
 `1cdd1180e49024fbda8ad568caac2e86e856063ff67ab38f62b7d2c7bb84298c`.
 The sidecar records the binary, Unicorn core/binding, entry points, runtime
-assumptions, canonical payload hash, and UTF-8/LF-normalized hashes of the
-producer and shared native owner. The shared publisher captures those hashes
-before generation and rejects source drift through metadata construction before
-comparison or publication. It is a run consistency check, not a source lock or
-an import-time attestation.
+assumptions and canonical payload hash. The shared publisher hashes the producer
+and shared native owner before generation and refuses to compare or publish if
+one changed through metadata construction; nothing is recorded.
 
-Schema 2 moves `generator_normalized_lf_sha256` out of the result payload into
-that sidecar. All 85 cases, their list order, inputs, native results, defaults,
+Schema 2 removed `generator_normalized_lf_sha256` from the result payload. All
+85 cases, their list order, inputs, native results, defaults,
 region hashes and coverage restrictions were compared with exact typed equality
 against the pre-migration checked native run. Shared serialization sorts object
 keys; this explains the larger textual JSON diff. No native numeric golden

@@ -36,9 +36,5 @@
     "display_normal_dispatch": "0x004AB449",
     "cursor_table": "0x0082D028"
   },
-  "source_normalized_lf_sha256": {
-    "harness": "1d1b78c27d3da2ac99d5cffe3432c1a146e90ad13216c81af9f29adabeb27c87",
-    "native_oracle": "67a69b8e446a8134fbff1128c1fe15025350f329fc25585af29ea725746f2ceb"
-  },
   "payload_sha256": "7cba13cee9085ab6554affdc1e374189f8aa3d58a0a3a91fcfbef2c3998dabda"
 }

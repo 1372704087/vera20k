@@ -11,8 +11,8 @@ The accepted executable SHA-256 is
 The [validation receipt](harvest_attack_return.validation.json) binds Rust replay,
 retail integration, source identity and the ordinary release observation.
 Each history checks that the original image instruction region and Unit vtable
-remain unchanged. The `.meta.json` pins Unicorn, entry points, source identities,
-assumptions, substitutions, and the canonical payload hash. This is a bounded
+remain unchanged. The `.meta.json` pins Unicorn, entry points, assumptions,
+substitutions, and the canonical payload hash. This is a bounded
 native comparison, not a whole UnitAI, combat, scenario-loader, or match result.
 
 ## Reproduce

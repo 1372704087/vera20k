@@ -29,15 +29,6 @@
     "moving_query_call": "0x00520D38",
     "sequence_reader": "0x00523D00"
   },
-  "source_normalized_lf_sha256": {
-    "tools/spatial_oracle/jumpjet_infantry_actions.py": "3d250ec779fa8bf9bfc99cad524ed3a9b471e2f3444150bec37a449233da20d6",
-    "tools/native_oracle.py": "0c94545bb9c4ca049ad7d46b152d9bd79624c7e52b3fec7a42d360974bbaacef",
-    "tools/spatial_oracle/jumpjet_states.py": "ce77939ff68e4ff2af8272c2b74c3ea0ad6073a59bf1df9c4dd8fcdf41147142",
-    "tools/spatial_oracle/jumpjet_coordinates.py": "8e92cf2ad936306d7e6ed281eca6cadfe83043cb7a9d3df224f24093260d4555",
-    "tools/spatial_oracle/walk_head_occupation.py": "d888f824965dc41badb92827d9f4befdf06eb1dd33559a3f68eadc3b7c54f6c8",
-    "tools/spatial_oracle/infantry_sequence_rules.py": "e78752ac4ea61f46ce6e018fb1761e32b444e9471e099df53f563a86d34db36d",
-    "tools/projectile_oracle/bridge_render_inputs.py": "2f05d2e7e917aef585553502830947ea8ca121eab2d886d2c9ba4df7c935727d"
-  },
   "payload_sha256": "0d2e3d037164ce397bf427c09bf7136a202e193de68d9d22c8e83984c9e73cf2",
   "replay_command": "python -m tools.spatial_oracle.jumpjet_infantry_actions --default-motion"
 }

@@ -36,12 +36,5 @@
     "sound_lookup": "0x007514D0",
     "rng_seed": "0x0065C6D0"
   },
-  "source_normalized_lf_sha256": {
-    "generator": "9c383e2b89f626c58caf508f7a52b071f115ff95eff72a8fb3d69f224abae6f9",
-    "foot_setup": "c74994c108f7ef464dcdbb58a6affbe73b31a38406d10e20d5993da183cd80f7",
-    "mission_setup": "8d791318542167825e371ca8e720fb6c7a254b112baeb25c61ff104b3af60148",
-    "physical_reader": "4bfc6d80d7cd0d75f3db0123bb646011b6706f9195a8c1137e0f397941bff9e4",
-    "sound_owner": "ea32c11dbb9f1ee1aeb3cdc1069605658ca100d864e90dacb3cd5bfe8f01c350"
-  },
   "payload_sha256": "7c0f22c5acfeac574e644a3ca847d3ef3fe7622def3cd809269e51464b21acfe"
 }

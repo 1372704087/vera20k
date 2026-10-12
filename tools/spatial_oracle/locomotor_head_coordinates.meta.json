@@ -38,12 +38,6 @@
     "ship_chain": "0x006A120A"
   },
   "capstone_version": "5.0.7",
-  "source_normalized_lf_sha256": {
-    "tools/spatial_oracle/locomotor_head_coordinates.py": "d9500256f69105f3219845fa2f2a994b42a185ecc06a9fa8875db8ffa8d00421",
-    "tools/native_oracle.py": "0c94545bb9c4ca049ad7d46b152d9bd79624c7e52b3fec7a42d360974bbaacef",
-    "tools/native_inspect.py": "9f1aa80986702ae6e045c8f93578a5f9c4c2ee5be9ec897c7cbeb3697f839dcc",
-    "tools/spatial_oracle/map_queries.py": "f1c798f50bf8a69ebe53c6d0e2327ce395ad99ba5c7017e74e353757770f4305"
-  },
   "payload_sha256": "1eefc8ff72d7c353895cb8647043f622d96137df43d52066f29e4582e621365e",
   "replay_command": "python -m tools.spatial_oracle.locomotor_head_coordinates"
 }

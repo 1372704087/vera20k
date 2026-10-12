@@ -27,9 +27,9 @@ python -m tools.spatial_oracle.engineer_repair_admission --check
 
 The additive payload is `engineer_repair_joined.json`, with provenance in
 `engineer_repair_joined.meta.json`. `--write` is only for deliberately recording
-native execution; never generate expected values from Rust. Source hashes are
-recorded through the shared `finish_vectors` owner and reject source drift during
-generation. Windows and POSIX use normalized LF source identities.
+native execution; never generate expected values from Rust. The shared
+`finish_vectors` owner refuses to publish if a declared source changes during
+generation.
 
 Inputs are `RULESMD.INI`, `ARTMD.INI`, `SOUNDMD.INI`, `MPBattleMD.ini`, `Hills.mmx`,
 `ENGINEER.SHP`, `GGCNST_A.SHP`, `GGCNST_B.SHP`, `GGPILE_A.SHP`, `GGPOWR_A.SHP`,

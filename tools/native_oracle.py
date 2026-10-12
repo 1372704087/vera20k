@@ -526,25 +526,22 @@ def finish_vectors(data, default_path: Path, *, provenance: dict, argv=None,
     Existing payloads retain their Rust-facing schema. A .meta.json sidecar records
     provenance and the canonical payload hash. Old files without metadata can be
     compared, but their historical provenance is explicitly unknown. Optional
-    source_paths captures UTF-8/LF source identity before invoking the lazy
-    generator and rejects drift immediately before comparison or publication.
+    source_paths hashes the declared sources before invoking the lazy
+    generator and refuses to compare or publish if one changed while it ran.
     Optional projection keeps a native-derived expected subset alongside a
     deterministic full raw .json.gz archive. An optional raw-byte identity
     guards compaction of already accepted evidence. Without that guard,
     --write deliberately accepts a newly executed reference; --check still
     compares the full archive, decompressed bytes and both metadata records.
 
-    Recorded source pins and the replay command say which sources last
-    reproduced the payload and how; they are not evidence (tools/oracle_sources.py).
-    --check reports their drift without failing. --refresh-sources records them
-    after a replay reproduced the payload, archive and other metadata exactly.
+    Sidecars pin no repository source hashes (AGENTS.md): an edit to a shared
+    helper must not fail a check whose native output is unchanged. The recorded
+    replay command says how the payload was made; it is not evidence.
     """
     parser = argparse.ArgumentParser(description="Compare native outputs with recorded reference data")
     mode = parser.add_mutually_exclusive_group()
     mode.add_argument("--check", action="store_true", help="compare only (default)")
     mode.add_argument("--write", action="store_true", help="explicitly write outputs and provenance")
-    mode.add_argument("--refresh-sources", action="store_true",
-                      help="compare, then record current source pins if nothing else changed")
     parser.add_argument("--output", type=Path, default=default_path)
     args = parser.parse_args(argv)
     if projection is None and raw_archive_sha256 is not None:
@@ -555,10 +552,8 @@ def finish_vectors(data, default_path: Path, *, provenance: dict, argv=None,
     sources = source_identity()
     data = data() if callable(data) else data
     provenance = provenance() if callable(provenance) else provenance
-    if any(key in provenance for key in oracle_sources.SOURCE_PROVENANCE):
-        raise OracleError("Source provenance must be supplied through source_paths")
-    if source_paths is not None:
-        provenance = dict(provenance, source_normalized_lf_sha256=sources)
+    if any(key in provenance for key in (oracle_sources.REPLAY_FIELD, oracle_sources.LEGACY_SOURCE_FIELD)):
+        raise OracleError("finish_vectors records the replay command, and sidecars pin no sources")
     if replay := oracle_sources.replay_command():
         provenance = dict(provenance, replay_command=replay)
     # Normalize tuples before comparisons; reject NaN/Infinity in either workflow.
@@ -612,20 +607,11 @@ def finish_vectors(data, default_path: Path, *, provenance: dict, argv=None,
     expected = json.loads(target.read_text(encoding="utf-8"))
     if difference := first_difference(expected, normalized):
         raise OracleMismatch(f"Reference mismatch in {target}: {difference}")
-    # Every sidecar is compared before any is refreshed, so a refresh never
-    # follows an unchecked archive.
-    refreshes = {}
-    drift = None
     if sidecar.is_file():
         expected_metadata = json.loads(sidecar.read_text(encoding="utf-8"))
         if difference := first_difference(oracle_sources.evidence(expected_metadata),
                                            oracle_sources.evidence(metadata)):
             raise OracleMismatch(f"Provenance mismatch in {sidecar}: {difference}")
-        drift = oracle_sources.describe_drift(
-            oracle_sources.source_drift(expected_metadata, metadata, source_paths))
-        refreshes[sidecar] = oracle_sources.refreshed(expected_metadata, metadata)
-    elif args.refresh_sources:
-        raise OracleError(f"No provenance sidecar to refresh: {sidecar}; --write deliberately creates one")
     else:
         print("NOTE: legacy reference has no provenance sidecar; historical environment is unknown")
     if archive_record is not None:
@@ -638,21 +624,4 @@ def finish_vectors(data, default_path: Path, *, provenance: dict, argv=None,
         if difference := first_difference(oracle_sources.evidence(expected_archive_metadata),
                                            oracle_sources.evidence(archive_metadata)):
             raise OracleMismatch(f"Full raw archive provenance mismatch: {difference}")
-        refreshes[archive_sidecar] = oracle_sources.refreshed(expected_archive_metadata, archive_metadata)
-    if args.refresh_sources:
-        written = []
-        for path, record in refreshes.items():
-            text = json.dumps(record, indent=2, allow_nan=False) + "\n"
-            if path.read_text(encoding="utf-8") != text:
-                path.write_text(text, encoding="utf-8")
-                written.append(str(path))
-        if written:
-            print(f"REFRESHED source provenance in {' and '.join(written)}; native outputs and "
-                  "evidence metadata reproduced exactly")
-        else:
-            print(f"PASS {target}: native outputs match; source provenance already current")
-        return
-    if drift:
-        print(f"NOTE {sidecar}: native outputs and evidence metadata match, but the recorded "
-              f"sources differ ({drift}); --refresh-sources records the current ones")
     print(f"PASS {target}: native outputs match; no files written")

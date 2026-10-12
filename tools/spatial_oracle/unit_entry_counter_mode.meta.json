@@ -46,14 +46,6 @@
       "hex": "8a85d503000084c07438a1ace7a80085c0752f6a0156b9e8f78700e8e6c3050084c0751e8b55008bcdff922003000084c0750f5f5e5db8070000005b83c424c214008b464433db83f8ff0f849b0000008b0d843da8008b34818a86aa02000084c0741e8b8d1c020000e888f5feff84c0750f5f5e5db8070000005b83c424c214008a86a802000084c074608b7c24388b86a002000033d28a971e010000c1ea04"
     }
   },
-  "source_normalized_lf_sha256": {
-    "tools/native_oracle.py": "0c94545bb9c4ca049ad7d46b152d9bd79624c7e52b3fec7a42d360974bbaacef",
-    "tools/rmg_oracle/harness.py": "7bb907427ae09d76fceb9ad10b785c352f87c9fa47fb492e246d3a629b348014",
-    "tools/spatial_oracle/unit_entry.py": "18986785b9cc42d7c811aa0c37d352f5ddc9d8746bfa926b807e5f493e33f209",
-    "tools/spatial_oracle/unit_source_scatter.py": "3384579566b40ebcc9d8d56d53a0736655eb3a15a6bf7f08730611b15852a009",
-    "tools/spatial_oracle/unit_scatter_state.py": "c8269a41294316c97f990051506c4a9d9dbe923d8143a54a1a92c69645d2a112",
-    "tools/spatial_oracle/map_queries.py": "f1c798f50bf8a69ebe53c6d0e2327ce395ad99ba5c7017e74e353757770f4305"
-  },
   "payload_sha256": "507756af0d8f209f25bf5b77bf5b2cf791c33dcba25007eaec1404e520de6641",
   "replay_command": "python -m tools.spatial_oracle.unit_entry --counter-mode"
 }

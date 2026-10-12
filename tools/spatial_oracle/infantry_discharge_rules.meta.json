@@ -49,9 +49,5 @@
     }
   ],
   "preserved_default_payload_sha256": "03d8276eaee8ac553333412005bdc0602387ddbe6ded9e4fd06295c66871055f",
-  "source_normalized_lf_sha256": {
-    "generator": "e78752ac4ea61f46ce6e018fb1761e32b444e9471e099df53f563a86d34db36d",
-    "retail_lexical_owner": "4bfc6d80d7cd0d75f3db0123bb646011b6706f9195a8c1137e0f397941bff9e4"
-  },
   "payload_sha256": "a67115453ad775777f0e0e58ce13e0821c780f3ff2dd776504df8f5d57e26408"
 }

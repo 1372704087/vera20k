@@ -27,10 +27,6 @@
     "play_at": "0x007509E0",
     "coordinate": "0x00750D40"
   },
-  "source_normalized_lf_sha256": {
-    "tools/spatial_oracle/turret_rotate_sound.py": "853a5e82f214bc1e8f1f0d98bf14850777e60594e255235aa87e61c66a8f5b64",
-    "tools/native_oracle.py": "0c94545bb9c4ca049ad7d46b152d9bd79624c7e52b3fec7a42d360974bbaacef"
-  },
   "replay_command": "python -m tools.spatial_oracle.turret_rotate_sound",
   "payload_sha256": "db686a3df56a81ac549b687db41098b2bb60659da929b557609940eef80ce7ee"
 }

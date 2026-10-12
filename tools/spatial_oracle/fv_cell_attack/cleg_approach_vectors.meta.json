@@ -29,17 +29,6 @@
     "cell_ground": "0x0047B3A0",
     "map_flags": "0x00565730"
   },
-  "source_normalized_lf_sha256": {
-    "tools/spatial_oracle/fv_cell_attack/candidates.py": "20a92327f14ad82aa9a907668c2046382d9986f225d37edbcb9bc7184f3b59f6",
-    "tools/native_oracle.py": "0c94545bb9c4ca049ad7d46b152d9bd79624c7e52b3fec7a42d360974bbaacef",
-    "tools/oracle_sources.py": "93538b3da4eb0d6b47e78ddbab2c50be0458ebe01d4ab3f029e4ba1c102c8ea5",
-    "tools/spatial_oracle/building_body_rules.py": "4c01dd452ccf63c0058e8b58cb751c1e13933fcc25b9ef639cb57c628f4e8643",
-    "tools/spatial_oracle/mapgen_range.py": "df39b5ab3a2450c98dfa749a67826d5cb87f9d73086dc2511ff3261906724eef",
-    "tools/spatial_oracle/locomotor_head_coordinates.py": "d9500256f69105f3219845fa2f2a994b42a185ecc06a9fa8875db8ffa8d00421",
-    "tools/spatial_oracle/foot_navigation_coordinate.py": "fd43b2ee4f41a56d1a07503bf8831c9a0cdba7cc5c6bc5b0266e37152d4c0352",
-    "tools/spatial_oracle/locomotor_at_coord.py": "b9d3018fcdc3891cf36184ef24a5b80bcfef93025106d7e0edcb55a492884d3c",
-    "tools/spatial_oracle/map_queries.py": "f1c798f50bf8a69ebe53c6d0e2327ce395ad99ba5c7017e74e353757770f4305"
-  },
   "replay_command": "python -m tools.spatial_oracle.fv_cell_attack.candidates --cleg-radius",
   "payload_sha256": "6746c773f2d56cbaf1be36400ff8fadfa72d0578dbb1762d6ca143e9311c8d92"
 }

@@ -930,15 +930,15 @@ pub(crate) fn greatest_threat(
     // `(dx² + dz²) + dy²` through `Sqrt_Approx` and ftol
     // (`0x0051E16E..0x0051E1F6`).
     let lost_building = || {
-        let building = entities.get(standing.house?.lost_building()?)?;
+        let building = standing.house?.lost_building()?;
         let from = object_get_coords(scanner, terrain);
-        let to = object_get_coords(building, terrain);
+        let to = object_get_coords(entities.get(building)?, terrain);
         let distance = crate::util::native_x87::sqrt_approx_length([
             from.x.wrapping_sub(to.x),
             from.z.wrapping_sub(to.z),
             from.y.wrapping_sub(to.y),
         ]);
-        (distance < 0xF00).then_some(building.stable_id)
+        (distance < 0xF00).then_some(building)
     };
     let (mask, foot_wrapper_entered) = match scanner_mask(
         rules,

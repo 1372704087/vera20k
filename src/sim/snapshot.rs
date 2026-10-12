@@ -954,7 +954,11 @@ use crate::sim::world::Simulation;
 // 332 -> 333: the fog keeps the sight a computer house's RevealToAll building
 // shows the current house (UpdateReveal's alternate house). Version 332
 // records lack this map.
-const SNAPSHOT_VERSION: u32 = 333;
+// 333 -> 334: HouseTracking saves the house's war factory count (+0x160) and
+// each building whether it counts there. Version 333 records lack them.
+// 334 -> 335: ordinary Teleport delay uses a global-frame CdTimer, and
+// a cargo owner retains its independent boarding/inside carrier relation.
+const SNAPSHOT_VERSION: u32 = 335;
 
 const SNAPSHOT_PRODUCT_MAGIC: [u8; 8] = *b"VERA20K\0";
 const SNAPSHOT_ENVELOPE_VERSION: u32 = 1;
@@ -1999,16 +2003,16 @@ fn restore_object_references(
             }
         }
 
-        let passenger_partner = match &entity.passenger_role {
-            PassengerRole::Boarding {
-                target_transport_id,
-                ..
-            } => Some((*target_transport_id, "passenger_role.boarding")),
-            PassengerRole::Inside { transport_id, .. } => {
-                Some((*transport_id, "passenger_role.inside"))
-            }
-            PassengerRole::None | PassengerRole::Transport { .. } => None,
-        };
+        let passenger_partner = entity
+            .passenger_role
+            .boarding_transport_id()
+            .map(|id| (id, "passenger_role.boarding"))
+            .or_else(|| {
+                entity
+                    .passenger_role
+                    .inside_transport_id()
+                    .map(|id| (id, "passenger_role.inside"))
+            });
         if let Some((target_id, field)) = passenger_partner {
             require_resolved_reference(
                 entity_ids.contains(&target_id),
@@ -4091,7 +4095,9 @@ mod tests {
         // 330 -> 331: object custom sounds and type-7 action sounds.
         // 331 -> 332: the C4 order's walk-up intent is gone.
         // 332 -> 333: the fog's RevealToAll alternate-house sight.
-        assert_eq!(super::SNAPSHOT_VERSION, 333);
+        // 333 -> 334: the house's war factory count.
+        // 334 -> 335: global Teleport delay and independent carrier relation.
+        assert_eq!(super::SNAPSHOT_VERSION, 335);
     }
 
     #[test]

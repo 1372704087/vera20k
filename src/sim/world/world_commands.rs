@@ -401,7 +401,12 @@ impl Simulation {
         );
     }
 
-    fn sell_wall_at_cell(
+    /// `HouseClass::Sell_Building_At_Cell @ 0x004FCE80` for house
+    /// `command_owner` at cell `(x, y)`: the player's wall sale and the
+    /// computer's in `AI_Manage_Build_Queue` (`sim::ai_build_need`). It sells
+    /// only a wall whose owner a human controls, and refunds nothing.
+    /// Returns whether a wall went.
+    pub(crate) fn sell_wall_at_cell(
         &mut self,
         command_owner: &str,
         x: i16,
@@ -1507,32 +1512,14 @@ impl Simulation {
                 }
                 // Validate transport exists and has cargo capacity.
                 let transport_info = self.substrate.entities.get(*transport_id).and_then(|t| {
-                    let obj = self.object_type(t.type_ref(), rules)?;
-                    let cargo = t.passenger_role.cargo()?;
-                    Some((t.position.rx, t.position.ry, obj.clone(), cargo.clone()))
+                    t.passenger_role.cargo()?;
+                    Some((t.position.rx, t.position.ry))
                 });
-                let Some((trx, try_, transport_obj, cargo)) = transport_info else {
+                let Some((trx, try_)) = transport_info else {
                     return false;
                 };
-                // Validate passenger can enter.
-                let pax_ok = self.substrate.entities.get(*passenger_id).and_then(|p| {
-                    let pobj = self.object_type(p.type_ref(), rules)?;
-                    if passenger::can_enter_transport(
-                        p,
-                        self.substrate.entities.get(*transport_id)?,
-                        pobj,
-                        &transport_obj,
-                        &cargo,
-                        rules,
-                        &self.houses,
-                        self.path_grid(),
-                    ) {
-                        Some(())
-                    } else {
-                        None
-                    }
-                });
-                if pax_ok.is_none() {
+                // Shared native Unit0F / garrison admission owner.
+                if !passenger::can_enter_transport(self, rules, *passenger_id, *transport_id) {
                     return false;
                 }
                 // Native order admission (actor + Destination token).
@@ -1551,12 +1538,23 @@ impl Simulation {
                 }
                 let transport_ref = crate::sim::components::NavTargetRef::object(*transport_id);
                 let object_destination =
-                    if self.infantry_setter_receiver(*passenger_id, transport_ref, rules) {
+                    if self.infantry_setter_receiver(*passenger_id, transport_ref, rules)
+                        || self
+                            .substrate
+                            .entities
+                            .get(*passenger_id)
+                            .is_some_and(|actor| {
+                                actor.category == crate::map::entities::EntityCategory::Unit
+                            })
+                    {
                         // Infantry51F190 -> Foot4D76F8 ->6FFBE0 carries the
                         // clicked object as Destination for Enter7. Event
                         //4C747C preserves it; Infantry51AA40 samples its live
                         //+4C through the shared coordinate owner after its
-                        //prelude (foot_navigation_coordinate corpus).
+                        //prelude (foot_navigation_coordinate corpus). Unit
+                        //738902 forwards the same Enter click to Foot4D76F8:
+                        //Enter7, NULL Target, clicked Object Destination. Its
+                        //Event4C747C receiver is Unit741970 (Steam3e81a617).
                         let Ok(coord) = crate::sim::movement::nav_target_coordinate(
                             transport_ref,
                             Some(*passenger_id),
@@ -1568,8 +1566,8 @@ impl Simulation {
                         };
                         Some((transport_ref, coord))
                     } else {
-                        // Other receiver classes retain their existing Cell
-                        // adapter pending their object-click/setter migration.
+                        // Aircraft retains its separate Cell adapter pending
+                        // its object-click/setter migration.
                         None
                     };
                 // Retask onto Enter; the target setter below owns combat cancellation.
@@ -1590,12 +1588,10 @@ impl Simulation {
                 );
                 if let Some(e) = self.substrate.entities.get_mut(*passenger_id) {
                     e.order_intent = None;
-                    e.passenger_role = passenger::PassengerRole::Boarding {
-                        target_transport_id: *transport_id,
-                    };
+                    passenger::begin_boarding(e, *transport_id);
                 }
-                // The represented Infantry class keeps the transport token;
-                // the route adapter still uses its physical approach cell.
+                // The Infantry/Unit class keeps the transport token; the
+                // remaining route adapter uses its physical approach cell.
                 let info = self.resolve_move_info(*passenger_id, Some(rules));
                 let speed = info
                     .as_ref()

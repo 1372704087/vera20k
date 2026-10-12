@@ -951,7 +951,10 @@ use crate::sim::world::Simulation;
 // (+0x90). Version 330 records lack these fields.
 // 331 -> 332: the C4 order's walk-up intent (`c4_plant`) is gone; a planter
 // is on Sabotage with the building as its NavCom. Version 331 records carry it.
-const SNAPSHOT_VERSION: u32 = 332;
+// 332 -> 333: the fog keeps the sight a computer house's RevealToAll building
+// shows the current house (UpdateReveal's alternate house). Version 332
+// records lack this map.
+const SNAPSHOT_VERSION: u32 = 333;
 
 const SNAPSHOT_PRODUCT_MAGIC: [u8; 8] = *b"VERA20K\0";
 const SNAPSHOT_ENVELOPE_VERSION: u32 = 1;
@@ -4087,7 +4090,8 @@ mod tests {
         // 329 -> 330: the move-order adapter keeps no goal (#689).
         // 330 -> 331: object custom sounds and type-7 action sounds.
         // 331 -> 332: the C4 order's walk-up intent is gone.
-        assert_eq!(super::SNAPSHOT_VERSION, 332);
+        // 332 -> 333: the fog's RevealToAll alternate-house sight.
+        assert_eq!(super::SNAPSHOT_VERSION, 333);
     }
 
     #[test]

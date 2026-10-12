@@ -125,7 +125,8 @@ when cloned into their own manager. Do not use this route to fork a callback typ
 - Check a decompile's stack offsets against the code when a parameter or local looks
   misplaced (`unaff_retaddr`, `in_stack_`, a parameter where another is pushed). For a
   call whose stack change it does not know, the decompiler assumes the call pops
-  nothing, unless paths that meet pin the value. That covers every virtual or COM call,
+  nothing, unless paths that meet pin the value. That covers every virtual or COM call
+  without a signature override ([Virtual-call references](#virtual-call-references)),
   and every direct call to a function without a stored purge (since 2026-10-12 only
   functions with no RET lack one). A call that pops its arguments then leaves the rest
   of that path off by those bytes. `__alloca_probe` (0x7CA650) is MSVC's `_chkstk`. It
@@ -410,9 +411,18 @@ operand 0), and their decompiles show direct calls with correct stack pops:
 - calls through a cell that the map's cell getters returned (CellClass has no subclasses).
 
 Each function's plate lists its overrides; the evidence is in the same research folder.
-Other virtual calls keep the decompiler's guess that they pop nothing. Ghidra's per-call
-signature override would fix them, but it is stored as a label in the function's
-`override` namespace, and GhidraMCP's `create_label` writes only global labels.
+Other virtual calls keep the decompiler's guess that they pop nothing, unless they carry
+Ghidra's per-call signature override, which the decompiler reads before its stack
+analysis. Since 2026-10-12, 209 virtual and COM calls in 103 of the functions porting
+sessions decompiled have one: the calls after which the frame check found stack reads
+placed wrong. Each pops what the native code pops (the frame check's walker), as
+`__thiscall` when the object is in ECX and `__stdcall` when it is pushed last (COM),
+with the slot implementation's types where the decompile shows the object's class. An
+override is a label in the function's `override` namespace beside a function definition
+in `/auto_proto`. GhidraMCP's `create_label` writes only global labels, so they are
+written by an `analyzeHeadless` script (`SetCallOverride.java`) while the shared server
+is stopped. Calls whose pops the walker cannot solve one by one (two unknown calls
+between known depths) have none yet.
 
 ## Class layouts
 
@@ -845,8 +855,9 @@ Receiver tools, checked on staging copies:
   endpoint reads a purge; the signature census of a staging copy does. No endpoint
   writes a purge or a call fixup either, and naming a function after a fixup's target
   (`__alloca_probe`) does not install the fixup: only analysis does. Both need an
-  `analyzeHeadless` script with the shared server stopped; the signatures research
-  folder (see `LOCAL.md`) has `SetPurge.java` and `SetCallFixup.java`.
+  `analyzeHeadless` script with the shared server stopped, as does a call's signature
+  override; the signatures research folder (see `LOCAL.md`) has `SetPurge.java`,
+  `SetCallFixup.java` and `SetCallOverride.java`.
   For a native caller-cleanup `__cdecl` helper whose purge is unknown, use a
   zero-argument `__stdcall` prelude before the full `__cdecl` prototype. On 2026-10-03,
   directly typing comparators `0x52B6A0`/`0x52B720` stored 8 despite their bare native

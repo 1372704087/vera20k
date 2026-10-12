@@ -1127,7 +1127,7 @@ mod tests {
         sim.scenario_rng = crate::sim::rng::SimRng::new(0);
         let bytes = GameSnapshot::save(&sim, 0, 0, "Fly landing continuation", 0);
         let mut restored = GameSnapshot::load(&bytes).unwrap().sim;
-        restored.retain_in_scenario_process_state_from(&sim);
+        restored.retain_process_state_for_load(crate::sim::world::SnapshotProcessState::Live(&sim));
         restored.resolved_terrain = sim.resolved_terrain.clone();
         restored.restore_after_snapshot_load().unwrap();
         assert_eq!(sim.state_hash(), restored.state_hash());

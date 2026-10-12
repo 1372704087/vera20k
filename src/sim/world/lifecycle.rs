@@ -2899,7 +2899,10 @@ impl Simulation {
         {
             //6F6B16 ordinary sight release precedes TypeCD1 gap removal at
             //6F6B6A; both precede Object Limbo. Repeated Limbo emits neither.
+            // A `RevealToAll=` type's branch (`0x006F6AEF..0x006F6B06`)
+            // releases the sight its opening showed the current house.
             self.fog.release_entity_sight(stable_id);
+            self.fog.release_alternate_sight(stable_id);
             self.remove_building_gap_before_limbo(stable_id);
             // 6F6BD1: Removed_From_Game, also only on the first Limbo.
             self.update_house_presence(stable_id, false);

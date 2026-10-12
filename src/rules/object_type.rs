@@ -1683,6 +1683,15 @@ pub struct ObjectType {
     /// tools/input_oracle/selection_navigation.{json,meta.json,md}.
     pub is_selectable_combatant: bool,
 
+    /// `RevealToAll=` (TechnoType `+0x5EE`): constructor `0x00710FFC` writes
+    /// false; ReadINI (`0x00714382..0x00714396`) reads it with ReadBool
+    /// (`0x005295F0`), the current byte as its default across reached rules
+    /// layers. A computer house's building of this type shows the current
+    /// house its sight and raises a radar event when it opens
+    /// (`Simulation::grand_opening`), and releases that sight when it dies or
+    /// leaves the map.
+    pub reveal_to_all: bool,
+
     // -- Naval flags --
     /// Building requires water placement (WaterBound=yes in INI).
     /// When set, the placement validator checks the water speed column instead
@@ -2841,6 +2850,7 @@ impl ObjectType {
             // `Selectable=no` turn it off.
             selectable: section.read_bool("Selectable", true),
             is_selectable_combatant: section.read_bool("IsSelectableCombatant", false),
+            reveal_to_all: section.read_bool("RevealToAll", false),
 
             // Naval flags
             water_bound: {
@@ -3093,6 +3103,29 @@ mod infantry_speed_type_tests;
 
 #[cfg(test)]
 mod tests {
+    /// `RevealToAll=` through the production reader on the retail layers.
+    #[test]
+    fn reveal_to_all_reads_the_seven_stock_types() {
+        let Some(retail) =
+            crate::rules::retail_ini_fixture::retail_battle_rules_for_map("XMP03T4.MAP")
+        else {
+            return;
+        };
+        let mut types: Vec<_> = retail
+            .rules
+            .all_objects()
+            .filter(|object| object.reveal_to_all)
+            .map(|object| object.id.as_str())
+            .collect();
+        types.sort_unstable();
+        assert_eq!(
+            types,
+            [
+                "GACSPH", "GADUMY", "GAWEAT", "NAIRON", "NAMISL", "YAGNTC", "YAPPET"
+            ]
+        );
+    }
+
     #[test]
     fn combatant_type_default_and_retained_layer_reads_match_original_execution() {
         use crate::rules::native_processing::{RulesLayerKind, RulesLayerStack};

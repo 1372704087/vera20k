@@ -706,12 +706,14 @@ pub enum SimSoundEvent {
         rx: u16,
         ry: u16,
     },
-    /// `CreateRadarEvent(13, cell)` from `SuperClass::Launch` case 1
-    /// (`0x006CCF2F`), case 4 (`0x006CC4BE` at the Chronosphere's source,
-    /// `0x006CC4D2` at its target), case 7 (`0x006CCDD7`), a storm's start
-    /// (`0x00539F89`) or a `NUKE` warhead's impact (`BulletClass::AI`,
-    /// `0x00467EA7`), on every client: each admits it on its own radar.
-    SuperWeaponRadarEvent { radar: RadarEventRequest },
+    /// A `CreateRadarEvent` with no local-player test and no sound, on every
+    /// client: each admits it on its own radar. Type 13 from
+    /// `SuperClass::Launch` case 1 (`0x006CCF2F`), case 4 (`0x006CC4BE` at
+    /// the Chronosphere's source, `0x006CC4D2` at its target), case 7
+    /// (`0x006CCDD7`), a storm's start (`0x00539F89`) or a `NUKE` warhead's
+    /// impact (`BulletClass::AI`, `0x00467EA7`); type 12 from a computer
+    /// house's `RevealToAll=` building opening (`0x004468A8`).
+    RadarEvent { radar: RadarEventRequest },
     /// A Lightning Storm started (`LightningStorm::Start @ 0x00539EB0`'s
     /// undeferred half) under `[General] LightningPrintText=` (`0x0053A014`;
     /// without it nothing is pushed): every client plays `StormSound` centred
@@ -4859,6 +4861,9 @@ impl Simulation {
         if category == EntityCategory::Structure {
             //448260: gap removal precedes ordinary sight release and owner
             //swap. This order differs from Techno Limbo's sight-then-gap.
+            // `ReReveal(0, 0, 0, 0)` (`0x00448BD9`) releases the old owner's
+            // sight only: what a `RevealToAll=` opening showed the current
+            // house stays.
             self.remove_building_gap_before_limbo(stable_id);
             self.fog.release_entity_sight(stable_id);
             // Original4483A6 clears PrimaryFactory before the old-house
@@ -6664,9 +6669,10 @@ impl Simulation {
             // synchronously at Walk's completed step in the object pass; a
             // charge goes off in its building's own Update visit.
             self.tick_order_intents_pre_combat(rules, overlay_registry, &tube_turn_owned_ids);
-            // The compatibility pursuit host excludes native Unit Cell
-            // Approach. Its remaining consumers retain their existing order
-            // before the remaining combat hosts.
+            // The compatibility pursuit host excludes every mover whose
+            // mission's Approach carries it (`mission_owns_approach`). Its
+            // remaining consumers retain their existing order before the
+            // remaining combat hosts.
             self.tick_attack_pursuit_with_overlay_registry(
                 rules,
                 overlay_registry,

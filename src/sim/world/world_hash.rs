@@ -1104,6 +1104,12 @@ impl Simulation {
         }
         self.fog.gap_sources.hash(hasher);
         self.fog.sight_admissions.hash(hasher);
+        // Folded only when present, so hashes without a RevealToAll opening
+        // keep their composition.
+        if !self.fog.alternate_sight_admissions.is_empty() {
+            b"alternate-sight-admissions-v1".hash(hasher);
+            self.fog.alternate_sight_admissions.hash(hasher);
+        }
         self.fog.hash_whole_map_reveal_state(hasher);
         b"fogged-object-footprints-v1".hash(hasher);
         self.fog.next_fogged_object_id.hash(hasher);

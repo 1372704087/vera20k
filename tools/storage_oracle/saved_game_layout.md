@@ -136,4 +136,3 @@ Static `0x6153E0` reads the control style at `0x615A8B`; ordinary F0 style
 plain left/top path, not the GroupBox inset or reveal-timer path. That drawing
 classification rests on instructions and resource bytes; glyph rasterization
 is not a new parity claim.
-

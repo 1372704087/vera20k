@@ -683,8 +683,10 @@ impl Simulation {
     ///
     /// A Unit takes only the `OpenTopped=` arm here; the pursuit stage's
     /// in-range halt (`world_orders.rs`) stands in for its InRange arm, tested
-    /// each frame. Every infantryman takes Infantry `0x0051AA40`, a Rocketeer
-    /// touching down in range included.
+    /// each frame. A unit whose approach the head's crush arms carry
+    /// (`crush_owns_approach`) is left alone by that stage, so it takes the
+    /// InRange arm here, as natively. Every infantryman takes Infantry
+    /// `0x0051AA40`, a Rocketeer touching down in range included.
     fn per_cell_range_stop(
         &mut self,
         id: u64,
@@ -707,6 +709,7 @@ impl Simulation {
                 .get(id)
                 .and_then(|entity| self.object_type(entity.type_ref(), rules))
                 .is_some_and(|obj| obj.open_topped)
+            && !self.crush_owns_approach(id, rules)
         {
             return;
         }

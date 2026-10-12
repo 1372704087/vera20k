@@ -2237,6 +2237,78 @@ mod retail_construction_tests {
         assert!(crushed, "the GI died, but not under the Rhino");
     }
 
+    /// A Normal Soviet house's Rhino sent to Attack a GI beside it drives over
+    /// it: `UnitClass::Approach_Target`'s computer crush arm gives it the GI
+    /// as its destination (`movement::foot_approach::ApproachCrush`), and
+    /// the pursuit pass leaves the charge alone.
+    #[test]
+    #[ignore = "requires RA2_DIR with installed retail RA2/YR assets"]
+    fn retail_computer_rhino_drives_over_the_gi_it_attacks() {
+        use crate::sim::combat::TargetKind;
+        use crate::sim::components::NavTargetRef;
+        use crate::sim::mission::{MissionId, MissionType};
+        use crate::skirmish_launch::{AiDifficulty, LaunchCountry};
+
+        let (mut scenario, _) =
+            retail_battle(|_| {}, &[(LaunchCountry::Russia, AiDifficulty::Normal)]);
+        for _ in 0..60 {
+            scenario.tick();
+        }
+        let runtime = &mut scenario.runtime;
+        let (sim, rules) = (&mut runtime.simulation, &runtime.resources.rules);
+        let (_, spawned) = spawn_beside_base(sim, rules, "Russians", &["HTNK"]);
+        let rhino = spawned[0];
+        let start = {
+            let entity = sim.entities().get(rhino).expect("the Rhino");
+            (entity.position.rx, entity.position.ry)
+        };
+        let america = house_of(sim, "Americans");
+        let gi = spawn_on_free_cells(
+            sim,
+            rules,
+            america,
+            cells_nearest((i32::from(start.0), i32::from(start.1))),
+            &["E1"],
+        )[0];
+        sim.assign_target_represented(rhino, Some(TargetKind::Entity(gi)), Some(rules))
+            .expect("the Rhino takes the GI as its target");
+        let now = sim.session.binary_frame;
+        sim.mission_assign_exact(rhino, MissionId::from_known(MissionType::Attack), now)
+            .expect("the Rhino takes Attack");
+        let _ = sim.mission_commence_exact(rhino, now);
+        let (mut charged, mut died, mut gi_cell, mut crushed) = (None, None, None, false);
+        for frame in 1..=600u32 {
+            let output = tick_with_due_commands(&mut scenario);
+            let sim = scenario.sim();
+            let entity = sim.entities().get(rhino).expect("the Rhino lives");
+            if charged.is_none() && entity.navigation.nav_com == Some(NavTargetRef::object(gi)) {
+                charged = Some(frame);
+            }
+            match sim
+                .entities()
+                .get(gi)
+                .filter(|gi| !gi.dying && gi.health.current > 0)
+            {
+                Some(gi) => gi_cell = Some((gi.position.rx, gi.position.ry)),
+                None => {
+                    died = Some(frame);
+                    crushed = output.sound_events.iter().any(|event| {
+                        matches!(
+                            event,
+                            crate::sim::world::SimSoundEvent::EntityCrushed { rx, ry, .. }
+                                if gi_cell == Some((*rx, *ry))
+                        )
+                    });
+                    break;
+                }
+            }
+        }
+        eprintln!("charged {charged:?}, GI died {died:?}, crushed {crushed}");
+        assert!(charged.is_some(), "the Rhino never headed for the GI");
+        assert!(died.is_some(), "the GI survived");
+        assert!(crushed, "the GI died, but not under the Rhino");
+    }
+
     /// A Normal Soviet house's War Miner out on the ore with a load, brought
     /// to half strength and shot by a Grizzly: its refinery answers its HELLO
     /// and it queues Enter (`combat::unit_damage_response`), then docks.

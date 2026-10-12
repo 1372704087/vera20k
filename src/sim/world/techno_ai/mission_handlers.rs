@@ -326,7 +326,7 @@ pub(crate) fn dispatch_foot_mission(
             // MissionAttack4D4E6A calls Approach before its Scenario cadence
             // draw. The accepted destination is visible to this object's
             // subsequent Drive Process, and is retained while it fires.
-            if !sim.approach_balloon_target(id, rules, ctx.overlay_registry, ctx.effects)
+            if !sim.approach_unit_head(id, rules, ctx.overlay_registry, ctx.effects)
                 && sim.owns_foot_approach(id, rules)
             {
                 sim.approach_foot_target(id, rules, ctx.overlay_registry, ctx.effects)
@@ -1297,9 +1297,9 @@ fn evaluate_foot_hunt(
         if acquired && infantry {
             hunt_engineer_capture(sim, id, rules, ctx);
         } else if acquired {
-            // `0x004D54DD`: a Unit approaches what the scan holds; the balloon
-            // arm takes only a Unit.
-            sim.approach_balloon_target(id, rules, ctx.overlay_registry, ctx.effects);
+            // `0x004D54DD`: a Unit approaches what the scan holds through its
+            // head (`0x007414E0`), which takes only a Unit.
+            sim.approach_unit_head(id, rules, ctx.overlay_registry, ctx.effects);
         }
     }
     //4D54EE..4D5576: the human no-target arm invokes the class idle
@@ -1581,7 +1581,7 @@ fn evaluate_foot_rescue(
             .set_archive_target(None);
     } else if state == 0 {
         // `0x004DDFDB..0x004DDFEB`: with a Target, approach it.
-        sim.approach_balloon_target(id, rules, ctx.overlay_registry, ctx.effects);
+        sim.approach_unit_head(id, rules, ctx.overlay_registry, ctx.effects);
     }
     let mission = sim
         .substrate
@@ -1698,7 +1698,7 @@ pub(super) fn evaluate_foot_area_guard(
     // `0x004D6ED1..0x004D6F32`: with a Target the body approaches it instead
     // of scanning; without a post it does neither (`0x004D6E66`).
     if !needs_target && archive.is_some() {
-        sim.approach_balloon_target(id, rules, ctx.overlay_registry, ctx.effects);
+        sim.approach_unit_head(id, rules, ctx.overlay_registry, ctx.effects);
     }
     let timer_due = sim
         .substrate

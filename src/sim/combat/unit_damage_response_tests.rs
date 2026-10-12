@@ -9,21 +9,23 @@ use crate::rules::ruleset::RuleSet;
 use crate::sim::combat::world_receiver::{ReceiverRun, commit_entities};
 use crate::sim::combat::{EntityDamageEvent, ReceiverCallFlags, TargetKind};
 use crate::sim::components::NavTargetRef;
-use crate::sim::house_state::{HouseDifficulty, HouseState};
+use crate::sim::house_state::HouseDifficulty;
 use crate::sim::miner::{CargoBale, ResourceType};
 use crate::sim::mission::{MissionId, MissionType};
 use crate::sim::world::Simulation;
 
-/// `tools/unit_crush_oracle.json`: `0x007438F0` executed on scratch objects,
-/// its distance through the native `Sqrt_Approx` and ftol. Exact squares
-/// root a hair short, so a source 461 leptons away on an axis is still
-/// within `Crush=` 460, and (326, 326, 0) is not.
+/// `tools/unit_crush_oracle.json` `should_crush_it`: `0x007438F0` executed on
+/// scratch objects, its distance through the native `Sqrt_Approx` and ftol.
+/// Some exact squares root a hair short of their root and chop below it, so a
+/// source 461 leptons away on an axis is still within `Crush=` 460, and
+/// (326, 326, 0) is not; 460 itself roots to 460.
 #[test]
 fn should_crush_it_matches_native_execution() {
-    let rows: Vec<serde_json::Value> =
+    let payload: serde_json::Value =
         serde_json::from_str(crate::test_fixture::text("tools/unit_crush_oracle.json")).unwrap();
+    let rows = payload["should_crush_it"].as_array().unwrap();
     assert!(rows.len() >= 20);
-    for row in &rows {
+    for row in rows {
         let input = &row["input"];
         let flag = |key: &str| input[key].as_bool().unwrap();
         let int = |key: &str| input[key].as_i64().unwrap() as i32;
@@ -91,24 +93,8 @@ fn retail_harvesters_carry_tiberium_pips() {
     );
 }
 
-/// A flat arena on retail rules with a Normal computer house of the
-/// skirmish IQ (`[IQ] MaxIQLevels`, 5) and a human house, not allied.
 fn arena(rules: &RuleSet) -> Simulation {
-    let mut sim = Simulation::with_seed(0x7438F0);
-    crate::sim::arena_fixture::flat_ground(&mut sim, rules);
-    for (name, human) in [("Russians", false), ("Americans", true)] {
-        let id = sim.interner.intern(name);
-        let mut house = HouseState::new(id, 0, None, human, 0, 10);
-        house.difficulty = HouseDifficulty::Normal;
-        house.current_iq = if human {
-            0
-        } else {
-            rules.general.max_iq_levels
-        };
-        sim.houses.insert(id, house);
-        sim.session.house_order.push(id);
-    }
-    sim
+    crate::sim::arena_fixture::rival_arena(rules, 0x7438F0)
 }
 
 fn spawn(sim: &mut Simulation, rules: &RuleSet, kind: &str, owner: &str, cell: (u16, u16)) -> u64 {

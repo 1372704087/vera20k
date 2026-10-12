@@ -196,7 +196,7 @@ impl ProjectileCollisionWorld<'_> {
                     ground_layer: super::display_registry::entity_layer(
                         target,
                         self.terrain,
-                        self.rules,
+                        self.rules.map(|rules| (rules, self.interner)),
                     ) == super::display_layers::DisplayLayer::GROUND,
                     distance: self.target_distance(location, target),
                     building_offset: false,

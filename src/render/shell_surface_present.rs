@@ -161,7 +161,8 @@ impl ShellSurfacePresenter {
         self.height = gpu.config.height;
     }
 
-    /// Quantize the completed shell and copy its encoded bytes to the surface.
+    /// Quantize the completed shell and copy its encoded bytes to the surface,
+    /// or to a smaller target (a zoomed match frame) from the top-left corner.
     pub(crate) fn encode_present(
         &self,
         encoder: &mut wgpu::CommandEncoder,
@@ -194,8 +195,8 @@ impl ShellSurfacePresenter {
         destination: &wgpu::Texture,
         bind_group: &wgpu::BindGroup,
     ) {
-        debug_assert_eq!(destination.width(), self.width);
-        debug_assert_eq!(destination.height(), self.height);
+        debug_assert!(destination.width() <= self.width);
+        debug_assert!(destination.height() <= self.height);
         debug_assert_eq!(destination.format(), self.surface_format);
         debug_assert!(
             destination.usage().contains(wgpu::TextureUsages::COPY_DST),
@@ -237,8 +238,8 @@ impl ShellSurfacePresenter {
                 aspect: wgpu::TextureAspect::All,
             },
             wgpu::Extent3d {
-                width: self.width,
-                height: self.height,
+                width: destination.width(),
+                height: destination.height(),
                 depth_or_array_layers: 1,
             },
         );

@@ -2,30 +2,23 @@
 //!
 //! The retained `RetailOptionsProfile` stays authoritative. This module owns
 //! the pure projection plus narrow operation seams for the live preview and
-//! accepted parent boundary; UI drawing, Winit enumeration, concrete audio,
+//! accepted parent boundary; UI drawing, the window, concrete audio,
 //! persistence I/O, and child routing remain with their established owners.
 
 use super::audio::{AudioVolume, AudioVolumeOperations, apply_volume};
 use crate::app::persistence::options_profile::RetailOptionsProfile;
 use crate::ui::main_menu_dialogs::options::{
     LauncherCue, LauncherOptionsEvent, LauncherOptionsLabels, LauncherOptionsPacked,
-    LauncherOptionsValues, LauncherParentResult, LauncherResolutionRow, OptionsDialogState,
+    LauncherOptionsValues, LauncherParentResult, OptionsDialogState, Zoom,
     admitted_initial_position, admitted_volume_position,
 };
-
-/// Pure result of substituting current-monitor Winit dimension pairs for the
-/// obsolete DirectDraw 16-bpp enumeration used by the retail launcher.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct LauncherResolutionProjection {
-    pub(crate) rows: Vec<LauncherResolutionRow>,
-    pub(crate) selected_index: Option<usize>,
-}
 
 /// Project the retained signed profile into the fresh native-shaped controls.
 ///
 /// gamemd-derived: launcher primary-proc setup at
 /// `0x0055FDB0..0x0056047A`. Trackbar set-position rejects an out-of-range
-/// request and leaves the fresh position at zero; it does not clamp.
+/// request and leaves the fresh position at zero; it does not clamp. VERA's
+/// Full Screen box starts unticked; the opener sets it from the window.
 pub(crate) fn launcher_values_from_profile(
     profile: &RetailOptionsProfile,
 ) -> LauncherOptionsValues {
@@ -36,76 +29,28 @@ pub(crate) fn launcher_values_from_profile(
         tooltips: profile.tooltips,
         target_lines: profile.unit_action_lines,
         show_hidden: profile.show_hidden,
+        full_screen: false,
         score_position: admitted_volume_position(profile.score_volume),
         sound_position: admitted_volume_position(profile.sound_volume),
         voice_position: admitted_volume_position(profile.voice_volume),
     }
 }
 
-/// Filter/sort host mode pairs with the exact retail launcher list rules.
-///
-/// gamemd-derived: primary-proc slice `0x005601A0..0x00560270`. One Winit
-/// dimension pair explicitly substitutes for one obsolete 16-bpp DirectDraw
-/// mode. Duplicates remain; stable ascending width/height order and the last
-/// displayed matching duplicate determine the initial selection.
-pub(crate) fn project_launcher_resolutions(
-    mode_pairs: impl IntoIterator<Item = (u32, u32)>,
-    allow_hi_res_modes: bool,
-    retained_pair: (i32, i32),
-) -> LauncherResolutionProjection {
-    let mut admitted: Vec<(u32, u32)> = mode_pairs
-        .into_iter()
-        .filter(|(width, height)| {
-            if *width < 640 || *height < 480 {
-                return false;
-            }
-            if allow_hi_res_modes {
-                *width <= 4096 && *height <= 4096
-            } else {
-                matches!(*width, 640 | 800 | 1024) && *height <= 768
-            }
-        })
-        .collect();
-    admitted.sort_by_key(|&(width, height)| (width, height));
-
-    let rows: Vec<_> = admitted
-        .into_iter()
-        .map(|(width, height)| LauncherResolutionRow::new(width as i32, height as i32))
-        .collect();
-    let selected_index = rows
-        .iter()
-        .enumerate()
-        .filter(|(_, row)| (row.width, row.height) == retained_pair)
-        .map(|(index, _)| index)
-        .next_back();
-
-    LauncherResolutionProjection {
-        rows,
-        selected_index,
-    }
-}
-
 /// Build one fresh primary snapshot from already-owned platform and text facts.
 /// Child return and initial open both use this same constructor path.
+/// The Full Screen box shows `full_screen`, the window's own state: the
+/// player can also change it with the window's title-bar button.
 pub(crate) fn launcher_dialog_from_profile(
     profile: &RetailOptionsProfile,
     labels: LauncherOptionsLabels,
-    mode_pairs: impl IntoIterator<Item = (u32, u32)>,
+    full_screen: bool,
     launcher_audio_available: bool,
 ) -> OptionsDialogState {
-    let values = launcher_values_from_profile(profile);
-    let resolutions = project_launcher_resolutions(
-        mode_pairs,
-        profile.allow_hi_res_modes,
-        (profile.screen_width, profile.screen_height),
-    );
-    OptionsDialogState::new(
-        labels,
-        values,
-        resolutions.rows,
-        resolutions.selected_index,
-        launcher_audio_available,
-    )
+    let values = LauncherOptionsValues {
+        full_screen,
+        ..launcher_values_from_profile(profile)
+    };
+    OptionsDialogState::new(labels, values, profile.zoom, launcher_audio_available)
 }
 
 /// Concrete effects admitted by one launcher UI frame.
@@ -114,19 +59,22 @@ pub(crate) fn launcher_dialog_from_profile(
 /// forged or stale audio event cannot store a profile value or touch output.
 pub(crate) trait LauncherPreviewOperations: AudioVolumeOperations {
     fn play_cue(&mut self, cue: LauncherCue);
-    fn store_resolution(&mut self, width: i32, height: i32);
+    fn store_zoom(&mut self, zoom: Zoom);
+    fn set_full_screen(&mut self, full_screen: bool);
 }
 
-/// Dispatch one already-ordered UI event without an INI write or display-mode
-/// change. The three audio paths preserve native profile -> output -> cue order.
+/// Dispatch one already-ordered UI event without an INI write. The three audio
+/// paths preserve native profile -> output -> cue order; the two display
+/// choices take effect at once.
 pub(crate) fn dispatch_launcher_preview_event(
     operations: &mut impl LauncherPreviewOperations,
     event: LauncherOptionsEvent,
 ) {
     match event {
         LauncherOptionsEvent::Cue(cue) => operations.play_cue(cue),
-        LauncherOptionsEvent::ResolutionSelected { width, height } => {
-            operations.store_resolution(width, height);
+        LauncherOptionsEvent::ZoomSelected(zoom) => operations.store_zoom(zoom),
+        LauncherOptionsEvent::FullScreenChanged(full_screen) => {
+            operations.set_full_screen(full_screen);
         }
         LauncherOptionsEvent::ScorePreview(volume) => {
             apply_volume(operations, AudioVolume::Score, volume, true)
@@ -240,8 +188,7 @@ mod tests {
         OptionsDialogState::new(
             LauncherOptionsLabels::resolve(&|_| None),
             values,
-            Vec::new(),
-            None,
+            Zoom::Auto,
             true,
         )
     }
@@ -325,68 +272,6 @@ mod tests {
     }
 
     #[test]
-    fn resolution_projection_filters_sorts_preserves_duplicates_and_selects_last_match() {
-        let modes = [
-            (1920, 1080),
-            (800, 600),
-            (639, 480),
-            (800, 600),
-            (1024, 769),
-            (1024, 768),
-            (640, 479),
-            (1280, 720),
-            (640, 480),
-            (4097, 2160),
-        ];
-        let low = project_launcher_resolutions(modes, false, (800, 600));
-        assert_eq!(
-            low.rows
-                .iter()
-                .map(|row| (row.width, row.height, row.label.as_str()))
-                .collect::<Vec<_>>(),
-            vec![
-                (640, 480, "640 x 480 x 16"),
-                (800, 600, "800 x 600 x 16"),
-                (800, 600, "800 x 600 x 16"),
-                (1024, 768, "1024 x 768 x 16"),
-            ]
-        );
-        assert_eq!(low.selected_index, Some(2));
-
-        let high = project_launcher_resolutions(modes, true, (1920, 1080));
-        assert!(
-            high.rows
-                .iter()
-                .any(|row| (row.width, row.height) == (1280, 720))
-        );
-        assert!(
-            high.rows
-                .iter()
-                .any(|row| (row.width, row.height) == (1920, 1080))
-        );
-        assert!(!high.rows.iter().any(|row| row.width == 4097));
-        assert_eq!(
-            high.selected_index.map(|index| {
-                let row = &high.rows[index];
-                (row.width, row.height)
-            }),
-            Some((1920, 1080))
-        );
-
-        assert_eq!(
-            project_launcher_resolutions([], false, (800, 600)),
-            LauncherResolutionProjection {
-                rows: Vec::new(),
-                selected_index: None,
-            }
-        );
-        assert_eq!(
-            project_launcher_resolutions([(640, 480)], false, (800, 600)).selected_index,
-            None
-        );
-    }
-
-    #[test]
     fn fresh_dialog_constructor_projects_the_retained_parent_subset_and_audio_gate() {
         let profile = RetailOptionsProfile {
             detail_level: 0,
@@ -398,16 +283,19 @@ mod tests {
             score_volume: 0.2,
             sound_volume: 0.5,
             voice_volume: 0.8,
-            screen_width: 800,
-            screen_height: 600,
+            zoom: Zoom::Huge,
             ..RetailOptionsProfile::default()
         };
         let dialog = launcher_dialog_from_profile(
             &profile,
             LauncherOptionsLabels::resolve(&|_| None),
-            [(1024, 768), (800, 600), (800, 600)],
+            true,
             false,
         );
+        assert_eq!(dialog.shell_selected_zoom_text(), Zoom::Huge.label());
+        assert!(dialog.shell_checkbox_checked(
+            crate::ui::main_menu_dialogs::options::LauncherCheckboxId::FullScreen
+        ));
 
         assert_eq!(
             dialog.pack(),
@@ -429,7 +317,8 @@ mod tests {
     #[derive(Debug, Clone, PartialEq)]
     enum PreviewCall {
         Cue(LauncherCue),
-        Resolution(i32, i32),
+        Zoom(Zoom),
+        FullScreen(bool),
         StoreScore(f32),
         OutputScore(f32),
         StoreSound(f32),
@@ -449,8 +338,12 @@ mod tests {
             self.calls.push(PreviewCall::Cue(cue));
         }
 
-        fn store_resolution(&mut self, width: i32, height: i32) {
-            self.calls.push(PreviewCall::Resolution(width, height));
+        fn store_zoom(&mut self, zoom: Zoom) {
+            self.calls.push(PreviewCall::Zoom(zoom));
+        }
+
+        fn set_full_screen(&mut self, full_screen: bool) {
+            self.calls.push(PreviewCall::FullScreen(full_screen));
         }
     }
 
@@ -496,10 +389,8 @@ mod tests {
         };
         for event in [
             LauncherOptionsEvent::Cue(LauncherCue::Checkbox),
-            LauncherOptionsEvent::ResolutionSelected {
-                width: 1024,
-                height: 768,
-            },
+            LauncherOptionsEvent::FullScreenChanged(true),
+            LauncherOptionsEvent::ZoomSelected(Zoom::Large),
             LauncherOptionsEvent::ScorePreview(0.4),
             LauncherOptionsEvent::SoundPreview(0.7),
             LauncherOptionsEvent::VoicePreview(0.3),
@@ -510,7 +401,8 @@ mod tests {
             recorder.calls,
             [
                 PreviewCall::Cue(LauncherCue::Checkbox),
-                PreviewCall::Resolution(1024, 768),
+                PreviewCall::FullScreen(true),
+                PreviewCall::Zoom(Zoom::Large),
                 PreviewCall::StoreScore(0.4),
                 PreviewCall::OutputScore(0.4),
                 PreviewCall::StoreSound(0.7),
@@ -533,14 +425,12 @@ mod tests {
         }
         assert!(recorder.calls.is_empty());
 
+        // The display choices don't depend on the audio gate.
         dispatch_launcher_preview_event(
             &mut recorder,
-            LauncherOptionsEvent::ResolutionSelected {
-                width: 640,
-                height: 480,
-            },
+            LauncherOptionsEvent::ZoomSelected(Zoom::Normal),
         );
-        assert_eq!(recorder.calls, [PreviewCall::Resolution(640, 480)]);
+        assert_eq!(recorder.calls, [PreviewCall::Zoom(Zoom::Normal)]);
     }
 
     #[test]
@@ -729,6 +619,7 @@ mod tests {
             tooltips: false,
             target_lines: false,
             show_hidden: true,
+            full_screen: false,
             score_position,
             sound_position: 7,
             voice_position: 3,

@@ -83,16 +83,11 @@ pub(crate) fn layout(state: &AppState) -> Option<KeyboardLayout> {
     } else {
         None
     };
-    let (w, h) = if game {
-        (
-            state.renderer.gpu.config.width,
-            state.renderer.gpu.config.height,
-        )
-    } else {
-        (state.render_width(), state.render_height())
-    };
     Some(crate::app::frontend::shell_layout::keyboard_layout(
-        state, w as i32, h as i32, size,
+        state,
+        state.render_width() as i32,
+        state.render_height() as i32,
+        size,
     ))
 }
 fn localized(state: &AppState, key: &str, parameter: Option<u8>) -> String {
@@ -276,7 +271,7 @@ fn cue(state: &mut AppState, open: bool) {
 /// Poll the captured list gesture and return its next event-loop wake deadline.
 pub(crate) fn poll_scroll_repeat(state: &mut AppState) -> Option<Instant> {
     let layout = layout(state)?;
-    let (x, y) = state.window_cursor_position();
+    let (x, y) = state.cursor_position();
     let dialog = state.frontend.keyboard_dialog.as_mut()?;
     let geometry = ShellListGeometry::new(
         layout.commands,
@@ -299,7 +294,7 @@ pub(crate) fn cursor_moved(state: &mut AppState) {
     let Some(layout) = layout(state) else {
         return;
     };
-    let (x, y) = state.window_cursor_position();
+    let (x, y) = state.cursor_position();
     let (x, y) = (x.round() as i32, y.round() as i32);
     let dialog = state.frontend.keyboard_dialog.as_mut().unwrap();
     dialog.hovered = layout.control_at(x, y);
@@ -326,7 +321,7 @@ pub(crate) fn mouse(state: &mut AppState, button: MouseButton, pressed: bool) {
     let Some(layout) = layout(state) else {
         return;
     };
-    let (x, y) = state.window_cursor_position();
+    let (x, y) = state.cursor_position();
     let (x, y) = (x.round() as i32, y.round() as i32);
     let dialog = state.frontend.keyboard_dialog.as_mut().unwrap();
     if dialog.category_open {

@@ -13,12 +13,11 @@ use crate::app::persistence::options_profile::{RetailOptionsLoad, RetailOptionsP
 use super::{
     ActiveEventLoop, App, AppState, Arc, AssetManager, BTreeMap, BasicSection, BatchRenderer,
     BitFont, Fullscreen, GameConfig, GameScreen, GpuContext, HashMap, HouseRoster, Instant,
-    MonitorHandle, MusicPlayer, PhysicalSize, PlatformState, RandomMapGenerationRetention, Result,
-    SfxPlayer, SidebarChromeLayoutSpec, SidebarTab, StartupAudioDisposition, VideoModeHandle,
-    Window, WindowAttributes, frontend::startup_splash,
+    MusicPlayer, PhysicalSize, PlatformState, RandomMapGenerationRetention, Result, SfxPlayer,
+    SidebarChromeLayoutSpec, SidebarTab, StartupAudioDisposition, Window, WindowAttributes,
+    frontend::startup_splash,
 };
 use crate::map::scenario_sources;
-use crate::util::config::WindowMode;
 
 fn startup_window_projection(
     profile_screen: ScreenSize,
@@ -28,78 +27,6 @@ fn startup_window_projection(
         (profile_screen.width, profile_screen.height, true),
         |(width, height)| (width, height, false),
     )
-}
-
-/// `[graphics] window_mode` for this process. A sealed capture is an automation
-/// lane with its own exact, hidden surface, so it always takes the fixed
-/// decorated window regardless of what the player configured.
-fn startup_window_mode(
-    game_config: Option<&GameConfig>,
-    capture_dimensions: Option<(u32, u32)>,
-) -> WindowMode {
-    if capture_dimensions.is_some() {
-        return WindowMode::Windowed;
-    }
-    game_config
-        .as_ref()
-        .map(|config| config.graphics.window_mode)
-        .unwrap_or_default()
-}
-
-/// The fullscreen request a monitor-covering window mode needs at creation.
-///
-/// Exclusive fullscreen can only ask winit for a mode the monitor already
-/// advertises, so it takes the display mode at the monitor's own size with the
-/// highest refresh rate; VERA has no display-mode switching for a match to use.
-fn monitor_fullscreen(event_loop: &ActiveEventLoop, mode: WindowMode) -> Option<Fullscreen> {
-    let monitor = event_loop.primary_monitor()?;
-    match mode {
-        WindowMode::Windowed | WindowMode::Resizable | WindowMode::Frameless => None,
-        WindowMode::Borderless => Some(Fullscreen::Borderless(Some(monitor))),
-        WindowMode::Fullscreen => {
-            let wanted = monitor.size();
-            let video_mode = select_exclusive_video_mode(&monitor, wanted);
-            video_mode.map(Fullscreen::Exclusive)
-        }
-    }
-}
-
-fn select_exclusive_video_mode(
-    monitor: &MonitorHandle,
-    wanted: PhysicalSize<u32>,
-) -> Option<VideoModeHandle> {
-    monitor.video_modes().max_by_key(|mode| {
-        let size = mode.size();
-        (
-            size.width == wanted.width && size.height == wanted.height,
-            mode.refresh_rate_millihertz(),
-        )
-    })
-}
-
-/// Record the presentation the window actually got. An exclusive request that
-/// finds no advertised video mode is otherwise indistinguishable from the
-/// borderless window: same geometry, same style bits, and only this line says
-/// which one ran.
-fn log_window_presentation(mode: WindowMode, fullscreen: Option<&Fullscreen>) {
-    let applied = match fullscreen {
-        Some(Fullscreen::Borderless(monitor)) => match monitor.as_ref().map(MonitorHandle::size) {
-            Some(size) => format!("borderless {}x{}", size.width, size.height),
-            None => "borderless on an unnamed monitor".to_owned(),
-        },
-        Some(Fullscreen::Exclusive(video)) => format!(
-            "exclusive {}x{}@{}mHz {}bit",
-            video.size().width,
-            video.size().height,
-            video.refresh_rate_millihertz(),
-            video.bit_depth()
-        ),
-        None if mode == WindowMode::Fullscreen => {
-            "fullscreen requested but no advertised video mode: undecorated window".to_owned()
-        }
-        None => "no fullscreen request".to_owned(),
-    };
-    log::info!("Window mode {mode:?}: {applied}");
 }
 
 /// Keep the first actionable failure while still constructing the error-screen state.
@@ -210,14 +137,30 @@ impl App {
         let options_profile = options_load.retained_profile;
         let (window_width, window_height, window_visible) =
             startup_window_projection(profile_screen, capture_dimensions);
-        let window_mode = startup_window_mode(game_config.as_ref(), capture_dimensions);
         let startup_audio =
             StartupAudioDisposition::for_audio_enabled(startup_options.audio_enabled);
+        // The player's window has a title bar and any size they drag it to; it
+        // opens at the frontend size in logical units, so a high-DPI display
+        // shows it as large as a standard one. The menus fit whatever it gets
+        // and the match zoom follows it. A sealed capture keeps its exact,
+        // fixed, hidden physical surface.
+        let capture = capture_dimensions.is_some();
+        let inner_size: winit::dpi::Size = if capture {
+            PhysicalSize::new(window_width, window_height).into()
+        } else {
+            winit::dpi::LogicalSize::new(window_width, window_height).into()
+        };
+        // The saved Full Screen choice goes in at creation: macOS retries it
+        // only then, when the first attempt fails (a launch from an app that
+        // is itself full screen). The resize that ends the animation re-fits
+        // the surface.
         let mut window_attrs: WindowAttributes = WindowAttributes::default()
             .with_title("RA2 Engine")
-            .with_inner_size(PhysicalSize::new(window_width, window_height))
-            .with_resizable(window_mode.resizable())
-            .with_decorations(window_mode.has_decorations())
+            .with_inner_size(inner_size)
+            .with_resizable(!capture)
+            .with_fullscreen(
+                (!capture && options_profile.full_screen).then_some(Fullscreen::Borderless(None)),
+            )
             .with_visible(window_visible)
             .with_active(window_visible);
         // Capture windows stay hidden, so only a visible session shows the icon.
@@ -233,20 +176,6 @@ impl App {
         if let Some(icon) = &retail_icon {
             icon.set_dock_icon();
         }
-        let fullscreen = monitor_fullscreen(event_loop, window_mode);
-        log_window_presentation(window_mode, fullscreen.as_ref());
-        // The covering modes are installed before the surface exists, so the GPU,
-        // the shell layout and every later resize read one client size.
-        if let Some(fullscreen) = fullscreen {
-            window.set_fullscreen(Some(fullscreen));
-        }
-        // A monitor-covering window's shell size is whatever the display actually
-        // gave it; a decorated window keeps the profile's frontend pair.
-        let shell_client_size = if window_mode.covers_monitor() {
-            window.inner_size()
-        } else {
-            PhysicalSize::new(window_width, window_height)
-        };
         let gpu: GpuContext = GpuContext::new(window.clone())?;
         #[cfg(feature = "dev-ui")]
         let debug_ui = EguiIntegration::new(&gpu, &window);
@@ -268,19 +197,6 @@ impl App {
             .as_ref()
             .map(|cfg| cfg.gameplay.input_delay_ticks.max(1) as u64)
             .unwrap_or(2);
-        let upscale_pass = game_config
-            .as_ref()
-            .filter(|cfg| cfg.graphics.upscale)
-            .map(|cfg| {
-                let rw = cfg.graphics.render_width();
-                let rh = cfg.graphics.render_height();
-                log::info!(
-                    "Upscale pass enabled: render at {}x{}, upscale to window",
-                    rw,
-                    rh,
-                );
-                crate::render::upscale_pass::UpscalePass::new(&gpu, rw, rh)
-            });
         // Ordinary gamemd chrome is one physical render pixel per asset pixel.
         // 6A5090/6A5130 change row capacity on resize, never artwork scale.
         let ui_scale = 1.0;
@@ -566,7 +482,6 @@ impl App {
             platform: PlatformState::new(
                 window,
                 game_config,
-                shell_client_size,
                 capture_dimensions.map(|(w, h)| PhysicalSize::new(w, h)),
             ),
             match_state: crate::app::match_runtime::state::MatchState {
@@ -737,7 +652,7 @@ impl App {
                 instance_pool: crate::render::batch::InstanceBufferPool::new(),
                 depth_view,
                 shell_surface_presenter,
-                upscale_pass,
+                upscale_pass: None,
                 #[cfg(feature = "dev-ui")]
                 debug_ui,
                 status_screen_fill,
@@ -769,6 +684,7 @@ impl App {
         // an audible source. The profile keeps native negative values for
         // round-trip; the output owners provide the documented safe clamp.
         apply_startup_audio_profile(&state.persistence.options_profile, &mut state.audio);
+        Self::sync_zoom_pass(&mut state);
 
         if let Ok(quickplay) = std::env::var("RA2_QUICKPLAY") {
             // The developer shortcut carries an authored-map sandbox through

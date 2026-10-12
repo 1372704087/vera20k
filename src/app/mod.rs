@@ -11,7 +11,6 @@ use winit::dpi::PhysicalSize;
 use winit::event::{MouseButton, MouseScrollDelta, WindowEvent};
 use winit::event_loop::{ActiveEventLoop, ControlFlow};
 use winit::keyboard::{KeyCode, ModifiersState, PhysicalKey};
-use winit::monitor::{MonitorHandle, VideoModeHandle};
 use winit::platform::modifier_supplement::KeyEventExtModifierSupplement;
 use winit::window::{Fullscreen, Window, WindowAttributes, WindowId};
 

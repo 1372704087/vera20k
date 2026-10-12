@@ -22,7 +22,8 @@ pub(crate) struct RendererState {
     pub(crate) depth_view: wgpu::TextureView,
     /// Encoded-byte RGB565 presentation boundary for stock shell/loading surfaces.
     pub(crate) shell_surface_presenter: crate::render::shell_surface_present::ShellSurfacePresenter,
-    /// Optional Catmull-Rom bicubic upscale pass (render at lower res, upscale to window).
+    /// The match zoom pass, present only while the Options zoom gives a factor
+    /// above 1 for this window (`App::sync_zoom_pass`). Captures never zoom.
     pub(crate) upscale_pass: Option<crate::render::upscale_pass::UpscalePass>,
     /// Optional diagnostic GUI; absent from the normal game build.
     #[cfg(feature = "dev-ui")]

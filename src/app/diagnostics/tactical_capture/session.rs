@@ -221,13 +221,13 @@ impl TacticalCaptureSession {
             .context("tactical capture requires a loaded config.toml")?;
         ensure!(
             config.graphics.vsync == capture.vsync
-                && config.graphics.upscale == capture.upscale
                 && config.graphics.extra_animations == capture.extra_animations,
             "live graphics toggles differ from the sealed tactical profile"
         );
+        // Sealed profiles record `upscale = false`; captures never zoom.
         ensure!(
             state.renderer.upscale_pass.is_none(),
-            "tactical capture forbids the upscale pass"
+            "tactical capture forbids the zoom pass"
         );
         ensure!(
             SIM_TICK_MS == capture.sim_tick_ms,

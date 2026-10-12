@@ -9,8 +9,10 @@ use crate::app::AppState;
 use crate::render::batch::SpriteInstance;
 use crate::render::shell_text::{self, ShellAlign, ShellTextDraw, TextRect};
 use crate::render::shell_text_reveal::PathAReveal;
-use crate::ui::main_menu_dialogs::options::shell::{LauncherLabelAlign, LauncherOptionsLayout};
-use crate::ui::main_menu_dialogs::options::{LauncherTrackbarId, OptionsDialogState};
+use crate::ui::main_menu_dialogs::options::shell::{
+    LauncherLabelAlign, LauncherOptionsLayout, LauncherStatusHelp,
+};
+use crate::ui::main_menu_dialogs::options::{LauncherTrackbarId, OptionsDialogState, Zoom};
 use crate::ui::shell::geom::{RectPx, ShellScale};
 use std::time::Instant;
 
@@ -77,7 +79,7 @@ fn build_controls(
         &mut out,
         &chrome,
         ControlPaint::Combo {
-            rect: layout.resolution,
+            rect: layout.zoom,
             swatch: None,
             open: dialog.shell_popup(layout).is_some(),
             disabled: false,
@@ -180,13 +182,13 @@ fn build_text(
             ));
         }
     }
-    let resolution_text = scale.derive_rect(layout.resolution, |rect| {
+    let zoom_text = scale.derive_rect(layout.zoom, |rect| {
         RectPx::new(rect.x + 3, rect.y, rect.w - 23, rect.h)
     });
     out.push(text_draw(
         font,
-        dialog.shell_selected_resolution_text(),
-        resolution_text,
+        dialog.shell_selected_zoom_text(),
+        zoom_text,
         ShellAlign::V_CENTER,
         SHELL_LABEL_TEXT_RGB,
         glyph,
@@ -290,7 +292,12 @@ pub(crate) fn render_launcher_options(
             .options_dialog
             .as_ref()
             .and_then(|dialog| dialog.shell_status_help())
-            .map(|key| crate::app::frontend::shell_pass::resolve_csf(state, key).into_owned())
+            .map(|help| match help {
+                LauncherStatusHelp::Csf(key) => {
+                    crate::app::frontend::shell_pass::resolve_csf(state, key).into_owned()
+                }
+                LauncherStatusHelp::Text(text) => text.to_owned(),
+            })
             .unwrap_or_default();
         let status = crate::app::frontend::menu_page_render::paint_shell_status_line(
             state,
@@ -355,20 +362,9 @@ pub(crate) fn render_launcher_options(
             SHELL_DROPDOWN_DEPTH,
         );
         let text_inset = (3.0 * scale.factor()).round() as i32;
-        for (i, row) in dialog
-            .shell_resolution_rows()
-            .iter()
-            .enumerate()
-            .skip(popup.first_row)
-            .take(popup.visible_rows)
-        {
-            let rect = RectPx::new(
-                popup.content.x,
-                popup.content.y + (i - popup.first_row) as i32 * popup.row_height,
-                popup.content.w,
-                popup.row_height,
-            );
-            if popup.hovered.or(popup.selected) == Some(i) {
+        for (i, zoom) in Zoom::ALL.into_iter().enumerate() {
+            let rect = popup.row_rect(i);
+            if popup.hovered.unwrap_or(popup.selected) == i {
                 push_solid_rect_px(
                     &mut popup_instances,
                     atlas.white_pixel,
@@ -379,24 +375,12 @@ pub(crate) fn render_launcher_options(
             }
             popup_text.push(text_draw(
                 &state.renderer.bit_font,
-                &row.label,
+                zoom.label(),
                 RectPx::new(rect.x + text_inset, rect.y, rect.w - 2 * text_inset, rect.h),
                 ShellAlign::V_CENTER,
                 SHELL_LABEL_TEXT_RGB,
                 scale.factor(),
             ));
-        }
-        if let (Some(scrollbar), Some(thumb)) = (popup.scrollbar, popup.thumb) {
-            paint_control(
-                &mut popup_instances,
-                &atlas.control_chrome(),
-                ControlPaint::ScrollBar {
-                    scrollbar,
-                    thumb,
-                    pressed_part: None,
-                },
-                scale,
-            );
         }
         push_ownerdraw_two_pixel_bevel_frame_px(
             &mut popup_instances,

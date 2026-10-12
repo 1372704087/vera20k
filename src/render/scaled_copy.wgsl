@@ -1,16 +1,15 @@
-// Zoom of the match frame.
+// A scaled copy of a surface: the match zoom and the sidebar's size.
 //
 // Source pixel (0, 0) lands at `origin`, and each source pixel covers
-// `scale` x `scale` window pixels. A whole scale copies blocks. Between whole
-// scales a window pixel can straddle two source pixels on an axis; it blends
+// `scale` x `scale` target pixels. A whole scale copies blocks. Between whole
+// scales a target pixel can straddle two source pixels on an axis; it blends
 // them by how much of it each covers (a box filter), so a source pixel keeps
-// its own colour wherever it covers a window pixel alone and only the seams
-// soften. The draw's scissor covers exactly the scaled frame; the rest of the
-// window was cleared to black.
+// its own colour wherever it covers a target pixel alone and only the seams
+// soften. The draw's scissor covers exactly the scaled surface.
 
 struct Params {
-    origin: vec2f,   // window pixel where source pixel (0, 0) lands
-    scale: f32,      // window pixels per source pixel, at least 1
+    origin: vec2f,   // target pixel where source pixel (0, 0) lands
+    scale: f32,      // target pixels per source pixel, at least 1
     sharp: f32,      // 1 for a whole scale
 };
 
@@ -38,7 +37,7 @@ fn fs_main(@builtin(position) position: vec4f) -> @location(0) vec4f {
         // The floor names the block.
         return texel(vec2i(floor(centre)));
     }
-    // The window pixel spans 1 / scale source pixels, so at most two per
+    // The target pixel spans 1 / scale source pixels, so at most two per
     // axis: `first` holds its top-left corner, `t` is its share past the seam.
     let half = 0.5 / params.scale;
     let first = floor(centre - half);

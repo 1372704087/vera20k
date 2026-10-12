@@ -891,7 +891,7 @@ mod tests {
                     .contains("half-scale profiles are historical")
             );
         }
-        let (width, height) = crate::app::input::camera::tactical_viewport_size_px(800, 600);
+        let (width, height) = crate::ui::sidebar::SidebarFrame::new(800, 600, 100).tactical_size();
         // UI artwork no longer scales; native tactical exclusions remain 168x32.
         assert_eq!((width, height), (632, 568));
         assert_eq!((width / 2, height / 2), (316, 284));

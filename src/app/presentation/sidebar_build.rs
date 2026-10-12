@@ -31,7 +31,7 @@ pub(crate) fn build_sidebar_chrome_instances(
     let Some(atlas) = current_sidebar_chrome(state) else {
         return Vec::new();
     };
-    let mut instances = build_sidebar_chrome_instances_for_layout(
+    build_sidebar_chrome_instances_for_layout(
         atlas,
         state.match_state.match_presentation.sidebar_layout_spec,
         &view.layout,
@@ -45,8 +45,16 @@ pub(crate) fn build_sidebar_chrome_instances(
         ],
         state.match_state.match_presentation.ui_scale,
         state.match_state.match_presentation.radar_anim.is_none(),
-    );
-    command_bar::append(state, atlas, &mut instances);
+    )
+}
+
+/// The bottom command bar, which shares the chrome atlas but is drawn in the
+/// frame, outside the sidebar surface.
+pub(crate) fn build_command_bar_instances(state: &AppState) -> Vec<SpriteInstance> {
+    let mut instances = Vec::new();
+    if let Some(atlas) = current_sidebar_chrome(state) {
+        command_bar::append(state, atlas, &mut instances);
+    }
     instances
 }
 

@@ -136,7 +136,10 @@ pub(crate) fn update(state: &mut AppState) -> u64 {
     now
 }
 
-fn tip_rect(r: crate::ui::sidebar::Rect) -> TipRect {
+/// A sidebar rect, in the sidebar's layout space, as a tip region in frame
+/// pixels, where the cursor and the drawn tip are.
+fn tip_rect(frame: crate::ui::sidebar::SidebarFrame, r: crate::ui::sidebar::Rect) -> TipRect {
+    let r = frame.rect_to_frame(r);
     TipRect::new(
         r.x.round() as i32,
         r.y.round() as i32,
@@ -202,6 +205,7 @@ fn sync_in_game_regions(state: &mut AppState) {
             .sync_regions(&[]);
         return;
     };
+    let frame = state.sidebar_frame();
     let mut regions: Vec<TipRegion> = Vec::with_capacity(9 + view.items.len());
     // Set_View_Dimensions4A8B50 registers the complete tactical viewport as
     // dynamic region500. CursorCheat537EF0 toggles its coordinate text at
@@ -244,7 +248,7 @@ fn sync_in_game_regions(state: &mut AppState) {
         .unwrap_or_default();
     regions.push(TipRegion {
         id: ID_POWER_TIP,
-        rect: tip_rect(power_rect),
+        rect: tip_rect(frame, power_rect),
         text: power_text,
     });
     for (i, tab) in view.tabs.iter().enumerate() {
@@ -255,18 +259,18 @@ fn sync_in_game_regions(state: &mut AppState) {
         let text = with_disabled_suffix(state, csf_text(state, label), tab.disabled);
         regions.push(TipRegion {
             id: crate::app::input::gadget_input::ID_TAB_BASE as u32 + i as u32,
-            rect: tip_rect(tab.rect),
+            rect: tip_rect(frame, tab.rect),
             text,
         });
     }
     regions.push(TipRegion {
         id: crate::app::input::gadget_input::ID_REPAIR as u32,
-        rect: tip_rect(view.repair_button.rect),
+        rect: tip_rect(frame, view.repair_button.rect),
         text: csf_text(state, "TXT_REPAIR_MODE"),
     });
     regions.push(TipRegion {
         id: crate::app::input::gadget_input::ID_SELL as u32,
-        rect: tip_rect(view.sell_button.rect),
+        rect: tip_rect(frame, view.sell_button.rect),
         text: csf_text(state, "TXT_SELL_MODE"),
     });
     {
@@ -275,12 +279,12 @@ fn sync_in_game_regions(state: &mut AppState) {
         // themselves are the native ones.
         regions.push(TipRegion {
             id: crate::app::input::gadget_input::ID_SCROLL_DOWN as u32,
-            rect: tip_rect(view.scroll_down_button.rect),
+            rect: tip_rect(frame, view.scroll_down_button.rect),
             text: csf_text(state, TIP_LABEL_SCROLL_DOWN),
         });
         regions.push(TipRegion {
             id: crate::app::input::gadget_input::ID_SCROLL_UP as u32,
-            rect: tip_rect(view.scroll_up_button.rect),
+            rect: tip_rect(frame, view.scroll_up_button.rect),
             text: csf_text(state, TIP_LABEL_SCROLL_UP),
         });
     }
@@ -299,7 +303,7 @@ fn sync_in_game_regions(state: &mut AppState) {
         };
         regions.push(TipRegion {
             id: CAMEO_TIP_ID_BASE + slot as u32,
-            rect: tip_rect(item.rect),
+            rect: tip_rect(frame, item.rect),
             text,
         });
     }

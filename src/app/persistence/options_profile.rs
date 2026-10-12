@@ -97,6 +97,8 @@ pub(crate) struct RetailOptionsProfile {
     /// Whether battles keep gamemd's 4:3 screen shape, with bars on a window
     /// of any other shape, instead of filling the window.
     pub(crate) original_shape: bool,
+    /// The Options page's battle sidebar size.
+    pub(crate) sidebar: crate::ui::main_menu_dialogs::options::SidebarSize,
 }
 
 /// The two process-start products obtained from one physical `RA2MD.INI`
@@ -147,6 +149,7 @@ impl Default for RetailOptionsProfile {
             full_screen: false,
             zoom: crate::ui::main_menu_dialogs::options::Zoom::Auto,
             original_shape: false,
+            sidebar: crate::ui::main_menu_dialogs::options::SidebarSize::Normal,
         }
     }
 }
@@ -165,7 +168,7 @@ pub(crate) struct FormattedProfileSections {
     /// network fields this profile does not model; their bytes are preserved.
     pub(crate) network: [(&'static str, String); 1],
     /// VERA's own section, written after the native ones.
-    pub(crate) vera: [(&'static str, String); 3],
+    pub(crate) vera: [(&'static str, String); 4],
 }
 
 impl RetailOptionsLoad {
@@ -347,6 +350,9 @@ impl RetailOptionsProfile {
                 vera.read_int("Zoom", self.zoom.ini_value()),
             );
             self.original_shape = vera.read_bool("OriginalShape", self.original_shape);
+            self.sidebar = crate::ui::main_menu_dialogs::options::SidebarSize::from_ini_value(
+                vera.read_int("Sidebar", self.sidebar.ini_value()),
+            );
         }
     }
 
@@ -422,6 +428,7 @@ impl RetailOptionsProfile {
                     "OriginalShape",
                     format_bool(self.original_shape).to_string(),
                 ),
+                ("Sidebar", self.sidebar.ini_value().to_string()),
             ],
         }
     }
@@ -955,7 +962,7 @@ mod tests {
 
     #[test]
     fn vera_display_preferences_round_trip_in_their_own_section() {
-        use crate::ui::main_menu_dialogs::options::Zoom;
+        use crate::ui::main_menu_dialogs::options::{SidebarSize, Zoom};
         let defaults = load_snapshot(
             &RetailStartupOptions::default(),
             b"[Video]\nScreenWidth=800\n",
@@ -963,15 +970,17 @@ mod tests {
         assert!(!defaults.retained_profile.full_screen);
         assert_eq!(defaults.retained_profile.zoom, Zoom::Auto);
         assert!(!defaults.retained_profile.original_shape);
+        assert_eq!(defaults.retained_profile.sidebar, SidebarSize::Normal);
 
         let load = load_snapshot(
             &RetailStartupOptions::default(),
-            b"[VERA]\nFullScreen=yes\nZoom=2\nOriginalShape=yes\n",
+            b"[VERA]\nFullScreen=yes\nZoom=2\nOriginalShape=yes\nSidebar=150\n",
         );
         assert!(load.retained_profile.full_screen);
         // The first release saved the whole factor.
         assert_eq!(load.retained_profile.zoom, Zoom::Percent(200));
         assert!(load.retained_profile.original_shape);
+        assert_eq!(load.retained_profile.sidebar, SidebarSize::Large);
         // A value this build doesn't know reads as Auto.
         let unknown = load_snapshot(&RetailStartupOptions::default(), b"[VERA]\nZoom=9\n");
         assert_eq!(unknown.retained_profile.zoom, Zoom::Auto);
@@ -980,18 +989,22 @@ mod tests {
             full_screen: true,
             zoom: Zoom::Percent(150),
             original_shape: true,
+            sidebar: SidebarSize::ExtraLarge,
             ..RetailOptionsProfile::default()
         };
         let output =
             String::from_utf8(profile.transform_ra2md(b"[Video]\r\nScreenWidth=800\r\n")).unwrap();
         assert!(
-            output.contains("[VERA]\r\nFullScreen=yes\r\nZoom=150\r\nOriginalShape=yes\r\n"),
+            output.contains(
+                "[VERA]\r\nFullScreen=yes\r\nZoom=150\r\nOriginalShape=yes\r\nSidebar=200\r\n"
+            ),
             "{output}"
         );
         let reread = load_snapshot(&RetailStartupOptions::default(), output.as_bytes());
         assert!(reread.retained_profile.full_screen);
         assert_eq!(reread.retained_profile.zoom, Zoom::Percent(150));
         assert!(reread.retained_profile.original_shape);
+        assert_eq!(reread.retained_profile.sidebar, SidebarSize::ExtraLarge);
     }
 
     #[test]

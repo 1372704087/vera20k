@@ -13,11 +13,10 @@
 //! pass runs even at 100%. The front-end menus never come here: they fit the
 //! window on their own.
 //!
-//! Depends on: `render/gpu.rs` (GpuContext)
+//! Depends on: `render/gpu.rs` (GpuContext), `render/scaled_copy.rs` (the copy)
 
 use super::gpu::GpuContext;
-
-const SHADER_SRC: &str = include_str!("upscale_zoom.wgsl");
+use super::scaled_copy::ScaledSurface;
 
 /// The match frame's shape.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -111,16 +110,8 @@ impl ZoomGeometry {
 }
 
 /// GPU resources for the zoom pass.
-#[allow(dead_code)] // Fields kept alive for GPU resource ownership.
 pub struct UpscalePass {
-    color_texture: wgpu::Texture,
-    depth_texture: wgpu::Texture,
-    color_view: wgpu::TextureView,
-    depth_view: wgpu::TextureView,
-    params_buffer: wgpu::Buffer,
-    bind_group: wgpu::BindGroup,
-    bgl: wgpu::BindGroupLayout,
-    pipeline: wgpu::RenderPipeline,
+    surface: ScaledSurface,
     geometry: ZoomGeometry,
 }
 
@@ -128,77 +119,45 @@ impl UpscalePass {
     /// Create a pass that zooms a `geometry.src_width x src_height` frame into
     /// the window it was computed for.
     pub fn new(gpu: &GpuContext, geometry: ZoomGeometry) -> Self {
-        let color_texture = create_color_texture(gpu, geometry.src_width, geometry.src_height);
-        let depth_texture = create_depth_texture(gpu, geometry.src_width, geometry.src_height);
-        let color_view = color_texture.create_view(&Default::default());
-        let depth_view = depth_texture.create_view(&Default::default());
-
-        let params_buffer = gpu.device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("Zoom Params"),
-            size: 16, // vec2f origin + f32 scale + f32 sharp flag
-            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-            mapped_at_creation: false,
-        });
-        write_params(gpu, &params_buffer, geometry);
-
-        let bgl = create_bgl(gpu);
-        let bind_group = create_bind_group(&gpu.device, &bgl, &color_texture, &params_buffer);
-        let pipeline = create_pipeline(gpu, &bgl);
-
-        Self {
-            color_texture,
-            depth_texture,
-            color_view,
-            depth_view,
-            params_buffer,
-            bind_group,
-            bgl,
-            pipeline,
-            geometry,
-        }
+        let surface = ScaledSurface::new(
+            &gpu.device,
+            "Zoom",
+            gpu.surface_format,
+            (geometry.src_width, geometry.src_height),
+            None,
+        );
+        place(&surface, gpu, geometry);
+        Self { surface, geometry }
     }
 
     pub fn geometry(&self) -> ZoomGeometry {
         self.geometry
     }
 
-    /// Follow a new window size or zoom. Only the size-dependent targets are
-    /// rebuilt, so a live resize never recompiles the shader.
+    /// Follow a new window size or zoom.
     pub fn set_geometry(&mut self, gpu: &GpuContext, geometry: ZoomGeometry) {
         if geometry == self.geometry {
             return;
         }
-        if (geometry.src_width, geometry.src_height)
-            != (self.geometry.src_width, self.geometry.src_height)
-        {
-            self.color_texture = create_color_texture(gpu, geometry.src_width, geometry.src_height);
-            self.depth_texture = create_depth_texture(gpu, geometry.src_width, geometry.src_height);
-            self.color_view = self.color_texture.create_view(&Default::default());
-            self.depth_view = self.depth_texture.create_view(&Default::default());
-            self.bind_group = create_bind_group(
-                &gpu.device,
-                &self.bgl,
-                &self.color_texture,
-                &self.params_buffer,
-            );
-        }
-        write_params(gpu, &self.params_buffer, geometry);
+        self.surface
+            .resize(&gpu.device, (geometry.src_width, geometry.src_height));
+        place(&self.surface, gpu, geometry);
         self.geometry = geometry;
     }
 
     /// Cached view for the intermediate color render target.
     pub fn color_view(&self) -> &wgpu::TextureView {
-        &self.color_view
+        self.surface.color_view()
     }
 
     /// Intermediate color texture receiving the completed tactical frame.
     pub fn color_texture(&self) -> &wgpu::Texture {
-        &self.color_texture
+        self.surface.color_texture()
     }
 
     /// Cached view for the intermediate depth buffer.
     pub fn depth_view(&self) -> &wgpu::TextureView {
-        &self.depth_view
+        self.surface.depth_view()
     }
 
     /// Source render width.
@@ -213,7 +172,7 @@ impl UpscalePass {
 
     /// Zoom the intermediate texture into `target_view`, a window-sized target.
     pub fn draw(&self, encoder: &mut wgpu::CommandEncoder, target_view: &wgpu::TextureView) {
-        self.draw_with_bind_group(encoder, target_view, &self.bind_group);
+        self.draw_from(encoder, target_view, None);
     }
 
     /// Draw the same zoom from an explicitly retained source.
@@ -226,16 +185,17 @@ impl UpscalePass {
         source: &wgpu::Texture,
         target_view: &wgpu::TextureView,
     ) {
-        let bind_group = create_bind_group(device, &self.bgl, source, &self.params_buffer);
-        self.draw_with_bind_group(encoder, target_view, &bind_group);
+        let bind_group = self.surface.bind_group_for(device, source);
+        self.draw_from(encoder, target_view, Some(&bind_group));
     }
 
-    fn draw_with_bind_group(
+    fn draw_from(
         &self,
         encoder: &mut wgpu::CommandEncoder,
         target_view: &wgpu::TextureView,
-        bind_group: &wgpu::BindGroup,
+        source: Option<&wgpu::BindGroup>,
     ) {
+        // The window outside the frame is black.
         let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
             label: Some("Zoom Pass"),
             color_attachments: &[Some(wgpu::RenderPassColorAttachment {
@@ -253,164 +213,17 @@ impl UpscalePass {
         });
         let (x, y) = self.geometry.origin;
         let (width, height) = self.geometry.frame_size();
-        pass.set_scissor_rect(x, y, width, height);
-        pass.set_pipeline(&self.pipeline);
-        pass.set_bind_group(0, bind_group, &[]);
-        pass.draw(0..3, 0..1);
+        self.surface.draw(&mut pass, source, [x, y, width, height]);
     }
 }
 
-// ---------------------------------------------------------------------------
-// Resource creation helpers
-// ---------------------------------------------------------------------------
-
-fn write_params(gpu: &GpuContext, params_buffer: &wgpu::Buffer, geometry: ZoomGeometry) {
-    gpu.queue.write_buffer(
-        params_buffer,
-        0,
-        bytemuck::cast_slice(&[
-            geometry.origin.0 as f32,
-            geometry.origin.1 as f32,
-            geometry.scale(),
-            if geometry.is_sharp() { 1.0f32 } else { 0.0 },
-        ]),
+fn place(surface: &ScaledSurface, gpu: &GpuContext, geometry: ZoomGeometry) {
+    surface.place(
+        &gpu.queue,
+        (geometry.origin.0 as f32, geometry.origin.1 as f32),
+        geometry.scale(),
+        geometry.is_sharp(),
     );
-}
-
-fn create_color_texture(gpu: &GpuContext, width: u32, height: u32) -> wgpu::Texture {
-    gpu.device.create_texture(&wgpu::TextureDescriptor {
-        label: Some("Zoom Color RT"),
-        size: wgpu::Extent3d {
-            width: width.max(1),
-            height: height.max(1),
-            depth_or_array_layers: 1,
-        },
-        mip_level_count: 1,
-        sample_count: 1,
-        dimension: wgpu::TextureDimension::D2,
-        format: gpu.surface_format,
-        usage: wgpu::TextureUsages::RENDER_ATTACHMENT
-            | wgpu::TextureUsages::TEXTURE_BINDING
-            | wgpu::TextureUsages::COPY_DST,
-        view_formats: &[],
-    })
-}
-
-fn create_depth_texture(gpu: &GpuContext, width: u32, height: u32) -> wgpu::Texture {
-    gpu.device.create_texture(&wgpu::TextureDescriptor {
-        label: Some("Zoom Depth RT"),
-        size: wgpu::Extent3d {
-            width: width.max(1),
-            height: height.max(1),
-            depth_or_array_layers: 1,
-        },
-        mip_level_count: 1,
-        sample_count: 1,
-        dimension: wgpu::TextureDimension::D2,
-        format: wgpu::TextureFormat::Depth32Float,
-        usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
-        view_formats: &[],
-    })
-}
-
-fn create_bgl(gpu: &GpuContext) -> wgpu::BindGroupLayout {
-    gpu.device
-        .create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-            label: Some("Zoom BGL"),
-            entries: &[
-                wgpu::BindGroupLayoutEntry {
-                    binding: 0,
-                    visibility: wgpu::ShaderStages::FRAGMENT,
-                    // Whole texels are loaded, never filtered.
-                    ty: wgpu::BindingType::Texture {
-                        sample_type: wgpu::TextureSampleType::Float { filterable: false },
-                        view_dimension: wgpu::TextureViewDimension::D2,
-                        multisampled: false,
-                    },
-                    count: None,
-                },
-                wgpu::BindGroupLayoutEntry {
-                    binding: 1,
-                    visibility: wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Buffer {
-                        ty: wgpu::BufferBindingType::Uniform,
-                        has_dynamic_offset: false,
-                        min_binding_size: None,
-                    },
-                    count: None,
-                },
-            ],
-        })
-}
-
-fn create_bind_group(
-    device: &wgpu::Device,
-    bgl: &wgpu::BindGroupLayout,
-    color_texture: &wgpu::Texture,
-    params_buffer: &wgpu::Buffer,
-) -> wgpu::BindGroup {
-    let view = color_texture.create_view(&Default::default());
-    device.create_bind_group(&wgpu::BindGroupDescriptor {
-        label: Some("Zoom BG"),
-        layout: bgl,
-        entries: &[
-            wgpu::BindGroupEntry {
-                binding: 0,
-                resource: wgpu::BindingResource::TextureView(&view),
-            },
-            wgpu::BindGroupEntry {
-                binding: 1,
-                resource: params_buffer.as_entire_binding(),
-            },
-        ],
-    })
-}
-
-fn create_pipeline(gpu: &GpuContext, bgl: &wgpu::BindGroupLayout) -> wgpu::RenderPipeline {
-    let shader = gpu
-        .device
-        .create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some("Zoom Shader"),
-            source: wgpu::ShaderSource::Wgsl(SHADER_SRC.into()),
-        });
-
-    let layout = gpu
-        .device
-        .create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-            label: Some("Zoom Pipeline Layout"),
-            bind_group_layouts: &[bgl],
-            push_constant_ranges: &[],
-        });
-
-    gpu.device
-        .create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-            label: Some("Zoom Pipeline"),
-            layout: Some(&layout),
-            vertex: wgpu::VertexState {
-                module: &shader,
-                entry_point: Some("vs_main"),
-                buffers: &[],
-                compilation_options: Default::default(),
-            },
-            fragment: Some(wgpu::FragmentState {
-                module: &shader,
-                entry_point: Some("fs_main"),
-                targets: &[Some(wgpu::ColorTargetState {
-                    format: gpu.surface_format,
-                    blend: None, // opaque overwrite
-                    write_mask: wgpu::ColorWrites::ALL,
-                })],
-                compilation_options: Default::default(),
-            }),
-            primitive: wgpu::PrimitiveState {
-                topology: wgpu::PrimitiveTopology::TriangleList,
-                ..Default::default()
-            },
-            depth_stencil: None, // own render pass, no depth
-            multisample: wgpu::MultisampleState::default(),
-            multiview: None,
-            cache: None,
-        })
 }
 
 #[cfg(test)]
@@ -445,18 +258,6 @@ mod tests {
         assert!(plain.is_whole_window(800, 600));
         assert!(!wide.is_whole_window(3440, 1440));
         assert!(wide.is_sharp() && odd.is_sharp());
-    }
-
-    #[test]
-    fn zoom_shader_compiles() {
-        use wgpu::naga;
-        let module = naga::front::wgsl::parse_str(SHADER_SRC).expect("the zoom shader parses");
-        naga::valid::Validator::new(
-            naga::valid::ValidationFlags::all(),
-            naga::valid::Capabilities::empty(),
-        )
-        .validate(&module)
-        .expect("the zoom shader validates");
     }
 
     #[test]

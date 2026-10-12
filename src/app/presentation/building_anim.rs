@@ -12,10 +12,8 @@ use crate::sim::production;
 
 /// The tactical listener shared by inline and frame-tail sound consumption.
 pub(crate) fn sound_listener(state: &AppState) -> crate::audio::sfx::SpatialListener {
-    let (tactical_width, tactical_height) = crate::app::input::camera::tactical_viewport_size_px(
-        state.render_width(),
-        state.render_height(),
-    );
+    let (tactical_width, tactical_height) =
+        crate::app::input::camera::tactical_viewport_size(state);
     crate::audio::sfx::SpatialListener {
         tactical_width: tactical_width as i32,
         tactical_height: tactical_height as i32,
@@ -374,8 +372,7 @@ pub(crate) fn update_power_bar_anim(state: &mut AppState) {
 
     // Compute bar height from sidebar layout.
     let spec = state.match_state.match_presentation.sidebar_layout_spec;
-    let sw = state.render_width() as f32;
-    let sh = state.render_height() as f32;
+    let (sw, sh) = state.sidebar_frame().layout_screen();
     let layout = crate::ui::sidebar::compute_layout_with_spec(spec, sw, sh, 0);
     // 63FB20: segment budget is (native strip height + 3) / 3.
     let bar_height_px = (layout.cameo_grid_bottom - layout.cameo_grid_top) as i32 + 3;

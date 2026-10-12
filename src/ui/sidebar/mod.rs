@@ -8,6 +8,7 @@
 
 pub mod gadget_flash;
 pub mod command_bar;
+mod frame;
 pub(crate) mod cameo_order;
 #[cfg(test)]
 mod cameo_order_tests;
@@ -17,6 +18,7 @@ mod sidebar_view;
 
 use crate::sim::production::ProductionCategory;
 
+pub use frame::{BOTTOM_STRIP_HEIGHT_PX, SIDEBAR_WIDTH_PX, SidebarFrame};
 pub use layout_spec::{SidebarChromeLayoutSpec, SidebarTheme};
 pub use power_bar_anim::PowerBarAnimState;
 #[cfg(test)]

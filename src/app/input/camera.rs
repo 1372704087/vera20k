@@ -25,11 +25,6 @@ use crate::app::AppState;
 use crate::app::types::ScrollDir;
 use crate::map::terrain;
 
-/// Stock YR reserves a fixed 168-pixel right sidebar and a fixed 32-pixel
-/// bottom strip when it builds the tactical view rectangle.
-const TACTICAL_SIDEBAR_WIDTH_PX: u32 = 168;
-const TACTICAL_BOTTOM_STRIP_HEIGHT_PX: u32 = 32;
-
 /// Arrow-key scroll distance in world pixels per frame.
 ///
 /// gamemd's main tick reads one flat constant for every arrow key. This path has
@@ -701,8 +696,7 @@ impl ViewBookmarks {
 /// bookmark records where the player is looking rather than where the mouse
 /// happens to sit.
 pub(crate) fn tactical_centre_cell(state: &AppState) -> (u16, u16) {
-    let (tactical_w, tactical_h) =
-        tactical_viewport_size_px(state.render_width(), state.render_height());
+    let (tactical_w, tactical_h) = tactical_viewport_size(state);
     let world_x = state.match_state.input.camera_x
         + tactical_w as f32 / (2.0 * state.match_state.input.zoom_level);
     let world_y = state.match_state.input.camera_y
@@ -1290,7 +1284,7 @@ pub(crate) fn commit_camera_scroll(state: &mut AppState, mouse: (f32, f32)) {
 /// the simulation has already committed N+1 by the time presentation runs.
 pub(crate) fn advance_camera_ai(state: &mut AppState, mouse: (f32, f32), frame: u32) {
     sync_playfield_presentation_bounds(state);
-    let (width, height) = tactical_viewport_size_px(state.render_width(), state.render_height());
+    let (width, height) = tactical_viewport_size(state);
     let current = (
         state.match_state.input.camera_x,
         state.match_state.input.camera_y,
@@ -1332,7 +1326,7 @@ pub(crate) fn advance_camera_ai(state: &mut AppState, mouse: (f32, f32), frame: 
 /// SetViewToCoordInstant6D6070. Coordinates are resolved by simulation before
 /// its hash, including the canonical CellClass Dummy query effects.
 pub(crate) fn apply_trigger_camera(state: &mut AppState, coord: [i32; 3], velocity: Option<i32>) {
-    let (width, height) = tactical_viewport_size_px(state.render_width(), state.render_height());
+    let (width, height) = tactical_viewport_size(state);
     let viewport = (width as f32, height as f32);
     let current = (
         state.match_state.input.camera_x,
@@ -1465,20 +1459,15 @@ pub(crate) fn tactical_camera_top_left(
 /// be opaque that frame.
 ///
 pub(crate) fn tactical_viewport_px(state: &AppState) -> (u32, u32, u32, u32) {
-    let (width, height) = tactical_viewport_size_px(state.render_width(), state.render_height());
+    let (width, height) = tactical_viewport_size(state);
     (0, 0, width, height)
 }
 
-/// Active YR tactical dimensions. The right sidebar and bottom strip are fixed
-/// native-pixel reservations at every supported resolution. Degenerate test
-/// targets retain a one-pixel scissor rather than producing an invalid extent.
-pub(crate) fn tactical_viewport_size_px(render_w: u32, render_h: u32) -> (u32, u32) {
-    (
-        render_w.saturating_sub(TACTICAL_SIDEBAR_WIDTH_PX).max(1),
-        render_h
-            .saturating_sub(TACTICAL_BOTTOM_STRIP_HEIGHT_PX)
-            .max(1),
-    )
+/// The tactical dimensions of the current match frame: Active YR's frame less
+/// the sidebar column and the bottom strip, at the Sidebar size
+/// (`ui::sidebar::SidebarFrame::tactical_size`).
+pub(crate) fn tactical_viewport_size(state: &AppState) -> (u32, u32) {
+    state.sidebar_frame().tactical_size()
 }
 
 /// World-pixel position of a cell's **projected cell coordinate** — the point a
@@ -1582,8 +1571,7 @@ pub(crate) fn center_camera_on_lepton_point(
     let world = crate::util::lepton::absolute_leptons_to_screen(lepton_x, lepton_y, lepton_z);
     let sw = state.render_width() as f32;
     let sh = state.render_height() as f32;
-    let (tactical_w, tactical_h) =
-        tactical_viewport_size_px(state.render_width(), state.render_height());
+    let (tactical_w, tactical_h) = tactical_viewport_size(state);
     let (cx, cy) = tactical_camera_top_left(
         world,
         tactical_w as f32,
@@ -1708,8 +1696,7 @@ pub(crate) fn center_camera_on_cell(state: &mut AppState, rx: u16, ry: u16) {
     let world = cell_centre_world_point(rx, ry, z);
     let sw = state.render_width() as f32;
     let sh = state.render_height() as f32;
-    let (tactical_w, tactical_h) =
-        tactical_viewport_size_px(state.render_width(), state.render_height());
+    let (tactical_w, tactical_h) = tactical_viewport_size(state);
     let (cx, cy) = tactical_camera_top_left(
         world,
         tactical_w as f32,
@@ -1786,8 +1773,8 @@ fn clamp_camera_point_for_state(
     sw: f32,
     sh: f32,
 ) -> (f32, f32) {
-    let (viewport_w, viewport_h) =
-        tactical_viewport_size_px(sw.max(0.0) as u32, sh.max(0.0) as u32);
+    let (frame_w, frame_h) = (sw.max(0.0) as u32, sh.max(0.0) as u32);
+    let (viewport_w, viewport_h) = state.sidebar_frame_for(frame_w, frame_h).tactical_size();
     let viewport = (viewport_w as f32, viewport_h as f32);
     if let Some(runtime) = state.match_state.sim_runtime.as_ref() {
         // The radar rectangle enumerates mode-zero cells. Tactical6D8640
@@ -2047,7 +2034,7 @@ mod tests {
     const WINDOW_H: f32 = 768.0;
     const SIDEBAR_W: f32 = 168.0;
     const TACTICAL_W: f32 = WINDOW_W - SIDEBAR_W;
-    const TACTICAL_H: f32 = WINDOW_H - TACTICAL_BOTTOM_STRIP_HEIGHT_PX as f32;
+    const TACTICAL_H: f32 = WINDOW_H - crate::ui::sidebar::BOTTOM_STRIP_HEIGHT_PX as f32;
 
     /// Screen position the batch shader gives a world point for a camera.
     fn screen_of(world: (f32, f32), camera: (f32, f32), zoom: f32) -> (f32, f32) {
@@ -2477,12 +2464,16 @@ mod tests {
         );
     }
 
-    /// Fixed view dimensions returned by the active right-sidebar path.
+    /// Fixed view dimensions returned by the active right-sidebar path, and a
+    /// larger sidebar and bar taking their share of the frame.
     #[test]
     fn item82_tactical_view_is_fixed_168_by_32_inset() {
-        assert_eq!(tactical_viewport_size_px(800, 600), (632, 568));
-        assert_eq!(tactical_viewport_size_px(640, 480), (472, 448));
-        assert_eq!(tactical_viewport_size_px(1920, 1080), (1752, 1048));
+        let size =
+            |w, h, percent| crate::ui::sidebar::SidebarFrame::new(w, h, percent).tactical_size();
+        assert_eq!(size(800, 600, 100), (632, 568));
+        assert_eq!(size(640, 480, 100), (472, 448));
+        assert_eq!(size(1920, 1080, 100), (1752, 1048));
+        assert_eq!(size(1920, 1080, 200), (1584, 1016));
     }
 
     // Shared clamp coverage comes from the original executable's retained
@@ -2493,8 +2484,9 @@ mod tests {
     /// a zero-width scissor drops every tactical draw call silently.
     #[test]
     fn tactical_viewport_width_never_collapses_or_overruns_the_target() {
-        assert_eq!(tactical_viewport_size_px(168, 32), (1, 1));
-        assert_eq!(tactical_viewport_size_px(100, 20), (1, 1));
+        let size = |w, h| crate::ui::sidebar::SidebarFrame::new(w, h, 100).tactical_size();
+        assert_eq!(size(168, 32), (1, 1));
+        assert_eq!(size(100, 20), (1, 1));
     }
 
     // -- camera bookmarks ----------------------------------------------------

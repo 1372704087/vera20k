@@ -43,16 +43,7 @@ impl App {
             state.renderer.gpu.config.width,
             state.renderer.gpu.config.height,
         );
-        use crate::render::upscale_pass::{FrameShape, ZoomGeometry};
-        let profile = &state.persistence.options_profile;
-        let (percent, shape) = if state.platform.capture_client_size.is_some() {
-            (100, FrameShape::Window)
-        } else if profile.original_shape {
-            (profile.zoom.percent(width, height), FrameShape::Original)
-        } else {
-            (profile.zoom.percent(width, height), FrameShape::Window)
-        };
-        let geometry = ZoomGeometry::new(width, height, percent, shape);
+        let geometry = Self::match_zoom_geometry(state);
         if geometry.is_whole_window(width, height) {
             state.renderer.upscale_pass = None;
         } else if let Some(pass) = state.renderer.upscale_pass.as_mut() {
@@ -63,6 +54,28 @@ impl App {
                 geometry,
             ));
         }
+    }
+
+    /// Where a match frame sits in the window at the Options choices: the
+    /// geometry the zoom pass takes, and the battle frame the Options page
+    /// offers sidebar sizes for.
+    pub(crate) fn match_zoom_geometry(
+        state: &AppState,
+    ) -> crate::render::upscale_pass::ZoomGeometry {
+        use crate::render::upscale_pass::{FrameShape, ZoomGeometry};
+        let (width, height) = (
+            state.renderer.gpu.config.width,
+            state.renderer.gpu.config.height,
+        );
+        let profile = &state.persistence.options_profile;
+        let (percent, shape) = if state.platform.capture_client_size.is_some() {
+            (100, FrameShape::Window)
+        } else if profile.original_shape {
+            (profile.zoom.percent(width, height), FrameShape::Original)
+        } else {
+            (profile.zoom.percent(width, height), FrameShape::Window)
+        };
+        ZoomGeometry::new(width, height, percent, shape)
     }
 
     /// The Options page's Full Screen box: switch the window now. On macOS this

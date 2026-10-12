@@ -1,0 +1,248 @@
+//! The sidebar's place and size in a match frame.
+//!
+//! Like gamemd's `g_SidebarSurface`, the sidebar lays out and draws in its own
+//! native pixels, and so does the command bar along the frame's bottom. Both
+//! lay out on the frame at the player's Sidebar size (Options): the frame in
+//! sidebar pixels, rounded up. The frame shows the sidebar's column flush with
+//! its top and right edges, and the bar's strip flush with its bottom edge and
+//! the column, each scaled by the Sidebar size; the battlefield takes the
+//! rest. At Normal it is all the frame's own pixels.
+//!
+//! Layout space is that frame in sidebar pixels: the column's left edge at
+//! `layout width - 168`, the strip's top at `layout height - 32`. At Normal it
+//! is the frame space itself, so only Large and XL map points and rects
+//! between the two.
+
+use super::Rect;
+
+/// The sidebar column's native width (`6A5090`), in sidebar pixels.
+pub const SIDEBAR_WIDTH_PX: u32 = 168;
+
+/// Stock YR reserves the right sidebar and a fixed 32-pixel bottom strip, the
+/// command bar's, when it builds the tactical view rectangle. In sidebar
+/// pixels.
+pub const BOTTOM_STRIP_HEIGHT_PX: u32 = 32;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SidebarFrame {
+    frame_width: u32,
+    frame_height: u32,
+    /// Frame pixels per 100 sidebar pixels: 100 at Normal.
+    percent: u32,
+}
+
+impl SidebarFrame {
+    pub fn new(frame_width: u32, frame_height: u32, percent: u32) -> Self {
+        Self {
+            frame_width,
+            frame_height,
+            percent: percent.max(100),
+        }
+    }
+
+    /// Frame pixels per sidebar pixel.
+    pub fn scale(self) -> f32 {
+        self.percent as f32 / 100.0
+    }
+
+    /// Whether every sidebar pixel is a whole block of frame pixels.
+    pub fn is_sharp(self) -> bool {
+        self.percent % 100 == 0
+    }
+
+    /// The column's width in frame pixels: 168 at Normal.
+    pub fn width_in_frame(self) -> u32 {
+        SIDEBAR_WIDTH_PX * self.percent / 100
+    }
+
+    /// The bottom strip's height in frame pixels: 32 at Normal.
+    pub fn strip_height_in_frame(self) -> u32 {
+        BOTTOM_STRIP_HEIGHT_PX * self.percent / 100
+    }
+
+    /// The battlefield: the frame less the column and the strip. A degenerate
+    /// frame keeps one pixel, so its scissor never drops every tactical draw.
+    pub fn tactical_size(self) -> (u32, u32) {
+        (
+            self.frame_width
+                .saturating_sub(self.width_in_frame())
+                .max(1),
+            self.frame_height
+                .saturating_sub(self.strip_height_in_frame())
+                .max(1),
+        )
+    }
+
+    /// The frame in sidebar pixels, rounded up so the sidebar and the bar
+    /// reach the frame's edges.
+    pub fn layout_size(self) -> (u32, u32) {
+        (
+            (self.frame_width * 100).div_ceil(self.percent).max(1),
+            (self.frame_height * 100).div_ceil(self.percent).max(1),
+        )
+    }
+
+    /// [`Self::layout_size`] as the screen the native layout (`6A5130`) runs
+    /// on.
+    pub fn layout_screen(self) -> (f32, f32) {
+        let (width, height) = self.layout_size();
+        (width as f32, height as f32)
+    }
+
+    /// Layout-space x of the column's left edge.
+    pub fn layout_left(self) -> f32 {
+        self.layout_size().0 as f32 - SIDEBAR_WIDTH_PX as f32
+    }
+
+    /// Layout-space y of the strip's top edge.
+    pub fn strip_layout_top(self) -> f32 {
+        self.layout_size().1 as f32 - BOTTOM_STRIP_HEIGHT_PX as f32
+    }
+
+    /// The sidebar's surface in its own pixels: the column's native width and
+    /// the layout's height.
+    pub fn surface_size(self) -> (u32, u32) {
+        (SIDEBAR_WIDTH_PX, self.layout_size().1)
+    }
+
+    /// The bar's surface in its own pixels: the layout's width left of the
+    /// column, and the strip's native height.
+    pub fn bar_surface_size(self) -> (u32, u32) {
+        (
+            self.layout_size().0.saturating_sub(SIDEBAR_WIDTH_PX).max(1),
+            BOTTOM_STRIP_HEIGHT_PX,
+        )
+    }
+
+    /// The column's left edge in frame pixels; left of the frame when the
+    /// frame is narrower than the column.
+    pub fn frame_left(self) -> f32 {
+        self.frame_width as f32 - self.width_in_frame() as f32
+    }
+
+    /// The column's part of the frame, in frame pixels: where the sidebar's
+    /// surface is shown.
+    pub fn column(self) -> (u32, u32, u32, u32) {
+        let x = self.frame_width.saturating_sub(self.width_in_frame());
+        (x, 0, self.frame_width - x, self.frame_height)
+    }
+
+    /// The strip's part of the frame, left of the column, in frame pixels:
+    /// where the bar's surface is shown.
+    pub fn strip(self) -> (u32, u32, u32, u32) {
+        let y = self
+            .frame_height
+            .saturating_sub(self.strip_height_in_frame());
+        (0, y, self.column().0, self.frame_height - y)
+    }
+
+    /// The frame pixel where the bar's surface pixel (0, 0) lands.
+    pub fn bar_origin(self) -> (f32, f32) {
+        (
+            self.x_to_frame(0.0),
+            (self.frame_height - self.strip_height_in_frame()) as f32,
+        )
+    }
+
+    /// Layout x in frame pixels: the column and the bar are flush with the
+    /// frame's right edge.
+    fn x_to_frame(self, x: f32) -> f32 {
+        self.frame_left() + (x - self.layout_left()) * self.scale()
+    }
+
+    /// A rect of the sidebar's, in layout space, in frame pixels.
+    pub fn rect_to_frame(self, rect: Rect) -> Rect {
+        let scale = self.scale();
+        Rect {
+            x: self.x_to_frame(rect.x),
+            y: rect.y * scale,
+            w: rect.w * scale,
+            h: rect.h * scale,
+        }
+    }
+
+    /// A rect of the bar's, in layout space, in frame pixels.
+    pub fn bar_rect_to_frame(self, rect: Rect) -> Rect {
+        let scale = self.scale();
+        Rect {
+            x: self.x_to_frame(rect.x),
+            y: self.bar_origin().1 + (rect.y - self.strip_layout_top()) * scale,
+            w: rect.w * scale,
+            h: rect.h * scale,
+        }
+    }
+
+    /// A frame point in the sidebar's layout space.
+    pub fn point_to_layout(self, x: f32, y: f32) -> (f32, f32) {
+        let scale = self.scale();
+        (
+            self.layout_left() + (x - self.frame_left()) / scale,
+            y / scale,
+        )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn rect(x: f32, y: f32, w: f32, h: f32) -> Rect {
+        Rect { x, y, w, h }
+    }
+
+    #[test]
+    fn normal_is_the_frame_itself() {
+        let frame = SidebarFrame::new(800, 600, 100);
+        assert_eq!(frame.width_in_frame(), 168);
+        assert_eq!(frame.column(), (632, 0, 168, 600));
+        assert_eq!(frame.strip(), (0, 568, 632, 32));
+        assert_eq!(frame.tactical_size(), (632, 568));
+        assert_eq!(frame.surface_size(), (168, 600));
+        assert_eq!(frame.bar_surface_size(), (632, 32));
+        assert_eq!(frame.layout_screen(), (800.0, 600.0));
+        assert_eq!(frame.bar_origin(), (0.0, 568.0));
+        let cameo = rect(648.0, 49.0, 140.0, 108.0);
+        assert_eq!(frame.rect_to_frame(cameo), cameo);
+        let button = rect(32.0, 568.0, 52.0, 32.0);
+        assert_eq!(frame.bar_rect_to_frame(button), button);
+        assert_eq!(frame.point_to_layout(700.5, 99.5), (700.5, 99.5));
+        assert!(frame.is_sharp());
+    }
+
+    #[test]
+    fn larger_sizes_scale_the_sidebar_and_bar_from_the_corner() {
+        let large = SidebarFrame::new(1920, 1080, 150);
+        assert_eq!(large.width_in_frame(), 252);
+        assert_eq!(large.strip_height_in_frame(), 48);
+        assert_eq!(large.column(), (1668, 0, 252, 1080));
+        assert_eq!(large.strip(), (0, 1032, 1668, 48));
+        assert_eq!(large.tactical_size(), (1668, 1032));
+        assert_eq!(large.layout_screen(), (1280.0, 720.0));
+        assert_eq!(large.surface_size(), (168, 720));
+        assert_eq!(large.bar_surface_size(), (1112, 32));
+        assert!(!large.is_sharp());
+        // The whole layout column and strip become the frame's.
+        assert_eq!(
+            large.rect_to_frame(rect(1112.0, 0.0, 168.0, 720.0)),
+            rect(1668.0, 0.0, 252.0, 1080.0)
+        );
+        assert_eq!(
+            large.bar_rect_to_frame(rect(0.0, 688.0, 1112.0, 32.0)),
+            rect(0.0, 1032.0, 1668.0, 48.0)
+        );
+        assert_eq!(large.point_to_layout(1818.0, 300.0), (1212.0, 200.0));
+
+        // An odd frame rounds the layout up: the column reaches the bottom
+        // edge, and the bar still sits on it.
+        let xl = SidebarFrame::new(1921, 1081, 200);
+        assert_eq!(xl.layout_size(), (961, 541));
+        assert_eq!(xl.surface_size(), (168, 541));
+        assert_eq!(xl.strip(), (0, 1017, 1585, 64));
+        assert_eq!(xl.bar_origin(), (-1.0, 1017.0));
+        assert_eq!(
+            xl.bar_rect_to_frame(rect(10.0, 509.0, 52.0, 32.0)),
+            rect(19.0, 1017.0, 104.0, 64.0)
+        );
+        assert!(xl.is_sharp());
+    }
+}

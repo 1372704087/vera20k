@@ -300,14 +300,8 @@ pub(crate) fn update(state: &mut AppState) -> Option<u64> {
 }
 
 fn sync_view(state: &mut AppState) {
-    // Tactical viewport = render area minus the sidebar panel width.
-    let tactical_w = state.render_width() as i32
-        - state
-            .match_state
-            .match_presentation
-            .sidebar_layout_spec
-            .sidebar_width
-            .round() as i32;
+    // The list spans the tactical viewport: the frame left of the sidebar.
+    let tactical_w = crate::app::input::camera::tactical_viewport_size(state).0 as i32;
     state.match_state.match_presentation.message_list.set_view(
         MESSAGE_X_INSET,
         0,

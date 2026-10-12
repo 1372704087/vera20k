@@ -9,8 +9,9 @@ pub(super) fn sync(state: &mut AppState) {
         .match_presentation
         .sidebar_gadget_state
         .command_bar_closed;
+    let frame = state.sidebar_frame();
     let gadgets = &mut state.match_state.match_presentation.in_game_gadgets;
-    sync_prepared(gadgets, layout.as_ref(), closed);
+    sync_prepared(gadgets, layout.as_ref(), closed, frame);
 }
 
 fn sync_prepared(
@@ -20,6 +21,7 @@ fn sync_prepared(
         Vec<Option<usize>>,
     )>,
     closed: bool,
+    frame: sidebar::SidebarFrame,
 ) {
     let handles =
         *gadgets.command_bar.get_or_insert_with(|| {
@@ -49,7 +51,9 @@ fn sync_prepared(
         });
         if let Some(gadget) = gadgets.list.get_mut(handle) {
             gadget.is_disabled = rect.is_none();
-            gadget.rect = rect.map(rect_px).unwrap_or(GadgetRect::new(0, 0, 0, 0));
+            gadget.rect = rect
+                .map(|rect| frame_rect_px(frame.bar_rect_to_frame(rect)))
+                .unwrap_or(GadgetRect::new(0, 0, 0, 0));
             if command == 11 {
                 gadget.id = if closed { 0xF1 } else { 0xF0 };
             }
@@ -109,8 +113,14 @@ mod tests {
         // Retail UIMD.INI [AdvancedCommandBar] ButtonList:
         // Team01,Team02,TypeSelect,Deploy,Guard,PlanningMode.
         let slots = vec![Some(0), Some(1), Some(3), Some(4), Some(6), Some(9)];
+        let native = sidebar::SidebarFrame::new(800, 600, 100);
         let mut gadgets = InGameGadgets::new();
-        sync_prepared(&mut gadgets, Some(&(layout(true), slots.clone())), false);
+        sync_prepared(
+            &mut gadgets,
+            Some(&(layout(true), slots.clone())),
+            false,
+            native,
+        );
         let handles = gadgets.command_bar.unwrap();
         assert_eq!(
             gadgets.list.get(handles[0]).unwrap().rect,
@@ -168,7 +178,7 @@ mod tests {
             ),
             0x80F0
         );
-        sync_prepared(&mut gadgets, Some(&(layout(false), slots)), true);
+        sync_prepared(&mut gadgets, Some(&(layout(false), slots)), true, native);
         assert!(
             handles[..11]
                 .iter()

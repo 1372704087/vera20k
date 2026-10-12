@@ -15,6 +15,7 @@ use crate::app::presentation::ui_overlays::current_software_cursor_texture;
 use crate::render::batch::{BatchRenderer, BatchTexture, InstanceBufferPool, SpriteInstance};
 use crate::render::bridge_atlas::BridgeAtlas;
 use crate::render::overlay_atlas::OverlayAtlas;
+use crate::render::sidebar_surface::SidebarPart;
 use crate::render::tactical_draw_plan::RenderZPolicy;
 use crate::render::tile_atlas::TileAtlas;
 
@@ -31,12 +32,74 @@ pub(super) struct DrawPassData<'a> {
     pub object_layers: &'a [super::draw_plan_lowering::ObjectLayerPass; 5],
 }
 
+/// Draw the sidebar into its own surface, as gamemd draws `g_SidebarSurface`
+/// before `SidebarClass::BlitToScreen` (`6A70E0`) copies it to the screen,
+/// and the command bar into the bar's. Their layers are in layout space
+/// (`ui::sidebar::frame`), drawn with each surface's camera at its own pixels.
+///
+/// SidebarClass::Draw @ 0x006A6C30 paints background, gadgets, strip, and
+/// power before PowerClass::Draw reaches RadarClass::Draw @ 0x00653100.
+/// Radar state/chrome preparation then precedes Update @ 0x00656EC0, whose
+/// content blit, viewport rectangle, and generated-content boundary are the
+/// final retained radar writes in that order.
+fn draw_sidebar_surface(state: &AppState, encoder: &mut wgpu::CommandEncoder) {
+    let Some(surface) = state.renderer.sidebar_surface.as_ref() else {
+        return;
+    };
+    let batch = &state.renderer.batch_renderer;
+    let pool = &state.renderer.instance_pool;
+    let presentation = &state.match_state.match_presentation;
+    let camera = surface.camera(SidebarPart::Column);
+    let mut pass = surface.begin_pass(SidebarPart::Column, encoder, super::CLEAR_COLOR);
+    let mut draw = |tex: Option<&BatchTexture>, key: &'static str| {
+        draw_pooled_with_camera(&mut pass, batch, camera, pool, tex, key);
+    };
+    draw(current_sidebar_chrome_texture(state), "sidebar_chrome");
+    draw(
+        presentation
+            .sidebar_cameo_atlas
+            .as_ref()
+            .map(|atlas| &atlas.texture),
+        "sidebar_cameo",
+    );
+    draw(current_sidebar_gclock_texture(state), "sidebar_gclock");
+    let cameo_overlay_tex = state.renderer.bit_font.darken_texture().or_else(|| {
+        presentation
+            .selection_overlay
+            .as_ref()
+            .map(|o| o.white_texture())
+    });
+    draw(cameo_overlay_tex, "sidebar_cameo_overlay");
+    draw(Some(state.renderer.bit_font.atlas()), "sidebar_text");
+    draw(
+        presentation.radar_anim.as_ref().map(|ra| ra.texture()),
+        "radar_anim",
+    );
+    let minimap = presentation.minimap.as_ref();
+    draw(minimap.map(|m| m.map_texture()), "minimap");
+    draw(minimap.map(|m| m.white_texture()), "viewport_rect");
+    draw(minimap.map(|m| m.white_texture()), "radar_content_boundary");
+    drop(pass);
+
+    // The bottom command bar (6D0A20) shares the chrome art.
+    let mut pass = surface.begin_pass(SidebarPart::Bar, encoder, super::CLEAR_COLOR);
+    draw_pooled_with_camera(
+        &mut pass,
+        batch,
+        surface.camera(SidebarPart::Bar),
+        pool,
+        current_sidebar_chrome_texture(state),
+        "command_bar",
+    );
+}
+
 /// Create the main render pass and dispatch all draw calls in the correct order.
 ///
 /// The frame has two regions, matching the native composition: the **tactical
-/// viewport**, scissored to the window minus the sidebar column, and the
-/// **chrome**, which owns the whole window and goes down last. Steps 1–10 below
-/// are tactical; the screen-fixed block at the end releases the scissor first.
+/// viewport**, scissored to the frame minus the sidebar column, and the
+/// **chrome**, which owns the whole frame and goes down last. Steps 1–10 below
+/// are tactical; the screen-fixed block at the end copies in the sidebar's
+/// surface (`draw_sidebar_surface`) and releases the scissor.
 ///
 /// Tactical submission: terrain, bridge/overlay bodies, overlay shadows and
 /// railings, native Ground parents, particles and upper-layer bodies, then
@@ -50,6 +113,9 @@ pub(super) fn dispatch_draw_passes(
     let pool: &InstanceBufferPool = &state.renderer.instance_pool;
     let transition_cache = state.renderer.vxl_slope_transition_cache.borrow();
     let pose_cache = state.renderer.vxl_pose_frame_cache.borrow();
+    // The sidebar's surface is complete before the frame begins; the
+    // screen-fixed block copies it in.
+    draw_sidebar_surface(state, encoder);
     let mut pass = begin_main_pass(encoder, view, &state.renderer.depth_view);
 
     // Everything from here to the screen-fixed chrome block is battlefield: it
@@ -682,114 +748,20 @@ pub(super) fn dispatch_draw_passes(
         "super_timer_text",
     );
 
-    // --- Screen-fixed UI: sidebar, minimap, cursor — use UI camera (zoom=1.0) ---
+    // --- Screen-fixed UI: sidebar, messages, tooltips, cursor — UI camera (zoom=1.0) ---
     // Chrome owns the whole window: the sidebar column, the message list that
     // starts at the tactical origin, tooltips, and the cursor, which the native
     // engine draws over both regions. Release the tactical scissor before any of
     // it goes down.
+    //
+    // SidebarClass::BlitToScreen @ 0x006A70E0: the sidebar's surface, drawn
+    // before this pass (`draw_sidebar_surface`), goes to the right-hand
+    // column and the bar's to the strip left of it, scaled by the Sidebar
+    // size. The copies scissor themselves.
+    if let Some(surface) = state.renderer.sidebar_surface.as_ref() {
+        surface.composite(&mut pass);
+    }
     pass.set_scissor_rect(0, 0, state.render_width(), state.render_height());
-    draw_pooled_ui(
-        &mut pass,
-        &state.renderer.batch_renderer,
-        pool,
-        current_sidebar_chrome_texture(state),
-        "sidebar_chrome",
-    );
-    draw_pooled_ui(
-        &mut pass,
-        &state.renderer.batch_renderer,
-        pool,
-        state
-            .match_state
-            .match_presentation
-            .sidebar_cameo_atlas
-            .as_ref()
-            .map(|atlas| &atlas.texture),
-        "sidebar_cameo",
-    );
-    draw_pooled_ui(
-        &mut pass,
-        &state.renderer.batch_renderer,
-        pool,
-        current_sidebar_gclock_texture(state),
-        "sidebar_gclock",
-    );
-    let cameo_overlay_tex = state.renderer.bit_font.darken_texture().or_else(|| {
-        state
-            .match_state
-            .match_presentation
-            .selection_overlay
-            .as_ref()
-            .map(|o| o.white_texture())
-    });
-    draw_pooled_ui(
-        &mut pass,
-        &state.renderer.batch_renderer,
-        pool,
-        cameo_overlay_tex,
-        "sidebar_cameo_overlay",
-    );
-    draw_pooled_ui(
-        &mut pass,
-        &state.renderer.batch_renderer,
-        pool,
-        Some(state.renderer.bit_font.atlas()),
-        "sidebar_text",
-    );
-
-    // SidebarClass::Draw @ 0x006A6C30 paints background, gadgets, strip, and
-    // power before PowerClass::Draw reaches RadarClass::Draw @ 0x00653100.
-    // Radar state/chrome preparation then precedes Update @ 0x00656EC0, whose
-    // content blit, viewport rectangle, and generated-content boundary are the
-    // final retained radar writes in that order.
-    draw_pooled_ui(
-        &mut pass,
-        &state.renderer.batch_renderer,
-        pool,
-        state
-            .match_state
-            .match_presentation
-            .radar_anim
-            .as_ref()
-            .map(|ra| ra.texture()),
-        "radar_anim",
-    );
-    draw_pooled_ui(
-        &mut pass,
-        &state.renderer.batch_renderer,
-        pool,
-        state
-            .match_state
-            .match_presentation
-            .minimap
-            .as_ref()
-            .map(|m| m.map_texture()),
-        "minimap",
-    );
-    draw_pooled_ui(
-        &mut pass,
-        &state.renderer.batch_renderer,
-        pool,
-        state
-            .match_state
-            .match_presentation
-            .minimap
-            .as_ref()
-            .map(|m| m.white_texture()),
-        "viewport_rect",
-    );
-    draw_pooled_ui(
-        &mut pass,
-        &state.renderer.batch_renderer,
-        pool,
-        state
-            .match_state
-            .match_presentation
-            .minimap
-            .as_ref()
-            .map(|m| m.white_texture()),
-        "radar_content_boundary",
-    );
     draw_pooled_ui(
         &mut pass,
         &state.renderer.batch_renderer,
@@ -905,7 +877,7 @@ fn draw_pooled_no_depth<'a>(
 
 /// Draw with the UI camera (zoom=1.0) for screen-fixed elements.
 /// Uses the overlay pipeline (no depth) but sets bind group 0 to the UI camera
-/// so sidebar, minimap, and cursor stay at fixed screen positions regardless of zoom.
+/// so messages, tooltips, and cursor stay at fixed screen positions regardless of zoom.
 fn draw_pooled_ui<'a>(
     pass: &mut wgpu::RenderPass<'a>,
     batch: &'a BatchRenderer,
@@ -913,12 +885,25 @@ fn draw_pooled_ui<'a>(
     tex: Option<&'a BatchTexture>,
     key: &'static str,
 ) {
+    draw_pooled_with_camera(pass, batch, batch.ui_camera_bind_group(), pool, tex, key);
+}
+
+/// The overlay pipeline with `camera` as bind group 0: the UI camera, or the
+/// sidebar camera for the sidebar's surface.
+fn draw_pooled_with_camera(
+    pass: &mut wgpu::RenderPass<'_>,
+    batch: &BatchRenderer,
+    camera: &wgpu::BindGroup,
+    pool: &InstanceBufferPool,
+    tex: Option<&BatchTexture>,
+    key: &'static str,
+) {
     if let (Some(t), Some((buf, count))) = (tex, pool.get(key)) {
         if count == 0 {
             return;
         }
         pass.set_pipeline(batch.overlay_pipeline());
-        pass.set_bind_group(0, batch.ui_camera_bind_group(), &[]);
+        pass.set_bind_group(0, camera, &[]);
         pass.set_bind_group(1, &t.bind_group, &[]);
         pass.set_vertex_buffer(0, buf.slice(..));
         pass.draw(0..6, 0..count);
@@ -1116,10 +1101,11 @@ mod tests {
         let timer_fill = source_offset("\"super_timer_fill\"");
         let timer_text = source_offset("\"super_timer_text\"");
         let screen_fixed = source_offset("// --- Screen-fixed UI:");
+        let sidebar_blit = source_offset("surface.composite(&mut pass)");
         let full_window_scissor = source_offset(
             "pass.set_scissor_rect(0, 0, state.render_width(), state.render_height());",
         );
-        let first_screen_submission = source_offset("\"minimap\"");
+        let first_screen_submission = source_offset("\"message_text\"");
 
         // Original6D4648,6D4656,6D465F: IonBlast DrawAll between the first
         // rally pass and the object loop.
@@ -1139,7 +1125,10 @@ mod tests {
         assert!(sparkle < timer_fill);
         assert!(timer_fill < timer_text);
         assert!(timer_text < screen_fixed);
-        assert!(screen_fixed < full_window_scissor);
+        // The sidebar blits scissor to the column and strip; the rest of the
+        // chrome owns the whole frame.
+        assert!(screen_fixed < sidebar_blit);
+        assert!(sidebar_blit < full_window_scissor);
         assert!(full_window_scissor < first_screen_submission);
 
         let final_tactical_slice = &SOURCE[sparkle..screen_fixed];
@@ -1207,6 +1196,22 @@ mod tests {
                 "{later_retained_batch} must not overwrite the final radar outline"
             );
         }
+    }
+
+    /// SidebarClass::BlitToScreen (`6A70E0`) copies a finished
+    /// g_SidebarSurface: VERA draws the whole surface before the frame pass
+    /// begins, and copies it in after the tactical writes, before messages.
+    #[test]
+    fn gsi_04_01_sidebar_surface_is_finished_before_its_blit() {
+        let surface_pass = source_offset("draw_sidebar_surface(state, encoder);");
+        let frame_pass = source_offset("let mut pass = begin_main_pass(");
+        let timer_text = source_offset("\"super_timer_text\"");
+        let blit = source_offset("surface.composite(&mut pass)");
+        let message = source_offset("\"message_text\"");
+
+        assert!(surface_pass < frame_pass);
+        assert!(timer_text < blit);
+        assert!(blit < message);
     }
 
     #[test]

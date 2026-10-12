@@ -101,10 +101,9 @@ fn native_21_screen_and_theme_layouts_drive_actual_view() {
             ],
             c.body
         );
-        let (tw, th) = crate::app::input::camera::tactical_viewport_size_px(
-            c.screen[0] as u32,
-            c.screen[1] as u32,
-        );
+        let (tw, th) =
+            crate::ui::sidebar::SidebarFrame::new(c.screen[0] as u32, c.screen[1] as u32, 100)
+                .tactical_size();
         assert_eq!([0, 0, tw as i32, th as i32], c.tactical);
         assert_eq!(
             [

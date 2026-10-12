@@ -245,10 +245,7 @@ pub(crate) fn tactical_mouse(state: &mut AppState, button: MouseButton, btn_stat
                 let release_point = if state.match_state.input.selection_state.is_band_box_active()
                 {
                     let (tactical_width, tactical_height) =
-                        crate::app::input::camera::tactical_viewport_size_px(
-                            state.render_width(),
-                            state.render_height(),
-                        );
+                        crate::app::input::camera::tactical_viewport_size(state);
                     clamp_tactical_drag_endpoint(
                         state.match_state.input.cursor_x,
                         state.match_state.input.cursor_y,
@@ -741,10 +738,8 @@ pub(crate) fn handle_cursor_moved_in_game(state: &mut AppState) {
     if crate::app::input::campaign_input::is_locked(state) {
         return;
     }
-    let (tactical_width, tactical_height) = crate::app::input::camera::tactical_viewport_size_px(
-        state.render_width(),
-        state.render_height(),
-    );
+    let (tactical_width, tactical_height) =
+        crate::app::input::camera::tactical_viewport_size(state);
     let clamped_endpoint = clamp_tactical_drag_endpoint(
         state.match_state.input.cursor_x,
         state.match_state.input.cursor_y,

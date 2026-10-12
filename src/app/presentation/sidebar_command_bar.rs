@@ -1,4 +1,8 @@
 //! Native bottom bar art and its one layout shared by drawing and gadgets.
+//!
+//! The bar lays out in the sidebar's layout space (`ui::sidebar::frame`), on
+//! the strip under the battlefield, and draws into its own surface
+//! (`render::sidebar_surface`); its gadgets take it in frame pixels.
 
 use super::*;
 use crate::ui::sidebar::command_bar::CommandBarLayout;
@@ -6,9 +10,10 @@ use crate::ui::sidebar::command_bar::CommandBarLayout;
 pub(crate) fn layout_and_slots(state: &AppState) -> Option<(CommandBarLayout, Vec<Option<usize>>)> {
     let art = &current_sidebar_chrome(state)?.command_bar;
     let size = |entry: SidebarChromeEntry| entry.pixel_size.map(|v| v as u32);
+    let (width, height) = state.sidebar_frame().layout_size();
     let layout = CommandBarLayout::new(
-        [state.render_width(), state.render_height()],
-        168,
+        [width, height],
+        crate::ui::sidebar::SIDEBAR_WIDTH_PX,
         size(art.left_cap[0]?),
         size(art.background?),
         size(art.right_cap?),

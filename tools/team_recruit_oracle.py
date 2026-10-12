@@ -54,6 +54,10 @@ Sections, each executed in a fresh emulator per case:
 - unload: action 8 0x6EF110 (the join-up, the Unload orders with their
   building and mission tests, then the sort into transports and others by
   the argument and TransportsReturnOnUnload=).
+- deploy: action 9 0x6ED4D0 (the join-up; a DeploysInto= unit's Unload
+  test, Mark, the placement question at its GetMapCoords cell 0x41BEA0 for
+  no house, Flush_For_Placement or the orders; the IsSimpleDeployer= and
+  Deployer= Unload orders; the completion).
 
 Control flow the rows do not vary (Calc_Center's action-10 branch, the
 TeamType waypoint origin, the recruited unit's passengers, action 54's leader
@@ -1395,13 +1399,130 @@ def unload():
     return rows
 
 
+
+# ---------------------------------------------------------------- deploy
+
+SCRIPT_DEPLOY = 0x6ED4D0
+GET_MAP_COORDS = 0x41BEA0
+FLUSH_FOR_PLACEMENT = 0x45EE70
+STUB_MARK = STUBS + 0x1E0
+STUB_CAN_PLACE_AT = STUBS + 0x1F0
+DEPLOY_TYPE_VTABLE = FAKE + 0x352500
+
+
+def i16_pair(raw):
+    """A CellStruct's X and Y, signed."""
+    return [struct.unpack('<h', struct.pack('<H', half))[0] for half in (raw & 0xFFFF, raw >> 16)]
+
+
+def deploy_row(*, members, zone, stray):
+    """Action 9 over a team of `members` (transport_team's fields, with no
+    passengers) of house HOUSES (+0x21C). A unit's type `DeploysInto=` a
+    building (+0x404) when `deploys`, whose CanPlaceAt (vt+0xA8) answers
+    `can_place`, and is `IsSimpleDeployer=` (+0xE13) when `simple`; an
+    infantryman's type is `Deployer=` (+0xEC8) when `deployer`."""
+    emu, addresses = transport_team(members=members, entries=[], zone=zone, stray=stray,
+                                    returns=False, action=9)
+    emu.write32(DEPLOY_TYPE_VTABLE + 0xA8, STUB_CAN_PLACE_AT)
+    for slot, stub in ((0x124, STUB_MARK), (0x1B8, GET_MAP_COORDS)):
+        emu.write32(OBJECT_VTABLE + slot, stub)
+    buildings = {}
+    for index, (address, member) in enumerate(zip(addresses, members)):
+        emu.write32(address + 0x21C, HOUSES)
+        kind = emu.techno_type[address]
+        if member['class'] == 'unit':
+            emu.write32(address + 0x6C4, kind)
+            emu.write8(kind + 0xE13, int(member['simple']))
+            if member['deploys']:
+                building = BUILDING_TYPES + index * 0x100
+                emu.write32(building, DEPLOY_TYPE_VTABLE)
+                emu.write32(kind + 0x404, building)
+                buildings[building] = (index, member['can_place'])
+        elif member['class'] == 'infantry':
+            emu.write32(address + 0x6C0, kind)
+            emu.write8(kind + 0xEC8, int(member['deployer']))
+
+    def can_place(e):
+        index, answer = buildings[e.uc.reg_read(UC_X86_REG_ECX)]
+        e.events.append(['can_place', index, i16_pair(e.read32(e.arg(0))), e.arg(1)])
+        return int(answer)
+
+    def flush(e):
+        index, _ = buildings[e.uc.reg_read(UC_X86_REG_ECX)]
+        e.events.append(['flush', index, i16_pair(e.read32(e.arg(0))),
+                         'house' if e.arg(1) == HOUSES else e.arg(1)])
+        return 0
+    emu.hook(STUB_CAN_PLACE_AT, can_place, 8)
+    emu.hook(FLUSH_FOR_PLACEMENT, flush, 8)
+    emu.hook(STUB_MARK, lambda e: e.events.append(
+        ['mark', TeamEmu.index_of(e.uc.reg_read(UC_X86_REG_ECX)), e.arg(0)]), 4)
+    emu.write32(ACTION, 9)
+    emu.invoke(SCRIPT_DEPLOY, ecx=TEAM, args=(ACTION, 0))
+    return dict(members=members, zone=zone, stray=stray, **transport_outputs(emu, addresses))
+
+
+def deploy_member(rng, slot, *, kind=None, **fields):
+    """A member on column 4 + 5 * slot, so a building's 2x1 foundation from
+    its cell meets no other member's."""
+    kind = kind or rng.choice(('unit', 'unit', 'unit', 'infantry', 'infantry', 'aircraft'))
+    member = {'class': kind, 'passengers': 0, 'count': 0,
+              'active': rng.random() > 0.08, 'health': rng.choice((0, 1, 100, 100, 100, 100)),
+              'limbo': rng.random() < 0.08, 'initiated': rng.random() > 0.3,
+              'nav': rng.random() < 0.3, 'mission': rng.choice((5, 5, 0x10, 2, 1, 0xF)),
+              'ready': False, 'radio': False, 'archive': False, 'on_building': False,
+              'deploys': kind == 'unit' and rng.random() < 0.5,
+              'can_place': rng.random() < 0.6,
+              'simple': kind == 'unit' and rng.random() < 0.4,
+              'deployer': kind == 'infantry' and rng.random() < 0.5,
+              'xyz': [(4 + 5 * slot) * 256 + rng.randrange(0, 256),
+                      rng.randrange(4, 27) * 256 + rng.randrange(0, 256), 0]}
+    member.update(fields)
+    return member
+
+
+def deploy():
+    rng = random.Random(0x6ED4D0)
+
+    def zone():
+        return [rng.randrange(27, 30) * 256 + rng.randrange(0, 256),
+                rng.randrange(4, 27) * 256 + rng.randrange(0, 256), 0]
+    rows = []
+    for _ in range(100):
+        members = [deploy_member(rng, slot) for slot in range(rng.randrange(0, 6))]
+        rows.append(deploy_row(members=members, zone=zone(),
+                               stray=rng.choice((0x200, 0x800, 0x1000, 0x2000))))
+    ready = dict(active=True, health=100, limbo=False, initiated=True, nav=True, mission=5)
+    mcv = dict(ready, kind='unit', deploys=True, simple=False)
+    cases = [
+        # No members: finished at once.
+        [],
+        # A deploying unit on Unload holds the action; one placed or refused.
+        [deploy_member(rng, 0, **dict(mcv, mission=0x10))],
+        [deploy_member(rng, 0, **dict(mcv, can_place=True))],
+        [deploy_member(rng, 0, **dict(mcv, can_place=False))],
+        # Simple deployers and Deployer= infantry alone: finished.
+        [deploy_member(rng, 0, **dict(ready, kind='unit', deploys=False, simple=True)),
+         deploy_member(rng, 1, **dict(ready, kind='infantry', deployer=True)),
+         deploy_member(rng, 2, **dict(ready, kind='infantry', deployer=True, mission=0x10)),
+         deploy_member(rng, 3, **dict(ready, kind='aircraft'))],
+        # A deploying unit that has not joined does not hold the action.
+        [deploy_member(rng, 0, **dict(mcv, initiated=False, nav=False)),
+         deploy_member(rng, 1, **dict(ready, kind='unit', deploys=False, simple=True))],
+        # A unit both DeploysInto= and IsSimpleDeployer= takes the building arm.
+        [deploy_member(rng, 0, **dict(mcv, simple=True, can_place=True))],
+    ]
+    for members in cases:
+        rows.append(deploy_row(members=members, zone=zone(), stray=0x200))
+    return rows
+
+
 def generate():
     return dict(recalc=recalc(), center=center(), recruit=recruit(), distance=distance(),
                 guard=guard(), regroup=regroup(), own_building=own_building(),
                 target_building=target_building(), gather=gather(), quarry=quarry(), attack_cadence=attack_cadence(),
                 bio_reactor=bio_reactor(), battle_bunker=battle_bunker(),
                 tank_bunker=tank_bunker(), load=load(), wait_loaded=wait_loaded(),
-                unload=unload())
+                unload=unload(), deploy=deploy())
 
 
 if __name__ == '__main__':
@@ -1416,7 +1537,7 @@ if __name__ == '__main__':
                'Coordinate_Attack\'s frame test; EnterBioReactor over one house\'s '
                'absorber list with supplied CAN_LOAD answers; EnterBattleBunker over one '
                'house\'s occupiable list with supplied CanBeOccupiedBy answers; '
-               'EnterTankBunker over one house\'s tank bunker list; actions 14 '
+               'EnterTankBunker over one house\'s tank bunker list; actions 14, 9 '
                'and 8 and action 43\'s inline test over up to five synthetic infantry, '
                'vehicle and aircraft members.'),
         assumptions=['x87 control word 0x0E7F (PC53, chop), the harness default.',
@@ -1464,7 +1585,11 @@ if __name__ == '__main__':
                        '0x47C520 answers the member\'s case (its game-active gate 0xA8E9A0 is '
                        'set in play); In_Radio_Contact 0x65AE30 and Set_ArchiveTarget '
                        '0x70C610 run as original; action 43 runs from 0x6E9C22 to its '
-                       'branch targets.'],
+                       'branch targets.',
+                       'Action 9: Mark (vt+0x124) and Flush_For_Placement 0x45EE70 record '
+                       'their calls; the DeploysInto= building\'s CanPlaceAt (vt+0xA8) '
+                       'answers the case\'s placement and records its cell and house; '
+                       'GetMapCoords (vt+0x1B8) is the original 0x41BEA0.'],
         entry_points={'recalc': RECALC, 'calc_center': CALC_CENTER, 'recruit': RECRUIT,
                       'distance': DISTANCE, 'guard_case': GUARD_CASE,
                       'regroup_at_base': REGROUP_AT_BASE, 'find_own_building':
@@ -1475,5 +1600,5 @@ if __name__ == '__main__':
                       'enter_battle_bunker': ENTER_BATTLE_BUNKER,
                       'enter_tank_bunker': ENTER_TANK_BUNKER,
                       'load_onto_transport': LOAD_ONTO_TRANSPORT, 'wait_loaded': WAIT_LOADED,
-                      'unload': UNLOAD},
+                      'unload': UNLOAD, 'script_deploy': SCRIPT_DEPLOY},
     ))

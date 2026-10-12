@@ -1707,8 +1707,7 @@ impl Simulation {
         // 0x00700EC6..0x00700ED8), and that refusal clears Unit+0x68C
         // (0x00739AA7). The predicate's other arms are not represented here.
         let stolen_mcv = source.mind_control.controller().is_some()
-            && construction_yard_type_for_mcv(self.interner.resolve(source.type_ref()), rules)
-                .and_then(|yard| rules.object(&yard))
+            && crate::sim::mcv_deploy::deploys_into(self, source, rules)
                 .is_some_and(|yard| yard.construction_yard);
         if source.parasite_eating_me.is_some() || stolen_mcv {
             if let Some(entity) = self.substrate.entities.get_mut(stable_id) {
@@ -1724,8 +1723,7 @@ impl Simulation {
         // Read deploy data from EntityStore before mutating.
         let deploy_data = self.substrate.entities.get(stable_id).and_then(|entity| {
             let type_str = self.interner.resolve(entity.type_ref());
-            let yard_type = construction_yard_type_for_mcv(type_str, rules)?;
-            let yard_obj = rules.object(&yard_type)?;
+            let yard_obj = crate::sim::mcv_deploy::deploys_into(self, entity, rules)?;
             let origin = deploy_origin_from_unit_cell(
                 entity.position.rx,
                 entity.position.ry,
@@ -1735,7 +1733,7 @@ impl Simulation {
                 entity.owner(),
                 origin,
                 entity.position.z,
-                yard_type.clone(),
+                yard_obj.id.clone(),
                 yard_obj.deploy_facing,
                 (
                     entity.selected,
@@ -1778,28 +1776,34 @@ impl Simulation {
         // back (`0x0073953B..0x00739565` / `0x0073959C..0x007395B4`) before
         // either outcome acts.
         self.foot_mark_remove(stable_id, Some(rules), registry, frame_effects);
-        let placeable = rules.object(&yard_type).is_some_and(|yard| {
+        let yard = rules.object(&yard_type);
+        let placeable = yard.is_some_and(|yard| {
             crate::sim::build_site::can_place_building_at(self, rules, registry, yard, origin, None)
         });
+        // `0x0073950F..0x00739536`: refused for an owner no human controls,
+        // the site is cleared for that house while the unit is still lifted
+        // (`BuildingTypeClass::Flush_For_Placement @ 0x0045EE70`), so its
+        // allied blockers make way for the next try.
+        if !placeable
+            && !self.owner_is_human(owner_id)
+            && let Some(yard) = yard
+        {
+            crate::sim::build_site::flush_for_placement(
+                self,
+                rules,
+                registry,
+                yard,
+                origin,
+                owner_id,
+                frame_effects,
+            );
+        }
         self.foot_mark_put(stable_id, Some(rules), registry, frame_effects);
         if !placeable {
             log::info!("MCV deploy blocked at origin {origin:?}");
             // `0x007394E0..0x0073950A`: EVA CannotDeployHere only for the
             // local player's (`IsHumanPlayer`, carried by the event's owner)
             // non-`ResourceGatherer=` unit; a blocked Slave Miner is silent.
-            //
-            // RESIDUAL: a computer owner's refusal first runs
-            // `BuildingTypeClass::Flush_For_Placement @ 0x0045EE70`
-            // (`0x0073950F..0x00739536`), which scatters allied foot units off
-            // the footprint. Trigger: a computer owner's Deploy onto a taken
-            // footprint: the retry after the MCV's turn (retail yards keep
-            // `DeployFacing=` 0x80, so most MCVs turn first) once a unit has
-            // moved in, a Mission_Unload deploy, or a Slave Miner's
-            // (`0x006AFEF9`, `0x006AFF6D`). Effect: the blockers are not asked
-            // to move, so the MCV's mission tries again later, perhaps at
-            // another site. Frequency: uncommon; any unit, infantry or wall in
-            // the footprint refuses. Ported with its main consumer, the
-            // computer's building placement.
             if !resource_gatherer {
                 self.sound_events
                     .push(SimSoundEvent::CannotDeployHere { owner: owner_id });
@@ -2352,14 +2356,6 @@ fn deploy_origin_from_unit_cell(unit_rx: u16, unit_ry: u16, foundation: &str) ->
     } else {
         (x, y)
     }
-}
-
-/// Resolve the deploy target for an MCV-like unit via rules.ini `DeploysInto=`.
-fn construction_yard_type_for_mcv(type_id: &str, rules: &RuleSet) -> Option<String> {
-    let obj = rules.object(type_id)?;
-    let target: &str = obj.deploys_into.as_deref()?;
-    rules.object(target)?;
-    Some(target.to_string())
 }
 
 /// Where the unit reappears when a building undeploys, given the building's

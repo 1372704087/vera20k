@@ -13,16 +13,16 @@
 //! `gather_enemy_base.asm` and `asm/team_action_attack_quarry_6ED090.asm`.
 //! Native execution: `tools/team_recruit_oracle.py`'s `guard`, `regroup`
 //! (with its draw), `own_building` and `target_building` rows replay in
-//! `recruit_oracle_tests`, and its `load`, `wait_loaded` and `unload` rows
-//! (actions 14, 43 and 8) in `transport_tests`.
+//! `recruit_oracle_tests`, and its `load`, `wait_loaded`, `unload` and
+//! `deploy` rows (actions 14, 43, 8 and 9) in `transport_tests`.
 //!
 //! RESIDUALS:
-//! - Actions other than 0, 2, 3, 5, 6, 8, 11, 14, 19, 21, 24, 43, 46, 47,
-//!   49, 50, 53, 54, 55, 57, 58, 61, 62 and 63 are not ported. A team that
-//!   reaches one stays on it, as a native handler that has not finished
-//!   does, and records the first as its refusal; the rest of its update
-//!   runs. Trigger: 5 of the 163 retail AIMD TeamTypes reach one, action 9
-//!   first. Effect: the team idles on that action for good, keeping its
+//! - Actions other than 0, 2, 3, 5, 6, 8, 9, 11, 14, 19, 21, 24, 43, 46,
+//!   47, 49, 50, 53, 54, 55, 57, 58, 61, 62 and 63 are not ported. A team
+//!   that reaches one stays on it, as a native handler that has not
+//!   finished does, and records the first as its refusal; the rest of its
+//!   update runs. Trigger: none of the 163 retail AIMD TeamTypes reaches
+//!   one. Effect: the team idles on that action for good, keeping its
 //!   members and its TeamType's `Max=` slot, and nothing else sends those
 //!   units out. Action 56
 //!   (`0x006EFE60`), the Chronosphere's other script action, picks its
@@ -64,9 +64,14 @@
 //!   ported). Effect: the members fire at the cell instead of the tree.
 //! - `Coordinate_Attack` orders an unloading unit to attack without asking
 //!   Unit vt+0x4E4 (`0x00736D50`), which keeps it unloading when its type is
-//!   `DeployToFire=` (no retail type) or a computer unit's `DeploysInto=`
-//!   building sets `+0x16C4` (identity unchecked; Infantry's `0x0041C060`
-//!   answers false). Trigger: a member deploying when its team attacks.
+//!   `DeployToFire=`, or when a computer unit's `DeploysInto=` building is
+//!   `TickTank=` (`+0x16C4`), its target is a unit and Cell `0x00487C10`
+//!   answers true for its own cell. Infantry's and Aircraft's `0x0041C060`
+//!   answer false. No retail type sets either key, so every retail member
+//!   answers false. That includes the "Soviet SChop" teams' Siege Choppers,
+//!   which action 9 sets unloading just before the team's attack actions:
+//!   natively, as in VERA, those actions take them off Unload in the air.
+//!   Trigger: a member of a modded type deploying when its team attacks.
 //!   Effect: it stops deploying and attacks.
 //! - A non-aircraft member's ammunition (`+0x2FC`) is not tracked and reads
 //!   as its `Ammo=`: actions 0 and 46 never find such a team spent
@@ -105,6 +110,7 @@ pub(super) const fn action_is_ported(action_id: i32) -> bool {
             | 5
             | 6
             | 8
+            | 9
             | 11
             | 14
             | 19
@@ -312,6 +318,7 @@ impl Simulation {
                 }
             }
             8 => self.team_action_unload(team_id, action.argument, rules, registry, frame_effects),
+            9 => self.team_action_deploy(team_id, rules, registry, frame_effects),
             11 => self.team_action_do_mission(
                 team_id,
                 action.argument,
@@ -935,6 +942,99 @@ impl Simulation {
         }
     }
 
+    /// Script action 9 (`TeamClass::Script_Deploy @ 0x006ED4D0`, `first`
+    /// unread), deploy. Each member joins up as in `Regroup`
+    /// (`0x006ED4EF..0x006ED5A1`); then each live joined one (or aircraft):
+    /// - a unit whose type `DeploysInto=` a building (`+0x404`) keeps the
+    ///   action waiting (`0x006ED667`). Unless its mission (`vt+0x184`) is
+    ///   Unload, it is lifted out of its cell (Mark(UP)) and the building is
+    ///   asked whether it may stand with its origin at the unit's own cell
+    ///   (`vt+0x1B8`, no (-1, -1) as Deploy and TryToDeploy take), for no
+    ///   house (`BuildingTypeClass::CanPlaceAt`, `vt+0xA8`, `0x006ED6B3`).
+    ///   If not, the site is cleared for the unit's house
+    ///   (`Flush_For_Placement @ 0x0045EE70`, `0x006ED6E0`) and the unit is
+    ///   put back; if so, it is put back, drops its destination and target
+    ///   and queues Unload (`0x006ED6F3..0x006ED73A`), whose Mission_Unload
+    ///   deploys it ([`crate::sim::mcv_deploy`]).
+    /// - otherwise a unit of an `IsSimpleDeployer=` type (`+0xE13`) or an
+    ///   infantryman of a `Deployer=` type (`0x005224E0`, `+0xEC8`) queues
+    ///   Unload unless that is its mission (`0x006ED71B..0x006ED73A`).
+    ///
+    /// With no unit left waiting, the action is finished (`0x006ED74E`); a
+    /// team with no members finishes it at once (`0x006ED4E1`). A deployed
+    /// unit leaves the team as it becomes the building.
+    fn team_action_deploy(
+        &mut self,
+        team_id: u64,
+        rules: &RuleSet,
+        registry: Option<&OverlayTypeRegistry>,
+        frame_effects: FrameEffects<'_>,
+    ) {
+        let Some(team) = self.team_script_vm.teams.get(&team_id) else {
+            return;
+        };
+        let members: Vec<u64> = team.members().collect();
+        let mut deployed = true;
+        for member in members {
+            self.team_member_join_up(team_id, member, rules, registry, frame_effects);
+            let Some(entity) = self.substrate.entities.get(member) else {
+                continue;
+            };
+            if !member_is_live_joined(
+                entity,
+                self.team_member_initiated(team_id, member),
+                self.object_placement_scope_active(),
+            ) {
+                continue;
+            }
+            let Some(object) = self.object_type(entity.type_ref(), rules) else {
+                continue;
+            };
+            let unit = entity.category == EntityCategory::Unit;
+            let building = unit
+                .then(|| crate::sim::mcv_deploy::deploys_into(self, entity, rules))
+                .flatten();
+            let deployer = (unit && object.is_simple_deployer)
+                || (entity.category == EntityCategory::Infantry && object.deployer);
+            let unloading =
+                entity.mission.effective() == MissionId::from_known(MissionType::Unload);
+            let cell = (entity.position.rx as i16, entity.position.ry as i16);
+            let owner = entity.owner();
+            if let Some(building) = building {
+                deployed = false;
+                if unloading {
+                    continue;
+                }
+                self.foot_mark_remove(member, Some(rules), registry, frame_effects);
+                let placeable = crate::sim::build_site::can_place_building_at(
+                    self, rules, registry, building, cell, None,
+                );
+                if !placeable {
+                    let _ = crate::sim::build_site::flush_for_placement(
+                        self,
+                        rules,
+                        registry,
+                        building,
+                        cell,
+                        owner,
+                        frame_effects,
+                    );
+                }
+                self.foot_mark_put(member, Some(rules), registry, frame_effects);
+                if placeable {
+                    self.team_member_set_destination(member, None, rules, registry, frame_effects);
+                    self.team_member_clear_target(member, rules);
+                    self.team_member_queue_mission(member, MissionType::Unload, rules);
+                }
+            } else if deployer && !unloading {
+                self.team_member_queue_mission(member, MissionType::Unload, rules);
+            }
+        }
+        if deployed && let Some(team) = self.team_script_vm.teams.get_mut(&team_id) {
+            team.advance_pending = true;
+        }
+    }
+
     /// The member with the highest `LeadershipRating=` (signed, the first in
     /// list order on a tie) among the live joined members, else the head
     /// (`0x006EE621..0x006EE683`, `0x006EFA2B..0x006EFA81`).
@@ -1390,6 +1490,13 @@ impl Simulation {
     /// (an `Aggressive=` team's fighting member keeps fighting). The action
     /// finishes when some such member exists and all have arrived with no
     /// destination left, none is unloading, and the team is formed.
+    ///
+    /// A member whose locomotor still reports moving at its destination
+    /// keeps that destination and holds the action. A hovering
+    /// `DeployToLand=` Siege Chopper does so natively too: State 2 holds it
+    /// with the moving byte set (`0x0054BE09..0x0054BE2F`), and only a
+    /// `BalloonHover=` member is let off. Ares bug 895814 reports the stall
+    /// in the game.
     ///
     /// `Lagging_Units @ 0x006EBF50` is not consulted: it answers false
     /// unless `+0x7C` is set, which only `0x006EC119` would do, from no

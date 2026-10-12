@@ -1696,4 +1696,424 @@ mod retail_construction_tests {
         assert_eq!(members, on_61, "a drone left its team at action 61");
         assert!(!held, "the second bunker was taken");
     }
+
+    /// "Soviet SChop vs All" (`07C3092C-G`: two Siege Choppers, script
+    /// `54 / 53 / 47,131072 / 9 / 0,9 / 49 / 0,2 / 0,1`) for a Normal Soviet
+    /// AI against an idle America on XMP03T4, with two Siege Choppers spawned
+    /// beside the standing base for the team.
+    ///
+    /// The team holds on action 54, as natively. Each chopper reaches the
+    /// gather point and hovers there: a `DeployToLand=` simple deployer's
+    /// State 2 holds without clearing the moving byte (`0x0054BE09..0x0054BE2F`).
+    /// So `Coordinate_Move` keeps its NavCom (`Is_Moving` at `0x006EBDA2`) and
+    /// counts it unarrived (`0x006EBF01..0x006EBF13`); only a `BalloonHover=`
+    /// member is let off (`0x006EBED5..0x006EBEFB`). Ares bug 895814 reports
+    /// this of the game: the AI's Siege Choppers run their script only once an
+    /// enemy is within range, and `BalloonHover=yes` cures it. That release is
+    /// not reproduced here.
+    ///
+    /// Put on line 3 instead, as action 6 would, the team's action 9 orders
+    /// each chopper (`IsSimpleDeployer=`) to Unload, and they start to land.
+    /// Action 9 is done at once, and the team's next attack order takes them
+    /// off Unload in the air, as `Coordinate_Attack` does natively
+    /// (`0x006EB79A..0x006EB7B5`): Unit vt+0x4E4 (`0x00736D50`) keeps only a
+    /// `DeployToFire=` unit, or a computer one deploying into a `TickTank=`
+    /// building, on Unload, and the Siege Chopper is neither.
+    #[test]
+    #[ignore = "requires RA2_DIR with installed retail RA2/YR assets"]
+    fn retail_soviet_siege_chopper_team_holds_then_attacks_undeployed() {
+        use crate::sim::mission::MissionType;
+        use crate::sim::movement::jumpjet_movement::jumpjet_flight::{STATE_DESCEND, STATE_HOLD};
+        use crate::skirmish_launch::{AiDifficulty, LaunchCountry};
+
+        let (mut scenario, _) =
+            retail_battle(|_| {}, &[(LaunchCountry::Russia, AiDifficulty::Normal)]);
+        for _ in 0..1500 {
+            scenario.tick();
+        }
+        let runtime = &mut scenario.runtime;
+        let (sim, resources) = (&mut runtime.simulation, &runtime.resources);
+        let (soviet, choppers) =
+            spawn_beside_base(sim, &resources.rules, "Russians", &["SCHP", "SCHP"]);
+        let team_type = sim
+            .interner
+            .get("07C3092C-G")
+            .expect("retail TeamType interned");
+        let team = sim
+            .create_team(team_type, Some(soviet), &resources.rules)
+            .or_else(|| {
+                sim.team_script_vm
+                    .teams_in_order()
+                    .find(|team| team.team_type_id() == Some(team_type) && team.owner() == soviet)
+                    .map(|team| team.id())
+            })
+            .expect("a team of the TeamType");
+        // Hovering on Move at its destination in State 2, with a NavCom and
+        // the moving byte set (State 1 passes through State 2 at lift-off);
+        // the team recruits the choppers on its first frames.
+        let holding = |sim: &Simulation, id: u64| {
+            sim.entities().get(id).is_some_and(|entity| {
+                let at = crate::sim::movement::ground_pose::position_world_coord(&entity.position);
+                entity.mission.current().known() == Some(MissionType::Move)
+                    && entity.navigation.nav_com.is_some()
+                    && entity
+                        .locomotor
+                        .as_ref()
+                        .and_then(|locomotor| locomotor.jumpjet_runtime())
+                        .is_some_and(|jumpjet| {
+                            let to = jumpjet.destination();
+                            jumpjet.phase() == STATE_HOLD
+                                && jumpjet.moving()
+                                && (to.x, to.y) == (at.x, at.y)
+                        })
+            })
+        };
+        let mut held = None;
+        for frame in 1..=1_500u32 {
+            scenario.tick();
+            let sim = scenario.sim();
+            let line = sim.team_script_vm.team(team).expect("the team lives");
+            assert!(
+                line.cursor() <= 0,
+                "the team left action 54 at frame {frame}"
+            );
+            let both = choppers
+                .iter()
+                .all(|&id| line.members().any(|member| member == id) && holding(sim, id));
+            match held {
+                None if both => held = Some(frame),
+                Some(since) => assert!(
+                    both,
+                    "a chopper left the team or its hold at frame {frame} (held from {since})"
+                ),
+                None => {}
+            }
+        }
+        let since = held.expect("the choppers never held at the gather point");
+        let sim = scenario.sim();
+        let cells: Vec<_> = choppers
+            .iter()
+            .filter_map(|&id| sim.entities().get(id))
+            .map(|entity| {
+                (
+                    (entity.position.rx, entity.position.ry),
+                    entity.navigation.nav_com,
+                )
+            })
+            .collect();
+        eprintln!("Siege Chopper team: held on action 54 from frame {since}: {cells:?}");
+        assert!(since <= 1_000, "the choppers held only from frame {since}");
+
+        scenario
+            .runtime
+            .simulation
+            .team_script_vm
+            .seek_line_for_test(team, 3);
+        // The phase of each chopper's jumpjet, its height, whether it is
+        // deployed and its mission.
+        let state = |sim: &Simulation, id: u64| {
+            let entity = sim.entities().get(id).expect("the chopper lives");
+            (
+                entity
+                    .locomotor
+                    .as_ref()
+                    .and_then(|locomotor| locomotor.jumpjet_runtime())
+                    .map(|jumpjet| jumpjet.phase()),
+                crate::sim::movement::air_movement::current_fly_height(
+                    entity,
+                    sim.resolved_terrain.as_ref(),
+                ),
+                entity.is_deployed(),
+                entity.mission.current().known(),
+            )
+        };
+        let (mut on_9, mut past, mut attacking) = (None, None, None);
+        for frame in 1..=600u32 {
+            scenario.tick();
+            let sim = scenario.sim();
+            let states: Vec<_> = choppers.iter().map(|&id| state(sim, id)).collect();
+            assert!(
+                states.iter().all(|state| !state.2),
+                "a chopper deployed at frame {frame}: {states:?}"
+            );
+            let cursor = sim.team_script_vm.team(team).map(|team| team.cursor());
+            if on_9.is_none() && cursor == Some(3) {
+                on_9 = Some((frame, states.clone()));
+            }
+            if past.is_none() && on_9.is_some() && cursor.is_none_or(|cursor| cursor >= 4) {
+                past = Some(frame);
+            }
+            if states
+                .iter()
+                .all(|state| state.3 == Some(MissionType::Attack))
+            {
+                attacking = Some((frame, cursor, states));
+                break;
+            }
+        }
+        eprintln!(
+            "Siege Chopper team: on action 9 {on_9:?}, past it at {past:?}, attacking at \
+             {attacking:?}"
+        );
+        let (_, unloading) = on_9.expect("the team never ran action 9");
+        assert!(
+            unloading.iter().all(|state| {
+                state.0 == Some(STATE_DESCEND) && state.3 == Some(MissionType::Unload)
+            }),
+            "action 9 did not set both choppers landing to unload: {unloading:?}"
+        );
+        assert!(past.is_some(), "the team stayed on action 9");
+        let (_, _, airborne) = attacking.expect("no attack order took the choppers off Unload");
+        assert!(
+            airborne.iter().all(|state| state.1 > 0),
+            "a chopper landed before its attack order: {airborne:?}"
+        );
+    }
+
+    /// "Soviet MCV" (`043F83EC-G`: one SMCV, script `043F23CC-G`
+    /// `54 / 9 / 49`, which the Hard "Soviet MCV - H" trigger makes for a
+    /// house without a Construction Yard) for a Hard Soviet AI against an
+    /// idle America on XMP03T4. Once the base stands its yard is removed, and
+    /// an SMCV is spawned beside the base for the team. The MCV becomes a
+    /// yard again, it leaves the team as it does, and the team is done with
+    /// its TeamType's `Max=` slot free. The house's own MCV routes act on a
+    /// team member too (UnitClass::AI's Hunt queue has no team check), so
+    /// the deploy may be theirs: the test prints the MCV's orders.
+    /// [`retail_soviet_mcv_team_deploys_its_mcv_by_action_9`] isolates
+    /// action 9.
+    #[test]
+    #[ignore = "requires RA2_DIR with installed retail RA2/YR assets"]
+    fn retail_hard_soviet_mcv_team_rebuilds_its_yard() {
+        use crate::sim::mission::MissionType;
+        use crate::skirmish_launch::{AiDifficulty, LaunchCountry};
+
+        let (mut scenario, _) =
+            retail_battle(|_| {}, &[(LaunchCountry::Russia, AiDifficulty::Hard)]);
+        for _ in 0..1500 {
+            scenario.tick();
+        }
+        let yards = |sim: &Simulation, owner| -> Vec<u64> {
+            sim.entities()
+                .values()
+                .filter(|entity| {
+                    !entity.dying
+                        && entity.owner() == owner
+                        && sim.interner.resolve(entity.type_ref()) == "NACNST"
+                })
+                .map(crate::sim::game_entity::GameEntity::stable_id)
+                .collect()
+        };
+        let runtime = &mut scenario.runtime;
+        let (sim, resources) = (&mut runtime.simulation, &runtime.resources);
+        let soviet = house_of(sim, "Russians");
+        let lost = yards(sim, soviet);
+        assert!(!lost.is_empty(), "the base has a yard");
+        for yard in &lost {
+            sim.uninit_with_rules(*yard, &resources.rules);
+        }
+        let (_, spawned) = spawn_beside_base(sim, &resources.rules, "Russians", &["SMCV"]);
+        let mcv = spawned[0];
+        let team_type = sim
+            .interner
+            .get("043F83EC-G")
+            .expect("retail TeamType interned");
+        let team = sim
+            .create_team(team_type, Some(soviet), &resources.rules)
+            .or_else(|| {
+                sim.team_script_vm
+                    .teams_in_order()
+                    .find(|team| team.team_type_id() == Some(team_type) && team.owner() == soviet)
+                    .map(|team| team.id())
+            })
+            .expect("a team of the TeamType");
+        let (mut joined, mut on_9, mut rebuilt, mut done) = (None, None, None, None);
+        let mut orders: Vec<(u32, Option<MissionType>, Option<MissionType>)> = Vec::new();
+        for frame in 1..=3_000u32 {
+            scenario.tick();
+            let sim = scenario.sim();
+            let line = sim.team_script_vm.team(team);
+            if joined.is_none() && line.is_some_and(|line| line.members().any(|id| id == mcv)) {
+                joined = Some(frame);
+            }
+            if on_9.is_none() && line.is_some_and(|line| line.cursor() == 1) {
+                on_9 = Some((frame, line.map(|line| line.member_count())));
+            }
+            if let Some(entity) = sim.entities().get(mcv).filter(|entity| !entity.dying) {
+                let order = (
+                    entity.mission.current().known(),
+                    entity.mission.queued().known(),
+                );
+                if orders.last().is_none_or(|last| (last.1, last.2) != order) {
+                    orders.push((frame, order.0, order.1));
+                }
+            }
+            if rebuilt.is_none() && !yards(sim, soviet).is_empty() {
+                rebuilt = Some(frame);
+            }
+            if done.is_none() && line.is_none_or(|line| line.cursor() >= 2) {
+                done = Some(frame);
+            }
+            if rebuilt.is_some() && done.is_some() {
+                break;
+            }
+        }
+        let sim = scenario.sim();
+        let live = sim
+            .team_script_vm
+            .teams_in_order()
+            .filter(|line| line.team_type_id() == Some(team_type) && line.owner() == soviet)
+            .count();
+        eprintln!(
+            "MCV team: joined at {joined:?}, on action 9 {on_9:?}, yard rebuilt at {rebuilt:?}, \
+             done at {done:?}, {live} left of the type; MCV orders (frame, current, queued) \
+             {orders:?}"
+        );
+        assert!(joined.is_some(), "the MCV never joined the team");
+        assert!(rebuilt.is_some(), "no yard was rebuilt");
+        assert!(done.is_some(), "the team stayed on its script");
+        assert_eq!(live, 0, "the TeamType's Max= slot is still taken");
+    }
+
+    /// The "Soviet MCV" team (`043F83EC-G`) of a Hard Soviet AI on XMP03T4,
+    /// with an SMCV spawned beside the standing base for it and the house's
+    /// `AutoBaseBuilding` latch cleared, so neither UnitClass::AI's Hunt
+    /// queue nor Mission_Guard's Unload arm deploys the MCV. Put on line 1,
+    /// action 9 asks the yard to stand at the MCV's own cell and orders it
+    /// to Unload; Mission_Unload deploys it, it leaves the team as a yard, and
+    /// the team, empty, is done.
+    #[test]
+    #[ignore = "requires RA2_DIR with installed retail RA2/YR assets"]
+    fn retail_soviet_mcv_team_deploys_its_mcv_by_action_9() {
+        use crate::sim::mission::{MissionId, MissionType};
+        use crate::skirmish_launch::{AiDifficulty, LaunchCountry};
+
+        let (mut scenario, _) =
+            retail_battle(|_| {}, &[(LaunchCountry::Russia, AiDifficulty::Hard)]);
+        for _ in 0..1500 {
+            scenario.tick();
+        }
+        let yards = |sim: &Simulation, owner| -> usize {
+            sim.entities()
+                .values()
+                .filter(|entity| {
+                    !entity.dying
+                        && entity.owner() == owner
+                        && sim.interner.resolve(entity.type_ref()) == "NACNST"
+                })
+                .count()
+        };
+        let runtime = &mut scenario.runtime;
+        let (sim, resources) = (&mut runtime.simulation, &runtime.resources);
+        let soviet = house_of(sim, "Russians");
+        let standing = yards(sim, soviet);
+        sim.houses
+            .get_mut(&soviet)
+            .expect("the Soviet house")
+            .ai_activation
+            .auto_base_building = false;
+        // The first cell near the base where a yard can stand from every
+        // origin within a cell of it: the MCV's own cell (action 9's test),
+        // Deploy's (-1, -1), and a cell of drift.
+        let yard = resources.rules.object("NACNST").expect("retail NACNST");
+        let (bx, by) = sim.houses[&soviet]
+            .base_center
+            .expect("the base has a centre");
+        let mut around: Vec<(i32, i32)> = (0..1681).map(|n| (n % 41 - 20, n / 41 - 20)).collect();
+        around.sort_by_key(|&(dx, dy)| (dx * dx + dy * dy, dy, dx));
+        let (rx, ry) = around
+            .into_iter()
+            .map(|(dx, dy)| (i32::from(bx) + dx, i32::from(by) + dy))
+            .find(|&(rx, ry)| {
+                (-1..=1).all(|dy| {
+                    (-1..=1).all(|dx| {
+                        let (Ok(x), Ok(y)) = (i16::try_from(rx + dx), i16::try_from(ry + dy))
+                        else {
+                            return false;
+                        };
+                        crate::sim::build_site::can_place_building_at(
+                            sim,
+                            &resources.rules,
+                            Some(&resources.overlay_registry),
+                            yard,
+                            (x, y),
+                            None,
+                        )
+                    })
+                })
+            })
+            .and_then(|(rx, ry)| Some((u16::try_from(rx).ok()?, u16::try_from(ry).ok()?)))
+            .expect("room for a yard near the base");
+        let z = sim.terrain_cell_level(rx, ry).unwrap_or(0);
+        let owner = sim.interner.resolve(soviet).to_string();
+        let mcv = sim
+            .spawn_object_at_height("SMCV", &owner, rx, ry, 0, z, &resources.rules)
+            .expect("the MCV spawns");
+        let team_type = sim
+            .interner
+            .get("043F83EC-G")
+            .expect("retail TeamType interned");
+        let team = sim
+            .create_team(team_type, Some(soviet), &resources.rules)
+            .or_else(|| {
+                sim.team_script_vm
+                    .teams_in_order()
+                    .find(|team| team.team_type_id() == Some(team_type) && team.owner() == soviet)
+                    .map(|team| team.id())
+            })
+            .expect("a team of the TeamType");
+        // A full team forms and starts its script over (`0x006E91AD..
+        // 0x006E91F5`), so it is put on line 1 once formed.
+        let mut joined = None;
+        for frame in 1..=60u32 {
+            scenario.tick();
+            if scenario
+                .sim()
+                .team_script_vm
+                .team(team)
+                .is_some_and(|line| line.formed() && line.members().any(|id| id == mcv))
+            {
+                joined = Some(frame);
+                break;
+            }
+        }
+        assert!(joined.is_some(), "the MCV never joined the team");
+        scenario
+            .runtime
+            .simulation
+            .team_script_vm
+            .seek_line_for_test(team, 1);
+        let (mut ordered, mut deployed, mut done) = (None, None, None);
+        for frame in 1..=1_500u32 {
+            scenario.tick();
+            let sim = scenario.sim();
+            let line = sim.team_script_vm.team(team);
+            if ordered.is_none()
+                && line.is_some_and(|line| line.cursor() == 1)
+                && sim.entities().get(mcv).is_some_and(|entity| {
+                    entity.mission.effective() == MissionId::from_known(MissionType::Unload)
+                })
+            {
+                ordered = Some(frame);
+            }
+            if deployed.is_none() && yards(sim, soviet) > standing {
+                deployed = Some(frame);
+            }
+            if done.is_none() && line.is_none_or(|line| line.cursor() >= 2) {
+                done = Some(frame);
+            }
+            if deployed.is_some() && done.is_some() {
+                break;
+            }
+        }
+        eprintln!(
+            "MCV team, house routes off, MCV at ({rx},{ry}): joined at {joined:?}, Unload on \
+             action 9 at {ordered:?}, deployed at {deployed:?}, done at {done:?}"
+        );
+        assert!(
+            ordered.is_some(),
+            "action 9 never ordered the MCV to Unload"
+        );
+        assert!(deployed.is_some(), "the MCV did not deploy");
+        assert!(done.is_some(), "the team stayed on its script");
+    }
 }

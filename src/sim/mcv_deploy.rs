@@ -62,7 +62,7 @@ const TRY_TO_DEPLOY_SITES: [(i16, i16); 36] = [
 ];
 
 /// UnitType+0x404 `DeploysInto`, the BuildingType it resolved to.
-fn deploys_into<'r>(
+pub(crate) fn deploys_into<'r>(
     sim: &Simulation,
     entity: &GameEntity,
     rules: &'r RuleSet,

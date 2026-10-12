@@ -99,23 +99,24 @@ fn lift(rules: &RuleSet) -> (Simulation, PathGrid, u64, u64) {
     (sim, grid, magnetron, tank)
 }
 
-/// Held all the way, the tank is let go over the Magnetron (State 3's
-/// arrival, `0x0054C1CB`), falls onto it and crashes there: the falling
-/// damage destroys it and books the kill for the Magnetron's house.
+/// Held all the way, the tank reaches the cell beside the Magnetron that the
+/// Jumpjet's `Move_To` found free (`0x0054B275..0x0054B2D9`; the Magnetron's
+/// own cell is taken), is let go there by State 3's arrival (`0x0054C1CB`)
+/// and lands on that clear cell unharmed.
 #[test]
-fn retail_magnetron_pulls_a_tank_onto_itself() {
+fn retail_magnetron_pulls_a_tank_beside_itself_and_lets_go() {
     let Some(rules) = retail_rules() else {
         return;
     };
     let (mut sim, grid, magnetron, tank) = lift(&rules);
+    let health = entity(&sim, tank).health.current;
     let americans = sim.interner.get("Americans").unwrap();
-    let kills = sim.houses[&americans].stats.units_killed();
 
     assert!(
         run_until(&mut sim, &rules, &grid, 600, |sim| {
             entity(sim, tank).being_manipulated
         }),
-        "the tank arrives and is dropped"
+        "the tank arrives and is let go"
     );
     let dropped = entity(&sim, tank);
     assert!(dropped.crashing);
@@ -128,23 +129,73 @@ fn retail_magnetron_pulls_a_tank_onto_itself() {
         holder.attack_target.is_none(),
         "the release clears its target"
     );
-    let drop_cell = (dropped.position.rx, dropped.position.ry);
+    let offset = (
+        i32::from(dropped.position.rx) - i32::from(holder.position.rx),
+        i32::from(dropped.position.ry) - i32::from(holder.position.ry),
+    );
     assert_eq!(
-        drop_cell,
-        (holder.position.rx, holder.position.ry),
-        "over the Magnetron"
+        offset.0.abs().max(offset.1.abs()),
+        1,
+        "beside the Magnetron: {offset:?}"
     );
 
     assert!(
-        run_until(&mut sim, &rules, &grid, 200, |sim| {
+        run_until(&mut sim, &rules, &grid, 400, |sim| {
+            !entity(sim, tank).foot_locomotor_swap_active
+        }),
+        "the tank lands and its lift ends"
+    );
+    assert_eq!(entity(&sim, tank).health.current, health);
+}
+
+/// Let go over another object, the tank is centred on that cell and falls
+/// onto it: a Unit below crashes it (`0x0054CC47`), and its falling damage
+/// (`0x00746209`) destroys it and hurts the Unit below. Its death counts
+/// twice for the Magnetron's house: once where a bullet kills it, once where
+/// the falling damage books the drop's credit (`+0x428`, `0x007462F4`);
+/// Record_The_Kill (`0x00702D40`) has no first-credit guard.
+#[test]
+fn retail_tank_let_go_over_a_unit_crashes_onto_it() {
+    let Some(rules) = retail_rules() else {
+        return;
+    };
+    let (mut sim, grid, magnetron, tank) = lift(&rules);
+    let below = spawn(&mut sim, &rules, "AMCV", "Americans", 13, 16);
+    let below_health = entity(&sim, below).health.current;
+    let americans = sim.interner.get("Americans").unwrap();
+    let kills = sim.houses[&americans].stats.units_killed();
+
+    assert!(
+        run_until(&mut sim, &rules, &grid, 600, |sim| {
+            let held = entity(sim, tank);
+            (held.position.rx, held.position.ry) == (13, 16)
+        }),
+        "the tank is pulled over the Unit"
+    );
+    order(
+        &mut sim,
+        "Americans",
+        Command::Move {
+            entity_id: magnetron,
+            target_rx: 4,
+            target_ry: 16,
+            queue: false,
+        },
+    );
+    assert!(
+        run_until(&mut sim, &rules, &grid, 400, |sim| {
             !sim.substrate.entities.contains(tank)
         }),
-        "the tank crashes onto the Magnetron"
+        "the tank crashes onto the Unit"
+    );
+    assert!(
+        entity(&sim, below).health.current < below_health,
+        "the fall hurts the Unit below"
     );
     assert_eq!(
         sim.houses[&americans].stats.units_killed(),
-        kills + 1,
-        "the drop's credit books the kill"
+        kills + 2,
+        "the bullet and the drop's credit each book the kill"
     );
 }
 
@@ -174,7 +225,7 @@ fn retail_tank_let_go_over_clear_ground_lands_and_drives_again() {
                 magnetron,
                 crate::sim::world::UninitContext::new(Some(&rules), None),
             );
-            assert!(!sim.substrate.entities.contains(magnetron));
+            assert!(!entity(&sim, magnetron).lifecycle.object_alive);
         } else {
             order(
                 &mut sim,
@@ -309,10 +360,25 @@ fn lift_links_and_drop_credit_are_saved_and_hashed() {
         "[VehicleTypes]\n0=TANK\n[TANK]\nStrength=300\nSpeed=7\n",
     ))
     .unwrap();
-    let (mut sim, _) = arena(&rules);
-    let magnetron = spawn(&mut sim, &rules, "TANK", "Americans", 10, 16);
-    let tank = spawn(&mut sim, &rules, "TANK", "Russians", 16, 16);
+    // Without a map: the arena's map state does not come back through
+    // `GameSnapshot::load` alone.
+    let mut sim = Simulation::with_seed(0x1269);
+    for (name, human) in [("Russians", false), ("Americans", true)] {
+        let id = sim.interner.intern(name);
+        sim.houses.insert(
+            id,
+            crate::sim::house_state::HouseState::new(id, 0, None, human, 0, 10),
+        );
+        sim.session.house_order.push(id);
+    }
+    let magnetron = sim
+        .spawn_object_at_height("TANK", "Americans", 10, 16, 0, 0, &rules)
+        .unwrap();
+    let tank = sim
+        .spawn_object_at_height("TANK", "Russians", 16, 16, 0, 0, &rules)
+        .unwrap();
     let house = sim.interner.get("Americans").unwrap();
+    // A load restarts the Scenario stream from Seed0; put the source there too.
     sim.scenario_rng = crate::sim::rng::SimRng::new(0);
     type Write = fn(&mut GameEntity, u64, crate::sim::intern::InternedId);
     let writes: [(u64, Write); 6] = [
@@ -339,7 +405,7 @@ fn lift_links_and_drop_credit_are_saved_and_hashed() {
     let mut loaded = crate::sim::snapshot::GameSnapshot::load(&bytes)
         .unwrap()
         .sim;
-    loaded.retain_process_state_for_load(crate::sim::world::SnapshotProcessState::Live(&sim));
+    loaded.restore_after_snapshot_load().unwrap();
     assert_eq!(loaded.state_hash(), sim.state_hash());
     let held = entity(&loaded, tank);
     assert_eq!(held.locomotor_source, Some(magnetron));

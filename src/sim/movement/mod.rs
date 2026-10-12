@@ -43,6 +43,7 @@ use crate::map::houses::HouseAllianceMap;
 use crate::map::resolved_terrain::ResolvedTerrainGrid;
 use crate::rules::locomotor_type::{MovementZone, SpeedType};
 use crate::sim::cell_rect::PlayfieldBounds;
+#[cfg(test)]
 use crate::sim::entity_store::EntityStore;
 use crate::sim::intern::InternedId;
 #[cfg(test)]

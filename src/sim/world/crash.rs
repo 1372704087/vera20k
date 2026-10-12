@@ -350,9 +350,12 @@ impl Simulation {
     /// detonates `C4Warhead=` at its GetCoords (`0x00746355..0x00746372`) and
     /// the Unit is UnInit (`0x00746381`).
     ///
-    /// The first bullet's area takes the Unit itself; VERA then has no object
-    /// left to book or to UnInit, so those steps skip, and the second bullet
-    /// detonates at the coordinates read before the first.
+    /// The first bullet's area usually kills the Unit itself; the booking and
+    /// the UnInit run all the same, as native's do, so its death is booked
+    /// twice (Record_The_Kill, `0x00702D40`, has no first-credit guard). The
+    /// second bullet detonates at the coordinates read before the first;
+    /// native reads GetCoords again (`0x0074631A`), which the first bullet
+    /// leaves unchanged.
     ///
     /// RESIDUAL: CreateBullet's bright byte is 1 here; VERA's bullet takes the
     /// weapon's. Presentation only. Native dereferences a missing

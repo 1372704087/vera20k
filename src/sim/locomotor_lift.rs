@@ -24,9 +24,10 @@
 //!   `world::crash`.
 //!
 //! The installed Jumpjet is the victim's own, linked to its type's `Jumpjet*`
-//! block: it climbs and flies to the firer's cell, which `Set_Destination`
-//! captures once, since Foot then refuses the held object every non-null
-//! destination (`0x004D94BE`). The Jumpjet kernel's held arms
+//! block: it climbs and flies to the free cell nearest the firer's (its
+//! `Move_To` search, `0x0054B275`), which `Set_Destination` captures once,
+//! since Foot then refuses the held object every non-null destination
+//! (`0x004D94BE`). The Jumpjet kernel's held arms
 //! (`movement::jumpjet_movement::jumpjet_flight`: the body facing it leaves
 //! alone, the arrival's release, the latch's cell-centring, State 5's
 //! accelerating fall and the dropped landing) and the END
@@ -515,13 +516,18 @@ impl Simulation {
         registry: Option<&OverlayTypeRegistry>,
         effects: FrameEffects<'_>,
     ) {
-        let Some(entity) = self.substrate.entities.get_mut(listener) else {
+        let Some(entity) = self.substrate.entities.get(listener) else {
             return;
         };
+        let holds = entity.locomotor_target == Some(expired);
         if entity.manipulated_by == Some(expired) {
-            entity.manipulated_by = None;
+            self.substrate
+                .entities
+                .get_mut(listener)
+                .expect("same listener")
+                .manipulated_by = None;
         }
-        if entity.locomotor_target == Some(expired) {
+        if holds {
             self.release_locomotor(listener, true, rules, registry, effects);
             if let Some(held) = self
                 .substrate

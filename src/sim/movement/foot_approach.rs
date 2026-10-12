@@ -1,6 +1,6 @@
 //! Foot4D5690, reached through Unit7414E0 by a Drive, Ship or Hover unit's
-//! Approach (Attack, Hunt, AreaGuard, Rescue), and Infantry522340 by ordinary
-//! Teleport infantry ([`Simulation::approach_target`]). Native execution:
+//! Approach (Attack, Hunt, AreaGuard, Rescue), and through Infantry522340 by a
+//! Walk or Teleport infantryman's ([`Simulation::approach_target`]). Native execution:
 //! tools/spatial_oracle/fv_cell_attack. The shared range,
 //! Cell admission, zone-cost, target and destination owners retain their work.
 //!
@@ -40,8 +40,8 @@ mod tests;
 mod approach_crush_tests;
 
 #[cfg(test)]
-#[path = "vehicle_approach_tests.rs"]
-mod vehicle_approach_tests;
+#[path = "mission_approach_tests.rs"]
+mod mission_approach_tests;
 
 /// What the crush arms of `UnitClass::Approach_Target @ 0x007414E0` (vt+0x53C)
 /// ask of a Unit and the object it targets. Either arm takes the Target as the
@@ -283,9 +283,10 @@ impl Simulation {
     }
 
     /// Approach (vt+0x53C) with no-move 0, as Mission_Attack (`0x004D4E6A`),
-    /// Mission_Hunt (`0x004D54E3`), Mission_AreaGuard (`0x004D6F32`) and
-    /// Mission_Rescue (`0x004DDFEB`) call it: a Unit's head
-    /// ([`Self::approach_unit_head`]), then the Foot body
+    /// Mission_Hunt (`0x004D54E3`, `0x004D54D2`), Mission_AreaGuard
+    /// (`0x004D6F32`) and Mission_Rescue (`0x004DDFEB`) call it: a Unit's head
+    /// ([`Self::approach_unit_head`]) or an infantryman's deployed arm
+    /// ([`Self::approach_infantry_deployed`]), then the Foot body
     /// ([`Self::approach_foot_target`]; Unit `0x00741689`, Infantry
     /// `0x0052236E`) for a mover [`Self::owns_foot_approach`] represents.
     /// The pursuit pass stands in for the rest of Approach for any other
@@ -298,6 +299,7 @@ impl Simulation {
         frame_effects: FrameEffects<'_>,
     ) {
         if self.approach_unit_head(id, rules, registry, frame_effects)
+            || self.approach_infantry_deployed(id, rules, registry, frame_effects)
             || !self.owns_foot_approach(id, rules)
         {
             return;
@@ -329,22 +331,88 @@ impl Simulation {
         true
     }
 
+    /// The deployed arm of `InfantryClass::Approach_Target @ 0x00522340`
+    /// (`0x00522378..0x005224C6`): an infantryman with a Target and in a deploy
+    /// action (Doing 27..30) never reaches the Foot body. A computer house's
+    /// `Deployer=` (`+0xEC8`), `DeployFire=` (`+0x6AC`) man whose
+    /// `DeployFireWeapon=` (`+0x6A8`) slot holds a weapon that is not
+    /// `AreaFire=` (GetWeapon, vt+0x3F8), and who cannot fire on the Target
+    /// with it from where he stands (CanFireAt, vt+0x3A8), undeploys
+    /// (Do_Action(0x1F, 0, 0), vt+0x558) so his next Approach can walk. No RNG.
+    /// Answers whether the arm took the call.
+    ///
+    /// Not ported: the arm at `0x00522434` (deploy, or stop with a discarded
+    /// RandomRanged(0, 2)) needs a Doing outside 27..30 at `0x005223EF`, which
+    /// the entry test (`0x00522352..0x0052236A`) excludes and the two queries
+    /// between (`0x006F77B0`, `0x0070E140`) do not write.
+    fn approach_infantry_deployed(
+        &mut self,
+        id: u64,
+        rules: &RuleSet,
+        registry: Option<&OverlayTypeRegistry>,
+        frame_effects: FrameEffects<'_>,
+    ) -> bool {
+        let Some(actor) = self.substrate.entities.get(id) else {
+            return false;
+        };
+        let Some(target) = actor.attack_target.as_ref().map(|a| a.target) else {
+            return false;
+        };
+        if !actor.infantry_deploy_doing() {
+            return false;
+        }
+        if self.owner_is_human(actor.owner()) {
+            return true;
+        }
+        let Some(object) = self.object_type(actor.type_ref(), rules) else {
+            return true;
+        };
+        if !object.deployer || !object.deploy_fire {
+            return true;
+        }
+        let slot = object.deploy_fire_weapon;
+        let in_reach = crate::sim::world::can_fire_at(self, rules, id, target, slot, registry);
+        if crate::sim::world::weapon_at_index(self, rules, id, slot)
+            .is_none_or(|weapon| weapon.area_fire)
+            || in_reach
+        {
+            return true;
+        }
+        if let Err(cause) = self.infantry_do_action(
+            id,
+            super::infantry_action::DO_UNDEPLOY,
+            false,
+            rules,
+            frame_effects,
+        ) {
+            log::debug!("infantry {id} Approach undeploy: {cause}");
+        }
+        true
+    }
+
     /// Whether the current mission's own Approach ([`Self::approach_target`])
     /// takes `id`'s approach, so the pursuit pass (`tick_attack_pursuit`)
     /// leaves it alone: on a mission that calls Approach (Attack, Hunt,
     /// AreaGuard and Rescue), the Foot body ([`Self::owns_foot_approach`]),
     /// the head's BalloonHover arm or a crush arm
-    /// ([`Self::crush_owns_approach`]). A hunting infantryman takes
-    /// Mission_Hunt's infantry arms (`0x004D53BA..0x004D54D8`) instead, which
-    /// VERA ports without their Approach (`evaluate_foot_hunt`). Keep it in
-    /// step with those calls.
+    /// ([`Self::crush_owns_approach`]). A hunting infantryman calls Approach
+    /// from Mission_Hunt's no-flag arm (`0x004D54D2`); its Engineer and C4
+    /// arms set the destination themselves (`0x004D53BA..0x004D5467`), so the
+    /// mission decides his movement either way (`evaluate_foot_hunt`). Its
+    /// VehicleThief arm (`0x004D546C..0x004D54B9`) is not ported, so the pass
+    /// stands in for a `VehicleThief=` man. Keep it in step with those calls.
     pub(crate) fn mission_owns_approach(&self, id: u64, rules: &RuleSet) -> bool {
         let Some(actor) = self.substrate.entities.get(id) else {
             return false;
         };
         let calls_approach = match actor.mission.current().known() {
             Some(MissionType::Attack | MissionType::AreaGuard | MissionType::Rescue) => true,
-            Some(MissionType::Hunt) => actor.category != EntityCategory::Infantry,
+            Some(MissionType::Hunt) => {
+                actor.category != EntityCategory::Infantry
+                    || !self
+                        .object_type(actor.type_ref(), rules)
+                        .is_some_and(|t| t.vehicle_thief)
+            }
             _ => false,
         };
         calls_approach
@@ -386,18 +454,31 @@ impl Simulation {
             (EntityCategory::Unit, TargetKind::Entity(target)) => {
                 ground_mover(actor) && self.substrate.entities.contains(target)
             }
-            (EntityCategory::Infantry, TargetKind::Entity(target)) => {
-                // Infantry522340's ordinary tail calls Foot4D5690(false).
-                // Doing27..30 and CloseRange use different override arms.
-                actor
-                    .locomotor
-                    .as_ref()
-                    .is_some_and(|l| l.active_kind() == LocomotorKind::Teleport)
-                    && actor
-                        .mission_leaf
-                        .as_infantry()
-                        .is_some_and(|leaf| !matches!(leaf.doing(), 27..=30))
-                    && self.substrate.entities.contains(target)
+            (EntityCategory::Infantry, target) => {
+                // Infantry522340 calls Foot4D5690(false) at 52236E for any
+                // infantryman not in a deploy action (522352..52236A; the
+                // deployed arm is `approach_infantry_deployed`), whatever his
+                // locomotor. Two kinds stay with the pursuit pass:
+                // RESIDUAL: a Jumpjet man (Rocketeer, Cosmonaut) flies at the
+                // Target's own cell and halts on the frame it comes in range,
+                // where retail sends him to a cell Approach picks in range and
+                // he stops on arriving there (a Jumpjet calls Per_Cell_Process
+                // only from its descent, 54C8F0). Frequency: every Rocketeer
+                // attack.
+                // RESIDUAL: a CloseRange= man (Brute, Mummy, Dinosaur) walks at
+                // the Target's own cell; retail takes the body's CloseRange
+                // arms (4D5D14.., 4D60A5.., 4D623F.., 4D62C0.., 4D6563..), not
+                // ported. Frequency: every Brute attack.
+                actor.locomotor.as_ref().is_some_and(|l| {
+                    matches!(
+                        l.active_kind(),
+                        LocomotorKind::Walk | LocomotorKind::Teleport
+                    )
+                }) && !actor.infantry_deploy_doing()
+                    && match target {
+                        TargetKind::Cell(rx, ry) => !terrain.is_destroyable_cliff(rx, ry),
+                        TargetKind::Entity(target) => self.substrate.entities.contains(target),
+                    }
             }
             _ => false,
         };
@@ -666,7 +747,9 @@ impl Simulation {
                 }
                 let mut candidate = radial;
                 let mut admitted = self.approach_cell_is_clear(id, candidate, rules, &cells)?;
-                if !admitted {
+                //4D642D..6437: an infantryman goes on to the next candidate
+                // without the neighbour walk.
+                if !admitted && actor.category != EntityCategory::Infantry {
                     for direction in 0..8 {
                         let (dx, dy) = cell_delta_unchecked(direction);
                         candidate = (
@@ -740,20 +823,23 @@ impl Simulation {
                 .native_cell_identity(cell);
             return Ok(Some((cell.0 as u16, cell.1 as u16)));
         }
-        if self
-            .object_type(actor.type_ref(), rules)
-            .unwrap()
-            .hunter_seeker
+        //4D68E7..6919: a HunterSeeker, or a VehicleThief infantryman, takes
+        // the Target itself as its destination (4D6A71, vt+0x480(TarCom, 1))
+        // and returns it; the answer here is the cell under it. Neither key is
+        // set in retail.
+        let object = self.object_type(actor.type_ref(), rules).unwrap();
+        if object.hunter_seeker
+            || actor.category == EntityCategory::Infantry && object.vehicle_thief
         {
-            let cell = (target_cell.0 as u16, target_cell.1 as u16);
-            self.set_unit_destination(
+            self.assign_destination_represented(
                 id,
-                NavTargetRef::cell(cell.0, cell.1),
-                rules,
-                true,
+                Some(target_reference),
+                Some(rules),
+                registry,
                 frame_effects,
-            );
-            return Ok(Some(cell));
+            )
+            .map_err(|e| format!("Approach Target destination: {e}"))?;
+            return Ok(Some((target_cell.0 as u16, target_cell.1 as u16)));
         }
         let fallback = self.approach_fallback(id, retained_candidate, rules, &cells)?;
         self.assign_target_represented(id, None, Some(rules), registry, frame_effects)

@@ -100,6 +100,7 @@ pub(crate) use techno_ai::foot_enter_idle_mode_selection;
 pub(crate) use techno_ai::foot_unlimbo_idle_mode;
 pub(crate) use techno_ai::passive_target_acquire;
 pub(crate) use techno_ai::queue_and_commence;
+pub(crate) use techno_ai::{can_fire_at, weapon_at_index};
 mod command_schedule;
 mod selection_voice;
 pub(crate) mod techno_ai_cloak;

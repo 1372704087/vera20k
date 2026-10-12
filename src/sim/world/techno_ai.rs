@@ -29,6 +29,7 @@ pub(crate) use mission_handlers::foot_unlimbo_idle_mode;
 use mission_handlers::*;
 pub(crate) use target_scan::direct_greatest_threat;
 pub(crate) use target_scan::passive_target_acquire;
+pub(crate) use target_scan::{can_fire_at, weapon_at_index};
 
 use target_scan::{can_acquire_target, passive_acquire_step};
 

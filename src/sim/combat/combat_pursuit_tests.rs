@@ -830,8 +830,12 @@ fn walk_cell_order_defers_queue_publication_and_first_head_motion() {
     );
 }
 
+/// A GI on Attack whose target comes in range mid-step finishes his paid
+/// Walk head, and the per-cell range stop at its completion ends the
+/// approach; his Attack's Approach carries him, so the pursuit pass leaves him
+/// alone.
 #[test]
-fn walk_pursuit_range_entry_finishes_paid_head_then_accepts_new_move() {
+fn walk_attack_range_entry_finishes_paid_head_then_accepts_new_move() {
     use crate::sim::command::Command;
     let (mut sim, rules, actor, victim) = walk_pursuit_scene();
     let owner = sim.substrate.entities.get(actor).unwrap().owner();
@@ -869,7 +873,8 @@ fn walk_pursuit_range_entry_finishes_paid_head_then_accepts_new_move() {
         e.position.exact_z_leptons = Some(0);
     }
     sim.add_entity_occupancy(victim);
-    sim.tick_attack_pursuit(&rules);
+    assert!(sim.mission_owns_approach(actor, &rules));
+    walk_frame(&mut sim, &rules);
     let e = sim.substrate.entities.get(actor).unwrap();
     assert_eq!(e.locomotor.as_ref().unwrap().step_head(), Some(head));
     assert!(

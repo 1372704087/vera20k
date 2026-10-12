@@ -7,16 +7,10 @@ use crate::ui::shell::abort::{AbortButton, abort_layout};
 use winit::event::MouseButton;
 
 fn hit(state: &AppState) -> Option<AbortButton> {
-    let (shell, size) =
-        crate::app::frontend::skirmish_shell_render::current_in_game_shell_layout(state)?;
-    let layout = abort_layout(
-        state.render_width() as i32,
-        state.render_height() as i32,
-        shell,
-        size,
-    );
-    let (x, y) = state.cursor_position();
-    layout.hit(x.round() as i32, y.round() as i32)
+    let shell = crate::app::frontend::skirmish_shell_render::current_in_game_shell_layout(state)?;
+    let layout = abort_layout(shell.width, shell.height, shell.layout, shell.button_size);
+    let (x, y) = crate::app::frontend::skirmish_shell_render::in_game_shell_cursor(state);
+    layout.hit(x, y)
 }
 
 pub(crate) fn cursor_moved(state: &mut AppState) {

@@ -15,14 +15,14 @@ use winit::keyboard::KeyCode;
 
 impl App {
     fn saved_game_layout(state: &AppState, mode: SavedSeedMode) -> Option<SavedSeedLayout> {
-        let (shell, size) =
+        let shell =
             crate::app::frontend::skirmish_shell_render::current_in_game_shell_layout(state)?;
         Some(crate::ui::shell::saved_games::saved_game_layout(
             mode,
-            state.render_width() as i32,
-            state.render_height() as i32,
-            shell,
-            size,
+            shell.width,
+            shell.height,
+            shell.layout,
+            shell.button_size,
         ))
     }
 
@@ -273,9 +273,8 @@ impl App {
         let Some(layout) = Self::saved_game_layout(state, mode) else {
             return;
         };
-        let extent = (state.render_width(), state.render_height());
-        let (x, y) = state.cursor_position();
-        let pointer = (x.round() as i32, y.round() as i32);
+        let extent = (layout.screen.w as u32, layout.screen.h as u32);
+        let pointer = crate::app::frontend::skirmish_shell_render::in_game_shell_cursor(state);
         let browser = state
             .match_state
             .match_presentation
@@ -310,7 +309,7 @@ impl App {
         let Some(layout) = Self::saved_game_layout(state, mode) else {
             return;
         };
-        let (_, y) = state.cursor_position();
+        let (_, y) = crate::app::frontend::skirmish_shell_render::in_game_shell_cursor(state);
         let browser = state
             .match_state
             .match_presentation
@@ -320,7 +319,7 @@ impl App {
         if !saved_file_input::update_scroll(
             browser,
             &layout,
-            y.round() as i32,
+            y,
             pointer_moved,
             std::time::Instant::now(),
         ) {

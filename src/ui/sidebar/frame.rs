@@ -150,6 +150,14 @@ impl SidebarFrame {
         )
     }
 
+    /// The frame pixel where layout pixel (0, 0) lands for a surface laid out
+    /// on the whole layout, an active-game shell: its column on the
+    /// sidebar's. Left of the frame when the layout rounded up.
+    /// [`Self::point_to_layout`] is its inverse.
+    pub fn layout_origin(self) -> (f32, f32) {
+        (self.x_to_frame(0.0), 0.0)
+    }
+
     /// Layout x in frame pixels: the column and the bar are flush with the
     /// frame's right edge.
     fn x_to_frame(self, x: f32) -> f32 {
@@ -186,6 +194,14 @@ impl SidebarFrame {
             y / scale,
         )
     }
+
+    /// The layout pixel a whole-layout copy shows at frame pixel (x, y): the
+    /// one under its centre, as the copy samples it at the whole sizes. Hit
+    /// tests on whole pixels use it to land where the layout is drawn.
+    pub fn pixel_to_layout(self, x: i32, y: i32) -> (i32, i32) {
+        let (x, y) = self.point_to_layout(x as f32 + 0.5, y as f32 + 0.5);
+        (x.floor() as i32, y.floor() as i32)
+    }
 }
 
 #[cfg(test)]
@@ -212,6 +228,7 @@ mod tests {
         let button = rect(32.0, 568.0, 52.0, 32.0);
         assert_eq!(frame.bar_rect_to_frame(button), button);
         assert_eq!(frame.point_to_layout(700.5, 99.5), (700.5, 99.5));
+        assert_eq!(frame.layout_origin(), (0.0, 0.0));
         assert!(frame.is_sharp());
     }
 
@@ -237,6 +254,7 @@ mod tests {
             rect(0.0, 1032.0, 1668.0, 48.0)
         );
         assert_eq!(large.point_to_layout(1818.0, 300.0), (1212.0, 200.0));
+        assert_eq!(large.layout_origin(), (0.0, 0.0));
 
         // An odd frame rounds the layout up: the column reaches the bottom
         // edge, and the bar still sits on it.
@@ -245,6 +263,11 @@ mod tests {
         assert_eq!(xl.surface_size(), (168, 541));
         assert_eq!(xl.strip(), (0, 1017, 1585, 64));
         assert_eq!(xl.bar_origin(), (-1.0, 1017.0));
+        // A whole-layout surface shares the column's corner, and the frame's
+        // pixels map back onto its own.
+        assert_eq!(xl.layout_origin(), (-1.0, 0.0));
+        assert_eq!(xl.point_to_layout(-1.0, 0.0), (0.0, 0.0));
+        assert_eq!(xl.point_to_layout(1920.0, 1080.0), (960.5, 540.0));
         // A frame shorter than the strip keeps a one-pixel battlefield.
         let tiny = SidebarFrame::native(100, 20);
         assert_eq!(tiny.tactical_size(), (1, 1));
@@ -255,5 +278,40 @@ mod tests {
             rect(19.0, 1017.0, 104.0, 64.0)
         );
         assert!(xl.is_sharp());
+    }
+
+    #[test]
+    fn a_whole_layout_surface_puts_its_column_on_the_sidebar() {
+        for (width, height) in [(800, 600), (1366, 768), (1920, 1080), (1921, 1081)] {
+            for percent in [100, 150, 200] {
+                let frame = SidebarFrame::new(width, height, percent);
+                let (x, y) = frame.layout_origin();
+                assert_eq!(x + frame.layout_left() * frame.scale(), frame.frame_left());
+                assert_eq!(y, 0.0);
+                assert_eq!(frame.point_to_layout(x, y), (0.0, 0.0));
+            }
+        }
+    }
+
+    #[test]
+    fn frame_pixels_hit_the_layout_pixel_the_copy_shows() {
+        let normal = SidebarFrame::native(800, 600);
+        assert_eq!(normal.pixel_to_layout(37, 41), (37, 41));
+        // XL shows each layout pixel as a 2x2 block from the corner.
+        let xl = SidebarFrame::new(1920, 1080, 200);
+        assert_eq!(xl.pixel_to_layout(38, 40), (19, 20));
+        assert_eq!(xl.pixel_to_layout(39, 41), (19, 20));
+        assert_eq!(xl.pixel_to_layout(40, 42), (20, 21));
+        // An odd frame starts the blocks one pixel left of the frame.
+        let odd = SidebarFrame::new(1921, 1081, 200);
+        assert_eq!(odd.pixel_to_layout(0, 0), (0, 0));
+        assert_eq!(odd.pixel_to_layout(1, 1), (1, 0));
+        assert_eq!(odd.pixel_to_layout(2, 2), (1, 1));
+        // Large gives a seam pixel to the layout pixel under its centre.
+        let large = SidebarFrame::new(1920, 1080, 150);
+        assert_eq!(large.pixel_to_layout(0, 0), (0, 0));
+        assert_eq!(large.pixel_to_layout(1, 1), (1, 1));
+        assert_eq!(large.pixel_to_layout(2, 2), (1, 1));
+        assert_eq!(large.pixel_to_layout(3, 3), (2, 2));
     }
 }

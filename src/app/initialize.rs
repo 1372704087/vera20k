@@ -668,6 +668,7 @@ impl App {
                 shell_surface_presenter,
                 upscale_pass: None,
                 sidebar_surface: None,
+                in_game_shell_surface: None,
                 #[cfg(feature = "dev-ui")]
                 debug_ui,
                 status_screen_fill,

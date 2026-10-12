@@ -5889,64 +5889,17 @@ impl Simulation {
             .iter()
             .filter_map(|(&owner, house)| {
                 let active = active_owners.contains(&owner);
-                (house.spy_sat_active != active).then_some((owner, house.spy_sat_active, active))
+                (house.spy_sat_active != active).then_some((owner, active))
             })
             .collect();
-        for (owner, old_active, active) in transitions {
-            let cells = self.resolved_terrain.as_ref().map_or_else(
-                || self.fog.rectangular_cells(),
-                |terrain| terrain.iter().map(|cell| (cell.rx, cell.ry)).collect(),
-            );
-            //509064/509012 call Map while577A still has its OLD value; callback
-            //gap removal reads577A, not the separate MapIsClear byte241.
-            //4ADEE0/4ADCD0 do not release allied mobile sight. The represented
-            //multiplayer known-own branch and stock AllyReveal=yes directional
-            //allied Building arm
-            //select callbacks; untouched admissions survive the bulk counter
-            //overwrite. Independent41B discovery, campaign Human and the
-            //RevealToAll alternate-recipient branch remain caller residuals.
-            let sources = self
-                .substrate
-                .entities
-                .iter_sorted()
-                .filter_map(|(id, entity)| {
-                    if !entity.lifecycle.object_alive || entity.lifecycle.in_limbo {
-                        return None;
-                    }
-                    let own = entity.owner() == owner;
-                    let allied_building = entity.category == EntityCategory::Structure
-                        && crate::map::houses::is_allied_with(
-                            &self.house_alliances,
-                            self.interner.resolve(entity.owner()),
-                            self.interner.resolve(owner),
-                        );
-                    (own || allied_building).then_some(id)
-                })
-                .collect();
-            //Map240's activation guard precedes all callbacks; explicit reset
-            //has no idempotence guard. Re-admission scans live candidates and
-            //rechecks current operational state independently for this viewer.
-            if self.fog.width != 0
-                && self.fog.height != 0
-                && (!active || !self.fog.whole_map_revealed_for_owner(owner))
-            {
-                let (gaps, admitted_gap) = self.prepare_spy_sat_gap_reentry(owner, rules);
-                self.fog.transition_whole_map_with_gap_reentry(
-                    owner,
-                    cells,
-                    !active,
-                    old_active,
-                    &sources,
-                    Some(&gaps),
-                );
-                //577D90 sets240 before callbacks; every successful6FB170
-                //re-admission clears it again, including a friendly generator.
-                if admitted_gap {
-                    self.fog.invalidate_whole_map_reveal_for_owner(owner);
-                }
+        for (owner, active) in transitions {
+            //509064/509012 call Map while577A still has its OLD value.
+            if active {
+                self.reveal_map_for_owner(owner, rules);
+            } else {
+                self.reset_shroud_for_owner(owner, rules);
             }
             if let Some(house) = self.houses.get_mut(&owner) {
-                house.map_is_clear = active;
                 house.spy_sat_active = active;
             }
         }

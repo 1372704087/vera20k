@@ -611,8 +611,9 @@ pub(super) fn capability_cursor_for_hover(
 
         // The infiltration arm (`0x0051EE3B..0x0051EEEF`): a spy over a
         // building it can enter takes Capture (9), whose cursor is Enter
-        // (`DisplayClass::SetCursorFromAction` 0x004AAE90, row 0x19). Retail's
-        // one infiltrator, SPY, takes none of the arms between.
+        // (`DisplayClass::SetCursorFromAction` 0x004AAE90, row 0x19). Its
+        // place before the garrison and C4 arms is the click's residual
+        // (`context_order`).
         if matches!(
             hover.kind,
             HoverTargetKind::FriendlyStructure | HoverTargetKind::EnemyStructure

@@ -179,7 +179,9 @@ impl MoviesCapture {
     }
 
     pub(super) fn timeout(&self) -> Duration {
-        Duration::from_secs(if self.opening.is_some() { 180 } else { 60 })
+        self.opening
+            .as_ref()
+            .map_or(Duration::from_secs(60), opening::OpeningCapture::timeout)
     }
 
     fn slide_settled(state: &AppState, kind: ShellSlideKind) -> bool {

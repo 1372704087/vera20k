@@ -15,6 +15,9 @@ pub enum OpeningTarget {
     Arrows,
     Unlocked,
     RestoreUnlocked,
+    /// ALL01, whose first authored action locks input: an unlocked save
+    /// loaded from the Esc menu while a replay of the opening holds the lock.
+    LoadUnlockedWhileLocked,
 }
 
 impl OpeningTarget {
@@ -26,9 +29,27 @@ impl OpeningTarget {
             Self::Arrows => "opening-arrows",
             Self::Unlocked => "opening-unlocked",
             Self::RestoreUnlocked => "opening-restore-unlocked",
+            Self::LoadUnlockedWhileLocked => "opening-load-unlocked-while-locked",
+        }
+    }
+
+    pub(crate) fn side(self) -> CampaignSide {
+        match self {
+            Self::LoadUnlockedWhileLocked => CampaignSide::Allied,
+            _ => CampaignSide::Soviet,
+        }
+    }
+
+    fn step_limit(self) -> usize {
+        match self {
+            Self::LoadUnlockedWhileLocked => 6_000,
+            _ => 2_500,
         }
     }
 }
+
+/// Production steps run after the in-lock load before the readback.
+const STEPS_AFTER_LOAD: u32 = 45;
 
 pub(super) struct OpeningCapture {
     target: OpeningTarget,
@@ -44,6 +65,14 @@ pub(super) struct OpeningCapture {
     locked_mouse_probe: Option<Value>,
     unlocked_mouse_probe: Option<Value>,
     restored: Option<Value>,
+    /// LoadUnlockedWhileLocked: the save made before the first lock, the save
+    /// made after its unlock, and the Esc-menu load made in the replayed lock.
+    pre_lock_save: Option<PathBuf>,
+    unlocked_save: Option<PathBuf>,
+    load_while_locked: Option<Value>,
+    steps_after_load: u32,
+    /// The (tick, binary frame) a load installed, until the next step.
+    loaded_frame: Option<(u64, u32)>,
 }
 
 impl OpeningCapture {
@@ -62,7 +91,19 @@ impl OpeningCapture {
             locked_mouse_probe: None,
             unlocked_mouse_probe: None,
             restored: None,
+            pre_lock_save: None,
+            unlocked_save: None,
+            load_while_locked: None,
+            steps_after_load: 0,
+            loaded_frame: None,
         }
+    }
+
+    pub(super) fn timeout(&self) -> Duration {
+        Duration::from_secs(match self.target {
+            OpeningTarget::LoadUnlockedWhileLocked => 600,
+            _ => 180,
+        })
     }
 
     pub(super) fn ready(&self, state: &AppState) -> Result<bool> {
@@ -86,6 +127,9 @@ impl OpeningCapture {
                 OpeningTarget::Unlocked => self.saw_unlock && !locked,
                 OpeningTarget::RestoreUnlocked => {
                     self.saw_unlock && !locked && self.restored.is_some()
+                }
+                OpeningTarget::LoadUnlockedWhileLocked => {
+                    self.load_while_locked.is_some() && self.steps_after_load >= STEPS_AFTER_LOAD
                 }
             })
     }
@@ -159,22 +203,95 @@ impl OpeningCapture {
             }));
             self.observe(state)?;
         }
+        if self.target == OpeningTarget::LoadUnlockedWhileLocked {
+            self.drive_load_while_locked(state)?;
+        }
+        let limit = self.target.step_limit();
         ensure!(
-            self.steps.len() < 2_500,
-            "SOV01 opening did not reach {:?} within 2500 production steps",
+            self.steps.len() < limit,
+            "campaign opening did not reach {:?} within {limit} production steps",
             self.target
         );
         let receipt =
             crate::app::match_runtime::sim_tick::advance_in_game_runtime_exact_step(state)
                 .context("advance exact ordinary campaign production frame")?;
-        if let Some(previous) = self.steps.last() {
+        // A load installs another frame; the next step starts exactly there.
+        let expected = self.loaded_frame.take().or_else(|| {
+            self.steps
+                .last()
+                .map(|previous| (previous.tick_after, previous.binary_frame_after))
+        });
+        if let Some((tick, binary_frame)) = expected {
             ensure!(
-                previous.tick_after == receipt.tick_before
-                    && previous.binary_frame_after == receipt.binary_frame_before,
+                tick == receipt.tick_before && binary_frame == receipt.binary_frame_before,
                 "campaign capture lost its contiguous runtime frame sequence"
             );
         }
         self.steps.push(receipt);
+        self.observe(state)?;
+        Ok(())
+    }
+
+    /// Save before ALL01's first authored lock and again after its unlock,
+    /// replay the opening from the first save, then load the unlocked save the
+    /// way the Esc menu's Load does (`apply_saved_game_outcome`: open B5, load,
+    /// close the menu) while the replayed lock holds.
+    fn drive_load_while_locked(&mut self, state: &mut AppState) -> Result<()> {
+        use crate::app::persistence::commands::{save_game, try_load_save_file};
+        use crate::ui::pause_menu::InGameMenuState;
+        if self.load_while_locked.is_some() {
+            self.steps_after_load += 1;
+            return Ok(());
+        }
+        let locked = crate::app::input::campaign_input::is_locked(state);
+        let Some(pre_lock) = self.pre_lock_save.clone() else {
+            ensure!(
+                !locked,
+                "ALL01 locked input before its first presented frame"
+            );
+            state
+                .persistence
+                .isolate_capture_saves(&self.save_directory)
+                .context("create isolated campaign capture save directory")?;
+            let path = save_game(state, "ALL01 before opening lock", None)
+                .context("save before the opening lock")?;
+            self.pre_lock_save = Some(path);
+            return Ok(());
+        };
+        let Some(unlocked) = self.unlocked_save.clone() else {
+            if self.saw_unlock && !locked {
+                let path = save_game(state, "ALL01 after opening unlock", None)
+                    .context("save after the opening unlock")?;
+                self.unlocked_save = Some(path);
+                try_load_save_file(state, &pre_lock)
+                    .context("replay the opening from the pre-lock save")?;
+                self.loaded_frame = Some(installed_frame(state)?);
+                self.observe(state)?;
+            }
+            return Ok(());
+        };
+        let depth_before = state.match_state.input.cursor_visibility.level();
+        if !locked || depth_before >= 0 {
+            return Ok(());
+        }
+        App::enter_in_game_menu_state(state, InGameMenuState::Menu);
+        try_load_save_file(state, &unlocked).context("load the unlocked save in the lock")?;
+        App::enter_in_game_menu_state(state, InGameMenuState::Closed);
+        self.loaded_frame = Some(installed_frame(state)?);
+        let locked_after = crate::app::input::campaign_input::is_locked(state);
+        let depth_after = state.match_state.input.cursor_visibility.level();
+        let cursor_instances_after =
+            crate::app::presentation::ui_overlays::build_software_cursor_instances(state).len();
+        ensure!(
+            !locked_after && depth_after == 0 && cursor_instances_after == 1,
+            "the unlocked save loaded in the lock left the pointer hidden \
+             (locked {locked_after}, depth {depth_after}, {cursor_instances_after} cursor sprites)"
+        );
+        self.load_while_locked = Some(json!({
+            "depth_before": depth_before, "locked_after": locked_after,
+            "depth_after": depth_after, "cursor_instances_after": cursor_instances_after,
+            "right_drag_pans_after": probe_right_drag_pans(state),
+        }));
         self.observe(state)?;
         Ok(())
     }
@@ -229,9 +346,22 @@ impl OpeningCapture {
             "locked_mouse_probe": self.locked_mouse_probe,
             "unlocked_mouse_probe": self.unlocked_mouse_probe,
             "save_restore": self.restored, "current": opening_observation(state)?,
+            "pre_lock_save": self.pre_lock_save, "unlocked_save": self.unlocked_save,
+            "load_while_locked": self.load_while_locked,
             "clock_domain": "one exact production sim/app frame per presented game frame; audio/message service uses its ordinary wall clock",
         }))
     }
+}
+
+fn installed_frame(state: &AppState) -> Result<(u64, u32)> {
+    let session = &state
+        .match_state
+        .sim_runtime
+        .as_ref()
+        .context("load left no installed runtime")?
+        .simulation
+        .session;
+    Ok((session.tick, session.binary_frame))
 }
 
 fn mid_pan(view: &crate::sim::snapshot::SavedTacticalView) -> bool {
@@ -396,6 +526,30 @@ fn probe_locked_mouse_edges(state: &mut AppState) -> Result<Value> {
         "locked_press_recorded": true, "left_held_until_unlock": true,
         "locked_press_captured": false}),
     )
+}
+
+/// Whether an ordinary right drag over the battlefield requests a pan, that
+/// is, whether the mouse reaches the tactical view.
+fn probe_right_drag_pans(state: &mut AppState) -> bool {
+    use crate::app::input::dispatch::{handle_cursor_moved_in_game, handle_mouse_input};
+    let cursor = (
+        state.match_state.input.cursor_x,
+        state.match_state.input.cursor_y,
+    );
+    state.match_state.input.cursor_x = 200.0;
+    state.match_state.input.cursor_y = 200.0;
+    handle_cursor_moved_in_game(state);
+    handle_mouse_input(state, MouseButton::Right, ElementState::Pressed);
+    state.match_state.input.cursor_x = 280.0;
+    handle_cursor_moved_in_game(state);
+    let pan = camera::poll_mouse_scroll(state);
+    handle_mouse_input(state, MouseButton::Right, ElementState::Released);
+    (
+        state.match_state.input.cursor_x,
+        state.match_state.input.cursor_y,
+    ) = cursor;
+    handle_cursor_moved_in_game(state);
+    pan != (0.0, 0.0)
 }
 
 fn probe_unlocked_mouse_edges(state: &mut AppState) -> Result<Value> {

@@ -194,6 +194,15 @@ impl App {
         }
         let was_open = previous.is_open();
         let will_be_open = next.is_open();
+        if was_open != will_be_open {
+            let locked = crate::app::input::campaign_input::is_locked(state);
+            let cursor = &mut state.match_state.input.cursor_visibility;
+            if will_be_open {
+                cursor.show_for_menus();
+            } else {
+                cursor.leave_menus(locked);
+            }
+        }
         if was_open != will_be_open
             && !crate::app::match_runtime::sim_tick::current_session_mode(state).is_network()
         {

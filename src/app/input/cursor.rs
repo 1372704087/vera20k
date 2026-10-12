@@ -19,7 +19,9 @@ use crate::sim::combat;
 /// depth only when the previous Scenario byte is1. Software presentation
 /// uses the same visible/hidden result without Win32 ShowCursor counting.
 /// Executed controls: trigger_action_values.json input_history (eight
-/// histories, including repeated calls and initial depths-2/-3/+1).
+/// histories, including repeated calls and initial depths-2/-3/+1). The
+/// in-game menus' `State_Machine` (`0x0048C8B0`) shows it on entry and hides
+/// it once on exit while the Scenario lock is set.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub(crate) struct CursorVisibility {
     level: i32,
@@ -44,6 +46,22 @@ impl CursorVisibility {
 
     pub(crate) fn is_visible(self) -> bool {
         self.level >= 0
+    }
+
+    /// `State_Machine` entry shows the mouse until `GetShowLevel` (`+0x28`)
+    /// reads 0 (`ShowCursor` `+0x10`, `0x0048C928..0x0048C94F`).
+    pub(crate) fn show_for_menus(&mut self) {
+        self.level = 0;
+    }
+
+    /// `State_Machine` exit (`0x0048CC4B..0x0048CC5D`) calls `HideCursor`
+    /// (`+0xC`) once when the Scenario's input lock (`+0x35A2`) is set, read
+    /// after any load the menus made: `LoadOptionsClass::LoadMission`
+    /// (`0x00559D60`) restores the depth it was called at.
+    pub(crate) fn leave_menus(&mut self, locked: bool) {
+        if locked {
+            self.level -= 1;
+        }
     }
 
     pub(crate) fn apply_input_lock(&mut self, locked: bool, was_locked: bool) {

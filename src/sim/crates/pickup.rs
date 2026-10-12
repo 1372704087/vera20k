@@ -457,9 +457,7 @@ pub(crate) fn pickup_crate(
                 effects::apply_heal_base_crate(sim, rules, Some(registry), owner, frame_effects);
             }
             POWERUP_DARKNESS => {
-                // `MapClass::Reset_Shroud @ 0x00577AB0` for the actor's house;
-                // natively only `PlayerPtr`'s shroud changes.
-                sim.fog.reset_explored_for_owner(owner);
+                sim.reset_shroud_for_owner(owner);
             }
             POWERUP_REVEAL => {
                 // `MapClass::Reveal @ 0x00577D90` for the actor's house.

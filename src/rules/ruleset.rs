@@ -3907,6 +3907,12 @@ impl RuleSet {
             if object.category == crate::rules::object_type::ObjectCategory::Building {
                 object.buildup_sound = section
                     .and_then(|section| sounds.read_rules_reference(section, "BuildupSound"));
+                // BuildingType46088F/4608DD read WorkingSound (+0xE80) and
+                // NotWorkingSound (+0xE84) the same way.
+                object.working_sound = section
+                    .and_then(|section| sounds.read_rules_reference(section, "WorkingSound"));
+                object.not_working_sound = section
+                    .and_then(|section| sounds.read_rules_reference(section, "NotWorkingSound"));
             }
             object.sinking_sound =
                 section.and_then(|section| sounds.read_rules_reference(section, "SinkingSound"));

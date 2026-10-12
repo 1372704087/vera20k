@@ -4704,6 +4704,9 @@ impl Simulation {
             self.sound_events
                 .push(super::SimSoundEvent::ObjectSoundReleased { owner: stable_id });
         }
+        // The Building destructor's Release406060 on its +0x6B4 working-sound
+        // handle (43BD1A), the same most-derived destructor slot.
+        self.release_building_working_sound(stable_id, context.rules());
         // Foot4D3701 delegates to Techno6F4500 only after its own sound
         // tail. Techno6F4607 destroys the distinct voice handle via405C00,
         // before its attached/deploy Anims6F468B. Keep the disposal marker in

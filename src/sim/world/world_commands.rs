@@ -897,8 +897,8 @@ impl Simulation {
                         .is_some_and(|loco| loco.is_overridden())
                         && crate::sim::movement::locomotor_owner::piggyback_end_admitted(e)
                 });
-                if may_end && let Some(e) = self.substrate.entities.get_mut(*entity_id) {
-                    crate::sim::movement::locomotor_owner::end_admitted_piggyback(e);
+                if may_end {
+                    self.end_admitted_piggyback(*entity_id, rules);
                 }
                 // Ore-miner arm, last — retail runs it after the radio break,
                 // the navigation clear, the target clear and the path-cursor

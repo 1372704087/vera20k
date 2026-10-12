@@ -178,10 +178,10 @@ fn stock_cloak_tick_facts(
         //    re-cloak branch is unreachable for units: visual state 1 requires
         //    a nonzero progress.
         && cloak_progress == 0
-        // 7. `+0x2B0 && Foot && +0x6AD` (`0x006FBF57..0x006FBF7D`): a
-        //    Magnetron-lifted object (`+0x6AD` is written by
-        //    `TechnoClass::ImbueLocomotor @ 0x00710352`). VERA has no
-        //    Magnetron, so the term is always false and is not evaluated.
+        // 7. `+0x2B0 && Foot && +0x6AD` (`0x006FBF57..0x006FBF7D`): an
+        //    object a Magnetron holds aloft (`sim::locomotor_lift`). This
+        //    producer serves Units only, so the Foot test holds.
+        && !(entity.locomotor_source.is_some() && entity.foot_locomotor_swap_active)
         // 8. `GetHeight() < 1`.
         && crate::sim::movement::air_movement::current_fly_height(
             entity,

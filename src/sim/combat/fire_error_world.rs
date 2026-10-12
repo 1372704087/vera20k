@@ -243,6 +243,7 @@ impl<'a> FireSubject<'a> {
             current_weapon: combat_weapon::attacker_facts(firer, obj).current_weapon_number,
             draining_me: firer.draining_me.is_some(),
             drain_target: link(firer.drain_target),
+            locomotor_target: link(firer.locomotor_target),
             temporal: firer
                 .temporal
                 .has_link()
@@ -268,6 +269,7 @@ impl<'a> FireSubject<'a> {
                 .map_or(firer.body_facing_current(frame), |facing| {
                     facing.current(frame)
                 }),
+            magnetron_lifted: firer.foot_locomotor_swap_active,
             navcom: firer.navigation.nav_com.is_some(),
             moving_faster_than_tenth: firer.foot_speed.above_tenth(),
             deploying: firer.unit_deploying(),

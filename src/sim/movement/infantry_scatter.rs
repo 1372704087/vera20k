@@ -600,8 +600,8 @@ impl Simulation {
     /// setter still lacks.
     ///
     /// Returns false for the other unmigrated class setters.
-    /// DirectRocker reciprocal links, lifted-unit release, retained fire particles
-    /// and the Unit-produced +6AC latch still lack their production owners here.
+    /// DirectRocker reciprocal links, retained fire particles and the
+    /// Unit-produced +6AC latch still lack their production owners here.
     pub(crate) fn assign_infantry_walk_destination(
         &mut self,
         id: u64,
@@ -682,7 +682,7 @@ impl Simulation {
         super::movement_commands::clear_destination_path_head(
             self.substrate.entities.get_mut(id).unwrap(),
         );
-        if !self.begin_foot_destination(id, true) {
+        if !self.begin_foot_destination(id, true, Some(rules), registry, frame_effects) {
             return Ok(true);
         }
         if teleport {

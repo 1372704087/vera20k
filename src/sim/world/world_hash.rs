@@ -1567,6 +1567,31 @@ impl Simulation {
             entity.foot_speed.crate_multiplier().hash(hasher);
             entity.foot_occupation_enabled.hash(hasher);
             entity.foot_locomotor_swap_active.hash(hasher);
+            // The Magnetron's links and drop (Foot+6AE, Techno+2AC/+2B0/+427/
+            // +428) and the warp or drop credit house (Techno+42C) are clear
+            // outside a lift or a warp; tagged like +0x1F8 below.
+            if entity.lift_may_end {
+                0x6ae_u32.hash(hasher);
+            }
+            if let Some(target) = entity.locomotor_target {
+                0x2ac_u32.hash(hasher);
+                target.hash(hasher);
+            }
+            if let Some(source) = entity.locomotor_source {
+                0x2b0_u32.hash(hasher);
+                source.hash(hasher);
+            }
+            if entity.being_manipulated {
+                0x427_u32.hash(hasher);
+            }
+            if let Some(firer) = entity.manipulated_by {
+                0x428_u32.hash(hasher);
+                firer.hash(hasher);
+            }
+            if let Some(house) = entity.warped_by_house {
+                0x42c_u32.hash(hasher);
+                house.hash(hasher);
+            }
             // Techno+0x1F8 is up only between the Teleporter arm's can't-end
             // branch and the next Unit setter call; the tag keeps every
             // established stream unchanged while it is clear.

@@ -8344,8 +8344,8 @@ Verses=100%,100%,100%,100%,100%,100%,100%,100%,100%,100%,100%\n"
 /// `BulletClass::DetonateAtCoord @ 0x004690B0`: every special arm, its own
 /// refusals included, leaves by `JMP 0x00469AA4`, and `Apply_area_damage`
 /// (`0x00469A83`) is reachable only from the final else at `0x00469A3F`. An
-/// Inviso shot is that same detonation, so a warhead selecting an arm whose
-/// body VERA has not ported deals no damage and still runs the shared tail:
+/// Inviso shot is that same detonation, so a warhead selecting one of these
+/// arms deals no damage and still runs the shared tail:
 /// the Inviso re-scatter draw (`0x00469AD7`) and the `AnimList=` anim. Before,
 /// the immediate path took ordinary area damage for these arms: the
 /// Magnetron's `[MagneticBeam]` dealt 5000 to the vehicle it should lift.

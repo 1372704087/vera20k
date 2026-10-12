@@ -958,7 +958,11 @@ use crate::sim::world::Simulation;
 // each building whether it counts there. Version 333 records lack them.
 // 334 -> 335: ordinary Teleport delay uses a global-frame CdTimer, and
 // a cargo owner retains its independent boarding/inside carrier relation.
-const SNAPSHOT_VERSION: u32 = 335;
+// 335 -> 336: objects keep the Magnetron's links and drop credit
+// (Techno+2AC/+2B0/+427/+428, Foot+6AE), and the warp credit house (+42C)
+// moves from the Chrono Warp payload to the object. Version 335 records
+// carry the payload's house.
+const SNAPSHOT_VERSION: u32 = 336;
 
 const SNAPSHOT_PRODUCT_MAGIC: [u8; 8] = *b"VERA20K\0";
 const SNAPSHOT_ENVELOPE_VERSION: u32 = 1;
@@ -4097,7 +4101,8 @@ mod tests {
         // 332 -> 333: the fog's RevealToAll alternate-house sight.
         // 333 -> 334: the house's war factory count.
         // 334 -> 335: global Teleport delay and independent carrier relation.
-        assert_eq!(super::SNAPSHOT_VERSION, 335);
+        // 335 -> 336: Magnetron links and the object's warp credit house.
+        assert_eq!(super::SNAPSHOT_VERSION, 336);
     }
 
     #[test]

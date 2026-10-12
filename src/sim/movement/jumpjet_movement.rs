@@ -977,7 +977,7 @@ impl Simulation {
         // Foot clears NavComAux (`0x004D94C7`); its three refusals
         // (`0x004D94CD..0x004D94F3`) then return before the NavCom. The void
         // setter still dispatched.
-        if !self.begin_foot_destination(id, true) {
+        if !self.begin_foot_destination(id, true, rules, None, frame_effects) {
             return Some(true);
         }
         let Some(terrain) = self.resolved_terrain.as_ref() else {

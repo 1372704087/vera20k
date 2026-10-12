@@ -356,15 +356,6 @@ pub fn facing_from_delta(dx: i32, dy: i32) -> u8 {
     facing_from_delta_int(dx, dy)
 }
 
-/// Restore an active piggyback locomotor whose owner is no longer moving,
-/// teleporting, or deploying.
-pub(crate) fn tick_locomotor_piggyback_restore_one(entities: &mut EntityStore, id: u64) -> bool {
-    let Some(entity) = entities.get_mut(id) else {
-        return false;
-    };
-    locomotor_owner::try_end_piggyback(entity)
-}
-
 // ---------------------------------------------------------------------------
 // Tick entry points (thin wrappers)
 // ---------------------------------------------------------------------------

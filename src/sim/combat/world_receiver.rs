@@ -1874,10 +1874,9 @@ enum SpecialArmTarget {
 /// at `0x00469A3F`. So the caller runs neither, and runs the shared tail below
 /// `LAB_00469AA4` after this returns. `owner` is the bullet's `+0xB0`.
 ///
-/// RESIDUAL: the ElectricAssault (`0x0046937A`), IsLocomotor (`0x004694CB`),
-/// Airstrike (`0x00469705`) and DirectRocker (`0x0046978E`) bodies are not
-/// ported; those arms claim the impact and do nothing else (see
-/// `SpecialDetonationAction`).
+/// RESIDUAL: the ElectricAssault (`0x0046937A`), Airstrike (`0x00469705`)
+/// and DirectRocker (`0x0046978E`) bodies are not ported; those arms claim
+/// the impact and do nothing else (see `SpecialDetonationAction`).
 fn run_special_detonation_arm(
     world: &mut Simulation,
     rules: &RuleSet,
@@ -1949,8 +1948,31 @@ fn run_special_detonation_arm(
                 world.disguise_as(owner, object, !matches!(target, SpecialArmTarget::None));
             }
         }
+        SpecialDetonationAction::Locomotor => {
+            // 0x004694CB..0x00469700: the bullet's strength (+0x6C) and the
+            // warhead's Locomotor= class (+0x15C).
+            let Some(warhead) = rules.warhead(world.interner.resolve(detonation.payload.warhead))
+            else {
+                return;
+            };
+            let target = match target {
+                SpecialArmTarget::Object(id) => {
+                    crate::sim::locomotor_lift::LocomotorShotTarget::Object(id)
+                }
+                SpecialArmTarget::Cell => crate::sim::locomotor_lift::LocomotorShotTarget::Cell,
+                SpecialArmTarget::None => crate::sim::locomotor_lift::LocomotorShotTarget::None,
+            };
+            world.locomotor_detonation(
+                owner,
+                target,
+                detonation.payload.base_damage,
+                warhead.locomotor,
+                rules,
+                overlay_registry,
+                effects,
+            );
+        }
         SpecialDetonationAction::ElectricAssault
-        | SpecialDetonationAction::Locomotor
         | SpecialDetonationAction::Airstrike
         | SpecialDetonationAction::DirectRocker => {
             log::debug!(

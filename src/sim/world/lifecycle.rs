@@ -3235,10 +3235,9 @@ impl Simulation {
     /// 0 re-enters Stop_Driver once more when it accepts. Native execution:
     /// `tools/spatial_oracle/jumpjet_infantry_crash`.
     ///
-    /// Foot+6AD (Magnetron-held) would skip the spawn calls and Detach_All;
-    /// VERA never sets it (the IsLocomotor arm is unported). On this path the
-    /// spawn calls repeat the Destroy's owner arm and find nothing left to
-    /// kill. Detach_All(1) repeats the broadcast the killing hit's Destroy
+    /// A lifted Foot (`+0x6AD`, Magnetron-held) skips the spawn calls and
+    /// Detach_All (`0x006FCD79`). On the death path the spawn calls repeat
+    /// the Destroy's owner arm and find nothing left to kill. Detach_All(1) repeats the broadcast the killing hit's Destroy
     /// already made (on a re-entered death arm, `0x0070202E..0x00702035`, that
     /// was an earlier call). The walk is not repeated: every Target write
     /// since then refused the Health-0 object (the setter through
@@ -3312,6 +3311,24 @@ impl Simulation {
             return;
         }
         crate::sim::radio::broadcast_break(self, stable_id, None, context.effects());
+        // `0x006FCD6B..0x006FCD79`: a lifted Foot keeps its spawns, its spawns'
+        // targets and its listeners.
+        let lifted = self
+            .substrate
+            .entities
+            .get(stable_id)
+            .is_some_and(|entity| {
+                matches!(
+                    entity.category,
+                    EntityCategory::Unit | EntityCategory::Infantry | EntityCategory::Aircraft
+                ) && entity.foot_locomotor_swap_active
+            });
+        if lifted {
+            if let Some(entity) = self.substrate.entities.get_mut(stable_id) {
+                entity.selected = false;
+            }
+            return;
+        }
         crate::sim::spawn_manager::kill_all_spawns_with_context(self, stable_id, context);
         crate::sim::spawn_manager::clear_all_spawn_targets(
             self,
@@ -3429,9 +3446,10 @@ impl Simulation {
     /// change anything for `expired_id`: the listener is the expiring object,
     /// a field [`Self::notify_entity_pointer_expired`] compares names it, or
     /// it holds an object a forward reaches (SpawnManager, CaptureManager,
-    /// TemporalClass, its parasite). A superset of each forward's own test, so
-    /// passing over a listener without any of these matches visiting it. A
-    /// field or forward added to the broadcast must be added here too.
+    /// TemporalClass, its parasite, the Magnetron links). A superset of each
+    /// forward's own test, so passing over a listener without any of these
+    /// matches visiting it. A field or forward added to the broadcast must be
+    /// added here too.
     fn entity_expiry_listener_acts(
         listener: &GameEntity,
         listener_id: u64,
@@ -3477,6 +3495,9 @@ impl Simulation {
             || listener.capture_manager.is_some()
             || listener.temporal.has_link()
             || listener.parasite_eating_me.is_some()
+            || listener.locomotor_target == Some(expired_id)
+            || listener.locomotor_source == Some(expired_id)
+            || listener.manipulated_by == Some(expired_id)
     }
 
     /// Each RNG stream's cursor, which every draw moves.
@@ -4348,6 +4369,15 @@ impl Simulation {
                     context.rules(),
                     context.effects(),
                 );
+                // Then the Magnetron links (`0x00707B64..0x00707BAC`), also
+                // outside the control test.
+                self.locomotor_link_pointer_expired(
+                    listener_id,
+                    expired_id,
+                    context.rules(),
+                    context.registry(),
+                    context.effects(),
+                );
                 // FootClass::PointerExpired 0x004D998C..0x004D99CD follows the
                 // Techno body: the parasite link and its forward.
                 self.foot_parasite_pointer_expired(
@@ -4511,6 +4541,22 @@ impl Simulation {
             && let Some(rules) = context.rules()
         {
             self.free_all_captures(stable_id, rules, context.registry(), context.effects());
+        }
+        // `0x004DE5F0`: a Magnetron lets go of what it holds.
+        if foot
+            && self
+                .substrate
+                .entities
+                .get(stable_id)
+                .is_some_and(|entity| entity.locomotor_target.is_some())
+        {
+            self.release_locomotor(
+                stable_id,
+                true,
+                context.rules(),
+                context.registry(),
+                context.effects(),
+            );
         }
         // `0x004DE604`: then the object leaves its team.
         if foot {

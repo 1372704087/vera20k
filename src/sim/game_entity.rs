@@ -636,11 +636,45 @@ pub struct GameEntity {
     /// Foot+6B6 raw occupation enable; shared by Drive/Ship and world Mark.
     /// Foot ctor4D344A initializes1; Unit7353CE invokes that base ctor.
     pub(crate) foot_occupation_enabled: bool,
-    /// Foot+6AD, constructor4D3414=0. PerformDeploy710352 sets it after a
-    /// forced locomotor swap; that producer is still an unimplemented receiver.
-    /// This is independent from MCV Unit+68C and infantry deploy animation.
+    /// Foot+6AD, constructor `0x004D3414` zero: a Magnetron lifted this
+    /// object. `TechnoClass::ImbueLocomotor @ 0x00710000` raises it
+    /// (`0x00710352`) and only Jumpjet `End_Piggyback @ 0x0054DA50` clears it
+    /// ([`crate::sim::locomotor_lift`]). Independent of MCV Unit+68C and
+    /// infantry deploy animation.
     #[serde(default)]
     pub(crate) foot_locomotor_swap_active: bool,
+    /// Foot+6AE, constructor `0x004D341A` zero: the lift may end. A release
+    /// on the ground (`0x0070FFBB`), Foot's null destination with a holder
+    /// (`0x004D9538`) and every Jumpjet touchdown (`0x0054C9FE`) raise it;
+    /// Jumpjet `Is_Ok_To_End @ 0x0054DB00` reads it and `End_Piggyback`
+    /// clears it.
+    #[serde(default)]
+    pub(crate) lift_may_end: bool,
+    /// Techno+2AC LocomotorTarget: the object this Magnetron holds aloft
+    /// (`0x00710307`); its +2B0 names this object back.
+    #[serde(default)]
+    pub(crate) locomotor_target: Option<u64>,
+    /// Techno+2B0 LocomotorSource: the Magnetron holding this object
+    /// (`0x00710318`).
+    #[serde(default)]
+    pub(crate) locomotor_source: Option<u64>,
+    /// Techno+427 IsBeingManipulated: a Magnetron let this object go in the
+    /// air (`0x0070FF32`), so its Jumpjet State 5 lands it on whatever is
+    /// below (`0x0054CC39`). Constructor `0x006F3005` zero; every Jumpjet
+    /// touchdown clears it (`0x0054CA08`).
+    #[serde(default)]
+    pub(crate) being_manipulated: bool,
+    /// Techno+428 BeingManipulatedBy: the Magnetron that dropped this object
+    /// (`0x0070FF3F`), credited with what its fall kills. Cleared by the
+    /// fall's end, `End_Piggyback` (Jumpjet and Teleport) and the Chrono
+    /// Warp's arrival; pointer expiry clears it (`0x0070783B`).
+    #[serde(default)]
+    pub(crate) manipulated_by: Option<u64>,
+    /// Techno+42C ChronoWarpedByHouse: the house a Chronosphere warp
+    /// (`0x006CCC67`) or a Magnetron drop (`0x0070FF51`) credits with this
+    /// object's death on landing; cleared with +428.
+    #[serde(default)]
+    pub(crate) warped_by_house: Option<InternedId>,
     /// Techno+0x1F8, constructor zero (`0x006F2CE1`). The Unit setter's
     /// Teleporter arm raises it when a Drive cannot end yet (`0x007425C6`), so
     /// the next setter call runs for an unchanged NavCom (`0x00741A88`); every
@@ -1029,12 +1063,12 @@ pub struct GameEntity {
     #[serde(default)]
     pub(crate) move_sound: crate::sim::world::MoveSoundState,
     /// `FootClass+0x425`, the crash latch: set by `FootClass::Crash @
-    /// 0x004DEBB0` (`0x004DEC7F`) and by a Magnetron dropping an airborne
-    /// object (`0x0070FF25`); cleared by the constructor (`0x006F2FF9`) and a
-    /// Jumpjet Descend touchdown (`0x0054CA12`). A crashing object is alive
-    /// (Object+90) with Health 0 and falls under its locomotor until the
-    /// impact UnInits it. VERA ports no Magnetron, so its one writer is
-    /// `Simulation::foot_crash` (`sim::world::crash`).
+    /// 0x004DEBB0` (`0x004DEC7F`, `Simulation::foot_crash` in
+    /// `sim::world::crash`) and by a Magnetron dropping an airborne object
+    /// (`0x0070FF25`, `sim::locomotor_lift`); cleared by the constructor
+    /// (`0x006F2FF9`) and a Jumpjet Descend touchdown (`0x0054CA12`). A
+    /// crashing object is alive (Object+90) with Health 0 (a dropped one keeps
+    /// its Health) and falls under its locomotor until the impact.
     #[serde(default)]
     pub crashing: bool,
     /// `FootClass+0x426`, the latch as the previous `FootClass::AI` saw it: the
@@ -1752,6 +1786,12 @@ impl GameEntity {
             flight_attitude: Default::default(),
             foot_occupation_enabled: true,
             foot_locomotor_swap_active: false,
+            lift_may_end: false,
+            locomotor_target: None,
+            locomotor_source: None,
+            being_manipulated: false,
+            manipulated_by: None,
+            warped_by_house: None,
             setter_force_reassign: false,
             chrono_warp_delay: 0,
             attack_target: None,

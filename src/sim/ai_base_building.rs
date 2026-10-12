@@ -610,9 +610,10 @@ fn building_site(
 /// `0x0044D6BD..0x0044D6D0`), and DiscoveredBy's computer arm asks
 /// Get_Mission (vt+0x184, `0x0044D679`), which answers the queued mission
 /// while none is current, so the building opens when its build-up ends.
-/// Trigger: every building a computer house's yard places. Effect: its
-/// opening (power policy, free unit, superweapon grant, a `RevealToAll=`
-/// sight) comes at placement, its build-up's length early. Frequency: every
+/// Trigger: every building a computer house's yard places. Effect: the
+/// opening sets the ready byte (`+0x6DD`), so Mission_Construction ends on
+/// its next visit and the building skips its build-up; its free unit, power
+/// policy and a `RevealToAll=` sight come at placement. Frequency: every
 /// computer house's building in a skirmish.
 fn place_building(
     sim: &mut Simulation,

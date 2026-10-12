@@ -2901,13 +2901,21 @@ impl Simulation {
             //6F6B6A; both precede Object Limbo. Repeated Limbo emits neither.
             // A `RevealToAll=` type takes the branch at `0x006F6AEF..0x006F6B06`
             // instead: ReReveal(0, 0, 1, PlayerPtr) releases its sight for the
-            // current house in place of its owner's.
+            // current house in place of its owner's. Without a current house
+            // (headless) there is no PlayerPtr to release for, and the
+            // ordinary release keeps its place before the gap removal.
+            // RESIDUAL: without rules (headless fixtures) the type is unknown,
+            // so a `RevealToAll=` building takes the ordinary release and
+            // keeps an alternate admission it holds. Every production Limbo
+            // passes rules.
             let reveal_to_all = context.rules().filter(|&rules| {
-                self.substrate
-                    .entities
-                    .get(stable_id)
-                    .and_then(|entity| self.object_type(entity.type_ref(), rules))
-                    .is_some_and(|object| object.reveal_to_all)
+                self.session.current_house.is_some()
+                    && self
+                        .substrate
+                        .entities
+                        .get(stable_id)
+                        .and_then(|entity| self.object_type(entity.type_ref(), rules))
+                        .is_some_and(|object| object.reveal_to_all)
             });
             match reveal_to_all {
                 Some(rules) => self.rereveal_sight_to_current_house(stable_id, rules),

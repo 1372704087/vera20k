@@ -253,7 +253,8 @@ fn an_allys_building_shows_both_sights_and_takes_both_back() {
 /// `RevealToAll=` branch releases the stored footprint again with the latch
 /// clear (`0x0070B234..0x0070B26C`). A GI of the current house standing in
 /// it keeps the cell in sight, but its contribution is gone from the
-/// counter.
+/// counter. The building dies to a lethal hit through ReceiveDamage's commit,
+/// which runs both before any sight refresh.
 #[test]
 fn a_computer_buildings_death_takes_its_sight_off_the_current_houses_map_twice() {
     let Some((rules, mut sim, americans)) = world() else {
@@ -278,9 +279,26 @@ fn a_computer_buildings_death_takes_its_sight_off_the_current_houses_map_twice()
     );
     assert_eq!(counter(&sim, americans, post), -2);
 
-    sim.building_destruction_anims(&rules, id, &mut Vec::new(), |_, _| {});
-    assert_eq!(counter(&sim, americans, post), -1);
-    sim.techno_limbo_with_context(id, UninitContext::new(Some(&rules), None));
+    let warhead = sim.interner.intern("Super");
+    let hit = crate::sim::combat::EntityDamageEvent::direct_receiver(
+        id,
+        100_000,
+        0,
+        crate::sim::combat::RAD_NO_ATTACKER,
+        None,
+        warhead,
+        crate::sim::combat::ReceiverCallFlags {
+            ignore_defenses: false,
+            arg6: false,
+        },
+    );
+    sim.commit_noncombat_aoe_hits(&rules, None, &[hit], FrameEffects::default());
+    assert!(
+        sim.substrate
+            .entities
+            .get(id)
+            .is_none_or(|entity| entity.lifecycle.in_limbo)
+    );
     assert_eq!(counter(&sim, americans, post), 0);
     assert!(sim.fog.is_cell_visible(americans, post.0, post.1));
     assert!(sim.fog.alternate_sight_admissions.is_empty());

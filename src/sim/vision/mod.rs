@@ -409,10 +409,11 @@ pub struct FogState {
     pub alliances: HouseAllianceMap,
     pub(crate) sight_admissions: BTreeMap<(u64, InternedId), SightAdmission>,
     /// Admissions `TechnoClass::UpdateReveal @ 0x0070AF50` makes for an
-    /// alternate house (`RevealToAll=`; [`admit_alternate_entity_sight`]),
-    /// keyed like `sight_admissions`. Kept apart so the source's own
-    /// reconciliation never releases them, and a viewer that also shares the
-    /// source's ordinary sight holds both contributions, as native does.
+    /// alternate house (`RevealToAll=`;
+    /// `Simulation::reveal_sight_to_current_house`), keyed like
+    /// `sight_admissions`. Kept apart so the source's own reconciliation
+    /// never releases them, and a viewer that also shares the source's
+    /// ordinary sight holds both contributions, as native does.
     /// Native keeps no record: each call reveals and each release
     /// ([`FogState::withdraw_alternate_sight`]) leaves the counters. VERA
     /// retains the first per viewer, which holds its source count until a
@@ -1624,42 +1625,6 @@ fn update_entity_sight_admission(
     }
     for viewer in viewers {
         fog.reconcile_sight_admission(entity.stable_id(), viewer, admission.clone(), force_refresh);
-    }
-}
-
-/// `TechnoClass::UpdateReveal @ 0x0070AF50` with an alternate house (its third
-/// and fourth arguments), as a computer house's `RevealToAll=` building opens
-/// (`0x00446816..0x00446829`): the entity's sight
-/// ([`entity_sight_footprint`]) goes to `MapClass::RevealArea @ 0x005678E0`
-/// for `recipient` rather than the owner (`0x0070B17E..0x0070B1C2`; the
-/// source already holds its own admission). It writes the maps a reveal by
-/// `recipient` writes, counted as `recipient`'s own sight
-/// ([`FogState::admit_alternate_sight`]), until
-/// [`FogState::withdraw_alternate_sight`]. Each call counts again.
-///
-/// RESIDUAL: a source without its own admission yet (`+0x250` clear) would
-/// natively store this footprint as its own and leave its owner without sight
-/// (`0x0070B0BF..0x0070B131`); VERA's owner sight comes from the per-frame
-/// reconciliation regardless. No caller reaches it: the opening follows the
-/// source's Unlimbo reveal (`0x006F6D27`, ahead of the opening at
-/// `0x00440E76`), and the re-admission callback's branch needs a placed
-/// building in the playfield.
-pub(crate) fn admit_alternate_entity_sight(
-    fog: &mut FogState,
-    entity: &crate::sim::game_entity::GameEntity,
-    config: &VisionConfig,
-    height_grid: Option<&[u8]>,
-    sight_ability: bool,
-    interner: &StringInterner,
-    recipient: InternedId,
-) {
-    let Some(admission) =
-        entity_sight_footprint(fog, entity, config, height_grid, sight_ability, recipient)
-    else {
-        return;
-    };
-    for viewer in direct_reveal_viewers(fog, recipient, config, interner) {
-        fog.admit_alternate_sight(entity.stable_id(), viewer, admission.clone());
     }
 }
 

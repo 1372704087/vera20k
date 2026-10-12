@@ -65,7 +65,6 @@ impl App {
         state.frontend.screen = GameScreen::MainMenu;
         state.match_state.input.zoom_level = 1.0;
         state.match_state.input.zoom_target = 1.0;
-        state.platform.window.set_cursor_visible(true);
         Self::resume_shell_after_match(state);
         log::info!("Returned to the shell");
     }
@@ -240,27 +239,9 @@ impl App {
         // An open modal is the pause (`MatchState::paused`); any transition
         // ends the debug pause.
         state.match_state.debug_pause = false;
-        if next.is_open() {
-            // Show the OS cursor so the modal is clickable.
-            if state
-                .match_state
-                .match_presentation
-                .software_cursor
-                .is_some()
-            {
-                state.platform.window.set_cursor_visible(true);
-            }
-        } else {
+        if !next.is_open() {
             // Elapsed modal time must not cause a catch-up frame.
             state.platform.frame_pacer.reset_for_immediate_frame();
-            if state
-                .match_state
-                .match_presentation
-                .software_cursor
-                .is_some()
-            {
-                state.platform.window.set_cursor_visible(false);
-            }
         }
         state.platform.window.request_redraw();
     }

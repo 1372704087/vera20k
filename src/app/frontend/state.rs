@@ -44,6 +44,9 @@ pub(crate) struct FrontendState {
     pub(crate) main_menu_movie_last_step: Instant,
     /// Terminal menu failure; retained for the error screen and input gate.
     pub(crate) main_menu_shell_error: Option<String>,
+    /// Set by each status-screen draw and taken by the frame's cursor owner:
+    /// the card has no retail art, so the window's own cursor shows over it.
+    pub(crate) status_screen_drawn: bool,
     /// Numeric internal-version string used by the bottom-right main-menu line.
     /// Resolution follows the retail 16-byte/CR-only cached contract.
     pub(crate) version_txt: String,

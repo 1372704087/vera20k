@@ -131,6 +131,31 @@ impl App {
         state.frontend.screen == GameScreen::InGame && !state.platform.focus_freeze_active()
     }
 
+    /// The one owner of the window's own cursor after the startup splash, set
+    /// after each frame's draw. gamemd's WWMouse constructor (`0x007B8730`)
+    /// hides it with `ShowCursor(FALSE)` (`0x007B88BA`) and the game draws
+    /// mouse.shp itself, so it shows only where VERA draws no cursor but the
+    /// player points: over a status screen; over the battlefield where
+    /// `use_software_cursor` turns mouse.shp off (the debug pause, whose
+    /// developer overlay takes the pointer, or a missing mouse.sha) while
+    /// WWMouse's depth is visible; and elsewhere only without mouse.sha, which
+    /// the shell pages draw whenever it loaded.
+    fn show_os_cursor_only_without_game_cursor(state: &mut AppState, battlefield_drawn: bool) {
+        let status_screen_drawn = std::mem::take(&mut state.frontend.status_screen_drawn);
+        let visible = status_screen_drawn
+            || if battlefield_drawn {
+                !state.use_software_cursor()
+                    && state.match_state.input.cursor_visibility.is_visible()
+            } else {
+                state
+                    .match_state
+                    .match_presentation
+                    .software_cursor
+                    .is_none()
+            };
+        state.platform.window.set_cursor_visible(visible);
+    }
+
     /// Dispatch rendering based on current GameScreen state.
     pub(super) fn render_frame(
         state: &mut AppState,
@@ -561,6 +586,7 @@ impl App {
                 }
             }
         }
+        Self::show_os_cursor_only_without_game_cursor(state, game_render_output.is_some());
 
         let entry_sequence_identity = match shell_capture.as_deref_mut() {
             Some(session) if session.is_entry_sequence() => {

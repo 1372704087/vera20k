@@ -40,11 +40,6 @@ pub(crate) fn apply_lock_effect(state: &mut AppState, locked: bool, was_locked: 
         .cursor_visibility
         .apply_input_lock(locked, was_locked);
     state.match_state.input.clear_command_latches();
-    // The OS cursor is ordinarily hidden behind mouse.shp. If that asset is
-    // absent, apply the same display-depth result to the window cursor.
-    state.platform.window.set_cursor_visible(
-        !state.use_software_cursor() && state.match_state.input.cursor_visibility.is_visible(),
-    );
     crate::app::presentation::sidebar_render::refresh_sidebar_projection(state);
 }
 

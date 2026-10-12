@@ -66,9 +66,10 @@ impl App {
     }
 
     /// The Options page's Full Screen box: switch the window now. On macOS this
-    /// is the system's own full screen, so its title bar stays reachable at the
-    /// top edge; the resize that follows re-fits the menus and the zoom. The
-    /// window's new state reaches the profile through `follow_window_full_screen`.
+    /// is the system's own full screen with its menu bar and Dock hidden (see
+    /// `initialize`). The resize that follows re-fits the menus and the zoom.
+    /// The window's new state reaches the profile through
+    /// `follow_window_full_screen`.
     pub(crate) fn set_full_screen(state: &mut AppState, full_screen: bool) {
         state
             .platform
@@ -87,10 +88,35 @@ impl App {
             return;
         }
         let full_screen = state.platform.window.fullscreen().is_some();
+        #[cfg(target_os = "macos")]
+        if !full_screen {
+            show_menu_bar_and_dock_after_full_screen();
+        }
         state.persistence.options_profile.full_screen = full_screen;
         if let Some(dialog) = state.frontend.options_dialog.as_mut() {
             dialog.sync_full_screen(full_screen);
         }
+    }
+}
+
+/// winit 0.30 hides the menu bar and Dock just before a borderless game enters
+/// full screen and does not undo it on leaving, so a windowed game would keep
+/// them hidden while it is in front. Restore them once the window is out; the
+/// FullScreen option is still set while the exit animation runs.
+#[cfg(target_os = "macos")]
+fn show_menu_bar_and_dock_after_full_screen() {
+    use objc2::MainThreadMarker;
+    use objc2_app_kit::{NSApplication, NSApplicationPresentationOptions as Options};
+
+    let Some(mtm) = MainThreadMarker::new() else {
+        return;
+    };
+    let app = NSApplication::sharedApplication(mtm);
+    let options = app.presentationOptions();
+    if options.intersects(Options::HideDock | Options::HideMenuBar)
+        && !options.contains(Options::FullScreen)
+    {
+        app.setPresentationOptions(Options::Default);
     }
 }
 
@@ -686,10 +712,6 @@ impl ApplicationHandler for App {
             }
             WindowEvent::CursorMoved { position, .. } => {
                 state.set_cursor_from_window(position.x as f32, position.y as f32);
-                // Keep OS cursor hidden whenever the software cursor is active.
-                if state.use_software_cursor() {
-                    state.platform.window.set_cursor_visible(false);
-                }
                 // Shared tooltip service: every move restarts the show delay
                 // and hides a visible tip (study S1).
                 crate::app::input::tooltips::on_mouse_move(state);
@@ -751,12 +773,6 @@ impl ApplicationHandler for App {
                 button,
                 ..
             } => {
-                // Keep OS cursor hidden on click events (not just CursorMoved).
-                // Without this, rapid clicks without mouse movement let the OS
-                // cursor flash visible between WM_SETCURSOR and the next render.
-                if state.use_software_cursor() {
-                    state.platform.window.set_cursor_visible(false);
-                }
                 // Any button press/release kills a visible tooltip + pending
                 // timer (all buttons incl. middle — study S1).
                 crate::app::input::tooltips::on_button_event(state);

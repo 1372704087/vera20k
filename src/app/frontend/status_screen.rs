@@ -163,14 +163,14 @@ pub(crate) fn handle_event(
 }
 
 pub(crate) fn render(
-    state: &AppState,
+    state: &mut AppState,
     encoder: &mut wgpu::CommandEncoder,
     view: &wgpu::TextureView,
     title: &str,
     detail: &str,
     buttons: Buttons,
 ) {
-    state.platform.window.set_cursor_visible(true);
+    state.frontend.status_screen_drawn = true;
     let gpu = &state.renderer.gpu;
     let batch = &state.renderer.batch_renderer;
     let font = &state.renderer.bit_font;

@@ -1773,14 +1773,6 @@ fn handle_options_hotkey(state: &mut AppState) {
     if state.match_state.debug_pause {
         state.match_state.debug_pause = false;
         state.platform.frame_pacer.reset_for_immediate_frame();
-        if state
-            .match_state
-            .match_presentation
-            .software_cursor
-            .is_some()
-        {
-            state.platform.window.set_cursor_visible(false);
-        }
         log::info!("Game resumed");
     } else {
         // Options535BE0/5372D0 and unconsumed Escape55E079 both request

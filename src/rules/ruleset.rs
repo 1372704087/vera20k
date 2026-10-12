@@ -1785,7 +1785,7 @@ const DIFFICULTY_REPAIR_DELAY_DEFAULT: f64 = 0.02;
 
 /// The scalar projection of one original ReadDifficulty66D270 row. ContentScan
 /// and its other AI flags belong to their existing AI admission owners.
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct DifficultyRules {
     pub firepower: f64,
     pub ground_speed: f64,
@@ -1855,7 +1855,7 @@ impl DifficultyRules {
 /// `0x0066F692..0x0066F781`) are the plant the computer's building choice
 /// splices into its BasePlan (`sim::ai_base_building`); retail GAPOWR, NAPOWR,
 /// NANRCT and YAPOWR.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct GeneralBuildingTypes {
     pub gdi_gate_one: Option<String>,
     pub gdi_gate_two: Option<String>,
@@ -1916,7 +1916,7 @@ fn read_building_identity(
 /// writes 15/20/5 at +0/+4/+8 (665665..665672). ReadAudioVisual66920D..669258
 /// reads signed integers in this order with current defaults and no clamps.
 /// Native constructor/full-reader controls: rules_oracle/weapon_laser.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub struct DetailRules {
     pub min_frame_rate_normal: i32,
     pub min_frame_rate_movie: i32,
@@ -1952,7 +1952,7 @@ impl DetailRules {
 /// beam's `PrismSupportDuration=` (`Rules+0x4A8`) feeds the support laser;
 /// `PrismSupportHeight=` (`Rules+0x4AC`) has no
 /// reader outside the constructor and ReadGeneral.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub struct PrismSupportRules {
     /// `PrismSupportModifier=` (`Rules+0x49C`), the percent each supporter
     /// adds to the shot: `ftol(ReadDouble(key, current) x 100)`, so a pass

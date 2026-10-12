@@ -1408,7 +1408,7 @@ fn fresh_drive_turn_publishes_on_request_frame_and_restores_before_admission() {
         let mut restored = crate::sim::snapshot::GameSnapshot::load(&bytes)
             .unwrap()
             .sim;
-        restored.retain_in_scenario_process_state_from(&sim);
+        restored.retain_process_state_for_load(crate::sim::world::SnapshotProcessState::Live(&sim));
         restored.restore_after_snapshot_load().unwrap();
         assert!(
             restored

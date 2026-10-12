@@ -948,13 +948,6 @@ where
     Ok(SimRng::new(0))
 }
 
-/// Constructor-time lighting for a Simulation that has not reached Post_Map_Init
-/// yet, and the value a deserialized snapshot starts from before the load path
-/// re-supplies the live scenario profile.
-fn default_scenario_normal_lighting() -> crate::map::lighting::LightingProfileUnits {
-    crate::map::lighting::ParsedLightingProfiles::default().normal
-}
-
 /// The game simulation - owns all authoritative game state.
 #[derive(serde::Serialize, serde::Deserialize)]
 pub struct Simulation {
@@ -1216,13 +1209,6 @@ pub struct Simulation {
     /// Persistent MapClass scenario-crate slots, including accepted ghosts and
     /// their native timer words. This is authoritative save/hash state.
     pub(crate) crate_authority: crate::sim::crates::CrateAuthority,
-    /// The scenario's ordinary `[Lighting]` profile, retained so the runtime
-    /// crate-regeneration rung reaches `OverlayClass::Mark` with the same
-    /// CellClass `+0x10A` source scenario start used. Static map data, not
-    /// simulation state: NOT serialized, NOT hashed, and carried across an
-    /// in-scenario load beside the other process-scoped values.
-    #[serde(skip, default = "default_scenario_normal_lighting")]
-    pub(crate) scenario_normal_lighting: crate::map::lighting::LightingProfileUnits,
     /// Per-cell smudge state (craters, scorches). Seeded from map [Smudge]
     /// entries at init, mutated by combat death-handling at runtime.
     pub smudge_grid: Option<crate::sim::smudge_grid::SmudgeGrid>,
@@ -1745,6 +1731,12 @@ fn dispatch_smudge_inline(
         scenario_rng,
         Some(construction),
     );
+}
+
+/// Existing process RNG owner lent to a detached saved-world candidate.
+pub(crate) enum SnapshotProcessState<'a> {
+    Live(&'a Simulation),
+    Cold(&'a MainRng),
 }
 
 impl Simulation {
@@ -2925,21 +2917,42 @@ impl Simulation {
         }
     }
 
-    /// Complete the in-scenario Load Game handoff with process-global state
-    /// that is live at load time. Scenario RNG has already been reset by
-    /// deserialization and is deliberately untouched here. The cold front-end
-    /// load route has a distinct native handoff and does not use this seam.
-    pub(crate) fn retain_in_scenario_process_state_from(&mut self, live: &Self) {
-        self.session.seed = live.session.seed;
-        self.main_rng = live.main_rng.shared_owner();
-        self.mapgen_rng = live.mapgen_rng.clone();
-        self.bind_shared_cell_dummy(live.effective_shared_cell_dummy());
-        self.substrate
-            .raw_cell_occupation
-            .retain_process_dummy_from(&live.substrate.raw_cell_occupation);
-        // Static map data, not saved state: the live scenario is still the one
-        // being reloaded, so its parsed lighting profile carries over.
-        self.scenario_normal_lighting = live.scenario_normal_lighting;
+    /// LoadContent67E730 does not restore process Main/MapGen. ScenarioLoad
+    /// 689470 -> post-read683560 has already reset Scenario to Seed(0).
+    /// The candidate stages the one process Main cursor: draws made while the
+    /// load is prepared advance it, and the commit moves it into that cell
+    /// (`install_fresh_process_main`). In-scenario loading keeps the live
+    /// seed and MapGen; the cold shell starts MapGen from the CRT Seed(0)
+    /// object (native fixture in world/rng_routing_tests.rs).
+    pub(crate) fn retain_process_state_for_load(&mut self, process: SnapshotProcessState<'_>) {
+        match process {
+            SnapshotProcessState::Live(live) => {
+                self.session.seed = live.session.seed;
+                self.main_rng = live.main_rng.staged_copy();
+                self.mapgen_rng = live.mapgen_rng.clone();
+                self.bind_shared_cell_dummy(live.effective_shared_cell_dummy());
+                self.substrate
+                    .raw_cell_occupation
+                    .retain_process_dummy_from(&live.substrate.raw_cell_occupation);
+            }
+            SnapshotProcessState::Cold(main) => {
+                self.session.seed = 0;
+                self.main_rng = main.staged_copy();
+                self.mapgen_rng = SimRng::new(0);
+            }
+        }
+    }
+
+    /// Init_Random_Number_System52FC20, ordinary offline menu-load tail
+    /// 52E619. The caller supplies the resolved clock/override seed. Both
+    /// Scenario and process Main are reseeded, Main in its shared process
+    /// cell; MapGen is untouched. In-game options resume does not reach this
+    /// caller. Executed full-state controls:
+    /// tools/rmg_oracle/vectors/rng.json::menu_rng_cases.
+    pub(crate) fn initialize_random_number_system(&mut self, seed: u32) {
+        self.session.seed = u64::from(seed);
+        self.scenario_rng = SimRng::new(u64::from(seed));
+        self.main_rng.install_from(MainRng::new(u64::from(seed)));
     }
 
     /// Apply the successful load's native MapClass Resize reconstruction to
@@ -2967,6 +2980,17 @@ impl Simulation {
         self.shared_cell_dummy = shared_cell_dummy.clone();
         if let Some(terrain) = self.resolved_terrain.as_mut() {
             terrain.bind_shared_cell_dummy(shared_cell_dummy);
+        }
+    }
+
+    /// Rebind a successfully prepared map to the retained process selector.
+    /// The map owner keeps its catalogs on the same lazy table identity.
+    pub(crate) fn bind_tile_variant_selector(
+        &mut self,
+        selector: crate::map::tile_variant_selector::TileVariantSelector,
+    ) {
+        if let Some(terrain) = self.resolved_terrain.as_mut() {
+            terrain.bind_tile_variant_selector(selector);
         }
     }
 
@@ -3059,8 +3083,8 @@ impl Simulation {
         self.main_rng = main_rng.into();
     }
 
-    /// Bind a successful fresh scenario to the retained process Main cell,
-    /// moving its terrain-advanced bootstrap cursor into that same identity.
+    /// Bind a successful fresh or saved scenario to the retained process Main
+    /// cell, moving its staged cursor into that same identity.
     /// App orchestration must first cancel the outgoing playback callbacks.
     pub(crate) fn install_fresh_process_main(&mut self, process: &MainRng) {
         let staged = std::mem::replace(&mut self.main_rng, process.shared_owner());
@@ -3286,7 +3310,6 @@ impl Simulation {
             bridge_state: None,
             overlay_grid: None,
             crate_authority: crate::sim::crates::CrateAuthority::default(),
-            scenario_normal_lighting: default_scenario_normal_lighting(),
             smudge_grid: None,
             radiation: crate::sim::radiation::RadiationState::default(),
             bombs: crate::sim::bomb::BombList::default(),
@@ -3359,16 +3382,6 @@ impl Simulation {
     /// Draws remain outside Scenario/hash/save state; no copied audio cursor.
     pub(crate) fn presentation_main_draws(&self) -> crate::sim::rng::MainRngDraws {
         self.main_rng.draws()
-    }
-
-    /// Test/replay helper for the per-game Scenario/Main pair only.
-    ///
-    /// Original52FC20 preserves MapGen while reseeding the per-game pair.
-    #[cfg(test)]
-    pub(crate) fn reseed_scenario_and_main(&mut self, seed: u64) {
-        self.scenario_rng = SimRng::new(seed);
-        self.main_rng.install_from(MainRng::new(seed));
-        self.session.seed = seed;
     }
 
     /// The occupancy grid (per-cell object lists). Read access for systems above sim/.
@@ -6745,11 +6758,16 @@ impl Simulation {
             if let Some(overlay_registry) = overlay_registry {
                 #[cfg(test)]
                 self.trace_master_frame_rung(MasterFrameTestRung::CrateRegen);
+                let normal_lighting = self
+                    .session
+                    .lighting
+                    .profile(crate::sim::scenario_session::ScenarioLightingProfile::Normal)
+                    .into();
                 let regen = crate::sim::crates::tick_crate_regeneration(
                     self,
                     rules,
                     overlay_registry,
-                    self.scenario_normal_lighting,
+                    normal_lighting,
                 );
                 if regen.visible != 0 {
                     // Native Mark mutates live CellClass land/zone/bridge state

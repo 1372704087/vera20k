@@ -759,10 +759,6 @@ pub enum SimSoundEvent {
     /// plays `[AudioVisual] ChuteSound=` at the plane's Location,
     /// `0x00415E21`): the plane's cell.
     ChuteSound { rx: u16, ry: u16 },
-    /// A C4-capable infantry claimed a plant on a CanC4 building.
-    /// Played at the attacker's position. App resolves to
-    /// `[SealPlaceBomb]` in soundmd.ini.
-    C4Planted { rx: u16, ry: u16 },
     /// An engineer entered a `BridgeRepairHut` and triggered bridge repair.
     /// Played at the BUILDING's cell, NOT the engineer's. `owner` is the
     /// engineer's house. App layer plays the spatial `[BridgeRepaired]` sound
@@ -6630,21 +6626,13 @@ impl Simulation {
             // Units also committed Facing_Update after paid movement. This
             // tail hosts the remaining classes;
             // tick_turret_rotation excludes Units whose facing is already owned.
-            // tick_c4_plants hosts the pending C4 detonation. Its damage
-            // is applied here so combat-pre conditions (invulnerability, dying)
-            // are honored before tick_combat runs.
+            // tick_bridge_hut_c4 sets off a bridge repair hut's charge; every
+            // other building's goes off in its own Update visit.
             // PRODUCES: damage, deaths, bridge damage, fire events. Ordered
             // ReceiveDamage retaliation is committed inline.
-            // Engineer repair, capture and consumption occur synchronously
-            // at Walk's completed step in the object pass.
-            let c4_outcome = self.tick_c4_plants_with_overlay_registry(
-                rules,
-                overlay_registry,
-                &tube_turn_owned_ids,
-                effects,
-            );
-            destroyed_structure |= c4_outcome.destroyed_structure;
-            bridge_state_changed |= c4_outcome.bridge_state_changed;
+            // Engineer repair, capture and consumption, and a C4 plant, occur
+            // synchronously at Walk's completed step in the object pass.
+            bridge_state_changed |= self.tick_bridge_hut_c4(rules, overlay_registry, effects);
             self.tick_order_intents_pre_combat(rules, overlay_registry, &tube_turn_owned_ids);
             // The compatibility pursuit host excludes native Unit Cell
             // Approach. Its remaining consumers retain their existing order

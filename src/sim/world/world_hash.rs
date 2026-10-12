@@ -1664,7 +1664,6 @@ impl Simulation {
             }
 
             entity.hash_capture_infantry_type(hasher);
-            entity.c4_plant.hash(hasher);
             match entity.pending_c4_detonation {
                 Some(pending) => {
                     true.hash(hasher);
@@ -4210,7 +4209,7 @@ mod rocking_hash_tests {
 mod c4_hash_tests {
     use super::Simulation;
     use crate::map::entities::EntityCategory;
-    use crate::sim::components::{C4PlantState, Health, PendingC4Detonation};
+    use crate::sim::components::{Health, PendingC4Detonation};
     use crate::sim::game_entity::GameEntity;
 
     #[test]
@@ -4237,14 +4236,7 @@ mod c4_hash_tests {
         sim.substrate.entities.insert(e);
         let h_initial = sim.state_hash();
 
-        // Mutate c4_plant — hash must change.
-        sim.substrate.entities.get_mut(id).unwrap().c4_plant = Some(C4PlantState {
-            target_building_id: 99,
-        });
-        let h_with_plant = sim.state_hash();
-        assert_ne!(h_initial, h_with_plant, "c4_plant must affect state hash");
-
-        // Mutate pending_c4_detonation — hash must change again.
+        // Mutate pending_c4_detonation — hash must change.
         sim.substrate
             .entities
             .get_mut(id)
@@ -4255,7 +4247,7 @@ mod c4_hash_tests {
         });
         let h_with_pending = sim.state_hash();
         assert_ne!(
-            h_with_plant, h_with_pending,
+            h_initial, h_with_pending,
             "pending_c4_detonation must affect state hash"
         );
     }

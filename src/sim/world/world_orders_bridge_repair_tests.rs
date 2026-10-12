@@ -105,6 +105,14 @@ fn build_ordinary_c4_sim(
     (sim, rules, registry)
 }
 
+/// Only a player gives the Sabotage order. A computer house's planter with
+/// no Target leaves Sabotage for Hunt (Mission_Capture
+/// `0x004D4C14..0x004D4C6B`).
+fn make_americans_a_player(sim: &mut Simulation) {
+    let americans = sim.interner.intern("Americans");
+    sim.houses.get_mut(&americans).unwrap().is_human = true;
+}
+
 fn spawn_engineer(sim: &mut Simulation, rules: &RuleSet, rx: u16, ry: u16) -> u64 {
     // The command reaches Infantry51AA40; its receiver must have the actual
     // constructor/Unlimbo Walk and mission leaf, not only an Infantry tag.
@@ -264,7 +272,7 @@ fn step_with_overlay_registry(
 
 fn advance_pending_c4_to_detonation(sim: &mut Simulation, rules: &RuleSet) -> bool {
     let mut bridge_state_changed_seen = false;
-    for _ in 0..(rules.c4_delay_ticks as u64 + 1) {
+    for _ in 0..(rules.c4_delay_frames() as u64 + 1) {
         let result = step(sim, rules);
         bridge_state_changed_seen |= result.bridge_state_changed;
     }
@@ -301,6 +309,7 @@ fn c4_order_from_a_distance_reaches_the_building_while_moving_or_idle() {
     for (building, at, seal_at) in [("CABHUT", (15, 15), (11, 15)), ("BIG", (18, 19), (18, 26))] {
         for moving in [false, true] {
             let (mut sim, rules, registry) = build_ordinary_c4_sim(0xD4);
+            make_americans_a_player(&mut sim);
             let cabhut = sim
                 .spawn_object_at_height(building, "Soviets", at.0, at.1, 0, 0, &rules)
                 .unwrap();
@@ -618,7 +627,7 @@ fn queued_hut_capture_survives_repair_before_event_execution() {
     }
 }
 
-/// SEAL with `c4_plant` set, adjacent to a healthy CABHUT, must:
+/// A SEAL ordered to plant on a healthy CABHUT beside it must:
 ///   - not claim from the adjacent cell,
 ///   - claim after entering the CABHUT cell,
 ///   - leave the hut at full HP across the entire C4Delay window,
@@ -635,6 +644,7 @@ fn queued_hut_capture_survives_repair_before_event_execution() {
 #[test]
 fn c4_on_cabhut_collapses_bridge_and_hut_survives() {
     let (mut sim, rules, registry) = build_ordinary_c4_sim(0xD4);
+    make_americans_a_player(&mut sim);
     let cabhut = sim
         .spawn_object_at_height("CABHUT", "Soviets", 15, 15, 0, 0, &rules)
         .expect("hut must be constructed and placed beside the concrete strip");
@@ -668,7 +678,7 @@ fn c4_on_cabhut_collapses_bridge_and_hut_survives() {
     // Throughout the C4Delay window: hut HP must stay at max — the
     // BridgeRepairHut branch never damages the hut, even before the timer
     // fires. The damaged strip stays unchanged until detonation.
-    let delay = rules.c4_delay_ticks as u64;
+    let delay = rules.c4_delay_frames() as u64;
     let mut bridge_state_changed_seen = false;
     for _ in 0..(delay + 1) {
         if (sim.session.binary_frame as u64) < plant_start + delay {
@@ -794,7 +804,7 @@ fn plant_c4(sim: &mut Simulation, rules: &RuleSet, target: u64, seal: u64) {
         .get_mut(target)
         .unwrap()
         .pending_c4_detonation = Some(PendingC4Detonation {
-        timer: CdTimer::started(sim.session.binary_frame as i32, rules.c4_delay_ticks as i32),
+        timer: CdTimer::started(sim.session.binary_frame as i32, rules.c4_delay_frames()),
         source_entity_id: Some(seal),
     });
 }
@@ -809,7 +819,7 @@ fn c4_on_cabhut_without_bridge_clears_pending_marker() {
     plant_c4(&mut sim, &rules, cabhut, seal);
 
     let mut bridge_state_changed_seen = false;
-    for _ in 0..(rules.c4_delay_ticks as u64 + 1) {
+    for _ in 0..(rules.c4_delay_frames() as u64 + 1) {
         let result = step(&mut sim, &rules);
         bridge_state_changed_seen |= result.bridge_state_changed;
     }
@@ -842,15 +852,12 @@ fn c4_on_invulnerable_cabhut_still_dispatches_bridge_and_clears_pending() {
         .get_mut(cabhut)
         .unwrap()
         .invulnerability = Some(InvulnerabilityState::new(
-        crate::sim::timer::CdTimer::started(
-            sim.session.tick as i32,
-            rules.c4_delay_ticks as i32 + 20,
-        ),
+        crate::sim::timer::CdTimer::started(sim.session.tick as i32, rules.c4_delay_frames() + 20),
         InvulnKind::IronCurtain,
     ));
 
     let mut bridge_state_changed_seen = false;
-    for _ in 0..(rules.c4_delay_ticks as u64 + 1) {
+    for _ in 0..(rules.c4_delay_frames() as u64 + 1) {
         let result = step_with_overlay_registry(&mut sim, &rules, &registry);
         bridge_state_changed_seen |= result.bridge_state_changed;
     }
@@ -929,7 +936,7 @@ fn c4_on_cabhut_low_overlay_collapses_low_bridge() {
     plant_c4(&mut sim, &rules, cabhut, seal);
 
     let mut changed = false;
-    for _ in 0..=rules.c4_delay_ticks {
+    for _ in 0..=rules.c4_delay_frames() {
         changed |= step_with_overlay_registry(&mut sim, &rules, &registry).bridge_state_changed;
     }
     let hut = sim.substrate.entities.get(cabhut).unwrap();

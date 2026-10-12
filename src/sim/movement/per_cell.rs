@@ -478,17 +478,20 @@ impl Simulation {
     /// `InfantryClass::Per_Cell_Process @ 0x00519630`: for reason 2 its
     /// occupier arm (`0x00519675..0x00519739`,
     /// [`Self::infantry_per_cell_occupy`]), building receiver (an Engineer's,
-    /// or a spy's infiltration, `0x00519948..0x0051A06E`), tethered radio8 release
-    /// (`0x0051A7F8..0x0051A812`), then the Foot body for a live owner
-    /// (`0x0051A9EB` tests only IsAlive, `+0x90`).
+    /// or a spy's infiltration, `0x00519948..0x0051A06E`), C4 plant
+    /// (`0x0051A4BF..0x0051A664`, [`Self::infantry_per_cell_c4`]), tethered
+    /// radio8 release (`0x0051A7F8..0x0051A812`), then the Foot body for a
+    /// live owner (`0x0051A9EB` tests only IsAlive, `+0x90`). Each arm asks
+    /// for its own missions, so their order among themselves is native.
     ///
-    /// RESIDUAL: the override's other reason-2 arms (other Capture branches, Eaten, Enter,
-    /// the transport and C4 receivers, `0x0051973C..0x0051A9E8`) are not
-    /// dispatched from here. Some have ports with their own owners and
-    /// callers (`capture_manager`, `passenger`, `world_orders`); native runs
-    /// them inside this call, before the Foot body, and several return
-    /// without it. Trigger: an infantry arriving on a mission cell. Risk:
-    /// same-frame order between those receivers and the Foot body.
+    /// RESIDUAL: the override's other reason-2 arms (other Capture branches,
+    /// Eaten, Enter, the transport receivers and the C4 cell arm,
+    /// `0x0051973C..0x0051A9E8`) are not dispatched from here. Some have
+    /// ports with their own owners and callers (`capture_manager`,
+    /// `passenger`); native runs them inside this call, before the Foot body,
+    /// and several return without it. Trigger: an infantry arriving on a
+    /// mission cell. Risk: same-frame order between those receivers and the
+    /// Foot body.
     fn infantry_per_cell_process(
         &mut self,
         id: u64,
@@ -509,6 +512,13 @@ impl Simulation {
             }
             _ => Default::default(),
         };
+        if !entry.return_before_foot
+            && reason == PerCellReason::Arrival
+            && let Some(rules) = rules
+            && self.infantry_per_cell_c4(id, rules, registry, effects)?
+        {
+            return Ok(false);
+        }
         if !entry.return_before_foot {
             //51A7F8 reads the live Techno+418 after earlier arrival receivers;
             //51A80C sends literal8 through Contacts[0], not DOCK_NOW0x15.

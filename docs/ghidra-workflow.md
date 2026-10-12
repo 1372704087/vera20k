@@ -634,6 +634,10 @@ Checked 2026-09-30 against the headless GhidraMCP 5.14.2 server:
   `audit_global` reports it.
 - A thunk shows its target's name until it gets its own, so renaming the target
   renames the thunk's display name. Rename thunks before their targets.
+- A thunk also takes its target's return and parameters, so a prototype written to the
+  thunk rewrites the target's: one written to the thunk 0x44B760 (`jmp 0x5B2E50`) gave
+  MissionClass__Mission_Capture an `int` return (staging, 2026-10-12). Type the
+  target, not its thunks.
 - `rename_function_by_address` with a function's own default name (`FUN_` and its
   address) turns the name back into a default symbol. It rejects an empty name.
 - `create_label` at an address that already has a label adds a second one; the first
@@ -755,6 +759,19 @@ Receiver tools, checked on staging copies:
   `(void)` on a `ret 0xC` function breaks the stack analysis of its callers. A custom
   prototype that declares only `this` makes every direct caller's decompile drop the
   arguments.
+- Ghidra puts an 8-byte stack parameter (`double`, `longlong`, `undefined8`) on an
+  8-byte boundary counted from the first stack parameter (entry ESP+4, +0xC, +0x14 ...),
+  while MSVC packs it at the next dword. One at a native offset of 0 mod 8 moves up 4
+  bytes and shifts every later parameter: ProgressMeterClass__SetPercent (0x643C50)
+  reads its double at ESP+8, and a `double` there became Stack[0xC] (staging,
+  2026-10-12). Type such a parameter as the database's `double_align4`, a struct
+  holding one double that Ghidra does not 8-align. One at 4 mod 8 can stay `double`.
+- Ghidra's `__fastcall` gives the first two parameters of 4 bytes or less to ECX and
+  EDX in order. A function that takes ECX and stack parameters but not EDX cannot be
+  written as `__fastcall`: its first stack parameter lands in EDX. Without custom
+  storage (see `set_variable_storage` above), keep `__thiscall` with `void * this` and
+  say on the plate what ECX carries (0x5BF260's movie index, 0x6AE6E0's HWND). A
+  `__fastcall` with ECX alone and no stack parameters is fine.
 - A low-byte read does not establish a byte-sized parameter. Trace whole-word copies
   and later reuse of the same entry-stack slot before narrowing its type. Team's
   `Script_Move_To_Own_Building` reads entry ESP+8 as a byte at `0x6EE5C3`, then uses
@@ -778,6 +795,16 @@ Receiver tools, checked on staging copies:
   its local vector's Items as 0; typing 0x477E10 restored the call. After a pass, compare
   the callers that build such objects for slot calls that became direct calls, and type
   the functions they now reach.
+- A locked 8-byte return can stop the decompiler on a caller. StreamPlayer__GetEndTime
+  (0x408140) returns EDX:EAX (`mov eax, [ecx+0x20]; mov edx, [ecx+0x24]`). Typed
+  `ulonglong`, `longlong` or `undefined8` under any convention, it made its only
+  caller, VoxClass__PlayNextQueued (0x752760, which adds the halves with ADC and
+  compares the sum unsigned with another call's 64-bit result), fail with `Free varnode
+  has multiple descendants`
+  ([Varnode::addDescend](https://github.com/NationalSecurityAgency/ghidra/blob/c0f584bf229fffba61b36431f3ce30c0c3e4e682/Ghidra/Features/Decompiler/src/decompile/cpp/varnode.cc#L330-L340)).
+  A 4-byte return showed the high half as `extraout_EDX`. The default `undefined`
+  return leaves the size to the decompiler, which inferred the 64-bit value there
+  (staging, 2026-10-12). Decompile the callers after typing a 64-bit return.
 - A register `bool` that the body forwards as a whole register (`mov ebx, ecx`, later
   `push ebx`) shows its upper bytes as `in_register_` at the forward, e.g.
   `CONCAT31(in_register_00000005, fOfficial)` in ScenarioClass__Post_Map_Init
@@ -818,6 +845,13 @@ Receiver tools, checked on staging copies:
   RETs; the signature and parameter readbacks looked correct. Check the stored purge
   with the census. Further prototype writes preserve an already valid purge, so this
   prelude cannot repair an existing incorrect stored value.
+- `set_function_prototype` commits the parsed signature before it applies
+  `calling_convention`. When that second step fails, the reply starts with `Failed to
+  set function prototype`, but the new signature stays, under the old convention. The
+  server offers only `__stdcall`, `__cdecl`, `__fastcall` and `__thiscall`, and no
+  endpoint returns a function to the `unknown` convention of one never typed: 0x4093B0
+  kept `__cdecl` after an attempt to restore it (staging, 2026-10-12). Try prototype
+  experiments on a staging copy.
 - The server renumbers parameters named `param_N` by position.
 - `set_function_prototype` renames a function that still has its default `FUN_` name to
   the name in the prototype text, although the tool description says that name is only

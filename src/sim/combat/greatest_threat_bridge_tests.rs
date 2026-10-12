@@ -335,6 +335,8 @@ fn original_dead_missing_cell_candidate_runs_fire_probe_before_health_rejection(
         standing: ScannerStanding::resolve(Some(&world), &snapshot),
         attacks_allies: false,
         scans_allies: false,
+        berserk_walks_allies: false,
+        berserk_skips_ally_test: false,
         fire_world: Some(&world),
     };
     let walk = WalkArgs {

@@ -2,7 +2,7 @@
 //! null-coordinate arm, and the away-from-a-coordinate selection the damage
 //! receiver, DeploySlaves and the garrison eject use. Class entry and
 //! navigation keep their owners.
-use super::bump_crush::{InfantryDamageScatter, scatter_movement_speed};
+use super::bump_crush::scatter_movement_speed;
 use super::infantry_entry::InfantryEntryArgs;
 use super::scatter::{ScatterFlags, mission_permits_scatter};
 use crate::map::resolved_terrain::NativeCellQuery;
@@ -208,7 +208,7 @@ impl Simulation {
                 frame_effects,
             );
         }
-        let Some(scatter) = self.infantry_scatter_neighbor(id, start, rules, registry)? else {
+        let Some(destination) = self.infantry_scatter_neighbor(id, start, rules, registry)? else {
             return Ok(false);
         };
         if let Some(infantry) = self.substrate.entities.get_mut(id) {
@@ -217,23 +217,17 @@ impl Simulation {
                 MissionId::from_known(MissionType::Move),
             );
         }
-        self.infantry_scatter_destination(
-            id,
-            scatter.destination,
-            rules,
-            registry,
-            false,
-            frame_effects,
-        )
+        self.infantry_scatter_destination(id, destination, rules, registry, false, frame_effects)
     }
 
     /// `InfantryClass::Scatter` with a real coordinate, after
     /// [`Self::infantry_scatter_admitted`]: the away arm
     /// (`0x0051D226..0x0051D2D4`, `0x0051D487..0x0051D6E0`). A found neighbour
     /// takes `Queue_Mission(Move, 0)` and `SetDestination(cell, 1)`; no
-    /// locomotor Process runs on this arm. Answers whether a destination was
-    /// installed. DeploySlaves passes the owner's centre with (1,1)
-    /// (`0x006B0667`); the garrison eject passes the building's centre.
+    /// locomotor Process runs on this arm. DeploySlaves passes the owner's
+    /// centre with (1,1) (`0x006B0667`); the garrison eject passes the
+    /// building's centre; the Infantry damage receiver passes its source's
+    /// Location with (0,0) (`0x00518C56`).
     pub(crate) fn infantry_scatter_from(
         &mut self,
         id: u64,
@@ -242,13 +236,14 @@ impl Simulation {
         rules: &RuleSet,
         registry: Option<&OverlayTypeRegistry>,
         frame_effects: FrameEffects<'_>,
-    ) -> Result<bool, String> {
+    ) -> Result<(), String> {
         if !self.infantry_scatter_admitted(id, flags, rules, frame_effects)? {
-            return Ok(false);
+            return Ok(());
         }
-        let Some(scatter) = self.select_infantry_scatter_away_from(id, source, rules, registry)?
+        let Some(destination) =
+            self.select_infantry_scatter_away_from(id, source, rules, registry)?
         else {
-            return Ok(false);
+            return Ok(());
         };
         if let Some(entity) = self.substrate.entities.get_mut(id) {
             crate::sim::mission::authority::queue_entity_mission_deferred(
@@ -256,46 +251,8 @@ impl Simulation {
                 MissionId::from_known(MissionType::Move),
             );
         }
-        self.assign_infantry_walk_destination(
-            id,
-            NavTargetRef::cell(scatter.destination.0, scatter.destination.1),
-            scatter.speed,
-            rules,
-            registry,
-            frame_effects,
-        )
-    }
-
-    /// The Infantry damage receiver's Scatter (`Scatter(attacker, 0, 0)`) up
-    /// to its selection. The receiver commits the destination before its fear
-    /// callback. Only a live Infantry with a locomotor reaches it.
-    pub(crate) fn select_infantry_damage_scatter(
-        &mut self,
-        id: u64,
-        source: (i32, i32),
-        rules: &RuleSet,
-        registry: Option<&OverlayTypeRegistry>,
-        frame_effects: FrameEffects<'_>,
-    ) -> Result<Option<InfantryDamageScatter>, String> {
-        let Some(infantry) = self.substrate.entities.get(id) else {
-            return Ok(None);
-        };
-        if infantry.category != crate::map::entities::EntityCategory::Infantry
-            || infantry.dying
-            || infantry.health.current == 0
-            || infantry.locomotor.is_none()
-        {
-            return Ok(None);
-        }
-        if !self.infantry_scatter_admitted(
-            id,
-            ScatterFlags::new(false, false),
-            rules,
-            frame_effects,
-        )? {
-            return Ok(None);
-        }
-        self.select_infantry_scatter_away_from(id, source, rules, registry)
+        self.infantry_scatter_destination(id, destination, rules, registry, false, frame_effects)
+            .map(|_| ())
     }
 
     /// The away-from-a-coordinate direction of `InfantryClass::Scatter`
@@ -308,7 +265,7 @@ impl Simulation {
         source: (i32, i32),
         rules: &RuleSet,
         registry: Option<&OverlayTypeRegistry>,
-    ) -> Result<Option<InfantryDamageScatter>, String> {
+    ) -> Result<Option<(u16, u16)>, String> {
         let Some(infantry) = self.substrate.entities.get(id) else {
             return Ok(None);
         };
@@ -333,7 +290,7 @@ impl Simulation {
         start: i32,
         rules: &RuleSet,
         registry: Option<&OverlayTypeRegistry>,
-    ) -> Result<Option<InfantryDamageScatter>, String> {
+    ) -> Result<Option<(u16, u16)>, String> {
         let Some(infantry) = self.substrate.entities.get(id) else {
             return Ok(None);
         };
@@ -347,7 +304,6 @@ impl Simulation {
         let navigation = super::foot_coordinate::navigation_coordinate(infantry, Some(terrain))?;
         let seed = ((navigation.x / 256) as i16, (navigation.y / 256) as i16);
         let on_bridge = infantry.on_bridge;
-        let speed = scatter_movement_speed(infantry, Some(rules), &self.interner, &self.houses);
         let destination =
             super::scatter_cell::select_neighbor(seed, start, |candidate, direction| {
                 let terrain = self.resolved_terrain.as_ref().expect("retained map cells");
@@ -386,10 +342,7 @@ impl Simulation {
                     candidate,
                 )))
             })?;
-        Ok(destination.map(|destination| InfantryDamageScatter {
-            destination: (destination.0 as u16, destination.1 as u16),
-            speed,
-        }))
+        Ok(destination.map(|destination| (destination.0 as u16, destination.1 as u16)))
     }
 
     /// Scatter's `SetDestination(cell, 1)` (`vt+0x480`). Walk and Teleport men

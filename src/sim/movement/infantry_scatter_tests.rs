@@ -219,10 +219,12 @@ fn forced_no_kidding_gates_match_native_walk_and_jumpjet_rows() {
     assert_eq!(checked, 256);
 }
 
-/// The damage receiver's `Scatter(attacker, 0, 0)` gates against their
-/// original execution (tools/spatial_oracle/infantry_damage_scatter.py):
-/// the human deploy-Doing refusal, mission, Doing table, Fraidycat and the
-/// owner/Team gate, through the production fact reads.
+/// The gates of ReceiveDamage's two Scatter calls against their original
+/// execution (tools/spatial_oracle/infantry_damage_scatter.py): the Infantry
+/// receiver's `Scatter(attacker, 0, 0)` and the Techno tail's
+/// `Scatter(null, 1, 0)`. The human deploy-Doing refusal, a moving Walk
+/// dropping `forced`, mission, Doing table, Fraidycat and the owner/Team gate,
+/// through the production fact reads.
 #[test]
 fn damage_gates_match_original_execution() {
     use crate::sim::animation::{Animation, SequenceKind};
@@ -261,16 +263,15 @@ fn damage_gates_match_original_execution() {
         // Presentation cannot admit or refuse simulation work.
         victim.animation = Some(Animation::new(SequenceKind::Die1));
         victim.set_veterancy_rank(input["rank"].as_u64().unwrap_or(0) as u16 * 100);
-        victim.locomotor = Some(LocomotorState::for_test_kind(LocomotorKind::Walk));
+        let mut loco = LocomotorState::for_test_kind(LocomotorKind::Walk);
+        loco.set_walk_destination(flag("moving", false).then(|| DriveCoord::cell(6, 5, 0)));
+        victim.locomotor = Some(loco);
         set_mission(&mut victim, MissionType::Guard);
         if flag("target", false) {
             victim.attack_target = Some(crate::sim::combat::AttackTarget::new(9));
         }
         if flag("nav", false) {
             victim.navigation.nav_com = Some(NavTargetRef::cell(9, 9));
-        }
-        if flag("moving", false) {
-            victim.movement_target = Some(MovementTarget::default());
         }
         let owner = victim.owner();
         let type_ref = victim.type_ref();
@@ -285,7 +286,7 @@ fn damage_gates_match_original_execution() {
         let admitted = sim
             .infantry_scatter_admitted(
                 1,
-                ScatterFlags::new(false, false),
+                ScatterFlags::new(flag("forced", false), flag("no_kidding", false)),
                 &rules,
                 crate::sim::world::FrameEffects::default(),
             )
@@ -293,7 +294,7 @@ fn damage_gates_match_original_execution() {
         assert_eq!(admitted, row["admitted"].as_bool().unwrap(), "{input}");
         checked += 1;
     }
-    assert_eq!(checked, 278);
+    assert_eq!(checked, 554);
 }
 
 /// Without both flags, a deploy-family Doing refuses a human owner's man at

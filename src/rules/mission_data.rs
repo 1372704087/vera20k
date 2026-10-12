@@ -300,9 +300,12 @@ pub struct MissionControlEntry {
     pub aa_rate_frames: i32,
     /// Weapons disabled → ignored as a target until it fires (`NoThreat=`, def no).
     ///
-    /// **Parsed, no consumer.** Stock YR sets it on exactly two sections,
-    /// `[Harmless]` and `[Selling]`. Harmless is inert here — nothing shoots a
-    /// civilian anyway — but Selling is not. Trigger: an enemy building is
+    /// Stock YR sets it on exactly two sections, `[Harmless]` and `[Selling]`.
+    /// VERA reads it only in `FootClass::ReceiveDamage`'s teamless idle tail
+    /// (`0x004D749F..0x004D74C7`, `combat::world_receiver`): a Harmless Foot
+    /// hit by a source takes `Enter_Idle_Mode(0, 1)`.
+    ///
+    /// **No threat-scoring consumer.** Trigger: an enemy building is
     /// selected as a target during the seconds it spends on the Selling mission.
     /// Player effect: retail stops treating a building the player has sold as
     /// worth shooting, so the deconstruction runs out and the refund lands;

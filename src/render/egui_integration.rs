@@ -131,12 +131,6 @@ impl EguiIntegration {
             platform_output.cursor_icon = egui::CursorIcon::None;
         }
         self.state.handle_platform_output(window, platform_output);
-        // egui-winit caches cursor_icon and skips set_cursor_visible(false) when
-        // the icon hasn't changed between frames. Force it hidden unconditionally
-        // so the OS cursor never flashes on clicks or other non-move events.
-        if has_software_cursor {
-            window.set_cursor_visible(false);
-        }
 
         // Tessellate egui shapes into GPU-ready triangles.
         let paint_jobs: Vec<egui::epaint::ClippedPrimitive> = self

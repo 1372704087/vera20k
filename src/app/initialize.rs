@@ -163,6 +163,15 @@ impl App {
             )
             .with_visible(window_visible)
             .with_active(window_visible);
+        // macOS full screen hides the menu bar and Dock instead of revealing
+        // them at the edges the player scrolls against, where the system would
+        // draw its own cursor over the game's. winit applies this to its own
+        // set_fullscreen only, not to full screen from the title-bar button.
+        #[cfg(target_os = "macos")]
+        {
+            use winit::platform::macos::WindowAttributesExtMacOS;
+            window_attrs = window_attrs.with_borderless_game(true);
+        }
         // Capture windows stay hidden, so only a visible session shows the icon.
         let retail_icon = game_config
             .as_ref()
@@ -172,6 +181,10 @@ impl App {
             window_attrs = icon.apply(window_attrs);
         }
         let window: Arc<Window> = Arc::new(event_loop.create_window(window_attrs)?);
+        // gamemd's WinMain builds WWMouse (`0x006BDF1C`), whose constructor hides
+        // the cursor, before the startup splash; from the first frame after it,
+        // `show_os_cursor_only_without_game_cursor` owns the cursor.
+        window.set_cursor_visible(false);
         #[cfg(target_os = "macos")]
         if let Some(icon) = &retail_icon {
             icon.set_dock_icon();
@@ -613,6 +626,7 @@ impl App {
                 main_menu_movie_identity: None,
                 main_menu_movie_last_step: Instant::now(),
                 main_menu_shell_error,
+                status_screen_drawn: false,
                 version_txt,
                 shell_first_paint_slide: None,
                 shell_slide_active_shell: None,

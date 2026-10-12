@@ -295,12 +295,6 @@ pub(super) fn render_shell_frame(
     art: ShellFrameArt,
     overlay: ShellFrameOverlay,
 ) -> anyhow::Result<()> {
-    // Entry itself must select the cursor; no subsequent pointer event is
-    // required to undo the legacy pause menu's OS-cursor visibility.
-    state
-        .platform
-        .window
-        .set_cursor_visible(!state.use_software_cursor());
     #[cfg(feature = "dev-ui")]
     state
         .renderer

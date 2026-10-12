@@ -623,9 +623,16 @@ fn a_computer_mcv_deploy_turns_the_computers_paranoid() {
     rules.general.allies_allowed = true;
     let mut sim = deploy_sim(&rules);
     sim.session.game_mode_nonzero = true;
+    // Every house is of the fixture's one country, which `[Sides]` lists as
+    // Allied: a type outside every list would answer Find_Index's -1 for a
+    // ruleset without a `Civilian` side, and Can_Ally refuses that house.
+    let americans = sim.interner.intern("Americans");
     for (owner, human) in [("Player", true), ("Americans", false), ("Computer2", false)] {
-        add_house(&mut sim, owner, human);
         let id = sim.interner.intern(owner);
+        sim.houses.insert(
+            id,
+            crate::sim::house_state::HouseState::new(id, 0, Some(americans), human, 5000, 10),
+        );
         sim.session.house_order.push(id);
     }
     let mcv = sim

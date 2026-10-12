@@ -735,8 +735,8 @@ impl Simulation {
     /// tools/spatial_oracle/walk_percell_stop.{py,json,meta.json}.
     ///
     /// A Unit whose approach its mission's Approach carries
-    /// (`mission_owns_approach`: a Drive, Ship or Hover unit, or a crush
-    /// charge) takes the whole stop here, as natively; the pursuit stage
+    /// (`mission_owns_approach`) takes the whole stop here, as natively, a
+    /// Jumpjet one from its descent; the pursuit stage
     /// leaves it alone. For any other Unit that stage's in-range halt
     /// (`world_orders.rs`) stands in for the InRange arm, tested each frame,
     /// and only the `OpenTopped=` arm runs here. Every infantryman takes Infantry

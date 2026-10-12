@@ -7,8 +7,8 @@
 
 use super::{
     FULL_SCREEN_HELP, FULL_SCREEN_LABEL, LauncherCheckboxId, LauncherCue, LauncherOptionsEvent,
-    LauncherParentResult, LauncherTrackbarId, OptionsDialogState, PhysicalControlFrame, ZOOM_HELP,
-    ZOOM_LABEL, Zoom,
+    LauncherParentResult, LauncherTrackbarId, ORIGINAL_SHAPE_HELP, ORIGINAL_SHAPE_LABEL,
+    OptionsDialogState, PhysicalControlFrame, ZOOM_HELP, ZOOM_LABEL, Zoom,
 };
 use crate::ui::shell::descriptor::DialogId;
 use crate::ui::shell::geom::{RectPx, ShellScale, center_offset, child_window, dlu_rect};
@@ -79,7 +79,7 @@ pub(crate) struct LauncherOptionsLayout {
     /// The Zoom combo, in the resolution combo's retail place.
     pub(crate) zoom: RectPx,
     pub(crate) trackbars: [(LauncherTrackbarId, RectPx); 6],
-    pub(crate) checkboxes: [(LauncherCheckboxId, RectPx); 4],
+    pub(crate) checkboxes: [(LauncherCheckboxId, RectPx); 5],
     pub(crate) buttons: [(LauncherParentResult, RectPx); 3],
     /// The mapping the rects are in: [`ShellScale::RETAIL`] centres the
     /// authored dialog in the window, otherwise the authored dialog is
@@ -147,6 +147,9 @@ impl LauncherOptionsLayout {
                 // VERA's box sits under the Zoom combo, in the Display
                 // Options band the template leaves empty there.
                 (LauncherCheckboxId::FullScreen, dlu(234, 75, 120, 10)),
+                // And this one on the same row, under the Visual Details
+                // slider, where the band is empty too.
+                (LauncherCheckboxId::OriginalShape, dlu(89, 75, 130, 10)),
             ],
             buttons: [
                 (LauncherParentResult::Keyboard, button(KEYBOARD_BUTTON)),
@@ -281,6 +284,7 @@ impl OptionsDialogState {
             LauncherCheckboxId::TargetLines => &self.labels.target_lines,
             LauncherCheckboxId::ShowHidden => &self.labels.show_hidden,
             LauncherCheckboxId::FullScreen => FULL_SCREEN_LABEL,
+            LauncherCheckboxId::OriginalShape => ORIGINAL_SHAPE_LABEL,
         }
     }
 
@@ -318,6 +322,7 @@ impl OptionsDialogState {
             LauncherCheckboxId::TargetLines => self.values.target_lines,
             LauncherCheckboxId::ShowHidden => self.values.show_hidden,
             LauncherCheckboxId::FullScreen => self.values.full_screen,
+            LauncherCheckboxId::OriginalShape => self.values.original_shape,
         }
     }
 
@@ -413,6 +418,7 @@ impl OptionsDialogState {
                 }
                 LauncherCheckboxId::ShowHidden => LauncherStatusHelp::Csf("STT:MainOptCBoxHidden"),
                 LauncherCheckboxId::FullScreen => LauncherStatusHelp::Text(FULL_SCREEN_HELP),
+                LauncherCheckboxId::OriginalShape => LauncherStatusHelp::Text(ORIGINAL_SHAPE_HELP),
             });
         }
         layout
@@ -647,6 +653,10 @@ mod tests {
             at(layout.checkboxes[3].1),
             Some(LauncherStatusHelp::Text(FULL_SCREEN_HELP))
         );
+        assert_eq!(
+            at(layout.checkboxes[4].1),
+            Some(LauncherStatusHelp::Text(ORIGINAL_SHAPE_HELP))
+        );
         assert_eq!(state.shell_status_help_key(5, 5, &layout), None);
     }
 
@@ -846,6 +856,38 @@ mod tests {
             [
                 LauncherOptionsEvent::Cue(LauncherCue::Checkbox),
                 LauncherOptionsEvent::FullScreenChanged(true)
+            ]
+        );
+    }
+
+    #[test]
+    fn original_shape_box_shares_the_full_screen_row_and_applies_at_once() {
+        let mut state = state();
+        let layout = LauncherOptionsLayout::new(800, 600);
+        let (id, rect) = layout.checkboxes[4];
+        let full_screen = layout.checkboxes[3].1;
+        assert_eq!(id, LauncherCheckboxId::OriginalShape);
+        // Level with Full Screen, in the empty spot under Visual Details:
+        // clear of the slider, Full Screen and the Game Options heading.
+        assert_eq!((rect.y, rect.h), (full_screen.y, full_screen.h));
+        assert!(rect.x + rect.w <= full_screen.x);
+        let detail = layout.trackbar_rect(LauncherTrackbarId::Detail);
+        assert!(rect.y >= detail.y + detail.h);
+        let heading = state
+            .shell_labels(&layout)
+            .into_iter()
+            .find(|label| label.text == "Game Options")
+            .expect("Game Options heading")
+            .rect;
+        assert!(rect.y + rect.h <= heading.y);
+        assert_eq!(state.shell_checkbox_label(id), ORIGINAL_SHAPE_LABEL);
+        state.shell_mouse_down(rect.x + 5, rect.y + 5, &layout);
+        assert!(state.shell_checkbox_checked(id));
+        assert_eq!(
+            state.drain_output().events,
+            [
+                LauncherOptionsEvent::Cue(LauncherCue::Checkbox),
+                LauncherOptionsEvent::OriginalShapeChanged(true)
             ]
         );
     }

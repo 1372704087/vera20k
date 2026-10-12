@@ -72,8 +72,8 @@ pub struct PathsConfig {
 /// Graphics settings.
 ///
 /// Every field has a sensible default so `[graphics]` can be omitted entirely.
-/// Full screen and zoom are player choices on the Options page, saved in
-/// RA2MD.INI, not here.
+/// Full screen, zoom and the original 4:3 shape are player choices on the
+/// Options page, saved in RA2MD.INI, not here.
 #[derive(Debug, Deserialize)]
 pub struct GraphicsConfig {
     /// Whether to enable vertical sync (reduces tearing, caps framerate).

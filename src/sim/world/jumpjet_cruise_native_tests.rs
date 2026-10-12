@@ -776,6 +776,7 @@ fn execute_step(
                     touched_down: false,
                     impact: false,
                     crash_latched: false,
+                    bridge_state_changed: false,
                 };
                 let phase = match label {
                     "state1_decision" => jumpjet_flight::state1_ascend(runtime, &mut host),

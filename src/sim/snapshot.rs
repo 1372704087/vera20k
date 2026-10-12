@@ -971,7 +971,11 @@ use crate::sim::world::Simulation;
 // owners from a cold menu or another map; the Tactical view keeps its
 // committed center instead of the window-dependent top-left. Version 335
 // records lack these inputs.
-const SNAPSHOT_VERSION: u32 = 336;
+// 336 -> 337: objects keep the Magnetron's links and drop credit
+// (Techno+2AC/+2B0/+427/+428, Foot+6AE), and the warp credit house (+42C)
+// moves from the Chrono Warp payload to the object. Version 336 records
+// carry the payload's house.
+const SNAPSHOT_VERSION: u32 = 337;
 
 const SNAPSHOT_PRODUCT_MAGIC: [u8; 8] = *b"VERA20K\0";
 const SNAPSHOT_ENVELOPE_VERSION: u32 = 1;
@@ -4338,7 +4342,8 @@ mod tests {
         // 333 -> 334: the house's war factory count.
         // 334 -> 335: global Teleport delay and independent carrier relation.
         // 335 -> 336: saved world resources, local view and Tactical center.
-        assert_eq!(super::SNAPSHOT_VERSION, 336);
+        // 336 -> 337: Magnetron links and the object's warp credit house.
+        assert_eq!(super::SNAPSHOT_VERSION, 337);
     }
 
     #[test]

@@ -640,8 +640,8 @@ impl Simulation {
     /// clear it. Risk: a mod's walking jumpjet infantry fly.
     ///
     /// Returns false for the other unmigrated class setters.
-    /// DirectRocker reciprocal links, lifted-unit release, retained fire particles
-    /// and the Unit-produced +6AC latch still lack their production owners here.
+    /// DirectRocker reciprocal links, retained fire particles and the
+    /// Unit-produced +6AC latch still lack their production owners here.
     pub(crate) fn assign_infantry_destination(
         &mut self,
         id: u64,
@@ -714,7 +714,7 @@ impl Simulation {
                 .get_mut(id)
                 .ok_or("destination lost infantry after DoAction")?,
         );
-        if !self.begin_foot_destination(id, true) {
+        if !self.begin_foot_destination(id, true, Some(rules), registry, frame_effects) {
             return Ok(true);
         }
         match kind {

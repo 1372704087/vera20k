@@ -286,6 +286,9 @@ pub struct AirMovementTickStats {
     /// PerCell2 and class NULL synchronously; the Infantry caller continues
     /// its still separate class path.
     pub touched_down: bool,
+    /// A receiver Process ran synchronously (a dropped Jumpjet's impact)
+    /// changed a bridge.
+    pub bridge_state_changed: bool,
 }
 
 /// `ObjectClass::GetHeight @ 0x005F5F40`, shared by every object vtable

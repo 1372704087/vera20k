@@ -130,6 +130,16 @@ fn teleporter_unit(sim: &Simulation, entity: &GameEntity, rules: Option<&RuleSet
             .is_some_and(|object| object.teleporter)
 }
 
+/// `0x00741A96..0x00741ACD`: Unit Set_Destination refuses while the Unit
+/// deploys either way (`+0x6E1`, `+0x6E2`), and while it is deployed
+/// (`+0x6E0`) unless a Magnetron holds it (`+0x2B0`, `0x00741AC3`).
+fn deployment_refuses_destination(actor: &GameEntity) -> bool {
+    match actor.mission_leaf.as_unit() {
+        Some(leaf) if leaf.deployed() != 0 => actor.locomotor_source.is_none(),
+        _ => actor.is_deployed(),
+    }
+}
+
 pub(super) fn track_destination(entity: &GameEntity) -> Option<DriveCoord> {
     let loco = entity.locomotor.as_ref()?;
     loco.track_destination(super::track_process::TrackFamily::from_kind(loco.kind)?)
@@ -996,10 +1006,7 @@ impl Simulation {
         actor.setter_force_reassign = false;
         //741A96..741ACD, after the same-NavCom guard: deployment refuses
         // through Foot4DF0D0, which clears NavCom, not locomotor movement.
-        // Techno+2B0 can exempt6E0; its producer/lifecycle is unrepresented
-        // here and remains a separate residual (not Foot+6AD). The ordinary
-        // initialized MTNK controls in walk_first_path.json observe2B0=0.
-        if actor.is_deployed() {
+        if deployment_refuses_destination(actor) {
             super::navcom::foot_stop_moving(actor);
             return false;
         }
@@ -1175,7 +1182,7 @@ impl Simulation {
         if !depot_fast_return {
             self.unit_destination_power_on(id, Some(rules));
         }
-        if !self.begin_foot_destination(id, true) {
+        if !self.begin_foot_destination(id, true, Some(rules), None, frame_effects) {
             if depot_fast_return && let Some(actor) = self.substrate.entities.get_mut(id) {
                 actor.navigation.path_replay.clear_live_head();
             }
@@ -1361,9 +1368,9 @@ impl Simulation {
     /// tails the arm reaches consume it in the same call (`0x00742D0B`,
     /// `0x00743161`), so it is never stored.
     ///
-    /// The arm needs the Chronosphere's warp latch (Techno+0x27C), a lifted
-    /// owner (+0x2B0) and the Foot locomotor-swap byte (+0x6AD) clear; a
-    /// lifted owner has no producer in VERA and reads clear.
+    /// The arm needs the Chronosphere's warp latch (Techno+0x27C), a
+    /// Magnetron holding the owner (+0x2B0) and the Foot lifted byte
+    /// (+0x6AD) clear.
     ///
     /// The Drive install stashes the Teleport without a Stop, so a warp the
     /// Teleport had armed waits until End_Piggyback hands it back: the
@@ -1380,6 +1387,7 @@ impl Simulation {
         };
         if !teleporter_unit(self, actor, Some(rules))
             || actor.chrono_warp_latch()
+            || actor.locomotor_source.is_some()
             || actor.foot_locomotor_swap_active
         {
             return false;
@@ -1413,11 +1421,11 @@ impl Simulation {
             if active == LocomotorKind::Teleport {
                 return false;
             }
-            let actor = self.substrate.entities.get_mut(id).expect("same arm actor");
             // 0x0074250E..0x0074258A: a piggyback that may end ends instead.
-            if super::locomotor_owner::try_end_piggyback(actor) {
+            if self.try_end_piggyback(id, Some(rules)) {
                 return false;
             }
+            let actor = self.substrate.entities.get_mut(id).expect("same arm actor");
             super::navcom::track_stop_moving(actor);
             actor.setter_force_reassign = true;
             let _ = self.mission_assign_exact(id, crate::sim::mission::MissionId::NONE, frame);
@@ -1459,8 +1467,10 @@ impl Simulation {
     /// - The BalloonHover arm runs ahead of all of these
     ///   ([`Self::balloon_hover_keeps_nav_com`]).
     ///
-    /// Residual (not represented): the +2B0 linked-object branches (0x741ABD
-    /// /0x742E3A).
+    /// Residual (not represented): a Unit a Magnetron holds (+2B0) sent to
+    /// a `WeaponsFactory=` building skips that building's exit arm
+    /// (0x742D8A -> 0x742E3A). Only a building firing an `IsLocomotor=`
+    /// warhead could send it there, and no stock building does.
     /// A Jumpjet Stop's failed search retains the caller's overlay context
     /// for synchronous damage; callers without that context retain their
     /// existing damage-closure limitation.
@@ -1501,7 +1511,7 @@ impl Simulation {
         if let Some(actor) = self.substrate.entities.get_mut(id) {
             actor.setter_force_reassign = false;
             //741A96..741ACD; same native owner as the non-null setter.
-            if actor.is_deployed() {
+            if deployment_refuses_destination(actor) {
                 super::navcom::foot_stop_moving(actor);
                 return false;
             }

@@ -913,23 +913,41 @@ mod retail_construction_tests {
         country: &str,
         types: &[&str],
     ) -> (crate::sim::intern::InternedId, Vec<u64>) {
-        use crate::sim::movement::locomotor::MovementLayer;
-
-        let country_id = sim.interner.get(country).expect("retail country interned");
-        let house = sim
-            .houses
-            .iter()
-            .find(|(_, house)| house.country == Some(country_id))
-            .map(|(&id, _)| id)
-            .expect("a house of the country");
+        let house = house_of(sim, country);
         let (bx, by) = sim.houses[&house]
             .base_center
             .expect("the base has a centre");
+        let cells = (0..900).map(|n| (i32::from(bx) + n % 30 - 15, i32::from(by) + n / 30 - 15));
+        let spawned = spawn_on_free_cells(sim, rules, house, cells, types);
+        (house, spawned)
+    }
+
+    /// The first house of `country`.
+    fn house_of(sim: &Simulation, country: &str) -> crate::sim::intern::InternedId {
+        let country_id = sim.interner.get(country).expect("retail country interned");
+        sim.houses
+            .iter()
+            .find(|(_, house)| house.country == Some(country_id))
+            .map(|(&id, _)| id)
+            .expect("a house of the country")
+    }
+
+    /// Spawns `types` for `house`, in order, each on the next of `cells`
+    /// that is a free infantry cell.
+    fn spawn_on_free_cells(
+        sim: &mut Simulation,
+        rules: &crate::rules::ruleset::RuleSet,
+        house: crate::sim::intern::InternedId,
+        cells: impl IntoIterator<Item = (i32, i32)>,
+        types: &[&str],
+    ) -> Vec<u64> {
+        use crate::sim::movement::locomotor::MovementLayer;
+
         let owner = sim.interner.resolve(house).to_string();
-        let free: Vec<(u16, u16)> = (0..900)
-            .filter_map(|n| {
-                let rx = u16::try_from(i32::from(bx) + n % 30 - 15).ok()?;
-                let ry = u16::try_from(i32::from(by) + n / 30 - 15).ok()?;
+        let free: Vec<(u16, u16)> = cells
+            .into_iter()
+            .filter_map(|(rx, ry)| {
+                let (rx, ry) = (u16::try_from(rx).ok()?, u16::try_from(ry).ok()?);
                 let walkable = sim
                     .path_grid()
                     .is_some_and(|grid| grid.is_walkable_for_infantry(rx, ry));
@@ -942,7 +960,7 @@ mod retail_construction_tests {
             })
             .collect();
         let mut free = free.into_iter();
-        let spawned = types
+        types
             .iter()
             .map(|type_name| {
                 free.by_ref()
@@ -950,10 +968,19 @@ mod retail_construction_tests {
                         let z = sim.terrain_cell_level(rx, ry).unwrap_or(0);
                         sim.spawn_object_at_height(type_name, &owner, rx, ry, 0, z, rules)
                     })
-                    .expect("a free cell near the base")
+                    .expect("a free cell")
             })
-            .collect();
-        (house, spawned)
+            .collect()
+    }
+
+    /// The cells within 10 of `centre` on both axes, nearest first.
+    fn cells_nearest(centre: (i32, i32)) -> Vec<(i32, i32)> {
+        let mut offsets: Vec<(i32, i32)> = (0..441).map(|n| (n % 21 - 10, n / 21 - 10)).collect();
+        offsets.sort_by_key(|&(dx, dy)| (dx * dx + dy * dy, dy, dx));
+        offsets
+            .into_iter()
+            .map(|(dx, dy)| (centre.0 + dx, centre.1 + dy))
+            .collect()
     }
 
     /// Two retail Yuri TeamTypes whose members are spawned beside the Yuri
@@ -1323,6 +1350,171 @@ mod retail_construction_tests {
             } else {
                 assert_eq!(transport_left, None, "the HTK left its team");
             }
+        }
+    }
+
+    /// Computer engineers capture once hit on Guard, in two XMP03T4 duels
+    /// of a Hard Russia against an idle America whose MCV deploys on frame 1:
+    /// - a lone Soviet Engineer two cells from two American GIs: shot on
+    ///   Guard, it queues Hunt (`0x00518BF2`), and Mission_Hunt's engineer arm
+    ///   (`0x004D53BA`) sends it to capture what its scan finds;
+    /// - "Soviet Engineer vs Ally" (`0C143EFC-G`, an HTK and five Soviet
+    ///   Engineers) against three Rhino Tanks by the yard: unloaded, the
+    ///   engineers stand on Guard until action 46 gives them Attack, and one
+    ///   hit on Guard hunts and captures.
+    ///
+    /// Each prints when an engineer first hunted and first took Capture, and
+    /// must take the American Construction Yard.
+    #[test]
+    #[ignore = "requires RA2_DIR with installed retail RA2/YR assets"]
+    fn retail_computer_engineers_capture_once_hit() {
+        use crate::sim::command::{Command, CommandEnvelope};
+        use crate::sim::mission::MissionType;
+        use crate::skirmish_launch::{AiDifficulty, LaunchCountry};
+
+        for lone in [true, false] {
+            let (mut scenario, _) = retail_battle(
+                |session| {
+                    session.local.country = LaunchCountry::America;
+                    session.options.unit_count = 0;
+                },
+                &[(LaunchCountry::Russia, AiDifficulty::Hard)],
+            );
+            let sim = scenario.sim();
+            let human = sim
+                .houses
+                .iter()
+                .find(|(_, house)| house.is_controlled_by_human(true))
+                .map(|(&id, _)| id)
+                .expect("the local house");
+            let mcv = sim
+                .substrate
+                .entities
+                .iter_sorted()
+                .find(|(_, entity)| entity.owner() == human)
+                .map(|(id, _)| id)
+                .expect("the local MCV");
+            let deploy = CommandEnvelope::new(
+                human,
+                sim.session.tick + 1,
+                Command::DeployMcv { entity_id: mcv },
+            );
+            scenario
+                .runtime
+                .advance_frame(
+                    &[deploy],
+                    SIM_TICK_MS,
+                    crate::sim::world::TickLane::Ordinary,
+                    crate::sim::world::FrameEffects::default(),
+                )
+                .expect("simulation frame failed; prior world mutations remain");
+            for _ in 0..1500 {
+                scenario.tick();
+            }
+            let runtime = &mut scenario.runtime;
+            let (sim, resources) = (&mut runtime.simulation, &runtime.resources);
+            let yard = sim
+                .substrate
+                .entities
+                .iter_sorted()
+                .find(|(_, entity)| entity.owner() == human)
+                .map(|(id, _)| id)
+                .expect("the local Construction Yard");
+            let at = |sim: &Simulation, id| {
+                let entity = sim.entities().get(id).expect("spawned");
+                (i32::from(entity.position.rx), i32::from(entity.position.ry))
+            };
+            let (yx, yy) = at(sim, yard);
+            let russians = house_of(sim, "Russians");
+            let engineers = if lone {
+                let gis = spawn_on_free_cells(
+                    sim,
+                    &resources.rules,
+                    human,
+                    cells_nearest((yx - 4, yy - 4)),
+                    &["E1", "E1"],
+                );
+                let (gx, gy) = at(sim, gis[0]);
+                spawn_on_free_cells(
+                    sim,
+                    &resources.rules,
+                    russians,
+                    cells_nearest((gx + 2, gy + 2)),
+                    &["SENGINEER"],
+                )
+            } else {
+                let (house, spawned) = spawn_beside_base(
+                    sim,
+                    &resources.rules,
+                    "Russians",
+                    &[
+                        "HTK",
+                        "SENGINEER",
+                        "SENGINEER",
+                        "SENGINEER",
+                        "SENGINEER",
+                        "SENGINEER",
+                    ],
+                );
+                let id = sim
+                    .interner
+                    .get("0C143EFC-G")
+                    .expect("retail TeamType interned");
+                // The computer house may already have made the team; then it
+                // recruits the new members.
+                sim.create_team(id, Some(house), &resources.rules)
+                    .or_else(|| {
+                        sim.team_script_vm
+                            .teams_in_order()
+                            .find(|team| team.team_type_id() == Some(id) && team.owner() == house)
+                            .map(|team| team.id())
+                    })
+                    .expect("a team of the TeamType");
+                spawn_on_free_cells(
+                    sim,
+                    &resources.rules,
+                    human,
+                    cells_nearest((yx + 3, yy + 3)),
+                    &["MTNK", "MTNK", "MTNK"],
+                );
+                spawned[1..].to_vec()
+            };
+            let label = if lone { "lone engineer" } else { "0C143EFC-G" };
+            let (mut hunted, mut capturing, mut captured) = (None, None, None);
+            for frame in 1..=4_000u32 {
+                scenario.tick();
+                let sim = scenario.sim();
+                for &id in &engineers {
+                    let Some(entity) = sim.entities().get(id) else {
+                        continue;
+                    };
+                    let current = entity.mission.current().known();
+                    if hunted.is_none()
+                        && (current == Some(MissionType::Hunt)
+                            || entity.mission.queued().known() == Some(MissionType::Hunt))
+                    {
+                        hunted = Some((frame, id));
+                    }
+                    if capturing.is_none() && current == Some(MissionType::Capture) {
+                        capturing = Some((frame, id));
+                    }
+                }
+                if sim
+                    .entities()
+                    .get(yard)
+                    .is_some_and(|entity| entity.owner() == russians)
+                {
+                    captured = Some(frame);
+                    break;
+                }
+            }
+            eprintln!(
+                "{label}: hunted at {hunted:?}, took Capture at {capturing:?}, \
+                 captured the yard at {captured:?}"
+            );
+            assert!(hunted.is_some(), "{label}: no engineer hunted");
+            assert!(capturing.is_some(), "{label}: no engineer took Capture");
+            assert!(captured.is_some(), "{label}: the yard was not captured");
         }
     }
 }

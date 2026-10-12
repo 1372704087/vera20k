@@ -940,7 +940,9 @@ use crate::sim::world::Simulation;
 // registry, neutral Tactical view/focus metadata, and per-plane native map-cell
 // edge cache/canonical Dummy visibility survive campaign load.
 // Prior bincode records cannot resume these lifecycle and camera authorities.
-const SNAPSHOT_VERSION: u32 = 327;
+// 327 -> 328: each house keeps the last building it lost to an owner change
+// (HouseClass+0x54E0). Version 327 records lack this field.
+const SNAPSHOT_VERSION: u32 = 328;
 
 const SNAPSHOT_PRODUCT_MAGIC: [u8; 8] = *b"VERA20K\0";
 const SNAPSHOT_ENVELOPE_VERSION: u32 = 1;
@@ -4070,7 +4072,8 @@ mod tests {
         // 325 -> 326: each overlay cell's rubble building type.
         // 326 -> 327: live Tag/Trigger and typed deletion owners, retained
         // LoadObject registry, and neutral Tactical view/focus metadata.
-        assert_eq!(super::SNAPSHOT_VERSION, 327);
+        // 327 -> 328: each house's last lost building (+0x54E0).
+        assert_eq!(super::SNAPSHOT_VERSION, 328);
     }
 
     #[test]

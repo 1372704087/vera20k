@@ -28,19 +28,8 @@
 //!   (`0x0051E37C..0x0051E38C`).
 //! - `VehicleThief=` (`+0xEC6`): its early return of the NavCom target
 //!   within `0xF00` leptons (`0x0051E21C..0x0051E285`, UNCHECKED).
-//!
-//! Live, not ported:
-//! - `House+0x54E0`, which `BuildingClass::ChangeOwner @ 0x00448C70` writes
-//!   (identity UNCHECKED, likely the building the house last lost to
-//!   capture). A computer engineer returns it without scanning when it lies
-//!   within `0xF00` leptons (`0x0051E16E..0x0051E209`). Trigger: a computer
-//!   engineer's scan after its house lost a building nearby. Effect: the
-//!   engineer scans instead of going back for it; retail engineers are
-//!   armed (`DefuseKit`), so the scan takes a `Capturable=` building
-//!   (`0x200`) in reach. Frequency: rare; the house must lose a building to
-//!   capture near its engineer.
-//! - `FootClass+0x688` coerces the mask to `(mask & ~2) | 1`; see
-//!   [`super::greatest_threat::greatest_threat`].
+
+use std::ops::ControlFlow;
 
 use crate::map::entities::EntityCategory;
 
@@ -59,11 +48,14 @@ pub(super) fn unit_override(mask: u32, class_bits: impl FnOnce() -> u32) -> u32 
 }
 
 /// What the Infantry override (`0x0051E140`) reads of its scanner.
-pub(super) struct InfantryScanner<C, W> {
+pub(super) struct InfantryScanner<C, W, L> {
     /// `HouseClass::IsControlledByHuman @ 0x0050B730` of the owner.
     pub(super) human: bool,
     /// `Engineer=` (`+0xEC3`).
     pub(super) engineer: bool,
+    /// The owner's House+54E0 building when it lies within `0xF00` leptons
+    /// (`0x0051E16E..0x0051E1F6`).
+    pub(super) lost_building: L,
     /// `Is_Armed` (vt+0x2AC, `0x00701120`).
     pub(super) armed: bool,
     /// `Infiltrate=` (`+0xEBE`).
@@ -78,22 +70,30 @@ pub(super) struct InfantryScanner<C, W> {
     pub(super) primary_warhead_spares_medium_and_wood: W,
 }
 
-/// Infantry `+0x3C4` (`0x0051E140`). `None` is its `return 0` for an unarmed
+/// Infantry `+0x3C4` (`0x0051E140`). It breaks with what it returns before
+/// any scan: a computer engineer's lost building, or nothing for an unarmed
 /// scanner that neither infiltrates nor steals vehicles.
-pub(super) fn infantry_override<C, W>(mask: u32, scanner: InfantryScanner<C, W>) -> Option<u32>
+pub(super) fn infantry_override<C, W, L>(
+    mask: u32,
+    scanner: InfantryScanner<C, W, L>,
+) -> ControlFlow<Option<u64>, u32>
 where
     C: FnOnce() -> u32,
     W: FnOnce() -> bool,
+    L: FnOnce() -> Option<u64>,
 {
     let mut mask = mask;
-    // `0x0051E147..0x0051E216`; the House+0x54E0 early return is a residual.
+    // `0x0051E147..0x0051E216`.
     if !scanner.human && scanner.engineer {
+        if let Some(building) = (scanner.lost_building)() {
+            return ControlFlow::Break(Some(building));
+        }
         mask |= 0x200;
     }
     // `0x0051E288..0x0051E2C4`.
     if !scanner.armed {
         if !scanner.infiltrate && !scanner.vehicle_thief {
-            return None;
+            return ControlFlow::Break(None);
         }
         if scanner.vehicle_thief {
             mask = (mask & !0xA4) | 0x10;
@@ -111,7 +111,7 @@ where
     if scanner.c4 && !scanner.human {
         mask |= 0x20;
     }
-    Some(mask)
+    ControlFlow::Continue(mask)
 }
 
 /// Building `+0x3C4` (`0x00445F00`): both slots' class bits and bit 0,
@@ -216,10 +216,12 @@ mod tests {
         human: bool,
         armed: bool,
         spares: bool,
-    ) -> InfantryScanner<impl FnOnce() -> u32, impl FnOnce() -> bool> {
+    ) -> InfantryScanner<impl FnOnce() -> u32, impl FnOnce() -> bool, impl FnOnce() -> Option<u64>>
+    {
         InfantryScanner {
             human,
             engineer: false,
+            lost_building: || None,
             armed,
             infiltrate: false,
             vehicle_thief: false,
@@ -231,37 +233,74 @@ mod tests {
 
     #[test]
     fn infantry_override_follows_the_native_step_order() {
+        use ControlFlow::{Break, Continue};
         // A dog's primary spares medium and wood: the AA and vehicle bits go.
-        assert_eq!(infantry_override(1, infantry(false, true, true)), Some(0x9));
+        assert_eq!(
+            infantry_override(1, infantry(false, true, true)),
+            Continue(0x9)
+        );
         assert_eq!(
             infantry_override(0x20, infantry(false, true, true)),
-            Some(0)
+            Continue(0)
         );
         assert_eq!(
             infantry_override(0x8, infantry(false, true, false)),
-            Some(0x8)
+            Continue(0x8)
         );
         // Unarmed and neither infiltrator nor thief: nothing.
-        assert_eq!(infantry_override(0x20, infantry(false, false, false)), None);
+        assert_eq!(
+            infantry_override(0x20, infantry(false, false, false)),
+            Break(None)
+        );
         let mut spy = infantry(false, false, false);
         spy.infiltrate = true;
-        assert_eq!(infantry_override(0x20, spy), Some(0x20));
+        assert_eq!(infantry_override(0x20, spy), Continue(0x20));
         // A computer C4 infantryman also takes buildings; a human one does not.
         let mut tanya = infantry(false, true, false);
         tanya.c4 = true;
-        assert_eq!(infantry_override(0x8, tanya), Some(0x28));
+        assert_eq!(infantry_override(0x8, tanya), Continue(0x28));
         let mut tanya = infantry(true, true, false);
         tanya.c4 = true;
-        assert_eq!(infantry_override(0x8, tanya), Some(0x8));
+        assert_eq!(infantry_override(0x8, tanya), Continue(0x8));
         // A computer engineer asks for Capturable buildings before the
         // unarmed test turns it away.
         let mut engineer = infantry(false, false, false);
         engineer.engineer = true;
-        assert_eq!(infantry_override(0x20, engineer), None);
+        assert_eq!(infantry_override(0x20, engineer), Break(None));
         let mut engineer = infantry(false, false, false);
         engineer.engineer = true;
         engineer.infiltrate = true;
-        assert_eq!(infantry_override(0x20, engineer), Some(0x220));
+        assert_eq!(infantry_override(0x20, engineer), Continue(0x220));
+    }
+
+    #[test]
+    fn a_computer_engineer_returns_its_lost_building_in_reach() {
+        use ControlFlow::{Break, Continue};
+        let engineer = |human, lost: Option<u64>| InfantryScanner {
+            human,
+            engineer: true,
+            lost_building: move || lost,
+            armed: true,
+            infiltrate: false,
+            vehicle_thief: false,
+            c4: false,
+            class_bits: || 0xBC,
+            primary_warhead_spares_medium_and_wood: || false,
+        };
+        assert_eq!(
+            infantry_override(0x20, engineer(false, Some(7))),
+            Break(Some(7))
+        );
+        // Out of reach (or none), it scans for Capturable buildings.
+        assert_eq!(
+            infantry_override(0x20, engineer(false, None)),
+            Continue(0x220)
+        );
+        // A human engineer neither returns it nor asks for buildings.
+        assert_eq!(
+            infantry_override(0x20, engineer(true, Some(7))),
+            Continue(0x20)
+        );
     }
 
     #[test]

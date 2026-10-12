@@ -4975,6 +4975,17 @@ impl Simulation {
             entity.has_been_captured = true;
             entity.repairing = false;
         }
+        // `0x00448C6E..0x00448C94`, after the owner swap: the old house
+        // records the building it lost (House+54E0), and the new house
+        // forgets it if it had lost it before.
+        if category == EntityCategory::Structure {
+            if let Some(house) = self.houses.get_mut(&old_owner) {
+                house.record_lost_building(stable_id);
+            }
+            if let Some(house) = self.houses.get_mut(&new_owner) {
+                house.forget_lost_building(stable_id);
+            }
+        }
         // A factory leaves the old house's counter (Recount, `0x0044870E`)
         // and joins the new one's (IncrementFactoryCount, `0x00448CDD`),
         // whether it is in limbo or not.

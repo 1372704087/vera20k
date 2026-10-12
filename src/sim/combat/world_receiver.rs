@@ -995,6 +995,26 @@ pub(crate) fn commit_entities(
                             .wrapping_add(attacker.position.sub_y.to_num::<i32>()),
                     )
                 });
+            // `0x00518BF2..0x00518C3F`, ahead of Scatter and with or without a
+            // source: a computer house's `Engineer=` infantryman whose mission
+            // (vt+0x184) is Guard or Area Guard queues Hunt (vt+0x1E8(Hunt,
+            // 0)). Mission_Hunt's engineer arm then sends it to capture what
+            // its scan finds.
+            if surviving_infantry_result
+                && let Some(target) = world.substrate.entities.get(target_id)
+                && target.category == EntityCategory::Infantry
+                && !world.owner_is_human(target.owner())
+                && rules
+                    .object(world.interner.resolve(target.type_ref()))
+                    .is_some_and(|object| object.engineer)
+                && matches!(
+                    target.mission.effective().known(),
+                    Some(MissionType::Guard | MissionType::AreaGuard)
+                )
+                && let Some(target) = world.substrate.entities.get_mut(target_id)
+            {
+                queue_entity_mission_deferred(target, MissionId::from_known(MissionType::Hunt));
+            }
             let scatter = if surviving_infantry_result {
                 attacker_coord.and_then(|attacker_coord| {
                     world.select_infantry_damage_scatter(

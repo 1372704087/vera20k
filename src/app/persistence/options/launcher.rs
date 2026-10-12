@@ -18,7 +18,8 @@ use crate::ui::main_menu_dialogs::options::{
 /// gamemd-derived: launcher primary-proc setup at
 /// `0x0055FDB0..0x0056047A`. Trackbar set-position rejects an out-of-range
 /// request and leaves the fresh position at zero; it does not clamp. VERA's
-/// Full Screen box starts unticked; the opener sets it from the window.
+/// Full Screen box starts unticked; the opener sets it from the window. Its
+/// Original 4:3 Shape box shows the retained choice.
 pub(crate) fn launcher_values_from_profile(
     profile: &RetailOptionsProfile,
 ) -> LauncherOptionsValues {
@@ -30,6 +31,7 @@ pub(crate) fn launcher_values_from_profile(
         target_lines: profile.unit_action_lines,
         show_hidden: profile.show_hidden,
         full_screen: false,
+        original_shape: profile.original_shape,
         score_position: admitted_volume_position(profile.score_volume),
         sound_position: admitted_volume_position(profile.sound_volume),
         voice_position: admitted_volume_position(profile.voice_volume),
@@ -61,10 +63,11 @@ pub(crate) trait LauncherPreviewOperations: AudioVolumeOperations {
     fn play_cue(&mut self, cue: LauncherCue);
     fn store_zoom(&mut self, zoom: Zoom);
     fn set_full_screen(&mut self, full_screen: bool);
+    fn store_original_shape(&mut self, original_shape: bool);
 }
 
 /// Dispatch one already-ordered UI event without an INI write. The three audio
-/// paths preserve native profile -> output -> cue order; the two display
+/// paths preserve native profile -> output -> cue order; the three display
 /// choices take effect at once.
 pub(crate) fn dispatch_launcher_preview_event(
     operations: &mut impl LauncherPreviewOperations,
@@ -75,6 +78,9 @@ pub(crate) fn dispatch_launcher_preview_event(
         LauncherOptionsEvent::ZoomSelected(zoom) => operations.store_zoom(zoom),
         LauncherOptionsEvent::FullScreenChanged(full_screen) => {
             operations.set_full_screen(full_screen);
+        }
+        LauncherOptionsEvent::OriginalShapeChanged(original_shape) => {
+            operations.store_original_shape(original_shape);
         }
         LauncherOptionsEvent::ScorePreview(volume) => {
             apply_volume(operations, AudioVolume::Score, volume, true)
@@ -284,6 +290,7 @@ mod tests {
             sound_volume: 0.5,
             voice_volume: 0.8,
             zoom: Zoom::Huge,
+            original_shape: true,
             ..RetailOptionsProfile::default()
         };
         let dialog = launcher_dialog_from_profile(
@@ -295,6 +302,9 @@ mod tests {
         assert_eq!(dialog.shell_selected_zoom_text(), Zoom::Huge.label());
         assert!(dialog.shell_checkbox_checked(
             crate::ui::main_menu_dialogs::options::LauncherCheckboxId::FullScreen
+        ));
+        assert!(dialog.shell_checkbox_checked(
+            crate::ui::main_menu_dialogs::options::LauncherCheckboxId::OriginalShape
         ));
 
         assert_eq!(
@@ -319,6 +329,7 @@ mod tests {
         Cue(LauncherCue),
         Zoom(Zoom),
         FullScreen(bool),
+        OriginalShape(bool),
         StoreScore(f32),
         OutputScore(f32),
         StoreSound(f32),
@@ -344,6 +355,10 @@ mod tests {
 
         fn set_full_screen(&mut self, full_screen: bool) {
             self.calls.push(PreviewCall::FullScreen(full_screen));
+        }
+
+        fn store_original_shape(&mut self, original_shape: bool) {
+            self.calls.push(PreviewCall::OriginalShape(original_shape));
         }
     }
 
@@ -390,6 +405,7 @@ mod tests {
         for event in [
             LauncherOptionsEvent::Cue(LauncherCue::Checkbox),
             LauncherOptionsEvent::FullScreenChanged(true),
+            LauncherOptionsEvent::OriginalShapeChanged(true),
             LauncherOptionsEvent::ZoomSelected(Zoom::Large),
             LauncherOptionsEvent::ScorePreview(0.4),
             LauncherOptionsEvent::SoundPreview(0.7),
@@ -402,6 +418,7 @@ mod tests {
             [
                 PreviewCall::Cue(LauncherCue::Checkbox),
                 PreviewCall::FullScreen(true),
+                PreviewCall::OriginalShape(true),
                 PreviewCall::Zoom(Zoom::Large),
                 PreviewCall::StoreScore(0.4),
                 PreviewCall::OutputScore(0.4),
@@ -620,6 +637,7 @@ mod tests {
             target_lines: false,
             show_hidden: true,
             full_screen: false,
+            original_shape: false,
             score_position,
             sound_position: 7,
             voice_position: 3,

@@ -44,6 +44,10 @@ impl crate::app::persistence::options::launcher::LauncherPreviewOperations for A
     fn set_full_screen(&mut self, full_screen: bool) {
         App::set_full_screen(self, full_screen);
     }
+    fn store_original_shape(&mut self, original_shape: bool) {
+        self.persistence.options_profile.original_shape = original_shape;
+        App::sync_zoom_pass(self);
+    }
 }
 
 struct AppStateLauncherParentOperations<'a> {

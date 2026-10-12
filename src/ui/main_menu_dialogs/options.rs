@@ -52,12 +52,16 @@ pub(crate) const LAUNCHER_LABEL_SPECS: [(&str, &str); 30] = [
 ];
 
 /// VERA's own captions and status help on this page. The retail string table
-/// has nothing for full screen or zoom, so these are English everywhere.
+/// has nothing for full screen, zoom or the battle shape, so these are English
+/// everywhere.
 pub(crate) const ZOOM_LABEL: &str = "Zoom";
 pub(crate) const ZOOM_HELP: &str =
     "How big battles look. Auto picks the best size for your screen.";
 pub(crate) const FULL_SCREEN_LABEL: &str = "Full Screen";
 pub(crate) const FULL_SCREEN_HELP: &str = "Fill the whole screen. Untick it to play in a window.";
+pub(crate) const ORIGINAL_SHAPE_LABEL: &str = "Original 4:3 Shape";
+pub(crate) const ORIGINAL_SHAPE_HELP: &str =
+    "Battles keep the original 4:3 shape, with bars on wide screens.";
 
 /// VERA's battle zoom: the Options combo that took the place of gamemd's
 /// resolution list (`0x005601A0..0x00560270`). The window keeps the size the
@@ -238,6 +242,9 @@ pub(crate) enum LauncherCheckboxId {
     /// VERA's own box: the window fills the screen. It changes the window at
     /// once instead of waiting for the parent's accept.
     FullScreen,
+    /// VERA's own box: battles keep gamemd's 4:3 screen shape instead of the
+    /// window's. Like Full Screen, it applies at once.
+    OriginalShape,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -257,6 +264,7 @@ pub(crate) enum LauncherOptionsEvent {
     Cue(LauncherCue),
     ZoomSelected(Zoom),
     FullScreenChanged(bool),
+    OriginalShapeChanged(bool),
     ScorePreview(f32),
     SoundPreview(f32),
     VoicePreview(f32),
@@ -289,6 +297,7 @@ pub(crate) struct LauncherOptionsValues {
     pub(crate) show_hidden: bool,
     /// The window's state when the page opened, then each toggle.
     pub(crate) full_screen: bool,
+    pub(crate) original_shape: bool,
     pub(crate) score_position: u8,
     pub(crate) sound_position: u8,
     pub(crate) voice_position: u8,
@@ -304,6 +313,7 @@ impl Default for LauncherOptionsValues {
             target_lines: true,
             show_hidden: false,
             full_screen: false,
+            original_shape: false,
             score_position: 4,
             sound_position: 7,
             voice_position: 7,
@@ -585,14 +595,22 @@ impl OptionsDialogState {
             LauncherCheckboxId::TargetLines => &mut self.values.target_lines,
             LauncherCheckboxId::ShowHidden => &mut self.values.show_hidden,
             LauncherCheckboxId::FullScreen => &mut self.values.full_screen,
+            LauncherCheckboxId::OriginalShape => &mut self.values.original_shape,
         };
         *slot = !*slot;
         let checked = *slot;
         self.pending_events
             .push(LauncherOptionsEvent::Cue(LauncherCue::Checkbox));
-        if id == LauncherCheckboxId::FullScreen {
-            self.pending_events
-                .push(LauncherOptionsEvent::FullScreenChanged(checked));
+        match id {
+            LauncherCheckboxId::FullScreen => self
+                .pending_events
+                .push(LauncherOptionsEvent::FullScreenChanged(checked)),
+            LauncherCheckboxId::OriginalShape => self
+                .pending_events
+                .push(LauncherOptionsEvent::OriginalShapeChanged(checked)),
+            LauncherCheckboxId::Tooltips
+            | LauncherCheckboxId::TargetLines
+            | LauncherCheckboxId::ShowHidden => {}
         }
     }
 
@@ -981,6 +999,25 @@ mod tests {
             ]
         );
         // The full-screen state is the window's, not part of the accepted pack.
+        assert_eq!(state.pack(), self::state(true).pack());
+    }
+
+    #[test]
+    fn original_shape_box_reports_each_toggle_after_its_cue() {
+        let mut state = state(true);
+        for checked in [true, false] {
+            state.checkbox_mouse_down(LauncherCheckboxId::OriginalShape, frame(5, 5, 195, 16));
+            assert_eq!(state.values.original_shape, checked);
+            assert_eq!(
+                state.drain_output().events,
+                [
+                    LauncherOptionsEvent::Cue(LauncherCue::Checkbox),
+                    LauncherOptionsEvent::OriginalShapeChanged(checked),
+                ]
+            );
+        }
+        // Applied at once, so the accepted pack never carries it.
+        state.checkbox_mouse_down(LauncherCheckboxId::OriginalShape, frame(5, 5, 195, 16));
         assert_eq!(state.pack(), self::state(true).pack());
     }
 

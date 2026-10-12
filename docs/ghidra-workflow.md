@@ -420,9 +420,9 @@ placed wrong. Each pops what the native code pops (the frame check's walker), as
 with the slot implementation's types where the decompile shows the object's class. An
 override is a label in the function's `override` namespace beside a function definition
 in `/auto_proto`. GhidraMCP's `create_label` writes only global labels, so they are
-written by an `analyzeHeadless` script (`SetCallOverride.java`) while the shared server is
-stopped. Calls whose pops the walker cannot solve one by one (two unknown calls between
-known depths) have none yet.
+written by an `analyzeHeadless` script (`SetCallOverride.java`) while the shared server
+is stopped. Calls whose pops the walker cannot solve one by one (two unknown calls
+between known depths) have none yet.
 
 ## Class layouts
 

@@ -441,16 +441,24 @@ impl Simulation {
         !self.set_original_owner_to_civilian(controller, id, rules)
     }
 
-    /// The first house in HouseClass::Array order whose side is `Civilian`
-    /// (`SideClass::FindIndex("Civilian") @ 0x006A46D0` against each
-    /// house type's side), as `SetOriginalOwnerToCivilian` and the slave
-    /// release (`0x006B0B0B..0x006B0B38`) look it up.
+    /// The first house in HouseClass::Array order whose HouseType's side
+    /// (`[house+0x34]+0xBC`) equals `SideClass::Find_Index("Civilian")`
+    /// (`0x006A46D0`). Its five native callers walk the array the same way:
+    /// AI trigger condition 7 (`0x0041ECB5`), `SetOriginalOwnerToCivilian`
+    /// (`0x00472341`), AnimClass::AI's MakeInfantry owner (`0x004249A7`),
+    /// `CheckAutoSellOrCivilian` (`0x0045823D`) and FreeSlaves
+    /// (`0x006B0B0B`). None guards Find_Index's -1, and a HouseType outside
+    /// every `[Sides]` list keeps its constructor's -1, so without a
+    /// `Civilian` side the first such house is the answer (native row
+    /// `missing_side_matches_negative_one_house`,
+    /// `tools/garrison_oracle/allegiance.json`). `HouseState::side_index` is
+    /// not asked: its fallbacks name a side for a country without one.
     pub(crate) fn civilian_side_house(&self, rules: &RuleSet) -> Option<InternedId> {
-        let civilian_side = rules.side_index("Civilian")?;
+        let civilian = rules.side_index("Civilian");
         self.session.house_order.iter().copied().find(|owner| {
-            self.houses
-                .get(owner)
-                .is_some_and(|house| house.side_index == civilian_side.0)
+            self.houses.get(owner).is_some_and(|house| {
+                rules.country_side_index(self.interner.resolve(house.house_type_id())) == civilian
+            })
         })
     }
 

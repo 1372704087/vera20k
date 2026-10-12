@@ -1461,7 +1461,8 @@ fn test_issue_move_command_queue_appends_waypoint_path() {
         .as_ref()
         .expect("should keep movement target");
     // The appended search admits the queued order but keeps no cells (the
-    // adapter keeps its goal and speed); the acceptance above is what remains.
+    // adapter keeps only its speed stamp); the acceptance above is what
+    // remains.
     assert_eq!(movement.speed, SimFixed::from_num(768));
 }
 

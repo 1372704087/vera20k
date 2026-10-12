@@ -28,7 +28,7 @@ fn mtnk_rules() -> RuleSet {
 }
 
 /// An order toward (6,5). Its route is the Foot+5E0 queue
-/// (`order_route`); the adapter keeps only the goal.
+/// (`order_route`); the adapter keeps only its presence and speed stamp.
 fn moving_target() -> MovementTarget {
     MovementTarget {
         ..MovementTarget::default()

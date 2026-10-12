@@ -569,10 +569,6 @@ mod tests {
         assert!(e.movement_target.is_some(), "the order itself is accepted");
         assert_eq!(
             e.navigation.nav_com,
-            Some(crate::sim::components::NavTargetRef::cell(20, 15)),
-        );
-        assert_eq!(
-            e.navigation.nav_com,
             Some(crate::sim::components::NavTargetRef::cell(20, 15))
         );
         let runtime = e

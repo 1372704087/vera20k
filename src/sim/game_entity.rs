@@ -590,7 +590,8 @@ pub struct GameEntity {
     /// Locomotor state — present on moving types and on zero-speed Foot
     /// Drive/Ship types whose native class-local payload still exists.
     pub locomotor: Option<LocomotorState>,
-    /// Active movement path — present when unit is moving along an A* path.
+    /// Move-order scheduling adapter, present while an order's move is
+    /// under way (#689); it keeps no goal or route.
     pub movement_target: Option<MovementTarget>,
     /// FootClass-style owner navigation destination state.
     ///

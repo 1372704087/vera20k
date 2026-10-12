@@ -68,9 +68,10 @@ pub(crate) fn retain_committed_movement(e: &mut GameEntity) {
 /// Drive/Ship display Foot's requested Cell, including a Move_To refusal
 /// that leaves a different locomotor destination (track_destination native
 /// warp controls). Object requests use the captured locomotor coordinate;
-/// after Stop the paid head remains. Other families display Foot's requested
-/// Cell, and nothing for an object. This projection is for presentation; it
-/// makes no simulation decision.
+/// after Stop the paid head remains. Other families display Foot's NavCom
+/// when it is a Cell (for a Jumpjet, the cell its `Move_To` placed it in),
+/// and nothing for an object. This projection is for presentation; it makes
+/// no simulation decision.
 pub(crate) fn movement_goal_cell(entity: &GameEntity) -> Option<(u16, u16)> {
     entity.movement_target.as_ref()?;
     if entity.locomotor.as_ref().is_some_and(|loco| {
@@ -366,20 +367,22 @@ pub(crate) fn issue_move_command_with_destination(
     }
 
     if queue {
-        // Remaining adapter families can append to their prepared path.
-        // Ordinary Drive/Ship requests have already published the destination.
+        // A queued order to a mover no setter above took: Drive, Ship and
+        // Hover returned through their Move_To, and Walk without an adapter.
         let entity_mut = entities.get_mut(entity_id);
         if let Some(entity_mut) = entity_mut
             && let Some(ref mut movement) = entity_mut.movement_target
         {
             // The adapter keeps neither a goal nor cells, so the queued
             // search starts at the committed head or the current cell.
-            // RESIDUAL: no native setter searches at order time, and nothing
-            // reads the cells found here. Trigger: a queued Move to a moving
-            // mover whose class setter is not represented above (a Hover or
-            // Ship Unit). Effect: a cell this search cannot reach from that
-            // start is refused. Frequency: uncommon. Risk: a queued waypoint
-            // is dropped.
+            // RESIDUAL: no native setter searches at order time, and this arm
+            // records no waypoint: it only admits the order and restamps the
+            // speed. Trigger: a queued Move to a moving mover that returned
+            // through none of the setters above: a Walk Unit, or one on Fly,
+            // Rocket or no locomotor. Effect: the waypoint is dropped, and an
+            // unreachable one is refused. Frequency: dormant in retail, where
+            // no VehicleType walks (raw RULESMD read). Risk: such a mover
+            // ignores queued waypoints.
             let append_start = (start_rx, start_ry);
             // The setters record any destination unsearched, so a goal in
             // the append start's cell is admitted without asking the core.

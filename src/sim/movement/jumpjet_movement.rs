@@ -899,13 +899,14 @@ impl Simulation {
     }
 
     /// An order to a Jumpjet Unit or Infantry, whichever route gave it:
-    /// Foot's setter (`0x004D94B0`: the NavCom at `0x004D9510`, then the
-    /// locomotor's `Move_To` at `0x004D965D` with the coordinate the
-    /// destination's `+0x4C` answers this mover at `0x004D9628`) and Foot's
-    /// timer tail (`0x004D96C2`). A Cell answers its own coordinate, an object
-    /// the one it gives this mover; no route is searched. Units enter their
-    /// class destination owner, including its deployment refusal and existing
-    /// power/warp gates. `None` when `id` is not a Jumpjet Unit or Infantry.
+    /// Foot's setter (`0x004D94B0`: its admission, the NavCom at
+    /// `0x004D9510`, then the locomotor's `Move_To` at `0x004D965D` with the
+    /// coordinate the destination's `+0x4C` answers this mover at
+    /// `0x004D9628`) and Foot's timer tail (`0x004D96C2`). A Cell answers its
+    /// own coordinate, an object the one it gives this mover; no route is
+    /// searched. Units enter their class destination owner, including its
+    /// deployment refusal and existing power/warp gates. `None` when `id` is
+    /// not a Jumpjet Unit or Infantry.
     ///
     /// RESIDUAL: before Foot's setter, Infantry's (`0x0051AA40`) swaps the
     /// Jumpjet of a `JumpJet=` infantry that is not moving for a Walk
@@ -936,6 +937,14 @@ impl Simulation {
     ///
     /// Trigger: an order to a Rocketeer, the second arm only in flight.
     /// Frequency: every re-order of a flying Rocketeer.
+    ///
+    /// RESIDUAL: `infantry_setter_receiver` excludes `JumpJet=` types, so two
+    /// Infantry object orders still reach here as the object's cell: Restore
+    /// of an object NavCom (`finish_class_destination`) and EnterTransport.
+    /// `Move_To` is seeded with that cell's center instead of the object's
+    /// `+0x4C`, and in an Enter mission, where `Move_To` keeps the NavCom it
+    /// is given, the NavCom names the cell rather than the transport.
+    /// Frequency: rare.
     pub(crate) fn jumpjet_destination(
         &mut self,
         id: u64,
@@ -964,6 +973,12 @@ impl Simulation {
             return Some(rules.is_some_and(|rules| {
                 self.set_unit_destination(id, requested, rules, true, frame_effects)
             }));
+        }
+        // Foot clears NavComAux (`0x004D94C7`); its three refusals
+        // (`0x004D94CD..0x004D94F3`) then return before the NavCom. The void
+        // setter still dispatched.
+        if !self.begin_foot_destination(id, true) {
+            return Some(true);
         }
         let Some(terrain) = self.resolved_terrain.as_ref() else {
             return Some(false);

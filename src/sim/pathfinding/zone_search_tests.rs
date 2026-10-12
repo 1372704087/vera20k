@@ -398,9 +398,9 @@ fn playfield_hierarchy_initial_order_outside_endpoint_uses_flat_astar() {
         None,
         crate::sim::movement::DestinationTiming::new(0, 60),
     ));
-    // The adapter keeps its goal, not the found cells: acceptance above is
-    // the flat search's success, and the new speed marks a found route of at
-    // least two cells.
+    // The adapter keeps neither the goal nor the found cells: acceptance
+    // above is the flat search's success, and the new speed marks a found
+    // route of at least two cells.
     let target = entities.get(1).unwrap().movement_target.as_ref().unwrap();
     assert_eq!(target.speed, SimFixed::from_num(128));
 }

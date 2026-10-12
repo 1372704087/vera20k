@@ -1244,40 +1244,27 @@ fn a_ground_route_order_gives_a_rocketeer_his_navcom_and_move_to() {
     assert!(runtime.moving(), "his Move_To ran with the order");
 }
 
-/// An object order takes the same Foot setter, with the order and without a
-/// route: the object is his NavCom (`0x004D9510`), and his Jumpjet's
-/// `Move_To` (`0x004D965D`) seeds its placement search with the coordinate
-/// the object gives him (`+0x4C` at `0x004D9628`). Outside Enter, `Move_To`
-/// then makes the cell it places him in his NavCom (`0x0054B421..0x0054B44B`).
-/// The order used to leave the `Move_To` to his `Process`.
-#[test]
-fn an_object_order_flies_a_rocketeer_with_the_order() {
-    let (mut sim, rules, shooter) = grounded_rocketeer();
-    sim.path_grid = Some(std::sync::Arc::new(
-        crate::sim::pathfinding::PathGrid::test_all_passable(70, 70),
-    ));
-    // The unit's coordinate comes from its locomotor (Foot +0x4C).
-    sim.substrate.entities.get_mut(shooter).unwrap().locomotor = Some(
-        crate::sim::movement::locomotor::LocomotorState::for_test_kind(
-            crate::rules::locomotor_type::LocomotorKind::Drive,
-        ),
-    );
-    let speed = sim.resolve_move_info(1, Some(&rules)).unwrap().speed;
-    let object = crate::sim::components::NavTargetRef::object(shooter);
-    assert!(sim.issue_ground_move(
-        super::GroundMove {
-            entity_id: 1,
-            target: (40, 40),
-            speed,
-            queue: false,
-            speed_type: None,
-            owner_blocks: false,
-            object_destination: Some((object, crate::sim::components::DriveCoord::cell(40, 40, 0))),
-        },
-        Some(&rules),
-        None,
-        crate::sim::world::FrameEffects::default(),
-    ));
+/// The fixture's Soviet unit, moved to `cell` from the (40, 40) the orders
+/// below still name, and given a locomotor, from which a unit answers `+0x4C`.
+fn move_shooter(sim: &mut super::Simulation, shooter: u64, cell: (u16, u16)) {
+    sim.remove_entity_occupancy(shooter);
+    {
+        let unit = sim.substrate.entities.get_mut(shooter).unwrap();
+        unit.position.rx = cell.0;
+        unit.position.ry = cell.1;
+        unit.locomotor = Some(
+            crate::sim::movement::locomotor::LocomotorState::for_test_kind(
+                crate::rules::locomotor_type::LocomotorKind::Drive,
+            ),
+        );
+    }
+    sim.add_entity_occupancy(shooter);
+}
+
+/// Rocketeer 1's `Move_To` ran with the order, and outside Enter it named the
+/// cell it placed him in as his NavCom (`0x0054B421..0x0054B44B`), within a
+/// cell of `near`.
+fn assert_rocketeer_flies_near(sim: &super::Simulation, near: (u16, u16)) {
     let rocketeer = sim.substrate.entities.get(1).unwrap();
     let runtime = rocketeer
         .locomotor
@@ -1296,8 +1283,95 @@ fn an_object_order_flies_a_rocketeer_with_the_order() {
         "Move_To names the cell it placed him in"
     );
     assert!(
-        placed.0.abs_diff(40) <= 1 && placed.1.abs_diff(40) <= 1,
-        "placed at the unit, not at his own cell: {placed:?}"
+        placed.0.abs_diff(near.0) <= 1 && placed.1.abs_diff(near.1) <= 1,
+        "placed by {near:?}: {placed:?}"
+    );
+}
+
+/// An object order takes the same Foot setter, with the order and without a
+/// route: the object is his NavCom (`0x004D9510`), and his Jumpjet's
+/// `Move_To` (`0x004D965D`) seeds its placement search with the coordinate
+/// the object gives him then (`+0x4C` at `0x004D9628`), not the one the order
+/// captured. The order used to leave the `Move_To` to his `Process`.
+#[test]
+fn an_object_order_flies_a_rocketeer_with_the_order() {
+    let (mut sim, rules, shooter) = grounded_rocketeer();
+    sim.path_grid = Some(std::sync::Arc::new(
+        crate::sim::pathfinding::PathGrid::test_all_passable(70, 70),
+    ));
+    move_shooter(&mut sim, shooter, (46, 44));
+    let speed = sim.resolve_move_info(1, Some(&rules)).unwrap().speed;
+    let object = crate::sim::components::NavTargetRef::object(shooter);
+    assert!(sim.issue_ground_move(
+        super::GroundMove {
+            entity_id: 1,
+            target: (40, 40),
+            speed,
+            queue: false,
+            speed_type: None,
+            owner_blocks: false,
+            object_destination: Some((object, crate::sim::components::DriveCoord::cell(40, 40, 0))),
+        },
+        Some(&rules),
+        None,
+        crate::sim::world::FrameEffects::default(),
+    ));
+    assert_rocketeer_flies_near(&sim, (46, 44));
+}
+
+/// A team's object target, a base defense's Archive and a stopped Move's
+/// reissue give a Rocketeer an object through his class setter
+/// (`0x0051AA40` -> `0x004D94B0`), and it flies him there. That setter used
+/// to answer false for a Jumpjet object and leave him where he was.
+#[test]
+fn the_class_setter_flies_a_rocketeer_to_an_object() {
+    let (mut sim, rules, shooter) = grounded_rocketeer();
+    move_shooter(&mut sim, shooter, (46, 44));
+    assert_eq!(
+        sim.set_infantry_destination(
+            1,
+            crate::sim::components::NavTargetRef::object(shooter),
+            &rules,
+            None,
+            crate::sim::world::FrameEffects::default(),
+        ),
+        Ok(true)
+    );
+    assert_rocketeer_flies_near(&sim, (46, 44));
+}
+
+/// Foot's setter refuses before the NavCom while its locomotor swap is active
+/// (one of its three refusals, `0x004D94CD..0x004D94F3`), whatever the class
+/// and locomotor: a Rocketeer's order neither names a NavCom nor flies him.
+#[test]
+fn foot_admission_refuses_a_rocketeers_order_during_a_locomotor_swap() {
+    let (mut sim, rules, _) = grounded_rocketeer();
+    sim.substrate
+        .entities
+        .get_mut(1)
+        .unwrap()
+        .foot_locomotor_swap_active = true;
+    assert_eq!(
+        sim.set_infantry_destination(
+            1,
+            crate::sim::components::NavTargetRef::cell(60, 52),
+            &rules,
+            None,
+            crate::sim::world::FrameEffects::default(),
+        ),
+        Ok(true),
+        "the void setter still dispatched"
+    );
+    let rocketeer = sim.substrate.entities.get(1).unwrap();
+    assert_eq!(rocketeer.navigation.nav_com, None);
+    assert!(
+        !rocketeer
+            .locomotor
+            .as_ref()
+            .unwrap()
+            .jumpjet_runtime()
+            .unwrap()
+            .moving()
     );
 }
 

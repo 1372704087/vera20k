@@ -52,7 +52,8 @@ Missing or unproven required behavior keeps an exhaustive task open.
 
 Distinguish and cite:
 
-- **Native behavior established:** body/caller/data evidence.
+- **Native behavior established:** body/caller/data evidence, or retail play
+  observed side by side.
 - **Rust regression tested:** named implementation checks.
 - **Parity demonstrated:** gamemd-derived executable comparison or exhaustive proof,
   bounded by stated coverage. A sample cannot certify the whole mechanism.
@@ -61,17 +62,23 @@ Parity goldens come from native execution/emulation, capture or retail bytes,
 not hand calculations or prior Rust; inputs a comparison takes from VERA need
 their own native evidence. Avoid unqualified “VERIFIED”/“complete”.
 
-Arithmetic, rounding, RNG draws (count, order, stream) and timer cadences derived from
-reading are uncertain until executed. Before merging a mechanism, compare them against
-native execution ([Unicorn](tools/native_oracle.md) or capture) and pin the results as
-golden values in its Rust tests. Control flow and ordering may rest on instruction-level
-reading. Each PR states the evidence level each claim reached.
+Execute native code ([Unicorn](tools/native_oracle.md) or capture) and pin the results
+as golden values in Rust tests only where a misread is likely and spreads: shared numeric
+kernels (lookup tables, fixed-point conversion, distance and angle math), RNG draws
+(count, order, stream), arithmetic with a known trap (x87 precision, rounding, overflow,
+signed division or shifts), or behavior a playtest or bug report shows differing.
+Everything else, including control flow, ordering, gameplay rules, timers and plain
+arithmetic, may rest on instruction-level reading, a behavior test through the
+production code and side-by-side play against retail. Each PR states the evidence level
+each claim reached.
 
-Preserve native comparisons as reproducible harnesses and the corpora a Rust test or
-tool consumes, each with a meta sidecar recording binary identity, command and coverage
-limits. Validation results (test counts, Clippy, captures, critic findings) go in the
-PR description and the checkpoint, not the tree: do not commit receipts, run logs,
-capture screenshots, critic reviews or static disassembly packets.
+Keep a native comparison only while a Rust test or tool consumes it: its harness and a
+small corpus of controls rather than bulk replays, with a sidecar recording the binary
+hash and the command. Sidecars pin no hashes of repository sources; those go stale
+without any change in native output. Validation results (test counts, Clippy, captures,
+critic findings) go in the PR description and the checkpoint, not the tree: do not
+commit receipts, run logs, capture screenshots, critic reviews or static disassembly
+packets.
 
 Each cohesive gamemd-derived Rust behavior carries nearby native identity/address
 and source; sim-behavior commits cite their evidence.

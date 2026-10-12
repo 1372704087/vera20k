@@ -1192,6 +1192,7 @@ fn a_jumpjet_shot_down_after_its_null_destination_reaches_the_ground() {
         (60, 52),
         SimFixed::from_num(30),
         Some(&rules),
+        None,
         crate::sim::world::FrameEffects::default()
     ));
     // Cruise until the owner has left the hover cell.

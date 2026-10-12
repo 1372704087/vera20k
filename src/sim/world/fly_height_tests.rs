@@ -408,6 +408,7 @@ fn assert_native_move_takeoff(sim: &mut Simulation, rules: &RuleSet, row: &serde
         (12, 10),
         SimFixed::from_num(10),
         Some(rules),
+        None,
         crate::sim::world::FrameEffects::default()
     ));
     let entity = sim.substrate.entities.get(1).unwrap();
@@ -629,6 +630,7 @@ fn fly_cell_orders_resolve_ground_before_retaining_the_coordinate() {
         (64, 64),
         SimFixed::from_num(10),
         Some(&rules),
+        None,
         crate::sim::world::FrameEffects::default()
     ));
     let destination = sim

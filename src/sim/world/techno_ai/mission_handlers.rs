@@ -27,6 +27,10 @@ mod automatic_deploy_oracle_tests;
 #[path = "../infantry_fire_oracle_tests.rs"]
 mod infantry_fire_oracle_tests;
 
+#[cfg(test)]
+#[path = "engineer_hunt_tests.rs"]
+mod engineer_hunt_tests;
+
 /// Re-arm the evidence-backed Foot/Unit handler subset without duplicating the
 /// legacy movement, combat, or target-selection systems.
 ///
@@ -1184,12 +1188,16 @@ pub(crate) fn foot_enter_idle_mode_selection(
 ///    `0x006F9D69` hands it to `Evaluate_Candidate`, which rejects any
 ///    candidate outside it at `0x006F7E9C`), so the hunter reaches the far side
 ///    of the map but not the far side of a river.
-/// 3. **The type arms**, taken only when the scan came back with a target —
-///    recorded below rather than committed.
+/// 3. **The type arms**, taken only by an infantryman (`What_Am_I` 0xF,
+///    `0x004D53A0..0x004D53B4`) whose scan came back with a target: the
+///    engineer's is [`hunt_engineer_capture`]; the other two are recorded
+///    below.
 /// 4. **No target**: a human-owned object runs the idle-action virtual
 ///    (`vt+0x478`, `0x004D557C`); an AI-owned one walks home to its base cell.
 /// 5. **The tail** at `0x004D5582`, reached from every arm:
-///    `ftol(MissionControl[Hunt].Rate * 900.0) + RandomRanged(0, 2)`.
+///    `ftol(MissionControl[current].Rate * 900.0) + RandomRanged(0, 2)`;
+///    `0x005B3A00` indexes the current mission, Capture once the engineer arm
+///    has commenced it.
 ///
 /// So the normal path draws the scenario RNG **twice** — once inside the
 /// scanner, once in the tail — and the `StupidHunt` path draws once. An earlier
@@ -1205,32 +1213,24 @@ pub(crate) fn foot_enter_idle_mode_selection(
 /// flagged passively-acquired — and the scanner above deliberately leaves the
 /// flag clear, as native does.
 ///
-/// RESIDUAL — **the three type arms are not committed.** All three end in a
-/// `Set_Destination(Target, 1)` plus a `Queue_Mission`. Capture has its
-/// handler (`mission::capture`); Sabotage is driven by the order path's
-/// `c4_plant` goal state and its own movement issue and has no dispatch arm,
-/// so queueing it from here would park the object on a selector whose timer
-/// nothing re-arms.
-/// - `Engineer` and not `C4` and no weapon ability 14 (`0x004D53C0`) →
-///   `Queue_Mission(Capture)`. Trigger: a berserked or Hunt-ordered engineer
-///   that acquires a target. Stock carriers: `ENGINEER`, `SENGINEER`,
-///   `YENGINEER`. Frequency: rare in VERA — engineers are rarely in a Chaos
-///   Drone's splash and are never given a Hunt order by a player. Native also
-///   hunts with a computer engineer hit on Guard or AreaGuard
-///   (InfantryClass::ReceiveDamage `0x00518C19..0x00518C3F`, unported), such
-///   as a retail tech-capture team's engineer that script action 46 parks by
-///   its building (`team_script_vm::actions` residual).
+/// RESIDUAL — **two of the three type arms are not committed.** Each ends in
+/// a `Set_Destination(Target, 1)`, a `Queue_Mission(_, 0)` and, when
+/// `Ready_To_Commence` (vt+0x200), a Commence (vt+0x1EC). Sabotage is driven
+/// by the order path's `c4_plant` goal state and its own movement issue and
+/// has no dispatch arm, so queueing it from here would park the object on a
+/// selector whose timer nothing re-arms.
 /// - `C4` or weapon ability 14, with a **BuildingClass** target
-///   (`0x004D5416`) → `Set_Destination(target)`, `Queue_Mission(Sabotage)`.
-///   Trigger: a berserked demolition infantryman holding a building.
-///   Frequency: rare, same reason.
-/// - `VehicleThief` (`+0xEC6`, `0x004D546C`) → `Queue_Mission(Capture)`.
-///   Frequency: **zero on stock data** — no retail section sets the key.
+///   (`0x004D53F9..0x004D5467`) → `Queue_Mission(Sabotage)`. Trigger: a
+///   berserked or hunting demolition infantryman holding a building, such as
+///   a computer's Tanya or Navy SEAL (retail `C4=`: TANY, GHOST, PTROOP)
+///   escaping a destroyed transport. Effect: it shoots its target where
+///   native walks in to plant.
+/// - `VehicleThief` (`+0xEC6`, `0x004D546C..0x004D54B9`) →
+///   `Queue_Mission(Capture)`. Frequency: **zero on stock data** — no retail
+///   section sets the key.
 ///
-/// Player effect while they are absent: such a unit shoots what it found
-/// instead of walking in to capture or plant. Downstream risk: closing them
-/// means giving Sabotage a real handler arm, which is the terrorist mission
-/// work, not this row.
+/// Downstream risk: closing the Sabotage arm means giving Sabotage a real
+/// handler arm, which is the terrorist mission work, not this row.
 ///
 /// RESIDUAL — **the infantry no-flags arm's `Set_Destination(NULL, 1)`**
 /// (`0x004D54C6`) is not committed: it is a movement-owned write, and the
@@ -1273,10 +1273,10 @@ fn evaluate_foot_hunt(
         .and_then(|name| rules.object(name))
         .is_some_and(|obj| obj.stupid_hunt);
     if !stupid_hunt {
-        // The return value selects between the type arms (all recorded above)
-        // and the idle / return-to-base arm (already covered elsewhere). The
-        // call itself is the mission: it is what installs the target the
-        // pursuit pass then closes on.
+        // The return value selects between the type arms (the engineer's
+        // committed, the others recorded above) and the idle / return-to-base
+        // arm (already covered elsewhere). The call itself is the mission: it
+        // is what installs the target the pursuit pass then closes on.
         let acquired = super::target_scan::scan(
             sim,
             id,
@@ -1287,9 +1287,16 @@ fn evaluate_foot_hunt(
             ctx,
             None,
         );
-        // `0x004D54DD`: a Unit approaches what the scan holds; the balloon
-        // arm takes only a Unit.
-        if acquired {
+        let infantry = sim
+            .substrate
+            .entities
+            .get(id)
+            .is_some_and(|entity| entity.category == EntityCategory::Infantry);
+        if acquired && infantry {
+            hunt_engineer_capture(sim, id, rules, ctx);
+        } else if acquired {
+            // `0x004D54DD`: a Unit approaches what the scan holds; the balloon
+            // arm takes only a Unit.
             sim.approach_balloon_target(id, rules, ctx.overlay_registry, ctx.effects);
         }
     }
@@ -1304,7 +1311,60 @@ fn evaluate_foot_hunt(
     {
         let _ = sim.infantry_idle_action(id, rules, ctx.effects);
     }
-    MissionHandlerEvaluation::cadence(jittered_mission_cadence(sim, rules, MissionType::Hunt))
+    MissionHandlerEvaluation::cadence(sim.mission_rate_epilogue_for(rules, id, MissionType::Hunt))
+}
+
+/// Mission_Hunt's engineer arm (`0x004D53BA..0x004D53F4`, joining the
+/// VehicleThief arm's tail at `0x004D548F..0x004D54B9`): an `Engineer=`
+/// infantryman that is neither `C4=` nor holds weapon ability 14 (C4) takes
+/// the target its scan installed as its destination (vt+0x480(target, 1)),
+/// queues Capture (vt+0x1E8(Capture, 0)) and, when Ready_To_Commence
+/// (vt+0x200), commences it (vt+0x1EC). [`crate::sim::mission::capture`] then
+/// walks it in. No RNG.
+fn hunt_engineer_capture(
+    sim: &mut Simulation,
+    id: u64,
+    rules: &RuleSet,
+    ctx: super::ObjectAiCtx<'_>,
+) {
+    let Some(entity) = sim.substrate.entities.get(id) else {
+        return;
+    };
+    let engineer = sim
+        .object_type(entity.type_ref(), rules)
+        .is_some_and(|object| {
+            object.engineer
+                && !object.c4
+                && !crate::sim::combat::veterancy::has_weapon_ability(
+                    crate::sim::combat::veterancy::rank_from_u16(entity.veterancy()),
+                    object,
+                    crate::rules::object_type::Ability::C4,
+                )
+        });
+    let Some(target) = entity.attack_target.as_ref().map(|attack| attack.target) else {
+        return;
+    };
+    if !engineer {
+        return;
+    }
+    let _ = sim.assign_destination_represented(
+        id,
+        Some(target.into()),
+        Some(rules),
+        ctx.overlay_registry,
+        ctx.effects,
+    );
+    let now = sim.session.binary_frame;
+    let _ = sim.mission_queue_exact(
+        id,
+        MissionId::from_known(MissionType::Capture),
+        0,
+        now,
+        &crate::sim::mission::authority::LiveReadyInputProvider { rules },
+    );
+    if sim.mission_ready_to_commence(id, rules) {
+        let _ = sim.mission_commence_exact(id, now);
+    }
 }
 
 /// Archive the raw physical Map565730 Cell receiver, never Foot's HeadTo.

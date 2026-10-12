@@ -45,17 +45,6 @@
 //!   Anti-Nuke Team - 1", "Allied Anti-Weather Team - 1"), whose Tanya
 //!   reaches action 46 once action 8 has unloaded her. Effect: she runs the
 //!   plain attack where native sends her in to plant C4.
-//! - An `Engineer=` member that action 46 parks beside its building has a
-//!   native way in that VERA lacks: Coordinate_Attack's retarget puts it on
-//!   Guard every 8 frames, a computer engineer hit on Guard or AreaGuard
-//!   queues Hunt (InfantryClass::ReceiveDamage `0x00518C19..0x00518C3F`),
-//!   and Mission_Hunt's engineer arm (`0x004D53C0`, `mission_handlers`
-//!   residual) walks it into its target. Neither is ported. Trigger: an enemy
-//!   shoots such an engineer: a retail tech-capture team's by its tech
-//!   building, or one that action 8 unloaded from an "Allied IFV Rush vs
-//!   ..." or "Soviet Engineer vs ..." transport beside an enemy Construction
-//!   Yard. Effect: native's engineer hunts, and may capture what its scan
-//!   finds; VERA's keeps standing.
 //! - Action 14's passengers board through VERA's Boarding adapter
 //!   ([`crate::sim::passenger::begin_boarding`]), without the native radio
 //!   route: the Infantry destination setter's Enter arm contacts the
@@ -1678,7 +1667,11 @@ impl Simulation {
     /// have no engineer arm, and an infantryman may enter the building's
     /// cell, as its NavCom or Target, only on Enter, Capture, Eaten or
     /// Sabotage, or an engineer on Guard, AreaGuard or Patrol, never on
-    /// Attack (`0x0051C2E1..0x0051C41C`).
+    /// Attack (`0x0051C2E1..0x0051C41C`). A computer's engineer captures
+    /// only once hit on Guard, as it idles after an unload and after each
+    /// retarget (`0x006E9050`): the hit queues Hunt (`0x00518BF2`),
+    /// Mission_Hunt's engineer arm sends it in on Capture, and
+    /// `Coordinate_Attack` leaves a member on Capture.
     fn team_action_attack_enemy_building(
         &mut self,
         team_id: u64,

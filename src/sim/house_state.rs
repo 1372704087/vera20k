@@ -559,6 +559,17 @@ pub struct HouseState {
     /// trigger mechanism; retaining this prerequisite does not implement it.
     #[serde(default)]
     building_capture_notified: bool,
+    /// House+54E0: the last building that left this House through an owner
+    /// change. `BuildingClass::ChangeOwner` records it on the old owner after
+    /// the Techno owner swap (`0x00448C70`) and forgets it on the new owner
+    /// when the new owner had lost it (`0x00448C8C..0x00448C94`).
+    /// `HouseClass::PointerExpired` forgets it, whatever the control
+    /// (`0x004FB9BB..0x004FB9C3`); the constructor clears it (`0x004F5A65`).
+    /// A computer engineer within `0xF00` leptons of it goes back for it
+    /// without scanning (`0x0051E16E..0x0051E209`), its only reader. Census:
+    /// operand `0x54e0`, 9 hits (with Load `0x0050332D`), 2026-10-12.
+    #[serde(default)]
+    lost_building: Option<u64>,
     /// House+1F4: first discovery of this House's foreign object by PlayerPtr.
     /// Constructor4F5716 clears it; TechnoDiscovered6F4A25 sets it and no
     /// clearing writer exists. TEvent71F0FB reads it for event kind5, after
@@ -890,6 +901,34 @@ impl HouseState {
     #[cfg(test)]
     pub(crate) fn building_capture_notified(&self) -> bool {
         self.building_capture_notified
+    }
+
+    /// The old owner records House+54E0 (`0x00448C70`).
+    pub(crate) fn record_lost_building(&mut self, building: u64) {
+        self.lost_building = Some(building);
+    }
+
+    /// House+54E0 is forgotten if it names `building`: the new owner's clear
+    /// in `BuildingClass::ChangeOwner` (`0x00448C8C`) and
+    /// `HouseClass::PointerExpired` (`0x004FB9BB`).
+    pub(crate) fn forget_lost_building(&mut self, building: u64) {
+        if self.lost_building == Some(building) {
+            self.lost_building = None;
+        }
+    }
+
+    /// House+54E0, read by a computer engineer's Greatest_Threat.
+    pub(crate) fn lost_building(&self) -> Option<u64> {
+        self.lost_building
+    }
+
+    /// Folded only while set, so a house that never lost a building hashes as
+    /// earlier schemas did.
+    pub(crate) fn hash_lost_building(&self, hasher: &mut impl std::hash::Hasher) {
+        if let Some(building) = self.lost_building {
+            std::hash::Hash::hash(b"house-lost-building-v1", hasher);
+            std::hash::Hash::hash(&building, hasher);
+        }
     }
 
     pub(crate) fn notify_discovered_by_current_house(&mut self) {
@@ -1258,6 +1297,7 @@ impl HouseState {
             waypoint_edge: 0,
             stats: MatchStatistics::default(),
             building_capture_notified: false,
+            lost_building: None,
             discovered_by_current_house: false,
             economy: Economy::new(credits),
             strategy_emergency: HouseStrategyEmergencyState::default(),

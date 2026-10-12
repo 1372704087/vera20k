@@ -82,6 +82,7 @@
 //! - sim/ NEVER depends on render/, ui/, audio/, net/.
 
 use std::collections::BTreeMap;
+use std::ops::ControlFlow;
 
 use super::combat_targeting::AttackerSnapshot;
 use super::combat_weapon::{
@@ -925,7 +926,21 @@ pub(crate) fn greatest_threat(
         attacker.category,
         EntityCategory::Infantry | EntityCategory::Unit
     ) && super::combat_weapon::weapon_damage_value(scanner, attacker_obj, rules) < 0;
-    let Some((mask, foot_wrapper_entered)) = scanner_mask(
+    // House+54E0 within `0xF00` leptons, centre to centre (vt+0x48 of both):
+    // `(dx² + dz²) + dy²` through `Sqrt_Approx` and ftol
+    // (`0x0051E16E..0x0051E1F6`).
+    let lost_building = || {
+        let building = standing.house?.lost_building()?;
+        let from = object_get_coords(scanner, terrain);
+        let to = object_get_coords(entities.get(building)?, terrain);
+        let distance = crate::util::native_x87::sqrt_approx_length([
+            from.x.wrapping_sub(to.x),
+            from.z.wrapping_sub(to.z),
+            from.y.wrapping_sub(to.y),
+        ]);
+        (distance < 0xF00).then_some(building)
+    };
+    let (mask, foot_wrapper_entered) = match scanner_mask(
         rules,
         attacker,
         attacker_obj,
@@ -934,8 +949,16 @@ pub(crate) fn greatest_threat(
         standing.human,
         healer,
         scanner,
-    ) else {
-        return ThreatScanOutcome::default();
+        lost_building,
+    ) {
+        ControlFlow::Continue(scan) => scan,
+        // An override returned before Foot `0x004D9920`.
+        ControlFlow::Break(target) => {
+            return ThreatScanOutcome {
+                target,
+                foot_wrapper_entered: false,
+            };
+        }
     };
     let result = |target| ThreatScanOutcome {
         target,
@@ -1195,7 +1218,8 @@ fn attacks_allies(
 
 /// `Greatest_Threat`'s mask: the caller's literal through the scanner's
 /// `+0x3C4` override ([`threat_mask`]), then the preamble's class rewrites
-/// (`0x006F8EC8..0x006F8F25`). `None` is an override's `return 0`.
+/// (`0x006F8EC8..0x006F8F25`). It breaks with what an override returns
+/// before any scan.
 fn scanner_mask<'r>(
     rules: &'r RuleSet,
     attacker: &AttackerSnapshot,
@@ -1205,7 +1229,8 @@ fn scanner_mask<'r>(
     human: bool,
     healer: bool,
     scanner: &GameEntity,
-) -> Option<(u32, bool)> {
+    lost_building: impl FnOnce() -> Option<u64>,
+) -> ControlFlow<Option<u64>, (u32, bool)> {
     let literal = attacker.scan_mission.literal_mask();
     let class_bits = || passive_scan_class_bits(rules, attacker_obj, facts, &get_weapon);
     let mask = match attacker.category {
@@ -1215,6 +1240,7 @@ fn scanner_mask<'r>(
             InfantryScanner {
                 human,
                 engineer: attacker_obj.engineer,
+                lost_building,
                 armed: is_armed_from_facts(attacker_obj, facts),
                 infiltrate: attacker_obj.infiltrate,
                 vehicle_thief: attacker_obj.vehicle_thief,
@@ -1243,7 +1269,7 @@ fn scanner_mask<'r>(
     } else {
         mask
     };
-    Some((
+    ControlFlow::Continue((
         threat_mask::preamble_rewrite(mask, attacker.category, healer, attacker_obj.engineer),
         foot_wrapper_entered,
     ))

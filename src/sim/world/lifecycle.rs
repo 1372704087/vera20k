@@ -4112,6 +4112,11 @@ impl Simulation {
         // listener in Dispatch7258D0. Its only mutation clears a matching
         // held product; no entity listener consumes that factory pointer.
         self.production.factories.pointer_expired(expired_id);
+        // `HouseClass::PointerExpired @ 0x004FB9B0`, each house a listener
+        // (`0x004F5FFB`), forgets House+54E0 whatever the control.
+        for house in self.houses.values_mut() {
+            house.forget_lost_building(expired_id);
+        }
         let Some((
             expired_target_cell,
             expired_is_high_flying,

@@ -17,8 +17,5 @@
     "target_height": "0x0064D296",
     "candidate_gates": "0x0064D53D"
   },
-  "source_normalized_lf_sha256": {
-    "oracle": "9a574fedb31afbb1f34a1f73b4f63f911e741c0dec940963357c7c5ca149845f"
-  },
   "payload_sha256": "1a9f6d2f37041c3846415fe816ab531474faf661a5dc69b7b353ae72c18e457d"
 }

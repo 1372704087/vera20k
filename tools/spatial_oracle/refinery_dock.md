@@ -6,7 +6,7 @@ controls and four Building contact-constructor controls. The executable SHA-256 
 `1cdd1180e49024fbda8ad568caac2e86e856063ff67ab38f62b7d2c7bb84298c`;
 Unicorn 2.1.4 executes unchanged original text and Unit/Building vtables.
 The JSON contains native outputs, not values calculated by Rust or the harness.
-The sidecar records the normalized source hashes and payload hash.
+The sidecar records the payload hash.
 
 ## Reproduce
 

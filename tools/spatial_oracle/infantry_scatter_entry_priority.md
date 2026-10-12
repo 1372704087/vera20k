@@ -16,15 +16,13 @@ Set `VERA20K_GAMEMD_EXE` to the active retail executable pinned by
 `tools/native_oracle.py`: SHA256
 `1cdd1180e49024fbda8ad568caac2e86e856063ff67ab38f62b7d2c7bb84298c`.
 Unicorn is required. `--output` selects another file; `--write` deliberately
-records new native outputs and sidecar provenance. The metadata records
-repository-relative source identities normalized to UTF-8/LF.
+records new native outputs and sidecar provenance.
 
 The existing `infantry_scatter_entry.py` owns both CLI modes and reuses
 `unit_source_scatter.make_source_fixture`, `unit_scatter_state`, `map_queries`,
 and `native_oracle`. It creates no alternate native engine or gameplay helper.
 Without `--priority`, the existing 14 source Scatter rows still execute and use
-their original JSON payload. Their metadata adds only this tool's source pin
-after an identical native replay.
+their original JSON payload.
 
 ## Supplied state and observations
 

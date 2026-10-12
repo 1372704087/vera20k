@@ -25,8 +25,5 @@
     "stop_event_actor": "0x004C74E8",
     "stop_input": "0x00730EA0"
   },
-  "source_normalized_lf_sha256": {
-    "oracle": "5b52864006e32af59906882743180390c77064afae5eb189a17f63ea53feb501"
-  },
   "payload_sha256": "aa40c7b20ba2dfaa7aa599034f387ead2f3619a573648ff66250eaebe4941770"
 }

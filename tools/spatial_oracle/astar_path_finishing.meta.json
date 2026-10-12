@@ -37,14 +37,6 @@
     "Out-of-square parent Cells are distinct guarded descriptor-only inputs in a separate arena and are not inserted into the native Map table. Missing map queries retain the one native Dummy, supplied with empty Cell fields and -1 overlay/object/Tube indexes; new before/after receipts expose identity and nested entry writes.",
     "Adjacent binary64 threshold controls are supplied finite coefficients. Original FPCW startup, FMUL and comparison instructions establish returned admission; no Python/Rust arithmetic supplies the result."
   ],
-  "source_normalized_lf_sha256": {
-    "tools/spatial_oracle/astar_structural_height.py": "88910c6a760b73e2da4396fda90d1820443a0e60b504a55d1ee200abbea7c306",
-    "tools/spatial_oracle/astar_path_finishing.py": "e5103bda66c6bbe5fb7975e12ffefeacda8849599354cfb8b02cc7806aeccae2",
-    "tools/spatial_oracle/unit_source_scatter.py": "3384579566b40ebcc9d8d56d53a0736655eb3a15a6bf7f08730611b15852a009",
-    "tools/spatial_oracle/unit_scatter_state.py": "c8269a41294316c97f990051506c4a9d9dbe923d8143a54a1a92c69645d2a112",
-    "tools/spatial_oracle/mapgen_range.py": "df39b5ab3a2450c98dfa749a67826d5cb87f9d73086dc2511ff3261906724eef",
-    "tools/spatial_oracle/map_queries.py": "f1c798f50bf8a69ebe53c6d0e2327ce395ad99ba5c7017e74e353757770f4305"
-  },
   "replay_command": "python -m tools.spatial_oracle.astar_structural_height --finishing",
   "payload_sha256": "3129e32f9526e05f9ce64fdacc3b5e0c0e099b02257795c4220585841b215ebe"
 }

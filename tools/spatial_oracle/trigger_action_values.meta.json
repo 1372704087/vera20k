@@ -628,34 +628,6 @@
       "sha256": "06d8e52e0aef375cbd23dab4e107d71973bd849e50d5e34beb56047afb6b7587"
     }
   ],
-  "source_normalized_lf_sha256": {
-    "tools/spatial_oracle/trigger_action_values.py": "1568c041a0fdafbb03ff00a8c623d353d4b7062425f4e204725bca3986f4b2d5",
-    "tools/native_oracle.py": "0c94545bb9c4ca049ad7d46b152d9bd79624c7e52b3fec7a42d360974bbaacef",
-    "tools/spatial_oracle/trigger_type_flags.py": "f77a1d1a8a967ebbe66a7497d42ca0a178347e51c7f99e87b5aa63958195ff7d",
-    "tools/spatial_oracle/infantry_deploy_rules.py": "08b41a586c92d2012d86fba4c8d95e6edd1d892110232e92915e2faa1fee86e1",
-    "tools/spatial_oracle/building_body_rules.py": "4c01dd452ccf63c0058e8b58cb751c1e13933fcc25b9ef639cb57c628f4e8643",
-    "tools/spatial_oracle/map_queries.py": "f1c798f50bf8a69ebe53c6d0e2327ce395ad99ba5c7017e74e353757770f4305",
-    "tools/input_oracle/fast_scroll.py": "821fef694ae5d06c2ed85a76ecccb72db57ce88d380f29d99f166c396d94d89f",
-    "tools/rules_oracle/bridge_child_sound.py": "411fae85e38850208ce1c9dc8a5b411459fd0c043f2a20a6090bee0cbf92e7da",
-    "tools/rules_oracle/bridge_anim_inputs.py": "fc0d267d9c8453ba3090bfacd056af5207f47cb1170651cce5b0c41c80e90a2e",
-    "tools/spatial_oracle/anim_bouncer_launch.py": "f038ac51504a1927efac0d5c65092fe5ddb7bcc4f9525e01bd71c3ca008d2ac3",
-    "tools/spatial_oracle/bridge_constructor.py": "9a0155e48cb24c11b34dd28be4580a28bf3821e4ef034109dd494921f4d598a6",
-    "tools/sidebar_oracle/stock.py": "62b855dba1836bf484bb6c112b9249003ff4427c3004a1ef3d95c3aac985ba9b",
-    "tools/native_slope.py": "737b8294db419d298d362029825a255ae70df9945bef4c8b588369a53eaf13de",
-    "tools/input_oracle/campaign_start.py": "9bcc1776cee281172dacea760fabe0dfbc6785fc67cbc5c63615c7f34dce2162",
-    "tools/storage_oracle/keyboard_bindings.py": "ff8adcd19783380b90adb4816a0e2b56a8caa63bd3a44f45317ed805c5d03e0b",
-    "tools/spatial_oracle/infantry_deploy_action.py": "2ee210a14e1a89227affa777632bef5e5daa2ecbf973ff06c08e4d81bf4b7605",
-    "tools/spatial_oracle/reveal_area.py": "6c1fc5f43e06310338ba2001b1d73d7319729af2afc65e4e35e57bff46b19bf7",
-    "tools/ai_base_building_oracle.py": "0579013a4d58a3d89f9ab427fb6396da7b917c84c55ad016aa397baec780d623",
-    "tools/spatial_oracle/tag_lifecycle.py": "8df4ad84351c631775390038c7a010aad6ea0967eaec0acecd53cadb90d1a865",
-    "tools/spatial_oracle/team_creation.py": "63d3cc6af87de6b13dc9a93df04e6e0e10144d2bb6f7483ff0e6f2da11283c8e",
-    "tools/spatial_oracle/jumpjet_entry_discovery.py": "78882a6434ffe2267f2c7b67e2a81aad295e3f749ea61911b5ec0e4488a6f21c",
-    "tools/spatial_oracle/jumpjet_coordinates.py": "8e92cf2ad936306d7e6ed281eca6cadfe83043cb7a9d3df224f24093260d4555",
-    "tools/spatial_oracle/walk_head_occupation.py": "d888f824965dc41badb92827d9f4befdf06eb1dd33559a3f68eadc3b7c54f6c8",
-    "tools/spatial_oracle/fly_landing_phase.py": "e5a25318a67748fb8112912d698083da9bcc7c3e6a90f8fce6fdd9bc4a4be6a1",
-    "tools/spatial_oracle/shrapnel_repair/map_facts.py": "8fec739ee85c0110096180ae7c7712ad96e5191752ec9362dc3d9eb21e5d6768",
-    "tools/spatial_oracle/engineer_bridge_cursor_caller.py": "6c4c486ee384598dae044a407f3b631c4d43fbb5c054351a440a0fe9edf2d09f"
-  },
   "replay_command": "python -m tools.spatial_oracle.trigger_action_values",
   "payload_sha256": "2d14624910e0cd2368fc09a92e0e0a0cd156da6ac22580e31f7c0dd967ab68ce"
 }

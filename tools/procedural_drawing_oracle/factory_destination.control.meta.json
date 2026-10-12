@@ -23,8 +23,5 @@
     "house_controlled_by_human": "0x0050B730",
     "object_selection_admission": "0x005F4520"
   },
-  "source_normalized_lf_sha256": {
-    "oracle": "27d8ccb729d1d774c084815cf1034ab2478606f814da5ef1fa217076ea93dfdf"
-  },
   "payload_sha256": "546a82735d1ab99cd1989bf95e0b22e8afadc5acb1d3afa66104cd1d268c4031"
 }

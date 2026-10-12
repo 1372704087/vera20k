@@ -27,10 +27,6 @@
     "sqrt_approx": "0x004CAC40",
     "ftol": "0x007C5F00"
   },
-  "source_normalized_lf_sha256": {
-    "tools/spatial_oracle/sqrt_approx_distances.py": "8826debce16336163472b1bc9fb1f4ba058a71455514004949efbb7ec8a360fa",
-    "tools/native_oracle.py": "0c94545bb9c4ca049ad7d46b152d9bd79624c7e52b3fec7a42d360974bbaacef"
-  },
   "replay_command": "python -m tools.spatial_oracle.sqrt_approx_distances",
   "payload_sha256": "1fda92b90f7e207e8d4049ad9b6240c698565ce769c5f2f3ca4f07fd2c39671b"
 }

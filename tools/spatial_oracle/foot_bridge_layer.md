@@ -15,8 +15,8 @@ described in [native_oracle.md](../native_oracle.md). `--check` does not write;
 `--bridge-layers --write` deliberately replaces only the new bridge golden
 and its metadata. The shared oracle checks SHA-256
 `1cdd1180e49024fbda8ad568caac2e86e856063ff67ab38f62b7d2c7bb84298c`
-before mapping those same bytes. The sidecar also pins the payload, Unicorn
-binding/core, and normalized-LF hashes of the four Python source owners.
+before mapping those same bytes. The sidecar also pins the payload and Unicorn
+binding/core.
 
 ## Executed original bodies
 

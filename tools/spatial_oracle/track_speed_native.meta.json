@@ -34,16 +34,6 @@
     "drive_stop_after_budget": "0x004B1297",
     "ship_stop_after_budget": "0x006A095F"
   },
-  "source_normalized_lf_sha256": {
-    "tools/spatial_oracle/track_speed_native.py": "5faa8308db563232b43e0441633599b6dfdbb9bf80813e3f32de4695eea43b37",
-    "tools/native_oracle.py": "0c94545bb9c4ca049ad7d46b152d9bd79624c7e52b3fec7a42d360974bbaacef",
-    "tools/spatial_oracle/locomotor_force_track.py": "2696c2e4b23b452b471ba0c1adfe0390a155106a86005d85343e67317bbca7d9",
-    "tools/spatial_oracle/track_destination.py": "db7ac918c743ce625bfaaa1c7a56f41d2336def4b42193cb1332fe0eb0d0912d",
-    "tools/spatial_oracle/unit_source_scatter.py": "3384579566b40ebcc9d8d56d53a0736655eb3a15a6bf7f08730611b15852a009",
-    "tools/spatial_oracle/unit_scatter_state.py": "c8269a41294316c97f990051506c4a9d9dbe923d8143a54a1a92c69645d2a112",
-    "tools/spatial_oracle/unit_entry.py": "18986785b9cc42d7c811aa0c37d352f5ddc9d8746bfa926b807e5f493e33f209",
-    "tools/spatial_oracle/map_queries.py": "f1c798f50bf8a69ebe53c6d0e2327ce395ad99ba5c7017e74e353757770f4305"
-  },
   "replay_command": "python -m tools.spatial_oracle.track_speed_native",
   "payload_sha256": "bf773fd3047f8874ee253ff253a59fe9b831e840a23cbfe8d030817ca00707a5"
 }

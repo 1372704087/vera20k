@@ -176,24 +176,5 @@
     "enslaved_voice_registered_sound_types": 4
   },
   "csf_sha256": "f3382231d7eb3bd713bf3908ecdba175a1b2e20d9d80fa2702e9ab84c3a79deb",
-  "source_normalized_lf_sha256": {
-    "selection_navigation": "c51401a29333cb820c0974f982766399065e3023803c75aa94a7c6df8d1297fc",
-    "native_oracle": "67a69b8e446a8134fbff1128c1fe15025350f329fc25585af29ea725746f2ceb",
-    "keyboard_bindings": "ff8adcd19783380b90adb4816a0e2b56a8caa63bd3a44f45317ed805c5d03e0b",
-    "fast_scroll": "fc23d236ec33e0e60168e7c9174d8c52b7970dafee4ea071d018f780d2aeadc4",
-    "rng": "c1e75b4eade453c1331ddc140365eb687a70e06d64852a9b786856fd5bb530ad",
-    "stock": "62b855dba1836bf484bb6c112b9249003ff4427c3004a1ef3d95c3aac985ba9b",
-    "type_fixture": "2f05d2e7e917aef585553502830947ea8ca121eab2d886d2c9ba4df7c935727d",
-    "ini_cache": "fc0d267d9c8453ba3090bfacd056af5207f47cb1170651cce5b0c41c80e90a2e",
-    "heap": "2a7a96ea1e24f1129161e8fe5608c0ab69ac584ee6ad78fa91c43bd3ad072045",
-    "ini_fixture": "4c01dd452ccf63c0058e8b58cb751c1e13933fcc25b9ef639cb57c628f4e8643",
-    "key_crc": "2f663fbb2b8c88925dd8aa46e8be9216d580ec033bac3e08a138bcd0b272b7c6",
-    "cleanup_startup": "4373fc12cac9455b0603dbd10c3c6c43ab53c104f8e7d8a6f7b93b1a55764544",
-    "cost_owner": "11cc459dc355063e4a7d5207e14c2bdc079f2306bcbb57d2c2ee018973cb5ad8",
-    "atomic_transport_owner": "2ee210a14e1a89227affa777632bef5e5daa2ecbf973ff06c08e4d81bf4b7605",
-    "sound_input_owner": "629ce5742d89065c25f897b7ab2336a71f9c88c6176fa2e032e585c59f7113b3",
-    "sound_source_order_owner": "411fae85e38850208ce1c9dc8a5b411459fd0c043f2a20a6090bee0cbf92e7da",
-    "sound_name_owner": "676a7952b05d2f615278b39e49f418219883f9ad5494d71530be0b26e477a8e5"
-  },
   "payload_sha256": "bed66acdcd3f37af3dc52ecc4f5dea055290bf7d99020f521f2245802281552e"
 }

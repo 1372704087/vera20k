@@ -55,11 +55,6 @@
     "AbstractSave": "0x00410320",
     "AbstractLoad": "0x00410380"
   },
-  "source_normalized_lf_sha256": {
-    "tools/input_oracle/fast_scroll.py": "821fef694ae5d06c2ed85a76ecccb72db57ce88d380f29d99f166c396d94d89f",
-    "tools/native_oracle.py": "0c94545bb9c4ca049ad7d46b152d9bd79624c7e52b3fec7a42d360974bbaacef",
-    "tools/bridge_click_oracle.py": "b2879a5172b5fe778fbc8f8d98374b124ea1120aefe5e960764bd27a99183026"
-  },
   "payload_sha256": "a100f216691907a05893665167101507d9880fbade58f5249c755e47ff23e46d",
   "replay_command": "python -m tools.input_oracle.fast_scroll"
 }

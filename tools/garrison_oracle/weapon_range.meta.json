@@ -30,11 +30,6 @@
     "python -m tools.garrison_oracle.weapon_range --write",
     "python -m tools.garrison_oracle.weapon_range --check"
   ],
-  "source_normalized_lf_sha256": {
-    "tools/garrison_oracle/weapon_range.py": "304619da58f6e383a3a166441b3f43c86fae7e53139afce9b8349cac600518df",
-    "tools/native_oracle.py": "0c94545bb9c4ca049ad7d46b152d9bd79624c7e52b3fec7a42d360974bbaacef",
-    "tools/spatial_oracle/map_queries.py": "f1c798f50bf8a69ebe53c6d0e2327ce395ad99ba5c7017e74e353757770f4305"
-  },
   "payload_sha256": "1eab009ca271b39d56b3327d239c6e5f1dfb3cccf1ab32c26dd86360157b2593",
   "replay_command": "python -m tools.garrison_oracle.weapon_range"
 }

@@ -5,8 +5,7 @@ executes complete original Unit, Infantry and Aircraft expiry handlers. It uses
 [the pinned retail image and shared runner](../native_oracle.md), original
 concrete vtables and no substituted callables. The default attack-move mode's
 638 rows, including its bounded saved-target expiry slice, retain their prior
-payload bytes and native metadata values. Only generator source identity is
-added to that default sidecar.
+payload bytes and native metadata values.
 
 ```sh
 python -m tools.spatial_oracle.foot_attack_move --archive-expiry --check
@@ -16,7 +15,7 @@ python -m tools.spatial_oracle.foot_attack_move --check
 `--write` deliberately regenerates the selected corpus; `--output` selects a
 separate payload/sidecar pair. The optional mode records its 22 original rows in
 [foot_archive_expiry.json](foot_archive_expiry.json) and the binary, original
-instruction/vtable spans, source hash and scope in
+instruction/vtable spans and scope in
 [foot_archive_expiry.meta.json](foot_archive_expiry.meta.json).
 
 ## Native identities and order

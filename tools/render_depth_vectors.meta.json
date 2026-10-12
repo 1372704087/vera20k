@@ -26,10 +26,6 @@
     "foot_z_adjust": "0x004DAFC0",
     "tmp_dimensions": "0x00547150"
   },
-  "source_normalized_lf_sha256": {
-    "tools/render_depth_oracle.py": "6ca4008919eb234df32d14d9ce98385ef35ade02ac2ae84a2a55d4abe436b90d",
-    "tools/native_oracle.py": "0c94545bb9c4ca049ad7d46b152d9bd79624c7e52b3fec7a42d360974bbaacef"
-  },
   "payload_sha256": "178fb6e51f8b672564452cb27cf306eef7b2b3f17505b8b159460faa63f2e545",
   "replay_command": "python -m tools.render_depth_oracle"
 }

@@ -267,11 +267,6 @@
       "sha256": "e38c30dc682e5648e14d56ba7251de9b7cf4ee59bb89a2e4926377b660e85345"
     }
   ],
-  "source_normalized_lf_sha256": {
-    "tools/spatial_oracle/infantry_deploy_action.py": "2ee210a14e1a89227affa777632bef5e5daa2ecbf973ff06c08e4d81bf4b7605",
-    "tools/native_oracle.py": "0c94545bb9c4ca049ad7d46b152d9bd79624c7e52b3fec7a42d360974bbaacef",
-    "tools/spatial_oracle/map_queries.py": "f1c798f50bf8a69ebe53c6d0e2327ce395ad99ba5c7017e74e353757770f4305"
-  },
   "payload_sha256": "92d14ccb42f845f1ea9d3ab88f6b6b9e9b947edafd505ea61f0b972704bcf1f9",
   "replay_command": "python -m tools.spatial_oracle.infantry_deploy_action --deployed-guard"
 }

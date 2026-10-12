@@ -23,10 +23,6 @@
     "Random__RandomRanged": "0x0065C7E0"
   },
   "command": "python -m tools.rmg_oracle.gen_rng_vectors --check",
-  "source_normalized_lf_sha256": {
-    "tools/rmg_oracle/gen_rng_vectors.py": "c1e75b4eade453c1331ddc140365eb687a70e06d64852a9b786856fd5bb530ad",
-    "tools/native_oracle.py": "0c94545bb9c4ca049ad7d46b152d9bd79624c7e52b3fec7a42d360974bbaacef"
-  },
   "payload_sha256": "bc37db27193f5618884245f91b96a200c92d25a73d760616a836d2a39577468c",
   "replay_command": "python -m tools.rmg_oracle.gen_rng_vectors"
 }

@@ -6,7 +6,7 @@ callback. [The payload](building_slot_replacement.expiry.json) contains 64 expir
 rows, two separate stock body/readiness controls and five shared-decoder
 validation controls;
 [the sidecar](building_slot_replacement.expiry.meta.json) records original bytes,
-source identities, assumptions and substitutions. The historical 420-row
+assumptions and substitutions. The historical 420-row
 replacement payload and its metadata remain byte-identical.
 
 Original `gamemd.exe` SHA-256:

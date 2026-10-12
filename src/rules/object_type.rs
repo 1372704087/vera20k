@@ -681,7 +681,9 @@ pub struct ObjectType {
     pub turret_anim_x: i32,
     /// Pixel Y offset for building turret placement (TurretAnimY=).
     pub turret_anim_y: i32,
-    /// Depth adjustment for building turret (TurretAnimZAdjust=, negative = behind).
+    /// Z-seed adjustment for a voxel turret's blit (TurretAnimZAdjust=, negative
+    /// = nearer the camera). Building vtable `0x7E3EBC+0x2EC` folds it into the
+    /// draw Z only when `TurretAnimIsVoxel`; it is not a ground-layer sort key.
     pub turret_anim_z_adjust: i32,
     /// Scan radius in cells for auto-targeting idle enemies. If None, defaults
     /// to the primary weapon's range at runtime.

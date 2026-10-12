@@ -13,17 +13,18 @@ use crate::rules::color_scheme::ColorSchemeEntry;
 use crate::ui::shell::geom::ShellScale;
 use crate::ui::shell::trackbar::{PLAQUE_RESERVE, THUMB_W};
 use crate::ui::skirmish_shell::{
-    COMBO_DROPDOWN_ROW_H, DropdownMetrics, DropdownScrollbarPart, RectPx, SkirmishCheckboxId,
-    SkirmishComboId, SkirmishComboItem, SkirmishShellLayout, SkirmishShellState,
-    SkirmishTrackbarId, checkbox_icon_rect, combo_arrow_rect, combo_dropdown_content_rect,
-    combo_dropdown_needs_scrollbar, combo_dropdown_rect, combo_dropdown_scroll_thumb_rect,
-    combo_dropdown_scrollbar_rect, combo_dropdown_visible_row_count, combo_enabled,
-    combo_face_rect, combo_items, combo_swatch_rect, player_name_edit_text_rect,
-    player_row_visible, selected_combo_item_index, trackbar_visual_value,
+    DropdownMetrics, DropdownScrollbarPart, RectPx, SkirmishCheckboxId, SkirmishComboId,
+    SkirmishComboItem, SkirmishShellLayout, SkirmishShellState, SkirmishTrackbarId,
+    checkbox_icon_rect, combo_arrow_rect, combo_dropdown_content_rect,
+    combo_dropdown_needs_scrollbar, combo_dropdown_rect, combo_dropdown_row_rect,
+    combo_dropdown_scroll_thumb_rect, combo_dropdown_scrollbar_rect,
+    combo_dropdown_visible_row_count, combo_enabled, combo_face_rect, combo_items,
+    combo_swatch_rect, player_name_edit_text_rect, player_row_visible, selected_combo_item_index,
+    trackbar_visual_value,
 };
 
 use super::chrome::{
-    push_entry, push_entry_scaled, push_entry_top_clipped, push_entry_wrapped_centered,
+    push_entry, push_entry_grown, push_entry_top_clipped, push_entry_wrapped_centered,
     push_ownerdraw_two_pixel_bevel_frame, push_ownerdraw_two_pixel_bevel_frame_px, push_solid_rect,
     push_solid_rect_px, push_tinted_entry,
 };
@@ -50,7 +51,7 @@ pub(super) fn combo_face_entry(
     rect: RectPx,
     scale: ShellScale,
 ) -> Option<SkirmishShellChromeEntry> {
-    match scale.base_width(rect.w) {
+    match scale.base_rect(rect).w {
         207 => chrome.combo_face_207,
         180 => chrome.combo_face_180,
         150 => chrome.combo_face_150,
@@ -164,10 +165,10 @@ pub(super) fn push_scrollbar_thumb(
         .map(|entry| scale.art_size(entry.pixel_size[0], entry.pixel_size[1])[1].round() as i32)
         .unwrap_or(0);
     if let Some(top) = chrome.scrollbar_thumb_top {
-        push_entry_scaled(out, top, rect.x, rect.y, scale, depth);
+        push_entry_grown(out, top, rect.x, rect.y, scale, depth);
     }
     if let Some(bottom) = chrome.scrollbar_thumb_bottom {
-        push_entry_scaled(
+        push_entry_grown(
             out,
             bottom,
             rect.x,
@@ -370,17 +371,15 @@ pub(super) fn paint_control(
                     RectPx::new(
                         rect.x + thumb_left,
                         rect.y,
-                        (THUMB_W as f32 * scale.x()).round() as i32,
+                        (THUMB_W as f32 * scale.factor()).round() as i32,
                         rect.h,
                     ),
-                    scale.y(),
+                    scale.factor(),
                     SHELL_CONTROL_DEPTH - 0.00002,
                 );
             }
-            if let Some(frame) =
-                chrome.trackbar_frame(plaque, scale.base_width(rect.w), scale.base_height(rect.h))
-            {
-                let base = scale.base_rect(rect);
+            let base = scale.base_rect(rect);
+            if let Some(frame) = chrome.trackbar_frame(plaque, base.w, base.h) {
                 push_entry(
                     out,
                     frame,
@@ -427,7 +426,7 @@ pub(super) fn paint_control(
                 // authored box both stretch, so the gaps to the face's right and
                 // top edges keep their authored size in stretched pixels too.
                 let arrow_rect = combo_arrow_rect(rect, scale);
-                push_entry_scaled(
+                push_entry_grown(
                     out,
                     arrow,
                     arrow_rect.x,
@@ -459,7 +458,7 @@ pub(super) fn paint_control(
                 pressed_part == Some(DropdownScrollbarPart::UpArrow),
             );
             if let Some(up) = up_entry {
-                push_entry_scaled(
+                push_entry_grown(
                     out,
                     up,
                     scrollbar.x,
@@ -474,7 +473,7 @@ pub(super) fn paint_control(
                 pressed_part == Some(DropdownScrollbarPart::DownArrow),
             );
             if let Some(down) = down_entry {
-                push_entry_scaled(
+                push_entry_grown(
                     out,
                     down,
                     scrollbar.x,
@@ -739,19 +738,12 @@ pub(super) fn push_dropdown_instances(
         .enumerate()
     {
         if let SkirmishComboItem::Color(color_index) = item {
-            // The row and its inset swatch are laid out on the authored 23-pixel
-            // row and stretched together, so the swatch keeps its 2-pixel frame
-            // proportion on a stretched page.
-            let base = layout.scale.base_rect(content);
-            let row = RectPx::new(
-                base.x,
-                base.y + idx as i32 * COMBO_DROPDOWN_ROW_H,
-                base.w,
-                COMBO_DROPDOWN_ROW_H,
-            );
+            // The row sits on the grid the item text and the pointer hit tests
+            // use; its swatch keeps the authored 2-pixel inset, grown with it.
+            let row = combo_dropdown_row_rect(content, layout.scale, idx);
             let swatch = layout
                 .scale
-                .scale_rect(RectPx::new(row.x + 2, row.y + 2, row.w - 4, 19));
+                .derive_rect(row, |row| RectPx::new(row.x + 2, row.y + 2, row.w - 4, 19));
             push_solid_rect(
                 out,
                 atlas,
@@ -799,15 +791,13 @@ pub(super) fn dropdown_selected_row_rect(
     if selected < top_index || selected >= top_index + visible_rows {
         return None;
     }
-    // Laid out on the authored row and stretched with it, so the highlight
-    // covers exactly the row the pointer hit test selects.
-    let base = scale.base_rect(content);
-    Some(scale.scale_rect(RectPx::new(
-        base.x,
-        base.y + (selected - top_index) as i32 * COMBO_DROPDOWN_ROW_H,
-        base.w,
-        COMBO_DROPDOWN_ROW_H,
-    )))
+    // The row grid the item text and both pointer hit tests use, so the
+    // highlight covers exactly the row a click selects.
+    Some(combo_dropdown_row_rect(
+        content,
+        scale,
+        selected - top_index,
+    ))
 }
 
 #[cfg(test)]

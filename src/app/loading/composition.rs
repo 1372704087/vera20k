@@ -46,9 +46,9 @@ pub(crate) const fn loading_art_viewport_size(render_width: u32) -> [i32; 2] {
 }
 
 /// The mapping the loading screen paints in. gamemd centers the art viewport in
-/// the window and draws it 1:1; the family's fill-window switch instead grows the
-/// authored dialog into the whole window, so every authored rect maps through this
-/// scale. [`ShellScale::RETAIL`] leaves every path exactly as gamemd has it.
+/// the window and draws it 1:1; the family's fill-window switch instead scales the
+/// authored dialog to fit the window, centred, so every authored rect maps through
+/// this scale. [`ShellScale::RETAIL`] leaves every path exactly as gamemd has it.
 pub(crate) fn loading_screen_scale(fill_window: bool, render_size: [u32; 2]) -> ShellScale {
     if fill_window {
         ShellScale::from_screen(render_size[0] as i32, render_size[1] as i32)
@@ -58,7 +58,7 @@ pub(crate) fn loading_screen_scale(fill_window: bool, render_size: [u32; 2]) -> 
 }
 
 /// The size the loading layers are authored in: the live window at retail, and the
-/// dialog a stretched page grows into the window. Every layer's geometry — the
+/// dialog a scaled page grows into the window. Every layer's geometry — the
 /// narrow/wide art branch, the centered origin and each rect — is computed from
 /// this size first, then mapped through the scale, so the two paths cannot drift.
 pub(crate) fn loading_authored_size(render_size: [u32; 2], scale: ShellScale) -> [u32; 2] {

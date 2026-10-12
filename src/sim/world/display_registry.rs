@@ -20,7 +20,7 @@ use crate::sim::movement::ground_pose::{building_render_order_parts, position_wo
 /// reads physical GetHeight, Jumpjet54B8D0 additionally reads marked-on-map,
 /// structural bridge, falling and its linked +2C height. Ground movers do not
 /// query height. No terrain is a headless compatibility case, not native proof.
-pub(super) fn entity_layer(
+pub(crate) fn entity_layer(
     entity: &GameEntity,
     terrain: Option<&ResolvedTerrainGrid>,
     rules: Option<&RuleSet>,
@@ -405,6 +405,17 @@ mod tests {
                 entity_layer(entity, Some(&terrain), Some(&rules)),
                 DisplayLayer::from_index(row["layer"].as_u64().unwrap() as u8).unwrap(),
                 "{name}"
+            );
+            // Place_Down and Pick_Up ask this query: a list exactly when the
+            // native answer is Ground, then the OnBridge one.
+            assert_eq!(
+                crate::sim::occupancy::cell_list_layer_for_entity(entity, Some(&terrain)),
+                (row["layer"] == 2).then_some(if entity.on_bridge {
+                    crate::sim::movement::locomotor::MovementLayer::Bridge
+                } else {
+                    crate::sim::movement::locomotor::MovementLayer::Ground
+                }),
+                "{name}: cell list"
             );
             if kind == "fly" {
                 // Both consumers dispatch Fly4CFCF0. A stale compatibility

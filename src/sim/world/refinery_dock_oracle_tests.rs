@@ -274,7 +274,11 @@ pub(super) fn scene_with(input: &Value, rules: RuleSet, ini: &IniFile) -> Scene 
         let entity = sim.substrate.entities.get_mut(miner).unwrap();
         entity.position.rx = x;
         entity.position.ry = y;
-        let layer = entity.occupancy_list_layer().unwrap();
+        let layer = sim
+            .substrate
+            .occupancy
+            .listed_layer(spawn_x, spawn_y, miner)
+            .unwrap();
         sim.substrate.occupancy.move_entity(
             spawn_x,
             spawn_y,

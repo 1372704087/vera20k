@@ -654,6 +654,447 @@ fn gsi_04_05_protected_techno_response_runs_after_object_health_commit() {
     assert_eq!(entities.get(4).unwrap().health.current, 90);
 }
 
+/// The protected-Techno call is the tail of result 1's own arm (switch
+/// `0x00702D24` entry 1, `0x007027AE..0x007027EE`): a hit that crosses into
+/// yellow or red, or kills, never reaches it (#1422). Nor does a result-1
+/// hit on an object whose owner a human controls (`0x0050B730` at
+/// `0x007027D2`): in GameMode 0 that includes a `PlayerControl=` house.
+#[test]
+fn gsi_04_05_protected_techno_response_runs_only_on_result_one() {
+    let rules = gsi_04_05_attack_frame_rules();
+    let mut entities = EntityStore::new();
+    entities.insert(make_entity_owned(1, "SOURCE", 4, 4, 100, "Enemy"));
+    for id in 2..=6 {
+        let owner = if id == 6 { "Ally" } else { "Victim" };
+        let mut victim = make_entity_owned(id, "PROTECTED", id as u16 + 3, 4, 100, owner);
+        // A survivor's scatter tail asks its locomotor whether it moves.
+        victim.locomotor = Some(
+            crate::sim::movement::locomotor::LocomotorState::for_test_kind(
+                crate::rules::locomotor_type::LocomotorKind::Drive,
+            ),
+        );
+        entities.insert(victim);
+    }
+    let mut interner = test_interner();
+    let victim_owner = interner.intern("Victim");
+    let ally_owner = interner.intern("Ally");
+    let source_owner = interner.intern("Enemy");
+    let wh = interner.intern("HITWH");
+    let mut ally = HouseState::new(ally_owner, 0, None, false, 0, 10);
+    ally.player_control = true;
+    let mut houses = BTreeMap::from([
+        (
+            victim_owner,
+            HouseState::new(victim_owner, 0, None, false, 0, 10),
+        ),
+        (ally_owner, ally),
+        (
+            source_owner,
+            HouseState::new(source_owner, 1, None, false, 0, 10),
+        ),
+    ]);
+    let mut occupancy = OccupancyGrid::new();
+    let mut main_rng = SimRng::new(5);
+    let mut scenario_rng = SimRng::new(7);
+    let mut handled_deaths = Vec::new();
+    let mut trace_hook = FixtureTrace::default();
+    let mut inline_hooks: Option<&mut FixtureTrace> = Some(&mut trace_hook);
+    let mut sound_sink = None;
+
+    // Result 1, a yellow crossing, a red crossing, a kill, and result 1 on
+    // the PlayerControl house's object.
+    let _ = commit_damage_events(
+        &[
+            EntityDamageEvent::area(2, 10, 0, 1, Some(source_owner), wh),
+            EntityDamageEvent::area(3, 60, 0, 1, Some(source_owner), wh),
+            EntityDamageEvent::area(4, 80, 0, 1, Some(source_owner), wh),
+            EntityDamageEvent::area(5, 100, 0, 1, Some(source_owner), wh),
+            EntityDamageEvent::area(6, 10, 0, 1, Some(source_owner), wh),
+        ],
+        &mut entities,
+        &mut occupancy,
+        &rules,
+        &mut interner,
+        &mut houses,
+        &[victim_owner, ally_owner, source_owner],
+        &HouseAllianceMap::new(),
+        &mut main_rng,
+        &mut scenario_rng,
+        &mut handled_deaths,
+        None,
+        None,
+        None,
+        91,
+        &mut inline_hooks,
+        &mut sound_sink,
+    );
+
+    assert_eq!(
+        trace_hook.entries,
+        vec![BaseDefenseResponseTraceEntry {
+            site: BaseDefenseResponseCallSite::ProtectedTechno,
+            victim_id: 2,
+            health: 90,
+            last_attacker_house_index: -1,
+        }],
+        "only the computer's result-1 hit reaches the protected-Techno call"
+    );
+    let health = |id| entities.get(id).map_or(0, |entity| entity.health.current);
+    assert_eq!(
+        [health(2), health(3), health(4), health(5), health(6)],
+        [90, 40, 20, 0, 90]
+    );
+}
+
+/// A hit without a source takes `TechnoClass::ReceiveDamage`'s refused
+/// scatter arm (`ShouldRetaliate` answers 0; `0x00702BFE`): a computer's
+/// guarding man scatters at once (`Scatter(null, 1, 0)`, whose null arm
+/// spends a Scenario draw), a human's rookie does not. Either way
+/// InfantryClass then skips its source Scatter and takes the fear ladder
+/// (`0x00518C47`): 12 at 90% health, not the source latch's 100.
+#[test]
+fn sourceless_infantry_hit_takes_the_refused_scatter_arm_and_the_fear_ladder() {
+    let rules = RuleSet::from_ini(&IniFile::from_str(
+        "[InfantryTypes]\n0=GI\n[VehicleTypes]\n[AircraftTypes]\n[BuildingTypes]\n\
+         [Warheads]\n0=HITWH\n[GI]\nStrength=100\nArmor=none\n\
+         [HITWH]\nVerses=100%,100%,100%,100%,100%,100%,100%,100%,100%,100%,100%\n",
+    ))
+    .unwrap();
+    for human in [false, true] {
+        let mut victim = make_infantry_entity(2, "GI", 5, 5, 100);
+        victim.locomotor = Some(
+            crate::sim::movement::locomotor::LocomotorState::for_test_kind(
+                crate::rules::locomotor_type::LocomotorKind::Walk,
+            ),
+        );
+        victim.mission.apply_test_fixture(MissionTestFixture {
+            current: MissionId::from_known(MissionType::Guard),
+            suspended: MissionId::NONE,
+            queued: MissionId::NONE,
+            movement_bypass_latch: 0,
+            handler_state: 0,
+            mission_start_frame: 0,
+            ai_counter: 0,
+            dispatch_timer: MissionDispatchTimer::at_frame(0),
+        });
+        let mut entities = EntityStore::new();
+        entities.insert(victim);
+        let mut interner = test_interner();
+        let owner = interner.intern("Test");
+        let wh = interner.intern("HITWH");
+        let mut houses = BTreeMap::from([(owner, HouseState::new(owner, 0, None, human, 0, 10))]);
+        let mut main_rng = SimRng::new(5);
+        let mut scenario_rng = SimRng::new(7);
+        let scenario_before = scenario_rng.state();
+
+        let _ = commit_damage_events(
+            &[EntityDamageEvent::area(2, 10, 0, RAD_NO_ATTACKER, None, wh)],
+            &mut entities,
+            &mut OccupancyGrid::new(),
+            &rules,
+            &mut interner,
+            &mut houses,
+            &[owner],
+            &HouseAllianceMap::new(),
+            &mut main_rng,
+            &mut scenario_rng,
+            &mut Vec::new(),
+            None,
+            None,
+            None,
+            40,
+            &mut None,
+            &mut None,
+        );
+
+        let victim = entities.get(2).unwrap();
+        assert_eq!(victim.health.current, 90);
+        assert_eq!(
+            victim.infantry.as_ref().unwrap().fear_level,
+            12,
+            "human={human}"
+        );
+        assert_eq!(
+            scenario_rng.state() != scenario_before,
+            !human,
+            "human={human}"
+        );
+    }
+}
+
+/// Stock rules through the production receiver (#1327). Retail
+/// `PlayerScatter=no` and `[TANY] VeteranAbilities=...SCATTER`: a human's
+/// veteran Tanya hit without a source passes the refused arm's rank gate
+/// (`0x00702CA2..0x00702CFC`) and steps to a nearby cell; as a rookie, or
+/// with a NavCom, she stays. A computer's rookie GI passes by ownership
+/// alone (`0x00702C8A`). Each Scatter spends the null arm's Scenario draw.
+#[test]
+fn retail_damage_scatter_tail_admits_by_rank_ability_and_ownership() {
+    use crate::sim::components::NavTargetRef;
+    let Some((ini, art)) = crate::rules::retail_ini_fixture::retail_rules_and_art() else {
+        return;
+    };
+    let rules = RuleSet::from_ini_with_fixed_art_for_test(&ini, &art).expect("retail rules");
+    assert!(!rules.general.player_scatter);
+    let run = |type_id: &str, human: bool, rank: u16, nav: bool| {
+        let mut sim = crate::sim::world::Simulation::with_seed(0x5CA7);
+        crate::sim::arena_fixture::flat_ground(&mut sim, &rules);
+        let owner = sim.interner.intern("Americans");
+        sim.houses
+            .insert(owner, HouseState::new(owner, 0, None, human, 0, 10));
+        let id = sim
+            .spawn_object(type_id, "Americans", 10, 10, 0, &rules)
+            .unwrap();
+        let actor = sim.substrate.entities.get_mut(id).unwrap();
+        assert_eq!(
+            actor.mission.current(),
+            MissionId::from_known(MissionType::Guard)
+        );
+        actor.set_veterancy_rank(rank);
+        if nav {
+            actor.navigation.nav_com = Some(NavTargetRef::cell(14, 10));
+        }
+        let rng = sim.scenario_rng.state();
+        let warhead = sim.interner.intern("SA");
+        crate::sim::combat::world_receiver::commit_entities(
+            &mut sim,
+            &mut crate::sim::combat::world_receiver::ReceiverRun::default(),
+            &[EntityDamageEvent::area(
+                id,
+                10,
+                0,
+                RAD_NO_ATTACKER,
+                None,
+                warhead,
+            )],
+            None,
+            &rules,
+            None,
+        );
+        let actor = sim.substrate.entities.get(id).unwrap();
+        assert!(actor.health.current < rules.object(type_id).unwrap().strength);
+        (sim.scenario_rng.state() != rng, actor.navigation.nav_com)
+    };
+    let (drew, nav) = run("TANY", true, 100, false);
+    assert!(drew && nav.is_some(), "veteran Tanya steps aside: {nav:?}");
+    assert_eq!(run("TANY", true, 0, false), (false, None), "rookie Tanya");
+    assert_eq!(
+        run("TANY", true, 100, true),
+        (false, Some(NavTargetRef::cell(14, 10))),
+        "a NavCom refuses"
+    );
+    let (drew, nav) = run("E1", false, 0, false);
+    assert!(
+        drew && nav.is_some(),
+        "a computer's GI steps aside: {nav:?}"
+    );
+}
+
+/// One 10-point `SA` hit on stock rules through the production receiver. The
+/// `actors` spawn on row 10 of a flat arena: the first is the victim and, when
+/// `sourced`, the second is the source. `setup` adjusts the world before the
+/// hit. Answers the world, the actors' ids and the Scenario RNG state just
+/// before the hit.
+fn retail_arena_hit(
+    rules: &RuleSet,
+    actors: &[(&str, &str, bool, u16)],
+    sourced: bool,
+    setup: impl FnOnce(&mut Simulation, &[u64]),
+) -> (Simulation, Vec<u64>, u64) {
+    let mut sim = Simulation::with_seed(0x5CA7);
+    crate::sim::arena_fixture::flat_ground(&mut sim, rules);
+    let mut ids = Vec::new();
+    for &(type_id, house, human, rx) in actors {
+        let owner = sim.interner.intern(house);
+        sim.houses
+            .entry(owner)
+            .or_insert_with(|| HouseState::new(owner, 0, None, human, 0, 10));
+        ids.push(sim.spawn_object(type_id, house, rx, 10, 0, rules).unwrap());
+    }
+    setup(&mut sim, &ids);
+    let (source, source_owner) = if sourced {
+        (
+            ids[1],
+            Some(sim.substrate.entities.get(ids[1]).unwrap().owner()),
+        )
+    } else {
+        (RAD_NO_ATTACKER, None)
+    };
+    let rng = sim.scenario_rng.state();
+    let warhead = sim.interner.intern("SA");
+    crate::sim::combat::world_receiver::commit_entities(
+        &mut sim,
+        &mut crate::sim::combat::world_receiver::ReceiverRun::default(),
+        &[EntityDamageEvent::area(
+            ids[0],
+            10,
+            0,
+            source,
+            source_owner,
+            warhead,
+        )],
+        None,
+        rules,
+        None,
+    );
+    (sim, ids, rng)
+}
+
+/// A source the victim answers takes the scatter tail's accepted arm
+/// (`0x00702B47`). In reach, `Override_Mission` (`0x00702B41`) first gives a
+/// human's veteran Tanya her Target, which refuses the tail. Beyond weapon
+/// range and Sight (`0x00702A58..0x00702B2F`) she has none, and her rank's
+/// SCATTER admits the Scatter and its draw; a rookie's rank does not.
+#[test]
+fn retail_damage_scatter_tail_follows_the_retaliation_answer() {
+    let Some((ini, art)) = crate::rules::retail_ini_fixture::retail_rules_and_art() else {
+        return;
+    };
+    let rules = RuleSet::from_ini_with_fixed_art_for_test(&ini, &art).expect("retail rules");
+    let run = |source_x: u16, rank: u16| {
+        let (sim, ids, rng) = retail_arena_hit(
+            &rules,
+            &[
+                ("TANY", "Americans", true, 10),
+                ("E2", "Russians", false, source_x),
+            ],
+            true,
+            |sim, ids| {
+                sim.substrate
+                    .entities
+                    .get_mut(ids[0])
+                    .unwrap()
+                    .set_veterancy_rank(rank)
+            },
+        );
+        let tanya = sim.substrate.entities.get(ids[0]).unwrap();
+        (
+            tanya
+                .attack_target
+                .as_ref()
+                .is_some_and(|target| target.target == TargetKind::Entity(ids[1])),
+            tanya.navigation.nav_com.is_some(),
+            sim.scenario_rng.state() != rng,
+        )
+    };
+    let (target, nav, _) = run(12, 100);
+    assert!(target && !nav, "in reach she attacks: {target} {nav}");
+    assert_eq!(
+        run(30, 100),
+        (false, true, true),
+        "out of reach she steps aside"
+    );
+    assert_eq!(run(30, 0), (false, false, false), "a rookie stays");
+}
+
+/// A computer's Fraidycat civilian hit by a source scatters twice in one
+/// receiver: the Techno tail's `Scatter(null, 1, 0)` (`0x00702D0B`; an
+/// unarmed man refuses retaliation), then InfantryClass's
+/// `Scatter(source, 0, 0)` (`0x00518C56`), whose `Queue_Mission(Move)` and
+/// away-from-the-source destination replace the first. Each spends a Scenario
+/// draw. Without a source only the first runs.
+#[test]
+fn retail_fraidycat_hit_by_a_source_scatters_twice() {
+    let Some((ini, art)) = crate::rules::retail_ini_fixture::retail_rules_and_art() else {
+        return;
+    };
+    let rules = RuleSet::from_ini_with_fixed_art_for_test(&ini, &art).expect("retail rules");
+    assert!(rules.object("CIV1").unwrap().fraidycat);
+    let run = |sourced: bool| {
+        let (sim, ids, rng) = retail_arena_hit(
+            &rules,
+            &[
+                ("CIV1", "Neutral", false, 10),
+                ("E2", "Russians", false, 14),
+            ],
+            sourced,
+            |_, _| {},
+        );
+        let civilian = sim.substrate.entities.get(ids[0]).unwrap();
+        (
+            civilian.navigation.nav_com,
+            civilian.mission.queued().known(),
+            sim.scenario_rng.state(),
+            rng,
+        )
+    };
+    let (tail_nav, tail_queued, tail_rng, rng) = run(false);
+    assert!(tail_nav.is_some() && tail_rng != rng, "the tail scatters");
+    assert_eq!(tail_queued, None, "the found-cell arm queues nothing");
+    let (nav, queued, both_rng, _) = run(true);
+    assert!(nav.is_some());
+    assert_eq!(
+        queued,
+        Some(MissionType::Move),
+        "the source Scatter queues Move"
+    );
+    assert_ne!(both_rng, tail_rng, "a second draw");
+}
+
+/// What the Foot and Infantry receivers add after the Techno tail, on
+/// stock rules:
+/// - a computer's `Engineer=` man in Guard queues Hunt
+///   (`0x00518BF2..0x00518C3F`), with or without a source; a human's, or one
+///   in Sleep, does not;
+/// - a teamless Foot in `[Harmless]` (NoThreat, not Zombie) hit by a source
+///   takes `Enter_Idle_Mode(0, 1)` (`0x004D749F..0x004D74C7`): the tail's
+///   Scatter gave it a NavCom, so it queues Move. A team member, or a hit
+///   without a source, keeps Harmless.
+#[test]
+fn retail_infantry_postlude_hunts_and_idles() {
+    let Some((ini, art)) = crate::rules::retail_ini_fixture::retail_rules_and_art() else {
+        return;
+    };
+    let rules = RuleSet::from_ini_with_fixed_art_for_test(&ini, &art).expect("retail rules");
+    assert!(rules.object("ENGINEER").unwrap().engineer);
+    let harmless = rules.mission_control.entry(MissionType::Harmless).unwrap();
+    assert!(harmless.no_threat && !harmless.zombie && !harmless.retaliate);
+    let queued = |type_id: &str, human: bool, mission: MissionType, sourced: bool, team: bool| {
+        let (sim, ids, _) = retail_arena_hit(
+            &rules,
+            &[
+                (type_id, "Neutral", human, 10),
+                ("E2", "Russians", false, 14),
+            ],
+            sourced,
+            |sim, ids| {
+                let victim = sim.substrate.entities.get_mut(ids[0]).unwrap();
+                victim.mission.apply_test_fixture(MissionTestFixture {
+                    current: MissionId::from_known(mission),
+                    suspended: MissionId::NONE,
+                    queued: MissionId::NONE,
+                    movement_bypass_latch: 0,
+                    handler_state: 0,
+                    mission_start_frame: 0,
+                    ai_counter: 0,
+                    dispatch_timer: MissionDispatchTimer::at_frame(0),
+                });
+                if team {
+                    let owner = victim.owner();
+                    let script = sim.interner.intern("Script");
+                    sim.team_script_vm
+                        .create_team(owner, script, vec![ids[0]], 0);
+                }
+            },
+        );
+        sim.substrate
+            .entities
+            .get(ids[0])
+            .unwrap()
+            .mission
+            .queued()
+            .known()
+    };
+    use MissionType::{Guard, Harmless, Hunt, Move, Sleep};
+    assert_eq!(queued("ENGINEER", false, Guard, false, false), Some(Hunt));
+    assert_eq!(queued("ENGINEER", false, Guard, true, false), Some(Hunt));
+    assert_eq!(queued("ENGINEER", true, Guard, false, false), None);
+    assert_eq!(queued("ENGINEER", false, Sleep, false, false), None);
+    assert_eq!(queued("E1", false, Harmless, true, false), Some(Move));
+    assert_eq!(queued("E1", false, Harmless, false, false), None);
+    assert_eq!(queued("E1", false, Harmless, true, true), None);
+}
+
 #[test]
 fn gsi_04_05_building_self_damage_return_zero_stops_receiver_commit() {
     let rules = gsi_04_05_attack_frame_rules();

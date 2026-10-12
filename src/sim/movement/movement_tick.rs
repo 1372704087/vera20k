@@ -729,12 +729,20 @@ impl MovementPassCache {
         owner: crate::sim::intern::InternedId,
         lent: &mut LentOwnerBlockSet,
         entities: &mut EntityStore,
+        resolved_terrain: Option<&ResolvedTerrainGrid>,
         alliances: &HouseAllianceMap,
         interner: &crate::sim::intern::StringInterner,
         rules: Option<&crate::rules::ruleset::RuleSet>,
     ) {
-        self.block_index
-            .refresh_lent(owner, lent, entities, alliances, interner, rules);
+        self.block_index.refresh_lent(
+            owner,
+            lent,
+            entities,
+            resolved_terrain,
+            alliances,
+            interner,
+            rules,
+        );
     }
 
     /// Owner sets for a search whose pass holds none for this owner, or that
@@ -743,12 +751,19 @@ impl MovementPassCache {
         &mut self,
         owner: crate::sim::intern::InternedId,
         entities: &mut EntityStore,
+        resolved_terrain: Option<&ResolvedTerrainGrid>,
         alliances: &HouseAllianceMap,
         interner: &crate::sim::intern::StringInterner,
         rules: Option<&crate::rules::ruleset::RuleSet>,
     ) -> LentOwnerBlockSet {
-        self.block_index
-            .lend_current(owner, entities, alliances, interner, rules)
+        self.block_index.lend_current(
+            owner,
+            entities,
+            resolved_terrain,
+            alliances,
+            interner,
+            rules,
+        )
     }
 
     pub(crate) fn give_back(
@@ -799,7 +814,13 @@ impl MovementPassCache {
                 }
                 for id in touched.ids {
                     let now = entities.get(id).and_then(|entity| {
-                        bump_crush::blocker_plane_source(entity, interner, rules, retained_foot)
+                        bump_crush::blocker_plane_source(
+                            entity,
+                            resolved_terrain,
+                            interner,
+                            rules,
+                            retained_foot,
+                        )
                     });
                     if entry.sources.get(&id) == now.as_ref() {
                         continue;
@@ -822,9 +843,13 @@ impl MovementPassCache {
                 );
                 let mut sources = BTreeMap::new();
                 for entity in entities.values() {
-                    if let Some(source) =
-                        bump_crush::blocker_plane_source(entity, interner, rules, retained_foot)
-                    {
+                    if let Some(source) = bump_crush::blocker_plane_source(
+                        entity,
+                        resolved_terrain,
+                        interner,
+                        rules,
+                        retained_foot,
+                    ) {
                         source.add_to(&mut plane);
                         sources.insert(entity.stable_id(), source);
                     }
@@ -1186,9 +1211,14 @@ pub(crate) fn begin_movement(
     if let Some(owner) = mover_owner {
         // The owner's entity block sets for friendly-passable pathfinding,
         // as a build from the entities would give them now.
-        let lent = caches
-            .block_index
-            .lend_current(owner, entities, alliances, interner, rules);
+        let lent = caches.block_index.lend_current(
+            owner,
+            entities,
+            resolved_terrain,
+            alliances,
+            interner,
+            rules,
+        );
         held_block_sets.insert(owner, lent);
         advance_ordinary_mover(
             entities,

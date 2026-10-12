@@ -158,6 +158,7 @@ impl Simulation {
             let sets = self.movement_pass_cache.lend_block_set(
                 owner,
                 &mut self.substrate.entities,
+                self.resolved_terrain.as_ref(),
                 &self.house_alliances,
                 &self.interner,
                 rules,

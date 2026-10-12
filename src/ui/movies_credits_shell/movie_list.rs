@@ -69,8 +69,9 @@ pub fn compute_movie_list_layout(screen_w: u32, screen_h: u32) -> MovieListLayou
 }
 
 /// The responsive variant of [`compute_movie_list_layout`]: the verified
-/// 800x600 `0x129` stretched to fill the window. Identity at the base size.
-/// Rows keep their native height, so a stretched list shows more of them.
+/// 800x600 `0x129` scaled to fit the window, keeping its shape. Identity at the
+/// base size. Rows grow with the scale, so the list shows the rows it shows at
+/// 800x600.
 pub fn compute_responsive_movie_list_layout(screen_w: u32, screen_h: u32) -> MovieListLayout {
     let scale = ShellScale::from_screen(screen_w as i32, screen_h as i32);
     let base = compute_movie_list_layout(SHELL_BASE_W as u32, SHELL_BASE_H as u32);

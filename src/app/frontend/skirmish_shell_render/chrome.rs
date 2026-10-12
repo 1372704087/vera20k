@@ -231,10 +231,11 @@ pub(super) fn push_entry_native(
     push_entry_sized(out, entry, x as f32, y as f32, entry.pixel_size, depth);
 }
 
-/// Chrome art authored at its native size, grown by the layout's stretch.
-/// `x`/`y` are the window-space point the art is placed at, so a stretched page
-/// grows the art without moving it twice. Identity on the retail layout.
-pub(super) fn push_entry_scaled(
+/// Chrome art authored at its native size, grown by the layout's scale.
+/// `x`/`y` are the window-space point the art is placed at, so a scaled page
+/// grows the art without moving it twice. Identity on the retail layout. The
+/// shared-chrome form is [`crate::render::shell_paint::push_entry_grown`].
+pub(super) fn push_entry_grown(
     out: &mut Vec<SpriteInstance>,
     entry: SkirmishShellChromeEntry,
     x: i32,

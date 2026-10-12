@@ -622,7 +622,13 @@ pub(crate) fn apply_aoe_damage_with_terrain_and_scenario<O: Into<AoEDamageOrigin
     }
 
     for entity in entities.values() {
-        if entity.lifecycle.in_limbo || entity.occupancy_list_layer().is_none() {
+        if entity.lifecycle.in_limbo
+            || crate::sim::occupancy::cell_list_layer_for_entity(
+                entity,
+                layer_context.terrain.as_deref(),
+            )
+            .is_none()
+        {
             continue;
         }
         // Dying corpses (uninit'd this tick, awaiting the end-of-tick drain)
@@ -3588,14 +3594,20 @@ mod tests {
             }
         }
 
+        // A human's Fraidycat in a Team: TechnoClass::ReceiveDamage's own
+        // scatter tail refuses him (no PlayerScatter= or SCATTER,
+        // `0x00702C8A..0x00702CBC`) and the Team report returns at once for an
+        // unarmed head, so the source Scatter these witnesses execute is the
+        // receiver's only one. The Team admits it (`0x0051D200`); a computer's
+        // man would take the tail's null Scatter first.
         let run_scene = |fixture| {
             run_fixture(
                 MissionType::Guard,
                 true,
                 125,
                 true,
-                None,
-                false,
+                Some(true),
+                true,
                 false,
                 fixture,
             )
@@ -3654,8 +3666,8 @@ mod tests {
                 true,
                 125,
                 true,
-                None,
-                false,
+                Some(true),
+                true,
                 false,
                 ScatterFixture {
                     entry_case: Some(row["input"].clone()),
@@ -3723,7 +3735,7 @@ mod tests {
         // native base direction is E (2), so start=NE (1) and the first open
         // cell is (6,4). The Move/NavCom write is already visible when fear is
         // subsequently latched to 300 for Fraidycat (native518C7B).
-        let guard = run(MissionType::Guard, true, 125, true, None, false, false);
+        let guard = run(MissionType::Guard, true, 125, true, Some(true), true, false);
         assert_eq!(guard.health, 115);
         assert_eq!(guard.destination, Some((6, 4)));
         assert_eq!(
@@ -3733,7 +3745,17 @@ mod tests {
         assert_eq!(guard.fear, 300);
         assert!(guard.rng_changed);
 
-        let null_attacker = run(MissionType::Guard, false, 125, true, None, false, false);
+        // A human's man hit without a source takes neither Scatter; the
+        // computer's tail Scatter is the production receiver test's.
+        let null_attacker = run(
+            MissionType::Guard,
+            false,
+            125,
+            true,
+            Some(true),
+            false,
+            false,
+        );
         assert_eq!(null_attacker.destination, None);
         assert!(!null_attacker.rng_changed);
 

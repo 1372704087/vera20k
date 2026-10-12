@@ -287,8 +287,8 @@ pub fn movie_base_for_responsive_width(_screen_w: u32) -> MainMenuMovieBase {
     MainMenuMovieBase::Ra2tsL
 }
 
-/// Map the verified 800x600 dialog into the live window by stretching X/Y
-/// independently. Identity at 800x600, so the responsive layout equals the
+/// Map the verified 800x600 dialog into the live window through one uniform
+/// scale, centred. Identity at 800x600, so the responsive layout equals the
 /// retail layout at the base size. This intentionally drifts from retail pixel
 /// parity at other sizes, but keeps render and input coordinates in the same
 /// window-pixel space.
@@ -409,15 +409,17 @@ mod tests {
     }
 
     #[test]
-    fn responsive_layout_fills_window_by_scaling_base_shell() {
+    fn responsive_layout_fits_the_base_shell_centred_in_the_window() {
         let layout = compute_responsive_layout(1600, 900);
         assert_eq!(layout.screen, RectPx::new(0, 0, 1600, 900));
         assert_eq!(layout.movie_base, MainMenuMovieBase::Ra2tsL);
-        assert_eq!(layout.movie, RectPx::new(0, 0, 1264, 855));
-        // Base SP cell (644,199,156,42) scaled 2x/1.5x (corner-rounded) ->
-        // (1288,299,312,63); base Exit (644,535,156,42) -> (1288,803,312,63).
-        assert_eq!(layout.buttons[0].rect, RectPx::new(1288, 299, 312, 63));
-        assert_eq!(layout.buttons[5].rect, RectPx::new(1288, 803, 312, 63));
+        // The height limits the factor to 1.5: the 1200x900 shell sits 200 px
+        // in from either side. Base movie (0,0,632,570) -> (200,0,948,855).
+        assert_eq!(layout.movie, RectPx::new(200, 0, 948, 855));
+        // Base SP cell (644,199,156,42) scaled 1.5x (corner-rounded) ->
+        // (1166,299,234,63); base Exit (644,535,156,42) -> (1166,803,234,63).
+        assert_eq!(layout.buttons[0].rect, RectPx::new(1166, 299, 234, 63));
+        assert_eq!(layout.buttons[5].rect, RectPx::new(1166, 803, 234, 63));
     }
 
     #[test]

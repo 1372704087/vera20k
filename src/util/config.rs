@@ -96,8 +96,9 @@ pub struct GraphicsConfig {
     /// simulation never reads it.
     #[serde(default)]
     pub window_mode: WindowMode,
-    /// Stretch the shell family (main menu 0xE2 and its right-panel pages) to
-    /// fill the window instead of reproducing gamemd's centered, unscaled
+    /// Scale the shell family (main menu 0xE2, its right-panel pages and the
+    /// loading screens) up to the largest size the window fits at the shell's
+    /// 4:3 shape, centred, instead of reproducing gamemd's centered, unscaled
     /// 800x600 shell. Off by default: the retail layout is the parity behavior,
     /// and at the 800x600 base size the two layouts are pixel-identical anyway.
     #[serde(default)]

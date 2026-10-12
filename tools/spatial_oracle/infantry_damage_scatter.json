@@ -3070,5 +3070,2801 @@
       "player_control": true,
       "team": true
     }
+  },
+  {
+    "admitted": true,
+    "input": {
+      "doing": -1,
+      "forced": true,
+      "human": false,
+      "moving": false
+    }
+  },
+  {
+    "admitted": true,
+    "input": {
+      "doing": -1,
+      "forced": true,
+      "human": false,
+      "moving": true
+    }
+  },
+  {
+    "admitted": true,
+    "input": {
+      "doing": -1,
+      "forced": true,
+      "human": true,
+      "moving": false
+    }
+  },
+  {
+    "admitted": false,
+    "input": {
+      "doing": -1,
+      "forced": true,
+      "human": true,
+      "moving": true
+    }
+  },
+  {
+    "admitted": true,
+    "input": {
+      "doing": 0,
+      "forced": true,
+      "human": false,
+      "moving": false
+    }
+  },
+  {
+    "admitted": true,
+    "input": {
+      "doing": 0,
+      "forced": true,
+      "human": false,
+      "moving": true
+    }
+  },
+  {
+    "admitted": true,
+    "input": {
+      "doing": 0,
+      "forced": true,
+      "human": true,
+      "moving": false
+    }
+  },
+  {
+    "admitted": false,
+    "input": {
+      "doing": 0,
+      "forced": true,
+      "human": true,
+      "moving": true
+    }
+  },
+  {
+    "admitted": true,
+    "input": {
+      "doing": 1,
+      "forced": true,
+      "human": false,
+      "moving": false
+    }
+  },
+  {
+    "admitted": true,
+    "input": {
+      "doing": 1,
+      "forced": true,
+      "human": false,
+      "moving": true
+    }
+  },
+  {
+    "admitted": true,
+    "input": {
+      "doing": 1,
+      "forced": true,
+      "human": true,
+      "moving": false
+    }
+  },
+  {
+    "admitted": false,
+    "input": {
+      "doing": 1,
+      "forced": true,
+      "human": true,
+      "moving": true
+    }
+  },
+  {
+    "admitted": true,
+    "input": {
+      "doing": 2,
+      "forced": true,
+      "human": false,
+      "moving": false
+    }
+  },
+  {
+    "admitted": true,
+    "input": {
+      "doing": 2,
+      "forced": true,
+      "human": false,
+      "moving": true
+    }
+  },
+  {
+    "admitted": true,
+    "input": {
+      "doing": 2,
+      "forced": true,
+      "human": true,
+      "moving": false
+    }
+  },
+  {
+    "admitted": false,
+    "input": {
+      "doing": 2,
+      "forced": true,
+      "human": true,
+      "moving": true
+    }
+  },
+  {
+    "admitted": true,
+    "input": {
+      "doing": 3,
+      "forced": true,
+      "human": false,
+      "moving": false
+    }
+  },
+  {
+    "admitted": true,
+    "input": {
+      "doing": 3,
+      "forced": true,
+      "human": false,
+      "moving": true
+    }
+  },
+  {
+    "admitted": true,
+    "input": {
+      "doing": 3,
+      "forced": true,
+      "human": true,
+      "moving": false
+    }
+  },
+  {
+    "admitted": false,
+    "input": {
+      "doing": 3,
+      "forced": true,
+      "human": true,
+      "moving": true
+    }
+  },
+  {
+    "admitted": true,
+    "input": {
+      "doing": 4,
+      "forced": true,
+      "human": false,
+      "moving": false
+    }
+  },
+  {
+    "admitted": true,
+    "input": {
+      "doing": 4,
+      "forced": true,
+      "human": false,
+      "moving": true
+    }
+  },
+  {
+    "admitted": true,
+    "input": {
+      "doing": 4,
+      "forced": true,
+      "human": true,
+      "moving": false
+    }
+  },
+  {
+    "admitted": false,
+    "input": {
+      "doing": 4,
+      "forced": true,
+      "human": true,
+      "moving": true
+    }
+  },
+  {
+    "admitted": false,
+    "input": {
+      "doing": 5,
+      "forced": true,
+      "human": false,
+      "moving": false
+    }
+  },
+  {
+    "admitted": false,
+    "input": {
+      "doing": 5,
+      "forced": true,
+      "human": false,
+      "moving": true
+    }
+  },
+  {
+    "admitted": false,
+    "input": {
+      "doing": 5,
+      "forced": true,
+      "human": true,
+      "moving": false
+    }
+  },
+  {
+    "admitted": false,
+    "input": {
+      "doing": 5,
+      "forced": true,
+      "human": true,
+      "moving": true
+    }
+  },
+  {
+    "admitted": true,
+    "input": {
+      "doing": 6,
+      "forced": true,
+      "human": false,
+      "moving": false
+    }
+  },
+  {
+    "admitted": true,
+    "input": {
+      "doing": 6,
+      "forced": true,
+      "human": false,
+      "moving": true
+    }
+  },
+  {
+    "admitted": true,
+    "input": {
+      "doing": 6,
+      "forced": true,
+      "human": true,
+      "moving": false
+    }
+  },
+  {
+    "admitted": false,
+    "input": {
+      "doing": 6,
+      "forced": true,
+      "human": true,
+      "moving": true
+    }
+  },
+  {
+    "admitted": false,
+    "input": {
+      "doing": 7,
+      "forced": true,
+      "human": false,
+      "moving": false
+    }
+  },
+  {
+    "admitted": false,
+    "input": {
+      "doing": 7,
+      "forced": true,
+      "human": false,
+      "moving": true
+    }
+  },
+  {
+    "admitted": false,
+    "input": {
+      "doing": 7,
+      "forced": true,
+      "human": true,
+      "moving": false
+    }
+  },
+  {
+    "admitted": false,
+    "input": {
+      "doing": 7,
+      "forced": true,
+      "human": true,
+      "moving": true
+    }
+  },
+  {
+    "admitted": true,
+    "input": {
+      "doing": 8,
+      "forced": true,
+      "human": false,
+      "moving": false
+    }
+  },
+  {
+    "admitted": true,
+    "input": {
+      "doing": 8,
+      "forced": true,
+      "human": false,
+      "moving": true
+    }
+  },
+  {
+    "admitted": true,
+    "input": {
+      "doing": 8,
+      "forced": true,
+      "human": true,
+      "moving": false
+    }
+  },
+  {
+    "admitted": false,
+    "input": {
+      "doing": 8,
+      "forced": true,
+      "human": true,
+      "moving": true
+    }
+  },
+  {
+    "admitted": true,
+    "input": {
+      "doing": 9,
+      "forced": true,
+      "human": false,
+      "moving": false
+    }
+  },
+  {
+    "admitted": true,
+    "input": {
+      "doing": 9,
+      "forced": true,
+      "human": false,
+      "moving": true
+    }
+  },
+  {
+    "admitted": true,
+    "input": {
+      "doing": 9,
+      "forced": true,
+      "human": true,
+      "moving": false
+    }
+  },
+  {
+    "admitted": false,
+    "input": {
+      "doing": 9,
+      "forced": true,
+      "human": true,
+      "moving": true
+    }
+  },
+  {
+    "admitted": true,
+    "input": {
+      "doing": 10,
+      "forced": true,
+      "human": false,
+      "moving": false
+    }
+  },
+  {
+    "admitted": true,
+    "input": {
+      "doing": 10,
+      "forced": true,
+      "human": false,
+      "moving": true
+    }
+  },
+  {
+    "admitted": true,
+    "input": {
+      "doing": 10,
+      "forced": true,
+      "human": true,
+      "moving": false
+    }
+  },
+  {
+    "admitted": false,
+    "input": {
+      "doing": 10,
+      "forced": true,
+      "human": true,
+      "moving": true
+    }
+  },
+  {
+    "admitted": false,
+    "input": {
+      "doing": 11,
+      "forced": true,
+      "human": false,
+      "moving": false
+    }
+  },
+  {
+    "admitted": false,
+    "input": {
+      "doing": 11,
+      "forced": true,
+      "human": false,
+      "moving": true
+    }
+  },
+  {
+    "admitted": false,
+    "input": {
+      "doing": 11,
+      "forced": true,
+      "human": true,
+      "moving": false
+    }
+  },
+  {
+    "admitted": false,
+    "input": {
+      "doing": 11,
+      "forced": true,
+      "human": true,
+      "moving": true
+    }
+  },
+  {
+    "admitted": false,
+    "input": {
+      "doing": 12,
+      "forced": true,
+      "human": false,
+      "moving": false
+    }
+  },
+  {
+    "admitted": false,
+    "input": {
+      "doing": 12,
+      "forced": true,
+      "human": false,
+      "moving": true
+    }
+  },
+  {
+    "admitted": false,
+    "input": {
+      "doing": 12,
+      "forced": true,
+      "human": true,
+      "moving": false
+    }
+  },
+  {
+    "admitted": false,
+    "input": {
+      "doing": 12,
+      "forced": true,
+      "human": true,
+      "moving": true
+    }
+  },
+  {
+    "admitted": false,
+    "input": {
+      "doing": 13,
+      "forced": true,
+      "human": false,
+      "moving": false
+    }
+  },
+  {
+    "admitted": false,
+    "input": {
+      "doing": 13,
+      "forced": true,
+      "human": false,
+      "moving": true
+    }
+  },
+  {
+    "admitted": false,
+    "input": {
+      "doing": 13,
+      "forced": true,
+      "human": true,
+      "moving": false
+    }
+  },
+  {
+    "admitted": false,
+    "input": {
+      "doing": 13,
+      "forced": true,
+      "human": true,
+      "moving": true
+    }
+  },
+  {
+    "admitted": false,
+    "input": {
+      "doing": 14,
+      "forced": true,
+      "human": false,
+      "moving": false
+    }
+  },
+  {
+    "admitted": false,
+    "input": {
+      "doing": 14,
+      "forced": true,
+      "human": false,
+      "moving": true
+    }
+  },
+  {
+    "admitted": false,
+    "input": {
+      "doing": 14,
+      "forced": true,
+      "human": true,
+      "moving": false
+    }
+  },
+  {
+    "admitted": false,
+    "input": {
+      "doing": 14,
+      "forced": true,
+      "human": true,
+      "moving": true
+    }
+  },
+  {
+    "admitted": false,
+    "input": {
+      "doing": 15,
+      "forced": true,
+      "human": false,
+      "moving": false
+    }
+  },
+  {
+    "admitted": false,
+    "input": {
+      "doing": 15,
+      "forced": true,
+      "human": false,
+      "moving": true
+    }
+  },
+  {
+    "admitted": false,
+    "input": {
+      "doing": 15,
+      "forced": true,
+      "human": true,
+      "moving": false
+    }
+  },
+  {
+    "admitted": false,
+    "input": {
+      "doing": 15,
+      "forced": true,
+      "human": true,
+      "moving": true
+    }
+  },
+  {
+    "admitted": true,
+    "input": {
+      "doing": 16,
+      "forced": true,
+      "human": false,
+      "moving": false
+    }
+  },
+  {
+    "admitted": true,
+    "input": {
+      "doing": 16,
+      "forced": true,
+      "human": false,
+      "moving": true
+    }
+  },
+  {
+    "admitted": true,
+    "input": {
+      "doing": 16,
+      "forced": true,
+      "human": true,
+      "moving": false
+    }
+  },
+  {
+    "admitted": false,
+    "input": {
+      "doing": 16,
+      "forced": true,
+      "human": true,
+      "moving": true
+    }
+  },
+  {
+    "admitted": true,
+    "input": {
+      "doing": 17,
+      "forced": true,
+      "human": false,
+      "moving": false
+    }
+  },
+  {
+    "admitted": true,
+    "input": {
+      "doing": 17,
+      "forced": true,
+      "human": false,
+      "moving": true
+    }
+  },
+  {
+    "admitted": true,
+    "input": {
+      "doing": 17,
+      "forced": true,
+      "human": true,
+      "moving": false
+    }
+  },
+  {
+    "admitted": false,
+    "input": {
+      "doing": 17,
+      "forced": true,
+      "human": true,
+      "moving": true
+    }
+  },
+  {
+    "admitted": true,
+    "input": {
+      "doing": 18,
+      "forced": true,
+      "human": false,
+      "moving": false
+    }
+  },
+  {
+    "admitted": true,
+    "input": {
+      "doing": 18,
+      "forced": true,
+      "human": false,
+      "moving": true
+    }
+  },
+  {
+    "admitted": true,
+    "input": {
+      "doing": 18,
+      "forced": true,
+      "human": true,
+      "moving": false
+    }
+  },
+  {
+    "admitted": false,
+    "input": {
+      "doing": 18,
+      "forced": true,
+      "human": true,
+      "moving": true
+    }
+  },
+  {
+    "admitted": true,
+    "input": {
+      "doing": 19,
+      "forced": true,
+      "human": false,
+      "moving": false
+    }
+  },
+  {
+    "admitted": true,
+    "input": {
+      "doing": 19,
+      "forced": true,
+      "human": false,
+      "moving": true
+    }
+  },
+  {
+    "admitted": true,
+    "input": {
+      "doing": 19,
+      "forced": true,
+      "human": true,
+      "moving": false
+    }
+  },
+  {
+    "admitted": false,
+    "input": {
+      "doing": 19,
+      "forced": true,
+      "human": true,
+      "moving": true
+    }
+  },
+  {
+    "admitted": false,
+    "input": {
+      "doing": 20,
+      "forced": true,
+      "human": false,
+      "moving": false
+    }
+  },
+  {
+    "admitted": false,
+    "input": {
+      "doing": 20,
+      "forced": true,
+      "human": false,
+      "moving": true
+    }
+  },
+  {
+    "admitted": false,
+    "input": {
+      "doing": 20,
+      "forced": true,
+      "human": true,
+      "moving": false
+    }
+  },
+  {
+    "admitted": false,
+    "input": {
+      "doing": 20,
+      "forced": true,
+      "human": true,
+      "moving": true
+    }
+  },
+  {
+    "admitted": false,
+    "input": {
+      "doing": 21,
+      "forced": true,
+      "human": false,
+      "moving": false
+    }
+  },
+  {
+    "admitted": false,
+    "input": {
+      "doing": 21,
+      "forced": true,
+      "human": false,
+      "moving": true
+    }
+  },
+  {
+    "admitted": false,
+    "input": {
+      "doing": 21,
+      "forced": true,
+      "human": true,
+      "moving": false
+    }
+  },
+  {
+    "admitted": false,
+    "input": {
+      "doing": 21,
+      "forced": true,
+      "human": true,
+      "moving": true
+    }
+  },
+  {
+    "admitted": true,
+    "input": {
+      "doing": 22,
+      "forced": true,
+      "human": false,
+      "moving": false
+    }
+  },
+  {
+    "admitted": true,
+    "input": {
+      "doing": 22,
+      "forced": true,
+      "human": false,
+      "moving": true
+    }
+  },
+  {
+    "admitted": true,
+    "input": {
+      "doing": 22,
+      "forced": true,
+      "human": true,
+      "moving": false
+    }
+  },
+  {
+    "admitted": false,
+    "input": {
+      "doing": 22,
+      "forced": true,
+      "human": true,
+      "moving": true
+    }
+  },
+  {
+    "admitted": true,
+    "input": {
+      "doing": 23,
+      "forced": true,
+      "human": false,
+      "moving": false
+    }
+  },
+  {
+    "admitted": true,
+    "input": {
+      "doing": 23,
+      "forced": true,
+      "human": false,
+      "moving": true
+    }
+  },
+  {
+    "admitted": true,
+    "input": {
+      "doing": 23,
+      "forced": true,
+      "human": true,
+      "moving": false
+    }
+  },
+  {
+    "admitted": false,
+    "input": {
+      "doing": 23,
+      "forced": true,
+      "human": true,
+      "moving": true
+    }
+  },
+  {
+    "admitted": true,
+    "input": {
+      "doing": 24,
+      "forced": true,
+      "human": false,
+      "moving": false
+    }
+  },
+  {
+    "admitted": true,
+    "input": {
+      "doing": 24,
+      "forced": true,
+      "human": false,
+      "moving": true
+    }
+  },
+  {
+    "admitted": true,
+    "input": {
+      "doing": 24,
+      "forced": true,
+      "human": true,
+      "moving": false
+    }
+  },
+  {
+    "admitted": false,
+    "input": {
+      "doing": 24,
+      "forced": true,
+      "human": true,
+      "moving": true
+    }
+  },
+  {
+    "admitted": true,
+    "input": {
+      "doing": 25,
+      "forced": true,
+      "human": false,
+      "moving": false
+    }
+  },
+  {
+    "admitted": true,
+    "input": {
+      "doing": 25,
+      "forced": true,
+      "human": false,
+      "moving": true
+    }
+  },
+  {
+    "admitted": true,
+    "input": {
+      "doing": 25,
+      "forced": true,
+      "human": true,
+      "moving": false
+    }
+  },
+  {
+    "admitted": false,
+    "input": {
+      "doing": 25,
+      "forced": true,
+      "human": true,
+      "moving": true
+    }
+  },
+  {
+    "admitted": true,
+    "input": {
+      "doing": 26,
+      "forced": true,
+      "human": false,
+      "moving": false
+    }
+  },
+  {
+    "admitted": true,
+    "input": {
+      "doing": 26,
+      "forced": true,
+      "human": false,
+      "moving": true
+    }
+  },
+  {
+    "admitted": true,
+    "input": {
+      "doing": 26,
+      "forced": true,
+      "human": true,
+      "moving": false
+    }
+  },
+  {
+    "admitted": false,
+    "input": {
+      "doing": 26,
+      "forced": true,
+      "human": true,
+      "moving": true
+    }
+  },
+  {
+    "admitted": false,
+    "input": {
+      "doing": 27,
+      "forced": true,
+      "human": false,
+      "moving": false
+    }
+  },
+  {
+    "admitted": false,
+    "input": {
+      "doing": 27,
+      "forced": true,
+      "human": false,
+      "moving": true
+    }
+  },
+  {
+    "admitted": false,
+    "input": {
+      "doing": 27,
+      "forced": true,
+      "human": true,
+      "moving": false
+    }
+  },
+  {
+    "admitted": false,
+    "input": {
+      "doing": 27,
+      "forced": true,
+      "human": true,
+      "moving": true
+    }
+  },
+  {
+    "admitted": true,
+    "input": {
+      "doing": 28,
+      "forced": true,
+      "human": false,
+      "moving": false
+    }
+  },
+  {
+    "admitted": true,
+    "input": {
+      "doing": 28,
+      "forced": true,
+      "human": false,
+      "moving": true
+    }
+  },
+  {
+    "admitted": false,
+    "input": {
+      "doing": 28,
+      "forced": true,
+      "human": true,
+      "moving": false
+    }
+  },
+  {
+    "admitted": false,
+    "input": {
+      "doing": 28,
+      "forced": true,
+      "human": true,
+      "moving": true
+    }
+  },
+  {
+    "admitted": true,
+    "input": {
+      "doing": 29,
+      "forced": true,
+      "human": false,
+      "moving": false
+    }
+  },
+  {
+    "admitted": true,
+    "input": {
+      "doing": 29,
+      "forced": true,
+      "human": false,
+      "moving": true
+    }
+  },
+  {
+    "admitted": false,
+    "input": {
+      "doing": 29,
+      "forced": true,
+      "human": true,
+      "moving": false
+    }
+  },
+  {
+    "admitted": false,
+    "input": {
+      "doing": 29,
+      "forced": true,
+      "human": true,
+      "moving": true
+    }
+  },
+  {
+    "admitted": true,
+    "input": {
+      "doing": 30,
+      "forced": true,
+      "human": false,
+      "moving": false
+    }
+  },
+  {
+    "admitted": true,
+    "input": {
+      "doing": 30,
+      "forced": true,
+      "human": false,
+      "moving": true
+    }
+  },
+  {
+    "admitted": false,
+    "input": {
+      "doing": 30,
+      "forced": true,
+      "human": true,
+      "moving": false
+    }
+  },
+  {
+    "admitted": false,
+    "input": {
+      "doing": 30,
+      "forced": true,
+      "human": true,
+      "moving": true
+    }
+  },
+  {
+    "admitted": true,
+    "input": {
+      "doing": 31,
+      "forced": true,
+      "human": false,
+      "moving": false
+    }
+  },
+  {
+    "admitted": true,
+    "input": {
+      "doing": 31,
+      "forced": true,
+      "human": false,
+      "moving": true
+    }
+  },
+  {
+    "admitted": true,
+    "input": {
+      "doing": 31,
+      "forced": true,
+      "human": true,
+      "moving": false
+    }
+  },
+  {
+    "admitted": false,
+    "input": {
+      "doing": 31,
+      "forced": true,
+      "human": true,
+      "moving": true
+    }
+  },
+  {
+    "admitted": false,
+    "input": {
+      "doing": 32,
+      "forced": true,
+      "human": false,
+      "moving": false
+    }
+  },
+  {
+    "admitted": false,
+    "input": {
+      "doing": 32,
+      "forced": true,
+      "human": false,
+      "moving": true
+    }
+  },
+  {
+    "admitted": false,
+    "input": {
+      "doing": 32,
+      "forced": true,
+      "human": true,
+      "moving": false
+    }
+  },
+  {
+    "admitted": false,
+    "input": {
+      "doing": 32,
+      "forced": true,
+      "human": true,
+      "moving": true
+    }
+  },
+  {
+    "admitted": true,
+    "input": {
+      "doing": 33,
+      "forced": true,
+      "human": false,
+      "moving": false
+    }
+  },
+  {
+    "admitted": true,
+    "input": {
+      "doing": 33,
+      "forced": true,
+      "human": false,
+      "moving": true
+    }
+  },
+  {
+    "admitted": true,
+    "input": {
+      "doing": 33,
+      "forced": true,
+      "human": true,
+      "moving": false
+    }
+  },
+  {
+    "admitted": false,
+    "input": {
+      "doing": 33,
+      "forced": true,
+      "human": true,
+      "moving": true
+    }
+  },
+  {
+    "admitted": false,
+    "input": {
+      "doing": 34,
+      "forced": true,
+      "human": false,
+      "moving": false
+    }
+  },
+  {
+    "admitted": false,
+    "input": {
+      "doing": 34,
+      "forced": true,
+      "human": false,
+      "moving": true
+    }
+  },
+  {
+    "admitted": false,
+    "input": {
+      "doing": 34,
+      "forced": true,
+      "human": true,
+      "moving": false
+    }
+  },
+  {
+    "admitted": false,
+    "input": {
+      "doing": 34,
+      "forced": true,
+      "human": true,
+      "moving": true
+    }
+  },
+  {
+    "admitted": false,
+    "input": {
+      "doing": 35,
+      "forced": true,
+      "human": false,
+      "moving": false
+    }
+  },
+  {
+    "admitted": false,
+    "input": {
+      "doing": 35,
+      "forced": true,
+      "human": false,
+      "moving": true
+    }
+  },
+  {
+    "admitted": false,
+    "input": {
+      "doing": 35,
+      "forced": true,
+      "human": true,
+      "moving": false
+    }
+  },
+  {
+    "admitted": false,
+    "input": {
+      "doing": 35,
+      "forced": true,
+      "human": true,
+      "moving": true
+    }
+  },
+  {
+    "admitted": false,
+    "input": {
+      "doing": 36,
+      "forced": true,
+      "human": false,
+      "moving": false
+    }
+  },
+  {
+    "admitted": false,
+    "input": {
+      "doing": 36,
+      "forced": true,
+      "human": false,
+      "moving": true
+    }
+  },
+  {
+    "admitted": false,
+    "input": {
+      "doing": 36,
+      "forced": true,
+      "human": true,
+      "moving": false
+    }
+  },
+  {
+    "admitted": false,
+    "input": {
+      "doing": 36,
+      "forced": true,
+      "human": true,
+      "moving": true
+    }
+  },
+  {
+    "admitted": true,
+    "input": {
+      "doing": 37,
+      "forced": true,
+      "human": false,
+      "moving": false
+    }
+  },
+  {
+    "admitted": true,
+    "input": {
+      "doing": 37,
+      "forced": true,
+      "human": false,
+      "moving": true
+    }
+  },
+  {
+    "admitted": true,
+    "input": {
+      "doing": 37,
+      "forced": true,
+      "human": true,
+      "moving": false
+    }
+  },
+  {
+    "admitted": false,
+    "input": {
+      "doing": 37,
+      "forced": true,
+      "human": true,
+      "moving": true
+    }
+  },
+  {
+    "admitted": true,
+    "input": {
+      "doing": 38,
+      "forced": true,
+      "human": false,
+      "moving": false
+    }
+  },
+  {
+    "admitted": true,
+    "input": {
+      "doing": 38,
+      "forced": true,
+      "human": false,
+      "moving": true
+    }
+  },
+  {
+    "admitted": true,
+    "input": {
+      "doing": 38,
+      "forced": true,
+      "human": true,
+      "moving": false
+    }
+  },
+  {
+    "admitted": false,
+    "input": {
+      "doing": 38,
+      "forced": true,
+      "human": true,
+      "moving": true
+    }
+  },
+  {
+    "admitted": true,
+    "input": {
+      "doing": 39,
+      "forced": true,
+      "human": false,
+      "moving": false
+    }
+  },
+  {
+    "admitted": true,
+    "input": {
+      "doing": 39,
+      "forced": true,
+      "human": false,
+      "moving": true
+    }
+  },
+  {
+    "admitted": true,
+    "input": {
+      "doing": 39,
+      "forced": true,
+      "human": true,
+      "moving": false
+    }
+  },
+  {
+    "admitted": false,
+    "input": {
+      "doing": 39,
+      "forced": true,
+      "human": true,
+      "moving": true
+    }
+  },
+  {
+    "admitted": true,
+    "input": {
+      "doing": 40,
+      "forced": true,
+      "human": false,
+      "moving": false
+    }
+  },
+  {
+    "admitted": true,
+    "input": {
+      "doing": 40,
+      "forced": true,
+      "human": false,
+      "moving": true
+    }
+  },
+  {
+    "admitted": true,
+    "input": {
+      "doing": 40,
+      "forced": true,
+      "human": true,
+      "moving": false
+    }
+  },
+  {
+    "admitted": false,
+    "input": {
+      "doing": 40,
+      "forced": true,
+      "human": true,
+      "moving": true
+    }
+  },
+  {
+    "admitted": true,
+    "input": {
+      "doing": 41,
+      "forced": true,
+      "human": false,
+      "moving": false
+    }
+  },
+  {
+    "admitted": true,
+    "input": {
+      "doing": 41,
+      "forced": true,
+      "human": false,
+      "moving": true
+    }
+  },
+  {
+    "admitted": true,
+    "input": {
+      "doing": 41,
+      "forced": true,
+      "human": true,
+      "moving": false
+    }
+  },
+  {
+    "admitted": false,
+    "input": {
+      "doing": 41,
+      "forced": true,
+      "human": true,
+      "moving": true
+    }
+  },
+  {
+    "admitted": true,
+    "input": {
+      "forced": true,
+      "fraidycat": false,
+      "human": false,
+      "mission_scatter": false,
+      "moving": false,
+      "target": false,
+      "team": false
+    }
+  },
+  {
+    "admitted": true,
+    "input": {
+      "forced": true,
+      "fraidycat": false,
+      "human": false,
+      "mission_scatter": false,
+      "moving": false,
+      "target": false,
+      "team": true
+    }
+  },
+  {
+    "admitted": true,
+    "input": {
+      "forced": true,
+      "fraidycat": false,
+      "human": true,
+      "mission_scatter": false,
+      "moving": false,
+      "target": false,
+      "team": false
+    }
+  },
+  {
+    "admitted": true,
+    "input": {
+      "forced": true,
+      "fraidycat": false,
+      "human": true,
+      "mission_scatter": false,
+      "moving": false,
+      "target": false,
+      "team": true
+    }
+  },
+  {
+    "admitted": true,
+    "input": {
+      "forced": true,
+      "fraidycat": true,
+      "human": false,
+      "mission_scatter": false,
+      "moving": false,
+      "target": false,
+      "team": false
+    }
+  },
+  {
+    "admitted": true,
+    "input": {
+      "forced": true,
+      "fraidycat": true,
+      "human": false,
+      "mission_scatter": false,
+      "moving": false,
+      "target": false,
+      "team": true
+    }
+  },
+  {
+    "admitted": true,
+    "input": {
+      "forced": true,
+      "fraidycat": true,
+      "human": true,
+      "mission_scatter": false,
+      "moving": false,
+      "target": false,
+      "team": false
+    }
+  },
+  {
+    "admitted": true,
+    "input": {
+      "forced": true,
+      "fraidycat": true,
+      "human": true,
+      "mission_scatter": false,
+      "moving": false,
+      "target": false,
+      "team": true
+    }
+  },
+  {
+    "admitted": true,
+    "input": {
+      "forced": true,
+      "fraidycat": false,
+      "human": false,
+      "mission_scatter": false,
+      "moving": false,
+      "target": true,
+      "team": false
+    }
+  },
+  {
+    "admitted": true,
+    "input": {
+      "forced": true,
+      "fraidycat": false,
+      "human": false,
+      "mission_scatter": false,
+      "moving": false,
+      "target": true,
+      "team": true
+    }
+  },
+  {
+    "admitted": true,
+    "input": {
+      "forced": true,
+      "fraidycat": false,
+      "human": true,
+      "mission_scatter": false,
+      "moving": false,
+      "target": true,
+      "team": false
+    }
+  },
+  {
+    "admitted": true,
+    "input": {
+      "forced": true,
+      "fraidycat": false,
+      "human": true,
+      "mission_scatter": false,
+      "moving": false,
+      "target": true,
+      "team": true
+    }
+  },
+  {
+    "admitted": true,
+    "input": {
+      "forced": true,
+      "fraidycat": true,
+      "human": false,
+      "mission_scatter": false,
+      "moving": false,
+      "target": true,
+      "team": false
+    }
+  },
+  {
+    "admitted": true,
+    "input": {
+      "forced": true,
+      "fraidycat": true,
+      "human": false,
+      "mission_scatter": false,
+      "moving": false,
+      "target": true,
+      "team": true
+    }
+  },
+  {
+    "admitted": true,
+    "input": {
+      "forced": true,
+      "fraidycat": true,
+      "human": true,
+      "mission_scatter": false,
+      "moving": false,
+      "target": true,
+      "team": false
+    }
+  },
+  {
+    "admitted": true,
+    "input": {
+      "forced": true,
+      "fraidycat": true,
+      "human": true,
+      "mission_scatter": false,
+      "moving": false,
+      "target": true,
+      "team": true
+    }
+  },
+  {
+    "admitted": true,
+    "input": {
+      "forced": true,
+      "fraidycat": false,
+      "human": false,
+      "mission_scatter": true,
+      "moving": false,
+      "target": false,
+      "team": false
+    }
+  },
+  {
+    "admitted": true,
+    "input": {
+      "forced": true,
+      "fraidycat": false,
+      "human": false,
+      "mission_scatter": true,
+      "moving": false,
+      "target": false,
+      "team": true
+    }
+  },
+  {
+    "admitted": true,
+    "input": {
+      "forced": true,
+      "fraidycat": false,
+      "human": true,
+      "mission_scatter": true,
+      "moving": false,
+      "target": false,
+      "team": false
+    }
+  },
+  {
+    "admitted": true,
+    "input": {
+      "forced": true,
+      "fraidycat": false,
+      "human": true,
+      "mission_scatter": true,
+      "moving": false,
+      "target": false,
+      "team": true
+    }
+  },
+  {
+    "admitted": true,
+    "input": {
+      "forced": true,
+      "fraidycat": true,
+      "human": false,
+      "mission_scatter": true,
+      "moving": false,
+      "target": false,
+      "team": false
+    }
+  },
+  {
+    "admitted": true,
+    "input": {
+      "forced": true,
+      "fraidycat": true,
+      "human": false,
+      "mission_scatter": true,
+      "moving": false,
+      "target": false,
+      "team": true
+    }
+  },
+  {
+    "admitted": true,
+    "input": {
+      "forced": true,
+      "fraidycat": true,
+      "human": true,
+      "mission_scatter": true,
+      "moving": false,
+      "target": false,
+      "team": false
+    }
+  },
+  {
+    "admitted": true,
+    "input": {
+      "forced": true,
+      "fraidycat": true,
+      "human": true,
+      "mission_scatter": true,
+      "moving": false,
+      "target": false,
+      "team": true
+    }
+  },
+  {
+    "admitted": true,
+    "input": {
+      "forced": true,
+      "fraidycat": false,
+      "human": false,
+      "mission_scatter": true,
+      "moving": false,
+      "target": true,
+      "team": false
+    }
+  },
+  {
+    "admitted": true,
+    "input": {
+      "forced": true,
+      "fraidycat": false,
+      "human": false,
+      "mission_scatter": true,
+      "moving": false,
+      "target": true,
+      "team": true
+    }
+  },
+  {
+    "admitted": true,
+    "input": {
+      "forced": true,
+      "fraidycat": false,
+      "human": true,
+      "mission_scatter": true,
+      "moving": false,
+      "target": true,
+      "team": false
+    }
+  },
+  {
+    "admitted": true,
+    "input": {
+      "forced": true,
+      "fraidycat": false,
+      "human": true,
+      "mission_scatter": true,
+      "moving": false,
+      "target": true,
+      "team": true
+    }
+  },
+  {
+    "admitted": true,
+    "input": {
+      "forced": true,
+      "fraidycat": true,
+      "human": false,
+      "mission_scatter": true,
+      "moving": false,
+      "target": true,
+      "team": false
+    }
+  },
+  {
+    "admitted": true,
+    "input": {
+      "forced": true,
+      "fraidycat": true,
+      "human": false,
+      "mission_scatter": true,
+      "moving": false,
+      "target": true,
+      "team": true
+    }
+  },
+  {
+    "admitted": true,
+    "input": {
+      "forced": true,
+      "fraidycat": true,
+      "human": true,
+      "mission_scatter": true,
+      "moving": false,
+      "target": true,
+      "team": false
+    }
+  },
+  {
+    "admitted": true,
+    "input": {
+      "forced": true,
+      "fraidycat": true,
+      "human": true,
+      "mission_scatter": true,
+      "moving": false,
+      "target": true,
+      "team": true
+    }
+  },
+  {
+    "admitted": false,
+    "input": {
+      "forced": true,
+      "fraidycat": false,
+      "human": false,
+      "mission_scatter": false,
+      "moving": true,
+      "target": false,
+      "team": false
+    }
+  },
+  {
+    "admitted": false,
+    "input": {
+      "forced": true,
+      "fraidycat": false,
+      "human": false,
+      "mission_scatter": false,
+      "moving": true,
+      "target": false,
+      "team": true
+    }
+  },
+  {
+    "admitted": false,
+    "input": {
+      "forced": true,
+      "fraidycat": false,
+      "human": true,
+      "mission_scatter": false,
+      "moving": true,
+      "target": false,
+      "team": false
+    }
+  },
+  {
+    "admitted": false,
+    "input": {
+      "forced": true,
+      "fraidycat": false,
+      "human": true,
+      "mission_scatter": false,
+      "moving": true,
+      "target": false,
+      "team": true
+    }
+  },
+  {
+    "admitted": false,
+    "input": {
+      "forced": true,
+      "fraidycat": true,
+      "human": false,
+      "mission_scatter": false,
+      "moving": true,
+      "target": false,
+      "team": false
+    }
+  },
+  {
+    "admitted": false,
+    "input": {
+      "forced": true,
+      "fraidycat": true,
+      "human": false,
+      "mission_scatter": false,
+      "moving": true,
+      "target": false,
+      "team": true
+    }
+  },
+  {
+    "admitted": false,
+    "input": {
+      "forced": true,
+      "fraidycat": true,
+      "human": true,
+      "mission_scatter": false,
+      "moving": true,
+      "target": false,
+      "team": false
+    }
+  },
+  {
+    "admitted": false,
+    "input": {
+      "forced": true,
+      "fraidycat": true,
+      "human": true,
+      "mission_scatter": false,
+      "moving": true,
+      "target": false,
+      "team": true
+    }
+  },
+  {
+    "admitted": false,
+    "input": {
+      "forced": true,
+      "fraidycat": false,
+      "human": false,
+      "mission_scatter": false,
+      "moving": true,
+      "target": true,
+      "team": false
+    }
+  },
+  {
+    "admitted": false,
+    "input": {
+      "forced": true,
+      "fraidycat": false,
+      "human": false,
+      "mission_scatter": false,
+      "moving": true,
+      "target": true,
+      "team": true
+    }
+  },
+  {
+    "admitted": false,
+    "input": {
+      "forced": true,
+      "fraidycat": false,
+      "human": true,
+      "mission_scatter": false,
+      "moving": true,
+      "target": true,
+      "team": false
+    }
+  },
+  {
+    "admitted": false,
+    "input": {
+      "forced": true,
+      "fraidycat": false,
+      "human": true,
+      "mission_scatter": false,
+      "moving": true,
+      "target": true,
+      "team": true
+    }
+  },
+  {
+    "admitted": false,
+    "input": {
+      "forced": true,
+      "fraidycat": true,
+      "human": false,
+      "mission_scatter": false,
+      "moving": true,
+      "target": true,
+      "team": false
+    }
+  },
+  {
+    "admitted": false,
+    "input": {
+      "forced": true,
+      "fraidycat": true,
+      "human": false,
+      "mission_scatter": false,
+      "moving": true,
+      "target": true,
+      "team": true
+    }
+  },
+  {
+    "admitted": false,
+    "input": {
+      "forced": true,
+      "fraidycat": true,
+      "human": true,
+      "mission_scatter": false,
+      "moving": true,
+      "target": true,
+      "team": false
+    }
+  },
+  {
+    "admitted": false,
+    "input": {
+      "forced": true,
+      "fraidycat": true,
+      "human": true,
+      "mission_scatter": false,
+      "moving": true,
+      "target": true,
+      "team": true
+    }
+  },
+  {
+    "admitted": false,
+    "input": {
+      "forced": true,
+      "fraidycat": false,
+      "human": false,
+      "mission_scatter": true,
+      "moving": true,
+      "target": false,
+      "team": false
+    }
+  },
+  {
+    "admitted": false,
+    "input": {
+      "forced": true,
+      "fraidycat": false,
+      "human": false,
+      "mission_scatter": true,
+      "moving": true,
+      "target": false,
+      "team": true
+    }
+  },
+  {
+    "admitted": false,
+    "input": {
+      "forced": true,
+      "fraidycat": false,
+      "human": true,
+      "mission_scatter": true,
+      "moving": true,
+      "target": false,
+      "team": false
+    }
+  },
+  {
+    "admitted": false,
+    "input": {
+      "forced": true,
+      "fraidycat": false,
+      "human": true,
+      "mission_scatter": true,
+      "moving": true,
+      "target": false,
+      "team": true
+    }
+  },
+  {
+    "admitted": true,
+    "input": {
+      "forced": true,
+      "fraidycat": true,
+      "human": false,
+      "mission_scatter": true,
+      "moving": true,
+      "target": false,
+      "team": false
+    }
+  },
+  {
+    "admitted": true,
+    "input": {
+      "forced": true,
+      "fraidycat": true,
+      "human": false,
+      "mission_scatter": true,
+      "moving": true,
+      "target": false,
+      "team": true
+    }
+  },
+  {
+    "admitted": false,
+    "input": {
+      "forced": true,
+      "fraidycat": true,
+      "human": true,
+      "mission_scatter": true,
+      "moving": true,
+      "target": false,
+      "team": false
+    }
+  },
+  {
+    "admitted": true,
+    "input": {
+      "forced": true,
+      "fraidycat": true,
+      "human": true,
+      "mission_scatter": true,
+      "moving": true,
+      "target": false,
+      "team": true
+    }
+  },
+  {
+    "admitted": false,
+    "input": {
+      "forced": true,
+      "fraidycat": false,
+      "human": false,
+      "mission_scatter": true,
+      "moving": true,
+      "target": true,
+      "team": false
+    }
+  },
+  {
+    "admitted": false,
+    "input": {
+      "forced": true,
+      "fraidycat": false,
+      "human": false,
+      "mission_scatter": true,
+      "moving": true,
+      "target": true,
+      "team": true
+    }
+  },
+  {
+    "admitted": false,
+    "input": {
+      "forced": true,
+      "fraidycat": false,
+      "human": true,
+      "mission_scatter": true,
+      "moving": true,
+      "target": true,
+      "team": false
+    }
+  },
+  {
+    "admitted": false,
+    "input": {
+      "forced": true,
+      "fraidycat": false,
+      "human": true,
+      "mission_scatter": true,
+      "moving": true,
+      "target": true,
+      "team": true
+    }
+  },
+  {
+    "admitted": true,
+    "input": {
+      "forced": true,
+      "fraidycat": true,
+      "human": false,
+      "mission_scatter": true,
+      "moving": true,
+      "target": true,
+      "team": false
+    }
+  },
+  {
+    "admitted": true,
+    "input": {
+      "forced": true,
+      "fraidycat": true,
+      "human": false,
+      "mission_scatter": true,
+      "moving": true,
+      "target": true,
+      "team": true
+    }
+  },
+  {
+    "admitted": false,
+    "input": {
+      "forced": true,
+      "fraidycat": true,
+      "human": true,
+      "mission_scatter": true,
+      "moving": true,
+      "target": true,
+      "team": false
+    }
+  },
+  {
+    "admitted": true,
+    "input": {
+      "forced": true,
+      "fraidycat": true,
+      "human": true,
+      "mission_scatter": true,
+      "moving": true,
+      "target": true,
+      "team": true
+    }
+  },
+  {
+    "admitted": true,
+    "input": {
+      "elite_scatter": false,
+      "forced": true,
+      "human": false,
+      "moving": false,
+      "player_scatter": false,
+      "rank": 0,
+      "veteran_scatter": false
+    }
+  },
+  {
+    "admitted": true,
+    "input": {
+      "elite_scatter": true,
+      "forced": true,
+      "human": false,
+      "moving": false,
+      "player_scatter": false,
+      "rank": 0,
+      "veteran_scatter": true
+    }
+  },
+  {
+    "admitted": true,
+    "input": {
+      "elite_scatter": false,
+      "forced": true,
+      "human": false,
+      "moving": false,
+      "player_scatter": false,
+      "rank": 1,
+      "veteran_scatter": true
+    }
+  },
+  {
+    "admitted": true,
+    "input": {
+      "elite_scatter": true,
+      "forced": true,
+      "human": false,
+      "moving": false,
+      "player_scatter": false,
+      "rank": 2,
+      "veteran_scatter": false
+    }
+  },
+  {
+    "admitted": true,
+    "input": {
+      "elite_scatter": false,
+      "forced": true,
+      "human": false,
+      "moving": false,
+      "player_scatter": false,
+      "rank": 2,
+      "veteran_scatter": true
+    }
+  },
+  {
+    "admitted": true,
+    "input": {
+      "elite_scatter": false,
+      "forced": true,
+      "human": true,
+      "moving": false,
+      "player_scatter": false,
+      "rank": 0,
+      "veteran_scatter": false
+    }
+  },
+  {
+    "admitted": true,
+    "input": {
+      "elite_scatter": true,
+      "forced": true,
+      "human": true,
+      "moving": false,
+      "player_scatter": false,
+      "rank": 0,
+      "veteran_scatter": true
+    }
+  },
+  {
+    "admitted": true,
+    "input": {
+      "elite_scatter": false,
+      "forced": true,
+      "human": true,
+      "moving": false,
+      "player_scatter": false,
+      "rank": 1,
+      "veteran_scatter": true
+    }
+  },
+  {
+    "admitted": true,
+    "input": {
+      "elite_scatter": true,
+      "forced": true,
+      "human": true,
+      "moving": false,
+      "player_scatter": false,
+      "rank": 2,
+      "veteran_scatter": false
+    }
+  },
+  {
+    "admitted": true,
+    "input": {
+      "elite_scatter": false,
+      "forced": true,
+      "human": true,
+      "moving": false,
+      "player_scatter": false,
+      "rank": 2,
+      "veteran_scatter": true
+    }
+  },
+  {
+    "admitted": true,
+    "input": {
+      "elite_scatter": false,
+      "forced": true,
+      "human": false,
+      "moving": false,
+      "player_scatter": true,
+      "rank": 0,
+      "veteran_scatter": false
+    }
+  },
+  {
+    "admitted": true,
+    "input": {
+      "elite_scatter": true,
+      "forced": true,
+      "human": false,
+      "moving": false,
+      "player_scatter": true,
+      "rank": 0,
+      "veteran_scatter": true
+    }
+  },
+  {
+    "admitted": true,
+    "input": {
+      "elite_scatter": false,
+      "forced": true,
+      "human": false,
+      "moving": false,
+      "player_scatter": true,
+      "rank": 1,
+      "veteran_scatter": true
+    }
+  },
+  {
+    "admitted": true,
+    "input": {
+      "elite_scatter": true,
+      "forced": true,
+      "human": false,
+      "moving": false,
+      "player_scatter": true,
+      "rank": 2,
+      "veteran_scatter": false
+    }
+  },
+  {
+    "admitted": true,
+    "input": {
+      "elite_scatter": false,
+      "forced": true,
+      "human": false,
+      "moving": false,
+      "player_scatter": true,
+      "rank": 2,
+      "veteran_scatter": true
+    }
+  },
+  {
+    "admitted": true,
+    "input": {
+      "elite_scatter": false,
+      "forced": true,
+      "human": true,
+      "moving": false,
+      "player_scatter": true,
+      "rank": 0,
+      "veteran_scatter": false
+    }
+  },
+  {
+    "admitted": true,
+    "input": {
+      "elite_scatter": true,
+      "forced": true,
+      "human": true,
+      "moving": false,
+      "player_scatter": true,
+      "rank": 0,
+      "veteran_scatter": true
+    }
+  },
+  {
+    "admitted": true,
+    "input": {
+      "elite_scatter": false,
+      "forced": true,
+      "human": true,
+      "moving": false,
+      "player_scatter": true,
+      "rank": 1,
+      "veteran_scatter": true
+    }
+  },
+  {
+    "admitted": true,
+    "input": {
+      "elite_scatter": true,
+      "forced": true,
+      "human": true,
+      "moving": false,
+      "player_scatter": true,
+      "rank": 2,
+      "veteran_scatter": false
+    }
+  },
+  {
+    "admitted": true,
+    "input": {
+      "elite_scatter": false,
+      "forced": true,
+      "human": true,
+      "moving": false,
+      "player_scatter": true,
+      "rank": 2,
+      "veteran_scatter": true
+    }
+  },
+  {
+    "admitted": true,
+    "input": {
+      "elite_scatter": false,
+      "forced": true,
+      "human": false,
+      "moving": true,
+      "player_scatter": false,
+      "rank": 0,
+      "veteran_scatter": false
+    }
+  },
+  {
+    "admitted": true,
+    "input": {
+      "elite_scatter": true,
+      "forced": true,
+      "human": false,
+      "moving": true,
+      "player_scatter": false,
+      "rank": 0,
+      "veteran_scatter": true
+    }
+  },
+  {
+    "admitted": true,
+    "input": {
+      "elite_scatter": false,
+      "forced": true,
+      "human": false,
+      "moving": true,
+      "player_scatter": false,
+      "rank": 1,
+      "veteran_scatter": true
+    }
+  },
+  {
+    "admitted": true,
+    "input": {
+      "elite_scatter": true,
+      "forced": true,
+      "human": false,
+      "moving": true,
+      "player_scatter": false,
+      "rank": 2,
+      "veteran_scatter": false
+    }
+  },
+  {
+    "admitted": true,
+    "input": {
+      "elite_scatter": false,
+      "forced": true,
+      "human": false,
+      "moving": true,
+      "player_scatter": false,
+      "rank": 2,
+      "veteran_scatter": true
+    }
+  },
+  {
+    "admitted": false,
+    "input": {
+      "elite_scatter": false,
+      "forced": true,
+      "human": true,
+      "moving": true,
+      "player_scatter": false,
+      "rank": 0,
+      "veteran_scatter": false
+    }
+  },
+  {
+    "admitted": false,
+    "input": {
+      "elite_scatter": true,
+      "forced": true,
+      "human": true,
+      "moving": true,
+      "player_scatter": false,
+      "rank": 0,
+      "veteran_scatter": true
+    }
+  },
+  {
+    "admitted": true,
+    "input": {
+      "elite_scatter": false,
+      "forced": true,
+      "human": true,
+      "moving": true,
+      "player_scatter": false,
+      "rank": 1,
+      "veteran_scatter": true
+    }
+  },
+  {
+    "admitted": true,
+    "input": {
+      "elite_scatter": true,
+      "forced": true,
+      "human": true,
+      "moving": true,
+      "player_scatter": false,
+      "rank": 2,
+      "veteran_scatter": false
+    }
+  },
+  {
+    "admitted": true,
+    "input": {
+      "elite_scatter": false,
+      "forced": true,
+      "human": true,
+      "moving": true,
+      "player_scatter": false,
+      "rank": 2,
+      "veteran_scatter": true
+    }
+  },
+  {
+    "admitted": true,
+    "input": {
+      "elite_scatter": false,
+      "forced": true,
+      "human": false,
+      "moving": true,
+      "player_scatter": true,
+      "rank": 0,
+      "veteran_scatter": false
+    }
+  },
+  {
+    "admitted": true,
+    "input": {
+      "elite_scatter": true,
+      "forced": true,
+      "human": false,
+      "moving": true,
+      "player_scatter": true,
+      "rank": 0,
+      "veteran_scatter": true
+    }
+  },
+  {
+    "admitted": true,
+    "input": {
+      "elite_scatter": false,
+      "forced": true,
+      "human": false,
+      "moving": true,
+      "player_scatter": true,
+      "rank": 1,
+      "veteran_scatter": true
+    }
+  },
+  {
+    "admitted": true,
+    "input": {
+      "elite_scatter": true,
+      "forced": true,
+      "human": false,
+      "moving": true,
+      "player_scatter": true,
+      "rank": 2,
+      "veteran_scatter": false
+    }
+  },
+  {
+    "admitted": true,
+    "input": {
+      "elite_scatter": false,
+      "forced": true,
+      "human": false,
+      "moving": true,
+      "player_scatter": true,
+      "rank": 2,
+      "veteran_scatter": true
+    }
+  },
+  {
+    "admitted": true,
+    "input": {
+      "elite_scatter": false,
+      "forced": true,
+      "human": true,
+      "moving": true,
+      "player_scatter": true,
+      "rank": 0,
+      "veteran_scatter": false
+    }
+  },
+  {
+    "admitted": true,
+    "input": {
+      "elite_scatter": true,
+      "forced": true,
+      "human": true,
+      "moving": true,
+      "player_scatter": true,
+      "rank": 0,
+      "veteran_scatter": true
+    }
+  },
+  {
+    "admitted": true,
+    "input": {
+      "elite_scatter": false,
+      "forced": true,
+      "human": true,
+      "moving": true,
+      "player_scatter": true,
+      "rank": 1,
+      "veteran_scatter": true
+    }
+  },
+  {
+    "admitted": true,
+    "input": {
+      "elite_scatter": true,
+      "forced": true,
+      "human": true,
+      "moving": true,
+      "player_scatter": true,
+      "rank": 2,
+      "veteran_scatter": false
+    }
+  },
+  {
+    "admitted": true,
+    "input": {
+      "elite_scatter": false,
+      "forced": true,
+      "human": true,
+      "moving": true,
+      "player_scatter": true,
+      "rank": 2,
+      "veteran_scatter": true
+    }
   }
 ]

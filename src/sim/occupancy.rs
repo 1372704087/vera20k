@@ -149,31 +149,30 @@ pub(crate) fn air_spatial_query_bucket_order(
     order
 }
 
-/// Object-list layer after the native display-layer eligibility gate.
-/// Active Fly owners use physical height rather than their Air path layer;
-/// other locomotors retain the existing gate and OnBridge selector.
+/// The cell list Mark addresses for this object now: none unless its layer
+/// query (vt+0x78, [`entity_layer`]) answers Ground, then the OnBridge
+/// (`+0x8C`) one. `MapClass::Place_Down` (`0x005683C0`) and `Pick_Up`
+/// (`0x005687F0`) ask that query for every object (`0x00568405`,
+/// `0x00568835`) and touch the cell only on a Ground answer, passing OnBridge
+/// to AddContent (`0x005684B1`); a Foot's Mark also asks it first
+/// (`0x004D37A6`). A Ground answer does not depend on rules.
+///
+/// It answers for the object as it stands, marked or not, because Mark(UP)
+/// asks after clearing +0x74. Whether the object is listed now also takes
+/// `cell_marked`.
+///
+/// [`entity_layer`]: crate::sim::world::entity_layer
 pub(crate) fn cell_list_layer_for_entity(
     entity: &GameEntity,
     terrain: Option<&crate::map::resolved_terrain::ResolvedTerrainGrid>,
 ) -> Option<MovementLayer> {
-    let fly = entity
-        .locomotor
-        .as_ref()
-        .is_some_and(|l| l.active_kind() == crate::rules::locomotor_type::LocomotorKind::Fly);
-    if !fly && entity.category != EntityCategory::Aircraft {
-        return entity.occupancy_list_layer();
-    }
-    // Foot/Aircraft +78 -> Fly4CFCF0 reads physical GetHeight5F5F40, not
-    // the bounded compatibility altitude cache. All active Fly owners share
-    // this gate, including a Unit using that locomotor.
-    if !fly || crate::sim::movement::air_movement::current_fly_height(entity, terrain) > 0 {
-        return None;
-    }
-    Some(if entity.on_bridge {
-        MovementLayer::Bridge
-    } else {
-        MovementLayer::Ground
-    })
+    (crate::sim::world::entity_layer(entity, terrain, None)
+        == crate::sim::world::display_layers::DisplayLayer::GROUND)
+        .then_some(if entity.on_bridge {
+            MovementLayer::Bridge
+        } else {
+            MovementLayer::Ground
+        })
 }
 
 /// Convert a coordinate's exact intra-cell position into the raw Infantry
@@ -814,10 +813,14 @@ impl CellOccupationGrid {
     /// narrow reconciliation also covers internal direct/scatter orders whose
     /// command surface owns only `EntityStore`.
     ///
-    /// A marked Unit's own cell is on its list layer. Unit Mark writes that
-    /// bit (`0x007441B0`) as it places the Unit in the list its layer query
-    /// chose, so an Air-path Unit that Mark listed, a landed or low Jumpjet,
-    /// is on the list `lists` holds it in.
+    /// A marked Unit's own cell takes the plane of the list `lists` holds it
+    /// in, so a Unit Mark left unlisted (an airborne Jumpjet) has no bit.
+    /// Native Unit Mark (`0x007441B0`) picks the plane from height instead:
+    /// the deck plane when Z is at least the ground plus `[0xB1D0AC]` (416)
+    /// and the cell carries flag `0x100` (`0x007441C9..0x007441E6`), else the
+    /// ground plane. RESIDUAL: a Unit whose OnBridge list disagrees with that
+    /// test has its bit on the other plane. A Unit standing on a deck or on
+    /// the ground beneath it agrees; frequency elsewhere is unmeasured.
     pub(crate) fn reconcile_entity(&mut self, entity: &GameEntity, lists: &OccupancyGrid) {
         let old_footprints = self
             .footprints_by_owner
@@ -836,9 +839,8 @@ impl CellOccupationGrid {
             return;
         }
         let current_cleared = !entity.foot_occupation_enabled;
-        let current_layer = entity.occupancy_list_layer().or_else(|| {
-            lists.listed_layer(entity.position.rx, entity.position.ry, entity.stable_id())
-        });
+        let current_layer =
+            lists.listed_layer(entity.position.rx, entity.position.ry, entity.stable_id());
         if !current_cleared && let Some(layer) = current_layer {
             self.mark_vehicle_on_layer(
                 entity.position.rx,
@@ -1568,6 +1570,30 @@ mod tests {
     use crate::sim::components::DriveOccupationFootprint;
 
     #[test]
+    fn cell_list_layer_follows_on_bridge_not_the_path_layer() {
+        // The list is chosen by the occupant's OnBridge byte (`Object+0x8C`),
+        // not its locomotor path layer: pin a Ground path layer on the deck.
+        use crate::rules::locomotor_type::LocomotorKind;
+        use crate::sim::movement::locomotor::LocomotorState;
+
+        let mut entity = GameEntity::test_default(1, "HTNK", "Americans", 5, 5);
+        let mut loco = LocomotorState::for_test_kind(LocomotorKind::Drive);
+        loco.layer = MovementLayer::Ground;
+        entity.locomotor = Some(loco);
+
+        entity.on_bridge = true;
+        assert_eq!(
+            cell_list_layer_for_entity(&entity, None),
+            Some(MovementLayer::Bridge)
+        );
+        entity.on_bridge = false;
+        assert_eq!(
+            cell_list_layer_for_entity(&entity, None),
+            Some(MovementLayer::Ground)
+        );
+    }
+
+    #[test]
     fn gsi_04_12_raw_occupation_preserves_every_raw_bit() {
         let mut grid = RawCellOccupationGrid::new();
         for mask in [
@@ -2155,6 +2181,7 @@ mod tests {
             ),
         );
         infantry.locomotor.as_mut().unwrap().layer = MovementLayer::Air;
+        infantry.locomotor.as_mut().unwrap().altitude = SimFixed::from_num(400);
         entities.insert(infantry);
         let building = GameEntity::test_default_of_category(
             2,
@@ -2208,7 +2235,7 @@ mod tests {
         );
         assert!(
             !OccupancyGrid::rebuild(&entities).contains_entity(5, 5, 1),
-            "the legacy live-layer projection loses this saved member"
+            "a projection from the live layer query loses this saved member"
         );
         restored.remove_on_layer(5, 5, 1, MovementLayer::Ground);
         assert_eq!(
@@ -2444,14 +2471,10 @@ mod tests {
             Some(head),
             None,
         );
-        let mut bits = CellOccupationGrid::rebuild(
-            &{
-                let mut entities = crate::sim::entity_store::EntityStore::new();
-                entities.insert(entity.clone());
-                entities
-            },
-            &OccupancyGrid::new(),
-        );
+        let mut entities = crate::sim::entity_store::EntityStore::new();
+        entities.insert(entity.clone());
+        let lists = OccupancyGrid::rebuild(&entities);
+        let mut bits = CellOccupationGrid::rebuild(&entities, &lists);
 
         crate::sim::movement::track_stop_moving(&mut entity);
 
@@ -2468,7 +2491,7 @@ mod tests {
             Some(head)
         );
         assert_eq!(bits.vehicle_bits(3, 2, MovementLayer::Ground), 0x20);
-        bits.reconcile_entity(&entity, &OccupancyGrid::new());
+        bits.reconcile_entity(&entity, &lists);
         assert_eq!(bits.vehicle_bits(3, 2, MovementLayer::Ground), 0x20);
     }
 
@@ -2488,7 +2511,9 @@ mod tests {
         );
         let mut entities = crate::sim::entity_store::EntityStore::new();
         entities.insert(entity.clone());
-        let mut bits = CellOccupationGrid::rebuild(&entities, &OccupancyGrid::new());
+        let mut lists = OccupancyGrid::rebuild(&entities);
+        let mut bits = CellOccupationGrid::rebuild(&entities, &lists);
+        assert_eq!(bits.vehicle_bits(1, 1, MovementLayer::Ground), 0x20);
 
         for offset in 0..UNRELATED_OWNERS {
             let entity_id = u64::from(offset) + 2;
@@ -2502,6 +2527,15 @@ mod tests {
         }
 
         entity.position.rx = 3;
+        lists.remove_on_layer(1, 1, 1, MovementLayer::Ground);
+        lists.add(
+            3,
+            1,
+            1,
+            MovementLayer::Ground,
+            None,
+            CellListInsertion::PrependNonBuilding,
+        );
         entity.locomotor.as_mut().unwrap().publish_track_occupation(
             TrackFamily::Drive,
             Some(DriveOccupationFootprint {
@@ -2511,7 +2545,7 @@ mod tests {
             }),
             None,
         );
-        bits.reconcile_entity(&entity, &OccupancyGrid::new());
+        bits.reconcile_entity(&entity, &lists);
 
         assert_eq!(bits.vehicle_bits(1, 1, MovementLayer::Ground), 0);
         assert_eq!(bits.vehicle_bits(2, 1, MovementLayer::Ground), 0);
@@ -2610,7 +2644,7 @@ mod tests {
         );
         entities.insert(unit);
 
-        let bits = CellOccupationGrid::rebuild(&entities, &OccupancyGrid::new());
+        let bits = CellOccupationGrid::rebuild(&entities, &OccupancyGrid::rebuild(&entities));
 
         assert_eq!(bits.vehicle_bits(2, 2, MovementLayer::Ground), 0x20);
         assert_eq!(bits.vehicle_bits(3, 2, MovementLayer::Ground), 0x20);

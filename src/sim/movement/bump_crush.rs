@@ -75,7 +75,9 @@ pub(crate) fn build_blocker_neighbor_counts_with_overlays(
     let mut counts = blocker_plane_base(width, height, resolved_terrain, overlay_grid);
     let retained_foot = overlay_grid.is_some();
     for entity in entities.values() {
-        if let Some(source) = blocker_plane_source(entity, interner, rules, retained_foot) {
+        if let Some(source) =
+            blocker_plane_source(entity, resolved_terrain, interner, rules, retained_foot)
+        {
             source.add_to(&mut counts);
         }
     }
@@ -154,6 +156,7 @@ impl BlockerPlaneSource {
 /// The one rule for what an entity adds to the blocker plane.
 pub(crate) fn blocker_plane_source(
     entity: &GameEntity,
+    terrain: Option<&ResolvedTerrainGrid>,
     interner: &crate::sim::intern::StringInterner,
     rules: Option<&crate::rules::ruleset::RuleSet>,
     retained_foot: bool,
@@ -166,7 +169,9 @@ pub(crate) fn blocker_plane_source(
     if entity.dying || !entity.lifecycle.cell_marked {
         return None;
     }
-    if entity.passenger_role.is_inside_transport() || entity.occupancy_list_layer().is_none() {
+    if entity.passenger_role.is_inside_transport()
+        || crate::sim::occupancy::cell_list_layer_for_entity(entity, terrain).is_none()
+    {
         return None;
     }
     let pos = (entity.position.rx, entity.position.ry);
@@ -865,14 +870,6 @@ pub(super) fn scatter_movement_speed(
     super::order_speed(entity, obj, rules, houses)
 }
 
-/// One accepted nonfatal Infantry damage scatter, selected before the
-/// receiver's fear callback mutates the target.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct InfantryDamageScatter {
-    pub(crate) destination: (u16, u16),
-    pub(crate) speed: SimFixed,
-}
-
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
@@ -1293,7 +1290,7 @@ mod tests {
         let alliances = crate::map::houses::HouseAllianceMap::new();
 
         let (ground, dynamic) = super::super::block_index::build_owner_block_set(
-            &entities, "Russians", &alliances, &interner, None,
+            &entities, None, "Russians", &alliances, &interner, None,
         );
         assert!(ground.is_empty());
         assert!(!dynamic.contains_any(&(2, 2)));

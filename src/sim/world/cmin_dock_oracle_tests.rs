@@ -115,7 +115,12 @@ fn place(s: &mut Scene, id: u64, to: (u16, u16)) {
     let from = (entity.position.rx, entity.position.ry);
     entity.position.rx = to.0;
     entity.position.ry = to.1;
-    let layer = entity.occupancy_list_layer().unwrap();
+    let layer = s
+        .sim
+        .substrate
+        .occupancy
+        .listed_layer(from.0, from.1, id)
+        .unwrap();
     s.sim.substrate.occupancy.move_entity(
         from.0,
         from.1,

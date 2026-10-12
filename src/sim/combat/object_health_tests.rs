@@ -120,7 +120,7 @@ fn receiver_commit_keeps_negative_heal_on_exact_zero_techno_tail_and_wide_hits()
         ),
         (65536, 65536, true, 0, DamageState::Dead, true, true),
         (100, 1, false, 99, DamageState::AlreadyDead, false, false),
-        (100, 100, false, 0, DamageState::AlreadyDead, false, true),
+        (100, 100, false, 0, DamageState::AlreadyDead, false, false),
         (-17, 1, true, -17, DamageState::Unaffected, false, false),
     ] {
         let mut entities = EntityStore::new();
@@ -162,7 +162,12 @@ fn receiver_commit_keeps_negative_heal_on_exact_zero_techno_tail_and_wide_hits()
         assert_eq!(receipt.state, expected_state);
         assert_eq!(receipt.reached_exact_zero, object_kill);
         assert_eq!(receipt.entered_techno_death, techno_death);
-        assert_eq!(receipt.uncloak_after_damage, !techno_death);
+        // Result 5 returns before the survivor tail (`0x00701F80`).
+        assert_eq!(receipt.uncloak_after_damage, alive && !techno_death);
+        assert_eq!(
+            receipt.synchronous_retaliation,
+            alive && !techno_death && damage >= 0
+        );
         if damage == 65536 {
             assert_eq!(receipt.positive_postlude.unwrap().0, 65536);
         }

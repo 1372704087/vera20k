@@ -1,6 +1,7 @@
 //! `TechnoClass::Scatter` (vtable `+0x174`) with a null coordinate: the one
-//! dispatcher over the class receivers, the Unit receiver, and the cell
-//! dispatcher `CellClass::Scatter_Objects @ 0x00481670` that calls it.
+//! dispatcher over the class receivers, the Unit receiver, and two callers'
+//! gates: the cell dispatcher `CellClass::Scatter_Objects @ 0x00481670` and
+//! `TechnoClass::ReceiveDamage`'s scatter tail (`0x00702B47..0x00702D0B`).
 //!
 //! Receivers:
 //! - Unit `0x00743A50`: [`Simulation::unit_scatter_null`].
@@ -12,8 +13,8 @@
 //! - Every other class inherits ObjectClass `0x005F43A0` (`RET 0xC`).
 //!
 //! A null coordinate is the all-zero CoordStruct each caller passes
-//! (`0x008B3DA8`, `0x00B1CFE8`); the receivers compare against their own zero
-//! globals (`0x00B1CFE8`, `0x00A8F200`).
+//! (`0x008B3DA8`, `0x00B1CFE8`, `0x00B0EA90`); the receivers compare against
+//! their own zero globals (`0x00B1CFE8`, `0x00A8F200`).
 
 use crate::map::entities::EntityCategory;
 use crate::rules::locomotor_type::{LocomotorKind, MovementZone};
@@ -254,7 +255,116 @@ pub(super) fn scatter_objects_admitted(
         .collect()
 }
 
+/// The flags of `TechnoClass::ReceiveDamage`'s Scatter call: forced, no
+/// no-kidding (`0x00702D00..0x00702D04` push `0, 1`).
+const RECEIVE_DAMAGE_SCATTER_FLAGS: ScatterFlags = ScatterFlags::new(true, false);
+
+/// The side of `TechnoClass::ShouldRetaliate @ 0x007087C0` (called at
+/// `0x00702A43`) a damage receiver took. A null source refuses.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum DamageRetaliation {
+    Accepted,
+    Refused,
+}
+
+/// `TechnoClass::ReceiveDamage`'s scatter gates (`0x00702B47..0x00702CFC`),
+/// in native order. Both arms need a Foot (`+0x14` bit 2) with no Target
+/// (`+0x2B4`) and no NavCom (`+0x5A4`). The refused arm (`0x00702BFE`)
+/// first needs the current mission's `Scatter=` (`0x005B3A00` `+9`), no
+/// tether (`+0x418`) and a locomotor that is not moving (`ILocomotion+0x10`;
+/// a null one raises `E_POINTER` at `0x00702C3F`), then refuses an Aircraft
+/// (WhatAmI 2) and admits an owner not controlled by a human. Either arm then
+/// admits `[CombatDamage] PlayerScatter=` (`Rules+0x17ED`) or the current
+/// rank's SCATTER ability (`+0x29F` veteran, `+0x2B1` elite). Nothing here
+/// draws RNG or writes state.
+fn receive_damage_scatter_admitted(
+    entity: &GameEntity,
+    retaliation: DamageRetaliation,
+    human: bool,
+    rules: &RuleSet,
+    interner: &StringInterner,
+) -> Result<bool, String> {
+    if !matches!(
+        entity.category,
+        EntityCategory::Infantry | EntityCategory::Unit | EntityCategory::Aircraft
+    ) {
+        return Ok(false);
+    }
+    let refused = retaliation == DamageRetaliation::Refused;
+    if refused
+        && (!mission_permits_scatter(entity, rules)
+            || entity.dock_entered_with.is_some()
+            || super::motion_query::is_moving(entity)
+                .ok_or("damage Scatter requires an active locomotor Is_Moving")?)
+    {
+        return Ok(false);
+    }
+    if entity.attack_target.is_some() || entity.navigation.nav_com.is_some() {
+        return Ok(false);
+    }
+    if refused {
+        if entity.category == EntityCategory::Aircraft {
+            return Ok(false);
+        }
+        if !human {
+            return Ok(true);
+        }
+    }
+    if rules.general.player_scatter {
+        return Ok(true);
+    }
+    let object = rules
+        .object(interner.resolve(entity.type_ref()))
+        .ok_or("damage Scatter requires a Techno type")?;
+    Ok(crate::sim::combat::veterancy::has_weapon_ability(
+        crate::sim::combat::veterancy::rank_from_u16(entity.veterancy()),
+        object,
+        crate::rules::object_type::Ability::Scatter,
+    ))
+}
+
 impl Simulation {
+    /// `TechnoClass::ReceiveDamage`'s scatter tail
+    /// (`0x00702B47..0x00702D0B`), after the retaliation decision and any
+    /// `Override_Mission`: when [`receive_damage_scatter_admitted`] passes,
+    /// `Scatter(null, RECEIVE_DAMAGE_SCATTER_FLAGS)`. Answers whether the
+    /// Scatter's immediate Process changed bridge state.
+    ///
+    /// Evidence: tools/spatial_oracle/receive_damage_scatter.{py,json,meta.json}
+    /// executes the original gates on both arms and records the call's
+    /// arguments; the null-coordinate Scatter bodies have their own corpora.
+    pub(crate) fn receive_damage_scatter(
+        &mut self,
+        id: u64,
+        retaliation: DamageRetaliation,
+        rules: &RuleSet,
+        registry: Option<&OverlayTypeRegistry>,
+        frame_effects: FrameEffects<'_>,
+    ) -> Result<bool, String> {
+        let Some(entity) = self.substrate.entities.get(id) else {
+            return Ok(false);
+        };
+        // RESIDUAL: VERA builds no locomotor for a zero-`Speed=` Foot whose
+        // locomotor is neither Drive nor Ship (`should_construct_locomotor`);
+        // native always has one, whose answers would decide the gates and the
+        // Scatter body. No retail Foot type is built that way. Such a Foot
+        // never takes this Scatter.
+        if entity.locomotor.is_none() {
+            return Ok(false);
+        }
+        let human = self.owner_is_human(entity.owner());
+        if !receive_damage_scatter_admitted(entity, retaliation, human, rules, &self.interner)? {
+            return Ok(false);
+        }
+        self.scatter_null(
+            id,
+            RECEIVE_DAMAGE_SCATTER_FLAGS,
+            rules,
+            registry,
+            frame_effects,
+        )
+    }
+
     /// `TechnoClass::Scatter` (vtable `+0x174`) with a null coordinate.
     /// Answers whether an Infantry receiver's immediate Process changed bridge
     /// state. Missing map state leaves the receiver where it stands; malformed

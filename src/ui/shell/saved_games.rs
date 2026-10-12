@@ -177,11 +177,11 @@ pub fn main_menu_saved_game_layout(width: u32, height: u32) -> MainMenuSavedGame
     }
 }
 
-/// The main-menu `0xB7` stretched over the live window (`menu_fill_window`):
+/// The main-menu `0xB7` scaled to fit the live window (`menu_fill_window`):
 /// the same page, list window and browser mapped out of 800x600 by one scale,
 /// so the paint side and the hit-testing side take identical rects. Identity
-/// at the base size. Rows keep their native height, so a stretched list shows
-/// more of them rather than taller ones.
+/// at the base size. Rows grow with the scale, so the list shows the rows it
+/// shows at 800x600.
 pub fn main_menu_saved_game_responsive_layout(width: u32, height: u32) -> MainMenuSavedGameLayout {
     let scale = ShellScale::from_screen(width as i32, height as i32);
     let base = main_menu_saved_game_layout(SHELL_BASE_W as u32, SHELL_BASE_H as u32);

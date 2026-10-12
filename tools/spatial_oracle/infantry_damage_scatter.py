@@ -1,9 +1,11 @@
-"""Original Infantry Scatter admission with ReceiveDamage's false/false flags.
+"""Original Infantry Scatter admission for ReceiveDamage's two Scatter calls.
 
-Executes from the real entry through refusal or the first coordinate read.
-House control, mission, Walk moving, Doing and rank/ability readers are native.
-No calls are substituted. Accepted cases stop before RNG/destination selection;
-this corpus proves admission only, not full displacement or damage ordering.
+The Infantry receiver passes false/false (0x518C56); TechnoClass's scatter tail
+passes true/false (0x702D0B). Executes from the real entry through refusal or
+the first coordinate read. House control, mission, Walk moving, Doing and
+rank/ability readers are native. No calls are substituted. Accepted cases stop
+before RNG/destination selection; this corpus proves admission only, not full
+displacement or damage ordering.
 """
 from itertools import product
 from pathlib import Path
@@ -49,7 +51,8 @@ def query(case):
     u.mem_write(RULES + 0x17ED, bytes([case.get('player_scatter', False)]))
     u.mem_write(SOURCE, dwords(1000, 1000, 0))
     sp = STACK_BASE + STACK_SIZE - 0x1000
-    u.mem_write(sp, dwords(RET_MAGIC, SOURCE, 0, 0))
+    u.mem_write(sp, dwords(RET_MAGIC, SOURCE, int(case.get('forced', False)),
+                           int(case.get('no_kidding', False))))
     u.reg_write(UC_X86_REG_ECX, ACTOR)
     u.reg_write(UC_X86_REG_ESP, sp)
     before = bytes(u.mem_read(ACTOR, 0x700))
@@ -78,16 +81,28 @@ def generate():
     for human, control, mode, team in product((False, True), repeat=4):
         cases.append(dict(human=human, player_control=control,
                           game_mode_nonzero=mode, team=team))
+    # The Techno tail's true/false call: a moving locomotor drops forced.
+    for doing, human, moving in product(range(-1, 42), (False, True), (False, True)):
+        cases.append(dict(forced=True, doing=doing, human=human, moving=moving))
+    for moving, mission, target, fraidy, human, team in product((False, True), repeat=6):
+        cases.append(dict(forced=True, moving=moving, mission_scatter=mission,
+                          target=target, fraidycat=fraidy, human=human, team=team))
+    for moving, player, human in product((False, True), repeat=3):
+        for rank, veteran, elite in abilities:
+            cases.append(dict(forced=True, moving=moving, player_scatter=player,
+                              human=human, rank=rank, veteran_scatter=veteran,
+                              elite_scatter=elite))
     return [query(case) for case in cases]
 
 
 if __name__ == '__main__':
     finish_vectors(generate, Path(__file__).with_suffix('.json'), provenance=lambda: provenance(
-        scope='278 original Infantry Scatter admission cases for false/false damage calls. Includes Doing -1..41, real house-control mode gate, mission, moving, target, rank/abilities, PlayerScatter, Team and independent NavCom. No RNG/destination or full damage parity claim.',
+        scope='554 original Infantry Scatter admission cases for the damage calls: 278 false/false (Infantry receiver) and 276 true/false (Techno scatter tail). Includes Doing -1..41, real house-control mode gate, mission, Walk moving, target, rank/abilities, PlayerScatter, Team and independent NavCom. No RNG/destination or full damage parity claim.',
         entry_points={'scatter': 0x51D0D0, 'admitted_stop': 0x51D226,
                       'house_control': 0x50B730, 'ability': 0x70D0D0,
                       'walk_is_moving': 0x75AB30},
         assumptions=['Supplied valid Infantry, type, house and Walk interface state, original vtables.',
-                     'Both boolean arguments false as ReceiveDamage; current Guard uses an explicit MissionControl Scatter byte.',
+                     'Boolean arguments as each ReceiveDamage call passes them; current Guard uses an explicit MissionControl Scatter byte.',
+                     'The coordinate is first read at the admitted stop, so true/false rows keep the source coordinate the tail passes as null.',
                      'Team/NavCom/Target nonnull sentinels are compared only, never dereferenced in this prefix.'],
         substitutions=[]))

@@ -81,6 +81,29 @@ fn infiltrator_admits(
 }
 
 impl Simulation {
+    /// The selected objects whose ClickedAction can still send a click
+    /// order, in selection order. `ClickedAction_Object` and `_Cell` refuse a
+    /// berserk object (`+0x298`) before anything else: Foot
+    /// `0x004D74EC`/`0x004D7D58`, Infantry `0x0051F1D8`/`0x0051F28F` and Unit
+    /// `0x007388EB`/`0x0073893D`. Aircraft's own arms
+    /// (`0x00417BD0`: actions 3, 4 and 17) never see one, because a berserk
+    /// aircraft's What_Action answers 0 (`0x00417CC0` -> `0x006FFEC9`, cell
+    /// `0x00417F80`). Producer-side, like `unit_repair_action`: an event sent
+    /// before the object went berserk still executes.
+    pub(crate) fn click_order_receivers(&self, selection: &[u64]) -> Vec<u64> {
+        selection
+            .iter()
+            .copied()
+            .filter(|&id| {
+                !self
+                    .substrate
+                    .entities
+                    .get(id)
+                    .is_some_and(|entity| entity.berserk.active)
+            })
+            .collect()
+    }
+
     /// UnitClass::What_Action_OnObject73FD7C..73FE43, after the base self/
     /// Shift action. Reproducible original control/weapon/health/display
     /// and ClickedAction witnesses: spatial_oracle/bunker_attack_action.json
@@ -1513,5 +1536,40 @@ mod repair_notification_tests {
             sim.sound_events.last(),
             Some(SimSoundEvent::BridgeRepaired { radar: Some(_), .. })
         ));
+    }
+}
+
+#[cfg(test)]
+mod click_order_receiver_tests {
+    use super::*;
+
+    /// ClickedAction refuses a berserk object (Infantry `0x0051F1D8`, Unit
+    /// `0x007388EB`): only the calm objects stay, in selection order.
+    #[test]
+    fn click_orders_go_only_to_calm_objects() {
+        let rules = RuleSet::from_ini(&crate::rules::ini_parser::IniFile::from_str(
+            "[InfantryTypes]\n0=GI\n[VehicleTypes]\n0=MTNK\n[GI]\nStrength=125\n\
+             [MTNK]\nStrength=300\n",
+        ))
+        .unwrap();
+        let mut sim = Simulation::new();
+        let mut spawn = |kind: &str, rx: u16| {
+            sim.spawn_object(kind, "Americans", rx, 5, 0, &rules)
+                .unwrap()
+        };
+        let (first, gassed_man, tank, gassed_tank) = (
+            spawn("GI", 3),
+            spawn("GI", 4),
+            spawn("MTNK", 5),
+            spawn("MTNK", 6),
+        );
+        for id in [gassed_man, gassed_tank] {
+            sim.entities_mut().get_mut(id).unwrap().berserk.active = true;
+        }
+        assert_eq!(
+            sim.click_order_receivers(&[gassed_tank, tank, gassed_man, first]),
+            [tank, first]
+        );
+        assert!(sim.click_order_receivers(&[gassed_man]).is_empty());
     }
 }

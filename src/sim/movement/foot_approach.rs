@@ -511,8 +511,11 @@ impl Simulation {
         let Some(target) = actor.attack_target.as_ref().map(|a| a.target) else {
             return Ok(None);
         };
-        // Native's first test, 4D56A1..56B1, returns on a LocomotorTarget
-        // (+2AC) identical to TarCom, a Magnetron's hold VERA does not port.
+        // 4D56A1..56B1: a Magnetron holding its target (+2AC == TarCom)
+        // does not approach it.
+        if matches!(target, TargetKind::Entity(target) if actor.locomotor_target == Some(target)) {
+            return Ok(None);
+        }
         let Some(selected) = combat::pursuit_selection(
             actor,
             &target,

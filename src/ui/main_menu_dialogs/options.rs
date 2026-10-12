@@ -55,7 +55,8 @@ pub(crate) const LAUNCHER_LABEL_SPECS: [(&str, &str); 30] = [
 /// has nothing for full screen, zoom or the battle shape, so these are English
 /// everywhere.
 pub(crate) const ZOOM_LABEL: &str = "Zoom";
-pub(crate) const ZOOM_HELP: &str = "How big battles look. Smooth sizes have slightly soft edges.";
+pub(crate) const ZOOM_HELP: &str =
+    "How big battles look. Auto picks the best size for your screen.";
 pub(crate) const FULL_SCREEN_LABEL: &str = "Full Screen";
 pub(crate) const FULL_SCREEN_HELP: &str = "Fill the whole screen. Untick it to play in a window.";
 pub(crate) const ORIGINAL_SHAPE_LABEL: &str = "Original 4:3 Shape";
@@ -67,8 +68,8 @@ pub(crate) const ORIGINAL_SHAPE_HELP: &str =
 /// player gives it, and a zoomed match draws its whole frame (battlefield,
 /// sidebar, cursor) at the window size divided by the zoom, then scales it up.
 /// A whole multiple of 100% scales by whole pixels and stays sharp; the steps
-/// between are smooth. The menus fit the window on their own. Saved as
-/// `[VERA] Zoom` in RA2MD.INI, a section gamemd never reads.
+/// between blend neighbouring pixels. The menus fit the window on their own.
+/// Saved as `[VERA] Zoom` in RA2MD.INI, a section gamemd never reads.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub(crate) enum Zoom {
     /// The largest sharp zoom that still shows the original 800x600 view.

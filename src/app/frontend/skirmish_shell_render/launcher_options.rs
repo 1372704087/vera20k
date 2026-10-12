@@ -18,9 +18,8 @@ use crate::ui::main_menu_dialogs::options::{
 use crate::ui::shell::geom::{RectPx, ShellScale};
 use std::time::Instant;
 
-/// A Zoom row: the zoom, the battle's size in game pixels in this window
-/// (what `App::sync_zoom_pass` will give the match), and "smooth" for a step
-/// that isn't a whole multiple.
+/// A Zoom row: the zoom and the battle's size in game pixels in this window,
+/// what `App::sync_zoom_pass` will give the match.
 fn zoom_label(zoom: Zoom, (width, height): (u32, u32), original_shape: bool) -> String {
     use crate::render::upscale_pass::{FrameShape, ZoomGeometry};
     let shape = if original_shape {
@@ -32,8 +31,7 @@ fn zoom_label(zoom: Zoom, (width, height): (u32, u32), original_shape: bool) -> 
     let size = format!("({}x{})", geometry.src_width, geometry.src_height);
     match zoom {
         Zoom::Auto => format!("Auto {size}"),
-        Zoom::Percent(percent) if geometry.is_sharp() => format!("{percent}% {size}"),
-        Zoom::Percent(percent) => format!("{percent}% {size} smooth"),
+        Zoom::Percent(percent) => format!("{percent}% {size}"),
     }
 }
 
@@ -534,7 +532,7 @@ mod tests {
     use crate::ui::main_menu_dialogs::options::Zoom;
 
     #[test]
-    fn zoom_rows_name_the_battle_size_and_mark_smooth_steps() {
+    fn zoom_rows_name_the_battle_size() {
         let hd = (1920, 1080);
         let rows: Vec<_> = Zoom::choices(hd.0, hd.1)
             .into_iter()
@@ -545,14 +543,11 @@ mod tests {
             [
                 "Auto (1920x1080)",
                 "100% (1920x1080)",
-                "150% (1280x720) smooth",
+                "150% (1280x720)",
                 "200% (960x540)"
             ]
         );
         // The original 4:3 shape trims the width.
-        assert_eq!(
-            zoom_label(Zoom::Percent(150), hd, true),
-            "150% (960x720) smooth"
-        );
+        assert_eq!(zoom_label(Zoom::Percent(150), hd, true), "150% (960x720)");
     }
 }

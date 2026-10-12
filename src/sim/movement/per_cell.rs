@@ -484,14 +484,13 @@ impl Simulation {
     /// live owner (`0x0051A9EB` tests only IsAlive, `+0x90`). Each arm asks
     /// for its own missions, so their order among themselves is native.
     ///
-    /// RESIDUAL: the override's other reason-2 arms (other Capture branches,
-    /// Eaten, Enter, the transport receivers and the C4 cell arm,
-    /// `0x0051973C..0x0051A9E8`) are not dispatched from here. Some have
-    /// ports with their own owners and callers (`capture_manager`,
-    /// `passenger`); native runs them inside this call, before the Foot body,
-    /// and several return without it. Trigger: an infantry arriving on a
-    /// mission cell. Risk: same-frame order between those receivers and the
-    /// Foot body.
+    /// Mobile Enter executes the shared passenger owner at51A3A0..51A485,
+    /// before C4 and the Teleport caller's NULL destination, despite warp-in.
+    /// RESIDUAL: other Capture branches, Eaten, building Enter and the C4 cell
+    /// arm (`0x0051973C..0x0051A9E8`) are not dispatched from here. Some have
+    /// ports with their own owners (`capture_manager`, `passenger`); native
+    /// runs them before the Foot body, with some early returns. Trigger: an
+    /// infantry arriving on a mission cell. Risk: same-frame receiver ordering.
     fn infantry_per_cell_process(
         &mut self,
         id: u64,
@@ -512,14 +511,77 @@ impl Simulation {
             }
             _ => Default::default(),
         };
-        if !entry.return_before_foot
-            && reason == PerCellReason::Arrival
-            && let Some(rules) = rules
-            && self.infantry_per_cell_c4(id, rules, registry, effects)?
-        {
-            return Ok(false);
-        }
         if !entry.return_before_foot {
+            // Steam gamemd3e81a617,51A3A0..51A485: a mobile transport
+            // arrival boards before Foot's tail. Teleport71971C calls here
+            // after setting warp-in; waiting for the late passenger phase
+            // loses NavCom to71973C and incorrectly strands the infantry.
+            if reason == PerCellReason::Arrival
+                && let Some(rules) = rules
+                && let Some(target_transport_id) = self
+                    .substrate
+                    .entities
+                    .get(id)
+                    .and_then(|entity| entity.passenger_role.boarding_transport_id())
+                && self
+                    .substrate
+                    .entities
+                    .get(target_transport_id)
+                    .is_some_and(|target| {
+                        matches!(
+                            target.category,
+                            EntityCategory::Unit | EntityCategory::Aircraft
+                        )
+                    })
+            {
+                let boarding = crate::sim::passenger::process_boarding_passenger(
+                    self,
+                    rules,
+                    id,
+                    crate::sim::passenger::BoardingVisit::CellArrival,
+                    registry,
+                    effects,
+                );
+                match boarding {
+                    crate::sim::passenger::BoardingOutcome::Boarded => {
+                        return Ok(entry.bridge_state_changed);
+                    }
+                    crate::sim::passenger::BoardingOutcome::Refused => {
+                        //51A488..51A4BF: failed0F retires NavCom, queues
+                        //Guard and scatters, then returns without Foot's tail.
+                        self.assign_null_destination(id, Some(rules), registry, effects);
+                        if let Some(entity) = self.substrate.entities.get_mut(id) {
+                            crate::sim::mission::authority::queue_entity_mission_deferred(
+                                entity,
+                                MissionId::from_known(MissionType::Guard),
+                            );
+                        }
+                        let changed = self
+                            .infantry_scatter_null(
+                                id,
+                                super::ScatterFlags::new(true, true),
+                                rules,
+                                registry,
+                                effects,
+                            )
+                            .map_err(|cause| FrameAdvanceError {
+                                tick: self.session.tick,
+                                binary_frame: self.session.binary_frame,
+                                entity_id: id,
+                                cause,
+                            })?;
+                        return Ok(entry.bridge_state_changed || changed);
+                    }
+                    crate::sim::passenger::BoardingOutcome::Waiting => {}
+                }
+            }
+            //51A4BF follows the mobile Enter arm and precedes radio8 release.
+            if reason == PerCellReason::Arrival
+                && let Some(rules) = rules
+                && self.infantry_per_cell_c4(id, rules, registry, effects)?
+            {
+                return Ok(false);
+            }
             //51A7F8 reads the live Techno+418 after earlier arrival receivers;
             //51A80C sends literal8 through Contacts[0], not DOCK_NOW0x15.
             //No new alive gate precedes it;51A9EB gates only the Foot tail.

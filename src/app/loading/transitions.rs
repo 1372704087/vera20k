@@ -134,9 +134,8 @@ pub(crate) fn apply_map_load_result(state: &mut AppState, result: init::MapLoadR
         &mut state.match_state.input,
     );
     // Start_Scenario 00683D21 completes Read_Scenario before switching video
-    // mode at 00683DF3. Loading artwork stays at shell size; successful tactical
-    // installation must size its camera/shroud against the applied game mode.
-    crate::app::App::enter_game_window_mode(state);
+    // mode at 00683DF3. VERA keeps the window the player gave it: the match
+    // takes the zoom pass's source size, already current for this window.
     crate::app::loading::pump::present_game_mode_blank(state);
     crate::app::reset_scenario_exit_runtime(state);
     let startup = result.scenario.startup;

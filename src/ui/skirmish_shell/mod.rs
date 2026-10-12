@@ -6,7 +6,6 @@
 
 mod layout;
 mod scroll;
-pub(crate) use scroll::ScrollModel;
 mod state;
 mod statics;
 pub(crate) use statics::SkirmishStatics;

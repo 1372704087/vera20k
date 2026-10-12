@@ -15,8 +15,10 @@ pub(crate) mod shell;
 /// 0x0055FC80` and its primary-proc slice `0x0055FDB0..0x0056047A` bind the
 /// RT_DIALOG `0xD5` controls to these launcher-local CSF keys/fallbacks. The
 /// template's slider captions (`GUI:HigherDetail`, `GUI:Harder`,
-/// `GUI:Faster`) never show: the init renames them by position.
-pub(crate) const LAUNCHER_LABEL_SPECS: [(&str, &str); 31] = [
+/// `GUI:Faster`) never show: the init renames them by position. The combo's
+/// own caption, `GUI:SetResolution`, left with the resolution list: the combo
+/// is VERA's [`Zoom`] list now.
+pub(crate) const LAUNCHER_LABEL_SPECS: [(&str, &str); 30] = [
     ("GUI:OptionsMenu", "Options"),
     ("GUI:MainMenu", "Main Menu"),
     ("GUI:Keyboard", "Keyboard"),
@@ -25,7 +27,6 @@ pub(crate) const LAUNCHER_LABEL_SPECS: [(&str, &str); 31] = [
     ("GUI:GameOptions", "Game Options"),
     ("GUI:UIOptions", "UI Options"),
     ("GUI:AudioOptions", "Audio Options"),
-    ("GUI:SetResolution", "Set Game Resolution"),
     ("GUI:VisualDetails", "Visual Details"),
     ("GUI:Difficulty", "Difficulty"),
     ("GUI:Tooltips", "Tooltips"),
@@ -50,6 +51,80 @@ pub(crate) const LAUNCHER_LABEL_SPECS: [(&str, &str); 31] = [
     ("TXT_FASTEST", "Fastest"),
 ];
 
+/// VERA's own captions and status help on this page. The retail string table
+/// has nothing for full screen or zoom, so these are English everywhere.
+pub(crate) const ZOOM_LABEL: &str = "Zoom";
+pub(crate) const ZOOM_HELP: &str =
+    "How big battles look. Auto picks the best size for your screen.";
+pub(crate) const FULL_SCREEN_LABEL: &str = "Full Screen";
+pub(crate) const FULL_SCREEN_HELP: &str = "Fill the whole screen. Untick it to play in a window.";
+
+/// VERA's battle zoom: the Options combo that took the place of gamemd's
+/// resolution list (`0x005601A0..0x00560270`). The window keeps the size the
+/// player gives it, and a zoomed match draws its whole frame (battlefield,
+/// sidebar, cursor) at the window size divided by the factor, then scales it
+/// up by whole pixels. The menus fit the window on their own. Saved as
+/// `[VERA] Zoom` in RA2MD.INI, a section gamemd never reads.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub(crate) enum Zoom {
+    /// The largest factor that still shows the original 800x600 view.
+    #[default]
+    Auto,
+    Normal,
+    Large,
+    Huge,
+}
+
+impl Zoom {
+    /// The combo's rows, top to bottom.
+    pub(crate) const ALL: [Self; 4] = [Self::Auto, Self::Normal, Self::Large, Self::Huge];
+
+    pub(crate) const fn label(self) -> &'static str {
+        match self {
+            Self::Auto => "Auto",
+            Self::Normal => "Normal",
+            Self::Large => "Large",
+            Self::Huge => "Huge",
+        }
+    }
+
+    pub(crate) fn row(self) -> usize {
+        Self::ALL.iter().position(|zoom| *zoom == self).unwrap_or(0)
+    }
+
+    /// The `[VERA] Zoom` value: 0 for Auto, otherwise the fixed factor.
+    pub(crate) const fn ini_value(self) -> i32 {
+        match self {
+            Self::Auto => 0,
+            Self::Normal => 1,
+            Self::Large => 2,
+            Self::Huge => 3,
+        }
+    }
+
+    /// Any value this build doesn't know reads as Auto.
+    pub(crate) const fn from_ini_value(value: i32) -> Self {
+        match value {
+            1 => Self::Normal,
+            2 => Self::Large,
+            3 => Self::Huge,
+            _ => Self::Auto,
+        }
+    }
+
+    /// The whole-pixel factor for a window of `width` x `height`. No choice
+    /// shrinks the view below gamemd's smallest mode, 640x480.
+    pub(crate) fn factor(self, width: u32, height: u32) -> u32 {
+        let wanted = match self {
+            Self::Auto => (width / 800).min(height / 600),
+            Self::Normal => 1,
+            Self::Large => 2,
+            Self::Huge => 3,
+        };
+        wanted.min((width / 640).min(height / 480)).max(1)
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct LauncherOptionsLabels {
     pub(crate) options: String,
@@ -60,7 +135,6 @@ pub(crate) struct LauncherOptionsLabels {
     pub(crate) game_options: String,
     pub(crate) ui_options: String,
     pub(crate) audio_options: String,
-    pub(crate) set_resolution: String,
     pub(crate) visual_details: String,
     pub(crate) difficulty: String,
     pub(crate) tooltips: String,
@@ -94,30 +168,29 @@ impl LauncherOptionsLabels {
             game_options: label(5),
             ui_options: label(6),
             audio_options: label(7),
-            set_resolution: label(8),
-            visual_details: label(9),
-            difficulty: label(10),
-            tooltips: label(11),
-            scroll_rate: label(12),
-            target_lines: label(13),
-            show_hidden: label(14),
-            music_volume: label(15),
-            sound_volume: label(16),
-            voice_volume: label(17),
-            blank: label(18),
-            low: label(19),
-            high: label(20),
-            easy: label(21),
-            normal: label(22),
-            hard: label(23),
+            visual_details: label(8),
+            difficulty: label(9),
+            tooltips: label(10),
+            scroll_rate: label(11),
+            target_lines: label(12),
+            show_hidden: label(13),
+            music_volume: label(14),
+            sound_volume: label(15),
+            voice_volume: label(16),
+            blank: label(17),
+            low: label(18),
+            high: label(19),
+            easy: label(20),
+            normal: label(21),
+            hard: label(22),
             scroll_tokens: [
+                label(23),
                 label(24),
                 label(25),
                 label(26),
                 label(27),
                 label(28),
                 label(29),
-                label(30),
             ],
         }
     }
@@ -162,6 +235,9 @@ pub(crate) enum LauncherCheckboxId {
     Tooltips,
     TargetLines,
     ShowHidden,
+    /// VERA's own box: the window fills the screen. It changes the window at
+    /// once instead of waiting for the parent's accept.
+    FullScreen,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -179,7 +255,8 @@ pub(crate) enum LauncherCue {
 /// 0x0055FC80` consumes these before any parent-result teardown.
 pub(crate) enum LauncherOptionsEvent {
     Cue(LauncherCue),
-    ResolutionSelected { width: i32, height: i32 },
+    ZoomSelected(Zoom),
+    FullScreenChanged(bool),
     ScorePreview(f32),
     SoundPreview(f32),
     VoicePreview(f32),
@@ -202,26 +279,6 @@ pub(crate) struct LauncherOptionsFrameOutput {
     pub(crate) result: Option<LauncherParentResult>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct LauncherResolutionRow {
-    pub(crate) width: i32,
-    pub(crate) height: i32,
-    pub(crate) label: String,
-}
-
-impl LauncherResolutionRow {
-    /// gamemd-derived: primary-proc slice `0x005601A0..0x00560270` appends
-    /// admitted dimension pairs to the `0xD5` combo using literal
-    /// `%d x %d x 16` display text.
-    pub(crate) fn new(width: i32, height: i32) -> Self {
-        Self {
-            width,
-            height,
-            label: format!("{width} x {height} x 16"),
-        }
-    }
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct LauncherOptionsValues {
     pub(crate) detail_position: u8,
@@ -230,6 +287,8 @@ pub(crate) struct LauncherOptionsValues {
     pub(crate) tooltips: bool,
     pub(crate) target_lines: bool,
     pub(crate) show_hidden: bool,
+    /// The window's state when the page opened, then each toggle.
+    pub(crate) full_screen: bool,
     pub(crate) score_position: u8,
     pub(crate) sound_position: u8,
     pub(crate) voice_position: u8,
@@ -244,6 +303,7 @@ impl Default for LauncherOptionsValues {
             tooltips: true,
             target_lines: true,
             show_hidden: false,
+            full_screen: false,
             score_position: 4,
             sound_position: 7,
             voice_position: 7,
@@ -318,9 +378,8 @@ fn difficulty_caption(labels: &LauncherOptionsLabels, position: u8) -> String {
 pub(crate) struct OptionsDialogState {
     labels: LauncherOptionsLabels,
     values: LauncherOptionsValues,
-    resolution_rows: Vec<LauncherResolutionRow>,
-    selected_resolution: Option<usize>,
-    resolution_popup_open: bool,
+    zoom: Zoom,
+    zoom_popup_open: bool,
     launcher_audio_available: bool,
     detail_caption: String,
     difficulty_caption: String,
@@ -335,13 +394,7 @@ pub(crate) struct OptionsDialogState {
 impl Default for OptionsDialogState {
     fn default() -> Self {
         let labels = LauncherOptionsLabels::resolve(&|_| None);
-        Self::new(
-            labels,
-            LauncherOptionsValues::default(),
-            Vec::new(),
-            None,
-            false,
-        )
+        Self::new(labels, LauncherOptionsValues::default(), Zoom::Auto, false)
     }
 }
 
@@ -353,8 +406,7 @@ impl OptionsDialogState {
     pub(crate) fn new(
         labels: LauncherOptionsLabels,
         mut values: LauncherOptionsValues,
-        resolution_rows: Vec<LauncherResolutionRow>,
-        selected_resolution: Option<usize>,
+        zoom: Zoom,
         launcher_audio_available: bool,
     ) -> Self {
         values.detail_position = admitted_initial_position(i64::from(values.detail_position), 1);
@@ -364,8 +416,6 @@ impl OptionsDialogState {
         values.score_position = admitted_initial_position(i64::from(values.score_position), 10);
         values.sound_position = admitted_initial_position(i64::from(values.sound_position), 10);
         values.voice_position = admitted_initial_position(i64::from(values.voice_position), 10);
-        let selected_resolution =
-            selected_resolution.filter(|index| *index < resolution_rows.len());
         // The 0x497 init sets each trackbar's range and position; every change
         // sends WM_HSCROLL (0x0061E609..0x0061E6AF), whose handler
         // (0x0055FF68) names the position (tables 0x0082A248 / 0x0082A254 /
@@ -379,9 +429,8 @@ impl OptionsDialogState {
             scroll_caption,
             labels,
             values,
-            resolution_rows,
-            selected_resolution,
-            resolution_popup_open: false,
+            zoom,
+            zoom_popup_open: false,
             launcher_audio_available,
             capture: None,
             pending_events: Vec::new(),
@@ -535,10 +584,22 @@ impl OptionsDialogState {
             LauncherCheckboxId::Tooltips => &mut self.values.tooltips,
             LauncherCheckboxId::TargetLines => &mut self.values.target_lines,
             LauncherCheckboxId::ShowHidden => &mut self.values.show_hidden,
+            LauncherCheckboxId::FullScreen => &mut self.values.full_screen,
         };
         *slot = !*slot;
+        let checked = *slot;
         self.pending_events
             .push(LauncherOptionsEvent::Cue(LauncherCue::Checkbox));
+        if id == LauncherCheckboxId::FullScreen {
+            self.pending_events
+                .push(LauncherOptionsEvent::FullScreenChanged(checked));
+        }
+    }
+
+    /// Follow a full-screen change the page didn't make (the window's own
+    /// title-bar button), so the box shows what the window is.
+    pub(crate) fn sync_full_screen(&mut self, full_screen: bool) {
+        self.values.full_screen = full_screen;
     }
 
     /// gamemd-derived: combo owner `0x00617250` emits GUIComboOpen before its
@@ -554,7 +615,7 @@ impl OptionsDialogState {
         self.pending_events
             .push(LauncherOptionsEvent::Cue(LauncherCue::ComboOpen));
         if frame.local_x > frame.width - 20 {
-            self.resolution_popup_open = !self.resolution_popup_open;
+            self.zoom_popup_open = !self.zoom_popup_open;
         }
     }
 
@@ -567,20 +628,17 @@ impl OptionsDialogState {
             .push(LauncherOptionsEvent::Cue(LauncherCue::MainButton));
     }
 
-    /// gamemd-derived: primary-proc slice `0x0055FDB0..0x0056047A` accepts only
-    /// a valid combo row and publishes its width/height immediately; final
-    /// accepted projection `0x0055FAA0` does not own the resolution pair.
-    pub(crate) fn select_resolution(&mut self, index: usize) {
-        let Some(row) = self.resolution_rows.get(index) else {
+    /// Like gamemd's resolution row (primary-proc slice
+    /// `0x0055FDB0..0x0056047A`), a valid zoom row is published at once; the
+    /// accepted projection `0x0055FAA0` never owns it.
+    pub(crate) fn select_zoom(&mut self, index: usize) {
+        let Some(zoom) = Zoom::ALL.get(index).copied() else {
             return;
         };
-        self.selected_resolution = Some(index);
-        self.resolution_popup_open = false;
+        self.zoom = zoom;
+        self.zoom_popup_open = false;
         self.pending_events
-            .push(LauncherOptionsEvent::ResolutionSelected {
-                width: row.width,
-                height: row.height,
-            });
+            .push(LauncherOptionsEvent::ZoomSelected(zoom));
     }
 
     /// gamemd-derived: `OptionsClass__ShowLauncherDialog @ 0x0055FC80` gives
@@ -601,12 +659,6 @@ impl OptionsDialogState {
             result: self.pending_result.take(),
         }
     }
-
-    fn selected_resolution_label(&self) -> &str {
-        self.selected_resolution
-            .and_then(|index| self.resolution_rows.get(index))
-            .map_or("", |row| row.label.as_str())
-    }
 }
 
 #[cfg(test)]
@@ -623,11 +675,7 @@ mod tests {
         OptionsDialogState::new(
             labels(),
             LauncherOptionsValues::default(),
-            vec![
-                LauncherResolutionRow::new(800, 600),
-                LauncherResolutionRow::new(1024, 768),
-            ],
-            Some(1),
+            Zoom::Large,
             audio,
         )
     }
@@ -666,7 +714,7 @@ mod tests {
 
     #[test]
     fn exact_launcher_label_fallbacks_are_local_and_complete() {
-        const EXPECTED: [(&str, &str); 31] = [
+        const EXPECTED: [(&str, &str); 30] = [
             ("GUI:OptionsMenu", "Options"),
             ("GUI:MainMenu", "Main Menu"),
             ("GUI:Keyboard", "Keyboard"),
@@ -675,7 +723,6 @@ mod tests {
             ("GUI:GameOptions", "Game Options"),
             ("GUI:UIOptions", "UI Options"),
             ("GUI:AudioOptions", "Audio Options"),
-            ("GUI:SetResolution", "Set Game Resolution"),
             ("GUI:VisualDetails", "Visual Details"),
             ("GUI:Difficulty", "Difficulty"),
             ("GUI:Tooltips", "Tooltips"),
@@ -715,7 +762,6 @@ mod tests {
             labels.game_options.as_str(),
             labels.ui_options.as_str(),
             labels.audio_options.as_str(),
-            labels.set_resolution.as_str(),
             labels.visual_details.as_str(),
             labels.difficulty.as_str(),
             labels.tooltips.as_str(),
@@ -766,8 +812,7 @@ mod tests {
                 scroll_position: 0,
                 ..Default::default()
             },
-            Vec::new(),
-            None,
+            Zoom::Auto,
             true,
         );
         // Retail opens with the positions named (TXT_LOW/HARD/SLOWEST here).
@@ -884,29 +929,77 @@ mod tests {
     fn combo_cues_before_strict_arrow_toggle_and_valid_selection() {
         let mut state = state(true);
         state.combo_mouse_down(frame(160, 5, 180, 24));
-        assert!(!state.resolution_popup_open, "strict edge does not open");
+        assert!(!state.zoom_popup_open, "strict edge does not open");
         assert_eq!(
             state.drain_output().events,
             [LauncherOptionsEvent::Cue(LauncherCue::ComboOpen)]
         );
         state.combo_mouse_down(frame(161, 5, 180, 24));
-        assert!(state.resolution_popup_open);
-        state.select_resolution(99);
+        assert!(state.zoom_popup_open);
+        state.select_zoom(99);
         assert!(
             state
                 .drain_output()
                 .events
                 .iter()
-                .all(|event| !matches!(event, LauncherOptionsEvent::ResolutionSelected { .. }))
+                .all(|event| !matches!(event, LauncherOptionsEvent::ZoomSelected(_)))
         );
-        state.select_resolution(0);
+        state.select_zoom(0);
+        assert_eq!(state.zoom, Zoom::Auto);
         assert_eq!(
             state.drain_output().events,
-            [LauncherOptionsEvent::ResolutionSelected {
-                width: 800,
-                height: 600
-            }]
+            [LauncherOptionsEvent::ZoomSelected(Zoom::Auto)]
         );
+    }
+
+    #[test]
+    fn full_screen_box_reports_each_toggle_after_its_cue() {
+        let mut state = state(true);
+        state.checkbox_mouse_down(LauncherCheckboxId::FullScreen, frame(5, 5, 180, 16));
+        assert_eq!(
+            state.drain_output().events,
+            [
+                LauncherOptionsEvent::Cue(LauncherCue::Checkbox),
+                LauncherOptionsEvent::FullScreenChanged(true),
+            ]
+        );
+        // The window's own button changes it with no event; the next click
+        // turns it off again.
+        state.sync_full_screen(false);
+        state.checkbox_mouse_down(LauncherCheckboxId::FullScreen, frame(5, 5, 180, 16));
+        assert_eq!(
+            state.drain_output().events,
+            [
+                LauncherOptionsEvent::Cue(LauncherCue::Checkbox),
+                LauncherOptionsEvent::FullScreenChanged(true),
+            ]
+        );
+        // The full-screen state is the window's, not part of the accepted pack.
+        assert_eq!(state.pack(), self::state(true).pack());
+    }
+
+    #[test]
+    fn zoom_factor_is_whole_and_never_shows_less_than_640x480() {
+        let factor = |zoom: Zoom, w, h| zoom.factor(w, h);
+        // Auto keeps at least the original 800x600 view.
+        assert_eq!(factor(Zoom::Auto, 800, 600), 1);
+        assert_eq!(factor(Zoom::Auto, 1920, 1080), 1);
+        assert_eq!(factor(Zoom::Auto, 1600, 1200), 2);
+        assert_eq!(factor(Zoom::Auto, 3440, 1440), 2);
+        assert_eq!(factor(Zoom::Auto, 3840, 2160), 3);
+        // A fixed choice gives way only where it would cut below 640x480.
+        assert_eq!(factor(Zoom::Normal, 3840, 2160), 1);
+        assert_eq!(factor(Zoom::Large, 1920, 1080), 2);
+        assert_eq!(factor(Zoom::Large, 1024, 768), 1);
+        assert_eq!(factor(Zoom::Huge, 3440, 1440), 3);
+        assert_eq!(factor(Zoom::Huge, 1920, 1080), 2);
+        // A minimised or tiny window still gets a usable factor.
+        assert_eq!(factor(Zoom::Huge, 0, 0), 1);
+        for zoom in Zoom::ALL {
+            assert_eq!(Zoom::from_ini_value(zoom.ini_value()), zoom);
+            assert_eq!(Zoom::ALL[zoom.row()], zoom);
+        }
+        assert_eq!(Zoom::from_ini_value(7), Zoom::Auto);
     }
 
     #[test]

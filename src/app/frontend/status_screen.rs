@@ -111,11 +111,13 @@ pub(crate) fn handle_event(
     match event {
         WindowEvent::CursorMoved { position, .. } => {
             // Match input stores tactical pixels even when a utility card
-            // occupies the physical window above an upscaled match.
-            state.match_state.input.cursor_x = position.x as f32 * state.render_width() as f32
-                / state.renderer.gpu.config.width.max(1) as f32;
-            state.match_state.input.cursor_y = position.y as f32 * state.render_height() as f32
-                / state.renderer.gpu.config.height.max(1) as f32;
+            // occupies the physical window above a zoomed match.
+            let (x, y) = (position.x as f32, position.y as f32);
+            let (x, y) = state
+                .tactical_zoom()
+                .map_or((x, y), |zoom| zoom.window_to_source(x, y));
+            state.match_state.input.cursor_x = x;
+            state.match_state.input.cursor_y = y;
             state.platform.window.request_redraw();
             true
         }

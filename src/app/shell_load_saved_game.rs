@@ -22,7 +22,6 @@ impl App {
     /// State 9: `0x00558F2E` creates `0xB7` with the rows `0x005596A0`
     /// scanned, and `0x00558FC8..0x00558FE5` enables Load from the row count.
     pub(super) fn open_load_saved_game_page(state: &mut AppState) {
-        Self::enter_shell_window_mode(state);
         crate::app::frontend::main_menu_shell_render::clear_ra2ts_movie_session(state);
         crate::app::frontend::shell_transition::invalidate_main_menu_dialog_instance(state);
         // The error message box paints from the skirmish chrome atlas.

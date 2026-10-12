@@ -46,7 +46,7 @@ pub(crate) fn reset_scenario_exit_runtime(state: &mut AppState) {
 
 impl AppState {
     /// Current projection: frontend/result use physical window pixels; tactical
-    /// rendering and pending tactical installation use the optional upscaler.
+    /// rendering and pending tactical installation use the optional zoom pass.
     /// Loading artwork explicitly uses GPU/window dimensions in loading::pump.
     fn render_dimensions(&self) -> (u32, u32) {
         platform::render_dimensions(
@@ -70,15 +70,33 @@ impl AppState {
         self.render_dimensions().1
     }
 
-    /// Modal shells use physical window pixels, while the retained tactical
-    /// cursor stays in battlefield source pixels even during an upscaled match.
-    pub(crate) fn window_cursor_position(&self) -> (f32, f32) {
-        (
-            self.match_state.input.cursor_x * self.renderer.gpu.config.width as f32
-                / self.render_width().max(1) as f32,
-            self.match_state.input.cursor_y * self.renderer.gpu.config.height as f32
-                / self.render_height().max(1) as f32,
+    /// The zoom between the window and the pixels this screen's tactical
+    /// input uses: the match and its loading go through the zoom pass, the
+    /// menus never do.
+    pub(crate) fn tactical_zoom(&self) -> Option<crate::render::upscale_pass::ZoomGeometry> {
+        matches!(
+            self.frontend.screen,
+            crate::ui::game_screen::GameScreen::Loading
+                | crate::ui::game_screen::GameScreen::InGame
         )
+        .then(|| {
+            self.renderer
+                .upscale_pass
+                .as_ref()
+                .map(|pass| pass.geometry())
+        })
+        .flatten()
+    }
+
+    /// Modal shells use physical window pixels, while the retained tactical
+    /// cursor stays in battlefield source pixels even during a zoomed match.
+    pub(crate) fn window_cursor_position(&self) -> (f32, f32) {
+        let (x, y) = (
+            self.match_state.input.cursor_x,
+            self.match_state.input.cursor_y,
+        );
+        self.tactical_zoom()
+            .map_or((x, y), |zoom| zoom.source_to_window(x, y))
     }
 
     /// Whether the software cursor (mouse.shp) should be active this frame.

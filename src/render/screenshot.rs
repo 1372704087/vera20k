@@ -139,8 +139,8 @@ impl PresentedFrameCache {
 
     /// Queue a readback from the previously presented cursor-free composition.
     /// When the game renders below client resolution, the retained source is
-    /// passed through the same Catmull-Rom presentation shader into a temporary
-    /// client-sized target before readback.
+    /// passed through the same zoom pass into a temporary client-sized target
+    /// before readback.
     pub(crate) fn capture_previous_if_requested(
         &mut self,
         requested: bool,
@@ -171,11 +171,11 @@ impl PresentedFrameCache {
         }
 
         let upscale = upscale.context(
-            "cursor-free screenshot source differs from client size without an upscale pass",
+            "cursor-free screenshot source differs from client size without a zoom pass",
         )?;
         ensure!(
             upscale.src_width() == self.width && upscale.src_height() == self.height,
-            "cursor-free screenshot cache is {}x{}, upscale source is {}x{}",
+            "cursor-free screenshot cache is {}x{}, zoom source is {}x{}",
             self.width,
             self.height,
             upscale.src_width(),

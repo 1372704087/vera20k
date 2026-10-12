@@ -21,7 +21,6 @@ impl App {
     /// State 8: create `0x94` after `0x100` is destroyed. Its proc starts the
     /// slider at OptionsClass `Difficulty` (`0x0052F114`).
     pub(super) fn open_campaign_page(state: &mut AppState) {
-        Self::enter_shell_window_mode(state);
         crate::app::frontend::main_menu_shell_render::clear_ra2ts_movie_session(state);
         crate::app::frontend::shell_transition::invalidate_main_menu_dialog_instance(state);
         state.frontend.campaign = Some(CampaignShellState::open(
@@ -51,10 +50,10 @@ impl App {
             log::warn!("Could not prepare campaign art: process asset manager is unavailable");
             return false;
         };
-        // The 640 art set belongs to the unscaled 640 dialog; a stretched layout
+        // The 640 art set belongs to the unscaled 640 dialog; a fitted layout
         // always authors `0x94` at 800x600, so it takes the large set and the
         // trackbar frame of that control size.
-        let small = !state.platform.menu_fill_window && state.renderer.gpu.config.width == 640;
+        let small = crate::app::frontend::shell_layout::art_key_screen_width(state) == 640;
         let layout = Self::campaign_layout(state);
         let base = layout.scale.base_rect(layout.slider);
         state.frontend.campaign_art =

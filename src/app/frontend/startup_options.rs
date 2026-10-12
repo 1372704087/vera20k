@@ -78,9 +78,9 @@ pub struct RetailStartupOptions {
     /// Parse_Command_Line52F620 writes 0x89E3A0; Init_Mix_Files530460
     /// consumes it at 0x53079E. See tools/media_policy.md.
     pub media_archive_mode: MediaArchiveMode,
-    /// `-WIN` asked for windowed presentation. This engine takes its window
-    /// presentation from `[graphics] window_mode`, so the switch is accepted and
-    /// has nothing left to change.
+    /// `-WIN` asked for windowed presentation. VERA's window is always one the
+    /// player can resize, with full screen a choice on the Options page, so the
+    /// switch is accepted and has nothing left to change.
     pub windowed: bool,
     /// Cleared by `-NOAUDIO`; the interactive `App` consumes it before audio
     /// output and index construction.
@@ -249,7 +249,7 @@ pub fn usage_text() -> String {
         "Usage: vera20k [options]",
         "",
         "  -CD             Use the wildcard media-archive branch.",
-        "  -WIN            No effect: window presentation comes from config.toml [graphics] window_mode.",
+        "  -WIN            No effect: full screen is a choice on the Options page.",
         "  -NOAUDIO        Disable music and sound output.",
         "  -<W>X<H>        Seed startup width and height; Video settings may override.",
         "  -480 -16        Seed startup width; a missing paired height uses fallback.",

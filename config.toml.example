@@ -7,23 +7,9 @@
 ra2_dir = "C:/Westwood/RA2"
 
 [graphics]
-width = 1024
-height = 768
 vsync = true
 extra_animations = true   # cosmetic effects: water/ore sparkles (future: laser pulses, particle trails)
-# How the top-level window is presented (VERA presentation policy).
-#   "windowed"   fixed-size decorated window — the default, as before
-#   "resizable"  decorated window you can drag to any size
-#   "borderless" no title bar or border, covering the whole monitor
-#   "frameless"  no title bar or border, at the size below (nothing to drag it by)
-#   "fullscreen" exclusive full-screen at the monitor's own video mode
-window_mode = "windowed"
-# Scale the menus (main menu, its right-panel pages and the loading screens)
-# up to the largest size that fits the window without distorting them, centred,
-# instead of showing the unscaled 800x600 shell. Wider or taller windows than
-# 4:3 get black bars at the sides or top and bottom.
-menu_fill_window = false
-
+# Full screen and zoom are on the in-game Options page (saved in RA2MD.INI).
 
 [gameplay]
 sim_tick_hz = 15

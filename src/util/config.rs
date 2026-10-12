@@ -69,113 +69,29 @@ pub struct PathsConfig {
     pub ra2_dir: PathBuf,
 }
 
-/// Graphics and window settings.
+/// Graphics settings.
 ///
 /// Every field has a sensible default so `[graphics]` can be omitted entirely.
+/// Full screen and zoom are player choices on the Options page, saved in
+/// RA2MD.INI, not here.
 #[derive(Debug, Deserialize)]
 pub struct GraphicsConfig {
-    /// Window width in pixels.
-    #[serde(default = "default_width")]
-    pub width: u32,
-    /// Window height in pixels.
-    #[serde(default = "default_height")]
-    pub height: u32,
     /// Whether to enable vertical sync (reduces tearing, caps framerate).
     #[serde(default = "default_true")]
     pub vsync: bool,
-    /// Enable Catmull-Rom bicubic upscaling (renders at half resolution, upscales to window).
-    #[serde(default)]
-    pub upscale: bool,
     /// Enable cosmetic per-frame effects: water/ore sparkles. Also intended to
     /// gate future cosmetic effects (laser beam pulses, particle systems, line
     /// trails) per gamemd's "Extra Animations" option. Default ON to match
     /// gamemd's default.
     #[serde(default = "default_true")]
     pub extra_animations: bool,
-    /// How the top-level window is presented. Local presentation policy; the
-    /// simulation never reads it.
-    #[serde(default)]
-    pub window_mode: WindowMode,
-    /// Scale the shell family (main menu 0xE2, its right-panel pages and the
-    /// loading screens) up to the largest size the window fits at the shell's
-    /// 4:3 shape, centred, instead of reproducing gamemd's centered, unscaled
-    /// 800x600 shell. Off by default: the retail layout is the parity behavior,
-    /// and at the 800x600 base size the two layouts are pixel-identical anyway.
-    #[serde(default)]
-    pub menu_fill_window: bool,
-}
-
-/// Top-level window presentation modes — VERA presentation policy, read by no
-/// simulation code.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum WindowMode {
-    /// Decorated, fixed-size window at the profile's frontend size: the window
-    /// every build before this key created.
-    #[default]
-    Windowed,
-    /// Decorated window the player can resize. The shell fits whatever size
-    /// the player drags it to; leaving a match restores that same window.
-    Resizable,
-    /// No title bar or border, client area covering the whole monitor.
-    Borderless,
-    /// No title bar or border, but at the profile's frontend size rather than the
-    /// monitor's. With no caption there is nothing to drag, so the window stays
-    /// where the system placed it; a match still uses the profile's game pair.
-    Frameless,
-    /// Exclusive full-screen at the monitor's own video mode. VERA picks a mode
-    /// the display advertises at its current size and never changes the display
-    /// mode, so a match keeps that size instead of the profile's game pair.
-    Fullscreen,
-}
-
-impl WindowMode {
-    /// Is the window given the whole monitor, with no player-visible frame?
-    pub fn covers_monitor(self) -> bool {
-        matches!(self, Self::Borderless | Self::Fullscreen)
-    }
-
-    /// Does the window keep the OS title bar and border?
-    pub fn has_decorations(self) -> bool {
-        matches!(self, Self::Windowed | Self::Resizable)
-    }
-
-    /// Does the player resize the window themselves?
-    pub fn resizable(self) -> bool {
-        matches!(self, Self::Resizable)
-    }
 }
 
 impl Default for GraphicsConfig {
     fn default() -> Self {
         Self {
-            width: default_width(),
-            height: default_height(),
             vsync: true,
-            upscale: false,
             extra_animations: true,
-            window_mode: WindowMode::default(),
-            menu_fill_window: false,
-        }
-    }
-}
-
-impl GraphicsConfig {
-    /// Render width: half of window width when upscaling, otherwise full window width.
-    pub fn render_width(&self) -> u32 {
-        if self.upscale {
-            self.width / 2
-        } else {
-            self.width
-        }
-    }
-
-    /// Render height: half of window height when upscaling, otherwise full window height.
-    pub fn render_height(&self) -> u32 {
-        if self.upscale {
-            self.height / 2
-        } else {
-            self.height
         }
     }
 }
@@ -205,14 +121,6 @@ impl Default for GameplayConfig {
             pause_on_focus_loss: false,
         }
     }
-}
-
-fn default_width() -> u32 {
-    1024
-}
-
-fn default_height() -> u32 {
-    768
 }
 
 fn default_true() -> bool {
@@ -393,10 +301,8 @@ mod tests {
 ra2_dir = "C:/Westwood/RA2"
 "#;
         let config: GameConfig = toml::from_str(toml_str).expect("Failed to parse test config");
-        assert_eq!(config.graphics.width, 1024);
-        assert_eq!(config.graphics.height, 768);
         assert!(config.graphics.vsync);
-        assert!(!config.graphics.upscale);
+        assert!(config.graphics.extra_animations);
         assert_eq!(config.gameplay.sim_tick_hz, 15);
         assert_eq!(config.gameplay.input_delay_ticks, 2);
         assert!(!config.gameplay.pause_on_focus_loss);
@@ -457,8 +363,7 @@ name = "   "
     fn discovered_config_keeps_host_defaults() {
         let config = GameConfig::from_retail_asset_root(PathBuf::from(r"D:\Games\RA2"));
         assert_eq!(config.paths.ra2_dir, PathBuf::from(r"D:\Games\RA2"));
-        assert_eq!(config.graphics.width, 1024);
-        assert_eq!(config.graphics.height, 768);
+        assert!(config.graphics.vsync);
         assert_eq!(config.gameplay.sim_tick_hz, 15);
         assert_eq!(config.profile.player_name(), None);
     }

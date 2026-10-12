@@ -326,7 +326,7 @@ pub(crate) fn dispatch_foot_mission(
             // MissionAttack4D4E6A calls Approach before its Scenario cadence
             // draw. The accepted destination is visible to this object's
             // subsequent Drive Process, and is retained while it fires.
-            if !sim.approach_balloon_target(id, rules, ctx.overlay_registry, ctx.effects)
+            if !sim.approach_unit_head(id, rules, ctx.overlay_registry, ctx.effects)
                 && sim.owns_foot_approach(id, rules)
             {
                 sim.approach_foot_target(id, rules, ctx.overlay_registry, ctx.effects)
@@ -1297,9 +1297,9 @@ fn evaluate_foot_hunt(
         if acquired && infantry {
             hunt_engineer_capture(sim, id, rules, ctx);
         } else if acquired {
-            // `0x004D54DD`: a Unit approaches what the scan holds; the balloon
-            // arm takes only a Unit.
-            sim.approach_balloon_target(id, rules, ctx.overlay_registry, ctx.effects);
+            // `0x004D54DD`: a Unit approaches what the scan holds through its
+            // head (`0x007414E0`), which takes only a Unit.
+            sim.approach_unit_head(id, rules, ctx.overlay_registry, ctx.effects);
         }
     }
     //4D54EE..4D5576: the human no-target arm invokes the class idle
@@ -1419,45 +1419,6 @@ fn scaled_area_guard_leash(range: i32) -> i32 {
     X87::ftol_i32_low_masked(X87::mul(
         X87::load_i32(range),
         X87::load_f64(NativeF64Bits::from_bits(0x3ff1_9999_9999_999a)),
-    ))
-}
-
-fn foot_distance_to_target(
-    sim: &Simulation,
-    id: u64,
-    target: crate::sim::combat::TargetKind,
-    rules: &RuleSet,
-) -> Option<i32> {
-    let coords = |target| {
-        crate::sim::movement::ground_pose::target_get_coords(
-            target,
-            &sim.substrate.entities,
-            sim.resolved_terrain
-                .as_ref()
-                .map(crate::map::resolved_terrain::NativeCellQuery::canonical)
-                .as_ref(),
-        )
-    };
-    let from = coords(crate::sim::combat::TargetKind::Entity(id))?;
-    let to = coords(target)?;
-    let foundation = match target {
-        crate::sim::combat::TargetKind::Entity(id) => sim
-            .substrate
-            .entities
-            .get(id)
-            .filter(|entity| entity.category == EntityCategory::Structure)
-            .and_then(|entity| sim.object_type(entity.type_ref(), rules))
-            .map(|object| {
-                let (width, height) =
-                    crate::rules::foundation::foundation_dimensions(&object.foundation);
-                (i32::from(width), i32::from(height))
-            }),
-        crate::sim::combat::TargetKind::Cell(..) => None,
-    };
-    Some(crate::util::native_x87::object_distance(
-        [from.x, from.y, from.z],
-        [to.x, to.y, to.z],
-        foundation,
     ))
 }
 
@@ -1581,7 +1542,7 @@ fn evaluate_foot_rescue(
             .set_archive_target(None);
     } else if state == 0 {
         // `0x004DDFDB..0x004DDFEB`: with a Target, approach it.
-        sim.approach_balloon_target(id, rules, ctx.overlay_registry, ctx.effects);
+        sim.approach_unit_head(id, rules, ctx.overlay_registry, ctx.effects);
     }
     let mission = sim
         .substrate
@@ -1670,7 +1631,9 @@ pub(super) fn evaluate_foot_area_guard(
     });
     if let Some(post) = archive
         && may_return
-        && foot_distance_to_target(sim, id, post, rules).is_some_and(|distance| distance > leash)
+        && sim
+            .object_distance_to(id, post)
+            .is_some_and(|distance| distance > leash)
     {
         //4D6EB8 precedes4D6ECB, even when the class target setter refuses.
         let _ = sim.assign_target_represented(id, None, Some(rules));
@@ -1698,7 +1661,7 @@ pub(super) fn evaluate_foot_area_guard(
     // `0x004D6ED1..0x004D6F32`: with a Target the body approaches it instead
     // of scanning; without a post it does neither (`0x004D6E66`).
     if !needs_target && archive.is_some() {
-        sim.approach_balloon_target(id, rules, ctx.overlay_registry, ctx.effects);
+        sim.approach_unit_head(id, rules, ctx.overlay_registry, ctx.effects);
     }
     let timer_due = sim
         .substrate

@@ -2,17 +2,24 @@
 //! by ordinary Teleport infantry object Attack. Native execution:
 //! tools/spatial_oracle/fv_cell_attack. The shared range,
 //! Cell admission, zone-cost, target and destination owners retain their work.
+//!
+//! The head of `UnitClass::Approach_Target @ 0x007414E0` lives here too: its
+//! computer and OmniCrusher crush arms ([`ApproachCrush`]) and its
+//! BalloonHover arm, ahead of the Foot body.
 
 use super::foot_path::{cell_centre, chebyshev, coord_cell};
 use crate::map::entities::EntityCategory;
 use crate::map::resolved_terrain::NativeCellQuery;
 use crate::rules::locomotor_type::LocomotorKind;
+use crate::rules::object_type::Ability;
 use crate::rules::overlay_types::OverlayTypeRegistry;
 use crate::rules::ruleset::RuleSet;
 use crate::sim::cell_rect::{self, CellRect, CellRectPassabilityContext};
+use crate::sim::combat::veterancy::{has_weapon_ability, rank_from_u16};
 use crate::sim::combat::{self, TargetKind, in_range};
 use crate::sim::components::{DriveCoord, NavTargetRef};
 use crate::sim::mission::MissionType;
+use crate::sim::movement::bump_crush::{CrushAllyGate, CrushTarget, object_is_crushable_by};
 use crate::sim::world::FrameEffects;
 use crate::sim::world::Simulation;
 use crate::util::direction_tables::{cell_delta_unchecked, facing16_between};
@@ -27,31 +34,223 @@ const OFFSETS: [i16; 25] = [
 #[path = "foot_approach_tests.rs"]
 mod tests;
 
+#[cfg(test)]
+#[path = "approach_crush_tests.rs"]
+mod approach_crush_tests;
+
+/// What the crush arms of `UnitClass::Approach_Target @ 0x007414E0` (vt+0x53C)
+/// ask of a Unit and the object it targets. Either arm takes the Target as the
+/// destination (`0x0074165F`: SetDestination(Target, 1), vt+0x480, unless
+/// no-move) and returns it; the BalloonHover arm sits between them. The arms
+/// ask for the distance and crushability, the costly facts, only where their
+/// earlier tests pass, as native calls them.
+///
+/// Native execution: tools/unit_crush_oracle.json `approach` rows, replayed by
+/// `approach_crush_tests::approach_crush_matches_native_execution`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct ApproachCrush {
+    /// `HouseClass::IsControlledByHuman @ 0x0050B730` of the owner.
+    pub(crate) controlled_by_human: bool,
+    /// The unit holds a NavCom (`+0x5A4`).
+    pub(crate) nav_com: bool,
+    /// UnitType `Crusher=` (`+0xD28`), or the rank's CRUSHER ability
+    /// (`HasWeaponAbility(0x11) @ 0x0070D0D0`).
+    pub(crate) crusher: bool,
+    /// `[CombatDamage] Crush=` (`Rules+0x1728`).
+    pub(crate) reach: i32,
+    /// The Target is a Techno (`+0x14 & 1`).
+    pub(crate) techno: bool,
+    /// The Target is an Object (`+0x14 & 2`).
+    pub(crate) object: bool,
+    /// UnitType `OmniCrusher=` (`+0xD29`).
+    pub(crate) omni: bool,
+    /// The owner's IsHuman byte (`+0x1EC`), not IsControlledByHuman.
+    pub(crate) is_human: bool,
+    /// The Target came from the passive scan (`+0x50C`).
+    pub(crate) passive: bool,
+}
+
+impl ApproachCrush {
+    /// The computer arm (`0x007414E4..0x00741593`): an owner no human
+    /// controls, no NavCom, a crusher, and a Techno Target strictly closer
+    /// than `Crush=` (`distance`, `ObjectClass::Distance @ 0x005F6360` in
+    /// leptons; `JGE` refuses at `0x00741560`) that it can crush
+    /// (`crushable`, `ObjectClass::Is_Crushable_By @ 0x005F6CD0`). Its last
+    /// test, `AutoCrush=` (`+0xD2D`) or no human control, always passes for
+    /// that owner.
+    pub(crate) fn computer_arm(
+        self,
+        distance: impl FnOnce() -> i32,
+        crushable: impl FnOnce() -> bool,
+    ) -> bool {
+        !self.controlled_by_human
+            && !self.nav_com
+            && self.crusher
+            && distance() < self.reach
+            && self.techno
+            && crushable()
+    }
+
+    /// The OmniCrusher arm (`0x00741603..0x0074165D`): any owner, reach and
+    /// NavCom, and an Object Target it can crush (`crushable`), unless a
+    /// human house (IsHuman) holds that Target from the passive scan.
+    pub(crate) fn omni_arm(self, crushable: impl FnOnce() -> bool) -> bool {
+        self.omni && !(self.is_human && self.passive) && self.object && crushable()
+    }
+}
+
 impl Simulation {
-    /// Unit 0x7414E0's BalloonHover arm (0x741599..0x741600), as the Foot
-    /// missions call Approach (vt+0x53C) with no-move 0
-    /// ([`Self::approach_balloon_target`]). A `BalloonHover=` type (+0xD6A) whose GetWeapon(SelectWeapon(Target))
-    /// (vt+0x2E4, vt+0x3F8) has a `Vertical=` (+0x2C0) `Projectile=` (+0xA0)
-    /// takes its Target as its destination (vt+0x480 with 1) and returns.
-    /// Any other weapon, or none, goes on to the next arm (0x741603). This
-    /// answers that destination, or None for the next arm.
+    /// The facts [`ApproachCrush`] tests for Unit `id` and the object it
+    /// targets, with that object; None where neither arm can take the call:
+    /// another actor, a Cell Target (neither Techno nor Object) or a unit
+    /// that crushes nothing. Every represented object is a Techno.
+    fn approach_crush(&self, id: u64, rules: &RuleSet) -> Option<(ApproachCrush, u64)> {
+        let actor = self.substrate.entities.get(id)?;
+        let TargetKind::Entity(target) = actor.attack_target.as_ref()?.target else {
+            return None;
+        };
+        if actor.category != EntityCategory::Unit || !self.substrate.entities.contains(target) {
+            return None;
+        }
+        let object = self.object_type(actor.type_ref(), rules)?;
+        let crusher = object.crusher
+            || has_weapon_ability(rank_from_u16(actor.veterancy()), object, Ability::Crusher);
+        // The pursuit pass asks this of every pursuer each frame.
+        if !crusher && !object.omni_crusher {
+            return None;
+        }
+        let facts = ApproachCrush {
+            controlled_by_human: self.owner_is_human(actor.owner()),
+            nav_com: actor.navigation.nav_com.is_some(),
+            crusher,
+            reach: rules.combat_damage.crush,
+            techno: true,
+            object: true,
+            omni: object.omni_crusher,
+            is_human: self
+                .houses
+                .get(&actor.owner())
+                .is_some_and(|house| house.is_human),
+            passive: actor.passively_acquired_target,
+        };
+        Some((facts, target))
+    }
+
+    /// `ObjectClass::Is_Crushable_By @ 0x005F6CD0` of `target` by Unit `id`,
+    /// alliance question first ([`CrushAllyGate`], with its one-way-alliance
+    /// residual), as the bump crush asks it.
+    fn approach_crushable(&self, id: u64, target: u64, rules: &RuleSet) -> bool {
+        let (Some(actor), Some(victim)) = (
+            self.substrate.entities.get(id),
+            self.substrate.entities.get(target),
+        ) else {
+            return false;
+        };
+        let ally = CrushAllyGate::new(
+            self.interner.resolve(actor.owner()),
+            &self.house_alliances,
+            &self.interner,
+        );
+        !ally.spares(victim)
+            && self
+                .object_type(actor.type_ref(), rules)
+                .is_some_and(|object| {
+                    object_is_crushable_by(
+                        object.omni_crusher,
+                        CrushTarget::from_entity(victim, self.session.binary_frame),
+                    )
+                })
+    }
+
+    /// The head of `UnitClass::Approach_Target @ 0x007414E0` for Unit `id`:
+    /// the computer crush arm, the BalloonHover arm
+    /// ([`Self::balloon_hover_approach`]), then the OmniCrusher arm
+    /// ([`ApproachCrush`]). Answers the destination of the first arm that takes
+    /// the call, or None where native goes on to FootClass::Approach_Target
+    /// (`0x00741685`).
     ///
     /// Residuals:
-    /// - The head's computer crush arm (0x7414E4..0x741593) runs first. A
-    ///   computer's Unit with `Crusher=` (+0xD28) or the CRUSHER ability, no
-    ///   NavCom and a crushable Techno Target within reach steers onto it
-    ///   whatever its weapon. No retail `BalloonHover=` type (ZEP, DISK) has
-    ///   either, so in retail it never pre-empts this arm.
     /// - With the no-move flag set, native returns the Target without the
     ///   destination. Every mission passes 0, and no VERA caller passes 1.
     /// - Mission_Patrol calls Approach too (`0x004D473A`), and VERA has no
     ///   Foot Patrol body; the pursuit pass (`tick_attack_pursuit`) stands in.
-    ///   Trigger: a Kirov or a Floating Disc on Patrol holding a target.
-    ///   Effect: the pass sends it to the target's cell, and its in-range halt
-    ///   admits no Patrol (`range_stop_admits`), so it flies on to that cell
-    ///   and stays on Patrol, roughly where the arm sends a vertical weapon;
-    ///   a Disc on its laser does not stop at range. Frequency: nothing in
-    ///   VERA puts a Unit on Patrol today; native producers were not surveyed.
+    ///   Trigger: a unit on Patrol holding a target that an arm would take: a
+    ///   Kirov, a Floating Disc, a computer's crusher beside it or a Battle
+    ///   Fortress. Effect: the pass sends it to the target's cell, and its
+    ///   in-range halt admits no Patrol (`range_stop_admits`), so it goes on
+    ///   to that cell and stays on Patrol, roughly where the arms send it; a
+    ///   Disc on its laser does not stop at range. Frequency: nothing in VERA
+    ///   puts a Unit on Patrol today; native producers were not surveyed.
+    pub(crate) fn unit_approach_head(&self, id: u64, rules: &RuleSet) -> Option<NavTargetRef> {
+        let crush = self.approach_crush(id, rules);
+        if let Some((facts, target)) = crush
+            && facts.computer_arm(
+                || {
+                    self.object_distance_to(id, TargetKind::Entity(target))
+                        .unwrap_or(i32::MAX)
+                },
+                || self.approach_crushable(id, target, rules),
+            )
+        {
+            return Some(NavTargetRef::object(target));
+        }
+        if let Some(destination) = self.balloon_hover_approach(id, rules) {
+            return Some(destination);
+        }
+        crush
+            .filter(|&(facts, target)| {
+                facts.omni_arm(|| self.approach_crushable(id, target, rules))
+            })
+            .map(|(_, target)| NavTargetRef::object(target))
+    }
+
+    /// Whether the head's crush arms carry `id`'s approach. The OmniCrusher
+    /// arm takes every call. The computer arm takes the call while no NavCom
+    /// is set. Once its destination, the Target, stands, the head falls to the
+    /// Foot body, whose CanRecalcApproachTarget reset measures 0 from that
+    /// NavCom to the Target and keeps it, and whose ground unit then returns
+    /// on the NavCom (`0x004D5912..0x004D5A18`). So the drive at the Target
+    /// runs on until the crush or the per-cell range stop
+    /// (`per_cell::per_cell_range_stop`) ends it.
+    ///
+    /// RESIDUAL: VERA counts that drive as the crush's only while the Target
+    /// stays within the computer arm's reach. Trigger: the Target moves out of
+    /// `Crush=` mid-charge, as a victim walking away does. Effect: the pursuit
+    /// pass takes the unit back and, with the Target in weapon range, halts it
+    /// at once, where native drives on until its next cell's range stop: the
+    /// unit stops up to a cell short. No draw, timer or ownership differs.
+    pub(crate) fn crush_owns_approach(&self, id: u64, rules: &RuleSet) -> bool {
+        let Some((facts, target)) = self.approach_crush(id, rules) else {
+            return false;
+        };
+        let on_target = self.substrate.entities.get(id).is_some_and(|actor| {
+            actor.navigation.nav_com.is_none_or(|nav| {
+                super::navcom::nav_targets_same_receiver(Some(nav), NavTargetRef::object(target))
+            })
+        });
+        let crushable = || self.approach_crushable(id, target, rules);
+        facts.omni_arm(crushable)
+            || on_target
+                && ApproachCrush {
+                    nav_com: false,
+                    ..facts
+                }
+                .computer_arm(
+                    || {
+                        self.object_distance_to(id, TargetKind::Entity(target))
+                            .unwrap_or(i32::MAX)
+                    },
+                    crushable,
+                )
+    }
+
+    /// Unit 0x7414E0's BalloonHover arm (0x741599..0x741600), as the Foot
+    /// missions call Approach (vt+0x53C) with no-move 0
+    /// ([`Self::approach_unit_head`]). A `BalloonHover=` type (+0xD6A) whose GetWeapon(SelectWeapon(Target))
+    /// (vt+0x2E4, vt+0x3F8) has a `Vertical=` (+0x2C0) `Projectile=` (+0xA0)
+    /// takes its Target as its destination (vt+0x480 with 1) and returns.
+    /// Any other weapon, or none, goes on to the next arm (0x741603). This
+    /// answers that destination, or None for the next arm.
     ///
     /// Native comparison: tools/spatial_oracle/balloon_hover.json `approach`
     /// rows.
@@ -77,19 +276,19 @@ impl Simulation {
 
     /// Approach (vt+0x53C) with no-move 0, as Mission_Attack (`0x004D4E6A`),
     /// Mission_Hunt (`0x004D54DD`), Mission_AreaGuard (`0x004D6F2D`) and
-    /// Mission_Rescue (`0x004DDFEB`) call it, for the BalloonHover arm
-    /// ([`Self::balloon_hover_approach`]): its Target becomes the destination
-    /// (vt+0x480 with 1). Answers whether the arm took the call; otherwise
+    /// Mission_Rescue (`0x004DDFEB`) call it, through its Unit head
+    /// ([`Self::unit_approach_head`]): the destination the head answers is set
+    /// (vt+0x480 with 1). Answers whether the head took the call; otherwise
     /// Mission_Attack's Cell approach or the pursuit pass stands in for the
     /// rest of Approach.
-    pub(crate) fn approach_balloon_target(
+    pub(crate) fn approach_unit_head(
         &mut self,
         id: u64,
         rules: &RuleSet,
         registry: Option<&OverlayTypeRegistry>,
         frame_effects: FrameEffects<'_>,
     ) -> bool {
-        let Some(destination) = self.balloon_hover_approach(id, rules) else {
+        let Some(destination) = self.unit_approach_head(id, rules) else {
             return false;
         };
         let _ = self.assign_destination_represented(
@@ -104,9 +303,10 @@ impl Simulation {
 
     /// Whether the current mission's own Approach takes `id`'s approach, so the
     /// pursuit pass (`tick_attack_pursuit`) leaves it alone: Mission_Attack's
-    /// common Foot approach ([`Self::owns_foot_approach`]), or the BalloonHover
-    /// arm on each mission that calls [`Self::approach_balloon_target`]
-    /// (Attack, Hunt, AreaGuard and Rescue). Keep it in step with those calls.
+    /// common Foot approach ([`Self::owns_foot_approach`]), or the Unit head
+    /// on each mission that calls [`Self::approach_unit_head`] (Attack, Hunt,
+    /// AreaGuard and Rescue): its BalloonHover arm or a crush arm
+    /// ([`Self::crush_owns_approach`]). Keep it in step with those calls.
     pub(crate) fn mission_owns_approach(&self, id: u64, rules: &RuleSet) -> bool {
         let Some(mission) = self
             .substrate
@@ -123,7 +323,8 @@ impl Simulation {
                     | MissionType::Hunt
                     | MissionType::AreaGuard
                     | MissionType::Rescue
-            ) && self.balloon_hover_approach(id, rules).is_some())
+            ) && (self.balloon_hover_approach(id, rules).is_some()
+                || self.crush_owns_approach(id, rules)))
     }
 
     /// Ownership boundary for the absorbed common Unit/Infantry approach. CloseRange,
@@ -205,7 +406,12 @@ impl Simulation {
                 _ => false,
             })
         {
-            //4D56A1..56B1: an existing NavCom identical to TarCom returns.
+            // A NavCom identical to TarCom takes the NavCom return below
+            // (4D5912..5A18) with nothing changed for this one caller,
+            // Mission_Attack: its Target clear spares Attack, the reset
+            // measures 0 to that NavCom, and no admitted mover is in the air.
+            // Native's first test, 4D56A1..56B1, returns on a LocomotorTarget
+            // (+2AC) identical to TarCom, a Magnetron's hold VERA does not port.
             return Ok(None);
         }
         let Some(selected) = combat::pursuit_selection(

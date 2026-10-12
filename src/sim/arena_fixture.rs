@@ -17,6 +17,27 @@ pub(crate) const OPEN_PLAYFIELD: crate::sim::cell_rect::PlayfieldBounds =
         off_108: 256,
     };
 
+/// The arena's ground with two rival houses, not allied: `Russians`, a Normal
+/// computer house of the skirmish IQ (`[IQ] MaxIQLevels`), and `Americans`, a
+/// human house.
+pub(crate) fn rival_arena(rules: &RuleSet, seed: u64) -> Simulation {
+    let mut sim = Simulation::with_seed(seed);
+    flat_ground(&mut sim, rules);
+    for (name, human) in [("Russians", false), ("Americans", true)] {
+        let id = sim.interner.intern(name);
+        let mut house = crate::sim::house_state::HouseState::new(id, 0, None, human, 0, 10);
+        house.difficulty = crate::sim::house_state::HouseDifficulty::Normal;
+        house.current_iq = if human {
+            0
+        } else {
+            rules.general.max_iq_levels
+        };
+        sim.houses.insert(id, house);
+        sim.session.house_order.push(id);
+    }
+    sim
+}
+
 /// Install the arena on `sim`, with commands executing on the next tick, and
 /// return its path grid.
 pub(crate) fn flat_arena(sim: &mut Simulation, rules: &RuleSet) -> PathGrid {

@@ -412,6 +412,45 @@ pub(crate) fn target_get_coords(
     }
 }
 
+impl Simulation {
+    /// `ObjectClass::Distance @ 0x005F6360` from object `id` to `target`: both
+    /// ends' GetCoords (virtual +0x48 at `0x005F6383` and `0x005F6391`,
+    /// [`target_get_coords`]) through
+    /// [`crate::util::native_x87::object_distance`], less a building Target's
+    /// foundation. None where either object is gone.
+    pub(crate) fn object_distance_to(
+        &self,
+        id: u64,
+        target: crate::sim::combat::TargetKind,
+    ) -> Option<i32> {
+        let cells = self
+            .resolved_terrain
+            .as_ref()
+            .map(NativeCellQuery::canonical);
+        let coords = |target| target_get_coords(target, &self.substrate.entities, cells.as_ref());
+        let from = coords(crate::sim::combat::TargetKind::Entity(id))?;
+        let to = coords(target)?;
+        let foundation = match target {
+            crate::sim::combat::TargetKind::Entity(target) => self
+                .substrate
+                .entities
+                .get(target)
+                .filter(|entity| entity.category == crate::map::entities::EntityCategory::Structure)
+                .map(|building| {
+                    let (width, height) =
+                        crate::rules::foundation::foundation_dimensions(&building.foundation);
+                    (i32::from(width), i32::from(height))
+                }),
+            crate::sim::combat::TargetKind::Cell(..) => None,
+        };
+        Some(crate::util::native_x87::object_distance(
+            [from.x, from.y, from.z],
+            [to.x, to.y, to.z],
+            foundation,
+        ))
+    }
+}
+
 /// The level and slope `CellClass::GetGroundHeight @ 0x00578080` reads at
 /// full world XY. With resolved terrain that is Map[coord] (`0x00565730`),
 /// which forms the wrapping fixed-stride index before narrowing fallback

@@ -2,9 +2,11 @@
 //! Foot takes on entering a cell while it chases a Foot TarCom.
 //!
 //! Walk infantry take the whole stop at their completion (`walk_host.rs`). A
-//! unit takes only its `OpenTopped=` arm, from the track terminal's PerCell
-//! (`track_host.rs`); for its InRange arm the pursuit stage's in-range halt
-//! (`world_orders.rs`) stands in, tested each frame.
+//! unit takes its `OpenTopped=` arm from the track terminal's PerCell
+//! (`track_host.rs`), and its InRange arm there only while the crush arms of
+//! `UnitClass::Approach_Target` carry its approach
+//! (`Simulation::crush_owns_approach`); otherwise the pursuit stage's
+//! in-range halt (`world_orders.rs`) stands in for it, tested each frame.
 
 use super::ground_pose;
 use crate::map::entities::EntityCategory;

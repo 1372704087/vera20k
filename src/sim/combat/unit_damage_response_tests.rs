@@ -165,8 +165,9 @@ const ENTER: MissionId = MissionId::from_known(MissionType::Enter);
 /// A computer's Rhino shot by a GI a cell away drives at it
 /// (`SetDestination(source, 1)`, `Queue_Mission(Move)`), also when the hit
 /// does no damage (result 0). It does not for a human's Rhino, a team
-/// member, an allied, distant or uncrushable source, an Easy house or one
-/// whose IQ is below `AutoCrush=`.
+/// member, a tethered Rhino, an allied, distant or uncrushable source, an
+/// Easy house or one whose IQ is below `AutoCrush=`, nor for a hit with no
+/// source or a killing one.
 #[test]
 fn computer_crusher_charges_a_crushable_attacker() {
     let Some(rules) = retail_rules() else {
@@ -225,6 +226,44 @@ fn computer_crusher_charges_a_crushable_attacker() {
         sim.houses.get_mut(&owner).unwrap().current_iq = 1;
         gi
     }));
+    assert!(!charge(10, &|sim, rhino, gi| {
+        sim.substrate
+            .entities
+            .get_mut(rhino)
+            .unwrap()
+            .dock_entered_with = Some(gi);
+        gi
+    }));
+
+    // A hit with no source (EBX null) and a killing hit (result 4, the death
+    // arm) never reach it.
+    let lone = |health: Option<i32>, source_present: bool| {
+        let mut sim = arena(&rules);
+        let rhino = spawn(&mut sim, &rules, "HTNK", "Russians", (10, 10));
+        let gi = spawn(&mut sim, &rules, "E1", "Americans", (11, 10));
+        if let Some(health) = health {
+            sim.substrate
+                .entities
+                .get_mut(rhino)
+                .unwrap()
+                .health
+                .current = health;
+        }
+        let source = if source_present {
+            gi
+        } else {
+            super::receiver_call::RAD_NO_ATTACKER
+        };
+        hit(&mut sim, &rules, rhino, source, 10);
+        sim.substrate
+            .entities
+            .get(rhino)
+            .map(|rhino| (rhino.health.current, rhino.mission.queued()))
+    };
+    let (health, mission) = lone(None, false).unwrap();
+    assert!(health < rules.object("HTNK").unwrap().strength);
+    assert_ne!(mission, MOVE);
+    assert!(lone(Some(1), true).is_none_or(|(health, mission)| health == 0 && mission != MOVE));
 }
 
 /// The charge outlives the frame's pursuit pass. The Rhino still holds the GI

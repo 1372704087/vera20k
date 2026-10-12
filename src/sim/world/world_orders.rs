@@ -1261,6 +1261,12 @@ impl Simulation {
             // per-cell range stop sees that object: the Move a computer
             // crusher's damage response queues (`0x007385A1`) keeps the
             // destination it set on the object that hit it.
+            // RESIDUAL: once that Move commences, this pass still takes the
+            // unit, which holds the attacker as its retaliation target:
+            // within range it drops the MovementTarget adapter, which the
+            // track host restores toward the NavCom (`complete_pending_order`;
+            // `range_stop_admits` refuses Move, so the NavCom stays), where
+            // Mission_Move has no approach or stop. The charge completes.
             if entity.mission.queued() != MissionId::NONE
                 && self.mission_ready_to_commence(id, rules)
             {

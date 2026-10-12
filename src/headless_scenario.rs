@@ -2118,7 +2118,9 @@ mod retail_construction_tests {
     }
 
     /// Advances one frame with the commands now due, as `tick` does with none.
-    fn tick_with_due_commands(scenario: &mut HeadlessScenario) {
+    fn tick_with_due_commands(
+        scenario: &mut HeadlessScenario,
+    ) -> crate::sim::world::SimFrameOutput {
         let commands = scenario.runtime.simulation.take_due_commands();
         scenario
             .runtime
@@ -2128,13 +2130,13 @@ mod retail_construction_tests {
                 crate::sim::world::TickLane::Ordinary,
                 crate::sim::world::FrameEffects::default(),
             )
-            .expect("simulation frame failed");
+            .expect("simulation frame failed")
     }
 
     /// A Normal Soviet house's Rhino, in no team, shot by a GI beside it:
     /// `UnitClass::ReceiveDamage`'s computer-owner response gives it the GI
     /// as its NavCom and queues Move (`combat::unit_damage_response`), it
-    /// drives off its cell at the GI, and the GI dies.
+    /// drives off its cell at the GI, and crushes it.
     #[test]
     #[ignore = "requires RA2_DIR with installed retail RA2/YR assets"]
     fn retail_computer_rhino_runs_at_the_gi_that_shoots_it() {
@@ -2176,8 +2178,9 @@ mod retail_construction_tests {
         let full = sim.entities().get(rhino).unwrap().health.current;
         let move_mission = MissionId::from_known(MissionType::Move);
         let (mut hit, mut charged, mut moved, mut died) = (None, None, None, None);
+        let (mut gi_cell, mut crushed) = (None, false);
         for frame in 1..=600u32 {
-            tick_with_due_commands(&mut scenario);
+            let output = tick_with_due_commands(&mut scenario);
             let sim = scenario.sim();
             let entity = sim.entities().get(rhino).expect("the Rhino lives");
             if hit.is_none() && entity.health.current < full {
@@ -2200,16 +2203,30 @@ mod retail_construction_tests {
             {
                 moved = Some(frame);
             }
-            if sim
+            match sim
                 .entities()
                 .get(gi)
-                .is_none_or(|gi| gi.dying || gi.health.current <= 0)
+                .filter(|gi| !gi.dying && gi.health.current > 0)
             {
-                died = Some(frame);
-                break;
+                Some(gi) => gi_cell = Some((gi.position.rx, gi.position.ry)),
+                None => {
+                    died = Some(frame);
+                    // The per-cell crush plays the victim's `CrushSound=` at
+                    // the crusher's cell, the victim's own.
+                    crushed = output.sound_events.iter().any(|event| {
+                        matches!(
+                            event,
+                            crate::sim::world::SimSoundEvent::EntityCrushed { rx, ry, .. }
+                                if gi_cell == Some((*rx, *ry))
+                        )
+                    });
+                    break;
+                }
             }
         }
-        eprintln!("hit {hit:?}, charged {charged:?}, moved {moved:?}, GI died {died:?}");
+        eprintln!(
+            "hit {hit:?}, charged {charged:?}, moved {moved:?}, GI died {died:?}, crushed {crushed}"
+        );
         assert!(hit.is_some(), "the GI never hit the Rhino");
         assert!(
             charged >= hit,
@@ -2217,6 +2234,7 @@ mod retail_construction_tests {
         );
         assert!(moved.is_some(), "the Rhino never left its cell");
         assert!(died.is_some(), "the GI survived");
+        assert!(crushed, "the GI died, but not under the Rhino");
     }
 
     /// A Normal Soviet house's War Miner out on the ore with a load, brought

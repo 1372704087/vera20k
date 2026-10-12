@@ -6587,6 +6587,88 @@ fn wave_elite_ambient_damage_carries_within_cell_and_resets_on_next_cell() {
     assert_eq!(selected, vec![first_id, second_id, next_id]);
 }
 
+/// A unit still inside the War Factory in its radio contact 0 returns at the
+/// head of `UnitClass::ReceiveDamage` (`0x00737CB6..0x00737D2E`): it takes no
+/// damage and leaves the wave's shared damage alone, so the cell's next
+/// occupant takes the whole `AmbientDamage=`, not the flak-halved value.
+#[test]
+fn wave_shared_damage_passes_a_unit_inside_its_war_factory() {
+    let rules =
+        crate::rules::ruleset::RuleSet::from_ini(&crate::rules::ini_parser::IniFile::from_str(
+            "[InfantryTypes]\n\
+             [VehicleTypes]\n0=FIRST\n1=SECOND\n2=FIRER\n\
+             [AircraftTypes]\n[BuildingTypes]\n0=WEAP\n\
+             [FIRST]\nStrength=100\nArmor=flak\n\
+             [SECOND]\nStrength=100\nArmor=none\n\
+             [WEAP]\nStrength=1000\nArmor=concrete\nWeaponsFactory=yes\n\
+             [FIRER]\nStrength=100\nArmor=light\nPrimary=SONIC\n\
+             [SONIC]\nDamage=4\nAmbientDamage=10\nWarhead=WH\nIsSonic=yes\n\
+             [WH]\nCellSpread=0\nPercentAtMax=1\n\
+             Verses=100%,50%,100%,100%,100%,100%,100%,100%,100%,100%,100%\n",
+        ))
+        .expect("Wave war-factory fixture");
+    let mut sim = Simulation::new();
+    let unit = |sim: &mut Simulation, kind: &str| {
+        let id = sim.allocate_stable_id();
+        insert_entity(sim, id, EntityCategory::Unit);
+        sim.substrate.entities.get_mut(id).unwrap().type_ref = sim.interner.intern(kind);
+        assert!(matches!(
+            sim.try_reveal_entity(id, common_raw_request(4, 5, 0, 128, 128)),
+            RevealOutcome::Revealed { .. }
+        ));
+        id
+    };
+    let second_id = unit(&mut sim, "SECOND");
+    let first_id = unit(&mut sim, "FIRST");
+    let factory_id = sim.allocate_stable_id();
+    insert_entity(&mut sim, factory_id, EntityCategory::Structure);
+    {
+        let factory = sim.substrate.entities.get_mut(factory_id).unwrap();
+        factory.type_ref = sim.interner.intern("WEAP");
+        factory.foundation = "1x1".to_string();
+    }
+    assert!(matches!(
+        sim.try_reveal_entity(factory_id, common_raw_request(4, 5, 0, 128, 128)),
+        RevealOutcome::Revealed { .. }
+    ));
+    sim.substrate
+        .entities
+        .get_mut(first_id)
+        .unwrap()
+        .radio_contacts
+        .insert(factory_id)
+        .unwrap();
+
+    let firer_id = sim.allocate_stable_id();
+    insert_entity(&mut sim, firer_id, EntityCategory::Unit);
+    {
+        let firer = sim.substrate.entities.get_mut(firer_id).unwrap();
+        firer.type_ref = sim.interner.intern("FIRER");
+        firer.attack_target = Some(AttackTarget {
+            target: TargetKind::Entity(second_id),
+        });
+    }
+    let wave_id = sim.allocate_stable_id();
+    let mut wave = Wave::new_owned(
+        0,
+        firer_id,
+        TargetKind::Entity(second_id),
+        ProjectileCoord::new(4 * 256, 5 * 256, 0),
+        ProjectileCoord::new(6 * 256, 5 * 256, 0),
+    );
+    wave.active_geometry = false;
+    wave.decaying = true;
+    wave.fade_in = NativeF64Bits::from_bits(0x3fa9_9999_a000_0000);
+    wave.fade_out = NativeF64Bits::from_bits(0x3fa9_9999_a000_0000);
+    wave.replace_recorded_cells(vec![WaveRecordedCell::real(4, 5)]);
+    sim.admit_wave(wave_id, wave);
+
+    assert!(sim.object_ai_visit_one(wave_id, Some(&rules), ObjectAiCtx::default()));
+    let health = |id: u64| sim.substrate.entities.get(id).unwrap().health.current;
+    assert_eq!(health(first_id), 100);
+    assert_eq!(health(second_id), 90);
+}
+
 #[test]
 fn wave_walks_nonbuilding_terrain_building_order_and_terrain_owns_wood_gate() {
     fn run(wood: bool) -> (Vec<u64>, i32, i32, i32) {

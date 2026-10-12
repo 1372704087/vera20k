@@ -135,7 +135,10 @@ fn construction_completes_within_its_native_object_visit() {
         }
         if route == "player" {
             assert_eq!(
-                BuildingUp::player_placement_frames_to_complete(control, &sim.session.game_options),
+                crate::sim::building_construction::player_placement_frames_to_complete(
+                    control,
+                    &sim.session.game_options,
+                ),
                 completed_at,
                 "{}: presentation estimate",
                 input["name"]

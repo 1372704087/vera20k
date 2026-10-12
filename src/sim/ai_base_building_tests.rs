@@ -486,6 +486,73 @@ fn a_computer_yard_places_its_building_on_the_node_cell() {
     assert_eq!(node_state(&sim, owner), [((16, 16), 0)]);
 }
 
+/// The placed building's Unlimbo queues Construction (`TechnoClass::Unlimbo`
+/// `0x006F6E2A` -> `0x0044D6BD..0x0044D6D0`) before its DiscoveredBy(owner)
+/// (`0x00440E76`), whose computer arm asks Get_Mission (`0x0044D679`) and so
+/// leaves it unopened. The exit commences that Construction
+/// (`0x00445329..0x0044533F`), and the building opens when its build-up
+/// ends.
+#[test]
+fn a_computer_yards_building_opens_when_its_build_up_ends() {
+    use crate::sim::mission::{MissionId, MissionType};
+    let (mut sim, rules, owner, yard, product) = exit_fixture();
+    let plain = rules.building_type_index("PLAIN").unwrap();
+    let house = sim.houses.get_mut(&owner).unwrap();
+    house.economy.set_credits_for_test(100);
+    house.ai_production.set_for_test(0, plain, true);
+    // A ten-frame build-up at rate 1.
+    sim.substrate
+        .entities
+        .get_mut(product)
+        .unwrap()
+        .bind_building_construction_control([0, 10, 1]);
+
+    let exit = exit_building(
+        &mut sim,
+        &rules,
+        yard,
+        product,
+        None,
+        crate::sim::world::FrameEffects::default(),
+    );
+
+    assert_eq!(exit, BuildingExit::Placed);
+    let building = sim.substrate.entities.get(product).unwrap();
+    assert!(!building.building_actually_placed, "opened at placement");
+    assert_eq!(
+        building.mission.current(),
+        MissionId::from_known(MissionType::Construction)
+    );
+    assert_eq!(building.mission.queued(), MissionId::NONE);
+    assert_eq!(building.building_body_state(), Some(0));
+    assert_eq!(building.building_ready_latch(), 0);
+
+    let placed_at = sim.session.binary_frame;
+    let mut opened_at = None;
+    for frame in placed_at..placed_at + 30 {
+        sim.session.binary_frame = frame;
+        sim.object_ai_visit_one(
+            product,
+            Some(&rules),
+            crate::sim::world::ObjectAiCtx::default(),
+        );
+        let building = sim.substrate.entities.get(product).unwrap();
+        if building.building_actually_placed {
+            opened_at = Some(frame);
+            break;
+        }
+        assert_eq!(building.building_body_state(), Some(0), "frame {frame}");
+    }
+    let opened_at = opened_at.expect("the building opens");
+    assert!(
+        opened_at >= placed_at + 9,
+        "it opened at frame {opened_at}, before its last build-up frame"
+    );
+    let building = sim.substrate.entities.get(product).unwrap();
+    assert_eq!(building.building_body_state(), Some(1));
+    assert!(!building.building_up());
+}
+
 #[test]
 fn a_unit_of_the_house_on_the_site_makes_the_yard_try_later() {
     let (mut sim, rules, owner, yard, product) = exit_fixture();

@@ -160,22 +160,46 @@ impl BuildingBody {
     }
 }
 
+/// Presentation ledger only. Original stock human route completes at
+/// N+2+(count-1)*rate, or N+3 for rate0. One-frame nonzero-rate controls never
+/// land on their last frame after a step. Native route rows validate this
+/// estimate; it never participates in simulation admission.
+pub(crate) fn player_placement_frames_to_complete(
+    control: [i32; 3],
+    _options: &GameOptions,
+) -> Option<i32> {
+    let [_, count, rate] = control;
+    if rate == 0 {
+        Some(3)
+    } else if count > 1 && rate > 0 {
+        Some(2i32.saturating_add(count.saturating_sub(1).saturating_mul(rate)))
+    } else {
+        None
+    }
+}
+
+#[cfg(test)]
 #[derive(Debug, Clone, Copy)]
 enum ConstructionEntry {
     Queued,
     Commenced,
     DeployReady,
-    #[cfg(test)]
     WatchingReady,
 }
 
-/// Transient Unlimbo/ExitObject/Deploy packet, never stored, hashed or serialized.
+/// Test fixture: the state a placement route leaves a building in once its
+/// Unlimbo queued Construction (`Simulation::building_enter_idle_mode`) —
+/// still queued after a player's PLACE, commenced by a computer yard's exit
+/// (`0x00445329..0x0044533F`), or queued with the ready byte set by a deploy
+/// (`0x0073984E`) — composed from the production verbs.
+#[cfg(test)]
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct BuildingUp {
     control: [i32; 3],
     entry: ConstructionEntry,
 }
 
+#[cfg(test)]
 impl BuildingUp {
     pub(crate) const fn placed_by_player(control: [i32; 3], _now: i32) -> Self {
         Self {
@@ -209,7 +233,6 @@ impl BuildingUp {
                 crate::sim::mission::authority::commence_entity_mission(entity, now as u32);
             }
             ConstructionEntry::DeployReady => entity.mission_leaf.set_building_ready_latch(1),
-            #[cfg(test)]
             ConstructionEntry::WatchingReady => {
                 crate::sim::mission::authority::commence_entity_mission(entity, now as u32);
                 entity.mission.set_handler_state(1);
@@ -217,24 +240,6 @@ impl BuildingUp {
             }
         }
     }
-    /// Presentation ledger only. Original stock human route completes at
-    /// N+2+(count-1)*rate, or N+3 for rate0. One-frame nonzero-rate controls never
-    /// land on their last frame after a step. Native route rows validate this
-    /// estimate; it never participates in simulation admission.
-    pub(crate) fn player_placement_frames_to_complete(
-        control: [i32; 3],
-        _options: &GameOptions,
-    ) -> Option<i32> {
-        let [_, count, rate] = control;
-        if rate == 0 {
-            Some(3)
-        } else if count > 1 && rate > 0 {
-            Some(2i32.saturating_add(count.saturating_sub(1).saturating_mul(rate)))
-        } else {
-            None
-        }
-    }
-    #[cfg(test)]
     pub(crate) fn completing_in_ticks(ticks: i32, current_frame: i32) -> Self {
         assert!(ticks >= 1);
         if ticks == 1 {

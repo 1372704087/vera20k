@@ -319,6 +319,7 @@ impl JumpjetFlightHost for CruiseHost<'_> {
         let id = self.stable_id;
         let rules = self.rules;
         let frame_effects = self.frame_effects;
+        let registry = self.registry;
         let speed = self.sim.jumpjet_order_speed(id, rules);
         runtime.with_owner_call(self.sim, id, |sim| {
             sim.jumpjet_destination(
@@ -326,6 +327,7 @@ impl JumpjetFlightHost for CruiseHost<'_> {
                 crate::sim::components::NavTargetRef::cell(cell.0 as u16, cell.1 as u16),
                 speed,
                 rules,
+                registry,
                 frame_effects,
             );
         });
@@ -674,6 +676,7 @@ impl Simulation {
                 crate::sim::components::NavTargetRef::from(archive),
                 speed,
                 Some(rules),
+                registry,
                 frame_effects,
             );
             return;

@@ -665,11 +665,8 @@ impl Simulation {
                     .get(*entity_id)
                     .is_some_and(|e| e.is_deployed())
                     && !rules.is_some_and(|rules| {
-                        self.infantry_setter_receiver(
-                            *entity_id,
-                            crate::sim::components::NavTargetRef::cell(*target_rx, *target_ry),
-                            rules,
-                        ) || self.drive_unit_setter_receiver(*entity_id)
+                        self.infantry_setter_receiver(*entity_id, rules)
+                            || self.drive_unit_setter_receiver(*entity_id)
                     })
                 {
                     return false;
@@ -735,6 +732,7 @@ impl Simulation {
                         (*target_rx, *target_ry),
                         info.speed,
                         rules,
+                        overlay_registry,
                         frame_effects,
                     )
                 } else if !*queue
@@ -1105,6 +1103,7 @@ impl Simulation {
                         (*target_rx, *target_ry),
                         info.speed,
                         rules,
+                        overlay_registry,
                         frame_effects,
                     )
                 } else {
@@ -1535,39 +1534,37 @@ impl Simulation {
                     return true;
                 }
                 let transport_ref = crate::sim::components::NavTargetRef::object(*transport_id);
-                let object_destination =
-                    if self.infantry_setter_receiver(*passenger_id, transport_ref, rules)
-                        || self
-                            .substrate
-                            .entities
-                            .get(*passenger_id)
-                            .is_some_and(|actor| {
-                                actor.category == crate::map::entities::EntityCategory::Unit
-                            })
-                    {
-                        // Infantry51F190 -> Foot4D76F8 ->6FFBE0 carries the
-                        // clicked object as Destination for Enter7. Event
-                        //4C747C preserves it; Infantry51AA40 samples its live
-                        //+4C through the shared coordinate owner after its
-                        //prelude (foot_navigation_coordinate corpus). Unit
-                        //738902 forwards the same Enter click to Foot4D76F8:
-                        //Enter7, NULL Target, clicked Object Destination. Its
-                        //Event4C747C receiver is Unit741970 (Steam3e81a617).
-                        let Ok(coord) = crate::sim::movement::nav_target_coordinate(
-                            transport_ref,
-                            Some(*passenger_id),
-                            &self.substrate.entities,
-                            self.resolved_terrain.as_ref(),
-                            Some((rules, &self.interner)),
-                        ) else {
-                            return false;
-                        };
-                        Some((transport_ref, coord))
-                    } else {
-                        // Aircraft retains its separate Cell adapter pending
-                        // its object-click/setter migration.
-                        None
+                let object_destination = if self.infantry_setter_receiver(*passenger_id, rules)
+                    || self
+                        .substrate
+                        .entities
+                        .get(*passenger_id)
+                        .is_some_and(|actor| {
+                            actor.category == crate::map::entities::EntityCategory::Unit
+                        }) {
+                    // Infantry51F190 -> Foot4D76F8 ->6FFBE0 carries the
+                    // clicked object as Destination for Enter7. Event
+                    //4C747C preserves it; Infantry51AA40 samples its live
+                    //+4C through the shared coordinate owner after its
+                    //prelude (foot_navigation_coordinate corpus). Unit
+                    //738902 forwards the same Enter click to Foot4D76F8:
+                    //Enter7, NULL Target, clicked Object Destination. Its
+                    //Event4C747C receiver is Unit741970 (Steam3e81a617).
+                    let Ok(coord) = crate::sim::movement::nav_target_coordinate(
+                        transport_ref,
+                        Some(*passenger_id),
+                        &self.substrate.entities,
+                        self.resolved_terrain.as_ref(),
+                        Some((rules, &self.interner)),
+                    ) else {
+                        return false;
                     };
+                    Some((transport_ref, coord))
+                } else {
+                    // Aircraft retains its separate Cell adapter pending
+                    // its object-click/setter migration.
+                    None
+                };
                 // Retask onto Enter; the target setter below owns combat cancellation.
                 self.queue_megamission(
                     *passenger_id,

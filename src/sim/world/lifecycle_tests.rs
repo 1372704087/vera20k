@@ -8181,6 +8181,7 @@ fn fly_cross_level_move_lands_on_destination_surface_after_restore() {
             (2, 2),
             SimFixed::from_num(3840),
             Some(&rules),
+            None,
             crate::sim::world::FrameEffects::default()
         ));
         sim.tick_air_movement_with_cell_lists_one(

@@ -343,16 +343,9 @@ impl Simulation {
             let (gaps, admitted_gap) = self.prepare_spy_sat_gap_reentry(owner, rules);
             // RESIDUAL: the other callers of `0x004ADCD0` are not ported.
             // MakeAlly (`0x004F9F4F`) and MakeEnemy (`0x004FA1E3`) bracket it
-            // with `0x004ADEE0`, which has no `RevealToAll=` branch, and
-            // Computer_Paranoid (`0x00501640`) calls them whenever a computer
-            // house deploys an MCV (`0x005051AF`) or, under `[AI]
-            // Paranoid=yes`, is defeated (`0x004FC10D`); VERA has neither
-            // (#1482). Trigger: one of those while a computer house's
-            // `RevealToAll=` building stands. Effect: native counts the
-            // building's sight once more per call on the current house's map,
-            // so after the building dies its cells stay below zero there and
-            // a hostile Gap Generator cannot shroud them; VERA's return to
-            // explored. The first House update (`0x004F935A`) runs on the
+            // with `0x004ADEE0`, which has no `RevealToAll=` branch; VERA's
+            // (`sim::house_diplomacy`) run without the bracket, a residual
+            // recorded there. The first House update (`0x004F935A`) runs on the
             // first frame, before any such building stands (no retail
             // skirmish map places one); Fill_In_Data's call (`0x00684F89`)
             // skips buildings; the trigger reshroud (`0x00577C90`, action 51)

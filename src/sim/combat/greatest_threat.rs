@@ -652,17 +652,16 @@ impl ScanContext<'_> {
         self.fog.map(|fog| &fog.alliances)
     }
 
-    /// `HouseClass::Is_Ally_ByObject` — allied houses and the owner itself.
+    /// `HouseClass::Is_Ally_ByObject` asked by the scanner's house
+    /// (`0x006F7F22`; the walks read its `+0x21C` too, e.g. `0x006F8A76`,
+    /// `0x006F9D4C`): the house itself or one its own mask names.
     fn is_ally(&self, candidate: &GameEntity) -> bool {
-        if candidate.owner() == self.attacker.owner {
-            return true;
-        }
-        self.fog.is_some_and(|fog| {
-            fog.is_friendly(
-                self.interner.resolve(self.attacker.owner),
-                self.interner.resolve(candidate.owner()),
-            )
-        })
+        crate::sim::combat::combat_weapon::is_ally_by_object(
+            self.alliances(),
+            self.interner,
+            self.attacker.owner,
+            candidate.owner(),
+        )
     }
 
     /// The walks' house gates: `OnlyTargetHouseEnemy` (arg3) admits only the

@@ -613,6 +613,48 @@ fn deploy_mcv_rejects_pure_0x400_bridge_marker_foundation_cell() {
     assert_eq!(sound_count, 1);
 }
 
+/// `UnitClass::Deploy` reaches Computer_Paranoid through `0x00505180`
+/// (`0x007398D9`, `0x005051AF`), after the base center and before the
+/// Recalc: a computer MCV's deploy allies the computer houses against the
+/// human.
+#[test]
+fn a_computer_mcv_deploy_turns_the_computers_paranoid() {
+    let mut rules = make_recalc_mcv_rules("0,0,0");
+    rules.general.allies_allowed = true;
+    let mut sim = deploy_sim(&rules);
+    sim.session.game_mode_nonzero = true;
+    // Every house is of the fixture's one country, which `[Sides]` lists as
+    // Allied: a type outside every list would answer Find_Index's -1 for a
+    // ruleset without a `Civilian` side, and Can_Ally refuses that house.
+    let americans = sim.interner.intern("Americans");
+    for (owner, human) in [("Player", true), ("Americans", false), ("Computer2", false)] {
+        let id = sim.interner.intern(owner);
+        sim.houses.insert(
+            id,
+            crate::sim::house_state::HouseState::new(id, 0, Some(americans), human, 5000, 10),
+        );
+        sim.session.house_order.push(id);
+    }
+    let mcv = sim
+        .spawn_object("AMCV", "Americans", 20, 22, 128, &rules)
+        .expect("spawn MCV");
+    assert!(sim.house_alliances.is_empty());
+    assert!(sim.deploy_mcv(
+        mcv,
+        &rules,
+        None,
+        crate::sim::world::FrameEffects::default()
+    ));
+    let allies = |name: &str| sim.house_alliances[&name.to_ascii_uppercase()].clone();
+    assert!(allies("Americans").contains("COMPUTER2"));
+    assert!(allies("Computer2").contains("AMERICANS"));
+    let player = sim.interner.get("Player").unwrap();
+    for computer in ["Americans", "Computer2"] {
+        let id = sim.interner.get(computer).unwrap();
+        assert_eq!(sim.houses[&id].enemy_house, Some(player), "{computer}");
+    }
+}
+
 fn add_house(sim: &mut Simulation, owner: &str, is_human: bool) {
     let owner_id = sim.interner.intern(owner);
     sim.houses.insert(

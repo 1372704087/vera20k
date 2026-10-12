@@ -143,8 +143,11 @@ impl Simulation {
             return;
         };
         let admitted = victim.category.is_foot()
-            && crate::sim::world::entity_layer(victim, self.resolved_terrain.as_ref(), Some(rules))
-                == crate::sim::world::display_layers::DisplayLayer::GROUND
+            && crate::sim::world::entity_layer(
+                victim,
+                self.resolved_terrain.as_ref(),
+                Some((rules, &self.interner)),
+            ) == crate::sim::world::display_layers::DisplayLayer::GROUND
             && !crate::sim::superweapon::invulnerability::is_invulnerable(
                 victim.invulnerability.as_ref(),
                 frame,

@@ -1876,7 +1876,11 @@ mod retail_construction_tests {
     /// idle America on XMP03T4. Once the base stands its yard is removed, and
     /// an SMCV is spawned beside the base for the team. The MCV becomes a
     /// yard again, it leaves the team as it does, and the team is done with
-    /// its TeamType's `Max=` slot free. Prints which order deployed it.
+    /// its TeamType's `Max=` slot free. The house's own MCV routes act on a
+    /// team member too (UnitClass::AI's Hunt queue has no team check), so
+    /// the deploy may be theirs: the test prints the MCV's orders.
+    /// [`retail_soviet_mcv_team_deploys_its_mcv_by_action_9`] isolates
+    /// action 9.
     #[test]
     #[ignore = "requires RA2_DIR with installed retail RA2/YR assets"]
     fn retail_hard_soviet_mcv_team_rebuilds_its_yard() {
@@ -1968,5 +1972,148 @@ mod retail_construction_tests {
         assert!(rebuilt.is_some(), "no yard was rebuilt");
         assert!(done.is_some(), "the team stayed on its script");
         assert_eq!(live, 0, "the TeamType's Max= slot is still taken");
+    }
+
+    /// The "Soviet MCV" team (`043F83EC-G`) of a Hard Soviet AI on XMP03T4,
+    /// with an SMCV spawned beside the standing base for it and the house's
+    /// `AutoBaseBuilding` latch cleared, so neither UnitClass::AI's Hunt
+    /// queue nor Mission_Guard's Unload arm deploys the MCV. Put on line 1,
+    /// action 9 asks the yard to stand at the MCV's own cell and orders it
+    /// to Unload; Mission_Unload deploys it, it leaves the team as a yard, and
+    /// the team, empty, is done.
+    #[test]
+    #[ignore = "requires RA2_DIR with installed retail RA2/YR assets"]
+    fn retail_soviet_mcv_team_deploys_its_mcv_by_action_9() {
+        use crate::sim::mission::{MissionId, MissionType};
+        use crate::skirmish_launch::{AiDifficulty, LaunchCountry};
+
+        let (mut scenario, _) =
+            retail_battle(|_| {}, &[(LaunchCountry::Russia, AiDifficulty::Hard)]);
+        for _ in 0..1500 {
+            scenario.tick();
+        }
+        let yards = |sim: &Simulation, owner| -> usize {
+            sim.entities()
+                .values()
+                .filter(|entity| {
+                    !entity.dying
+                        && entity.owner() == owner
+                        && sim.interner.resolve(entity.type_ref()) == "NACNST"
+                })
+                .count()
+        };
+        let runtime = &mut scenario.runtime;
+        let (sim, resources) = (&mut runtime.simulation, &runtime.resources);
+        let soviet = house_of(sim, "Russians");
+        let standing = yards(sim, soviet);
+        sim.houses
+            .get_mut(&soviet)
+            .expect("the Soviet house")
+            .ai_activation
+            .auto_base_building = false;
+        // The first cell near the base where a yard can stand from every
+        // origin within a cell of it: the MCV's own cell (action 9's test),
+        // Deploy's (-1, -1), and a cell of drift.
+        let yard = resources.rules.object("NACNST").expect("retail NACNST");
+        let (bx, by) = sim.houses[&soviet]
+            .base_center
+            .expect("the base has a centre");
+        let mut around: Vec<(i32, i32)> = (0..1681).map(|n| (n % 41 - 20, n / 41 - 20)).collect();
+        around.sort_by_key(|&(dx, dy)| (dx * dx + dy * dy, dy, dx));
+        let (rx, ry) = around
+            .into_iter()
+            .map(|(dx, dy)| (i32::from(bx) + dx, i32::from(by) + dy))
+            .find(|&(rx, ry)| {
+                (-1..=1).all(|dy| {
+                    (-1..=1).all(|dx| {
+                        let (Ok(x), Ok(y)) = (i16::try_from(rx + dx), i16::try_from(ry + dy))
+                        else {
+                            return false;
+                        };
+                        crate::sim::build_site::can_place_building_at(
+                            sim,
+                            &resources.rules,
+                            Some(&resources.overlay_registry),
+                            yard,
+                            (x, y),
+                            None,
+                        )
+                    })
+                })
+            })
+            .and_then(|(rx, ry)| Some((u16::try_from(rx).ok()?, u16::try_from(ry).ok()?)))
+            .expect("room for a yard near the base");
+        let z = sim.terrain_cell_level(rx, ry).unwrap_or(0);
+        let owner = sim.interner.resolve(soviet).to_string();
+        let mcv = sim
+            .spawn_object_at_height("SMCV", &owner, rx, ry, 0, z, &resources.rules)
+            .expect("the MCV spawns");
+        let team_type = sim
+            .interner
+            .get("043F83EC-G")
+            .expect("retail TeamType interned");
+        let team = sim
+            .create_team(team_type, Some(soviet), &resources.rules)
+            .or_else(|| {
+                sim.team_script_vm
+                    .teams_in_order()
+                    .find(|team| team.team_type_id() == Some(team_type) && team.owner() == soviet)
+                    .map(|team| team.id())
+            })
+            .expect("a team of the TeamType");
+        // A full team forms and starts its script over (`0x006E91AD..
+        // 0x006E91F5`), so it is put on line 1 once formed.
+        let mut joined = None;
+        for frame in 1..=60u32 {
+            scenario.tick();
+            if scenario
+                .sim()
+                .team_script_vm
+                .team(team)
+                .is_some_and(|line| line.formed() && line.members().any(|id| id == mcv))
+            {
+                joined = Some(frame);
+                break;
+            }
+        }
+        assert!(joined.is_some(), "the MCV never joined the team");
+        scenario
+            .runtime
+            .simulation
+            .team_script_vm
+            .seek_line_for_test(team, 1);
+        let (mut ordered, mut deployed, mut done) = (None, None, None);
+        for frame in 1..=1_500u32 {
+            scenario.tick();
+            let sim = scenario.sim();
+            let line = sim.team_script_vm.team(team);
+            if ordered.is_none()
+                && line.is_some_and(|line| line.cursor() == 1)
+                && sim.entities().get(mcv).is_some_and(|entity| {
+                    entity.mission.effective() == MissionId::from_known(MissionType::Unload)
+                })
+            {
+                ordered = Some(frame);
+            }
+            if deployed.is_none() && yards(sim, soviet) > standing {
+                deployed = Some(frame);
+            }
+            if done.is_none() && line.is_none_or(|line| line.cursor() >= 2) {
+                done = Some(frame);
+            }
+            if deployed.is_some() && done.is_some() {
+                break;
+            }
+        }
+        eprintln!(
+            "MCV team, house routes off, MCV at ({rx},{ry}): joined at {joined:?}, Unload on \
+             action 9 at {ordered:?}, deployed at {deployed:?}, done at {done:?}"
+        );
+        assert!(
+            ordered.is_some(),
+            "action 9 never ordered the MCV to Unload"
+        );
+        assert!(deployed.is_some(), "the MCV did not deploy");
+        assert!(done.is_some(), "the team stayed on its script");
     }
 }

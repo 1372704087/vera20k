@@ -488,7 +488,7 @@ fn the_retail_tech_capture_scripts_run_ported_actions() {
     assert_eq!(running, 6);
 }
 
-/// Action 9's types: an MCV that deploys into a 4x3 yard, a simple
+/// Action 9's types: an MCV that deploys into a 4x4 yard (as retail's), a simple
 /// deployer, a `Deployer=` infantryman and a plain one, on buildable ground.
 const DEPLOY_RULES: &str = "\
 [InfantryTypes]
@@ -524,7 +524,6 @@ Locomotor={4A582741-9839-11D1-B709-00A024DDAFD1}
 [YARD]
 Strength=1000
 ConstructionYard=yes
-DeployFacing=4
 [Guard]
 Rate=0.016
 [Unload]
@@ -546,7 +545,7 @@ impl DeployTeam {
     fn new(spawns: &[(&str, u16, u16)]) -> Self {
         let rules = RuleSet::from_ini_with_fixed_art_for_test(
             &IniFile::from_str(DEPLOY_RULES),
-            &IniFile::from_str("[YARD]\nFoundation=4x3\n"),
+            &IniFile::from_str("[YARD]\nFoundation=4x4\n"),
         )
         .expect("deploy rules");
         let mut sim = Simulation::with_seed(0x6ED4D0);
@@ -691,6 +690,57 @@ fn script_action_9_clears_the_site_before_the_mcv_deploys() {
         team.tick();
     }
     assert_eq!(team.yards(), [(19, 21)]);
+}
+
+/// The yard is asked for with its origin at the MCV's own cell: Russian E1s
+/// just outside that 4x4 foundation on each side leave it placeable, so the
+/// MCV is ordered to Unload at once. An origin one cell off in any direction,
+/// such as Deploy's (-1, -1), would take one of them in and refuse.
+#[test]
+fn script_action_9_asks_for_the_yard_at_the_mcv_s_own_cell() {
+    let mut team = DeployTeam::new(&[("AMCV", 20, 22)]);
+    let mcv = team.members[0];
+    for (x, y) in [(19, 22), (20, 21), (24, 22), (20, 26)] {
+        team.sim
+            .spawn_object_at_height("E1", "Russians", x, y, 0, 0, &team.rules)
+            .expect("E1 spawns");
+    }
+    team.deploy_action();
+    assert!(team.unloading(mcv), "the site at the MCV's cell is clear");
+}
+
+/// A Russian E1 on the yard's origin cell, which only Deploy's (-1, -1)
+/// offset reaches, passes action 9's own-cell test, so the MCV is ordered to
+/// Unload and Deploy refuses. For an owner no human controls, the refusal
+/// clears the site (`Flush_For_Placement`, `0x0073950F..0x00739536`): the E1
+/// is told to leave, and the MCV deploys on a later try. A human owner's
+/// refusal leaves the E1 where it stands, and the MCV never deploys.
+#[test]
+fn deploy_refused_for_a_computer_owner_clears_the_site() {
+    for human in [false, true] {
+        let mut team = DeployTeam::new(&[("AMCV", 20, 22)]);
+        let owner = team.sim.interner.intern("Russians");
+        team.sim.houses.get_mut(&owner).unwrap().is_human = human;
+        let e1 = team
+            .sim
+            .spawn_object_at_height("E1", "Russians", 19, 21, 0, 0, &team.rules)
+            .expect("E1 spawns");
+        team.deploy_action();
+        assert!(team.unloading(team.members[0]), "human {human}");
+        let mut told_to_leave = false;
+        for _ in 0..300 {
+            team.tick();
+            told_to_leave |= team.sim.substrate.entities.get(e1).is_some_and(|entity| {
+                entity.navigation.nav_com.is_some() || entity.movement_target.is_some()
+            });
+            if !team.yards().is_empty() {
+                break;
+            }
+        }
+        assert_eq!(told_to_leave, !human, "human {human}");
+        let yards = if human { vec![] } else { vec![(19, 21)] };
+        assert_eq!(team.yards(), yards, "human {human}");
+    }
 }
 
 /// A simple deployer and a `Deployer=` infantryman are ordered to Unload, a

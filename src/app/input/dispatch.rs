@@ -75,10 +75,20 @@ pub(crate) fn handle_mouse_input(
     if state.match_state.paused() {
         // VERA-internal (gamemd has no pause overlay; gamemd equivalent
         // UNCHECKED): a release that arrives while the overlay owns the mouse
-        // never reaches the tactical body, so the capture is dropped here.
-        // Leaving it set would freeze edge auto-scroll for the rest of the match.
+        // never reaches the tactical body, so the whole gesture is dropped
+        // here — not just the capture byte. Leaving `minimap_dragging` or the
+        // band drag set would freeze edge auto-scroll, swallow every cursor
+        // move, and keep a stale gadget sticky capture eating clicks for the
+        // rest of the match. `enter_in_game_menu_state` already tore the
+        // gesture down on the way into the modal; this catches releases that
+        // arrive afterwards (debug pause and any path that skips that owner).
         if !pressed {
-            state.match_state.input.tactical_mouse.release();
+            state.match_state.input.cancel_tactical_drag();
+            state
+                .match_state
+                .match_presentation
+                .in_game_gadgets
+                .cancel_pointer_capture();
         }
         if state.match_state.match_presentation.in_game_menu
             == crate::ui::pause_menu::InGameMenuState::Sound

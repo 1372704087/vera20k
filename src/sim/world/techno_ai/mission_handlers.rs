@@ -1422,45 +1422,6 @@ fn scaled_area_guard_leash(range: i32) -> i32 {
     ))
 }
 
-fn foot_distance_to_target(
-    sim: &Simulation,
-    id: u64,
-    target: crate::sim::combat::TargetKind,
-    rules: &RuleSet,
-) -> Option<i32> {
-    let coords = |target| {
-        crate::sim::movement::ground_pose::target_get_coords(
-            target,
-            &sim.substrate.entities,
-            sim.resolved_terrain
-                .as_ref()
-                .map(crate::map::resolved_terrain::NativeCellQuery::canonical)
-                .as_ref(),
-        )
-    };
-    let from = coords(crate::sim::combat::TargetKind::Entity(id))?;
-    let to = coords(target)?;
-    let foundation = match target {
-        crate::sim::combat::TargetKind::Entity(id) => sim
-            .substrate
-            .entities
-            .get(id)
-            .filter(|entity| entity.category == EntityCategory::Structure)
-            .and_then(|entity| sim.object_type(entity.type_ref(), rules))
-            .map(|object| {
-                let (width, height) =
-                    crate::rules::foundation::foundation_dimensions(&object.foundation);
-                (i32::from(width), i32::from(height))
-            }),
-        crate::sim::combat::TargetKind::Cell(..) => None,
-    };
-    Some(crate::util::native_x87::object_distance(
-        [from.x, from.y, from.z],
-        [to.x, to.y, to.z],
-        foundation,
-    ))
-}
-
 /// `FootClass::Mission_Rescue @ 0x004DDF90`, ordinary Unit/Infantry.
 /// Its direct Greatest_Threat uses the archive's+48 XYZ, no passive timer or
 /// health debit. Admission is strict distance < mode1 range*1.5. Empty results
@@ -1670,7 +1631,9 @@ pub(super) fn evaluate_foot_area_guard(
     });
     if let Some(post) = archive
         && may_return
-        && foot_distance_to_target(sim, id, post, rules).is_some_and(|distance| distance > leash)
+        && sim
+            .object_distance_to(id, post)
+            .is_some_and(|distance| distance > leash)
     {
         //4D6EB8 precedes4D6ECB, even when the class target setter refuses.
         let _ = sim.assign_target_represented(id, None, Some(rules));

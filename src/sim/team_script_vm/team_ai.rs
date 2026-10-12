@@ -736,38 +736,15 @@ impl Simulation {
     }
 
     /// `ObjectClass::Distance @ 0x005F6360` from `member` to `target`
-    /// ([`crate::util::native_x87::object_distance`]), 0 without one. Both
-    /// ends are GetCoords (`vt+0x48` at `0x005F6383` and `0x005F6391`).
+    /// ([`Simulation::object_distance_to`]), 0 without one.
     pub(super) fn team_member_distance(
         &self,
         member: &GameEntity,
         target: Option<TeamTarget>,
     ) -> i32 {
-        let Some(target) = target else {
-            return 0;
-        };
-        let Some(to) = self.team_target_coord(target) else {
-            return 0;
-        };
-        let from = object_get_coords(member, self.resolved_terrain.as_ref());
-        let building = match target {
-            TeamTarget::Object(id) => self
-                .substrate
-                .entities
-                .get(id)
-                .filter(|building| building.category == EntityCategory::Structure)
-                .map(|building| {
-                    let (width, height) =
-                        crate::rules::foundation::foundation_dimensions(&building.foundation);
-                    (i32::from(width), i32::from(height))
-                }),
-            TeamTarget::Cell { .. } => None,
-        };
-        crate::util::native_x87::object_distance(
-            [from.x, from.y, from.z],
-            [to.x, to.y, to.z],
-            building,
-        )
+        target
+            .and_then(|target| self.object_distance_to(member.stable_id(), target.target_kind()))
+            .unwrap_or(0)
     }
 }
 

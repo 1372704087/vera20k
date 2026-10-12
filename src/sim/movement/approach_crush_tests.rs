@@ -1,6 +1,7 @@
 //! The crush arms of `UnitClass::Approach_Target @ 0x007414E0`: the native
 //! rows of `tools/unit_crush_oracle.json` `approach`, and Rust regression
-//! tests of the head and the pursuit pass on retail rules.
+//! tests of the head, the pursuit pass and the per-cell range stop on retail
+//! rules.
 
 use super::ApproachCrush;
 use crate::rules::ruleset::RuleSet;
@@ -9,12 +10,14 @@ use crate::sim::components::NavTargetRef;
 use crate::sim::mission::{MissionId, MissionType};
 use crate::sim::world::Simulation;
 use crate::util::native_x87::object_distance;
+use std::cell::Cell;
 
 /// `0x007414E0` executed on scratch objects up to its SetDestination or its
 /// fall to `FootClass::Approach_Target`, with `ObjectClass::Distance` run
 /// natively: the computer arm takes a Target strictly inside `Crush=` (460
 /// leptons on an axis roots to 460 and is refused), the OmniCrusher arm any
-/// crushable Object but a human house's passively acquired one.
+/// crushable Object but a human house's passively acquired one. Each arm
+/// measures the distance and asks `Is_Crushable_By` only where native does.
 #[test]
 fn approach_crush_matches_native_execution() {
     let payload: serde_json::Value =
@@ -34,23 +37,31 @@ fn approach_crush_matches_native_execution() {
             controlled_by_human: flag("controlled_by_human"),
             nav_com: flag("nav_com"),
             crusher: flag("crusher") || flag("ability"),
-            distance: object_distance(xyz("unit"), xyz("target"), None),
             reach: input["crush"].as_i64().unwrap() as i32,
             techno: flags & 1 != 0,
             object: flags & 2 != 0,
-            crushable: flag("crushable"),
             omni: flag("omni"),
             is_human: flag("is_human"),
             passive: flag("passive"),
         };
-        let takes = flag("has_target") && (facts.computer_arm() || facts.omni_arm());
+        let (measured, asked) = (Cell::new(0), Cell::new(0));
+        let distance = || {
+            measured.set(measured.get() + 1);
+            object_distance(xyz("unit"), xyz("target"), None)
+        };
+        let crushable = || {
+            asked.set(asked.get() + 1);
+            flag("crushable")
+        };
+        let takes = flag("has_target")
+            && (facts.computer_arm(distance, crushable) || facts.omni_arm(crushable));
         let output = &row["output"];
         let set = output["destination"].as_str() == Some("target");
-        let foot = output["calls"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .any(|call| call == "foot");
+        let calls = output["calls"].as_array().unwrap();
+        let count = |name: &str| calls.iter().filter(|call| *call == name).count();
+        assert_eq!(measured.get(), count("target_coords"), "{name}: Distance");
+        assert_eq!(asked.get(), count("crushable"), "{name}: Is_Crushable_By");
+        let foot = count("foot") == 1;
         assert_eq!(set, takes && !flag("no_move"), "{name}");
         assert_eq!(
             output["returned_target"].as_bool().unwrap(),
@@ -75,6 +86,22 @@ fn target(sim: &mut Simulation, actor: u64, target: u64) {
     sim.substrate.entities.get_mut(actor).unwrap().attack_target = Some(AttackTarget {
         target: TargetKind::Entity(target),
     });
+}
+
+fn start_mission(sim: &mut Simulation, actor: u64, mission: MissionType) {
+    let now = sim.session.binary_frame;
+    sim.mission_assign_exact(actor, MissionId::from_known(mission), now)
+        .unwrap();
+    let _ = sim.mission_commence_exact(actor, now);
+}
+
+fn set_nav_com(sim: &mut Simulation, actor: u64, nav: NavTargetRef) {
+    sim.substrate
+        .entities
+        .get_mut(actor)
+        .unwrap()
+        .navigation
+        .nav_com = Some(nav);
 }
 
 /// A computer's Rhino takes a GI a cell away as its destination; a human's
@@ -104,14 +131,7 @@ fn computer_crusher_heads_for_a_crushable_target_within_reach() {
     assert!(!head(
         "Russians",
         ("E1", "Americans", (11, 10)),
-        &|sim, rhino| {
-            sim.substrate
-                .entities
-                .get_mut(rhino)
-                .unwrap()
-                .navigation
-                .nav_com = Some(NavTargetRef::cell(4, 4));
-        }
+        &|sim, rhino| set_nav_com(sim, rhino, NavTargetRef::cell(4, 4))
     ));
     assert!(!head(
         "Russians",
@@ -128,6 +148,7 @@ fn computer_crusher_heads_for_a_crushable_target_within_reach() {
 /// A Battle Fortress (`OmniCrusher=`) takes infantry it targets as its
 /// destination at any range, also a human's; a human's spares a GI its own
 /// scan picked up, a computer's does not, and neither drives onto a building.
+/// On Hunt, the pursuit pass leaves the Fortress's approach to that arm.
 #[test]
 fn battle_fortress_heads_for_infantry_it_targets() {
     let Some(rules) = retail_rules() else {
@@ -149,6 +170,17 @@ fn battle_fortress_heads_for_infantry_it_targets() {
     assert!(!head("Americans", ("E1", "Russians"), true));
     assert!(head("Russians", ("E1", "Americans"), true));
     assert!(!head("Americans", ("NAPOWR", "Russians"), false));
+
+    let hunt_owned = |victim: &str| {
+        let mut sim = crate::sim::arena_fixture::rival_arena(&rules, 0x741603);
+        let fortress = spawn(&mut sim, &rules, "BFRT", "Russians", (10, 10));
+        let victim = spawn(&mut sim, &rules, victim, "Americans", (17, 10));
+        target(&mut sim, fortress, victim);
+        start_mission(&mut sim, fortress, MissionType::Hunt);
+        sim.mission_owns_approach(fortress, &rules)
+    };
+    assert!(hunt_owned("E1"));
+    assert!(!hunt_owned("NAPOWR"));
 }
 
 /// The pursuit pass leaves a computer Rhino's charge alone: on Attack, in range
@@ -163,10 +195,7 @@ fn the_pursuit_pass_leaves_a_crush_charge_alone() {
     let rhino = spawn(&mut sim, &rules, "HTNK", "Russians", (10, 10));
     let gi = spawn(&mut sim, &rules, "E1", "Americans", (11, 10));
     target(&mut sim, rhino, gi);
-    let now = sim.session.binary_frame;
-    sim.mission_assign_exact(rhino, MissionId::from_known(MissionType::Attack), now)
-        .unwrap();
-    let _ = sim.mission_commence_exact(rhino, now);
+    start_mission(&mut sim, rhino, MissionType::Attack);
     assert!(sim.approach_unit_head(
         rhino,
         &rules,
@@ -188,6 +217,68 @@ fn the_pursuit_pass_leaves_a_crush_charge_alone() {
             .unwrap()
             .navigation
             .nav_com,
+        Some(NavTargetRef::object(gi))
+    );
+}
+
+/// The charge stays the crush arm's, out of the pursuit pass's hands, while
+/// its NavCom is the Target within `Crush=`: not with the NavCom elsewhere,
+/// nor at a Target out of reach (the lapsed-charge residual on
+/// `crush_owns_approach`).
+#[test]
+fn crush_owns_a_charge_while_its_target_stays_within_reach() {
+    let Some(rules) = retail_rules() else {
+        return;
+    };
+    let owns = |gi_cell: (u16, u16), nav_on_gi: bool| {
+        let mut sim = crate::sim::arena_fixture::rival_arena(&rules, 0x7414E4);
+        let rhino = spawn(&mut sim, &rules, "HTNK", "Russians", (10, 10));
+        let gi = spawn(&mut sim, &rules, "E1", "Americans", gi_cell);
+        target(&mut sim, rhino, gi);
+        start_mission(&mut sim, rhino, MissionType::Attack);
+        let nav = if nav_on_gi {
+            NavTargetRef::object(gi)
+        } else {
+            NavTargetRef::cell(4, 4)
+        };
+        set_nav_com(&mut sim, rhino, nav);
+        sim.crush_owns_approach(rhino, &rules) && sim.mission_owns_approach(rhino, &rules)
+    };
+    assert!(owns((11, 10), true));
+    assert!(!owns((11, 10), false));
+    assert!(!owns((13, 10), true));
+}
+
+/// A computer's Rhino whose charge at a GI the crush arm carries takes the
+/// per-cell range stop on arriving in the cell before the GI's
+/// (`0x004D882F..0x004D896E`), the GI in weapon range: its NavCom is dropped,
+/// and its next Attack tick charges again. The pursuit pass, which stands in
+/// for that stop for other units, leaves this one alone.
+#[test]
+fn a_crush_charge_takes_the_per_cell_range_stop() {
+    let Some(rules) = retail_rules() else {
+        return;
+    };
+    let mut sim = crate::sim::arena_fixture::rival_arena(&rules, 0x4D882F);
+    let rhino = spawn(&mut sim, &rules, "HTNK", "Russians", (11, 10));
+    let gi = spawn(&mut sim, &rules, "E1", "Americans", (12, 10));
+    target(&mut sim, rhino, gi);
+    start_mission(&mut sim, rhino, MissionType::Attack);
+    set_nav_com(&mut sim, rhino, NavTargetRef::object(gi));
+    assert!(sim.crush_owns_approach(rhino, &rules));
+    sim.per_cell_process(
+        rhino,
+        crate::sim::movement::PerCellReason::Arrival,
+        Some(&rules),
+        None,
+        crate::sim::world::FrameEffects::default(),
+    )
+    .unwrap();
+    let entity = sim.substrate.entities.get(rhino).unwrap();
+    assert_eq!(entity.navigation.nav_com, None);
+    assert!(sim.substrate.entities.contains(gi));
+    assert_eq!(
+        sim.unit_approach_head(rhino, &rules),
         Some(NavTargetRef::object(gi))
     );
 }

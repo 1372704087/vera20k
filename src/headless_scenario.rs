@@ -2303,8 +2303,8 @@ mod retail_construction_tests {
                 }
             }
         }
-        eprintln!("charged {charged:?}, GI died {died:?}, crushed {crushed}");
-        assert!(charged.is_some(), "the Rhino never headed for the GI");
+        // Its first Attack tick, the frame after Commence, takes the charge.
+        assert_eq!(charged, Some(1), "the Rhino's first Attack tick");
         assert!(died.is_some(), "the GI survived");
         assert!(crushed, "the GI died, but not under the Rhino");
     }

@@ -1627,7 +1627,7 @@ fn run_recorded_handler(
             let pointer = Value::String(format!("0x{:x}", event["args"][0].as_u64().unwrap()));
             let target = fixture.target(&pointer).unwrap();
             assert_eq!(
-                super::foot_distance_to_target(&fixture.sim, fixture.actor, target, rules),
+                fixture.sim.object_distance_to(fixture.actor, target),
                 Some(signed(&event["result_eax"])),
                 "{name}: original physical distance"
             );
@@ -1876,13 +1876,11 @@ fn original_full_retail_supplied_rescue_gates_compare_distance_and_range_prerequ
             .find(|event| event["kind"] == "math" && event["pc"] == "0x4de0db")
             .unwrap();
         assert_eq!(
-            super::foot_distance_to_target(
-                &fixture.sim,
+            fixture.sim.object_distance_to(
                 fixture.id(&row["before"]["archive"]).unwrap(),
                 fixture
                     .target(&row["input"]["supplied_scanner_result"])
                     .unwrap(),
-                &rules,
             ),
             Some(signed(&distance["eax"])),
             "{name}: original inline rescue distance at4DE0DB"

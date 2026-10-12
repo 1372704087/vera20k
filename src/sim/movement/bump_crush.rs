@@ -665,13 +665,20 @@ fn deploy_crush_immune(entity: &GameEntity) -> bool {
 ///
 /// Who is crushing, for the ally question native asks at admission.
 ///
-/// `Is_Crushable_By 0x005F6CD0` tests `HouseClass::Is_Ally_ByObject 0x004F9A90`
-/// on the victim's owning house (`+0x21C`) at `0x005F6D1A` and again at
-/// `0x005F6D67`, and `Can_Enter_Cell` re-tests at `0x0073FB53`, so an allied or
-/// own crushable never reaches the crush latch at all.
+/// `Is_Crushable_By 0x005F6CD0` asks `HouseClass::Is_Ally_ByObject 0x004F9A90`
+/// of the crusher's owning house (the crusher's `+0x21C`) about the victim at
+/// `0x005F6D1A` and again at `0x005F6D67`, and `Can_Enter_Cell` re-tests at
+/// `0x0073FB53`, so an allied or own crushable never reaches the crush latch
+/// at all.
 ///
 /// Carried as a required parameter, not an `Option`: a missing-alliance default
 /// would fail open into the very case this exists to refuse.
+///
+/// RESIDUAL (#582): [`Self::spares`] answers for either side
+/// ([`crate::map::houses::are_houses_friendly`]); `0x004F9A90` reads only the
+/// asking house's alliances. Trigger: the victim's house allied with the
+/// crusher's but not the reverse, which lobby teams never set up. Effect: the
+/// victim is spared where native crushes it.
 #[derive(Clone, Copy)]
 pub struct CrushAllyGate<'a> {
     /// The crusher's owning house, already resolved by the caller.

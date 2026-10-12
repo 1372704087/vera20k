@@ -51,6 +51,7 @@ mod aircraft_attack;
 mod aircraft_enter;
 mod aircraft_fire_location;
 mod aircraft_move;
+mod building_working_sound;
 pub(crate) mod damage_consequences;
 pub(crate) mod display_layers;
 mod display_registry;
@@ -3556,6 +3557,11 @@ impl Simulation {
                 .entities
                 .get(techno)
                 .map(Self::movement_sound_world);
+        }
+        // `BuildingClass::Update` re-drives the `+0x6B4` working sound on an
+        // unchanged visit (`building_working_sound`).
+        if building_working_sound::working_sound_building(id).is_some() {
+            return self.working_sound_owner_coord(id);
         }
         if let Some(coord) = self.anim_absolute_coord(id) {
             return Some(coord);

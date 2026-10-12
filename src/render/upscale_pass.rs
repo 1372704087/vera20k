@@ -74,7 +74,7 @@ impl ZoomGeometry {
 
     /// Whether every source pixel is a whole block of window pixels.
     pub fn is_sharp(self) -> bool {
-        self.percent % 100 == 0
+        self.percent.is_multiple_of(100)
     }
 
     /// The scaled frame, in whole window pixels.

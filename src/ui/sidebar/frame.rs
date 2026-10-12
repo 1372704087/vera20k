@@ -52,7 +52,7 @@ impl SidebarFrame {
 
     /// Whether every sidebar pixel is a whole block of frame pixels.
     pub fn is_sharp(self) -> bool {
-        self.percent % 100 == 0
+        self.percent.is_multiple_of(100)
     }
 
     /// The column's width in frame pixels: 168 at Normal.

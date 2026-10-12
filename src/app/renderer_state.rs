@@ -25,6 +25,12 @@ pub(crate) struct RendererState {
     /// The match zoom pass, present only while the Options zoom gives a factor
     /// above 1 for this window (`App::sync_zoom_pass`). Captures never zoom.
     pub(crate) upscale_pass: Option<crate::render::upscale_pass::UpscalePass>,
+    /// The sidebar's own surface, made by the first match frame and following
+    /// the frame and the Sidebar size (`render_game`).
+    pub(crate) sidebar_surface: Option<crate::app::presentation::sidebar_surface::SidebarSurface>,
+    /// The active-game shells' own surface, made by the first one painted and
+    /// following the frame (`in_game_shell::render_shell_frame`).
+    pub(crate) in_game_shell_surface: Option<crate::render::scaled_copy::ScaledSurface>,
     /// Optional diagnostic GUI; absent from the normal game build.
     #[cfg(feature = "dev-ui")]
     pub(super) debug_ui: EguiIntegration,

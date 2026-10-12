@@ -4925,7 +4925,7 @@ impl Simulation {
                     .object_type(entity.type_ref(), rules)
                     .is_some_and(|object| object.is_simple_deployer);
             let now = self.session.binary_frame;
-            let _ = self.assign_target_represented(stable_id, None, Some(rules));
+            let _ = self.assign_target_represented(stable_id, None, Some(rules), registry, effects);
             self.assign_null_destination(stable_id, Some(rules), None, effects);
             if let Some(entity) = self.substrate.entities.get_mut(stable_id) {
                 entity.movement_target = None;
@@ -5280,7 +5280,7 @@ impl Simulation {
         if let Some(entity) = self.substrate.entities.get_mut(stable_id) {
             entity.movement_target = None;
         }
-        let _ = self.assign_target_represented(stable_id, None, Some(rules));
+        let _ = self.assign_target_represented(stable_id, None, Some(rules), None, effects);
         enter_idle_mode(self, stable_id, rules, None, effects);
     }
 

@@ -70,6 +70,29 @@ impl AppState {
         self.render_dimensions().1
     }
 
+    /// The sidebar's place and size in the match frame (`ui::sidebar::frame`).
+    pub(crate) fn sidebar_frame(&self) -> crate::ui::sidebar::SidebarFrame {
+        self.sidebar_frame_for(self.render_width(), self.render_height())
+    }
+
+    /// The same for a frame of `width` x `height`. Captures keep the native
+    /// size, as they keep the zoom at 100%.
+    pub(crate) fn sidebar_frame_for(
+        &self,
+        width: u32,
+        height: u32,
+    ) -> crate::ui::sidebar::SidebarFrame {
+        let percent = if self.platform.capture_client_size.is_some() {
+            100
+        } else {
+            self.persistence
+                .options_profile
+                .sidebar
+                .percent(width, height)
+        };
+        crate::ui::sidebar::SidebarFrame::new(width, height, percent)
+    }
+
     /// The zoom pass a match frame goes through: the battlefield and the
     /// active-game shells draw into it at the source size. Loading and the
     /// menus never zoom.

@@ -267,10 +267,7 @@ pub(crate) fn build_super_timer_instances(
         .collect();
     let blink_rgb = house_text_rgb(schemes, BLINK_SCHEME);
     let now_ms = crate::app::input::tooltips::now_ms(state);
-    let (view_w, view_h) = crate::app::input::camera::tactical_viewport_size_px(
-        state.render_width(),
-        state.render_height(),
-    );
+    let (view_w, view_h) = crate::app::input::camera::tactical_viewport_size(state);
     // Screen-space lanes add back the world camera the UI shader subtracts.
     let camera = [
         state.match_state.input.camera_x,

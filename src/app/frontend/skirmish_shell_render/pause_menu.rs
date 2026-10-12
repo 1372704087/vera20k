@@ -124,10 +124,12 @@ pub(crate) fn render_pause_menu_shell(
     destination: &wgpu::Texture,
     buttons: [PauseMenuButtonState; 6],
 ) -> anyhow::Result<()> {
-    let width = state.render_width() as i32;
-    let height = state.render_height() as i32;
-    let (shell, button_size) =
-        in_game_shell::current_in_game_shell_layout(state).expect("active shell geometry");
+    let in_game_shell::InGameShellGeometry {
+        width,
+        height,
+        layout: shell,
+        button_size,
+    } = in_game_shell::current_in_game_shell_layout(state).expect("active shell geometry");
     let layout = pause_menu_layout(width, height, shell, button_size);
     let atlas = crate::app::presentation::sidebar_render::current_sidebar_chrome(state)
         .expect("active side art");

@@ -75,6 +75,22 @@ mod bridge_engineer_admission_tests;
 #[path = "building_control_tests.rs"]
 mod building_control_tests;
 
+/// The infiltration arms' type test (`0x0051EE4E..0x0051EEE7`,
+/// `0x0051B2BD..0x0051B330`): an `Infiltrate=` infantryman (`+0xEBE`) may
+/// enter a `Spyable=` building (`+0x1576`) if it is an `Agent=` one
+/// (`+0xEC4`), else a `Capturable=` one (`+0x1572`).
+fn infiltrator_admits(
+    infantry: &crate::rules::object_type::ObjectType,
+    building: &crate::rules::object_type::ObjectType,
+) -> bool {
+    infantry.infiltrate
+        && if infantry.agent {
+            building.spyable
+        } else {
+            building.capturable
+        }
+}
+
 impl Simulation {
     pub(crate) fn house_is_human_player(&self, owner: InternedId) -> bool {
         // House50B6F0: nonzero session mode compares exactly to LocalPlayer;
@@ -283,17 +299,44 @@ impl Simulation {
         ) else {
             return false;
         };
-        infantry.infiltrate
+        infiltrator_admits(infantry, building)
             && !crate::map::houses::is_allied_with(
                 &self.house_alliances,
                 self.interner.resolve(actor.owner()),
                 self.interner.resolve(target.owner()),
             )
-            && if infantry.agent {
-                building.spyable
-            } else {
-                building.capturable
-            }
+    }
+
+    /// `InfantryClass::Assign_Target`'s infiltration arm
+    /// (`0x0051B2B1..0x0051B33F`), after the Techno base write: the building
+    /// an `Infiltrate=` infantryman with no NavCom (`+0x5A4`) heads for when
+    /// handed `target` (vt+0x480(target, 1)), if [`infiltrator_admits`] it.
+    /// Unlike the click's arm ([`Self::infiltrator_building_action`]), it asks
+    /// neither the owner's control nor alliance. Every path through the
+    /// setter's tail then clears `+0x68E`, a re-acquisition latch VERA does
+    /// not keep (`mission_handlers`, GSI-07.06).
+    pub(crate) fn infiltrator_target_building(
+        &self,
+        actor_id: u64,
+        target: Option<crate::sim::combat::TargetKind>,
+        rules: &RuleSet,
+    ) -> Option<u64> {
+        let Some(crate::sim::combat::TargetKind::Entity(building_id)) = target else {
+            return None;
+        };
+        let actor = self.substrate.entities.get(actor_id)?;
+        let building = self.substrate.entities.get(building_id)?;
+        if actor.category != EntityCategory::Infantry
+            || actor.navigation.nav_com.is_some()
+            || building.category != EntityCategory::Structure
+        {
+            return None;
+        }
+        infiltrator_admits(
+            self.object_type(actor.type_ref(), rules)?,
+            self.object_type(building.type_ref(), rules)?,
+        )
+        .then_some(building_id)
     }
 
     fn announce_bridge_repair(
@@ -387,6 +430,8 @@ impl Simulation {
             attacker_id,
             Some(combat::TargetKind::Entity(target_sid)),
             Some(rules),
+            overlay_registry,
+            FrameEffects::default(),
         );
     }
 
@@ -1645,7 +1690,13 @@ impl Simulation {
                 PursuitAction::DropTargetAndMovement { entity_id } => {
                     // Foot4D5730 dispatches virtual+3C8 on Sticky refusal,
                     // then the class NULL destination (0x004D573E).
-                    let _ = self.assign_target_represented(entity_id, None, Some(rules));
+                    let _ = self.assign_target_represented(
+                        entity_id,
+                        None,
+                        Some(rules),
+                        overlay_registry,
+                        frame_effects,
+                    );
                     self.assign_null_destination(entity_id, Some(rules), None, frame_effects);
                     if let Some(e) = self.substrate.entities.get_mut(entity_id) {
                         e.movement_target = None;

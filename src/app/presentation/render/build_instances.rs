@@ -12,8 +12,8 @@ use crate::app::diagnostics::debug_overlays;
 use crate::app::input::commands::preferred_local_owner;
 use crate::app::presentation::instances;
 use crate::app::presentation::sidebar_render::{
-    active_minimap_screen_rect, build_sidebar_cameo_instances, build_sidebar_chrome_instances,
-    build_sidebar_text_instances, current_sidebar_view,
+    active_minimap_screen_rect, build_command_bar_instances, build_sidebar_cameo_instances,
+    build_sidebar_chrome_instances, build_sidebar_text_instances, current_sidebar_view,
 };
 use crate::app::presentation::ui_overlays::{
     build_bomb_clock_instances, build_building_radius_ring_instances,
@@ -87,7 +87,10 @@ pub(super) struct UiInstances {
 
 /// Sidebar chrome, cameos, text, minimap, and radar animation.
 pub(super) struct SidebarInstances {
+    /// The sidebar surface's layers, in layout space (`ui::sidebar::frame`).
     pub chrome: Vec<SpriteInstance>,
+    /// The bottom command bar's surface layer, in layout space too.
+    pub command_bar: Vec<SpriteInstance>,
     pub cameo: Vec<SpriteInstance>,
     pub gclock: Vec<SpriteInstance>,
     pub cameo_overlay: Vec<SpriteInstance>,
@@ -722,10 +725,7 @@ fn build_placement_preview(state: &AppState) -> (Vec<SpriteInstance>, Vec<Sprite
 pub(super) fn build_sidebar_instances(state: &mut AppState) -> SidebarInstances {
     let view = current_sidebar_view(state).cloned();
     let minimap_rect = active_minimap_screen_rect(state);
-    let (tactical_w, tactical_h) = crate::app::input::camera::tactical_viewport_size_px(
-        state.render_width(),
-        state.render_height(),
-    );
+    let (tactical_w, tactical_h) = crate::app::input::camera::tactical_viewport_size(state);
     let tactical_center_cell = crate::app::input::camera::tactical_centre_cell(state);
     let sidebar_color = crate::render::sidebar_text::native_radar_outline_color(
         crate::app::presentation::sidebar_render::current_sidebar_theme(state),
@@ -801,6 +801,11 @@ pub(super) fn build_sidebar_instances(state: &mut AppState) -> SidebarInstances 
         .as_ref()
         .map(|v| build_sidebar_chrome_instances(state, v))
         .unwrap_or_default();
+    // The bottom bar draws into a surface of its own.
+    let command_bar = view
+        .as_ref()
+        .map(|_| build_command_bar_instances(state))
+        .unwrap_or_default();
 
     let ready_text = state
         .process_assets
@@ -858,7 +863,7 @@ pub(super) fn build_sidebar_instances(state: &mut AppState) -> SidebarInstances 
     // Preserve the pixels actually drawn online for a possible pre-due loss.
     // This is display history, separate from ongoing internal minimap updates.
     let origin = [
-        state.match_state.input.camera_x + state.render_width() as f32 - 168.0,
+        state.match_state.input.camera_x + state.sidebar_frame().layout_left(),
         state.match_state.input.camera_y + 48.0,
     ];
     let presentation = &mut state.match_state.match_presentation;
@@ -879,6 +884,7 @@ pub(super) fn build_sidebar_instances(state: &mut AppState) -> SidebarInstances 
 
     SidebarInstances {
         chrome,
+        command_bar,
         cameo,
         gclock,
         cameo_overlay,
@@ -904,8 +910,7 @@ fn build_radar_anim_instance(state: &AppState) -> Vec<SpriteInstance> {
         None => return Vec::new(),
     };
 
-    let sw: f32 = state.render_width() as f32;
-    let sh: f32 = state.render_height() as f32;
+    let (sw, sh) = state.sidebar_frame().layout_screen();
     let spec = state.match_state.match_presentation.sidebar_layout_spec;
     let layout = crate::ui::sidebar::compute_layout_with_spec(spec, sw, sh, 0);
 

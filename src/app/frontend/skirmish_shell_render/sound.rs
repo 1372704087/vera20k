@@ -17,10 +17,12 @@ pub(crate) fn render_sound_shell(
     encoder: &mut wgpu::CommandEncoder,
     destination: &wgpu::Texture,
 ) -> anyhow::Result<()> {
-    let width = state.render_width() as i32;
-    let height = state.render_height() as i32;
-    let (shell, size) =
-        in_game_shell::current_in_game_shell_layout(state).expect("active B8 geometry");
+    let in_game_shell::InGameShellGeometry {
+        width,
+        height,
+        layout: shell,
+        button_size: size,
+    } = in_game_shell::current_in_game_shell_layout(state).expect("active B8 geometry");
     let layout = SoundLayout::new(width, height, shell, size);
     let dialog = state
         .match_state

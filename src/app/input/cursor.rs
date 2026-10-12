@@ -91,7 +91,9 @@ pub(crate) fn current_cursor_feedback_kind(state: &AppState) -> Option<CursorFee
             CursorFeedbackKind::Scroll(dir)
         });
     }
-    if state.match_state.input.minimap_dragging || is_cursor_over_minimap(state) {
+    if state.match_state.input.minimap_dragging
+        || crate::app::presentation::sidebar_render::is_cursor_over_minimap(state)
+    {
         // Show the minimap-specific Move cursor when hovering over the minimap
         // (reference §7.4 — MiniFrame/MiniCount for the Move cursor = frames 42–51).
         return Some(CursorFeedbackKind::MinimapMove);
@@ -1308,48 +1310,13 @@ fn cursor_animation_start() -> &'static Instant {
     START.get_or_init(Instant::now)
 }
 
-fn is_cursor_over_minimap(state: &AppState) -> bool {
-    // Minimap interaction disabled when radar is not online.
-    let minimap_visible: bool = state
-        .match_state
-        .match_presentation
-        .radar_anim
-        .as_ref()
-        .is_none_or(|ra| ra.is_minimap_visible());
-    if !minimap_visible {
-        return false;
-    }
-    let Some(_minimap) = &state.match_state.match_presentation.minimap else {
-        return false;
-    };
-    let rect = crate::app::presentation::sidebar_render::active_minimap_screen_rect(state);
-    state
-        .match_state
-        .match_presentation
-        .minimap
-        .as_ref()
-        .unwrap()
-        .contains_screen_point_in_rect(
-            state.match_state.input.cursor_x,
-            state.match_state.input.cursor_y,
-            rect.x,
-            rect.y,
-            rect.w,
-            rect.h,
-        )
-}
-
 pub(crate) fn current_sidebar_view_hit(state: &AppState) -> bool {
-    let sw = state
-        .match_state
-        .match_presentation
-        .sidebar_layout_spec
-        .sidebar_width;
+    let (x, _, w, h) = state.sidebar_frame().column();
     let panel_rect = crate::ui::sidebar::Rect {
-        x: state.render_width() as f32 - sw - 10.0,
+        x: x as f32 - 10.0,
         y: 10.0,
-        w: sw,
-        h: state.render_height() as f32 - 20.0,
+        w: w as f32,
+        h: h as f32 - 20.0,
     };
     panel_rect.contains(
         state.match_state.input.cursor_x,

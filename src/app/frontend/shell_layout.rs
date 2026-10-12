@@ -156,13 +156,15 @@ pub(crate) fn launcher_options_layout(
     state: &AppState,
 ) -> crate::ui::main_menu_dialogs::options::shell::LauncherOptionsLayout {
     let (width, height) = (state.render_width() as i32, state.render_height() as i32);
-    if fills_window(state) {
+    let layout = if fills_window(state) {
         crate::ui::main_menu_dialogs::options::shell::LauncherOptionsLayout::responsive(
             width, height,
         )
     } else {
         crate::ui::main_menu_dialogs::options::shell::LauncherOptionsLayout::new(width, height)
-    }
+    };
+    let battle = crate::app::App::match_zoom_geometry(state);
+    layout.with_battle_frame((battle.src_width, battle.src_height))
 }
 
 /// The width a page's art set is keyed on. A fitted page maps from the

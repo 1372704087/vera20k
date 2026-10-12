@@ -140,7 +140,14 @@ impl InGameGadgets {
     }
 }
 
-fn rect_px(r: sidebar::Rect) -> GadgetRect {
+/// A sidebar rect, in the sidebar's layout space, as a gadget rect in frame
+/// pixels, where the cursor is.
+fn rect_px(frame: sidebar::SidebarFrame, r: sidebar::Rect) -> GadgetRect {
+    frame_rect_px(frame.rect_to_frame(r))
+}
+
+/// A frame-pixel rect, rounded to whole pixels.
+fn frame_rect_px(r: sidebar::Rect) -> GadgetRect {
     GadgetRect::new(
         r.x.round() as i32,
         r.y.round() as i32,
@@ -156,11 +163,12 @@ fn rect_px(r: sidebar::Rect) -> GadgetRect {
 /// (the native external latch-on/latch-off equivalent — tabs are externally
 /// driven, study §2.1).
 fn sync_gadgets(state: &mut AppState, view: &SidebarView) {
-    let tab_rects: Vec<GadgetRect> = view.tabs.iter().map(|t| rect_px(t.rect)).collect();
+    let frame = state.sidebar_frame();
+    let tab_rects: Vec<GadgetRect> = view.tabs.iter().map(|t| rect_px(frame, t.rect)).collect();
     let tab_active: Vec<bool> = view.tabs.iter().map(|t| t.active).collect();
     let tab_disabled: Vec<bool> = view.tabs.iter().map(|t| t.disabled).collect();
-    let repair_rect = rect_px(view.repair_button.rect);
-    let sell_rect = rect_px(view.sell_button.rect);
+    let repair_rect = rect_px(frame, view.repair_button.rect);
+    let sell_rect = rect_px(frame, view.sell_button.rect);
 
     let gadgets = &mut state.match_state.match_presentation.in_game_gadgets;
     if gadgets.handles.is_none() {
@@ -233,14 +241,14 @@ fn sync_gadgets(state: &mut AppState, view: &SidebarView) {
     sync(
         &mut gadgets.list,
         handles.scroll_down,
-        rect_px(view.scroll_down_button.rect),
+        rect_px(frame, view.scroll_down_button.rect),
         view.scroll_down_button.disabled,
         None,
     );
     sync(
         &mut gadgets.list,
         handles.scroll_up,
-        rect_px(view.scroll_up_button.rect),
+        rect_px(frame, view.scroll_up_button.rect),
         view.scroll_up_button.disabled,
         None,
     );
@@ -248,7 +256,7 @@ fn sync_gadgets(state: &mut AppState, view: &SidebarView) {
         sync(
             &mut gadgets.list,
             h,
-            rect_px(button.rect),
+            rect_px(frame, button.rect),
             button.disabled,
             None,
         );
@@ -267,6 +275,7 @@ fn sync_gadgets(state: &mut AppState, view: &SidebarView) {
 /// pause/producer slots disable when the view omits them. Appended after the
 /// cameos — disjoint rects, so order is observationally irrelevant (O7/G20).
 fn sync_controls(state: &mut AppState, view: &SidebarView) {
+    let frame = state.sidebar_frame();
     if state
         .match_state
         .match_presentation
@@ -300,10 +309,12 @@ fn sync_controls(state: &mut AppState, view: &SidebarView) {
         .controls
         .expect("built above");
     let slots: [Option<GadgetRect>; CONTROL_SLOTS] = [
-        Some(rect_px(view.cycle_owner_button.rect)),
-        Some(rect_px(view.starter_base_button.rect)),
-        Some(rect_px(view.spawn_test_units_button.rect)),
-        view.producer_button.as_ref().map(|b| rect_px(b.rect)),
+        Some(rect_px(frame, view.cycle_owner_button.rect)),
+        Some(rect_px(frame, view.starter_base_button.rect)),
+        Some(rect_px(frame, view.spawn_test_units_button.rect)),
+        view.producer_button
+            .as_ref()
+            .map(|b| rect_px(frame, b.rect)),
     ];
     for (i, h) in handles.iter().enumerate() {
         if let Some(g) = state
@@ -332,6 +343,7 @@ fn sync_controls(state: &mut AppState, view: &SidebarView) {
 /// first-consumer-by-rect and the smallest-area hover both resolve to the unique
 /// containing gadget regardless (study tactical/minimap lanes §6/§4).
 fn sync_regions(state: &mut AppState, _view: &SidebarView) {
+    let frame = state.sidebar_frame();
     if state
         .match_state
         .match_presentation
@@ -362,10 +374,8 @@ fn sync_regions(state: &mut AppState, _view: &SidebarView) {
     // Tactical catcher rect = the play area left of the sidebar panel (the Rust
     // equivalent of gamemd's g_RadarViewport*). Always enabled in-game — we have
     // no in-game map editor (gamemd registers it only when !g_IsMapEditor).
-    let (tactical_width, tactical_height) = crate::app::input::camera::tactical_viewport_size_px(
-        state.render_width(),
-        state.render_height(),
-    );
+    let (tactical_width, tactical_height) =
+        crate::app::input::camera::tactical_viewport_size(state);
     let play_rect = GadgetRect::new(0, 0, tactical_width as i32, tactical_height as i32);
     if let Some(th) = state
         .match_state
@@ -393,6 +403,7 @@ fn sync_regions(state: &mut AppState, _view: &SidebarView) {
         .is_none_or(|ra| ra.is_minimap_visible())
         && state.match_state.match_presentation.minimap.is_some();
     let mini_rect = rect_px(
+        frame,
         crate::app::presentation::sidebar_render::active_minimap_content_screen_rect(state),
     );
     if let Some(mh) = state.match_state.match_presentation.in_game_gadgets.minimap
@@ -417,6 +428,7 @@ fn sync_regions(state: &mut AppState, _view: &SidebarView) {
 /// demand and is never auto-shrunk; growth is gated to NOT run while a region
 /// holds capture (defensive — cameos themselves are never sticky).
 fn sync_cameos(state: &mut AppState, view: &SidebarView) {
+    let frame = state.sidebar_frame();
     let want = view.items.len();
     if state
         .match_state
@@ -470,7 +482,7 @@ fn sync_cameos(state: &mut AppState, view: &SidebarView) {
         .cameos
         .clone();
     for (slot, h) in cameos.iter().enumerate() {
-        let rect = view.items.get(slot).map(|it| rect_px(it.rect));
+        let rect = view.items.get(slot).map(|it| rect_px(frame, it.rect));
         if let Some(g) = state
             .match_state
             .match_presentation

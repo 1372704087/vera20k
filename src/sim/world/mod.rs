@@ -97,9 +97,9 @@ pub(crate) use techno_ai::direct_greatest_threat;
 pub(crate) use techno_ai::dispatch_foot_mission;
 pub(crate) use techno_ai::enter_idle_mode;
 pub(crate) use techno_ai::foot_enter_idle_mode_selection;
-pub(crate) use techno_ai::foot_unlimbo_idle_mode;
 pub(crate) use techno_ai::passive_target_acquire;
 pub(crate) use techno_ai::queue_and_commence;
+pub(crate) use techno_ai::techno_unlimbo_idle_mode;
 pub(crate) use techno_ai::{can_fire_at, weapon_at_index};
 mod command_schedule;
 mod selection_voice;
@@ -985,6 +985,11 @@ pub struct Simulation {
     /// state. Only lifecycle's nested scope API mutates it.
     #[serde(skip, default)]
     object_placement_scope_depth: u32,
+    /// VERA's analog of native `0xA8ED6B`, which sends an initial building
+    /// Unlimbo to Enter_Idle_Mode's Idle arm. Raised only by lifecycle's
+    /// bypass API; balanced at frame boundaries; not saved/hash state.
+    #[serde(skip, default)]
+    buildup_bypass: bool,
     /// Scenario RNG — gamemd `Scenario->Random` (Scen+0x218). Drives in-object-tick
     /// sim draws: scatter, sub-cell placement, smudge/destruction, particles,
     /// wall/overlay damage, bridge collapse/destruction presentation, ore growth/spread, TIBTRE,
@@ -3230,6 +3235,7 @@ impl Simulation {
             production: ProductionState::default(),
             session,
             object_placement_scope_depth: 0,
+            buildup_bypass: false,
             scenario_rng: SimRng::new(seed),
             main_rng: MainRng::new(seed),
             mapgen_rng: SimRng::new(0),

@@ -1028,7 +1028,7 @@ impl Simulation {
 /// ([`Simulation::infantry_enter_idle_mode`]), Aircraft `0x004176F0`
 /// ([`crate::sim::aircraft::enter_idle_mode_for`]) and Building `0x0044D6A0`
 /// ([`Simulation::building_enter_idle_mode`]). Unlimbo's `(1, 1)` is
-/// [`foot_unlimbo_idle_mode`].
+/// [`techno_unlimbo_idle_mode`].
 pub(crate) fn enter_idle_mode(
     sim: &mut Simulation,
     id: u64,
@@ -1053,15 +1053,20 @@ pub(crate) fn enter_idle_mode(
     }
 }
 
-/// `TechnoClass::Unlimbo @ 0x006F6E2A..0x006F6E4F` for a Foot:
-/// `Enter_Idle_Mode(1, 1)` (`InfantryClass::Enter_Idle_Mode @ 0x0051CBA0`,
-/// `UnitClass::Enter_Idle_Mode @ 0x00738970`, `AircraftClass::
-/// Enter_Idle_Mode @ 0x004176F0`), then Ready_To_Commence and Commence, so
-/// the mission it picks is current at once.
+/// `TechnoClass::Unlimbo @ 0x006F6E2A..0x006F6E4F`: `Enter_Idle_Mode(1, 1)`
+/// (`InfantryClass::Enter_Idle_Mode @ 0x0051CBA0`, `UnitClass::
+/// Enter_Idle_Mode @ 0x00738970`, `AircraftClass::Enter_Idle_Mode @
+/// 0x004176F0`, `BuildingClass::Enter_Idle_Mode @ 0x0044D6A0`), then
+/// Ready_To_Commence and Commence, so the mission it picks is current at once
+/// when the object is ready.
 /// A fresh object with nowhere to go takes Guard; a map placement then assigns
 /// its authored mission over it. A factory-built vehicle used to keep no
 /// mission at all, so its dispatch took the missionless 450-frame arm instead
-/// of Mission_Guard's cadence.
+/// of Mission_Guard's cadence. A placed building queues Construction; its
+/// ready byte (`+0x6DD`, `0x00454250`) is clear unless its cell-put discovery
+/// opened it, so Construction stays queued: a computer yard's exit commences
+/// it (`0x00445329..0x0044533F`), and otherwise a later Update's ready check
+/// does.
 ///
 /// RESIDUALS, beside those on [`foot_enter_idle_mode_selection`]:
 /// - the Area Guard arm (a computer object outside a team, or with a slave
@@ -1076,32 +1081,28 @@ pub(crate) fn enter_idle_mode(
 ///   `Passengers=` and cargo, outside a team) is not taken; it gets Guard.
 ///   Trigger: an unarmed transport leaving the factory loaded. Effect: it
 ///   keeps its cargo aboard.
-/// - buildings have their own Unlimbo/mission owner.
-pub(crate) fn foot_unlimbo_idle_mode(
+pub(crate) fn techno_unlimbo_idle_mode(
     sim: &mut Simulation,
     id: u64,
     rules: &RuleSet,
     registry: Option<&crate::rules::overlay_types::OverlayTypeRegistry>,
     effects: FrameEffects<'_>,
 ) {
-    let Some(entity) = sim.substrate.entities.get(id) else {
-        return;
-    };
-    if entity.category == EntityCategory::Aircraft {
-        crate::sim::aircraft::enter_idle_mode_for(sim, id, rules, registry, effects);
-        sim.mission_host_promote(id, sim.session.binary_frame, rules);
-        return;
+    match sim.substrate.entities.get(id).map(|entity| entity.category) {
+        Some(EntityCategory::Aircraft) => {
+            crate::sim::aircraft::enter_idle_mode_for(sim, id, rules, registry, effects);
+        }
+        Some(EntityCategory::Unit) => {
+            sim.unit_enter_idle_mode(id, Some(rules), true, effects);
+        }
+        Some(EntityCategory::Infantry) => {
+            sim.infantry_enter_idle_mode(id, rules, registry, effects);
+        }
+        Some(EntityCategory::Structure) => {
+            sim.building_enter_idle_mode(id, true, Some(rules));
+        }
+        None => return,
     }
-    let vehicle = entity.category == EntityCategory::Unit;
-    if !vehicle && entity.category != EntityCategory::Infantry {
-        return;
-    }
-    if vehicle {
-        sim.unit_enter_idle_mode(id, Some(rules), true, effects);
-        sim.mission_host_promote(id, sim.session.binary_frame, rules);
-        return;
-    }
-    sim.infantry_enter_idle_mode(id, rules, registry, effects);
     sim.mission_host_promote(id, sim.session.binary_frame, rules);
 }
 

@@ -1203,8 +1203,9 @@ impl Simulation {
                 continue;
             }
 
-            // Ground Infantry's native approach helper4D5690 returns at
-            // 4D5A07..18 while NavCom is present. An accepted Walk path/head
+            // For a Walk man left to this pass (a `CloseRange=` one, or a
+            // pursuit off Approach's missions): Foot's approach4D5690 returns
+            // at 4D5A07..18 while NavCom is present. An accepted Walk path/head
             // continues through Process; FootPerCell(mode2)4D882F..896E makes
             // the range-stop decision after completion.
             if entity

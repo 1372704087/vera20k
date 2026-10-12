@@ -1212,10 +1212,10 @@ pub(crate) fn foot_enter_idle_mode_selection(
 ///    `0x006F9D69` hands it to `Evaluate_Candidate`, which rejects any
 ///    candidate outside it at `0x006F7E9C`), so the hunter reaches the far side
 ///    of the map but not the far side of a river.
-/// 3. **The type arms**, taken only by an infantryman (`What_Am_I` 0xF,
+/// 3. **The infantry arms**, taken only by an infantryman (`What_Am_I` 0xF,
 ///    `0x004D53A0..0x004D53B4`) whose scan came back with a target: the
-///    engineer's and the C4 one are [`hunt_infantry_type_arm`]; the
-///    VehicleThief's is recorded below.
+///    engineer's, the C4 one and the no-flag arm are [`hunt_infantry_arm`];
+///    the VehicleThief's is recorded below.
 /// 4. **No target**: a human-owned object runs the idle-action virtual
 ///    (`vt+0x478`, `0x004D557C`); an AI-owned one walks home to its base cell.
 /// 5. **The tail** at `0x004D5582`, reached from every arm:
@@ -1233,24 +1233,17 @@ pub(crate) fn foot_enter_idle_mode_selection(
 /// non-infantry object at `0x004D54E3` and for an infantryman with none of the
 /// three type flags at `0x004D54D2`. That routine is the "drive to somewhere I
 /// can shoot my target from" search and ends in `Set_Destination`
-/// (`vt+0x480`). VERA runs it for the non-infantry object
-/// ([`Simulation::approach_target`]); for the infantryman, and for a mover
-/// Approach does not represent, the pursuit pass stands in, which runs for any
-/// object holding a target that is not flagged passively-acquired — and the
-/// scanner above deliberately leaves the flag clear, as native does.
+/// (`vt+0x480`). VERA runs it ([`Simulation::approach_target`]) for every
+/// mover it represents; for any other, the pursuit pass stands in, which runs
+/// for any object holding a target that is not flagged passively-acquired —
+/// and the scanner above deliberately leaves the flag clear, as native does.
 ///
 /// RESIDUAL — **the VehicleThief type arm is not committed**
 /// (`+0xEC6`, `0x004D546C..0x004D54B9`): `Set_Destination(Target, 1)`,
 /// `Queue_Mission(Capture, 0)` and, when `Ready_To_Commence` (vt+0x200), a
-/// Commence (vt+0x1EC). Frequency: **zero on stock data** — no retail
-/// section sets the key.
-///
-/// RESIDUAL — **the infantry no-flags arm's `Set_Destination(NULL, 1)`**
-/// (`0x004D54C6`) is not committed: it is a movement-owned write, and the
-/// pursuit pass re-derives a destination on the next tick anyway. Effect: a
-/// berserked infantryman already walking somewhere keeps that destination for
-/// one dispatch where retail drops it first. Frequency: only while such a unit
-/// is mid-move.
+/// Commence (vt+0x1EC). Its Capture would steal a vehicle, a mechanism VERA
+/// does not port, so such a man takes no arm. Frequency: **zero on stock
+/// data** — no retail section sets the key.
 ///
 /// RESIDUAL — **the AI return-to-base arm** (`0x004D54EE`-`0x004D5576`) is
 /// gated on `!HouseClass::IsControlledByHuman(this->Owner)` and
@@ -1278,12 +1271,14 @@ fn evaluate_foot_hunt(
         .and_then(|type_ref| sim.interner.try_resolve(type_ref))
         .and_then(|name| rules.object(name))
         .is_some_and(|obj| obj.stupid_hunt);
+    // 4D5367 and 4D539A: StupidHunt, or a scan that finds nothing, take the
+    // no-target arm at 4D54EE; every other arm jumps to the tail at 4D5582.
+    let mut no_target_arm = stupid_hunt;
     if !stupid_hunt {
-        // The return value selects between the type arms (the engineer's and
-        // the C4 one committed, VehicleThief's recorded above) and the idle /
-        // return-to-base arm (already covered elsewhere). The call itself is
-        // the mission: it is what installs the target the pursuit pass then
-        // closes on.
+        // The return value selects between the approach and infantry arms
+        // (VehicleThief's recorded above) and the idle / return-to-base arm
+        // (already covered elsewhere). The call itself is the mission: it is
+        // what installs the target the approach then closes on.
         let acquired = super::target_scan::scan(
             sim,
             id,
@@ -1300,32 +1295,33 @@ fn evaluate_foot_hunt(
             .get(id)
             .is_some_and(|entity| entity.category == EntityCategory::Infantry);
         if acquired && infantry {
-            hunt_infantry_type_arm(sim, id, rules, ctx);
+            hunt_infantry_arm(sim, id, rules, ctx);
         } else if acquired {
             // `0x004D54DD..0x004D54E3`: any other mover approaches what the
             // scan holds.
             sim.approach_target(id, rules, ctx.overlay_registry, ctx.effects);
         }
+        no_target_arm = !acquired;
     }
     //4D54EE..4D5576: the human no-target arm invokes the class idle
-    //receiver before the mission-rate jitter. Campaign AI return-to-base
-    //still belongs to its documented House/mission continuation below.
-    if sim
-        .substrate
-        .entities
-        .get(id)
-        .is_some_and(|entity| entity.attack_target.is_none() && sim.owner_is_human(entity.owner()))
+    //receiver before the mission-rate jitter, whatever Target an arm's
+    //Approach left. Campaign AI return-to-base still belongs to its
+    //documented House/mission continuation below.
+    if no_target_arm
+        && sim
+            .substrate
+            .entities
+            .get(id)
+            .is_some_and(|entity| sim.owner_is_human(entity.owner()))
     {
         let _ = sim.infantry_idle_action(id, rules, ctx.effects);
     }
     MissionHandlerEvaluation::cadence(sim.mission_rate_epilogue_for(rules, id, MissionType::Hunt))
 }
 
-/// Mission_Hunt's engineer and C4 arms, for the target its scan installed.
-/// Each takes that target as its destination (vt+0x480(target, 1)), queues
-/// its mission (vt+0x1E8(mission, 0)) and, when Ready_To_Commence
-/// (vt+0x200), commences it (vt+0x1EC); [`crate::sim::mission::capture`]
-/// then walks it in. No RNG.
+/// Mission_Hunt's infantry arms, for the target its scan installed. They draw
+/// nothing themselves; a Teleport man's destination setter draws for his spot
+/// in the cell (`place_infantry_in_native_cell`).
 /// - An `Engineer=` infantryman that is neither `C4=` nor holds weapon
 ///   ability 14 (C4) queues Capture (`0x004D53BA..0x004D53F4`, joining the
 ///   VehicleThief arm's tail at `0x004D548F..0x004D54B9`).
@@ -1333,12 +1329,23 @@ fn evaluate_foot_hunt(
 ///   building queues Sabotage (`0x004D53F9..0x004D5467`). Unlike
 ///   Mission_Attack's C4 arm it asks no `CanC4=`, and neither does the plant
 ///   ([`Simulation::infantry_per_cell_c4`]).
-fn hunt_infantry_type_arm(
-    sim: &mut Simulation,
-    id: u64,
-    rules: &RuleSet,
-    ctx: super::ObjectAiCtx<'_>,
-) {
+///
+/// Each of those takes the target as its destination (vt+0x480(target, 1)),
+/// queues its mission (vt+0x1E8(mission, 0)) and, when Ready_To_Commence
+/// (vt+0x200), commences it (vt+0x1EC); [`crate::sim::mission::capture`]
+/// then walks it in. Any other man (no `VehicleThief=`, see
+/// [`evaluate_foot_hunt`]) drops his destination (vt+0x480(NULL, 1),
+/// `0x004D54C6`) and approaches the target (`0x004D54D2`), so he picks his
+/// approach cell afresh on every dispatch.
+///
+/// RESIDUAL: for a man Approach does not represent (a `CloseRange=` or
+/// Jumpjet one out of a deploy action, [`Simulation::owns_foot_approach`]),
+/// neither call runs; the pursuit pass stands in for both. Effect: such a man
+/// keeps a destination he already had, where retail drops it on every
+/// dispatch and approaches afresh; a Brute already walking somewhere walks on
+/// until he arrives, since the pass leaves a Walk man holding a NavCom alone.
+/// Frequency: a Brute or Rocketeer put on Hunt while on the move.
+fn hunt_infantry_arm(sim: &mut Simulation, id: u64, rules: &RuleSet, ctx: super::ObjectAiCtx<'_>) {
     let Some(entity) = sim.substrate.entities.get(id) else {
         return;
     };
@@ -1366,7 +1373,13 @@ fn hunt_infantry_type_arm(
         MissionType::Capture
     } else if c4 && building_target {
         MissionType::Sabotage
+    } else if object.vehicle_thief
+        || !entity.infantry_deploy_doing() && !sim.owns_foot_approach(id, rules)
+    {
+        return;
     } else {
+        sim.assign_null_destination(id, Some(rules), ctx.overlay_registry, ctx.effects);
+        sim.approach_target(id, rules, ctx.overlay_registry, ctx.effects);
         return;
     };
     let _ = sim.assign_destination_represented(

@@ -423,7 +423,7 @@ fn fire_subject<'a>(
 
 /// GetWeapon (vt+0x3F8)'s WeaponType at `index`; an occupied building's is
 /// its firing occupant's for every index (`0x004526F0`).
-pub(super) fn weapon_at_index<'r>(
+pub(crate) fn weapon_at_index<'r>(
     sim: &Simulation,
     rules: &'r RuleSet,
     id: u64,
@@ -484,7 +484,7 @@ pub(super) fn select_weapon(
 
 /// `TechnoClass::CanFireAt @ 0x006F77B0` (vt+0x3A8): InRange for `target`
 /// with `weapon_index`, measured from the object's own coordinate.
-pub(super) fn can_fire_at(
+pub(crate) fn can_fire_at(
     sim: &Simulation,
     rules: &RuleSet,
     id: u64,

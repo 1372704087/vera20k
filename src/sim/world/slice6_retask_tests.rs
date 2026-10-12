@@ -325,7 +325,10 @@ fn unit(owner: &str, type_id: &str, cx: u16, cy: u16, cat: EntityCategory) -> Ma
 // Snapshot332 drops the C4 walk-up intent, whose empty value every entity's
 // fold hashed. This fixture orders no C4; replay, retasking and all three RNG
 // gates remain unchanged.
-const SLICE6_BASELINE_HASH: u64 = 0xA7A3_2912_D867_127F;
+// Infantry Approach: the GI's Attack now walks him to a cell in M60 range of
+// the tank (pinned in the loop) instead of the tank's own cell, so his NavCom
+// and path change. Replay, retasking and all three RNG gates remain unchanged.
+const SLICE6_BASELINE_HASH: u64 = 0xC4B5_83A9_D807_77FD;
 
 #[test]
 fn replay_hash_stable_through_slice6() {
@@ -468,6 +471,24 @@ fn replay_hash_stable_through_slice6() {
         }
 
         if tick >= 10 {
+            // The GI's Attack (tick 9) takes Infantry Approach (`0x00522340`
+            // into the Foot body): a cell within M60 range of the tank, not
+            // the tank's own cell.
+            let gi = sim.substrate.entities.get(3).unwrap();
+            let Some(crate::sim::components::NavTargetRef::Cell { rx, ry }) = gi.navigation.nav_com
+            else {
+                panic!("the GI approaches a cell: {:?}", gi.navigation.nav_com);
+            };
+            let aim = crate::sim::movement::ground_pose::position_world_coord(
+                &sim.substrate.entities.get(2).unwrap().position,
+            );
+            let dx = i64::from(rx) * 256 + 128 - i64::from(aim.x);
+            let dy = i64::from(ry) * 256 + 128 - i64::from(aim.y);
+            assert!(
+                dx * dx + dy * dy <= 1280 * 1280,
+                "({rx}, {ry}) beyond the fixture's M60 Range=5"
+            );
+
             let tank = sim.substrate.entities.get(1).expect("retasked tank lives");
             assert_eq!(
                 tank.mission.current(),

@@ -1,7 +1,8 @@
-//! A vehicle's approach to what it attacks, through the production frame:
-//! its mission's Approach (`FootClass::Approach_Target @ 0x004D5690`, reached
-//! through `UnitClass::Approach_Target @ 0x007414E0`) picks a cell to fire
-//! from, and the per-cell range stop (`0x004D882F..0x004D896E`) halts it on
+//! A vehicle's or infantryman's approach to what it attacks, through the
+//! production frame: its mission's Approach (`FootClass::Approach_Target @
+//! 0x004D5690`, reached through `UnitClass::Approach_Target @ 0x007414E0` or
+//! `InfantryClass::Approach_Target @ 0x00522340`) picks a cell to fire from,
+//! and the per-cell range stop (`0x004D882F..0x004D896E`) halts it on
 //! entering a cell with a Foot Target in range. Expected behaviour comes from
 //! instruction reading.
 
@@ -9,14 +10,21 @@ use crate::rules::ruleset::RuleSet;
 use crate::sim::combat::AttackTarget;
 use crate::sim::command::{Command, CommandEnvelope};
 use crate::sim::components::NavTargetRef;
+use crate::sim::mission::leaf::MissionLeafState;
 use crate::sim::mission::{MissionId, MissionType};
 use crate::sim::movement::ground_pose::position_world_coord;
+use crate::sim::movement::infantry_action::{DO_DEPLOY, DO_DEPLOYED, DO_DEPLOYED_IDLE};
 use crate::sim::world::Simulation;
 
 fn retail_rules() -> Option<RuleSet> {
     let (ini, art) = crate::rules::retail_ini_fixture::retail_rules_and_art()?;
     let mut rules = RuleSet::from_ini_with_fixed_art_for_test(&ini, &art).expect("retail rules");
     rules.install_art_data(crate::rules::art_data::ArtRegistry::from_ini(&art));
+    // The app's ART sequence binding, without which an infantryman's
+    // Do_Action refuses an action his sequence holds.
+    rules.bind_animation_sequences(
+        &crate::rules::infantry_sequence::parse_infantry_sequence_registry(&art),
+    );
     Some(rules)
 }
 
@@ -78,6 +86,15 @@ impl Frame {
     fn near_cell_centre(&self) -> bool {
         (self.at.0.rem_euclid(256) - 128).abs() <= 64
             && (self.at.1.rem_euclid(256) - 128).abs() <= 64
+    }
+
+    /// At one of an infantryman's five spots in a cell, where Walk completes
+    /// a step.
+    fn at_spot(&self) -> bool {
+        let at = (self.at.0.rem_euclid(256), self.at.1.rem_euclid(256));
+        crate::sim::cell_kernel::INFANTRY_SUBCELL_OFFSETS
+            .iter()
+            .any(|&(x, y, _)| (x, y) == at)
     }
 
     fn cell(&self) -> (u16, u16) {
@@ -413,4 +430,296 @@ fn an_area_guarding_chrono_legionnaire_approaches_through_the_foot_body() {
         panic!("Approach sets a cell: {nav_com:?}");
     };
     assert_ne!((rx, ry), (24, 14));
+}
+
+/// A human's GI ordered to attack a tank walks to a cell his Approach picks
+/// (Infantry `0x00522340` into the Foot body), not the tank's own cell. He
+/// keeps that NavCom through the frames where the tank first comes in range
+/// between spots, and lets it go on completing his step into the first cell
+/// from which the tank is in range, at his spot there.
+#[test]
+fn a_gi_stops_on_entering_the_first_cell_with_its_target_in_range() {
+    let Some(rules) = retail_rules() else {
+        return;
+    };
+    let mut sim = arena(&rules);
+    let gi = spawn(&mut sim, &rules, "E1", "Americans", (4, 10));
+    let tank = spawn(&mut sim, &rules, "MTNK", "Russians", (24, 10));
+    order(
+        &mut sim,
+        "Americans",
+        Command::Attack {
+            attacker_id: gi,
+            target_id: tank,
+        },
+    );
+    let frames = chase(&mut sim, &rules, gi, tank);
+    let reach = range(&rules, "M60");
+    let Some(NavTargetRef::Cell { rx, ry }) = frames[0].nav_com else {
+        panic!("Approach sets a cell: {:?}", frames[0].nav_com);
+    };
+    assert_ne!((rx, ry), (24, 10));
+    assert!(cell_centre_distance((rx, ry), &sim, tank) <= reach);
+    let (stop, before) = frames.split_last().unwrap();
+    assert!(stop.at_spot(), "stopped between spots at {:?}", stop.at);
+    assert!(stop.distance <= reach, "{stop:?}");
+    assert!(
+        before.iter().any(|f| !f.at_spot() && f.distance <= reach),
+        "the tank came in range between spots"
+    );
+    let last_spot = before.iter().rev().find(|f| f.at_spot() && f.at != stop.at);
+    assert!(
+        last_spot.is_none_or(|f| f.distance > reach),
+        "{last_spot:?}"
+    );
+}
+
+/// A GI attacking a power plant walks to the cell his Approach picks and
+/// stops there on arrival: the per-cell range stop measures only a Foot
+/// Target.
+#[test]
+fn a_gi_walks_to_his_approach_cell_to_shoot_a_building() {
+    let Some(rules) = retail_rules() else {
+        return;
+    };
+    let mut sim = arena(&rules);
+    let gi = spawn(&mut sim, &rules, "E1", "Americans", (4, 10));
+    let plant = spawn(&mut sim, &rules, "NAPOWR", "Russians", (24, 10));
+    order(
+        &mut sim,
+        "Americans",
+        Command::Attack {
+            attacker_id: gi,
+            target_id: plant,
+        },
+    );
+    let frames = chase(&mut sim, &rules, gi, plant);
+    let Some(NavTargetRef::Cell { rx, ry }) = frames[0].nav_com else {
+        panic!("Approach sets a cell: {:?}", frames[0].nav_com);
+    };
+    assert!(!(24..=25).contains(&rx) || !(10..=12).contains(&ry));
+    let (stop, before) = frames.split_last().unwrap();
+    let (x, y) = stop.cell();
+    assert_eq!(
+        before.last().unwrap().nav_com,
+        Some(NavTargetRef::cell(x, y)),
+        "stopped short of his approach cell"
+    );
+}
+
+/// A computer's Conscript walking elsewhere when put on Hunt drops that
+/// destination at the first dispatch his scan finds a target
+/// (`Set_Destination(NULL, 1)`, `0x004D54C6`) and approaches his quarry
+/// (`0x004D54D2`) to a cell in range, where he comes to rest.
+#[test]
+fn a_hunting_conscript_drops_his_walk_to_approach_his_quarry() {
+    let Some(rules) = retail_rules() else {
+        return;
+    };
+    let mut sim = arena(&rules);
+    let conscript = spawn(&mut sim, &rules, "E2", "Russians", (4, 10));
+    let tank = spawn(&mut sim, &rules, "MTNK", "Americans", (24, 10));
+    order(
+        &mut sim,
+        "Russians",
+        Command::Move {
+            entity_id: conscript,
+            target_rx: 4,
+            target_ry: 20,
+            queue: false,
+        },
+    );
+    let walk = Some(NavTargetRef::cell(4, 20));
+    for _ in 0..3 {
+        step(&mut sim, &rules);
+    }
+    assert_eq!(frame(&sim, conscript, tank).nav_com, walk);
+    start_mission(&mut sim, conscript, MissionType::Hunt);
+    let mut approach = None;
+    for _ in 0..30 {
+        step(&mut sim, &rules);
+        let nav_com = frame(&sim, conscript, tank).nav_com;
+        if nav_com != walk {
+            approach = nav_com;
+            break;
+        }
+    }
+    let reach = range(&rules, "M1Carbine");
+    let Some(NavTargetRef::Cell { rx, ry }) = approach else {
+        panic!("Hunt kept his walk or set no cell: {approach:?}");
+    };
+    assert_ne!((rx, ry), (24, 10));
+    assert!(cell_centre_distance((rx, ry), &sim, tank) <= reach);
+
+    let mut rest = frame(&sim, conscript, tank);
+    for _ in 0..900 {
+        step(&mut sim, &rules);
+        let now = frame(&sim, conscript, tank);
+        if now.nav_com.is_none() && now.at == rest.at {
+            break;
+        }
+        rest = now;
+    }
+    assert!(rest.nav_com.is_none(), "still walking: {rest:?}");
+    assert!(rest.distance <= reach, "{rest:?}");
+    assert_eq!(
+        sim.substrate
+            .entities
+            .get(conscript)
+            .unwrap()
+            .mission
+            .current(),
+        MissionId::from_known(MissionType::Hunt)
+    );
+}
+
+/// A GI on Area Guard with a Target out of range approaches it the same way
+/// and stops on completing his step into the first cell with the tank in
+/// range.
+#[test]
+fn an_area_guarding_gi_approaches_his_target_and_stops_in_range() {
+    let Some(rules) = retail_rules() else {
+        return;
+    };
+    let mut sim = arena(&rules);
+    let gi = spawn(&mut sim, &rules, "E1", "Americans", (10, 10));
+    let tank = spawn(&mut sim, &rules, "MTNK", "Russians", (17, 10));
+    target(&mut sim, gi, tank);
+    start_mission(&mut sim, gi, MissionType::AreaGuard);
+    assert!(sim.mission_owns_approach(gi, &rules));
+    let frames = chase(&mut sim, &rules, gi, tank);
+    let reach = range(&rules, "M60");
+    let Some(NavTargetRef::Cell { rx, ry }) = frames[0].nav_com else {
+        panic!("Approach sets a cell: {:?}", frames[0].nav_com);
+    };
+    assert_ne!((rx, ry), (17, 10));
+    let stop = frames.last().unwrap();
+    assert!(stop.at_spot(), "stopped between spots at {:?}", stop.at);
+    assert!(stop.distance <= reach, "{stop:?}");
+    assert_eq!(
+        sim.substrate.entities.get(gi).unwrap().mission.current(),
+        MissionId::from_known(MissionType::AreaGuard)
+    );
+}
+
+/// When a vehicle stands on the cell his Approach would pick, a GI goes on
+/// round the ring to the next candidate (`0x004D642D..0x004D6437`). He does
+/// not try the taken cell's neighbours, which a vehicle walks starting north
+/// (`cell_delta` 0). Here the ring's offsets up to 8 stay in the taken cell,
+/// and offset 16, 22.5 degrees round, reaches the cell south of it.
+#[test]
+fn a_gi_passes_over_a_taken_approach_cell_without_trying_its_neighbours() {
+    let Some(rules) = retail_rules() else {
+        return;
+    };
+    let approach_cell = |taken: Option<(u16, u16)>| {
+        let mut sim = arena(&rules);
+        let gi = spawn(&mut sim, &rules, "E1", "Americans", (28, 10));
+        let tank = spawn(&mut sim, &rules, "MTNK", "Russians", (18, 10));
+        if let Some(cell) = taken {
+            spawn(&mut sim, &rules, "MTNK", "Americans", cell);
+        }
+        target(&mut sim, gi, tank);
+        start_mission(&mut sim, gi, MissionType::Attack);
+        sim.approach_target(gi, &rules, None, crate::sim::world::FrameEffects::default());
+        match sim.substrate.entities.get(gi).unwrap().navigation.nav_com {
+            Some(NavTargetRef::Cell { rx, ry }) => (rx, ry),
+            other => panic!("Approach sets a cell: {other:?}"),
+        }
+    };
+    let open = approach_cell(None);
+    let next = approach_cell(Some(open));
+    assert_ne!(next, (open.0, open.1 - 1), "took the neighbour walk");
+    assert_eq!(next, (open.0, open.1 + 1));
+}
+
+/// A GI ordered to fire on a cell walks to a cell his Approach picks in range
+/// of it, not to the cell itself, and stops on arriving there: the per-cell
+/// range stop measures only a Foot Target.
+#[test]
+fn a_gi_ordered_to_fire_on_a_cell_walks_to_his_approach_cell() {
+    let Some(rules) = retail_rules() else {
+        return;
+    };
+    let mut sim = arena(&rules);
+    let gi = spawn(&mut sim, &rules, "E1", "Americans", (4, 10));
+    order(
+        &mut sim,
+        "Americans",
+        Command::ForceAttackCell {
+            attacker_id: gi,
+            target_rx: 24,
+            target_ry: 10,
+        },
+    );
+    let (mut first, mut last) = (None, None);
+    for _ in 0..900 {
+        step(&mut sim, &rules);
+        let nav_com = sim.substrate.entities.get(gi).unwrap().navigation.nav_com;
+        if nav_com.is_some() {
+            first = first.or(nav_com);
+            last = nav_com;
+        } else if first.is_some() {
+            break;
+        }
+    }
+    let Some(NavTargetRef::Cell { rx, ry }) = first else {
+        panic!("Approach sets a cell: {first:?}");
+    };
+    assert_ne!((rx, ry), (24, 10));
+    let at = position_world_coord(&sim.substrate.entities.get(gi).unwrap().position);
+    let cell = ((at.x / 256) as u16, (at.y / 256) as u16);
+    assert_eq!(
+        last,
+        Some(NavTargetRef::cell(cell.0, cell.1)),
+        "stopped short of his approach cell"
+    );
+}
+
+/// A computer's deployed GI on Attack whose Target is beyond his deployed
+/// weapon's reach undeploys (Infantry Approach `0x0052238E..0x0052242D`:
+/// Do_Action(0x1F, 0, 0)) and then approaches it like any other GI. Within
+/// reach he stays deployed. A human's deployed man is left as he is
+/// (`0x00522388`).
+#[test]
+fn a_computers_deployed_gi_undeploys_to_approach_a_target_out_of_reach() {
+    let Some(rules) = retail_rules() else {
+        return;
+    };
+    let deployed_gi = |owner: &str, rival: &str, tank_cell: (u16, u16)| {
+        let mut sim = arena(&rules);
+        let gi = spawn(&mut sim, &rules, "E1", owner, (10, 10));
+        let tank = spawn(&mut sim, &rules, "MTNK", rival, tank_cell);
+        sim.substrate.entities.get_mut(gi).unwrap().mission_leaf =
+            MissionLeafState::infantry_raw_for_test(0, DO_DEPLOYED);
+        target(&mut sim, gi, tank);
+        start_mission(&mut sim, gi, MissionType::Attack);
+        (sim, gi)
+    };
+    let deployed = |sim: &Simulation, gi: u64| {
+        let entity = sim.substrate.entities.get(gi).unwrap();
+        (DO_DEPLOY..=DO_DEPLOYED_IDLE).contains(&entity.mission_leaf.as_infantry().unwrap().doing())
+    };
+
+    let (mut sim, gi) = deployed_gi("Americans", "Russians", (24, 10));
+    sim.approach_target(gi, &rules, None, crate::sim::world::FrameEffects::default());
+    assert!(deployed(&sim, gi), "a human's man stood up");
+
+    for (tank_cell, approaches) in [((24, 10), true), ((13, 10), false)] {
+        let (mut sim, gi) = deployed_gi("Russians", "Americans", tank_cell);
+        let (mut stood_up, mut nav_com) = (false, None);
+        for _ in 0..120 {
+            step(&mut sim, &rules);
+            stood_up |= !deployed(&sim, gi);
+            nav_com = nav_com.or(sim.substrate.entities.get(gi).unwrap().navigation.nav_com);
+        }
+        assert_eq!(stood_up, approaches, "against {tank_cell:?}");
+        match nav_com {
+            Some(NavTargetRef::Cell { rx, ry }) if approaches => {
+                assert_ne!((rx, ry), tank_cell);
+            }
+            None if !approaches => {}
+            other => panic!("against {tank_cell:?}: NavCom {other:?}"),
+        }
+    }
 }

@@ -69,7 +69,6 @@ mod shroud_gpu_tests;
 pub(crate) mod sinking;
 pub mod sidebar_cameo_atlas;
 pub mod sidebar_chrome;
-pub(crate) mod sidebar_surface;
 pub mod sidebar_text;
 pub mod skirmish_shell_chrome;
 pub mod smudge;

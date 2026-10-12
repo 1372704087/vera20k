@@ -40,6 +40,11 @@ impl SidebarFrame {
         }
     }
 
+    /// The native size, Normal: what captures and native comparisons use.
+    pub fn native(frame_width: u32, frame_height: u32) -> Self {
+        Self::new(frame_width, frame_height, 100)
+    }
+
     /// Frame pixels per sidebar pixel.
     pub fn scale(self) -> f32 {
         self.percent as f32 / 100.0
@@ -136,11 +141,12 @@ impl SidebarFrame {
         (0, y, self.column().0, self.frame_height - y)
     }
 
-    /// The frame pixel where the bar's surface pixel (0, 0) lands.
+    /// The frame pixel where the bar's surface pixel (0, 0) lands; above the
+    /// frame when the frame is shorter than the strip.
     pub fn bar_origin(self) -> (f32, f32) {
         (
             self.x_to_frame(0.0),
-            (self.frame_height - self.strip_height_in_frame()) as f32,
+            self.frame_height as f32 - self.strip_height_in_frame() as f32,
         )
     }
 
@@ -239,6 +245,11 @@ mod tests {
         assert_eq!(xl.surface_size(), (168, 541));
         assert_eq!(xl.strip(), (0, 1017, 1585, 64));
         assert_eq!(xl.bar_origin(), (-1.0, 1017.0));
+        // A frame shorter than the strip keeps a one-pixel battlefield.
+        let tiny = SidebarFrame::native(100, 20);
+        assert_eq!(tiny.tactical_size(), (1, 1));
+        assert_eq!(tiny.strip(), (0, 0, 0, 20));
+        assert_eq!(tiny.bar_origin(), (0.0, -12.0));
         assert_eq!(
             xl.bar_rect_to_frame(rect(10.0, 509.0, 52.0, 32.0)),
             rect(19.0, 1017.0, 104.0, 64.0)

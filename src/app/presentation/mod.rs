@@ -17,6 +17,7 @@ pub(crate) mod selection_brackets;
 pub(crate) mod sidebar_build;
 pub(crate) mod sidebar_gadgets;
 pub(crate) mod sidebar_render;
+pub(crate) mod sidebar_surface;
 pub(crate) mod sidebar_text;
 pub(crate) mod state;
 pub(crate) mod super_timers;

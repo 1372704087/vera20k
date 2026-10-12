@@ -2484,7 +2484,7 @@ mod tests {
     /// a zero-width scissor drops every tactical draw call silently.
     #[test]
     fn tactical_viewport_width_never_collapses_or_overruns_the_target() {
-        let size = |w, h| crate::ui::sidebar::SidebarFrame::new(w, h, 100).tactical_size();
+        let size = |w, h| crate::ui::sidebar::SidebarFrame::native(w, h).tactical_size();
         assert_eq!(size(168, 32), (1, 1));
         assert_eq!(size(100, 20), (1, 1));
     }

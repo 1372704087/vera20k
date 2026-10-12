@@ -527,6 +527,8 @@ pub struct BatchRenderer {
     ui_camera_buffer: wgpu::Buffer,
     /// UI camera bind group — always zoom=1.0.
     ui_camera_bind_group: wgpu::BindGroup,
+    /// Neutral A, for the camera groups that sample no shroud.
+    neutral_a: (wgpu::TextureView, wgpu::Buffer),
 }
 
 impl BatchRenderer {
@@ -1283,6 +1285,7 @@ impl BatchRenderer {
             bound_shroud_view: None,
             ui_camera_buffer,
             ui_camera_bind_group,
+            neutral_a: (neutral_a, neutral_a_uniform),
         }
     }
 
@@ -1621,27 +1624,24 @@ impl BatchRenderer {
         ui_camera(self.camera_uniform())
     }
 
-    /// A camera of its own for drawing the UI into a surface
-    /// (`render::sidebar_surface`): its uniform buffer, and its group-0 bind
-    /// group, which samples neutral A.
-    pub(crate) fn create_surface_camera(
+    /// A UI camera of its own, for drawing the UI into a surface of its own
+    /// (`presentation::sidebar_surface`): its uniform buffer, and its group-0
+    /// bind group, which samples neutral A.
+    pub(crate) fn create_ui_camera(
         &self,
         device: &wgpu::Device,
-        queue: &wgpu::Queue,
     ) -> (wgpu::Buffer, wgpu::BindGroup) {
         let buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("Surface Camera Uniform"),
+            label: Some("Surface UI Camera Uniform"),
             contents: bytemuck::bytes_of(&self.ui_camera_uniform()),
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
         });
-        let (neutral_a, neutral_a_uniform) =
-            crate::render::shroud_buffer::neutral_gpu_source(device, queue);
         let group = camera_group(
             device,
             &self.camera_bind_group_layout,
             &buffer,
-            &neutral_a,
-            &neutral_a_uniform,
+            &self.neutral_a.0,
+            &self.neutral_a.1,
         );
         (buffer, group)
     }

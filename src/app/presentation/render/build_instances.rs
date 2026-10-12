@@ -89,7 +89,7 @@ pub(super) struct UiInstances {
 pub(super) struct SidebarInstances {
     /// The sidebar surface's layers, in layout space (`ui::sidebar::frame`).
     pub chrome: Vec<SpriteInstance>,
-    /// The bottom command bar, in frame pixels.
+    /// The bottom command bar's surface layer, in layout space too.
     pub command_bar: Vec<SpriteInstance>,
     pub cameo: Vec<SpriteInstance>,
     pub gclock: Vec<SpriteInstance>,
@@ -801,7 +801,7 @@ pub(super) fn build_sidebar_instances(state: &mut AppState) -> SidebarInstances 
         .as_ref()
         .map(|v| build_sidebar_chrome_instances(state, v))
         .unwrap_or_default();
-    // The bottom bar is frame art, not part of the sidebar surface.
+    // The bottom bar draws into a surface of its own.
     let command_bar = view
         .as_ref()
         .map(|_| build_command_bar_instances(state))

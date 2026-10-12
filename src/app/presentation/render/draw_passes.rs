@@ -11,11 +11,11 @@ use crate::app::presentation::sidebar_render::{
     begin_main_load_pass, begin_main_pass, current_sidebar_chrome_texture,
     current_sidebar_gclock_texture,
 };
+use crate::app::presentation::sidebar_surface::SidebarPart;
 use crate::app::presentation::ui_overlays::current_software_cursor_texture;
 use crate::render::batch::{BatchRenderer, BatchTexture, InstanceBufferPool, SpriteInstance};
 use crate::render::bridge_atlas::BridgeAtlas;
 use crate::render::overlay_atlas::OverlayAtlas;
-use crate::render::sidebar_surface::SidebarPart;
 use crate::render::tactical_draw_plan::RenderZPolicy;
 use crate::render::tile_atlas::TileAtlas;
 
@@ -876,8 +876,9 @@ fn draw_pooled_no_depth<'a>(
 }
 
 /// Draw with the UI camera (zoom=1.0) for screen-fixed elements.
-/// Uses the overlay pipeline (no depth) but sets bind group 0 to the UI camera
-/// so messages, tooltips, and cursor stay at fixed screen positions regardless of zoom.
+/// Uses the overlay pipeline (LessEqual, writes depth) with bind group 0 set to
+/// the UI camera, so messages, tooltips, and cursor stay at fixed screen
+/// positions regardless of zoom.
 fn draw_pooled_ui<'a>(
     pass: &mut wgpu::RenderPass<'a>,
     batch: &'a BatchRenderer,
@@ -1212,12 +1213,30 @@ mod tests {
         assert!(surface_pass < frame_pass);
         assert!(timer_text < blit);
         assert!(blit < message);
+
+        // No sidebar or bar layer draws in the frame pass, so the frame keeps
+        // no sidebar depth: the tooltips and the cursor show over the radar.
+        let production = SOURCE.split("#[cfg(test)]").next().unwrap();
+        for layer in [
+            "\"sidebar_chrome\"",
+            "\"sidebar_cameo\"",
+            "\"sidebar_gclock\"",
+            "\"sidebar_cameo_overlay\"",
+            "\"sidebar_text\"",
+            "\"radar_anim\"",
+            "\"minimap\"",
+            "\"viewport_rect\"",
+            "\"radar_content_boundary\"",
+            "\"command_bar\"",
+        ] {
+            assert!(source_offset(layer) < frame_pass, "{layer}");
+            assert!(!production[frame_pass..].contains(layer), "{layer}");
+        }
     }
 
     #[test]
     fn gsi_04_01_tooltip_and_cursor_remain_after_the_retained_sidebar_surface() {
-        let viewport = source_offset("\"viewport_rect\"");
-        let boundary = source_offset("\"radar_content_boundary\"");
+        let blit = source_offset("surface.composite(&mut pass)");
         let message = source_offset("\"message_text\"");
         let tooltip_fill = source_offset("\"tooltip_fill\"");
         let tooltip_border = source_offset("\"tooltip_border\"");
@@ -1225,8 +1244,7 @@ mod tests {
         let screenshot_boundary = source_offset("stage_pre_cursor_composition");
         let cursor = source_offset("\"software_cursor\"");
 
-        assert!(viewport < boundary);
-        assert!(boundary < message);
+        assert!(blit < message);
         assert!(message < tooltip_fill);
         assert!(tooltip_fill < tooltip_border);
         assert!(tooltip_border < tooltip_text);

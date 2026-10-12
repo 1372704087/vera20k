@@ -113,7 +113,7 @@ mod tests {
         // Retail UIMD.INI [AdvancedCommandBar] ButtonList:
         // Team01,Team02,TypeSelect,Deploy,Guard,PlanningMode.
         let slots = vec![Some(0), Some(1), Some(3), Some(4), Some(6), Some(9)];
-        let native = sidebar::SidebarFrame::new(800, 600, 100);
+        let native = sidebar::SidebarFrame::native(800, 600);
         let mut gadgets = InGameGadgets::new();
         sync_prepared(
             &mut gadgets,

@@ -38,7 +38,6 @@ pub(crate) fn build_sidebar_chrome_instances(
         view,
         &view.tabs,
         &state.match_state.match_presentation.power_bar_anim,
-        [state.render_width() as f32, state.render_height() as f32],
         [
             state.match_state.input.camera_x,
             state.match_state.input.camera_y,
@@ -48,8 +47,8 @@ pub(crate) fn build_sidebar_chrome_instances(
     )
 }
 
-/// The bottom command bar, which shares the chrome atlas but is drawn in the
-/// frame, outside the sidebar surface.
+/// The bottom command bar, which shares the chrome atlas but draws into a
+/// surface of its own (`presentation::sidebar_surface`).
 pub(crate) fn build_command_bar_instances(state: &AppState) -> Vec<SpriteInstance> {
     let mut instances = Vec::new();
     if let Some(atlas) = current_sidebar_chrome(state) {
@@ -65,7 +64,6 @@ pub fn build_sidebar_chrome_instances_for_layout(
     view: &SidebarView,
     tabs: &[SidebarTabButton],
     power_bar_anim: &PowerBarAnimState,
-    _screen_size: [f32; 2],
     camera_offset: [f32; 2],
     ui_scale: f32,
     static_radar_fallback: bool,

@@ -27,7 +27,7 @@ pub(crate) struct RendererState {
     pub(crate) upscale_pass: Option<crate::render::upscale_pass::UpscalePass>,
     /// The sidebar's own surface, made by the first match frame and following
     /// the frame and the Sidebar size (`render_game`).
-    pub(crate) sidebar_surface: Option<crate::render::sidebar_surface::SidebarSurface>,
+    pub(crate) sidebar_surface: Option<crate::app::presentation::sidebar_surface::SidebarSurface>,
     /// Optional diagnostic GUI; absent from the normal game build.
     #[cfg(feature = "dev-ui")]
     pub(super) debug_ui: EguiIntegration,

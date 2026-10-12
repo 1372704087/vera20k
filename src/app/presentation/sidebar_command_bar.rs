@@ -2,7 +2,7 @@
 //!
 //! The bar lays out in the sidebar's layout space (`ui::sidebar::frame`), on
 //! the strip under the battlefield, and draws into its own surface
-//! (`render::sidebar_surface`); its gadgets take it in frame pixels.
+//! (`presentation::sidebar_surface`); its gadgets take it in frame pixels.
 
 use super::*;
 use crate::ui::sidebar::command_bar::CommandBarLayout;

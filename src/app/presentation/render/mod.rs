@@ -215,7 +215,7 @@ pub(crate) fn render_game(
         surface.set_frame(&gpu.device, &gpu.queue, sidebar_frame);
     }
     let surface = renderer.sidebar_surface.get_or_insert_with(|| {
-        crate::render::sidebar_surface::SidebarSurface::new(
+        crate::app::presentation::sidebar_surface::SidebarSurface::new(
             &gpu.device,
             &gpu.queue,
             gpu.surface_format,

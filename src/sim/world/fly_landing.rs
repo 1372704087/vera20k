@@ -449,8 +449,7 @@ impl Simulation {
             radio::broadcast(self, id, RadioMessage::Tether, rules, frame_effects);
             if let Some(entity) = self.substrate.entities.get(id) {
                 let config = self.sight_reveal_config(rules);
-                let grid = self.path_grid_snapshot();
-                let heights = grid.as_ref().map(|g| g.ground_height_grid());
+                let heights = self.sight_height_grid(&config);
                 let ability =
                     crate::sim::vision::entity_has_sight_ability(entity, &self.interner, rules);
                 crate::sim::vision::force_refresh_entity_vision(

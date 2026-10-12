@@ -121,13 +121,10 @@ struct CombatantSelection {
 
 /// P732280, Health733380 and Y7336C0 share the A8B538 defeat guard:
 /// House4FC1B0..4FC205 sets it only for PlayerPtr; session52DA94 and
-/// cooperative setup5C38A8..5C3ABE clear it. The existing House outcome
-/// owner supplies this state; input keeps no competing defeat flag.
+/// cooperative setup5C38A8..5C3ABE clear it. The House defeat owner supplies
+/// this state; input keeps no competing defeat flag.
 fn selection_navigation_allowed(sim: &crate::sim::world::Simulation) -> bool {
-    !sim.session
-        .current_house
-        .and_then(|id| sim.houses.get(&id))
-        .is_some_and(|house| house.is_defeated)
+    !sim.local_player_defeated()
 }
 
 /// Shared owner arm of the P732580 and Health/Y7335F0 source predicates.

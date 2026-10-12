@@ -204,18 +204,63 @@ impl Simulation {
         }
     }
 
-    /// The lobby's `Shroud=no` start for the local house
-    /// (`scenario_bootstrap::apply_launch_shroud_option`): every allocated
-    /// cell becomes explored, once (`House+0x240`), with no sight, gap pass
-    /// or map-clear byte. Its native routine is not traced. It is not
-    /// [`Self::reveal_map_for_owner`], whose only callers are the Reveal crate
-    /// (`0x00481FC3`) and the Spy Satellite (`0x00509064`).
-    pub(crate) fn reveal_launch_map_for_owner(&mut self, owner: crate::sim::intern::InternedId) {
-        if let Some(terrain) = self.resolved_terrain.as_ref() {
-            let cells: Vec<(u16, u16)> = terrain.iter().map(|cell| (cell.rx, cell.ry)).collect();
-            self.fog.reveal_cells_for_owner(owner, cells);
-        } else {
-            self.fog.reveal_all_for_owner(owner);
+    /// `MapClass::RevealEntireMap @ 0x00577F30` for `house`. `None` is the
+    /// native NULL that `Read_Scenario` passes for `Shroud=no`
+    /// (`0x006849E7`); `MPlayer_Defeated` passes the defeated local house
+    /// (`0x004FC20F`).
+    /// - A named house's map-clear byte (`+0x241`) is set (`0x00577F48`).
+    /// - Only the current house (`PlayerPtr`) or NULL goes on
+    ///   (`0x00577F4F..0x00577F63`). Once per House+240
+    ///   ([`vision::FogState::admit_whole_map_reveal`]), every allocated cell
+    ///   in `CellIterator_Init @ 0x00578350` / `Next @ 0x00578290` order is
+    ///   revealed to the current house ([`vision::FogState::reveal_cell`]),
+    ///   each change notifying its cell ([`Self::notify_cell_change`]) before
+    ///   the next cell.
+    /// - GameMode 3 and 4 skip three cells (`0x00577F72..0x00578041`) when a
+    ///   session object answers false; VERA has no session object (as in
+    ///   [`vision::collect_reveal_cells`]).
+    /// - The full radar refresh (`0x00657CE0`) and the redraw request
+    ///   (`0x004F42F0`) are presentation; the app re-reads the fog each frame.
+    ///
+    /// Unlike [`Self::reveal_map_for_owner`] it writes no shroud counter and
+    /// releases no sight or gap. No RNG draw, timer write or detach.
+    pub(crate) fn reveal_entire_map(
+        &mut self,
+        house: Option<crate::sim::intern::InternedId>,
+        context: UninitContext<'_>,
+    ) {
+        if let Some(state) = house.and_then(|house| self.houses.get_mut(&house)) {
+            state.map_is_clear = true;
+        }
+        let Some(player) = self.session.current_house else {
+            return;
+        };
+        if house.is_some_and(|house| house != player) || !self.fog.admit_whole_map_reveal(player) {
+            return;
+        }
+        let cells: Vec<(u16, u16)> = match (
+            context.terrain().or(self.resolved_terrain.as_ref()),
+            self.map_size_diamond(),
+        ) {
+            (Some(terrain), Some((width, _))) => terrain
+                .native_cell_iterator(width)
+                .map(|cell| (cell.rx, cell.ry))
+                .collect(),
+            // Synthetic fixtures without a map Size walk their allocated cells.
+            (Some(terrain), None) => terrain.iter().map(|cell| (cell.rx, cell.ry)).collect(),
+            (None, _) => self.fog.rectangular_cells(),
+        };
+        for cell in cells {
+            let notify = {
+                let native_cells = context
+                    .terrain()
+                    .or(self.resolved_terrain.as_ref())
+                    .map(crate::map::resolved_terrain::NativeCellQuery::canonical);
+                self.fog.reveal_cell(player, cell, native_cells.as_ref())
+            };
+            if let Some(notify) = notify {
+                self.notify_cell_change(notify.cell, player, notify.fresh, context);
+            }
         }
     }
 

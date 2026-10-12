@@ -1,6 +1,7 @@
 //! Map577D90/577AB0 bulk transitions bracketed by4ADEE0/4ADCD0.
 //! Native callbacks visit Techno registration order, ordinary sight then Gap on
-//! each object. House240 idempotence is distinct from House577A SpySatActive.
+//! each object. House240 idempotence is distinct from House577A SpySatActive;
+//! Map577F30 (RevealEntireMap) shares the House240 latch.
 use super::{FogState, InternedId, OwnerVisibility, gap_footprint};
 
 impl FogState {
@@ -8,6 +9,12 @@ impl FogState {
     /// stored House+241 map-clear byte does not decide reveal admission.
     pub(crate) fn whole_map_revealed_for_owner(&self, owner: InternedId) -> bool {
         self.whole_map_revealed_owners.contains(&owner)
+    }
+
+    /// `MapClass::RevealEntireMap`'s one-time House+240 test and set
+    /// (`0x00577F9A..0x00577FAD`): false when the map is already revealed.
+    pub(crate) fn admit_whole_map_reveal(&mut self, owner: InternedId) -> bool {
+        self.whole_map_revealed_owners.insert(owner)
     }
 
     /// Successful native6FB170 gap re-admission invalidates House+240,
@@ -20,6 +27,7 @@ impl FogState {
         std::hash::Hash::hash(&self.whole_map_revealed_owners, hasher);
     }
 
+    #[cfg(test)]
     pub(crate) fn transition_whole_map_for_owner(
         &mut self,
         owner: InternedId,
@@ -45,6 +53,7 @@ impl FogState {
         );
     }
 
+    #[cfg(test)]
     pub(crate) fn transition_whole_map_with_sources(
         &mut self,
         owner: InternedId,

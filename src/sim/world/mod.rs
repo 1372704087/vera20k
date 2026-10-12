@@ -1274,6 +1274,14 @@ pub struct Simulation {
     pub radar_terrain_dirty_cells: Vec<(u16, u16)>,
     #[serde(skip)]
     pub radar_terrain_dirty_generation: u64,
+    /// Derived index of `radar_terrain_dirty_cells` for
+    /// [`Self::mark_radar_terrain_dirty_cells`], with the list length and
+    /// generation it was built for. Every other writer pushes (changing the
+    /// length) and bumps the generation it is given
+    /// ([`mark_wall_radar_dirty_cell`]); the only clear empties the list. A
+    /// mismatch of either rebuilds the index from the list.
+    #[serde(skip)]
+    radar_terrain_dirty_index: (BTreeSet<(u16, u16)>, usize, u64),
     /// Runtime cell rects dirtied by tiberium mutation side effects.
     #[serde(skip)]
     pub(crate) tactical_dirty_cells: Vec<(u16, u16)>,
@@ -3290,6 +3298,7 @@ impl Simulation {
             metallic_debris: Vec::new(),
             radar_terrain_dirty_cells: Vec::new(),
             radar_terrain_dirty_generation: 0,
+            radar_terrain_dirty_index: Default::default(),
             tactical_dirty_cells: Vec::new(),
             power_states: BTreeMap::new(),
             super_weapons: BTreeMap::new(),
@@ -3410,13 +3419,24 @@ impl Simulation {
         self.interner.resolve(id)
     }
 
+    /// Append each cell not yet in the pending radar-terrain batch. A
+    /// whole-map reveal marks every cell, so membership goes through the
+    /// derived index rather than a scan of the list.
     pub(crate) fn mark_radar_terrain_dirty_cells<I>(&mut self, cells: I)
     where
         I: IntoIterator<Item = (u16, u16)>,
     {
+        let built_for = (
+            self.radar_terrain_dirty_cells.len(),
+            self.radar_terrain_dirty_generation,
+        );
+        let index = &mut self.radar_terrain_dirty_index;
+        if (index.1, index.2) != built_for {
+            index.0 = self.radar_terrain_dirty_cells.iter().copied().collect();
+        }
         let mut changed = false;
         for cell in cells {
-            if !self.radar_terrain_dirty_cells.contains(&cell) {
+            if index.0.insert(cell) {
                 self.radar_terrain_dirty_cells.push(cell);
                 changed = true;
             }
@@ -3425,6 +3445,8 @@ impl Simulation {
             self.radar_terrain_dirty_generation =
                 self.radar_terrain_dirty_generation.wrapping_add(1);
         }
+        index.1 = self.radar_terrain_dirty_cells.len();
+        index.2 = self.radar_terrain_dirty_generation;
     }
 
     pub(crate) fn flush_smudge_dirty(&mut self) {
@@ -4702,6 +4724,15 @@ impl Simulation {
         );
         if assessed {
             production::refresh_factory_rates_for_house(self, rules, owner);
+        }
+        // 0x004F84FB: once the current house is defeated no House rechecks
+        // radar, so the radar its defeat switched on stays on.
+        if self.local_player_defeated() {
+            self.power_states
+                .get_mut(&owner)
+                .expect("represented House power state")
+                .skip_radar_recheck();
+            return;
         }
         let buildings = self.houses[&owner].base_projection.buildings();
         power_system::assess_house_radar_projection(

@@ -1,7 +1,8 @@
-//! MapCell4A9CA0 and Tactical6D8700 edge-cache authority for ordinary reveals.
-//! Counters and ground knowledge stay with OwnerVisibility. These derived cache
-//! bytes update only when this cell's native leaf is visited; neighbor writes
-//! deliberately leave them stale. Native constructor47BD3A initializes -2/-2.
+//! MapCell4A9CA0, RevealCell4AA050 and Tactical6D8700 edge-cache authority.
+//! Counters and ground knowledge stay with OwnerVisibility. MapCell4A9CA0
+//! updates these derived cache bytes only for the cell it visits, leaving its
+//! neighbors stale; RevealCell4AA050 also rewrites its neighbors' ground
+//! frames. Native constructor47BD3A initializes -2/-2.
 
 use super::{FogState, GROUND_OPEN, GROUND_VISIBLE, InternedId, OwnerVisibility, ShroudKnowledge};
 use crate::map::cell_index::NativeCellIdentity;
@@ -252,11 +253,117 @@ impl FogState {
         SHROUD_EDGE_LUT[usize::from(mask)] as i8
     }
 
+    /// `DisplayClass::RevealCell @ 0x004AA050` (DisplayClass vtable `+0x9C`)
+    /// for `viewer`, on the ground bits (`Cell+0x12C`) and ground edge frame
+    /// (`Cell+0x120`) that [`Self::map_cell_edge_frame`] reads. Its Tactical
+    /// redraw marks (`0x006DA7D0`) are presentation.
+    /// - The cell becomes explored (`0x08`); its frame is recomputed and
+    ///   stored, and -1 opens it (`0x10`, `0x004AA05D..0x004AA0B4`).
+    /// - Each neighbor in `0x0089F688` order that is not open has its frame
+    ///   recomputed (`0x004AA0CA..0x004AA25E`). -1 opens it and stores the
+    ///   frames of its own eight neighbors, but not its own; any other
+    ///   non-negative frame is stored.
+    /// - Its two recursive calls (`0x004AA171`, `0x004AA229`) need a neighbor
+    ///   that is neither explored nor open and whose frame is not -2, which
+    ///   the ground gate of `0x006D8700` (`0x006D88F4..0x006D890A`) never
+    ///   returns.
+    ///
+    /// No shroud counter, `Cell+0x140` bit or fog frame (`+0x121`) is
+    /// written. [`ShroudKnowledge::open`] stands for both ground bits, while
+    /// `MapClass::IsShrouded @ 0x00586360` reads `0x08` alone, so the explored
+    /// cell opens there too. A cell left with `0x08` but not `0x10` (one beside
+    /// an unallocated cell) then reads as open to `0x00487630`, which clears
+    /// its pending conceal where native sets `0x10` instead.
+    ///
+    /// RESIDUAL (#1117): the two bits are read from `ground_flags`, which the
+    /// gap, conceal, fire and whole-map writers (`0x006FB170`, `0x006FB470`,
+    /// `0x00578100`, `0x004876F0`, `0x00577D90`, `0x00577AB0`) leave as they
+    /// were. A cell a hostile gap re-hid still reads explored: its reveal is
+    /// not fresh and, with its frame unchanged, sends no CellChangeNotify, and
+    /// as a neighbor it is skipped when its stale `0x10` is set. A cell those
+    /// writers opened through `open` alone reads unexplored and notifies again.
+    /// Effect: on a later whole-map reveal (a local defeat) those cells'
+    /// discovery, radar marks and stored edge frames differ from native.
+    ///
+    /// Returns CellChangeNotify's arguments when the explored bit or the frame
+    /// changed (`0x004AA264..0x004AA27C`).
+    pub(crate) fn reveal_cell(
+        &mut self,
+        viewer: InternedId,
+        cell: (u16, u16),
+        native_cells: Option<&NativeCellQuery<'_>>,
+    ) -> Option<MapCellNotification> {
+        let vis = self
+            .by_owner
+            .entry(viewer)
+            .or_insert_with(|| OwnerVisibility::new(self.width, self.height));
+        let center = vis.visibility_cell(cell, native_cells);
+        let (state, ground, _) = vis.map_cell_parts_mut(center);
+        let fresh = *ground & GROUND_VISIBLE == 0;
+        *ground |= GROUND_VISIBLE;
+        state.open = true;
+        if let VisibilityCell::Real(index) = center {
+            vis.publish_knowledge(index);
+        }
+        let frame = self.map_cell_edge_frame(viewer, cell, false, native_cells);
+        let vis = self.by_owner.get_mut(&viewer).unwrap();
+        let (_, ground, cache) = vis.map_cell_parts_mut(center);
+        let changed = fresh || frame != cache.frames[0];
+        cache.frames[0] = frame;
+        if frame == -1 {
+            *ground |= GROUND_OPEN;
+        }
+        for neighbor in cell_neighbors(cell) {
+            let key = self.by_owner[&viewer].visibility_cell(neighbor, native_cells);
+            if self.by_owner[&viewer].map_cell_parts(key).0 & GROUND_OPEN != 0 {
+                continue;
+            }
+            let frame = self.map_cell_edge_frame(viewer, neighbor, false, native_cells);
+            let vis = self.by_owner.get_mut(&viewer).unwrap();
+            let (_, ground, cache) = vis.map_cell_parts_mut(key);
+            if frame == -1 {
+                *ground |= GROUND_OPEN;
+                for next in cell_neighbors(neighbor) {
+                    let key = self.by_owner[&viewer].visibility_cell(next, native_cells);
+                    let frame = self.map_cell_edge_frame(viewer, next, false, native_cells);
+                    let vis = self.by_owner.get_mut(&viewer).unwrap();
+                    vis.map_cell_parts_mut(key).2.frames[0] = frame;
+                }
+            } else if frame >= 0 {
+                cache.frames[0] = frame;
+            }
+        }
+        if !changed {
+            return None;
+        }
+        let cell = match (center, native_cells) {
+            (VisibilityCell::Dummy, Some(cells)) => {
+                let coord = cells.coord(NativeCellIdentity::Dummy);
+                (coord.0 as u16, coord.1 as u16)
+            }
+            _ => cell,
+        };
+        Some(MapCellNotification { cell, fresh })
+    }
+
     pub(super) fn is_dummy_ground_unshrouded(&self, viewer: InternedId) -> bool {
         self.by_owner
             .get(&viewer)
             .is_some_and(|vis| vis.dummy_visibility.ground & GROUND_VISIBLE != 0)
     }
+}
+
+/// The eight cells around `cell` in `0x0089F688` order, with the native signed
+/// WORD adds.
+fn cell_neighbors(cell: (u16, u16)) -> impl Iterator<Item = (u16, u16)> {
+    crate::util::direction_tables::cell::CELL_DELTAS
+        .into_iter()
+        .map(move |(dx, dy)| {
+            (
+                (cell.0 as i16).wrapping_add(dx as i16) as u16,
+                (cell.1 as i16).wrapping_add(dy as i16) as u16,
+            )
+        })
 }
 
 /// Shroud edge frame lookup table.

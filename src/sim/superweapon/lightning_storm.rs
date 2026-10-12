@@ -230,8 +230,9 @@ pub(super) fn launch(
 ///    event at the cell, the duration and start frame, every house's radar
 ///    outage ([`crate::sim::power_system::PowerState::start_radar_outage`],
 ///    `HouseClass::CreateRadarOutage @ 0x0050BCD0`) unless the storm's house
-///    counts it an ally (`HouseClass::IsAlliedWith @ 0x004F9A50`) or it is
-///    defeated (`+0x1F5`), the player's radar recheck (`PlayerPtr+0x5779`),
+///    counts it an ally (`HouseClass::IsAlliedWith @ 0x004F9A50`), it is
+///    defeated (`+0x1F5`) or the current house is (Session `+0x300`,
+///    `0x00539FE0`), the player's radar recheck (`PlayerPtr+0x5779`),
 ///    UpdateLighting and, under `LightningPrintText=` (`0x0053A014`),
 ///    [`SimSoundEvent::LightningStormBegan`] (StormSound and
 ///    `TXT_LIGHTNING_STORM`).
@@ -278,6 +279,7 @@ pub(crate) fn start(
     storm.duration = duration;
     storm.start_frame = frame as i32;
     storm.active = true;
+    let local_player_defeated = sim.local_player_defeated();
     // HouseClass::Array, in creation order.
     for index in 0..sim.session.house_order.len() {
         let house = sim.session.house_order[index];
@@ -290,7 +292,7 @@ pub(crate) fn start(
         {
             continue;
         }
-        if sim.houses.get(&house).is_none_or(|state| state.is_defeated) {
+        if sim.houses.get(&house).is_none_or(|state| state.is_defeated) || local_player_defeated {
             continue;
         }
         sim.power_states

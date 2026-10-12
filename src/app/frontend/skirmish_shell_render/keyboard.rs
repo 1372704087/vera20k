@@ -89,8 +89,6 @@ pub(crate) fn render_keyboard_shell(
     destination: &wgpu::Texture,
 ) -> anyhow::Result<()> {
     use crate::app::frontend::shell_transition::ShellSlideKind;
-    let width = state.render_width() as i32;
-    let height = state.render_height() as i32;
     let title_text = localized_label(state, KEYBOARD_PAGE.title_key, "Keyboard Options");
     let now = Instant::now();
     let active = state
@@ -100,6 +98,13 @@ pub(crate) fn render_keyboard_shell(
         .expect("active A3 state")
         .parent
         == KeyboardParent::GameControls;
+    // The in-game A3 sits in the active-game shell's pixels.
+    let shell = active
+        .then(|| in_game_shell::current_in_game_shell_layout(state).expect("active A3 frame"));
+    let (width, height) = shell.map_or(
+        (state.render_width() as i32, state.render_height() as i32),
+        |shell| (shell.width, shell.height),
+    );
     // The front-end page slides like its family: the teardown slide repaints
     // the dialog and pumps no messages until it ends, so every child stays
     // blank; the entry slide suppresses the heading, status line and Back
@@ -152,9 +157,12 @@ pub(crate) fn render_keyboard_shell(
             crate::app::frontend::shell_layout::keyboard_layout(state, width, height, None).footer;
         crate::app::frontend::menu_page_render::paint_shell_status_line(state, help, window)
     };
-    let shell = active
-        .then(|| in_game_shell::current_in_game_shell_layout(state).expect("active A3 frame"));
-    let layout = crate::app::frontend::shell_layout::keyboard_layout(state, width, height, shell);
+    let layout = crate::app::frontend::shell_layout::keyboard_layout(
+        state,
+        width,
+        height,
+        shell.map(|shell| (shell.layout, shell.button_size)),
+    );
     let dialog = state
         .frontend
         .keyboard_dialog
@@ -165,10 +173,10 @@ pub(crate) fn render_keyboard_shell(
         .skirmish_shell_chrome
         .as_ref()
         .expect("A3 control art");
-    let mut art = if let Some((shell, _)) = shell {
+    let mut art = if let Some(shell) = shell {
         let sidebar = crate::app::presentation::sidebar_render::current_sidebar_chrome(state)
             .expect("active A3 side art");
-        let mut art = in_game_shell::background_instances(sidebar, shell, width, height);
+        let mut art = in_game_shell::background_instances(sidebar, shell.layout, width, height);
         let frame = crate::ui::shell::button::owner_button_frame(
             dialog.buttons.is_pressed(KeyboardButton::Back),
             false,

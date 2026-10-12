@@ -76,18 +76,34 @@ pub(crate) fn in_game_key_edge(
 }
 
 pub(crate) fn layout(state: &AppState) -> Option<KeyboardLayout> {
+    layout_and_pointer(state).map(|(layout, _)| layout)
+}
+
+/// [`layout`] and the pointer in its pixels: the active-game shell's in game,
+/// the window's on the front end.
+fn layout_and_pointer(state: &AppState) -> Option<(KeyboardLayout, (i32, i32))> {
     let dialog = state.frontend.keyboard_dialog.as_ref()?;
-    let game = dialog.parent == KeyboardParent::GameControls;
-    let size = if game {
-        Some(crate::app::frontend::skirmish_shell_render::current_in_game_shell_layout(state)?)
+    let (width, height, shell, pointer) = if dialog.parent == KeyboardParent::GameControls {
+        let shell =
+            crate::app::frontend::skirmish_shell_render::current_in_game_shell_layout(state)?;
+        (
+            shell.width,
+            shell.height,
+            Some((shell.layout, shell.button_size)),
+            crate::app::frontend::skirmish_shell_render::in_game_shell_cursor(state),
+        )
     } else {
-        None
+        let (x, y) = state.cursor_position();
+        (
+            state.render_width() as i32,
+            state.render_height() as i32,
+            None,
+            (x.round() as i32, y.round() as i32),
+        )
     };
-    Some(crate::app::frontend::shell_layout::keyboard_layout(
-        state,
-        state.render_width() as i32,
-        state.render_height() as i32,
-        size,
+    Some((
+        crate::app::frontend::shell_layout::keyboard_layout(state, width, height, shell),
+        pointer,
     ))
 }
 fn localized(state: &AppState, key: &str, parameter: Option<u8>) -> String {
@@ -270,8 +286,7 @@ fn cue(state: &mut AppState, open: bool) {
 
 /// Poll the captured list gesture and return its next event-loop wake deadline.
 pub(crate) fn poll_scroll_repeat(state: &mut AppState) -> Option<Instant> {
-    let layout = layout(state)?;
-    let (x, y) = state.cursor_position();
+    let (layout, (x, y)) = layout_and_pointer(state)?;
     let dialog = state.frontend.keyboard_dialog.as_mut()?;
     let geometry = ShellListGeometry::new(
         layout.commands,
@@ -279,23 +294,18 @@ pub(crate) fn poll_scroll_repeat(state: &mut AppState) -> Option<Instant> {
         dialog.top,
         ListMetrics::scaled(layout.scale),
     );
-    if dialog.scroll.poll(
-        geometry,
-        &mut dialog.top,
-        x.round() as i32,
-        y.round() as i32,
-        Instant::now(),
-    ) {
+    if dialog
+        .scroll
+        .poll(geometry, &mut dialog.top, x, y, Instant::now())
+    {
         state.platform.window.request_redraw();
     }
     dialog.scroll.repeat_at()
 }
 pub(crate) fn cursor_moved(state: &mut AppState) {
-    let Some(layout) = layout(state) else {
+    let Some((layout, (x, y))) = layout_and_pointer(state) else {
         return;
     };
-    let (x, y) = state.cursor_position();
-    let (x, y) = (x.round() as i32, y.round() as i32);
     let dialog = state.frontend.keyboard_dialog.as_mut().unwrap();
     dialog.hovered = layout.control_at(x, y);
     dialog.buttons.hovered = match dialog.hovered {
@@ -318,11 +328,9 @@ pub(crate) fn mouse(state: &mut AppState, button: MouseButton, pressed: bool) {
     if button != MouseButton::Left {
         return;
     }
-    let Some(layout) = layout(state) else {
+    let Some((layout, (x, y))) = layout_and_pointer(state) else {
         return;
     };
-    let (x, y) = state.cursor_position();
-    let (x, y) = (x.round() as i32, y.round() as i32);
     let dialog = state.frontend.keyboard_dialog.as_mut().unwrap();
     if dialog.category_open {
         if pressed {

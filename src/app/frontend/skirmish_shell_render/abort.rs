@@ -16,10 +16,12 @@ pub(crate) fn render_abort_shell(
     encoder: &mut wgpu::CommandEncoder,
     destination: &wgpu::Texture,
 ) -> anyhow::Result<()> {
-    let width = state.render_width() as i32;
-    let height = state.render_height() as i32;
-    let (shell, button_size) =
-        in_game_shell::current_in_game_shell_layout(state).expect("active B6 geometry");
+    let in_game_shell::InGameShellGeometry {
+        width,
+        height,
+        layout: shell,
+        button_size,
+    } = in_game_shell::current_in_game_shell_layout(state).expect("active B6 geometry");
     let layout = abort_layout(width, height, shell, button_size);
     let interaction = state.match_state.match_presentation.abort_buttons;
     let atlas = crate::app::presentation::sidebar_render::current_sidebar_chrome(state)

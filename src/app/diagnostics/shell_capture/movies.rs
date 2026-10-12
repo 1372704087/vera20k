@@ -999,16 +999,16 @@ impl MoviesCapture {
                 self.route.push(
                     json!({"frame": frame, "action": "pause menu presented", "dialog": 0xb5}),
                 );
-                let (shell, size) =
+                let shell =
                     crate::app::frontend::skirmish_shell_render::current_in_game_shell_layout(
                         state,
                     )
                     .context("campaign B5 has no loaded hit geometry")?;
                 let layout = crate::ui::shell::pause_menu::pause_menu_layout(
-                    state.renderer.gpu.config.width as i32,
-                    state.renderer.gpu.config.height as i32,
-                    shell,
-                    size,
+                    shell.width,
+                    shell.height,
+                    shell.layout,
+                    shell.button_size,
                 );
                 let rect = layout.buttons[PauseMenuButton::Abort as usize];
                 let point = set_window_pointer_to_rect_center(state, rect);
@@ -1068,16 +1068,16 @@ impl MoviesCapture {
                 self.route.push(
                     json!({"frame": frame, "action": "abort modal presented", "dialog": 0xb6}),
                 );
-                let (shell, size) =
+                let shell =
                     crate::app::frontend::skirmish_shell_render::current_in_game_shell_layout(
                         state,
                     )
                     .context("campaign B6 has no loaded hit geometry")?;
                 let layout = crate::ui::shell::abort::abort_layout(
-                    state.renderer.gpu.config.width as i32,
-                    state.renderer.gpu.config.height as i32,
-                    shell,
-                    size,
+                    shell.width,
+                    shell.height,
+                    shell.layout,
+                    shell.button_size,
                 );
                 let rect = layout.button(AbortButton::Leave);
                 let point = set_window_pointer_to_rect_center(state, rect);

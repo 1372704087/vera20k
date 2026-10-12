@@ -1,7 +1,9 @@
 """Native references for a computer team's recruitment, centre and scripts.
 
 Run python -m tools.team_recruit_oracle --check (or explicit --write).
-Rust consumer: src/sim/team_script_vm/recruit_oracle_tests.rs.
+Rust consumers: src/sim/team_script_vm/recruit_oracle_tests.rs,
+src/sim/building_entry_tests.rs (the seeks) and src/sim/docking/bunker_link.rs
+(the tank bunker admission).
 
 Sections, each executed in a fresh emulator per case:
 - recalc: TeamClass::Recalc 0x6EA3E0 with the TaskForce total 0x6E8160 (the
@@ -40,6 +42,11 @@ Sections, each executed in a fresh emulator per case:
   CanBeOccupiedBy 0x457CE0 answers asked only of a nearer building, with the
   Foot or NULL, the latch +0x690, the NavCom-and-Capture test, the
   destination and Capture calls).
+- tank_bunker: FootClass::EnterTankBunker 0x4DFF40, action 61's Foot seek
+  (the admission 0x70FB50 run as original, each of its tests refusing
+  alone; the house's tank bunker list walked from its end, the distance and
+  its ties, the first radio contact 0x65AD30 and occupant +0x2E4 read only
+  of a nearer bunker; the destination, HELLO and Enter calls).
 - load: action 14 0x6ED200 (the TaskForce's aircraft test, the transport
   pick, the radio-contact wait, the join-up, one Enter order per update,
   the completion and the TransportsReturnOnUnload= archive).
@@ -57,8 +64,9 @@ import random
 import struct
 
 from unicorn import UC_HOOK_CODE
-from unicorn.x86_const import (UC_X86_REG_EBX, UC_X86_REG_ECX, UC_X86_REG_EDI,
-                               UC_X86_REG_ESI, UC_X86_REG_ESP, UC_X86_REG_FPCW)
+from unicorn.x86_const import (UC_X86_REG_EAX, UC_X86_REG_EBX, UC_X86_REG_ECX,
+                               UC_X86_REG_EDI, UC_X86_REG_ESI, UC_X86_REG_ESP,
+                               UC_X86_REG_FPCW)
 
 from tools.ai_base_building_oracle import FAKE, FRAME, RULES, STUBS, Emu, u32
 from tools.native_oracle import (NATIVE_FPCW, RET_MAGIC, STACK_BASE, STACK_SIZE,
@@ -999,6 +1007,120 @@ def battle_bunker():
     return rows
 
 
+# ---------------------------------------------------------------- tank_bunker
+
+ENTER_TANK_BUNKER = 0x4DFF40
+TANK_BUNKER_ADMITTED = 0x4DFF54
+RADIO_CONTACT = 0x65AD30
+STUB_CURRENT_WEAPON = STUBS + 0x1D0
+WEAPON = FAKE + 0x352400
+ADMITTED = dict(bunkerable=True, turret=True, weapon=True, speed_type=1, parasite=False)
+
+
+def tank_bunker_row(*, foot, bunkers, admission=ADMITTED):
+    """`bunkers`: dicts of location, a first radio contact (`contact`) and an
+    occupant (+0x2E4, `occupied`), in House+0xCC order; `admission`: the
+    Foot's 0x70FB50 inputs (its type's Bunkerable= +0xD2E and Turret= +0xCA1,
+    a type on its current weapon (vt+0x3F4), its SpeedType +0x67C, a parasite
+    +0x694)."""
+    emu = TeamEmu()
+    house = HOUSES
+    held = OBJECTS + 0x40 * OBJECT_SIZE
+    foot_address = emu.object(0, xyz=foot, rtti=RTTI_UNIT)
+    emu.write32(foot_address + 0x14, 7)  # AbstractFlags: Techno, Object, Foot
+    emu.write32(foot_address + 0x21C, house)
+    emu.write32(foot_address + 0x694, held if admission['parasite'] else 0)
+    foot_type = emu.techno_type_at(0)
+    emu.techno_type[foot_address] = foot_type
+    emu.write8(foot_type + 0xD2E, int(admission['bunkerable']))
+    emu.write8(foot_type + 0xCA1, int(admission['turret']))
+    emu.write32(foot_type + 0x67C, admission['speed_type'])
+    emu.write32(WEAPON, TYPES + TYPE_SIZE if admission['weapon'] else 0)
+    for slot, stub in ((0x278, STUB_TRANSMIT), (0x1E8, STUB_QUEUE_MISSION),
+                       (0x480, STUB_ASSIGN_DESTINATION), (0x3F4, STUB_CURRENT_WEAPON)):
+        emu.write32(OBJECT_VTABLE + slot, stub)
+    coords = {}
+    for index, bunker in enumerate(bunkers):
+        address = emu.object(index + 1, vtable=BUILDING_VTABLE, rtti=RTTI_BUILDING)
+        coords[address] = bunker['xyz']
+        contacts = ARRAYS + 0x1000 + index * 0x40
+        emu.write32(contacts, held if bunker['contact'] else 0)
+        emu.write32(address + 0xE4, contacts)
+        emu.write32(address + 0x2E4, held if bunker['occupied'] else 0)
+        emu.write32(ARRAYS + index * 4, address)
+    emu.write32(house + 0xCC, ARRAYS)
+    emu.write32(house + 0xD8, len(bunkers))
+
+    def index_of(address):
+        return None if address == 0 else TeamEmu.index_of(address) - 1
+
+    def building_coords(e):
+        building = e.uc.reg_read(UC_X86_REG_ECX)
+        e.events.append(['coords', index_of(building)])
+        out = e.arg(0)
+        for offset, value in zip((0, 4, 8), coords[building]):
+            e.write32(out + offset, value)
+        return out
+    emu.hook(STUB_BUILDING_COORDS, building_coords, 4)
+    emu.hook(STUB_CURRENT_WEAPON, lambda e: WEAPON, 0)
+    emu.hook(STUB_TRANSMIT, lambda e: e.events.append(
+        ['transmit', e.arg(0), index_of(e.arg(1))]) or 1, 8)
+    emu.hook(STUB_QUEUE_MISSION, lambda e: e.events.append(
+        ['queue_mission', e.arg(0), e.arg(1)]) or 1, 8)
+    emu.hook(STUB_ASSIGN_DESTINATION, lambda e: e.events.append(
+        ['assign_destination', index_of(e.arg(0)), e.arg(1)]), 8)
+    emu.uc.hook_add(UC_HOOK_CODE, lambda uc, *_: emu.events.append(
+        ['contact', index_of(uc.reg_read(UC_X86_REG_ECX)), emu.arg(0)]),
+        begin=RADIO_CONTACT, end=RADIO_CONTACT)
+    admitted = []
+    emu.uc.hook_add(UC_HOOK_CODE, lambda uc, *_: admitted.append(
+        uc.reg_read(UC_X86_REG_EAX) & 0xFF),
+        begin=TANK_BUNKER_ADMITTED, end=TANK_BUNKER_ADMITTED)
+    result = emu.invoke(ENTER_TANK_BUNKER, ecx=foot_address) & 0xFF
+    return dict(foot=foot, bunkers=bunkers, admission=admission, admitted=admitted[0],
+                result=result, events=emu.events)
+
+
+def tank_bunker():
+    rng = random.Random(0x4DFF40)
+    rows = []
+    for case in range(120):
+        span = (0x400, 0x4000, 0x40000, 0x7FFF00)[case % 4]
+        foot = [rng.randrange(0, span), rng.randrange(0, span), rng.randrange(0, 0x800)]
+        bunkers = [dict(xyz=[rng.randrange(0, span), rng.randrange(0, span),
+                             rng.randrange(0, 0x800)],
+                        contact=rng.random() < 0.3, occupied=rng.random() < 0.3)
+                   for _ in range(rng.randrange(0, 6))]
+        rows.append(tank_bunker_row(foot=foot, bunkers=bunkers))
+    free = dict(contact=False, occupied=False)
+    # Equal distances: the walk from the end meets the later bunker first and
+    # keeps it; held bunkers nearer than the best are passed.
+    rows.append(tank_bunker_row(foot=[0x2000, 0x2000, 0],
+                                bunkers=[dict(free, xyz=[0x2100, 0x2000, 0]),
+                                         dict(free, xyz=[0x2000, 0x2100, 0])]))
+    rows.append(tank_bunker_row(foot=[0x2000, 0x2000, 0],
+                                bunkers=[dict(free, xyz=[0x2080, 0x2000, 0]),
+                                         dict(free, contact=True, xyz=[0x2000, 0x2040, 0]),
+                                         dict(free, occupied=True, xyz=[0x2040, 0x2000, 0]),
+                                         dict(free, xyz=[0x2000, 0x2100, 0])]))
+    # Distances that differ below a lepton tie after ftol.
+    rows.append(tank_bunker_row(foot=[0, 0, 0],
+                                bunkers=[dict(free, xyz=[300, 400, 0]),
+                                         dict(free, xyz=[0, 500, 1])]))
+    # None at all; every bunker held.
+    rows.append(tank_bunker_row(foot=[0x2000, 0x2000, 0], bunkers=[]))
+    rows.append(tank_bunker_row(foot=[0x2000, 0x2000, 0],
+                                bunkers=[dict(free, contact=True, xyz=[0x2400, 0x2000, 0]),
+                                         dict(free, occupied=True, xyz=[0x3000, 0x2000, 0])]))
+    # Each admission test refuses alone, a free bunker in reach.
+    two = [dict(free, xyz=[0x2400, 0x2000, 0]), dict(free, xyz=[0x3000, 0x2000, 0])]
+    for refusal in (dict(bunkerable=False), dict(turret=False), dict(weapon=False),
+                    dict(speed_type=3), dict(parasite=True)):
+        rows.append(tank_bunker_row(foot=[0x2000, 0x2000, 0], bunkers=two,
+                                    admission=dict(ADMITTED, **refusal)))
+    return rows
+
+
 # ---------------------------------------------------------------- transports
 
 LOAD_ONTO_TRANSPORT = 0x6ED200
@@ -1277,8 +1399,9 @@ def generate():
     return dict(recalc=recalc(), center=center(), recruit=recruit(), distance=distance(),
                 guard=guard(), regroup=regroup(), own_building=own_building(),
                 target_building=target_building(), gather=gather(), quarry=quarry(), attack_cadence=attack_cadence(),
-                bio_reactor=bio_reactor(), battle_bunker=battle_bunker(), load=load(),
-                wait_loaded=wait_loaded(), unload=unload())
+                bio_reactor=bio_reactor(), battle_bunker=battle_bunker(),
+                tank_bunker=tank_bunker(), load=load(), wait_loaded=wait_loaded(),
+                unload=unload())
 
 
 if __name__ == '__main__':
@@ -1292,7 +1415,8 @@ if __name__ == '__main__':
                'action 53 up to its FNPC call or its early return; Quarry_To_Threat; '
                'Coordinate_Attack\'s frame test; EnterBioReactor over one house\'s '
                'absorber list with supplied CAN_LOAD answers; EnterBattleBunker over one '
-               'house\'s occupiable list with supplied CanBeOccupiedBy answers; actions 14 '
+               'house\'s occupiable list with supplied CanBeOccupiedBy answers; '
+               'EnterTankBunker over one house\'s tank bunker list; actions 14 '
                'and 8 and action 43\'s inline test over up to five synthetic infantry, '
                'vehicle and aircraft members.'),
         assumptions=['x87 control word 0x0E7F (PC53, chop), the harness default.',
@@ -1327,6 +1451,11 @@ if __name__ == '__main__':
                        'answers the case\'s admission for the Foot, refuses NULL as its '
                        'first test (0x457CEB) does, and records its building and occupant; '
                        'Queue_Mission and Assign_Destination record their calls.',
+                       'EnterTankBunker: the current weapon (vt+0x3F4) answers a weapon '
+                       'with or without a type; Transmit_Message, Queue_Mission and '
+                       'Assign_Destination record their calls; RadioClass::Contact 0x65AD30 '
+                       'runs as original and records its building; the admission\'s answer '
+                       'is read from AL at 0x4DFF54.',
                        'The transport actions: Get_Mission (vt+0x184) and Ready_To_Commence '
                        '(vt+0x200) answer from the case; Queue_Mission, Assign_Destination, '
                        'Assign_Target, Commence (vt+0x1EC) and TeamClass::Remove_Member '
@@ -1344,6 +1473,7 @@ if __name__ == '__main__':
                       'quarry_to_threat': QUARRY_TO_THREAT, 'attack_cadence': CADENCE,
                       'enter_bio_reactor': ENTER_BIO_REACTOR,
                       'enter_battle_bunker': ENTER_BATTLE_BUNKER,
+                      'enter_tank_bunker': ENTER_TANK_BUNKER,
                       'load_onto_transport': LOAD_ONTO_TRANSPORT, 'wait_loaded': WAIT_LOADED,
                       'unload': UNLOAD},
     ))

@@ -63034,6 +63034,9202 @@
       ]
     }
   ],
+  "tank_bunker": [
+    {
+      "admission": {
+        "bunkerable": true,
+        "parasite": false,
+        "speed_type": 1,
+        "turret": true,
+        "weapon": true
+      },
+      "admitted": 1,
+      "bunkers": [
+        {
+          "contact": true,
+          "occupied": true,
+          "xyz": [
+            351,
+            293,
+            843
+          ]
+        },
+        {
+          "contact": true,
+          "occupied": false,
+          "xyz": [
+            363,
+            769,
+            2001
+          ]
+        },
+        {
+          "contact": false,
+          "occupied": true,
+          "xyz": [
+            458,
+            246,
+            1476
+          ]
+        }
+      ],
+      "events": [
+        [
+          "coords",
+          2
+        ],
+        [
+          "contact",
+          2,
+          0
+        ],
+        [
+          "coords",
+          1
+        ],
+        [
+          "contact",
+          1,
+          0
+        ],
+        [
+          "coords",
+          0
+        ],
+        [
+          "contact",
+          0,
+          0
+        ]
+      ],
+      "foot": [
+        635,
+        175,
+        940
+      ],
+      "result": 0
+    },
+    {
+      "admission": {
+        "bunkerable": true,
+        "parasite": false,
+        "speed_type": 1,
+        "turret": true,
+        "weapon": true
+      },
+      "admitted": 1,
+      "bunkers": [],
+      "events": [],
+      "foot": [
+        9909,
+        11890,
+        1829
+      ],
+      "result": 0
+    },
+    {
+      "admission": {
+        "bunkerable": true,
+        "parasite": false,
+        "speed_type": 1,
+        "turret": true,
+        "weapon": true
+      },
+      "admitted": 1,
+      "bunkers": [
+        {
+          "contact": false,
+          "occupied": false,
+          "xyz": [
+            118664,
+            246362,
+            1066
+          ]
+        },
+        {
+          "contact": false,
+          "occupied": true,
+          "xyz": [
+            119065,
+            114758,
+            279
+          ]
+        },
+        {
+          "contact": true,
+          "occupied": true,
+          "xyz": [
+            260943,
+            222937,
+            556
+          ]
+        },
+        {
+          "contact": false,
+          "occupied": false,
+          "xyz": [
+            190505,
+            144343,
+            511
+          ]
+        }
+      ],
+      "events": [
+        [
+          "coords",
+          3
+        ],
+        [
+          "contact",
+          3,
+          0
+        ],
+        [
+          "coords",
+          2
+        ],
+        [
+          "coords",
+          1
+        ],
+        [
+          "coords",
+          0
+        ],
+        [
+          "assign_destination",
+          3,
+          1
+        ],
+        [
+          "transmit",
+          2,
+          3
+        ],
+        [
+          "queue_mission",
+          7,
+          1
+        ]
+      ],
+      "foot": [
+        175046,
+        141679,
+        1423
+      ],
+      "result": 1
+    },
+    {
+      "admission": {
+        "bunkerable": true,
+        "parasite": false,
+        "speed_type": 1,
+        "turret": true,
+        "weapon": true
+      },
+      "admitted": 1,
+      "bunkers": [
+        {
+          "contact": false,
+          "occupied": false,
+          "xyz": [
+            5096087,
+            1775284,
+            1391
+          ]
+        },
+        {
+          "contact": false,
+          "occupied": false,
+          "xyz": [
+            4507033,
+            2542560,
+            716
+          ]
+        },
+        {
+          "contact": false,
+          "occupied": true,
+          "xyz": [
+            4410554,
+            7041174,
+            1518
+          ]
+        },
+        {
+          "contact": false,
+          "occupied": true,
+          "xyz": [
+            2233333,
+            4171823,
+            1266
+          ]
+        },
+        {
+          "contact": false,
+          "occupied": true,
+          "xyz": [
+            2863393,
+            652214,
+            1959
+          ]
+        }
+      ],
+      "events": [
+        [
+          "coords",
+          4
+        ],
+        [
+          "contact",
+          4,
+          0
+        ],
+        [
+          "coords",
+          3
+        ],
+        [
+          "contact",
+          3,
+          0
+        ],
+        [
+          "coords",
+          2
+        ],
+        [
+          "contact",
+          2,
+          0
+        ],
+        [
+          "coords",
+          1
+        ],
+        [
+          "contact",
+          1,
+          0
+        ],
+        [
+          "coords",
+          0
+        ],
+        [
+          "assign_destination",
+          1,
+          1
+        ],
+        [
+          "transmit",
+          2,
+          1
+        ],
+        [
+          "queue_mission",
+          7,
+          1
+        ]
+      ],
+      "foot": [
+        2068791,
+        5760289,
+        1675
+      ],
+      "result": 1
+    },
+    {
+      "admission": {
+        "bunkerable": true,
+        "parasite": false,
+        "speed_type": 1,
+        "turret": true,
+        "weapon": true
+      },
+      "admitted": 1,
+      "bunkers": [
+        {
+          "contact": false,
+          "occupied": false,
+          "xyz": [
+            527,
+            785,
+            2008
+          ]
+        }
+      ],
+      "events": [
+        [
+          "coords",
+          0
+        ],
+        [
+          "contact",
+          0,
+          0
+        ],
+        [
+          "assign_destination",
+          0,
+          1
+        ],
+        [
+          "transmit",
+          2,
+          0
+        ],
+        [
+          "queue_mission",
+          7,
+          1
+        ]
+      ],
+      "foot": [
+        25,
+        370,
+        399
+      ],
+      "result": 1
+    },
+    {
+      "admission": {
+        "bunkerable": true,
+        "parasite": false,
+        "speed_type": 1,
+        "turret": true,
+        "weapon": true
+      },
+      "admitted": 1,
+      "bunkers": [
+        {
+          "contact": true,
+          "occupied": true,
+          "xyz": [
+            726,
+            2039,
+            289
+          ]
+        },
+        {
+          "contact": false,
+          "occupied": false,
+          "xyz": [
+            12383,
+            7811,
+            1652
+          ]
+        },
+        {
+          "contact": false,
+          "occupied": false,
+          "xyz": [
+            12368,
+            13346,
+            616
+          ]
+        },
+        {
+          "contact": false,
+          "occupied": false,
+          "xyz": [
+            14337,
+            857,
+            51
+          ]
+        },
+        {
+          "contact": false,
+          "occupied": false,
+          "xyz": [
+            7130,
+            3291,
+            1764
+          ]
+        }
+      ],
+      "events": [
+        [
+          "coords",
+          4
+        ],
+        [
+          "contact",
+          4,
+          0
+        ],
+        [
+          "coords",
+          3
+        ],
+        [
+          "coords",
+          2
+        ],
+        [
+          "coords",
+          1
+        ],
+        [
+          "coords",
+          0
+        ],
+        [
+          "contact",
+          0,
+          0
+        ],
+        [
+          "assign_destination",
+          4,
+          1
+        ],
+        [
+          "transmit",
+          2,
+          4
+        ],
+        [
+          "queue_mission",
+          7,
+          1
+        ]
+      ],
+      "foot": [
+        3547,
+        3738,
+        747
+      ],
+      "result": 1
+    },
+    {
+      "admission": {
+        "bunkerable": true,
+        "parasite": false,
+        "speed_type": 1,
+        "turret": true,
+        "weapon": true
+      },
+      "admitted": 1,
+      "bunkers": [
+        {
+          "contact": false,
+          "occupied": false,
+          "xyz": [
+            183923,
+            127235,
+            1320
+          ]
+        },
+        {
+          "contact": true,
+          "occupied": false,
+          "xyz": [
+            158247,
+            84644,
+            796
+          ]
+        },
+        {
+          "contact": false,
+          "occupied": false,
+          "xyz": [
+            117237,
+            115190,
+            563
+          ]
+        },
+        {
+          "contact": false,
+          "occupied": true,
+          "xyz": [
+            82178,
+            52089,
+            1706
+          ]
+        },
+        {
+          "contact": false,
+          "occupied": true,
+          "xyz": [
+            123843,
+            226980,
+            521
+          ]
+        }
+      ],
+      "events": [
+        [
+          "coords",
+          4
+        ],
+        [
+          "contact",
+          4,
+          0
+        ],
+        [
+          "coords",
+          3
+        ],
+        [
+          "contact",
+          3,
+          0
+        ],
+        [
+          "coords",
+          2
+        ],
+        [
+          "contact",
+          2,
+          0
+        ],
+        [
+          "coords",
+          1
+        ],
+        [
+          "contact",
+          1,
+          0
+        ],
+        [
+          "coords",
+          0
+        ],
+        [
+          "contact",
+          0,
+          0
+        ],
+        [
+          "assign_destination",
+          0,
+          1
+        ],
+        [
+          "transmit",
+          2,
+          0
+        ],
+        [
+          "queue_mission",
+          7,
+          1
+        ]
+      ],
+      "foot": [
+        234329,
+        98961,
+        1368
+      ],
+      "result": 1
+    },
+    {
+      "admission": {
+        "bunkerable": true,
+        "parasite": false,
+        "speed_type": 1,
+        "turret": true,
+        "weapon": true
+      },
+      "admitted": 1,
+      "bunkers": [
+        {
+          "contact": true,
+          "occupied": false,
+          "xyz": [
+            2577232,
+            7820,
+            270
+          ]
+        },
+        {
+          "contact": false,
+          "occupied": false,
+          "xyz": [
+            214372,
+            8138029,
+            1480
+          ]
+        }
+      ],
+      "events": [
+        [
+          "coords",
+          1
+        ],
+        [
+          "contact",
+          1,
+          0
+        ],
+        [
+          "coords",
+          0
+        ],
+        [
+          "contact",
+          0,
+          0
+        ],
+        [
+          "assign_destination",
+          1,
+          1
+        ],
+        [
+          "transmit",
+          2,
+          1
+        ],
+        [
+          "queue_mission",
+          7,
+          1
+        ]
+      ],
+      "foot": [
+        3098480,
+        2531950,
+        423
+      ],
+      "result": 1
+    },
+    {
+      "admission": {
+        "bunkerable": true,
+        "parasite": false,
+        "speed_type": 1,
+        "turret": true,
+        "weapon": true
+      },
+      "admitted": 1,
+      "bunkers": [
+        {
+          "contact": false,
+          "occupied": false,
+          "xyz": [
+            248,
+            464,
+            1490
+          ]
+        },
+        {
+          "contact": false,
+          "occupied": true,
+          "xyz": [
+            190,
+            931,
+            804
+          ]
+        },
+        {
+          "contact": true,
+          "occupied": false,
+          "xyz": [
+            645,
+            155,
+            1822
+          ]
+        },
+        {
+          "contact": true,
+          "occupied": false,
+          "xyz": [
+            677,
+            976,
+            1127
+          ]
+        }
+      ],
+      "events": [
+        [
+          "coords",
+          3
+        ],
+        [
+          "contact",
+          3,
+          0
+        ],
+        [
+          "coords",
+          2
+        ],
+        [
+          "contact",
+          2,
+          0
+        ],
+        [
+          "coords",
+          1
+        ],
+        [
+          "contact",
+          1,
+          0
+        ],
+        [
+          "coords",
+          0
+        ],
+        [
+          "contact",
+          0,
+          0
+        ],
+        [
+          "assign_destination",
+          0,
+          1
+        ],
+        [
+          "transmit",
+          2,
+          0
+        ],
+        [
+          "queue_mission",
+          7,
+          1
+        ]
+      ],
+      "foot": [
+        649,
+        461,
+        1992
+      ],
+      "result": 1
+    },
+    {
+      "admission": {
+        "bunkerable": true,
+        "parasite": false,
+        "speed_type": 1,
+        "turret": true,
+        "weapon": true
+      },
+      "admitted": 1,
+      "bunkers": [
+        {
+          "contact": true,
+          "occupied": false,
+          "xyz": [
+            621,
+            3060,
+            1855
+          ]
+        }
+      ],
+      "events": [
+        [
+          "coords",
+          0
+        ],
+        [
+          "contact",
+          0,
+          0
+        ]
+      ],
+      "foot": [
+        13256,
+        15791,
+        558
+      ],
+      "result": 0
+    },
+    {
+      "admission": {
+        "bunkerable": true,
+        "parasite": false,
+        "speed_type": 1,
+        "turret": true,
+        "weapon": true
+      },
+      "admitted": 1,
+      "bunkers": [
+        {
+          "contact": false,
+          "occupied": false,
+          "xyz": [
+            70717,
+            141596,
+            1791
+          ]
+        },
+        {
+          "contact": false,
+          "occupied": false,
+          "xyz": [
+            36023,
+            68494,
+            201
+          ]
+        }
+      ],
+      "events": [
+        [
+          "coords",
+          1
+        ],
+        [
+          "contact",
+          1,
+          0
+        ],
+        [
+          "coords",
+          0
+        ],
+        [
+          "assign_destination",
+          1,
+          1
+        ],
+        [
+          "transmit",
+          2,
+          1
+        ],
+        [
+          "queue_mission",
+          7,
+          1
+        ]
+      ],
+      "foot": [
+        106467,
+        77064,
+        992
+      ],
+      "result": 1
+    },
+    {
+      "admission": {
+        "bunkerable": true,
+        "parasite": false,
+        "speed_type": 1,
+        "turret": true,
+        "weapon": true
+      },
+      "admitted": 1,
+      "bunkers": [],
+      "events": [],
+      "foot": [
+        7512589,
+        3114549,
+        679
+      ],
+      "result": 0
+    },
+    {
+      "admission": {
+        "bunkerable": true,
+        "parasite": false,
+        "speed_type": 1,
+        "turret": true,
+        "weapon": true
+      },
+      "admitted": 1,
+      "bunkers": [
+        {
+          "contact": true,
+          "occupied": true,
+          "xyz": [
+            72,
+            51,
+            1496
+          ]
+        },
+        {
+          "contact": false,
+          "occupied": false,
+          "xyz": [
+            838,
+            874,
+            1047
+          ]
+        }
+      ],
+      "events": [
+        [
+          "coords",
+          1
+        ],
+        [
+          "contact",
+          1,
+          0
+        ],
+        [
+          "coords",
+          0
+        ],
+        [
+          "contact",
+          0,
+          0
+        ],
+        [
+          "assign_destination",
+          1,
+          1
+        ],
+        [
+          "transmit",
+          2,
+          1
+        ],
+        [
+          "queue_mission",
+          7,
+          1
+        ]
+      ],
+      "foot": [
+        225,
+        615,
+        1464
+      ],
+      "result": 1
+    },
+    {
+      "admission": {
+        "bunkerable": true,
+        "parasite": false,
+        "speed_type": 1,
+        "turret": true,
+        "weapon": true
+      },
+      "admitted": 1,
+      "bunkers": [
+        {
+          "contact": false,
+          "occupied": false,
+          "xyz": [
+            14244,
+            10505,
+            264
+          ]
+        },
+        {
+          "contact": false,
+          "occupied": false,
+          "xyz": [
+            2466,
+            904,
+            1573
+          ]
+        },
+        {
+          "contact": false,
+          "occupied": false,
+          "xyz": [
+            5786,
+            7819,
+            549
+          ]
+        },
+        {
+          "contact": false,
+          "occupied": false,
+          "xyz": [
+            15302,
+            16251,
+            1237
+          ]
+        },
+        {
+          "contact": true,
+          "occupied": false,
+          "xyz": [
+            10402,
+            13922,
+            219
+          ]
+        }
+      ],
+      "events": [
+        [
+          "coords",
+          4
+        ],
+        [
+          "contact",
+          4,
+          0
+        ],
+        [
+          "coords",
+          3
+        ],
+        [
+          "contact",
+          3,
+          0
+        ],
+        [
+          "coords",
+          2
+        ],
+        [
+          "contact",
+          2,
+          0
+        ],
+        [
+          "coords",
+          1
+        ],
+        [
+          "coords",
+          0
+        ],
+        [
+          "assign_destination",
+          2,
+          1
+        ],
+        [
+          "transmit",
+          2,
+          2
+        ],
+        [
+          "queue_mission",
+          7,
+          1
+        ]
+      ],
+      "foot": [
+        6078,
+        6860,
+        265
+      ],
+      "result": 1
+    },
+    {
+      "admission": {
+        "bunkerable": true,
+        "parasite": false,
+        "speed_type": 1,
+        "turret": true,
+        "weapon": true
+      },
+      "admitted": 1,
+      "bunkers": [
+        {
+          "contact": false,
+          "occupied": false,
+          "xyz": [
+            6092,
+            58430,
+            55
+          ]
+        },
+        {
+          "contact": false,
+          "occupied": false,
+          "xyz": [
+            10692,
+            47001,
+            243
+          ]
+        },
+        {
+          "contact": false,
+          "occupied": false,
+          "xyz": [
+            170624,
+            201616,
+            1730
+          ]
+        },
+        {
+          "contact": false,
+          "occupied": false,
+          "xyz": [
+            89198,
+            102971,
+            1587
+          ]
+        }
+      ],
+      "events": [
+        [
+          "coords",
+          3
+        ],
+        [
+          "contact",
+          3,
+          0
+        ],
+        [
+          "coords",
+          2
+        ],
+        [
+          "contact",
+          2,
+          0
+        ],
+        [
+          "coords",
+          1
+        ],
+        [
+          "coords",
+          0
+        ],
+        [
+          "assign_destination",
+          2,
+          1
+        ],
+        [
+          "transmit",
+          2,
+          2
+        ],
+        [
+          "queue_mission",
+          7,
+          1
+        ]
+      ],
+      "foot": [
+        254264,
+        61326,
+        1024
+      ],
+      "result": 1
+    },
+    {
+      "admission": {
+        "bunkerable": true,
+        "parasite": false,
+        "speed_type": 1,
+        "turret": true,
+        "weapon": true
+      },
+      "admitted": 1,
+      "bunkers": [
+        {
+          "contact": false,
+          "occupied": false,
+          "xyz": [
+            7975305,
+            2933617,
+            1767
+          ]
+        }
+      ],
+      "events": [
+        [
+          "coords",
+          0
+        ],
+        [
+          "contact",
+          0,
+          0
+        ],
+        [
+          "assign_destination",
+          0,
+          1
+        ],
+        [
+          "transmit",
+          2,
+          0
+        ],
+        [
+          "queue_mission",
+          7,
+          1
+        ]
+      ],
+      "foot": [
+        971872,
+        6151433,
+        290
+      ],
+      "result": 1
+    },
+    {
+      "admission": {
+        "bunkerable": true,
+        "parasite": false,
+        "speed_type": 1,
+        "turret": true,
+        "weapon": true
+      },
+      "admitted": 1,
+      "bunkers": [
+        {
+          "contact": true,
+          "occupied": false,
+          "xyz": [
+            41,
+            928,
+            830
+          ]
+        },
+        {
+          "contact": false,
+          "occupied": false,
+          "xyz": [
+            176,
+            620,
+            660
+          ]
+        },
+        {
+          "contact": false,
+          "occupied": true,
+          "xyz": [
+            625,
+            438,
+            1614
+          ]
+        }
+      ],
+      "events": [
+        [
+          "coords",
+          2
+        ],
+        [
+          "contact",
+          2,
+          0
+        ],
+        [
+          "coords",
+          1
+        ],
+        [
+          "contact",
+          1,
+          0
+        ],
+        [
+          "coords",
+          0
+        ],
+        [
+          "assign_destination",
+          1,
+          1
+        ],
+        [
+          "transmit",
+          2,
+          1
+        ],
+        [
+          "queue_mission",
+          7,
+          1
+        ]
+      ],
+      "foot": [
+        489,
+        243,
+        112
+      ],
+      "result": 1
+    },
+    {
+      "admission": {
+        "bunkerable": true,
+        "parasite": false,
+        "speed_type": 1,
+        "turret": true,
+        "weapon": true
+      },
+      "admitted": 1,
+      "bunkers": [],
+      "events": [],
+      "foot": [
+        11754,
+        752,
+        169
+      ],
+      "result": 0
+    },
+    {
+      "admission": {
+        "bunkerable": true,
+        "parasite": false,
+        "speed_type": 1,
+        "turret": true,
+        "weapon": true
+      },
+      "admitted": 1,
+      "bunkers": [
+        {
+          "contact": false,
+          "occupied": false,
+          "xyz": [
+            239049,
+            161992,
+            1332
+          ]
+        },
+        {
+          "contact": true,
+          "occupied": true,
+          "xyz": [
+            6568,
+            38408,
+            1686
+          ]
+        },
+        {
+          "contact": false,
+          "occupied": true,
+          "xyz": [
+            16814,
+            14244,
+            552
+          ]
+        },
+        {
+          "contact": true,
+          "occupied": false,
+          "xyz": [
+            128582,
+            62582,
+            354
+          ]
+        },
+        {
+          "contact": false,
+          "occupied": false,
+          "xyz": [
+            23350,
+            70334,
+            104
+          ]
+        }
+      ],
+      "events": [
+        [
+          "coords",
+          4
+        ],
+        [
+          "contact",
+          4,
+          0
+        ],
+        [
+          "coords",
+          3
+        ],
+        [
+          "contact",
+          3,
+          0
+        ],
+        [
+          "coords",
+          2
+        ],
+        [
+          "coords",
+          1
+        ],
+        [
+          "coords",
+          0
+        ],
+        [
+          "contact",
+          0,
+          0
+        ],
+        [
+          "assign_destination",
+          0,
+          1
+        ],
+        [
+          "transmit",
+          2,
+          0
+        ],
+        [
+          "queue_mission",
+          7,
+          1
+        ]
+      ],
+      "foot": [
+        251150,
+        153378,
+        146
+      ],
+      "result": 1
+    },
+    {
+      "admission": {
+        "bunkerable": true,
+        "parasite": false,
+        "speed_type": 1,
+        "turret": true,
+        "weapon": true
+      },
+      "admitted": 1,
+      "bunkers": [],
+      "events": [],
+      "foot": [
+        5270379,
+        1579929,
+        964
+      ],
+      "result": 0
+    },
+    {
+      "admission": {
+        "bunkerable": true,
+        "parasite": false,
+        "speed_type": 1,
+        "turret": true,
+        "weapon": true
+      },
+      "admitted": 1,
+      "bunkers": [
+        {
+          "contact": false,
+          "occupied": false,
+          "xyz": [
+            689,
+            233,
+            786
+          ]
+        }
+      ],
+      "events": [
+        [
+          "coords",
+          0
+        ],
+        [
+          "contact",
+          0,
+          0
+        ],
+        [
+          "assign_destination",
+          0,
+          1
+        ],
+        [
+          "transmit",
+          2,
+          0
+        ],
+        [
+          "queue_mission",
+          7,
+          1
+        ]
+      ],
+      "foot": [
+        362,
+        668,
+        1142
+      ],
+      "result": 1
+    },
+    {
+      "admission": {
+        "bunkerable": true,
+        "parasite": false,
+        "speed_type": 1,
+        "turret": true,
+        "weapon": true
+      },
+      "admitted": 1,
+      "bunkers": [
+        {
+          "contact": false,
+          "occupied": false,
+          "xyz": [
+            4023,
+            4163,
+            307
+          ]
+        },
+        {
+          "contact": false,
+          "occupied": false,
+          "xyz": [
+            11438,
+            9995,
+            734
+          ]
+        },
+        {
+          "contact": true,
+          "occupied": false,
+          "xyz": [
+            747,
+            7415,
+            206
+          ]
+        },
+        {
+          "contact": false,
+          "occupied": false,
+          "xyz": [
+            11045,
+            1949,
+            1363
+          ]
+        }
+      ],
+      "events": [
+        [
+          "coords",
+          3
+        ],
+        [
+          "contact",
+          3,
+          0
+        ],
+        [
+          "coords",
+          2
+        ],
+        [
+          "contact",
+          2,
+          0
+        ],
+        [
+          "coords",
+          1
+        ],
+        [
+          "contact",
+          1,
+          0
+        ],
+        [
+          "coords",
+          0
+        ],
+        [
+          "contact",
+          0,
+          0
+        ],
+        [
+          "assign_destination",
+          0,
+          1
+        ],
+        [
+          "transmit",
+          2,
+          0
+        ],
+        [
+          "queue_mission",
+          7,
+          1
+        ]
+      ],
+      "foot": [
+        5371,
+        9422,
+        1187
+      ],
+      "result": 1
+    },
+    {
+      "admission": {
+        "bunkerable": true,
+        "parasite": false,
+        "speed_type": 1,
+        "turret": true,
+        "weapon": true
+      },
+      "admitted": 1,
+      "bunkers": [
+        {
+          "contact": false,
+          "occupied": false,
+          "xyz": [
+            54596,
+            82914,
+            1277
+          ]
+        },
+        {
+          "contact": true,
+          "occupied": false,
+          "xyz": [
+            70984,
+            130282,
+            131
+          ]
+        },
+        {
+          "contact": false,
+          "occupied": true,
+          "xyz": [
+            15162,
+            32543,
+            1047
+          ]
+        },
+        {
+          "contact": false,
+          "occupied": false,
+          "xyz": [
+            199569,
+            92845,
+            380
+          ]
+        },
+        {
+          "contact": false,
+          "occupied": false,
+          "xyz": [
+            156769,
+            196235,
+            1509
+          ]
+        }
+      ],
+      "events": [
+        [
+          "coords",
+          4
+        ],
+        [
+          "contact",
+          4,
+          0
+        ],
+        [
+          "coords",
+          3
+        ],
+        [
+          "contact",
+          3,
+          0
+        ],
+        [
+          "coords",
+          2
+        ],
+        [
+          "contact",
+          2,
+          0
+        ],
+        [
+          "coords",
+          1
+        ],
+        [
+          "contact",
+          1,
+          0
+        ],
+        [
+          "coords",
+          0
+        ],
+        [
+          "contact",
+          0,
+          0
+        ],
+        [
+          "assign_destination",
+          0,
+          1
+        ],
+        [
+          "transmit",
+          2,
+          0
+        ],
+        [
+          "queue_mission",
+          7,
+          1
+        ]
+      ],
+      "foot": [
+        31852,
+        71860,
+        494
+      ],
+      "result": 1
+    },
+    {
+      "admission": {
+        "bunkerable": true,
+        "parasite": false,
+        "speed_type": 1,
+        "turret": true,
+        "weapon": true
+      },
+      "admitted": 1,
+      "bunkers": [
+        {
+          "contact": false,
+          "occupied": true,
+          "xyz": [
+            4351569,
+            1298692,
+            1347
+          ]
+        },
+        {
+          "contact": false,
+          "occupied": false,
+          "xyz": [
+            6248280,
+            367464,
+            664
+          ]
+        },
+        {
+          "contact": true,
+          "occupied": false,
+          "xyz": [
+            8021023,
+            7411759,
+            1658
+          ]
+        },
+        {
+          "contact": true,
+          "occupied": true,
+          "xyz": [
+            6644794,
+            3653030,
+            130
+          ]
+        },
+        {
+          "contact": true,
+          "occupied": true,
+          "xyz": [
+            6300073,
+            8107870,
+            406
+          ]
+        }
+      ],
+      "events": [
+        [
+          "coords",
+          4
+        ],
+        [
+          "contact",
+          4,
+          0
+        ],
+        [
+          "coords",
+          3
+        ],
+        [
+          "contact",
+          3,
+          0
+        ],
+        [
+          "coords",
+          2
+        ],
+        [
+          "contact",
+          2,
+          0
+        ],
+        [
+          "coords",
+          1
+        ],
+        [
+          "contact",
+          1,
+          0
+        ],
+        [
+          "coords",
+          0
+        ],
+        [
+          "contact",
+          0,
+          0
+        ],
+        [
+          "assign_destination",
+          1,
+          1
+        ],
+        [
+          "transmit",
+          2,
+          1
+        ],
+        [
+          "queue_mission",
+          7,
+          1
+        ]
+      ],
+      "foot": [
+        596222,
+        2979530,
+        2032
+      ],
+      "result": 1
+    },
+    {
+      "admission": {
+        "bunkerable": true,
+        "parasite": false,
+        "speed_type": 1,
+        "turret": true,
+        "weapon": true
+      },
+      "admitted": 1,
+      "bunkers": [
+        {
+          "contact": false,
+          "occupied": false,
+          "xyz": [
+            965,
+            37,
+            2019
+          ]
+        },
+        {
+          "contact": true,
+          "occupied": false,
+          "xyz": [
+            380,
+            218,
+            529
+          ]
+        },
+        {
+          "contact": false,
+          "occupied": false,
+          "xyz": [
+            46,
+            905,
+            600
+          ]
+        },
+        {
+          "contact": false,
+          "occupied": false,
+          "xyz": [
+            812,
+            257,
+            1310
+          ]
+        },
+        {
+          "contact": false,
+          "occupied": true,
+          "xyz": [
+            467,
+            224,
+            1697
+          ]
+        }
+      ],
+      "events": [
+        [
+          "coords",
+          4
+        ],
+        [
+          "contact",
+          4,
+          0
+        ],
+        [
+          "coords",
+          3
+        ],
+        [
+          "contact",
+          3,
+          0
+        ],
+        [
+          "coords",
+          2
+        ],
+        [
+          "coords",
+          1
+        ],
+        [
+          "contact",
+          1,
+          0
+        ],
+        [
+          "coords",
+          0
+        ],
+        [
+          "assign_destination",
+          3,
+          1
+        ],
+        [
+          "transmit",
+          2,
+          3
+        ],
+        [
+          "queue_mission",
+          7,
+          1
+        ]
+      ],
+      "foot": [
+        686,
+        141,
+        712
+      ],
+      "result": 1
+    },
+    {
+      "admission": {
+        "bunkerable": true,
+        "parasite": false,
+        "speed_type": 1,
+        "turret": true,
+        "weapon": true
+      },
+      "admitted": 1,
+      "bunkers": [
+        {
+          "contact": false,
+          "occupied": false,
+          "xyz": [
+            2319,
+            10374,
+            1419
+          ]
+        },
+        {
+          "contact": true,
+          "occupied": false,
+          "xyz": [
+            8732,
+            9263,
+            1414
+          ]
+        },
+        {
+          "contact": false,
+          "occupied": true,
+          "xyz": [
+            10025,
+            12686,
+            789
+          ]
+        },
+        {
+          "contact": false,
+          "occupied": false,
+          "xyz": [
+            15534,
+            1003,
+            1995
+          ]
+        },
+        {
+          "contact": false,
+          "occupied": false,
+          "xyz": [
+            6756,
+            10021,
+            1896
+          ]
+        }
+      ],
+      "events": [
+        [
+          "coords",
+          4
+        ],
+        [
+          "contact",
+          4,
+          0
+        ],
+        [
+          "coords",
+          3
+        ],
+        [
+          "coords",
+          2
+        ],
+        [
+          "contact",
+          2,
+          0
+        ],
+        [
+          "coords",
+          1
+        ],
+        [
+          "contact",
+          1,
+          0
+        ],
+        [
+          "coords",
+          0
+        ],
+        [
+          "assign_destination",
+          4,
+          1
+        ],
+        [
+          "transmit",
+          2,
+          4
+        ],
+        [
+          "queue_mission",
+          7,
+          1
+        ]
+      ],
+      "foot": [
+        12699,
+        7268,
+        424
+      ],
+      "result": 1
+    },
+    {
+      "admission": {
+        "bunkerable": true,
+        "parasite": false,
+        "speed_type": 1,
+        "turret": true,
+        "weapon": true
+      },
+      "admitted": 1,
+      "bunkers": [
+        {
+          "contact": false,
+          "occupied": true,
+          "xyz": [
+            373,
+            238161,
+            1647
+          ]
+        },
+        {
+          "contact": false,
+          "occupied": false,
+          "xyz": [
+            224517,
+            10254,
+            1282
+          ]
+        },
+        {
+          "contact": false,
+          "occupied": false,
+          "xyz": [
+            77099,
+            22401,
+            788
+          ]
+        },
+        {
+          "contact": false,
+          "occupied": true,
+          "xyz": [
+            4401,
+            91289,
+            1035
+          ]
+        },
+        {
+          "contact": false,
+          "occupied": false,
+          "xyz": [
+            136420,
+            152284,
+            1500
+          ]
+        }
+      ],
+      "events": [
+        [
+          "coords",
+          4
+        ],
+        [
+          "contact",
+          4,
+          0
+        ],
+        [
+          "coords",
+          3
+        ],
+        [
+          "coords",
+          2
+        ],
+        [
+          "coords",
+          1
+        ],
+        [
+          "contact",
+          1,
+          0
+        ],
+        [
+          "coords",
+          0
+        ],
+        [
+          "assign_destination",
+          1,
+          1
+        ],
+        [
+          "transmit",
+          2,
+          1
+        ],
+        [
+          "queue_mission",
+          7,
+          1
+        ]
+      ],
+      "foot": [
+        223143,
+        39619,
+        47
+      ],
+      "result": 1
+    },
+    {
+      "admission": {
+        "bunkerable": true,
+        "parasite": false,
+        "speed_type": 1,
+        "turret": true,
+        "weapon": true
+      },
+      "admitted": 1,
+      "bunkers": [],
+      "events": [],
+      "foot": [
+        1836414,
+        1280883,
+        427
+      ],
+      "result": 0
+    },
+    {
+      "admission": {
+        "bunkerable": true,
+        "parasite": false,
+        "speed_type": 1,
+        "turret": true,
+        "weapon": true
+      },
+      "admitted": 1,
+      "bunkers": [
+        {
+          "contact": false,
+          "occupied": false,
+          "xyz": [
+            304,
+            356,
+            235
+          ]
+        }
+      ],
+      "events": [
+        [
+          "coords",
+          0
+        ],
+        [
+          "contact",
+          0,
+          0
+        ],
+        [
+          "assign_destination",
+          0,
+          1
+        ],
+        [
+          "transmit",
+          2,
+          0
+        ],
+        [
+          "queue_mission",
+          7,
+          1
+        ]
+      ],
+      "foot": [
+        171,
+        458,
+        1801
+      ],
+      "result": 1
+    },
+    {
+      "admission": {
+        "bunkerable": true,
+        "parasite": false,
+        "speed_type": 1,
+        "turret": true,
+        "weapon": true
+      },
+      "admitted": 1,
+      "bunkers": [
+        {
+          "contact": false,
+          "occupied": true,
+          "xyz": [
+            3447,
+            10122,
+            1600
+          ]
+        }
+      ],
+      "events": [
+        [
+          "coords",
+          0
+        ],
+        [
+          "contact",
+          0,
+          0
+        ]
+      ],
+      "foot": [
+        14178,
+        348,
+        2046
+      ],
+      "result": 0
+    },
+    {
+      "admission": {
+        "bunkerable": true,
+        "parasite": false,
+        "speed_type": 1,
+        "turret": true,
+        "weapon": true
+      },
+      "admitted": 1,
+      "bunkers": [
+        {
+          "contact": false,
+          "occupied": false,
+          "xyz": [
+            8936,
+            235079,
+            1718
+          ]
+        },
+        {
+          "contact": false,
+          "occupied": true,
+          "xyz": [
+            176544,
+            165876,
+            402
+          ]
+        }
+      ],
+      "events": [
+        [
+          "coords",
+          1
+        ],
+        [
+          "contact",
+          1,
+          0
+        ],
+        [
+          "coords",
+          0
+        ],
+        [
+          "contact",
+          0,
+          0
+        ],
+        [
+          "assign_destination",
+          0,
+          1
+        ],
+        [
+          "transmit",
+          2,
+          0
+        ],
+        [
+          "queue_mission",
+          7,
+          1
+        ]
+      ],
+      "foot": [
+        142121,
+        77159,
+        2020
+      ],
+      "result": 1
+    },
+    {
+      "admission": {
+        "bunkerable": true,
+        "parasite": false,
+        "speed_type": 1,
+        "turret": true,
+        "weapon": true
+      },
+      "admitted": 1,
+      "bunkers": [
+        {
+          "contact": false,
+          "occupied": true,
+          "xyz": [
+            5197124,
+            7559125,
+            1030
+          ]
+        }
+      ],
+      "events": [
+        [
+          "coords",
+          0
+        ],
+        [
+          "contact",
+          0,
+          0
+        ]
+      ],
+      "foot": [
+        7594811,
+        856341,
+        1888
+      ],
+      "result": 0
+    },
+    {
+      "admission": {
+        "bunkerable": true,
+        "parasite": false,
+        "speed_type": 1,
+        "turret": true,
+        "weapon": true
+      },
+      "admitted": 1,
+      "bunkers": [],
+      "events": [],
+      "foot": [
+        328,
+        436,
+        1487
+      ],
+      "result": 0
+    },
+    {
+      "admission": {
+        "bunkerable": true,
+        "parasite": false,
+        "speed_type": 1,
+        "turret": true,
+        "weapon": true
+      },
+      "admitted": 1,
+      "bunkers": [
+        {
+          "contact": false,
+          "occupied": false,
+          "xyz": [
+            3025,
+            694,
+            467
+          ]
+        },
+        {
+          "contact": true,
+          "occupied": false,
+          "xyz": [
+            2990,
+            6483,
+            1202
+          ]
+        },
+        {
+          "contact": false,
+          "occupied": false,
+          "xyz": [
+            11728,
+            1695,
+            468
+          ]
+        }
+      ],
+      "events": [
+        [
+          "coords",
+          2
+        ],
+        [
+          "contact",
+          2,
+          0
+        ],
+        [
+          "coords",
+          1
+        ],
+        [
+          "contact",
+          1,
+          0
+        ],
+        [
+          "coords",
+          0
+        ],
+        [
+          "assign_destination",
+          2,
+          1
+        ],
+        [
+          "transmit",
+          2,
+          2
+        ],
+        [
+          "queue_mission",
+          7,
+          1
+        ]
+      ],
+      "foot": [
+        6624,
+        11345,
+        1631
+      ],
+      "result": 1
+    },
+    {
+      "admission": {
+        "bunkerable": true,
+        "parasite": false,
+        "speed_type": 1,
+        "turret": true,
+        "weapon": true
+      },
+      "admitted": 1,
+      "bunkers": [
+        {
+          "contact": true,
+          "occupied": true,
+          "xyz": [
+            224346,
+            133829,
+            1600
+          ]
+        }
+      ],
+      "events": [
+        [
+          "coords",
+          0
+        ],
+        [
+          "contact",
+          0,
+          0
+        ]
+      ],
+      "foot": [
+        238285,
+        48688,
+        1751
+      ],
+      "result": 0
+    },
+    {
+      "admission": {
+        "bunkerable": true,
+        "parasite": false,
+        "speed_type": 1,
+        "turret": true,
+        "weapon": true
+      },
+      "admitted": 1,
+      "bunkers": [
+        {
+          "contact": false,
+          "occupied": false,
+          "xyz": [
+            5693582,
+            4454918,
+            2045
+          ]
+        },
+        {
+          "contact": false,
+          "occupied": true,
+          "xyz": [
+            5999661,
+            8313636,
+            146
+          ]
+        },
+        {
+          "contact": false,
+          "occupied": true,
+          "xyz": [
+            6250319,
+            3434062,
+            1657
+          ]
+        },
+        {
+          "contact": true,
+          "occupied": false,
+          "xyz": [
+            1629062,
+            5911517,
+            645
+          ]
+        },
+        {
+          "contact": false,
+          "occupied": true,
+          "xyz": [
+            5974431,
+            6035465,
+            1710
+          ]
+        }
+      ],
+      "events": [
+        [
+          "coords",
+          4
+        ],
+        [
+          "contact",
+          4,
+          0
+        ],
+        [
+          "coords",
+          3
+        ],
+        [
+          "contact",
+          3,
+          0
+        ],
+        [
+          "coords",
+          2
+        ],
+        [
+          "contact",
+          2,
+          0
+        ],
+        [
+          "coords",
+          1
+        ],
+        [
+          "contact",
+          1,
+          0
+        ],
+        [
+          "coords",
+          0
+        ],
+        [
+          "contact",
+          0,
+          0
+        ],
+        [
+          "assign_destination",
+          0,
+          1
+        ],
+        [
+          "transmit",
+          2,
+          0
+        ],
+        [
+          "queue_mission",
+          7,
+          1
+        ]
+      ],
+      "foot": [
+        5023560,
+        6530924,
+        1256
+      ],
+      "result": 1
+    },
+    {
+      "admission": {
+        "bunkerable": true,
+        "parasite": false,
+        "speed_type": 1,
+        "turret": true,
+        "weapon": true
+      },
+      "admitted": 1,
+      "bunkers": [
+        {
+          "contact": true,
+          "occupied": true,
+          "xyz": [
+            223,
+            463,
+            1654
+          ]
+        },
+        {
+          "contact": false,
+          "occupied": true,
+          "xyz": [
+            495,
+            589,
+            616
+          ]
+        },
+        {
+          "contact": false,
+          "occupied": false,
+          "xyz": [
+            261,
+            604,
+            238
+          ]
+        },
+        {
+          "contact": false,
+          "occupied": true,
+          "xyz": [
+            746,
+            668,
+            1402
+          ]
+        },
+        {
+          "contact": false,
+          "occupied": false,
+          "xyz": [
+            587,
+            931,
+            1526
+          ]
+        }
+      ],
+      "events": [
+        [
+          "coords",
+          4
+        ],
+        [
+          "contact",
+          4,
+          0
+        ],
+        [
+          "coords",
+          3
+        ],
+        [
+          "contact",
+          3,
+          0
+        ],
+        [
+          "coords",
+          2
+        ],
+        [
+          "contact",
+          2,
+          0
+        ],
+        [
+          "coords",
+          1
+        ],
+        [
+          "coords",
+          0
+        ],
+        [
+          "assign_destination",
+          2,
+          1
+        ],
+        [
+          "transmit",
+          2,
+          2
+        ],
+        [
+          "queue_mission",
+          7,
+          1
+        ]
+      ],
+      "foot": [
+        696,
+        106,
+        170
+      ],
+      "result": 1
+    },
+    {
+      "admission": {
+        "bunkerable": true,
+        "parasite": false,
+        "speed_type": 1,
+        "turret": true,
+        "weapon": true
+      },
+      "admitted": 1,
+      "bunkers": [],
+      "events": [],
+      "foot": [
+        2833,
+        9198,
+        1027
+      ],
+      "result": 0
+    },
+    {
+      "admission": {
+        "bunkerable": true,
+        "parasite": false,
+        "speed_type": 1,
+        "turret": true,
+        "weapon": true
+      },
+      "admitted": 1,
+      "bunkers": [],
+      "events": [],
+      "foot": [
+        162153,
+        88811,
+        649
+      ],
+      "result": 0
+    },
+    {
+      "admission": {
+        "bunkerable": true,
+        "parasite": false,
+        "speed_type": 1,
+        "turret": true,
+        "weapon": true
+      },
+      "admitted": 1,
+      "bunkers": [],
+      "events": [],
+      "foot": [
+        4741752,
+        5017282,
+        442
+      ],
+      "result": 0
+    },
+    {
+      "admission": {
+        "bunkerable": true,
+        "parasite": false,
+        "speed_type": 1,
+        "turret": true,
+        "weapon": true
+      },
+      "admitted": 1,
+      "bunkers": [
+        {
+          "contact": false,
+          "occupied": false,
+          "xyz": [
+            243,
+            814,
+            701
+          ]
+        },
+        {
+          "contact": false,
+          "occupied": true,
+          "xyz": [
+            412,
+            120,
+            411
+          ]
+        },
+        {
+          "contact": true,
+          "occupied": true,
+          "xyz": [
+            165,
+            395,
+            384
+          ]
+        }
+      ],
+      "events": [
+        [
+          "coords",
+          2
+        ],
+        [
+          "contact",
+          2,
+          0
+        ],
+        [
+          "coords",
+          1
+        ],
+        [
+          "contact",
+          1,
+          0
+        ],
+        [
+          "coords",
+          0
+        ],
+        [
+          "contact",
+          0,
+          0
+        ],
+        [
+          "assign_destination",
+          0,
+          1
+        ],
+        [
+          "transmit",
+          2,
+          0
+        ],
+        [
+          "queue_mission",
+          7,
+          1
+        ]
+      ],
+      "foot": [
+        272,
+        1007,
+        253
+      ],
+      "result": 1
+    },
+    {
+      "admission": {
+        "bunkerable": true,
+        "parasite": false,
+        "speed_type": 1,
+        "turret": true,
+        "weapon": true
+      },
+      "admitted": 1,
+      "bunkers": [
+        {
+          "contact": true,
+          "occupied": false,
+          "xyz": [
+            11724,
+            13550,
+            1227
+          ]
+        }
+      ],
+      "events": [
+        [
+          "coords",
+          0
+        ],
+        [
+          "contact",
+          0,
+          0
+        ]
+      ],
+      "foot": [
+        6109,
+        8536,
+        635
+      ],
+      "result": 0
+    },
+    {
+      "admission": {
+        "bunkerable": true,
+        "parasite": false,
+        "speed_type": 1,
+        "turret": true,
+        "weapon": true
+      },
+      "admitted": 1,
+      "bunkers": [
+        {
+          "contact": false,
+          "occupied": true,
+          "xyz": [
+            16924,
+            96581,
+            769
+          ]
+        },
+        {
+          "contact": false,
+          "occupied": false,
+          "xyz": [
+            203460,
+            243008,
+            1054
+          ]
+        },
+        {
+          "contact": false,
+          "occupied": false,
+          "xyz": [
+            17139,
+            222653,
+            573
+          ]
+        },
+        {
+          "contact": false,
+          "occupied": true,
+          "xyz": [
+            28717,
+            34206,
+            815
+          ]
+        },
+        {
+          "contact": true,
+          "occupied": true,
+          "xyz": [
+            132696,
+            204570,
+            1110
+          ]
+        }
+      ],
+      "events": [
+        [
+          "coords",
+          4
+        ],
+        [
+          "contact",
+          4,
+          0
+        ],
+        [
+          "coords",
+          3
+        ],
+        [
+          "contact",
+          3,
+          0
+        ],
+        [
+          "coords",
+          2
+        ],
+        [
+          "contact",
+          2,
+          0
+        ],
+        [
+          "coords",
+          1
+        ],
+        [
+          "contact",
+          1,
+          0
+        ],
+        [
+          "coords",
+          0
+        ],
+        [
+          "contact",
+          0,
+          0
+        ],
+        [
+          "assign_destination",
+          1,
+          1
+        ],
+        [
+          "transmit",
+          2,
+          1
+        ],
+        [
+          "queue_mission",
+          7,
+          1
+        ]
+      ],
+      "foot": [
+        216989,
+        835,
+        175
+      ],
+      "result": 1
+    },
+    {
+      "admission": {
+        "bunkerable": true,
+        "parasite": false,
+        "speed_type": 1,
+        "turret": true,
+        "weapon": true
+      },
+      "admitted": 1,
+      "bunkers": [
+        {
+          "contact": false,
+          "occupied": false,
+          "xyz": [
+            5626200,
+            8319156,
+            1496
+          ]
+        },
+        {
+          "contact": true,
+          "occupied": false,
+          "xyz": [
+            8347184,
+            6230664,
+            974
+          ]
+        },
+        {
+          "contact": false,
+          "occupied": false,
+          "xyz": [
+            5709188,
+            1877574,
+            1608
+          ]
+        },
+        {
+          "contact": false,
+          "occupied": false,
+          "xyz": [
+            2090091,
+            757775,
+            1555
+          ]
+        },
+        {
+          "contact": true,
+          "occupied": true,
+          "xyz": [
+            2714269,
+            5397730,
+            1927
+          ]
+        }
+      ],
+      "events": [
+        [
+          "coords",
+          4
+        ],
+        [
+          "contact",
+          4,
+          0
+        ],
+        [
+          "coords",
+          3
+        ],
+        [
+          "contact",
+          3,
+          0
+        ],
+        [
+          "coords",
+          2
+        ],
+        [
+          "contact",
+          2,
+          0
+        ],
+        [
+          "coords",
+          1
+        ],
+        [
+          "coords",
+          0
+        ],
+        [
+          "contact",
+          0,
+          0
+        ],
+        [
+          "assign_destination",
+          0,
+          1
+        ],
+        [
+          "transmit",
+          2,
+          0
+        ],
+        [
+          "queue_mission",
+          7,
+          1
+        ]
+      ],
+      "foot": [
+        3946400,
+        5459642,
+        530
+      ],
+      "result": 1
+    },
+    {
+      "admission": {
+        "bunkerable": true,
+        "parasite": false,
+        "speed_type": 1,
+        "turret": true,
+        "weapon": true
+      },
+      "admitted": 1,
+      "bunkers": [],
+      "events": [],
+      "foot": [
+        865,
+        330,
+        1660
+      ],
+      "result": 0
+    },
+    {
+      "admission": {
+        "bunkerable": true,
+        "parasite": false,
+        "speed_type": 1,
+        "turret": true,
+        "weapon": true
+      },
+      "admitted": 1,
+      "bunkers": [
+        {
+          "contact": false,
+          "occupied": false,
+          "xyz": [
+            14371,
+            8406,
+            696
+          ]
+        },
+        {
+          "contact": true,
+          "occupied": true,
+          "xyz": [
+            5606,
+            3638,
+            643
+          ]
+        },
+        {
+          "contact": false,
+          "occupied": true,
+          "xyz": [
+            3345,
+            900,
+            1725
+          ]
+        }
+      ],
+      "events": [
+        [
+          "coords",
+          2
+        ],
+        [
+          "contact",
+          2,
+          0
+        ],
+        [
+          "coords",
+          1
+        ],
+        [
+          "contact",
+          1,
+          0
+        ],
+        [
+          "coords",
+          0
+        ],
+        [
+          "contact",
+          0,
+          0
+        ],
+        [
+          "assign_destination",
+          0,
+          1
+        ],
+        [
+          "transmit",
+          2,
+          0
+        ],
+        [
+          "queue_mission",
+          7,
+          1
+        ]
+      ],
+      "foot": [
+        15576,
+        15985,
+        653
+      ],
+      "result": 1
+    },
+    {
+      "admission": {
+        "bunkerable": true,
+        "parasite": false,
+        "speed_type": 1,
+        "turret": true,
+        "weapon": true
+      },
+      "admitted": 1,
+      "bunkers": [],
+      "events": [],
+      "foot": [
+        147437,
+        76948,
+        153
+      ],
+      "result": 0
+    },
+    {
+      "admission": {
+        "bunkerable": true,
+        "parasite": false,
+        "speed_type": 1,
+        "turret": true,
+        "weapon": true
+      },
+      "admitted": 1,
+      "bunkers": [
+        {
+          "contact": false,
+          "occupied": false,
+          "xyz": [
+            2630157,
+            6800349,
+            689
+          ]
+        },
+        {
+          "contact": false,
+          "occupied": false,
+          "xyz": [
+            3405613,
+            2439070,
+            1928
+          ]
+        },
+        {
+          "contact": false,
+          "occupied": true,
+          "xyz": [
+            1431984,
+            6340015,
+            1599
+          ]
+        },
+        {
+          "contact": false,
+          "occupied": true,
+          "xyz": [
+            3274100,
+            3727896,
+            520
+          ]
+        }
+      ],
+      "events": [
+        [
+          "coords",
+          3
+        ],
+        [
+          "contact",
+          3,
+          0
+        ],
+        [
+          "coords",
+          2
+        ],
+        [
+          "contact",
+          2,
+          0
+        ],
+        [
+          "coords",
+          1
+        ],
+        [
+          "contact",
+          1,
+          0
+        ],
+        [
+          "coords",
+          0
+        ],
+        [
+          "assign_destination",
+          1,
+          1
+        ],
+        [
+          "transmit",
+          2,
+          1
+        ],
+        [
+          "queue_mission",
+          7,
+          1
+        ]
+      ],
+      "foot": [
+        7736778,
+        1727994,
+        1161
+      ],
+      "result": 1
+    },
+    {
+      "admission": {
+        "bunkerable": true,
+        "parasite": false,
+        "speed_type": 1,
+        "turret": true,
+        "weapon": true
+      },
+      "admitted": 1,
+      "bunkers": [
+        {
+          "contact": true,
+          "occupied": false,
+          "xyz": [
+            683,
+            792,
+            1130
+          ]
+        },
+        {
+          "contact": false,
+          "occupied": true,
+          "xyz": [
+            956,
+            205,
+            995
+          ]
+        },
+        {
+          "contact": false,
+          "occupied": false,
+          "xyz": [
+            892,
+            436,
+            1659
+          ]
+        },
+        {
+          "contact": true,
+          "occupied": true,
+          "xyz": [
+            583,
+            866,
+            508
+          ]
+        }
+      ],
+      "events": [
+        [
+          "coords",
+          3
+        ],
+        [
+          "contact",
+          3,
+          0
+        ],
+        [
+          "coords",
+          2
+        ],
+        [
+          "contact",
+          2,
+          0
+        ],
+        [
+          "coords",
+          1
+        ],
+        [
+          "coords",
+          0
+        ],
+        [
+          "assign_destination",
+          2,
+          1
+        ],
+        [
+          "transmit",
+          2,
+          2
+        ],
+        [
+          "queue_mission",
+          7,
+          1
+        ]
+      ],
+      "foot": [
+        596,
+        177,
+        1420
+      ],
+      "result": 1
+    },
+    {
+      "admission": {
+        "bunkerable": true,
+        "parasite": false,
+        "speed_type": 1,
+        "turret": true,
+        "weapon": true
+      },
+      "admitted": 1,
+      "bunkers": [
+        {
+          "contact": false,
+          "occupied": false,
+          "xyz": [
+            12273,
+            9843,
+            2034
+          ]
+        },
+        {
+          "contact": false,
+          "occupied": false,
+          "xyz": [
+            4015,
+            8086,
+            1504
+          ]
+        }
+      ],
+      "events": [
+        [
+          "coords",
+          1
+        ],
+        [
+          "contact",
+          1,
+          0
+        ],
+        [
+          "coords",
+          0
+        ],
+        [
+          "assign_destination",
+          1,
+          1
+        ],
+        [
+          "transmit",
+          2,
+          1
+        ],
+        [
+          "queue_mission",
+          7,
+          1
+        ]
+      ],
+      "foot": [
+        5082,
+        10181,
+        1765
+      ],
+      "result": 1
+    },
+    {
+      "admission": {
+        "bunkerable": true,
+        "parasite": false,
+        "speed_type": 1,
+        "turret": true,
+        "weapon": true
+      },
+      "admitted": 1,
+      "bunkers": [
+        {
+          "contact": true,
+          "occupied": false,
+          "xyz": [
+            217679,
+            204751,
+            462
+          ]
+        },
+        {
+          "contact": false,
+          "occupied": false,
+          "xyz": [
+            186141,
+            206538,
+            1026
+          ]
+        },
+        {
+          "contact": false,
+          "occupied": false,
+          "xyz": [
+            75081,
+            205639,
+            680
+          ]
+        }
+      ],
+      "events": [
+        [
+          "coords",
+          2
+        ],
+        [
+          "contact",
+          2,
+          0
+        ],
+        [
+          "coords",
+          1
+        ],
+        [
+          "coords",
+          0
+        ],
+        [
+          "assign_destination",
+          2,
+          1
+        ],
+        [
+          "transmit",
+          2,
+          2
+        ],
+        [
+          "queue_mission",
+          7,
+          1
+        ]
+      ],
+      "foot": [
+        86131,
+        146576,
+        789
+      ],
+      "result": 1
+    },
+    {
+      "admission": {
+        "bunkerable": true,
+        "parasite": false,
+        "speed_type": 1,
+        "turret": true,
+        "weapon": true
+      },
+      "admitted": 1,
+      "bunkers": [
+        {
+          "contact": false,
+          "occupied": false,
+          "xyz": [
+            7336977,
+            2755338,
+            1061
+          ]
+        },
+        {
+          "contact": false,
+          "occupied": false,
+          "xyz": [
+            5804819,
+            6702200,
+            576
+          ]
+        },
+        {
+          "contact": false,
+          "occupied": false,
+          "xyz": [
+            8159586,
+            7528400,
+            93
+          ]
+        },
+        {
+          "contact": false,
+          "occupied": false,
+          "xyz": [
+            3527572,
+            395831,
+            1339
+          ]
+        }
+      ],
+      "events": [
+        [
+          "coords",
+          3
+        ],
+        [
+          "contact",
+          3,
+          0
+        ],
+        [
+          "coords",
+          2
+        ],
+        [
+          "contact",
+          2,
+          0
+        ],
+        [
+          "coords",
+          1
+        ],
+        [
+          "contact",
+          1,
+          0
+        ],
+        [
+          "coords",
+          0
+        ],
+        [
+          "assign_destination",
+          1,
+          1
+        ],
+        [
+          "transmit",
+          2,
+          1
+        ],
+        [
+          "queue_mission",
+          7,
+          1
+        ]
+      ],
+      "foot": [
+        7389214,
+        5366576,
+        2006
+      ],
+      "result": 1
+    },
+    {
+      "admission": {
+        "bunkerable": true,
+        "parasite": false,
+        "speed_type": 1,
+        "turret": true,
+        "weapon": true
+      },
+      "admitted": 1,
+      "bunkers": [
+        {
+          "contact": true,
+          "occupied": true,
+          "xyz": [
+            604,
+            37,
+            789
+          ]
+        },
+        {
+          "contact": false,
+          "occupied": false,
+          "xyz": [
+            962,
+            199,
+            184
+          ]
+        },
+        {
+          "contact": false,
+          "occupied": false,
+          "xyz": [
+            340,
+            603,
+            1544
+          ]
+        },
+        {
+          "contact": true,
+          "occupied": true,
+          "xyz": [
+            355,
+            892,
+            543
+          ]
+        }
+      ],
+      "events": [
+        [
+          "coords",
+          3
+        ],
+        [
+          "contact",
+          3,
+          0
+        ],
+        [
+          "coords",
+          2
+        ],
+        [
+          "contact",
+          2,
+          0
+        ],
+        [
+          "coords",
+          1
+        ],
+        [
+          "coords",
+          0
+        ],
+        [
+          "assign_destination",
+          2,
+          1
+        ],
+        [
+          "transmit",
+          2,
+          2
+        ],
+        [
+          "queue_mission",
+          7,
+          1
+        ]
+      ],
+      "foot": [
+        653,
+        261,
+        1574
+      ],
+      "result": 1
+    },
+    {
+      "admission": {
+        "bunkerable": true,
+        "parasite": false,
+        "speed_type": 1,
+        "turret": true,
+        "weapon": true
+      },
+      "admitted": 1,
+      "bunkers": [],
+      "events": [],
+      "foot": [
+        7837,
+        4965,
+        1652
+      ],
+      "result": 0
+    },
+    {
+      "admission": {
+        "bunkerable": true,
+        "parasite": false,
+        "speed_type": 1,
+        "turret": true,
+        "weapon": true
+      },
+      "admitted": 1,
+      "bunkers": [
+        {
+          "contact": false,
+          "occupied": false,
+          "xyz": [
+            147724,
+            208341,
+            263
+          ]
+        },
+        {
+          "contact": false,
+          "occupied": false,
+          "xyz": [
+            34811,
+            156962,
+            1783
+          ]
+        }
+      ],
+      "events": [
+        [
+          "coords",
+          1
+        ],
+        [
+          "contact",
+          1,
+          0
+        ],
+        [
+          "coords",
+          0
+        ],
+        [
+          "assign_destination",
+          1,
+          1
+        ],
+        [
+          "transmit",
+          2,
+          1
+        ],
+        [
+          "queue_mission",
+          7,
+          1
+        ]
+      ],
+      "foot": [
+        2677,
+        254868,
+        1454
+      ],
+      "result": 1
+    },
+    {
+      "admission": {
+        "bunkerable": true,
+        "parasite": false,
+        "speed_type": 1,
+        "turret": true,
+        "weapon": true
+      },
+      "admitted": 1,
+      "bunkers": [
+        {
+          "contact": false,
+          "occupied": true,
+          "xyz": [
+            7995251,
+            4112918,
+            848
+          ]
+        }
+      ],
+      "events": [
+        [
+          "coords",
+          0
+        ],
+        [
+          "contact",
+          0,
+          0
+        ]
+      ],
+      "foot": [
+        6230826,
+        1991188,
+        184
+      ],
+      "result": 0
+    },
+    {
+      "admission": {
+        "bunkerable": true,
+        "parasite": false,
+        "speed_type": 1,
+        "turret": true,
+        "weapon": true
+      },
+      "admitted": 1,
+      "bunkers": [
+        {
+          "contact": true,
+          "occupied": false,
+          "xyz": [
+            239,
+            1013,
+            720
+          ]
+        },
+        {
+          "contact": false,
+          "occupied": false,
+          "xyz": [
+            163,
+            892,
+            1967
+          ]
+        },
+        {
+          "contact": false,
+          "occupied": false,
+          "xyz": [
+            89,
+            447,
+            1538
+          ]
+        },
+        {
+          "contact": false,
+          "occupied": true,
+          "xyz": [
+            71,
+            46,
+            529
+          ]
+        },
+        {
+          "contact": false,
+          "occupied": true,
+          "xyz": [
+            443,
+            296,
+            502
+          ]
+        }
+      ],
+      "events": [
+        [
+          "coords",
+          4
+        ],
+        [
+          "contact",
+          4,
+          0
+        ],
+        [
+          "coords",
+          3
+        ],
+        [
+          "contact",
+          3,
+          0
+        ],
+        [
+          "coords",
+          2
+        ],
+        [
+          "contact",
+          2,
+          0
+        ],
+        [
+          "coords",
+          1
+        ],
+        [
+          "coords",
+          0
+        ],
+        [
+          "assign_destination",
+          2,
+          1
+        ],
+        [
+          "transmit",
+          2,
+          2
+        ],
+        [
+          "queue_mission",
+          7,
+          1
+        ]
+      ],
+      "foot": [
+        234,
+        195,
+        1438
+      ],
+      "result": 1
+    },
+    {
+      "admission": {
+        "bunkerable": true,
+        "parasite": false,
+        "speed_type": 1,
+        "turret": true,
+        "weapon": true
+      },
+      "admitted": 1,
+      "bunkers": [
+        {
+          "contact": false,
+          "occupied": false,
+          "xyz": [
+            3143,
+            12157,
+            852
+          ]
+        },
+        {
+          "contact": true,
+          "occupied": false,
+          "xyz": [
+            13765,
+            7864,
+            485
+          ]
+        },
+        {
+          "contact": false,
+          "occupied": true,
+          "xyz": [
+            97,
+            1715,
+            1969
+          ]
+        }
+      ],
+      "events": [
+        [
+          "coords",
+          2
+        ],
+        [
+          "contact",
+          2,
+          0
+        ],
+        [
+          "coords",
+          1
+        ],
+        [
+          "contact",
+          1,
+          0
+        ],
+        [
+          "coords",
+          0
+        ],
+        [
+          "contact",
+          0,
+          0
+        ],
+        [
+          "assign_destination",
+          0,
+          1
+        ],
+        [
+          "transmit",
+          2,
+          0
+        ],
+        [
+          "queue_mission",
+          7,
+          1
+        ]
+      ],
+      "foot": [
+        11660,
+        4566,
+        1473
+      ],
+      "result": 1
+    },
+    {
+      "admission": {
+        "bunkerable": true,
+        "parasite": false,
+        "speed_type": 1,
+        "turret": true,
+        "weapon": true
+      },
+      "admitted": 1,
+      "bunkers": [
+        {
+          "contact": false,
+          "occupied": false,
+          "xyz": [
+            20478,
+            115422,
+            1610
+          ]
+        },
+        {
+          "contact": false,
+          "occupied": false,
+          "xyz": [
+            45878,
+            183290,
+            1570
+          ]
+        },
+        {
+          "contact": false,
+          "occupied": false,
+          "xyz": [
+            76525,
+            80674,
+            294
+          ]
+        }
+      ],
+      "events": [
+        [
+          "coords",
+          2
+        ],
+        [
+          "contact",
+          2,
+          0
+        ],
+        [
+          "coords",
+          1
+        ],
+        [
+          "contact",
+          1,
+          0
+        ],
+        [
+          "coords",
+          0
+        ],
+        [
+          "assign_destination",
+          1,
+          1
+        ],
+        [
+          "transmit",
+          2,
+          1
+        ],
+        [
+          "queue_mission",
+          7,
+          1
+        ]
+      ],
+      "foot": [
+        41454,
+        189556,
+        175
+      ],
+      "result": 1
+    },
+    {
+      "admission": {
+        "bunkerable": true,
+        "parasite": false,
+        "speed_type": 1,
+        "turret": true,
+        "weapon": true
+      },
+      "admitted": 1,
+      "bunkers": [
+        {
+          "contact": false,
+          "occupied": false,
+          "xyz": [
+            3061702,
+            1336100,
+            925
+          ]
+        },
+        {
+          "contact": false,
+          "occupied": false,
+          "xyz": [
+            5438903,
+            889183,
+            1799
+          ]
+        },
+        {
+          "contact": false,
+          "occupied": false,
+          "xyz": [
+            5118748,
+            1421732,
+            1837
+          ]
+        },
+        {
+          "contact": true,
+          "occupied": true,
+          "xyz": [
+            4656523,
+            3771412,
+            1244
+          ]
+        }
+      ],
+      "events": [
+        [
+          "coords",
+          3
+        ],
+        [
+          "contact",
+          3,
+          0
+        ],
+        [
+          "coords",
+          2
+        ],
+        [
+          "contact",
+          2,
+          0
+        ],
+        [
+          "coords",
+          1
+        ],
+        [
+          "contact",
+          1,
+          0
+        ],
+        [
+          "coords",
+          0
+        ],
+        [
+          "assign_destination",
+          1,
+          1
+        ],
+        [
+          "transmit",
+          2,
+          1
+        ],
+        [
+          "queue_mission",
+          7,
+          1
+        ]
+      ],
+      "foot": [
+        7210003,
+        1334435,
+        910
+      ],
+      "result": 1
+    },
+    {
+      "admission": {
+        "bunkerable": true,
+        "parasite": false,
+        "speed_type": 1,
+        "turret": true,
+        "weapon": true
+      },
+      "admitted": 1,
+      "bunkers": [
+        {
+          "contact": false,
+          "occupied": false,
+          "xyz": [
+            154,
+            829,
+            1123
+          ]
+        },
+        {
+          "contact": false,
+          "occupied": true,
+          "xyz": [
+            408,
+            743,
+            944
+          ]
+        },
+        {
+          "contact": false,
+          "occupied": false,
+          "xyz": [
+            12,
+            894,
+            1472
+          ]
+        },
+        {
+          "contact": true,
+          "occupied": false,
+          "xyz": [
+            558,
+            96,
+            2010
+          ]
+        }
+      ],
+      "events": [
+        [
+          "coords",
+          3
+        ],
+        [
+          "contact",
+          3,
+          0
+        ],
+        [
+          "coords",
+          2
+        ],
+        [
+          "contact",
+          2,
+          0
+        ],
+        [
+          "coords",
+          1
+        ],
+        [
+          "contact",
+          1,
+          0
+        ],
+        [
+          "coords",
+          0
+        ],
+        [
+          "contact",
+          0,
+          0
+        ],
+        [
+          "assign_destination",
+          0,
+          1
+        ],
+        [
+          "transmit",
+          2,
+          0
+        ],
+        [
+          "queue_mission",
+          7,
+          1
+        ]
+      ],
+      "foot": [
+        55,
+        701,
+        286
+      ],
+      "result": 1
+    },
+    {
+      "admission": {
+        "bunkerable": true,
+        "parasite": false,
+        "speed_type": 1,
+        "turret": true,
+        "weapon": true
+      },
+      "admitted": 1,
+      "bunkers": [
+        {
+          "contact": false,
+          "occupied": true,
+          "xyz": [
+            6369,
+            8127,
+            1844
+          ]
+        },
+        {
+          "contact": false,
+          "occupied": false,
+          "xyz": [
+            16370,
+            13555,
+            1492
+          ]
+        }
+      ],
+      "events": [
+        [
+          "coords",
+          1
+        ],
+        [
+          "contact",
+          1,
+          0
+        ],
+        [
+          "coords",
+          0
+        ],
+        [
+          "contact",
+          0,
+          0
+        ],
+        [
+          "assign_destination",
+          1,
+          1
+        ],
+        [
+          "transmit",
+          2,
+          1
+        ],
+        [
+          "queue_mission",
+          7,
+          1
+        ]
+      ],
+      "foot": [
+        965,
+        2072,
+        1305
+      ],
+      "result": 1
+    },
+    {
+      "admission": {
+        "bunkerable": true,
+        "parasite": false,
+        "speed_type": 1,
+        "turret": true,
+        "weapon": true
+      },
+      "admitted": 1,
+      "bunkers": [],
+      "events": [],
+      "foot": [
+        163453,
+        85509,
+        1831
+      ],
+      "result": 0
+    },
+    {
+      "admission": {
+        "bunkerable": true,
+        "parasite": false,
+        "speed_type": 1,
+        "turret": true,
+        "weapon": true
+      },
+      "admitted": 1,
+      "bunkers": [
+        {
+          "contact": false,
+          "occupied": false,
+          "xyz": [
+            4764410,
+            1183956,
+            1448
+          ]
+        }
+      ],
+      "events": [
+        [
+          "coords",
+          0
+        ],
+        [
+          "contact",
+          0,
+          0
+        ],
+        [
+          "assign_destination",
+          0,
+          1
+        ],
+        [
+          "transmit",
+          2,
+          0
+        ],
+        [
+          "queue_mission",
+          7,
+          1
+        ]
+      ],
+      "foot": [
+        4607257,
+        1978829,
+        1583
+      ],
+      "result": 1
+    },
+    {
+      "admission": {
+        "bunkerable": true,
+        "parasite": false,
+        "speed_type": 1,
+        "turret": true,
+        "weapon": true
+      },
+      "admitted": 1,
+      "bunkers": [
+        {
+          "contact": false,
+          "occupied": false,
+          "xyz": [
+            731,
+            336,
+            1187
+          ]
+        },
+        {
+          "contact": false,
+          "occupied": true,
+          "xyz": [
+            603,
+            95,
+            1408
+          ]
+        },
+        {
+          "contact": false,
+          "occupied": false,
+          "xyz": [
+            1005,
+            1007,
+            1048
+          ]
+        },
+        {
+          "contact": false,
+          "occupied": false,
+          "xyz": [
+            874,
+            2,
+            152
+          ]
+        },
+        {
+          "contact": false,
+          "occupied": true,
+          "xyz": [
+            296,
+            976,
+            1979
+          ]
+        }
+      ],
+      "events": [
+        [
+          "coords",
+          4
+        ],
+        [
+          "contact",
+          4,
+          0
+        ],
+        [
+          "coords",
+          3
+        ],
+        [
+          "contact",
+          3,
+          0
+        ],
+        [
+          "coords",
+          2
+        ],
+        [
+          "coords",
+          1
+        ],
+        [
+          "coords",
+          0
+        ],
+        [
+          "assign_destination",
+          3,
+          1
+        ],
+        [
+          "transmit",
+          2,
+          3
+        ],
+        [
+          "queue_mission",
+          7,
+          1
+        ]
+      ],
+      "foot": [
+        197,
+        287,
+        13
+      ],
+      "result": 1
+    },
+    {
+      "admission": {
+        "bunkerable": true,
+        "parasite": false,
+        "speed_type": 1,
+        "turret": true,
+        "weapon": true
+      },
+      "admitted": 1,
+      "bunkers": [
+        {
+          "contact": false,
+          "occupied": false,
+          "xyz": [
+            8738,
+            12926,
+            2017
+          ]
+        },
+        {
+          "contact": false,
+          "occupied": true,
+          "xyz": [
+            16369,
+            6939,
+            654
+          ]
+        },
+        {
+          "contact": false,
+          "occupied": true,
+          "xyz": [
+            11675,
+            4145,
+            1085
+          ]
+        },
+        {
+          "contact": false,
+          "occupied": true,
+          "xyz": [
+            5021,
+            15430,
+            1229
+          ]
+        },
+        {
+          "contact": false,
+          "occupied": true,
+          "xyz": [
+            9428,
+            16356,
+            1732
+          ]
+        }
+      ],
+      "events": [
+        [
+          "coords",
+          4
+        ],
+        [
+          "contact",
+          4,
+          0
+        ],
+        [
+          "coords",
+          3
+        ],
+        [
+          "contact",
+          3,
+          0
+        ],
+        [
+          "coords",
+          2
+        ],
+        [
+          "contact",
+          2,
+          0
+        ],
+        [
+          "coords",
+          1
+        ],
+        [
+          "contact",
+          1,
+          0
+        ],
+        [
+          "coords",
+          0
+        ],
+        [
+          "contact",
+          0,
+          0
+        ],
+        [
+          "assign_destination",
+          0,
+          1
+        ],
+        [
+          "transmit",
+          2,
+          0
+        ],
+        [
+          "queue_mission",
+          7,
+          1
+        ]
+      ],
+      "foot": [
+        4756,
+        12380,
+        19
+      ],
+      "result": 1
+    },
+    {
+      "admission": {
+        "bunkerable": true,
+        "parasite": false,
+        "speed_type": 1,
+        "turret": true,
+        "weapon": true
+      },
+      "admitted": 1,
+      "bunkers": [
+        {
+          "contact": true,
+          "occupied": true,
+          "xyz": [
+            84319,
+            100722,
+            1069
+          ]
+        },
+        {
+          "contact": true,
+          "occupied": true,
+          "xyz": [
+            207874,
+            82552,
+            1556
+          ]
+        },
+        {
+          "contact": false,
+          "occupied": false,
+          "xyz": [
+            227584,
+            259183,
+            1801
+          ]
+        },
+        {
+          "contact": false,
+          "occupied": false,
+          "xyz": [
+            96469,
+            156474,
+            690
+          ]
+        },
+        {
+          "contact": false,
+          "occupied": true,
+          "xyz": [
+            152610,
+            124773,
+            431
+          ]
+        }
+      ],
+      "events": [
+        [
+          "coords",
+          4
+        ],
+        [
+          "contact",
+          4,
+          0
+        ],
+        [
+          "coords",
+          3
+        ],
+        [
+          "contact",
+          3,
+          0
+        ],
+        [
+          "coords",
+          2
+        ],
+        [
+          "coords",
+          1
+        ],
+        [
+          "contact",
+          1,
+          0
+        ],
+        [
+          "coords",
+          0
+        ],
+        [
+          "contact",
+          0,
+          0
+        ],
+        [
+          "assign_destination",
+          3,
+          1
+        ],
+        [
+          "transmit",
+          2,
+          3
+        ],
+        [
+          "queue_mission",
+          7,
+          1
+        ]
+      ],
+      "foot": [
+        197112,
+        43037,
+        857
+      ],
+      "result": 1
+    },
+    {
+      "admission": {
+        "bunkerable": true,
+        "parasite": false,
+        "speed_type": 1,
+        "turret": true,
+        "weapon": true
+      },
+      "admitted": 1,
+      "bunkers": [
+        {
+          "contact": false,
+          "occupied": false,
+          "xyz": [
+            225808,
+            5564071,
+            450
+          ]
+        }
+      ],
+      "events": [
+        [
+          "coords",
+          0
+        ],
+        [
+          "contact",
+          0,
+          0
+        ],
+        [
+          "assign_destination",
+          0,
+          1
+        ],
+        [
+          "transmit",
+          2,
+          0
+        ],
+        [
+          "queue_mission",
+          7,
+          1
+        ]
+      ],
+      "foot": [
+        5345738,
+        6441856,
+        751
+      ],
+      "result": 1
+    },
+    {
+      "admission": {
+        "bunkerable": true,
+        "parasite": false,
+        "speed_type": 1,
+        "turret": true,
+        "weapon": true
+      },
+      "admitted": 1,
+      "bunkers": [
+        {
+          "contact": false,
+          "occupied": false,
+          "xyz": [
+            1005,
+            704,
+            208
+          ]
+        }
+      ],
+      "events": [
+        [
+          "coords",
+          0
+        ],
+        [
+          "contact",
+          0,
+          0
+        ],
+        [
+          "assign_destination",
+          0,
+          1
+        ],
+        [
+          "transmit",
+          2,
+          0
+        ],
+        [
+          "queue_mission",
+          7,
+          1
+        ]
+      ],
+      "foot": [
+        911,
+        932,
+        663
+      ],
+      "result": 1
+    },
+    {
+      "admission": {
+        "bunkerable": true,
+        "parasite": false,
+        "speed_type": 1,
+        "turret": true,
+        "weapon": true
+      },
+      "admitted": 1,
+      "bunkers": [],
+      "events": [],
+      "foot": [
+        6436,
+        6217,
+        1238
+      ],
+      "result": 0
+    },
+    {
+      "admission": {
+        "bunkerable": true,
+        "parasite": false,
+        "speed_type": 1,
+        "turret": true,
+        "weapon": true
+      },
+      "admitted": 1,
+      "bunkers": [
+        {
+          "contact": true,
+          "occupied": false,
+          "xyz": [
+            12710,
+            167220,
+            1223
+          ]
+        },
+        {
+          "contact": false,
+          "occupied": false,
+          "xyz": [
+            55753,
+            124314,
+            285
+          ]
+        }
+      ],
+      "events": [
+        [
+          "coords",
+          1
+        ],
+        [
+          "contact",
+          1,
+          0
+        ],
+        [
+          "coords",
+          0
+        ],
+        [
+          "assign_destination",
+          1,
+          1
+        ],
+        [
+          "transmit",
+          2,
+          1
+        ],
+        [
+          "queue_mission",
+          7,
+          1
+        ]
+      ],
+      "foot": [
+        6991,
+        7094,
+        503
+      ],
+      "result": 1
+    },
+    {
+      "admission": {
+        "bunkerable": true,
+        "parasite": false,
+        "speed_type": 1,
+        "turret": true,
+        "weapon": true
+      },
+      "admitted": 1,
+      "bunkers": [],
+      "events": [],
+      "foot": [
+        6311049,
+        709956,
+        1151
+      ],
+      "result": 0
+    },
+    {
+      "admission": {
+        "bunkerable": true,
+        "parasite": false,
+        "speed_type": 1,
+        "turret": true,
+        "weapon": true
+      },
+      "admitted": 1,
+      "bunkers": [
+        {
+          "contact": false,
+          "occupied": false,
+          "xyz": [
+            370,
+            996,
+            1907
+          ]
+        },
+        {
+          "contact": true,
+          "occupied": false,
+          "xyz": [
+            8,
+            620,
+            1314
+          ]
+        },
+        {
+          "contact": false,
+          "occupied": false,
+          "xyz": [
+            1004,
+            905,
+            881
+          ]
+        },
+        {
+          "contact": false,
+          "occupied": false,
+          "xyz": [
+            583,
+            862,
+            52
+          ]
+        }
+      ],
+      "events": [
+        [
+          "coords",
+          3
+        ],
+        [
+          "contact",
+          3,
+          0
+        ],
+        [
+          "coords",
+          2
+        ],
+        [
+          "contact",
+          2,
+          0
+        ],
+        [
+          "coords",
+          1
+        ],
+        [
+          "contact",
+          1,
+          0
+        ],
+        [
+          "coords",
+          0
+        ],
+        [
+          "contact",
+          0,
+          0
+        ],
+        [
+          "assign_destination",
+          0,
+          1
+        ],
+        [
+          "transmit",
+          2,
+          0
+        ],
+        [
+          "queue_mission",
+          7,
+          1
+        ]
+      ],
+      "foot": [
+        665,
+        667,
+        1827
+      ],
+      "result": 1
+    },
+    {
+      "admission": {
+        "bunkerable": true,
+        "parasite": false,
+        "speed_type": 1,
+        "turret": true,
+        "weapon": true
+      },
+      "admitted": 1,
+      "bunkers": [
+        {
+          "contact": true,
+          "occupied": false,
+          "xyz": [
+            3536,
+            8865,
+            755
+          ]
+        },
+        {
+          "contact": true,
+          "occupied": false,
+          "xyz": [
+            1730,
+            9280,
+            515
+          ]
+        }
+      ],
+      "events": [
+        [
+          "coords",
+          1
+        ],
+        [
+          "contact",
+          1,
+          0
+        ],
+        [
+          "coords",
+          0
+        ],
+        [
+          "contact",
+          0,
+          0
+        ]
+      ],
+      "foot": [
+        4147,
+        5684,
+        172
+      ],
+      "result": 0
+    },
+    {
+      "admission": {
+        "bunkerable": true,
+        "parasite": false,
+        "speed_type": 1,
+        "turret": true,
+        "weapon": true
+      },
+      "admitted": 1,
+      "bunkers": [
+        {
+          "contact": true,
+          "occupied": false,
+          "xyz": [
+            17521,
+            99984,
+            579
+          ]
+        },
+        {
+          "contact": false,
+          "occupied": false,
+          "xyz": [
+            148617,
+            83419,
+            1029
+          ]
+        },
+        {
+          "contact": false,
+          "occupied": true,
+          "xyz": [
+            167425,
+            45227,
+            1961
+          ]
+        },
+        {
+          "contact": false,
+          "occupied": true,
+          "xyz": [
+            95755,
+            7092,
+            1512
+          ]
+        },
+        {
+          "contact": false,
+          "occupied": true,
+          "xyz": [
+            92220,
+            198452,
+            851
+          ]
+        }
+      ],
+      "events": [
+        [
+          "coords",
+          4
+        ],
+        [
+          "contact",
+          4,
+          0
+        ],
+        [
+          "coords",
+          3
+        ],
+        [
+          "contact",
+          3,
+          0
+        ],
+        [
+          "coords",
+          2
+        ],
+        [
+          "contact",
+          2,
+          0
+        ],
+        [
+          "coords",
+          1
+        ],
+        [
+          "contact",
+          1,
+          0
+        ],
+        [
+          "coords",
+          0
+        ],
+        [
+          "assign_destination",
+          1,
+          1
+        ],
+        [
+          "transmit",
+          2,
+          1
+        ],
+        [
+          "queue_mission",
+          7,
+          1
+        ]
+      ],
+      "foot": [
+        154157,
+        259233,
+        1712
+      ],
+      "result": 1
+    },
+    {
+      "admission": {
+        "bunkerable": true,
+        "parasite": false,
+        "speed_type": 1,
+        "turret": true,
+        "weapon": true
+      },
+      "admitted": 1,
+      "bunkers": [
+        {
+          "contact": true,
+          "occupied": false,
+          "xyz": [
+            829052,
+            8345157,
+            1058
+          ]
+        }
+      ],
+      "events": [
+        [
+          "coords",
+          0
+        ],
+        [
+          "contact",
+          0,
+          0
+        ]
+      ],
+      "foot": [
+        401685,
+        8178334,
+        922
+      ],
+      "result": 0
+    },
+    {
+      "admission": {
+        "bunkerable": true,
+        "parasite": false,
+        "speed_type": 1,
+        "turret": true,
+        "weapon": true
+      },
+      "admitted": 1,
+      "bunkers": [
+        {
+          "contact": false,
+          "occupied": false,
+          "xyz": [
+            915,
+            854,
+            1624
+          ]
+        },
+        {
+          "contact": false,
+          "occupied": false,
+          "xyz": [
+            302,
+            81,
+            289
+          ]
+        },
+        {
+          "contact": true,
+          "occupied": false,
+          "xyz": [
+            899,
+            892,
+            504
+          ]
+        },
+        {
+          "contact": false,
+          "occupied": false,
+          "xyz": [
+            897,
+            473,
+            299
+          ]
+        },
+        {
+          "contact": true,
+          "occupied": false,
+          "xyz": [
+            752,
+            810,
+            698
+          ]
+        }
+      ],
+      "events": [
+        [
+          "coords",
+          4
+        ],
+        [
+          "contact",
+          4,
+          0
+        ],
+        [
+          "coords",
+          3
+        ],
+        [
+          "contact",
+          3,
+          0
+        ],
+        [
+          "coords",
+          2
+        ],
+        [
+          "contact",
+          2,
+          0
+        ],
+        [
+          "coords",
+          1
+        ],
+        [
+          "contact",
+          1,
+          0
+        ],
+        [
+          "coords",
+          0
+        ],
+        [
+          "contact",
+          0,
+          0
+        ],
+        [
+          "assign_destination",
+          0,
+          1
+        ],
+        [
+          "transmit",
+          2,
+          0
+        ],
+        [
+          "queue_mission",
+          7,
+          1
+        ]
+      ],
+      "foot": [
+        43,
+        236,
+        1778
+      ],
+      "result": 1
+    },
+    {
+      "admission": {
+        "bunkerable": true,
+        "parasite": false,
+        "speed_type": 1,
+        "turret": true,
+        "weapon": true
+      },
+      "admitted": 1,
+      "bunkers": [],
+      "events": [],
+      "foot": [
+        13282,
+        4398,
+        1921
+      ],
+      "result": 0
+    },
+    {
+      "admission": {
+        "bunkerable": true,
+        "parasite": false,
+        "speed_type": 1,
+        "turret": true,
+        "weapon": true
+      },
+      "admitted": 1,
+      "bunkers": [
+        {
+          "contact": false,
+          "occupied": false,
+          "xyz": [
+            64910,
+            250344,
+            127
+          ]
+        },
+        {
+          "contact": false,
+          "occupied": false,
+          "xyz": [
+            31261,
+            229718,
+            588
+          ]
+        },
+        {
+          "contact": false,
+          "occupied": false,
+          "xyz": [
+            203658,
+            258091,
+            900
+          ]
+        },
+        {
+          "contact": false,
+          "occupied": false,
+          "xyz": [
+            229550,
+            192117,
+            1956
+          ]
+        }
+      ],
+      "events": [
+        [
+          "coords",
+          3
+        ],
+        [
+          "contact",
+          3,
+          0
+        ],
+        [
+          "coords",
+          2
+        ],
+        [
+          "contact",
+          2,
+          0
+        ],
+        [
+          "coords",
+          1
+        ],
+        [
+          "contact",
+          1,
+          0
+        ],
+        [
+          "coords",
+          0
+        ],
+        [
+          "contact",
+          0,
+          0
+        ],
+        [
+          "assign_destination",
+          0,
+          1
+        ],
+        [
+          "transmit",
+          2,
+          0
+        ],
+        [
+          "queue_mission",
+          7,
+          1
+        ]
+      ],
+      "foot": [
+        101702,
+        198863,
+        1863
+      ],
+      "result": 1
+    },
+    {
+      "admission": {
+        "bunkerable": true,
+        "parasite": false,
+        "speed_type": 1,
+        "turret": true,
+        "weapon": true
+      },
+      "admitted": 1,
+      "bunkers": [
+        {
+          "contact": false,
+          "occupied": false,
+          "xyz": [
+            4110075,
+            5293016,
+            334
+          ]
+        },
+        {
+          "contact": true,
+          "occupied": false,
+          "xyz": [
+            1544797,
+            1534691,
+            583
+          ]
+        },
+        {
+          "contact": false,
+          "occupied": false,
+          "xyz": [
+            222459,
+            985506,
+            1523
+          ]
+        },
+        {
+          "contact": false,
+          "occupied": true,
+          "xyz": [
+            1955607,
+            1496935,
+            1103
+          ]
+        },
+        {
+          "contact": true,
+          "occupied": true,
+          "xyz": [
+            7156316,
+            1192973,
+            1428
+          ]
+        }
+      ],
+      "events": [
+        [
+          "coords",
+          4
+        ],
+        [
+          "contact",
+          4,
+          0
+        ],
+        [
+          "coords",
+          3
+        ],
+        [
+          "contact",
+          3,
+          0
+        ],
+        [
+          "coords",
+          2
+        ],
+        [
+          "contact",
+          2,
+          0
+        ],
+        [
+          "coords",
+          1
+        ],
+        [
+          "coords",
+          0
+        ],
+        [
+          "assign_destination",
+          2,
+          1
+        ],
+        [
+          "transmit",
+          2,
+          2
+        ],
+        [
+          "queue_mission",
+          7,
+          1
+        ]
+      ],
+      "foot": [
+        590425,
+        587744,
+        135
+      ],
+      "result": 1
+    },
+    {
+      "admission": {
+        "bunkerable": true,
+        "parasite": false,
+        "speed_type": 1,
+        "turret": true,
+        "weapon": true
+      },
+      "admitted": 1,
+      "bunkers": [
+        {
+          "contact": false,
+          "occupied": false,
+          "xyz": [
+            897,
+            568,
+            471
+          ]
+        },
+        {
+          "contact": false,
+          "occupied": false,
+          "xyz": [
+            146,
+            418,
+            1779
+          ]
+        }
+      ],
+      "events": [
+        [
+          "coords",
+          1
+        ],
+        [
+          "contact",
+          1,
+          0
+        ],
+        [
+          "coords",
+          0
+        ],
+        [
+          "contact",
+          0,
+          0
+        ],
+        [
+          "assign_destination",
+          0,
+          1
+        ],
+        [
+          "transmit",
+          2,
+          0
+        ],
+        [
+          "queue_mission",
+          7,
+          1
+        ]
+      ],
+      "foot": [
+        428,
+        306,
+        320
+      ],
+      "result": 1
+    },
+    {
+      "admission": {
+        "bunkerable": true,
+        "parasite": false,
+        "speed_type": 1,
+        "turret": true,
+        "weapon": true
+      },
+      "admitted": 1,
+      "bunkers": [],
+      "events": [],
+      "foot": [
+        5816,
+        9916,
+        1576
+      ],
+      "result": 0
+    },
+    {
+      "admission": {
+        "bunkerable": true,
+        "parasite": false,
+        "speed_type": 1,
+        "turret": true,
+        "weapon": true
+      },
+      "admitted": 1,
+      "bunkers": [
+        {
+          "contact": false,
+          "occupied": false,
+          "xyz": [
+            152077,
+            139405,
+            1096
+          ]
+        }
+      ],
+      "events": [
+        [
+          "coords",
+          0
+        ],
+        [
+          "contact",
+          0,
+          0
+        ],
+        [
+          "assign_destination",
+          0,
+          1
+        ],
+        [
+          "transmit",
+          2,
+          0
+        ],
+        [
+          "queue_mission",
+          7,
+          1
+        ]
+      ],
+      "foot": [
+        164732,
+        20324,
+        1041
+      ],
+      "result": 1
+    },
+    {
+      "admission": {
+        "bunkerable": true,
+        "parasite": false,
+        "speed_type": 1,
+        "turret": true,
+        "weapon": true
+      },
+      "admitted": 1,
+      "bunkers": [
+        {
+          "contact": false,
+          "occupied": true,
+          "xyz": [
+            4304677,
+            2011946,
+            96
+          ]
+        },
+        {
+          "contact": true,
+          "occupied": false,
+          "xyz": [
+            3212405,
+            1105401,
+            235
+          ]
+        },
+        {
+          "contact": true,
+          "occupied": false,
+          "xyz": [
+            4258116,
+            3342746,
+            334
+          ]
+        }
+      ],
+      "events": [
+        [
+          "coords",
+          2
+        ],
+        [
+          "contact",
+          2,
+          0
+        ],
+        [
+          "coords",
+          1
+        ],
+        [
+          "contact",
+          1,
+          0
+        ],
+        [
+          "coords",
+          0
+        ],
+        [
+          "contact",
+          0,
+          0
+        ]
+      ],
+      "foot": [
+        2237305,
+        644132,
+        2028
+      ],
+      "result": 0
+    },
+    {
+      "admission": {
+        "bunkerable": true,
+        "parasite": false,
+        "speed_type": 1,
+        "turret": true,
+        "weapon": true
+      },
+      "admitted": 1,
+      "bunkers": [
+        {
+          "contact": false,
+          "occupied": true,
+          "xyz": [
+            128,
+            258,
+            824
+          ]
+        },
+        {
+          "contact": false,
+          "occupied": false,
+          "xyz": [
+            274,
+            967,
+            1965
+          ]
+        }
+      ],
+      "events": [
+        [
+          "coords",
+          1
+        ],
+        [
+          "contact",
+          1,
+          0
+        ],
+        [
+          "coords",
+          0
+        ],
+        [
+          "assign_destination",
+          1,
+          1
+        ],
+        [
+          "transmit",
+          2,
+          1
+        ],
+        [
+          "queue_mission",
+          7,
+          1
+        ]
+      ],
+      "foot": [
+        452,
+        917,
+        1524
+      ],
+      "result": 1
+    },
+    {
+      "admission": {
+        "bunkerable": true,
+        "parasite": false,
+        "speed_type": 1,
+        "turret": true,
+        "weapon": true
+      },
+      "admitted": 1,
+      "bunkers": [
+        {
+          "contact": false,
+          "occupied": false,
+          "xyz": [
+            15227,
+            15115,
+            1091
+          ]
+        },
+        {
+          "contact": true,
+          "occupied": false,
+          "xyz": [
+            2239,
+            6450,
+            749
+          ]
+        },
+        {
+          "contact": false,
+          "occupied": false,
+          "xyz": [
+            2665,
+            11353,
+            393
+          ]
+        },
+        {
+          "contact": false,
+          "occupied": false,
+          "xyz": [
+            14241,
+            5059,
+            754
+          ]
+        }
+      ],
+      "events": [
+        [
+          "coords",
+          3
+        ],
+        [
+          "contact",
+          3,
+          0
+        ],
+        [
+          "coords",
+          2
+        ],
+        [
+          "contact",
+          2,
+          0
+        ],
+        [
+          "coords",
+          1
+        ],
+        [
+          "coords",
+          0
+        ],
+        [
+          "assign_destination",
+          2,
+          1
+        ],
+        [
+          "transmit",
+          2,
+          2
+        ],
+        [
+          "queue_mission",
+          7,
+          1
+        ]
+      ],
+      "foot": [
+        152,
+        9606,
+        637
+      ],
+      "result": 1
+    },
+    {
+      "admission": {
+        "bunkerable": true,
+        "parasite": false,
+        "speed_type": 1,
+        "turret": true,
+        "weapon": true
+      },
+      "admitted": 1,
+      "bunkers": [],
+      "events": [],
+      "foot": [
+        188747,
+        146679,
+        1635
+      ],
+      "result": 0
+    },
+    {
+      "admission": {
+        "bunkerable": true,
+        "parasite": false,
+        "speed_type": 1,
+        "turret": true,
+        "weapon": true
+      },
+      "admitted": 1,
+      "bunkers": [
+        {
+          "contact": false,
+          "occupied": true,
+          "xyz": [
+            1387572,
+            5509592,
+            673
+          ]
+        },
+        {
+          "contact": true,
+          "occupied": false,
+          "xyz": [
+            4202215,
+            5981718,
+            189
+          ]
+        },
+        {
+          "contact": true,
+          "occupied": false,
+          "xyz": [
+            5534562,
+            467749,
+            824
+          ]
+        },
+        {
+          "contact": false,
+          "occupied": false,
+          "xyz": [
+            904948,
+            156632,
+            51
+          ]
+        },
+        {
+          "contact": false,
+          "occupied": true,
+          "xyz": [
+            1188097,
+            7289810,
+            1000
+          ]
+        }
+      ],
+      "events": [
+        [
+          "coords",
+          4
+        ],
+        [
+          "contact",
+          4,
+          0
+        ],
+        [
+          "coords",
+          3
+        ],
+        [
+          "contact",
+          3,
+          0
+        ],
+        [
+          "coords",
+          2
+        ],
+        [
+          "contact",
+          2,
+          0
+        ],
+        [
+          "coords",
+          1
+        ],
+        [
+          "contact",
+          1,
+          0
+        ],
+        [
+          "coords",
+          0
+        ],
+        [
+          "contact",
+          0,
+          0
+        ],
+        [
+          "assign_destination",
+          3,
+          1
+        ],
+        [
+          "transmit",
+          2,
+          3
+        ],
+        [
+          "queue_mission",
+          7,
+          1
+        ]
+      ],
+      "foot": [
+        3821267,
+        7198588,
+        503
+      ],
+      "result": 1
+    },
+    {
+      "admission": {
+        "bunkerable": true,
+        "parasite": false,
+        "speed_type": 1,
+        "turret": true,
+        "weapon": true
+      },
+      "admitted": 1,
+      "bunkers": [
+        {
+          "contact": false,
+          "occupied": false,
+          "xyz": [
+            745,
+            393,
+            1183
+          ]
+        },
+        {
+          "contact": false,
+          "occupied": false,
+          "xyz": [
+            453,
+            682,
+            863
+          ]
+        },
+        {
+          "contact": false,
+          "occupied": false,
+          "xyz": [
+            783,
+            600,
+            1984
+          ]
+        }
+      ],
+      "events": [
+        [
+          "coords",
+          2
+        ],
+        [
+          "contact",
+          2,
+          0
+        ],
+        [
+          "coords",
+          1
+        ],
+        [
+          "contact",
+          1,
+          0
+        ],
+        [
+          "coords",
+          0
+        ],
+        [
+          "assign_destination",
+          1,
+          1
+        ],
+        [
+          "transmit",
+          2,
+          1
+        ],
+        [
+          "queue_mission",
+          7,
+          1
+        ]
+      ],
+      "foot": [
+        864,
+        519,
+        96
+      ],
+      "result": 1
+    },
+    {
+      "admission": {
+        "bunkerable": true,
+        "parasite": false,
+        "speed_type": 1,
+        "turret": true,
+        "weapon": true
+      },
+      "admitted": 1,
+      "bunkers": [
+        {
+          "contact": false,
+          "occupied": true,
+          "xyz": [
+            13387,
+            1395,
+            1978
+          ]
+        },
+        {
+          "contact": true,
+          "occupied": false,
+          "xyz": [
+            10454,
+            15529,
+            1333
+          ]
+        },
+        {
+          "contact": false,
+          "occupied": false,
+          "xyz": [
+            14526,
+            4706,
+            74
+          ]
+        }
+      ],
+      "events": [
+        [
+          "coords",
+          2
+        ],
+        [
+          "contact",
+          2,
+          0
+        ],
+        [
+          "coords",
+          1
+        ],
+        [
+          "coords",
+          0
+        ],
+        [
+          "assign_destination",
+          2,
+          1
+        ],
+        [
+          "transmit",
+          2,
+          2
+        ],
+        [
+          "queue_mission",
+          7,
+          1
+        ]
+      ],
+      "foot": [
+        11274,
+        4735,
+        1318
+      ],
+      "result": 1
+    },
+    {
+      "admission": {
+        "bunkerable": true,
+        "parasite": false,
+        "speed_type": 1,
+        "turret": true,
+        "weapon": true
+      },
+      "admitted": 1,
+      "bunkers": [
+        {
+          "contact": false,
+          "occupied": false,
+          "xyz": [
+            247528,
+            152567,
+            151
+          ]
+        },
+        {
+          "contact": true,
+          "occupied": false,
+          "xyz": [
+            90291,
+            137571,
+            1831
+          ]
+        },
+        {
+          "contact": false,
+          "occupied": true,
+          "xyz": [
+            194205,
+            135055,
+            667
+          ]
+        },
+        {
+          "contact": true,
+          "occupied": true,
+          "xyz": [
+            78286,
+            9168,
+            1620
+          ]
+        }
+      ],
+      "events": [
+        [
+          "coords",
+          3
+        ],
+        [
+          "contact",
+          3,
+          0
+        ],
+        [
+          "coords",
+          2
+        ],
+        [
+          "contact",
+          2,
+          0
+        ],
+        [
+          "coords",
+          1
+        ],
+        [
+          "contact",
+          1,
+          0
+        ],
+        [
+          "coords",
+          0
+        ],
+        [
+          "contact",
+          0,
+          0
+        ],
+        [
+          "assign_destination",
+          0,
+          1
+        ],
+        [
+          "transmit",
+          2,
+          0
+        ],
+        [
+          "queue_mission",
+          7,
+          1
+        ]
+      ],
+      "foot": [
+        205809,
+        250844,
+        284
+      ],
+      "result": 1
+    },
+    {
+      "admission": {
+        "bunkerable": true,
+        "parasite": false,
+        "speed_type": 1,
+        "turret": true,
+        "weapon": true
+      },
+      "admitted": 1,
+      "bunkers": [
+        {
+          "contact": false,
+          "occupied": false,
+          "xyz": [
+            3625880,
+            465074,
+            575
+          ]
+        }
+      ],
+      "events": [
+        [
+          "coords",
+          0
+        ],
+        [
+          "contact",
+          0,
+          0
+        ],
+        [
+          "assign_destination",
+          0,
+          1
+        ],
+        [
+          "transmit",
+          2,
+          0
+        ],
+        [
+          "queue_mission",
+          7,
+          1
+        ]
+      ],
+      "foot": [
+        2314406,
+        5648882,
+        13
+      ],
+      "result": 1
+    },
+    {
+      "admission": {
+        "bunkerable": true,
+        "parasite": false,
+        "speed_type": 1,
+        "turret": true,
+        "weapon": true
+      },
+      "admitted": 1,
+      "bunkers": [],
+      "events": [],
+      "foot": [
+        728,
+        446,
+        1163
+      ],
+      "result": 0
+    },
+    {
+      "admission": {
+        "bunkerable": true,
+        "parasite": false,
+        "speed_type": 1,
+        "turret": true,
+        "weapon": true
+      },
+      "admitted": 1,
+      "bunkers": [
+        {
+          "contact": false,
+          "occupied": false,
+          "xyz": [
+            1995,
+            9061,
+            114
+          ]
+        },
+        {
+          "contact": false,
+          "occupied": false,
+          "xyz": [
+            11677,
+            15256,
+            1484
+          ]
+        }
+      ],
+      "events": [
+        [
+          "coords",
+          1
+        ],
+        [
+          "contact",
+          1,
+          0
+        ],
+        [
+          "coords",
+          0
+        ],
+        [
+          "contact",
+          0,
+          0
+        ],
+        [
+          "assign_destination",
+          0,
+          1
+        ],
+        [
+          "transmit",
+          2,
+          0
+        ],
+        [
+          "queue_mission",
+          7,
+          1
+        ]
+      ],
+      "foot": [
+        4229,
+        4125,
+        1065
+      ],
+      "result": 1
+    },
+    {
+      "admission": {
+        "bunkerable": true,
+        "parasite": false,
+        "speed_type": 1,
+        "turret": true,
+        "weapon": true
+      },
+      "admitted": 1,
+      "bunkers": [
+        {
+          "contact": true,
+          "occupied": false,
+          "xyz": [
+            66883,
+            235220,
+            111
+          ]
+        },
+        {
+          "contact": true,
+          "occupied": false,
+          "xyz": [
+            77458,
+            183002,
+            229
+          ]
+        },
+        {
+          "contact": false,
+          "occupied": false,
+          "xyz": [
+            130343,
+            211462,
+            11
+          ]
+        }
+      ],
+      "events": [
+        [
+          "coords",
+          2
+        ],
+        [
+          "contact",
+          2,
+          0
+        ],
+        [
+          "coords",
+          1
+        ],
+        [
+          "coords",
+          0
+        ],
+        [
+          "assign_destination",
+          2,
+          1
+        ],
+        [
+          "transmit",
+          2,
+          2
+        ],
+        [
+          "queue_mission",
+          7,
+          1
+        ]
+      ],
+      "foot": [
+        160228,
+        160773,
+        535
+      ],
+      "result": 1
+    },
+    {
+      "admission": {
+        "bunkerable": true,
+        "parasite": false,
+        "speed_type": 1,
+        "turret": true,
+        "weapon": true
+      },
+      "admitted": 1,
+      "bunkers": [
+        {
+          "contact": false,
+          "occupied": false,
+          "xyz": [
+            4409391,
+            537497,
+            140
+          ]
+        }
+      ],
+      "events": [
+        [
+          "coords",
+          0
+        ],
+        [
+          "contact",
+          0,
+          0
+        ],
+        [
+          "assign_destination",
+          0,
+          1
+        ],
+        [
+          "transmit",
+          2,
+          0
+        ],
+        [
+          "queue_mission",
+          7,
+          1
+        ]
+      ],
+      "foot": [
+        2050125,
+        2787244,
+        373
+      ],
+      "result": 1
+    },
+    {
+      "admission": {
+        "bunkerable": true,
+        "parasite": false,
+        "speed_type": 1,
+        "turret": true,
+        "weapon": true
+      },
+      "admitted": 1,
+      "bunkers": [
+        {
+          "contact": false,
+          "occupied": false,
+          "xyz": [
+            111,
+            881,
+            208
+          ]
+        },
+        {
+          "contact": true,
+          "occupied": false,
+          "xyz": [
+            998,
+            498,
+            1370
+          ]
+        },
+        {
+          "contact": false,
+          "occupied": false,
+          "xyz": [
+            713,
+            420,
+            264
+          ]
+        }
+      ],
+      "events": [
+        [
+          "coords",
+          2
+        ],
+        [
+          "contact",
+          2,
+          0
+        ],
+        [
+          "coords",
+          1
+        ],
+        [
+          "contact",
+          1,
+          0
+        ],
+        [
+          "coords",
+          0
+        ],
+        [
+          "assign_destination",
+          2,
+          1
+        ],
+        [
+          "transmit",
+          2,
+          2
+        ],
+        [
+          "queue_mission",
+          7,
+          1
+        ]
+      ],
+      "foot": [
+        891,
+        262,
+        1756
+      ],
+      "result": 1
+    },
+    {
+      "admission": {
+        "bunkerable": true,
+        "parasite": false,
+        "speed_type": 1,
+        "turret": true,
+        "weapon": true
+      },
+      "admitted": 1,
+      "bunkers": [
+        {
+          "contact": false,
+          "occupied": false,
+          "xyz": [
+            5839,
+            1288,
+            1063
+          ]
+        },
+        {
+          "contact": false,
+          "occupied": true,
+          "xyz": [
+            3049,
+            13540,
+            361
+          ]
+        },
+        {
+          "contact": false,
+          "occupied": false,
+          "xyz": [
+            11583,
+            1915,
+            589
+          ]
+        },
+        {
+          "contact": true,
+          "occupied": true,
+          "xyz": [
+            3836,
+            5990,
+            2045
+          ]
+        }
+      ],
+      "events": [
+        [
+          "coords",
+          3
+        ],
+        [
+          "contact",
+          3,
+          0
+        ],
+        [
+          "coords",
+          2
+        ],
+        [
+          "contact",
+          2,
+          0
+        ],
+        [
+          "coords",
+          1
+        ],
+        [
+          "coords",
+          0
+        ],
+        [
+          "contact",
+          0,
+          0
+        ],
+        [
+          "assign_destination",
+          0,
+          1
+        ],
+        [
+          "transmit",
+          2,
+          0
+        ],
+        [
+          "queue_mission",
+          7,
+          1
+        ]
+      ],
+      "foot": [
+        3883,
+        3444,
+        201
+      ],
+      "result": 1
+    },
+    {
+      "admission": {
+        "bunkerable": true,
+        "parasite": false,
+        "speed_type": 1,
+        "turret": true,
+        "weapon": true
+      },
+      "admitted": 1,
+      "bunkers": [
+        {
+          "contact": false,
+          "occupied": false,
+          "xyz": [
+            173946,
+            192354,
+            2005
+          ]
+        }
+      ],
+      "events": [
+        [
+          "coords",
+          0
+        ],
+        [
+          "contact",
+          0,
+          0
+        ],
+        [
+          "assign_destination",
+          0,
+          1
+        ],
+        [
+          "transmit",
+          2,
+          0
+        ],
+        [
+          "queue_mission",
+          7,
+          1
+        ]
+      ],
+      "foot": [
+        47495,
+        53012,
+        1901
+      ],
+      "result": 1
+    },
+    {
+      "admission": {
+        "bunkerable": true,
+        "parasite": false,
+        "speed_type": 1,
+        "turret": true,
+        "weapon": true
+      },
+      "admitted": 1,
+      "bunkers": [
+        {
+          "contact": false,
+          "occupied": true,
+          "xyz": [
+            537626,
+            6221947,
+            54
+          ]
+        },
+        {
+          "contact": true,
+          "occupied": false,
+          "xyz": [
+            4167823,
+            9172,
+            1014
+          ]
+        }
+      ],
+      "events": [
+        [
+          "coords",
+          1
+        ],
+        [
+          "contact",
+          1,
+          0
+        ],
+        [
+          "coords",
+          0
+        ],
+        [
+          "contact",
+          0,
+          0
+        ]
+      ],
+      "foot": [
+        220085,
+        6641906,
+        259
+      ],
+      "result": 0
+    },
+    {
+      "admission": {
+        "bunkerable": true,
+        "parasite": false,
+        "speed_type": 1,
+        "turret": true,
+        "weapon": true
+      },
+      "admitted": 1,
+      "bunkers": [
+        {
+          "contact": false,
+          "occupied": true,
+          "xyz": [
+            673,
+            909,
+            1934
+          ]
+        },
+        {
+          "contact": true,
+          "occupied": false,
+          "xyz": [
+            527,
+            479,
+            780
+          ]
+        }
+      ],
+      "events": [
+        [
+          "coords",
+          1
+        ],
+        [
+          "contact",
+          1,
+          0
+        ],
+        [
+          "coords",
+          0
+        ],
+        [
+          "contact",
+          0,
+          0
+        ]
+      ],
+      "foot": [
+        518,
+        939,
+        425
+      ],
+      "result": 0
+    },
+    {
+      "admission": {
+        "bunkerable": true,
+        "parasite": false,
+        "speed_type": 1,
+        "turret": true,
+        "weapon": true
+      },
+      "admitted": 1,
+      "bunkers": [
+        {
+          "contact": false,
+          "occupied": false,
+          "xyz": [
+            10157,
+            14146,
+            939
+          ]
+        },
+        {
+          "contact": true,
+          "occupied": false,
+          "xyz": [
+            9014,
+            4063,
+            1928
+          ]
+        },
+        {
+          "contact": false,
+          "occupied": true,
+          "xyz": [
+            9806,
+            14090,
+            1533
+          ]
+        },
+        {
+          "contact": false,
+          "occupied": false,
+          "xyz": [
+            1323,
+            931,
+            867
+          ]
+        }
+      ],
+      "events": [
+        [
+          "coords",
+          3
+        ],
+        [
+          "contact",
+          3,
+          0
+        ],
+        [
+          "coords",
+          2
+        ],
+        [
+          "contact",
+          2,
+          0
+        ],
+        [
+          "coords",
+          1
+        ],
+        [
+          "contact",
+          1,
+          0
+        ],
+        [
+          "coords",
+          0
+        ],
+        [
+          "contact",
+          0,
+          0
+        ],
+        [
+          "assign_destination",
+          0,
+          1
+        ],
+        [
+          "transmit",
+          2,
+          0
+        ],
+        [
+          "queue_mission",
+          7,
+          1
+        ]
+      ],
+      "foot": [
+        10959,
+        6127,
+        1323
+      ],
+      "result": 1
+    },
+    {
+      "admission": {
+        "bunkerable": true,
+        "parasite": false,
+        "speed_type": 1,
+        "turret": true,
+        "weapon": true
+      },
+      "admitted": 1,
+      "bunkers": [
+        {
+          "contact": true,
+          "occupied": true,
+          "xyz": [
+            83894,
+            81501,
+            2033
+          ]
+        }
+      ],
+      "events": [
+        [
+          "coords",
+          0
+        ],
+        [
+          "contact",
+          0,
+          0
+        ]
+      ],
+      "foot": [
+        258095,
+        66725,
+        1894
+      ],
+      "result": 0
+    },
+    {
+      "admission": {
+        "bunkerable": true,
+        "parasite": false,
+        "speed_type": 1,
+        "turret": true,
+        "weapon": true
+      },
+      "admitted": 1,
+      "bunkers": [
+        {
+          "contact": false,
+          "occupied": false,
+          "xyz": [
+            6697991,
+            6549011,
+            592
+          ]
+        },
+        {
+          "contact": true,
+          "occupied": false,
+          "xyz": [
+            4496560,
+            4549825,
+            847
+          ]
+        }
+      ],
+      "events": [
+        [
+          "coords",
+          1
+        ],
+        [
+          "contact",
+          1,
+          0
+        ],
+        [
+          "coords",
+          0
+        ],
+        [
+          "contact",
+          0,
+          0
+        ],
+        [
+          "assign_destination",
+          0,
+          1
+        ],
+        [
+          "transmit",
+          2,
+          0
+        ],
+        [
+          "queue_mission",
+          7,
+          1
+        ]
+      ],
+      "foot": [
+        8110011,
+        6777028,
+        816
+      ],
+      "result": 1
+    },
+    {
+      "admission": {
+        "bunkerable": true,
+        "parasite": false,
+        "speed_type": 1,
+        "turret": true,
+        "weapon": true
+      },
+      "admitted": 1,
+      "bunkers": [
+        {
+          "contact": false,
+          "occupied": false,
+          "xyz": [
+            263,
+            590,
+            726
+          ]
+        },
+        {
+          "contact": false,
+          "occupied": false,
+          "xyz": [
+            52,
+            344,
+            364
+          ]
+        },
+        {
+          "contact": true,
+          "occupied": false,
+          "xyz": [
+            280,
+            611,
+            490
+          ]
+        },
+        {
+          "contact": false,
+          "occupied": false,
+          "xyz": [
+            158,
+            586,
+            1599
+          ]
+        },
+        {
+          "contact": true,
+          "occupied": true,
+          "xyz": [
+            403,
+            182,
+            1390
+          ]
+        }
+      ],
+      "events": [
+        [
+          "coords",
+          4
+        ],
+        [
+          "contact",
+          4,
+          0
+        ],
+        [
+          "coords",
+          3
+        ],
+        [
+          "contact",
+          3,
+          0
+        ],
+        [
+          "coords",
+          2
+        ],
+        [
+          "coords",
+          1
+        ],
+        [
+          "coords",
+          0
+        ],
+        [
+          "assign_destination",
+          3,
+          1
+        ],
+        [
+          "transmit",
+          2,
+          3
+        ],
+        [
+          "queue_mission",
+          7,
+          1
+        ]
+      ],
+      "foot": [
+        179,
+        713,
+        1870
+      ],
+      "result": 1
+    },
+    {
+      "admission": {
+        "bunkerable": true,
+        "parasite": false,
+        "speed_type": 1,
+        "turret": true,
+        "weapon": true
+      },
+      "admitted": 1,
+      "bunkers": [],
+      "events": [],
+      "foot": [
+        15652,
+        6663,
+        283
+      ],
+      "result": 0
+    },
+    {
+      "admission": {
+        "bunkerable": true,
+        "parasite": false,
+        "speed_type": 1,
+        "turret": true,
+        "weapon": true
+      },
+      "admitted": 1,
+      "bunkers": [
+        {
+          "contact": false,
+          "occupied": true,
+          "xyz": [
+            162565,
+            71875,
+            1609
+          ]
+        }
+      ],
+      "events": [
+        [
+          "coords",
+          0
+        ],
+        [
+          "contact",
+          0,
+          0
+        ]
+      ],
+      "foot": [
+        227606,
+        254708,
+        1278
+      ],
+      "result": 0
+    },
+    {
+      "admission": {
+        "bunkerable": true,
+        "parasite": false,
+        "speed_type": 1,
+        "turret": true,
+        "weapon": true
+      },
+      "admitted": 1,
+      "bunkers": [],
+      "events": [],
+      "foot": [
+        8367076,
+        5718651,
+        843
+      ],
+      "result": 0
+    },
+    {
+      "admission": {
+        "bunkerable": true,
+        "parasite": false,
+        "speed_type": 1,
+        "turret": true,
+        "weapon": true
+      },
+      "admitted": 1,
+      "bunkers": [
+        {
+          "contact": false,
+          "occupied": false,
+          "xyz": [
+            202,
+            836,
+            696
+          ]
+        },
+        {
+          "contact": true,
+          "occupied": false,
+          "xyz": [
+            51,
+            950,
+            1494
+          ]
+        },
+        {
+          "contact": false,
+          "occupied": false,
+          "xyz": [
+            269,
+            975,
+            273
+          ]
+        },
+        {
+          "contact": false,
+          "occupied": false,
+          "xyz": [
+            505,
+            980,
+            217
+          ]
+        }
+      ],
+      "events": [
+        [
+          "coords",
+          3
+        ],
+        [
+          "contact",
+          3,
+          0
+        ],
+        [
+          "coords",
+          2
+        ],
+        [
+          "contact",
+          2,
+          0
+        ],
+        [
+          "coords",
+          1
+        ],
+        [
+          "contact",
+          1,
+          0
+        ],
+        [
+          "coords",
+          0
+        ],
+        [
+          "contact",
+          0,
+          0
+        ],
+        [
+          "assign_destination",
+          0,
+          1
+        ],
+        [
+          "transmit",
+          2,
+          0
+        ],
+        [
+          "queue_mission",
+          7,
+          1
+        ]
+      ],
+      "foot": [
+        281,
+        578,
+        1436
+      ],
+      "result": 1
+    },
+    {
+      "admission": {
+        "bunkerable": true,
+        "parasite": false,
+        "speed_type": 1,
+        "turret": true,
+        "weapon": true
+      },
+      "admitted": 1,
+      "bunkers": [
+        {
+          "contact": false,
+          "occupied": false,
+          "xyz": [
+            15964,
+            534,
+            1115
+          ]
+        },
+        {
+          "contact": true,
+          "occupied": false,
+          "xyz": [
+            13799,
+            9273,
+            1263
+          ]
+        },
+        {
+          "contact": true,
+          "occupied": false,
+          "xyz": [
+            3163,
+            10277,
+            401
+          ]
+        },
+        {
+          "contact": false,
+          "occupied": false,
+          "xyz": [
+            7417,
+            7945,
+            1645
+          ]
+        },
+        {
+          "contact": false,
+          "occupied": false,
+          "xyz": [
+            2959,
+            8159,
+            951
+          ]
+        }
+      ],
+      "events": [
+        [
+          "coords",
+          4
+        ],
+        [
+          "contact",
+          4,
+          0
+        ],
+        [
+          "coords",
+          3
+        ],
+        [
+          "contact",
+          3,
+          0
+        ],
+        [
+          "coords",
+          2
+        ],
+        [
+          "coords",
+          1
+        ],
+        [
+          "contact",
+          1,
+          0
+        ],
+        [
+          "coords",
+          0
+        ],
+        [
+          "assign_destination",
+          3,
+          1
+        ],
+        [
+          "transmit",
+          2,
+          3
+        ],
+        [
+          "queue_mission",
+          7,
+          1
+        ]
+      ],
+      "foot": [
+        12760,
+        14798,
+        1690
+      ],
+      "result": 1
+    },
+    {
+      "admission": {
+        "bunkerable": true,
+        "parasite": false,
+        "speed_type": 1,
+        "turret": true,
+        "weapon": true
+      },
+      "admitted": 1,
+      "bunkers": [
+        {
+          "contact": false,
+          "occupied": false,
+          "xyz": [
+            183260,
+            126346,
+            1175
+          ]
+        }
+      ],
+      "events": [
+        [
+          "coords",
+          0
+        ],
+        [
+          "contact",
+          0,
+          0
+        ],
+        [
+          "assign_destination",
+          0,
+          1
+        ],
+        [
+          "transmit",
+          2,
+          0
+        ],
+        [
+          "queue_mission",
+          7,
+          1
+        ]
+      ],
+      "foot": [
+        18545,
+        188601,
+        1152
+      ],
+      "result": 1
+    },
+    {
+      "admission": {
+        "bunkerable": true,
+        "parasite": false,
+        "speed_type": 1,
+        "turret": true,
+        "weapon": true
+      },
+      "admitted": 1,
+      "bunkers": [
+        {
+          "contact": false,
+          "occupied": false,
+          "xyz": [
+            2614485,
+            1843135,
+            1321
+          ]
+        },
+        {
+          "contact": false,
+          "occupied": false,
+          "xyz": [
+            2066151,
+            3596706,
+            1930
+          ]
+        },
+        {
+          "contact": false,
+          "occupied": false,
+          "xyz": [
+            4728063,
+            3026091,
+            88
+          ]
+        }
+      ],
+      "events": [
+        [
+          "coords",
+          2
+        ],
+        [
+          "contact",
+          2,
+          0
+        ],
+        [
+          "coords",
+          1
+        ],
+        [
+          "coords",
+          0
+        ],
+        [
+          "assign_destination",
+          2,
+          1
+        ],
+        [
+          "transmit",
+          2,
+          2
+        ],
+        [
+          "queue_mission",
+          7,
+          1
+        ]
+      ],
+      "foot": [
+        4828103,
+        5502680,
+        759
+      ],
+      "result": 1
+    },
+    {
+      "admission": {
+        "bunkerable": true,
+        "parasite": false,
+        "speed_type": 1,
+        "turret": true,
+        "weapon": true
+      },
+      "admitted": 1,
+      "bunkers": [
+        {
+          "contact": true,
+          "occupied": false,
+          "xyz": [
+            423,
+            388,
+            1039
+          ]
+        },
+        {
+          "contact": true,
+          "occupied": false,
+          "xyz": [
+            61,
+            198,
+            1361
+          ]
+        },
+        {
+          "contact": false,
+          "occupied": true,
+          "xyz": [
+            999,
+            789,
+            1041
+          ]
+        },
+        {
+          "contact": false,
+          "occupied": false,
+          "xyz": [
+            541,
+            528,
+            928
+          ]
+        },
+        {
+          "contact": false,
+          "occupied": false,
+          "xyz": [
+            110,
+            839,
+            1415
+          ]
+        }
+      ],
+      "events": [
+        [
+          "coords",
+          4
+        ],
+        [
+          "contact",
+          4,
+          0
+        ],
+        [
+          "coords",
+          3
+        ],
+        [
+          "contact",
+          3,
+          0
+        ],
+        [
+          "coords",
+          2
+        ],
+        [
+          "coords",
+          1
+        ],
+        [
+          "coords",
+          0
+        ],
+        [
+          "contact",
+          0,
+          0
+        ],
+        [
+          "assign_destination",
+          3,
+          1
+        ],
+        [
+          "transmit",
+          2,
+          3
+        ],
+        [
+          "queue_mission",
+          7,
+          1
+        ]
+      ],
+      "foot": [
+        188,
+        61,
+        504
+      ],
+      "result": 1
+    },
+    {
+      "admission": {
+        "bunkerable": true,
+        "parasite": false,
+        "speed_type": 1,
+        "turret": true,
+        "weapon": true
+      },
+      "admitted": 1,
+      "bunkers": [
+        {
+          "contact": false,
+          "occupied": false,
+          "xyz": [
+            11393,
+            10347,
+            1199
+          ]
+        },
+        {
+          "contact": true,
+          "occupied": false,
+          "xyz": [
+            13878,
+            3651,
+            327
+          ]
+        },
+        {
+          "contact": false,
+          "occupied": true,
+          "xyz": [
+            10752,
+            4093,
+            1923
+          ]
+        },
+        {
+          "contact": false,
+          "occupied": true,
+          "xyz": [
+            14861,
+            5961,
+            410
+          ]
+        }
+      ],
+      "events": [
+        [
+          "coords",
+          3
+        ],
+        [
+          "contact",
+          3,
+          0
+        ],
+        [
+          "coords",
+          2
+        ],
+        [
+          "contact",
+          2,
+          0
+        ],
+        [
+          "coords",
+          1
+        ],
+        [
+          "contact",
+          1,
+          0
+        ],
+        [
+          "coords",
+          0
+        ],
+        [
+          "contact",
+          0,
+          0
+        ],
+        [
+          "assign_destination",
+          0,
+          1
+        ],
+        [
+          "transmit",
+          2,
+          0
+        ],
+        [
+          "queue_mission",
+          7,
+          1
+        ]
+      ],
+      "foot": [
+        3128,
+        12742,
+        1283
+      ],
+      "result": 1
+    },
+    {
+      "admission": {
+        "bunkerable": true,
+        "parasite": false,
+        "speed_type": 1,
+        "turret": true,
+        "weapon": true
+      },
+      "admitted": 1,
+      "bunkers": [],
+      "events": [],
+      "foot": [
+        11905,
+        144289,
+        104
+      ],
+      "result": 0
+    },
+    {
+      "admission": {
+        "bunkerable": true,
+        "parasite": false,
+        "speed_type": 1,
+        "turret": true,
+        "weapon": true
+      },
+      "admitted": 1,
+      "bunkers": [
+        {
+          "contact": true,
+          "occupied": false,
+          "xyz": [
+            8286672,
+            360776,
+            742
+          ]
+        },
+        {
+          "contact": false,
+          "occupied": true,
+          "xyz": [
+            6805325,
+            7464659,
+            1035
+          ]
+        },
+        {
+          "contact": false,
+          "occupied": true,
+          "xyz": [
+            426926,
+            4192962,
+            1048
+          ]
+        },
+        {
+          "contact": false,
+          "occupied": true,
+          "xyz": [
+            1904863,
+            8155144,
+            1006
+          ]
+        },
+        {
+          "contact": false,
+          "occupied": false,
+          "xyz": [
+            4477055,
+            917932,
+            1868
+          ]
+        }
+      ],
+      "events": [
+        [
+          "coords",
+          4
+        ],
+        [
+          "contact",
+          4,
+          0
+        ],
+        [
+          "coords",
+          3
+        ],
+        [
+          "contact",
+          3,
+          0
+        ],
+        [
+          "coords",
+          2
+        ],
+        [
+          "contact",
+          2,
+          0
+        ],
+        [
+          "coords",
+          1
+        ],
+        [
+          "coords",
+          0
+        ],
+        [
+          "assign_destination",
+          4,
+          1
+        ],
+        [
+          "transmit",
+          2,
+          4
+        ],
+        [
+          "queue_mission",
+          7,
+          1
+        ]
+      ],
+      "foot": [
+        28977,
+        5160928,
+        733
+      ],
+      "result": 1
+    },
+    {
+      "admission": {
+        "bunkerable": true,
+        "parasite": false,
+        "speed_type": 1,
+        "turret": true,
+        "weapon": true
+      },
+      "admitted": 1,
+      "bunkers": [
+        {
+          "contact": false,
+          "occupied": true,
+          "xyz": [
+            711,
+            301,
+            759
+          ]
+        },
+        {
+          "contact": false,
+          "occupied": false,
+          "xyz": [
+            293,
+            1015,
+            649
+          ]
+        },
+        {
+          "contact": true,
+          "occupied": true,
+          "xyz": [
+            660,
+            728,
+            34
+          ]
+        },
+        {
+          "contact": true,
+          "occupied": false,
+          "xyz": [
+            134,
+            822,
+            1447
+          ]
+        },
+        {
+          "contact": false,
+          "occupied": false,
+          "xyz": [
+            451,
+            676,
+            558
+          ]
+        }
+      ],
+      "events": [
+        [
+          "coords",
+          4
+        ],
+        [
+          "contact",
+          4,
+          0
+        ],
+        [
+          "coords",
+          3
+        ],
+        [
+          "contact",
+          3,
+          0
+        ],
+        [
+          "coords",
+          2
+        ],
+        [
+          "coords",
+          1
+        ],
+        [
+          "coords",
+          0
+        ],
+        [
+          "contact",
+          0,
+          0
+        ],
+        [
+          "assign_destination",
+          4,
+          1
+        ],
+        [
+          "transmit",
+          2,
+          4
+        ],
+        [
+          "queue_mission",
+          7,
+          1
+        ]
+      ],
+      "foot": [
+        64,
+        35,
+        1737
+      ],
+      "result": 1
+    },
+    {
+      "admission": {
+        "bunkerable": true,
+        "parasite": false,
+        "speed_type": 1,
+        "turret": true,
+        "weapon": true
+      },
+      "admitted": 1,
+      "bunkers": [
+        {
+          "contact": false,
+          "occupied": false,
+          "xyz": [
+            4186,
+            4152,
+            1811
+          ]
+        },
+        {
+          "contact": false,
+          "occupied": false,
+          "xyz": [
+            5833,
+            530,
+            881
+          ]
+        },
+        {
+          "contact": false,
+          "occupied": false,
+          "xyz": [
+            8291,
+            5487,
+            72
+          ]
+        }
+      ],
+      "events": [
+        [
+          "coords",
+          2
+        ],
+        [
+          "contact",
+          2,
+          0
+        ],
+        [
+          "coords",
+          1
+        ],
+        [
+          "coords",
+          0
+        ],
+        [
+          "contact",
+          0,
+          0
+        ],
+        [
+          "assign_destination",
+          0,
+          1
+        ],
+        [
+          "transmit",
+          2,
+          0
+        ],
+        [
+          "queue_mission",
+          7,
+          1
+        ]
+      ],
+      "foot": [
+        2756,
+        6884,
+        2047
+      ],
+      "result": 1
+    },
+    {
+      "admission": {
+        "bunkerable": true,
+        "parasite": false,
+        "speed_type": 1,
+        "turret": true,
+        "weapon": true
+      },
+      "admitted": 1,
+      "bunkers": [
+        {
+          "contact": true,
+          "occupied": false,
+          "xyz": [
+            135761,
+            129033,
+            1987
+          ]
+        }
+      ],
+      "events": [
+        [
+          "coords",
+          0
+        ],
+        [
+          "contact",
+          0,
+          0
+        ]
+      ],
+      "foot": [
+        66767,
+        255389,
+        897
+      ],
+      "result": 0
+    },
+    {
+      "admission": {
+        "bunkerable": true,
+        "parasite": false,
+        "speed_type": 1,
+        "turret": true,
+        "weapon": true
+      },
+      "admitted": 1,
+      "bunkers": [],
+      "events": [],
+      "foot": [
+        3566309,
+        1762995,
+        1037
+      ],
+      "result": 0
+    },
+    {
+      "admission": {
+        "bunkerable": true,
+        "parasite": false,
+        "speed_type": 1,
+        "turret": true,
+        "weapon": true
+      },
+      "admitted": 1,
+      "bunkers": [
+        {
+          "contact": false,
+          "occupied": false,
+          "xyz": [
+            8448,
+            8192,
+            0
+          ]
+        },
+        {
+          "contact": false,
+          "occupied": false,
+          "xyz": [
+            8192,
+            8448,
+            0
+          ]
+        }
+      ],
+      "events": [
+        [
+          "coords",
+          1
+        ],
+        [
+          "contact",
+          1,
+          0
+        ],
+        [
+          "coords",
+          0
+        ],
+        [
+          "assign_destination",
+          1,
+          1
+        ],
+        [
+          "transmit",
+          2,
+          1
+        ],
+        [
+          "queue_mission",
+          7,
+          1
+        ]
+      ],
+      "foot": [
+        8192,
+        8192,
+        0
+      ],
+      "result": 1
+    },
+    {
+      "admission": {
+        "bunkerable": true,
+        "parasite": false,
+        "speed_type": 1,
+        "turret": true,
+        "weapon": true
+      },
+      "admitted": 1,
+      "bunkers": [
+        {
+          "contact": false,
+          "occupied": false,
+          "xyz": [
+            8320,
+            8192,
+            0
+          ]
+        },
+        {
+          "contact": true,
+          "occupied": false,
+          "xyz": [
+            8192,
+            8256,
+            0
+          ]
+        },
+        {
+          "contact": false,
+          "occupied": true,
+          "xyz": [
+            8256,
+            8192,
+            0
+          ]
+        },
+        {
+          "contact": false,
+          "occupied": false,
+          "xyz": [
+            8192,
+            8448,
+            0
+          ]
+        }
+      ],
+      "events": [
+        [
+          "coords",
+          3
+        ],
+        [
+          "contact",
+          3,
+          0
+        ],
+        [
+          "coords",
+          2
+        ],
+        [
+          "contact",
+          2,
+          0
+        ],
+        [
+          "coords",
+          1
+        ],
+        [
+          "contact",
+          1,
+          0
+        ],
+        [
+          "coords",
+          0
+        ],
+        [
+          "contact",
+          0,
+          0
+        ],
+        [
+          "assign_destination",
+          0,
+          1
+        ],
+        [
+          "transmit",
+          2,
+          0
+        ],
+        [
+          "queue_mission",
+          7,
+          1
+        ]
+      ],
+      "foot": [
+        8192,
+        8192,
+        0
+      ],
+      "result": 1
+    },
+    {
+      "admission": {
+        "bunkerable": true,
+        "parasite": false,
+        "speed_type": 1,
+        "turret": true,
+        "weapon": true
+      },
+      "admitted": 1,
+      "bunkers": [
+        {
+          "contact": false,
+          "occupied": false,
+          "xyz": [
+            300,
+            400,
+            0
+          ]
+        },
+        {
+          "contact": false,
+          "occupied": false,
+          "xyz": [
+            0,
+            500,
+            1
+          ]
+        }
+      ],
+      "events": [
+        [
+          "coords",
+          1
+        ],
+        [
+          "contact",
+          1,
+          0
+        ],
+        [
+          "coords",
+          0
+        ],
+        [
+          "assign_destination",
+          1,
+          1
+        ],
+        [
+          "transmit",
+          2,
+          1
+        ],
+        [
+          "queue_mission",
+          7,
+          1
+        ]
+      ],
+      "foot": [
+        0,
+        0,
+        0
+      ],
+      "result": 1
+    },
+    {
+      "admission": {
+        "bunkerable": true,
+        "parasite": false,
+        "speed_type": 1,
+        "turret": true,
+        "weapon": true
+      },
+      "admitted": 1,
+      "bunkers": [],
+      "events": [],
+      "foot": [
+        8192,
+        8192,
+        0
+      ],
+      "result": 0
+    },
+    {
+      "admission": {
+        "bunkerable": true,
+        "parasite": false,
+        "speed_type": 1,
+        "turret": true,
+        "weapon": true
+      },
+      "admitted": 1,
+      "bunkers": [
+        {
+          "contact": true,
+          "occupied": false,
+          "xyz": [
+            9216,
+            8192,
+            0
+          ]
+        },
+        {
+          "contact": false,
+          "occupied": true,
+          "xyz": [
+            12288,
+            8192,
+            0
+          ]
+        }
+      ],
+      "events": [
+        [
+          "coords",
+          1
+        ],
+        [
+          "contact",
+          1,
+          0
+        ],
+        [
+          "coords",
+          0
+        ],
+        [
+          "contact",
+          0,
+          0
+        ]
+      ],
+      "foot": [
+        8192,
+        8192,
+        0
+      ],
+      "result": 0
+    },
+    {
+      "admission": {
+        "bunkerable": false,
+        "parasite": false,
+        "speed_type": 1,
+        "turret": true,
+        "weapon": true
+      },
+      "admitted": 0,
+      "bunkers": [
+        {
+          "contact": false,
+          "occupied": false,
+          "xyz": [
+            9216,
+            8192,
+            0
+          ]
+        },
+        {
+          "contact": false,
+          "occupied": false,
+          "xyz": [
+            12288,
+            8192,
+            0
+          ]
+        }
+      ],
+      "events": [],
+      "foot": [
+        8192,
+        8192,
+        0
+      ],
+      "result": 0
+    },
+    {
+      "admission": {
+        "bunkerable": true,
+        "parasite": false,
+        "speed_type": 1,
+        "turret": false,
+        "weapon": true
+      },
+      "admitted": 0,
+      "bunkers": [
+        {
+          "contact": false,
+          "occupied": false,
+          "xyz": [
+            9216,
+            8192,
+            0
+          ]
+        },
+        {
+          "contact": false,
+          "occupied": false,
+          "xyz": [
+            12288,
+            8192,
+            0
+          ]
+        }
+      ],
+      "events": [],
+      "foot": [
+        8192,
+        8192,
+        0
+      ],
+      "result": 0
+    },
+    {
+      "admission": {
+        "bunkerable": true,
+        "parasite": false,
+        "speed_type": 1,
+        "turret": true,
+        "weapon": false
+      },
+      "admitted": 0,
+      "bunkers": [
+        {
+          "contact": false,
+          "occupied": false,
+          "xyz": [
+            9216,
+            8192,
+            0
+          ]
+        },
+        {
+          "contact": false,
+          "occupied": false,
+          "xyz": [
+            12288,
+            8192,
+            0
+          ]
+        }
+      ],
+      "events": [],
+      "foot": [
+        8192,
+        8192,
+        0
+      ],
+      "result": 0
+    },
+    {
+      "admission": {
+        "bunkerable": true,
+        "parasite": false,
+        "speed_type": 3,
+        "turret": true,
+        "weapon": true
+      },
+      "admitted": 0,
+      "bunkers": [
+        {
+          "contact": false,
+          "occupied": false,
+          "xyz": [
+            9216,
+            8192,
+            0
+          ]
+        },
+        {
+          "contact": false,
+          "occupied": false,
+          "xyz": [
+            12288,
+            8192,
+            0
+          ]
+        }
+      ],
+      "events": [],
+      "foot": [
+        8192,
+        8192,
+        0
+      ],
+      "result": 0
+    },
+    {
+      "admission": {
+        "bunkerable": true,
+        "parasite": true,
+        "speed_type": 1,
+        "turret": true,
+        "weapon": true
+      },
+      "admitted": 0,
+      "bunkers": [
+        {
+          "contact": false,
+          "occupied": false,
+          "xyz": [
+            9216,
+            8192,
+            0
+          ]
+        },
+        {
+          "contact": false,
+          "occupied": false,
+          "xyz": [
+            12288,
+            8192,
+            0
+          ]
+        }
+      ],
+      "events": [],
+      "foot": [
+        8192,
+        8192,
+        0
+      ],
+      "result": 0
+    }
+  ],
   "target_building": [
     {
       "allies": [],

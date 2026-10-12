@@ -8,8 +8,9 @@
 //! (`0x006E9E83`), `CaptureManagerClass::DecideUnitFate`'s choice 3
 //! (`0x0047261F`) and the heads of `FootClass::Mission_Guard`
 //! (`0x004D5076`) and `Mission_AreaGuard` (`0x004D6ACC`) while its latch
-//! holds; the fifth call (`0x006ECC00`) sits in `0x006ECB50`, which nothing
-//! calls or points at. The latch (`+0x68F`) is cleared by the Foot
+//! holds; the fifth call (`0x006ECC00`) sits in `0x006ECBF0`, one of five
+//! per-seek member loops from `0x006ECB50` that nothing calls or points at.
+//! The latch (`+0x68F`) is cleared by the Foot
 //! constructor (`0x004D33D2`), written only by this seek (`0x004DFC56`,
 //! `0x004DFC6B`) and by Mission_Unload's eject (`0x0044DBEA`), and read by
 //! those two heads and `Is_Seeking_Building_Entry @ 0x004E0080`.
@@ -30,13 +31,17 @@
 //! three Foot classes) sends an admitted Foot into the nearest of its
 //! house's tank bunkers that nothing holds. Its only live caller is script
 //! action 61 (`0x006E9E4D`); the other call through vt+0x344 (`0x006ECBB0`)
-//! sits in `0x006ECB50` too. It keeps no latch.
+//! sits in another of those loops (`0x006ECBA0`). It keeps no latch.
 //!
 //! Native execution: `tools/team_recruit_oracle.py`'s `bio_reactor` rows
 //! (the CAN_LOAD answers, the walk order, the distance, ties, the latch and
-//! the reissue test) and `battle_bunker` rows (the walk, the distance, the
+//! the reissue test), `battle_bunker` rows (the walk, the distance, the
 //! admission asked only of a nearer building, the latch and the reissue
-//! test) replay in this module's tests.
+//! test) and `tank_bunker` rows (the walk, the distance, the first radio
+//! contact and occupant read only of a nearer bunker, the destination, HELLO
+//! and Enter calls) replay in this module's tests; the `tank_bunker` rows'
+//! admissions, each refusing test alone, in
+//! [`crate::sim::docking::bunker_link`]'s.
 //!
 //! RESIDUALS:
 //! - An absorber entry runs through VERA's Boarding adapter
@@ -61,28 +66,34 @@
 //!   (`0x0044DBEA`); VERA's absorbers do not eject on Unload
 //!   (`techno_ai::building_missions`), so nothing clears it there.
 //! - A tank bunker entry runs through VERA's bunker adapter
-//!   ([`Simulation::begin_bunker_entry`]), as a player's EnterBunker order
-//!   does. In place of the destination (vt+0x480(bunker, 1)) and the HELLO
-//!   that makes the Foot the bunker's first radio contact, the bunker
-//!   answers CAN_LOAD and DOCK_NOW and holds the Foot as its installing
-//!   unit, which the seek's walk reads as that contact, and the Foot drives
-//!   to the bunker's cell. The bunker's receiver arms (`0x0043C4F8`,
-//!   `0x0043C75A`) are not run, and while the Foot drives, Mission_Enter
-//!   (`0x004D9290`) is not run, so its CAN_DOCK probe and its Rate epilogue
-//!   draw (RandomRanged(0, 2), Scenario stream) are skipped each dispatch.
-//!   The adapter's CAN_LOAD repeats the walk's tests and adds a life test,
-//!   so a true answer comes with the entry while the bunker lives (a dying
-//!   one leaves the Foot out of its team with no order). Trigger: one of
-//!   the nine retail "Yuri Unit Hunter" TeamTypes reaching action 61 while
-//!   its house has a free Yuri Tank Bunker (`ThirdBaseDefenses=`). Effect:
-//!   the Scenario stream misses one draw per approaching unit per dispatch.
-//!   Frequency: AI Yuri games with Tank Bunkers. Two rarer effects: a
-//!   bunker destroyed while the unit drives leaves the unit on Enter where
-//!   it stops, since VERA runs a unit's Mission_Enter only for depot and
-//!   refinery docking, where native's no-target arm idles it
-//!   (`0x004D9425..0x004D9466`); and a player order to a unit on its way in
-//!   keeps the bunker holding it, where the order's break of the first radio
-//!   contact (`0x004C72F8`) would free it.
+//!   ([`crate::sim::docking::bunker_link::begin_entry`]), as a player's
+//!   EnterBunker order does. In place of the destination (vt+0x480(bunker,
+//!   1)), whose setter sends the bunker DOCKING (for a unit
+//!   `0x00741DCC..0x00741DDA`), the HELLO that makes the Foot the bunker's
+//!   first radio contact, and the receiver's DOCKING arm with its bunker
+//!   branch (`0x0043C7E9`, `0x0043C84C..`), the bunker answers CAN_LOAD and
+//!   DOCK_NOW and holds the Foot as its installing unit, which the seek's
+//!   walk reads as that contact, and the Foot drives to the bunker's cell.
+//!   While the adapter carries the Foot, Mission_Enter (`0x004D9290`) is not
+//!   run, so its DOCKING probe and its Rate epilogue draw (RandomRanged(0,
+//!   2), Scenario stream) are skipped each dispatch; once the adapter lets
+//!   it go (its bunker gone), the body's no-target arm idles it. The
+//!   adapter's CAN_LOAD repeats the walk's tests and also wants the bunker
+//!   alive and its install machine idle, so a true answer comes without the
+//!   entry, leaving the Foot out of its team on its old orders, when the
+//!   bunker is dying, or is being sold or erased (whose release clears its
+//!   occupant but leaves the machine occupied). Trigger: one of the nine
+//!   retail "Yuri Unit Hunter" TeamTypes reaching action 61 while its house
+//!   has a free Yuri Tank Bunker (`ThirdBaseDefenses=`). Effect: the
+//!   Scenario stream misses one draw per approaching unit per dispatch.
+//!   Frequency: AI Yuri games with Tank Bunkers. A player order to a unit on
+//!   its way in keeps the bunker holding it, where the order's break of the
+//!   first radio contact (`0x004C72F8`) would free it. Neither an owner
+//!   change nor a retask clears the approach, and the install does not check
+//!   the unit's owner, so a seeker mind-controlled on its way still installs
+//!   into its old house's bunker; what native ChangeOwner does to radio
+//!   contacts is unverified (the DOCKING arm's head, `0x0043C7E9..0x0043C882`,
+//!   has no house test).
 //! - `+0x691` (vt+0x34C `0x004DFE00`, script action 64, which no retail
 //!   script uses) and the grinder seek (vt+0x33C `0x004DFA70`, action 60,
 //!   DecideUnitFate's choice 2) are not ported: no VERA code sets that
@@ -91,7 +102,7 @@
 use crate::rules::overlay_types::OverlayTypeRegistry;
 use crate::rules::ruleset::RuleSet;
 use crate::sim::components::NavTargetRef;
-use crate::sim::docking::bunker_link::can_auto_deploy_here;
+use crate::sim::docking::bunker_link::{self, can_auto_deploy_here};
 use crate::sim::game_entity::GameEntity;
 use crate::sim::mission::authority::LiveReadyInputProvider;
 use crate::sim::mission::{MissionId, MissionType};
@@ -293,26 +304,7 @@ impl Simulation {
         let Some(foot) = self.substrate.entities.get(id) else {
             return false;
         };
-        let terrain = self.resolved_terrain.as_ref();
-        let from = object_get_coords(foot, terrain);
-        let walk: Vec<(u64, i32)> = self
-            .house_occupiables(foot.owner(), rules)
-            .into_iter()
-            .rev()
-            .map(|building| {
-                // Distance's arithmetic between the two GetCoords (vt+0x48),
-                // inlined without its building trim (`0x004DFCF2..0x004DFD62`).
-                let distance = self
-                    .substrate
-                    .entities
-                    .get(building)
-                    .map_or(i32::MAX, |entity| {
-                        let to = object_get_coords(entity, terrain);
-                        object_distance([from.x, from.y, from.z], [to.x, to.y, to.z], None)
-                    });
-                (building, distance)
-            })
-            .collect();
+        let walk = self.walk_from_last(foot, self.house_occupiables(foot.owner(), rules));
         let best = pick_nearest_admitted(walk, |building| {
             crate::sim::passenger::building_can_be_occupied_by(self, rules, building, id)
         });
@@ -367,26 +359,7 @@ impl Simulation {
         let Some(foot) = self.substrate.entities.get(id) else {
             return false;
         };
-        let terrain = self.resolved_terrain.as_ref();
-        let from = object_get_coords(foot, terrain);
-        let walk: Vec<(u64, i32)> = self
-            .house_bunkers(foot.owner(), rules)
-            .into_iter()
-            .rev()
-            .map(|bunker| {
-                // Distance's arithmetic between the two GetCoords (vt+0x48),
-                // inlined without its building trim (`0x004DFF94..0x004E0003`).
-                let distance = self
-                    .substrate
-                    .entities
-                    .get(bunker)
-                    .map_or(i32::MAX, |entity| {
-                        let to = object_get_coords(entity, terrain);
-                        object_distance([from.x, from.y, from.z], [to.x, to.y, to.z], None)
-                    });
-                (bunker, distance)
-            })
-            .collect();
+        let walk = self.walk_from_last(foot, self.house_bunkers(foot.owner(), rules));
         // The bunker adapter holds an approaching unit as its installing
         // unit, where native holds it as the first radio contact (module
         // residual).
@@ -403,7 +376,7 @@ impl Simulation {
             return false;
         };
         let now = self.session.binary_frame;
-        let _ = self.begin_bunker_entry(id, best, rules, registry, effects, |sim| {
+        let _ = bunker_link::begin_entry(self, id, best, rules, registry, effects, |sim| {
             let _ = sim.mission_queue_exact(
                 id,
                 MissionId::from_known(MissionType::Enter),
@@ -413,6 +386,30 @@ impl Simulation {
             );
         });
         true
+    }
+
+    /// The walk of EnterBattleBunker and EnterTankBunker: `buildings` from
+    /// the last entry, each with Distance's arithmetic between the two
+    /// GetCoords (vt+0x48), inlined without its building trim
+    /// (`0x004DFCF2..0x004DFD62`, `0x004DFF94..0x004E0003`).
+    fn walk_from_last(&self, foot: &GameEntity, buildings: Vec<u64>) -> Vec<(u64, i32)> {
+        let terrain = self.resolved_terrain.as_ref();
+        let from = object_get_coords(foot, terrain);
+        buildings
+            .into_iter()
+            .rev()
+            .map(|building| {
+                let distance = self
+                    .substrate
+                    .entities
+                    .get(building)
+                    .map_or(i32::MAX, |entity| {
+                        let to = object_get_coords(entity, terrain);
+                        object_distance([from.x, from.y, from.z], [to.x, to.y, to.z], None)
+                    });
+                (building, distance)
+            })
+            .collect()
     }
 }
 

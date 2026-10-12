@@ -4419,6 +4419,7 @@ mod tests {
             mission: Some(MissionType::Attack),
             depot_dock_state: false,
             refinery_dock_miner: false,
+            entry_adapter: false,
             timer_due: true,
             moving_or_queued: false,
             has_attack_target: false,
@@ -4516,6 +4517,7 @@ mod tests {
             mission: Some(MissionType::Attack),
             depot_dock_state: false,
             refinery_dock_miner: false,
+            entry_adapter: false,
             timer_due: true,
             moving_or_queued: false,
             has_attack_target: false,
@@ -5203,12 +5205,17 @@ mod tests {
                 fixture.current = MissionId::from_known(mission);
                 fixture.dispatch_timer = MissionDispatchTimer::at_frame(0);
             });
-            // An infantryman on Enter is held by the Boarding adapter; once it
-            // lets go, the Infantry Enter arm runs Mission_Enter.
-            if category == EntityCategory::Infantry {
-                unit.passenger_role = crate::sim::passenger::PassengerRole::Boarding {
-                    target_transport_id: 2,
-                };
+            // A Foot on Enter is held by an entry adapter (Boarding, or for
+            // a unit the tank bunker approach); once it lets go, the Enter
+            // arms run Mission_Enter.
+            if mission == MissionType::Enter {
+                if category == EntityCategory::Infantry {
+                    unit.passenger_role = crate::sim::passenger::PassengerRole::Boarding {
+                        target_transport_id: 2,
+                    };
+                } else {
+                    unit.bunker_link = crate::sim::game_entity::BunkerLink::Approaching(2);
+                }
             }
             register_entity(&mut sim, unit);
 

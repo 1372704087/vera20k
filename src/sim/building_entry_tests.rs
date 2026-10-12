@@ -1,6 +1,8 @@
-//! Tests for the building-entry seeks. The pick replays native
-//! EnterBioReactor's rows (`tools/team_recruit_oracle.py`'s `bio_reactor`,
-//! under Unicorn); the production callers below are Rust regression tests.
+//! Tests for the building-entry seeks. The picks replay native
+//! EnterBioReactor's, EnterBattleBunker's and EnterTankBunker's rows
+//! (`tools/team_recruit_oracle.py`'s `bio_reactor`, `battle_bunker` and
+//! `tank_bunker`, under Unicorn); the production callers below are Rust
+//! regression tests.
 
 use serde_json::{Value, json};
 
@@ -78,6 +80,7 @@ Locomotor={4A582741-9839-11D1-B709-00A024DDAFD1}
 [CAOS]
 Strength=200
 Speed=6
+; Turret= unlike retail's, so that only Bunkerable= refuses it.
 Turret=yes
 Primary=ChaosAttack
 Bunkerable=no
@@ -371,6 +374,59 @@ fn the_battle_bunker_pick_matches_native() {
         picked_rows += usize::from(best.is_some());
     }
     assert_eq!(picked_rows, 86);
+}
+
+/// Native EnterTankBunker (`0x004DFF40`): an admitted Foot walks from the
+/// list's last bunker, only a strictly nearer one has its first radio
+/// contact (`0x0065AD30`) and occupant read, and ties keep the later bunker,
+/// as [`pick_nearest_admitted`] over [`object_distance`] picks; the pick
+/// gets Assign_Destination(pick, 1), HELLO and Queue_Mission(Enter, 1). A
+/// refused Foot walks nothing.
+#[test]
+fn the_tank_bunker_pick_matches_native() {
+    let oracle: Value =
+        serde_json::from_str(crate::test_fixture::text("tools/team_recruit_oracle.json")).unwrap();
+    let rows = oracle["tank_bunker"].as_array().unwrap();
+    assert_eq!(rows.len(), 130);
+    let enter = MissionId::from_known(MissionType::Enter).raw();
+    let mut picked_rows = 0;
+    for (number, row) in rows.iter().enumerate() {
+        let events = row["events"].as_array().unwrap();
+        if row["admitted"] == 0 {
+            assert!(events.is_empty(), "row {number}: a refused walk");
+            assert_eq!(row["result"], 0, "row {number}: a refused answer");
+            continue;
+        }
+        let bunkers = row["bunkers"].as_array().unwrap();
+        let foot = xyz(&row["foot"]);
+        let seen = std::cell::RefCell::new(Vec::new());
+        let best = pick_nearest_admitted(
+            (0..bunkers.len() as u64).rev().map(|index| {
+                seen.borrow_mut().push(json!(["coords", index]));
+                let to = xyz(&bunkers[index as usize]["xyz"]);
+                (index, object_distance(foot, to, None))
+            }),
+            |index| {
+                seen.borrow_mut().push(json!(["contact", index, 0]));
+                let bunker = &bunkers[index as usize];
+                bunker["contact"] == false && bunker["occupied"] == false
+            },
+        );
+        let mut seen = seen.into_inner();
+        if let Some(best) = best {
+            seen.push(json!(["assign_destination", best, 1]));
+            seen.push(json!(["transmit", RadioMessage::Hello.code(), best]));
+            seen.push(json!(["queue_mission", enter, 1]));
+        }
+        assert_eq!(&seen, events, "row {number}: the calls");
+        assert_eq!(
+            row["result"] == 1,
+            best.is_some(),
+            "row {number}: the answer"
+        );
+        picked_rows += usize::from(best.is_some());
+    }
+    assert_eq!(picked_rows, 85);
 }
 
 /// `BuildingClass::Receive_Radio`'s CAN_LOAD absorber arm
@@ -1131,17 +1187,18 @@ fn the_nearest_free_own_tank_bunker_takes_the_tank() {
 }
 
 /// EnterTankBunker answers false and orders nothing when `0x0070FB50`
-/// refuses the Foot (a `Bunkerable=no` Chaos Drone, a turretless and
-/// unarmed tank, an infantryman) or when every bunker of its house is held.
+/// refuses the Foot (a `Bunkerable=no` Chaos Drone, this fixture's
+/// turretless and unarmed `LTNK`, an infantryman) or when every bunker of
+/// its house is held.
 #[test]
 fn a_refused_foot_or_a_held_tank_bunker_gets_no_order() {
     let rules = rules();
     let (mut sim, _) = arena(&rules);
     let bunker = spawn(&mut sim, &rules, "NATBNK", "YuriCountry", 16, 10);
     let drone = spawn(&mut sim, &rules, "CAOS", "YuriCountry", 10, 10);
-    let lasher = spawn(&mut sim, &rules, "LTNK", "YuriCountry", 10, 12);
+    let unarmed = spawn(&mut sim, &rules, "LTNK", "YuriCountry", 10, 12);
     let infantry = spawn(&mut sim, &rules, "INIT", "YuriCountry", 10, 14);
-    for id in [drone, lasher, infantry] {
+    for id in [drone, unarmed, infantry] {
         let mission = entity(&sim, id).mission;
         assert!(!tank_bunker_seek(&mut sim, &rules, id));
         assert_eq!(entity(&sim, id).mission, mission);
@@ -1277,6 +1334,32 @@ fn a_tank_bunker_approach_ends_with_either_side() {
             .sim;
         restored.restore_after_snapshot_load().unwrap();
     }
+}
+
+/// A bunker destroyed while the tank drives to it: the teardown lets the
+/// tank go, Mission_Enter's no-target arm idles it (`0x004D9425..
+/// 0x004D9466`), and a team may recruit it again (`[Enter]` is not
+/// `Recruitable=`).
+#[test]
+fn a_seeker_whose_tank_bunker_dies_gives_up_and_can_be_recruited() {
+    let rules = rules();
+    let (mut sim, grid) = arena(&rules);
+    let bunker = spawn(&mut sim, &rules, "NATBNK", "YuriCountry", 24, 10);
+    let tank = spawn(&mut sim, &rules, "YTNK", "YuriCountry", 10, 10);
+    let _team = seek_team(&mut sim, 61, vec![tank]);
+    assert!(run_until(&mut sim, &rules, &grid, 30, |sim| {
+        entity(sim, tank).bunker_link == BunkerLink::Approaching(bunker)
+    }));
+
+    sim.despawn_entity(bunker);
+
+    let enter = MissionId::from_known(MissionType::Enter);
+    assert!(run_until(&mut sim, &rules, &grid, 300, |sim| {
+        entity(sim, tank).mission.current() != enter
+    }));
+    assert_eq!(entity(&sim, tank).bunker_link, BunkerLink::None);
+    let team = seek_team(&mut sim, 61, Vec::new());
+    assert!(sim.team_can_add(team, tank, true, &rules).is_some());
 }
 
 /// Retail rules (every layer, gamemd-exact): of the members the nine "Yuri

@@ -2057,13 +2057,20 @@ impl Simulation {
         if let Some((country_name, side_index, difficulty, tech_level, _)) = recalc_context {
             // The new Building's committed north-west anchor is the native
             // `+0x9C/+0xA0` source. This bounded write order is load-bearing:
-            // primary center, optional Recalc, node zero, BasePlan center,
-            // then the three independent House AI activation latches.
+            // primary center, Computer_Paranoid, optional Recalc, node zero,
+            // BasePlan center, then the three independent House AI activation
+            // latches.
+            self.houses
+                .get_mut(&owner_id)
+                .expect("qualifying deploy owner remains registered")
+                .set_base_center((rx, ry));
+            // `0x00505180` turns the computers paranoid for a house no human
+            // controls (`0x005051AF`) before its Recalc.
+            self.computer_paranoid(rules, registry, frame_effects);
             let house = self
                 .houses
                 .get_mut(&owner_id)
                 .expect("qualifying deploy owner remains registered");
-            house.set_base_center((rx, ry));
             if house.base_plan.nodes.is_empty() {
                 recalc_base_plan(
                     &mut house.base_plan,

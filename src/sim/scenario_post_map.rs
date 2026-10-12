@@ -107,7 +107,7 @@ impl Simulation {
         } else {
             if self.session.campaign_mission_counter().is_none() {
                 self.install_house_alliances(
-                    crate::sim::house_threat::HouseAllianceAdmission::Admitted(
+                    crate::sim::house_diplomacy::HouseAllianceAdmission::Admitted(
                         input.house_roster.alliance_map(),
                     ),
                     input.rules,

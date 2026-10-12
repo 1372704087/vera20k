@@ -540,11 +540,13 @@ impl Simulation {
         let Some(blocker) = self.nearest_cell_object(key, layer, None) else {
             return Ok(false);
         };
+        //4B2BDA..4B2BE4: the Foot's own House asks (Is_Ally_ByObject).
         let allied = self.substrate.entities.get(blocker).is_some_and(|b| {
-            crate::map::houses::are_houses_friendly(
-                &self.house_alliances,
-                self.interner.resolve(actor.owner()),
-                self.interner.resolve(b.owner()),
+            crate::sim::combat::combat_weapon::is_ally_by_object(
+                Some(&self.house_alliances),
+                &self.interner,
+                actor.owner(),
+                b.owner(),
             )
         });
         //4B2BF1..4B2C04: IsTrain (Type+C94) is set by no retail TechnoType.

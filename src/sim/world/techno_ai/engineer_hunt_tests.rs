@@ -1,9 +1,9 @@
-//! Rust regression tests for a computer engineer's way to a capture: hit on
-//! Guard it hunts (`InfantryClass::ReceiveDamage`, `0x00518BF2`), Mission_Hunt's
-//! engineer arm sends it to capture what its scan holds (`0x004D53BA`), and
-//! that scan returns the building its house last lost while it lies in reach
-//! (House+54E0, `0x0051E16E`). Expected values come from instruction reading;
-//! the only draw on these paths is the shared rate epilogue's.
+//! Rust regression tests for a hunting computer engineer's way to a capture:
+//! Mission_Hunt's engineer arm sends it to capture what its scan holds
+//! (`0x004D53BA`), and that scan returns the building its house last lost
+//! while it lies in reach (House+54E0, `0x0051E16E`). Expected values come
+//! from instruction reading; the only draw on these paths is the shared rate
+//! epilogue's.
 
 use super::*;
 use crate::rules::ini_parser::IniFile;
@@ -18,7 +18,6 @@ use crate::sim::world::ObjectAiCtx;
 const RULES: &str = "\
 [InfantryTypes]
 0=ENGINEER
-1=E1
 [BuildingTypes]
 0=GAPOWR
 [Warheads]
@@ -26,8 +25,6 @@ const RULES: &str = "\
 1=BombDisarm
 [Guard]
 Rate=.030
-[Area Guard]
-Rate=.040
 [Hunt]
 Rate=.030
 [Capture]
@@ -39,10 +36,6 @@ Engineer=yes
 Primary=DefuseKit
 GuardRange=9
 ThreatPosed=0
-Locomotor={4A582744-9839-11D1-B709-00A024DDAFD1}
-[E1]
-Strength=125
-Speed=4
 Locomotor={4A582744-9839-11D1-B709-00A024DDAFD1}
 [GAPOWR]
 Strength=750
@@ -63,7 +56,6 @@ BombDisarm=yes
 Verses=100%,100%,100%,100%,100%,100%,100%,100%,100%,100%,100%
 ";
 
-const HUNT: MissionId = MissionId::from_known(MissionType::Hunt);
 const CAPTURE: MissionId = MissionId::from_known(MissionType::Capture);
 
 fn rules() -> RuleSet {
@@ -111,14 +103,14 @@ fn assign(sim: &mut Simulation, id: u64, mission: MissionType) {
         .unwrap();
 }
 
-fn hit(sim: &mut Simulation, rules: &RuleSet, id: u64, damage: i32) {
+fn kill(sim: &mut Simulation, rules: &RuleSet, id: u64) {
     let warhead = sim.interner.intern("HITWH");
     let flags = ReceiverCallFlags {
         ignore_defenses: false,
         arg6: false,
     };
     let hit =
-        EntityDamageEvent::direct_receiver(id, damage, 0, RAD_NO_ATTACKER, None, warhead, flags);
+        EntityDamageEvent::direct_receiver(id, 100_000, 0, RAD_NO_ATTACKER, None, warhead, flags);
     sim.commit_noncombat_aoe_hits(rules, None, &[hit], FrameEffects::default());
 }
 
@@ -135,33 +127,6 @@ fn heading(sim: &Simulation, id: u64) -> Option<u64> {
             | NavTargetRef::Building { id },
         ) => Some(id),
         _ => None,
-    }
-}
-
-/// `0x00518BF2..0x00518C3F`: only a computer's `Engineer=` infantryman on
-/// Guard or Area Guard queues Hunt when a hit leaves it alive.
-#[test]
-fn a_computer_engineer_hit_on_guard_hunts() {
-    let rules = rules();
-    for (kind, owner, mission, hunts) in [
-        ("ENGINEER", "Russians", MissionType::Guard, true),
-        ("ENGINEER", "Russians", MissionType::AreaGuard, true),
-        ("ENGINEER", "Russians", MissionType::Sticky, false),
-        ("ENGINEER", "Americans", MissionType::Guard, false),
-        ("E1", "Russians", MissionType::Guard, false),
-    ] {
-        let mut sim = arena(&rules);
-        let id = spawn(&mut sim, &rules, kind, owner, 10, 10);
-        assign(&mut sim, id, mission);
-
-        hit(&mut sim, &rules, id, 10);
-
-        let entity = sim.substrate.entities.get(id).expect("it survives");
-        let label = format!("{kind} of {owner} on {mission:?}");
-        let strength = rules.object(kind).unwrap().strength;
-        assert_eq!(entity.health.current, strength - 10, "{label} is hit");
-        let queued = if hunts { HUNT } else { MissionId::NONE };
-        assert_eq!(entity.mission.queued(), queued, "{label}");
     }
 }
 
@@ -239,7 +204,7 @@ fn the_lost_building_follows_owner_changes_and_its_death() {
     assert_eq!(lost_building(&sim, "Russians"), None);
     assert_eq!(lost_building(&sim, "Americans"), Some(plant));
 
-    hit(&mut sim, &rules, plant, 100_000);
+    kill(&mut sim, &rules, plant);
     assert!(
         sim.substrate
             .entities

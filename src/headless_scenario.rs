@@ -1355,9 +1355,10 @@ mod retail_construction_tests {
 
     /// Computer engineers capture once hit on Guard, in two XMP03T4 duels
     /// of a Hard Russia against an idle America whose MCV deploys on frame 1:
-    /// - a lone Soviet Engineer two cells from two American GIs: shot on
-    ///   Guard, it queues Hunt (`0x00518BF2`), and Mission_Hunt's engineer arm
-    ///   (`0x004D53BA`) sends it to capture what its scan finds;
+    /// - a lone Soviet Engineer by the yard, inside an American GI's range:
+    ///   shot on Guard, it queues Hunt (`0x00518BF2`), and Mission_Hunt's
+    ///   engineer arm (`0x004D53BA`) sends it away from the GI to capture
+    ///   what its scan finds;
     /// - "Soviet Engineer vs Ally" (`0C143EFC-G`, an HTK and five Soviet
     ///   Engineers) against three Rhino Tanks by the yard: unloaded, the
     ///   engineers stand on Guard until action 46 gives them Attack, and one
@@ -1427,21 +1428,22 @@ mod retail_construction_tests {
             let (yx, yy) = at(sim, yard);
             let russians = house_of(sim, "Russians");
             let engineers = if lone {
-                let gis = spawn_on_free_cells(
-                    sim,
-                    &resources.rules,
-                    human,
-                    cells_nearest((yx - 4, yy - 4)),
-                    &["E1", "E1"],
-                );
-                let (gx, gy) = at(sim, gis[0]);
-                spawn_on_free_cells(
+                let engineer = spawn_on_free_cells(
                     sim,
                     &resources.rules,
                     russians,
-                    cells_nearest((gx + 2, gy + 2)),
+                    cells_nearest((yx - 2, yy - 2)),
                     &["SENGINEER"],
-                )
+                );
+                let (ex, ey) = at(sim, engineer[0]);
+                spawn_on_free_cells(
+                    sim,
+                    &resources.rules,
+                    human,
+                    cells_nearest((ex - 3, ey - 2)),
+                    &["E1"],
+                );
+                engineer
             } else {
                 let (house, spawned) = spawn_beside_base(
                     sim,

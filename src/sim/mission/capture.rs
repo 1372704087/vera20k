@@ -118,7 +118,7 @@ pub(crate) fn mission_capture(
                     .is_some_and(|object| object.occupier))
     });
     if hunts {
-        let _ = sim.assign_target_represented(id, None, Some(rules));
+        let _ = sim.assign_target_represented(id, None, Some(rules), registry, effects);
         sim.assign_null_destination(id, Some(rules), registry, effects);
         let now = sim.session.binary_frame;
         let _ = sim.mission_queue_exact(

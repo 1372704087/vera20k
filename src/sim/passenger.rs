@@ -1479,8 +1479,9 @@ ConditionYellow=50%
             cargo: PassengerCargo::new(obj.max_number_occupants, 1),
         };
         sim.substrate.entities.insert(ge);
+        // A standing building, as a map places it: no build-up.
         assert!(matches!(
-            sim.reveal_entity_with_rules(stable_id, rules),
+            sim.with_buildup_bypass(|sim| sim.reveal_entity_with_rules(stable_id, rules)),
             RevealOutcome::Revealed { .. }
         ));
         if sim.resolved_terrain.is_some() {

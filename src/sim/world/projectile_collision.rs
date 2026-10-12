@@ -1364,6 +1364,7 @@ mod tests {
                 .restore_map_authority_after_snapshot_load(
                     &make_rules(),
                     &runtime.resources.overlay_registry,
+                    None,
                 )
                 .unwrap();
             let mut resumed = SimRuntime::from_simulation(restored);
@@ -1696,6 +1697,7 @@ mod tests {
                 .restore_map_authority_after_snapshot_load(
                     &make_rules(),
                     &runtime.resources.overlay_registry,
+                    None,
                 )
                 .unwrap();
             let mut resumed = SimRuntime::from_simulation(restored);

@@ -191,6 +191,24 @@ impl Simulation {
     pub(crate) fn object_placement_scope_active(&self) -> bool {
         self.object_placement_scope_depth != 0
     }
+
+    /// Raise VERA's analog of native `0xA8ED6B` around `operation`: an initial
+    /// building Unlimbo inside it takes Enter_Idle_Mode's Idle arm
+    /// (`0x0044D6A0`) and stands finished, with no build-up. Native sets the
+    /// byte only around the random map generator's GALITE pass
+    /// (`0x005A91E0`); VERA raises it around a convenience spawn's Unlimbo
+    /// ([`Self::spawn_object`]), whose buildings stand like a map's. Native's
+    /// other readers of the byte keep the clear byte's answer.
+    pub(crate) fn with_buildup_bypass<R>(&mut self, operation: impl FnOnce(&mut Self) -> R) -> R {
+        let saved = std::mem::replace(&mut self.buildup_bypass, true);
+        let result = operation(self);
+        self.buildup_bypass = saved;
+        result
+    }
+
+    pub(crate) fn buildup_bypass_active(&self) -> bool {
+        self.buildup_bypass
+    }
 }
 
 pub(super) fn building_base_reservation_rect(
@@ -894,9 +912,13 @@ impl Simulation {
         }
         // TechnoClass::Unlimbo 0x006F6E2A..0x006F6E4F: Enter_Idle_Mode(1, 1),
         // Ready_To_Commence and Commence, ahead of its second mode-one query
-        // and of Foot4D722F's owner discovery below, which then observes the
-        // committed idle mission rather than a queued one.
-        if let Some(rules) = context.rules
+        // and of the owner discovery below (Foot 0x004D722F, Building
+        // 0x00440E5C), which observes the mission it left: a Foot's committed
+        // idle mission, or a placed building's queued Construction. An
+        // upgrade's Unlimbo attaches its type to the host and returns
+        // (0x00440A1C..0x00440A2F) before TechnoClass::Unlimbo.
+        if !attached_upgrade
+            && let Some(rules) = context.rules
             && self
                 .substrate
                 .entities
@@ -907,7 +929,7 @@ impl Simulation {
             if context.requested_facing.is_some() {
                 self.trace_lifecycle_for_test(LifecycleTestEvent::UnlimboIdleMode);
             }
-            super::foot_unlimbo_idle_mode(
+            super::techno_unlimbo_idle_mode(
                 self,
                 stable_id,
                 rules,
@@ -1332,7 +1354,10 @@ impl Simulation {
         let owner = entity.owner();
         let no_radio = entity.radio_contacts.is_empty();
         let construction = Some(crate::rules::mission_data::MissionType::Construction);
-        let current_construction = entity.mission.current().known() == construction;
+        // Both arms ask Get_Mission (vt+0x184 = 0x005B3040: current, else
+        // queued; the computer arm's at 0x0044D679), so a placed building
+        // whose Unlimbo queued Construction stays shut until it is built.
+        let effective_construction = entity.mission.effective().known() == construction;
         let queued_construction = entity.mission.queued().known() == construction;
         let controlled = self
             .houses
@@ -1343,9 +1368,9 @@ impl Simulation {
         // ScenarioInit affects the House notification writes,
         // independently of this Grand_Opening admission.
         let grand_admitted = if controlled {
-            !current_construction && !queued_construction
+            !effective_construction && !queued_construction
         } else {
-            viewer == owner && !current_construction
+            viewer == owner && !effective_construction
         };
         if no_radio
             && grand_admitted

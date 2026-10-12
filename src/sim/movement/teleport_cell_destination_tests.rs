@@ -924,7 +924,7 @@ fn native_cleg_reservation_survives_snapshot_and_is_hashed() {
         let hash = sim.state_hash();
         let bytes = GameSnapshot::save(&sim, 0, 0, "CLEG supplied command cells", 0);
         let mut restored = GameSnapshot::load(&bytes).unwrap().sim;
-        restored.retain_in_scenario_process_state_from(&sim);
+        restored.retain_process_state_for_load(crate::sim::world::SnapshotProcessState::Live(&sim));
         restored.restore_after_snapshot_load().unwrap();
         restored.rebuild_caches_after_load(
             sim.resolved_terrain.as_ref().unwrap().clone(),

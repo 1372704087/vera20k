@@ -6,7 +6,7 @@
 //! executed comparisons: tools/input_oracle/selection_navigation.json.
 //! Main886B88 is excluded from lockstep hashes and snapshot bytes. Fresh
 //! loading advances it before gameplay; in-scenario restore retains its live
-//! continuation through `retain_in_scenario_process_state_from`.
+//! continuation through `retain_process_state_for_load`.
 //!
 //! VoiceSelect708EB5 checks the existing SlaveOwner+2DC before choosing
 //! type+430 instead of the normal+414 list. Both paths use this one owner.

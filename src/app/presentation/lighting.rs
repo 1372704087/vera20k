@@ -315,6 +315,10 @@ impl Default for MatchLighting {
 }
 
 impl MatchLighting {
+    pub(crate) fn saved_config(&self) -> &LightingConfig {
+        &self.config
+    }
+
     pub(crate) fn grid(&self) -> &CellLightGrid {
         &self.grid
     }
@@ -340,23 +344,6 @@ impl MatchLighting {
             self.scenario = Some(sim.session.lighting);
             (self.buildings, self.radiation) = source_maps(sim, rules);
         }
-    }
-
-    /// Preserve the existing eager restore compatibility, discarding every
-    /// outgoing derived input. Native lazy Cell34 reinitialization is separate.
-    pub(crate) fn restore(
-        &mut self,
-        terrain: &ResolvedTerrainGrid,
-        sim: &Simulation,
-        rules: &RuleSet,
-        detail_level: u32,
-    ) {
-        self.install(
-            CellLightGrid::new(),
-            self.config.clone(),
-            detail_level,
-            Some((terrain, sim, rules)),
-        );
     }
 
     /// Replay native source/global ordering before a draw. Source changes can

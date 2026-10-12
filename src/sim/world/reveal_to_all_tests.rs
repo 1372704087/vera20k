@@ -353,27 +353,15 @@ fn a_sold_allys_building_leaves_its_shared_sight_counted() {
 /// back.
 #[test]
 fn a_shroud_reset_shows_a_computer_superweapon_still_building_up() {
-    use crate::sim::components::BuildingUp;
     use crate::sim::world::PlacementEvidence;
     let Some((rules, mut sim, americans)) = world() else {
         return;
     };
-    // Native Unlimbo queues the build-up before its DiscoveredBy(owner)
-    // (`0x006F6E2A`, `0x0044D6BD..0x0044D6D0`). VERA's computer yard installs
-    // it after (the residual on `ai_base_building::place_building`), so the
-    // build-up goes in first here.
+    // Its Unlimbo queues Construction (`0x006F6E2A`, `0x0044D6BD..0x0044D6D0`)
+    // before its DiscoveredBy(owner), which therefore leaves it shut.
     let id = sim
         .construct_object_limbo_at_height("NAIRON", "Russians", SITE.0, SITE.1, 0, 0, &rules)
         .unwrap();
-    let now = sim.session.binary_frame as i32;
-    sim.substrate
-        .entities
-        .get_mut(id)
-        .unwrap()
-        .install_building_up(
-            BuildingUp::placed_by_computer(rules.buildup_control("NAIRON"), now),
-            now,
-        );
     assert_eq!(
         sim.reveal_constructed_object_at_height(
             id,

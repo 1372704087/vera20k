@@ -103,6 +103,13 @@ impl MainRng {
         }
     }
 
+    /// Stage a transactional saved-load candidate. Draws made while the load
+    /// is prepared advance this copy; `install_from` moves it into the process
+    /// cell on commit, and a rejected load drops it with the cell untouched.
+    pub(super) fn staged_copy(&self) -> Self {
+        self.state.lock().expect("Main RNG poisoned").clone().into()
+    }
+
     /// Move the finished bootstrap cursor into the retained process cell.
     /// The app must synchronously cancel outgoing playback before this seam;
     /// the staged bootstrap must have relinquished its terrain draw handles.

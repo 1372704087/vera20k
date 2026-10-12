@@ -336,9 +336,10 @@ fn lift_links_and_drop_credit_are_saved_and_hashed() {
         assert_ne!(sim.state_hash(), before);
     }
     let bytes = crate::sim::snapshot::GameSnapshot::save(&sim, 0, 0, "magnetron_lift", 0);
-    let loaded = crate::sim::snapshot::GameSnapshot::load(&bytes)
+    let mut loaded = crate::sim::snapshot::GameSnapshot::load(&bytes)
         .unwrap()
         .sim;
+    loaded.retain_process_state_for_load(crate::sim::world::SnapshotProcessState::Live(&sim));
     assert_eq!(loaded.state_hash(), sim.state_hash());
     let held = entity(&loaded, tank);
     assert_eq!(held.locomotor_source, Some(magnetron));

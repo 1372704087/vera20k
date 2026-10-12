@@ -89,7 +89,8 @@ pub(crate) struct RetailOptionsProfile {
 
     // [VERA]: VERA's display preferences, not part of OptionsClass.
     /// Whether the window opens full screen. While the game runs the window
-    /// itself owns this; the profile takes its state back before each write.
+    /// itself owns this; `App::follow_window_full_screen` copies its state
+    /// back every event-loop pass, so each write saves what the player sees.
     pub(crate) full_screen: bool,
     /// The Options page's battle zoom.
     pub(crate) zoom: crate::ui::main_menu_dialogs::options::Zoom,

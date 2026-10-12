@@ -602,8 +602,9 @@ impl OptionsDialogState {
         self.values.full_screen = full_screen;
     }
 
-    /// gamemd-derived: combo owner `0x00617250` emits GUIComboOpen before its
-    /// strict `x > client_width - 20` arrow admission test.
+    /// Like gamemd's combo owner `0x00617250`, a press emits GUIComboOpen
+    /// first. gamemd then opens the list only from the 20-pixel arrow
+    /// (`x > client_width - 20`); VERA's own Zoom box opens from anywhere on it.
     pub(crate) fn combo_mouse_down(&mut self, frame: PhysicalControlFrame) {
         if frame.local_x < 0
             || frame.local_x >= frame.width
@@ -614,9 +615,7 @@ impl OptionsDialogState {
         }
         self.pending_events
             .push(LauncherOptionsEvent::Cue(LauncherCue::ComboOpen));
-        if frame.local_x > frame.width - 20 {
-            self.zoom_popup_open = !self.zoom_popup_open;
-        }
+        self.zoom_popup_open = !self.zoom_popup_open;
     }
 
     /// gamemd-derived: ordinary `0xD5` owner-draw buttons emit
@@ -926,14 +925,21 @@ mod tests {
     }
 
     #[test]
-    fn combo_cues_before_strict_arrow_toggle_and_valid_selection() {
+    fn combo_cues_then_toggles_from_anywhere_on_its_face() {
         let mut state = state(true);
-        state.combo_mouse_down(frame(160, 5, 180, 24));
-        assert!(!state.zoom_popup_open, "strict edge does not open");
+        state.combo_mouse_down(frame(4, 5, 180, 24));
+        assert!(
+            state.zoom_popup_open,
+            "the face opens the list, not only the arrow"
+        );
         assert_eq!(
             state.drain_output().events,
             [LauncherOptionsEvent::Cue(LauncherCue::ComboOpen)]
         );
+        state.combo_mouse_down(frame(161, 5, 180, 24));
+        assert!(!state.zoom_popup_open, "a second press closes it");
+        state.combo_mouse_down(frame(180, 5, 180, 24));
+        assert!(!state.zoom_popup_open, "outside the face does nothing");
         state.combo_mouse_down(frame(161, 5, 180, 24));
         assert!(state.zoom_popup_open);
         state.select_zoom(99);

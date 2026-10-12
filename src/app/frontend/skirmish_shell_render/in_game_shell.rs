@@ -1,5 +1,6 @@
 //! Active-scenario shell composition: 621E90 -> 72F540, geometry 72FC60.
-//! A complete physical-pixel RGB565 surface, independent of battlefield scaling.
+//! A complete RGB565 surface at the match frame's size: gamemd lays it out at
+//! the game resolution, so a zoomed match zooms it with the battlefield.
 
 use super::in_game_options;
 use crate::app::AppState;
@@ -61,8 +62,8 @@ pub(crate) fn native_in_game_shell_active(state: &AppState) -> bool {
                     && atlas.in_game_shell.buttons[0].is_some()
                     && shell_layout(
                         atlas,
-                        state.renderer.gpu.config.width as i32,
-                        state.renderer.gpu.config.height as i32,
+                        state.render_width() as i32,
+                        state.render_height() as i32,
                     )
                     .is_some()
             },
@@ -76,8 +77,8 @@ pub(crate) fn current_in_game_shell_layout(
     Some((
         shell_layout(
             atlas,
-            state.renderer.gpu.config.width as i32,
-            state.renderer.gpu.config.height as i32,
+            state.render_width() as i32,
+            state.render_height() as i32,
         )?,
         atlas.in_game_shell.buttons[0]?
             .pixel_size
@@ -174,8 +175,8 @@ pub(crate) fn render_in_game_options_shell(
     encoder: &mut wgpu::CommandEncoder,
     destination: &wgpu::Texture,
 ) -> anyhow::Result<()> {
-    let width = state.renderer.gpu.config.width;
-    let height = state.renderer.gpu.config.height;
+    let width = state.render_width();
+    let height = state.render_height();
     let atlas = crate::app::presentation::sidebar_render::current_sidebar_chrome(state)
         .expect("active side art");
     let layout = shell_layout(atlas, width as i32, height as i32).expect("active shell geometry");
@@ -282,8 +283,10 @@ pub(super) struct ShellFrameOverlay {
     pub texts: Vec<crate::render::shell_text::ShellTextDraw>,
 }
 
-/// Shared physical shell compositor. Only the parent art atlas differs between
-/// launcher and active-game children; popups paint after all ordinary controls.
+/// Shared shell compositor. Only the parent art atlas differs between launcher
+/// and active-game children; popups paint after all ordinary controls. It
+/// paints at the screen's render size: the window for the launcher, the match
+/// frame for an active-game shell, which a zoomed match then scales up.
 pub(super) fn render_shell_frame(
     state: &mut AppState,
     encoder: &mut wgpu::CommandEncoder,
@@ -303,8 +306,8 @@ pub(super) fn render_shell_frame(
         .renderer
         .debug_ui
         .discard_pending_input(&state.platform.window);
-    let width = state.renderer.gpu.config.width;
-    let height = state.renderer.gpu.config.height;
+    let width = state.render_width();
+    let height = state.render_height();
     let background_texture = match art {
         ShellFrameArt::Sidebar => {
             &crate::app::presentation::sidebar_render::current_sidebar_chrome(state)
@@ -352,16 +355,11 @@ pub(super) fn render_shell_frame(
         .iter()
         .map(|d| batch.create_instance_buffer(gpu, &d.instances))
         .collect();
-    let mut cursor: Vec<_> =
+    let cursor: Vec<_> =
         crate::app::frontend::shell_pass::software_cursor(state, super::SHELL_CURSOR_DEPTH)
             .map(|(_, instance)| instance)
             .into_iter()
             .collect();
-    let (cursor_x, cursor_y) = state.window_cursor_position();
-    for instance in &mut cursor {
-        instance.position[0] += cursor_x - state.match_state.input.cursor_x;
-        instance.position[1] += cursor_y - state.match_state.input.cursor_y;
-    }
     let cursor_buffer = batch.create_instance_buffer(gpu, &cursor);
     let cursor_texture = state
         .match_state
@@ -394,6 +392,9 @@ pub(super) fn render_shell_frame(
         timestamp_writes: None,
         occlusion_query_set: None,
     });
+    // The composition surface is window-sized; a zoomed match frame uses its
+    // top-left corner.
+    pass.set_viewport(0.0, 0.0, width as f32, height as f32, 0.0, 1.0);
     if let Some((buffer, count)) = &background_buffer {
         batch.draw_with_buffer_passthrough(&mut pass, background_texture, buffer, *count);
     }
@@ -445,9 +446,13 @@ pub(super) fn render_shell_frame(
         batch.draw_with_buffer_passthrough(&mut pass, texture, buffer, *count);
     }
     drop(pass);
-    state
-        .renderer
-        .shell_surface_presenter
-        .encode_present(encoder, destination);
+    let presenter = &state.renderer.shell_surface_presenter;
+    match state.match_zoom_pass() {
+        Some(zoom) => {
+            presenter.encode_present(encoder, zoom.color_texture());
+            zoom.draw(encoder, &destination.create_view(&Default::default()));
+        }
+        None => presenter.encode_present(encoder, destination),
+    }
     Ok(())
 }

@@ -19,8 +19,8 @@ impl App {
             crate::app::frontend::skirmish_shell_render::current_in_game_shell_layout(state)?;
         Some(crate::ui::shell::saved_games::saved_game_layout(
             mode,
-            state.renderer.gpu.config.width as i32,
-            state.renderer.gpu.config.height as i32,
+            state.render_width() as i32,
+            state.render_height() as i32,
             shell,
             size,
         ))
@@ -273,11 +273,8 @@ impl App {
         let Some(layout) = Self::saved_game_layout(state, mode) else {
             return;
         };
-        let extent = (
-            state.renderer.gpu.config.width,
-            state.renderer.gpu.config.height,
-        );
-        let (x, y) = state.window_cursor_position();
+        let extent = (state.render_width(), state.render_height());
+        let (x, y) = state.cursor_position();
         let pointer = (x.round() as i32, y.round() as i32);
         let browser = state
             .match_state
@@ -313,7 +310,7 @@ impl App {
         let Some(layout) = Self::saved_game_layout(state, mode) else {
             return;
         };
-        let (_, y) = state.window_cursor_position();
+        let (_, y) = state.cursor_position();
         let browser = state
             .match_state
             .match_presentation

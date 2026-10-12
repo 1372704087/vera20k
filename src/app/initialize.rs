@@ -150,10 +150,17 @@ impl App {
         } else {
             winit::dpi::LogicalSize::new(window_width, window_height).into()
         };
+        // The saved Full Screen choice goes in at creation: macOS retries it
+        // only then, when the first attempt fails (a launch from an app that
+        // is itself full screen). The resize that ends the animation re-fits
+        // the surface.
         let mut window_attrs: WindowAttributes = WindowAttributes::default()
             .with_title("RA2 Engine")
             .with_inner_size(inner_size)
             .with_resizable(!capture)
+            .with_fullscreen(
+                (!capture && options_profile.full_screen).then_some(Fullscreen::Borderless(None)),
+            )
             .with_visible(window_visible)
             .with_active(window_visible);
         // Capture windows stay hidden, so only a visible session shows the icon.
@@ -168,11 +175,6 @@ impl App {
         #[cfg(target_os = "macos")]
         if let Some(icon) = &retail_icon {
             icon.set_dock_icon();
-        }
-        // The saved Full Screen choice. Where the system animates into it
-        // (macOS), the resize that ends the animation re-fits the surface.
-        if !capture && options_profile.full_screen {
-            window.set_fullscreen(Some(Fullscreen::Borderless(None)));
         }
         let gpu: GpuContext = GpuContext::new(window.clone())?;
         #[cfg(feature = "dev-ui")]

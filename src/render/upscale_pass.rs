@@ -1,11 +1,12 @@
 //! Whole-pixel zoom of the match frame.
 //!
 //! A zoomed match draws its complete frame (battlefield, sidebar, messages,
-//! tooltips, software cursor) into a source target the window size divided by
-//! the zoom factor; this pass then copies it to the window with each source
-//! pixel as a `factor` x `factor` block, centred. A window that doesn't divide
-//! evenly keeps a black border narrower than one block. The menus never come
-//! here: they fit the window on their own.
+//! tooltips, software cursor, and the active-game shells such as the pause
+//! menu) into a source target the window size divided by the zoom factor;
+//! this pass then copies it to the window with each source pixel as a
+//! `factor` x `factor` block, centred. A window that doesn't divide evenly
+//! keeps a black border narrower than one block. The front-end menus never
+//! come here: they fit the window on their own.
 //!
 //! Depends on: `render/gpu.rs` (GpuContext)
 
@@ -88,16 +89,7 @@ impl UpscalePass {
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
-        gpu.queue.write_buffer(
-            &params_buffer,
-            0,
-            bytemuck::cast_slice(&[
-                geometry.origin.0 as f32,
-                geometry.origin.1 as f32,
-                geometry.factor as f32,
-                0.0f32,
-            ]),
-        );
+        write_params(gpu, &params_buffer, geometry);
 
         let bgl = create_bgl(gpu);
         let bind_group = create_bind_group(&gpu.device, &bgl, &color_texture, &params_buffer);
@@ -118,6 +110,30 @@ impl UpscalePass {
 
     pub fn geometry(&self) -> ZoomGeometry {
         self.geometry
+    }
+
+    /// Follow a new window size or factor. Only the size-dependent targets are
+    /// rebuilt, so a live resize never recompiles the shader.
+    pub fn set_geometry(&mut self, gpu: &GpuContext, geometry: ZoomGeometry) {
+        if geometry == self.geometry {
+            return;
+        }
+        if (geometry.src_width, geometry.src_height)
+            != (self.geometry.src_width, self.geometry.src_height)
+        {
+            self.color_texture = create_color_texture(gpu, geometry.src_width, geometry.src_height);
+            self.depth_texture = create_depth_texture(gpu, geometry.src_width, geometry.src_height);
+            self.color_view = self.color_texture.create_view(&Default::default());
+            self.depth_view = self.depth_texture.create_view(&Default::default());
+            self.bind_group = create_bind_group(
+                &gpu.device,
+                &self.bgl,
+                &self.color_texture,
+                &self.params_buffer,
+            );
+        }
+        write_params(gpu, &self.params_buffer, geometry);
+        self.geometry = geometry;
     }
 
     /// Cached view for the intermediate color render target.
@@ -201,6 +217,19 @@ impl UpscalePass {
 // ---------------------------------------------------------------------------
 // Resource creation helpers
 // ---------------------------------------------------------------------------
+
+fn write_params(gpu: &GpuContext, params_buffer: &wgpu::Buffer, geometry: ZoomGeometry) {
+    gpu.queue.write_buffer(
+        params_buffer,
+        0,
+        bytemuck::cast_slice(&[
+            geometry.origin.0 as f32,
+            geometry.origin.1 as f32,
+            geometry.factor as f32,
+            0.0f32,
+        ]),
+    );
+}
 
 fn create_color_texture(gpu: &GpuContext, width: u32, height: u32) -> wgpu::Texture {
     gpu.device.create_texture(&wgpu::TextureDescriptor {

@@ -35,6 +35,17 @@ fn window_takes_fitted_shell(size: (u32, u32)) -> bool {
     !matches!(size, (800, 600) | (640, 480))
 }
 
+/// How much a menu's software cursor grows: with a fitted menu's art, by the
+/// same factor. An active-game shell draws its cursor in the match frame,
+/// which the match zoom scales instead.
+pub(crate) fn menu_cursor_scale(state: &AppState) -> f32 {
+    if state.frontend.screen == crate::ui::game_screen::GameScreen::InGame || !fills_window(state) {
+        return 1.0;
+    }
+    let (width, height) = shell_screen_size(state);
+    crate::ui::shell::geom::ShellScale::from_screen(width as i32, height as i32).factor()
+}
+
 /// Main menu dialog `0xE2`.
 pub(crate) fn main_menu_layout(state: &AppState) -> MainMenuShellLayout {
     let (width, height) = shell_screen_size(state);

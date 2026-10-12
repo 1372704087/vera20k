@@ -30,7 +30,6 @@ impl App {
         Self::invalidate_main_menu_movie_if_base_changed(state);
         Self::sync_zoom_pass(state);
         crate::app::presentation::sidebar_render::refresh_sidebar_projection(state);
-        Self::follow_window_full_screen(state);
     }
 
     /// Keep the zoom pass matching the window and the Options zoom: a source
@@ -49,14 +48,11 @@ impl App {
             state.persistence.options_profile.zoom.factor(width, height)
         };
         let geometry = crate::render::upscale_pass::ZoomGeometry::new(width, height, factor);
-        let current = state
-            .renderer
-            .upscale_pass
-            .as_ref()
-            .map(|pass| pass.geometry());
         if factor == 1 {
             state.renderer.upscale_pass = None;
-        } else if current != Some(geometry) {
+        } else if let Some(pass) = state.renderer.upscale_pass.as_mut() {
+            pass.set_geometry(&state.renderer.gpu, geometry);
+        } else {
             state.renderer.upscale_pass = Some(crate::render::upscale_pass::UpscalePass::new(
                 &state.renderer.gpu,
                 geometry,
@@ -66,18 +62,21 @@ impl App {
 
     /// The Options page's Full Screen box: switch the window now. On macOS this
     /// is the system's own full screen, so its title bar stays reachable at the
-    /// top edge; the resize that follows re-fits the menus and the zoom.
+    /// top edge; the resize that follows re-fits the menus and the zoom. The
+    /// window's new state reaches the profile through `follow_window_full_screen`.
     pub(crate) fn set_full_screen(state: &mut AppState, full_screen: bool) {
-        state.persistence.options_profile.full_screen = full_screen;
         state
             .platform
             .window
             .set_fullscreen(full_screen.then_some(winit::window::Fullscreen::Borderless(None)));
     }
 
-    /// The window can also change full screen by itself (its title-bar button,
-    /// the system shortcut). Take that state back so the Options box and the
-    /// next launch agree with what the player sees.
+    /// The window owns full screen while the game runs, and can change it by
+    /// itself (its title-bar button, the system shortcut). Each event-loop pass
+    /// copies its state into the profile and the Options box, so they and the
+    /// next launch agree with what the player sees. A resize alone would miss
+    /// leaving full screen on macOS: winit clears the state only after the
+    /// exit animation's last resize.
     fn follow_window_full_screen(state: &mut AppState) {
         if state.platform.capture_client_size.is_some() {
             return;
@@ -140,6 +139,7 @@ impl ApplicationHandler for App {
         let shell_capture_active = self.shell_capture.is_some();
         let tactical_capture_active = self.tactical_capture.is_some();
         let Some(state) = &mut self.state else { return };
+        state.sync_cursor_space();
 
         // This checkpoint is driven entirely from `about_to_wait`. Focused
         // input would contaminate its hidden, no-input production oracle.
@@ -680,16 +680,7 @@ impl ApplicationHandler for App {
                 }
             }
             WindowEvent::CursorMoved { position, .. } => {
-                // A zoomed match keeps the cursor in its source pixels.
-                let (x, y) = (position.x as f32, position.y as f32);
-                let (x, y) = match state.tactical_zoom() {
-                    Some(zoom) if state.frontend.screen == GameScreen::InGame => {
-                        zoom.window_to_source(x, y)
-                    }
-                    _ => (x, y),
-                };
-                state.match_state.input.cursor_x = x;
-                state.match_state.input.cursor_y = y;
+                state.set_cursor_from_window(position.x as f32, position.y as f32);
                 // Keep OS cursor hidden whenever the software cursor is active.
                 if state.use_software_cursor() {
                     state.platform.window.set_cursor_visible(false);
@@ -926,6 +917,7 @@ impl ApplicationHandler for App {
 
     fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
         let shell_scroll_wake = if let Some(state) = self.state.as_mut() {
+            Self::follow_window_full_screen(state);
             Self::update_saved_seed_browser_scroll(state, false);
             Self::update_load_saved_game_scroll(state, false);
             [

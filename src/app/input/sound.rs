@@ -25,8 +25,8 @@ fn layout(state: &AppState) -> Option<SoundLayout> {
     let (shell, size) =
         crate::app::frontend::skirmish_shell_render::current_in_game_shell_layout(state)?;
     Some(SoundLayout::new(
-        state.renderer.gpu.config.width as i32,
-        state.renderer.gpu.config.height as i32,
+        state.render_width() as i32,
+        state.render_height() as i32,
         shell,
         size,
     ))
@@ -141,7 +141,7 @@ pub(crate) fn poll_scroll_repeat(state: &mut AppState) -> Option<Instant> {
         return None;
     }
     let layout = layout(state)?;
-    let (x, y) = state.window_cursor_position();
+    let (x, y) = state.cursor_position();
     let dialog = state.match_state.match_presentation.sound_dialog.as_mut()?;
     let geometry = ShellListGeometry::new(
         layout.list,
@@ -164,7 +164,7 @@ pub(crate) fn cursor_moved(state: &mut AppState) {
     let Some(layout) = layout(state) else {
         return;
     };
-    let (x, y) = state.window_cursor_position();
+    let (x, y) = state.cursor_position();
     let (x, y) = (x.round() as i32, y.round() as i32);
     let Some(dialog) = state.match_state.match_presentation.sound_dialog.as_mut() else {
         return;
@@ -197,7 +197,7 @@ pub(crate) fn mouse(state: &mut AppState, button: MouseButton, pressed: bool) {
     let Some(layout) = layout(state) else {
         return;
     };
-    let (x, y) = state.window_cursor_position();
+    let (x, y) = state.cursor_position();
     let (x, y) = (x.round() as i32, y.round() as i32);
     let Some(dialog) = state.match_state.match_presentation.sound_dialog.as_mut() else {
         return;

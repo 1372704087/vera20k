@@ -86,11 +86,11 @@ pub(crate) fn in_game_options_mouse(state: &mut AppState, button: MouseButton, p
     let Some(anchor) = state.match_state.match_presentation.in_game_options_anchor else {
         return; // overlay not rendered yet -> nothing to hit-test
     };
-    let screen_w = state.renderer.gpu.config.width as i32;
-    let screen_h = state.renderer.gpu.config.height as i32;
+    let screen_w = state.render_width() as i32;
+    let screen_h = state.render_height() as i32;
     let desc = build_in_game_options_descriptor();
     let laid = layout_pass_in_game_options(&desc, screen_w, screen_h, anchor);
-    let (cx, cy) = state.window_cursor_position();
+    let (cx, cy) = state.cursor_position();
     let (cx, cy) = (cx.round() as i32, cy.round() as i32);
 
     if pressed {
@@ -173,11 +173,11 @@ pub(crate) fn in_game_options_drag(state: &mut AppState) {
     let Some(anchor) = state.match_state.match_presentation.in_game_options_anchor else {
         return;
     };
-    let screen_w = state.renderer.gpu.config.width as i32;
-    let screen_h = state.renderer.gpu.config.height as i32;
+    let screen_w = state.render_width() as i32;
+    let screen_h = state.render_height() as i32;
     let desc = build_in_game_options_descriptor();
     let laid = layout_pass_in_game_options(&desc, screen_w, screen_h, anchor);
-    let (x, y) = state.window_cursor_position();
+    let (x, y) = state.cursor_position();
     let over = match in_game_options_hit(&laid, (x.round() as i32, y.round() as i32)) {
         OptionsHit::Button(control::SOUND) if !state.audio.launcher_audio_available => None,
         OptionsHit::Button(id) => Some(id),
@@ -191,7 +191,7 @@ pub(crate) fn in_game_options_drag(state: &mut AppState) {
     let Some(rect) = laid.iter().find(|l| l.id == id).map(|l| l.rect) else {
         return;
     };
-    let cx = state.window_cursor_position().0.round() as i32;
+    let cx = state.cursor_position().0.round() as i32;
     let pos =
         trackbar_pos_from_mouse_x(cx, OPTIONS_SPEED_MIN as i32, OPTIONS_SPEED_MAX as i32, rect);
     if store_slider_value(

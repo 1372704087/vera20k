@@ -110,14 +110,9 @@ pub(crate) fn handle_event(
     };
     match event {
         WindowEvent::CursorMoved { position, .. } => {
-            // Match input stores tactical pixels even when a utility card
-            // occupies the physical window above a zoomed match.
-            let (x, y) = (position.x as f32, position.y as f32);
-            let (x, y) = state
-                .tactical_zoom()
-                .map_or((x, y), |zoom| zoom.window_to_source(x, y));
-            state.match_state.input.cursor_x = x;
-            state.match_state.input.cursor_y = y;
+            // Match input keeps source pixels even while a card covers a
+            // zoomed match; the card maps back through `window_cursor_position`.
+            state.set_cursor_from_window(position.x as f32, position.y as f32);
             state.platform.window.request_redraw();
             true
         }

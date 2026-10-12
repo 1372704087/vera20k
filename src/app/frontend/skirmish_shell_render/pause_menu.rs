@@ -124,8 +124,8 @@ pub(crate) fn render_pause_menu_shell(
     destination: &wgpu::Texture,
     buttons: [PauseMenuButtonState; 6],
 ) -> anyhow::Result<()> {
-    let width = state.renderer.gpu.config.width as i32;
-    let height = state.renderer.gpu.config.height as i32;
+    let width = state.render_width() as i32;
+    let height = state.render_height() as i32;
     let (shell, button_size) =
         in_game_shell::current_in_game_shell_layout(state).expect("active shell geometry");
     let layout = pause_menu_layout(width, height, shell, button_size);

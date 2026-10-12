@@ -1297,6 +1297,56 @@ fn retail_berserk_gi_targets_its_own_house() {
     }
 }
 
+/// Through the frame: a berserk computer GI on the Hunt the gas queued shoots
+/// its own house's man. Hunt's scan takes him, the allied-target drop spares
+/// a berserk owner (`0x006FA45D`) and GetFireError admits the shot
+/// (`0x006FC1CC`).
+#[test]
+fn retail_berserk_gi_shoots_its_own_house() {
+    let Some((ini, art)) = crate::rules::retail_ini_fixture::retail_rules_and_art() else {
+        return;
+    };
+    let rules = RuleSet::from_ini_with_fixed_art_for_test(&ini, &art).expect("retail rules");
+    let mut sim = Simulation::with_seed(0x5CA7);
+    let grid = crate::sim::arena_fixture::flat_arena(&mut sim, &rules);
+    let owner = sim.interner.intern("Russians");
+    sim.houses
+        .insert(owner, HouseState::new(owner, 0, None, false, 0, 10));
+    let gi = sim
+        .spawn_object("E1", "Russians", 10, 10, 0, &rules)
+        .unwrap();
+    let friend = sim
+        .spawn_object("E1", "Russians", 12, 10, 0, &rules)
+        .unwrap();
+    let strength = rules.object("E1").unwrap().strength;
+    sim.substrate
+        .entities
+        .get_mut(gi)
+        .unwrap()
+        .berserk
+        .start(900);
+    let _ = sim.mission_queue_exact(
+        gi,
+        MissionId::from_known(MissionType::Hunt),
+        0,
+        sim.session.binary_frame,
+        &crate::sim::mission::authority::EntityReadyInputProvider,
+    );
+    let shot = |sim: &Simulation| {
+        sim.substrate
+            .entities
+            .get(friend)
+            .is_none_or(|man| man.health.current < strength)
+    };
+    for _ in 0..150 {
+        if shot(&sim) {
+            break;
+        }
+        sim.advance_tick(&[], Some(&rules), Some(&grid), None, 33);
+    }
+    assert!(shot(&sim), "the berserk GI shoots his friend");
+}
+
 #[test]
 fn gsi_04_05_building_self_damage_return_zero_stops_receiver_commit() {
     let rules = gsi_04_05_attack_frame_rules();

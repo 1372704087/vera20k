@@ -12,9 +12,28 @@ use crate::render::shell_text_reveal::PathAReveal;
 use crate::ui::main_menu_dialogs::options::shell::{
     LauncherLabelAlign, LauncherOptionsLayout, LauncherStatusHelp,
 };
-use crate::ui::main_menu_dialogs::options::{LauncherTrackbarId, OptionsDialogState, Zoom};
+use crate::ui::main_menu_dialogs::options::{
+    LauncherCheckboxId, LauncherTrackbarId, OptionsDialogState, Zoom,
+};
 use crate::ui::shell::geom::{RectPx, ShellScale};
 use std::time::Instant;
+
+/// A Zoom row: the zoom and the battle's size in game pixels in this window,
+/// what `App::sync_zoom_pass` will give the match.
+fn zoom_label(zoom: Zoom, (width, height): (u32, u32), original_shape: bool) -> String {
+    use crate::render::upscale_pass::{FrameShape, ZoomGeometry};
+    let shape = if original_shape {
+        FrameShape::Original
+    } else {
+        FrameShape::Window
+    };
+    let geometry = ZoomGeometry::new(width, height, zoom.percent(width, height), shape);
+    let size = format!("({}x{})", geometry.src_width, geometry.src_height);
+    match zoom {
+        Zoom::Auto => format!("Auto {size}"),
+        Zoom::Percent(percent) => format!("{percent}% {size}"),
+    }
+}
 
 fn text_draw(
     font: &BitFont,
@@ -187,7 +206,11 @@ fn build_text(
     });
     out.push(text_draw(
         font,
-        dialog.shell_selected_zoom_text(),
+        &zoom_label(
+            dialog.shell_selected_zoom(layout),
+            layout.screen(),
+            dialog.shell_checkbox_checked(LauncherCheckboxId::OriginalShape),
+        ),
         zoom_text,
         ShellAlign::V_CENTER,
         SHELL_LABEL_TEXT_RGB,
@@ -362,7 +385,8 @@ pub(crate) fn render_launcher_options(
             SHELL_DROPDOWN_DEPTH,
         );
         let text_inset = (3.0 * scale.factor()).round() as i32;
-        for (i, zoom) in Zoom::ALL.into_iter().enumerate() {
+        let original_shape = dialog.shell_checkbox_checked(LauncherCheckboxId::OriginalShape);
+        for (i, zoom) in layout.zoom_choices().into_iter().enumerate() {
             let rect = popup.row_rect(i);
             if popup.hovered.unwrap_or(popup.selected) == i {
                 push_solid_rect_px(
@@ -375,7 +399,7 @@ pub(crate) fn render_launcher_options(
             }
             popup_text.push(text_draw(
                 &state.renderer.bit_font,
-                zoom.label(),
+                &zoom_label(zoom, layout.screen(), original_shape),
                 RectPx::new(rect.x + text_inset, rect.y, rect.w - 2 * text_inset, rect.h),
                 ShellAlign::V_CENTER,
                 SHELL_LABEL_TEXT_RGB,
@@ -500,4 +524,30 @@ pub(crate) fn render_launcher_options(
         .encode_present(encoder, destination);
     state.platform.window.request_redraw();
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::zoom_label;
+    use crate::ui::main_menu_dialogs::options::Zoom;
+
+    #[test]
+    fn zoom_rows_name_the_battle_size() {
+        let hd = (1920, 1080);
+        let rows: Vec<_> = Zoom::choices(hd.0, hd.1)
+            .into_iter()
+            .map(|zoom| zoom_label(zoom, hd, false))
+            .collect();
+        assert_eq!(
+            rows,
+            [
+                "Auto (1920x1080)",
+                "100% (1920x1080)",
+                "150% (1280x720)",
+                "200% (960x540)"
+            ]
+        );
+        // The original 4:3 shape trims the width.
+        assert_eq!(zoom_label(Zoom::Percent(150), hd, true), "150% (960x720)");
+    }
 }

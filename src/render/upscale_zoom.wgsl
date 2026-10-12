@@ -1,13 +1,17 @@
-// Whole-pixel zoom of the match frame.
+// Zoom of the match frame.
 //
-// Each source pixel becomes a `factor` x `factor` block of the window, the
-// first one at `origin`. The draw's scissor covers exactly the scaled frame;
-// the rest of the window was cleared to black.
+// Source pixel (0, 0) lands at `origin`, and each source pixel covers
+// `scale` x `scale` window pixels. A whole scale copies blocks. Between whole
+// scales a window pixel can straddle two source pixels on an axis; it blends
+// them by how much of it each covers (a box filter), so a source pixel keeps
+// its own colour wherever it covers a window pixel alone and only the seams
+// soften. The draw's scissor covers exactly the scaled frame; the rest of the
+// window was cleared to black.
 
 struct Params {
     origin: vec2f,   // window pixel where source pixel (0, 0) lands
-    factor: f32,     // whole-pixel scale
-    _pad: f32,
+    scale: f32,      // window pixels per source pixel, at least 1
+    sharp: f32,      // 1 for a whole scale
 };
 
 @group(0) @binding(0) var t_source: texture_2d<f32>;
@@ -21,10 +25,26 @@ fn vs_main(@builtin(vertex_index) idx: u32) -> @builtin(position) vec4f {
     return vec4f(x * 2.0 - 1.0, 1.0 - y * 2.0, 0.0, 1.0);
 }
 
+fn texel(at: vec2i) -> vec4f {
+    let last = vec2i(textureDimensions(t_source)) - 1;
+    return textureLoad(t_source, clamp(at, vec2i(0), last), 0);
+}
+
 @fragment
 fn fs_main(@builtin(position) position: vec4f) -> @location(0) vec4f {
-    // `position.xy` is the pixel centre, so the floor names the block.
-    let texel = vec2i(floor((position.xy - params.origin) / params.factor));
-    let last = vec2i(textureDimensions(t_source)) - 1;
-    return textureLoad(t_source, clamp(texel, vec2i(0), last), 0);
+    // `position.xy` is the pixel centre; here it is in source pixels.
+    let centre = (position.xy - params.origin) / params.scale;
+    if params.sharp != 0.0 {
+        // The floor names the block.
+        return texel(vec2i(floor(centre)));
+    }
+    // The window pixel spans 1 / scale source pixels, so at most two per
+    // axis: `first` holds its top-left corner, `t` is its share past the seam.
+    let half = 0.5 / params.scale;
+    let first = floor(centre - half);
+    let t = clamp((centre + half - (first + 1.0)) * params.scale, vec2f(0.0), vec2f(1.0));
+    let at = vec2i(first);
+    let top = mix(texel(at), texel(at + vec2i(1, 0)), t.x);
+    let bottom = mix(texel(at + vec2i(0, 1)), texel(at + vec2i(1, 1)), t.x);
+    return mix(top, bottom, t.y);
 }

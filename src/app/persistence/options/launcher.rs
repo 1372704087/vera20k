@@ -289,7 +289,7 @@ mod tests {
             score_volume: 0.2,
             sound_volume: 0.5,
             voice_volume: 0.8,
-            zoom: Zoom::Huge,
+            zoom: Zoom::Percent(300),
             original_shape: true,
             ..RetailOptionsProfile::default()
         };
@@ -299,7 +299,9 @@ mod tests {
             true,
             false,
         );
-        assert_eq!(dialog.shell_selected_zoom_text(), Zoom::Huge.label());
+        let layout =
+            crate::ui::main_menu_dialogs::options::shell::LauncherOptionsLayout::new(3840, 2160);
+        assert_eq!(dialog.shell_selected_zoom(&layout), Zoom::Percent(300));
         assert!(dialog.shell_checkbox_checked(
             crate::ui::main_menu_dialogs::options::LauncherCheckboxId::FullScreen
         ));
@@ -406,7 +408,7 @@ mod tests {
             LauncherOptionsEvent::Cue(LauncherCue::Checkbox),
             LauncherOptionsEvent::FullScreenChanged(true),
             LauncherOptionsEvent::OriginalShapeChanged(true),
-            LauncherOptionsEvent::ZoomSelected(Zoom::Large),
+            LauncherOptionsEvent::ZoomSelected(Zoom::Percent(150)),
             LauncherOptionsEvent::ScorePreview(0.4),
             LauncherOptionsEvent::SoundPreview(0.7),
             LauncherOptionsEvent::VoicePreview(0.3),
@@ -419,7 +421,7 @@ mod tests {
                 PreviewCall::Cue(LauncherCue::Checkbox),
                 PreviewCall::FullScreen(true),
                 PreviewCall::OriginalShape(true),
-                PreviewCall::Zoom(Zoom::Large),
+                PreviewCall::Zoom(Zoom::Percent(150)),
                 PreviewCall::StoreScore(0.4),
                 PreviewCall::OutputScore(0.4),
                 PreviewCall::StoreSound(0.7),
@@ -445,9 +447,9 @@ mod tests {
         // The display choices don't depend on the audio gate.
         dispatch_launcher_preview_event(
             &mut recorder,
-            LauncherOptionsEvent::ZoomSelected(Zoom::Normal),
+            LauncherOptionsEvent::ZoomSelected(Zoom::Percent(100)),
         );
-        assert_eq!(recorder.calls, [PreviewCall::Zoom(Zoom::Normal)]);
+        assert_eq!(recorder.calls, [PreviewCall::Zoom(Zoom::Percent(100))]);
     }
 
     #[test]

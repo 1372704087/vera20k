@@ -66,66 +66,66 @@ pub(crate) const ORIGINAL_SHAPE_HELP: &str =
 /// VERA's battle zoom: the Options combo that took the place of gamemd's
 /// resolution list (`0x005601A0..0x00560270`). The window keeps the size the
 /// player gives it, and a zoomed match draws its whole frame (battlefield,
-/// sidebar, cursor) at the window size divided by the factor, then scales it
-/// up by whole pixels. The menus fit the window on their own. Saved as
-/// `[VERA] Zoom` in RA2MD.INI, a section gamemd never reads.
+/// sidebar, cursor) at the window size divided by the zoom, then scales it up.
+/// A whole multiple of 100% scales by whole pixels and stays sharp; the steps
+/// between blend neighbouring pixels. The menus fit the window on their own.
+/// Saved as `[VERA] Zoom` in RA2MD.INI, a section gamemd never reads.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub(crate) enum Zoom {
-    /// The largest factor that still shows the original 800x600 view.
+    /// The largest sharp zoom that still shows the original 800x600 view.
     #[default]
     Auto,
-    Normal,
-    Large,
-    Huge,
+    /// A fixed zoom in percent: a multiple of [`Zoom::STEP`], at least 100.
+    Percent(u32),
 }
 
 impl Zoom {
-    /// The combo's rows, top to bottom.
-    pub(crate) const ALL: [Self; 4] = [Self::Auto, Self::Normal, Self::Large, Self::Huge];
+    /// The gap between the fixed choices.
+    pub(crate) const STEP: u32 = 50;
 
-    pub(crate) const fn label(self) -> &'static str {
+    /// The combo's rows for a window of `width` x `height`, top to bottom:
+    /// Auto, then every step from 100% to the largest this window allows.
+    pub(crate) fn choices(width: u32, height: u32) -> Vec<Self> {
+        std::iter::once(Self::Auto)
+            .chain(
+                (100..=Self::largest_percent(width, height))
+                    .step_by(Self::STEP as usize)
+                    .map(Self::Percent),
+            )
+            .collect()
+    }
+
+    /// The largest step that still shows gamemd's smallest mode, 640x480.
+    fn largest_percent(width: u32, height: u32) -> u32 {
+        let fits = (width * 100 / 640).min(height * 100 / 480);
+        (fits / Self::STEP * Self::STEP).max(100)
+    }
+
+    /// The zoom in effect for a window of `width` x `height`, in percent. A
+    /// fixed choice gives way only where it would cut the view below 640x480.
+    pub(crate) fn percent(self, width: u32, height: u32) -> u32 {
         match self {
-            Self::Auto => "Auto",
-            Self::Normal => "Normal",
-            Self::Large => "Large",
-            Self::Huge => "Huge",
+            Self::Auto => (width / 800).min(height / 600).max(1) * 100,
+            Self::Percent(percent) => percent.clamp(100, Self::largest_percent(width, height)),
         }
     }
 
-    pub(crate) fn row(self) -> usize {
-        Self::ALL.iter().position(|zoom| *zoom == self).unwrap_or(0)
-    }
-
-    /// The `[VERA] Zoom` value: 0 for Auto, otherwise the fixed factor.
+    /// The `[VERA] Zoom` value: 0 for Auto, otherwise the percent.
     pub(crate) const fn ini_value(self) -> i32 {
         match self {
             Self::Auto => 0,
-            Self::Normal => 1,
-            Self::Large => 2,
-            Self::Huge => 3,
+            Self::Percent(percent) => percent as i32,
         }
     }
 
-    /// Any value this build doesn't know reads as Auto.
-    pub(crate) const fn from_ini_value(value: i32) -> Self {
-        match value {
-            1 => Self::Normal,
-            2 => Self::Large,
-            3 => Self::Huge,
+    /// 1 to 3 are the whole factors the first release saved. Any other value
+    /// this build doesn't know reads as Auto.
+    pub(crate) fn from_ini_value(value: i32) -> Self {
+        match u32::try_from(value) {
+            Ok(factor @ 1..=3) => Self::Percent(factor * 100),
+            Ok(percent @ 100..=10_000) if percent % Self::STEP == 0 => Self::Percent(percent),
             _ => Self::Auto,
         }
-    }
-
-    /// The whole-pixel factor for a window of `width` x `height`. No choice
-    /// shrinks the view below gamemd's smallest mode, 640x480.
-    pub(crate) fn factor(self, width: u32, height: u32) -> u32 {
-        let wanted = match self {
-            Self::Auto => (width / 800).min(height / 600),
-            Self::Normal => 1,
-            Self::Large => 2,
-            Self::Huge => 3,
-        };
-        wanted.min((width / 640).min(height / 480)).max(1)
     }
 }
 
@@ -646,12 +646,9 @@ impl OptionsDialogState {
     }
 
     /// Like gamemd's resolution row (primary-proc slice
-    /// `0x0055FDB0..0x0056047A`), a valid zoom row is published at once; the
+    /// `0x0055FDB0..0x0056047A`), a picked zoom row is published at once; the
     /// accepted projection `0x0055FAA0` never owns it.
-    pub(crate) fn select_zoom(&mut self, index: usize) {
-        let Some(zoom) = Zoom::ALL.get(index).copied() else {
-            return;
-        };
+    pub(crate) fn select_zoom(&mut self, zoom: Zoom) {
         self.zoom = zoom;
         self.zoom_popup_open = false;
         self.pending_events
@@ -692,7 +689,7 @@ mod tests {
         OptionsDialogState::new(
             labels(),
             LauncherOptionsValues::default(),
-            Zoom::Large,
+            Zoom::Percent(200),
             audio,
         )
     }
@@ -960,15 +957,9 @@ mod tests {
         assert!(!state.zoom_popup_open, "outside the face does nothing");
         state.combo_mouse_down(frame(161, 5, 180, 24));
         assert!(state.zoom_popup_open);
-        state.select_zoom(99);
-        assert!(
-            state
-                .drain_output()
-                .events
-                .iter()
-                .all(|event| !matches!(event, LauncherOptionsEvent::ZoomSelected(_)))
-        );
-        state.select_zoom(0);
+        let _ = state.drain_output();
+        state.select_zoom(Zoom::Auto);
+        assert!(!state.zoom_popup_open);
         assert_eq!(state.zoom, Zoom::Auto);
         assert_eq!(
             state.drain_output().events,
@@ -1022,27 +1013,42 @@ mod tests {
     }
 
     #[test]
-    fn zoom_factor_is_whole_and_never_shows_less_than_640x480() {
-        let factor = |zoom: Zoom, w, h| zoom.factor(w, h);
-        // Auto keeps at least the original 800x600 view.
-        assert_eq!(factor(Zoom::Auto, 800, 600), 1);
-        assert_eq!(factor(Zoom::Auto, 1920, 1080), 1);
-        assert_eq!(factor(Zoom::Auto, 1600, 1200), 2);
-        assert_eq!(factor(Zoom::Auto, 3440, 1440), 2);
-        assert_eq!(factor(Zoom::Auto, 3840, 2160), 3);
+    fn zoom_steps_by_half_and_never_shows_less_than_640x480() {
+        let percent = |zoom: Zoom, w, h| zoom.percent(w, h);
+        // Auto stays sharp and keeps at least the original 800x600 view.
+        assert_eq!(percent(Zoom::Auto, 800, 600), 100);
+        assert_eq!(percent(Zoom::Auto, 1920, 1080), 100);
+        assert_eq!(percent(Zoom::Auto, 1600, 1200), 200);
+        assert_eq!(percent(Zoom::Auto, 3440, 1440), 200);
+        assert_eq!(percent(Zoom::Auto, 3840, 2160), 300);
         // A fixed choice gives way only where it would cut below 640x480.
-        assert_eq!(factor(Zoom::Normal, 3840, 2160), 1);
-        assert_eq!(factor(Zoom::Large, 1920, 1080), 2);
-        assert_eq!(factor(Zoom::Large, 1024, 768), 1);
-        assert_eq!(factor(Zoom::Huge, 3440, 1440), 3);
-        assert_eq!(factor(Zoom::Huge, 1920, 1080), 2);
-        // A minimised or tiny window still gets a usable factor.
-        assert_eq!(factor(Zoom::Huge, 0, 0), 1);
-        for zoom in Zoom::ALL {
+        assert_eq!(percent(Zoom::Percent(100), 3840, 2160), 100);
+        assert_eq!(percent(Zoom::Percent(300), 3440, 1440), 300);
+        assert_eq!(percent(Zoom::Percent(300), 1920, 1080), 200);
+        assert_eq!(percent(Zoom::Percent(200), 1024, 768), 150);
+        // A minimised or tiny window still gets a usable zoom.
+        assert_eq!(percent(Zoom::Percent(300), 0, 0), 100);
+        // The list: Auto, then every step the window allows.
+        assert_eq!(Zoom::choices(800, 600), [Zoom::Auto, Zoom::Percent(100)]);
+        assert_eq!(
+            Zoom::choices(1920, 1080),
+            [
+                Zoom::Auto,
+                Zoom::Percent(100),
+                Zoom::Percent(150),
+                Zoom::Percent(200)
+            ]
+        );
+        let ultra = Zoom::choices(3840, 2160);
+        assert_eq!(ultra.last(), Some(&Zoom::Percent(450)));
+        for zoom in ultra {
             assert_eq!(Zoom::from_ini_value(zoom.ini_value()), zoom);
-            assert_eq!(Zoom::ALL[zoom.row()], zoom);
         }
-        assert_eq!(Zoom::from_ini_value(7), Zoom::Auto);
+        // The first release saved whole factors.
+        assert_eq!(Zoom::from_ini_value(2), Zoom::Percent(200));
+        for unknown in [-1, 4, 99, 125, 10_050] {
+            assert_eq!(Zoom::from_ini_value(unknown), Zoom::Auto);
+        }
     }
 
     #[test]

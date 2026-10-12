@@ -2111,21 +2111,45 @@ fn reconcile_selection_order_for_sim(
     // Navigation733160 consumes actual pointer expiry through LifecycleOutput,
     // independently of this membership ledger. Alive/Health/Deselect alone
     // do not remove an entry from its retained vector.
-    if input.selection_order_pending && sim.has_pending_selection_commands() {
-        input.selection_order.retain(|id| {
-            sim.entities()
-                .get(*id)
-                .is_some_and(|entity| entity.lifecycle.object_alive)
-        });
-        return;
+    let (order, pending) = selection_order_for_world(
+        sim,
+        rules,
+        &input.selection_order,
+        input.selection_order_pending,
+    );
+    input.selection_order = order;
+    input.selection_order_pending = pending;
+}
+
+/// Shared reconciliation decision for the live input ledger and a saved
+/// local-view record. The simulation's command queue remains authoritative;
+/// observing a save boundary neither drains nor applies queued commands.
+pub(crate) fn selection_order_for_world(
+    sim: &crate::sim::world::Simulation,
+    rules: Option<&crate::rules::ruleset::RuleSet>,
+    order: &[u64],
+    pending: bool,
+) -> (Vec<u64>, bool) {
+    if pending && sim.has_pending_selection_commands() {
+        return (
+            order
+                .iter()
+                .copied()
+                .filter(|id| {
+                    sim.entities()
+                        .get(*id)
+                        .is_some_and(|entity| entity.lifecycle.object_alive)
+                })
+                .collect(),
+            true,
+        );
     }
     // MainTick55D8AB/55D8B4 commits local Select before Logic55DC9E.
     // A consumed snapshot may have been refused or then deselected by
     // ObjectDestroy/Conceal. Trust committed bits once the queue is drained,
     // rather than waiting forever for those bits to equal the provisional
     // ledger. Deselect5F44A0/expiry733160 do not reset mode or map scope.
-    let reconciled: Vec<u64> = input
-        .selection_order
+    let reconciled: Vec<u64> = order
         .iter()
         .copied()
         .filter(|id| {
@@ -2136,8 +2160,7 @@ fn reconcile_selection_order_for_sim(
         .collect();
     let reconciled = admit_missing_selected_ids(reconciled, sim, rules);
     debug_assert!(selection_membership_committed(sim, &reconciled));
-    input.selection_order = reconciled;
-    input.selection_order_pending = false;
+    (reconciled, false)
 }
 
 fn apply_selection_mutation(

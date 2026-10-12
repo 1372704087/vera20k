@@ -4488,7 +4488,6 @@ mod tests {
         let output = sim.finalize_scenario_post_map(ScenarioPostMapInput {
             map_width: SIZE,
             map_height: SIZE,
-            normal_lighting: crate::map::lighting::parse_lighting_profiles(&map.ini).normal,
             rules: &rules,
             overlay_registry: &overlays,
             house_roster: &house_roster,

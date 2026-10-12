@@ -88,47 +88,9 @@ fn construction_completes_within_its_native_object_visit() {
             sim.object_ai_visit_one(id, Some(&rules), ObjectAiCtx::default());
             let entity = sim.substrate.entities.get(id).unwrap();
             let context = format!("{} frame{now}", input["name"]);
-            assert_eq!(
-                i64::from(entity.mission.current().raw()),
-                frame["mission"].as_i64().unwrap(),
-                "{context}: mission"
-            );
-            assert_eq!(
-                i64::from(entity.mission.queued().raw()),
-                frame["queue"].as_i64().unwrap(),
-                "{context}: queue"
-            );
-            assert_eq!(
-                u64::from(entity.mission.handler_state()),
-                frame["status"].as_u64().unwrap(),
-                "{context}: status"
-            );
-            assert_eq!(
-                entity.building_body_state().map(i64::from),
-                frame["bstate"].as_i64(),
-                "{context}: BState"
-            );
-            assert_eq!(
-                entity.queued_building_body_state().map(i64::from),
-                frame["queued_bstate"].as_i64(),
-                "{context}: queued BState"
-            );
-            assert_eq!(
-                entity.building_actually_placed,
-                frame["grand_opening"].as_bool().unwrap(),
-                "{context}: opening is visible to the next object"
-            );
-            assert_eq!(
-                u64::from(entity.building_ready_latch()),
-                frame["done"].as_u64().unwrap(),
-                "{context}: sole ready byte"
-            );
-            assert_eq!(
-                i64::from(entity.construction_stage_value()),
-                frame["stage"].as_i64().unwrap(),
-                "{context}: stage"
-            );
-            if entity.building_actually_placed {
+            if crate::sim::building_construction::native_route::assert_frame(
+                entity, frame, &context,
+            ) {
                 completed_at = Some(now as i32);
                 break;
             }

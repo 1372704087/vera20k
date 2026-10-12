@@ -714,14 +714,17 @@ impl Simulation {
     /// (`0x0044D5D0` -> Grand_Opening, `0x004467C9`) sets `+0x6DD`, so its
     /// first Update's ready check commences Guard. Native execution:
     /// `tools/spatial_oracle/building_guard_attack.json` (`unlimbo` rows).
-    /// Answers whether `stable_id` is a building.
+    /// Native has no write here: for a building its discovery opened it is
+    /// a repeat; it also readies one no house discovers (a houseless test
+    /// fixture). Answers whether `stable_id` is a building.
     ///
-    /// RESIDUAL: VERA opens every such building at once; native reaches a
+    /// RESIDUAL: VERA readies every such building at once; native reaches a
     /// campaign's human-owned building through its discovery
     /// (DiscoveredBy(Player) needs its cell's `+0x12C & 0x10` when GameMode
     /// is 0). Trigger: a campaign map's shrouded player building. Effect: it
-    /// guards before it is discovered. Frequency: campaign maps only;
-    /// skirmish and multiplayer open every building at Unlimbo.
+    /// guards before it is discovered. Frequency: campaign maps only; in
+    /// skirmish and multiplayer every map building is discovered, and so
+    /// opened, at its Unlimbo.
     fn ready_placed_building(&mut self, stable_id: u64) -> bool {
         let Some(entity) = self
             .substrate
@@ -1492,6 +1495,14 @@ impl Simulation {
                     entity.category == EntityCategory::Structure && !entity.building_up()
                 })
             {
+                // RESIDUAL: native Begin_Mode applies a new mode at once while
+                // ScenarioInit is set (`0x004477A2..0x004477B0`), and in that
+                // arm also starts the type's animations by damage state
+                // (`0x004477DB..0x00447853`, `0x00451890`). VERA's Begin_Mode
+                // has neither: this applies the Unlimbo's Idle to an authored
+                // building that is already idle, whose Begin_Mode only queued
+                // it. Trigger: every map building and convenience spawn.
+                // Effect on the body: none (same mode, same frame).
                 if let Some(entity) = self.substrate.entities.get_mut(stable_id) {
                     entity.initialize_building_idle_body(self.session.binary_frame as i32);
                 }

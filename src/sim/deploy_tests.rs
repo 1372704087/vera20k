@@ -315,48 +315,54 @@ fn deploy_then_undeploy_returns_the_mcv_to_its_original_cell() {
 /// Construction is queued before its Unlimbo (`0x007396D5`), so neither that
 /// Unlimbo's owner discovery nor the deploy's own (`0x00739848`) opens it,
 /// and the ready byte (`0x0073984E`) commences Construction on its first
-/// Update. It opens on the frame its build-up completes, through the
-/// production frame.
+/// Update. From the deploy frame on, each of its Updates matches the native
+/// deploy `route` rows (`tools/spatial_oracle/building_construction.json`),
+/// up to the opening.
 #[test]
-fn a_computer_mcv_deploys_into_a_yard_that_opens_when_built() {
+fn a_computer_mcv_deploys_into_a_yard_that_follows_the_native_deploy_route() {
+    use crate::sim::building_construction::native_route;
     use crate::sim::mission::{MissionId, MissionType};
-    let mut rules = make_recalc_mcv_rules("0,0,0");
-    rules.set_buildup_control_for_test("GACNST", [0, 3, 2]);
-    let mut sim = deploy_sim(&rules);
-    sim.session.game_mode_nonzero = true;
-    add_house(&mut sim, "Americans", false);
-    let mcv = sim
-        .spawn_object("AMCV", "Americans", 20, 22, 128, &rules)
-        .expect("spawn MCV");
-    let deployed_at = sim.session.binary_frame;
-    assert!(sim.deploy_mcv(
-        mcv,
-        &rules,
-        None,
-        crate::sim::world::FrameEffects::default()
-    ));
-    sim.flush_pending_delete();
-    let yard = deployed_type(&sim, "GACNST");
-    let id = yard.stable_id;
-    assert!(!yard.building_actually_placed, "opened at deploy");
-    assert_eq!(yard.mission.current(), MissionId::NONE);
-    assert_eq!(
-        yard.mission.queued(),
-        MissionId::from_known(MissionType::Construction)
-    );
-    assert_eq!(yard.building_body_state(), Some(0));
-    assert_eq!(yard.building_ready_latch(), 1);
-    let mut frames = Vec::new();
-    for _ in 0..7 {
-        let frame = sim.session.binary_frame - deployed_at;
-        tick_n(&mut sim, &rules, 1);
-        let yard = sim.substrate.entities.get(id).unwrap();
-        frames.push((frame, yard.building_up(), yard.building_actually_placed));
+    let rows = native_route::rows("deploy");
+    assert_eq!(rows.len(), 6);
+    for row in &rows {
+        let name = row["input"]["name"].as_str().unwrap();
+        let mut rules = make_recalc_mcv_rules("0,0,0");
+        rules.set_buildup_control_for_test("GACNST", native_route::control(row));
+        let mut sim = deploy_sim(&rules);
+        sim.session.game_mode_nonzero = true;
+        // The native rows run at GameSpeed 0.
+        sim.session.game_options.game_speed = 0;
+        add_house(&mut sim, "Americans", false);
+        let mcv = sim
+            .spawn_object("AMCV", "Americans", 20, 22, 128, &rules)
+            .expect("spawn MCV");
+        let deployed_at = sim.session.binary_frame;
+        assert!(sim.deploy_mcv(
+            mcv,
+            &rules,
+            None,
+            crate::sim::world::FrameEffects::default()
+        ));
+        let yard = deployed_type(&sim, "GACNST");
+        let id = yard.stable_id;
+        assert!(!yard.building_actually_placed, "{name}: opened at deploy");
+        assert_eq!(yard.mission.current(), MissionId::NONE, "{name}");
+        assert_eq!(
+            yard.mission.queued(),
+            MissionId::from_known(MissionType::Construction),
+            "{name}"
+        );
+        assert_eq!(yard.building_ready_latch(), 1, "{name}");
+        for frame in row["frames"].as_array().unwrap() {
+            let now = deployed_at + frame["frame"].as_u64().unwrap() as u32;
+            sim.session.binary_frame = now;
+            sim.object_ai_visit_one(id, Some(&rules), crate::sim::world::ObjectAiCtx::default());
+            let yard = sim.substrate.entities.get(id).unwrap();
+            if native_route::assert_frame(yard, frame, &format!("{name} frame {now}")) {
+                break;
+            }
+        }
     }
-    // A deploy's 3x2 build-up completes at D + 1 + (3 - 1) * 2 (the
-    // `building_construction.json` `route` rows).
-    let expected: Vec<_> = (0..7).map(|frame| (frame, frame < 5, frame >= 5)).collect();
-    assert_eq!(frames, expected);
 }
 
 #[test]

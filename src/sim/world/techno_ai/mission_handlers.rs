@@ -1064,7 +1064,9 @@ pub(crate) fn enter_idle_mode(
 /// mission at all, so its dispatch took the missionless 450-frame arm instead
 /// of Mission_Guard's cadence. A placed building queues Construction; its
 /// ready byte (`+0x6DD`, `0x00454250`) is clear unless its cell-put discovery
-/// opened it, so Construction stays queued until its placement commences it.
+/// opened it, so Construction stays queued: a computer yard's exit commences
+/// it (`0x00445329..0x0044533F`), and otherwise a later Update's ready check
+/// does.
 ///
 /// RESIDUALS, beside those on [`foot_enter_idle_mode_selection`]:
 /// - the Area Guard arm (a computer object outside a team, or with a slave

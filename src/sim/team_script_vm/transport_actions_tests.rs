@@ -468,8 +468,8 @@ fn unload_argument_decides_who_leaves_the_team() {
 }
 
 /// Through the production readers: every retail AIMD TeamType whose script
-/// names action 14 runs only ported actions, and 14 of the 163 TeamTypes
-/// still reach an unported one: 61 first for 9, 9 first for 5.
+/// names action 14 runs only ported actions, and 5 of the 163 TeamTypes
+/// still reach an unported one, action 9 first.
 #[test]
 fn the_retail_transport_scripts_run_ported_actions() {
     use crate::rules::retail_ini_fixture::{retail_ini, retail_rules_and_art};
@@ -506,7 +506,7 @@ fn the_retail_transport_scripts_run_ported_actions() {
     }
     assert_eq!(vm.team_types.len(), 163);
     assert_eq!(transport_teams, 16);
-    assert_eq!(first_unported, [(9, 5), (61, 9)].into());
+    assert_eq!(first_unported, [(9, 5)].into());
 }
 
 /// `tools/team_recruit_oracle.py`'s rows of `section`.

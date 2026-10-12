@@ -607,7 +607,7 @@ pub enum Command {
     /// bunker). The unit pathfinds to the bunker cell; the install machine takes
     /// over on arrival (turn → slide onto the cell → turn south → hide). Gating
     /// happens in `world_commands`: own-owner, the bunker idle/empty, and the
-    /// unit `Bunkerable=yes` with a primary weapon.
+    /// unit admitted by `bunker_link::can_auto_deploy_here` (`0x0070FB50`).
     EnterBunker { unit_id: u64, bunker_id: u64 },
     /// Eject the occupant of a friendly occupied tank bunker. Targets the bunker
     /// (the hidden occupant is not selectable in this slice); the occupant

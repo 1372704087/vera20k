@@ -1519,4 +1519,181 @@ mod retail_construction_tests {
             assert!(captured.is_some(), "{label}: the yard was not captured");
         }
     }
+
+    /// "Yuri Armor - E1" (`05FC195C-G`: three Lashers and a Gattling Tank,
+    /// the "Yuri Unit Hunter" script `54 / 61 / 0,5 / 49 / 0,4 / 0,1`) for a
+    /// Normal Yuri against an idle America on XMP03T4. Once the base stands,
+    /// a Yuri Tank Bunker is placed on the nearest open ground beside it and
+    /// the team's members are spawned there. Action 61 sends the first
+    /// member that the bunker admits into it, and the team goes on past it.
+    /// Then the stock "Yuri Chaos - M1" (`07C0304C-G`, one Chaos Drone, the
+    /// same script) reaches action 61 beside a second, free bunker: the
+    /// drone (`Bunkerable=no`) stays in its team and the team goes on.
+    #[test]
+    #[ignore = "requires RA2_DIR with installed retail RA2/YR assets"]
+    fn retail_yuri_armor_team_mans_a_tank_bunker() {
+        use crate::sim::movement::locomotor::MovementLayer;
+        use crate::skirmish_launch::{AiDifficulty, LaunchCountry};
+
+        let (mut scenario, _) =
+            retail_battle(|_| {}, &[(LaunchCountry::Yuri, AiDifficulty::Normal)]);
+        for _ in 0..1500 {
+            scenario.tick();
+        }
+        let runtime = &mut scenario.runtime;
+        let (sim, resources) = (&mut runtime.simulation, &runtime.resources);
+        let yuri = house_of(sim, "YuriCountry");
+        let (bx, by) = sim.houses[&yuri]
+            .base_center
+            .expect("the base has a centre");
+        // A 2x2 foundation inside a free 4x4 square, so a tank can reach it.
+        let open = |sim: &Simulation, rx: i32, ry: i32| {
+            (-1..3).all(|dy| {
+                (-1..3).all(|dx| {
+                    let (Ok(x), Ok(y)) = (u16::try_from(rx + dx), u16::try_from(ry + dy)) else {
+                        return false;
+                    };
+                    sim.path_grid()
+                        .is_some_and(|grid| grid.is_walkable_for_infantry(x, y))
+                        && sim
+                            .substrate
+                            .occupancy
+                            .get(x, y)
+                            .is_none_or(|cell| cell.is_empty_on(MovementLayer::Ground))
+                })
+            })
+        };
+        let (rx, ry) = cells_nearest((i32::from(bx), i32::from(by)))
+            .into_iter()
+            .find(|&(rx, ry)| open(&*sim, rx, ry))
+            .and_then(|(rx, ry)| Some((u16::try_from(rx).ok()?, u16::try_from(ry).ok()?)))
+            .expect("open ground beside the base");
+        let z = sim.terrain_cell_level(rx, ry).unwrap_or(0);
+        let owner = sim.interner.resolve(yuri).to_string();
+        let bunker = sim
+            .spawn_object_at_height("NATBNK", &owner, rx, ry, 0, z, &resources.rules)
+            .expect("the bunker spawns");
+        let (_, members) = spawn_beside_base(
+            sim,
+            &resources.rules,
+            "YuriCountry",
+            &["LTNK", "LTNK", "LTNK", "YTNK"],
+        );
+        let team_type = sim
+            .interner
+            .get("05FC195C-G")
+            .expect("retail TeamType interned");
+        // The computer house may already have made the team; then it
+        // recruits the new members.
+        let team = sim
+            .create_team(team_type, Some(yuri), &resources.rules)
+            .or_else(|| {
+                sim.team_script_vm
+                    .teams_in_order()
+                    .find(|team| team.team_type_id() == Some(team_type) && team.owner() == yuri)
+                    .map(|team| team.id())
+            })
+            .expect("a team of the TeamType");
+        let (mut seeking, mut installed, mut passed) = (None, None, None);
+        for frame in 1..=3_000u32 {
+            scenario.tick();
+            let sim = scenario.sim();
+            if seeking.is_none() {
+                seeking = members
+                    .iter()
+                    .find(|&&id| {
+                        sim.entities().get(id).is_some_and(|entity| {
+                            entity.bunker_link
+                                == crate::sim::game_entity::BunkerLink::Approaching(bunker)
+                        })
+                    })
+                    .map(|&id| (frame, id));
+            }
+            if installed.is_none() {
+                installed = sim
+                    .entities()
+                    .get(bunker)
+                    .and_then(|entity| entity.bunker_occupant)
+                    .filter(|occupant| members.contains(occupant))
+                    .map(|occupant| (frame, occupant));
+            }
+            let line = sim
+                .team_script_vm
+                .team(team)
+                .map(|team| (team.cursor(), team.current_action(&sim.team_script_vm)));
+            if passed.is_none() && line.is_none_or(|(cursor, _)| cursor >= 2) {
+                passed = Some((frame, line));
+            }
+            if frame % 250 == 0 {
+                eprintln!(
+                    "frame {frame}: team line {line:?}, seeking {seeking:?}, installed {installed:?}"
+                );
+            }
+            if installed.is_some() && passed.is_some() {
+                break;
+            }
+        }
+        eprintln!(
+            "bunker at ({rx},{ry}): sought at {seeking:?}, manned at {installed:?}, \
+             the team passed action 61 at {passed:?}"
+        );
+        assert!(installed.is_some(), "no team member manned the bunker");
+        assert!(passed.is_some(), "the team stayed on action 61");
+
+        let runtime = &mut scenario.runtime;
+        let (sim, resources) = (&mut runtime.simulation, &runtime.resources);
+        let (fx, fy) = cells_nearest((i32::from(bx), i32::from(by)))
+            .into_iter()
+            .find(|&(rx, ry)| open(&*sim, rx, ry))
+            .and_then(|(rx, ry)| Some((u16::try_from(rx).ok()?, u16::try_from(ry).ok()?)))
+            .expect("more open ground beside the base");
+        let z = sim.terrain_cell_level(fx, fy).unwrap_or(0);
+        let free = sim
+            .spawn_object_at_height("NATBNK", &owner, fx, fy, 0, z, &resources.rules)
+            .expect("the second bunker spawns");
+        spawn_beside_base(sim, &resources.rules, "YuriCountry", &["CAOS"]);
+        let team_type = sim
+            .interner
+            .get("07C0304C-G")
+            .expect("retail TeamType interned");
+        let team = sim
+            .create_team(team_type, Some(yuri), &resources.rules)
+            .or_else(|| {
+                sim.team_script_vm
+                    .teams_in_order()
+                    .find(|team| team.team_type_id() == Some(team_type) && team.owner() == yuri)
+                    .map(|team| team.id())
+            })
+            .expect("a team of the TeamType");
+        let (mut on_61, mut past) = (None, None);
+        for frame in 1..=3_000u32 {
+            scenario.tick();
+            let sim = scenario.sim();
+            let Some(line) = sim.team_script_vm.team(team) else {
+                break;
+            };
+            let members: Vec<u64> = line.members().collect();
+            if line.cursor() == 1 {
+                on_61 = Some((frame, members));
+            } else if line.cursor() >= 2 && on_61.is_some() {
+                let held = sim.entities().get(free).is_none_or(|bunker| {
+                    bunker.bunker_occupant.is_some()
+                        || bunker
+                            .bunker_runtime
+                            .is_some_and(|runtime| runtime.installing_unit.is_some())
+                });
+                past = Some((frame, members, held));
+                break;
+            }
+        }
+        eprintln!("Chaos Drone team: on action 61 {on_61:?}, past it {past:?}");
+        let (_, on_61) = on_61.expect("the Chaos Drone team never reached action 61");
+        let (_, members, held) = past.expect("the Chaos Drone team stayed on action 61");
+        assert!(
+            !on_61.is_empty(),
+            "the team reached action 61 without a drone"
+        );
+        assert_eq!(members, on_61, "a drone left its team at action 61");
+        assert!(!held, "the second bunker was taken");
+    }
 }

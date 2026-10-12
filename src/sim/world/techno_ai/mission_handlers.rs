@@ -82,6 +82,10 @@ pub(crate) fn dispatch_foot_mission(
                 .entities
                 .get(id)
                 .is_some_and(crate::sim::game_entity::GameEntity::is_harvester);
+        let entry_adapter = matches!(
+            entity.passenger_role,
+            crate::sim::passenger::PassengerRole::Boarding { .. }
+        ) || entity.bunker_link.approaching().is_some();
         // `FootClass::Mission_Move @ 0x004D4200` keeps its cadence while the
         // NavCom is set (`0x004D4203`) or the locomotor's `Is_Moving` holds
         // (`0x004D422A`); the order itself is not an input.
@@ -92,6 +96,7 @@ pub(crate) fn dispatch_foot_mission(
             mission,
             depot_dock_state,
             refinery_dock_miner,
+            entry_adapter,
             timer_due: entity.mission.dispatch_timer().due(now),
             moving_or_queued: moving || entity.mission.queued() != MissionId::NONE,
             has_attack_target: entity.attack_target.is_some(),
@@ -204,10 +209,18 @@ pub(crate) fn dispatch_foot_mission(
                 MissionHandlerEvaluation::cadence(1)
             }
         }
-        // Unit does not override Foot Enter4D9290. Depot and refinery
+        // Unit does not override Foot Enter4D9290, and Infantry inherit it
+        // too (InfantryClass vt+0x240 is `0x004D9290`). Depot and refinery
         // admissions use the same body and the unit's one dispatch timer.
+        // Other entries run through an adapter that carries the Foot without
+        // the native radio route: Boarding (`passenger::tick_passenger_system`)
+        // for an Enter order or a building-entry seek, and the tank bunker
+        // approach (`docking::bunker_link::begin_entry`). While one does, the
+        // body is not run. Once it has let the Foot go (its target died, or
+        // was full on arrival), the body's no-target arm idles it
+        // (`0x004D9425..0x004D9466`).
         (EntityCategory::Unit, Some(MissionType::Enter))
-            if input.depot_dock_state || input.refinery_dock_miner =>
+            if input.depot_dock_state || input.refinery_dock_miner || !input.entry_adapter =>
         {
             MissionHandlerEvaluation::cadence(crate::sim::mission::enter::mission_enter(
                 sim,
@@ -217,21 +230,7 @@ pub(crate) fn dispatch_foot_mission(
                 ctx.effects,
             ))
         }
-        // Infantry inherit Foot Enter too (InfantryClass vt+0x240 is
-        // `0x004D9290`). Their entries, an Enter order or a building-entry
-        // seek (`sim::building_entry`), run through the Boarding adapter
-        // (`passenger::tick_passenger_system`), which carries the walk without
-        // the native radio route; while it does, the body is not run. Once the
-        // adapter has let the Foot go (its target died, or was full on
-        // arrival), the body's no-target arm idles it (`0x004D9425..0x004D9466`).
-        (EntityCategory::Infantry, Some(MissionType::Enter))
-            if !sim.substrate.entities.get(id).is_some_and(|entity| {
-                matches!(
-                    entity.passenger_role,
-                    crate::sim::passenger::PassengerRole::Boarding { .. }
-                )
-            }) =>
-        {
+        (EntityCategory::Infantry, Some(MissionType::Enter)) if !input.entry_adapter => {
             MissionHandlerEvaluation::cadence(crate::sim::mission::enter::mission_enter(
                 sim,
                 rules,
@@ -785,6 +784,9 @@ pub(super) struct MissionHandlerInput {
     /// A harvester on Enter or Unload without a depot contact/entry: its
     /// refinery dock missions (`miner::refinery_dock`).
     pub(super) refinery_dock_miner: bool,
+    /// An adapter carries the object's entry (Boarding, or the tank bunker
+    /// approach), so its Enter dispatch does not run the Foot body.
+    pub(super) entry_adapter: bool,
     pub(super) timer_due: bool,
     /// `Mission_Move`'s keep-going test (`0x004D4203..0x004D4238`): a NavCom,
     /// the locomotor's `Is_Moving`, or a queued mission.

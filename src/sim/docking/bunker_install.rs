@@ -113,8 +113,7 @@ fn step_install(
         set_state(sim, building_id, BunkerState::Idle, None);
         return;
     };
-    // Abort if the candidate vanished or stopped approaching THIS bunker
-    // (any retask clears the unit-side marker).
+    // Abort if the candidate vanished or stopped approaching THIS bunker.
     let approaching = sim
         .substrate
         .entities
@@ -775,7 +774,7 @@ mod tests {
         spawn_bunker(&mut sim, 2);
         spawn_tank_on(&mut sim, 1, 10, 10);
         assert!(matches!(sim.reveal(1), RevealOutcome::Revealed { .. }));
-        // No Approaching marker (a retask cleared it) → machine resets.
+        // No Approaching marker naming this bunker → machine resets.
         set_state(&mut sim, 2, BunkerState::ArriveWait, Some(1));
         tick_bunker_install(
             &mut sim,

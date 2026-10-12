@@ -520,6 +520,18 @@ impl Simulation {
         })
     }
 
+    /// House+0xC8, the tank bunkers (Items `+0xCC`, Count `+0xD8`), in
+    /// vector order. Unlimbo appends a `Bunker=` building (Type `+0x16AB`,
+    /// `0x00441335..0x0044138C`) between its House+0xB0 and House+0xE0
+    /// appends; ChangeOwner moves it under the same gate between those two
+    /// lists' moves (`0x0044888A..0x004488DA` from the old House,
+    /// `0x00448F7D..0x00448FD4` into the new); pointer expiry stable-removes
+    /// it (`0x004FBB00..0x004FBB27`). As with [`Self::house_absorbers`], it
+    /// is House+68 filtered by the gate, in order.
+    pub(crate) fn house_bunkers(&self, owner: InternedId, rules: &RuleSet) -> Vec<u64> {
+        self.house_buildings_where(owner, rules, |object| object.bunker)
+    }
+
     /// House+0xE0, the occupiable buildings (Items `+0xE4`, Count `+0xF0`),
     /// in vector order. Unlimbo appends a `CanBeOccupied=` building whose
     /// `TechLevel=` is above -1 (Type `+0x157B`, `+0x634`;

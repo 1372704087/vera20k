@@ -220,6 +220,22 @@ impl App {
         state.match_state.match_presentation.pause_menu_interaction = Default::default();
         state.match_state.match_presentation.abort_buttons = Default::default();
         state.match_state.match_presentation.sound_dialog = None;
+        if will_be_open {
+            // Deactivate683EB0/4AEAD0 tears down drag/capture on the way into
+            // the modal — WITHOUT dropping a pending building placement or
+            // repair/sell (handle_options_hotkey). A release that arrives
+            // while the overlay owns the mouse never reaches the tactical
+            // body, so anything still armed here would stay latched for the
+            // rest of the match: tactical capture freezes edge auto-scroll,
+            // `minimap_dragging` swallows every cursor move, and a stale
+            // gadget sticky capture eats the next click.
+            state.match_state.input.cancel_tactical_drag();
+            state
+                .match_state
+                .match_presentation
+                .in_game_gadgets
+                .cancel_pointer_capture();
+        }
         if next == InGameMenuState::Menu {
             state.match_state.match_presentation.pause_menu_has_saves =
                 !state.persistence.repository.browser_entries().is_empty();

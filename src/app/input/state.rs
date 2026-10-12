@@ -357,15 +357,24 @@ impl MatchInputState {
         }
     }
 
+    /// Deactivate683EB0/4AEAD0's drag/capture teardown: the tactical capture
+    /// byte, the band rectangle and the minimap gesture. Armed cursor modes
+    /// (building placement, superweapon targeting, repair/sell) and physical
+    /// held-button state survive this call — the pause overlay cancels a drag,
+    /// never a pending placement.
+    pub(crate) fn cancel_tactical_drag(&mut self) {
+        self.minimap_dragging = false;
+        self.selection_state.cancel_drag();
+        self.tactical_mouse.cancel_mouse_drag();
+    }
+
     /// TAction46 clears the active display modes before Lock684240 cancels
     /// the tactical drag through6938C0/4AEAD0/6DA160. Selection membership,
     /// camera requests/focus and physical held-key state survive this call.
     pub(crate) fn cancel_tactical_gesture_and_targeting(&mut self) {
         self.targeting_mode = None;
         self.building_placement_preview = None;
-        self.minimap_dragging = false;
-        self.selection_state.cancel_drag();
-        self.tactical_mouse.cancel_mouse_drag();
+        self.cancel_tactical_drag();
     }
 
     /// KeyboardClear54F720 drains accepted input and Lock/Unlock clear the

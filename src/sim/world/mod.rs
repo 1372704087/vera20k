@@ -626,6 +626,20 @@ pub enum SimSoundEvent {
         radar: Option<RadarEventRequest>,
         capture_eva_event: Option<InternedId>,
     },
+    /// `BuildingClass::Infiltrate @ 0x004571E0`'s announcements
+    /// (`sim::spy_infiltration`). When the building's owner or the spy's
+    /// house is the local player (`0x004571FE`, `0x0045720E`, both
+    /// `0x0050B6F0`), `CreateRadarEvent(9, cell)` runs (`0x0045722F`), and
+    /// its answer gates most of the lines `effect` picks
+    /// (`eva_producers::infiltration_eva_events`). The sim cannot see the
+    /// local player: it emits when either side is human-controlled and the
+    /// app applies the local test.
+    BuildingInfiltrated {
+        owner: InternedId,
+        infiltrator: InternedId,
+        effect: crate::sim::spy_infiltration::InfiltrationEffect,
+        radar: RadarEventRequest,
+    },
     /// `SuperClass::AI_Ready @ 0x006CBCA0` (`0x006CBE63`): the charge
     /// expired and `+0x6F` (IsReady) was set (`0x006CBDCC`); the announce
     /// argument is `house == PlayerPtr` (`0x004F8E42..0x004F8E47` in

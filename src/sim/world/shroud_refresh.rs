@@ -217,6 +217,18 @@ impl Simulation {
         }
     }
 
+    /// `MapClass::Reset_Shroud @ 0x00577AB0` for one house: it clears the
+    /// house's map-clear byte (`+0x241`, `0x00577ACA`) and
+    /// shrouds its map again. Natively only `PlayerPtr`'s shroud changes;
+    /// VERA keeps one plane per house. The Darkness crate and a spy in a
+    /// radar ask it for their house.
+    pub(crate) fn reset_shroud_for_owner(&mut self, owner: crate::sim::intern::InternedId) {
+        if let Some(house) = self.houses.get_mut(&owner) {
+            house.map_is_clear = false;
+        }
+        self.fog.reset_explored_for_owner(owner);
+    }
+
     /// The settings every reveal reads (`TechnoClass::UpdateReveal @
     /// 0x0070AF50` and its callers, the Psychic Reveal): with a live map the
     /// stored playfield byte gates a Techno's, the map's `Size=` diamond

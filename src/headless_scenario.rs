@@ -2309,6 +2309,91 @@ mod retail_construction_tests {
         assert!(crushed, "the GI died, but not under the Rhino");
     }
 
+    /// The local Allied player's Spy sent into a Normal Soviet house's Tesla
+    /// Reactor walks in and leaves the game; the Soviet power blacks out for
+    /// `SpyPowerBlackout=` frames, and the sim announces it for the local
+    /// player's EVA (`sim::spy_infiltration`).
+    #[test]
+    #[ignore = "requires RA2_DIR with installed retail RA2/YR assets"]
+    fn retail_player_spy_blacks_out_a_computer_power_plant() {
+        use crate::sim::command::{Command, CommandEnvelope};
+        use crate::sim::spy_infiltration::InfiltrationEffect;
+        use crate::sim::world::SimSoundEvent;
+        use crate::skirmish_launch::{AiDifficulty, LaunchCountry};
+
+        let (mut scenario, _) =
+            retail_battle(|_| {}, &[(LaunchCountry::Russia, AiDifficulty::Normal)]);
+        let soviet = house_of(scenario.sim(), "Russians");
+        let mut reactor = None;
+        for _ in 0..6000 {
+            scenario.tick();
+            let sim = scenario.sim();
+            reactor = sim
+                .entities()
+                .values()
+                .find(|entity| {
+                    entity.owner() == soviet
+                        && !entity.dying
+                        && !entity.lifecycle.in_limbo
+                        && sim.interner.resolve(entity.type_ref()) == "NAPOWR"
+                })
+                .map(|entity| entity.stable_id());
+            if reactor.is_some() {
+                break;
+            }
+        }
+        let reactor = reactor.expect("a Tesla Reactor");
+        // Past its build-up.
+        for _ in 0..300 {
+            scenario.tick();
+        }
+        let runtime = &mut scenario.runtime;
+        let (sim, rules) = (&mut runtime.simulation, &runtime.resources.rules);
+        let at = {
+            let entity = sim.entities().get(reactor).expect("the reactor stands");
+            (i32::from(entity.position.rx), i32::from(entity.position.ry))
+        };
+        let america = house_of(sim, "Americans");
+        let cells = cells_nearest(at)
+            .into_iter()
+            .filter(|&(rx, ry)| (rx - at.0).abs().max((ry - at.1).abs()) >= 3);
+        let spy = spawn_on_free_cells(sim, rules, america, cells, &["SPY"])[0];
+        let tick = sim.session.tick;
+        sim.queue_command(CommandEnvelope::new(
+            america,
+            tick + 1,
+            Command::CaptureBuilding {
+                engineer_id: spy,
+                target_building_id: reactor,
+            },
+        ));
+        let mut announced = None;
+        for _ in 0..600 {
+            let output = tick_with_due_commands(&mut scenario);
+            announced = announced.or(output.sound_events.iter().find_map(|event| match event {
+                SimSoundEvent::BuildingInfiltrated {
+                    owner,
+                    infiltrator,
+                    effect,
+                    ..
+                } => Some((*owner, *infiltrator, *effect)),
+                _ => None,
+            }));
+            if scenario.sim().entities().get(spy).is_none() {
+                break;
+            }
+        }
+        let sim = scenario.sim();
+        assert_eq!(
+            announced,
+            Some((soviet, america, InfiltrationEffect::Power)),
+            "the spy never went in"
+        );
+        assert!(sim.entities().get(spy).is_none(), "the spy stayed");
+        let frame = sim.session.binary_frame;
+        assert!(sim.power_states[&soviet].blackout_remaining(frame) > 0);
+    }
+
     /// A Normal Soviet house's War Miner out on the ore with a load, brought
     /// to half strength and shot by a Grizzly: its refinery answers its HELLO
     /// and it queues Enter (`combat::unit_damage_response`), then docks.

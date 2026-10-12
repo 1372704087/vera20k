@@ -30,16 +30,16 @@
 //!   but four scripts of the retail campaign map SOV02SMD.MAP do, whose
 //!   teams idle on it.
 //! - Actions 46 and 47 give their members a building to attack or near. A
-//!   spy (`Infiltrate=`) acts on such a target in arms VERA lacks:
+//!   spy (`Infiltrate=`) gets to such a target through arms VERA lacks:
 //!   `Assign_Target`'s `Infiltrate=` arm (`0x0051B2B1..0x0051B33F`), which
-//!   sends it to the building, Infantry Mission_Attack's computer
+//!   sends it to the building, and Infantry Mission_Attack's computer
 //!   `Infiltrate=` arm (`0x0051F3E0..0x0051F4D2`, `mission_handlers`
-//!   residual GSI-07.06), then PerCellProcess's infiltration arm
-//!   (`mission::capture` residual, #813). Trigger: the retail Allied AI's spy
-//!   teams, whose scripts run actions 0, 47 and 46; the "Allied Spy vs ..."
-//!   AI triggers (normal or hard, weight 50 to 70) create them, and so do
-//!   the "Allied Tanya vs ..." ones (hard) as their second team. Effect: the
-//!   spy stands by the building where native infiltrates it. The same
+//!   residual GSI-07.06). PerCellProcess's infiltration arm, which lets it in
+//!   (`sim::spy_infiltration`), is ported. Trigger: the retail Allied AI's
+//!   spy teams, whose scripts run actions 0, 47 and 46; the "Allied Spy vs
+//!   ..." AI triggers (normal or hard, weight 50 to 70) create them, and so
+//!   do the "Allied Tanya vs ..." ones (hard) as their second team. Effect:
+//!   the spy stands by the building where native infiltrates it. The same
 //!   Mission_Attack's demolition arm (`C4=`, the Sabotage order) is unported
 //!   too. Trigger: the retail Tanya teams ("Allied Tanya vs ...", "Allied
 //!   Anti-Nuke Team - 1", "Allied Anti-Weather Team - 1"), whose Tanya

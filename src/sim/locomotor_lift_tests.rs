@@ -68,6 +68,59 @@ fn run_until(
     false
 }
 
+/// Runs until the held tank is well up.
+fn climb(sim: &mut Simulation, rules: &RuleSet, grid: &PathGrid, tank: u64) {
+    assert!(
+        run_until(sim, rules, grid, 200, |sim| {
+            crate::sim::movement::air_movement::current_fly_height(
+                entity(sim, tank),
+                sim.resolved_terrain.as_ref(),
+            ) > 200
+        }),
+        "the tank climbs"
+    );
+}
+
+/// Orders the Magnetron away: its own non-null destination lets go
+/// (`0x004D9509`).
+fn move_away(sim: &mut Simulation, magnetron: u64) {
+    order(
+        sim,
+        "Americans",
+        Command::Move {
+            entity_id: magnetron,
+            target_rx: 4,
+            target_ry: 16,
+            queue: false,
+        },
+    );
+}
+
+/// Lethal damage through the production receiver, as a weapon deals it.
+fn kill(sim: &mut Simulation, rules: &RuleSet, victim: u64, attacker: u64) {
+    let health = entity(sim, victim).health.current;
+    let warhead = sim.interner.intern(&rules.bridge_warheads.crush_name);
+    sim.commit_noncombat_aoe_receivers(
+        rules,
+        None,
+        &[crate::sim::combat::combat_aoe::AreaDamageReceiver::Entity(
+            crate::sim::combat::EntityDamageEvent::direct_receiver(
+                victim,
+                health,
+                0,
+                attacker,
+                None,
+                warhead,
+                crate::sim::combat::ReceiverCallFlags {
+                    ignore_defenses: true,
+                    arg6: false,
+                },
+            ),
+        )],
+        FrameEffects::default(),
+    );
+}
+
 /// A Magnetron ordered to attack a tank lifts it: no damage, a Jumpjet over
 /// its Drive and both links (Imbue `0x00710000`).
 fn lift(rules: &RuleSet) -> (Simulation, PathGrid, u64, u64) {
@@ -172,16 +225,7 @@ fn retail_tank_let_go_over_a_unit_crashes_onto_it() {
         }),
         "the tank is pulled over the Unit"
     );
-    order(
-        &mut sim,
-        "Americans",
-        Command::Move {
-            entity_id: magnetron,
-            target_rx: 4,
-            target_ry: 16,
-            queue: false,
-        },
-    );
+    move_away(&mut sim, magnetron);
     assert!(
         run_until(&mut sim, &rules, &grid, 400, |sim| {
             !sim.substrate.entities.contains(tank)
@@ -200,9 +244,10 @@ fn retail_tank_let_go_over_a_unit_crashes_onto_it() {
 }
 
 /// Let go mid-flight, by a move order (the firer's own destination,
-/// `0x004D9509`) or by the Magnetron's death (its UnInit, `0x004DE5F0`), the
-/// tank is centred on its cell, falls, lands on the clear ground and, once
-/// down, gets its Drive back unharmed (Jumpjet END `0x0054DA50`).
+/// `0x004D9509`) or by the Magnetron's death (the receiver's UnInit, whose
+/// Foot body lets go, `0x004DE5F0`), the tank is centred on its cell, falls,
+/// lands on the clear ground and, once down, gets its Drive back unharmed
+/// (Jumpjet END `0x0054DA50`).
 #[test]
 fn retail_tank_let_go_over_clear_ground_lands_and_drives_again() {
     let Some(rules) = retail_rules() else {
@@ -211,32 +256,12 @@ fn retail_tank_let_go_over_clear_ground_lands_and_drives_again() {
     for death in [false, true] {
         let (mut sim, grid, magnetron, tank) = lift(&rules);
         let health = entity(&sim, tank).health.current;
-        assert!(
-            run_until(&mut sim, &rules, &grid, 200, |sim| {
-                crate::sim::movement::air_movement::current_fly_height(
-                    entity(sim, tank),
-                    sim.resolved_terrain.as_ref(),
-                ) > 200
-            }),
-            "the tank climbs"
-        );
+        climb(&mut sim, &rules, &grid, tank);
         if death {
-            sim.uninit_with_context(
-                magnetron,
-                crate::sim::world::UninitContext::new(Some(&rules), None),
-            );
+            kill(&mut sim, &rules, magnetron, tank);
             assert!(!entity(&sim, magnetron).lifecycle.object_alive);
         } else {
-            order(
-                &mut sim,
-                "Americans",
-                Command::Move {
-                    entity_id: magnetron,
-                    target_rx: 4,
-                    target_ry: 16,
-                    queue: false,
-                },
-            );
+            move_away(&mut sim, magnetron);
             assert!(
                 run_until(&mut sim, &rules, &grid, 5, |sim| {
                     entity(sim, magnetron).locomotor_target.is_none()
@@ -273,6 +298,41 @@ fn retail_tank_let_go_over_clear_ground_lands_and_drives_again() {
             (location.x & 0xFF, location.y & 0xFF),
             (0x80, 0x80),
             "centred on its cell before the fall (death {death})"
+        );
+    }
+}
+
+/// A tank killed while held or after it is let go is UnInit at once: Unit's
+/// receiver keeps only a `Crashable=` type its Crash latched, or a sinking
+/// hull (`0x00738457..0x007384A5`), so the drop's crash latch keeps nothing.
+/// A held tank's death lets the Magnetron's link go (pointer expiry,
+/// `0x00707B70`).
+#[test]
+fn retail_tank_killed_in_the_air_is_uninit_at_once() {
+    let Some(rules) = retail_rules() else {
+        return;
+    };
+    for dropped in [false, true] {
+        let (mut sim, grid, magnetron, tank) = lift(&rules);
+        climb(&mut sim, &rules, &grid, tank);
+        if dropped {
+            move_away(&mut sim, magnetron);
+            assert!(
+                run_until(&mut sim, &rules, &grid, 5, |sim| {
+                    entity(sim, tank).being_manipulated
+                }),
+                "the move order lets the tank go"
+            );
+        }
+        kill(&mut sim, &rules, tank, magnetron);
+        assert!(
+            !entity(&sim, tank).lifecycle.object_alive,
+            "dropped {dropped}"
+        );
+        assert_eq!(
+            entity(&sim, magnetron).locomotor_target,
+            None,
+            "dropped {dropped}"
         );
     }
 }

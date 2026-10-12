@@ -1876,13 +1876,24 @@ impl Simulation {
                 if !matches!(category, EntityCategory::Unit | EntityCategory::Structure) {
                     return;
                 }
-                // Unit's receiver retains crashes (738475) and sinking
-                // hulls (738493). Their own AI terminal calls UnInit.
+                // Unit's receiver retains a `Crashable=` type its Crash(0)
+                // latched (`0x00738475`) and any other type's sinking hull
+                // (`0x00738493`); their own AI terminal calls UnInit. A
+                // Magnetron's drop latches `crashing` too, and keeps nothing.
                 if self
                     .substrate
                     .entities
                     .get(stable_id)
-                    .is_some_and(|entity| entity.crashing || entity.sinking.is_active())
+                    .is_some_and(|entity| {
+                        if self
+                            .object_type(entity.type_ref(), rules)
+                            .is_some_and(|object| object.crashable)
+                        {
+                            entity.crashing
+                        } else {
+                            entity.sinking.is_active()
+                        }
+                    })
                 {
                     return;
                 }

@@ -1567,9 +1567,10 @@ impl Simulation {
             entity.foot_speed.crate_multiplier().hash(hasher);
             entity.foot_occupation_enabled.hash(hasher);
             entity.foot_locomotor_swap_active.hash(hasher);
-            // The Magnetron's links and drop (Foot+6AE, Techno+2AC/+2B0/+427/
-            // +428) and the warp or drop credit house (Techno+42C) are clear
-            // outside a lift or a warp; tagged like +0x1F8 below.
+            // The Magnetron's links and drop (Techno+2AC/+2B0/+427/+428) and
+            // the warp or drop credit house (Techno+42C) are clear outside a
+            // lift or a warp; Foot+6AE stays up after any Jumpjet touchdown
+            // until an END clears it. Tagged like +0x1F8 below.
             if entity.lift_may_end {
                 0x6ae_u32.hash(hasher);
             }

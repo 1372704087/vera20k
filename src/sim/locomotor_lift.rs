@@ -101,9 +101,10 @@ impl Simulation {
     /// [`Self::imbue_locomotor`] (`0x004696FB`).
     ///
     /// RESIDUAL: native also admits an Aircraft (`0x00469699`), a landed one
-    /// being in the Ground layer. VERA refuses it: its Jumpjet host serves
-    /// Unit and Infantry owners only. Trigger: a Magnetron firing at a landed
-    /// aircraft. Effect: no lift, no damage either way. Frequency: rare.
+    /// being in the Ground layer, and imbues it. VERA refuses it: its Jumpjet
+    /// host serves Unit and Infantry owners only. Trigger: a Magnetron firing
+    /// at a landed aircraft. Effect: VERA's shot does nothing; native's lift
+    /// and drop of an aircraft are untraced. Frequency: uncommon.
     ///
     /// RESIDUAL: `Size=` is a double natively (`TechnoTypeClass+0x380`,
     /// constructor 1.0); VERA's reader keeps an int with a per-category
@@ -417,6 +418,17 @@ impl Simulation {
     /// its lift (`+0x6AE`, `0x0070FFBB`) and takes another. Either way the
     /// firer forgets it (`0x0070FF7B`, `0x0070FFD8`) and, when
     /// `clear_target`, its own target (vt+0x3C8).
+    ///
+    /// Callers: State 3's arrival (`0x0054C1CB`), the firer's non-null
+    /// destination (`0x004D9509`), its Foot UnInit (`0x004DE5F0`) and Unit
+    /// Enter_Idle_Mode (`0x007389BF`), pointer expiry of either link
+    /// (`0x00707B70`, `0x00707B97`), the arm's next shot (`0x004695FD`) and
+    /// Imbue (`0x007102A6`, `0x007102B7`).
+    ///
+    /// RESIDUAL: `BuildingClass` AI (`0x00454B5A`) and ReceiveDamage
+    /// (`0x0044250C`) also let go of what a building holds. Trigger: a
+    /// building firing an `IsLocomotor=` weapon, which no stock building
+    /// has. Effect: such a building would keep its victim past both points.
     pub(crate) fn release_locomotor(
         &mut self,
         firer: u64,

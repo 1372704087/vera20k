@@ -1774,6 +1774,7 @@ fn finish_concrete_death(
         // UnInit, and falls to its impact (a Jumpjet: `jumpjet_crash_impact`).
         effects.despawned_ids.push(dead_id);
     } else if category == EntityCategory::Unit
+        && !crashable
         && world
             .substrate
             .entities
@@ -1781,7 +1782,9 @@ fn finish_concrete_death(
             .is_some_and(|entity| entity.sinking.is_active())
     {
         // Unit738493 checks +3CD after Mark(UP), passenger/crew handling and
-        // Crashable. A sinking hull retains Alive and its Logic/display slot.
+        // Crashable; a Crashable type its Crash refused is UnInit even when
+        // sinking (`0x0073847F`). A sinking hull retains Alive and its
+        // Logic/display slot.
         effects.despawned_ids.push(dead_id);
     } else {
         effects.immediate_uninit_ids.push(dead_id);

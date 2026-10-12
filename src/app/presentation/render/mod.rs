@@ -206,6 +206,24 @@ pub(crate) fn render_game(
         .renderer
         .batch_renderer
         .update_native_z_origin(&state.renderer.gpu.queue, native_z_origin_y);
+    // The sidebar and its bar draw into their own surfaces at the Sidebar
+    // size.
+    let sidebar_frame = state.sidebar_frame();
+    let renderer = &mut state.renderer;
+    let gpu = &renderer.gpu;
+    if let Some(surface) = renderer.sidebar_surface.as_mut() {
+        surface.set_frame(&gpu.device, &gpu.queue, sidebar_frame);
+    }
+    let surface = renderer.sidebar_surface.get_or_insert_with(|| {
+        crate::app::presentation::sidebar_surface::SidebarSurface::new(
+            &gpu.device,
+            &gpu.queue,
+            gpu.surface_format,
+            &renderer.batch_renderer,
+            sidebar_frame,
+        )
+    });
+    surface.write_cameras(&gpu.queue, renderer.batch_renderer.ui_camera_uniform());
     state.renderer.terrain_draw_renderer.prepare(
         &state.renderer.gpu.device,
         state.renderer.combat_light_renderer.composition_texture(),
@@ -460,6 +478,7 @@ fn upload_to_gpu(
         &sidebar.content_boundary,
     );
     pool.upload(&state.renderer.gpu, "sidebar_chrome", &sidebar.chrome);
+    pool.upload(&state.renderer.gpu, "command_bar", &sidebar.command_bar);
     pool.upload(&state.renderer.gpu, "radar_anim", &sidebar.radar_anim);
     pool.upload(&state.renderer.gpu, "sidebar_cameo", &sidebar.cameo);
     pool.upload(&state.renderer.gpu, "sidebar_gclock", &sidebar.gclock);
@@ -484,6 +503,7 @@ mod tests {
         let sprite = crate::render::batch::SpriteInstance::default();
         let instances = super::build_instances::SidebarInstances {
             chrome: Vec::new(),
+            command_bar: Vec::new(),
             cameo: Vec::new(),
             gclock: Vec::new(),
             cameo_overlay: Vec::new(),

@@ -527,6 +527,8 @@ pub struct BatchRenderer {
     ui_camera_buffer: wgpu::Buffer,
     /// UI camera bind group — always zoom=1.0.
     ui_camera_bind_group: wgpu::BindGroup,
+    /// Neutral A, for the camera groups that sample no shroud.
+    neutral_a: (wgpu::TextureView, wgpu::Buffer),
 }
 
 impl BatchRenderer {
@@ -1283,6 +1285,7 @@ impl BatchRenderer {
             bound_shroud_view: None,
             ui_camera_buffer,
             ui_camera_bind_group,
+            neutral_a: (neutral_a, neutral_a_uniform),
         }
     }
 
@@ -1616,16 +1619,42 @@ impl BatchRenderer {
         *self.uploaded_camera.read().expect("camera owner lock")
     }
 
+    /// The UI camera's uniform as last written: the world camera at zoom 1.
+    pub(crate) fn ui_camera_uniform(&self) -> CameraUniform {
+        ui_camera(self.camera_uniform())
+    }
+
+    /// A UI camera of its own, for drawing the UI into a surface of its own
+    /// (`presentation::sidebar_surface`): its uniform buffer, and its group-0
+    /// bind group, which samples neutral A.
+    pub(crate) fn create_ui_camera(
+        &self,
+        device: &wgpu::Device,
+    ) -> (wgpu::Buffer, wgpu::BindGroup) {
+        let buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("Surface UI Camera Uniform"),
+            contents: bytemuck::bytes_of(&self.ui_camera_uniform()),
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+        });
+        let group = camera_group(
+            device,
+            &self.camera_bind_group_layout,
+            &buffer,
+            &self.neutral_a.0,
+            &self.neutral_a.1,
+        );
+        (buffer, group)
+    }
+
     pub(crate) fn write_camera(&self, queue: &wgpu::Queue, uniform: CameraUniform) {
         let mut uploaded = self.uploaded_camera.write().expect("camera owner lock");
         *uploaded = uniform;
         queue.write_buffer(&self.camera_buffer, 0, bytemuck::bytes_of(&uniform));
-        let ui_uniform = CameraUniform {
-            zoom: 1.0,
-            _pad: 0.0,
-            ..uniform
-        };
-        queue.write_buffer(&self.ui_camera_buffer, 0, bytemuck::bytes_of(&ui_uniform));
+        queue.write_buffer(
+            &self.ui_camera_buffer,
+            0,
+            bytemuck::bytes_of(&ui_camera(uniform)),
+        );
     }
 
     /// Create a standalone instance buffer (not stored in the renderer).
@@ -2055,6 +2084,15 @@ impl BatchRenderer {
         render_pass.set_bind_group(1, &texture.bind_group, &[]);
         render_pass.set_vertex_buffer(0, buffer.slice(..));
         render_pass.draw(0..6, start..start + count);
+    }
+}
+
+/// The UI camera for a world camera: zoom 1, and never the debug depth view.
+fn ui_camera(world: CameraUniform) -> CameraUniform {
+    CameraUniform {
+        zoom: 1.0,
+        _pad: 0.0,
+        ..world
     }
 }
 

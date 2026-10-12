@@ -52,7 +52,7 @@ impl SidebarChromeLayoutSpec {
         let allied = matches!(theme, SidebarTheme::Allied);
         Self {
             theme,
-            sidebar_width: 168.0,
+            sidebar_width: super::SIDEBAR_WIDTH_PX as f32,
             top_inset: 48.0,
             side2_height: 50.0,
             side3_height: 26.0,

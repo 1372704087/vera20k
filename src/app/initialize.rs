@@ -667,6 +667,7 @@ impl App {
                 depth_view,
                 shell_surface_presenter,
                 upscale_pass: None,
+                sidebar_surface: None,
                 #[cfg(feature = "dev-ui")]
                 debug_ui,
                 status_screen_fill,

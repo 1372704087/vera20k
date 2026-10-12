@@ -13,7 +13,7 @@ use crate::ui::main_menu_dialogs::options::shell::{
     LauncherLabelAlign, LauncherOptionsLayout, LauncherStatusHelp,
 };
 use crate::ui::main_menu_dialogs::options::{
-    LauncherCheckboxId, LauncherTrackbarId, OptionsDialogState, Zoom,
+    LauncherCheckboxId, LauncherComboId, LauncherTrackbarId, OptionsDialogState, Zoom,
 };
 use crate::ui::shell::geom::{RectPx, ShellScale};
 use std::time::Instant;
@@ -94,17 +94,23 @@ fn build_controls(
             scale,
         );
     }
-    paint_control(
-        &mut out,
-        &chrome,
-        ControlPaint::Combo {
-            rect: layout.zoom,
-            swatch: None,
-            open: dialog.shell_popup(layout).is_some(),
-            disabled: false,
-        },
-        scale,
-    );
+    let open = dialog.shell_popup(layout).map(|popup| popup.combo);
+    for (combo, rect) in [
+        (LauncherComboId::Zoom, layout.zoom),
+        (LauncherComboId::Sidebar, layout.sidebar),
+    ] {
+        paint_control(
+            &mut out,
+            &chrome,
+            ControlPaint::Combo {
+                rect,
+                swatch: None,
+                open: open == Some(combo),
+                disabled: false,
+            },
+            scale,
+        );
+    }
     for (id, rect) in layout.buttons.into_iter().filter(|_| buttons) {
         push_right_panel_button_shp(
             &mut out,
@@ -201,21 +207,34 @@ fn build_text(
             ));
         }
     }
-    let zoom_text = scale.derive_rect(layout.zoom, |rect| {
-        RectPx::new(rect.x + 3, rect.y, rect.w - 23, rect.h)
-    });
-    out.push(text_draw(
-        font,
-        &zoom_label(
-            dialog.shell_selected_zoom(layout),
-            layout.screen(),
-            dialog.shell_checkbox_checked(LauncherCheckboxId::OriginalShape),
+    let face_text = |rect| {
+        scale.derive_rect(rect, |rect| {
+            RectPx::new(rect.x + 3, rect.y, rect.w - 23, rect.h)
+        })
+    };
+    for (text, rect) in [
+        (
+            zoom_label(
+                dialog.shell_selected_zoom(layout),
+                layout.screen(),
+                dialog.shell_checkbox_checked(LauncherCheckboxId::OriginalShape),
+            ),
+            layout.zoom,
         ),
-        zoom_text,
-        ShellAlign::V_CENTER,
-        SHELL_LABEL_TEXT_RGB,
-        glyph,
-    ));
+        (
+            dialog.shell_selected_sidebar(layout).label().to_owned(),
+            layout.sidebar,
+        ),
+    ] {
+        out.push(text_draw(
+            font,
+            &text,
+            face_text(rect),
+            ShellAlign::V_CENTER,
+            SHELL_LABEL_TEXT_RGB,
+            glyph,
+        ));
+    }
     for (id, rect) in layout.buttons.into_iter().filter(|_| buttons) {
         let pressed = dialog.shell_button_pressed(id);
         // 612B70 type1: ordinary press retains AC18A4 foreground; the text
@@ -386,7 +405,19 @@ pub(crate) fn render_launcher_options(
         );
         let text_inset = (3.0 * scale.factor()).round() as i32;
         let original_shape = dialog.shell_checkbox_checked(LauncherCheckboxId::OriginalShape);
-        for (i, zoom) in layout.zoom_choices().into_iter().enumerate() {
+        let rows: Vec<String> = match popup.combo {
+            LauncherComboId::Zoom => layout
+                .zoom_choices()
+                .into_iter()
+                .map(|zoom| zoom_label(zoom, layout.screen(), original_shape))
+                .collect(),
+            LauncherComboId::Sidebar => layout
+                .sidebar_choices()
+                .into_iter()
+                .map(|size| size.label().to_owned())
+                .collect(),
+        };
+        for (i, row_text) in rows.iter().enumerate() {
             let rect = popup.row_rect(i);
             if popup.hovered.unwrap_or(popup.selected) == i {
                 push_solid_rect_px(
@@ -399,7 +430,7 @@ pub(crate) fn render_launcher_options(
             }
             popup_text.push(text_draw(
                 &state.renderer.bit_font,
-                &zoom_label(zoom, layout.screen(), original_shape),
+                row_text,
                 RectPx::new(rect.x + text_inset, rect.y, rect.w - 2 * text_inset, rect.h),
                 ShellAlign::V_CENTER,
                 SHELL_LABEL_TEXT_RGB,

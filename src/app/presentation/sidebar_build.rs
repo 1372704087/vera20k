@@ -31,22 +31,29 @@ pub(crate) fn build_sidebar_chrome_instances(
     let Some(atlas) = current_sidebar_chrome(state) else {
         return Vec::new();
     };
-    let mut instances = build_sidebar_chrome_instances_for_layout(
+    build_sidebar_chrome_instances_for_layout(
         atlas,
         state.match_state.match_presentation.sidebar_layout_spec,
         &view.layout,
         view,
         &view.tabs,
         &state.match_state.match_presentation.power_bar_anim,
-        [state.render_width() as f32, state.render_height() as f32],
         [
             state.match_state.input.camera_x,
             state.match_state.input.camera_y,
         ],
         state.match_state.match_presentation.ui_scale,
         state.match_state.match_presentation.radar_anim.is_none(),
-    );
-    command_bar::append(state, atlas, &mut instances);
+    )
+}
+
+/// The bottom command bar, which shares the chrome atlas but draws into a
+/// surface of its own (`presentation::sidebar_surface`).
+pub(crate) fn build_command_bar_instances(state: &AppState) -> Vec<SpriteInstance> {
+    let mut instances = Vec::new();
+    if let Some(atlas) = current_sidebar_chrome(state) {
+        command_bar::append(state, atlas, &mut instances);
+    }
     instances
 }
 
@@ -57,7 +64,6 @@ pub fn build_sidebar_chrome_instances_for_layout(
     view: &SidebarView,
     tabs: &[SidebarTabButton],
     power_bar_anim: &PowerBarAnimState,
-    _screen_size: [f32; 2],
     camera_offset: [f32; 2],
     ui_scale: f32,
     static_radar_fallback: bool,

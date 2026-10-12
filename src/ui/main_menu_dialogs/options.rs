@@ -57,6 +57,8 @@ pub(crate) const LAUNCHER_LABEL_SPECS: [(&str, &str); 30] = [
 pub(crate) const ZOOM_LABEL: &str = "Zoom";
 pub(crate) const ZOOM_HELP: &str =
     "How big battles look. Auto picks the best size for your screen.";
+pub(crate) const SIDEBAR_LABEL: &str = "Sidebar";
+pub(crate) const SIDEBAR_HELP: &str = "How big the sidebar and bottom bar are in battles.";
 pub(crate) const FULL_SCREEN_LABEL: &str = "Full Screen";
 pub(crate) const FULL_SCREEN_HELP: &str = "Fill the whole screen. Untick it to play in a window.";
 pub(crate) const ORIGINAL_SHAPE_LABEL: &str = "Original 4:3 Shape";
@@ -127,6 +129,91 @@ impl Zoom {
             _ => Self::Auto,
         }
     }
+}
+
+/// VERA's sidebar size: how big a battle draws its sidebar, on top of the
+/// zoom; the battlefield takes the rest of the frame. Like the zoom, a size
+/// never leaves less than gamemd's smallest mode: it needs a battle frame of
+/// at least 640x480 at that size. Saved as `[VERA] Sidebar`, the percent.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Default)]
+pub(crate) enum SidebarSize {
+    #[default]
+    Normal,
+    Large,
+    ExtraLarge,
+}
+
+impl SidebarSize {
+    /// The combo's rows, top to bottom, where the frame has room for them.
+    const ALL: [Self; 3] = [Self::Normal, Self::Large, Self::ExtraLarge];
+
+    pub(crate) const fn label(self) -> &'static str {
+        match self {
+            Self::Normal => "Normal",
+            Self::Large => "Large",
+            Self::ExtraLarge => "XL",
+        }
+    }
+
+    /// Frame pixels per 100 sidebar pixels.
+    const fn requested_percent(self) -> u32 {
+        match self {
+            Self::Normal => 100,
+            Self::Large => 150,
+            Self::ExtraLarge => 200,
+        }
+    }
+
+    fn fits(self, frame_width: u32, frame_height: u32) -> bool {
+        let percent = self.requested_percent();
+        percent == 100
+            || (frame_width * 100 >= 640 * percent && frame_height * 100 >= 480 * percent)
+    }
+
+    /// The sizes a battle frame of `frame_width` x `frame_height` has room for.
+    pub(crate) fn choices(frame_width: u32, frame_height: u32) -> Vec<Self> {
+        Self::ALL
+            .into_iter()
+            .filter(|size| size.fits(frame_width, frame_height))
+            .collect()
+    }
+
+    /// The size in effect: one the frame has no room for gives way to the
+    /// largest that fits.
+    pub(crate) fn in_effect(self, frame_width: u32, frame_height: u32) -> Self {
+        Self::ALL
+            .into_iter()
+            .rev()
+            .find(|size| *size <= self && size.fits(frame_width, frame_height))
+            .unwrap_or(Self::Normal)
+    }
+
+    /// The sidebar's scale in effect, in percent.
+    pub(crate) fn percent(self, frame_width: u32, frame_height: u32) -> u32 {
+        self.in_effect(frame_width, frame_height)
+            .requested_percent()
+    }
+
+    /// The `[VERA] Sidebar` value: the percent.
+    pub(crate) const fn ini_value(self) -> i32 {
+        self.requested_percent() as i32
+    }
+
+    /// Any value this build doesn't know reads as Normal.
+    pub(crate) const fn from_ini_value(value: i32) -> Self {
+        match value {
+            150 => Self::Large,
+            200 => Self::ExtraLarge,
+            _ => Self::Normal,
+        }
+    }
+}
+
+/// The page's two lists.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum LauncherComboId {
+    Zoom,
+    Sidebar,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -263,6 +350,7 @@ pub(crate) enum LauncherCue {
 pub(crate) enum LauncherOptionsEvent {
     Cue(LauncherCue),
     ZoomSelected(Zoom),
+    SidebarSelected(SidebarSize),
     FullScreenChanged(bool),
     OriginalShapeChanged(bool),
     ScorePreview(f32),
@@ -298,6 +386,8 @@ pub(crate) struct LauncherOptionsValues {
     /// The window's state when the page opened, then each toggle.
     pub(crate) full_screen: bool,
     pub(crate) original_shape: bool,
+    /// The Sidebar list's choice; like Zoom, it applies at once.
+    pub(crate) sidebar: SidebarSize,
     pub(crate) score_position: u8,
     pub(crate) sound_position: u8,
     pub(crate) voice_position: u8,
@@ -314,6 +404,7 @@ impl Default for LauncherOptionsValues {
             show_hidden: false,
             full_screen: false,
             original_shape: false,
+            sidebar: SidebarSize::Normal,
             score_position: 4,
             sound_position: 7,
             voice_position: 7,
@@ -389,7 +480,8 @@ pub(crate) struct OptionsDialogState {
     labels: LauncherOptionsLabels,
     values: LauncherOptionsValues,
     zoom: Zoom,
-    zoom_popup_open: bool,
+    /// The list that is open, if any.
+    open_combo: Option<LauncherComboId>,
     launcher_audio_available: bool,
     detail_caption: String,
     difficulty_caption: String,
@@ -440,7 +532,7 @@ impl OptionsDialogState {
             labels,
             values,
             zoom,
-            zoom_popup_open: false,
+            open_combo: None,
             launcher_audio_available,
             capture: None,
             pending_events: Vec::new(),
@@ -622,8 +714,8 @@ impl OptionsDialogState {
 
     /// Like gamemd's combo owner `0x00617250`, a press emits GUIComboOpen
     /// first. gamemd then opens the list only from the 20-pixel arrow
-    /// (`x > client_width - 20`); VERA's own Zoom box opens from anywhere on it.
-    pub(crate) fn combo_mouse_down(&mut self, frame: PhysicalControlFrame) {
+    /// (`x > client_width - 20`); VERA's own lists open from anywhere on them.
+    pub(crate) fn combo_mouse_down(&mut self, combo: LauncherComboId, frame: PhysicalControlFrame) {
         if frame.local_x < 0
             || frame.local_x >= frame.width
             || frame.local_y < 0
@@ -633,7 +725,7 @@ impl OptionsDialogState {
         }
         self.pending_events
             .push(LauncherOptionsEvent::Cue(LauncherCue::ComboOpen));
-        self.zoom_popup_open = !self.zoom_popup_open;
+        self.open_combo = (self.open_combo != Some(combo)).then_some(combo);
     }
 
     /// gamemd-derived: ordinary `0xD5` owner-draw buttons emit
@@ -650,9 +742,17 @@ impl OptionsDialogState {
     /// accepted projection `0x0055FAA0` never owns it.
     pub(crate) fn select_zoom(&mut self, zoom: Zoom) {
         self.zoom = zoom;
-        self.zoom_popup_open = false;
+        self.open_combo = None;
         self.pending_events
             .push(LauncherOptionsEvent::ZoomSelected(zoom));
+    }
+
+    /// The Sidebar list publishes its pick at once, like Zoom.
+    pub(crate) fn select_sidebar(&mut self, size: SidebarSize) {
+        self.values.sidebar = size;
+        self.open_combo = None;
+        self.pending_events
+            .push(LauncherOptionsEvent::SidebarSelected(size));
     }
 
     /// gamemd-derived: `OptionsClass__ShowLauncherDialog @ 0x0055FC80` gives
@@ -941,30 +1041,71 @@ mod tests {
 
     #[test]
     fn combo_cues_then_toggles_from_anywhere_on_its_face() {
+        use LauncherComboId::{Sidebar, Zoom as ZoomList};
         let mut state = state(true);
-        state.combo_mouse_down(frame(4, 5, 180, 24));
-        assert!(
-            state.zoom_popup_open,
+        state.combo_mouse_down(ZoomList, frame(4, 5, 180, 24));
+        assert_eq!(
+            state.open_combo,
+            Some(ZoomList),
             "the face opens the list, not only the arrow"
         );
         assert_eq!(
             state.drain_output().events,
             [LauncherOptionsEvent::Cue(LauncherCue::ComboOpen)]
         );
-        state.combo_mouse_down(frame(161, 5, 180, 24));
-        assert!(!state.zoom_popup_open, "a second press closes it");
-        state.combo_mouse_down(frame(180, 5, 180, 24));
-        assert!(!state.zoom_popup_open, "outside the face does nothing");
-        state.combo_mouse_down(frame(161, 5, 180, 24));
-        assert!(state.zoom_popup_open);
+        state.combo_mouse_down(ZoomList, frame(161, 5, 180, 24));
+        assert_eq!(state.open_combo, None, "a second press closes it");
+        state.combo_mouse_down(ZoomList, frame(180, 5, 180, 24));
+        assert_eq!(state.open_combo, None, "outside the face does nothing");
+        state.combo_mouse_down(ZoomList, frame(161, 5, 180, 24));
+        assert_eq!(state.open_combo, Some(ZoomList));
         let _ = state.drain_output();
         state.select_zoom(Zoom::Auto);
-        assert!(!state.zoom_popup_open);
+        assert_eq!(state.open_combo, None);
         assert_eq!(state.zoom, Zoom::Auto);
         assert_eq!(
             state.drain_output().events,
             [LauncherOptionsEvent::ZoomSelected(Zoom::Auto)]
         );
+
+        // The Sidebar list works the same way, on its own value.
+        state.combo_mouse_down(Sidebar, frame(4, 5, 180, 24));
+        assert_eq!(state.open_combo, Some(Sidebar));
+        state.select_sidebar(SidebarSize::Large);
+        assert_eq!(state.open_combo, None);
+        assert_eq!(state.values.sidebar, SidebarSize::Large);
+        assert_eq!(state.zoom, Zoom::Auto);
+        assert_eq!(
+            state.drain_output().events,
+            [
+                LauncherOptionsEvent::Cue(LauncherCue::ComboOpen),
+                LauncherOptionsEvent::SidebarSelected(SidebarSize::Large)
+            ]
+        );
+    }
+
+    #[test]
+    fn sidebar_sizes_need_a_640x480_frame_at_that_size() {
+        use SidebarSize::{ExtraLarge, Large, Normal};
+        assert_eq!(SidebarSize::choices(800, 600), [Normal]);
+        assert_eq!(SidebarSize::choices(960, 720), [Normal, Large]);
+        assert_eq!(
+            SidebarSize::choices(1920, 1080),
+            [Normal, Large, ExtraLarge]
+        );
+        // A 3440x1440 window at 200% zoom has room for Large only.
+        assert_eq!(SidebarSize::choices(1720, 720), [Normal, Large]);
+        // A size the frame has no room for gives way to the largest that fits.
+        assert_eq!(ExtraLarge.in_effect(1720, 720), Large);
+        assert_eq!(ExtraLarge.percent(1720, 720), 150);
+        assert_eq!(Large.percent(800, 600), 100);
+        assert_eq!(ExtraLarge.percent(1920, 1080), 200);
+        // Normal fits even a tiny window.
+        assert_eq!(SidebarSize::choices(0, 0), [Normal]);
+        for size in [Normal, Large, ExtraLarge] {
+            assert_eq!(SidebarSize::from_ini_value(size.ini_value()), size);
+        }
+        assert_eq!(SidebarSize::from_ini_value(175), Normal);
     }
 
     #[test]

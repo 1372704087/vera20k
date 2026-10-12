@@ -546,7 +546,7 @@ impl MapCaptureProfile {
             );
         }
         let (tactical_width, tactical_height) =
-            crate::app::input::camera::tactical_viewport_size_px(self.width, self.height);
+            crate::ui::sidebar::SidebarFrame::native(self.width, self.height).tactical_size();
         let mut previous = 0;
         for gesture in self.gestures() {
             ensure!(
@@ -1939,7 +1939,8 @@ impl MapObservation {
         }
         if profile.gestures.is_some() {
             let (width, height) =
-                crate::app::input::camera::tactical_viewport_size_px(profile.width, profile.height);
+                crate::ui::sidebar::SidebarFrame::native(profile.width, profile.height)
+                    .tactical_size();
             observations["gesture_input"] = json!({
                 "policy": profile.gesture_policy(),
                 "equal_step_order": "commands_then_gestures",
@@ -4387,7 +4388,7 @@ mod tests {
         profile.cursor_position = Some([720, 556]);
         profile.validate().unwrap();
         let (width, height) =
-            crate::app::input::camera::tactical_viewport_size_px(profile.width, profile.height);
+            crate::ui::sidebar::SidebarFrame::native(profile.width, profile.height).tactical_size();
         profile.gestures = Some(vec![MapScheduledGesture {
             issue_after_step: 0,
             gesture: MapGesture::Click {

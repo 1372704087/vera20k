@@ -6,9 +6,10 @@
 //! second set of option values or bypassing its ordered preview events.
 
 use super::{
-    FULL_SCREEN_HELP, FULL_SCREEN_LABEL, LauncherCheckboxId, LauncherCue, LauncherOptionsEvent,
-    LauncherParentResult, LauncherTrackbarId, ORIGINAL_SHAPE_HELP, ORIGINAL_SHAPE_LABEL,
-    OptionsDialogState, PhysicalControlFrame, ZOOM_HELP, ZOOM_LABEL, Zoom,
+    FULL_SCREEN_HELP, FULL_SCREEN_LABEL, LauncherCheckboxId, LauncherComboId, LauncherCue,
+    LauncherOptionsEvent, LauncherParentResult, LauncherTrackbarId, ORIGINAL_SHAPE_HELP,
+    ORIGINAL_SHAPE_LABEL, OptionsDialogState, PhysicalControlFrame, SIDEBAR_HELP, SIDEBAR_LABEL,
+    SidebarSize, ZOOM_HELP, ZOOM_LABEL, Zoom,
 };
 use crate::ui::shell::descriptor::DialogId;
 use crate::ui::shell::geom::{RectPx, ShellScale, center_offset, child_window, dlu_rect};
@@ -78,6 +79,8 @@ pub(crate) struct LauncherOptionsLayout {
     pub(crate) status_help: RectPx,
     /// The Zoom combo, in the resolution combo's retail place.
     pub(crate) zoom: RectPx,
+    /// The Sidebar combo, beside Difficulty as Zoom is beside Visual Details.
+    pub(crate) sidebar: RectPx,
     pub(crate) trackbars: [(LauncherTrackbarId, RectPx); 6],
     pub(crate) checkboxes: [(LauncherCheckboxId, RectPx); 5],
     pub(crate) buttons: [(LauncherParentResult, RectPx); 3],
@@ -89,6 +92,9 @@ pub(crate) struct LauncherOptionsLayout {
     offset_y: i32,
     /// The window, which a match shares: the zoom list depends on it.
     screen: (u32, u32),
+    /// A battle's frame in this window at the chosen zoom and shape: the
+    /// sidebar list depends on it.
+    battle_frame: (u32, u32),
 }
 
 impl LauncherOptionsLayout {
@@ -134,6 +140,7 @@ impl LauncherOptionsLayout {
             warning: page.warning_monitor,
             status_help: page.status_help,
             zoom: px(RectPx::new(351, 86, 180, COMBO_FACE_H)),
+            sidebar: px(RectPx::new(351, 208, 180, COMBO_FACE_H)),
             trackbars: [
                 (LauncherTrackbarId::Detail, slider(89, 53, 120, 13)),
                 (LauncherTrackbarId::Difficulty, slider(92, 128, 120, 13)),
@@ -162,7 +169,20 @@ impl LauncherOptionsLayout {
             offset_x,
             offset_y,
             screen: (width.max(0) as u32, height.max(0) as u32),
+            battle_frame: (width.max(0) as u32, height.max(0) as u32),
         }
+    }
+
+    /// The same page for a battle frame other than the window: a zoomed or
+    /// 4:3 match (`App::match_zoom_geometry`).
+    pub(crate) fn with_battle_frame(mut self, battle_frame: (u32, u32)) -> Self {
+        self.battle_frame = battle_frame;
+        self
+    }
+
+    /// The Sidebar list's rows, top to bottom.
+    pub(crate) fn sidebar_choices(&self) -> Vec<SidebarSize> {
+        SidebarSize::choices(self.battle_frame.0, self.battle_frame.1)
     }
 
     /// The window size the zoom choices are for.
@@ -204,10 +224,11 @@ pub(crate) struct LauncherShellLabel<'a> {
     pub(crate) title: bool,
 }
 
-/// The open Zoom list: one row per [`LauncherOptionsLayout::zoom_choices`],
-/// in order.
+/// An open list: one row per [`LauncherOptionsLayout::zoom_choices`] or
+/// [`LauncherOptionsLayout::sidebar_choices`], in order.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct LauncherZoomPopup {
+pub(crate) struct LauncherComboPopup {
+    pub(crate) combo: LauncherComboId,
     pub(crate) rect: RectPx,
     pub(crate) row_height: i32,
     pub(crate) rows: usize,
@@ -215,7 +236,7 @@ pub(crate) struct LauncherZoomPopup {
     pub(crate) hovered: Option<usize>,
 }
 
-impl LauncherZoomPopup {
+impl LauncherComboPopup {
     fn row_at(self, x: i32, y: i32) -> Option<usize> {
         self.rect
             .contains(x, y)
@@ -274,6 +295,7 @@ impl OptionsDialogState {
             (&labels.visual_details, 89, 38, 60, 10, Left),
             (&self.detail_caption, 149, 38, 60, 10, Right),
             (ZOOM_LABEL, 234, 38, 120, 10, Left),
+            (SIDEBAR_LABEL, 234, 113, 120, 10, Left),
             (&labels.difficulty, 92, 113, 60, 10, Left),
             (&self.difficulty_caption, 152, 113, 60, 10, Right),
             (&labels.scroll_rate, 238, 188, 60, 10, Left),
@@ -356,44 +378,62 @@ impl OptionsDialogState {
         self.shell_interaction.pressed_button == Some(id) && self.shell_button_hovered(id)
     }
 
-    pub(crate) fn shell_popup(&self, layout: &LauncherOptionsLayout) -> Option<LauncherZoomPopup> {
-        if !self.zoom_popup_open {
-            return None;
-        }
+    /// The sidebar size the face shows: a size this battle frame has no room
+    /// for shows as the size it gives way to.
+    pub(crate) fn shell_selected_sidebar(&self, layout: &LauncherOptionsLayout) -> SidebarSize {
+        let (width, height) = layout.battle_frame;
+        self.values.sidebar.in_effect(width, height)
+    }
+
+    pub(crate) fn shell_popup(&self, layout: &LauncherOptionsLayout) -> Option<LauncherComboPopup> {
+        let combo = self.open_combo?;
         // The list box hangs under the painted face; its rows use this
         // window's dropdown device metrics, the same the combo pages use.
         // Unlike the template's 74-DLU drop allocation (ComboDropWin
-        // `0x006180CF..0x00618205`, five whole rows), it grows with the zoom
-        // steps the window allows, so it never scrolls: a 4K window's nine
-        // rows still end well above the page's bottom edge.
+        // `0x006180CF..0x00618205`, five whole rows), it grows with the
+        // choices, so it never scrolls: a 4K window's nine zoom rows still end
+        // well above the page's bottom edge.
+        let (face_rect, rows, selected) = match combo {
+            LauncherComboId::Zoom => {
+                let choices = layout.zoom_choices();
+                let shown = self.shell_selected_zoom(layout);
+                let selected = choices.iter().position(|zoom| *zoom == shown);
+                (layout.zoom, choices.len(), selected)
+            }
+            LauncherComboId::Sidebar => {
+                let choices = layout.sidebar_choices();
+                let shown = self.shell_selected_sidebar(layout);
+                let selected = choices.iter().position(|size| *size == shown);
+                (layout.sidebar, choices.len(), selected)
+            }
+        };
         let metrics = DropdownMetrics::scaled(layout.scale);
-        let face = combo_face_rect(layout.zoom, layout.scale);
-        let choices = layout.zoom_choices();
-        let shown = self.shell_selected_zoom(layout);
-        Some(LauncherZoomPopup {
+        let face = combo_face_rect(face_rect, layout.scale);
+        Some(LauncherComboPopup {
+            combo,
             rect: RectPx::new(
-                layout.zoom.x,
+                face_rect.x,
                 face.y + face.h + 1,
-                layout.zoom.w,
-                choices.len() as i32 * metrics.row_h,
+                face_rect.w,
+                rows as i32 * metrics.row_h,
             ),
             row_height: metrics.row_h,
-            rows: choices.len(),
-            selected: choices.iter().position(|zoom| *zoom == shown).unwrap_or(0),
+            rows,
+            selected: selected.unwrap_or(0),
             hovered: self.shell_interaction.popup_hovered,
         })
     }
 
     /// The status help the line shows: what the last dialog hit test wrote.
-    /// While a slider or button holds the mouse capture, or the zoom list is
-    /// open, the dialog gets no hit test and the text stays.
+    /// While a slider or button holds the mouse capture, or a list is open,
+    /// the dialog gets no hit test and the text stays.
     pub(crate) fn shell_status_help(&self) -> Option<LauncherStatusHelp> {
         self.shell_interaction.status_help
     }
 
     /// Status help (`0x00604729..0x00604838`) for the control under the
-    /// pointer. Hover is enable-unfiltered; the open zoom list is a window of
-    /// its own with no entry.
+    /// pointer. Hover is enable-unfiltered; an open list is a window of its
+    /// own with no entry.
     pub(crate) fn shell_status_help_key(
         &self,
         x: i32,
@@ -445,6 +485,9 @@ impl OptionsDialogState {
                 LauncherCheckboxId::OriginalShape => LauncherStatusHelp::Text(ORIGINAL_SHAPE_HELP),
             });
         }
+        if layout.sidebar.contains(x, y) {
+            return Some(LauncherStatusHelp::Text(SIDEBAR_HELP));
+        }
         layout
             .zoom
             .contains(x, y)
@@ -457,19 +500,25 @@ impl OptionsDialogState {
         if self.capture.is_some() {
             return;
         }
-        if self.zoom_popup_open {
+        if let Some(popup) = self.shell_popup(layout) {
             // ComboDropWin 0x0060E4E9..0x0060E500 plays Rules+0x1A8
             // (GUIComboCloseSound) before selection or outside dismissal.
             self.pending_events
                 .push(LauncherOptionsEvent::Cue(LauncherCue::ComboClose));
-            if let Some(zoom) = self
-                .shell_popup(layout)
-                .and_then(|popup| popup.row_at(x, y))
-                .and_then(|row| layout.zoom_choices().get(row).copied())
-            {
-                self.select_zoom(zoom);
-            } else {
-                self.zoom_popup_open = false;
+            let row = popup.row_at(x, y);
+            match popup.combo {
+                LauncherComboId::Zoom => {
+                    match row.and_then(|row| layout.zoom_choices().get(row).copied()) {
+                        Some(zoom) => self.select_zoom(zoom),
+                        None => self.open_combo = None,
+                    }
+                }
+                LauncherComboId::Sidebar => {
+                    match row.and_then(|row| layout.sidebar_choices().get(row).copied()) {
+                        Some(size) => self.select_sidebar(size),
+                        None => self.open_combo = None,
+                    }
+                }
             }
             self.shell_interaction = ShellInteraction::default();
             return;
@@ -491,7 +540,10 @@ impl OptionsDialogState {
         {
             self.checkbox_mouse_down(*id, frame(*rect, x, y, scale));
         } else if layout.zoom.contains(x, y) {
-            self.combo_mouse_down(frame(layout.zoom, x, y, scale));
+            self.combo_mouse_down(LauncherComboId::Zoom, frame(layout.zoom, x, y, scale));
+            self.shell_interaction.hovered_button = None;
+        } else if layout.sidebar.contains(x, y) {
+            self.combo_mouse_down(LauncherComboId::Sidebar, frame(layout.sidebar, x, y, scale));
             self.shell_interaction.hovered_button = None;
         }
     }
@@ -500,7 +552,7 @@ impl OptionsDialogState {
         let scale = layout.scale;
         if self.capture.is_none()
             && self.shell_interaction.pressed_button.is_none()
-            && !self.zoom_popup_open
+            && self.open_combo.is_none()
         {
             self.shell_interaction.status_help = self.shell_status_help_key(x, y, layout);
         }
@@ -510,7 +562,7 @@ impl OptionsDialogState {
             self.shell_interaction.hovered_button = None;
             return;
         }
-        if self.zoom_popup_open {
+        if self.open_combo.is_some() {
             self.shell_interaction.popup_hovered = self
                 .shell_popup(layout)
                 .and_then(|popup| popup.row_at(x, y));
@@ -531,7 +583,7 @@ impl OptionsDialogState {
         self.shell_mouse_move(x, y, layout);
         if let Some(id) = self.shell_interaction.pressed_button.take()
             && self.shell_interaction.hovered_button == Some(id)
-            && !self.zoom_popup_open
+            && self.open_combo.is_none()
         {
             self.request_result(id);
         }
@@ -675,6 +727,10 @@ mod tests {
         // The display controls retail never had explain themselves in VERA text.
         assert_eq!(at(layout.zoom), Some(LauncherStatusHelp::Text(ZOOM_HELP)));
         assert_eq!(
+            at(layout.sidebar),
+            Some(LauncherStatusHelp::Text(SIDEBAR_HELP))
+        );
+        assert_eq!(
             at(layout.checkboxes[3].1),
             Some(LauncherStatusHelp::Text(FULL_SCREEN_HELP))
         );
@@ -814,10 +870,10 @@ mod tests {
         state.shell_mouse_up(700, 250, &layout);
         assert_eq!(state.drain_output().result, None);
         state.shell_mouse_down(520, 95, &layout);
-        assert!(state.zoom_popup_open);
+        assert_eq!(state.open_combo, Some(LauncherComboId::Zoom));
         state.shell_mouse_down(700, 550, &layout);
         state.shell_mouse_up(700, 550, &layout);
-        assert!(!state.zoom_popup_open);
+        assert_eq!(state.open_combo, None);
         let dismissed = state.drain_output();
         assert_eq!(dismissed.result, None);
         assert_eq!(
@@ -873,7 +929,7 @@ mod tests {
             Zoom::Percent(300),
             true,
         );
-        state.zoom_popup_open = true;
+        state.open_combo = Some(LauncherComboId::Zoom);
         let layout = LauncherOptionsLayout::responsive(1920, 1080);
         assert_eq!(state.shell_selected_zoom(&layout), Zoom::Percent(200));
         let popup = state.shell_popup(&layout).unwrap();
@@ -885,6 +941,44 @@ mod tests {
             Zoom::Percent(300),
             "below the last row picks nothing"
         );
+    }
+
+    #[test]
+    fn sidebar_list_offers_the_sizes_the_battle_frame_has_room_for() {
+        let mut state = state();
+        // A 1920x1080 window at 100%: every size fits.
+        let layout = LauncherOptionsLayout::new(800, 600).with_battle_frame((1920, 1080));
+        let face = layout.sidebar;
+        state.shell_mouse_down(face.x + 10, face.y + 5, &layout);
+        assert_eq!(state.open_combo, Some(LauncherComboId::Sidebar));
+        let popup = state.shell_popup(&layout).unwrap();
+        assert_eq!(
+            (popup.combo, popup.rows, popup.selected),
+            (LauncherComboId::Sidebar, 3, 0)
+        );
+        let xl = popup.row_rect(2);
+        state.drain_output();
+        state.shell_mouse_down(xl.x + 10, xl.y + 5, &layout);
+        assert_eq!(state.open_combo, None);
+        assert_eq!(
+            state.shell_selected_sidebar(&layout),
+            SidebarSize::ExtraLarge
+        );
+        assert_eq!(
+            state.drain_output().events,
+            [
+                LauncherOptionsEvent::Cue(LauncherCue::ComboClose),
+                LauncherOptionsEvent::SidebarSelected(SidebarSize::ExtraLarge)
+            ]
+        );
+
+        // Zoomed in on a 3440x1440 screen, XL has no room: it shows as Large,
+        // and the list stops there.
+        let zoomed = LauncherOptionsLayout::new(800, 600).with_battle_frame((1720, 720));
+        assert_eq!(state.shell_selected_sidebar(&zoomed), SidebarSize::Large);
+        state.shell_mouse_down(face.x + 10, face.y + 5, &zoomed);
+        let popup = state.shell_popup(&zoomed).unwrap();
+        assert_eq!((popup.rows, popup.selected), (2, 1));
     }
 
     #[test]

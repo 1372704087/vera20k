@@ -9,7 +9,7 @@ use super::audio::{AudioVolume, AudioVolumeOperations, apply_volume};
 use crate::app::persistence::options_profile::RetailOptionsProfile;
 use crate::ui::main_menu_dialogs::options::{
     LauncherCue, LauncherOptionsEvent, LauncherOptionsLabels, LauncherOptionsPacked,
-    LauncherOptionsValues, LauncherParentResult, OptionsDialogState, Zoom,
+    LauncherOptionsValues, LauncherParentResult, OptionsDialogState, SidebarSize, Zoom,
     admitted_initial_position, admitted_volume_position,
 };
 
@@ -19,7 +19,7 @@ use crate::ui::main_menu_dialogs::options::{
 /// `0x0055FDB0..0x0056047A`. Trackbar set-position rejects an out-of-range
 /// request and leaves the fresh position at zero; it does not clamp. VERA's
 /// Full Screen box starts unticked; the opener sets it from the window. Its
-/// Original 4:3 Shape box shows the retained choice.
+/// Original 4:3 Shape box and Sidebar list show the retained choices.
 pub(crate) fn launcher_values_from_profile(
     profile: &RetailOptionsProfile,
 ) -> LauncherOptionsValues {
@@ -32,6 +32,7 @@ pub(crate) fn launcher_values_from_profile(
         show_hidden: profile.show_hidden,
         full_screen: false,
         original_shape: profile.original_shape,
+        sidebar: profile.sidebar,
         score_position: admitted_volume_position(profile.score_volume),
         sound_position: admitted_volume_position(profile.sound_volume),
         voice_position: admitted_volume_position(profile.voice_volume),
@@ -62,12 +63,13 @@ pub(crate) fn launcher_dialog_from_profile(
 pub(crate) trait LauncherPreviewOperations: AudioVolumeOperations {
     fn play_cue(&mut self, cue: LauncherCue);
     fn store_zoom(&mut self, zoom: Zoom);
+    fn store_sidebar(&mut self, size: SidebarSize);
     fn set_full_screen(&mut self, full_screen: bool);
     fn store_original_shape(&mut self, original_shape: bool);
 }
 
 /// Dispatch one already-ordered UI event without an INI write. The three audio
-/// paths preserve native profile -> output -> cue order; the three display
+/// paths preserve native profile -> output -> cue order; the four display
 /// choices take effect at once.
 pub(crate) fn dispatch_launcher_preview_event(
     operations: &mut impl LauncherPreviewOperations,
@@ -76,6 +78,7 @@ pub(crate) fn dispatch_launcher_preview_event(
     match event {
         LauncherOptionsEvent::Cue(cue) => operations.play_cue(cue),
         LauncherOptionsEvent::ZoomSelected(zoom) => operations.store_zoom(zoom),
+        LauncherOptionsEvent::SidebarSelected(size) => operations.store_sidebar(size),
         LauncherOptionsEvent::FullScreenChanged(full_screen) => {
             operations.set_full_screen(full_screen);
         }
@@ -291,6 +294,7 @@ mod tests {
             voice_volume: 0.8,
             zoom: Zoom::Percent(300),
             original_shape: true,
+            sidebar: SidebarSize::ExtraLarge,
             ..RetailOptionsProfile::default()
         };
         let dialog = launcher_dialog_from_profile(
@@ -302,6 +306,10 @@ mod tests {
         let layout =
             crate::ui::main_menu_dialogs::options::shell::LauncherOptionsLayout::new(3840, 2160);
         assert_eq!(dialog.shell_selected_zoom(&layout), Zoom::Percent(300));
+        assert_eq!(
+            dialog.shell_selected_sidebar(&layout),
+            SidebarSize::ExtraLarge
+        );
         assert!(dialog.shell_checkbox_checked(
             crate::ui::main_menu_dialogs::options::LauncherCheckboxId::FullScreen
         ));
@@ -330,6 +338,7 @@ mod tests {
     enum PreviewCall {
         Cue(LauncherCue),
         Zoom(Zoom),
+        Sidebar(SidebarSize),
         FullScreen(bool),
         OriginalShape(bool),
         StoreScore(f32),
@@ -353,6 +362,10 @@ mod tests {
 
         fn store_zoom(&mut self, zoom: Zoom) {
             self.calls.push(PreviewCall::Zoom(zoom));
+        }
+
+        fn store_sidebar(&mut self, size: SidebarSize) {
+            self.calls.push(PreviewCall::Sidebar(size));
         }
 
         fn set_full_screen(&mut self, full_screen: bool) {
@@ -409,6 +422,7 @@ mod tests {
             LauncherOptionsEvent::FullScreenChanged(true),
             LauncherOptionsEvent::OriginalShapeChanged(true),
             LauncherOptionsEvent::ZoomSelected(Zoom::Percent(150)),
+            LauncherOptionsEvent::SidebarSelected(SidebarSize::Large),
             LauncherOptionsEvent::ScorePreview(0.4),
             LauncherOptionsEvent::SoundPreview(0.7),
             LauncherOptionsEvent::VoicePreview(0.3),
@@ -422,6 +436,7 @@ mod tests {
                 PreviewCall::FullScreen(true),
                 PreviewCall::OriginalShape(true),
                 PreviewCall::Zoom(Zoom::Percent(150)),
+                PreviewCall::Sidebar(SidebarSize::Large),
                 PreviewCall::StoreScore(0.4),
                 PreviewCall::OutputScore(0.4),
                 PreviewCall::StoreSound(0.7),
@@ -640,6 +655,7 @@ mod tests {
             show_hidden: true,
             full_screen: false,
             original_shape: false,
+            sidebar: SidebarSize::Normal,
             score_position,
             sound_position: 7,
             voice_position: 3,

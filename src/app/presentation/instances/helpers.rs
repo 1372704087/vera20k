@@ -190,10 +190,7 @@ fn tactical_bounded_entity_encounter_order(
     };
     let zoom = state.match_state.input.zoom_level.max(f32::EPSILON);
     let margin = 32.0 / zoom;
-    let (width_px, height_px) = crate::app::input::camera::tactical_viewport_size_px(
-        state.render_width(),
-        state.render_height(),
-    );
+    let (width_px, height_px) = crate::app::input::camera::tactical_viewport_size(state);
     let min_x = state.match_state.input.camera_x - margin;
     let min_y = state.match_state.input.camera_y - margin;
     let max_x = state.match_state.input.camera_x + width_px as f32 / zoom + margin;

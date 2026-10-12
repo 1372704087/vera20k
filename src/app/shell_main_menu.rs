@@ -41,6 +41,10 @@ impl crate::app::persistence::options::launcher::LauncherPreviewOperations for A
         self.persistence.options_profile.zoom = zoom;
         App::sync_zoom_pass(self);
     }
+    fn store_sidebar(&mut self, size: crate::ui::main_menu_dialogs::options::SidebarSize) {
+        // The next battle frame lays out and draws the sidebar at this size.
+        self.persistence.options_profile.sidebar = size;
+    }
     fn set_full_screen(&mut self, full_screen: bool) {
         App::set_full_screen(self, full_screen);
     }

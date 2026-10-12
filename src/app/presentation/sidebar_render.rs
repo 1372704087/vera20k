@@ -19,7 +19,8 @@ use crate::ui::sidebar::{self, SidebarView};
 
 // Re-export instance builders so callers don't need to know about the split.
 pub(crate) use crate::app::presentation::sidebar_build::{
-    build_sidebar_cameo_instances, build_sidebar_chrome_instances, build_sidebar_text_instances,
+    build_command_bar_instances, build_sidebar_cameo_instances, build_sidebar_chrome_instances,
+    build_sidebar_text_instances,
 };
 
 // ---------------------------------------------------------------------------
@@ -100,13 +101,10 @@ pub(crate) fn refresh_sidebar_projection(state: &mut AppState) {
         spec.side3_height = atlas.side3.pixel_size[1];
     }
     state.match_state.match_presentation.sidebar_layout_spec = spec;
-    let visible_rows = sidebar::compute_layout_with_spec(
-        spec,
-        state.render_width() as f32,
-        state.render_height() as f32,
-        0,
-    )
-    .side2_tile_count;
+    // The sidebar lays out on its own surface (`ui::sidebar::SidebarFrame`).
+    let (screen_w, screen_h) = state.sidebar_frame().layout_screen();
+    let visible_rows =
+        sidebar::compute_layout_with_spec(spec, screen_w, screen_h, 0).side2_tile_count;
     let owner_name: String =
         preferred_local_owner_name(state).unwrap_or_else(|| "Americans".to_string());
     let Some((
@@ -258,8 +256,8 @@ pub(crate) fn refresh_sidebar_projection(state: &mut AppState) {
         );
     let mut view = sidebar::build_sidebar_view_with_spec(
         state.match_state.match_presentation.sidebar_layout_spec,
-        state.render_width() as f32,
-        state.render_height() as f32,
+        screen_w,
+        screen_h,
         state.match_state.match_presentation.active_sidebar_tab,
         display_credits,
         power_produced,
@@ -379,14 +377,8 @@ pub(crate) fn is_cursor_over_minimap(state: &AppState) -> bool {
         return false;
     };
     let rect = active_minimap_screen_rect(state);
-    minimap.contains_screen_point_in_rect(
-        state.match_state.input.cursor_x,
-        state.match_state.input.cursor_y,
-        rect.x,
-        rect.y,
-        rect.w,
-        rect.h,
-    )
+    let (x, y) = sidebar_cursor(state);
+    minimap.contains_screen_point_in_rect(x, y, rect.x, rect.y, rect.w, rect.h)
 }
 
 pub(crate) fn try_begin_minimap_drag(state: &mut AppState) -> bool {
@@ -404,6 +396,7 @@ pub(crate) fn try_begin_minimap_drag(state: &mut AppState) -> bool {
 
 pub(crate) fn update_camera_from_minimap_cursor(state: &mut AppState) {
     let rect = active_minimap_screen_rect(state);
+    let (cursor_x, cursor_y) = sidebar_cursor(state);
     let Some(minimap) = state.match_state.match_presentation.minimap.as_ref() else {
         return;
     };
@@ -416,14 +409,11 @@ pub(crate) fn update_camera_from_minimap_cursor(state: &mut AppState) {
             view.playfield_map_size()?,
         ))
     });
-    let (tactical_w, tactical_h) = crate::app::input::camera::tactical_viewport_size_px(
-        state.render_width(),
-        state.render_height(),
-    );
+    let (tactical_w, tactical_h) = crate::app::input::camera::tactical_viewport_size(state);
     let native_target = native_facts.and_then(|(entities, terrain, map_size)| {
         minimap.native_click_target_in_rect(
-            state.match_state.input.cursor_x,
-            state.match_state.input.cursor_y,
+            cursor_x,
+            cursor_y,
             rect.x,
             rect.y,
             rect.w,
@@ -451,14 +441,11 @@ pub(crate) fn update_camera_from_minimap_cursor(state: &mut AppState) {
     // Mapless/headless presentation fixture adapter only.
     let sw = state.render_width() as f32;
     let sh = state.render_height() as f32;
-    let (tactical_w, tactical_h) = crate::app::input::camera::tactical_viewport_size_px(
-        state.render_width(),
-        state.render_height(),
-    );
+    let (tactical_w, tactical_h) = crate::app::input::camera::tactical_viewport_size(state);
     let z = state.match_state.input.zoom_level;
     let (cx, cy) = minimap.camera_top_left_for_screen_point_in_rect(
-        state.match_state.input.cursor_x,
-        state.match_state.input.cursor_y,
+        cursor_x,
+        cursor_y,
         tactical_w as f32 / z,
         tactical_h as f32 / z,
         rect.x,
@@ -495,9 +482,18 @@ pub(crate) fn active_minimap_content_screen_rect(state: &AppState) -> crate::ui:
     crate::ui::sidebar::Rect { x, y, w, h }
 }
 
+/// The cursor in the sidebar's layout space, where the minimap rects are.
+fn sidebar_cursor(state: &AppState) -> (f32, f32) {
+    state.sidebar_frame().point_to_layout(
+        state.match_state.input.cursor_x,
+        state.match_state.input.cursor_y,
+    )
+}
+
+/// The radar aperture in the sidebar's layout space. Input regions take it in
+/// frame pixels through [`crate::ui::sidebar::SidebarFrame::rect_to_frame`].
 pub(crate) fn active_minimap_screen_rect(state: &AppState) -> crate::ui::sidebar::Rect {
-    let sw = state.render_width() as f32;
-    let sh = state.render_height() as f32;
+    let (sw, sh) = state.sidebar_frame().layout_screen();
     if current_sidebar_chrome(state).is_some() {
         crate::ui::sidebar::radar_minimap_rect_with_spec(
             sw,

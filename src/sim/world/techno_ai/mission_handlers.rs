@@ -1222,8 +1222,9 @@ pub(crate) fn foot_enter_idle_mode_selection(
 /// - `C4` or weapon ability 14, with a **BuildingClass** target
 ///   (`0x004D53F9..0x004D5467`) → `Queue_Mission(Sabotage)`. Trigger: a
 ///   berserked or hunting demolition infantryman holding a building, such as
-///   a Tanya or Crazy Ivan of a computer house escaping a destroyed transport.
-///   Effect: it shoots its target where native walks in to plant.
+///   a computer's Tanya or Navy SEAL (retail `C4=`: TANY, GHOST, PTROOP)
+///   escaping a destroyed transport. Effect: it shoots its target where
+///   native walks in to plant.
 /// - `VehicleThief` (`+0xEC6`, `0x004D546C..0x004D54B9`) →
 ///   `Queue_Mission(Capture)`. Frequency: **zero on stock data** — no retail
 ///   section sets the key.
@@ -1346,17 +1347,9 @@ fn hunt_engineer_capture(
     if !engineer {
         return;
     }
-    let destination = match target {
-        crate::sim::combat::TargetKind::Entity(target) => {
-            crate::sim::components::NavTargetRef::object(target)
-        }
-        crate::sim::combat::TargetKind::Cell(rx, ry) => {
-            crate::sim::components::NavTargetRef::cell(rx, ry)
-        }
-    };
     let _ = sim.assign_destination_represented(
         id,
-        Some(destination),
+        Some(target.into()),
         Some(rules),
         ctx.overlay_registry,
         ctx.effects,

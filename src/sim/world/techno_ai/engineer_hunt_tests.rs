@@ -188,22 +188,33 @@ fn a_computer_engineer_goes_back_for_the_building_its_house_lost() {
 }
 
 /// `0x00448C70`, `0x00448C8C..0x00448C94` and `0x004FB9BB..0x004FB9C3`: the
-/// losing house records the building, the house that takes it back forgets
-/// it, and its death clears it.
+/// losing house records the building, the house that takes it forgets it
+/// only when it names that building, and its expiry clears it whatever the
+/// control.
 #[test]
-fn the_lost_building_follows_owner_changes_and_its_death() {
+fn the_lost_building_follows_owner_changes_and_expiry() {
     let rules = rules();
     let mut sim = arena(&rules);
     let plant = spawn(&mut sim, &rules, "GAPOWR", "Russians", 16, 10);
+    let other = spawn(&mut sim, &rules, "GAPOWR", "Russians", 20, 10);
 
     give(&mut sim, &rules, plant, "Americans");
     assert_eq!(lost_building(&sim, "Russians"), Some(plant));
     assert_eq!(lost_building(&sim, "Americans"), None);
 
+    give(&mut sim, &rules, other, "Americans");
     give(&mut sim, &rules, plant, "Russians");
-    assert_eq!(lost_building(&sim, "Russians"), None);
+    assert_eq!(lost_building(&sim, "Russians"), Some(other));
     assert_eq!(lost_building(&sim, "Americans"), Some(plant));
 
+    give(&mut sim, &rules, other, "Russians");
+    assert_eq!(lost_building(&sim, "Russians"), None);
+    assert_eq!(lost_building(&sim, "Americans"), Some(other));
+
+    // Detach_All(0), as a cloaking object runs, and a death.
+    sim.detach_all_pointer_expired(other, &rules, None, FrameEffects::default());
+    assert_eq!(lost_building(&sim, "Americans"), None);
+    give(&mut sim, &rules, plant, "Americans");
     kill(&mut sim, &rules, plant);
     assert!(
         sim.substrate
@@ -211,5 +222,5 @@ fn the_lost_building_follows_owner_changes_and_its_death() {
             .get(plant)
             .is_none_or(|entity| !entity.lifecycle.object_alive)
     );
-    assert_eq!(lost_building(&sim, "Americans"), None);
+    assert_eq!(lost_building(&sim, "Russians"), None);
 }

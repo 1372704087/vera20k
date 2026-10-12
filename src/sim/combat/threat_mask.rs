@@ -274,32 +274,30 @@ mod tests {
     }
 
     #[test]
-    fn a_computer_engineer_returns_its_lost_building_in_reach() {
-        use ControlFlow::{Break, Continue};
+    fn a_computer_engineer_returns_its_lost_building_before_the_unarmed_test() {
+        use ControlFlow::Break;
         let engineer = |human, lost: Option<u64>| InfantryScanner {
             human,
             engineer: true,
             lost_building: move || lost,
-            armed: true,
+            armed: false,
             infiltrate: false,
             vehicle_thief: false,
             c4: false,
             class_bits: || 0xBC,
             primary_warhead_spares_medium_and_wood: || false,
         };
+        // `0x0051E16E..0x0051E209` precede the unarmed `return 0` at
+        // `0x0051E288`, which takes the rest.
         assert_eq!(
             infantry_override(0x20, engineer(false, Some(7))),
             Break(Some(7))
         );
-        // Out of reach (or none), it scans for Capturable buildings.
-        assert_eq!(
-            infantry_override(0x20, engineer(false, None)),
-            Continue(0x220)
-        );
-        // A human engineer neither returns it nor asks for buildings.
+        assert_eq!(infantry_override(0x20, engineer(false, None)), Break(None));
+        // A human engineer never reads it.
         assert_eq!(
             infantry_override(0x20, engineer(true, Some(7))),
-            Continue(0x20)
+            Break(None)
         );
     }
 

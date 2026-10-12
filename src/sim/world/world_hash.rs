@@ -458,6 +458,11 @@ impl Simulation {
         // YR LogicClass trigger latches are save/lockstep state, even though
         // their camera/message outcomes stay app-owned and are not hashed.
         self.trigger_runtime.hash_state(&mut hasher);
+        // ObjectClass+0x64, written by trigger action 99 and saved with the object.
+        if !self.object_custom_sounds.is_empty() {
+            b"object-custom-sounds-v1".hash(&mut hasher);
+            self.object_custom_sounds.hash(&mut hasher);
+        }
         self.team_script_vm
             .hash_state(self.session.binary_frame as i32, &mut hasher);
         self.hash_playfield_authority(&mut hasher);

@@ -24,6 +24,7 @@ use crate::rules::ini_value::{crt_atoi, truncate_native_bytes};
 use crate::sim::timer::CdTimer;
 use crate::sim::world::{FrameEffects, SimSoundEvent, Simulation, TriggerInputs};
 
+const ACTION_PLAY_SOUND: i32 = 19;
 const ACTION_FORCE_TRIGGER: i32 = 22;
 const ACTION_SET_GLOBAL: i32 = 28;
 const ACTION_CLEAR_GLOBAL: i32 = 29;
@@ -36,10 +37,12 @@ const ACTION_CLEAR_LOCAL: i32 = 57;
 const ACTION_ANNOUNCE_WIN: i32 = 67;
 const ACTION_ANNOUNCE_LOSE: i32 = 68;
 const ACTION_END_SCENARIO: i32 = 69;
+const ACTION_PLAY_SOUND_AT_WAYPOINT: i32 = 99;
 const ACTION_JUMP_CAMERA: i32 = 112;
 const ACTION_SET_ALTERNATE_BASE: i32 = 137;
 const ACTION_CLEAR_ALTERNATE_BASE: i32 = 138;
 
+const EVENT_ANY: i32 = 8;
 const EVENT_GLOBAL_IS_SET: i32 = 27;
 const EVENT_GLOBAL_IS_CLEAR: i32 = 28;
 const EVENT_LOCAL_IS_SET: i32 = 36;
@@ -96,6 +99,11 @@ struct RuntimeAction {
     reference: Option<DefinitionReference>,
     /// Original Read6DD5B0 materializes +90 once, including Vox753250.
     value: Option<i32>,
+    /// Parameter type 7's +90: `VocClass::FindIndex @ 0x007514D0` of the raw
+    /// token (`0x006DD7CE..0x006DD7D5`). The canonical SOUNDMD id stands for
+    /// the resolved index so no Voc ordinal enters simulation; `None` is the
+    /// -1 a missing or unknown name materializes.
+    sound: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
@@ -212,6 +220,7 @@ impl RuntimeDefinitions {
         &mut self,
         entry: ActionEntry,
         eva: Option<&crate::rules::sound_ini::EvaRegistry>,
+        sounds: Option<&crate::rules::sound_ini::SoundRegistry>,
     ) -> RuntimeAction {
         let reference = match entry.definition_reference() {
             Some(ActionDefinitionReference::Team(selector)) => match selector {
@@ -251,16 +260,24 @@ impl RuntimeDefinitions {
         } else {
             entry.literal_value()
         };
+        // FindIndex7514D0 compares the untrimmed token case-insensitively.
+        let sound = (parameter_type == 7)
+            .then(|| entry.params.get(1))
+            .flatten()
+            .and_then(|name| sounds?.get(name))
+            .map(|sound| sound.id.clone());
         RuntimeAction {
             entry,
             reference,
             value,
+            sound,
         }
     }
     fn read_map(
         map: &crate::map::map_file::MapFile,
         teams: &crate::rules::team_ai_ini::TeamAiIniRegistry,
         eva: Option<&crate::rules::sound_ini::EvaRegistry>,
+        sounds: Option<&crate::rules::sound_ini::SoundRegistry>,
     ) -> Self {
         let mut definitions = Self::default();
         // Full_Init687984/68798D: reads are transactions, not the final merged
@@ -312,7 +329,7 @@ impl RuntimeDefinitions {
                     .map_or_else(Vec::new, |record| record.entries.clone());
                 let actions = actions
                     .into_iter()
-                    .map(|entry| definitions.resolve_action(entry, eva))
+                    .map(|entry| definitions.resolve_action(entry, eva, sounds))
                     .collect();
                 definitions.trigger_types[index] = TriggerType {
                     id: definitions.trigger_types[index].id.clone(),
@@ -861,9 +878,10 @@ impl Simulation {
         map: &crate::map::map_file::MapFile,
         teams: &crate::rules::team_ai_ini::TeamAiIniRegistry,
         eva: Option<&crate::rules::sound_ini::EvaRegistry>,
+        sounds: Option<&crate::rules::sound_ini::SoundRegistry>,
     ) {
         self.trigger_runtime = TriggerRuntime {
-            definitions: RuntimeDefinitions::read_map(map, teams, eva),
+            definitions: RuntimeDefinitions::read_map(map, teams, eva, sounds),
             definitions_prepared: true,
             locals_set: map
                 .local_variables
@@ -952,7 +970,11 @@ impl Simulation {
                 .map_or_else(Vec::new, |r| r.entries.clone());
             let actions = entries
                 .into_iter()
-                .map(|entry| self.trigger_runtime.definitions.resolve_action(entry, None))
+                .map(|entry| {
+                    self.trigger_runtime
+                        .definitions
+                        .resolve_action(entry, None, None)
+                })
                 .collect();
             let typ = &mut self.trigger_runtime.definitions.trigger_types[index];
             typ.events = events;
@@ -1446,6 +1468,12 @@ impl Simulation {
                         .timer
                         .expired(self.session.binary_frame as i32),
                     2 => event_kind == 2,
+                    // HasOccurred71E940: kind 8 skips the raised-kind gate
+                    // (table byte71F28B selects71ECAF) and every typed arm,
+                    // then returns true at71F1B4 whether or not
+                    // Find_By_Country_Index502D30 finds a House. It writes no
+                    // persistence flag, so any raise springs it.
+                    EVENT_ANY => true,
                     _ => self.trigger_runtime.evaluate_event(
                         condition,
                         self.session.binary_frame,
@@ -1505,6 +1533,53 @@ impl Simulation {
             self.reset_trigger_timers(index);
         }
         result
+    }
+
+    /// HouseClass::Update's Tag raise (`0x004F8F87..0x004F8FBC`): every eighth
+    /// frame (signed `Frame % 8`), Tag6E53A0 raises event 8 with no object and
+    /// the zero Cell on each of the House's Tags (+3C), last to first. The
+    /// count (+48) is read once and the list re-read for every slot.
+    /// RESIDUAL: a raise that shrinks the list leaves slots native still reads
+    /// (the stale pointer past the count); VERA skips them. No retail
+    /// skirmish trigger reaches it: their event-8 Tags fire once.
+    pub(crate) fn raise_house_tags(
+        &mut self,
+        house: crate::sim::intern::InternedId,
+        rules: Option<&crate::rules::ruleset::RuleSet>,
+        overlay_registry: Option<&crate::rules::overlay_types::OverlayTypeRegistry>,
+        frame_effects: FrameEffects<'_>,
+    ) {
+        if (self.session.binary_frame as i32) % 8 != 0 {
+            return;
+        }
+        let count = self
+            .trigger_runtime
+            .house_tags
+            .get(&house)
+            .map_or(0, Vec::len);
+        let mut effects = Vec::new();
+        for slot in (0..count).rev() {
+            let Some(&tag) = self
+                .trigger_runtime
+                .house_tags
+                .get(&house)
+                .and_then(|tags| tags.get(slot))
+            else {
+                continue;
+            };
+            self.dispatch_live_tag_event(
+                tag,
+                EVENT_ANY,
+                None,
+                (0, 0),
+                false,
+                &mut effects,
+                rules,
+                overlay_registry,
+                frame_effects,
+            );
+        }
+        self.publish_trigger_effects(effects);
     }
 
     /// TechnoDiscovered6F4A18's synchronous Tag6E53A0 ingress. The existing
@@ -1840,6 +1915,7 @@ impl Simulation {
             .push((action.entry.kind, action.value.unwrap_or(0)));
         let reference = action.reference;
         let value = action.value;
+        let sound = action.sound.as_deref();
         let action = &action.entry;
         let trigger_owner = self.trigger_runtime.definitions.trigger_types[type_index]
             .owner
@@ -1893,6 +1969,17 @@ impl Simulation {
                     crate::sim::world::UninitContext::new(Some(rules), overlay_registry)
                         .with_effects(frame_effects),
                 );
+            }
+            ACTION_PLAY_SOUND => {
+                // Execute6DD8B0 case19 (6DE780..6DE791): Voc PlayAtPos750920
+                // of +90, centre pan2000, volume1.0, no handle. -1 returns at
+                //75093B.
+                if let Some(sound_id) = sound {
+                    self.sound_events.push(SimSoundEvent::VocCentered {
+                        sound_id: sound_id.to_owned(),
+                    });
+                    frame_effects.flush_sound(self, rules);
+                }
             }
             21 => {
                 let Some(index) = value else {
@@ -1997,6 +2084,14 @@ impl Simulation {
                     None
                 };
                 effects.push(TriggerEffect::CameraAtCoord { coord, velocity });
+            }
+            ACTION_PLAY_SOUND_AT_WAYPOINT => {
+                return self.trigger_play_sound_at_waypoint(
+                    sound,
+                    action.waypoint_index,
+                    rules,
+                    frame_effects,
+                );
             }
             ACTION_SET_ALTERNATE_BASE => {
                 let Some(house_id) = resolve_trigger_house(self, trigger_owner.as_deref(), rules)

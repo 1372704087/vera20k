@@ -946,7 +946,10 @@ use crate::sim::world::Simulation;
 // Version 328 records lack these flags.
 // 329 -> 330: the move-order adapter (`MovementTarget`) keeps no goal; its
 // `final_goal` is gone (#689). Version 329 records carry it.
-const SNAPSHOT_VERSION: u32 = 330;
+// 330 -> 331: objects keep the custom sound trigger action 99 assigns
+// (ObjectClass+0x64), and each type-7 trigger action its resolved sound
+// (+0x90). Version 330 records lack these fields.
+const SNAPSHOT_VERSION: u32 = 331;
 
 const SNAPSHOT_PRODUCT_MAGIC: [u8; 8] = *b"VERA20K\0";
 const SNAPSHOT_ENVELOPE_VERSION: u32 = 1;
@@ -2172,6 +2175,18 @@ fn restore_object_references(
             "wave",
             "WaveStore",
             wave_id,
+        )?;
+    }
+
+    for &object_id in sim.object_custom_sounds.keys() {
+        require_resolved_reference(
+            entity_ids.contains(&object_id)
+                || sim.production.terrain_objects.contains_key(&object_id),
+            "ObjectCustomSounds",
+            object_id,
+            "object",
+            "EntityStore or TerrainObjectStore",
+            object_id,
         )?;
     }
 
@@ -4079,7 +4094,8 @@ mod tests {
         // 327 -> 328: each house's last lost building (+0x54E0).
         // 328 -> 329: each house's spy gains (+0x2BC..+0x2C0).
         // 329 -> 330: the move-order adapter keeps no goal (#689).
-        assert_eq!(super::SNAPSHOT_VERSION, 330);
+        // 330 -> 331: object custom sounds and type-7 action sounds.
+        assert_eq!(super::SNAPSHOT_VERSION, 331);
     }
 
     #[test]

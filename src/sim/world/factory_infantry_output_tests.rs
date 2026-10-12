@@ -462,7 +462,6 @@ fn ground_command_fixture(
                     Some(&rules),
                     &sim.houses,
                 ),
-                final_goal: None,
             });
         }
     } else {
@@ -769,13 +768,6 @@ fn assert_ground_command_fields(sim: &Simulation, id: u64, row: &Value, state: &
             actor.foot_speed.applied_fraction(),
             native_fraction.applied_fraction(),
             "{context}: Foot applied fraction"
-        );
-        assert!(
-            actor
-                .movement_target
-                .as_ref()
-                .is_none_or(|target| target.final_goal.is_none()),
-            "{context}: no copied Drive goal"
         );
     } else {
         assert_eq!(

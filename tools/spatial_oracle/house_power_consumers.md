@@ -12,8 +12,8 @@ The original is active-retail `gamemd.exe`, SHA256
 `1cdd1180e49024fbda8ad568caac2e86e856063ff67ab38f62b7d2c7bb84298c`.
 The payload records every reached instruction boundary, original byte hashes,
 entry order, complete Main/Scenario RNG buffers and unchanged executable
-sections. The shared oracle owner rejects an unsupported executable and records
-normalized LF source identities for all imported fixture owners in the metadata.
+sections. The shared oracle owner rejects an unsupported executable and refuses to publish
+if an imported fixture owner changes during the run.
 The 44 retained histories have identical native state and instruction receipts
 to the source research packet. Only portable provenance and explicit startup
 wording differ.
@@ -29,7 +29,7 @@ python -m tools.spatial_oracle.house_power_consumers --check
 
 `--write` deliberately records new native execution. Expected values must never
 be generated from Rust. The ordinary check writes no files. The `.json` and
-`.meta.json` pair carry the comparison and native/source identities without
+`.meta.json` pair carry the comparison and native identity without
 depending on machine-specific evidence paths or copied retail assets.
 
 ## Inputs and original boundaries

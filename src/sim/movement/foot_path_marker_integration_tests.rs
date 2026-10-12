@@ -24,7 +24,6 @@ fn marked_probe_survives_modern_foot_search_and_mark_restoration() {
         let actor = sim.substrate.entities.get_mut(id).unwrap();
         actor.body_facing.snap(0x4000, frame);
         actor.movement_target = Some(MovementTarget {
-            final_goal: Some(goal_cell),
             ..Default::default()
         });
         let goal = cell_centre((goal_cell.0 as i16, goal_cell.1 as i16));

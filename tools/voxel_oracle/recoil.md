@@ -5,7 +5,7 @@
 `recoil.json` records constructor values, eight reader controls, retained-layer
 controls, four firing gates, thirteen histories and four arm-helper comparisons.
 The physical GTGCAN, CAEAST02, NASAM and YAGGUN rows record source hashes and the
-actual original cached INI reads. The sidecar records source and Unicorn identity.
+actual original cached INI reads. The sidecar records Unicorn identity.
 
 Supply a flat extract containing the original `RULESMD.INI`, `MPBattleMD.ini`,
 and `LANGRULE.INI` if present. The default map is the repository

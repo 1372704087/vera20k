@@ -34,12 +34,6 @@
     "raw_random": "0x0065C780",
     "ranged_random": "0x0065C7E0"
   },
-  "source_normalized_lf_sha256": {
-    "tools/spatial_oracle/house_base_projection.py": "82d663a4ebd5a1a3799737932727cd4d59174114a6d460904d75dd8ec3e40054",
-    "tools/native_oracle.py": "0c94545bb9c4ca049ad7d46b152d9bd79624c7e52b3fec7a42d360974bbaacef",
-    "tools/spatial_oracle/map_queries.py": "f1c798f50bf8a69ebe53c6d0e2327ce395ad99ba5c7017e74e353757770f4305",
-    "tools/rmg_oracle/gen_rng_vectors.py": "c1e75b4eade453c1331ddc140365eb687a70e06d64852a9b786856fd5bb530ad"
-  },
   "payload_sha256": "9523e46093b56ebbc8cea0b9191bac3a19960f0e85fa1e3f99e77c53a2192872",
   "replay_command": "python -m tools.spatial_oracle.house_base_projection --ordinary-return"
 }

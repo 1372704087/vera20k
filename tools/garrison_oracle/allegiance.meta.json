@@ -64,11 +64,6 @@
     0
   ],
   "supplied_abandoned_sound": 42,
-  "source_normalized_lf_sha256": {
-    "tools/garrison_oracle/allegiance.py": "2ecdb6a82c8d0827ba54012a3c84aae3d00e369f6d0a31a3f1e2fdda20378fdb",
-    "tools/native_oracle.py": "0c94545bb9c4ca049ad7d46b152d9bd79624c7e52b3fec7a42d360974bbaacef",
-    "tools/spatial_oracle/map_queries.py": "f1c798f50bf8a69ebe53c6d0e2327ce395ad99ba5c7017e74e353757770f4305"
-  },
   "payload_sha256": "8372fee3b2c42b179c4e79f177b7b605113c35583101a7d0c43bc06383b03e17",
   "replay_command": "python -m tools.garrison_oracle.allegiance"
 }

@@ -10,9 +10,8 @@ are independent inputs and are not rewritten by this companion.
 
 The active-retail executable is `gamemd.exe`, image base `00400000`, SHA256
 `1cdd1180e49024fbda8ad568caac2e86e856063ff67ab38f62b7d2c7bb84298c`.
-The `.meta.json` records the Unicorn versions, repository-relative normalized
-source hashes, native entries, supplied boundaries, inherited fixture
-provenance and the canonical payload hash. The JSON records retail file hashes
+The `.meta.json` records the Unicorn versions, native entries, supplied
+boundaries, inherited fixture provenance and the canonical payload hash. The JSON records retail file hashes
 and selected native reader outputs, not retail executable or asset bytes.
 
 ## Reproduction

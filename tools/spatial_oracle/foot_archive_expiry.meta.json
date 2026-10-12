@@ -163,8 +163,5 @@
       "sha256": "4eff25f4c92c96a88b7ccca828e78be97bf665656223f823d189ef895cd6efac"
     }
   },
-  "source_normalized_lf_sha256": {
-    "tools/spatial_oracle/foot_attack_move.py": "bb87b4f437314f84c20e71c84118b04b62eef3f3f0f4b41732a2c3b70651edf1"
-  },
   "payload_sha256": "35ea4096ea0261d2084f1396232d795054daca19ef33a25e94ae636e0d938c18"
 }

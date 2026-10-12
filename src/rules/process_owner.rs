@@ -11,6 +11,14 @@
 mod sinking_sound_tests;
 
 #[cfg(test)]
+#[path = "ambient_sound_tests.rs"]
+mod ambient_sound_tests;
+
+#[cfg(test)]
+#[path = "working_sound_tests.rs"]
+mod working_sound_tests;
+
+#[cfg(test)]
 #[path = "turret_rotate_sound_tests.rs"]
 mod turret_rotate_sound_tests;
 

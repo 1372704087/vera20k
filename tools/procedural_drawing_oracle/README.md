@@ -161,7 +161,7 @@ All original execution uses active-retail `gamemd.exe`, SHA-256
 `1cdd1180e49024fbda8ad568caac2e86e856063ff67ab38f62b7d2c7bb84298c`.
 Use the shared [native runner](../native_oracle.md), Unicorn2.1.4 and the explicit
 FPCW0E7F/RGB565 fixture. Original bytes and prepared boundaries are recorded in
-`rally.meta.json`; the metadata pins the actual generator/helper hashes.
+`rally.meta.json`.
 
 ```sh
 python -m tools.procedural_drawing_oracle.rally --check

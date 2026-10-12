@@ -37,8 +37,5 @@
     "force_track": "0x004B0C40",
     "owner_speed_set": "0x004D3710"
   },
-  "source_normalized_lf_sha256": {
-    "harness": "2696c2e4b23b452b471ba0c1adfe0390a155106a86005d85343e67317bbca7d9"
-  },
   "payload_sha256": "9005c1c7a6d54fbbef8a29522d23aa2e5bf43e8832e5a50f4feeca4f9138fcaf"
 }

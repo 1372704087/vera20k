@@ -535,9 +535,12 @@ impl GameSoundEvent {
 /// Cannon or Yuri Bust sustains its rotate loop while the turret turns and
 /// decays it when it stops.
 ///
+/// `WorkingSound=`/`NotWorkingSound=` are landed the same way on the
+/// building's `+0x6B4` handle (`sim::world::building_working_sound`).
+///
 /// **Still absent.** Nothing emits the other ambient families:
-/// `WorkingSound=` (9 stock), `AuxSound1=` (8), `AuxSound2=` (5) and the water
-/// enter/leave pair have no producer.
+/// `AuxSound1=` (8 stock), `AuxSound2=` (5) and the water enter/leave pair
+/// have no producer.
 /// - Player effect: the soundscape is still thin — bases have no working hum.
 /// - Frequency: continuous.
 /// - Downstream risk: none left on the audio side. Each remaining family needs

@@ -43,19 +43,5 @@
     "whole_response": "0x00708080",
     "team_suspend_empty_array": "0x006EC250"
   },
-  "source_normalized_lf_sha256": {
-    "foot_navigation_coordinate.py": "fd43b2ee4f41a56d1a07503bf8831c9a0cdba7cc5c6bc5b0266e37152d4c0352",
-    "native_oracle.py": "79dac1057d97e706f106a26145f00fa220d92c172b5173876c60fed22c17530c",
-    "bridge_render_inputs.py": "4bfc6d80d7cd0d75f3db0123bb646011b6706f9195a8c1137e0f397941bff9e4",
-    "bridge_anim_inputs.py": "f7f2941e11bbede50ffab19554a789e4e3e42f4969b04ad4e9697973e659d316",
-    "bridge_anim_lists.py": "2a7a96ea1e24f1129161e8fe5608c0ab69ac584ee6ad78fa91c43bd3ad072045",
-    "building_body_rules.py": "4c01dd452ccf63c0058e8b58cb751c1e13933fcc25b9ef639cb57c628f4e8643",
-    "bridge_target_composed.py": "fb3c713e877cfaa88c5003e7624056b91343354d4034eb6bc83ee4d477f3d453",
-    "ifv_fire_coord.py": "b4a869ace6b42a8283aa4519898ad568b4defa8ea7b773bb36373c713c5021d2",
-    "guided_step.py": "66862363b6ada9a83f71645f8d2f1684984bde8cd35cb52091607d40427e528e",
-    "flat_art.py": "2f663fbb2b8c88925dd8aa46e8be9216d580ec033bac3e08a138bcd0b272b7c6",
-    "locomotor_at_coord.py": "11ed52b31577d264c8bc4a7acffb8e85a6b0e7d3e32c5bd74f92492368dcf1dc",
-    "map_queries.py": "f1c798f50bf8a69ebe53c6d0e2327ce395ad99ba5c7017e74e353757770f4305"
-  },
   "payload_sha256": "c3815df542c8390d766ec48a56c99b5cfddfe9940a855a8e31e072a97045c81d"
 }

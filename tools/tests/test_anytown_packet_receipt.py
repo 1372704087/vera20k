@@ -85,9 +85,8 @@ class PacketReceiptTests(unittest.TestCase):
                 else:
                     self.assertEqual((directory / name).read_bytes(), raw)
 
-    def test_shared_publisher_source_provenance_is_identity_too(self):
-        provenance = {'source_normalized_lf_sha256': {'tools/helper.py': 'current'},
-                      'replay_command': 'python -m tools.spatial_oracle.anytown_damage.first'}
+    def test_shared_publisher_replay_command_is_identity_too(self):
+        provenance = {'replay_command': 'python -m tools.spatial_oracle.anytown_damage.first'}
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary); directory = self.fixture(root)
             self.staged_fixture(directory)

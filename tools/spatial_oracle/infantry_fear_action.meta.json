@@ -28,8 +28,5 @@
     "scatter_boundary": "0x0051D0D0",
     "rng_seed": "0x0065C6D0"
   },
-  "source_normalized_lf_sha256": {
-    "infantry_movement_action.py": "4b7224985ba2f8dfcee945c7e1d09e1f23ba05cc516fab2d12e861627dc70521"
-  },
   "payload_sha256": "86d2695a2b708cddd452ac4cb12df49255f380fc4a7fc1bee4a2cf62dd32d8b2"
 }

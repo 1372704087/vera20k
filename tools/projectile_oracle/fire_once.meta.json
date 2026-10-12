@@ -282,12 +282,5 @@
       "sha256": "f8eb0dc0156a877028ac2ed57bf2e71a9445ffcb6ef6a4caf3b0dbb7b111834c"
     }
   ],
-  "source_normalized_lf_sha256": {
-    "fire_once": "9b3fba9d6733d29cddd35542322f49c49c776f36a26ae02679b17b80e36ad8a7",
-    "native_oracle": "67a69b8e446a8134fbff1128c1fe15025350f329fc25585af29ea725746f2ceb",
-    "foot_missions": "c74994c108f7ef464dcdbb58a6affbe73b31a38406d10e20d5993da183cd80f7",
-    "mission": "e04f940e6cf00369303c763ecc4f2c7500c99dabef149a90d2adb7c37283694a",
-    "mtnk_attack": "629ce5742d89065c25f897b7ab2336a71f9c88c6176fa2e032e585c59f7113b3"
-  },
   "payload_sha256": "28875e193453afbe71b05d20d297e3003c20962fafa30872c2d33386a24ef105"
 }

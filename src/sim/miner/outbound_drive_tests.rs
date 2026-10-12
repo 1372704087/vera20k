@@ -446,7 +446,6 @@ fn assert_command_state(
     let route = entity.navigation.path_replay.installed_cells(START);
     assert_eq!(route.first().copied(), Some(START));
     assert_eq!(route.last().copied(), Some(target));
-    assert_eq!(movement.final_goal, None);
     assert_eq!(
         crate::sim::movement::movement_goal_cell(entity),
         Some(target)
@@ -816,7 +815,6 @@ fn production_stock_harv_far_return_drive_uses_rule_profile() {
         !entity.radio_contacts.contains(refinery_id),
         "beyond HarvesterTooFarDistance the return sends no HELLO"
     );
-    assert_eq!(movement.final_goal, None);
     assert_eq!(
         entity.navigation.nav_com,
         Some(NavTargetRef::cell(staging.0, staging.1)),

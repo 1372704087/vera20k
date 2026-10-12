@@ -259,9 +259,7 @@ Run them as modules (`python -m ...`). Imports do not emulate or write files;
 reference. A missing reference or mismatch fails; checking never creates or fixes it.
 `--write` explicitly replaces the payload and its `.meta.json` sidecar. Review any
 changed values against native evidence before accepting them. This is not a way to
-make failing Rust tests green. `--refresh-sources` replays like `--check` and then
-records only the current source pins and replay command (see below); it never
-writes a payload or archive.
+make failing Rust tests green.
 
 The NULL boundary corpus preserves the ordinary `track_destination` corpus. Run
 `python -m tools.spatial_oracle.track_destination --null-boundary --check` to replay
@@ -293,44 +291,16 @@ environment. Existing references without sidecars remain checkable, with an expl
 message that their historical environment is unknown. Regeneration can record the
 current environment; it cannot recover historical provenance.
 
-Two fields are source provenance, not evidence: `source_normalized_lf_sha256`
-(the declared sources that last reproduced the payload, keyed by repository path)
-and `replay_command` (how that run was invoked). An edit to a shared helper leaves
-them stale without changing any native result, so `--check` compares everything
-else exactly and only reports their drift. `--refresh-sources` records them after a
-replay reproduced the payload, archive and every other field exactly.
+Sidecars pin no hashes of repository sources (AGENTS.md), so an edit to a shared
+helper fails no `finish_vectors` check whose native output is unchanged. The runner
+still hashes the sources a producer declares in `source_paths` and refuses to compare
+or publish if one changed while it ran. `replay_command` records how the payload was
+made; it is not evidence. A sidecar from another branch that still carries the old
+`source_normalized_lf_sha256` pin passes; `--write` drops the field.
 
-### After editing a shared source
-
-[`tools/oracle_sources.py`](oracle_sources.py) lists the corpora whose recorded
-sources include changed files and replays them. It needs only Git to list; replays
-run with its interpreter:
-
-```sh
-python -m tools.oracle_sources affected               # changes since the origin/main merge base
-python -m tools.oracle_sources affected tools/native_inspect.py --replay
-python -m tools.oracle_sources stale --replay --timeout 1800
-```
-
-It also lists pins that older producers keep in metadata fields of their own,
-such as `harness_sha256`, `sources` or `source_pins`. A refresh cannot record
-those. Where the producer compares its whole sidecar on `--check`, as
-`finish_vectors` does, an edit to such a source fails the corpus until a reviewed
-replay with `--write`, or until the producer declares `source_paths` instead.
-
-`--replay` runs each corpus's recorded (or declared, or same-named) producer with
-`--refresh-sources`, one at a time, and reports one outcome per corpus:
-
-- `REFRESHED` or `CURRENT`: the payload, archive and evidence reproduced exactly.
-- `CHANGED`: the native output or evidence metadata differs; review it.
-- `ELSEWHERE`: the command compared some other corpus.
-- `PINNED`: not run, because another metadata field pins a changed source.
-- `UNSUPPORTED`: the producer publishes without `finish_vectors`' `--refresh-sources`.
-- `FAILED`: the producer stopped with its own error, most often a missing input.
-- `TIMEOUT`, or `UNKNOWN` when no replay command is recorded or inferable.
-
-It exits 1 on `CHANGED` or `ELSEWHERE`, 3 if any corpus could not be confirmed,
-and 0 otherwise. Report the changed and unconfirmed corpora in the PR.
+Some older producers still keep source hashes in fields of their own, such as
+`harness_sha256`, `sources` or `source_pins`, and compare their whole sidecar. An edit
+to such a source fails their `--check` until those fields are removed (#1137).
 
 ## Add a comparison
 
@@ -354,14 +324,13 @@ branches and boundaries. Avoid a second Python implementation of the algorithm.
 * Use `finish_vectors(generate, path, provenance=lambda: provenance(...))`. Lazy
   callables keep help and argument errors independent of native work. Record the
   scope, assumptions, substitutions (including none), and native entries explicitly.
-  Pass `source_paths={label: Path(...)}` when recording source provenance: the
-  shared publisher captures UTF-8/LF hashes before generation, rejects drift
-  through metadata construction before comparison/publication, and owns the
-  `source_normalized_lf_sha256` field. List the producer and its relevant helpers;
-  this is a run consistency check, not a source lock or an import-time attestation.
-  Do not hash sources into other metadata fields: `--check` compares those as
-  evidence. Do not list the Rust consumers either: the native run executes no
-  Rust, and their own tests compare them with the corpus.
+  Pass `source_paths={label: Path(...)}` for the producer and its relevant helpers:
+  the shared publisher hashes them before generation and refuses to compare or
+  publish if one changed through metadata construction. This is a run consistency
+  check; nothing is recorded. Do not hash sources into metadata fields: sidecars
+  pin no repository sources, and `--check` compares every field but
+  `replay_command`. Do not list the Rust consumers either: the native run executes
+  no Rust, and their own tests compare them with the corpus.
 * Consume native outputs in a focused Rust test of the actual production function.
   Assert case identity/coverage as well as output equality, and review the connection
   to callers independently. The HSV example checks 2,304 inputs, not all 256³ inputs

@@ -32,11 +32,5 @@
     "campaign_normalize": "0x0050B920",
     "campaign_color_store": "0x0050E430"
   },
-  "source_normalized_lf_sha256": {
-    "caller": "791b7ddc19a6edc9635fa77a1e971e5afeac6c55b3a4af87a71248f3a5cf8184",
-    "palette_owner": "12f63f378e77070f5278912d71eb9fcc09d247b4680c785e838ee4997ecd1a90",
-    "ini_fixture": "4c01dd452ccf63c0058e8b58cb751c1e13933fcc25b9ef639cb57c628f4e8643",
-    "lexical_fixture": "411fae85e38850208ce1c9dc8a5b411459fd0c043f2a20a6090bee0cbf92e7da"
-  },
   "payload_sha256": "1a6132cebbda7a21c6217a12c1688f5b1f1dc0f0d0246c085287140ea5e5c72b"
 }

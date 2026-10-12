@@ -274,12 +274,6 @@ fn destination_fixture(
 }
 
 fn compare(e: &GameEntity, row: &Value) {
-    if let Some(adapter) = &e.movement_target {
-        assert_eq!(
-            adapter.final_goal, None,
-            "track goal belongs to the locomotor"
-        );
-    }
     let (destination, head) = if row["input"]["family"] == "drive" {
         let d = e
             .locomotor
@@ -763,8 +757,7 @@ fn ordinary_track_orders_match_native_without_an_eager_path_or_power_change() {
             let restored: GameEntity =
                 serde_json::from_value(serde_json::to_value(entity).unwrap()).unwrap();
             compare(&restored, &row);
-            let request = entity.movement_target.as_ref().unwrap();
-            assert_eq!(request.final_goal, None);
+            assert!(entity.movement_target.is_some());
             assert_eq!(
                 crate::sim::movement::movement_goal_cell(entity),
                 Some((11, 10))

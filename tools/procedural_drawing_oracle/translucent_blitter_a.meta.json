@@ -40,11 +40,6 @@
     "plain_convert": "0x004BBB00",
     "intensity": "0x00420196"
   },
-  "source_normalized_lf_sha256": {
-    "tools/procedural_drawing_oracle/blitter_a.py": "f78f5ffe58241cfeb9dd9ee799a871312311c38f29b8091b956ace1b8c22e3ac",
-    "tools/palette_oracle/oracle.py": "12f63f378e77070f5278912d71eb9fcc09d247b4680c785e838ee4997ecd1a90",
-    "tools/native_oracle.py": "0c94545bb9c4ca049ad7d46b152d9bd79624c7e52b3fec7a42d360974bbaacef"
-  },
   "payload_sha256": "05d5f10c47957c2d6d375e0f29bb430deab81c809083e4b41637f25737e52094",
   "replay_command": "python -m tools.procedural_drawing_oracle.blitter_a --translucent"
 }

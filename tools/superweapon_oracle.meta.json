@@ -151,9 +151,5 @@
     "IonBlastClass::UpdateAll": "0x0053D310",
     "IonBlastClass::DrawAll": "0x0053D850"
   },
-  "source_normalized_lf_sha256": {
-    "superweapon_oracle": "1d070fd5c37ecaf2f6d86ebc9a03df77fd001fd24e9d351eacb0ce076065dab0",
-    "ai_base_building_oracle": "0579013a4d58a3d89f9ab427fb6396da7b917c84c55ad016aa397baec780d623"
-  },
   "payload_sha256": "c9d0ec9ddcdb21ca2b59badee8198b662ef3e75d28fe11e8f343dfaca2b2950e"
 }

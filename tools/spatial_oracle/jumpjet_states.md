@@ -46,8 +46,8 @@ record its absence. If present, extract that physical layer too. Override the
 two input locations with `VERA20K_JUMPJET_INPUTS` and
 `VERA20K_JUMPJET_STOCK_REPORT`. `--write` deliberately publishes a changed
 reference; use it only with the native execution lane and source freeze.
-`finish_vectors` pins every loaded local Python owner before generation and
-rejects source drift. The metadata also pins binary and canonical payload
+`finish_vectors` hashes every loaded local Python owner before generation and
+refuses to publish if one changes. The metadata pins binary and canonical payload
 identity. Rust comparison sources require their own final binding/validation.
 
 The stock report is never used to initialize native scalar values. Original

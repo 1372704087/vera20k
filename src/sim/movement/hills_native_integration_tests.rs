@@ -592,13 +592,12 @@ fn hills_opposing_ordinary_moves_repath_on_the_deck() {
                 && actor.position.rx.abs_diff(other.position.rx) <= 2
                 && actor.position.ry.abs_diff(other.position.ry) <= 1;
         }
-        if let Some(target) = actor.movement_target.as_ref() {
+        if actor.movement_target.is_some() {
             let queue = &actor.navigation.path_replay;
             if route_reinstalled(&previous, queue) && facts.bridge_structural {
                 deck_rebuilds += 1;
             }
             previous = queue.clone();
-            assert_eq!(target.final_goal, None);
             assert_eq!(
                 crate::sim::movement::movement_goal_cell(actor),
                 Some((98, 75))
@@ -774,7 +773,6 @@ fn hills_same_type_marker_downgrade_reaches_live_foot_search_and_cleanup() {
             .get_mut(mover)
             .unwrap()
             .movement_target = Some(MovementTarget {
-            final_goal: Some(goal),
             ..Default::default()
         });
         assert_eq!(

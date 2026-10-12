@@ -33,7 +33,6 @@ fn mover(sim: &mut Simulation, kind: LocomotorKind) -> GameEntity {
         // Gives budget4 in both Drive's integer division and Ship's existing
         // fixed-point frame product (60 * fixed(1/15) truncates to3).
         speed: SimFixed::from_num(61),
-        final_goal: Some((3, 1)),
     });
     match kind {
         LocomotorKind::Drive => {
@@ -615,7 +614,6 @@ fn fresh_walk_refusal_preserves_xyz_before_head_selection() {
     blocker.type_ref = sim.intern("BLOCKER");
     blocker.movement_target = Some(MovementTarget {
         speed: SimFixed::from_num(61),
-        final_goal: Some((4, 2)),
     });
     // Moving: its Foot+5E0 head word steps east from (3,2).
     blocker.navigation.path_replay = crate::sim::movement::fixture_path_replay(&[(3, 2), (4, 2)]);
@@ -662,7 +660,6 @@ fn terminal_drive_snap_updates_ramp_height_with_stashed_teleport_owner() {
     assert!(loco.begin_piggyback(LocomotorKind::Drive, 0));
     entity.locomotor = Some(loco);
     let target = entity.movement_target.as_mut().unwrap();
-    target.final_goal = Some((3, 3));
     target.speed = SimFixed::from_num(120);
     seed_track(
         &mut entity,
@@ -695,7 +692,6 @@ fn terminal_centre_height_commits_before_next_process_turn_without_finalizer() {
     let mut sim = Simulation::new();
     let mut entity = mover(&mut sim, LocomotorKind::Drive);
     let target = entity.movement_target.as_mut().unwrap();
-    target.final_goal = Some((4, 3));
     target.speed = SimFixed::from_num(120);
     seed_track(
         &mut entity,
@@ -1088,7 +1084,6 @@ fn chained_mover(sim: &mut Simulation, kind: LocomotorKind) -> (GameEntity, Driv
     }
     entity.movement_target = Some(MovementTarget {
         speed: SimFixed::from_num(128),
-        final_goal: Some((5, 1)),
     });
     (entity, head)
 }

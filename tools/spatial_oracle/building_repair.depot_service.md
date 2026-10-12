@@ -234,8 +234,7 @@ for the RTTI gate. Full Event actor/token admission, network/input dispatch,
 Team internals, later Stop/Deploy/MegaMission work, movement and subsequent
 FootAI retry are outside these bounds. The shared construction slice driver
 accepts an optional instruction limit: new Event rows declare 2,000,000 while
-all existing construction calls retain their 10,000 default. Its current
-expiry sidecar refresh changes only the two direct source pins; expiry results
+all existing construction calls retain their 10,000 default. Expiry results
 and coverage remain unchanged. Older historical sidecars remain preserved.
 
 ## Original terminal arrival and idle handoff
@@ -335,8 +334,7 @@ passed. Removing only `arrival_terminal` reproduces the complete previous depot
 JSON bytes, SHA-256 `773218f6a5333a6d7d0625650800c94c148b3043f273703b8381639c7d72d6e5`.
 Before the repair-fallback addition, the arrival-bearing payload SHA-256 is
 `fc9d418aaa0baef5bf89e3565d8b6cedc6a7cb5a850284494903b26ed24cabb3`.
-The current expiry sidecar changes only its direct building-repair source pin;
-the expiry payload remains byte-identical, SHA-256
+The expiry payload remains byte-identical, SHA-256
 `21f851dbcb3f964921ba1c06cec3cbfe131609890c1429deed8a2d3a48cb00f7`.
 
 ## Repair fallback power and readiness
@@ -403,8 +401,8 @@ legacy420 slot and current expiry checks also passed. Removing only
 SHA-256 `fc9d418aaa0baef5bf89e3565d8b6cedc6a7cb5a850284494903b26ed24cabb3`.
 The expanded payload SHA-256 is
 `76614921afb7ac9e87c94c7644588a69aa03b4f1069de911982ed08bbfd19172`.
-Expiry results remain byte-identical; its sidecar changes only the direct
-building-repair source pin. Legacy payloads and sidecars remain byte-identical.
+Expiry results remain byte-identical. Legacy payloads and sidecars remain
+byte-identical.
 
 ## Coverage boundaries and Rust consumers
 

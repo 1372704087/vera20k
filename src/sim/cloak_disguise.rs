@@ -456,8 +456,8 @@ pub fn is_disguised_to(
 /// inputs of [`is_disguised_to`] read from live state. `HouseClass::IsAlliedWith
 /// @ 0x004F9A90` is one-way (the asker's ally bits): the object's owner asks
 /// about the observer, then the observer about the house it wears (`+0x51C`).
-/// Callers: `Evaluate_Candidate` (`0x006F84B1`) and `ShouldRetaliate`
-/// (`0x00708899`).
+/// Callers: `Evaluate_Candidate` (`0x006F84B1`), `ShouldRetaliate`
+/// (`0x00708899`) and `UnitClass::Should_Crush_It` (`0x00743A26`).
 pub(crate) fn object_disguised_to(
     object: &crate::sim::game_entity::GameEntity,
     observer: InternedId,

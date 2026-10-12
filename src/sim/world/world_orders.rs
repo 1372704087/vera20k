@@ -14,7 +14,7 @@ use crate::rules::ruleset::RuleSet;
 use crate::sim::combat;
 use crate::sim::components::OrderIntent;
 use crate::sim::intern::InternedId;
-use crate::sim::mission::MissionType;
+use crate::sim::mission::{MissionId, MissionType};
 use crate::sim::movement;
 use crate::sim::movement::locomotor::MovementLayer;
 use crate::util::direction_tables::CELL_DELTAS;
@@ -1252,6 +1252,24 @@ impl Simulation {
             // Attack's, which a Health-0 wreck does not run
             // (`MissionClass::AI @ 0x005B30A7`).
             if entity.dying || !super::techno_ai::mission_handlers_run(self, id) {
+                continue;
+            }
+            // Unit AI commences a ready queued mission (`0x00736465`/
+            // `0x00736473`, Infantry `0x0051BC51`) before FootClass::AI
+            // (`0x0073647B`, `0x0051BC9F`) runs the mission handler and then
+            // the locomotor, so neither Mission_Attack's approach nor the
+            // per-cell range stop sees that object: the Move a computer
+            // crusher's damage response queues (`0x007385A1`) keeps the
+            // destination it set on the object that hit it.
+            // RESIDUAL: once that Move commences, this pass still takes the
+            // unit, which holds the attacker as its retaliation target:
+            // within range it drops the MovementTarget adapter, which the
+            // track host restores toward the NavCom (`complete_pending_order`;
+            // `range_stop_admits` refuses Move, so the NavCom stays), where
+            // Mission_Move has no approach or stop. The charge completes.
+            if entity.mission.queued() != MissionId::NONE
+                && self.mission_ready_to_commence(id, rules)
+            {
                 continue;
             }
             if entity.passively_acquired_target {

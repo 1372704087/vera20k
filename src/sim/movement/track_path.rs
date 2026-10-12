@@ -956,8 +956,9 @@ impl Simulation {
 
     /// Unit 0x741970(target, clear_queue) from a class caller: the radio MOVE_HERE (Foot
     /// 0x004D91EB), Mission_Harvest's staging destination (0x0073EDB5),
-    /// Mission_Enter's Teleporter re-assign (0x004D941D) and the Scatter
-    /// receiver's null arm (0x00744070).
+    /// Mission_Enter's Teleporter re-assign (0x004D941D), the Scatter
+    /// receiver's null arm (0x00744070) and the ReceiveDamage crush charge
+    /// (0x00738593).
     /// These callers pass true; Foot Approach's queued-cell arm passes false.
     /// - 0x741A80..0x741A9C: an unchanged NavCom returns before any write
     ///   unless the Techno+0x1F8 override is up; the call then clears it. So

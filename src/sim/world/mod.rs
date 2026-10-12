@@ -2339,17 +2339,26 @@ impl Simulation {
                                     arg6: false,
                                 },
                             );
-                            let post_object_damage = crate::sim::combat::wave_post_object_damage(
-                                &event,
-                                &self.substrate.entities,
-                                rules,
-                                &self.interner,
-                                &self.houses,
-                                &house_alliances,
-                                scenario_no_damage,
-                                current_tick,
-                                self.resolved_terrain.as_ref(),
-                            );
+                            // A unit inside its war factory returns at the
+                            // head of `UnitClass::ReceiveDamage`
+                            // (`0x00737CB6..0x00737D2E`) before it touches
+                            // the shared damage.
+                            let post_object_damage =
+                                if self.unit_inside_war_factory(target_id, rules) {
+                                    None
+                                } else {
+                                    crate::sim::combat::wave_post_object_damage(
+                                        &event,
+                                        &self.substrate.entities,
+                                        rules,
+                                        &self.interner,
+                                        &self.houses,
+                                        &house_alliances,
+                                        scenario_no_damage,
+                                        current_tick,
+                                        self.resolved_terrain.as_ref(),
+                                    )
+                                };
                             if let Some(value) = post_object_damage {
                                 shared_damage = value;
                             }

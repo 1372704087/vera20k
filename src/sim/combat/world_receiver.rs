@@ -607,6 +607,12 @@ pub(crate) fn commit_entities(
             }
             BuildingReceivePrelude::Continue => {}
         }
+        // `UnitClass::ReceiveDamage 0x00737CB6..0x00737D2E`: a unit still
+        // inside its war factory returns 0 before FootClass::ReceiveDamage.
+        if !event.receiver_flags.ignore_defenses && world.unit_inside_war_factory(target_id, rules)
+        {
+            continue;
+        }
         // Building4422F9..44234A copies its sparse contacts before calling
         // Techno442425. Destroy/Stun can remove the live links before the
         // concrete NowDead loop442511 resumes, so this per-receiver snapshot
@@ -1251,15 +1257,6 @@ pub(crate) fn commit_entities(
                 // UnitClass (`0x007384B9..0x00738530`): the `Harvester=` ping,
                 // with or without a source. A building's ping is its
                 // retaliation block's, below.
-                // RESIDUAL (#1431): the Unit's computer-owner response that follows
-                // (`0x00738535..0x0073866E`), which result 0 also reaches
-                // (`0x007384BB`), is not ported. A teamless, untethered unit
-                // hit by a non-allied source drives at a crushable source when
-                // it is a `Crusher=` (`0x007438F0`, Queue_Mission Move), or as
-                // a `Harvester=`/`Weeder=` at or below ConditionYellow
-                // (vt+0x2B8 positive) queues Enter on a `Dock=` building.
-                // Trigger: an AI tank shot by infantry, or a damaged AI miner.
-                // Effect: neither charges nor retreats.
                 if target.category != EntityCategory::Structure
                     && rules
                         .object(world.interner.resolve(target.type_ref()))
@@ -1274,6 +1271,25 @@ pub(crate) fn commit_entities(
                     });
                 }
             }
+        }
+        // UnitClass's computer-owner response after its ping
+        // (`0x00738535..0x0073866E`), for results 0 to 3: result 0 jumps
+        // there past the ping (`0x007384BB`).
+        if !entered_techno_death
+            && matches!(
+                receive_state,
+                damage::DamageState::Unaffected
+                    | damage::DamageState::Damaged
+                    | damage::DamageState::Yellow
+                    | damage::DamageState::Red
+            )
+        {
+            world.unit_damage_response(
+                target_id,
+                (attacker_id != RAD_NO_ATTACKER).then_some(attacker_id),
+                rules,
+                run.effects(),
+            );
         }
         if receive_state != damage::DamageState::AlreadyDead
             && world

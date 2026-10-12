@@ -36,6 +36,12 @@ pub struct CombatDamageDefaults {
     /// 256; the constructor default written at `0x006675C4` is `0x100`, and
     /// stock `rulesmd.ini:815` authors `1.0` for the same 256.
     pub ballistic_scatter: i32,
+    /// `Crush=` in LEPTONS (`RulesClass+0x1728`), read through `ReadRange` at
+    /// `0x0066CDC1`; the constructor default written at `0x006675A6` is
+    /// `0x180`, and stock `rulesmd.ini` authors `1.8` for 460. How near a
+    /// computer unit charges a crushable attacker
+    /// (`UnitClass::Should_Crush_It @ 0x007438F0`).
+    pub crush: i32,
     /// `OpenToppedWarpDistance=` in CELLS (`RulesClass+0xF60`, ReadInt at
     /// `0x0066C79C`; constructor default 5 at `0x00666AB1`/`0x00666AE5`;
     /// stock 7). `TemporalClass::Update` multiplies it by 256 at its use.
@@ -88,6 +94,7 @@ impl CombatDamageDefaults {
             max_damage: section.read_int("MaxDamage", 1000),
             collapse_chance: section.read_int("CollapseChance", 100),
             ballistic_scatter: section.read_range("BallisticScatter", 0x100),
+            crush: section.read_range("Crush", 0x180),
             open_topped_warp_distance: section.read_int("OpenToppedWarpDistance", 5),
             death_weapon: section.read_name("DeathWeapon", 0x80).map(str::to_string),
             ivan_warhead: section.read_name("IvanWarhead", 0x80).map(str::to_string),
@@ -135,6 +142,7 @@ impl Default for CombatDamageDefaults {
             max_damage: 1000,
             collapse_chance: 100,
             ballistic_scatter: 0x100,
+            crush: 0x180,
             open_topped_warp_distance: 5,
             death_weapon: None,
             ivan_warhead: None,
@@ -237,5 +245,18 @@ mod tests {
         let section = ini.section("CombatDamage").unwrap();
         let cd = CombatDamageDefaults::from_ini_section(section);
         assert_eq!(cd.default_spark_system.as_deref(), Some("SparkSys"));
+    }
+
+    /// `Crush=` is cells read as leptons and chopped: stock `1.8` is 460, and
+    /// a missing key keeps the constructor's `0x180`.
+    #[test]
+    fn crush_reads_cells_as_chopped_leptons() {
+        let read = |text: &str| {
+            let ini = IniFile::from_str(text);
+            CombatDamageDefaults::from_ini_section(ini.section("CombatDamage").unwrap()).crush
+        };
+        assert_eq!(read("[CombatDamage]\nCrush=1.8\n"), 460);
+        assert_eq!(read("[CombatDamage]\nFixtureOnly=1\n"), 0x180);
+        assert_eq!(CombatDamageDefaults::default().crush, 0x180);
     }
 }

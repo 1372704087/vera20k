@@ -669,20 +669,16 @@ impl Simulation {
     ///   setter, so a missing or disagreeing +34 completes the class setter
     ///   toward NavCom. Before Process the Foot is then moving, as native, and
     ///   the Guard/Unload tail (0x4B08D1) cannot strand it.
-    /// - Teleport, Fly and Jumpjet: the class setter itself, a Jumpjet's with
-    ///   the destination (an object too, `Simulation::jumpjet_destination`),
-    ///   the others with its cell (Teleport: `Simulation::teleport_destination`;
-    ///   the air setter `issue_air_cell_destination`). NavCom is cleared first, as
-    ///   the native setter finds it (the restore's NavCom is the override's
-    ///   order, not the saved one), so the Unit setter's unchanged-NavCom
-    ///   return cannot swallow the call.
-    ///
-    /// - Walk and Hover: the object's class setter with NavCom's target,
-    ///   `clear_queue` = 1 as Restore passes it (only the Unit setter reads
-    ///   it; Infantry 0x0051AA40 and the Foot tail never touch NavQueue):
-    ///   Infantry [`Self::set_infantry_destination`], Unit
-    ///   [`Self::set_unit_destination`]. NavCom is cleared first, as for the
-    ///   class arm. A receiver without a represented class setter keeps the
+    /// - Fly: the air setter `issue_air_cell_destination` with the cell.
+    ///   NavCom is cleared first, as the native setter finds it (the
+    ///   restore's NavCom is the override's order, not the saved one).
+    /// - Any other Unit or Infantry: the object's class setter with NavCom's
+    ///   target, `clear_queue` = 1 as Restore passes it (only the Unit setter
+    ///   reads it; Infantry 0x0051AA40 and the Foot tail never touch
+    ///   NavQueue): Infantry [`Self::set_infantry_destination`] whatever his
+    ///   locomotor, Unit [`Self::set_unit_destination`]. NavCom is cleared
+    ///   first, so the Unit setter's unchanged-NavCom return cannot swallow
+    ///   the call. A receiver without a represented class setter keeps the
     ///   represented NavCom.
     pub(crate) fn complete_pending_order(
         &mut self,
@@ -698,18 +694,21 @@ impl Simulation {
             return;
         };
         let track = matches!(kind, LocomotorKind::Drive | LocomotorKind::Ship);
-        let class = matches!(
-            kind,
-            LocomotorKind::Teleport | LocomotorKind::Fly | LocomotorKind::Jumpjet
-        );
-        if let (true, Some(rules), LocomotorKind::Walk | LocomotorKind::Hover) =
-            (actor.navigation.pending_arrival_clear, rules, kind)
+        let fly = kind == LocomotorKind::Fly;
+        let class_setter = !track
+            && !fly
+            && matches!(
+                actor.category,
+                EntityCategory::Unit | EntityCategory::Infantry
+            );
+        if let (true, Some(rules), true) =
+            (actor.navigation.pending_arrival_clear, rules, class_setter)
         {
             self.finish_setter_destination(id, rules, registry, frame_effects);
             return;
         }
         if !actor.navigation.pending_arrival_clear
-            || !(track || (class && rules.is_some()))
+            || !(track || (fly && rules.is_some()))
             || (track
                 && (actor.movement_target.is_some()
                     || super::track_head::active_track_family(actor).is_some()))
@@ -744,16 +743,8 @@ impl Simulation {
         if retained.is_some_and(agrees) {
             super::movement_commands::schedule_track_process(actor, speed);
         } else if let Some((target, coord)) = nav {
-            if class {
-                self.finish_class_destination(
-                    id,
-                    kind,
-                    (target, cell(coord)),
-                    speed,
-                    rules,
-                    registry,
-                    frame_effects,
-                );
+            if fly {
+                self.finish_fly_destination(id, cell(coord), speed, rules, registry, frame_effects);
                 return;
             }
             let object = (!matches!(target, NavTargetRef::Cell { .. })).then_some((target, coord));
@@ -769,16 +760,8 @@ impl Simulation {
             actor.navigation.nav_queue.first().copied()
         {
             actor.navigation.nav_queue.remove(0);
-            if class {
-                self.finish_class_destination(
-                    id,
-                    kind,
-                    (NavTargetRef::cell(rx, ry), (rx, ry)),
-                    speed,
-                    rules,
-                    registry,
-                    frame_effects,
-                );
+            if fly {
+                self.finish_fly_destination(id, (rx, ry), speed, rules, registry, frame_effects);
                 return;
             }
             super::navcom::set_destination_internal_cell(
@@ -794,7 +777,7 @@ impl Simulation {
         }
     }
 
-    /// [`Self::complete_pending_order`]'s Walk/Hover arm: Restore's
+    /// [`Self::complete_pending_order`]'s class-setter arm: Restore's
     /// `Assign_Destination(saved, 1)` through the object's class setter, with
     /// the Restore preflight's input checks (`concrete_effects`); a receiver
     /// whose inputs are missing keeps the represented NavCom.
@@ -805,7 +788,8 @@ impl Simulation {
     /// an AoE cell target expiring under a suspended mission) or a receiver
     /// without a represented setter. Effect: the setter's timers, NavQueue
     /// clear and Move_To land up to one frame later. Frequency: cell-target
-    /// expiry under a suspended Walk/Hover mission. Risk: timing only.
+    /// expiry under a suspended mission of a Unit or Infantry off a track.
+    /// Risk: timing only.
     fn finish_setter_destination(
         &mut self,
         id: u64,
@@ -855,15 +839,12 @@ impl Simulation {
         }
     }
 
-    /// [`Self::complete_pending_order`]'s class setter for a Teleport, Fly or
-    /// Jumpjet owner, called with NavCom cleared. `destination` is the target
-    /// and its cell: a Jumpjet's class setter takes the target itself, an
-    /// object too; Teleport and Fly take the cell.
-    fn finish_class_destination(
+    /// [`Self::complete_pending_order`]'s Fly arm: the air setter with the
+    /// cell, NavCom cleared first as the native setter finds it.
+    fn finish_fly_destination(
         &mut self,
         id: u64,
-        kind: LocomotorKind,
-        destination: (NavTargetRef, (u16, u16)),
+        cell: (u16, u16),
         speed: SimFixed,
         rules: Option<&RuleSet>,
         registry: Option<&OverlayTypeRegistry>,
@@ -872,15 +853,7 @@ impl Simulation {
         if let Some(actor) = self.substrate.entities.get_mut(id) {
             super::navcom::foot_stop_moving(actor);
         }
-        let (target, cell) = destination;
-        if kind == LocomotorKind::Teleport {
-            self.teleport_destination(id, cell, rules, registry, frame_effects);
-        } else if self
-            .jumpjet_destination(id, target, speed, rules, registry, frame_effects)
-            .is_none()
-        {
-            self.issue_air_cell_destination(id, cell, speed, rules, registry, frame_effects);
-        }
+        self.issue_air_cell_destination(id, cell, speed, rules, registry, frame_effects);
     }
 
     /// The class setter vt+0x480 with a NULL destination from outside the

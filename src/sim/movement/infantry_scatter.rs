@@ -586,7 +586,10 @@ impl Simulation {
     ///   another unless he is on Attack with this NavCom already;
     /// - the human same-reference prone DoAction7 (`0x0051ABD7..0x0051AC1F`)
     ///   uses the existing action owner;
-    /// - the path head clears, then Foot's setter (`0x0051B1D2`).
+    /// - on Enter (current or queued) without a radio contact the transport
+    ///   radio arm runs and the path head stays (`0x0051AC25..0x0051AD17`);
+    ///   otherwise the path head clears;
+    /// - Foot's setter (`0x0051B1D2`).
     ///
     /// Non-cell targets retain their reference and read the receiver's +4C
     /// navigation coordinate, including a Foot's committed head. No Process
@@ -594,6 +597,31 @@ impl Simulation {
     /// Native comparisons: infantry_scatter_destination.{py,json,meta.json}
     /// and anytown_damage/foot_missions.{py,json,meta.json}; ordinary original
     /// input/event/class reissues are in walk_first_path.json `gi_reissue`.
+    /// The two `JumpJet=` arms were read from the instructions, not executed.
+    ///
+    /// RESIDUAL: the composed `JumpJet=` re-order has not been executed
+    /// natively. Its Scenario draws are Stop_Driver's Jumpjet Stop
+    /// (`0x0054B4D0`: FNPC, then its own Move_To's placement through
+    /// `0x0054D6D0`/`0x004ACA10`), then the order's Move_To placement
+    /// (`0x0054B1C0`). Each leaf runs against the original
+    /// in `jumpjet_coordinates`; their order is the call order `0x0051ABD1`
+    /// then `0x0051B1D2`, and the arm's two tests are the Walk-checked
+    /// `0x004834A0` port and the Jumpjet `Is_Moving` the same corpus pins.
+    /// Trigger: a re-order of a flying Rocketeer, a cruise re-target or a
+    /// team's BalloonHover resend. Effect if misread: the Scenario stream
+    /// shifts for every later draw. Frequency: most orders to an airborne
+    /// Rocketeer. Risk: RNG drift against native, not a visible movement
+    /// difference.
+    ///
+    /// RESIDUAL: the Enter radio arm is not ported. With a Techno destination
+    /// (`0x0040DD70`) it queues him on a transport already in radio contact
+    /// (QueueUpToEnter `+0x500`, ArchiveTarget cleared, NULL destination) or
+    /// sends RADIO_HELLO and, on ROGER, message 0xE, returning before Foot's
+    /// setter when that answers 0xE. VERA writes the object through Foot's
+    /// setter either way. Trigger: an infantryman's boarding order
+    /// (EnterTransport, Enter 7) or an Enter re-target. Frequency: every
+    /// infantry boarding. Risk: boarding a busy transport or one that turns
+    /// him away differs from native.
     ///
     /// RESIDUAL: a `JumpJet=` infantryman's Walk piggyback is not modelled.
     /// The setter swaps the Jumpjet of one that is not moving for a Walk
@@ -606,8 +634,10 @@ impl Simulation {
     /// house and cell cases (`0x0053A130`, `0x00484AE0`). VERA flies every
     /// hop. Trigger: a grounded `JumpJet=` infantry without `HoverAttack=`
     /// given a short hop. Effect: it lifts off instead of walking. Frequency:
-    /// dormant in retail, where each `JumpJet=` type also sets `HoverAttack=`.
-    /// Risk: a mod's walking jumpjet infantry fly.
+    /// dormant in retail `rulesmd.ini`, where each `JumpJet=` infantry type
+    /// also sets `HoverAttack=` (production reader:
+    /// `retail_jumpjet_infantry_all_hover_attack`); a map or mode layer could
+    /// clear it. Risk: a mod's walking jumpjet infantry fly.
     ///
     /// Returns false for the other unmigrated class setters.
     /// DirectRocker reciprocal links, lifted-unit release, retained fire particles

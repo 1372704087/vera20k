@@ -1062,6 +1062,45 @@ fn two_ordinary_cleg_moves_publish_class_destinations_before_process() {
     );
 }
 
+/// A deferred Restore (`complete_pending_order`) gives a CLEG his class
+/// setter with NavCom's target, as Restore_Mission's `vt+0x480(saved, 1)`
+/// (`0x004D8F99`) does: an object order keeps the object as his NavCom. It
+/// used to be cut down to the object's cell.
+#[test]
+fn a_deferred_restore_keeps_a_cleg_object_navcom() {
+    let Some(rules) = command_fixture_rules() else {
+        return;
+    };
+    let data = corpus();
+    let row = row_named(&data, "guard_two_distinct_cells");
+    let (mut sim, id, _) = fixture(row, &rules);
+    let object = sim
+        .spawn_object("E1", "Americans", 13, 10, 0, &rules)
+        .expect("E1 spawns");
+    let target = NavTargetRef::object(object);
+    let cleg = sim.substrate.entities.get_mut(id).unwrap();
+    cleg.navigation.nav_com = Some(target);
+    cleg.navigation.pending_arrival_clear = true;
+    sim.complete_pending_order(
+        id,
+        Some(&rules),
+        None,
+        crate::sim::world::FrameEffects::default(),
+    );
+    let cleg = sim.substrate.entities.get(id).unwrap();
+    assert_eq!(cleg.navigation.nav_com, Some(target));
+    assert!(!cleg.navigation.pending_arrival_clear);
+    assert!(
+        cleg.locomotor
+            .as_ref()
+            .unwrap()
+            .teleport_runtime()
+            .unwrap()
+            .requested,
+        "his Teleport Move_To ran"
+    );
+}
+
 /// An absent caller dependency is a Rust transaction error, not native
 ///51BF90 admission. Preflight must refuse before Foot/Teleport writes.
 #[test]

@@ -788,8 +788,11 @@ pub struct ObjectType {
     pub spawned: bool,
     /// Whether this structure accepts ore/gem delivery (Refinery=yes in rules.ini).
     pub refinery: bool,
-    /// Native BuildingType `Weeder=` classification. ExitObject dispatch tests
-    /// this independently from `Refinery=`, `WeaponsFactory=`, and `Naval=`.
+    /// `Weeder=`. A BuildingType's: ExitObject dispatch tests it independently
+    /// from `Refinery=`, `WeaponsFactory=`, and `Naval=`. A UnitType's
+    /// (`+0xE0F`, ReadBool at `0x007476C8`, constructor 0 at `0x00747115`)
+    /// lets a damaged computer unit retreat to a dock as a `Harvester=` does;
+    /// no retail unit sets it.
     pub weeder: bool,
     /// `DockUnload=` (BuildingType+0x16B3; `BuildingTypeClass::ReadINI`
     /// ReadBool at `0x004609DD`, constructor default 0). The refinery dock

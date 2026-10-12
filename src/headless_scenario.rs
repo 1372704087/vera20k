@@ -2116,4 +2116,193 @@ mod retail_construction_tests {
         assert!(deployed.is_some(), "the MCV did not deploy");
         assert!(done.is_some(), "the team stayed on its script");
     }
+
+    /// Advances one frame with the commands now due, as `tick` does with none.
+    fn tick_with_due_commands(scenario: &mut HeadlessScenario) {
+        let commands = scenario.runtime.simulation.take_due_commands();
+        scenario
+            .runtime
+            .advance_frame(
+                &commands,
+                SIM_TICK_MS,
+                crate::sim::world::TickLane::Ordinary,
+                crate::sim::world::FrameEffects::default(),
+            )
+            .expect("simulation frame failed");
+    }
+
+    /// A Normal Soviet house's Rhino, in no team, shot by a GI beside it:
+    /// `UnitClass::ReceiveDamage`'s computer-owner response gives it the GI
+    /// as its NavCom and queues Move (`combat::unit_damage_response`), it
+    /// drives off its cell at the GI, and the GI dies.
+    #[test]
+    #[ignore = "requires RA2_DIR with installed retail RA2/YR assets"]
+    fn retail_computer_rhino_runs_at_the_gi_that_shoots_it() {
+        use crate::sim::command::{Command, CommandEnvelope};
+        use crate::sim::components::NavTargetRef;
+        use crate::sim::mission::{MissionId, MissionType};
+        use crate::skirmish_launch::{AiDifficulty, LaunchCountry};
+
+        let (mut scenario, _) =
+            retail_battle(|_| {}, &[(LaunchCountry::Russia, AiDifficulty::Normal)]);
+        for _ in 0..60 {
+            scenario.tick();
+        }
+        let runtime = &mut scenario.runtime;
+        let (sim, rules) = (&mut runtime.simulation, &runtime.resources.rules);
+        let (_, spawned) = spawn_beside_base(sim, rules, "Russians", &["HTNK"]);
+        let rhino = spawned[0];
+        let start = {
+            let entity = sim.entities().get(rhino).expect("the Rhino");
+            (entity.position.rx, entity.position.ry)
+        };
+        let america = house_of(sim, "Americans");
+        let gi = spawn_on_free_cells(
+            sim,
+            rules,
+            america,
+            cells_nearest((i32::from(start.0), i32::from(start.1))),
+            &["E1"],
+        )[0];
+        let tick = sim.session.tick;
+        sim.queue_command(CommandEnvelope::new(
+            america,
+            tick + 1,
+            Command::Attack {
+                attacker_id: gi,
+                target_id: rhino,
+            },
+        ));
+        let full = sim.entities().get(rhino).unwrap().health.current;
+        let move_mission = MissionId::from_known(MissionType::Move);
+        let (mut hit, mut charged, mut moved, mut died) = (None, None, None, None);
+        for frame in 1..=600u32 {
+            tick_with_due_commands(&mut scenario);
+            let sim = scenario.sim();
+            let entity = sim.entities().get(rhino).expect("the Rhino lives");
+            if hit.is_none() && entity.health.current < full {
+                assert!(
+                    sim.team_script_vm.team_for_member(rhino).is_none(),
+                    "the Rhino joined a team before the hit"
+                );
+                hit = Some(frame);
+            }
+            if charged.is_none()
+                && entity.navigation.nav_com == Some(NavTargetRef::Entity { id: gi })
+                && (entity.mission.queued() == move_mission
+                    || entity.mission.current() == move_mission)
+            {
+                charged = Some(frame);
+            }
+            if charged.is_some()
+                && moved.is_none()
+                && (entity.position.rx, entity.position.ry) != start
+            {
+                moved = Some(frame);
+            }
+            if sim
+                .entities()
+                .get(gi)
+                .is_none_or(|gi| gi.dying || gi.health.current <= 0)
+            {
+                died = Some(frame);
+                break;
+            }
+        }
+        eprintln!("hit {hit:?}, charged {charged:?}, moved {moved:?}, GI died {died:?}");
+        assert!(hit.is_some(), "the GI never hit the Rhino");
+        assert!(
+            charged >= hit,
+            "the Rhino never took the GI as its NavCom on Move"
+        );
+        assert!(moved.is_some(), "the Rhino never left its cell");
+        assert!(died.is_some(), "the GI survived");
+    }
+
+    /// A Normal Soviet house's War Miner out on the ore with a load, brought
+    /// to half strength and shot by a Grizzly: its refinery answers its HELLO
+    /// and it queues Enter (`combat::unit_damage_response`), then docks.
+    #[test]
+    #[ignore = "requires RA2_DIR with installed retail RA2/YR assets"]
+    fn retail_damaged_computer_miner_heads_for_its_refinery() {
+        use crate::sim::command::{Command, CommandEnvelope};
+        use crate::sim::mission::{MissionId, MissionType};
+        use crate::skirmish_launch::{AiDifficulty, LaunchCountry};
+
+        let (mut scenario, _) =
+            retail_battle(|_| {}, &[(LaunchCountry::Russia, AiDifficulty::Normal)]);
+        let soviet = house_of(scenario.sim(), "Russians");
+        let harvest = MissionId::from_known(MissionType::Harvest);
+        let mut miner = None;
+        for _ in 0..6000 {
+            scenario.tick();
+            let sim = scenario.sim();
+            miner = sim
+                .entities()
+                .values()
+                .find(|entity| {
+                    entity.owner() == soviet
+                        && !entity.dying
+                        && sim.interner.resolve(entity.type_ref()) == "HARV"
+                        && entity.radio_contacts.is_empty()
+                        && entity.mission.current() == harvest
+                        && entity
+                            .miner
+                            .as_ref()
+                            .is_some_and(|miner| miner.cargo.len() >= 5)
+                })
+                .map(|entity| entity.stable_id());
+            if miner.is_some() {
+                break;
+            }
+        }
+        let miner = miner.expect("a loaded War Miner on the ore");
+        let runtime = &mut scenario.runtime;
+        let (sim, rules) = (&mut runtime.simulation, &runtime.resources.rules);
+        let strength = rules.object("HARV").expect("retail HARV").strength;
+        let at = {
+            let entity = sim.substrate.entities.get_mut(miner).unwrap();
+            entity.health.current = strength / 2;
+            (i32::from(entity.position.rx), i32::from(entity.position.ry))
+        };
+        let america = house_of(sim, "Americans");
+        let cells = cells_nearest(at)
+            .into_iter()
+            .filter(|&(rx, ry)| (rx - at.0).abs().max((ry - at.1).abs()) >= 2);
+        let tank = spawn_on_free_cells(sim, rules, america, cells, &["MTNK"])[0];
+        let tick = sim.session.tick;
+        sim.queue_command(CommandEnvelope::new(
+            america,
+            tick + 1,
+            Command::Attack {
+                attacker_id: tank,
+                target_id: miner,
+            },
+        ));
+        let enter = MissionId::from_known(MissionType::Enter);
+        let (mut entered, mut docked) = (None, None);
+        for frame in 1..=900u32 {
+            tick_with_due_commands(&mut scenario);
+            let sim = scenario.sim();
+            let entity = sim.entities().get(miner).expect("the miner lives");
+            let refinery = entity.radio_contacts.slot(0).filter(|&dock| {
+                sim.entities().get(dock).is_some_and(|dock| {
+                    dock.owner() == soviet && sim.interner.resolve(dock.type_ref()) == "NAREFN"
+                })
+            });
+            if entered.is_none()
+                && refinery.is_some()
+                && (entity.mission.queued() == enter || entity.mission.current() == enter)
+            {
+                entered = Some(frame);
+            }
+            if entered.is_some() && entity.dock_entered_with.is_some() {
+                docked = Some(frame);
+                break;
+            }
+        }
+        eprintln!("entered {entered:?}, docked {docked:?}");
+        assert!(entered.is_some(), "the miner never headed for its refinery");
+        assert!(docked.is_some(), "the miner never docked");
+    }
 }

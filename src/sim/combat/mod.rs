@@ -60,6 +60,7 @@ mod techno_death;
 mod threat_mask;
 mod threat_posed;
 pub(crate) mod threat_range;
+mod unit_damage_response;
 pub(crate) mod veterancy;
 pub(crate) mod world_fire;
 pub(crate) mod world_receiver;
@@ -110,6 +111,8 @@ mod mirage_disguise_tests;
 mod open_topped_fire_tests;
 #[cfg(test)]
 mod prone_damage_tests;
+#[cfg(test)]
+mod unit_damage_response_tests;
 
 pub use attack_target::{AttackTarget, TargetKind};
 pub(crate) use attack_target::{object_distance_to, resolve_target_coords};

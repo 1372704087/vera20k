@@ -1534,6 +1534,11 @@ pub struct GeneralRules {
     pub iq_super_weapons: i32,
     /// `[IQ] RepairSell` outer gate for BuildingClass repair/sell AI.
     pub iq_repair_sell: i32,
+    /// `[IQ] AutoCrush=` (`Rules+0x1448`, ReadInt at `0x00674315`;
+    /// constructor 2 at `0x006671DC`; retail 2): the house IQ from which a
+    /// computer unit charges a crushable attacker
+    /// (`UnitClass::Should_Crush_It @ 0x007438F0`).
+    pub iq_auto_crush: i32,
     /// `[IQ] SellBack` gate for the red-health low-credit sell decision.
     pub iq_sell_back: i32,
     /// `[AI] CreditReserve` threshold. A latched AI building is considered
@@ -2287,6 +2292,7 @@ impl Default for GeneralRules {
             iq_harvester: 3,
             iq_super_weapons: 4,
             iq_repair_sell: 3,
+            iq_auto_crush: 2,
             iq_sell_back: 2,
             credit_reserve: 1000,
             cliff_back_impassability: 2,
@@ -3370,6 +3376,7 @@ impl GeneralRules {
             iq_harvester,
             iq_super_weapons,
             iq_repair_sell: iq.read_int("RepairSell", defaults.iq_repair_sell),
+            iq_auto_crush: iq.read_int("AutoCrush", defaults.iq_auto_crush),
             iq_sell_back: iq.read_int("SellBack", defaults.iq_sell_back),
             credit_reserve: ai.read_int("CreditReserve", defaults.credit_reserve),
             cliff_back_impassability: general.read_int("CliffBackImpassability", 2) as u8,

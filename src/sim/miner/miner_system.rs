@@ -1344,12 +1344,78 @@ pub(crate) fn extract_bales_max(
 }
 
 /// One `FootClass::Find_Docking_Bay @ 0x004DF040` pass for a miner or an
-/// aircraft (`AircraftClass::Find_Docking_Bay @ 0x0041BBD0` calls it): for
-/// each `Dock=` type in list order, the scanner `FUN_004DEE80` walks the
-/// requester's OWN house's building list (`Owner @ TechnoClass+0x21C` →
-/// House+0x68, items `+0x6C`, count `+0x78`; VERA's
-/// `HouseBaseState::buildings`) in its order. Allies are never candidates, so
-/// a miner never deposits into an ally's wallet.
+/// aircraft (`AircraftClass::Find_Docking_Bay @ 0x0041BBD0` calls it): each
+/// `Dock=` type in list order goes to the scanner ([`scan_docking_type`]),
+/// and the pass keeps a type's answer when it has none yet, when that
+/// answer is strictly nearer than the best so far, when the best is -1 or
+/// when the answer is a primary factory (0x004DF08E..0x004DF0A7).
+///
+/// `wide` controls the scanner prefilter; `ignore_dock_capacity` is the
+/// explicit native A8E7AC receiver context. Harvest73EC1F supplies both for
+/// its wide pass. They are distinct: a wide scan without that context still
+/// runs ordinary CAN_LOAD capacity admission.
+pub(crate) fn find_docking_bay(
+    sim: &mut Simulation,
+    rules: &RuleSet,
+    requester: u64,
+    wide: bool,
+    ignore_dock_capacity: bool,
+    frame_effects: FrameEffects<'_>,
+) -> Option<u64> {
+    let type_id = sim.substrate.entities.get(requester)?.type_ref();
+    let requester_type = rules.object(sim.interner.resolve(type_id))?;
+    let mut result: Option<u64> = None;
+    let mut best = -1_i32;
+    for dock_type in &requester_type.dock {
+        if let Some((found, nearest)) = scan_docking_type(
+            sim,
+            rules,
+            requester,
+            dock_type,
+            wide,
+            ignore_dock_capacity,
+            frame_effects,
+        ) && (result.is_none()
+            || nearest < best
+            || best == -1
+            || sim.production.is_primary_factory(found))
+        {
+            result = Some(found);
+            best = nearest;
+        }
+    }
+    result
+}
+
+/// `FootClass::Find_Docking_Bay(type, 0, 0)` (`0x004DEE50`, Foot vt+0x530):
+/// the narrow scanner for one `Dock=` type, its distance dropped. Its caller
+/// is the damaged computer miner's retreat
+/// (`sim::combat::unit_damage_response`).
+pub(crate) fn find_docking_bay_of_type(
+    sim: &mut Simulation,
+    rules: &RuleSet,
+    requester: u64,
+    dock_type: &str,
+    frame_effects: FrameEffects<'_>,
+) -> Option<u64> {
+    scan_docking_type(
+        sim,
+        rules,
+        requester,
+        dock_type,
+        false,
+        false,
+        frame_effects,
+    )
+    .map(|(dock, _)| dock)
+}
+
+/// The scanner `FUN_004DEE80` (Foot vt+0x52C) for one `Dock=` type: the
+/// nearest of the requester's OWN house's buildings of that type, walked in
+/// the house's building list order (`Owner @ TechnoClass+0x21C` → House+0x68,
+/// items `+0x6C`, count `+0x78`; VERA's `HouseBaseState::buildings`), with
+/// its squared distance. Allies are never candidates, so a miner never
+/// deposits into an ally's wallet.
 ///
 /// Per-candidate gates in native order:
 /// - non-null and `+0x81 == 0` (`ObjectClass::InLimbo`), type == Dock type
@@ -1372,29 +1438,20 @@ pub(crate) fn extract_bales_max(
 ///   replaces the best when the best is still -1, when it is strictly
 ///   nearer (signed `JL`, so ties keep the earlier building) or when it is a
 ///   primary factory (`TechnoClass+0x3D3`, 0x004DF004).
-///
-/// The outer pass keeps a type's answer when it has none yet, when that
-/// answer is strictly nearer than the best so far, when the best is -1 or
-/// when the answer is a primary factory (0x004DF08E..0x004DF0A7).
-///
-/// `wide` controls the scanner prefilter; `ignore_dock_capacity` is the
-/// explicit native A8E7AC receiver context. Harvest73EC1F supplies both for
-/// its wide pass. They are distinct: a wide scan without that context still
-/// runs ordinary CAN_LOAD capacity admission.
-pub(crate) fn find_docking_bay(
+fn scan_docking_type(
     sim: &mut Simulation,
     rules: &RuleSet,
     requester: u64,
+    dock_type: &str,
     wide: bool,
     ignore_dock_capacity: bool,
     frame_effects: FrameEffects<'_>,
-) -> Option<u64> {
-    let (owner, type_id, own_x, own_y, own_cell, unit_mz, aircraft) = {
+) -> Option<(u64, i32)> {
+    let (owner, own_x, own_y, own_cell, unit_mz, aircraft) = {
         let entity = sim.substrate.entities.get(requester)?;
         let coords = object_get_coords(entity, sim.resolved_terrain.as_ref());
         (
             entity.owner(),
-            entity.type_ref(),
             coords.x,
             coords.y,
             (entity.position.rx, entity.position.ry),
@@ -1406,94 +1463,80 @@ pub(crate) fn find_docking_bay(
             entity.category == EntityCategory::Aircraft,
         )
     };
-    let requester_type = rules.object(sim.interner.resolve(type_id))?;
+    // `0x004DEE9B..0x004DEEAC`: a type of which the house tracks no
+    // instance (`+0x5500`, `JZ`) finds nothing, whatever the list holds.
+    let type_ref = sim.interner.get(dock_type)?;
+    if sim
+        .houses
+        .get(&owner)?
+        .tracking
+        .owned_count(EntityCategory::Structure, type_ref)
+        == 0
+    {
+        return None;
+    }
     // CAN_LOAD runs synchronously; retain the House's native scan order
     // without holding its projection across radio owner calls.
     let buildings = sim.houses.get(&owner)?.base_projection.buildings().to_vec();
-    let mut result: Option<u64> = None;
-    let mut best = -1_i32;
-    for dock_type in &requester_type.dock {
-        // `0x004DEE9B..0x004DEEAC`: a type of which the house tracks no
-        // instance (`+0x5500`, `JZ`) finds nothing, whatever the list holds.
-        if sim.interner.get(dock_type).is_none_or(|type_ref| {
-            sim.houses
-                .get(&owner)
-                .expect("scanning existing House")
-                .tracking
-                .owned_count(EntityCategory::Structure, type_ref)
-                == 0
-        }) {
+    let mut found: Option<u64> = None;
+    let mut nearest = -1_i32;
+    for &sid in &buildings {
+        let Some(entity) = sim.substrate.entities.get(sid) else {
+            continue;
+        };
+        let e_type = sim.interner.resolve(entity.type_ref());
+        if !e_type.eq_ignore_ascii_case(dock_type) || entity.lifecycle.in_limbo {
             continue;
         }
-        let mut found: Option<u64> = None;
-        let mut nearest = -1_i32;
-        for &sid in &buildings {
-            let Some(entity) = sim.substrate.entities.get(sid) else {
-                continue;
-            };
-            let e_type = sim.interner.resolve(entity.type_ref());
-            if !e_type.eq_ignore_ascii_case(dock_type) || entity.lifecycle.in_limbo {
-                continue;
-            }
-            // gamemd removes a dead building from the house list through
-            // Limbo; VERA keeps the entity through its death animation.
-            if entity.dying || entity.health.current == 0 {
-                continue;
-            }
-            if !wide && !entity.radio_contacts.has_free_or(requester) {
-                continue;
-            }
-            if !aircraft {
-                let dock = refinery_dock_cell(entity.position.rx, entity.position.ry);
-                if !refinery_zone_reachable(
-                    sim,
-                    sim.substrate.entities.get(requester)?,
-                    unit_mz,
-                    own_cell,
-                    dock,
-                ) {
-                    continue;
-                }
-            }
-            if crate::sim::radio::transmit(
+        // gamemd removes a dead building from the house list through
+        // Limbo; VERA keeps the entity through its death animation.
+        if entity.dying || entity.health.current == 0 {
+            continue;
+        }
+        if !wide && !entity.radio_contacts.has_free_or(requester) {
+            continue;
+        }
+        if !aircraft {
+            let dock = refinery_dock_cell(entity.position.rx, entity.position.ry);
+            if !refinery_zone_reachable(
                 sim,
-                requester,
-                sid,
-                crate::sim::radio::RadioMessage::CanEnter,
-                crate::sim::radio::RadioPayload::docking_query(ignore_dock_capacity),
-                Some(rules),
-                frame_effects,
-            ) != crate::sim::radio::RadioResponse::Roger
-            {
+                sim.substrate.entities.get(requester)?,
+                unit_mz,
+                own_cell,
+                dock,
+            ) {
                 continue;
-            }
-            let entity = sim
-                .substrate
-                .entities
-                .get(sid)
-                .expect("read-only CAN_LOAD retains candidate");
-            // `BuildingClass::GetCoords @ 0x00447AC0`: foundation centre, the
-            // same point the state-2 too-far test measures to.
-            let centre = object_get_coords(entity, sim.resolved_terrain.as_ref());
-            let dx = own_x.wrapping_sub(centre.x);
-            let dy = own_y.wrapping_sub(centre.y);
-            let distance = dy.wrapping_mul(dy).wrapping_add(dx.wrapping_mul(dx));
-            if nearest == -1 || distance < nearest || sim.production.is_primary_factory(sid) {
-                found = Some(sid);
-                nearest = distance;
             }
         }
-        if let Some(found) = found
-            && (result.is_none()
-                || nearest < best
-                || best == -1
-                || sim.production.is_primary_factory(found))
+        if crate::sim::radio::transmit(
+            sim,
+            requester,
+            sid,
+            crate::sim::radio::RadioMessage::CanEnter,
+            crate::sim::radio::RadioPayload::docking_query(ignore_dock_capacity),
+            Some(rules),
+            frame_effects,
+        ) != crate::sim::radio::RadioResponse::Roger
         {
-            result = Some(found);
-            best = nearest;
+            continue;
+        }
+        let entity = sim
+            .substrate
+            .entities
+            .get(sid)
+            .expect("read-only CAN_LOAD retains candidate");
+        // `BuildingClass::GetCoords @ 0x00447AC0`: foundation centre, the
+        // same point the state-2 too-far test measures to.
+        let centre = object_get_coords(entity, sim.resolved_terrain.as_ref());
+        let dx = own_x.wrapping_sub(centre.x);
+        let dy = own_y.wrapping_sub(centre.y);
+        let distance = dy.wrapping_mul(dy).wrapping_add(dx.wrapping_mul(dx));
+        if nearest == -1 || distance < nearest || sim.production.is_primary_factory(sid) {
+            found = Some(sid);
+            nearest = distance;
         }
     }
-    result
+    found.map(|found| (found, nearest))
 }
 
 /// `MapClass::Can_Reach_Zone` gate of the scanner `FUN_004DEE80`, called

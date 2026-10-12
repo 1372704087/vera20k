@@ -1,8 +1,8 @@
 //! Integration tests for the engineer-bridge-repair flow + the C4-on-CABHUT
 //! collapse path. Engineer entry repairs the bridge and consumes the
 //! engineer; C4 on the hut leaves the hut at full HP and collapses the
-//! bridge segment via the BridgeRepairHut branch in
-//! `apply_c4_damage_to_building`.
+//! bridge segment through the hut arm of
+//! `Simulation::tick_pending_building_detonation`.
 
 use super::*;
 use crate::map::bridge_facts::{
@@ -279,7 +279,7 @@ fn advance_pending_c4_to_detonation(sim: &mut Simulation, rules: &RuleSet) -> bo
     bridge_state_changed_seen
 }
 
-fn advance_until_c4_claim(
+fn advance_until_c4_plant(
     sim: &mut Simulation,
     rules: &RuleSet,
     target_id: u64,
@@ -298,12 +298,12 @@ fn advance_until_c4_claim(
             return pending.timer.start_frame() as u64;
         }
     }
-    panic!("C4 plant was not claimed after entering the target building cell");
+    panic!("no C4 was planted after entering the target building cell");
 }
 
 /// A PlantC4 order reaching a SEAL that is still walking elsewhere, or idle
-/// several cells away, ends with the SEAL inside the building and the plant
-/// claimed. The walk to the building NavCom is the only approach.
+/// several cells away, ends with the SEAL inside the building and the charge
+/// planted. The walk to the building NavCom is the only approach.
 #[test]
 fn c4_order_from_a_distance_reaches_the_building_while_moving_or_idle() {
     for (building, at, seal_at) in [("CABHUT", (15, 15), (11, 15)), ("BIG", (18, 19), (18, 26))] {
@@ -349,7 +349,7 @@ fn c4_order_from_a_distance_reaches_the_building_while_moving_or_idle() {
                     target_building_id: cabhut,
                 },
             ));
-            let claimed = (0..400).any(|_| {
+            let planted = (0..400).any(|_| {
                 step_with_overlay_registry(&mut sim, &rules, &registry);
                 sim.substrate
                     .entities
@@ -358,7 +358,7 @@ fn c4_order_from_a_distance_reaches_the_building_while_moving_or_idle() {
             });
             let e = sim.substrate.entities.get(seal).unwrap();
             assert!(
-                claimed,
+                planted,
                 "{building} moving={moving}: SEAL stopped at {:?} nav={:?} mission={:?}",
                 (e.position.rx, e.position.ry),
                 e.navigation.nav_com,
@@ -628,12 +628,12 @@ fn queued_hut_capture_survives_repair_before_event_execution() {
 }
 
 /// A SEAL ordered to plant on a healthy CABHUT beside it must:
-///   - not claim from the adjacent cell,
-///   - claim after entering the CABHUT cell,
+///   - not plant from the adjacent cell,
+///   - plant after entering the CABHUT cell,
 ///   - leave the hut at full HP across the entire C4Delay window,
-///   - on timer expiry, route through the BridgeRepairHut branch in
-///     `apply_c4_damage_to_building` so the bridge collapses while the
-///     hut survives,
+///   - on timer expiry, take the hut arm of
+///     `Simulation::tick_pending_building_detonation` so the bridge
+///     collapses while the hut survives,
 ///   - propagate `bridge_state_changed` to TickResult so the app rebuilds
 ///     PathGrid.
 ///
@@ -663,7 +663,7 @@ fn c4_on_cabhut_collapses_bridge_and_hut_survives() {
     ));
 
     // First tick: the order starts the walk to the CABHUT NavCom. It must not
-    // claim the marker until the SEAL's current cell resolves to the CABHUT.
+    // plant until the SEAL's current cell resolves to the CABHUT.
     step_with_overlay_registry(&mut sim, &rules, &registry);
     assert!(
         sim.substrate
@@ -671,9 +671,9 @@ fn c4_on_cabhut_collapses_bridge_and_hut_survives() {
             .get(cabhut)
             .and_then(|b| b.pending_c4_detonation)
             .is_none(),
-        "adjacent SEAL must not claim C4 before entering CABHUT"
+        "adjacent SEAL must not plant C4 before entering CABHUT"
     );
-    let plant_start = advance_until_c4_claim(&mut sim, &rules, cabhut, &registry);
+    let plant_start = advance_until_c4_plant(&mut sim, &rules, cabhut, &registry);
 
     // Throughout the C4Delay window: hut HP must stay at max — the
     // BridgeRepairHut branch never damages the hut, even before the timer

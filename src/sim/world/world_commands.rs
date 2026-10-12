@@ -1862,8 +1862,9 @@ impl Simulation {
                     return false;
                 }
                 // Validate target is a CanC4, non-invisible enemy building, not iron-curtained.
-                // TODO(parity): also reject selling-in-progress buildings (Mission==0x13);
-                // requires building Mission state which isn't modeled yet.
+                // These gates stand in for the cursor's (What_Action), which
+                // is unread for a building being sold (Mission 0x13); the
+                // arrival plants nothing on one (`sim::c4_plant`).
                 let target_info = self
                     .substrate
                     .entities

@@ -805,7 +805,8 @@ impl Simulation {
     /// `0x006E53A0`). The receiver gives the building's Tag event 1 ("entered
     /// by", `0x00519B3E..0x00519B53`) before its Engineer test, and an
     /// `Agent=` spy's own Tag event 0x30 after the infiltration
-    /// (`0x0051A010..0x0051A025`); VERA attaches no Tags to objects. Trigger:
+    /// (`0x0051A010..0x0051A025`); the live Tag dispatcher
+    /// (`sim::trigger_runtime`) has no producer in Per_Cell_Process. Trigger:
     /// a map Tag on the building or on the spy. Effect: its trigger does not
     /// spring. A building or spy a house builds has no Tag.
     fn infantry_per_cell_infiltrator_entry(
@@ -894,95 +895,60 @@ impl Simulation {
         })
     }
 
-    /// The bridge repair hut's arm of BuildingClass::Update's C4 expiry
-    /// (`0x00440213..0x00440331`): once a hut's C4Timer runs out
-    /// (`0x004401D2..0x00440200`), its bridge collapses (`0x00574000`, or
-    /// the wooden `0x00574C20`; `bridge_orchestrator`) and the hut lets its
-    /// charge go (`+0x6DF`, C4AppliedBy `+0x540`). The hut takes no damage.
-    /// Answers whether a bridge changed.
+    /// BuildingClass::Update's shared C4/PostMortem expiry tail
+    /// (`0x004401D2..0x00440358`). Called from the current Structure
+    /// LogicVector visit, so the forced receiver and any nested DeathWeapon
+    /// complete before the next live object is visited. Once the C4Timer
+    /// runs out:
+    /// - A bridge repair hut (`0x00440213..0x00440331`) collapses its bridge
+    ///   (`0x00574000`, or the wooden `0x00574C20`; `bridge_orchestrator`)
+    ///   and lets its charge go (`+0x6DF`, C4AppliedBy `+0x540`). The hut
+    ///   takes no damage.
+    /// - Any other building takes its own health as `C4Warhead=` damage
+    ///   from C4AppliedBy, ignoring defenses (`0x00440333..0x00440358`), and
+    ///   keeps the charge.
     ///
-    /// RESIDUAL: this runs for every hut in the combat phase, not in the
-    /// hut's own BuildingClass::Update slot
-    /// ([`Self::tick_pending_building_detonation`] leaves huts here).
-    /// Trigger: a planted hut. Effect: the collapse lands later in the frame.
-    pub(crate) fn tick_bridge_hut_c4(
-        &mut self,
-        rules: &RuleSet,
-        overlay_registry: Option<&crate::rules::overlay_types::OverlayTypeRegistry>,
-        frame_effects: FrameEffects<'_>,
-    ) -> bool {
-        let frame = self.session.binary_frame as i32;
-        let expired: Vec<u64> = self
-            .substrate
-            .entities
-            .keys_sorted()
-            .into_iter()
-            .filter(|&id| {
-                self.substrate.entities.get(id).is_some_and(|hut| {
-                    !hut.dying
-                        && hut
-                            .pending_c4_detonation
-                            .is_some_and(|pending| pending.timer.expired(frame))
-                        && rules
-                            .object(self.interner.resolve(hut.type_ref()))
-                            .is_some_and(|object| object.bridge_repair_hut)
-                })
-            })
-            .collect();
-        let mut bridge_state_changed = false;
-        for hut in expired {
-            let Some(center) = self
-                .substrate
-                .entities
-                .get(hut)
-                .map(|hut| (hut.position.rx, hut.position.ry))
-            else {
-                continue;
-            };
-            bridge_state_changed |= crate::sim::world::bridge_orchestrator::dispatch_bridge_collapse_from_hut_with_overlay_registry(
-                self,
-                rules,
-                center,
-                overlay_registry,
-                frame_effects,
-            );
-            if let Some(hut) = self.substrate.entities.get_mut(hut) {
-                hut.pending_c4_detonation = None;
-            }
-        }
-        bridge_state_changed
-    }
-
-    /// BuildingClass::Update's shared C4/PostMortem expiry tail. Called from
-    /// the current Structure LogicVector visit, so the forced receiver and any
-    /// nested DeathWeapon complete before the next live object is visited.
+    /// Answers whether a bridge changed.
     pub(crate) fn tick_pending_building_detonation(
         &mut self,
         building_id: u64,
         rules: &RuleSet,
         overlay_registry: Option<&crate::rules::overlay_types::OverlayTypeRegistry>,
         frame_effects: FrameEffects<'_>,
-    ) {
-        let Some((pending, health, bridge_hut)) = self
+    ) -> bool {
+        let Some((pending, health, bridge_hut, cell)) = self
             .substrate
             .entities
             .get(building_id)
             .and_then(|building| {
                 let pending = building.pending_c4_detonation?;
                 let object = rules.object(self.interner.resolve(building.type_ref()))?;
-                Some((pending, building.health.current, object.bridge_repair_hut))
+                Some((
+                    pending,
+                    building.health.current,
+                    object.bridge_repair_hut,
+                    (building.position.rx, building.position.ry),
+                ))
             })
         else {
-            return;
+            return false;
         };
         if !pending.timer.expired(self.session.binary_frame as i32) || health <= 0 {
-            return;
+            return false;
         }
 
         if bridge_hut {
-            // The hut arm is `tick_bridge_hut_c4`'s: its result flag
-            // invalidates bridge navigation for the frame's caller.
-            return;
+            let changed = crate::sim::world::bridge_orchestrator::dispatch_bridge_collapse_from_hut_with_overlay_registry(
+                self,
+                rules,
+                cell,
+                overlay_registry,
+                frame_effects,
+            );
+            if let Some(hut) = self.substrate.entities.get_mut(building_id) {
+                hut.pending_c4_detonation = None;
+            }
+            return changed;
         }
 
         let event = crate::sim::combat::EntityDamageEvent::direct_receiver(
@@ -1000,6 +966,7 @@ impl Simulation {
             },
         );
         self.commit_noncombat_aoe_hits(rules, overlay_registry, &[event], frame_effects);
+        false
     }
 
     /// Pre-combat: entities with an `attack_target` that's out of weapon

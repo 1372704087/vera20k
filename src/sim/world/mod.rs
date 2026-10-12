@@ -6657,13 +6657,11 @@ impl Simulation {
             // Units also committed Facing_Update after paid movement. This
             // tail hosts the remaining classes;
             // tick_turret_rotation excludes Units whose facing is already owned.
-            // tick_bridge_hut_c4 sets off a bridge repair hut's charge; every
-            // other building's goes off in its own Update visit.
             // PRODUCES: damage, deaths, bridge damage, fire events. Ordered
             // ReceiveDamage retaliation is committed inline.
             // Engineer repair, capture and consumption, and a C4 plant, occur
-            // synchronously at Walk's completed step in the object pass.
-            bridge_state_changed |= self.tick_bridge_hut_c4(rules, overlay_registry, effects);
+            // synchronously at Walk's completed step in the object pass; a
+            // charge goes off in its building's own Update visit.
             self.tick_order_intents_pre_combat(rules, overlay_registry, &tube_turn_owned_ids);
             // The compatibility pursuit host excludes native Unit Cell
             // Approach. Its remaining consumers retain their existing order

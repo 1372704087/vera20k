@@ -1037,9 +1037,9 @@ pub struct GameEntity {
     /// with its C4Timer (`+0x528`) and C4AppliedBy (`+0x540`). The C4 plant
     /// (`sim::c4_plant`) owns one producer; qualifying delayed-death receiver
     /// results own the other. The Building LogicVector visit consumes expiry
-    /// synchronously and keeps the marker; a bridge repair hut's expiry
-    /// clears it (`tick_bridge_hut_c4`). IronCurtain/ForceShield entry
-    /// cancels it; `None` means no shared latch.
+    /// synchronously (`Simulation::tick_pending_building_detonation`) and
+    /// keeps the marker, except a bridge repair hut's, which clears it.
+    /// IronCurtain/ForceShield entry cancels it; `None` means no shared latch.
     #[serde(default)]
     pub pending_c4_detonation: Option<PendingC4Detonation>,
     /// Building `+0x6E3` HasBeenCaptured: cleared by the BuildingClass

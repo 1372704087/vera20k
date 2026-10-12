@@ -2,15 +2,16 @@
 //! (`0x0051F3E3..0x0051F455`), Mission_Hunt's (`0x004D53F9..0x004D5467`),
 //! the Sabotage dispatch to Mission_Capture and `InfantryClass::
 //! Per_Cell_Process`'s C4 arm (`0x0051A4BF..0x0051A664`). Expected values
-//! come from instruction reading; the draws are GetROF's mid-burst
-//! `RandomRanged(3, 5)` and the Scatter's `RandomRanged(0, 4)`, in that order.
+//! come from instruction reading. On a Walk arrival the arm draws GetROF's
+//! mid-burst `RandomRanged(3, 5)` only; a second planter, whose null
+//! destination stops the Walk, also draws its Scatter's `RandomRanged(0, 4)`.
 
 use crate::rules::art_data::ArtRegistry;
 use crate::rules::ini_parser::IniFile;
 use crate::rules::ruleset::RuleSet;
 use crate::sim::combat::AttackTarget;
 use crate::sim::command::{Command, CommandEnvelope};
-use crate::sim::components::NavTargetRef;
+use crate::sim::components::{DriveCoord, NavTargetRef};
 use crate::sim::mission::{MissionId, MissionType};
 use crate::sim::pathfinding::PathGrid;
 use crate::sim::world::{FrameEffects, ObjectAiCtx, Simulation};
@@ -152,8 +153,10 @@ fn step_until_planted(
     panic!("no charge was planted");
 }
 
-/// Stands `id` on the building's anchor cell, heading for it on Sabotage,
-/// as a completed walk leaves it.
+/// Stands `id` on the building's anchor cell on Sabotage, heading for the
+/// building, as a Walk arrival leaves it for Per_Cell_Process: the Walk
+/// still holds that cell as its destination (`0x0075BE3C` runs before
+/// `0x0075BEF0..0x0075BF38` lets it go).
 fn stand_in(sim: &mut Simulation, id: u64, building: u64) {
     let anchor = sim
         .substrate
@@ -166,15 +169,22 @@ fn stand_in(sim: &mut Simulation, id: u64, building: u64) {
     let planter = sim.substrate.entities.get_mut(id).unwrap();
     (planter.position.rx, planter.position.ry) = anchor;
     planter.navigation.nav_com = Some(NavTargetRef::building(building));
+    planter
+        .locomotor
+        .as_mut()
+        .unwrap()
+        .set_walk_destination(Some(DriveCoord::cell(anchor.0, anchor.1, 0)));
 }
 
-/// The arm's own draws, in its order: GetROF's `RandomRanged(3, 5)`, then
-/// the Scatter's `RandomRanged(0, 4)`. Answers the rearm and the stream
-/// after both.
-fn expected_draws(sim: &Simulation) -> (i32, crate::sim::rng::SimRngLogicalState) {
+/// The arm's draws, in its order: GetROF's `RandomRanged(3, 5)`, then, when
+/// the Scatter goes through, its `RandomRanged(0, 4)`. Answers the rearm and
+/// the stream after them.
+fn expected_draws(sim: &Simulation, scatters: bool) -> (i32, crate::sim::rng::SimRngLogicalState) {
     let mut rng = sim.scenario_rng.clone();
     let rof = rng.next_range_u32_inclusive(3, 5) as i32;
-    rng.next_range_u32_inclusive(0, 4);
+    if scatters {
+        rng.next_range_u32_inclusive(0, 4);
+    }
     (rof, rng.logical_state())
 }
 
@@ -257,8 +267,12 @@ fn a_hunting_demolition_man_whose_scan_finds_a_building_sabotages_it() {
 
 /// A player's Sabotage order walks a Tanya into the building. On the cell
 /// it reaches, the building takes a 26-frame charge and a 13-frame flash,
-/// and the planter stops, rearms and scatters out. The charge goes off on
-/// its 26th frame, and the Tanya lives.
+/// and the planter stops and rearms. Its Scatter refuses it, as the Walk
+/// still heads for the building's centre, so the plant draws for the rearm
+/// alone. That walk's next cell is the building's, which the planter may no
+/// longer enter: the Walk's blocked arm puts her on Attack against the
+/// building, and Mission_Attack's C4 arm sends her back in on Sabotage. The
+/// charge goes off on its 26th frame.
 #[test]
 fn a_tanya_ordered_to_sabotage_walks_in_and_plants_the_charge() {
     let rules = rules();
@@ -267,8 +281,22 @@ fn a_tanya_ordered_to_sabotage_walks_in_and_plants_the_charge() {
     let tanya = spawn(&mut sim, &rules, "TANY", "Americans", 10, 10);
     order_plant(&mut sim, "Americans", tanya, building);
 
-    let planted = step_until_planted(&mut sim, &rules, &grid, building);
+    let (planted, draws) =
+        crate::sim::rng::trace_draws(|| step_until_planted(&mut sim, &rules, &grid, building));
 
+    let plant_draws: Vec<&str> = draws
+        .iter()
+        .filter_map(|draw| draw["callers"].as_str())
+        .filter(|callers| callers.contains("infantry_per_cell_c4"))
+        .collect();
+    assert!(!plant_draws.is_empty(), "the plant draws for its rearm");
+    assert!(
+        plant_draws
+            .iter()
+            .all(|callers| callers.contains("rearm_c4_planter")
+                && !callers.contains("scatter_from_building")),
+        "only the rearm draws at the plant"
+    );
     let pending = sim
         .substrate
         .entities
@@ -291,15 +319,25 @@ fn a_tanya_ordered_to_sabotage_walks_in_and_plants_the_charge() {
     let planter = sim.substrate.entities.get(tanya).unwrap();
     assert_eq!(planter.rearm_timer.start_frame(), planted as i32);
     assert!((3..=5).contains(&planter.rearm_timer.duration()));
-    assert_ne!(
-        planter.navigation.nav_com,
-        Some(NavTargetRef::object(building)),
-        "the planter stopped heading in"
+    assert_eq!(planter.navigation.nav_com, None, "the planter stopped");
+    assert!(
+        (16..18).contains(&planter.position.rx) && (10..12).contains(&planter.position.ry),
+        "the planter did not scatter at the plant"
     );
 
+    let attack = MissionId::from_known(MissionType::Attack);
+    let (mut overridden, mut sent_back) = (false, false);
     loop {
         let frame = sim.session.binary_frame;
         step(&mut sim, &rules, &grid);
+        let planter = sim.substrate.entities.get(tanya).unwrap();
+        let on_building = planter.attack_target.as_ref().is_some_and(|attack| {
+            attack.target == crate::sim::combat::TargetKind::Entity(building)
+        });
+        overridden |= planter.mission.current() == attack && on_building;
+        sent_back |= overridden
+            && planter.mission.current() == SABOTAGE
+            && planter.navigation.nav_com == Some(NavTargetRef::object(building));
         let gone = sim
             .substrate
             .entities
@@ -311,6 +349,7 @@ fn a_tanya_ordered_to_sabotage_walks_in_and_plants_the_charge() {
         }
         assert!(frame < planted + 26, "the charge went off late");
     }
+    assert!(overridden && sent_back, "blocked, the planter goes back in");
     assert!(
         sim.substrate
             .entities
@@ -319,17 +358,36 @@ fn a_tanya_ordered_to_sabotage_walks_in_and_plants_the_charge() {
     );
 }
 
-/// The plant itself (`0x0051A5A7..0x0051A664`): the charge with the planter
-/// as its source, the flash, the stop, then GetROF(1)'s draw and the
-/// Scatter's, in that order.
+/// Two identical worlds plant and set the charge off frame for frame alike.
 #[test]
-fn the_plant_draws_the_planters_rearm_then_its_scatter() {
+fn a_plant_replays_identically() {
+    let run = || {
+        let rules = rules();
+        let (mut sim, grid) = arena(&rules);
+        let building = spawn(&mut sim, &rules, "GAPILE", "Russians", 16, 10);
+        let tanya = spawn(&mut sim, &rules, "TANY", "Americans", 10, 10);
+        order_plant(&mut sim, "Americans", tanya, building);
+        (0..160)
+            .map(|_| {
+                step(&mut sim, &rules, &grid);
+                sim.state_hash()
+            })
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(run(), run());
+}
+
+/// The plant itself (`0x0051A5A7..0x0051A664`) on a Walk arrival: the
+/// charge with the planter as its source, the flash, the stop and GetROF(1)'s
+/// draw. The Scatter refuses the still-walking planter and draws nothing.
+#[test]
+fn a_walking_planter_plants_and_draws_for_its_rearm_alone() {
     let rules = rules();
     let (mut sim, _) = arena(&rules);
     let building = spawn(&mut sim, &rules, "GAPILE", "Russians", 16, 10);
     let tanya = spawn(&mut sim, &rules, "TANY", "Americans", 15, 10);
     stand_in(&mut sim, tanya, building);
-    let (rof, after) = expected_draws(&sim);
+    let (rof, after) = expected_draws(&sim, false);
 
     assert!(
         sim.infantry_per_cell_c4(tanya, &rules, None, FrameEffects::default())
@@ -345,16 +403,22 @@ fn the_plant_draws_the_planters_rearm_then_its_scatter() {
     assert_eq!(target.elite_flash_frames, 13);
     let planter = sim.substrate.entities.get(tanya).unwrap();
     assert_eq!(planter.rearm_timer.duration(), rof);
-    assert_ne!(
-        planter.navigation.nav_com,
-        Some(NavTargetRef::building(building))
+    assert_eq!(planter.navigation.nav_com, None);
+    assert_eq!(
+        planter
+            .locomotor
+            .as_ref()
+            .and_then(|loco| loco.walk_destination_cell()),
+        Some((16, 10)),
+        "the Walk still holds its cell"
     );
     assert_eq!(sim.scenario_rng.logical_state(), after);
 }
 
 /// A second planter reaching a building that already holds a charge
-/// (`+0x6DF`) leaves it as it is: it drops its destination, rearms and
-/// scatters (`0x0051A550..0x0051A5A4`), with the same two draws.
+/// (`+0x6DF`) leaves it as it is: it drops its destination, which stops its
+/// Walk, then rearms and scatters (`0x0051A550..0x0051A5A4`), drawing for
+/// both.
 #[test]
 fn a_second_planter_leaves_the_first_charge_alone() {
     let rules = rules();
@@ -380,7 +444,7 @@ fn a_second_planter_leaves_the_first_charge_alone() {
         .unwrap()
         .elite_flash_frames = 0;
     stand_in(&mut sim, second, building);
-    let (rof, after) = expected_draws(&sim);
+    let (rof, after) = expected_draws(&sim, true);
 
     assert!(
         sim.infantry_per_cell_c4(second, &rules, None, FrameEffects::default())
@@ -406,7 +470,8 @@ fn a_second_planter_leaves_the_first_charge_alone() {
 }
 
 /// A building being sold, or Iron Curtained, takes no charge; the planter
-/// still stops, rearms and scatters (`0x0051A52B`, `0x0051A540`).
+/// still stops and rearms, and its Scatter refuses it (`0x0051A52B`,
+/// `0x0051A540`).
 #[test]
 fn a_sold_or_curtained_building_takes_no_charge() {
     let rules = rules();
@@ -427,7 +492,7 @@ fn a_sold_or_curtained_building_takes_no_charge() {
                 .unwrap();
         }
         stand_in(&mut sim, tanya, building);
-        let (rof, after) = expected_draws(&sim);
+        let (rof, after) = expected_draws(&sim, false);
 
         assert!(
             sim.infantry_per_cell_c4(tanya, &rules, None, FrameEffects::default())

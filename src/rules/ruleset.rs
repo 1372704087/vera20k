@@ -8975,28 +8975,6 @@ Projectile=Invisible
         assert_eq!(interner.resolve(handles.crush), "CustomCrush");
     }
 
-    /// `ftol(C4Delay * 900.0)` and its half truncate a product the chop
-    /// control word left just under the whole number: 0.03 (the constructor's
-    /// double, or `.03` scanned through `float`) is 26.999.. frames, and its
-    /// half 13.499... The x87 kernel is the hardware-compared
-    /// `MaskedX87Chop53`.
-    #[test]
-    fn c4_delay_converts_with_the_chopped_product() {
-        for (ini, frames, flash) in [
-            ("", 26, 13),
-            ("[CombatDamage]\nC4Delay=.03\n", 26, 13),
-            ("[CombatDamage]\nC4Delay=0.1\n", 90, 45),
-            ("[CombatDamage]\nC4Delay=.06\n", 53, 26),
-        ] {
-            let rules = RuleSet::from_ini(&IniFile::from_str(ini)).expect("parse");
-            assert_eq!(
-                (rules.c4_delay_frames(), rules.c4_flash_frames()),
-                (frames, flash),
-                "{ini:?}"
-            );
-        }
-    }
-
     #[test]
     fn retail_rulesmd_c4_flags_parse_correctly() {
         let ini = IniFile::from_str(

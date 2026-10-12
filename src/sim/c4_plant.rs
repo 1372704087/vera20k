@@ -11,27 +11,50 @@
 //! building's cells (`InfantryClass::Can_Enter_Cell`, `world::object_entry`),
 //! and on arrival `InfantryClass::Per_Cell_Process` plants the charge
 //! ([`Simulation::infantry_per_cell_c4`]). `BuildingClass::Update` sets it
-//! off when its C4Timer runs out (`Simulation::tick_pending_building_detonation`;
-//! a bridge repair hut's collapses its bridge, `tick_bridge_hut_c4`).
+//! off when its C4Timer runs out (`Simulation::tick_pending_building_detonation`,
+//! which also collapses a bridge repair hut's bridge).
 //!
-//! The arm draws twice from the Scenario stream: the planter's `GetROF(1)`
-//! (`RandomRanged(3, 5)` for a retail Sapper, none for an empty slot), then
-//! its Scatter's heading (`RandomRanged(0, 4)`). It writes the building's
+//! The arm draws once from the Scenario stream for the planter's `GetROF(1)`
+//! (`RandomRanged(3, 5)` for a retail Sapper, none for an empty slot). Its
+//! Scatter draws (`RandomRanged(0, 4)`) only when Scatter admits it. A Walk
+//! arrival runs the arm before the Walk lets its destination go
+//! (`0x0075BE3C`, then `0x0075BEF0..0x0075BF38`), so the Walk is still
+//! moving: the Scatter loses `forced` (`0x0051D172`) and refuses a planter
+//! that is not `Fraidycat=`. A second planter's null destination stops the
+//! Walk first, so its Scatter goes through. The arm writes the building's
 //! C4Timer and the planter's rearm timer, and detaches nothing.
 //!
+//! After a plant the planter has no NavCom, and other owners carry it on.
+//! Its Walk still heads for the building's centre; once the next cell is
+//! the building's, `Can_Enter_Cell` no longer admits it, and the Walk's
+//! blocked arm (`Simulation::mission_override_movement_blocker`) puts the
+//! planter on Attack against the building, whose C4 arm sends it back in on
+//! Sabotage to take the second-planter branch. A planter whose walk ends
+//! where it planted idles in Mission_Capture, which sends a computer's back
+//! in for its Target and scatters a player's out of the building
+//! (`Scatter(NULL, 1, 0)`, `0x004D4BC7..0x004D4C0E`). Each Sabotage dispatch
+//! draws its `RandomRanged(0, 2)` delay, and each Scatter that goes through
+//! its own.
+//!
+//! The arm reads the type's `C4=` (`+0xEC2`) only, where Mission_Attack's
+//! arm also takes weapon ability 14: a planter that holds C4 only by rank
+//! walks in and plants nothing, natively as here. No retail type lists the
+//! ability.
+//!
 //! RESIDUAL:
-//! - The arm's Tag event 1 ("entered by", `0x0051A507..0x0051A51C`): VERA
-//!   attaches no Tags to objects. Trigger: a map building with a Tag that
-//!   is planted on. Effect: its trigger does not spring.
+//! - The arm's Tag event 1 ("entered by", `0x0051A507..0x0051A51C`) is not
+//!   raised; the Engineer and spy arms leave the same event unraised. It
+//!   fires on every arrival at the NavCom building, before the refusal
+//!   tests, when the building holds a map Tag (`world_spawn` attaches them).
+//!   Trigger: a C4 infantryman reaching a tagged map building; how often
+//!   retail skirmish maps tag buildings is not measured. Effect: a trigger
+//!   waiting on that event never springs.
 //! - The cell arm that follows (`0x0051A667..0x0051A7F2`): a C4 infantryman
 //!   on Sabotage standing in its NavCom cell damages the area around it
 //!   with `C4Warhead=`, scatters and queues mission 2. Its producer, a
-//!   Sabotage order on a cell (a bridge), has no VERA order. Trigger: a
-//!   player's C4 order on a bridge. Effect: the bridge cannot be demolished
-//!   that way; its repair hut can.
-//! - The arm tests the type's `C4=` (`+0xEC2`) only, where Mission_Attack's
-//!   arm also takes weapon ability 14: a planter that holds C4 only by rank
-//!   walks in and plants nothing. No retail type lists the ability.
+//!   player's Sabotage order on a cell (a bridge), has no VERA order.
+//!   Trigger: a player's C4 click on a bridge. Effect: a bridge cannot be
+//!   demolished that way, only through its repair hut.
 
 use crate::rules::overlay_types::OverlayTypeRegistry;
 use crate::rules::ruleset::RuleSet;
@@ -58,9 +81,10 @@ impl Simulation {
     ///
     /// Unless it scattered for a charge already there, the planter then stops
     /// (`0x004DF0D0`), uncloaks (vt+0x45C(0)), rearms and scatters
-    /// (`0x0051A60B..0x0051A657`). Its rearm is [`Self::rearm_c4_planter`];
-    /// its Scatter, from the building's coordinate
-    /// ([`Self::scatter_from_building`]), does not Process.
+    /// (`0x0051A60B..0x0051A657`). Its rearm is [`Self::rearm_c4_planter`].
+    /// Its Scatter, from the building's coordinate
+    /// ([`Self::scatter_from_building`]), does not Process, and on a Walk
+    /// arrival refuses a planter that is not `Fraidycat=` (module doc).
     ///
     /// Answers whether the arm ran; it returns before the Foot body.
     pub(crate) fn infantry_per_cell_c4(

@@ -165,15 +165,14 @@ impl Simulation {
             let loco = entity.locomotor.as_ref()?;
             loco.track_destination(TrackFamily::from_kind(loco.active_kind())?)
         });
-        let Some(destination) = destination else {
+        if destination.is_none() {
             return;
-        };
+        }
         let info = self.resolve_move_info(id, rules);
         let Some(actor) = self.substrate.entities.get_mut(id) else {
             return;
         };
         let speed = info.as_ref().map_or(SimFixed::lit("25"), |info| info.speed);
-        let cell = ((destination.x / 256) as u16, (destination.y / 256) as u16);
-        super::movement_commands::schedule_track_process(actor, cell, speed);
+        super::movement_commands::schedule_track_process(actor, speed);
     }
 }

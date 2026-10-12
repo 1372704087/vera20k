@@ -586,7 +586,12 @@ impl Simulation {
     /// and anytown_damage/foot_missions.{py,json,meta.json}; ordinary original
     /// input/event/class reissues are in walk_first_path.json `gi_reissue`.
     ///
-    /// Returns false for the still-unmigrated Jumpjet and other class setters.
+    /// A Jumpjet infantryman takes the deploy refusal and the path-head clear,
+    /// then Foot's setter through his Jumpjet ([`Self::jumpjet_destination`]),
+    /// for a cell or an object; that owner records the JumpJet arms this
+    /// setter still lacks.
+    ///
+    /// Returns false for the other unmigrated class setters.
     /// DirectRocker reciprocal links, lifted-unit release, retained fire particles
     /// and the Unit-produced +6AC latch still lack their production owners here.
     pub(crate) fn assign_infantry_walk_destination(
@@ -611,23 +616,16 @@ impl Simulation {
             .locomotor
             .as_ref()
             .is_some_and(|l| l.kind == LocomotorKind::Teleport);
-        // A Jumpjet infantryman's cell takes Foot's setter through the
-        // Jumpjet Move_To (`0x0051B1D2` -> `0x004D94B0`), whichever route
-        // gave it (the idle Archive handoff, an order, a scatter). An object
-        // target of his stays unrepresented, as before.
-        let jumpjet_cell = match requested {
-            NavTargetRef::Cell { rx, ry }
-                if actor
-                    .locomotor
-                    .as_ref()
-                    .and_then(|l| l.jumpjet_runtime())
-                    .is_some() =>
-            {
-                Some((rx, ry))
-            }
-            _ => None,
-        };
-        if jumpjet_cell.is_none() && !represented_infantry_destination(actor, object, requested) {
+        // A Jumpjet infantryman's destination, a cell or an object, takes
+        // Foot's setter through the Jumpjet Move_To (`0x0051B1D2` ->
+        // `0x004D94B0`), whichever route gave it (the idle Archive handoff,
+        // an order, a scatter).
+        let jumpjet = actor
+            .locomotor
+            .as_ref()
+            .and_then(|l| l.jumpjet_runtime())
+            .is_some();
+        if !jumpjet && !represented_infantry_destination(actor, object, requested) {
             return Ok(false);
         }
         // The retained Teleport Move_To port still takes a Cell. Ordinary
@@ -640,12 +638,12 @@ impl Simulation {
         if self.infantry_setter_refuses(actor) {
             return Ok(true);
         }
-        if let Some(cell) = jumpjet_cell {
+        if jumpjet {
             super::movement_commands::clear_destination_path_head(
                 self.substrate.entities.get_mut(id).unwrap(),
             );
             return Ok(self
-                .jumpjet_cell_destination(id, cell, speed, Some(rules), frame_effects)
+                .jumpjet_destination(id, requested, speed, Some(rules), frame_effects)
                 .unwrap_or(false));
         }
         let human = self.owner_is_human(actor.owner());

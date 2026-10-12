@@ -740,8 +740,8 @@ impl Simulation {
         });
         let agrees =
             |destination: DriveCoord| nav.is_none_or(|(_, coord)| cell(coord) == cell(destination));
-        if let Some(destination) = retained.filter(|&destination| agrees(destination)) {
-            super::movement_commands::schedule_track_process(actor, cell(destination), speed);
+        if retained.is_some_and(agrees) {
+            super::movement_commands::schedule_track_process(actor, speed);
         } else if let Some((target, coord)) = nav {
             if class {
                 self.finish_class_destination(
@@ -787,7 +787,7 @@ impl Simulation {
                 timing.binary_frame,
             );
             timing.accept(actor);
-            super::movement_commands::schedule_track_process(actor, (rx, ry), speed);
+            super::movement_commands::schedule_track_process(actor, speed);
         } else {
             self.assign_null_destination(id, rules, registry, frame_effects);
         }
@@ -1224,7 +1224,7 @@ impl Simulation {
                 let accepted = self
                     .jumpjet_move_to(id, coord.expect("captured destination +4C"), Some(rules))
                     .is_some();
-                self.publish_jumpjet_destination(id, info.speed);
+                self.publish_jumpjet_order_adapter(id, info.speed);
                 Some(accepted)
             } else {
                 Some(false)
@@ -1252,13 +1252,10 @@ impl Simulation {
                     | LocomotorKind::Walk,
                 ) => {
                     let coord = coord.expect("accepted Move_To captures target +4C");
-                    let cell = ((coord.x / 256) as u16, (coord.y / 256) as u16);
                     super::navcom::set_destination_internal_coord(
                         actor, requested, coord, terrain, frame,
                     );
-                    super::movement_commands::prepare_destination_execution(
-                        actor, cell, info.speed,
-                    );
+                    super::movement_commands::prepare_destination_execution(actor, info.speed);
                     true
                 }
                 Some(LocomotorKind::Teleport) => {

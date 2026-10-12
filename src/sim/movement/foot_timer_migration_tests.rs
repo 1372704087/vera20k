@@ -164,10 +164,7 @@ fn install_stationary_path_request(sim: &mut Simulation) {
         cursor: 0,
         reference_cell: Some((8, 8)),
     };
-    entity.movement_target = Some(MovementTarget {
-        final_goal: Some((8, 6)),
-        speed: SIM_ZERO,
-    });
+    entity.movement_target = Some(MovementTarget { speed: SIM_ZERO });
 }
 
 #[test]

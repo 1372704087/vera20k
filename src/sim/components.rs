@@ -98,23 +98,21 @@ impl Health {
 // GameEntity body own retained construction and sale state.
 pub(crate) use crate::sim::building_construction::{BuildingDown, BuildingUp};
 
-/// Move-order scheduling adapter.
+/// Move-order scheduling adapter, with no gamemd counterpart (#689).
 ///
 /// The order adapter a move order attaches (ground orders through
-/// `issue_move_command_with_destination`, Fly and Jumpjet orders through
-/// their own setters). Walk, Drive and Ship keep presence and speed for their
-/// Process; their locomotor owns the destination and paid head. Other adapters
-/// retain their existing goal. No order
-/// keeps route cells: a Foot's route is its Foot+5E0 queue
+/// `issue_move_command_with_destination`, Jumpjet orders through their own
+/// setter). Its readers take its presence as "moving". It keeps no goal: the
+/// locomotor destination and Foot's NavCom own it. No order keeps route
+/// cells either: a Foot's route is its Foot+5E0 queue
 /// (`navigation.path_replay`).
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct MovementTarget {
-    /// Maximum movement speed in leptons per second (from rules.ini Speed= value).
-    /// 256 leptons = 1 cell. Fixed-point for deterministic multiplayer.
+    /// The order's speed in leptons per second, stamped when the adapter is
+    /// attached. Movement reads the owner's live speed getter, not this; the
+    /// stamp stays only for the Jumpjet order speed, the no-rules fallback in
+    /// `foot_speed::adjusted_speed` and the state hash.
     pub speed: SimFixed,
-    /// Goal for the remaining adapter families, including Jumpjet cruise.
-    /// Walk/Drive/Ship leave this empty; their locomotor owns the coordinate.
-    pub final_goal: Option<(u16, u16)>,
 }
 
 /// Native-like navigation target reference.
@@ -600,14 +598,10 @@ pub struct DriveOccupationFootprint {
     pub layer: MovementLayer,
 }
 
-/// Default acceleration/deceleration values — zero means no ramping,
-/// movement system falls back to using `speed` directly.
+/// An adapter with a zero speed stamp.
 impl Default for MovementTarget {
     fn default() -> Self {
-        Self {
-            speed: SIM_ZERO,
-            final_goal: None,
-        }
+        Self { speed: SIM_ZERO }
     }
 }
 

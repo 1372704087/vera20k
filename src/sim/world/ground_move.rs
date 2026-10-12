@@ -17,9 +17,9 @@
 //! destination owner, including repeated and queued requests; its first
 //! Process owns the path search. A mover on Teleport takes
 //! its class setter instead of a route: no pass moves a Teleport owner. A
-//! Jumpjet's cell order likewise takes Foot's setter, whose `Move_To` flies
-//! it; an object order still takes the route, and the Jumpjet's `Process`
-//! hands its goal to `Move_To` (`apply_jumpjet_adapter_order`).
+//! Jumpjet's cell or object order likewise takes Foot's setter, whose
+//! `Move_To` places it near the destination's coordinate and flies there
+//! without a route.
 //!
 //! Residual, carried over unchanged: the sites differ in what they hand the
 //! search, with no recorded native reason. The resumed-order, both miner and
@@ -62,8 +62,8 @@ impl Simulation {
     /// including a guarded no-op: its native setter is void. Route adapters
     /// require a published grid. A mover on
     /// Teleport takes its class setter ([`Self::teleport_destination`]), and
-    /// a Jumpjet's cell order takes Foot's
-    /// ([`Self::jumpjet_cell_destination`]), which ignores `queue`. A Walk
+    /// a Jumpjet's cell or object order takes Foot's
+    /// ([`Self::jumpjet_destination`]), which ignores `queue`. A Walk
     /// infantryman takes Infantry51AA40 before borrowing any path-search
     /// inputs. Its class flag1 never appends to NavQueue. A represented Drive
     /// Unit likewise takes Unit741970 before any grid read. Its same-Nav/force,
@@ -84,11 +84,13 @@ impl Simulation {
         ) {
             return accepted;
         }
+        // An object order names its object: each class setter below asks it
+        // for its coordinate (Foot `0x004D9628`).
+        let requested = order.object_destination.map_or_else(
+            || NavTargetRef::cell(order.target.0, order.target.1),
+            |(reference, _)| reference,
+        );
         if let Some(rules) = rules {
-            let requested = order.object_destination.map_or_else(
-                || NavTargetRef::cell(order.target.0, order.target.1),
-                |(reference, _)| reference,
-            );
             if self.drive_unit_setter_receiver(order.entity_id) {
                 // Event4C747C dispatches the void Unit741970(target,1),
                 // including its unchanged-NavCom return741A80..741A9C.
@@ -134,15 +136,13 @@ impl Simulation {
                     });
             }
         }
-        if order.object_destination.is_none()
-            && let Some(accepted) = self.jumpjet_cell_destination(
-                order.entity_id,
-                order.target,
-                order.speed,
-                rules,
-                frame_effects,
-            )
-        {
+        if let Some(accepted) = self.jumpjet_destination(
+            order.entity_id,
+            requested,
+            order.speed,
+            rules,
+            frame_effects,
+        ) {
             return accepted;
         }
         let Some(grid) = self.path_grid_snapshot() else {

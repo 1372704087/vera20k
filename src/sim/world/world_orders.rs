@@ -744,7 +744,7 @@ impl Simulation {
             frame_effects,
         )
         .map_err(|cause| {
-            super::FrameAdvanceError::bridge_repair(
+            super::FrameAdvanceError::new(
                 self.session.tick,
                 self.session.binary_frame,
                 engineer_id,
@@ -777,10 +777,13 @@ impl Simulation {
     /// destination (vt+0x480(NULL, 1)) and scatters from the building's
     /// GetCoords (vt+0x174(coord, 1, 1); `0x0051A03E..0x0051A061`).
     ///
-    /// RESIDUAL: the Tag event (`0x006E53A0`) is not raised, as on the
-    /// Engineer arms. Trigger: a spy entering a building whose map Tag
-    /// watches event 0x30. Effect: that trigger does not fire. No retail
-    /// skirmish map attaches one.
+    /// RESIDUAL: no Tag event is raised (`TagClass::Raise_Event`,
+    /// `0x006E53A0`). The receiver gives the building's Tag event 1 ("entered
+    /// by", `0x00519B3E..0x00519B53`) before its Engineer test, and an
+    /// `Agent=` spy's own Tag event 0x30 after the infiltration
+    /// (`0x0051A010..0x0051A025`); VERA attaches no Tags to objects. Trigger:
+    /// a map Tag on the building or on the spy. Effect: its trigger does not
+    /// spring. A building or spy a house builds has no Tag.
     fn infantry_per_cell_infiltrator_entry(
         &mut self,
         infantry_id: u64,
@@ -813,11 +816,14 @@ impl Simulation {
         Ok(entered)
     }
 
-    /// How PerCell2's building receiver turns an infantryman away
-    /// (`0x00519EBB`, `0x00519EFC`, `0x00519FB9`, `0x0051A03E..0x0051A061`):
+    /// How PerCell2 turns an infantryman away from a building: the occupier
+    /// arm (`0x005196DD..0x00519700`) and the building receiver
+    /// (`0x00519EBB`, `0x00519EFC`, `0x00519FB9`, `0x0051A03E..0x0051A061`).
     /// SetDestination(NULL, 1) (vt+0x480), then Scatter from the building's
-    /// real GetCoords (vt+0x174(coord, 1, 1)), which does not Process.
-    fn turn_away_from_building(
+    /// real GetCoords (vt+0x174(coord, 1, 1)), which does not Process. The
+    /// Scatter's heading away from the building draws one Scenario
+    /// `RandomRanged(0, 4)` (`0x0051D258..0x0051D2D4`).
+    pub(crate) fn turn_away_from_building(
         &mut self,
         infantry_id: u64,
         building_id: u64,
@@ -825,14 +831,15 @@ impl Simulation {
         registry: Option<&crate::rules::overlay_types::OverlayTypeRegistry>,
         frame_effects: FrameEffects<'_>,
     ) -> Result<(), super::FrameAdvanceError> {
-        let Some(building) = self.substrate.entities.get(building_id) else {
+        self.assign_null_destination(infantry_id, Some(rules), registry, frame_effects);
+        let Some(coord) = self.substrate.entities.get(building_id).map(|building| {
+            crate::sim::movement::ground_pose::object_get_coords(
+                building,
+                self.resolved_terrain.as_ref(),
+            )
+        }) else {
             return Ok(());
         };
-        let coord = crate::sim::movement::ground_pose::object_get_coords(
-            building,
-            self.resolved_terrain.as_ref(),
-        );
-        self.assign_null_destination(infantry_id, Some(rules), registry, frame_effects);
         self.infantry_scatter_from(
             infantry_id,
             (coord.x, coord.y),
@@ -842,7 +849,7 @@ impl Simulation {
             frame_effects,
         )
         .map_err(|cause| {
-            super::FrameAdvanceError::bridge_repair(
+            super::FrameAdvanceError::new(
                 self.session.tick,
                 self.session.binary_frame,
                 infantry_id,

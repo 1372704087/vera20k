@@ -86,20 +86,23 @@ impl Simulation {
         rules: Option<&RuleSet>,
         registry: Option<&OverlayTypeRegistry>,
     ) {
-        self.house_rung(
+        let generated = self.house_rung(
             rules,
             registry,
             true,
             crate::sim::world::FrameEffects::default(),
         );
+        self.queue_commands(generated);
     }
 
     /// The house rung's per-house steps in HouseClass::Array order: each
     /// house's team creation (`0x004F8A00..0x004F8B08`,
     /// `sim::ai_team_creation`), its defeat gate (see the module doc), its
     /// Tags' event-8 raise (`sim::trigger_runtime`), then its strategy tick (`0x004F8FBE..0x004F9032`, `sim::house_strategy`) and
-    /// production choices (`0x004F9038..0x004F9265`, `sim::ai_base_building`);
-    /// then the game-over scan and the result timers. Without `defeat_pass`
+    /// production choices (`0x004F9038..0x004F9265`, `sim::ai_base_building`)
+    /// and tech recheck (`0x004F9265..0x004F9302`, `sim::production`);
+    /// then the game-over scan and the result timers. Returned events join the
+    /// post-Logic dispatcher without executing during a House visit. Without `defeat_pass`
     /// (VERA's first tick) the defeat gates and the game-over scan are
     /// skipped.
     pub(super) fn house_rung(
@@ -108,7 +111,8 @@ impl Simulation {
         registry: Option<&OverlayTypeRegistry>,
         defeat_pass: bool,
         frame_effects: FrameEffects<'_>,
-    ) {
+    ) -> Vec<crate::sim::command::CommandEnvelope> {
+        let mut generated = Vec::new();
         let outcome_tick = self.session.tick.saturating_add(1);
         let savour_frames = crate::rules::ruleset::savour_delay_frames(
             rules
@@ -179,6 +183,20 @@ impl Simulation {
                 crate::sim::ai_base_building::update_production_choices(
                     self, rules, owner, registry,
                 );
+                //4F9265..4F9302 follows production choices: consume +1FC,
+                // Recalculate the player's strip, then carry its local
+                // ABANDON events to MainTick's post-Logic647260 dispatcher.
+                // Each represented human strip uses this same House owner;
+                // a client's selected House never changes synchronized state.
+                if self
+                    .houses
+                    .get_mut(&owner)
+                    .is_some_and(|house| house.take_tech_recheck())
+                {
+                    generated.extend(crate::sim::production::recalculate_strips(
+                        self, rules, owner,
+                    ));
+                }
             }
             if let Some(house) = self.houses.get_mut(&owner) {
                 house.release_repair_latch(self.session.binary_frame);
@@ -197,7 +215,7 @@ impl Simulation {
             index += 1;
         }
         if !defeat_pass {
-            return;
+            return generated;
         }
 
         // Check if all remaining alive houses are mutually allied → game over.
@@ -263,6 +281,7 @@ impl Simulation {
         for house in self.houses.values_mut() {
             house.advance_outcome_savour(outcome_tick);
         }
+        generated
     }
 
     /// The defeat gate's test (`0x004F8E92..0x004F8F77`): a house neither

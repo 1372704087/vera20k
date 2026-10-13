@@ -476,6 +476,13 @@ pub struct HouseState {
     /// owner change.
     #[serde(default)]
     pub(crate) tracking: crate::sim::house_tracking::HouseTracking,
+    /// House+1FC: retained tech-tree invalidation, initially set by
+    /// HouseCtor4F5746. Building Limbo445D99, GrandOpening446A61,
+    /// DiscoveredBy44D61A and ChangeOwner44936E/449379 set it again.
+    /// The late House4F9265..4F9302 consumer clears it after the Factory
+    /// sweep; cancellation is an event, never a synchronous refund here.
+    #[serde(default)]
+    tech_recheck: bool,
     /// Tech Hospital self-heal capacity — `HouseClass+0x164`.
     ///
     /// `BuildingClass::OnConstructionComplete` adds the built type's
@@ -954,6 +961,18 @@ impl HouseState {
         self.lost_building
     }
 
+    pub(crate) fn request_tech_recheck(&mut self) {
+        self.tech_recheck = true;
+    }
+
+    pub(crate) fn take_tech_recheck(&mut self) -> bool {
+        std::mem::take(&mut self.tech_recheck)
+    }
+
+    pub(crate) fn tech_recheck_pending(&self) -> bool {
+        self.tech_recheck
+    }
+
     /// `BuildingClass::Infiltrate`'s tech arm (`0x004573C6..0x004573E4`): the
     /// infiltrated BuildTech building's `AIBasePlanningSide=` names the side
     /// whose technology this house now has: 0 the Allies' (`+0x2BE`), 1 the
@@ -1396,6 +1415,7 @@ impl HouseState {
             map_is_clear: false,
             spy_sat_active: false,
             tracking: Default::default(),
+            tech_recheck: true,
             self_heal_infantry: 0,
             self_heal_units: 0,
             base_center: None,

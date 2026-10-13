@@ -1324,6 +1324,11 @@ pub struct Simulation {
     /// Admitted through `queue_command(s)` and drained each tick when
     /// `cmd.execute_tick <= current_tick + 1`.
     pending_commands: Vec<CommandEnvelope>,
+    /// Diagnostic playback supplies a batch already containing generated
+    /// events. Transient admission context, not gameplay or saved state.
+    #[cfg(test)]
+    #[serde(skip)]
+    replaying_recorded_commands: bool,
     /// Serialized map trigger state, initialized and mutated by trigger_runtime.
     /// Remains installed while actions call other Simulation mechanisms.
     pub(crate) trigger_runtime: TriggerRuntime,
@@ -3358,6 +3363,8 @@ impl Simulation {
             executed_exit_owner: None,
             connection_lost: false,
             pending_commands: Vec::new(),
+            #[cfg(test)]
+            replaying_recorded_commands: false,
             trigger_runtime: TriggerRuntime::default(),
         };
         debug_assert_eq!(out.scenario_rng.state(), out.main_rng.state());
@@ -5201,6 +5208,14 @@ impl Simulation {
         // House update for the Super revoke and grant passes
         // (`0x004F92F6`, `0x004F92FD`); VERA refreshes at the event, as for
         // a death or a sale.
+        // ChangeOwner448260 invalidates the old/new Houses at44936E/449379.
+        if category == EntityCategory::Structure {
+            for owner in [old_owner, new_owner] {
+                if let Some(house) = self.houses.get_mut(&owner) {
+                    house.request_tech_recheck();
+                }
+            }
+        }
         if category == EntityCategory::Structure
             && let Some(rules) = rules
         {
@@ -6214,7 +6229,7 @@ impl Simulation {
     /// the terminating call skips frame commit and pending-delete processing.
     fn run_late_region(
         &mut self,
-        commands: &[CommandEnvelope],
+        commands: &mut Vec<CommandEnvelope>,
         rules: Option<&RuleSet>,
         overlay_registry: Option<&crate::rules::overlay_types::OverlayTypeRegistry>,
         tick_ms: u32,
@@ -6238,7 +6253,16 @@ impl Simulation {
         // which construction and the frame-end pending-delete drain move: a
         // death reaches the gate on the next frame. Each house's strategy tick
         // (`house_strategy.rs`) and building choice follow its own gate.
-        self.house_rung(rules, overlay_registry, self.session.tick > 0, effects);
+        let generated = self.house_rung(rules, overlay_registry, self.session.tick > 0, effects);
+        #[cfg(test)]
+        let commands_include_generated = self.replaying_recorded_commands;
+        #[cfg(not(test))]
+        let commands_include_generated = false;
+        self.admit_generated_frame_commands(commands, generated, commands_include_generated);
+        #[cfg(test)]
+        {
+            self.replaying_recorded_commands = false;
+        }
         #[cfg(test)]
         if self.session.tick > 0 {
             self.trace_house_ai_activation_order(HouseAiActivationOrderTestEvent::DefeatProcessed);
@@ -6581,10 +6605,10 @@ impl Simulation {
         #[cfg(test)]
         self.trace_master_frame_rung(MasterFrameTestRung::SessionCommands);
 
-        let commands = if lane == TickLane::Ordinary {
+        let mut commands = if lane == TickLane::Ordinary {
             self.admit_frame_commands(commands, rules)
         } else {
-            commands.to_vec()
+            Vec::new()
         };
 
         // MainTick55DBC8 precedes Logic55DC9E (including trigger polling).
@@ -6847,11 +6871,7 @@ impl Simulation {
         // (incl. defeat) in the tail and commits the frame counter late; AI
         // placement is project-deferred and kept in its current slot.
         let frame_committed = self.run_late_region(
-            if lane == TickLane::Ordinary {
-                &commands
-            } else {
-                &[]
-            },
+            &mut commands,
             rules,
             overlay_registry,
             tick_ms,

@@ -603,7 +603,12 @@ const FINAL_STREAM_STATES: (u64, u64, u64) = (
 // follows changes (story at the end of the test). The Scenario stream moves
 // with it; Main/MapGen, per-frame replay and the miner tripwires are
 // unchanged.
-const GLOBAL_HARNESS_FINAL_HASH: u64 = 0x9F0C_FB4D_0168_2378;
+// Snapshot342 retains House+1FC. Neither fixture House joins house_order,
+// so both retain the constructor's pending recheck. Clearing only those two
+// flags in the same finished replay recovers the incoming 9F0CFB4D01682378;
+// all per-frame replay, gameplay and absolute RNG gates remain unchanged.
+// The diagnostic control was removed.
+const GLOBAL_HARNESS_FINAL_HASH: u64 = 0x08F7_A04E_1574_71DE;
 
 fn harness_ini() -> IniFile {
     // Multi-faction vehicles + infantry + buildings (war factory, refinery) plus a

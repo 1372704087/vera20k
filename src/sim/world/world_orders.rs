@@ -1400,12 +1400,12 @@ impl Simulation {
                     // holds no NavCom. GetFireError's NavCom tests (U7..U10)
                     // would otherwise keep refusing a spark, flame, drain or
                     // temporal weapon. Infantry, open-topped units and the
-                    // Drive, Ship and Hover units whose mission's Approach
-                    // carries them take the per-cell owner's stop
-                    // (`movement/per_cell.rs`).
-                    // RESIDUAL: for any other unit on these missions but a
-                    // Jumpjet (a Teleport mover or a `CloseRange=` type; no
-                    // armed stock unit), the native stop runs from
+                    // units whose mission's Approach carries them take the
+                    // per-cell owner's stop (`movement/per_cell.rs`).
+                    // RESIDUAL: a unit on these missions reaches this pass
+                    // only where `mission_owns_approach` leaves it: a
+                    // `CloseRange=` type (no stock unit) or a Cell target on
+                    // a DestroyableCliffs tile. Its native stop runs from
                     // Per_Cell_Process, at cell entry; this pass runs it on
                     // the frame the target comes in range, wherever the unit
                     // is in its cell. It then brakes into its head from
@@ -1414,11 +1414,11 @@ impl Simulation {
                     // A cruising Jumpjet takes no such stop: Jumpjet calls
                     // Per_Cell_Process only from its descent (`0x0054C8F0`),
                     // and Foot's approach (`0x004D5690`) instead sends it to a
-                    // cell in range, where it arrives. For it this halt stands
-                    // in for that arrival, which never reaches the setter's
-                    // BalloonHover arm (`0x00741983`); through the arm, a
-                    // Floating Disc on its laser would keep flying at its
-                    // target and switch to Attack.
+                    // cell in range, where it arrives. For one left here this
+                    // halt stands in for that arrival, which never reaches the
+                    // setter's BalloonHover arm (`0x00741983`); through the
+                    // arm, a Floating Disc on its laser would keep flying at
+                    // its target and switch to Attack.
                     if e.category == EntityCategory::Unit && movement::range_stop_admits(e) {
                         let jumpjet = e.locomotor.as_ref().is_some_and(|loco| {
                             loco.active_kind()

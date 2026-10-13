@@ -24,8 +24,9 @@
 //!   powered center (`HouseClass @ 0x0050E1B0`) goes offline when no building
 //!   stands in its cell. Hover runs it at each step before it leaves the
 //!   cell (`TryAdvancePathStep`, `0x00515A1C`) and then claims the next
-//!   cell; Stop_Moving (`0x00516320`) keeps the head, so a tank on the
-//!   ground stays put while one still hovering settles into that cell.
+//!   cell; Stop_Moving (`0x00516320`) keeps the head, and its height keeps
+//!   it powered (`0x00516C70`) as it settles, so it drifts toward that head
+//!   until it touches down (from a standing start, inside its own cell).
 //!   Arrival never brings one back;
 //! - the sparks an offline Unit throws (`UnitClass::AI`
 //!   `0x007360C9..0x007361A4`).

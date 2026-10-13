@@ -467,6 +467,8 @@ fn a_captured_center_counts_for_its_captor_only_at_its_next_edge() {
         |sim| !working(sim)
     ));
     assert!(!sim.has_powered_center(russians));
+    // Without a counted center, the rival goes offline if it moves.
+    let rival_was_offline = offline(&sim, rival);
     events.clear();
     spawn(&mut sim, &rules, "GAPOWR", "Russians", 14, 26);
     assert!(run_until(
@@ -481,57 +483,28 @@ fn a_captured_center_counts_for_its_captor_only_at_its_next_edge() {
     assert_eq!(lines(&events, russians, EVA_ROBOT_TANKS_BACK_ONLINE), 1);
     assert_eq!(
         sounds(&events, "RobotTankOnline"),
-        0,
-        "the rival was never offline"
+        usize::from(rival_was_offline)
     );
     assert!(!offline(&sim, rival));
     assert!(tanks.iter().all(|&id| offline(&sim, id)));
 }
 
-/// The Unit's cell arrival (`0x00739F21..0x00739F59`): a ROBO whose house
-/// has no powered center goes offline at its first step, which Hover
-/// processes before it leaves its cell (`TryAdvancePathStep`'s
-/// Per_Cell_Process at `0x00515A1C` precedes the claim). Still on the
-/// ground, it is unpowered once Power_Off clears the byte, so it stays.
+/// The Unit's cell arrival (`0x00739F21..0x00739F59`): a hovering ROBO
+/// whose house has no powered center goes offline at its first step, which
+/// Hover processes before it leaves its cell (`TryAdvancePathStep`'s
+/// Per_Cell_Process at `0x00515A1C` precedes the claim). Stop_Moving
+/// (`0x00516320`) keeps the head, and its height keeps it powered
+/// (`0x00516C70`) as it settles, so it drifts toward that head until it
+/// touches down; from a standing start that is inside its own cell, where
+/// it stays.
 #[test]
-fn a_grounded_robot_tank_without_a_powered_center_goes_offline_where_it_stands() {
+fn a_robot_tank_without_a_powered_center_goes_offline_when_it_moves() {
     let Some(rules) = retail_rules() else {
         return;
     };
     let (mut sim, grid) = arena(&rules);
     let americans = sim.interner.get("Americans").unwrap();
     // A building keeps the house in the game (ShortGame=yes).
-    spawn(&mut sim, &rules, "GAPOWR", "Americans", 3, 3);
-    let tank = spawn(&mut sim, &rules, "ROBO", "Americans", 10, 16);
-    order_move(&mut sim, tank, (16, 16));
-    let mut events = Vec::new();
-    assert!(run_until(
-        &mut sim,
-        &rules,
-        &grid,
-        300,
-        &mut events,
-        |sim| offline(sim, tank)
-    ));
-    assert_eq!(cell(&sim, tank), (10, 16));
-    assert_eq!(height(&sim, tank), 0);
-    assert_eq!(sounds(&events, "RobotTankOffline"), 1);
-    assert_eq!(lines(&events, americans, EVA_ROBOT_TANKS_OFFLINE), 0);
-    run_until(&mut sim, &rules, &grid, 120, &mut events, |_| false);
-    assert_eq!(cell(&sim, tank), (10, 16));
-    assert!(offline(&sim, tank));
-}
-
-/// The same step for a ROBO still hovering: its height keeps it powered
-/// (`0x00516C70`) after Power_Off clears the byte, and Stop_Moving
-/// (`0x00516320`) keeps the head `TryAdvancePathStep` goes on to claim, so
-/// it settles into that next cell and stays there.
-#[test]
-fn a_hovering_robot_tank_without_a_powered_center_settles_into_its_next_cell() {
-    let Some(rules) = retail_rules() else {
-        return;
-    };
-    let (mut sim, grid) = arena(&rules);
     spawn(&mut sim, &rules, "GAPOWR", "Americans", 3, 3);
     let tank = spawn(&mut sim, &rules, "ROBO", "Americans", 10, 16);
     let mut events = Vec::new();
@@ -543,6 +516,7 @@ fn a_hovering_robot_tank_without_a_powered_center_settles_into_its_next_cell() {
         &mut events,
         |sim| height(sim, tank) >= rules.general.hover_height / 2
     ));
+    let start_x = sim.substrate.entities.get(tank).unwrap().position.sub_x;
     order_move(&mut sim, tank, (16, 16));
     assert!(run_until(
         &mut sim,
@@ -554,12 +528,19 @@ fn a_hovering_robot_tank_without_a_powered_center_settles_into_its_next_cell() {
     ));
     assert_eq!(cell(&sim, tank), (10, 16));
     assert!(height(&sim, tank) > 0);
-    run_until(&mut sim, &rules, &grid, 300, &mut events, |_| false);
-    let settled = cell(&sim, tank);
-    assert_eq!(settled.0.abs_diff(10).max(settled.1.abs_diff(16)), 1);
-    assert_eq!(height(&sim, tank), 0);
+    assert_eq!(sounds(&events, "RobotTankOffline"), 1);
+    assert_eq!(lines(&events, americans, EVA_ROBOT_TANKS_OFFLINE), 0);
     run_until(&mut sim, &rules, &grid, 120, &mut events, |_| false);
-    assert_eq!(cell(&sim, tank), settled);
+    let rest = sim.substrate.entities.get(tank).unwrap().position;
+    assert_eq!(height(&sim, tank), 0);
+    assert_eq!(cell(&sim, tank), (10, 16));
+    assert!(rest.sub_x > start_x, "it drifted toward its head, east");
+    run_until(&mut sim, &rules, &grid, 120, &mut events, |_| false);
+    let now = sim.substrate.entities.get(tank).unwrap().position;
+    assert_eq!(
+        (now.rx, now.ry, now.sub_x, now.sub_y),
+        (rest.rx, rest.ry, rest.sub_x, rest.sub_y)
+    );
     assert!(offline(&sim, tank));
     assert_eq!(sounds(&events, "RobotTankOffline"), 1);
 }

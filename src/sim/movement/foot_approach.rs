@@ -684,8 +684,14 @@ impl Simulation {
         let mut chosen = None;
         //4D5909..590D: a mover whose locomotor is Jumpjet flies there, so
         // it takes the first admitted candidate without either path-cost
-        // test (4D6764 -> 4D689A). The same flag's aircraft arm (4D5873)
-        // never reaches this body: `owns_foot_approach`.
+        // test (4D6764 -> 4D689A). 4D5873 sets the same flag for an
+        // aircraft, which native brings here from Foot's Mission_Rescue
+        // (AircraftClass vt+0x258 = 4DDF90, Approach at 4DDFEB).
+        // RESIDUAL: VERA's aircraft never run Rescue
+        // (`aircraft::dispatch_mission`) and `owns_foot_approach` refuses
+        // them, so that arm is not ported. Trigger: an aircraft on Rescue; VERA's one
+        // Rescue producer, the base-defense response, queues it only on
+        // infantry and units. Effect: none while no producer exists.
         let flies = actor
             .locomotor
             .as_ref()

@@ -477,8 +477,7 @@ fn a_gi_stops_on_entering_the_first_cell_with_its_target_in_range() {
 /// A human's Rocketeer ordered to attack a tank flies to a cell his Approach
 /// picks within his 20mm's range (Infantry `0x00522340` into the Foot body,
 /// where a Jumpjet takes the first admitted candidate, `0x004D6764`), never
-/// the tank's own cell, and shoots the tank. The pursuit pass used to send him
-/// at the tank's cell.
+/// the tank's own cell, and shoots the tank.
 #[test]
 fn a_rocketeer_flies_to_a_cell_in_range_of_the_tank_he_attacks() {
     let Some(rules) = retail_rules() else {

@@ -981,7 +981,10 @@ use crate::sim::world::Simulation;
 // 338 -> 339: every bullet keeps its ProximityDetector reference (+0xD0),
 // which a FlakScatter= Inviso shot's moved placement sets; guidance no longer
 // carries it. Version 338 records keep it in the guidance of guided bullets.
-const SNAPSHOT_VERSION: u32 = 339;
+// 339 -> 340: a bounce body keeps its native orientation and rotation
+// quaternions (BounceClass+0x30/+0x40) instead of the axis and angle that
+// built them. Version 339 records carry the axis and angle.
+const SNAPSHOT_VERSION: u32 = 340;
 
 const SNAPSHOT_PRODUCT_MAGIC: [u8; 8] = *b"VERA20K\0";
 const SNAPSHOT_ENVELOPE_VERSION: u32 = 1;
@@ -4351,7 +4354,8 @@ mod tests {
         // 336 -> 337: Magnetron links and the object's warp credit house.
         // 337 -> 338: the deactivated latch and the powered-center counts.
         // 338 -> 339: every bullet's ProximityDetector reference.
-        assert_eq!(super::SNAPSHOT_VERSION, 339);
+        // 339 -> 340: a bounce body's orientation and rotation quaternions.
+        assert_eq!(super::SNAPSHOT_VERSION, 340);
     }
 
     #[test]

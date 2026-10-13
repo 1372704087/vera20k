@@ -63,7 +63,9 @@ fn repair_ifv(rules: &RuleSet) -> (Simulation, u64, u64) {
         crate::sim::combat::combat_weapon::weapon_damage_value(
             sim.entities().get(ifv).unwrap(),
             rules.object("FV").unwrap(),
-            rules
+            sim.entities(),
+            rules,
+            &sim.interner,
         ),
         -50
     );

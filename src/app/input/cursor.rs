@@ -1105,10 +1105,9 @@ pub(crate) fn select_best_for_action(
             2
         } else if entity.category == EntityCategory::Structure {
             3
-        } else if obj
-            .zip(rules)
-            .is_some_and(|(obj, rules)| weapon_damage_value(entity, obj, rules) > 0)
-        {
+        } else if obj.zip(rules).is_some_and(|(obj, rules)| {
+            weapon_damage_value(entity, obj, sim.entities(), rules, &sim.interner) > 0
+        }) {
             5
         } else {
             4

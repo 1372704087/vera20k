@@ -239,7 +239,7 @@ impl Simulation {
         registry: Option<&OverlayTypeRegistry>,
     ) -> Result<Option<FootPathRequest>, String> {
         let request =
-            WalkAdmissionRequest::for_response_test(&self.substrate.entities, id, allow_retry, rules)
+            WalkAdmissionRequest::for_response_test(&self.substrate.entities, id, allow_retry)
                 .ok_or("missing Walk corpus receiver")?;
         self.finish_walk_admission_response(
             request,

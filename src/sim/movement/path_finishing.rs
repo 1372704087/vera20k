@@ -141,7 +141,6 @@ impl PathFinishingContext for Finishing<'_> {
                 path_grid: Some(self.grid),
                 resolved_terrain: self.context.resolved_terrain,
                 terrain_costs: self.terrain_costs,
-                bypass_grid: false,
                 is_infantry: self.facts.is_infantry,
                 mover_is_crusher: self.facts.mover_is_crusher,
             })

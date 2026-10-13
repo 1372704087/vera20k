@@ -776,8 +776,6 @@ impl Simulation {
             destination,
             urgency,
             self.playfield_bounds,
-            Some(&self.type_handles),
-            Some(rules),
         )
         .ok_or_else(|| self.hover_error(id, "retired Hover Find_Path requester"))?;
         let found = self

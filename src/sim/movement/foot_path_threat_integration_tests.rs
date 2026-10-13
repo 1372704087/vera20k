@@ -38,8 +38,6 @@ fn request_move(
         destination,
         0,
         sim.playfield_bounds,
-        None,
-        Some(rules),
     )
     .unwrap();
     let rng = sim.rng_state();

@@ -31,7 +31,6 @@ use crate::sim::pathfinding::terrain_speed::TerrainSpeedConfig;
 #[cfg(test)]
 use crate::sim::pathfinding::zone_map::ZoneGrid;
 use crate::sim::rng::SimRng;
-use crate::sim::type_handle_table::TypeHandleTable;
 
 use super::block_index::{LentOwnerBlockSet, OwnerBlockIndex};
 use super::bump_crush;
@@ -49,8 +48,6 @@ pub(super) fn snapshot_mover(
     entities: &EntityStore,
     entity_id: u64,
     playfield_bounds: Option<crate::sim::cell_rect::PlayfieldBounds>,
-    type_handles: Option<&TypeHandleTable>,
-    rules: Option<&crate::rules::ruleset::RuleSet>,
 ) -> Option<MoverSnapshot> {
     let e = entities.get(entity_id)?;
     Some(MoverSnapshot {
@@ -63,24 +60,9 @@ pub(super) fn snapshot_mover(
             .unwrap_or(MovementZone::Normal),
         omni_crusher: e.omni_crusher,
         regular_crusher: e.regular_crusher,
-        owner: e.owner(),
         on_bridge: e.on_bridge,
         locomotor: e.locomotor.clone(),
         allow_zone_hierarchy: playfield_bounds.is_none() || e.in_playfield,
-        slave_deposit_cells: if e.slave.owner().is_some() {
-            crate::sim::slave_deposit::slave_deposit_cells(entities, entity_id, &|owner| {
-                type_handles
-                    .zip(rules)
-                    .and_then(|(handles, rules)| {
-                        handles
-                            .handle_for(owner.type_ref())
-                            .map(|h| rules.object_by_handle(h))
-                    })
-                    .map(|kind| crate::rules::foundation::foundation_dimensions(&kind.foundation))
-            })
-        } else {
-            [None, None]
-        },
     })
 }
 
@@ -119,7 +101,6 @@ impl WalkAdmissionRequest {
         entities: &EntityStore,
         entity_id: u64,
         allow_retry: bool,
-        rules: &crate::rules::ruleset::RuleSet,
     ) -> Option<Self> {
         let mut request = FootPathRequest::track(
             entities,
@@ -127,8 +108,6 @@ impl WalkAdmissionRequest {
             crate::sim::components::DriveCoord { x: 0, y: 0, z: 0 },
             0,
             None,
-            None,
-            Some(rules),
         )?;
         request.visit.walk_retry_allowed = allow_retry;
         Some(Self {
@@ -207,10 +186,8 @@ impl FootPathRequest {
         destination: crate::sim::components::DriveCoord,
         urgency: u8,
         playfield_bounds: Option<PlayfieldBounds>,
-        type_handles: Option<&TypeHandleTable>,
-        rules: Option<&crate::rules::ruleset::RuleSet>,
     ) -> Option<Self> {
-        let snap = snapshot_mover(entities, entity_id, playfield_bounds, type_handles, rules)?;
+        let snap = snapshot_mover(entities, entity_id, playfield_bounds)?;
         Some(Self {
             entity_id,
             destination,
@@ -362,7 +339,6 @@ fn advance_ordinary_mover(
     native_frame: u32,
     interner: &mut crate::sim::intern::StringInterner,
     rules: Option<&crate::rules::ruleset::RuleSet>,
-    type_handles: Option<&TypeHandleTable>,
     houses: &std::collections::BTreeMap<
         crate::sim::intern::InternedId,
         crate::sim::house_state::HouseState,
@@ -440,8 +416,7 @@ fn advance_ordinary_mover(
 
         // Snapshot mover data before entering the inner loop so we can release the
         // mutable borrow on `entities` when needed for crush/bump immutable lookups.
-        let Some(snap) = snapshot_mover(entities, entity_id, playfield_bounds, type_handles, rules)
-        else {
+        let Some(snap) = snapshot_mover(entities, entity_id, playfield_bounds) else {
             return;
         };
         // Walk tests CanEnter at 0x75B690 before its paid SetCoords calls
@@ -1091,7 +1066,6 @@ impl PendingMovementPass {
             sim.session.binary_frame,
             &mut sim.interner,
             rules,
-            Some(&sim.type_handles),
             &sim.houses,
             &mut self.effects,
             entry,
@@ -1151,7 +1125,6 @@ pub(crate) fn begin_movement(
     playfield_bounds: Option<PlayfieldBounds>,
     interner: &mut crate::sim::intern::StringInterner,
     rules: Option<&crate::rules::ruleset::RuleSet>,
-    type_handles: Option<&TypeHandleTable>,
     houses: &std::collections::BTreeMap<
         crate::sim::intern::InternedId,
         crate::sim::house_state::HouseState,
@@ -1188,7 +1161,6 @@ pub(crate) fn begin_movement(
             native_frame,
             interner,
             rules,
-            type_handles,
             houses,
             &mut effects,
             VisitEntry::Process,

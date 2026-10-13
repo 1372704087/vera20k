@@ -593,7 +593,6 @@ impl Simulation {
                 sim.playfield_bounds,
                 &mut sim.interner,
                 rules,
-                Some(&sim.type_handles),
                 &sim.houses,
             )
         };

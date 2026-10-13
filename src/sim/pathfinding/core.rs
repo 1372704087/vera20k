@@ -788,10 +788,6 @@ pub struct AStarOptions<'a> {
     /// passable `+0x1AC` class. Residual: no mover supplies it (always false);
     /// no retail `rulesmd.ini` type sets `IsTrain=`, so the arm is dormant.
     pub mover_is_train: bool,
-    /// Optional native cost-class producer for the Foot `+0x1ac` search call.
-    /// The classifier is deliberately cell/search scoped and never receives a
-    /// `TerrainCostGrid` speed percentage.
-    pub search_cost_classifier: Option<&'a dyn SearchCellCostClassifier>,
     /// Full live Foot +1AC owner. When supplied, its class is the sole terrain
     /// and object admission verdict; the reduced grid/wall adapters are unused.
     pub foot_entry: Option<&'a dyn SearchFootEntry>,
@@ -830,11 +826,6 @@ pub struct AStarOptions<'a> {
     pub resolved_terrain: Option<&'a ResolvedTerrainGrid>,
     /// Select the Infantry subcell rules in the reduced entry adapter.
     pub is_infantry: bool,
-}
-
-/// Caller-owned adapter for the native Foot search cost-class virtual.
-pub trait SearchCellCostClassifier {
-    fn classify(&self, from: (u16, u16), candidate: (u16, u16), bridge: bool) -> u8;
 }
 
 /// Candidate input at the shared Foot +1AC boundary. A* expands copied Cell
@@ -897,9 +888,8 @@ pub trait SearchFootEntry {
 ///
 /// These facts travel together through every search entry, so they travel as
 /// one value. `urgency` drives the code-2 escalation, `mover_is_crusher` and
-/// `is_infantry` select the `Can_Enter_Cell` class arm, `foot_entry` is the
-/// live Foot `+0x1AC` receiver, and `search_cost_classifier` classifies the
-/// cells a reduced search (no `foot_entry`) refuses.
+/// `is_infantry` select the `Can_Enter_Cell` class arm, and `foot_entry` is
+/// the live Foot `+0x1AC` receiver.
 ///
 /// This deliberately excludes `allow_zone_hierarchy` and `playfield_bounds`
 /// (hierarchy admission, not per-neighbour cost) and both movement-zone
@@ -916,7 +906,6 @@ pub struct MoverSearchFacts<'a> {
     pub urgency: u8,
     pub mover_is_crusher: bool,
     pub is_infantry: bool,
-    pub search_cost_classifier: Option<&'a dyn SearchCellCostClassifier>,
     pub foot_entry: Option<&'a dyn SearchFootEntry>,
 }
 
@@ -1273,7 +1262,6 @@ pub fn astar_search(
                                 None,
                                 options.resolved_terrain,
                                 options.terrain_costs,
-                                false,
                             );
                         if prev_on_bridge {
                             bridge_terrain_passable
@@ -1290,16 +1278,11 @@ pub fn astar_search(
                             None,
                             options.resolved_terrain,
                             options.terrain_costs,
-                            false,
                             options.is_infantry,
                             options.mover_is_crusher,
                         )
                     };
-                    (!neighbor_passable).then(|| {
-                        options.search_cost_classifier.map_or(7, |classifier| {
-                            classifier.classify((cx, cy), (nx, ny), neighbor_use_bridge)
-                        })
-                    })
+                    (!neighbor_passable).then_some(7)
                 };
                 if let Some(refused_class) = refused_cost_class
                     && refused_class >= 7
@@ -1583,7 +1566,6 @@ pub fn is_cell_passable_for_mover(
         None,
         resolved_terrain,
         None,
-        false,
     )
 }
 
@@ -1601,7 +1583,6 @@ pub fn is_cell_passable_for_category_on_layer(
     speed_type: Option<SpeedType>,
     resolved_terrain: Option<&ResolvedTerrainGrid>,
     terrain_costs: Option<&TerrainCostGrid>,
-    bypass_grid: bool,
     is_infantry: bool,
     mover_is_crusher: bool,
 ) -> bool {
@@ -1613,7 +1594,6 @@ pub fn is_cell_passable_for_category_on_layer(
         path_grid: Some(grid),
         resolved_terrain,
         terrain_costs,
-        bypass_grid,
         is_infantry,
         mover_is_crusher,
     })
@@ -1629,7 +1609,6 @@ pub fn is_cell_passable_for_mover_on_layer_with_speed(
     speed_type: Option<SpeedType>,
     resolved_terrain: Option<&ResolvedTerrainGrid>,
     terrain_costs: Option<&TerrainCostGrid>,
-    bypass_grid: bool,
 ) -> bool {
     evaluate_can_enter_cell(CanEnterCellContext {
         target: (x, y),
@@ -1639,7 +1618,6 @@ pub fn is_cell_passable_for_mover_on_layer_with_speed(
         path_grid: Some(grid),
         resolved_terrain,
         terrain_costs,
-        bypass_grid,
         is_infantry: false,
         // Callers of this wrapper (bridge plane, scheduling, placement) carry
         // no mover type; the crusher route of the wall arm is not theirs.
@@ -2516,7 +2494,6 @@ pub fn find_path_with_costs(
             urgency,
             mover_is_crusher,
             is_infantry,
-            search_cost_classifier: None,
             foot_entry: None,
         },
     )
@@ -2551,7 +2528,6 @@ pub(crate) fn find_path_with_costs_marker(
             urgency: facts.urgency,
             mover_is_crusher: facts.mover_is_crusher,
             is_infantry: facts.is_infantry,
-            search_cost_classifier: facts.search_cost_classifier,
             foot_entry: facts.foot_entry,
             movement_zone,
             resolved_terrain,
@@ -2645,7 +2621,6 @@ pub fn find_layered_path(
             urgency,
             mover_is_crusher,
             is_infantry,
-            search_cost_classifier: None,
             foot_entry: None,
         },
     )
@@ -2692,7 +2667,6 @@ pub(crate) fn find_layered_path_marker(
             urgency: facts.urgency,
             mover_is_crusher: facts.mover_is_crusher,
             is_infantry: facts.is_infantry,
-            search_cost_classifier: facts.search_cost_classifier,
             foot_entry: facts.foot_entry,
             ..Default::default()
         },

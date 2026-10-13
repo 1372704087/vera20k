@@ -3437,7 +3437,6 @@ fn retail_under_high_span_geometry() {
                             None,
                             sim.resolved_terrain.as_ref(),
                             costs,
-                            false,
                             infantry,
                             false,
                         )
@@ -4096,7 +4095,6 @@ fn ground_entry_under_a_high_span_is_admitted_on_every_lane() {
             costs,
             false,
             false,
-            false,
         )
     };
     let mut sealed = Vec::new();
@@ -4178,7 +4176,6 @@ fn tank_cannot_reach_the_riverbed_beside_bay_of_pigs_high_bridge() {
             None,
             sim.resolved_terrain.as_ref(),
             track,
-            false,
             false,
             false,
         );

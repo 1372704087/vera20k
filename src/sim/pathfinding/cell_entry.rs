@@ -190,7 +190,6 @@ pub struct CanEnterCellContext<'a> {
     pub path_grid: Option<&'a PathGrid>,
     pub resolved_terrain: Option<&'a ResolvedTerrainGrid>,
     pub terrain_costs: Option<&'a TerrainCostGrid>,
-    pub bypass_grid: bool,
     /// Selects the infantry view of terrain-object occupation. Retail terrain
     /// objects occupy sub-cells, and only the infantry entry gate reads that
     /// mask; vehicles stay blocked by the whole cell.
@@ -199,43 +198,6 @@ pub struct CanEnterCellContext<'a> {
     /// the crusher route of the Unit wall arm (`0x0073F438`). Infantry never
     /// takes that route; pass `false` where the mover is unknown.
     pub mover_is_crusher: bool,
-}
-
-/// The Foot `+0x1AC` cost class for a slave: `InfantryClass::Can_Enter_Cell`
-/// (`0x0051C29E..0x0051C2CA`) clears the master Building's occupation on the
-/// slave's own deposit Cells (`SlaveManagerClass 0x006B0880`), so
-/// `AStar_main_loop @ 0x00429A90` can end a path inside the refinery. The
-/// ground Cell's terrain still decides; every other refused Cell stays 7.
-pub struct SlaveDepositSearchClassifier<'a> {
-    pub cells: [Option<(u16, u16)>; 2],
-    pub path_grid: Option<&'a PathGrid>,
-    pub resolved_terrain: Option<&'a ResolvedTerrainGrid>,
-    pub terrain_costs: Option<&'a TerrainCostGrid>,
-    pub movement_zone: Option<MovementZone>,
-    pub speed_type: Option<SpeedType>,
-}
-
-impl crate::sim::pathfinding::SearchCellCostClassifier for SlaveDepositSearchClassifier<'_> {
-    fn classify(&self, _from: (u16, u16), candidate: (u16, u16), bridge: bool) -> u8 {
-        if !bridge && self.cells.contains(&Some(candidate)) {
-            return match evaluate_can_enter_cell(CanEnterCellContext {
-                target: candidate,
-                terrain_layer: MovementLayer::Ground,
-                movement_zone: self.movement_zone,
-                speed_type: self.speed_type,
-                path_grid: self.path_grid,
-                resolved_terrain: self.resolved_terrain,
-                terrain_costs: self.terrain_costs,
-                bypass_grid: true,
-                is_infantry: true,
-                mover_is_crusher: false,
-            }) {
-                CanEnterCellResult::Clear => 0,
-                CanEnterCellResult::HardBlocked => 7,
-            };
-        }
-        7
-    }
 }
 
 /// Evaluate the shared terrain/layer slice of Can_Enter_Cell.
@@ -274,12 +236,11 @@ fn evaluate_ground_cell_entry(ctx: CanEnterCellContext<'_>) -> CanEnterCellResul
     }
 
     let grid_ok = ctx.path_grid.is_none_or(|grid| {
-        ctx.bypass_grid
-            || if ctx.is_infantry {
-                grid.is_walkable_for_infantry(x, y)
-            } else {
-                grid.is_walkable(x, y)
-            }
+        if ctx.is_infantry {
+            grid.is_walkable_for_infantry(x, y)
+        } else {
+            grid.is_walkable(x, y)
+        }
     });
     let speed_type = ctx.speed_type.or_else(|| {
         if ctx.terrain_costs.is_some() && !ctx.is_infantry {
@@ -389,8 +350,8 @@ fn evaluate_shared_cell_leaf(
                 .and_then(|grid| grid.cell(ctx.target.0, ctx.target.1))
                 .is_none()
         {
-            // Retain the prior live-adapter missing-target rejection, including
-            // bypass_grid callers. This does not model native dummy-cell access.
+            // Retain the prior live-adapter missing-target rejection. This does
+            // not model native dummy-cell access.
             return CanEnterCellResult::HardBlocked;
         }
         let wall = terrain_cell.is_some_and(|cell| cell.zone_type == zone_class::WALL);
@@ -655,7 +616,6 @@ mod tests {
             path_grid: Some(grid),
             resolved_terrain: Some(terrain),
             terrain_costs: None,
-            bypass_grid: false,
             is_infantry,
             mover_is_crusher,
         })
@@ -737,7 +697,6 @@ mod tests {
             path_grid: Some(&grid),
             resolved_terrain: Some(&terrain),
             terrain_costs: None,
-            bypass_grid: false,
             is_infantry: false,
             mover_is_crusher: false,
         });

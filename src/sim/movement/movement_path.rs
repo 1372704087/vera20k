@@ -465,21 +465,6 @@ pub(super) fn find_move_path_with_marker_detailed(
     let resolved_terrain = ctx.resolved_terrain;
     let merged_entity_blocks = entity_blocks.cloned().unwrap_or_default();
     let entity_blocks = (!merged_entity_blocks.is_empty()).then_some(&merged_entity_blocks);
-    // A slave's deposit Cells answer through its own `Can_Enter_Cell` arm
-    // (`sim::slave_deposit`) where no live Foot receiver prices the search.
-    let slave_classifier = (facts.slave_deposit_cells != [None, None]).then_some(
-        crate::sim::pathfinding::cell_entry::SlaveDepositSearchClassifier {
-            cells: facts.slave_deposit_cells,
-            path_grid: Some(grid),
-            resolved_terrain,
-            terrain_costs,
-            movement_zone,
-            speed_type: facts.speed_type,
-        },
-    );
-    let search_cost_classifier = slave_classifier
-        .as_ref()
-        .map(|c| c as &dyn crate::sim::pathfinding::SearchCellCostClassifier);
     if layered_pathing {
         let layered_result = zone_search::find_layered_path_zoned_marker_detailed(
             grid,
@@ -500,7 +485,6 @@ pub(super) fn find_move_path_with_marker_detailed(
                 urgency: facts.urgency,
                 mover_is_crusher: facts.mover_is_crusher,
                 is_infantry: facts.is_infantry,
-                search_cost_classifier,
                 foot_entry,
             },
             allow_zone_hierarchy,
@@ -555,7 +539,6 @@ pub(super) fn find_move_path_with_marker_detailed(
             urgency: facts.urgency,
             mover_is_crusher: facts.mover_is_crusher,
             is_infantry: facts.is_infantry,
-            search_cost_classifier,
             foot_entry,
         },
         allow_zone_hierarchy,

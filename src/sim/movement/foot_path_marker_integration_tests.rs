@@ -33,8 +33,6 @@ fn marked_probe_survives_modern_foot_search_and_mark_restoration() {
             goal,
             urgency,
             sim.playfield_bounds,
-            None,
-            Some(&rules),
         )
         .unwrap();
         let rng = sim.rng_state();
@@ -91,16 +89,9 @@ fn marked_probe_survives_modern_foot_search_and_mark_restoration() {
         }
         // A later ordinary request must not inherit the temporary overlay.
         if urgency == 2 {
-            let next = FootPathRequest::track(
-                &sim.substrate.entities,
-                id,
-                goal,
-                0,
-                sim.playfield_bounds,
-                None,
-                Some(&rules),
-            )
-            .unwrap();
+            let next =
+                FootPathRequest::track(&sim.substrate.entities, id, goal, 0, sim.playfield_bounds)
+                    .unwrap();
             assert!(matches!(
                 sim.search_foot_path(
                     &next,

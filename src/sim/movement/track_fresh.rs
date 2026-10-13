@@ -315,8 +315,6 @@ impl Simulation {
             destination,
             urgency,
             self.playfield_bounds,
-            Some(&self.type_handles),
-            Some(call.rules),
         )
         .ok_or_else(|| "retired Drive/Ship Find_Path requester".into())
     }

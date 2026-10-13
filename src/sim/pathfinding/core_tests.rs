@@ -1274,7 +1274,6 @@ fn infantry_under_span_admission_reads_ground_speed_with_deck_cost_grid() {
                         path_grid: Some(&grid),
                         resolved_terrain: Some(&terrain),
                         terrain_costs: Some(&costs),
-                        bypass_grid: false,
                         is_infantry: true,
                         mover_is_crusher: false,
                     })
@@ -1355,7 +1354,6 @@ fn unit_under_span_admission_reads_ground_row_beneath_deck() {
                     path_grid: Some(&grid),
                     resolved_terrain: Some(&terrain),
                     terrain_costs: Some(&costs),
-                    bypass_grid: false,
                     is_infantry: false,
                     mover_is_crusher: false,
                 })
@@ -1374,7 +1372,6 @@ fn unit_under_span_admission_reads_ground_row_beneath_deck() {
                     path_grid: Some(&grid),
                     resolved_terrain: Some(&terrain),
                     terrain_costs: Some(&costs),
-                    bypass_grid: false,
                     is_infantry: false,
                     mover_is_crusher: false,
                 })
@@ -1409,7 +1406,6 @@ fn infantry_under_span_admission_preserves_wall_and_grid_blocks() {
                 path_grid: Some(&grid),
                 resolved_terrain: Some(&terrain),
                 terrain_costs: Some(&costs),
-                bypass_grid: false,
                 is_infantry: true,
                 mover_is_crusher: false,
             })
@@ -1434,12 +1430,11 @@ fn infantry_under_span_admission_preserves_missing_target_rejection() {
                 path_grid,
                 resolved_terrain: None,
                 terrain_costs: None,
-                bypass_grid: true,
                 is_infantry: true,
                 mover_is_crusher: false,
             })
             .is_clear(),
-            "bypassing grid blockers must not admit an absent target"
+            "an absent target is refused"
         );
     }
 }
@@ -2456,7 +2451,6 @@ fn astar_hierarchy_marker_follows_the_marked_straight_path() {
             urgency: 0,
             mover_is_crusher: false,
             is_infantry: false,
-            search_cost_classifier: None,
             foot_entry: None,
         },
     )
@@ -2635,7 +2629,6 @@ fn runtime_and_search_share_known_water_cell_admission() {
         Some(SpeedType::Track),
         Some(&terrain),
         Some(&costs),
-        false,
     ));
 
     let path = astar_search(

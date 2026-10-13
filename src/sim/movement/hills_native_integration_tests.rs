@@ -922,8 +922,6 @@ fn hills_same_type_marker_downgrade_reaches_live_foot_search_and_cleanup() {
             },
             urgency,
             sim.playfield_bounds,
-            None,
-            Some(&resources.rules),
         )
         .unwrap();
         assert_eq!(

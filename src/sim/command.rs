@@ -641,8 +641,8 @@ pub enum Command {
     /// Send a unit to a repair depot for repairs.
     /// The unit pathfinds to the depot, docks, and auto-repairs until full HP or out of credits.
     RepairAtDepot { entity_id: u64, depot_id: u64 },
-    /// Order an infantry/vehicle to enter a friendly transport or garrisonable building.
-    /// The passenger pathfinds to the transport's cell and boards on arrival.
+    /// Enter7: order an infantry/vehicle into a friendly transport or absorber.
+    /// Occupier garrison clicks use CaptureBuilding (Capture8).
     EnterTransport {
         passenger_id: u64,
         transport_id: u64,
@@ -666,10 +666,11 @@ pub enum Command {
         target_rx: u16,
         target_ry: u16,
     },
-    /// The Capture click (action 9) of an Engineer or a spy on a building:
+    /// The Capture click (action 9) of an Engineer, spy or occupier on a building:
     /// the infantryman walks in, and on arrival `InfantryClass::PerCellProcess`
-    /// captures, repairs or infiltrates it (`sim::movement::per_cell`).
+    /// captures, repairs, infiltrates or garrisons it (`sim::movement::per_cell`).
     CaptureBuilding {
+        /// Historical field name: the Capture actor, including a GI/Conscript.
         engineer_id: u64,
         target_building_id: u64,
     },

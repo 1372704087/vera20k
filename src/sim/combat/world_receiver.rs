@@ -1196,11 +1196,7 @@ pub(crate) fn commit_entities(
                             EntityCategory::Infantry
                                 | EntityCategory::Unit
                                 | EntityCategory::Aircraft
-                        ) && target
-                            .mission
-                            .current()
-                            .known()
-                            .and_then(|mission| rules.mission_control.entry(mission))
+                        ) && crate::sim::mission::control::current_control(rules, &target.mission)
                             .is_some_and(|entry| entry.no_threat && !entry.zombie)
                     })
                 && world.team_script_vm.team_for_member(target_id).is_none()

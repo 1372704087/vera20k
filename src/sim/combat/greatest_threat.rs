@@ -1724,6 +1724,22 @@ fn evaluate_candidate(
         return None;
     }
 
+    // The current mission's `NoThreat=` (`0x006F7DFF..0x006F7E0B`). Retail
+    // sets it on `[Selling]` and `[Harmless]`, so a building being sold is
+    // no candidate.
+    //
+    // RESIDUAL — the next gate (`0x006F7E11..0x006F7E1E`) is not ported: it
+    // refuses a candidate more than 20 leptons below the ground under it
+    // (GetHeight, vt+0x1C8). Trigger: an object underground, such as one on
+    // the Tunnel locomotor, which VERA does not port and no retail type uses.
+    // Effect: none while VERA puts nothing underground; porting that
+    // locomotor needs this gate.
+    if crate::sim::mission::control::current_control(ctx.rules, &candidate.mission)
+        .is_some_and(|entry| entry.no_threat)
+    {
+        return None;
+    }
+
     if candidate.passenger_role.is_inside_transport() {
         return None;
     }
@@ -4022,6 +4038,49 @@ mod tests {
         const { assert!(0.01_f64 <= VERSES_FLOOR) };
         const { assert!(0.02_f64 > VERSES_FLOOR) };
         const { assert!(0.0_f64 <= VERSES_FLOOR) };
+    }
+
+    /// The NoThreat gate (`0x006F7DFF..0x006F7E0B`): a guarding tank takes an
+    /// enemy Sentry Gun until its owner sells it. Retail `[Selling]` sets
+    /// `NoThreat=yes`; read without it, the sale alone hides nothing.
+    #[test]
+    fn retail_guard_scan_skips_a_defence_being_sold() {
+        let Some(mut retail) = crate::rules::retail_ini_fixture::retail_battle_rules() else {
+            return;
+        };
+        // `[NALASR]`'s art has `Buildup=NALASRMK`; the fixture loads no SHPs.
+        retail
+            .rules
+            .set_buildup_control_for_test("NALASR", [0, 25, 2]);
+        let mut sim = crate::sim::arena_fixture::rival_arena(&retail.rules, 1);
+        sim.intern_rule_type_ids(&retail.rules);
+        sim.resolve_type_handles(&retail.rules);
+        let tank = sim
+            .spawn_object("MTNK", "Americans", 16, 16, 64, &retail.rules)
+            .unwrap();
+        let sentry = sim
+            .spawn_object("NALASR", "Russians", 18, 16, 64, &retail.rules)
+            .unwrap();
+        let scan = |sim: &mut crate::sim::world::Simulation, rules: &RuleSet| {
+            sim.greatest_threat_represented(
+                rules,
+                None,
+                tank,
+                super::super::ScanMission::Guard,
+                None,
+                super::super::combat_targeting::greatest_threat_for_entity,
+            )
+        };
+        assert_eq!(scan(&mut sim, &retail.rules), Some(sentry));
+        assert!(sim.apply_command(
+            "Russians",
+            &crate::sim::command::Command::SellBuilding { entity_id: sentry },
+            Some(&retail.rules),
+        ));
+        assert_eq!(scan(&mut sim, &retail.rules), None);
+        retail.rules.mission_control =
+            crate::rules::mission_data::MissionControl::from_ini(&IniFile::from_str(""));
+        assert_eq!(scan(&mut sim, &retail.rules), Some(sentry));
     }
 }
 

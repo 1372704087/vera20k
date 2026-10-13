@@ -3137,21 +3137,43 @@ fn alliance_map(pairs: &[(&str, &[&str])]) -> HouseAllianceMap {
 }
 
 fn combat_test_rules() -> RuleSet {
-    combat_rules_with_tank_keys("")
+    combat_rules_with_keys("", "")
 }
 
 /// [`combat_test_rules`] with the tank on Drive, so an order drives it.
 fn driving_combat_test_rules() -> RuleSet {
-    combat_rules_with_tank_keys("Locomotor={4A582741-9839-11d1-B709-00A024DDAFD1}\n")
+    combat_rules_with_keys("", "Locomotor={4A582741-9839-11d1-B709-00A024DDAFD1}\n")
 }
 
-fn combat_rules_with_tank_keys(tank_keys: &str) -> RuleSet {
+/// [`driving_combat_test_rules`] with E1 walking and animated, as retail
+/// `[E1]` is: without `Locomotor=` a type installs its constructor's Teleport
+/// seed, and without a death sequence a corpse neither refuses to fire
+/// (`0x0051C8B8`) nor leaves.
+fn walking_combat_test_rules() -> RuleSet {
+    let mut rules = combat_rules_with_keys(
+        "Locomotor={4A582744-9839-11d1-B709-00A024DDAFD1}\n",
+        "Locomotor={4A582741-9839-11d1-B709-00A024DDAFD1}\n",
+    );
+    let art = IniFile::from_str(
+        "[GACNST]\nFoundation=4x3\n\
+         [E1]\nSequence=E1Sequence\n\
+         [E1Sequence]\nReady=0,1,1\nGuard=0,1,1\nProne=86,1,6\nWalk=8,6,6\n\
+         FireUp=164,6,6\nFireProne=212,6,6\nDie1=56,15,0\n",
+    );
+    rules.install_art_data(crate::rules::art_data::ArtRegistry::from_ini(&art));
+    rules.bind_animation_sequences(
+        &crate::rules::infantry_sequence::parse_infantry_sequence_registry(&art),
+    );
+    rules
+}
+
+fn combat_rules_with_keys(infantry_keys: &str, tank_keys: &str) -> RuleSet {
     let ini: IniFile = IniFile::from_str(&format!(
         "[InfantryTypes]\n0=E1\n\n\
          [VehicleTypes]\n0=MTNK\n1=AMCV\n\n\
          [AircraftTypes]\n\n\
          [BuildingTypes]\n0=GACNST\n\n\
-         [E1]\nStrength=125\nArmor=flak\nSpeed=4\nPrimary=M60\n\n\
+         [E1]\n{infantry_keys}Strength=125\nArmor=flak\nSpeed=4\nPrimary=M60\n\n\
          [MTNK]\n{tank_keys}Strength=300\nArmor=heavy\nSpeed=6\nPrimary=105mm\n\n\
          [AMCV]\nStrength=450\nArmor=heavy\nSpeed=5\nPrimary=none\nDeploysInto=GACNST\n\n\
          [GACNST]\nStrength=1000\nArmor=wood\nConstructionYard=yes\nUndeploysInto=AMCV\n\n\
@@ -7755,7 +7777,7 @@ fn test_attack_move_lethal_hit_expires_the_target_at_the_kill() {
 /// Move, not Guard, so Clear_All_TarCom (`0x004DF1A0`).
 #[test]
 fn test_infantry_attack_move_kills_on_the_way_and_walks_on() {
-    let rules = driving_combat_test_rules();
+    let rules = walking_combat_test_rules();
     let mut sim: Simulation = Simulation::new();
     install_rectangular_test_map(&mut sim, 32, 32);
     sim.install_resolved_terrain_for_new_map(gsi_04_10_clear_terrain(64, 64));
@@ -7782,6 +7804,14 @@ fn test_infantry_attack_move_kills_on_the_way_and_walks_on() {
         &[infantry("Americans", 20), infantry("Russians", 24)],
         Some(&rules),
     );
+    // Infantry fear asks the owner's House whether a human controls it.
+    for (owner, side_index, is_human) in [("Americans", 0, true), ("Russians", 1, false)] {
+        let name = sim.interner.intern(owner);
+        sim.houses.insert(
+            name,
+            crate::sim::house_state::HouseState::new(name, side_index, None, is_human, 0, 10),
+        );
+    }
     assert!(sim.rebuild_dynamic_navigation(&rules));
     // This spawn leaves IsInPlayfield (`+0x3D5`) clear; the scan reads it.
     for id in [1, 2] {

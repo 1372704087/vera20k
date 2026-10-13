@@ -166,12 +166,19 @@ const HARNESS_COORD_SHIFT: u16 = HARNESS_MAP_SIZE / 2;
 const STREAM_CHECKPOINT_TICKS: &[u64] = &[149, 299, 449, 599];
 
 /// Rust regression receipts, not native whole-skirmish goldens. Record and
-/// replay agree on all 600 frames and the three-stream checkpoints. Tank 4's
-/// attack-move scan finds the infantryman at frame 297, and Event IDLE
-/// (`4C74CB..4C76BB`) after 299 keeps its committed Attack and its order.
-/// The 15-shot fight leaves tank 6 at 108 HP; target expiry 556, Guard
-/// Commence 568 and the first passive scan 569 pass the transition checks
-/// below. Original conditional native Stop/FV evidence and reproduction entry points:
+/// replay agree on all 600 frames and the three-stream checkpoints. Against
+/// main at c6d6cd7e0 the first difference is tank 4's attack-move order at
+/// frame 40: main queued raw mission 29 and committed it at 41, while
+/// Assign_Target_Command answers Move, which Queue_Mission's same-mission guard
+/// (`0x005B3601..0x005B3612`) leaves as the committed Move. From frame 46 its
+/// targeting timer runs Arrival_Target_Handler, whose scan draws Scenario
+/// `RandomRanged(0, 2)` each time; main/MapGen are unchanged. The scan finds
+/// the infantryman at frame 297 (main's per-visit scan found tank 6 at 281),
+/// and Event IDLE (`4C74CB..4C76BB`) after 299 keeps its committed Attack and
+/// its order. The 15-shot fight leaves tank 6 at 108 HP; target expiry 556,
+/// Guard Commence 568 and the first passive scan 569 pass the transition
+/// checks below. Original conditional native Stop/FV evidence and
+/// reproduction entry points:
 /// `tools/spatial_oracle/fv_cell_attack/README.md`. These fixture observations
 /// refresh a Rust regression pin; they do not establish native world parity.
 const FINAL_STREAM_STATES: (u64, u64, u64) = (

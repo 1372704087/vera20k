@@ -139,9 +139,9 @@ impl crate::sim::world::Simulation {
     }
 
     /// Walk FindSubCellDest (`0x0075C240`), the one port for its three
-    /// callers: ProcessMovement's fresh head (`0x0075BC18`) and arrival
+    /// callers: ProcessMovement's fresh head (`0x0075BC1A`) and arrival
     /// (`0x0075BE18`, a null request) and Force_Immediate_Destination
-    /// (`0x0075AE56`). [`select_step_head_at`], then the crate question on a
+    /// (`0x0075AE5D`). [`select_step_head_at`], then the crate question on a
     /// stored head (`0x0075C565..0x0075C5A6`): a false answer outside limbo
     /// resets the head to the null coordinate, and a dead owner then answers 0
     /// without the Mark tail; then the Mark tail ([`commit_walk_head`]).
@@ -821,6 +821,50 @@ mod tests {
         assert_eq!(raw.ground_infantry_owner(3, 4), None);
         assert_eq!(raw.deck_bits(3, 4), 4);
     }
+
+    /// A Force_Immediate_Destination that cannot be seated drops the held
+    /// head: FindSubCellDest stores PlaceInfantryInCell's answer as the head
+    /// (`0x0075C541..0x0075C562`), here the empty coordinate for a cell with
+    /// a vehicle, and Marks the Foot's own coordinate.
+    #[test]
+    fn a_force_refused_its_spot_drops_the_held_head() {
+        let rules =
+            crate::rules::ruleset::RuleSet::from_ini(&crate::rules::ini_parser::IniFile::from_str(
+                "[InfantryTypes]\n0=E1\n[E1]\nStrength=125\nSpeed=4\n\
+                 Locomotor={4A582744-9839-11d1-B709-00A024DDAFD1}\n",
+            ))
+            .unwrap();
+        let mut sim = crate::sim::world::Simulation::new();
+        sim.install_resolved_terrain_for_new_map(
+            crate::map::resolved_terrain::test_flat_ground_grid(16),
+        );
+        let id = sim
+            .spawn_object("E1", "Americans", 6, 5, 0, &rules)
+            .unwrap();
+        sim.substrate
+            .entities
+            .get_mut(id)
+            .unwrap()
+            .locomotor
+            .as_mut()
+            .unwrap()
+            .set_step_head(Some(DriveCoord {
+                x: 7 * 256 + 64,
+                y: 5 * 256 + 64,
+                z: 0,
+            }));
+        sim.substrate.raw_cell_occupation.mark_ground(7, 5, 0x20);
+        sim.foot_force_immediate_destination(
+            id,
+            Some(DriveCoord::cell(7, 5, 0)),
+            Some(&rules),
+            None,
+            crate::sim::world::FrameEffects::default(),
+        )
+        .unwrap();
+        let actor = sim.substrate.entities.get(id).unwrap();
+        assert_eq!(actor.locomotor.as_ref().unwrap().step_head(), None);
+    }
 }
 
 /// Test adapter over [`prepare_step_head_at`]: the prospective coordinate is
@@ -1011,9 +1055,15 @@ pub(super) fn select_step_head_at(
     } else {
         MovementLayer::Ground
     };
+    //75C541..75C562 stores PlaceInfantryInCell's answer as the head; a
+    //failed placement answers the empty coordinate, so the head is dropped
+    //and 75C5C5 Marks current.
     let Some(slot) = super::bump_crush::place_infantry_in_native_cell(
         raw, raw_key, layer, input, priority, gate_open, rng,
     ) else {
+        if let Some(loco) = entities.get_mut(id).and_then(|e| e.locomotor.as_mut()) {
+            loco.set_step_head(None);
+        }
         raw_at(raw, owner, current, true, terrain, grid);
         return StepHead::Done(false);
     };
@@ -1057,7 +1107,7 @@ pub(super) fn commit_walk_head(
 
 /// [`select_step_head_at`] then [`commit_walk_head`] with no crate on the
 /// head: the test adapters' complete chooser. Production asks the crate
-/// question between the two (`walk_admission`).
+/// question between the two ([`Simulation::walk_find_sub_cell_dest`]).
 #[cfg(test)]
 pub(super) fn prepare_step_head_at(
     entities: &mut crate::sim::entity_store::EntityStore,

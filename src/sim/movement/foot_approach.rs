@@ -418,8 +418,9 @@ impl Simulation {
     }
 
     /// Common Foot4D5690 body (Unit741689 and Infantry52236C pass false).
-    /// No RNG belongs
-    /// to Approach itself; MissionAttack draws its cadence after this returns.
+    /// Its only RNG is PlaceInfantryInCell's centre-row draw on a CloseRange
+    /// infantryman's spot requests (the pre-search arm and each ring
+    /// candidate); MissionAttack draws its cadence after this returns.
     pub(crate) fn approach_foot_target(
         &mut self,
         id: u64,

@@ -853,6 +853,102 @@ fn a_brute_beside_a_tank_takes_the_spot_in_his_cell_nearer_it() {
         entity.navigation.nav_com,
         Some(NavTargetRef::cell(tank_cell.0, tank_cell.1))
     );
+    // Through the frame he steps onto that spot and smashes the tank from it.
+    let strength = sim.substrate.entities.get(tank).unwrap().health.current;
+    for _ in 0..120 {
+        step(&mut sim, &rules);
+        if sim.substrate.entities.get(tank).unwrap().health.current < strength {
+            assert_eq!(frame(&sim, brute, tank).cell(), (10, 10));
+            assert_eq!(spot(&sim, brute), free);
+            return;
+        }
+    }
+    panic!("the Brute never smashed the tank");
+}
+
+/// Each candidate of a Brute's search is the spot PlaceInfantryInCell picks
+/// in the candidate's cell for the tank's coordinate
+/// (`0x004D6093..0x004D60F9`): one Scenario draw each, the tank standing at
+/// its cell centre, whether the candidate is taken or not. Here none is. In
+/// the cell beside the tank towards the Brute every spot lies beyond Smash's
+/// reach and 307.2 leptons of the tank (the spot nearest it, (64, 64), is no
+/// infantryman's), and a GI stands in each other cell his ring reaches. All
+/// 25 candidates draw.
+#[test]
+fn a_brutes_search_draws_once_for_each_candidate() {
+    let Some(rules) = retail_rules() else {
+        return;
+    };
+    let mut sim = arena(&rules);
+    let tank = spawn(&mut sim, &rules, "MTNK", "Russians", (16, 16));
+    for cell in [(17, 16), (16, 17), (17, 15), (15, 17)] {
+        spawn(&mut sim, &rules, "E1", "Americans", cell);
+    }
+    let brute = spawn(&mut sim, &rules, "BRUTE", "Americans", (21, 21));
+    target(&mut sim, brute, tank);
+    start_mission(&mut sim, brute, MissionType::Attack);
+    let mut draws = sim.scenario_rng.clone();
+    for _ in 0..25 {
+        draws.next_range_u32(4);
+    }
+    sim.approach_target(
+        brute,
+        &rules,
+        None,
+        crate::sim::world::FrameEffects::default(),
+    );
+    let nav_com = sim
+        .substrate
+        .entities
+        .get(brute)
+        .unwrap()
+        .navigation
+        .nav_com;
+    assert_eq!(
+        sim.scenario_rng.logical_state(),
+        draws.logical_state(),
+        "{nav_com:?}"
+    );
+}
+
+/// A Brute's candidate spot beyond Smash's reach is still taken when it lies
+/// under 307.2 leptons from the tank (`0x004D622C..0x004D625C`). The tank has
+/// driven off its cell centre into the south-west quarter, so each spot
+/// request prefers spot 3, (64, 192), without a draw: in the cell west of the
+/// tank that spot lies 302 leptons from it.
+#[test]
+fn a_brute_takes_a_spot_beyond_his_reach_under_307_leptons_from_the_tank() {
+    let Some(rules) = retail_rules() else {
+        return;
+    };
+    let mut sim = arena(&rules);
+    let tank = spawn(&mut sim, &rules, "MTNK", "Russians", (17, 16));
+    let position = &mut sim.substrate.entities.get_mut(tank).unwrap().position;
+    position.sub_x = crate::util::fixed_math::SimFixed::from_num(110);
+    position.sub_y = crate::util::fixed_math::SimFixed::from_num(192);
+    let brute = spawn(&mut sim, &rules, "BRUTE", "Americans", (11, 16));
+    target(&mut sim, brute, tank);
+    start_mission(&mut sim, brute, MissionType::Attack);
+    let aim = position_world_coord(&sim.substrate.entities.get(tank).unwrap().position);
+    let reach = f64::from(16 * 256 + 64 - aim.x).hypot(f64::from(16 * 256 + 192 - aim.y));
+    assert!(reach > range(&rules, "Smash") && reach < 307.2, "{reach}");
+    let before = sim.scenario_rng.logical_state();
+    sim.approach_target(
+        brute,
+        &rules,
+        None,
+        crate::sim::world::FrameEffects::default(),
+    );
+    assert_eq!(sim.scenario_rng.logical_state(), before);
+    assert_eq!(
+        sim.substrate
+            .entities
+            .get(brute)
+            .unwrap()
+            .navigation
+            .nav_com,
+        Some(NavTargetRef::cell(16, 16))
+    );
 }
 
 /// A Brute far from the tank he attacks searches its neighbours (`CloseRange=`

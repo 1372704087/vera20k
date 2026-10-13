@@ -424,6 +424,8 @@ pub struct GeneralRules {
     /// Also the ballistic gravity: `WeaponTypeClass::GetSpeed @ 0x00773070`
     /// derives every `ROT=0` launch speed from it.
     pub gravity: i32,
+    /// Rules+7AC, ReadGeneral66F2AF: full signed wind-table index.
+    wind_direction: i32,
     /// `[General] VeteranSight=` — `RulesClass+0x680`, a double.
     ///
     /// gamemd-derived: `TechnoClass::UpdateReveal @ 0x0070AF50` MULTIPLIES the
@@ -2027,6 +2029,7 @@ impl Default for GeneralRules {
             // 0x3F9EB851EB851EB8 to +0x14C8.
             savour_delay_minutes: 0.03,
             gravity: 3,
+            wind_direction: -1,
             veteran_sight: 0.0,
             veteran_combat: 1.0,
             veteran_speed: 1.0,
@@ -2663,6 +2666,10 @@ pub(crate) fn ambient_change_terms(rate: f64, step: f64) -> (bool, i32, i32) {
 }
 
 impl GeneralRules {
+    pub fn wind_direction(&self) -> i32 {
+        self.wind_direction
+    }
+
     /// The Rules+714 reference resolved by the fixed SOUNDMD process binder.
     pub fn building_damage_sound(&self) -> Option<&str> {
         self.building_damage_sound.as_deref()
@@ -2906,6 +2913,7 @@ impl GeneralRules {
             // [General] silently fell back to the code default 3 — half stock
             // gravity for spark ballistics and the hover bob amplitude.
             gravity: audio_visual.read_int("Gravity", defaults.gravity),
+            wind_direction: general.read_int("WindDirection", defaults.wind_direction),
             veteran_sight: general.read_double("VeteranSight", defaults.veteran_sight),
             veteran_combat: general.read_double("VeteranCombat", defaults.veteran_combat),
             veteran_speed: general.read_double("VeteranSpeed", defaults.veteran_speed),
@@ -3776,6 +3784,7 @@ impl RuleSet {
         rules.general.default_mirage_disguises = processed.default_mirage_disguises().to_vec();
         rules.bridge_rules.explosions = processed.bridge_explosions().to_vec();
         rules.general.gravity = processed.gravity();
+        rules.general.wind_direction = processed.wind_direction();
         rules.general.difficulty_rows = *processed.difficulty_rows();
         rules.general.detail = processed.detail();
         rules.general.prism_support = processed.prism_support();
@@ -4921,6 +4930,7 @@ impl RuleSet {
         // Process-resident Gravity and Weapon postpass results can differ for
         // identical current source stacks because earlier passes retained them.
         self.general.gravity.hash(&mut hasher);
+        self.general.wind_direction.hash(&mut hasher);
         self.general.detail.hash(&mut hasher);
         self.general.prism_support.hash(&mut hasher);
         self.general.default_mirage_disguises.hash(&mut hasher);

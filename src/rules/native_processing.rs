@@ -579,6 +579,12 @@ impl ProcessedRulesLayers {
         )
     }
 
+    pub(crate) fn wind_direction(&self) -> i32 {
+        self.native_type_construction_trace
+            .registry_state()
+            .rules_wind_direction
+    }
+
     pub(crate) fn gravity(&self) -> i32 {
         self.native_type_construction_trace
             .registry_state()
@@ -913,6 +919,7 @@ pub(crate) struct NativeRulesRegistryState {
     rules_detail: DetailRules,
     rules_difficulty_rows: [crate::rules::ruleset::DifficultyRules; 3],
     rules_gravity: i32,
+    rules_wind_direction: i32,
     rules_missile_rot_var: f64,
     rules_safety_altitude: i32,
     rules_line_trail_override: [u8; 3],
@@ -936,6 +943,7 @@ impl Default for NativeRulesRegistryState {
             rules_difficulty_rows: crate::rules::ruleset::GeneralRules::default().difficulty_rows,
             // RulesClass665650 initializes +16B8 before any AudioVisual read.
             rules_gravity: 3,
+            rules_wind_direction: -1,
             rules_missile_rot_var: 0.25,
             rules_safety_altitude: 500,
             rules_line_trail_override: [0; 3],
@@ -1007,6 +1015,7 @@ impl NativeRulesRegistryState {
             rules_detail: self.rules_detail,
             rules_difficulty_rows: self.rules_difficulty_rows,
             rules_gravity: self.rules_gravity,
+            rules_wind_direction: self.rules_wind_direction,
             rules_missile_rot_var: self.rules_missile_rot_var,
             rules_safety_altitude: self.rules_safety_altitude,
             rules_line_trail_override: self.rules_line_trail_override,
@@ -1216,6 +1225,7 @@ struct RulesPassProcessor {
     rules_detail: DetailRules,
     rules_difficulty_rows: [crate::rules::ruleset::DifficultyRules; 3],
     rules_gravity: i32,
+    rules_wind_direction: i32,
     rules_missile_rot_var: f64,
     rules_safety_altitude: i32,
     rules_line_trail_override: [u8; 3],
@@ -1242,6 +1252,7 @@ impl Default for RulesPassProcessor {
             rules_detail: DetailRules::default(),
             rules_difficulty_rows: crate::rules::ruleset::GeneralRules::default().difficulty_rows,
             rules_gravity: NativeRulesRegistryState::default().rules_gravity,
+            rules_wind_direction: NativeRulesRegistryState::default().rules_wind_direction,
             rules_missile_rot_var: NativeRulesRegistryState::default().rules_missile_rot_var,
             rules_safety_altitude: NativeRulesRegistryState::default().rules_safety_altitude,
             rules_line_trail_override: NativeRulesRegistryState::default()
@@ -1265,6 +1276,7 @@ impl RulesPassProcessor {
             rules_detail: registry_state.rules_detail,
             rules_difficulty_rows: registry_state.rules_difficulty_rows,
             rules_gravity: registry_state.rules_gravity,
+            rules_wind_direction: registry_state.rules_wind_direction,
             rules_missile_rot_var: registry_state.rules_missile_rot_var,
             rules_safety_altitude: registry_state.rules_safety_altitude,
             rules_line_trail_override: registry_state.rules_line_trail_override,
@@ -1686,6 +1698,9 @@ impl RulesPassProcessor {
             section.read_double("MissileROTVar", self.rules_missile_rot_var);
         self.rules_safety_altitude =
             section.read_int("MissileSafetyAltitude", self.rules_safety_altitude);
+        // Rules665650 +7AC starts-1; ReadGeneral66F2AF..66F2CF uses
+        // previous fullsigned WindDirection as default, no clamp.
+        self.rules_wind_direction = section.read_int("WindDirection", self.rules_wind_direction);
         // ReadGeneral's Prism block (`0x0067114F..0x006711B8`), current values
         // as defaults; RulesClass keeps them across Full_Init's reset.
         self.rules_prism_support = self.rules_prism_support.read_pass(section);
@@ -2623,6 +2638,7 @@ impl RulesPassProcessor {
                     rules_detail: self.rules_detail,
                     rules_difficulty_rows: self.rules_difficulty_rows,
                     rules_gravity: self.rules_gravity,
+                    rules_wind_direction: self.rules_wind_direction,
                     rules_missile_rot_var: self.rules_missile_rot_var,
                     rules_safety_altitude: self.rules_safety_altitude,
                     rules_line_trail_override: self.rules_line_trail_override,

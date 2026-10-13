@@ -3789,11 +3789,13 @@ fn gsi_04_07_damage_receiver_smoke_creation_precedes_retaliation() {
             .unwrap()
             .damage_smoke_system_id,
         Some(system_id),
-        "the owner pointer remains until physical pointer expiry"
+        "mark-only Destroy retains +0x310 until the system's own Limbo"
     );
-    sim.retire_particle_system(system_id);
-    sim.process_pending_delete();
-    assert!(sim.particle_systems().get(system_id).is_none());
+    sim.retire_particle_system(
+        system_id,
+        crate::sim::world::UninitContext::with_rules(&rules),
+    );
+    assert!(sim.particle_systems().get(system_id).is_some());
     assert_eq!(
         sim.substrate
             .entities
@@ -3801,8 +3803,10 @@ fn gsi_04_07_damage_receiver_smoke_creation_precedes_retaliation() {
             .unwrap()
             .damage_smoke_system_id,
         None,
-        "physical finalization clears the +0x310 pointer"
+        "done-empty Limbo clears +0x310 before physical finalization"
     );
+    sim.process_pending_delete();
+    assert!(sim.particle_systems().get(system_id).is_none());
 }
 
 #[test]

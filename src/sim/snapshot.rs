@@ -989,7 +989,11 @@ use crate::sim::world::Simulation;
 // carry the goal.
 // 341 -> 342: each House retains its tech-tree recheck byte (+1FC).
 // Version 341 records cannot preserve a pending strip cancellation decision.
-const SNAPSHOT_VERSION: u32 = 342;
+// 342 -> 343: particle speed and system spawn accumulator retain native f32
+// bits; children retain individual Display IDs and System Alive/Limbo state;
+// the existing Rules registry retains WindDirection across passes.
+// Old records cannot resume these scalar authorities.
+const SNAPSHOT_VERSION: u32 = 343;
 
 const SNAPSHOT_PRODUCT_MAGIC: [u8; 8] = *b"VERA20K\0";
 const SNAPSHOT_ENVELOPE_VERSION: u32 = 1;
@@ -1666,6 +1670,13 @@ impl RestoredObjectIndex {
                 system.stable_id,
             )?;
             highest_id = highest_id.max(registry_id);
+            // Individual particles retain AIR Display membership. Register
+            // their owning store's identities in the existing restore index.
+            for particle in &system.particles {
+                let id = particle.stable_id();
+                Self::register(&mut identities, "ParticleSystemStore.children", id, id)?;
+                highest_id = highest_id.max(id);
+            }
         }
         for (&registry_id, terrain) in &sim.production.terrain_objects {
             Self::register(
@@ -4362,7 +4373,8 @@ mod tests {
         // 339 -> 340: a bounce body's orientation and rotation quaternions.
         // 340 -> 341: the Foot MegaMission replaces the OrderIntent goal.
         // 341 -> 342: the House tech-tree recheck byte.
-        assert_eq!(super::SNAPSHOT_VERSION, 342);
+        // 342 -> 343: Smoke scalars and individual Particle AIR identities.
+        assert_eq!(super::SNAPSHOT_VERSION, 343);
     }
 
     #[test]
@@ -6299,7 +6311,7 @@ mod tests {
                 glam::IVec3::ZERO,
             );
             system.offset = glam::IVec3::ZERO;
-            system.spawn_timer = crate::util::fixed_math::SimFixed::from_num(1);
+            system.set_spawn_timer_for_test(crate::util::native_x87::NativeF32Bits::ONE);
             system.owner_entity = Some(entity_id);
             system.target_coords = glam::IVec3::ZERO;
             system

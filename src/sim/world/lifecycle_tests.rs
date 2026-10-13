@@ -3647,30 +3647,273 @@ fn infantry_target_expiry_clears_firing_action_before_target() {
 }
 
 #[test]
-fn pointer_expiry_clears_particle_owner_and_deletes_attached_system() {
+fn pointer_expiry_stops_particle_owner_without_deleting_living_children() {
     let mut sim = Simulation::new();
     insert_particle_system(&mut sim, 1);
     insert_particle_system(&mut sim, 2);
     insert_entity(&mut sim, 3, EntityCategory::Unit);
+    insert_particle_system(&mut sim, 4);
     let _ = sim.reveal(3);
-    sim.substrate
-        .particle_systems
-        .get_mut(1)
-        .unwrap()
-        .owner_entity = Some(3);
+    let owned = sim.substrate.particle_systems.get_mut(1).unwrap();
+    owned.owner_entity = Some(3);
+    let mut child = crate::sim::particles::Particle::test_fixture(
+        crate::rules::particle_type::ParticleTypeId(0),
+        IVec3::new(500, 700, 90),
+    );
+    child.lifetime_remaining = 71;
+    owned.particles.push(child);
     let attached = sim.substrate.particle_systems.get_mut(2).unwrap();
     attached.owner_entity = Some(3);
     attached.attached_entity = Some(3);
+    sim.substrate
+        .particle_systems
+        .get_mut(4)
+        .unwrap()
+        .attached_entity = Some(3);
+    let rng = [
+        sim.scenario_rng.native_state_hex(),
+        sim.main_rng.native_state_hex(),
+        sim.mapgen_rng.native_state_hex(),
+    ];
 
     sim.uninit(3);
 
     let owned = sim.substrate.particle_systems.get(1).unwrap();
     assert!(owned.owner_entity.is_none());
-    assert!(!owned.done_spawning);
+    assert!(owned.done_spawning, "owner+E0 expiry sets done+F8");
+    assert_eq!(owned.particles.len(), 1);
+    assert_eq!(owned.particles[0].lifetime_remaining, 71);
+    assert_eq!(owned.particles[0].coords, IVec3::new(500, 700, 90));
+    assert!(!owned.particles[0].marked_for_deletion);
+    assert!(
+        owned.alive(),
+        "living children retain their system for its own AI"
+    );
     let attached = sim.substrate.particle_systems.get(2).unwrap();
     assert!(attached.owner_entity.is_none());
     assert!(attached.attached_entity.is_none());
     assert!(attached.done_spawning);
+    let target_only = sim.substrate.particle_systems.get(4).unwrap();
+    assert!(target_only.attached_entity.is_none());
+    assert!(
+        !target_only.done_spawning,
+        "target+E4 expiry has no done write"
+    );
+    assert_eq!(
+        [
+            sim.scenario_rng.native_state_hex(),
+            sim.main_rng.native_state_hex(),
+            sim.mapgen_rng.native_state_hex(),
+        ],
+        rng,
+        "the represented owner/target expiry bodies consume no RNG"
+    );
+}
+
+#[test]
+fn completed_empty_smoke_limbo_clears_every_matching_techno_before_late_drain() {
+    let mut sim = Simulation::new();
+    for id in [1, 2, 3] {
+        insert_entity(&mut sim, id, EntityCategory::Structure);
+    }
+    for id in [4, 5] {
+        insert_particle_system(&mut sim, id);
+        assert!(sim.reveal_particle_system(id, None));
+    }
+    sim.substrate
+        .particle_systems
+        .get_mut(4)
+        .unwrap()
+        .owner_entity = Some(1);
+    for (id, smoke_id) in [(1, 4), (2, 4), (3, 5)] {
+        sim.substrate
+            .entities
+            .get_mut(id)
+            .unwrap()
+            .damage_smoke_system_id = Some(smoke_id);
+    }
+    let rng = [
+        sim.scenario_rng.native_state_hex(),
+        sim.main_rng.native_state_hex(),
+        sim.mapgen_rng.native_state_hex(),
+    ];
+
+    sim.retire_particle_system(4, super::UninitContext::default());
+    assert_eq!(
+        sim.substrate
+            .entities
+            .get(1)
+            .unwrap()
+            .damage_smoke_system_id,
+        Some(4)
+    );
+    assert!(sim.substrate.pending_delete.is_empty());
+
+    let system = sim.substrate.particle_systems.get_mut(4).unwrap();
+    system.done_spawning = true;
+    system
+        .particles
+        .push(crate::sim::particles::Particle::test_fixture(
+            crate::rules::particle_type::ParticleTypeId(0),
+            IVec3::ZERO,
+        ));
+    sim.retire_particle_system(4, super::UninitContext::default());
+    assert_eq!(
+        sim.substrate
+            .entities
+            .get(1)
+            .unwrap()
+            .damage_smoke_system_id,
+        Some(4)
+    );
+    assert!(sim.substrate.pending_delete.is_empty());
+
+    sim.substrate
+        .particle_systems
+        .get_mut(4)
+        .unwrap()
+        .particles
+        .clear();
+    sim.lifecycle_test_events.clear();
+    sim.retire_particle_system(4, super::UninitContext::default());
+
+    for id in [1, 2] {
+        assert_eq!(
+            sim.substrate
+                .entities
+                .get(id)
+                .unwrap()
+                .damage_smoke_system_id,
+            None,
+            "the expiry callback clears every exact match, not only the producer"
+        );
+    }
+    assert_eq!(
+        sim.substrate
+            .entities
+            .get(3)
+            .unwrap()
+            .damage_smoke_system_id,
+        Some(5)
+    );
+    let system = sim.substrate.particle_systems.get(4).unwrap();
+    assert!(!system.alive());
+    assert!(system.in_limbo());
+    assert!(!system.in_logic_vector);
+    assert_eq!(sim.substrate.pending_delete.object_ids(), vec![4]);
+    assert_eq!(sim.substrate.display.layer_of(4), None);
+    let visited = sim
+        .lifecycle_test_events
+        .iter()
+        .filter_map(|event| match event {
+            LifecycleTestEvent::UninitRemovalListenerVisited {
+                expired_id: 4,
+                listener_id,
+                target_alive,
+                target_in_limbo,
+            } => Some((*listener_id, *target_alive, *target_in_limbo)),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(
+        visited,
+        vec![
+            (1, true, false),
+            (2, true, false),
+            (3, true, false),
+            (4, true, false),
+            (5, true, false)
+        ]
+    );
+
+    sim.retire_particle_system(4, super::UninitContext::default());
+    assert_eq!(
+        sim.substrate.pending_delete.object_ids(),
+        vec![4],
+        "the Alive gate prevents repeat AI retirement"
+    );
+    sim.lifecycle_test_events.clear();
+    sim.process_pending_delete();
+    assert!(sim.substrate.particle_systems.get(4).is_none());
+    assert_eq!(
+        sim.substrate
+            .entities
+            .get(3)
+            .unwrap()
+            .damage_smoke_system_id,
+        Some(5)
+    );
+    assert!(
+        sim.lifecycle_test_events.iter().any(|event| matches!(
+            event,
+            LifecycleTestEvent::UninitRemovalListenerVisited {
+                expired_id: 4,
+                target_alive: false,
+                target_in_limbo: true,
+                ..
+            }
+        )),
+        "the physical destructor repeats the shared expiry callback after Limbo"
+    );
+    assert_eq!(
+        [
+            sim.scenario_rng.native_state_hex(),
+            sim.main_rng.native_state_hex(),
+            sim.mapgen_rng.native_state_hex(),
+        ],
+        rng,
+    );
+}
+
+#[test]
+fn particle_system_physical_disposal_removes_retained_child_air_entries() {
+    let rules =
+        crate::rules::ruleset::RuleSet::from_ini(&crate::rules::ini_parser::IniFile::from_str(
+            "[Particles]\n0=Smoke\n[Smoke]\nBehavesLike=Smoke\nMaxEC=80\n\
+             [ParticleSystems]\n0=SmokeSys\n[SmokeSys]\nBehavesLike=Smoke\nHoldsWhat=Smoke\n",
+        ))
+        .unwrap();
+    let mut sim = Simulation::new();
+    let system_id = sim
+        .spawn_particle_system(
+            crate::rules::particle_system_type::ParticleSystemTypeId(0),
+            IVec3::new(500, 700, 90),
+            None,
+            None,
+            IVec3::ZERO,
+            None,
+            &rules,
+        )
+        .unwrap();
+    assert!(crate::sim::particles::system_ai::tick_particle_system(
+        &mut sim, &rules, system_id
+    ));
+    let child_id = sim.particle_systems().get(system_id).unwrap().particles[0].stable_id();
+    assert_eq!(
+        sim.substrate.display.layer_of(child_id),
+        Some(super::display_layers::DisplayLayer::AIR)
+    );
+    assert!(!sim.live_object_order_snapshot().contains(&child_id));
+    let rng = [
+        sim.scenario_rng.native_state_hex(),
+        sim.main_rng.native_state_hex(),
+        sim.mapgen_rng.native_state_hex(),
+    ];
+
+    sim.finalize_and_remove_common(system_id, super::UninitContext::with_rules(&rules), 1);
+
+    assert!(sim.substrate.particle_systems.get(system_id).is_none());
+    assert_eq!(sim.substrate.display.layer_of(system_id), None);
+    assert_eq!(sim.substrate.display.layer_of(child_id), None);
+    assert!(!sim.live_object_order_snapshot().contains(&system_id));
+    assert_eq!(
+        [
+            sim.scenario_rng.native_state_hex(),
+            sim.main_rng.native_state_hex(),
+            sim.mapgen_rng.native_state_hex(),
+        ],
+        rng
+    );
 }
 
 #[test]

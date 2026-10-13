@@ -150,7 +150,6 @@ impl Simulation {
             .as_ref()
             .and_then(|l| l.step_head())
             .unwrap_or(head);
-        let old_head = e.locomotor.as_ref().and_then(|l| l.step_head());
         super::path_markers::consume_walk_path_replay(&mut e.navigation.path_replay);
         //75BDC0: SetLocation (vt+0x1B4) at the completed head.
         ground_pose::foot_set_location(
@@ -174,35 +173,21 @@ impl Simulation {
             self.resolved_terrain.as_ref(),
             self.path_grid.as_deref(),
         );
-        let current = ground_pose::position_world_coord(&e.position);
-        let owner = e.owner();
-        if let Some(old) = old_head {
-            super::walk_head::raw_at(
-                &mut self.substrate.raw_cell_occupation,
-                owner,
-                old,
-                false,
-                self.resolved_terrain.as_ref(),
-                self.path_grid.as_deref(),
-            );
-        }
-        if let Some(loco) = e.locomotor.as_mut() {
-            loco.set_step_head(None);
-        }
         //75BE11 clears only the paid-step latch before head retirement/PerCell.
         e.navigation.path_runtime.path_blocked = false;
         e.sub_cell = Some(super::bump_crush::priority_sub_cell(
             e.position.sub_x,
             e.position.sub_y,
         ));
-        super::walk_head::raw_at(
-            &mut self.substrate.raw_cell_occupation,
-            owner,
-            current,
-            true,
-            self.resolved_terrain.as_ref(),
-            self.path_grid.as_deref(),
-        );
+        //75BE18: FindSubCellDest(null) retires the head, clearing its raw
+        //bits and marking the Foot's own.
+        self.walk_find_sub_cell_dest(id, None, rules, registry, effects)
+            .map_err(|cause| crate::sim::world::FrameAdvanceError {
+                tick: self.session.tick,
+                binary_frame: self.session.binary_frame,
+                entity_id: id,
+                cause,
+            })?;
         //75BE3C: Per_Cell_Process(2); 75BE42..75BE69 then leaves at 75C1F1
         //for a dead, limboed or falling owner.
         let changed = self.per_cell_process(

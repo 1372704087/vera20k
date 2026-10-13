@@ -9072,7 +9072,7 @@ fn gsi_04_07_damage_periodic_radiation_enters_direct_receiver_once() {
 fn radiation_skips_only_objects_in_the_air() {
     use crate::rules::locomotor_type::LocomotorKind;
     use crate::sim::movement::locomotor::LocomotorState;
-    use crate::sim::movement::parachute_descent::ParachuteDescentState;
+
     use crate::util::fixed_math::SimFixed;
 
     let rules = radiation_rules();
@@ -9087,7 +9087,8 @@ fn radiation_skips_only_objects_in_the_air() {
     for (id, height) in [(high, 208), (low, 207)] {
         let paratrooper = sim.substrate.entities.get_mut(id).unwrap();
         paratrooper.position.exact_z_leptons = Some(height);
-        paratrooper.parachute_state = Some(ParachuteDescentState { rate: -3 });
+        paratrooper.set_falling_down_for_test(true);
+        paratrooper.set_fall_rate_for_test(-3);
     }
     let mut locomotor = LocomotorState::for_test_kind(LocomotorKind::Hover);
     locomotor.altitude = SimFixed::from_num(120);

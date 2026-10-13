@@ -798,7 +798,7 @@ mod tests {
             if blocked {
                 assert_eq!(cargo(&sim, 1), vec![2]);
                 assert!(passenger.lifecycle.in_limbo);
-                assert!(passenger.parachute_state.is_none());
+                assert!(!passenger.is_falling_down());
             } else {
                 assert!(cargo(&sim, 1).is_empty());
                 assert_eq!((passenger.position.rx, passenger.position.ry), native_cell);
@@ -854,7 +854,7 @@ mod tests {
                 .substrate
                 .entities
                 .get(passenger_id)
-                .is_some_and(|passenger| passenger.parachute_state.is_some());
+                .is_some_and(|passenger| passenger.is_falling_down());
             match canopy(&sim) {
                 Some((id, owner, loops)) => {
                     assert_eq!((id, owner), (canopy_id, Some(passenger_id)));
@@ -1282,7 +1282,7 @@ mod tests {
                 passenger.passenger_role,
                 PassengerRole::Inside { transport_id, .. } if transport_id == aircraft_id
             ));
-            assert!(passenger.parachute_state.is_none());
+            assert!(!passenger.is_falling_down());
             assert!(passenger.lifecycle.object_alive && passenger.lifecycle.in_limbo);
             assert!(!passenger.lifecycle.cell_marked && !passenger.in_logic_vector);
             assert_eq!(passenger.discovery.discovered_by_current_house, human);
@@ -1398,7 +1398,7 @@ mod tests {
             assert!(passenger.lifecycle.in_limbo);
             assert_eq!(passenger.lifecycle.cell_marked, post_attach);
             assert!(!passenger.in_logic_vector);
-            assert!(passenger.parachute_state.is_none());
+            assert!(!passenger.is_falling_down());
             assert_eq!(
                 passenger.locomotor.as_ref().unwrap().layer,
                 MovementLayer::Bridge
@@ -1441,7 +1441,7 @@ mod tests {
                 assert_eq!(cargo.passenger_sizes, vec![3]);
                 assert_eq!(cargo.total_size, 3);
                 let passenger = sim.substrate.entities.get(2).unwrap();
-                assert!(passenger.parachute_state.is_some());
+                assert!(passenger.is_falling_down());
                 assert!(passenger.lifecycle.cell_marked && passenger.in_logic_vector);
                 assert!(!passenger.passenger_role.is_inside_transport());
                 assert_eq!(chute_sounds(&sim).len(), 1);

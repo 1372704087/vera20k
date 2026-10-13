@@ -438,3 +438,6 @@ mod prone_speed_tests;
 
 #[cfg(test)]
 mod foot_timer_migration_tests;
+
+#[cfg(test)]
+mod drop_as_bomb_oracle_tests;

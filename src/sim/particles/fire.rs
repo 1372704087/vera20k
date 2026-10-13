@@ -28,8 +28,10 @@
 //! - Wiring `move_fire` into the per-tick path — needs ground-height
 //!   queries against the map. Today `move_fire` is a tested helper
 //!   waiting for a caller.
+//!
 //! Animation uses the shared native ID/EC cadence owner. It does not read
 //! SHP frame count. This change establishes no complete Fire mechanism.
+//!
 //! - Orbital attached-object tracking in `tick_system` — needs entity
 //!   coordinate access + `RateTimer`. Today the system spawns from its
 //!   fixed `sys.coords` at the SpawnFrames cadence.

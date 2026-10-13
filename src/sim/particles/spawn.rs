@@ -17,6 +17,7 @@ use crate::rules::particle_system_type::{ParticleSystemBehavesLike, ParticleSyst
 use crate::rules::ruleset::RuleSet;
 use crate::sim::intern::InternedId;
 use crate::sim::world::Simulation;
+#[cfg(test)]
 use crate::util::fixed_math::SimFixed;
 use crate::util::native_x87::{
     NativeF32Bits, NativeF64Bits, X87Chop53, X87Ordering, sqrt_approx_f32,

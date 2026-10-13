@@ -4990,7 +4990,13 @@ impl Simulation {
             if current != Some(MissionType::Selling) && !simple_deployer_unloading {
                 // `Queue_Mission(Guard, 1)`: the queue write, then Ready_To_Commence
                 // (`+0x200`) and Commence (`+0x1EC`).
-                self.mission_queue_now(stable_id, MissionId::from_known(MissionType::Guard), rules);
+                let _ = self.mission_queue_exact(
+                    stable_id,
+                    MissionId::from_known(MissionType::Guard),
+                    1,
+                    self.session.binary_frame,
+                    &crate::sim::mission::authority::LiveReadyInputProvider { rules },
+                );
             }
         }
 

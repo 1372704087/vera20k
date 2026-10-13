@@ -7746,6 +7746,92 @@ fn test_attack_move_lethal_hit_expires_the_target_at_the_kill() {
     assert!(resumed, "the attack-move resumes towards its destination");
 }
 
+/// An infantryman's attack-move through `advance_tick`: the scan on its
+/// targeting timer finds an enemy (Arrival_Target_Handler, `0x004DF3A0`), its
+/// queued Attack commences when Infantry readiness allows
+/// (`InfantryClass::Is_Ready_To_Commence @ 0x00521B60`), and once the enemy
+/// dies, Enter_Idle_Mode's RefreshMegaMission (`0x004DF4B0`) sends him on to
+/// the ordered cell. There the next idle entry ends the order: Get_Mission is
+/// Move, not Guard, so Clear_All_TarCom (`0x004DF1A0`).
+#[test]
+fn test_infantry_attack_move_kills_on_the_way_and_walks_on() {
+    let rules = driving_combat_test_rules();
+    let mut sim: Simulation = Simulation::new();
+    install_rectangular_test_map(&mut sim, 32, 32);
+    sim.install_resolved_terrain_for_new_map(gsi_04_10_clear_terrain(64, 64));
+    let infantry = |owner: &str, cell_x: u16| MapEntity {
+        owner: owner.to_string(),
+        type_id: "E1".to_string(),
+        health: 256,
+        cell_x,
+        cell_y: 20,
+        facing: 64,
+        category: EntityCategory::Infantry,
+        sub_cell: 0,
+        veterancy: Some(0),
+        high: false,
+        mission: None,
+        recruitable_a: true,
+        recruitable_b: true,
+        structure_upgrades: [None, None, None],
+        structure_ai_sellable: false,
+        structure_ai_repairable: false,
+        trigger_tag: None,
+    };
+    sim.spawn_from_map(
+        &[infantry("Americans", 20), infantry("Russians", 24)],
+        Some(&rules),
+    );
+    assert!(sim.rebuild_dynamic_navigation(&rules));
+    // This spawn leaves IsInPlayfield (`+0x3D5`) clear; the scan reads it.
+    for id in [1, 2] {
+        sim.substrate.entities.get_mut(id).unwrap().in_playfield = true;
+    }
+    // One M60 burst (25) kills.
+    sim.substrate.entities.get_mut(2).unwrap().health.current = 20;
+    let grid = PathGrid::new(64, 64);
+    let cmd = cmd_envelope(
+        &sim,
+        "Americans",
+        1,
+        Command::AttackMove {
+            entity_id: 1,
+            target_rx: 30,
+            target_ry: 20,
+            queue: false,
+        },
+    );
+    let _ = sim.advance_tick(&[cmd], Some(&rules), Some(&grid), None, 100);
+    assert!(sim.mega_mission(1).is_attack_move());
+
+    let mut acquired = false;
+    let mut arrived = false;
+    for _ in 0..600 {
+        let _ = sim.advance_tick(&[], Some(&rules), Some(&grid), None, 100);
+        let attacker = sim.substrate.entities.get(1).expect("attacker lives");
+        acquired |= attacker.attack_target.as_ref().map(|attack| attack.target)
+            == Some(crate::sim::combat::TargetKind::Entity(2));
+        let victim_dead = sim
+            .substrate
+            .entities
+            .get(2)
+            .is_none_or(|victim| victim.health.current == 0);
+        if victim_dead
+            && (attacker.position.rx, attacker.position.ry) == (30, 20)
+            && attacker.navigation.nav_com.is_none()
+            && !attacker.mega_mission.is_attack_move()
+        {
+            arrived = true;
+            break;
+        }
+    }
+    assert!(acquired, "the attack-move scan finds the enemy");
+    assert!(
+        arrived,
+        "the enemy dies, the order resumes to its cell and ends there"
+    );
+}
+
 /// `TechnoClass::PointerExpired @ 0x007077C0` clears a listener's Target and,
 /// with a mission suspended, Restores it. The archived Target re-enters
 /// `Assign_Target @ 0x006FCDB0`, which commits NULL for a Health-0 object

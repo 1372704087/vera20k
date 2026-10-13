@@ -9,9 +9,21 @@
 //! whose state a [`MegaMission`] can hold: a mission of NONE or 29, cell
 //! destinations, object or cell targets, every present event tag resolving to
 //! a token, and no scripted callback. Each compares the answer, the four
-//! fields and the mission the body queues. Arrival_Target_Handler's rows
-//! script the scan and target predicate, so they are not compared; it is
-//! tested through the object AI in `world_tests` and `unit_fire_turn_tests`.
+//! fields, the mission the body queues and the destination and target its
+//! setters receive.
+//!
+//! Left out, each for its stated reason:
+//! - `acquire` (Arrival_Target_Handler): its rows script the scan and the
+//!   target predicate; it is tested through the object AI in `world_tests`
+//!   and `unit_fire_turn_tests`;
+//! - `convert_target` (`0x004DF280`): no retail caller, so no port;
+//! - `saved_coordinate` (GetAttackMoveCoords `0x004DF1F0`, vt+0x4B8): only
+//!   the radar's attack-move lines call it (`0x0063BC53`, `0x0063C4A2`);
+//! - setup events holding a token a decoded event never carries: a missing
+//!   object (tag 52, index 999), an unsupported tag (1), an invalid tag
+//!   (255), or an event mission outside the mission table (-128, 127);
+//! - object destinations, which a MegaMission here cannot hold (its residual
+//!   in `mega_mission.rs`).
 
 use super::MegaMission;
 use crate::map::entities::EntityCategory;
@@ -19,7 +31,7 @@ use crate::rules::ini_parser::IniFile;
 use crate::rules::locomotor_type::LocomotorKind;
 use crate::rules::ruleset::RuleSet;
 use crate::sim::combat::{AttackTarget, TargetKind};
-use crate::sim::components::Health;
+use crate::sim::components::{Health, NavTargetRef};
 use crate::sim::game_entity::GameEntity;
 use crate::sim::mission::state::MissionTestFixture;
 use crate::sim::mission::{MissionDispatchTimer, MissionId, MissionType};
@@ -224,6 +236,31 @@ fn compare_after(sim: &Simulation, row: &Value, unread_mission: Option<i64>, con
             "{context}: no queue"
         ),
     }
+    // ContinueMegaMission's setters: Set_Destination(MegaDestination, 1) and
+    // Assign_Target(MegaTarget).
+    for event in row["events"].as_array().unwrap() {
+        match event["name"].as_str().unwrap() {
+            "assign_destination" => {
+                let cell = destination(int(&event["args"][0]))
+                    .unwrap_or_else(|| panic!("{context}: destination token"));
+                assert_eq!(
+                    entity.navigation.nav_com,
+                    cell.map(|(rx, ry)| NavTargetRef::cell(rx, ry)),
+                    "{context}: Set_Destination"
+                );
+            }
+            "assign_target" => {
+                let target = target(int(&event["args"][0]))
+                    .unwrap_or_else(|| panic!("{context}: target token"));
+                assert_eq!(
+                    entity.attack_target.as_ref().map(|attack| attack.target),
+                    target,
+                    "{context}: Assign_Target"
+                );
+            }
+            _ => {}
+        }
+    }
 }
 
 #[test]
@@ -356,7 +393,9 @@ fn mega_mission_bodies_match_the_original_rows() {
                 assert_eq!(i64::from(answered.id()), answer, "{context}: answer");
                 compare_after(&sim, row, unread, context);
             }
-            _ => continue,
+            // See the module documentation.
+            "acquire" | "convert_target" | "saved_coordinate" => continue,
+            other => panic!("{context}: unknown entry {other}"),
         }
         *compared.entry(entry.to_owned()).or_default() += 1;
     }

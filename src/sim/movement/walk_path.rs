@@ -6,7 +6,6 @@
 //! continuation 0x75AFD3 here. Original caller comparisons:
 //! tools/spatial_oracle/walk_failed_path.
 
-use super::block_index::HeldBlockSets;
 use super::foot_path::{FindPathResult, coord_cell};
 use super::ground_pose;
 use super::infantry_entry::InfantryEntryArgs;
@@ -63,7 +62,6 @@ impl Simulation {
     pub(crate) fn run_walk_path_request(
         &mut self,
         request: &FootPathRequest,
-        held: Option<&mut HeldBlockSets>,
         rules: Option<&RuleSet>,
         registry: Option<&OverlayTypeRegistry>,
         frame_effects: FrameEffects<'_>,
@@ -79,7 +77,7 @@ impl Simulation {
             .navigation
             .path_runtime
             .start_movement(frame, rules.general.path_delay_ticks());
-        match self.foot_find_path(request, held, rules, registry, frame_effects)? {
+        match self.foot_find_path(request, rules, registry, frame_effects)? {
             FindPathResult::Route => {
                 //75B2DF..E2 is the success caller's retry reset. Existing
                 //head production resumes at its ordinary shared owner.

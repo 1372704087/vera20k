@@ -484,7 +484,6 @@ fn ordinary_and_recursive_walk_responses_match_original_decoder() {
                 let request = retry.ok_or("missing recursive Walk request")?;
                 let found = sim.run_walk_path_request(
                     &request,
-                    None,
                     Some(&rules),
                     Some(&registry),
                     crate::sim::world::FrameEffects::default(),
@@ -492,7 +491,6 @@ fn ordinary_and_recursive_walk_responses_match_original_decoder() {
                 if found {
                     let again = sim.run_walk_admission_request(
                         request.into_walk_admission_for_test(),
-                        None,
                         Some(&rules),
                         Some(&registry),
                         crate::sim::world::FrameEffects::default(),
@@ -568,7 +566,6 @@ fn exhausted_walk_retry_emits_native_retained_scold_request() {
             .unwrap();
         let result = sim.run_walk_path_request(
             &request,
-            None,
             Some(&rules),
             Some(&registry),
             crate::sim::world::FrameEffects::default(),

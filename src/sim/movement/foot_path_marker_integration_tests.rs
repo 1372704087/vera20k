@@ -54,7 +54,6 @@ fn marked_probe_survives_modern_foot_search_and_mark_restoration() {
         assert!(matches!(
             sim.search_foot_path(
                 &request,
-                None,
                 goal,
                 &rules,
                 Some(&registry),
@@ -105,7 +104,6 @@ fn marked_probe_survives_modern_foot_search_and_mark_restoration() {
             assert!(matches!(
                 sim.search_foot_path(
                     &next,
-                    None,
                     goal,
                     &rules,
                     Some(&registry),

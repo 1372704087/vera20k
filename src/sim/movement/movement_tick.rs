@@ -33,7 +33,7 @@ use crate::sim::pathfinding::zone_map::ZoneGrid;
 use crate::sim::rng::SimRng;
 use crate::sim::type_handle_table::TypeHandleTable;
 
-use super::block_index::{HeldBlockSets, LentOwnerBlockSet, OwnerBlockIndex};
+use super::block_index::{LentOwnerBlockSet, OwnerBlockIndex};
 use super::bump_crush;
 use super::locomotor::MovementLayer;
 use super::movement_path::supports_layered_bridge_pathing;
@@ -225,16 +225,17 @@ impl FootPathRequest {
     }
 
     /// The Simulation wrapper calls this only between its real Mark0/Mark1.
-    /// `blocks` and the context's blocker plane are brought current after the
-    /// actor left its cell; this reuses the single existing search.
+    /// The context's blocker plane is brought current after the actor left
+    /// its cell; this reuses the single existing search. `foot_entry` answers
+    /// every class question and walks every code-2 chain, so the search reads
+    /// no owner block set.
     pub(super) fn search(
         &self,
         goal: crate::sim::components::DriveCoord,
         entities: &EntityStore,
         ctx: PathfindingContext<'_>,
         terrain_costs: &BTreeMap<SpeedType, TerrainCostGrid>,
-        blocks: &super::block_index::OwnerBlockSet,
-        foot_entry: Option<&dyn crate::sim::pathfinding::SearchFootEntry>,
+        foot_entry: &dyn crate::sim::pathfinding::SearchFootEntry,
     ) -> Result<Vec<(u16, u16)>, super::movement_path::MovePathFailure> {
         let snap = &self.visit.snap;
         let actor = entities.get(self.entity_id).expect("live suspended mover");
@@ -265,26 +266,22 @@ impl FootPathRequest {
             layer,
             goal,
             snap.speed_type.and_then(|speed| terrain_costs.get(&speed)),
-            Some(&blocks.0),
-            Some(&blocks.0),
-            Some(&blocks.0),
+            None,
+            None,
+            None,
             snap.movement_zone,
             Some(snap.movement_zone),
-            Some(&blocks.1),
+            None,
             None,
             //The admitted search prepares markers and applies native42AECA
             //urgency downgrade through the live Foot provider.
             //One crush authority for every search; see `CrushCapability::of`.
             super::MoverPathFacts::from_snapshot(snap, self.urgency),
             snap.allow_zone_hierarchy,
-            foot_entry,
+            Some(foot_entry),
         )
         // Foot+5E0 words carry no layer; the Process reads OnBridge.
         .map(|(path, _)| path)
-    }
-
-    pub(crate) fn owner(&self) -> crate::sim::intern::InternedId {
-        self.visit.snap.owner
     }
 
     /// FootFindPath4D3920's success tail: the found route becomes the
@@ -633,8 +630,9 @@ fn advance_ordinary_mover(
 #[derive(Default)]
 pub(crate) struct MovementPassCache {
     blocker: BlockerPlaneCache,
-    /// Each owner's pathfinding block sets, kept current from the entity
-    /// store's touch log instead of rebuilt from every entity per turn.
+    /// Each owner's block sets for an order's reduced route search, kept
+    /// current from the entity store's touch log instead of rebuilt from
+    /// every entity per order.
     block_index: OwnerBlockIndex,
 }
 
@@ -723,30 +721,9 @@ impl MovementPassCache {
         )
     }
 
-    /// Bring owner sets a pass holds current, e.g. after a synchronous Mark(0).
-    pub(crate) fn refresh_lent_block_set(
-        &mut self,
-        owner: crate::sim::intern::InternedId,
-        lent: &mut LentOwnerBlockSet,
-        entities: &mut EntityStore,
-        resolved_terrain: Option<&ResolvedTerrainGrid>,
-        alliances: &HouseAllianceMap,
-        interner: &crate::sim::intern::StringInterner,
-        rules: Option<&crate::rules::ruleset::RuleSet>,
-    ) {
-        self.block_index.refresh_lent(
-            owner,
-            lent,
-            entities,
-            resolved_terrain,
-            alliances,
-            interner,
-            rules,
-        );
-    }
-
-    /// Owner sets for a search whose pass holds none for this owner, or that
-    /// runs outside any pass; [`Self::give_back`] returns them.
+    /// Owner sets for an order's reduced route search, which no Foot receiver
+    /// prices (`Simulation::issue_ground_move`); [`Self::give_back`] returns
+    /// them.
     pub(crate) fn lend_block_set(
         &mut self,
         owner: crate::sim::intern::InternedId,
@@ -891,8 +868,8 @@ impl MovementPassCache {
 
 /// The visit's entry work, run once before the ordinary mover advances.
 /// Resuming after a world callback must not repeat it: it runs Tube movement
-/// and the idle Walk tail. Returns the owner of an object that still advances
-/// as an ordinary mover.
+/// and the idle Walk tail. Returns whether the object still advances as an
+/// ordinary mover.
 fn prepare_movement_visit(
     entities: &mut EntityStore,
     entity_id: u64,
@@ -906,8 +883,10 @@ fn prepare_movement_visit(
     rules: Option<&crate::rules::ruleset::RuleSet>,
     stats: &mut MovementTickStats,
     scatters: &mut super::scatter::ScatterRequests,
-) -> Option<crate::sim::intern::InternedId> {
-    let entity = entities.get_mut(entity_id)?;
+) -> bool {
+    let Some(entity) = entities.get_mut(entity_id) else {
+        return false;
+    };
     cell_occupation.reconcile_entity(entity, occupancy);
     // Active TubeMovement owns the entire object turn, including the visit in
     // which its final clears the payload.
@@ -930,7 +909,7 @@ fn prepare_movement_visit(
         {
             stats.movers_total = stats.movers_total.saturating_add(1);
         }
-        return None;
+        return false;
     }
     // Walk75AEC0 is the Process of every live Foot (FootClass::AI
     // 0x004DA806..0x004DA877) and branches on its own head (+0x28) and
@@ -959,10 +938,10 @@ fn prepare_movement_visit(
         && !track_route
         && super::track_head::active_track_family(entity).is_none()
     {
-        return None;
+        return false;
     }
     let layer = entity.movement_layer_or_ground();
-    (!matches!(layer, MovementLayer::Air | MovementLayer::Underground)).then(|| entity.owner())
+    !matches!(layer, MovementLayer::Air | MovementLayer::Underground)
 }
 
 #[cfg(test)]
@@ -1036,8 +1015,6 @@ pub(crate) fn tick_movement_with_grids(
 
 pub(crate) struct PendingMovementPass {
     effects: MovementPassEffects,
-    /// The mover owner's block sets the visit lends to its path requests.
-    held_block_sets: HeldBlockSets,
 }
 
 /// Where the Process host re-enters the pending pass for the same mover.
@@ -1073,11 +1050,6 @@ impl PendingMovementPass {
         &mut self,
     ) -> Option<(u64, super::track_process::TrackFamily)> {
         self.effects.track_movement.take()
-    }
-
-    /// The owner sets this pass holds, for the path requests it makes.
-    pub(crate) fn held_block_sets(&mut self) -> &mut HeldBlockSets {
-        &mut self.held_block_sets
     }
 
     /// A Drive/Ship Process_Movement that returned without head selection
@@ -1170,7 +1142,6 @@ pub(crate) fn begin_movement(
     entities: &mut EntityStore,
     entity_id: u64,
     path_grid: Option<&PathGrid>,
-    alliances: &HouseAllianceMap,
     occupancy: &mut OccupancyGrid,
     cell_occupation: &mut CellOccupationGrid,
     raw_cell_occupation: &mut RawCellOccupationGrid,
@@ -1185,7 +1156,6 @@ pub(crate) fn begin_movement(
         crate::sim::intern::InternedId,
         crate::sim::house_state::HouseState,
     >,
-    caches: &mut MovementPassCache,
 ) -> PendingMovementPass {
     let grids = PassGrids {
         path_grid,
@@ -1193,8 +1163,7 @@ pub(crate) fn begin_movement(
         playfield_bounds,
     };
     let mut effects = MovementPassEffects::default();
-    let mut held_block_sets = HeldBlockSets::new();
-    let mover_owner = prepare_movement_visit(
+    let ordinary_mover = prepare_movement_visit(
         entities,
         entity_id,
         grids,
@@ -1208,18 +1177,7 @@ pub(crate) fn begin_movement(
         &mut effects.stats,
         &mut effects.scatters,
     );
-    if let Some(owner) = mover_owner {
-        // The owner's entity block sets for friendly-passable pathfinding,
-        // as a build from the entities would give them now.
-        let lent = caches.block_index.lend_current(
-            owner,
-            entities,
-            resolved_terrain,
-            alliances,
-            interner,
-            rules,
-        );
-        held_block_sets.insert(owner, lent);
+    if ordinary_mover {
         advance_ordinary_mover(
             entities,
             entity_id,
@@ -1236,24 +1194,14 @@ pub(crate) fn begin_movement(
             VisitEntry::Process,
         );
     }
-    PendingMovementPass {
-        effects,
-        held_block_sets,
-    }
+    PendingMovementPass { effects }
 }
 
 pub(crate) fn finish_movement_pass(
     pending: PendingMovementPass,
     entities: &mut EntityStore,
-    caches: &mut MovementPassCache,
 ) -> MovementTickStats {
-    let PendingMovementPass {
-        effects,
-        held_block_sets,
-    } = pending;
-    for (owner, lent) in held_block_sets {
-        caches.block_index.give_back(owner, lent);
-    }
+    let PendingMovementPass { effects } = pending;
     let MovementPassEffects {
         stats,
         finished_entities,

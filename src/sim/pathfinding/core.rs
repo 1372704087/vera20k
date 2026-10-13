@@ -137,15 +137,32 @@ const MAX_SEARCH_NODES: u32 = 65_527;
 /// This limits lookahead and makes units adapt to obstacles discovered en route.
 pub const MAX_PATH_SEGMENT_STEPS: usize = 24;
 
-/// Code-2 (friendly moving) cost multipliers. Matches gamemd.exe
-/// AStar_compute_edge_cost (0x00429830). See `compute_code2_multiplier`.
-const CODE2_MULT_CLEARING: i32 = 1; // chain clears within 10 hops → baseline
-const CODE2_MULT_JAM: i32 = 4; // urgency=1 OR full 10-step jam → traffic penalty
-const CODE2_MULT_ROUTE_AROUND: i32 = 1000; // urgency=2 → route around blocker
+/// Code-2 (friendly moving) cost multipliers of `AStar_compute_edge_cost`
+/// (`0x00429830`). See [`code2_multiplier`].
+const CODE2_MULT_CLEARING: i32 = 1; // the class base: the chain clears
+const CODE2_MULT_JAM: i32 = 4; // a nonzero urgency, or a jammed chain
+const CODE2_MULT_ROUTE_AROUND: i32 = 1000; // urgency 2: route around
 
-/// Maximum hops in the code-2 blocker chain walk (urgency=0).
-/// Matches the binary's `for (i = 0; i < 10; i++)` at 0x00429830.
-const CODE2_CHAIN_MAX_HOPS: usize = 10;
+/// The objects the urgency-0 chain tests before it jams: its loop counter
+/// runs to 10 (`0x00429978..0x0042997E`).
+pub(crate) const CODE2_CHAIN_MAX_HOPS: usize = 10;
+
+/// The code-2 multiplier of `AStar_compute_edge_cost @ 0x00429830`
+/// (`0x00429878..0x004299A6`). A nonzero urgency (`PathfinderClass+0x3C`)
+/// jams (4.0), and urgency 2 routes around (1000.0); urgency 0 asks
+/// `chain_jams` whether the traffic ahead jams (4.0) or clears, keeping the
+/// class base (1.0).
+pub(crate) fn code2_multiplier<E>(
+    urgency: u8,
+    chain_jams: impl FnOnce() -> Result<bool, E>,
+) -> Result<i32, E> {
+    Ok(match urgency {
+        0 if chain_jams()? => CODE2_MULT_JAM,
+        0 => CODE2_MULT_CLEARING,
+        2 => CODE2_MULT_ROUTE_AROUND,
+        _ => CODE2_MULT_JAM,
+    })
+}
 
 /// Code-5 (enemy unit) cost multiplier. Binary DAT_0081870c[5] = 20.0.
 const CODE5_MULT_ENEMY: i32 = 20;
@@ -158,9 +175,9 @@ const CODE6_MULT_STATIONARY_ALLY: i32 = 8;
 /// search-scoped overlay instead of mutating persistent `PathGrid` cells.
 const SEARCH_MARKER_COST_MULTIPLIER: i32 = 4;
 
-/// Entry in the entity soft-block map for A* cost computation.
-/// Carries the blocker's next cell (for code-2 chain walk) and the
-/// Can_Enter_Cell return code (2/5/6) that selects the cost multiplier.
+/// Entry in the reduced fallback's soft-block map, for a search without a
+/// Foot receiver (#683). Carries the blocker's next cell (for that fallback's
+/// code-2 chain) and the code (2/5/6) that selects its cost multiplier.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct EntityBlockEntry {
     /// For code-2 (moving friendly): the blocker's next cell in its path.
@@ -782,11 +799,10 @@ pub struct AStarOptions<'a> {
     pub entity_blocks: Option<&'a BTreeSet<(u16, u16)>>,
     /// Hard-blocked cells on bridge layer. Goal exempt.
     pub bridge_blocks: Option<&'a BTreeSet<(u16, u16)>>,
-    /// Code-2 blocker map: friendly-moving blocker's current cell → that
-    /// blocker's next cell (`block_index::moving_next_cell`). Used by the
-    /// cost function for the 10-hop chain walk (matches gamemd.exe
-    /// AStar_compute_edge_cost). The map is denormalized so no EntityStore
-    /// lookup is required inside A*.
+    /// The reduced fallback's soft-block map (codes 2/5/6, each code-2
+    /// blocker's next cell from `block_index::moving_next_cell`). A search
+    /// with a `foot_entry` reads none of it: the class answers the code and
+    /// the receiver walks the code-2 chain over live objects.
     pub entity_block_map: Option<&'a LayeredEntityBlockMap>,
     /// Search-scoped temporary marker overlay equivalent to
     /// `CellClass+0x140 & 0x40000`. Destination hits multiply normal compass
@@ -857,6 +873,13 @@ pub trait SearchFootEntry {
     ///585F40 reads House+57E4 directly, without a Map lookup.
     fn hierarchy_house_threat(&self, _padded_index: i32) -> Result<i32, String> {
         Err("Foot hierarchy House threat state is unavailable".into())
+    }
+    /// The urgency-0 code-2 chain of `AStar_compute_edge_cost`
+    /// (`0x00429886..0x00429984`) from the first object of `cell`'s `layer`
+    /// list: whether the traffic ahead jams. It reads live objects, so a
+    /// receiver without them has no answer.
+    fn code2_chain_jams(&self, _cell: (u16, u16), _layer: MovementLayer) -> Result<bool, String> {
+        Err("Foot code-2 chain is unavailable".into())
     }
     ///429C1A runs after wrapper admission. One transaction is retained through
     ///A* and both finishing passes; fixtures may supply their static overlay.
@@ -1414,25 +1437,16 @@ pub fn astar_search(
                 // cost. A ×4 on height change would have made every ramp step
                 // cost as much as four flat ones.
 
-                // Entity soft-block cost (codes 2/5/6). Goal exempt. Crusher exempt.
-                if options.foot_entry.is_some() {
+                // The class's code-2 multiplier; the live receiver walks the
+                // chain on the list the class was asked about. The reduced
+                // fallback's entity soft-block cost (codes 2/5/6) exempts the
+                // goal and a crusher.
+                if let Some(entry) = options.foot_entry {
                     if search_cost.effective_cost_class == Some(2) {
-                        let multiplier = options.entity_block_map.map_or_else(
-                            || match options.urgency {
-                                0 => CODE2_MULT_CLEARING,
-                                1 => CODE2_MULT_JAM,
-                                _ => CODE2_MULT_ROUTE_AROUND,
-                            },
-                            |map| {
-                                compute_code2_multiplier(
-                                    options.urgency,
-                                    (nx, ny),
-                                    layer_context.object_list_layer,
-                                    map,
-                                )
-                            },
-                        );
-                        step_cost *= multiplier;
+                        step_cost *= code2_multiplier(options.urgency, || {
+                            entry.code2_chain_jams((nx, ny), layer_context.object_list_layer)
+                        })
+                        .map_err(PathSearchFailure::CellEntryUnavailable)?;
                     }
                 } else if (nx, ny) != goal
                     && !options.mover_is_crusher
@@ -2409,51 +2423,32 @@ fn euclidean_heuristic(ax: u16, ay: u16, bx: u16, by: u16) -> i32 {
     (sum_sq * 1_000_000).isqrt() as i32
 }
 
-/// Compute the code-2 cost multiplier for a friendly-moving blocker.
-///
-/// Matches gamemd.exe AStar_compute_edge_cost @ 0x00429830 — the dynamic
-/// cost computation for Can_Enter_Cell return code 2 (friendly moving).
-///
-/// - `urgency == 2` → `1000` (route around the blocker)
-/// - `urgency == 1` → `4`   (traffic penalty, no look-ahead)
-/// - `urgency == 0` → walk up to 10 hops along the blocker chain. Each hop
-///   reads `map[cur_cell]` which gives the blocker's next cell, then jumps
-///   to that cell and repeats. Returns `1` if the chain clears (next cell
-///   has no blocker) within 10 hops. Returns `4` if the chain lasts all
-///   10 hops.
+/// The reduced fallback's code-2 multiplier, for a search without a Foot
+/// receiver (#683): [`code2_multiplier`] over a chain that follows the owner
+/// block map's cached next cells rather than the live objects the native
+/// chain reads. An entry without a next cell clears, where the native chain
+/// jams on a non-Foot; a self-loop jams (#972).
 fn compute_code2_multiplier(
     urgency: u8,
     start_cell: (u16, u16),
     layer: MovementLayer,
     map: &LayeredEntityBlockMap,
 ) -> i32 {
-    if urgency >= 2 {
-        return CODE2_MULT_ROUTE_AROUND;
-    }
-    if urgency == 1 {
-        return CODE2_MULT_JAM;
-    }
-    // urgency == 0: chain walk.
-    let mut cur = start_cell;
-    for _ in 0..CODE2_CHAIN_MAX_HOPS {
-        let Some(entry) = map.get(layer, &cur) else {
-            // No blocker at this cell → chain clears.
-            return CODE2_MULT_CLEARING;
-        };
-        let Some(next) = entry.next_cell else {
-            // Entry exists but has no next_cell (code 5/6 stationary) →
-            // chain terminates. The code-2 mover upstream IS vacating,
-            // so this counts as "clearing" from the mover's perspective.
-            return CODE2_MULT_CLEARING;
-        };
-        if next == cur {
-            // Degenerate self-loop — treat as jam.
-            return CODE2_MULT_JAM;
+    let chain_jams = || {
+        let mut cur = start_cell;
+        for _ in 0..CODE2_CHAIN_MAX_HOPS {
+            let Some(next) = map.get(layer, &cur).and_then(|entry| entry.next_cell) else {
+                return Ok::<_, std::convert::Infallible>(false);
+            };
+            if next == cur {
+                return Ok(true);
+            }
+            cur = next;
         }
-        cur = next;
-    }
-    // Full 10 hops still jammed.
-    CODE2_MULT_JAM
+        Ok(true)
+    };
+    let Ok(multiplier) = code2_multiplier(urgency, chain_jams);
+    multiplier
 }
 
 fn apply_search_marker_cost(

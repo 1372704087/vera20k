@@ -46,7 +46,6 @@ fn request_move(
     let result = sim
         .foot_find_path(
             &request,
-            None,
             rules,
             Some(registry),
             crate::sim::world::FrameEffects::default(),

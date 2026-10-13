@@ -45,7 +45,6 @@ use crate::rules::overlay_types::OverlayTypeRegistry;
 use crate::rules::ruleset::RuleSet;
 use crate::sim::components::{DriveCoord, NavTargetRef};
 use crate::sim::game_entity::GameEntity;
-use crate::sim::movement::block_index::HeldBlockSets;
 use crate::sim::movement::locomotor::MovementLayer;
 use crate::sim::world::FrameEffects;
 use crate::sim::world::Simulation;
@@ -149,8 +148,7 @@ pub(super) fn clear_track_head(entity: &mut GameEntity) {
 
 /// `((Current >> 12) + 1) >> 1 & 7` over the body FacingClass (0x4B2A88..94).
 fn facing_octant(entity: &GameEntity, frame: u32) -> u8 {
-    let facing = entity.body_facing_current(frame);
-    ((((facing >> 12) + 1) >> 1) & 7) as u8
+    crate::util::direction_tables::dir_from_facing16(entity.body_facing_current(frame))
 }
 
 impl Simulation {
@@ -158,7 +156,6 @@ impl Simulation {
     pub(crate) fn run_track_path_request(
         &mut self,
         request: &FootPathRequest,
-        held: Option<&mut HeldBlockSets>,
         rules: Option<&RuleSet>,
         registry: Option<&OverlayTypeRegistry>,
         frame_effects: FrameEffects<'_>,
@@ -174,7 +171,7 @@ impl Simulation {
             .navigation
             .path_runtime
             .start_movement(frame, rules.general.path_delay_ticks());
-        let found = self.foot_find_path(request, held, rules, registry, frame_effects)?;
+        let found = self.foot_find_path(request, rules, registry, frame_effects)?;
         self.continue_track_path_request(id, found, rules, registry, frame_effects)
     }
 

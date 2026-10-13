@@ -361,7 +361,8 @@ pub(crate) fn sell_stage_zero(
     {
         // MissionSelling44A9DF: QueueVoice only latches. Techno6F9EBB was
         // already reached in this visit, so playback waits for its next head.
-        // Select before the later44AA3D HandleReturnedSlaves Archive rewrite.
+        // Select before native44AA3D HandleReturnedSlaves. Its Building
+        // Archive rewrite remains the separate residual documented above.
         if let Some(sound_id) = sim.deploy_voice_request(rules, id, true) {
             let sound_id = sound_id.to_owned();
             sim.sound_events.push(SimSoundEvent::UnitVoiceRequested {

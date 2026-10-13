@@ -487,9 +487,20 @@ impl Simulation {
                 }
                 Some(TargetKind::Entity(blocker))
             }
-            Some(BlockingObject::Terrain) => {
-                return Err("Walk Override requires a Terrain target owner".into());
-            }
+            // 75BACE..75BAEB asks Is_Ally (0x004F9A90) for the tree too. A
+            // TerrainClass has no house (vt+0x3C is 0x004104A0, which returns
+            // NULL), so native orders Attack on it.
+            // RESIDUAL: VERA targets only objects and cells, so no Override is
+            // issued and the Foot keeps its mission; the stop below still runs.
+            // Trigger: the Cell's raw byte answers for a non-allied
+            // infantryman (one stepping in, or the owner a departed one left
+            // beside a terrain object's own sub-cell bits, which keep 0x1C
+            // set; 0x00521850) while its ground list holds no Techno, so
+            // Find_Blocking_Object falls to the terrain object (0x0047C5A0).
+            // Seen in 20,000-unit battles (#1517). Effect: native's walker
+            // turns on the tree, VERA's keeps its mission. Risk: that
+            // walker's mission for the frames native spends on the tree.
+            Some(BlockingObject::Terrain) => None,
             None => {
                 //75BAF3..75BB49: three lookups of the Cell, for its +0x44,
                 //its OverlayType's +0x2A8 and the Attack target.
@@ -611,6 +622,46 @@ fn walk_code2_gate(
 #[cfg(test)]
 mod tests {
     use crate::sim::timer::CdTimer;
+
+    /// The code-4/5 response (`0x0075BA46..0x0075BB90`) for a Cell whose only
+    /// object is a tree: `Find_Blocking_Object` returns the tree, which VERA
+    /// cannot target. The response issues no Override and still stops the
+    /// walker, where it used to stop the whole frame (#1517).
+    #[test]
+    fn a_tree_blocker_stops_the_walker_without_an_override() {
+        use crate::sim::terrain_object::{TerrainObjectState, mark_terrain_raw_occupation};
+        let (mut sim, rules, registry) =
+            crate::sim::world::entry_test_fixture::fixture_with_rules("");
+        let id = sim
+            .spawn_object("ENGINEER", "Americans", 10, 10, 0, &rules)
+            .expect("spawns");
+        let tree = (11, 10);
+        let type_ref = sim.interner.intern("TREE01");
+        sim.production.terrain_objects.insert(
+            900,
+            TerrainObjectState::for_test(900, type_ref, tree.0, tree.1),
+        );
+        sim.production.terrain_object_cells.insert(tree, 900);
+        mark_terrain_raw_occupation(&mut sim.substrate.raw_cell_occupation, tree, 5);
+        assert!(matches!(
+            sim.find_blocking_object(tree),
+            Some(super::BlockingObject::Terrain)
+        ));
+        let mission = sim.substrate.entities.get(id).unwrap().mission.current();
+        let candidate = crate::sim::movement::foot_path::cell_centre((11, 10));
+
+        let retry = sim
+            .replay_walk_admission_response(id, false, candidate, 5, &rules, Some(&registry))
+            .expect("the response completes");
+
+        assert!(retry.is_none());
+        let walker = sim.substrate.entities.get(id).unwrap();
+        assert_eq!(walker.mission.current(), mission, "no Attack override");
+        assert_eq!(
+            walker.foot_speed.applied_fraction(),
+            crate::util::fixed_math::SIM_ZERO
+        );
+    }
 
     /// Original instructions 0x75B8A0..0x75B979 / 0x75C1F1, recheck with
     /// `python -m tools.infantry_scatter_oracle --check`: the grace latch and

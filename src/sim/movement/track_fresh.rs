@@ -31,9 +31,13 @@
 //!   without the OverlayType table answers as a cell without a crate (the
 //!   native early exit `0x481A39`). Production always binds it.
 //! - Terrain blockers in the code-4/5 arm (`Find_Blocking_Object 0x47C5A0`
-//!   returning a TerrainClass): VERA targets only objects and cells, so no
-//!   Override is issued for a tree. Unreachable today: VERA's A* never routes
-//!   through a terrain object (native prices a Wood route at 20).
+//!   returning a TerrainClass): native's Is_Ally (`0x004F9A90`) is false for a
+//!   tree, which has no house, so it orders Attack on it; VERA targets only
+//!   objects and cells, so no Override is issued. Trigger: a Unit whose
+//!   selected weapon's warhead has `Wood=` meets a tree Cell on its route (the
+//!   class answers 5 there, which A* prices at 20). Effect: it drops its head
+//!   without turning on the tree. Frequency: not measured. Hover shares this
+//!   arm (`override_movement_blocker_at`); Walk's has the same gap (#1517).
 //! - Drive+64 (`0x4B400C`, the straight byte): Process_Drive_Track reads it
 //!   at `0x4B19AA`/`0x4B1A04` for the wall-crush tilt (+334 = -0.05) and the
 //!   CrusherAll Unit flag (+6B5, the speed ramp's crush clamp). Trigger: a

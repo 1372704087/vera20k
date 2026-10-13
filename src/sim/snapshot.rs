@@ -987,7 +987,9 @@ use crate::sim::world::Simulation;
 // 340 -> 341: each object keeps its attack-move order, the Foot MegaMission
 // (+0x5C4..+0x5D1), in place of the OrderIntent goal. Version 340 records
 // carry the goal.
-const SNAPSHOT_VERSION: u32 = 341;
+// 341 -> 342: each House retains its tech-tree recheck byte (+1FC).
+// Version 341 records cannot preserve a pending strip cancellation decision.
+const SNAPSHOT_VERSION: u32 = 342;
 
 const SNAPSHOT_PRODUCT_MAGIC: [u8; 8] = *b"VERA20K\0";
 const SNAPSHOT_ENVELOPE_VERSION: u32 = 1;
@@ -4359,7 +4361,8 @@ mod tests {
         // 338 -> 339: every bullet's ProximityDetector reference.
         // 339 -> 340: a bounce body's orientation and rotation quaternions.
         // 340 -> 341: the Foot MegaMission replaces the OrderIntent goal.
-        assert_eq!(super::SNAPSHOT_VERSION, 341);
+        // 341 -> 342: the House tech-tree recheck byte.
+        assert_eq!(super::SNAPSHOT_VERSION, 342);
     }
 
     #[test]

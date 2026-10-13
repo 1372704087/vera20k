@@ -7109,3 +7109,6 @@ mod tibtre_oracle_tests;
 #[cfg(test)]
 #[path = "ore_spread_oracle_tests.rs"]
 mod ore_spread_oracle_tests;
+
+#[cfg(test)]
+mod drop_as_bomb_integration_tests;

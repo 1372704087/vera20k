@@ -4819,7 +4819,7 @@ fn test_bridge_collapse_clears_transition_flag() {
 }
 
 #[test]
-fn test_destroyed_bridge_snaps_unit_to_ground_when_ground_exists() {
+fn test_destroyed_bridge_arms_fall_when_ground_exists() {
     let mut sim = Simulation::new();
     let (resolved, bridge_state) = structural_bridge_for_fallout(1, false);
     install_rectangular_test_playfield(&mut sim, resolved.width(), resolved.height());
@@ -4868,18 +4868,22 @@ fn test_destroyed_bridge_snaps_unit_to_ground_when_ground_exists() {
         .entities
         .get(1)
         .expect("surviving bridge unit");
-    assert_eq!(e.position.z, 1);
+    assert_eq!(e.position.z, 5);
+    assert!(e.was_dropped_as_bomb() && e.is_falling_down());
     assert!(!e.on_bridge);
     let loco = e.locomotor.as_ref().expect("locomotor");
-    assert_eq!(loco.layer, MovementLayer::Ground);
+    assert_eq!(
+        loco.layer,
+        MovementLayer::Bridge,
+        "DropAsBomb preserves locomotor state"
+    );
     assert!(e.movement_target.is_none());
 }
 
-/// The represented structural47DD70/DropIn callback relayers its deck member
-/// and snaps its stored level without direct damage, even over Water. This
-/// boundary does not establish the later falling/sinking lifetime.
+/// Structural47DD70 relayers its deck member and starts DropAsBomb while
+/// retaining its world height. Landing death runs on the later ObjectAI visit.
 #[test]
-fn test_destroyed_bridge_snaps_unit_to_ground_over_water_below() {
+fn test_destroyed_bridge_arms_fall_over_water_below() {
     let mut sim = Simulation::new();
     let (resolved, bridge_state) = structural_bridge_for_fallout(0, true);
     install_rectangular_test_playfield(&mut sim, resolved.width(), resolved.height());
@@ -4923,27 +4927,31 @@ fn test_destroyed_bridge_snaps_unit_to_ground_over_water_below() {
         crate::sim::world::FrameEffects::default(),
     );
 
-    // DropIn correction: unit ALIVE, snapped to ground level=0, OnBridge
-    // cleared, locomotor flipped to Ground/Idle.
+    // DropAsBomb leaves HP and Location intact until ObjectAI lands it.
     let e = sim
         .substrate
         .entities
         .get(1)
-        .expect("deck unit must SURVIVE collapse over water");
+        .expect("deck unit remains until landing");
     assert_eq!(
         e.health.current, 300,
         "DropIn never harms — authored full health uses MTNK Strength300"
     );
-    assert_eq!(e.position.z, 0, "snapped to ground level");
+    assert_eq!(e.position.z, 4, "Location remains at deck height");
+    assert!(e.was_dropped_as_bomb() && e.is_falling_down());
     assert!(!e.on_bridge);
     let loco = e.locomotor.as_ref().expect("locomotor");
-    assert_eq!(loco.layer, MovementLayer::Ground);
+    assert_eq!(
+        loco.layer,
+        MovementLayer::Bridge,
+        "DropAsBomb preserves locomotor state"
+    );
     assert!(e.movement_target.is_none());
 }
 
-/// Same DropIn correction over an overlay-blocked ground cell.
+/// Same fall admission over an overlay-blocked ground cell.
 #[test]
-fn test_destroyed_bridge_snaps_unit_to_ground_over_overlay_blocked() {
+fn test_destroyed_bridge_arms_fall_over_overlay_blocked() {
     let mut sim = Simulation::new();
     let (mut resolved, bridge_state) = structural_bridge_for_fallout(0, false);
     let idx = resolved.index(5, 5).expect("bridge index");
@@ -4993,15 +5001,16 @@ fn test_destroyed_bridge_snaps_unit_to_ground_over_overlay_blocked() {
         .substrate
         .entities
         .get(1)
-        .expect("deck unit must SURVIVE over overlay-blocked ground");
+        .expect("deck unit remains until landing");
     assert_eq!(e.health.current, 300, "DropIn never harms");
-    assert_eq!(e.position.z, 0);
+    assert_eq!(e.position.z, 4);
+    assert!(e.was_dropped_as_bomb() && e.is_falling_down());
     assert!(!e.on_bridge);
 }
 
-/// Same DropIn correction over a terrain-object-blocked ground cell.
+/// Same fall admission over a terrain-object-blocked ground cell.
 #[test]
-fn test_destroyed_bridge_snaps_unit_to_ground_over_terrain_object_blocked() {
+fn test_destroyed_bridge_arms_fall_over_terrain_object_blocked() {
     let mut sim = Simulation::new();
     let (mut resolved, bridge_state) = structural_bridge_for_fallout(0, false);
     let idx = resolved.index(5, 5).expect("bridge index");
@@ -5051,16 +5060,17 @@ fn test_destroyed_bridge_snaps_unit_to_ground_over_terrain_object_blocked() {
         .substrate
         .entities
         .get(1)
-        .expect("deck unit must SURVIVE over terrain-object-blocked ground");
+        .expect("deck unit remains until landing");
     assert_eq!(e.health.current, 300, "DropIn never harms");
-    assert_eq!(e.position.z, 0);
+    assert_eq!(e.position.z, 4);
+    assert!(e.was_dropped_as_bomb() && e.is_falling_down());
     assert!(!e.on_bridge);
 }
 
 /// After collapse, the rebuilt path grid reverts the bridge cell to its
 /// underlying ground walkability — a cliff-like cell stays unwalkable
 /// (per `from_resolved_terrain_with_bridges`'s `is_cliff_like` branch).
-/// Plus the DropIn correction: the deck unit still survives.
+/// Concrete overlay damage leaves structural fallout to its native caller.
 #[test]
 fn test_destroyed_bridge_fallout_matches_rebuilt_ground_walkability() {
     let mut sim = Simulation::new();
@@ -5122,8 +5132,7 @@ fn test_destroyed_bridge_fallout_matches_rebuilt_ground_walkability() {
         !rebuilt_grid.is_walkable_on_layer(5, 5, MovementLayer::Ground),
         "destroyed cliff-like cell falls back to unwalkable underlying terrain"
     );
-    // DropIn correction: the unit survived stranded at ground level even
-    // though the underlying ground is cliff-like (vanilla never despawns).
+    // This concrete overlay driver has not invoked structural47DD70.
     let e = sim.substrate.entities.get(1).expect("deck unit survives");
     assert_eq!(e.health.current, 300, "DropIn never harms");
     assert!(!e.on_bridge);

@@ -664,6 +664,10 @@ pub struct GeneralRules {
     /// to this value. Default `-3` matches `[General] ParachuteMaxFallRate=-3`.
     /// Negative = falling.
     pub parachute_max_fall_rate: i32,
+    /// ObjectAI5F3FBC's non-parachute cap, Rules+7BC. Constructor66616D
+    /// initializes -100; ReadGeneral66F32E..350 reads the current value
+    /// as the default for [General] NoParachuteMaxFallRate via ReadInt5276D0.
+    pub no_parachute_max_fall_rate: i32,
     /// Paradrop trigger radius in leptons. From `[General] ParadropRadius=`.
     /// Default 1024 (~4 cells). Distance to target at which the carrier aircraft
     /// reveals fog + transitions to the overfly mission.
@@ -2090,6 +2094,7 @@ impl Default for GeneralRules {
             hover_brake: NativeF64Bits::from_bits(0x3f9e_b851_eb85_1eb8),
             hover_dampen: NativeF64Bits::from_bits(0x3fe9_9999_9999_999a),
             parachute_max_fall_rate: -3,
+            no_parachute_max_fall_rate: -100,
             paradrop_radius: 1024,
             parachute_shp: None,
             amer_paradrop: ParadropList::default(),
@@ -3019,6 +3024,10 @@ impl GeneralRules {
             hover_brake: general.read_double_bits("HoverBrake", defaults.hover_brake),
             hover_dampen: general.read_double_bits("HoverDampen", defaults.hover_dampen),
             parachute_max_fall_rate: general.read_int("ParachuteMaxFallRate", -3),
+            no_parachute_max_fall_rate: general.read_int(
+                "NoParachuteMaxFallRate",
+                defaults.no_parachute_max_fall_rate,
+            ),
             paradrop_radius: general.read_int("ParadropRadius", 1024),
             parachute_shp: general.read_name("Parachute", 0x80).map(str::to_uppercase),
             amer_paradrop: ParadropList::read_counts(general, "AmerParaDropNum"),
@@ -3805,6 +3814,10 @@ impl RuleSet {
             rules.general.safety_altitude,
             rules.general.line_trail_color_override,
         ) = processed.projectile_rule_controls();
+        (
+            rules.general.parachute_max_fall_rate,
+            rules.general.no_parachute_max_fall_rate,
+        ) = processed.fall_rate_controls();
         for (name, speed, projectile) in processed.weapon_speeds_and_projectiles() {
             if let Some(weapon) = rules
                 .weapons
@@ -4917,11 +4930,13 @@ impl RuleSet {
     /// slices and are not claimed by this hash yet.
     pub fn simulation_config_hash(&self) -> u64 {
         let mut hasher = std::collections::hash_map::DefaultHasher::new();
-        b"rules-simulation-config-v15".hash(&mut hasher);
+        b"rules-simulation-config-v16".hash(&mut hasher);
         self.source_ini_hash.hash(&mut hasher);
         // Process-resident Gravity and Weapon postpass results can differ for
         // identical current source stacks because earlier passes retained them.
         self.general.gravity.hash(&mut hasher);
+        self.general.parachute_max_fall_rate.hash(&mut hasher);
+        self.general.no_parachute_max_fall_rate.hash(&mut hasher);
         self.general.detail.hash(&mut hasher);
         self.general.prism_support.hash(&mut hasher);
         self.general.default_mirage_disguises.hash(&mut hasher);

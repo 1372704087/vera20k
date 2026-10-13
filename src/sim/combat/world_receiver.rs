@@ -1471,15 +1471,19 @@ pub(crate) fn handle_death(
                         let [x, y] = crate::sim::movement::ground_pose::object_center_xy(entity);
                         (x, y)
                     });
-                throw_debris_for_death(
-                    world,
-                    obj,
-                    rules,
-                    owner,
-                    glam::IVec3::new(center.0, center.1, world_z_leptons),
-                    &mut voxel_debris,
-                    &mut explosion_effects,
-                );
+                // Techno702232..70227B skips this block only for a low
+                // dropped bomb over water; ordinary water deaths still throw.
+                if world.dropped_bomb_water_death_location(dead_id).is_none() {
+                    throw_debris_for_death(
+                        world,
+                        obj,
+                        rules,
+                        owner,
+                        glam::IVec3::new(center.0, center.1, world_z_leptons),
+                        &mut voxel_debris,
+                        &mut explosion_effects,
+                    );
+                }
                 // An exploding object's passengers die with it
                 // (`0x00702603..0x00702667`, FootClass::KillPassengers' loop
                 // inlined, credited to the killing hit's source) before its
@@ -1663,7 +1667,11 @@ fn finish_concrete_death(
         EntityCategory::Unit => {
             if world.unit_sinks_on_death(rules, dead_id) {
                 world.begin_ship_sinking(dead_id, rules, frame_effects);
-            } else {
+            } else if !world.unit_dropped_bomb_water_splash(
+                rules,
+                dead_id,
+                &mut effects.explosion_effects,
+            ) {
                 world.unit_death_explosion(rules, dead_id, &mut effects.explosion_effects);
             }
         }

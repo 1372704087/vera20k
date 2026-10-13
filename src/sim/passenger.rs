@@ -922,7 +922,6 @@ pub(crate) fn process_boarding_passenger(
                 pax.attack_target = None;
                 pax.passively_acquired_target = false;
             }
-            pax.order_intent = None;
         }
         if transport_open_topped {
             // `SetInOpenTransport @ 0x00710470` (Infantry `0x0051A45E`, Unit
@@ -1029,7 +1028,6 @@ pub(crate) fn add_garrison_occupant(
         pax.movement_target = None;
         pax.attack_target = None;
         pax.passively_acquired_target = false;
-        pax.order_intent = None;
     }
     sim.refresh_spatial_threat(building_id, rules, None);
     if count == 1 {

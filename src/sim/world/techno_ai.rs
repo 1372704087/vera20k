@@ -29,6 +29,7 @@ pub(crate) use mission_handlers::techno_unlimbo_idle_mode;
 use mission_handlers::*;
 pub(crate) use target_scan::direct_greatest_threat;
 pub(crate) use target_scan::passive_target_acquire;
+pub(crate) use target_scan::scan as retaliate_and_scan;
 pub(crate) use target_scan::{can_fire_at, weapon_at_index};
 
 use target_scan::{can_acquire_target, passive_acquire_step};
@@ -727,12 +728,6 @@ fn techno_ai_shell(
                 outcome.bridge_state_changed |= dispatch_foot_mission(sim, id, rules, ctx);
             }
             passive_acquire_step(sim, id, rules, ctx);
-            if let Some(rules) = rules {
-                // Shared Techno targeting precedes Infantry51BF59 fire, as
-                // for Unit. Keep the legacy OrderIntent decision with its
-                // existing owner until retained AttackMove is ported.
-                sim.acquire_order_intent_target_one(id, rules, ctx.overlay_registry);
-            }
             bomb_fuse_slot(
                 sim,
                 id,
@@ -1260,8 +1255,7 @@ pub(crate) fn ai_alive(sim: &Simulation, id: u64) -> bool {
 /// `MissionClass::AI @ 0x005B3060`'s last gate before a mission handler: Health
 /// above zero (`0x005B30A7`, signed). A crashing wreck is alive at Health 0, so
 /// its Techno AI runs but no handler does and its dispatch timer is not
-/// rewritten. VERA's handler stand-ins (the order intents, the attack pursuit)
-/// share it.
+/// rewritten. VERA's handler stand-in, the attack pursuit, shares it.
 pub(crate) fn mission_handlers_run(sim: &Simulation, id: u64) -> bool {
     sim.substrate
         .entities
@@ -1946,12 +1940,6 @@ fn unit_techno_bracket(
     // Passive / opportunity target acquisition sits between mission dispatch
     // and the second IsAlive guard, before the object's own locomotion.
     passive_acquire_step(sim, id, rules, ctx);
-    if let Some(rules) = rules {
-        // 6FA681/6FA68F place retained AttackMove acquisition in this
-        // targeting slot. Its legacy OrderIntent decision has one owner;
-        // its unported retained state/cadence is documented there.
-        sim.acquire_order_intent_target_one(id, rules, ctx.overlay_registry);
-    }
     bomb_fuse_slot(
         sim,
         id,
@@ -2778,7 +2766,7 @@ mod tests {
         // Pursuit regression guard. The passive commit writes the target
         // pointer only; a Guard unit fires from where it stands. If pursuit
         // ever picks these units up again they walk off across the map with no
-        // OrderIntent to bring them home.
+        // order to bring them home.
         //
         // A target can only be acquired IN range, so the scenario has to open a
         // range gap afterwards: the unarmed Allied scout parks two cells away

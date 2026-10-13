@@ -707,8 +707,7 @@ impl Simulation {
     /// `Move_To`'s lift tail (`0x0054B479..0x0054B4B1`): an owner whose
     /// current mission (`GetCurrentMission`) is Unload queues Guard with
     /// `commence_now`, raises the queued-mission bypass `+0xB8` and commences
-    /// it once ready. A readiness input VERA cannot evaluate leaves the mission
-    /// as it was: the authority is atomic on a failed preflight.
+    /// it once ready.
     fn jumpjet_lift_ends_unload(
         &mut self,
         id: u64,

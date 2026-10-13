@@ -1,7 +1,6 @@
-//! Order-intent tick systems for the Simulation.
-//!
-//! Handles automatic target acquisition for attack-move and guard orders
-//! (pre-combat), and resuming movement after combat ends (post-combat).
+//! Order helpers for the Simulation: click-order receivers and actions, the
+//! engineer and infiltrator building entries, pending building detonation,
+//! and the attack pursuit pass.
 //!
 //! Dependency rules: same as sim/ (depends on rules/, map/; never render/ui/audio/net).
 
@@ -12,12 +11,10 @@ use super::{GroundMove, SimSoundEvent, Simulation};
 use crate::map::entities::EntityCategory;
 use crate::rules::ruleset::RuleSet;
 use crate::sim::combat;
-use crate::sim::components::OrderIntent;
 use crate::sim::intern::InternedId;
 use crate::sim::mission::{MissionId, MissionType};
 use crate::sim::movement;
 use crate::sim::movement::locomotor::MovementLayer;
-use crate::util::fixed_math::ra2_speed_to_leptons_per_second;
 
 /// Interior PerCell519948..519B58 result, before Engineer/hut type checks.
 /// The one-cell Undeploy target enters a separate conversion receiver.
@@ -474,185 +471,6 @@ impl Simulation {
             owner,
             radar,
         });
-    }
-
-    /// Remaining Aircraft/Structure compatibility host. Units and Infantry
-    /// acquire in their own Techno targeting slot, before locomotion and fire.
-    pub(crate) fn tick_order_intents_pre_combat(
-        &mut self,
-        rules: &RuleSet,
-        overlay_registry: Option<&crate::rules::overlay_types::OverlayTypeRegistry>,
-        turn_suppressed: &BTreeSet<u64>,
-    ) {
-        for id in self.substrate.entities.keys_sorted() {
-            if turn_suppressed.contains(&id)
-                || self.substrate.entities.get(id).is_none_or(|entity| {
-                    matches!(
-                        entity.category,
-                        EntityCategory::Unit | EntityCategory::Infantry
-                    )
-                })
-            {
-                continue;
-            }
-            self.acquire_order_intent_target_one(id, rules, overlay_registry);
-        }
-    }
-
-    /// Existing OrderIntent acquisition decision, shared by the Unit/Infantry
-    /// targeting slots and the remaining compatibility host.
-    /// Native caller ordering: TechnoAI6FA65A..6FA695 reaches retained
-    /// AttackMove acquisition before Foot locomotion and Unit7365E1 or
-    /// Infantry51BF59 fire.
-    ///
-    /// RESIDUAL: this preserves VERA's legacy AttackMove/Guard semantics. It
-    /// scans every eligible object visit with mask1/2, without the native
-    /// targeting-timer/4DF3A0 engagement gates or scanner jitter draw. Native
-    /// +5C4/+5C8/+5CC/+5D1 setup, resume and pointer-expiry state is not yet
-    /// represented; the existing OrderIntent is serialized but not hashed. Trigger:
-    /// player AttackMove/Guard with no held target; effect: acquisition and
-    /// subsequent fire/resume cadence can differ. Evidence for that separate
-    /// mechanism: tools/spatial_oracle/foot_attack_move.py and target_scan.rs.
-    pub(super) fn acquire_order_intent_target_one(
-        &mut self,
-        attacker_id: u64,
-        rules: &RuleSet,
-        overlay_registry: Option<&crate::rules::overlay_types::OverlayTypeRegistry>,
-    ) {
-        let Some(entity) = self.substrate.entities.get(attacker_id) else {
-            return;
-        };
-        // A warped object's missions do not run, nor does a Health-0 wreck's
-        // (MissionClass5B30A7). Keep the existing legacy decision unchanged.
-        if entity.order_intent.is_none()
-            || entity.attack_target.is_some()
-            || entity.ai_frozen()
-            || !super::techno_ai::mission_handlers_run(self, attacker_id)
-        {
-            return;
-        }
-        let scan_mask = combat::scan_mission_for(entity);
-        let Some(target_sid) = self.greatest_threat_represented(
-            rules,
-            overlay_registry,
-            attacker_id,
-            scan_mask,
-            None,
-            combat::acquire_best_target_for_entity,
-        ) else {
-            return;
-        };
-        let _ = self.assign_target_represented(
-            attacker_id,
-            Some(combat::TargetKind::Entity(target_sid)),
-            Some(rules),
-            overlay_registry,
-            FrameEffects::default(),
-        );
-    }
-
-    /// Post-combat: entities with an OrderIntent but no active attack or movement
-    /// resume their patrol/guard movement toward the original goal. The resume
-    /// coords stay on `OrderIntent` — the `mission` substrate has no goal field
-    /// yet (Slice-8 follow-up); only the busy-signalling role moved off it.
-    #[cfg(test)]
-    pub(crate) fn tick_order_intents_post_combat(&mut self, rules: Option<&RuleSet>) {
-        // This compatibility fixture has no live overlay registry.
-        self.tick_order_intents_post_combat_except(
-            rules,
-            &BTreeSet::new(),
-            None,
-            crate::sim::world::FrameEffects::default(),
-        );
-    }
-
-    pub(crate) fn tick_order_intents_post_combat_except(
-        &mut self,
-        rules: Option<&RuleSet>,
-        turn_suppressed: &BTreeSet<u64>,
-        overlay_registry: Option<&crate::rules::overlay_types::OverlayTypeRegistry>,
-        frame_effects: FrameEffects<'_>,
-    ) {
-        // Without a published grid no order resumes (air resumes included).
-        if self.path_grid().is_none() {
-            return;
-        }
-        // Collect (stable_id, goal) for entities that need to resume movement.
-        let keys: Vec<u64> = self.substrate.entities.keys_sorted();
-        let mut resumes: Vec<(u64, u16, u16)> = Vec::new();
-        for &id in &keys {
-            if turn_suppressed.contains(&id) {
-                continue;
-            }
-            if let Some(entity) = self.substrate.entities.get(id) {
-                let intent = match entity.order_intent {
-                    Some(ref i) => *i,
-                    None => continue,
-                };
-                if entity.attack_target.is_some()
-                    || entity.movement_target.is_some()
-                    || crate::sim::movement::air_movement::fly_moving(entity)
-                    || entity.ai_frozen()
-                    || !super::techno_ai::mission_handlers_run(self, id)
-                {
-                    continue;
-                }
-                match intent {
-                    OrderIntent::AttackMove { goal_rx, goal_ry }
-                        if (entity.position.rx, entity.position.ry) != (goal_rx, goal_ry) =>
-                    {
-                        resumes.push((id, goal_rx, goal_ry));
-                    }
-                    _ => {}
-                }
-            }
-        }
-
-        for (stable_id, goal_rx, goal_ry) in resumes {
-            let (speed, is_air) = self
-                .substrate
-                .entities
-                .get(stable_id)
-                .map(|e| {
-                    // A resumed order re-queries the getter like any other.
-                    let obj = rules.and_then(|r| self.object_type(e.type_ref(), r));
-                    let air: bool = e
-                        .locomotor
-                        .as_ref()
-                        .is_some_and(|l| l.layer == MovementLayer::Air);
-                    (
-                        crate::sim::movement::order_speed(e, obj, rules, &self.houses),
-                        air,
-                    )
-                })
-                .unwrap_or((ra2_speed_to_leptons_per_second(4), false));
-
-            if is_air {
-                let _ = self.issue_air_cell_destination(
-                    stable_id,
-                    (goal_rx, goal_ry),
-                    speed,
-                    rules,
-                    overlay_registry,
-                    frame_effects,
-                );
-            } else {
-                let _ = self.issue_ground_move(
-                    GroundMove {
-                        entity_id: stable_id,
-                        target: (goal_rx, goal_ry),
-                        speed,
-                        queue: false,
-                        speed_type: None,
-                        owner_blocks: false,
-                        object_destination: None,
-                    },
-                    rules,
-                    overlay_registry,
-                    frame_effects,
-                );
-            }
-        }
     }
 
     /// `BuildingClass::ChangeOwner @ 0x00448260` announce block
@@ -1130,8 +948,8 @@ impl Simulation {
     /// it does have from its OWN position, never from the target's. So an idle
     /// unit that notices an enemy fires from where it stands and stays put.
     /// Without this skip an idle base-defence force would walk off across the
-    /// map, unleashed, the first time an enemy scouted past: nothing carries
-    /// these units home because they have no `OrderIntent` to resume.
+    /// map, unleashed, the first time an enemy scouted past, and nothing
+    /// carries them home.
     #[cfg(test)]
     pub(crate) fn tick_attack_pursuit(&mut self, rules: &RuleSet) {
         self.tick_attack_pursuit_with_overlay_registry(
@@ -1223,11 +1041,8 @@ impl Simulation {
             // (vt+0x53C): an object committed to Guard fires at what it holds
             // from where it stands, whoever assigned it. The represented
             // Area Guard approaches use their mission owner above; ordinary
-            // object pursuit remains a held movement residual. AttackMove
-            // retains its separate order-intent adapter until that migration.
-            if entity.mission.current().known() == Some(crate::sim::mission::MissionType::Guard)
-                && entity.order_intent.is_none()
-            {
+            // object pursuit remains a held movement residual.
+            if entity.mission.current().known() == Some(crate::sim::mission::MissionType::Guard) {
                 continue;
             }
             if entity.category == EntityCategory::Structure {
@@ -1312,8 +1127,7 @@ impl Simulation {
                 &self.interner,
                 self.resolved_terrain.as_ref(),
                 // Same alliance view the fire gate hands the walk
-                // (`resolve_attacker_fire` passes `fog.alliances`) and the same
-                // one the sibling pre-combat scan uses, so the two stages
+                // (`resolve_attacker_fire` passes `fog.alliances`), so the two
                 // cannot disagree on the `AlliedWallTransparency` arm.
                 &combat::line_of_fire::LineOfFireInputs {
                     overlay_grid: self.overlay_grid.as_ref(),
@@ -1327,8 +1141,8 @@ impl Simulation {
             // stops only on entering a cell, by distance
             // (`foot_per_cell_range_stop`), never by InRange. A loaded Battle
             // Fortress drives on to its GIs' M60 range. On any other mission
-            // (VERA's Guard and AttackMove orders among them) the stop never
-            // fires, and the halt below stands in as for every other mover.
+            // (Guard among them) the stop never fires, and the halt below
+            // stands in as for every other mover.
             let open_topped_chase = matches!(
                 attack.target,
                 combat::TargetKind::Entity(target_id)

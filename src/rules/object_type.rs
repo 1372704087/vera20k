@@ -27,7 +27,7 @@
 
 use glam::IVec3;
 
-use crate::rules::ini_parser::IniSection;
+use crate::rules::ini_parser::{IniSection, is_native_none_type_name};
 use crate::rules::jumpjet_params::JumpjetParams;
 use crate::rules::locomotor_type::{LocomotorKind, MovementZone, SpeedType};
 use crate::rules::sound_ini::SoundRegistry;
@@ -1943,6 +1943,29 @@ impl ObjectType {
     /// field. `Secondary=` or `Weapon2=`, same storage.
     pub fn secondary(&self) -> Option<&str> {
         self.weapon_at(WEAPON_SLOT_SECONDARY)
+    }
+
+    /// Whether the type accepts an attack-move order (type vtable `+0xA4`).
+    /// `TechnoTypeClass::Can_Attack_Move @ 0x00711E90`, which Infantry
+    /// (`0x005247C0`) and Unit (`0x007473D0`) types jump to, answers
+    /// `Primary (+0x898) != null && !PreventAttackMove (+0x6C8)`; Aircraft
+    /// (`0x0041CB60`) and Building (`0x00465920`) types answer false.
+    ///
+    /// The raw slot-0 field, not `GetWeapon`: the elite tier does not apply,
+    /// and a `TurretCount>0` type passes on its `Weapon1=` ([`Self::primary`]),
+    /// so a Prism Tank attack-moves although its `Primary=` is commented out.
+    /// The weapon factory answers null for `none` and `<none>`. `Secondary` is
+    /// never read, so a secondary-only type is refused. The class follows list
+    /// membership: the `[VehicleTypes]` helicopters (`SHAD`, `HIND`, `SCHP`,
+    /// `SCHD`) are units here, refused by their `PreventAttackMove=yes`.
+    pub fn can_attack_move(&self) -> bool {
+        matches!(
+            self.category,
+            ObjectCategory::Infantry | ObjectCategory::Vehicle
+        ) && !self.prevent_attack_move
+            && self
+                .primary()
+                .is_some_and(|primary| !is_native_none_type_name(primary))
     }
 
     /// Elite weapon-array slot 0 (`TechnoTypeClass+0xA94`), gamemd's

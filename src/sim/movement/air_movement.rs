@@ -248,16 +248,6 @@ pub(crate) fn fly_coordinate_admitted(entity: &crate::sim::game_entity::GameEnti
         && !super::locomotor_owner::owner_is_warping(entity)
 }
 
-/// Fly `+0x34`: the Fly holds a move request. MoveTo sets it; only a
-/// landing at its destination (`0x004CEF5F`) and Stop clear it.
-pub(crate) fn fly_moving(entity: &crate::sim::game_entity::GameEntity) -> bool {
-    entity
-        .locomotor
-        .as_ref()
-        .and_then(|locomotor| locomotor.fly_runtime())
-        .is_some_and(super::fly_height::FlyRuntime::moving)
-}
-
 /// `FlyLocomotionClass::Get_Status @ 0x004CFE50` (ILocomotion `+0x90`): 1
 /// while descending, 0 while ascending, else 2 moving (`Is_Moving`) or 3.
 /// `None` without a Fly locomotor.
@@ -496,12 +486,22 @@ pub(crate) fn update_fly_height(
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
     use crate::rules::locomotor_type::LocomotorKind;
     use crate::sim::game_entity::GameEntity;
     use crate::sim::movement::locomotor::AirMovePhase;
     use crate::util::fixed_math::SIM_HALF;
+
+    /// Fly `+0x34`: the Fly holds a move request. MoveTo sets it; only a
+    /// landing at its destination (`0x004CEF5F`) and Stop clear it.
+    pub(crate) fn fly_moving(entity: &GameEntity) -> bool {
+        entity
+            .locomotor
+            .as_ref()
+            .and_then(|locomotor| locomotor.fly_runtime())
+            .is_some_and(crate::sim::movement::fly_height::FlyRuntime::moving)
+    }
 
     #[test]
     fn test_issue_air_move_command() {

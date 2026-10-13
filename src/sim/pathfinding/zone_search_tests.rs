@@ -14,7 +14,7 @@ use crate::rules::terrain_rules::{LandType, SpeedCostProfile, TerrainClass};
 use crate::sim::bridge_state::{BridgeEndpointRecord, BridgeRecordKind};
 use crate::sim::cell_rect::PlayfieldBounds;
 use crate::sim::combat::AttackTarget;
-use crate::sim::components::{NavTargetRef, OrderIntent};
+use crate::sim::components::NavTargetRef;
 use crate::sim::entity_store::EntityStore;
 use crate::sim::game_entity::GameEntity;
 use crate::sim::intern::test_interner;
@@ -1449,7 +1449,7 @@ fn gsi_04_12_attack_pursuit_entry_threads_exact_blocker_counts() {
 }
 
 #[test]
-fn gsi_04_12_phase_six_order_resume_threads_exact_blocker_counts() {
+fn gsi_04_12_attack_move_resume_threads_exact_blocker_counts() {
     let rules = RuleSet::from_ini(&IniFile::from_str(
         "[VehicleTypes]\n0=MTNK\n\n\
          [MTNK]\nStrength=300\nArmor=heavy\nSpeed=6\n",
@@ -1473,7 +1473,7 @@ fn gsi_04_12_phase_six_order_resume_threads_exact_blocker_counts() {
             (3, 0),
             MovementLayer::Bridge,
         ),
-        "fixture must make Phase-6 resume fail when blocker counts are absent"
+        "fixture must make the resume fail when blocker counts are absent"
     );
 
     let mut terrain = gsi_04_12_terrain(5, 1);
@@ -1503,10 +1503,7 @@ fn gsi_04_12_phase_six_order_resume_threads_exact_blocker_counts() {
             .unwrap()
             .install_drive_state_for_test(Some(Default::default()))
     );
-    mover.order_intent = Some(OrderIntent::AttackMove {
-        goal_rx: 3,
-        goal_ry: 0,
-    });
+    mover.mega_mission = crate::sim::mission::mega_mission::MegaMission::attack_move(Some((3, 0)));
     let blocker = gsi_04_12_cell_listed_entity(2, "MTNK", "Russians", 2, 0);
 
     let mut sim = Simulation::new();
@@ -1517,10 +1514,15 @@ fn gsi_04_12_phase_six_order_resume_threads_exact_blocker_counts() {
     sim.zone_grid = Some(zone_grid);
 
     sim.install_fixture_path_grid(Some(&path_grid));
-    sim.tick_order_intents_post_combat(Some(&rules));
+    assert!(sim.foot_continue_mega_mission(
+        1,
+        Some(&rules),
+        None,
+        crate::sim::world::FrameEffects::default(),
+    ));
 
     let route = first_track_process_route(&mut sim, 1, Some(&rules), &path_grid)
-        .expect("real Phase-6 resume should reach the projected hierarchy route");
+        .expect("an attack-move's resume should reach the projected hierarchy route");
     let resumed = sim.substrate.entities.get(1).expect("resumed mover");
     assert_eq!(route.first().copied(), Some((1, 0)));
     assert!(
@@ -1529,12 +1531,9 @@ fn gsi_04_12_phase_six_order_resume_threads_exact_blocker_counts() {
     );
     assert_eq!(route.last().copied(), Some((3, 0)));
     assert_eq!(
-        resumed.order_intent,
-        Some(OrderIntent::AttackMove {
-            goal_rx: 3,
-            goal_ry: 0,
-        }),
-        "resume must preserve the continuing AttackMove order"
+        resumed.mega_mission.destination(),
+        Some((3, 0)),
+        "resume must preserve the continuing attack-move"
     );
 }
 

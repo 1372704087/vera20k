@@ -15,12 +15,12 @@
 //! that AI in their own frame phases, and each consults
 //! [`GameEntity::ai_frozen`]: idle actions, fear, deploy, building repair and
 //! the AI's low-credit sale, depot service, spawn managers, boarding and
-//! unloading, construction, facing and turrets, the sprite stage, the legacy
-//! order intents, engineer, bridge-repair and C4 orders, gates, aircraft docks
-//! and bunker installs. The head subtracts its own weapon's `Damage=` and every
-//! chained attacker's from `WarpRemaining`, which the first attacker set to the
-//! target's `Strength=` times ten; at zero the target is erased: `WarpAway=`,
-//! no death, no survivors.
+//! unloading, construction, facing and turrets, the sprite stage, engineer,
+//! bridge-repair and C4 orders, gates, aircraft docks and bunker installs.
+//! The head subtracts its own weapon's `Damage=` and every chained attacker's
+//! from `WarpRemaining`, which the first attacker set to the target's
+//! `Strength=` times ten; at zero the target is erased: `WarpAway=`, no
+//! death, no survivors.
 //!
 //! State: the firer holds its link ([`TemporalState`]'s `link`, `+0x274`:
 //! target `+0x28`, the chain's `+0x40` Prev and `+0x44` Next, `+0x48`

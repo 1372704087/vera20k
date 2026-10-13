@@ -1091,8 +1091,12 @@ impl Simulation {
             return false;
         }
         entity.mission_leaf.set_foot_idle_entry_latch(1);
-        // Foot4D82D9 -> Techno709A54 lets a held Temporal target go first.
+        // Foot4D82D9 -> Techno709A54 lets a held Temporal target go first,
+        // then asks RefreshMegaMission (vt+0x4D0, Techno709A5D) whether an
+        // attack-move resumes. Its false answer would ask the planning path
+        // (vt+0x430), which VERA does not represent.
         self.temporal_release_if_warping(id);
+        self.foot_refresh_mega_mission(id, rules, registry, effects);
         // Foot4D831A..8376 asks the active IPiggyback, whatever its class,
         // and ends it before NavQueue when its Is_Ok_To_End allows.
         // Unit saves the base return but still executes its own receiver tail.
@@ -1242,8 +1246,8 @@ impl Simulation {
     /// placement, and locomotor/radio callers. The first argument skips the
     /// human harvester land check when nonzero. Native executable controls:
     /// tools/spatial_oracle/harvest_attack_return.json, track_destination.json
-    /// and foot_enter_idle.json. Foot planning-path and saved AttackMove state
-    /// remain separate residuals; ordinary Attack clears those saved inputs.
+    /// and foot_enter_idle.json. The Foot planning path remains a separate
+    /// residual.
     pub(crate) fn unit_enter_idle_mode(
         &mut self,
         id: u64,
@@ -1255,8 +1259,11 @@ impl Simulation {
         let Some(entity) = self.substrate.entities.get(id) else {
             return saved_base_return;
         };
-        //73899E..7389AB: Wait28 suppresses only the Unit tail after Foot.
-        if entity.mission.effective().known() == Some(MissionType::Deliberate) {
+        //738990..7389AB: a resumed attack-move (HaveMegaMission, vt+0x4AC)
+        // or Wait28 suppresses the Unit tail after Foot.
+        if entity.mega_mission.is_attack_move()
+            || entity.mission.effective().known() == Some(MissionType::Deliberate)
+        {
             return saved_base_return;
         }
         // 0x007389B1..0x007389BF: a Magnetron lets go of what it holds.

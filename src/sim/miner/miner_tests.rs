@@ -2189,6 +2189,8 @@ fn megamission_before_the_unload_breaks_the_refinery_contact() {
         sim.queue_megamission(
             miner_id,
             crate::sim::mission::MissionType::Move,
+            None,
+            None,
             Some(&rules),
             crate::sim::world::FrameEffects::default(),
         );
@@ -2230,6 +2232,8 @@ fn megamission_mid_unload_abandons_the_unload_and_commences_the_order() {
     sim.queue_megamission(
         miner_id,
         crate::sim::mission::MissionType::Move,
+        None,
+        None,
         Some(&rules),
         crate::sim::world::FrameEffects::default(),
     );

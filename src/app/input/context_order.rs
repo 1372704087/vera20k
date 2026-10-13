@@ -824,82 +824,14 @@ fn finish_order(
     true
 }
 
-/// The two spellings a weapon reference uses to mean "no weapon".
-///
-/// The retail weapon lookup compares the INI value against both before it ever
-/// searches the weapon table and answers null for either, so `Primary=none` is
-/// exactly the same as having no `Primary=` line at all.
-const NO_WEAPON_NAMES: [&str; 2] = ["none", "<none>"];
-
-/// Does this object accept an attack-move order?
-///
-/// Retail asks the object, and the object forwards the question straight to its
-/// *type*, where three answers live:
-///
-/// * a **building** type answers no, unconditionally;
-/// * an **aircraft** type answers no, unconditionally;
-/// * every other type answers "the `Primary` weapon field names a real weapon
-///   **and** `PreventAttackMove=` is off".
-///
-/// The `Secondary` slot is never consulted — a secondary-only type is refused —
-/// and there is no harvester clause anywhere. The Soviet War Miner and the Slave
-/// Miner both carry a real primary, so retail lets them attack-move along with
-/// the rest of a defended-expansion group; the Chrono Miner is refused by its
-/// `Primary=none` on its own.
-///
-/// gamemd-derived: `TechnoTypeClass::Can_Attack_Move @ 0x00711E90` (vtable
-/// `+0xA4`) — `Primary(+0x898) != NULL && PreventAttackMove(+0x6C8) == 0`.
-/// Native reads the raw slot-0 *field*, not `GetWeapon`, so the elite tier does
-/// not apply here and `obj.primary()` is the exact read: `+0x898` is the storage
-/// `Weapon1=` writes as well (`TechnoTypeClass::ReadINI @ 0x0071294A`, cursor
-/// seeded at `0x007128D6`), which `ObjectType::read_weapon_arrays` reproduces.
-/// That is what lets a Prism Tank (`[SREF]`, whose `Primary=Comet` is commented
-/// out but whose `Weapon1=Comet` is not) attack-move here as it does in gamemd —
-/// and, because `selection_can_attack_move` below is an `.all(..)`, keeps one
-/// Prism Tank in a mixed selection from disabling the chord for the whole group.
-///
-/// Stock YR sets `PreventAttackMove=yes` on eleven types and `=no` on two. Two
-/// of the eleven are refused anyway by the aircraft rule above — `ORCA` and
-/// `BEAG`, the sole `[AircraftTypes]` members of the set. The other nine used to
-/// slip through, each carrying a real `Primary=` and so passing the weapon
-/// half: the three Engineers and the Spy (`DefuseKit`/`MakeupKit`), Boris
-/// (`CCOMAND`, an infantry type), and the four `[VehicleTypes]` helicopters
-/// `SHAD`, `HIND`, `SCHP` and `SCHD` (`BlackHawkCannon`), which `ObjectCategory`
-/// derives from list membership and so classifies as ordinary units, not
-/// aircraft. An Engineer walked into fire and a Nighthawk full of infantry flew
-/// at the enemy where retail leaves the chord inert for them.
-///
-/// Note also that the sim side is confirmed complete for this row:
-/// `MissionClass::Mission_Dispatch @ 0x005B3060` has no case for mission 29, so
-/// Attack Move is an assign-side selector with no dispatcher handler, exactly
-/// as modelled.
+/// Does this object accept an attack-move order? Its `Can_Attack_Move`
+/// ([`crate::sim::world::Simulation::techno_can_attack_move`]).
 fn entity_can_attack_move(
     sim: &crate::sim::world::Simulation,
     rules: Option<&crate::rules::ruleset::RuleSet>,
     stable_id: u64,
 ) -> bool {
-    let Some(entity) = sim.entities().get(stable_id) else {
-        return false;
-    };
-    if matches!(
-        entity.category,
-        EntityCategory::Structure | EntityCategory::Aircraft
-    ) {
-        return false;
-    }
-    let Some(obj) = rules.and_then(|r| r.object(sim.interner.resolve(entity.type_ref()))) else {
-        return false;
-    };
-    if obj.prevent_attack_move {
-        return false;
-    }
-    obj.primary().is_some_and(|primary| {
-        let primary = primary.trim();
-        !primary.is_empty()
-            && !NO_WEAPON_NAMES
-                .iter()
-                .any(|none| primary.eq_ignore_ascii_case(none))
-    })
+    rules.is_some_and(|rules| sim.techno_can_attack_move(stable_id, rules))
 }
 
 /// Every selected object has to accept an attack-move order for the chord to fire.

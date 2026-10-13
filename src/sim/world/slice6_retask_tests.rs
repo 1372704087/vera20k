@@ -19,7 +19,7 @@ use crate::rules::ini_parser::IniFile;
 use crate::rules::ruleset::RuleSet;
 use crate::sim::combat::AttackTarget;
 use crate::sim::command::{Command, CommandEnvelope};
-use crate::sim::components::OrderIntent;
+use crate::sim::mission::mega_mission::MegaMission;
 use crate::sim::mission::{MissionId, MissionType};
 use crate::sim::pathfinding::PathGrid;
 use crate::sim::replay::{ReplayHeader, ReplayLog, ReplayRunner};
@@ -651,10 +651,7 @@ fn slice6_move_command_retasks_via_mission_substrate_and_clears_state() {
     {
         let e = sim.substrate.entities.get_mut(1).expect("unit");
         e.attack_target = Some(AttackTarget::new(2));
-        e.order_intent = Some(OrderIntent::AttackMove {
-            goal_rx: 3,
-            goal_ry: 3,
-        });
+        e.mega_mission = MegaMission::attack_move(Some((3, 3)));
     }
 
     let issued = sim.apply_command(
@@ -679,5 +676,8 @@ fn slice6_move_command_retasks_via_mission_substrate_and_clears_state() {
         e.attack_target.is_none(),
         "Move tore down the attack target"
     );
-    assert!(e.order_intent.is_none(), "Move tore down the order intent");
+    assert!(
+        !e.mega_mission.is_attack_move(),
+        "Move's Assign_Target_Command cleared the attack-move"
+    );
 }

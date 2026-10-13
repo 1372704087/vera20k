@@ -76,8 +76,6 @@ pub(crate) fn issue_order(
     // Queue's same-mission guard keeps the handler and timer on a repeated D.
     sim.assign_null_destination(id, Some(rules), None, effects);
     let _ = sim.assign_target_represented(id, None, Some(rules), None, effects);
-    let entity = sim.substrate.entities.get_mut(id).unwrap();
-    entity.order_intent = None;
     sim.mission_queue_exact(
         id,
         MissionId::from_known(MissionType::Unload),

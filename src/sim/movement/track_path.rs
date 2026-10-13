@@ -361,22 +361,7 @@ impl Simulation {
             .attack_target
             .as_ref()?
             .target;
-        Some(self.resolved_terrain.as_ref().is_some_and(|terrain| {
-            crate::sim::combat::can_fire_at_target(
-                &self.substrate.entities,
-                rules,
-                &self.interner,
-                id,
-                &target,
-                terrain,
-                Some(&self.house_alliances),
-                &crate::sim::combat::line_of_fire::LineOfFireInputs {
-                    overlay_grid: self.overlay_grid.as_ref(),
-                    overlay_registry: registry,
-                    alliances: Some(&self.house_alliances),
-                },
-            )
-        }))
+        Some(self.techno_can_fire_at_target(id, target, rules, registry))
     }
 
     /// A stopped Foot's failed-route tail (Drive 0x4B2E92, Ship 0x6A24C7,

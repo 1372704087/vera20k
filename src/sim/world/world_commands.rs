@@ -26,7 +26,6 @@ use crate::sim::command::{
     COMMAND_RECORD_LEN, Command, CommandEnvelope, CommandRecord, ExitRecord, MegaMissionOrder,
     MegaMissionRecord, MegaMissionTarget, SellWallAtCellRecord,
 };
-use crate::sim::components::OrderIntent;
 use crate::sim::mission::MissionType;
 #[cfg(test)]
 use crate::sim::movement;
@@ -655,133 +654,16 @@ impl Simulation {
                 target_rx,
                 target_ry,
                 queue,
-            } => {
-                if !self.entity_owned_by_id(command_owner, *entity_id) {
-                    return false;
-                }
-                if self
-                    .substrate
-                    .entities
-                    .get(*entity_id)
-                    .is_some_and(|e| e.is_deployed())
-                    && !rules.is_some_and(|rules| {
-                        self.infantry_setter_receiver(*entity_id, rules)
-                            || self.drive_unit_setter_receiver(*entity_id)
-                    })
-                {
-                    return false;
-                }
-                // Event4C7353 queues Move and clears Target before the class
-                // applies its own refusal. Infantry51AA40 tests human Doing;
-                // Unit741970 tests deployment after the same-Nav/force arm.
-                // Original non-Deployer GI and delayed deployed MTNK controls
-                // in walk_first_path.json retain queued2 even when the void
-                // class setter leaves NavCom NULL. Decoded commands must not
-                // repeat the input wrapper's separate no-order decision.
-                // Other class adapters retain the legacy early gate until
-                // their destination owner is represented (remaining #687).
-                // Native order admission: a dead, zero-strength or in-limbo
-                // actor abandons the whole order and keeps its previous one.
-                if !self.order_actor_admits(*entity_id) {
-                    return false;
-                }
-                // Queue Move. The destination/radio owners handle any existing
-                // dock contact.
-                self.queue_megamission(*entity_id, MissionType::Move, rules, frame_effects);
-                // Clear attack and order intent.
-                let _ = self.assign_target_represented(
-                    *entity_id,
-                    None,
-                    rules,
-                    overlay_registry,
-                    frame_effects,
-                );
-                if let Some(e) = self.substrate.entities.get_mut(*entity_id) {
-                    // Event MegaMission4C7467 calls Assign_Target before the
-                    // destination setter. Its changed-null path6FCF5B also
-                    // resets retained burst state; dropping Target alone cannot.
-                    e.order_intent = None;
-                }
-                // Snapshot speed, locomotor, and rules data in one lookup.
-                let Some(info) = self.resolve_move_info(*entity_id, rules) else {
-                    return false;
-                };
-                let aircraft = self
-                    .substrate
-                    .entities
-                    .get(*entity_id)
-                    .is_some_and(|e| e.category == EntityCategory::Aircraft);
-
-                if let Some(rules) = rules.filter(|_| aircraft) {
-                    // Event4C747C's virtual+480 is Aircraft41AA80: the NavCom
-                    // and the locomotor's Move_To. Mission_Move flies it from
-                    // there (`aircraft::move_mission`).
-                    self.assign_aircraft_destination(
-                        *entity_id,
-                        Some(crate::sim::components::NavTargetRef::cell(
-                            *target_rx, *target_ry,
-                        )),
-                        rules,
-                        frame_effects,
-                    );
-                    true
-                } else if info.loco_layer == MovementLayer::Air {
-                    // Air units fly in straight lines — no A* pathfinding needed.
-                    self.issue_air_cell_destination(
-                        *entity_id,
-                        (*target_rx, *target_ry),
-                        info.speed,
-                        rules,
-                        overlay_registry,
-                        frame_effects,
-                    )
-                } else if !*queue
-                    && let Some(rules) = rules
-                    && self.unit_setter_receiver(*entity_id, Some(rules))
-                {
-                    // Event4C746F pushes1;4C747C calls virtual+480 with
-                    // the resolved destination. Unit741970 owns same-NavCom
-                    // return/force, class preprocessing and queue clearing.
-                    // Native: track_destination.json Unit rows, replayed by
-                    // command_move_destinations_match_native_unit_setter.
-                    // The setter is void: a guarded class refusal still
-                    // executes this Event. Use the shared dispatcher, as
-                    // for internal Drive orders, rather than interpreting
-                    // the class's implementation result as input refusal.
-                    // Original delayed6E0 MTNK: walk_first_path.json.
-                    self.assign_destination_represented(
-                        *entity_id,
-                        Some(crate::sim::components::NavTargetRef::cell(
-                            *target_rx, *target_ry,
-                        )),
-                        Some(rules),
-                        overlay_registry,
-                        frame_effects,
-                    )
-                    .map_or_else(
-                        |cause| {
-                            log::warn!("Unit Move destination {}: {cause}", entity_id);
-                            false
-                        },
-                        |()| true,
-                    )
-                } else {
-                    self.issue_ground_move(
-                        GroundMove {
-                            entity_id: *entity_id,
-                            target: (*target_rx, *target_ry),
-                            speed: info.speed,
-                            queue: *queue,
-                            speed_type: Some(info.speed_type),
-                            owner_blocks: true,
-                            object_destination: None,
-                        },
-                        rules,
-                        overlay_registry,
-                        frame_effects,
-                    )
-                }
-            }
+            } => self.apply_move_command(
+                command_owner,
+                *entity_id,
+                (*target_rx, *target_ry),
+                *queue,
+                MissionType::Move,
+                rules,
+                overlay_registry,
+                frame_effects,
+            ),
             Command::Stop { entity_id } => {
                 if !self.entity_owned_by_id(command_owner, *entity_id) {
                     return false;
@@ -828,9 +710,6 @@ impl Simulation {
                 // an eligible rally ArchiveTarget without touching Foot NavCom;
                 // its native matrix is factory_destination.json.
                 self.assign_null_destination(*entity_id, rules, overlay_registry, frame_effects);
-                if let Some(e) = self.substrate.entities.get_mut(*entity_id) {
-                    e.order_intent = None;
-                }
                 // Event Stop4C75F8 invokes virtual+3C8 AFTER its null
                 // destination4C75ED, including the Infantry class effects.
                 let _ = self.assign_target_represented(
@@ -959,10 +838,14 @@ impl Simulation {
                 }
                 // Retask onto Attack keeping the interrupt stack (combat sets
                 // the target).
-                self.queue_megamission(*attacker_id, MissionType::Attack, rules, frame_effects);
-                if let Some(e) = self.substrate.entities.get_mut(*attacker_id) {
-                    e.order_intent = None;
-                }
+                self.queue_megamission(
+                    *attacker_id,
+                    MissionType::Attack,
+                    None,
+                    None,
+                    rules,
+                    frame_effects,
+                );
                 let issued = self.order_attack_target(
                     *attacker_id,
                     combat::TargetKind::Entity(*target_id),
@@ -1008,10 +891,14 @@ impl Simulation {
                 }
                 // No target-entity existence check — cells always "exist".
                 // Retask onto Attack keeping fields.
-                self.queue_megamission(*attacker_id, MissionType::Attack, rules, frame_effects);
-                if let Some(e) = self.substrate.entities.get_mut(*attacker_id) {
-                    e.order_intent = None;
-                }
+                self.queue_megamission(
+                    *attacker_id,
+                    MissionType::Attack,
+                    None,
+                    None,
+                    rules,
+                    frame_effects,
+                );
                 let issued = self.order_attack_target(
                     *attacker_id,
                     combat::TargetKind::Cell(*target_rx, *target_ry),
@@ -1044,92 +931,16 @@ impl Simulation {
                 target_rx,
                 target_ry,
                 queue,
-            } => {
-                if !self.entity_owned_by_id(command_owner, *entity_id) {
-                    return false;
-                }
-                if self
-                    .substrate
-                    .entities
-                    .get(*entity_id)
-                    .is_some_and(|e| e.is_deployed())
-                {
-                    return false;
-                }
-                // Native order admission (actor half only — attack-move carries
-                // a cell token).
-                if !self.order_actor_admits(*entity_id) {
-                    return false;
-                }
-                // Retask onto AttackMove (the order_intent set after the move
-                // issues is the real driver).
-                self.queue_megamission(*entity_id, MissionType::AttackMove, rules, frame_effects);
-                let _ = self.assign_target_represented(
-                    *entity_id,
-                    None,
-                    rules,
-                    overlay_registry,
-                    frame_effects,
-                );
-
-                // Snapshot speed, locomotor, and rules data in one lookup.
-                let Some(info) = self.resolve_move_info(*entity_id, rules) else {
-                    return false;
-                };
-                let aircraft = self
-                    .substrate
-                    .entities
-                    .get(*entity_id)
-                    .is_some_and(|e| e.category == EntityCategory::Aircraft);
-                let issued = if let Some(rules) = rules.filter(|_| aircraft) {
-                    // Event4C747C's virtual+480 (Aircraft41AA80) takes the
-                    // ordered cell, so Mission_Move, until the Commence ends
-                    // it, steers there too. The original sends mission 29 to
-                    // Mission_Sleep (`0x005B34C4`; `aircraft::dispatch_mission`'s
-                    // RESIDUAL).
-                    self.assign_aircraft_destination(
-                        *entity_id,
-                        Some(crate::sim::components::NavTargetRef::cell(
-                            *target_rx, *target_ry,
-                        )),
-                        rules,
-                        frame_effects,
-                    );
-                    true
-                } else if info.loco_layer == MovementLayer::Air {
-                    // Air units fly in straight lines.
-                    self.issue_air_cell_destination(
-                        *entity_id,
-                        (*target_rx, *target_ry),
-                        info.speed,
-                        rules,
-                        overlay_registry,
-                        frame_effects,
-                    )
-                } else {
-                    self.issue_ground_move(
-                        GroundMove {
-                            entity_id: *entity_id,
-                            target: (*target_rx, *target_ry),
-                            speed: info.speed,
-                            queue: *queue,
-                            speed_type: Some(info.speed_type),
-                            owner_blocks: true,
-                            object_destination: None,
-                        },
-                        rules,
-                        overlay_registry,
-                        frame_effects,
-                    )
-                };
-                if issued && let Some(e) = self.substrate.entities.get_mut(*entity_id) {
-                    e.order_intent = Some(OrderIntent::AttackMove {
-                        goal_rx: *target_rx,
-                        goal_ry: *target_ry,
-                    });
-                }
-                issued
-            }
+            } => self.apply_move_command(
+                command_owner,
+                *entity_id,
+                (*target_rx, *target_ry),
+                *queue,
+                MissionType::AttackMove,
+                rules,
+                overlay_registry,
+                frame_effects,
+            ),
             Command::Guard { entity_id, target } => self.apply_guard_command(
                 command_owner,
                 *entity_id,
@@ -1358,7 +1169,14 @@ impl Simulation {
                 {
                     return false;
                 }
-                self.begin_megamission_retask(*entity_id, MissionType::Enter, rules, frame_effects);
+                self.begin_megamission_retask(
+                    *entity_id,
+                    MissionType::Enter,
+                    None,
+                    None,
+                    rules,
+                    frame_effects,
+                );
                 if self
                     .substrate
                     .entities
@@ -1469,7 +1287,14 @@ impl Simulation {
                 }
                 // Queue Enter; the Unit setter below owns depot admission and
                 // contact changes, without a parallel reservation teardown.
-                self.queue_megamission(*entity_id, MissionType::Enter, Some(rules), frame_effects);
+                self.queue_megamission(
+                    *entity_id,
+                    MissionType::Enter,
+                    None,
+                    None,
+                    Some(rules),
+                    frame_effects,
+                );
                 // Event4C7467 dispatches the class target setter before Dest.
                 let _ = self.assign_target_represented(
                     *entity_id,
@@ -1478,9 +1303,6 @@ impl Simulation {
                     overlay_registry,
                     frame_effects,
                 );
-                if let Some(e) = self.substrate.entities.get_mut(*entity_id) {
-                    e.order_intent = None;
-                }
                 // Event4C747C: the Unit class setter with the depot.
                 self.set_unit_destination(
                     *entity_id,
@@ -1569,6 +1391,8 @@ impl Simulation {
                 self.queue_megamission(
                     *passenger_id,
                     MissionType::Enter,
+                    None,
+                    None,
                     Some(rules),
                     frame_effects,
                 );
@@ -1582,7 +1406,6 @@ impl Simulation {
                     frame_effects,
                 );
                 if let Some(e) = self.substrate.entities.get_mut(*passenger_id) {
-                    e.order_intent = None;
                     passenger::begin_boarding(e, *transport_id);
                 }
                 // The Infantry/Unit class keeps the transport token; the
@@ -1641,6 +1464,8 @@ impl Simulation {
                         self.queue_megamission(
                             *transport_id,
                             MissionType::Unload,
+                            None,
+                            None,
                             rules,
                             frame_effects,
                         );
@@ -1686,9 +1511,6 @@ impl Simulation {
                                 frame_effects,
                             );
                         }
-                        if let Some(e) = self.substrate.entities.get_mut(*transport_id) {
-                            e.order_intent = None;
-                        }
                         true
                     }
                     _ => false,
@@ -1726,6 +1548,8 @@ impl Simulation {
                 self.begin_megamission_retask(
                     *entity_id,
                     MissionType::Harvest,
+                    None,
+                    None,
                     rules,
                     frame_effects,
                 );
@@ -1873,6 +1697,8 @@ impl Simulation {
                 self.queue_megamission(
                     *attacker_id,
                     MissionType::Sabotage,
+                    None,
+                    None,
                     Some(rules),
                     frame_effects,
                 );
@@ -1884,9 +1710,6 @@ impl Simulation {
                     overlay_registry,
                     frame_effects,
                 );
-                if let Some(e) = self.substrate.entities.get_mut(*attacker_id) {
-                    e.order_intent = None;
-                }
                 // Event4C747C: Set_Destination(target building, 1). The building is
                 // the NavCom, so the Infantry +1AC admits its footprint cells to a
                 // Sabotage C4 carrier (`0x0051C2D3..`); the walk ends inside, where
@@ -1975,6 +1798,8 @@ impl Simulation {
                 self.queue_megamission(
                     *engineer_id,
                     MissionType::Capture,
+                    None,
+                    None,
                     Some(rules),
                     frame_effects,
                 );
@@ -1987,9 +1812,6 @@ impl Simulation {
                     overlay_registry,
                     frame_effects,
                 );
-                if let Some(e) = self.substrate.entities.get_mut(*engineer_id) {
-                    e.order_intent = None;
-                }
                 // Event4C747C dispatches Infantry51AA40 with the Building
                 // token. The class publishes NavCom and the Walk destination
                 // after its prelude; a caller write would change its moving
@@ -2092,6 +1914,8 @@ impl Simulation {
                         sim.queue_megamission(
                             unit_id,
                             MissionType::Enter,
+                            None,
+                            None,
                             Some(rules),
                             frame_effects,
                         );
@@ -2103,9 +1927,6 @@ impl Simulation {
                             overlay_registry,
                             frame_effects,
                         );
-                        if let Some(e) = sim.substrate.entities.get_mut(unit_id) {
-                            e.order_intent = None;
-                        }
                     },
                 )
             }
@@ -2456,6 +2277,148 @@ impl Simulation {
         )
     }
 
+    /// A MEGAMISSION order with a cell destination: Move, or an attack-move
+    /// (mission 29), which `Assign_Target_Command` turns into a Move after
+    /// storing the cell as the MegaDestination
+    /// ([`Simulation::foot_assign_target_command`]). The event then runs the
+    /// same arm for both: Assign_Target(null) at `0x004C7467` and the class
+    /// destination setter with the cell at `0x004C747C`.
+    fn apply_move_command(
+        &mut self,
+        command_owner: &str,
+        entity_id: u64,
+        (target_rx, target_ry): (u16, u16),
+        queue: bool,
+        mission: MissionType,
+        rules: Option<&RuleSet>,
+        overlay_registry: Option<&crate::rules::overlay_types::OverlayTypeRegistry>,
+        frame_effects: FrameEffects<'_>,
+    ) -> bool {
+        if !self.entity_owned_by_id(command_owner, entity_id) {
+            return false;
+        }
+        if self
+            .substrate
+            .entities
+            .get(entity_id)
+            .is_some_and(|e| e.is_deployed())
+            && !rules.is_some_and(|rules| {
+                self.infantry_setter_receiver(entity_id, rules)
+                    || self.drive_unit_setter_receiver(entity_id)
+            })
+        {
+            return false;
+        }
+        // Event4C7353 queues Move and clears Target before the class
+        // applies its own refusal. Infantry51AA40 tests human Doing;
+        // Unit741970 tests deployment after the same-Nav/force arm.
+        // Original non-Deployer GI and delayed deployed MTNK controls
+        // in walk_first_path.json retain queued2 even when the void
+        // class setter leaves NavCom NULL. Decoded commands must not
+        // repeat the input wrapper's separate no-order decision.
+        // Other class adapters retain the legacy early gate until
+        // their destination owner is represented (remaining #687).
+        // Native order admission: a dead, zero-strength or in-limbo
+        // actor abandons the whole order and keeps its previous one.
+        if !self.order_actor_admits(entity_id) {
+            return false;
+        }
+        // Queue the mission Assign_Target_Command answers. The
+        // destination/radio owners handle any existing dock contact.
+        self.queue_megamission(
+            entity_id,
+            mission,
+            None,
+            Some((target_rx, target_ry)),
+            rules,
+            frame_effects,
+        );
+        // Event MegaMission4C7467 calls Assign_Target before the
+        // destination setter. Its changed-null path6FCF5B also
+        // resets retained burst state; dropping Target alone cannot.
+        let _ =
+            self.assign_target_represented(entity_id, None, rules, overlay_registry, frame_effects);
+        // Snapshot speed, locomotor, and rules data in one lookup.
+        let Some(info) = self.resolve_move_info(entity_id, rules) else {
+            return false;
+        };
+        let aircraft = self
+            .substrate
+            .entities
+            .get(entity_id)
+            .is_some_and(|e| e.category == EntityCategory::Aircraft);
+
+        if let Some(rules) = rules.filter(|_| aircraft) {
+            // Event4C747C's virtual+480 is Aircraft41AA80: the NavCom
+            // and the locomotor's Move_To. Mission_Move flies it from
+            // there (`aircraft::move_mission`).
+            self.assign_aircraft_destination(
+                entity_id,
+                Some(crate::sim::components::NavTargetRef::cell(
+                    target_rx, target_ry,
+                )),
+                rules,
+                frame_effects,
+            );
+            true
+        } else if info.loco_layer == MovementLayer::Air {
+            // Air units fly in straight lines — no A* pathfinding needed.
+            self.issue_air_cell_destination(
+                entity_id,
+                (target_rx, target_ry),
+                info.speed,
+                rules,
+                overlay_registry,
+                frame_effects,
+            )
+        } else if !queue
+            && let Some(rules) = rules
+            && self.unit_setter_receiver(entity_id, Some(rules))
+        {
+            // Event4C746F pushes1;4C747C calls virtual+480 with
+            // the resolved destination. Unit741970 owns same-NavCom
+            // return/force, class preprocessing and queue clearing.
+            // Native: track_destination.json Unit rows, replayed by
+            // command_move_destinations_match_native_unit_setter.
+            // The setter is void: a guarded class refusal still
+            // executes this Event. Use the shared dispatcher, as
+            // for internal Drive orders, rather than interpreting
+            // the class's implementation result as input refusal.
+            // Original delayed6E0 MTNK: walk_first_path.json.
+            self.assign_destination_represented(
+                entity_id,
+                Some(crate::sim::components::NavTargetRef::cell(
+                    target_rx, target_ry,
+                )),
+                Some(rules),
+                overlay_registry,
+                frame_effects,
+            )
+            .map_or_else(
+                |cause| {
+                    log::warn!("Unit Move destination {}: {cause}", entity_id);
+                    false
+                },
+                |()| true,
+            )
+        } else {
+            self.issue_ground_move(
+                GroundMove {
+                    entity_id,
+                    target: (target_rx, target_ry),
+                    speed: info.speed,
+                    queue,
+                    speed_type: Some(info.speed_type),
+                    owner_blocks: true,
+                    object_destination: None,
+                },
+                rules,
+                overlay_registry,
+                frame_effects,
+            )
+        }
+    }
+
     /// Event4C73B9 queues AreaGuard, clears suspended references, then the
     /// Foot arm4C7409..4C7430 clears Target and assigns the first event token
     /// as destination and ArchiveTarget. The retained post belongs to the
@@ -2494,12 +2457,14 @@ impl Simulation {
         }
         let foot =
             self.substrate.entities.get(entity_id).unwrap().category != EntityCategory::Structure;
-        self.queue_megamission(entity_id, MissionType::AreaGuard, rules, frame_effects);
-        self.substrate
-            .entities
-            .get_mut(entity_id)
-            .unwrap()
-            .order_intent = None;
+        self.queue_megamission(
+            entity_id,
+            MissionType::AreaGuard,
+            None,
+            None,
+            rules,
+            frame_effects,
+        );
         // Non-Foot receivers take the ordinary Event4C7467/4C747C arm;
         // G itself excludes them, but a decoded record still reaches it.
         self.assign_target_represented(
@@ -2594,7 +2559,14 @@ impl Simulation {
         overlay_registry: Option<&crate::rules::overlay_types::OverlayTypeRegistry>,
         frame_effects: FrameEffects<'_>,
     ) {
-        self.queue_megamission(id, MissionType::Unload, Some(rules), frame_effects);
+        self.queue_megamission(
+            id,
+            MissionType::Unload,
+            None,
+            None,
+            Some(rules),
+            frame_effects,
+        );
         // Foot4DA1C0 (`0x004C7453`) clears the +5AC vector, distinct from
         // NavQueue588/598, and has no represented producer here.
         self.assign_target_represented(id, None, Some(rules), overlay_registry, frame_effects)
@@ -2680,9 +2652,15 @@ mod tests {
         let entity = sim.substrate.entities.get_mut(1).unwrap();
         entity.navigation.nav_queue = vec![crate::sim::components::NavTargetRef::cell(25, 20)];
         entity.navigation.path_runtime.start_movement(40, 30);
+        entity.mega_mission =
+            crate::sim::mission::mega_mission::MegaMission::attack_move(Some((12, 12)));
         assert!(entity.navigation.nav_com.is_none());
         assert!(sim.apply_command("Americans", &Command::Stop { entity_id: 1 }, Some(&rules)));
         let entity = sim.substrate.entities.get(1).unwrap();
+        assert!(
+            entity.mega_mission.is_attack_move(),
+            "the IDLE arm calls no MegaMission body"
+        );
         assert_eq!(entity.navigation.nav_queue.len(), 1);
         let timer = entity.navigation.path_runtime.movement_timer;
         assert_eq!((timer.start_frame(), timer.duration()), (40, 30));
@@ -3064,10 +3042,8 @@ mod tests {
             actor.suspended_attack_target = Some(combat::TargetKind::Entity(2));
             actor.navigation.suspended_nav_com = Some(NavTargetRef::cell(12, 12));
             actor.set_archive_target(Some(combat::TargetKind::Cell(5, 5)));
-            actor.order_intent = Some(OrderIntent::AttackMove {
-                goal_rx: 12,
-                goal_ry: 12,
-            });
+            actor.mega_mission =
+                crate::sim::mission::mega_mission::MegaMission::attack_move(Some((12, 12)));
 
             assert!(sim.apply_command(
                 "Americans",
@@ -3095,7 +3071,10 @@ mod tests {
             assert!(actor.suspended_attack_target.is_none());
             assert!(actor.navigation.suspended_nav_com.is_none());
             assert!(actor.attack_target.is_none());
-            assert!(actor.order_intent.is_none());
+            assert!(
+                !actor.mega_mission.is_attack_move(),
+                "Assign_Target_Command answers Area Guard with Clear_All_TarCom"
+            );
             assert_eq!(actor.archive_target(), post);
             assert_eq!(actor.navigation.nav_com, post.map(Into::into));
         }
@@ -3106,12 +3085,10 @@ mod tests {
         let rules = amcv_move_rules();
         let mut sim = Simulation::new();
         spawn_rule_backed_unit(&mut sim, 1, "AMCV", &rules);
-        sim.substrate
-            .entities
-            .get_mut(1)
-            .unwrap()
-            .lifecycle
-            .in_limbo = true;
+        let actor = sim.substrate.entities.get_mut(1).unwrap();
+        actor.lifecycle.in_limbo = true;
+        actor.mega_mission =
+            crate::sim::mission::mega_mission::MegaMission::attack_move(Some((12, 12)));
 
         assert!(!sim.order_actor_admits(1));
         assert!(!sim.apply_command(
@@ -3124,7 +3101,7 @@ mod tests {
         ));
         let actor = sim.substrate.entities.get(1).unwrap();
         assert!(
-            actor.order_intent.is_none(),
+            actor.mega_mission.is_attack_move(),
             "a rejected guard order must not have written anything"
         );
         assert_eq!(actor.mission.queued(), MissionId::NONE);

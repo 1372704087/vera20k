@@ -983,9 +983,10 @@ impl Simulation {
     /// Infantry EnterIdle51CBA0 after the sole Foot4D82B0 base.
     /// P2/P5 actual human E1 controls execute constructor-empty planning and
     /// destination history, and stock-false DefaultToGuardArea/GUARD_AREA.
-    /// History4DA030, retained AttackMove4DF1C0 and specialized AI/slave
-    /// AreaGuard selection remain explicit sibling mechanisms, not defaults
-    /// claimed to reproduce those branches.
+    /// History4DA030 and specialized AI/slave AreaGuard selection remain
+    /// explicit sibling mechanisms, not defaults claimed to reproduce those
+    /// branches. A resumed attack-move (HaveMegaMission, vt+0x4AC at
+    /// `0x0051CBBC`) returns the base's answer before the selector.
     pub(crate) fn infantry_enter_idle_mode(
         &mut self,
         id: u64,
@@ -997,6 +998,9 @@ impl Simulation {
         let Some(entity) = self.substrate.entities.get(id) else {
             return saved_base_return;
         };
+        if entity.mega_mission.is_attack_move() {
+            return saved_base_return;
+        }
         let selection = foot_enter_idle_mode_selection(
             rules,
             entity.category,

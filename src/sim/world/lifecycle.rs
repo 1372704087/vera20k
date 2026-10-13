@@ -2543,6 +2543,19 @@ impl Simulation {
         self.unregister_logic_object(stable_id)
     }
 
+    /// Particle62BB0E calls ObjectUnlimbo5F4EC0; GetLayer62D770 returns
+    /// AIR (3), so Display4A9720 reaches the existing append owner5519B0.
+    /// A particle is owned by its system and never joins global Logic.
+    pub(crate) fn reveal_particle(&mut self, stable_id: u64) {
+        self.submit_object_display(stable_id, DisplayLayer::AIR, None);
+    }
+
+    /// ObjectLimbo5F4D74 removes the individual particle's retained AIR
+    /// entry through DisplayRemove4A9770, independently of its system.
+    pub(crate) fn conceal_particle(&mut self, stable_id: u64) {
+        self.substrate.display.remove(stable_id);
+    }
+
     pub(crate) fn register_terrain_object(
         &mut self,
         stable_id: u64,
@@ -3552,6 +3565,7 @@ impl Simulation {
                 .any(|target| Self::nav_ref_targets_expired(target, expired_id))
             || listener.pending_entry() == Some(expired_id)
             || listener.spawn_owner_id == Some(expired_id)
+            || listener.damage_smoke_system_id == Some(expired_id)
             || listener
                 .aircraft_ammo
                 .as_ref()
@@ -3987,6 +4001,10 @@ impl Simulation {
                 listener.suspended_attack_target,
                 Some(TargetKind::Entity(id)) if id == expired_id
             );
+        // Techno707AC2..707AD7 clears eight retained effect pointers on an
+        // exact match, including damage-Smoke+310. It precedes the control
+        // gate707AE7 and is independent of the target's sensor/owner guards.
+        let clear_damage_smoke = listener.damage_smoke_system_id == Some(expired_id);
         // Techno707AE7..707B03 clears ArchiveTarget+218 on control1. The
         // later Foot4D99F1..4D99FC clears a still-matching archive on both
         // controls, independent of sensors and same-owner target exemptions.
@@ -4073,6 +4091,7 @@ impl Simulation {
         // MegaTarget becomes a MegaDestination at its GetCoords cell.
         let expire_mega_target = listener.mega_mission.targets(expired_id);
         if !(clear_suspended_target
+            || clear_damage_smoke
             || clear_archive_target
             || clear_suspended_nav_com
             || clear_nav_com
@@ -4094,6 +4113,9 @@ impl Simulation {
             .expect("expiry listener read above");
         if clear_suspended_target {
             listener.suspended_attack_target = None;
+        }
+        if clear_damage_smoke {
+            listener.damage_smoke_system_id = None;
         }
         if clear_archive_target {
             listener.set_archive_target(None);
@@ -4149,6 +4171,7 @@ impl Simulation {
     /// read the object's liveness, health and mission from the same world.
     fn notify_pointer_expired(&mut self, expired_id: u64, context: UninitContext<'_>) {
         if !self.substrate.entities.contains(expired_id)
+            && !self.substrate.particle_systems.contains_key(expired_id)
             && self
                 .smudge_grid
                 .as_ref()
@@ -4275,6 +4298,17 @@ impl Simulation {
                 )
             })
             .or_else(|| {
+                let system = self.substrate.particle_systems.get(expired_id)?;
+                let cell = u16::try_from(crate::util::lepton::lepton_to_cell(system.coords.x))
+                    .ok()
+                    .zip(u16::try_from(crate::util::lepton::lepton_to_cell(system.coords.y)).ok());
+                // ObjectCtor5F390B..5F3919 supplies Health=255. A System
+                // has no Techno flags, selling mission or Techno owner;
+                // its retained coordinates and liveness are still readable
+                // during ObjectLimbo's synchronous expiry announcement.
+                Some((cell, false, system.alive(), 255, false, None))
+            })
+            .or_else(|| {
                 let smudge = self.smudge_grid.as_ref()?.object(expired_id)?;
                 let location = smudge.location();
                 let cell = u16::try_from(crate::util::lepton::lepton_to_cell(location.x))
@@ -4373,6 +4407,12 @@ impl Simulation {
                     .entities
                     .get(expired_id)
                     .map(|target| (target.lifecycle.object_alive, target.lifecycle.in_limbo))
+                    .or_else(|| {
+                        self.substrate
+                            .particle_systems
+                            .get(expired_id)
+                            .map(|system| (system.alive(), system.in_limbo()))
+                    })
                     .or_else(|| {
                         self.smudge_grid
                             .as_ref()?
@@ -4481,20 +4521,9 @@ impl Simulation {
             } else if kind == ObjectKind::Anim {
                 self.expire_anim_owner_reference(listener_id, expired_id);
             } else if kind == ObjectKind::ParticleSystem {
-                let system = self
-                    .substrate
+                self.substrate
                     .particle_systems
-                    .get_mut(listener_id)
-                    .expect("particle listener disappeared during expiry callback");
-                if system.owner_entity == Some(expired_id) {
-                    system.owner_entity = None;
-                }
-                if system.attached_entity == Some(expired_id) {
-                    system.attached_entity = None;
-                    // vtable `+0xF8`, the same mark the lifetime and
-                    // spawn-cutoff paths set.
-                    system.done_spawning = true;
-                }
+                    .pointer_expired(listener_id, expired_id);
             } else if kind == ObjectKind::Projectile {
                 let target_matches = self.projectiles.get(listener_id).is_some_and(|projectile| {
                     projectile.target == ProjectileTarget::Entity(expired_id)
@@ -4691,17 +4720,32 @@ impl Simulation {
 
     /// Particle systems stay resolvable until the ordinary common late drain.
     /// Their owned particles have already emptied before this transition.
-    pub(crate) fn retire_particle_system(&mut self, stable_id: u64) {
+    /// SystemAI62FDC7..62FDE7 calls ObjectLimbo5F4D30 while Alive is still
+    /// set, then clears Alive and queues deletion. Limbo's literal control1
+    /// dispatch clears Techno+310 synchronously, before the late destructor.
+    pub(crate) fn retire_particle_system(&mut self, stable_id: u64, context: UninitContext<'_>) {
         let ready = self
             .substrate
             .particle_systems
             .get(stable_id)
-            .is_some_and(|system| system.done_spawning && system.particles.is_empty());
+            .is_some_and(|system| {
+                system.alive() && system.done_spawning && system.particles.is_empty()
+            });
         if !ready {
             return;
         }
 
-        self.conceal_particle_system(stable_id);
+        if !self
+            .substrate
+            .particle_systems
+            .get(stable_id)
+            .unwrap()
+            .in_limbo()
+        {
+            self.notify_pointer_expired(stable_id, context);
+            self.conceal_particle_system(stable_id);
+        }
+        self.substrate.particle_systems.enter_limbo(stable_id);
         self.substrate.pending_delete.queue_object(stable_id);
         #[cfg(test)]
         self.trace_lifecycle_for_test(LifecycleTestEvent::PendingDeleteQueued { stable_id });
@@ -4725,6 +4769,8 @@ impl Simulation {
             return !anim.in_logic_vector;
         }
         if let Some(system) = self.substrate.particle_systems.get(stable_id) {
+            // SystemVT7EFB9C+44 -> IsReadyToDelete62FE60: done+F8 and
+            // count+CC==0, independently of the ObjectAlive byte.
             return system.done_spawning && system.particles.is_empty();
         }
         if let Some(terrain) = self.production.terrain_objects.get(&stable_id) {
@@ -4763,6 +4809,15 @@ impl Simulation {
         // executed composed action7 cleanup: spatial_oracle/team_creation.
         if foot && (game_state as u8) != 0 {
             self.leave_team(stable_id, false, context.rules(), context.effects());
+        }
+        if self.substrate.particle_systems.contains_key(stable_id) {
+            // SystemDtor62E075/62E092 broadcasts control1 before its
+            // delegated Limbo62E099 and before leaving object storage.
+            // The ordinary done-empty AI already announced its earlier
+            // live Limbo; both callbacks use the same retained-reference
+            // owner instead of clearing only its producer after removal.
+            self.notify_pointer_expired(stable_id, context);
+            self.conceal_particle_system(stable_id);
         }
         if self
             .smudge_grid
@@ -4890,6 +4945,14 @@ impl Simulation {
         let entity = self.substrate.entities.remove(stable_id);
         let anim = self.substrate.anims.remove(stable_id);
         let particle_system = self.substrate.particle_systems.finalize_remove(stable_id);
+        if let Some(system) = particle_system.as_ref() {
+            // SystemDtor62E0AE..62E15D disposes retained children before its
+            // vector is freed. Ordinary AI retirement has no children left;
+            // direct disposal must still remove each individual AIR entry.
+            for particle in &system.particles {
+                self.conceal_particle(particle.stable_id());
+            }
+        }
         let terrain = self.production.terrain_objects.remove(&stable_id);
         self.drop_object_custom_sound(stable_id);
         if let Some(terrain) = terrain.as_ref() {
@@ -4917,16 +4980,6 @@ impl Simulation {
             && self.active_wave_links.get(&owner_id) == Some(&stable_id)
         {
             self.active_wave_links.remove(&owner_id);
-        }
-        if let Some(system) = particle_system.as_ref()
-            && let Some(owner_id) = system.owner_entity
-            && let Some(owner) = self.substrate.entities.get_mut(owner_id)
-            && owner.damage_smoke_system_id == Some(stable_id)
-        {
-            // Native pointer expiry clears TechnoClass +0x310 only when the
-            // marked system physically leaves object storage. Keeping the
-            // identity through retirement prevents same-frame duplicates.
-            owner.damage_smoke_system_id = None;
         }
         debug_assert!(
             usize::from(entity.is_some())

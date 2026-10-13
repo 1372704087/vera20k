@@ -994,7 +994,12 @@ use crate::sim::world::Simulation;
 // 343 -> 344: each Techno retains its one-shot deploy-voice suppression
 // (+4F8); Rules retain registered Harvest/Deploy/Undeploy scalar voice slots.
 // Version343 lacks these bincode fields and cannot resume their history.
-const SNAPSHOT_VERSION: u32 = 344;
+// 344 -> 345: particle speed and system spawn accumulator retain native f32
+// bits; children retain individual Display IDs and System Alive/Limbo state;
+// the existing Rules registry retains WindDirection across passes. The
+// superseded animation counter is removed; native cadence uses UID/EC.
+// Old records cannot resume these scalar authorities.
+const SNAPSHOT_VERSION: u32 = 345;
 
 const SNAPSHOT_PRODUCT_MAGIC: [u8; 8] = *b"VERA20K\0";
 const SNAPSHOT_ENVELOPE_VERSION: u32 = 1;
@@ -1671,6 +1676,13 @@ impl RestoredObjectIndex {
                 system.stable_id,
             )?;
             highest_id = highest_id.max(registry_id);
+            // Individual particles retain AIR Display membership. Register
+            // their owning store's identities in the existing restore index.
+            for particle in &system.particles {
+                let id = particle.stable_id();
+                Self::register(&mut identities, "ParticleSystemStore.children", id, id)?;
+                highest_id = highest_id.max(id);
+            }
         }
         for (&registry_id, terrain) in &sim.production.terrain_objects {
             Self::register(
@@ -4369,7 +4381,8 @@ mod tests {
         // 341 -> 342: the House tech-tree recheck byte.
         // 342 -> 343: the complete Object fall state.
         // 343 -> 344: retained deploy-voice suppression and bound voice slots.
-        assert_eq!(super::SNAPSHOT_VERSION, 344);
+        // 344 -> 345: Smoke scalars and individual Particle AIR identities.
+        assert_eq!(super::SNAPSHOT_VERSION, 345);
     }
 
     #[test]
@@ -6306,7 +6319,7 @@ mod tests {
                 glam::IVec3::ZERO,
             );
             system.offset = glam::IVec3::ZERO;
-            system.spawn_timer = crate::util::fixed_math::SimFixed::from_num(1);
+            system.set_spawn_timer_for_test(crate::util::native_x87::NativeF32Bits::ONE);
             system.owner_entity = Some(entity_id);
             system.target_coords = glam::IVec3::ZERO;
             system

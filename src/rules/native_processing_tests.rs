@@ -2,6 +2,53 @@
 
 use super::*;
 
+/// Rules constructor +7AC=-1 and ReadGeneral66F2AF..66F2CF's prior-value
+/// ReadInt. Reset clears type registries, not this scalar. The original
+/// constructor is consumed from the Smoke corpus; the remaining assertions
+/// exercise the production reader/registry handoff, not an AI wind index.
+#[test]
+fn smoke_wind_reader_retains_layer_history_and_registry_reset() {
+    use crate::rules::ruleset::RuleSet;
+    let native: serde_json::Value = serde_json::from_str(crate::test_fixture::text(
+        "tools/spatial_oracle/damage_smoke.json",
+    ))
+    .unwrap();
+    let mut layers = RulesLayerStack::new(IniFile::empty());
+    assert_eq!(
+        RuleSet::from_rules_layers(&layers)
+            .unwrap()
+            .general
+            .wind_direction(),
+        native["wind_constructor"].as_i64().unwrap() as i32
+    );
+    for (text, expected) in [
+        ("[General]\nWindDirection=1\n", 1),
+        ("[General]\nOther=4\n", 1),
+        // ReadInt defaults only on absence; present junk takes atoi's0.
+        ("[General]\nWindDirection=oops\n", 0),
+        ("[General]\nWindDirection=-7\n", -7),
+        ("[General]\nWindDirection=17\n", 17),
+    ] {
+        layers.push(RulesLayerKind::Scenario, IniFile::from_str(text));
+        assert_eq!(
+            RuleSet::from_rules_layers(&layers)
+                .unwrap()
+                .general
+                .wind_direction(),
+            expected
+        );
+    }
+    let processed = layers.process().unwrap();
+    let (_, receipt) = processed.into_ini_and_native_type_construction_trace();
+    let reset = receipt
+        .into_registry_state_discarding_events()
+        .destructive_reset();
+    let continued = RulesLayerStack::new(IniFile::from_str("[General]\nOther=9\n"))
+        .process_with_fixed_art_and_registry_state(&IniFile::empty(), reset)
+        .unwrap();
+    assert_eq!(continued.wind_direction(), 17);
+}
+
 /// Rust regression for RulesClass666163/66616D defaults and
 /// ReadGeneral66F30E..66F350 current-value defaults. Exercise the production
 /// pass reader, its RuleSet publication and the process-resident registry

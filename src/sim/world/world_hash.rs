@@ -760,10 +760,12 @@ impl Simulation {
             sys.lifetime.hash(hasher);
             sys.facing.hash(hasher);
             sys.done_spawning.hash(hasher);
+            sys.alive().hash(hasher);
+            sys.in_limbo().hash(hasher);
             // The rest of the saved system state. `in_logic_vector` is not
             // saved (load rebuilds it from the logic vector), so it stays out.
             sys.offset.to_array().hash(hasher);
-            sys.spawn_timer.to_bits().hash(hasher);
+            sys.spawn_timer().bits().hash(hasher);
             sys.spark_spawn_frames.hash(hasher);
             sys.attached_entity.hash(hasher);
             sys.owner_entity.hash(hasher);
@@ -771,6 +773,7 @@ impl Simulation {
             sys.owner_house.hash(hasher);
             sys.particles.len().hash(hasher);
             for p in &sys.particles {
+                p.stable_id().hash(hasher);
                 p.native_unique_id().hash(hasher);
                 p.type_id.0.hash(hasher);
                 p.coords.x.hash(hasher);
@@ -779,11 +782,10 @@ impl Simulation {
                 p.lifetime_remaining.hash(hasher);
                 p.animation_state.hash(hasher);
                 p.translucency.hash(hasher);
-                p.state_advance_counter.hash(hasher);
                 p.marked_for_deletion.hash(hasher);
                 p.origin.to_array().hash(hasher);
                 p.direction.map(|v| v.to_bits()).hash(hasher);
-                p.velocity.to_bits().hash(hasher);
+                p.velocity().bits().hash(hasher);
                 p.damage_counter.hash(hasher);
                 p.state_ai_advance.hash(hasher);
                 (p.drift_x, p.drift_y, p.drift_z).hash(hasher);
@@ -3339,31 +3341,6 @@ mod particle_hash_tests {
         assert_ne!(h1, h2);
     }
 
-    #[test]
-    fn state_advance_counter_changes_hash() {
-        let mut sim_a = Simulation::new();
-        let mut sim_b = Simulation::new();
-        let mut sys_a = fake_system(IVec3::ZERO);
-        let mut sys_b = fake_system(IVec3::ZERO);
-        let make_p = |counter: u8| {
-            let mut particle = Particle::test_fixture(ParticleTypeId(0), IVec3::ZERO);
-            particle.origin = IVec3::ZERO;
-            particle.lifetime_remaining = 100;
-            particle.state_ai_advance = 4;
-            particle.state_advance_counter = counter;
-            particle
-        };
-        sys_a.particles.push(make_p(0));
-        sys_b.particles.push(make_p(3));
-        insert_system(&mut sim_a, sys_a);
-        insert_system(&mut sim_b, sys_b);
-        assert_ne!(
-            sim_a.state_hash(),
-            sim_b.state_hash(),
-            "state_advance_counter must affect state hash"
-        );
-    }
-
     fn particle_with_spark(spark: Option<SparkRuntimeState>) -> Particle {
         let mut particle = Particle::test_fixture(ParticleTypeId(0), IVec3::new(-1, 2, 3));
         particle.origin = IVec3::ZERO;
@@ -3442,7 +3419,11 @@ mod particle_hash_tests {
         type Edit = Box<dyn Fn(&mut ParticleSystem)>;
         let edits: Vec<Edit> = vec![
             Box::new(|s| s.offset = IVec3::new(1, 0, 0)),
-            Box::new(|s| s.spawn_timer = SimFixed::from_num(1)),
+            Box::new(|s| {
+                s.set_spawn_timer_for_test(crate::util::native_x87::NativeF32Bits::from_bits(
+                    0x4000_0000,
+                ))
+            }),
             Box::new(|s| s.spark_spawn_frames = 1),
             Box::new(|s| s.attached_entity = Some(7)),
             Box::new(|s| s.owner_entity = Some(7)),
@@ -3450,7 +3431,9 @@ mod particle_hash_tests {
             Box::new(move |s| s.owner_house = Some(owner_house)),
             Box::new(|s| s.particles[0].origin = IVec3::new(0, 0, 1)),
             Box::new(|s| s.particles[0].direction[1] = SimFixed::from_num(1)),
-            Box::new(|s| s.particles[0].velocity = SimFixed::from_num(1)),
+            Box::new(|s| {
+                s.particles[0].set_velocity_for_test(crate::util::native_x87::NativeF32Bits::ONE)
+            }),
             Box::new(|s| s.particles[0].damage_counter = 1),
             Box::new(|s| s.particles[0].state_ai_advance = 1),
             Box::new(|s| s.particles[0].drift_x = 1),

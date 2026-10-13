@@ -269,29 +269,6 @@ fn minimum_range_blocks(weapon: &WeaponType, src: (i64, i64, i64), tgt: (i64, i6
     ) < weapon.minimum_range_leptons
 }
 
-/// Whether the attacker is standing INSIDE `weapon`'s `MinimumRange` — the one
-/// `InRange` refusal that walking toward the target cannot fix.
-///
-/// Pursuit needs to tell this refusal apart from the others because VERA's
-/// approach produces a single candidate (the target's own cell) where native's
-/// approach search 0x004D5690 scans many: for a too-close refusal the target's
-/// cell is the worst candidate in the set, not the best.
-pub(crate) fn inside_minimum_range(
-    src: (i64, i64, i64),
-    target: &TargetKind,
-    weapon: &WeaponType,
-    rules: &RuleSet,
-    interner: &StringInterner,
-    entities: &EntityStore,
-    terrain: &ResolvedTerrainGrid,
-) -> bool {
-    let cells = NativeCellQuery::canonical(terrain);
-    let Some(tgt) = resolve_target_coords_3d(target, entities, rules, interner, &cells) else {
-        return false;
-    };
-    minimum_range_blocks(weapon, src, tgt)
-}
-
 /// Full 3D range check. Returns true if `attacker` (firing from `src`) can
 /// hit `target` with `weapon`, through every ported gate.
 ///

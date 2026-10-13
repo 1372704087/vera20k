@@ -13,7 +13,6 @@ use crate::rules::ruleset::RuleSet;
 use crate::rules::terrain_rules::{LandType, SpeedCostProfile, TerrainClass};
 use crate::sim::bridge_state::{BridgeEndpointRecord, BridgeRecordKind};
 use crate::sim::cell_rect::PlayfieldBounds;
-use crate::sim::combat::AttackTarget;
 use crate::sim::components::NavTargetRef;
 use crate::sim::entity_store::EntityStore;
 use crate::sim::game_entity::GameEntity;
@@ -1366,86 +1365,6 @@ fn gsi_04_12_interaction_order_entry_threads_exact_blocker_counts() {
         Some((5, 0)),
         "Capture must retain the admitted building Cell as its path goal"
     );
-}
-
-#[test]
-fn gsi_04_12_attack_pursuit_entry_threads_exact_blocker_counts() {
-    let rules = RuleSet::from_ini(&IniFile::from_str(
-        "[VehicleTypes]\n0=MTNK\n\n\
-         [MTNK]\nStrength=300\nArmor=heavy\nSpeed=6\nPrimary=105mm\n\n\
-         [105mm]\nDamage=65\nROF=50\nRange=1\nWarhead=AP\n\n\
-         [AP]\nVerses=100%,100%,100%,100%,100%,100%,100%,100%,100%,0%,0%\n",
-    ))
-    .expect("pursuit rules should parse");
-
-    let mut path_grid = PathGrid::new(5, 1);
-    for x in 1..=3 {
-        path_grid.set_cell_for_test(x, 0, 0, true, true);
-    }
-
-    let mut reduced_grid = PathGrid::new(5, 1);
-    reduced_grid.set_blocked(2, 0, true);
-    let mut zone_grid = ZoneGrid::following_path_grid(&reduced_grid);
-    zone_grid.set_hierarchy(linear_level0_hierarchy(vec![1, 3, 1, 4, 2], &[(1, 2)]));
-    assert!(
-        !zone_grid.can_reach(
-            MovementZone::Normal,
-            (1, 0),
-            MovementLayer::Bridge,
-            (3, 0),
-            MovementLayer::Bridge,
-        ),
-        "fixture must make the no-count pursuit path fail reduced reachability"
-    );
-
-    let mut terrain = gsi_04_12_terrain(5, 1);
-    for x in 1..=3 {
-        let cell = terrain.cell_mut(x, 0).unwrap();
-        cell.bridge_facts.raw_flags =
-            BRIDGE_FLAG_STRUCTURAL | BRIDGE_FLAG_DIRECTION_ZERO | BRIDGE_FLAG_TRANSITION;
-        cell.has_bridge_deck = true;
-        cell.bridge_walkable = true;
-        cell.bridge_transition = true;
-        cell.bridge_deck_level = 4;
-    }
-    terrain.cell_mut(0, 0).unwrap().final_tile_index = 100;
-    terrain.cell_mut(4, 0).unwrap().final_tile_index = 100;
-
-    let mut attacker = gsi_04_12_cell_listed_entity(1, "MTNK", "Americans", 1, 0);
-    let mut locomotor = crate::sim::movement::locomotor::LocomotorState::for_test_kind(
-        crate::rules::locomotor_type::LocomotorKind::Drive,
-    );
-    locomotor.layer = MovementLayer::Bridge;
-    attacker.locomotor = Some(locomotor);
-    attacker.on_bridge = true;
-    assert!(
-        attacker
-            .locomotor
-            .as_mut()
-            .unwrap()
-            .install_drive_state_for_test(Some(Default::default()))
-    );
-    attacker.attack_target = Some(AttackTarget::for_cell(3, 0));
-    let blocker = gsi_04_12_cell_listed_entity(2, "MTNK", "Russians", 2, 0);
-
-    let mut sim = Simulation::new();
-    sim.interner = test_interner();
-    sim.substrate.entities.insert(attacker);
-    sim.substrate.entities.insert(blocker);
-    sim.resolved_terrain = Some(terrain);
-    sim.zone_grid = Some(zone_grid);
-
-    sim.install_fixture_path_grid(Some(&path_grid));
-    sim.tick_attack_pursuit(&rules);
-
-    let route = first_track_process_route(&mut sim, 1, Some(&rules), &path_grid)
-        .expect("real out-of-range pursuit should reach the projected hierarchy route");
-    assert_eq!(route.first().copied(), Some((1, 0)));
-    assert!(
-        sim.substrate.entities.get(1).expect("mover").on_bridge,
-        "the Process search starts on the bridge layer: AStar 0x00429A90 takes the start height from the Foot's OnBridge byte"
-    );
-    assert_eq!(route.last().copied(), Some((3, 0)));
 }
 
 #[test]

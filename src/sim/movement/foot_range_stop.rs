@@ -4,11 +4,7 @@
 //! Walk infantry take the whole stop at their completion (`walk_host.rs`). A
 //! unit takes it from its locomotor's PerCell (a Drive or Ship track terminal
 //! in `track_host.rs`, Hover's Process, a Jumpjet's touchdown, a Teleport
-//! arrival) whenever its mission's Approach carries its approach
-//! (`Simulation::mission_owns_approach`). For a unit the pursuit stage still
-//! carries (a Cell target on a DestroyableCliffs tile), its in-range halt
-//! (`world_orders.rs`) stands in for the InRange arm,
-//! tested each frame, and only the `OpenTopped=` arm runs at PerCell.
+//! arrival).
 
 use super::ground_pose;
 use crate::map::entities::EntityCategory;
@@ -109,7 +105,7 @@ impl Simulation {
 /// The range stop's gates after its measurement: Rescue, Area Guard, Attack
 /// or Hunt (`0x004D8916..0x004D8950`) with an empty NavQueue (`+0x598`,
 /// `0x004D8956`).
-pub(crate) fn range_stop_admits(entity: &GameEntity) -> bool {
+fn range_stop_admits(entity: &GameEntity) -> bool {
     [21, 11, 1, 15].contains(&entity.mission.effective().raw())
         && entity.navigation.nav_queue.is_empty()
 }

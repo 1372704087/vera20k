@@ -9,7 +9,7 @@
 //! - `world_commands.rs`: individual payloads and selection/ownership helpers
 //! - `world_hash.rs` — deterministic state-hash folds
 //! - `world_spawn.rs` — entity spawning from map data and production
-//! - `world_orders.rs` — click-order helpers, building entries and the attack pursuit pass
+//! - `world_orders.rs` — click-order helpers, building entries and pending building detonation
 //! - `lifecycle.rs` / `substrate.rs` — object transitions, stores and registration order
 //! - `object_turn.rs` — complete live-object turn and pass outcomes
 //! - `techno_ai.rs` — per-object AI dispatch within each turn
@@ -6716,16 +6716,6 @@ impl Simulation {
             // Engineer repair, capture and consumption, and a C4 plant, occur
             // synchronously at Walk's completed step in the object pass; a
             // charge goes off in its building's own Update visit.
-            // The compatibility pursuit host excludes every mover whose
-            // mission's Approach carries it (`mission_owns_approach`). Its
-            // remaining consumers retain their existing order before the
-            // remaining combat hosts.
-            self.tick_attack_pursuit_with_overlay_registry(
-                rules,
-                overlay_registry,
-                &tube_turn_owned_ids,
-                effects,
-            );
             // Preserve live-object order among the remaining class requests.
             // Foot fire and its same-pass Bullet visits have already completed.
             let logic_order = self.live_object_order_snapshot();
@@ -6740,13 +6730,12 @@ impl Simulation {
                 self.commit_logic_wave_damage_request(rules, overlay_registry, &request, effects);
             }
             let first_tail_id = self.substrate.next_stable_object_id;
-            let fire_suppressed = tube_turn_owned_ids.clone();
             let combat_result = self.tick_combat_with_fatal_lifecycle(
                 rules,
                 overlay_registry,
                 tick_ms,
                 &logic_order,
-                &fire_suppressed,
+                &tube_turn_owned_ids,
                 &fire_requests,
                 &projectile_detonations,
                 effects,

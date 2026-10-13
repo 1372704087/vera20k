@@ -1473,23 +1473,6 @@ impl Simulation {
         if rules.is_some_and(|rules| self.balloon_hover_keeps_nav_com(id, rules)) {
             return false;
         }
-        self.unit_null_destination_past_balloon_arm(id, rules, registry, frame_effects)
-    }
-
-    /// [`Self::set_unit_null_destination`] from its NavCom guard (0x741A80)
-    /// on, past the BalloonHover arm. Besides the setter itself, only the
-    /// pursuit pass's halt for a cruising Jumpjet it still carries (a Cell
-    /// target on a DestroyableCliffs tile) calls
-    /// it: that halt stands in for the Jumpjet's arrival at the cell Foot's
-    /// approach (0x4D5690) would have sent it to, which native never routes
-    /// through this setter.
-    pub(crate) fn unit_null_destination_past_balloon_arm(
-        &mut self,
-        id: u64,
-        rules: Option<&RuleSet>,
-        registry: Option<&OverlayTypeRegistry>,
-        frame_effects: FrameEffects<'_>,
-    ) -> bool {
         let Some(actor) = self.substrate.entities.get(id) else {
             return false;
         };

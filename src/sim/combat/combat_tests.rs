@@ -7450,7 +7450,7 @@ fn wall_damage_deterministic_across_replays() {
 
 #[test]
 fn pursuit_weapon_range_for_entity_target() {
-    use crate::sim::combat::{TargetKind, pursuit_selected_weapon};
+    use crate::sim::combat::{TargetKind, pursuit_selection};
     let rules = test_rules();
     let mut store = EntityStore::new();
     store.insert(make_entity(1, "MTNK", 0, 0, 300));
@@ -7458,7 +7458,7 @@ fn pursuit_weapon_range_for_entity_target() {
     let interner = test_interner();
 
     let attacker = store.get(1).unwrap();
-    let range = pursuit_selected_weapon(
+    let range = pursuit_selection(
         attacker,
         &TargetKind::Entity(2),
         &store,
@@ -7467,21 +7467,21 @@ fn pursuit_weapon_range_for_entity_target() {
         None,
         None,
     )
-    .map(|w| w.range);
+    .map(|selected| selected.weapon.range);
     // 105mm Range=6.
     assert_eq!(range, Some(crate::util::fixed_math::SimFixed::from_num(6)));
 }
 
 #[test]
 fn pursuit_weapon_range_for_cell_target() {
-    use crate::sim::combat::{TargetKind, pursuit_selected_weapon};
+    use crate::sim::combat::{TargetKind, pursuit_selection};
     let rules = test_rules();
     let mut store = EntityStore::new();
     store.insert(make_entity(1, "MTNK", 0, 0, 300));
     let interner = test_interner();
 
     let attacker = store.get(1).unwrap();
-    let range = pursuit_selected_weapon(
+    let range = pursuit_selection(
         attacker,
         &TargetKind::Cell(50, 50),
         &store,
@@ -7490,7 +7490,7 @@ fn pursuit_weapon_range_for_cell_target() {
         None,
         None,
     )
-    .map(|w| w.range);
+    .map(|selected| selected.weapon.range);
     // Cell target: the ladder returns slot 0, the 105mm. Range = 6.
     assert_eq!(range, Some(crate::util::fixed_math::SimFixed::from_num(6)));
 }
@@ -7499,10 +7499,10 @@ fn pursuit_weapon_range_for_cell_target() {
 /// SelectWeapon(target))` (`0x006F77B0`, then `InRange @ 0x006F7220`), and
 /// `FootClass::Approach_Target @ 0x004D5690` measures the same way: neither
 /// asks GetFireError. A gun whose warhead cannot hurt the target (T54,
-/// ILLEGAL) still has it in range, and pursuit still measures with it.
+/// ILLEGAL) still has it in range, and Approach still measures with it.
 #[test]
 fn an_illegal_shot_is_still_in_range() {
-    use crate::sim::combat::{TargetKind, pursuit_selected_weapon};
+    use crate::sim::combat::{TargetKind, pursuit_selection};
     let rules = RuleSet::from_ini(&IniFile::from_str(
         "[InfantryTypes]\n[VehicleTypes]\n0=MTNK\n1=HTNK\n[AircraftTypes]\n[BuildingTypes]\n\
          [MTNK]\nStrength=300\nArmor=light\nSpeed=6\nPrimary=Pea\n\
@@ -7555,7 +7555,7 @@ fn an_illegal_shot_is_still_in_range() {
             alliances: None,
         },
     ));
-    let range = pursuit_selected_weapon(
+    let range = pursuit_selection(
         tank,
         &target,
         &sim.substrate.entities,
@@ -7564,13 +7564,13 @@ fn an_illegal_shot_is_still_in_range() {
         sim.resolved_terrain.as_ref(),
         None,
     )
-    .map(|weapon| weapon.range);
+    .map(|selected| selected.weapon.range);
     assert_eq!(range, Some(crate::util::fixed_math::SimFixed::from_num(6)));
 }
 
 #[test]
 fn pursuit_weapon_range_none_for_unarmed_attacker() {
-    use crate::sim::combat::{TargetKind, pursuit_selected_weapon};
+    use crate::sim::combat::{TargetKind, pursuit_selection};
     let rules_str = "[InfantryTypes]\n0=ENGI\n\n\
                      [VehicleTypes]\n\n[BuildingTypes]\n\n[AircraftTypes]\n\n\
                      [ENGI]\nStrength=75\nArmor=none\nSpeed=4\n";
@@ -7581,7 +7581,7 @@ fn pursuit_weapon_range_none_for_unarmed_attacker() {
     let interner = test_interner();
 
     let attacker = store.get(1).unwrap();
-    let range = pursuit_selected_weapon(
+    let range = pursuit_selection(
         attacker,
         &TargetKind::Cell(50, 50),
         &store,
@@ -7590,7 +7590,7 @@ fn pursuit_weapon_range_none_for_unarmed_attacker() {
         None,
         None,
     )
-    .map(|w| w.range);
+    .map(|selected| selected.weapon.range);
     assert_eq!(range, None);
 }
 

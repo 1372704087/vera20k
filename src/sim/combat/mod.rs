@@ -83,8 +83,6 @@ mod combat_cloak_legality_tests;
 #[cfg(test)]
 mod combat_force_fire_cell_tests;
 #[cfg(test)]
-mod combat_pursuit_tests;
-#[cfg(test)]
 mod combat_tests;
 #[cfg(test)]
 mod combat_turret_facing_tests;
@@ -113,6 +111,8 @@ mod open_topped_fire_tests;
 mod prone_damage_tests;
 #[cfg(test)]
 mod unit_damage_response_tests;
+#[cfg(test)]
+mod walk_attack_tests;
 
 pub use attack_target::{AttackTarget, TargetKind};
 pub(crate) use attack_target::{object_distance_to, resolve_target_coords, target_present};
@@ -128,9 +128,7 @@ pub(crate) use in_range::{
     lepton_distance_sq_raw,
 };
 pub(crate) use projectile_delivery::{FiredBullet, admit_fired_bullet};
-pub(crate) use pursuit::{
-    PursuitRangeVerdict, pursuit_in_range, pursuit_selected_weapon, pursuit_selection,
-};
+pub(crate) use pursuit::pursuit_selection;
 pub use receiver_call::TerrainDamageEvent;
 pub(crate) use receiver_call::{
     BaseDefenseResponseCallSite, EntityDamageEvent, RAD_NO_ATTACKER, ReceiverCallFlags,

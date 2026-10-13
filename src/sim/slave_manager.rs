@@ -857,12 +857,13 @@ impl Simulation {
     /// ([`Simulation::finish_undeploy`]) hands the manager over and sends the
     /// Slave Miner to the archived cell. The byte `+0x4F8` written first
     /// silences the undeploy voice Selling plays (`0x0044A9DF`: `0x00459C20`
-    /// -> `0x00708E00`), which VERA does not play (`VoiceDeploy=` is
-    /// unparsed), so it has no counterpart.
+    /// -> `0x00708E00`). The resource-Archive VoiceHarvest override in
+    /// Building459C20 bypasses that suppression and leaves the byte set.
     fn relocate_refinery(&mut self, master: u64, rules: &RuleSet) {
         let Some(owner) = self.substrate.entities.get_mut(master) else {
             return;
         };
+        owner.suppress_next_deploy_voice();
         let (x, y) = owner_cell(owner);
         owner.set_archive_target(Some(crate::sim::combat::TargetKind::Cell(
             x as u16, y as u16,

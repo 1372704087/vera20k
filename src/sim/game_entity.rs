@@ -814,6 +814,13 @@ pub struct GameEntity {
     /// never turned keeps its prior hash stream.
     #[serde(default = "default_true")]
     pub turret_rotate_latch: bool,
+    /// Techno+4F8: one ordinary VoiceDeploy attempt is suppressed after a
+    /// SlaveManager relocation (6B01C4). Constructor6F30FA starts false.
+    /// The Building resource-Archive voice459C20 bypasses both the test and
+    /// clear; common VoiceDeploy708E00 clears it even when the slot is absent.
+    /// This retained control history is distinct from the audio pending line.
+    #[serde(default)]
+    suppress_deploy_voice: bool,
     /// The rearm countdown (`TechnoClass+0x2EC`, a CDTimerClass whose
     /// duration is `+0x2F4`). It belongs to the object, not to its target:
     /// `Assign_Target @ 0x006FCDB0` never touches it, so a new target does not
@@ -1454,6 +1461,20 @@ impl GameEntity {
         self.base_defense_response.archive_target = target;
     }
 
+    pub(crate) fn deploy_voice_suppressed(&self) -> bool {
+        self.suppress_deploy_voice
+    }
+
+    /// SlaveManager6B01C4's write, before it archives the refinery's own cell.
+    pub(crate) fn suppress_next_deploy_voice(&mut self) {
+        self.suppress_deploy_voice = true;
+    }
+
+    /// Common VoiceDeploy708E6A/708EA0 clears after its attempted request.
+    pub(crate) fn clear_deploy_voice_suppression(&mut self) {
+        self.suppress_deploy_voice = false;
+    }
+
     /// A factory's rally point is its ArchiveTarget: `BuildingClass::
     /// SetRallyPoint @ 0x00443860` archives the clicked cell through event
     /// 0x1E (`Set_ArchiveTarget`), and `BuildingClass::ExitObject_Main @
@@ -1762,6 +1783,7 @@ impl GameEntity {
             body_facing: crate::sim::movement::FacingClass::new(u16::from(facing) << 8, 0),
             // Unlimbo's type-derived initialization arms the turret loop latch.
             turret_rotate_latch: true,
+            suppress_deploy_voice: false,
             barrel_elevation: crate::sim::movement::FacingClass::new(0, BARREL_ELEVATION_ROT),
             body_frame_counter: 0,
             owner,

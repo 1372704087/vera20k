@@ -1941,6 +1941,11 @@ impl Simulation {
             if !entity.turret_rotate_latch {
                 b"turret-rotate-latch-v1".hash(hasher);
             }
+            // Techno+4F8 retains a future ordinary voice suppression which
+            // neither the mission nor the audio pending line reconstructs.
+            if entity.deploy_voice_suppressed() {
+                b"deploy-voice-suppression-v1".hash(hasher);
+            }
             // Retired slot: the entity homing model had no production creator
             // and is gone; its constant absent tag keeps pinned hashes stable.
             0u8.hash(hasher);

@@ -6,22 +6,28 @@
 //! Display order. This read-only adapter resolves the floor under a piece,
 //! rasterizes its type's model at the bounce drawing matrix on the pose page,
 //! and emits the ground shadow and then the body as one Air-layer object.
+//! DrawIt's fog test (`0x00749B70..0x00749BB6`) needs no port: the function it
+//! calls, `0x005865E0`, is `xor al, al; ret 4`, so it never skips a piece.
+//! The draw takes no RNG draws, writes no timers and detaches nothing.
 //!
 //! RESIDUAL: DrawIt arms VERA does not draw.
-//! - The FogOfWar gate (`0x00749B70..0x00749BB6`): with the scenario's
-//!   FogOfWar flag set, a piece over a fogged cell draws nothing. Trigger: a
-//!   scenario with FogOfWar on, which skirmish never sets. Effect: VERA still
-//!   draws such a piece. Downstream: presentation only.
-//! - The unowned `IsTiberium=` Convert (`[0x0087F6BC]`, `0x00749E5A..
-//!   0x00749E70`): VERA draws such a piece nothing. Every piece VERA spawns is
-//!   death debris, which carries the dying object's house, and every stock
-//!   `DebrisTypes=` line names `[TIRE]`, which is not `IsTiberium=`.
+//! - An unowned piece (`0x00749E3F..0x00749E78`). gamemd draws it through the
+//!   UNITSNO.PAL Convert Init_Game builds into `[0x0087F6B4]`
+//!   (`0x0052BFCE..0x0052C075`; `[0x0087F6BC]` holds the same Convert,
+//!   `0x0052C1EA..0x0052C1FB`), at its cell's intensity for an `IsTiberium=`
+//!   type and at 1000 otherwise. Trigger: a piece spawned without a house;
+//!   every piece VERA spawns is death debris, which carries the dying object's
+//!   house. Effect: VERA would draw it nothing. Downstream: presentation only.
 //! - A `VoxelIndex=` other than zero, a model with more than one section, and
-//!   the `Share*Data=` types (`[SONICTURRET]`, `[4TNKTURRET]`, `[CRYSTAL01]`)
-//!   whose model is another type's: VERA draws them nothing. Stock death
-//!   debris is `[TIRE]` alone, one section and no `VoxelIndex=`.
+//!   the `Share*Data=` types (`[SONICTURRET]`, `[4TNKTURRET]`, `[CRYSTAL01]`),
+//!   whose ReadINI copies another type's model instead of loading `%s.VXL`:
+//!   VERA draws them nothing. Stock death debris is `[TIRE]` alone, one
+//!   section and no `VoxelIndex=`.
 //! - ObjectClass::DrawIfVisible's redraw bookkeeping (`+0x80` and the
 //!   NeedsRedraw gates), which no VERA object builder models.
+//! - Until its first AI visit, gamemd draws a piece at its Unlimbo coordinate
+//!   (`0x007494E9`), 10 leptons below the bounce body it launches
+//!   (`0x0074950C`); VERA draws the body's. At most one frame, about a pixel.
 //!
 //! ## Dependency rules
 //! - Part of the app layer — may depend on everything.
@@ -33,6 +39,8 @@ use crate::app::AppState;
 use crate::app::presentation::render::draw_plan_lowering::{
     NativeDisplayOrder, ObjectPieceInstance, ObjectTexture, PlannedObjectInstance,
 };
+use crate::map::houses::HouseColorMap;
+use crate::map::lighting::CellLightGrid;
 use crate::map::resolved_terrain::ResolvedTerrainGrid;
 use crate::render::batch::{DepthAxis, SpriteInstance};
 use crate::render::draw_state::{DrawState, FX_SHADOW};
@@ -40,9 +48,10 @@ use crate::render::native_z::{ZGradient, pack_z_gradient};
 use crate::render::palette_light::PaletteLight;
 use crate::render::tactical_draw_plan::{RenderZPolicy, SpriteEncoding};
 use crate::render::unit_atlas::UnitSpriteEntry;
-use crate::rules::house_colors::{HouseColorIndex, NO_REMAP};
+use crate::rules::house_colors::NO_REMAP;
 use crate::rules::voxel_anim_type::VoxelAnimType;
 use crate::sim::voxel_anim::VoxelAnimObject;
+use crate::sim::world::Simulation;
 use crate::util::lepton::{BRIDGE_DECK_HEIGHT_LEPTONS, absolute_leptons_to_screen};
 use crate::util::native_x87::adjust_for_z_standard;
 
@@ -90,24 +99,33 @@ fn geometry(location: IVec3, ground_z: i32, bridge: bool) -> DebrisGeometry {
     }
 }
 
-/// DrawIt's body Convert and intensity (`0x00749E05..0x00749E78`). An owned
+/// DrawIt's body Convert and intensity (`0x00749E05..0x00749E78`): an owned
 /// piece takes its house's ColorScheme Convert (`+0x30C`, the one a Techno's
-/// voxel body selects at `0x00705D70`) at its cell's intensity, which
-/// `owned_light` supplies; an unowned one takes UNITx_PAL's at 1000. None for
-/// the unowned `IsTiberium=` arm (module residual).
-fn body_palette(
-    owner_scheme: Option<HouseColorIndex>,
-    is_tiberium: bool,
-    owned_light: impl FnOnce() -> PaletteLight,
+/// voxel body selects at `0x00705D70`) at the intensity of the cell under it.
+/// None for an unowned piece (module residual).
+fn piece_palette(
+    piece: &VoxelAnimObject,
+    sim: &Simulation,
+    house_colors: &HouseColorMap,
+    light: &CellLightGrid,
 ) -> Option<(u32, PaletteLight)> {
-    match owner_scheme {
-        Some(scheme) => Some((
-            super::units::house_color_to_remap_row(scheme),
-            owned_light(),
-        )),
-        None if is_tiberium => None,
-        None => Some((0, PaletteLight::plain(53, 1000))),
-    }
+    let owner = piece.owner_house?;
+    let scheme = house_colors
+        .get(sim.interner.resolve(owner))
+        .copied()
+        .unwrap_or(NO_REMAP);
+    let location = piece.world_coord();
+    let [x, y] = [location.x, location.y]
+        .map(|lepton| lepton.div_euclid(256).clamp(0, i32::from(u16::MAX)) as u16);
+    Some((
+        super::units::house_color_to_remap_row(scheme),
+        crate::app::presentation::lighting::body_palette_light(
+            light,
+            &sim.session.lighting,
+            (x, y),
+            0,
+        ),
+    ))
 }
 
 /// What every piece of one frame shares.
@@ -152,24 +170,12 @@ pub(crate) fn build_voxel_anim_instances(
     let mut cache = state.renderer.vxl_pose_frame_cache.borrow_mut();
     for (&id, piece) in sim.voxel_anims().iter() {
         let kind = rules.voxel_anim_type(piece.type_id);
-        let location = piece.world_coord();
-        let cell = [location.x, location.y]
-            .map(|lepton| lepton.div_euclid(256).clamp(0, i32::from(u16::MAX)) as u16);
-        let owner_scheme = piece.owner_house.map(|owner| {
-            presentation
-                .house_color_map
-                .get(sim.interner.resolve(owner))
-                .copied()
-                .unwrap_or(NO_REMAP)
-        });
-        let Some(palette) = body_palette(owner_scheme, kind.is_tiberium, || {
-            crate::app::presentation::lighting::body_palette_light(
-                presentation.lighting.grid(),
-                &sim.session.lighting,
-                (cell[0], cell[1]),
-                0,
-            )
-        }) else {
+        let Some(palette) = piece_palette(
+            piece,
+            sim,
+            &presentation.house_color_map,
+            presentation.lighting.grid(),
+        ) else {
             continue;
         };
         if let Some(object) = voxel_anim_draw_instance(
@@ -199,6 +205,10 @@ fn voxel_anim_draw_instance(
     render: impl FnOnce(&str, i32, glam::Mat4) -> Option<(UnitSpriteEntry, Option<UnitSpriteEntry>)>,
 ) -> Option<PlannedObjectInstance> {
     let parent = order.object_draw(id, SpriteEncoding::Voxel)?;
+    if kind.shares_data() {
+        // Module residual: the model is another type's, not `image`'s.
+        return None;
+    }
     let location = piece.world_coord();
     let (ground_z, bridge) = super::foot_depth::floor_probe(view.terrain, location.x, location.y);
     let geometry = geometry(location, ground_z, bridge);

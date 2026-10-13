@@ -204,8 +204,10 @@ impl VoxelAnimType {
         out
     }
 
-    /// `+0x296`, which the constructor computes rather than reads.
-    #[cfg(test)]
+    /// `+0x296`, which ReadINI computes (`0x0074B48A..0x0074B4AD`) rather
+    /// than reads. When set, ReadINI takes the `ShareSource=` type's model, or
+    /// none when that type is missing (`0x0074B555`), and never loads
+    /// `%s.VXL`.
     pub fn shares_data(&self) -> bool {
         self.share_body_data || self.share_turret_data || self.share_barrel_data
     }

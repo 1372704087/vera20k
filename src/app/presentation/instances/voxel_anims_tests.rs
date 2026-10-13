@@ -2,7 +2,6 @@
 //! chain from a death to the pose page.
 use super::*;
 use crate::render::vxl_raster::{BodyTilt, VxlRenderParams, render_vxl};
-use crate::sim::world::Simulation;
 use crate::sim::world::display_layers::DisplayLayer;
 
 fn screen(x: i32, y: i32, z: i32) -> [f32; 2] {
@@ -28,30 +27,11 @@ fn a_piece_at_a_bridge_deck_shadows_one_lepton_above_it() {
     assert_eq!(plain.shadow, below.shadow);
 }
 
-#[test]
-fn an_owned_piece_takes_its_house_convert_and_an_unowned_one_unitx_pal() {
-    let lit = PaletteLight::plain(53, 640);
-    // The owner arm wins over IsTiberium= (`0x00749E3F`).
-    for is_tiberium in [false, true] {
-        assert_eq!(
-            body_palette(Some(HouseColorIndex(2)), is_tiberium, || lit),
-            Some((3, lit))
-        );
-    }
-    assert_eq!(
-        body_palette(None, false, || -> PaletteLight { unreachable!() }),
-        Some((0, PaletteLight::plain(53, 1000)))
-    );
-    assert_eq!(
-        body_palette(None, true, || -> PaletteLight { unreachable!() }),
-        None
-    );
-}
-
 /// A War Miner killed through the production receiver throws its tyres;
 /// each draws from its Display rank as its shadow and then its body, both
-/// rasterized from the retail `TIRE.VXL` at the piece's drawing matrix.
-/// Retail rules and archives; skipped without them.
+/// rasterized from the retail `TIRE.VXL` at the piece's drawing matrix, in
+/// its house's Convert at its cell's intensity. Retail rules and archives;
+/// skipped without them.
 #[test]
 fn a_dying_war_miners_tyres_draw_from_admission_to_the_pose_page() {
     let Some(battle) = crate::rules::retail_ini_fixture::retail_battle_rules() else {
@@ -109,13 +89,42 @@ fn a_dying_war_miners_tyres_draw_from_admission_to_the_pose_page() {
         crate::assets::vxl_file::VxlFile::from_bytes(assets.get_ref("TIRE.VXL").unwrap()).unwrap();
     let vpl = crate::assets::vpl_file::VplFile::from_bytes(assets.get_ref("VOXELS.VPL").unwrap())
         .unwrap();
-    let lit = PaletteLight::plain(53, 777);
+    // Every cell carries its own intensity, so the light names the cell.
+    let intensity = |x: u16, y: u16| 500 + 20 * i32::from(x) + i32::from(y);
+    let mut light = crate::map::lighting::CellLightGrid::new();
+    let profile = light.profiles().default_profile_id();
+    for x in 0..32 {
+        for y in 0..32 {
+            let top = intensity(x, y);
+            light.insert_light(
+                (x, y),
+                crate::map::lighting::CellLight::new(
+                    profile, [1000; 3], [1000; 3], 65536, 0, 0, top, top, top, top, top,
+                ),
+            );
+        }
+    }
+    let house_colors = HouseColorMap::from([(
+        "Americans".to_string(),
+        crate::rules::house_colors::HouseColorIndex(4),
+    )]);
     let mut cache = crate::render::unit_pose_cache::VxlPoseFrameCache::default();
     for &id in &ids {
         let piece = sim.voxel_anims().get(id).unwrap();
         let kind = rules.voxel_anim_type(piece.type_id);
         assert_eq!(kind.image, "TIRE");
-        let palette = body_palette(Some(HouseColorIndex(4)), kind.is_tiberium, || lit).unwrap();
+        let location = piece.world_coord();
+        let palette = piece_palette(piece, &sim, &house_colors, &light)
+            .expect("death debris carries the dying miner's house");
+        let (remap_row, lit) = palette;
+        assert_eq!(remap_row, 5, "Americans' scheme 4");
+        let [x, y] = [location.x, location.y].map(|lepton| (lepton / 256) as u16);
+        assert_eq!(lit.0[3], intensity(x, y) as u32, "the cell's intensity");
+        assert_eq!(
+            (lit.0[0] >> 24, lit.0[1] >> 31),
+            (53, 1),
+            "a scheme Convert"
+        );
         let mut rendered = None;
         let object = voxel_anim_draw_instance(
             id,
@@ -137,7 +146,6 @@ fn a_dying_war_miners_tyres_draw_from_admission_to_the_pose_page() {
         );
         let matrix = rendered.unwrap();
         assert_ne!(matrix, glam::Mat4::IDENTITY, "six ticks tumble every tyre");
-        let location = piece.world_coord();
         let [shadow, body] = object.pieces.as_slice() else {
             panic!("a shadow and a body");
         };
@@ -148,7 +156,7 @@ fn a_dying_war_miners_tyres_draw_from_admission_to_the_pose_page() {
         assert_eq!(shadow.instance.draw_state.fx_flags, FX_SHADOW);
         assert_eq!(shadow.instance.z_adjust, -4.0, "flat level-zero ground");
         assert_eq!(body.instance.draw_state.fx_flags, 0);
-        assert_eq!(body.instance.draw_state.remap_row, 5);
+        assert_eq!(body.instance.draw_state.remap_row, remap_row);
         assert_eq!(body.instance.palette_light, lit);
         assert_eq!(
             body.instance.z_adjust,

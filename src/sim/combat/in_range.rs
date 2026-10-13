@@ -867,6 +867,35 @@ pub(crate) fn can_fire_at_target(
     )
 }
 
+impl crate::sim::world::Simulation {
+    /// [`can_fire_at_target`] for the object `id` against `target`, on the
+    /// live map with the house alliances; false without a map.
+    pub(crate) fn techno_can_fire_at_target(
+        &self,
+        id: u64,
+        target: TargetKind,
+        rules: &RuleSet,
+        registry: Option<&crate::rules::overlay_types::OverlayTypeRegistry>,
+    ) -> bool {
+        self.resolved_terrain.as_ref().is_some_and(|terrain| {
+            can_fire_at_target(
+                &self.substrate.entities,
+                rules,
+                &self.interner,
+                id,
+                &target,
+                terrain,
+                Some(&self.house_alliances),
+                &LineOfFireInputs {
+                    overlay_grid: self.overlay_grid.as_ref(),
+                    overlay_registry: registry,
+                    alliances: Some(&self.house_alliances),
+                },
+            )
+        })
+    }
+}
+
 /// CanFireAtTarget6F7780 with an explicit native map-query identity. This is
 /// the same selected-weapon/source/InRange chain for simulation and input.
 /// Ordinary callers select against `Some(target)`; the deployed Unit action

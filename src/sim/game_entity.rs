@@ -21,8 +21,8 @@ use crate::sim::cloak_disguise::{CloakRuntime, DisguiseRuntime};
 use crate::sim::combat::combat_weapon::WeaponSlot;
 use crate::sim::combat::{AttackTarget, TargetKind};
 use crate::sim::components::{
-    HarvestOverlay, Health, MovementTarget, NavigationState, OrderIntent, PendingC4Detonation,
-    Position, RockingState, VoxelAnimation,
+    HarvestOverlay, Health, MovementTarget, NavigationState, PendingC4Detonation, Position,
+    RockingState, VoxelAnimation,
 };
 use crate::sim::debug_event_log::{DebugEventKind, DebugEventLog};
 use crate::sim::docking::aircraft_dock::AircraftAmmo;
@@ -957,8 +957,10 @@ pub struct GameEntity {
     /// only by `sim::slave_manager`.
     #[serde(default)]
     pub(crate) slave: crate::sim::slave_manager::SlaveLink,
-    /// Persistent high-level order (AttackMove, Guard) that survives transient state changes.
-    pub order_intent: Option<OrderIntent>,
+    /// The Foot's MegaMission order, the attack-move (`FootClass +0x5C4..+0x5D1`),
+    /// owned by `sim::mission::mega_mission`.
+    #[serde(default)]
+    pub(crate) mega_mission: crate::sim::mission::mega_mission::MegaMission,
     /// Evidence-bounded native cloak transition state and visual producer values.
     #[serde(default)]
     pub cloak: Option<CloakRuntime>,
@@ -1852,7 +1854,7 @@ impl GameEntity {
             miner: None,
             slave_manager: None,
             slave: Default::default(),
-            order_intent: None,
+            mega_mission: Default::default(),
             cloak: None,
             sensor_deposit: None,
             disguise: Some(DisguiseRuntime::new(construction_frame)),
@@ -2331,7 +2333,7 @@ mod tests {
         assert!(!e.was_attacked_by_enemy);
         assert!(e.barrel_facing.is_none());
         assert!(e.miner.is_none());
-        assert!(e.order_intent.is_none());
+        assert!(!e.mega_mission.is_attack_move());
         assert!(!e.on_bridge);
         assert!(
             !e.in_playfield,

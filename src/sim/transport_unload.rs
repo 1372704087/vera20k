@@ -569,7 +569,6 @@ fn eject_head_passenger(
             if let Some(passenger) = sim.substrate.entities.get_mut(pax_id) {
                 passenger.attack_target = None;
                 passenger.passively_acquired_target = false;
-                passenger.order_intent = None;
             }
             // Unit73DBDB queues the passenger's Move directly, before
             // class destination73DC06; it does not execute a player event.
@@ -975,7 +974,6 @@ fn eject_from_aircraft(
             if let Some(passenger) = sim.substrate.entities.get_mut(pax_id) {
                 passenger.attack_target = None;
                 passenger.passively_acquired_target = false;
-                passenger.order_intent = None;
             }
             // Aircraft415C05 queues Move directly before destination415C21,
             // followed by its radio callbacks. No Event Archive clear.

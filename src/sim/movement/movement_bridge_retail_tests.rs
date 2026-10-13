@@ -777,16 +777,15 @@ fn issue_ordinary_move(
 enum OrderSource {
     /// `Command::Move` — the plain right-click.
     Move,
-    /// `Command::AttackMove` — the A-click. Its *move* half calls
-    /// `movement::issue_move_command_with_layered` with an argument list
-    /// identical to `Command::Move`'s (`world_commands.rs`, the `Move` arm and
-    /// the `AttackMove` arm), so what this variant adds over `Move` is the
-    /// surrounding order machinery: the `MissionType::AttackMove` megamission,
-    /// the `attack_target`/`passively_acquired_target` clear, the
-    /// `OrderIntent::AttackMove` stamp, and the per-tick resume in
-    /// `tick_order_intents_post_combat_*` that re-issues the move whenever
-    /// combat interrupts it. That resume is the part a plain Move never
-    /// exercises, and it is the part that can strand a unit at a bridgehead.
+    /// `Command::AttackMove` — the attack-move. It runs `Command::Move`'s
+    /// handler (`world_commands.rs`, `apply_move_command`), where
+    /// Assign_Target_Command stores the cell as the MegaDestination and
+    /// answers Move (`sim::mission::mega_mission`), so what this variant adds
+    /// over `Move` is the order machinery around it: the targeting slot's
+    /// Arrival_Target_Handler scans on the way, and RefreshMegaMission
+    /// resumes the move whenever an engagement ends. That resume is the part
+    /// a plain Move never exercises, and it is the part that can strand a
+    /// unit at a bridgehead.
     AttackMove,
 }
 
@@ -2119,22 +2118,17 @@ fn infantry_crosses_hills_high_bridge_at_deck_height() {
 // Evidence gap 5 said "order sources other than a single ordinary Move have
 // zero observations". These are the first attack-move crossings in the project.
 //
-// What an attack-move adds over a Move, read from `world_commands.rs`: the
-// `AttackMove` arm and the `Move` arm hand `movement::issue_move_command_with_layered`
-// the *same* fourteen arguments, so the path build is not a separate code path
-// and the A* goal is resolved identically. What differs is the order machinery
-// wrapped round it — `queue_megamission(MissionType::AttackMove)`,
-// the `attack_target` / `passively_acquired_target` clear, and the
-// `OrderIntent::AttackMove` stamp, which arms a per-tick resume in
-// `tick_order_intents_post_combat_except` (`world_orders.rs`)
-// that re-issues the move from wherever the unit is standing every time it
-// finds itself with no attack target and no movement target.
+// What an attack-move adds over a Move, read from `world_commands.rs`: both
+// commands run `apply_move_command`, so the path build is not a separate code
+// path and the A* goal is resolved identically. What differs is the order
+// machinery around it (`sim::mission::mega_mission`): the targeting slot's
+// Arrival_Target_Handler scans on the way, and when an engagement ends,
+// RefreshMegaMission and ContinueMegaMission hand the class destination
+// setter the MegaDestination again from wherever the unit is standing.
 //
 // That resume is the reason these rows are worth running rather than collapsing
 // onto T1-03/T1-01 by argument-list inspection alone: it re-plans mid-crossing
-// from a *deck cell*, with a reduced argument set (no terrain cost grid, no
-// entity blocks, no entity block map, `mover_is_crusher = false`), which is a
-// combination no Move ever produces.
+// from a *deck cell*.
 // ---------------------------------------------------------------------------
 
 /// Matrix rows T2-01 (Drive) and T2-04 (Hover) — attack-move onto an intact high

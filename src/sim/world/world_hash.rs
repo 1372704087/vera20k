@@ -1322,6 +1322,12 @@ impl Simulation {
                 0x6a0_u32.hash(hasher);
                 entity.paralysis_timer.hash(hasher);
             }
+            // Foot+5C4..+5D1, an attack-move order: its scan, resume and
+            // pointer expiry (`sim::mission::mega_mission`).
+            if entity.mega_mission != Default::default() {
+                0x5c4_u32.hash(hasher);
+                entity.mega_mission.hash(hasher);
+            }
             if entity.has_been_captured {
                 // Building+6E3: doubles the survivor divisor, widens the
                 // survivor roll and skips the engineer roll at death.

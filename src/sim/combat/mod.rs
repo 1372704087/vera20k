@@ -142,11 +142,9 @@ pub(crate) use techno_death::{
 };
 pub(crate) use threat_posed::live_threat_posed;
 /// The threat mask an acquisition callsite pushes into
-/// `TechnoClass::Greatest_Threat @ 0x006F8DF0`, plus the passive block's own
-/// derivation of it. Re-exported because the mask is chosen by the mission
-/// handlers in `sim/world/`, not inside `combat/`.
+/// `TechnoClass::Greatest_Threat @ 0x006F8DF0`. Re-exported because the mask
+/// is chosen by the mission handlers in `sim/world/`, not inside `combat/`.
 pub use threat_range::ScanMission;
-pub(crate) use threat_range::scan_mission_for;
 pub(crate) use world_fire::estimated_damage_on;
 
 // Shared between combat's children, which reach them through `super::`.

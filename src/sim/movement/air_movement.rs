@@ -250,6 +250,7 @@ pub(crate) fn fly_coordinate_admitted(entity: &crate::sim::game_entity::GameEnti
 
 /// Fly `+0x34`: the Fly holds a move request. MoveTo sets it; only a
 /// landing at its destination (`0x004CEF5F`) and Stop clear it.
+#[cfg(test)]
 pub(crate) fn fly_moving(entity: &crate::sim::game_entity::GameEntity) -> bool {
     entity
         .locomotor

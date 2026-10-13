@@ -9,7 +9,7 @@
 //! - `world_commands.rs`: individual payloads and selection/ownership helpers
 //! - `world_hash.rs` — deterministic state-hash folds
 //! - `world_spawn.rs` — entity spawning from map data and production
-//! - `world_orders.rs` — order-intent tick systems (attack-move, guard, area-guard)
+//! - `world_orders.rs` — click-order helpers, building entries and the attack pursuit pass
 //! - `lifecycle.rs` / `substrate.rs` — object transitions, stores and registration order
 //! - `object_turn.rs` — complete live-object turn and pass outcomes
 //! - `techno_ai.rs` — per-object AI dispatch within each turn
@@ -99,6 +99,7 @@ pub(crate) use techno_ai::enter_idle_mode;
 pub(crate) use techno_ai::foot_enter_idle_mode_selection;
 pub(crate) use techno_ai::passive_target_acquire;
 pub(crate) use techno_ai::queue_and_commence;
+pub(crate) use techno_ai::retaliate_and_scan;
 pub(crate) use techno_ai::techno_unlimbo_idle_mode;
 pub(crate) use techno_ai::{can_fire_at, weapon_at_index};
 mod command_schedule;
@@ -4978,30 +4979,18 @@ impl Simulation {
                 && self
                     .object_type(entity.type_ref(), rules)
                     .is_some_and(|object| object.is_simple_deployer);
-            let now = self.session.binary_frame;
             let _ = self.assign_target_represented(stable_id, None, Some(rules), registry, effects);
             self.assign_null_destination(stable_id, Some(rules), None, effects);
             if let Some(entity) = self.substrate.entities.get_mut(stable_id) {
                 entity.movement_target = None;
-                entity.order_intent = None;
                 if !unit_deploying {
                     entity.set_archive_target(None);
                 }
             }
             if current != Some(MissionType::Selling) && !simple_deployer_unloading {
                 // `Queue_Mission(Guard, 1)`: the queue write, then Ready_To_Commence
-                // (`+0x200`) and Commence (`+0x1EC`). The immediate promotion runs
-                // through the host's promotion step so the recorded readiness
-                // degradation (absent locomotor producers read as "not moving")
-                // applies here exactly as it does at the per-tick AI position.
-                let _ = self.mission_queue_exact(
-                    stable_id,
-                    MissionId::from_known(MissionType::Guard),
-                    0,
-                    now,
-                    &crate::sim::mission::authority::LiveReadyInputProvider { rules },
-                );
-                self.mission_host_promote(stable_id, now, rules);
+                // (`+0x200`) and Commence (`+0x1EC`).
+                self.mission_queue_now(stable_id, MissionId::from_known(MissionType::Guard), rules);
             }
         }
 
@@ -5247,9 +5236,14 @@ impl Simulation {
     ///   - a Building (`0x0044D6A0` with `initial = 0`) calls `0x00447780(1)`
     ///     and `Queue_Mission(Guard, 0)`.
     ///
-    /// VERA's legacy `order_intent` (an AttackMove goal or Guard anchor) is
-    /// the duplicate of the TarCom/NavCom orders this drops, so it goes too:
-    /// no order survives an owner change.
+    /// Nothing here clears an attack-move's MegaMission (`Foot+0x5C4`). The
+    /// Enter_Idle_Mode above asks RefreshMegaMission
+    /// ([`Simulation::foot_refresh_mega_mission`]), which resumes the order
+    /// when the object had found a target on the way or Guard was committed
+    /// on the spot; otherwise the order ends there. A released object goes
+    /// on to its MegaDestination for its old owner; CaptureUnit resets a
+    /// captive's orders to Guard afterwards (`0x00471EA5`), which drops the
+    /// resumed NavCom but keeps the MegaMission.
     ///
     /// Callers: engineer capture and garrison transfer, and mind control's
     /// CaptureUnit and FreeUnit. No stock miner is ever mind-controlled: HARV,
@@ -6716,7 +6710,6 @@ impl Simulation {
             // Engineer repair, capture and consumption, and a C4 plant, occur
             // synchronously at Walk's completed step in the object pass; a
             // charge goes off in its building's own Update visit.
-            self.tick_order_intents_pre_combat(rules, overlay_registry, &tube_turn_owned_ids);
             // The compatibility pursuit host excludes every mover whose
             // mission's Approach carries it (`mission_owns_approach`). Its
             // remaining consumers retain their existing order before the
@@ -6781,12 +6774,6 @@ impl Simulation {
             // Retaliation is not a phase: every receiver issues its Mission
             // Override inline (`TechnoClass::ReceiveDamage 0x00702A43`).
             passenger::tick_passenger_system(self, rules, overlay_registry, effects);
-            self.tick_order_intents_post_combat_except(
-                Some(rules),
-                &tube_turn_owned_ids,
-                overlay_registry,
-                effects,
-            );
             // `IonBlastClass::UpdateAll @ 0x0053D310` follows the object loop
             // (`0x0055B64B`).
             self.update_ion_blasts();

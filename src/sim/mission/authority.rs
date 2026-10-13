@@ -682,6 +682,33 @@ impl Simulation {
         Ok(())
     }
 
+    /// `Queue_Mission(requested, commence_now = 1)` (vt+0x1E8,
+    /// `MissionClass::Queue_Mission @ 0x005B35E0`) for a live object: the
+    /// guarded queue write (`0x005B35E7..0x005B361A`), then Ready_To_Commence
+    /// and Commence through [`Self::mission_host_promote`], whose readiness
+    /// degradation applies as at the per-tick AI position. Native writes the
+    /// queue before it asks Ready_To_Commence, so an input the readiness
+    /// evaluation cannot read (`ReadyUnavailable::Locomotor`/`SignedHeight`)
+    /// affects only the Commence; [`Self::mission_queue_exact`] with
+    /// `commence_now = 1` refuses the whole call instead.
+    pub(crate) fn mission_queue_now(
+        &mut self,
+        receiver: u64,
+        requested: MissionId,
+        rules: &RuleSet,
+    ) {
+        let Some(entity) = self.substrate.entities.get_mut(receiver) else {
+            return;
+        };
+        if !aircraft_allows(entity, requested)
+            || verb::queue_base(&mut entity.mission, requested)
+                == QueueContinuation::OuterGuardBlocked
+        {
+            return;
+        }
+        self.mission_host_promote(receiver, self.session.binary_frame, rules);
+    }
+
     #[cfg(test)]
     fn mission_override_exact(
         &mut self,

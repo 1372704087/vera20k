@@ -192,7 +192,12 @@ fn building_damage_state_aoe_rules() -> RuleSet {
 }
 
 fn infantry_fire_frame_rules() -> RuleSet {
-    let rules_ini: IniFile = IniFile::from_str(
+    infantry_fire_frame_rules_with("")
+}
+
+/// [`infantry_fire_frame_rules`] with `patch` loaded over its rules INI.
+fn infantry_fire_frame_rules_with(patch: &str) -> RuleSet {
+    let mut rules_ini: IniFile = IniFile::from_str(
         "\
 [InfantryTypes]\n0=E1\n1=E2\n\n\
 [VehicleTypes]\n0=MTNK\n\n\
@@ -206,6 +211,7 @@ fn infantry_fire_frame_rules() -> RuleSet {
 [SA]\nVerses=100%,100%,100%,90%,70%,0%,100%,25%,25%,0%,0%\n\n\
 [AP]\nVerses=100%,100%,100%,100%,100%,100%,100%,100%,100%,0%,0%\n",
     );
+    rules_ini.merge(&IniFile::from_str(patch));
     let mut rules = RuleSet::from_ini(&rules_ini).expect("infantry rules should parse");
     // Supplied reader-built records make native action admission explicit.
     // SecondaryFire/SecondaryProne are authored controls, not stock GI ART.
@@ -6181,6 +6187,94 @@ fn infantry_standing_fire_waits_for_fire_frame() {
             .foot_firing_sequence_latch(),
         0
     );
+}
+
+/// `InfantryClass::Fire_At_Target`'s tail (`0x00520A57..0x00520AC7`): on the
+/// fire frame, a weapon 0 slower than `[CombatDamage] Incoming=` scatters the
+/// target's cell away from the shooter. ReadSpeed makes `Incoming=10` 25 and
+/// `Speed=5` 12, so a computer tank three cells east of the GI heads further
+/// east with a queued Move; at `Speed=10` (25, not below) it stays put,
+/// though the GI fires all the same. A shot refused on the fire frame (here
+/// by a running rearm) takes the tail too (`0x005209FD..0x00520A51`).
+#[test]
+fn a_slow_infantry_shot_scatters_its_targets_cell_away_from_the_shooter() {
+    use crate::sim::combat::world_fire::FireVisit;
+    use crate::sim::components::NavTargetRef;
+    for (speed, refused, scatters) in [(5, false, true), (5, true, true), (10, false, false)] {
+        let rules = infantry_fire_frame_rules_with(&format!(
+            "[CombatDamage]\nIncoming=10\n[M60]\nSpeed={speed}\n\
+             [MTNK]\nArmor=light\nLocomotor={{4A582741-9839-11d1-B709-00A024DDAFD1}}\n"
+        ));
+        assert_eq!(rules.combat_damage.incoming, 25);
+        let mut sim = crate::sim::arena_fixture::rival_arena(&rules, 7);
+        let gi = sim
+            .spawn_object("E1", "Americans", 5, 5, 0, &rules)
+            .unwrap();
+        let tank = sim
+            .spawn_object("MTNK", "Russians", 8, 5, 0, &rules)
+            .unwrap();
+        sim.substrate
+            .entities
+            .get_mut(tank)
+            .unwrap()
+            .mission
+            .set_current_for_test(MissionId::from_known(MissionType::Guard), 0);
+        assert!(install_entity_attack_target_for_test(
+            &mut sim.substrate.entities,
+            gi,
+            tank
+        ));
+        let fire = |sim: &mut Simulation| {
+            sim.commit_fire_visit(
+                FireVisit::InfantryTarget(gi),
+                &rules,
+                None,
+                crate::sim::world::FrameEffects::empty(),
+            );
+        };
+        fire(&mut sim);
+        assert!(
+            sim.substrate
+                .entities
+                .get(tank)
+                .unwrap()
+                .navigation
+                .nav_com
+                .is_none(),
+            "not the fire frame"
+        );
+        let rearm = crate::sim::timer::CdTimer::started(0, 40);
+        let shooter = sim.substrate.entities.get_mut(gi).unwrap();
+        if refused {
+            shooter.rearm_timer = rearm;
+        }
+        shooter.set_native_stage_value(2);
+        fire(&mut sim);
+        let rearm_after = sim.substrate.entities.get(gi).unwrap().rearm_timer;
+        if refused {
+            assert_eq!(rearm_after, rearm, "Speed={speed}: the shot is refused");
+        } else {
+            assert!(rearm_after.duration() > 0, "Speed={speed}: the GI fired");
+        }
+        let tank = sim.substrate.entities.get(tank).unwrap();
+        if scatters {
+            assert!(
+                matches!(
+                    tank.navigation.nav_com,
+                    Some(NavTargetRef::Cell { rx: 9, .. })
+                ),
+                "{:?}",
+                tank.navigation.nav_com
+            );
+            assert_eq!(
+                tank.mission.queued(),
+                MissionId::from_known(MissionType::Move)
+            );
+        } else {
+            assert_eq!(tank.navigation.nav_com, None);
+            assert_eq!(tank.mission.queued(), MissionId::NONE);
+        }
+    }
 }
 
 #[test]

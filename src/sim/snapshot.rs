@@ -991,7 +991,10 @@ use crate::sim::world::Simulation;
 // Version 341 records cannot preserve a pending strip cancellation decision.
 // 342 -> 343: objects retain the complete Object fall state (rate, parachute,
 // falling and IsABomb), and falling runs inside MissionAI before dispatch.
-const SNAPSHOT_VERSION: u32 = 343;
+// 343 -> 344: each Techno retains its one-shot deploy-voice suppression
+// (+4F8); Rules retain registered Harvest/Deploy/Undeploy scalar voice slots.
+// Version343 lacks these bincode fields and cannot resume their history.
+const SNAPSHOT_VERSION: u32 = 344;
 
 const SNAPSHOT_PRODUCT_MAGIC: [u8; 8] = *b"VERA20K\0";
 const SNAPSHOT_ENVELOPE_VERSION: u32 = 1;
@@ -4365,7 +4368,8 @@ mod tests {
         // 340 -> 341: the Foot MegaMission replaces the OrderIntent goal.
         // 341 -> 342: the House tech-tree recheck byte.
         // 342 -> 343: the complete Object fall state.
-        assert_eq!(super::SNAPSHOT_VERSION, 343);
+        // 343 -> 344: retained deploy-voice suppression and bound voice slots.
+        assert_eq!(super::SNAPSHOT_VERSION, 344);
     }
 
     #[test]

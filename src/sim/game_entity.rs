@@ -1182,7 +1182,7 @@ pub struct GameEntity {
     /// (`0x006FA6EE`; the teleport clone `0x007094C8` is unported). Every
     /// Assign_Target clears it first (`0x006FCDC4`). Read by the scan's drop
     /// step (`0x007098C3`), the off-mission clear (`0x006FA5F0`) and the Unit
-    /// approach (`0x0074162D`, VERA's pursuit skip).
+    /// approach's OmniCrusher arm (`0x0074162D`).
     #[serde(default)]
     pub passively_acquired_target: bool,
     /// Foot+688, initialized false at4D33A8. A stopped object unable to fire

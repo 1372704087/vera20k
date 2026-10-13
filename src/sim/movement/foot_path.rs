@@ -1190,12 +1190,7 @@ impl Simulation {
             self.resolved_terrain.as_ref(),
             Some((rules, &self.interner)),
         )?;
-        let centre = DriveCoord {
-            x: i32::from((coord.x / 256) as i16) * 256 + 128,
-            y: i32::from((coord.y / 256) as i16) * 256 + 128,
-            z: 0,
-        };
-        self.foot_path_zone_precheck(id, centre, rules)
+        self.foot_path_zone_precheck(id, cell_centre(coord_cell(coord)), rules)
     }
 
     /// Original Foot+2CC4D3810. Its MZ==-1 and Cell(0,0) exits precede

@@ -3,8 +3,8 @@
 //!
 //! - Targets: `attack_target` (the held target and its coordinates),
 //!   `combat_targeting`, `greatest_threat`, `threat_range`, `threat_mask` and
-//!   `threat_posed` (acquisition), `pursuit` (closing in), `in_range` and
-//!   `line_of_fire` (the range gate), `combat_weapon` (weapon choice), and
+//!   `threat_posed` (acquisition), `in_range` and `line_of_fire` (the range
+//!   gate), `combat_weapon` (weapon choice), and
 //!   `fire_error` and `fire_error_world` (legality).
 //! - Firing: `world_fire` (FireAt and the combat tick), `projectile_delivery`
 //!   (the shot's BulletType facts and the Bullet's admission), `aim_coord`,
@@ -49,7 +49,6 @@ pub(crate) mod line_of_fire;
 mod object_health;
 pub(crate) mod parasite;
 mod projectile_delivery;
-mod pursuit;
 mod receiver_call;
 mod receiver_health;
 mod record_kill;
@@ -128,7 +127,6 @@ pub(crate) use in_range::{
     lepton_distance_sq_raw,
 };
 pub(crate) use projectile_delivery::{FiredBullet, admit_fired_bullet};
-pub(crate) use pursuit::pursuit_selection;
 pub use receiver_call::TerrainDamageEvent;
 pub(crate) use receiver_call::{
     BaseDefenseResponseCallSite, EntityDamageEvent, RAD_NO_ATTACKER, ReceiverCallFlags,
@@ -185,7 +183,7 @@ use techno_death::fire_death_weapon_payload;
 use std::collections::{BTreeMap, BTreeSet};
 
 use self::combat_targeting::{AttackerSnapshot, GarrisonSnapshot};
-use self::combat_weapon::{WeaponSlot, select_weapon_against};
+use self::combat_weapon::WeaponSlot;
 use crate::map::entities::EntityCategory;
 use crate::map::houses::HouseAllianceMap;
 use crate::map::resolved_terrain::ResolvedTerrainGrid;

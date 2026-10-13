@@ -1465,7 +1465,12 @@ fn illegal_target_drop_step(sim: &mut Simulation, id: u64, rules: &RuleSet) {
 /// destination (`0x004D571F..0x004D5744`); on Attack, a human's Area Guard or
 /// a computer's Hunt, Approach goes on to its search, and the block's
 /// CanFireAt drops the target. In range, Approach returns at `0x004D5A34`.
-/// The only draw is Approach's, for a `CloseRange=` infantryman's spot.
+///
+/// The block draws nothing itself. Approach draws through PlaceInfantryInCell
+/// (`0x00481180`): a `CloseRange=` infantryman's spot requests, and the
+/// destination setter of a Teleport or Jumpjet infantryman, which picks his
+/// spot in the cell it is given. A Die1/Die2 corpse does not run the block
+/// here (residual on [`dying_infantry_techno_ai`]).
 ///
 /// RESIDUAL: a unit rider runs the head of `UnitClass::Approach_Target @
 /// 0x007414E0` ([`Simulation::unit_approach_head`]), whose crush and
@@ -1505,10 +1510,16 @@ fn target_reach_step(
     }
     let rider = entity.passenger_role.in_open_transport();
     // A rider asks too (`0x006FAB48`), though only `+0x82` decides for it.
-    // A fixture without map navigation answers reachable.
-    let reachable = sim
-        .foot_is_in_same_zone_as(id, target, rules)
-        .unwrap_or(true);
+    // The query needs the map's cells, zones, bounds and size and a Foot's
+    // locomotor, which a loaded scenario always has; a fixture without them
+    // cannot ask and answers reachable.
+    let reachable = match sim.foot_is_in_same_zone_as(id, target, rules) {
+        Ok(reachable) => reachable,
+        Err(cause) => {
+            log::debug!("object {id} cannot ask IsInSameZoneAs: {cause}");
+            true
+        }
+    };
     if reachable && !rider {
         return;
     }
@@ -1625,6 +1636,18 @@ fn allied_target_drop_step(sim: &mut Simulation, id: u64, rules: &RuleSet) {
 ///
 /// RESIDUAL: the rest of the subset (veterancy, drains, CaptureManager,
 /// self-heal, cloak, bomb) does nothing for a GI corpse and is not run.
+///
+/// RESIDUAL: the reach block (`0x006FAAEF..0x006FABB8`, [`target_reach_step`])
+/// runs for a corpse before its Stage clock, and is not run here. Trigger: a
+/// man killed while he holds a target in another zone. Effect: native runs
+/// Approach on the corpse, which can set it a destination and draw for a
+/// spot (PlaceInfantryInCell); how the class setters treat a Die1/Die2
+/// infantryman is not traced. Frequency: a man killed while his target lies
+/// across water or a cliff. Risk: a Scenario draw native makes and VERA
+/// does not. In the frame a carried bomb kills him, the Infantry dispatch
+/// still runs the block (it has no IsAlive gate, `0x006FA735`), as native
+/// does for a Die1/Die2 man, who stays IsAlive (the corpse reaches
+/// `0x006FABC4`); a death native UnInits at once ends at that gate instead.
 pub(super) fn dying_infantry_techno_ai(
     sim: &mut Simulation,
     id: u64,
@@ -2758,10 +2781,10 @@ mod tests {
 
     #[test]
     fn a_unit_that_passively_acquires_does_not_move_toward_the_target() {
-        // Pursuit regression guard. The passive commit writes the target
-        // pointer only; a Guard unit fires from where it stands. If pursuit
-        // ever picks these units up again they walk off across the map with no
-        // order to bring them home.
+        // The passive commit writes the target pointer only; a Guard unit fires
+        // from where it stands, and the reach block approaches only a target in
+        // another zone. A unit that chased these targets would walk off across
+        // the map with no order to bring it home.
         //
         // A target can only be acquired IN range, so the scenario has to open a
         // range gap afterwards: the unarmed Allied scout parks two cells away
@@ -2962,7 +2985,7 @@ mod tests {
         // target (`0x007077C0`) and the next passive scan picks again, marking
         // the new target as its own (`0x006FA6EE`). The invariant is checked
         // every tick: a target the tank was never ordered onto is always
-        // scanner-owned, or pursuit would chase it.
+        // scanner-owned.
         let rules = passive_rules();
         let grid = crate::sim::pathfinding::PathGrid::new(64, 64);
         let mut sim = Simulation::with_seed(0x5CA1_AB1E_0007);
@@ -3001,7 +3024,7 @@ mod tests {
                 tank.attack_target.is_none() || tank.passively_acquired_target,
                 "tick {tick}: the tank was never ordered to attack anything, so a target it \
                  holds must always be scanner-owned — a live target with the flag false takes \
-                 it out of the passive block, into pursuit, and it never releases"
+                 it out of the passive block, and it never releases"
             );
         }
         assert!(

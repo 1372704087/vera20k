@@ -141,7 +141,7 @@ fn retail_legionnaire_attacks_distant_object_after_teleport_recovery() {
         let target = sim
             .spawn_object_at_height(target_type, "Russians", target_x, 10, 0, 0, &rules)
             .unwrap();
-        // A supplied stationary target separates the pursuit bug from enemy
+        // A supplied stationary target separates the approach under test from enemy
         // movement/fire. The factory has no attack weapon in stock rules.
         sim.substrate
             .entities

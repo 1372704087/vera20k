@@ -137,8 +137,7 @@ pub(crate) fn target_present(
 /// Returns `None` if the target is `Entity(id)` and the entity no longer
 /// exists (despawned). `Cell` targets always resolve.
 ///
-/// Shared by the combat tick and the pursuit pre-combat stage so range
-/// decisions stay consistent.
+/// Read by the combat tick, the fire coordinate and the Temporal weapon.
 pub(crate) fn resolve_target_coords(
     target: &TargetKind,
     entities: &EntityStore,

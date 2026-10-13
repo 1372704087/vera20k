@@ -222,21 +222,39 @@ impl Simulation {
     pub(crate) fn balloon_hover_approach(&self, id: u64, rules: &RuleSet) -> Option<NavTargetRef> {
         let actor = self.substrate.entities.get(id)?;
         let target = actor.attack_target.as_ref()?.target;
-        if actor.category != EntityCategory::Unit
-            || !self.object_type(actor.type_ref(), rules)?.balloon_hover
-        {
+        let object = self.object_type(actor.type_ref(), rules)?;
+        if actor.category != EntityCategory::Unit || !object.balloon_hover {
             return None;
         }
-        let selected = combat::pursuit_selection(
-            actor,
-            &target,
-            &self.substrate.entities,
+        let (_, selected) = self.foot_target_weapon(actor, object, target, rules)?;
+        balloon_hover_destination(selected.map(|selected| selected.weapon), target, rules)
+    }
+
+    /// SelectWeapon (vt+0x2E4) against `target`, and GetWeapon (vt+0x3F8) at
+    /// the index it answers ([`combat::combat_weapon::select_weapon_against`]),
+    /// as Approach (`0x004D56CA`, the BalloonHover arm at `0x007415BA`) and
+    /// the per-cell range stop (`0x004D883A`) ask them. The weapon is None for
+    /// an empty slot; the answer is None only when the target is gone.
+    /// Legality is not asked: both measure with InRange, without
+    /// GetFireError.
+    pub(super) fn foot_target_weapon<'r>(
+        &self,
+        actor: &crate::sim::game_entity::GameEntity,
+        object: &'r crate::rules::object_type::ObjectType,
+        target: TargetKind,
+        rules: &'r RuleSet,
+    ) -> Option<(i32, Option<combat::combat_weapon::SelectedWeapon<'r>>)> {
+        combat::combat_weapon::select_weapon_against(
             rules,
+            actor,
+            object,
+            &combat::combat_weapon::attacker_facts(actor, object),
+            Some(&target),
+            &self.substrate.entities,
             &self.interner,
             self.resolved_terrain.as_ref(),
             Some(&self.house_alliances),
-        );
-        balloon_hover_destination(selected.map(|selected| selected.weapon), target, rules)
+        )
     }
 
     /// Approach (vt+0x53C) with no-move 0, as Mission_Attack (`0x004D4E6A`),
@@ -376,9 +394,36 @@ impl Simulation {
     }
 
     /// Common Foot4D5690 body (Unit741689 and Infantry52236C pass false).
-    /// Its only RNG is PlaceInfantryInCell's centre-row draw on a CloseRange
+    /// Its only RNG is PlaceInfantryInCell's centre-row draw: on a CloseRange
     /// infantryman's spot requests (the pre-search arm and each ring
-    /// candidate); MissionAttack draws its cadence after this returns.
+    /// candidate), and in the destination setter of a Teleport or Jumpjet
+    /// infantryman, which picks his spot in the cell it sets. MissionAttack
+    /// draws its cadence after this returns.
+    ///
+    /// RESIDUAL: the `DeployToFire=` arm (UnitType `+0xE12`) is not ported. A
+    /// Unit whose own cell fails `CellClass @ 0x00487C10` caps its range at
+    /// Distance + 512 (`0x004D57EA..0x004D5863`), skips the in-range return
+    /// (`0x004D5A2C`) and takes only ring candidates whose cell passes the
+    /// same test (`0x004D613E..0x004D6162`). Trigger: a modded
+    /// `DeployToFire=` unit; no retail type sets the key, and `0x00487C10`
+    /// has no port (`fire_error_world` records the same gap). Effect: none in
+    /// retail.
+    ///
+    /// RESIDUAL: a mover whose selected slot is empty returns at once. Native
+    /// has no such exit: GetWeaponRange answers 0 (`0x007012C0`), CanFireAt
+    /// false (`0x006F7237`), the search runs no ring, and the exhausted arm
+    /// drops the Target and sets the passable cell nearest it
+    /// (`0x004D68E7..0x004D6A58`). Trigger: a mover with an empty slot
+    /// holding a Target on Attack, Hunt or Area Guard, or sent here by the
+    /// reach block. Retail's slotless movers (the Chrono Miner, an MCV) take
+    /// no attack order; engineers, spies and the War Miner carry a weapon.
+    /// Effect: it keeps the Target and stands where native lets it go and
+    /// walks beside it; after the reach block, the block's CanFireAt drops it
+    /// with no destination. Kept because the `harvest_attack_return` corpus
+    /// replays a declared Approach seam that this exit stands in for, and
+    /// two fixtures hold unarmed movers on Attack
+    /// (`the_team_attacks_the_building_its_first_member_finds`, the spy
+    /// holding a dying building, whose stale Target Approach still reads).
     pub(crate) fn approach_foot_target(
         &mut self,
         id: u64,
@@ -397,20 +442,16 @@ impl Simulation {
         if matches!(target, TargetKind::Entity(target) if actor.locomotor_target == Some(target)) {
             return Ok(None);
         }
-        let Some(selected) = combat::pursuit_selection(
-            actor,
-            &target,
-            &self.substrate.entities,
-            rules,
-            &self.interner,
-            self.resolved_terrain.as_ref(),
-            Some(&self.house_alliances),
-        ) else {
-            return Ok(None);
-        };
         let object = self
             .object_type(actor.type_ref(), rules)
             .ok_or("Approach requires mover type")?;
+        //4D56CA..4D56F8: SelectWeapon, then GetWeaponRange (vt+0x168) of its
+        // index. An empty slot returns here (RESIDUAL above).
+        let Some((index, Some(selected))) = self.foot_target_weapon(actor, object, target, rules)
+        else {
+            return Ok(None);
+        };
+        let weapon = selected.weapon;
         let terrain = self
             .resolved_terrain
             .as_ref()
@@ -424,7 +465,7 @@ impl Simulation {
         let mut range = combat::combat_weapon::weapon_range(
             actor,
             object,
-            selected.index,
+            index,
             &self.substrate.entities,
             rules,
             &self.interner,
@@ -441,7 +482,7 @@ impl Simulation {
             in_range::cell_target_in_range(
                 actor,
                 identity,
-                selected.weapon,
+                weapon,
                 rules,
                 &self.interner,
                 &self.substrate.entities,
@@ -679,7 +720,7 @@ impl Simulation {
                     id,
                     point,
                     &target,
-                    selected.weapon,
+                    weapon,
                     close_range.then_some(own),
                     rules,
                     registry,
@@ -719,7 +760,7 @@ impl Simulation {
                             id,
                             cell_centre(candidate),
                             &target,
-                            selected.weapon,
+                            weapon,
                             close_range.then_some(own),
                             rules,
                             registry,

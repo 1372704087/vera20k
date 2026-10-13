@@ -605,7 +605,7 @@ impl Simulation {
                 })
             {
                 // Retained Cell pointers make the live coordinate affect
-                // future range, pursuit and projectile behavior.
+                // future range, approach and projectile behavior.
                 b"shared-cell-dummy-target-v3".hash(&mut hasher);
                 shared_dummy.coord.hash(&mut hasher);
             }

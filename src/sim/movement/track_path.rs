@@ -32,16 +32,6 @@
 //!   (0x4D3E82..0x4D3E9F); VERA installs the whole route, so the native
 //!   re-request every 24 cells does not happen. Effect: a long route is not
 //!   re-planned mid-way.
-//! - Adapter-only pursuit stops. Pursuit ClearMovement drops only
-//!   the scheduling adapter and leave NavCom, +34 and path words; the track
-//!   terminal defers the order and the same-call continuation finishes it
-//!   toward NavCom (before the continuation, the next frame did). Their
-//!   native null-destination payloads are unverified. Effect: the unit
-//!   resumes its order after the track instead of stopping, and a turretless
-//!   one, whose FACING turn waits for a null NavCom (`0x00736FB6`), keeps its
-//!   heading meanwhile. Callers of the
-//!   class setter vt+0x480(NULL, 1) take the owner's class setter instead
-//!   (`assign_null_destination`).
 
 use super::foot_path::FootPathOutcome;
 use super::ground_pose;
@@ -659,7 +649,7 @@ impl Simulation {
     /// The destination is NavCom's live coordinate (an object's too), else the
     /// first queued waypoint through the Foot setter, else the NULL clear. By
     /// active locomotor:
-    /// - Drive and Ship: +34 may still hold an older order (a pursuit cell).
+    /// - Drive and Ship: +34 may still hold an older order (a firing cell).
     ///   A +34 naming NavCom's cell only lacks its scheduling adapter; the
     ///   no-queue arm (Drive 0x4B281C / Ship 0x6A1E75) requests the route,
     ///   gated by Foot+640. Native NavCom and +34 never disagree after the
@@ -936,7 +926,7 @@ impl Simulation {
     /// Mission_Enter's Teleporter re-assign (0x004D941D), the Scatter
     /// receiver's null arm (0x00744070) and the ReceiveDamage crush charge
     /// (0x00738593).
-    /// These callers pass true; Foot Approach's queued-cell arm passes false.
+    /// These callers pass true; Foot Approach's NavQueue arm passes false.
     /// - 0x741A80..0x741A9C: an unchanged NavCom returns before any write
     ///   unless the Techno+0x1F8 override is up; the call then clears it. So
     ///   the refinery's repeated MOVE_HERE leaves a running drive alone

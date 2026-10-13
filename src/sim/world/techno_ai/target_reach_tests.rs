@@ -10,12 +10,14 @@ use crate::sim::combat::{AttackTarget, TargetKind};
 use crate::sim::components::NavTargetRef;
 use crate::sim::mission::{MissionId, MissionType};
 
-/// A tank with a 4-cell gun: 896 leptons of Approach reach (`0x004D5797`).
+/// A tank with a 4-cell gun: 896 leptons of Approach reach (`0x004D56F2`),
+/// and a plain building.
 fn rules() -> RuleSet {
     RuleSet::from_ini(&IniFile::from_str(
-        "[VehicleTypes]\n0=TANK\n\
+        "[VehicleTypes]\n0=TANK\n[BuildingTypes]\n0=HUT\n\
          [TANK]\nStrength=300\nArmor=heavy\nSpeed=6\nSight=10\nPrimary=TankGun\n\
          Locomotor={4A582741-9839-11D1-B709-00A024DDAFD1}\n\
+         [HUT]\nStrength=100\n\
          [TankGun]\nDamage=10\nROF=20\nRange=4\nProjectile=InvisibleAll\nWarhead=HITWH\n\
          [InvisibleAll]\nInviso=yes\nAA=yes\nAG=yes\n\
          [HITWH]\nVerses=100%,100%,100%,100%,100%,100%,100%,100%,100%,100%,100%\n",
@@ -24,12 +26,14 @@ fn rules() -> RuleSet {
 }
 
 /// The flat arena, cut at x = 12..=13 by impassable cells when `split`, with
-/// a human `Americans` tank at (8, 10) on `mission` holding a computer
-/// `Russians` tank at (`target_x`, 10). Answers the tank and its target.
-fn pair(
+/// a human `Americans` `mover` at (`mover_x`, 10) on `mission` holding a
+/// computer `Russians` `target` at (`target_x`, 10). Answers the mover and its
+/// target.
+fn hold(
     rules: &RuleSet,
     split: bool,
-    target_x: u16,
+    (mover, mover_x): (&str, u16),
+    (target, target_x): (&str, u16),
     mission: MissionType,
 ) -> (Simulation, u64, TargetKind) {
     let mut sim = crate::sim::arena_fixture::rival_arena(rules, 0x6FAAEF);
@@ -47,10 +51,10 @@ fn pair(
         assert!(sim.rebuild_dynamic_navigation(rules));
     }
     let tank = sim
-        .spawn_object_at_height("TANK", "Americans", 8, 10, 0, 0, rules)
-        .expect("tank spawns");
+        .spawn_object_at_height(mover, "Americans", mover_x, 10, 0, 0, rules)
+        .expect("mover spawns");
     let target = sim
-        .spawn_object_at_height("TANK", "Russians", target_x, 10, 0, 0, rules)
+        .spawn_object_at_height(target, "Russians", target_x, 10, 0, 0, rules)
         .expect("target spawns");
     let now = sim.session.binary_frame;
     sim.mission_assign_exact(tank, MissionId::from_known(mission), now)
@@ -58,6 +62,16 @@ fn pair(
     let _ = sim.mission_commence_exact(tank, now);
     sim.substrate.entities.get_mut(tank).unwrap().attack_target = Some(AttackTarget::new(target));
     (sim, tank, TargetKind::Entity(target))
+}
+
+/// [`hold`] with the tank at (8, 10) and a tank target.
+fn pair(
+    rules: &RuleSet,
+    split: bool,
+    target_x: u16,
+    mission: MissionType,
+) -> (Simulation, u64, TargetKind) {
+    hold(rules, split, ("TANK", 8), ("TANK", target_x), mission)
 }
 
 fn reach(
@@ -135,4 +149,46 @@ fn a_sticky_tank_drops_only_a_target_it_cannot_reach() {
             "split: {split}"
         );
     }
+}
+
+/// A building's vt+0x4C for a mover is its centre (`0x00447E90` returns +0x48
+/// unless the type is a helipad, repair bay or bunker), and structures leave
+/// the terrain zones as they are: a building in the tank's zone is reachable,
+/// so Guard keeps it without approaching.
+#[test]
+fn a_building_in_the_tanks_zone_is_reachable() {
+    let rules = rules();
+    let (mut sim, tank, held) = hold(&rules, false, ("TANK", 8), ("HUT", 16), MissionType::Guard);
+
+    assert_eq!(reach(&mut sim, &rules, tank), (Some(held), None));
+}
+
+/// When Approach leaves no NavCom, the block's own CanFireAt decides
+/// (`0x006FAB7A..0x006FABB2`). A Magnetron holding its target (`+0x2AC`)
+/// returns from Approach at once (`0x004D56A1..0x004D56B1`), so a target
+/// across the band and out of range is dropped by the block alone.
+#[test]
+fn the_block_drops_a_target_approach_leaves_out_of_range() {
+    let rules = rules();
+    let (mut sim, tank, held) = pair(&rules, true, 14, MissionType::Guard);
+    let TargetKind::Entity(target) = held else {
+        unreachable!()
+    };
+    sim.substrate
+        .entities
+        .get_mut(tank)
+        .unwrap()
+        .locomotor_target = Some(target);
+
+    assert_eq!(reach(&mut sim, &rules, tank), (None, None));
+}
+
+/// A target in another zone but in range: Approach returns before its search
+/// (`0x004D5A34`) and CanFireAt keeps it, with no destination.
+#[test]
+fn an_unreachable_target_in_range_is_kept_without_a_destination() {
+    let rules = rules();
+    let (mut sim, tank, held) = hold(&rules, true, ("TANK", 11), ("TANK", 14), MissionType::Guard);
+
+    assert_eq!(reach(&mut sim, &rules, tank), (Some(held), None));
 }

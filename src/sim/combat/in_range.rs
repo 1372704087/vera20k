@@ -5,7 +5,7 @@
 //! `TechnoClass::CanFireAtTarget` 0x006F7780 ([`can_fire_at_target`]) asks both
 //! for the weapon it selects. The 2D [`lepton_distance_sq_raw`] +
 //! [`is_within_range_leptons`] twin remains only as the fallback of the fire
-//! gate, the threat scan, pursuit and the cursor for a world without resolved
+//! gate, the threat scan and the cursor for a world without resolved
 //! terrain. Implements 3D distance, IsLowFlying ground-snap, AirRange bonus,
 //! bunker and open-topped range bonuses, the elevation bonus for a shot fired
 //! downhill (`0x006F6F60`, `0x006F70E0`), the arcing arm's 2-D distance,
@@ -984,9 +984,9 @@ pub(crate) fn lepton_distance_sq_raw(
 /// `combat_weapon::occupied_reach_cells`) and this function does none.
 ///
 /// Every reader is a fallback for a world without resolved terrain (headless
-/// fixtures, pre-map bring-up): the fire gate, the threat scan, pursuit and
-/// the cursor. None of them can run a walk, so they agree with each other
-/// rather than diverging.
+/// fixtures, pre-map bring-up): the fire gate, the threat scan and the
+/// cursor. None of them can run a walk, so they agree with each other rather
+/// than diverging.
 pub(crate) fn is_within_range_leptons(dist_sq_leptons: i64, range_cells: SimFixed) -> bool {
     let range_leptons: i64 = (i64::from(range_cells.to_bits()) * 256) >> 16;
     let range_sq: i64 = range_leptons * range_leptons;

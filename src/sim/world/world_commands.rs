@@ -42,9 +42,9 @@ use crate::util::fixed_math::{SimFixed, ra2_speed_to_leptons_per_second};
 /// Read-only snapshot of entity + rules data needed for issuing movement commands.
 /// Captured once to avoid repeated entity lookups and type_ref clones.
 ///
-/// `pub(crate)` so the pursuit pre-combat stage in `world_orders.rs` can reuse
-/// it — pursuit-issued movement must match Move-command-issued movement
-/// exactly to keep behavior consistent.
+/// `pub(crate)` so the movement callers outside `world` (the track
+/// continuation, transport unload and the bunker link) issue their moves with
+/// the same facts as a Move command.
 pub(crate) struct MoveInfo {
     pub(crate) speed: SimFixed,
     pub(crate) loco_layer: MovementLayer,

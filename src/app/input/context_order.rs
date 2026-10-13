@@ -1526,39 +1526,20 @@ pub(crate) fn try_queue_context_order_at_screen_point(
                 }
             }
 
-            // Garrison entry uses the shared CanBeOccupiedBy-equivalent predicate before
-            // issuing EnterTransport commands.
-            // are classified as EnemyStructure but are still garrisonable —
-            if context_actions_enabled {
-                let garrison_target = hover.as_ref().map(|target| target.stable_id);
-                if let Some(transport_id) = garrison_target {
-                    let infantry_ids: Vec<u64> = selected_units
-                        .iter()
-                        .copied()
-                        .filter(|&sid| {
-                            Some(&resources.rules).is_some_and(|rules| {
-                                crate::sim::passenger::can_enter_transport(
-                                    sim,
-                                    rules,
-                                    sid,
-                                    transport_id,
-                                )
-                            })
-                        })
-                        .collect();
-                    if !infantry_ids.is_empty() {
-                        for pax_id in infantry_ids {
-                            queued.push(CommandEnvelope::new(
-                                owner_id,
-                                execute_tick,
-                                Command::EnterTransport {
-                                    passenger_id: pax_id,
-                                    transport_id,
-                                },
-                            ));
-                        }
-                        return finish_order(state, queued, speaker_id);
-                    }
+            if context_actions_enabled && let Some(target) = hover.as_ref() {
+                let orders = transport_entry_orders(
+                    sim,
+                    &resources.rules,
+                    &selected_units,
+                    target.stable_id,
+                );
+                if !orders.is_empty() {
+                    queued.extend(
+                        orders
+                            .into_iter()
+                            .map(|command| CommandEnvelope::new(owner_id, execute_tick, command)),
+                    );
+                    return finish_order(state, queued, speaker_id);
                 }
             }
 
@@ -2035,6 +2016,43 @@ fn self_click_command(
         .then_some(Command::DeployMcv {
             entity_id: target.stable_id,
         })
+}
+
+/// Object entry orders use the same admission owner as the hover cursor.
+/// Infantry What_Action51E668..51E6B1 answers action9 for an admitted
+/// garrison; Foot ClickedAction4D7716..4D773A sends Capture8 with NULL
+/// Target and the building as Destination. Actual arrival belongs to the
+/// existing Capture/PerCell owners, as for computer occupiers (#1400).
+fn transport_entry_orders(
+    sim: &crate::sim::world::Simulation,
+    rules: &crate::rules::ruleset::RuleSet,
+    selected: &[u64],
+    transport_id: u64,
+) -> Vec<Command> {
+    let garrison = sim
+        .entities()
+        .get(transport_id)
+        .filter(|target| target.category == EntityCategory::Structure)
+        .and_then(|target| rules.object(sim.interner.resolve(target.type_ref())))
+        .is_some_and(|object| object.can_be_occupied);
+    selected
+        .iter()
+        .copied()
+        .filter(|&id| crate::sim::passenger::can_enter_transport(sim, rules, id, transport_id))
+        .map(|passenger_id| {
+            if garrison {
+                Command::CaptureBuilding {
+                    engineer_id: passenger_id,
+                    target_building_id: transport_id,
+                }
+            } else {
+                Command::EnterTransport {
+                    passenger_id,
+                    transport_id,
+                }
+            }
+        })
+        .collect()
 }
 
 /// Engineer object actions before event enqueue. No duplicate geometry query.

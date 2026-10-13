@@ -3075,7 +3075,7 @@ mod tests {
         );
     }
 
-    /// One boarded `OCCUPANT` (`OccupyWeapon=` of `range` cells) in a 2x2
+    /// One garrisoned `OCCUPANT` (`OccupyWeapon=` of `range` cells) in a 2x2
     /// house at (10, 10), and an unarmed enemy at `enemy`, on flat ground
     /// through `advance_tick`. Answers the house's target and the enemy's
     /// health.
@@ -3101,10 +3101,10 @@ mod tests {
         )
         .expect("garrison passive-acquire rules parse");
         assert_eq!(rules.object("HOUSE").unwrap().foundation, "2x2");
-        run_boarded_garrison(&rules, "HOUSE", "OCCUPANT", "UNARM", enemy)
+        run_captured_garrison(&rules, "HOUSE", "OCCUPANT", "UNARM", enemy)
     }
 
-    fn run_boarded_garrison(
+    fn run_captured_garrison(
         rules: &RuleSet,
         building_type: &str,
         occupant_type: &str,
@@ -3134,12 +3134,16 @@ mod tests {
             soviet,
             crate::sim::house_state::HouseState::new(soviet, 1, None, true, 0, 10),
         );
-        // PerCellProcess boards from the garrison's own foundation cell.
-        let occupant = sim.substrate.entities.get_mut(2).unwrap();
-        occupant.position.rx = 10;
-        occupant.passenger_role = crate::sim::passenger::PassengerRole::Boarding {
-            target_transport_id: 1,
-        };
+        // Capture walks onto the foundation before PerCellProcess admits
+        // the occupant (InfantryClass::PerCellProcess @ 0x00519675).
+        assert!(sim.apply_command(
+            "Americans",
+            &crate::sim::command::Command::CaptureBuilding {
+                engineer_id: 2,
+                target_building_id: 1,
+            },
+            Some(rules),
+        ));
         for _ in 0..160 {
             let _ = sim.advance_tick(&[], Some(rules), Some(&grid), None, 67);
         }
@@ -3149,7 +3153,7 @@ mod tests {
                 .get(1)
                 .and_then(|house| house.passenger_role.cargo())
                 .is_some_and(|cargo| cargo.passengers == [2]),
-            "precondition: the occupant boarded"
+            "precondition: Capture admitted the occupant"
         );
         (
             sim.substrate
@@ -3193,13 +3197,13 @@ mod tests {
             .expect("retail RULESMD and fixed ARTMD");
         assert_eq!(rules.object("CABUNK01").unwrap().foundation, "2x2");
         let initial_health = rules.object("AMCV").unwrap().strength;
-        let (target, health) = run_boarded_garrison(&rules, "CABUNK01", "E1", "AMCV", (10, 16));
+        let (target, health) = run_captured_garrison(&rules, "CABUNK01", "E1", "AMCV", (10, 16));
         assert_eq!(target, Some(TargetKind::Entity(3)));
         assert!(
             health < initial_health,
             "the retail GI fired from the bunker"
         );
-        let (target, health) = run_boarded_garrison(&rules, "CABUNK01", "E1", "AMCV", (10, 17));
+        let (target, health) = run_captured_garrison(&rules, "CABUNK01", "E1", "AMCV", (10, 17));
         assert_eq!(target, None);
         assert_eq!(
             health, initial_health,

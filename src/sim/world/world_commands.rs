@@ -1332,12 +1332,23 @@ impl Simulation {
                 // Validate transport exists and has cargo capacity.
                 let transport_info = self.substrate.entities.get(*transport_id).and_then(|t| {
                     t.passenger_role.cargo()?;
+                    // CanBeOccupiedBy is also the cursor's garrison predicate,
+                    // but that action sends Capture8, never this Enter7 payload
+                    // (Infantry51E6A8 -> Foot4D7716). Retire the old adapter
+                    // rather than inventing Boarding state for a garrison.
+                    if t.category == crate::map::entities::EntityCategory::Structure
+                        && self
+                            .object_type(t.type_ref(), rules)
+                            .is_some_and(|object| object.can_be_occupied)
+                    {
+                        return None;
+                    }
                     Some((t.position.rx, t.position.ry))
                 });
                 let Some((trx, try_)) = transport_info else {
                     return false;
                 };
-                // Shared native Unit0F / garrison admission owner.
+                // Shared carrier admission owner (Unit0F and building Enter).
                 if !passenger::can_enter_transport(self, rules, *passenger_id, *transport_id) {
                     return false;
                 }
@@ -1347,7 +1358,7 @@ impl Simulation {
                 {
                     return false;
                 }
-                // Duplicate Enter onto a *building* transport (garrison,
+                // Duplicate Enter onto a *building* transport (
                 // Grinder, bunker) the passenger is already linked to is
                 // consumed without touching anything — no fresh Boarding role
                 // and no re-path, so the unit walks in instead of backing off.
@@ -1752,7 +1763,8 @@ impl Simulation {
                 if !self.entity_owned_by_id(command_owner, *engineer_id) {
                     return false;
                 }
-                // Validate target is a capturable enemy building.
+                // Validate the live Building destination token. Capture's
+                // class arrival owner evaluates its specific entry action.
                 let target_info = self
                     .substrate
                     .entities

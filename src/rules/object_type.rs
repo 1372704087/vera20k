@@ -517,8 +517,16 @@ pub struct ObjectType {
     pub voice_move: Option<String>,
     /// Sound ID played when this unit is ordered to attack.
     pub voice_attack: Option<String>,
-    /// Sound ID played when a harvester is ordered to harvest a resource cell.
-    pub voice_harvest: Option<String>,
+    /// Registered scalar `VoiceHarvest=` (TechnoType+57C). Constructor710F4F
+    /// starts at -1; ReadINI71363D..713696 reads ReadString128 then Voc7514D0.
+    /// The fixed SOUNDMD reader retains the prior valid slot across passes.
+    voice_harvest: Option<String>,
+    /// Registered scalar `VoiceDeploy=` (TechnoType+590), default -1 at
+    /// constructor710F75. ReadINI713769..7137C2 uses the same retained reader.
+    voice_deploy: Option<String>,
+    /// Registered scalar `VoiceUndeploy=` (TechnoType+594), default -1 at
+    /// constructor710F7B. ReadINI7137A5..7137FE follows VoiceDeploy.
+    voice_undeploy: Option<String>,
     /// Sound ID played when a harvester is manually ordered to return to a
     /// friendly refinery (right-click own refinery).
     pub voice_enter: Option<String>,
@@ -1897,6 +1905,33 @@ fn native_minutes_to_ticks(value: f64) -> u32 {
 }
 
 impl ObjectType {
+    pub fn voice_harvest(&self) -> Option<&str> {
+        self.voice_harvest.as_deref()
+    }
+
+    pub fn voice_deploy(&self) -> Option<&str> {
+        self.voice_deploy.as_deref()
+    }
+
+    pub fn voice_undeploy(&self) -> Option<&str> {
+        self.voice_undeploy.as_deref()
+    }
+
+    /// Original scalar readers71363D/713769/7137A5; constructor -1 is
+    /// represented by None. Reuse the processed pass/current-ID owner.
+    pub(crate) fn bind_deploy_voice_references(
+        &mut self,
+        section: Option<&IniSection>,
+        sounds: &SoundRegistry,
+    ) {
+        self.voice_harvest =
+            section.and_then(|section| sounds.read_rules_reference(section, "VoiceHarvest"));
+        self.voice_deploy =
+            section.and_then(|section| sounds.read_rules_reference(section, "VoiceDeploy"));
+        self.voice_undeploy =
+            section.and_then(|section| sounds.read_rules_reference(section, "VoiceUndeploy"));
+    }
+
     pub fn damage_sound(&self) -> Option<&str> {
         self.damage_sound.as_deref()
     }
@@ -2410,7 +2445,9 @@ impl ObjectType {
                 .unwrap_or_default(),
             voice_move: first_sound("VoiceMove"),
             voice_attack: first_sound("VoiceAttack"),
-            voice_harvest: section.read_name("VoiceHarvest", 0x80).map(str::to_owned),
+            voice_harvest: None,
+            voice_deploy: None,
+            voice_undeploy: None,
             voice_enter: section.read_name("VoiceEnter", 0x80).map(str::to_owned),
             voice_capture: section.read_name("VoiceCapture", 0x80).map(str::to_owned),
             prevent_attack_move: section.read_bool("PreventAttackMove", false),
@@ -3482,13 +3519,16 @@ mod tests {
             "[CMIN]\nName=Chrono Miner\nVoiceMove=ChronoMinerMove\n\
              VoiceHarvest=ChronoMinerHarvest\nVoiceEnter=ChronoMinerReturn\n",
         );
-        let obj = ObjectType::from_ini_section(
+        let mut obj = ObjectType::from_ini_section(
             "CMIN",
             ini.section("CMIN").unwrap(),
             ObjectCategory::Vehicle,
         );
+        let sounds =
+            SoundRegistry::from_ini(&IniFile::from_str("[SoundList]\n0=ChronoMinerHarvest\n"));
+        obj.bind_deploy_voice_references(ini.section("CMIN"), &sounds);
         assert_eq!(obj.voice_move, Some("ChronoMinerMove".to_string()));
-        assert_eq!(obj.voice_harvest, Some("ChronoMinerHarvest".to_string()));
+        assert_eq!(obj.voice_harvest(), Some("ChronoMinerHarvest"));
         assert_eq!(obj.voice_enter, Some("ChronoMinerReturn".to_string()));
 
         // Absent keys default to None (e.g. a plain tank).
@@ -3498,7 +3538,7 @@ mod tests {
             none_ini.section("MTNK").unwrap(),
             ObjectCategory::Vehicle,
         );
-        assert_eq!(none_obj.voice_harvest, None);
+        assert_eq!(none_obj.voice_harvest(), None);
         assert_eq!(none_obj.voice_enter, None);
     }
 

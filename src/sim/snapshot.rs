@@ -989,7 +989,10 @@ use crate::sim::world::Simulation;
 // carry the goal.
 // 341 -> 342: each House retains its tech-tree recheck byte (+1FC).
 // Version 341 records cannot preserve a pending strip cancellation decision.
-const SNAPSHOT_VERSION: u32 = 342;
+// 342 -> 343: each Techno retains its one-shot deploy-voice suppression
+// (+4F8); Rules retain registered Harvest/Deploy/Undeploy scalar voice slots.
+// Version342 lacks these bincode fields and cannot resume their history.
+const SNAPSHOT_VERSION: u32 = 343;
 
 const SNAPSHOT_PRODUCT_MAGIC: [u8; 8] = *b"VERA20K\0";
 const SNAPSHOT_ENVELOPE_VERSION: u32 = 1;
@@ -4362,7 +4365,8 @@ mod tests {
         // 339 -> 340: a bounce body's orientation and rotation quaternions.
         // 340 -> 341: the Foot MegaMission replaces the OrderIntent goal.
         // 341 -> 342: the House tech-tree recheck byte.
-        assert_eq!(super::SNAPSHOT_VERSION, 342);
+        // 342 -> 343: retained deploy-voice suppression and bound voice slots.
+        assert_eq!(super::SNAPSHOT_VERSION, 343);
     }
 
     #[test]

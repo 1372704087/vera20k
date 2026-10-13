@@ -560,9 +560,9 @@ fn attack_branch_orders(
 /// `EngSovAttackCommand`; Yuri's two keys hold the same sound, so Yuri was
 /// unaffected).
 ///
-/// One retail slot still has no VERA counterpart:
-/// * Deploy/unload plays `VoiceDeploy` / `VoiceUndeploy`, neither of which VERA
-///   parses — those orders stay silent.
+/// Deploy/unload's input acknowledgement remains a separate route. A
+/// building pack-up speaks at Selling stage0, so UndeployBuilding must not
+/// queue a second input acknowledgement here.
 ///
 /// The self-click halt is silent in retail as well: it builds a detonate event
 /// directly instead of sending a mission, so the voice dispatch never runs.
@@ -681,17 +681,17 @@ fn emit_resolved_order_voice(state: &mut AppState, speaker_id: u64, queued: &[Co
 fn voice_id_for_key<'a>(
     obj: &'a crate::rules::object_type::ObjectType,
     voice_field: &str,
-) -> Option<&'a String> {
+) -> Option<&'a str> {
     match voice_field {
-        "VoiceMove" => obj.voice_move.as_ref(),
-        "VoiceAttack" => obj.voice_attack.as_ref(),
-        "VoiceHarvest" => obj.voice_harvest.as_ref(),
+        "VoiceMove" => obj.voice_move.as_deref(),
+        "VoiceAttack" => obj.voice_attack.as_deref(),
+        "VoiceHarvest" => obj.voice_harvest(),
         "VoiceCapture" => obj
             .voice_capture
-            .as_ref()
-            .or(obj.voice_enter.as_ref())
-            .or(obj.voice_move.as_ref()),
-        "VoiceEnter" => obj.voice_enter.as_ref().or(obj.voice_move.as_ref()),
+            .as_deref()
+            .or(obj.voice_enter.as_deref())
+            .or(obj.voice_move.as_deref()),
+        "VoiceEnter" => obj.voice_enter.as_deref().or(obj.voice_move.as_deref()),
         _ => None,
     }
 }
@@ -733,18 +733,22 @@ fn emit_entity_order_voice(state: &mut AppState, speaker_id: u64, voice_field: &
     let Some(obj) = rules.object(sim.interner.resolve(entity.type_ref())) else {
         return;
     };
-    let Some(id) = voice_id_for_key(obj, voice_field) else {
+    let Some(id) = crate::sim::world::Simulation::queue_voice_request(
+        voice_id_for_key(obj, voice_field),
+        state.match_state.input.selection_voice_enabled,
+        sim.house_is_human_player(entity.owner()),
+    ) else {
         return;
     };
     let event = if voice_field == "VoiceAttack" {
         crate::audio::events::GameSoundEvent::UnitAttackOrder {
             speaker_id,
-            sound_id: id.clone(),
+            sound_id: id.to_owned(),
         }
     } else {
         crate::audio::events::GameSoundEvent::UnitMoveOrder {
             speaker_id,
-            sound_id: id.clone(),
+            sound_id: id.to_owned(),
         }
     };
     state.match_state.match_audio.sound_events.push(event);
@@ -2701,11 +2705,11 @@ mod tests {
              VoiceCapture=EngAllAttackCommand\n",
         );
         assert_eq!(
-            voice_id_for_key(&stock, "VoiceCapture").map(String::as_str),
+            voice_id_for_key(&stock, "VoiceCapture"),
             Some("EngAllAttackCommand")
         );
         assert_eq!(
-            voice_id_for_key(&stock, "VoiceEnter").map(String::as_str),
+            voice_id_for_key(&stock, "VoiceEnter"),
             Some("EngAllMove"),
             "an ordinary Enter order is unaffected"
         );
@@ -2713,7 +2717,7 @@ mod tests {
         // `VoiceCapture=` absent: `0x00708DCB` falls through to the Enter slot.
         let no_capture = object("[ENGINEER]\nVoiceMove=EngAllMove\nVoiceEnter=EngAllMove\n");
         assert_eq!(
-            voice_id_for_key(&no_capture, "VoiceCapture").map(String::as_str),
+            voice_id_for_key(&no_capture, "VoiceCapture"),
             Some("EngAllMove")
         );
 
@@ -2722,11 +2726,11 @@ mod tests {
         // `TechnoTypeClass+0x468`. Native does NOT go silent here.
         let neither = object("[ENGINEER]\nVoiceMove=EngAllMove\n");
         assert_eq!(
-            voice_id_for_key(&neither, "VoiceCapture").map(String::as_str),
+            voice_id_for_key(&neither, "VoiceCapture"),
             Some("EngAllMove")
         );
         assert_eq!(
-            voice_id_for_key(&neither, "VoiceEnter").map(String::as_str),
+            voice_id_for_key(&neither, "VoiceEnter"),
             Some("EngAllMove"),
             "the Enter slot itself falls through to the move list"
         );

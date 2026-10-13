@@ -357,6 +357,10 @@ pub enum SimSoundEvent {
     /// A pending acknowledgement owner's live AI reached Techno6F9EBB.
     /// The app owns the latch/handle; this fact preserves the actual visit.
     UnitVoiceVisit { owner: u64 },
+    /// An admitted QueueVoice708D90 request, before any later positional
+    /// cue. The sole audio owner latches it; only a reached Techno head drains.
+    /// Keep the canonical name outside the gameplay identity interner.
+    UnitVoiceRequested { owner: u64, sound_id: String },
     /// Techno destructor6F4607 destroys its voice handle before its owned
     /// Anims. The app discards both pending and playing voice identities.
     UnitVoiceDestroyed { owner: u64 },

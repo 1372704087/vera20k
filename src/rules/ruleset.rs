@@ -3921,6 +3921,7 @@ impl RuleSet {
         for object in &mut self.object_list {
             let section = ini.section(&object.id);
             object.bind_damage_sound_reference(section, sounds);
+            object.bind_deploy_voice_references(section, sounds);
             object.voice_select = section.map_or_else(Vec::new, |section| {
                 sounds.read_rules_sound_list(section, "VoiceSelect")
             });

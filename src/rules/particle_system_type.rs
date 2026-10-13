@@ -347,7 +347,9 @@ mod tests {
         assert!(pst.spawns);
         assert_eq!(pst.spawn_frames, 18);
         assert_eq!(pst.particle_cap, 15);
-        assert_eq!(pst.slowdown.bits(), 0x3ecc_cccc);
+        // ReadDouble5283D0 scans %f before widening. The subsequent chop
+        // store preserves that already-rounded binary32 value.
+        assert_eq!(pst.slowdown.bits(), 0x3ecc_cccd);
         assert_eq!(pst.lifetime, 200);
     }
 

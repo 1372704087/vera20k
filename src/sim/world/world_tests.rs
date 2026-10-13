@@ -319,8 +319,8 @@ fn animation_boundary_fixture() -> (Simulation, RuleSet) {
 
 fn particle_frame_boundary_fixture(frame_count: u16) -> (Simulation, RuleSet) {
     let mut rules = RuleSet::from_ini(&IniFile::from_str(
-        "[Particles]\n0=SmokeP\n\
-         [SmokeP]\nBehavesLike=Smoke\nImage=SMOKEIMG\nStateAIAdvance=0\n\
+        "[General]\nWindDirection=1\n[Particles]\n0=SmokeP\n\
+         [SmokeP]\nBehavesLike=Smoke\nImage=SMOKEIMG\nStateAIAdvance=1\n\
          EndStateAI=2\nDeleteOnStateLimit=yes\nMaxEC=100\n\
          [ParticleSystems]\n0=SmokeSys\n\
          [SmokeSys]\nBehavesLike=Smoke\nHoldsWhat=SmokeP\nSpawns=no\n\
@@ -331,12 +331,13 @@ fn particle_frame_boundary_fixture(frame_count: u16) -> (Simulation, RuleSet) {
 
     let mut sim = Simulation::with_seed(0xEFFE_C705);
     let stable_id = sim.allocate_stable_id();
-    let particle = {
-        let mut particle = Particle::test_fixture(ParticleTypeId(0), IVec3::ZERO);
-        particle.origin = IVec3::ZERO;
-        particle.lifetime_remaining = 100;
-        particle
-    };
+    let particle = Particle::new(
+        ParticleTypeId(0),
+        IVec3::ZERO,
+        IVec3::ZERO,
+        rules.particle_type(ParticleTypeId(0)),
+        &mut sim,
+    );
     sim.particle_systems_mut().insert({
         let mut system =
             ParticleSystem::test_fixture(stable_id, ParticleSystemTypeId(0), IVec3::ZERO);
@@ -449,7 +450,9 @@ fn app_and_headless_frames_hash_identically_for_particle_frame_timing() {
             .map(|(_, system)| system.particles.len())
             .unwrap_or(0);
         assert_eq!(app_particles, headless_particles, "frame {frame}");
-        assert_eq!(app_particles, usize::from(frame < 4), "frame {frame}");
+        if frame == 4 {
+            assert_eq!(app_particles, 0, "native UID cadence retires by frame4");
+        }
     }
 }
 

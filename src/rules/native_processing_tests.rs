@@ -24,7 +24,8 @@ fn smoke_wind_reader_retains_layer_history_and_registry_reset() {
     for (text, expected) in [
         ("[General]\nWindDirection=1\n", 1),
         ("[General]\nOther=4\n", 1),
-        ("[General]\nWindDirection=oops\n", 1),
+        // ReadInt defaults only on absence; present junk takes atoi's0.
+        ("[General]\nWindDirection=oops\n", 0),
         ("[General]\nWindDirection=-7\n", -7),
         ("[General]\nWindDirection=17\n", 17),
     ] {

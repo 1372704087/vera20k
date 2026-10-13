@@ -3414,7 +3414,11 @@ mod particle_hash_tests {
         type Edit = Box<dyn Fn(&mut ParticleSystem)>;
         let edits: Vec<Edit> = vec![
             Box::new(|s| s.offset = IVec3::new(1, 0, 0)),
-            Box::new(|s| s.set_spawn_timer_for_test(crate::util::native_x87::NativeF32Bits::ONE)),
+            Box::new(|s| {
+                s.set_spawn_timer_for_test(crate::util::native_x87::NativeF32Bits::from_bits(
+                    0x4000_0000,
+                ))
+            }),
             Box::new(|s| s.spark_spawn_frames = 1),
             Box::new(|s| s.attached_entity = Some(7)),
             Box::new(|s| s.owner_entity = Some(7)),

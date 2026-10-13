@@ -981,10 +981,13 @@ use crate::sim::world::Simulation;
 // 338 -> 339: every bullet keeps its ProximityDetector reference (+0xD0),
 // which a FlakScatter= Inviso shot's moved placement sets; guidance no longer
 // carries it. Version 338 records keep it in the guidance of guided bullets.
-// 339 -> 340: each object keeps its attack-move order, the Foot MegaMission
-// (+0x5C4..+0x5D1), in place of the OrderIntent goal. Version 339 records
+// 339 -> 340: a bounce body keeps its native orientation and rotation
+// quaternions (BounceClass+0x30/+0x40) instead of the axis and angle that
+// built them. Version 339 records carry the axis and angle.
+// 340 -> 341: each object keeps its attack-move order, the Foot MegaMission
+// (+0x5C4..+0x5D1), in place of the OrderIntent goal. Version 340 records
 // carry the goal.
-const SNAPSHOT_VERSION: u32 = 340;
+const SNAPSHOT_VERSION: u32 = 341;
 
 const SNAPSHOT_PRODUCT_MAGIC: [u8; 8] = *b"VERA20K\0";
 const SNAPSHOT_ENVELOPE_VERSION: u32 = 1;
@@ -4354,8 +4357,9 @@ mod tests {
         // 336 -> 337: Magnetron links and the object's warp credit house.
         // 337 -> 338: the deactivated latch and the powered-center counts.
         // 338 -> 339: every bullet's ProximityDetector reference.
-        // 339 -> 340: the Foot MegaMission replaces the OrderIntent goal.
-        assert_eq!(super::SNAPSHOT_VERSION, 340);
+        // 339 -> 340: a bounce body's orientation and rotation quaternions.
+        // 340 -> 341: the Foot MegaMission replaces the OrderIntent goal.
+        assert_eq!(super::SNAPSHOT_VERSION, 341);
     }
 
     #[test]

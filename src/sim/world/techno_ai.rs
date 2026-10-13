@@ -1549,19 +1549,13 @@ fn allied_target_drop_step(sim: &mut Simulation, id: u64, rules: &RuleSet) {
     let Some(entity) = sim.substrate.entities.get(id) else {
         return;
     };
-    let controller_house = entity
-        .passenger_role
-        .inside_transport_id()
-        .and_then(|transport_id| sim.substrate.entities.get(transport_id))
-        .filter(|transport| {
-            rules
-                .object(sim.interner.resolve(transport.type_ref()))
-                .is_some_and(|obj| obj.open_topped)
-        })
-        .and_then(|transport| transport.mind_control.controller())
-        .and_then(|controller| sim.substrate.entities.get(controller))
-        .map(|controller| controller.owner());
-    let house = controller_house.unwrap_or(entity.owner());
+    let house = combat_weapon::controlled_transport_house(
+        &sim.substrate.entities,
+        rules,
+        &sim.interner,
+        entity,
+    )
+    .unwrap_or(entity.owner());
     if sim.owner_is_human(house) {
         return;
     }

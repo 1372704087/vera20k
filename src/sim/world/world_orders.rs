@@ -121,7 +121,13 @@ impl Simulation {
         if actor.category != EntityCategory::Unit
             || actor.owner() != issuing_house
             || !self.house_is_human_player(actor.owner())
-            || combat::combat_weapon::weapon_damage_value(actor, actor_type, rules) >= 0
+            || combat::combat_weapon::weapon_damage_value(
+                actor,
+                actor_type,
+                &self.substrate.entities,
+                rules,
+                &self.interner,
+            ) >= 0
         {
             return None;
         }

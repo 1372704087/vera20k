@@ -86,9 +86,10 @@ use std::ops::ControlFlow;
 
 use super::combat_targeting::AttackerSnapshot;
 use super::combat_weapon::{
-    AttackerFacts, attacker_facts, get_weapon, is_ally_by_object, is_armed, is_armed_from_facts,
-    is_occupied, occupied_reach_cells, passive_scan_class_bits,
+    AttackerFacts, attacker_facts, controlled_transport_house, get_weapon, is_ally_by_object,
+    is_armed, is_armed_from_facts, is_occupied, occupied_reach_cells, passive_scan_class_bits,
     primary_warhead_spares_medium_and_wood, resolve_selected_weapon, techno_target_facts,
+    weapon_damage_value,
 };
 use super::threat_mask::{self, InfantryScanner};
 use super::threat_range::{ScanRange, max_weapon_range, scan_range};
@@ -104,13 +105,16 @@ use crate::sim::components::DriveCoord;
 use crate::sim::entity_store::EntityStore;
 use crate::sim::game_entity::GameEntity;
 use crate::sim::intern::{InternedId, StringInterner};
+use crate::sim::mission::MissionType;
 use crate::sim::movement::ground_pose::{object_get_coords, position_world_coord};
 use crate::sim::movement::locomotor::MovementLayer;
-use crate::sim::occupancy::OccupancyGrid;
+use crate::sim::occupancy::{CellObjectMember, OccupancyGrid};
 use crate::sim::pathfinding::zone_map::ZoneGrid;
 use crate::sim::vision::FogState;
 use crate::util::lepton::{lepton_to_cell, lepton_to_cell_packed};
-use crate::util::native_x87::{MaskedX87Chop53 as ScoreX87, MaskedX87Value, NativeF64Bits};
+use crate::util::native_x87::{
+    MaskedX87Chop53 as ScoreX87, MaskedX87Ordering, MaskedX87Value, NativeF64Bits,
+};
 
 /// `TechnoClass::Calculate_Threat_Score`'s additive base, `DAT_007F4E90`.
 const THREAT_SCORE_BASE: f64 = 100_000.0;
@@ -530,71 +534,34 @@ fn scan_radius_cells(
     }
 }
 
-/// A scan borrows the actual Cell lists. Native6F89BF..6F89CB reads the
-/// retained +E8/+E4 head; current position, alive state and virtual +78 cannot
-/// reconstruct that membership. In particular initial Jumpjet Process can
-/// retain a ground-list member independently of its airborne registration.
-/// The air pre-pass still builds its temporary coordinate lookup from the
-/// separately owned registrations; its existing sweep-order residual is below.
-struct ScanIndex<'a> {
-    cells: &'a OccupancyGrid,
-    airborne: BTreeMap<(u16, u16), Vec<u64>>,
-}
-
-impl<'a> ScanIndex<'a> {
-    fn build(
-        entities: &EntityStore,
-        cells: &'a OccupancyGrid,
-        scan_air: bool,
-        min: (i32, i32),
-        max: (i32, i32),
-    ) -> Self {
-        // AG-only scans borrow Cell storage without walking the entity store
-        // or allocating/sorting a temporary air subset.
-        if !scan_air {
-            return Self {
-                cells,
-                airborne: BTreeMap::new(),
-            };
-        }
-        let mut ordered: Vec<&GameEntity> = entities
-            .values()
-            .filter(|entity| {
-                let x = i32::from(entity.position.rx);
-                let y = i32::from(entity.position.ry);
-                entity.air_spatial_bucket().is_some()
-                    && x >= min.0
-                    && x <= max.0
-                    && y >= min.1
-                    && y <= max.1
-            })
-            .collect();
-        ordered.sort_by_key(|entity| (entity.air_spatial_enter_order(), entity.stable_id()));
-        let mut airborne: BTreeMap<(u16, u16), Vec<u64>> = BTreeMap::new();
-        for entity in ordered {
-            airborne
-                .entry((entity.position.rx, entity.position.ry))
-                .or_default()
-                .push(entity.stable_id());
-        }
-        Self { cells, airborne }
+/// The air pre-pass's temporary coordinate lookup, built from the separately
+/// owned airborne registrations; its sweep-order residual is below.
+fn airborne_index(
+    entities: &EntityStore,
+    min: (i32, i32),
+    max: (i32, i32),
+) -> BTreeMap<(u16, u16), Vec<u64>> {
+    let mut ordered: Vec<&GameEntity> = entities
+        .values()
+        .filter(|entity| {
+            let x = i32::from(entity.position.rx);
+            let y = i32::from(entity.position.ry);
+            entity.air_spatial_bucket().is_some()
+                && x >= min.0
+                && x <= max.0
+                && y >= min.1
+                && y <= max.1
+        })
+        .collect();
+    ordered.sort_by_key(|entity| (entity.air_spatial_enter_order(), entity.stable_id()));
+    let mut airborne: BTreeMap<(u16, u16), Vec<u64>> = BTreeMap::new();
+    for entity in ordered {
+        airborne
+            .entry((entity.position.rx, entity.position.ry))
+            .or_default()
+            .push(entity.stable_id());
     }
-
-    /// `Scan_Cell_For_Target @ 0x006F89A6`: the bridge-deck list wins whenever
-    /// it exists; only one list is ever walked.
-    fn cell_list(
-        &self,
-        rx: u16,
-        ry: u16,
-    ) -> Option<(&crate::sim::occupancy::CellOccupancy, MovementLayer)> {
-        let occupancy = self.cells.get(rx, ry)?;
-        let layer = if occupancy.is_empty_on(MovementLayer::Bridge) {
-            MovementLayer::Ground
-        } else {
-            MovementLayer::Bridge
-        };
-        Some((occupancy, layer))
-    }
+    airborne
 }
 
 /// Everything one scan needs that does not change between candidates.
@@ -624,23 +591,28 @@ struct ScanContext<'a> {
     /// Calculate_Threat_Score only by the flat Techno walk.
     scan_coord: [i32; 3],
     standing: ScannerStanding<'a>,
-    /// The flat walks and the ring walk's air pre-pass skip an allied
-    /// candidate (`Is_Ally_ByObject @ 0x004F9A90`) unless the scanner is
-    /// `AttackFriendlies=` (TechnoType
-    /// `+0x6C0`; no retail type sets it and VERA does not read it), berserk
-    /// (`+0x298`) or riding a mind-controlled `OpenTopped=` transport
-    /// (`[ESP+0x13]`, `0x006F8FA8..0x006F8FD7`)...
-    attacks_allies: bool,
-    /// ...and, in the Techno walk, unless it is a healer or a computer
-    /// house's `Engineer=` infantryman (`0x006F9C9B..0x006F9CE7`).
-    scans_allies: bool,
-    /// Berserk (`+0x298`) and not a healer, whose own arm comes first
-    /// (`0x006F8A30..0x006F8A71`): the cell walk takes the first Techno, ally
-    /// or not (`0x006F8AAA`, `0x006F8BD0`).
-    berserk_walks_allies: bool,
-    /// Berserk and not riding a mind-controlled `OpenTopped=` transport:
-    /// Evaluate_Candidate skips its ally test (`0x006F7F0C`, `0x006F7FE9`).
-    berserk_skips_ally_test: bool,
+    /// The Cell lists, borrowed as they are: the cell walk reads the retained
+    /// `+0xE8`/`+0xE4` head (`0x006F89BF..0x006F89CB`), which current position,
+    /// alive state and virtual +78 cannot reconstruct (an initial Jumpjet
+    /// Process can retain a ground-list member apart from its airborne
+    /// registration). G10's building-in-cell test reads them too.
+    cells: &'a OccupancyGrid,
+    /// `GetWeaponDamageValue(-1) @ 0x006F3970` is negative: the scanner's
+    /// weapon heals. The walks and Evaluate_Candidate ask it of every class
+    /// (`0x006F7F3A`, `0x006F8A36`, `0x006F8B72`, `0x006F9C9F`); the preamble
+    /// asks only infantry and units ([`threat_mask::preamble_rewrite`]).
+    healer: bool,
+    /// vt+0x330: an `Engineer=` infantryman (InfantryClass `0x005224D0`
+    /// reads InfantryType `+0xEC3`; every other class answers 0).
+    engineer: bool,
+    /// Berserk (`+0x298`).
+    berserk: bool,
+    /// The house (`+0x21C`) of whoever mind-controls (`+0x2C0`) the
+    /// `OpenTopped=` transport (`+0x11C`, TechnoType `+0x5E4`) the scanner
+    /// rides: `BL` and `EBP` in Evaluate_Candidate (`0x006F7EA2..0x006F7ED8`),
+    /// `[ESP+0x1C]` and `EBX` in the cell walk (`0x006F89D1..0x006F8A0A`),
+    /// `[ESP+0x13]` in the global walks (`0x006F8FA8..0x006F8FD7`).
+    controller_house: Option<InternedId>,
     /// The world GetFireError reads for Evaluate_Candidate's probe
     /// (`0x006F7CE8`). Every production caller supplies it; `None` only in
     /// unit tests of the walk and the score, which then skip the probe.
@@ -648,6 +620,17 @@ struct ScanContext<'a> {
 }
 
 impl ScanContext<'_> {
+    /// `Scan_Cell_For_Target @ 0x006F89BF..0x006F89CB`: the bridge-deck list
+    /// (`+0xE8`) wins whenever it is not empty; only one list is ever walked.
+    fn cell_list(&self, rx: u16, ry: u16) -> Option<MovementLayer> {
+        let occupancy = self.cells.get(rx, ry)?;
+        Some(if occupancy.is_empty_on(MovementLayer::Bridge) {
+            MovementLayer::Ground
+        } else {
+            MovementLayer::Bridge
+        })
+    }
+
     fn alliances(&self) -> Option<&HouseAllianceMap> {
         self.fog.map(|fog| &fog.alliances)
     }
@@ -678,12 +661,128 @@ impl ScanContext<'_> {
         self.mask & 0x4000 == 0 || self.is_ally(candidate)
     }
 
-    fn attacks_allies(&self) -> bool {
-        self.attacks_allies
+    /// The controller's house asks about `candidate` (`0x006F7FF4`,
+    /// `0x006F8AC7`).
+    fn controller_allies(&self, candidate: &GameEntity) -> bool {
+        self.controller_house.is_some_and(|house| {
+            crate::sim::combat::combat_weapon::is_ally_by_object(
+                self.alliances(),
+                self.interner,
+                house,
+                candidate.owner(),
+            )
+        })
     }
 
+    /// The walks pass an ally on for an `AttackFriendlies=` scanner
+    /// (TechnoType `+0x6C0`; no retail type sets it and VERA does not read
+    /// it), a berserk one or a controlled transport's passenger: the aircraft
+    /// walks (`0x006F9B99..0x006F9BD2`, `0x006F91FB..0x006F9267`) and, with
+    /// [`Self::scans_allies`], [`Self::offers`].
+    fn attacks_allies(&self) -> bool {
+        self.berserk || self.controller_house.is_some()
+    }
+
+    /// A healer, or a computer house's engineer (`0x006F9C9B..0x006F9CE7`,
+    /// `0x006F8B6E..0x006F8BBA`).
     fn scans_allies(&self) -> bool {
-        self.scans_allies
+        self.healer || (self.engineer && !self.standing.human)
+    }
+
+    /// The Techno walk's ally skip (`0x006F9C92..0x006F9D0D`) and the cell
+    /// walk's post-walk test (`0x006F8B5F..0x006F8BE0`): a non-ally, or an
+    /// ally for a scanner that scans or attacks allies.
+    fn offers(&self, candidate: &GameEntity) -> bool {
+        !self.is_ally(candidate) || self.scans_allies() || self.attacks_allies()
+    }
+
+    /// The cell walk's arms (`0x006F8A30..0x006F8B3C`): whether it stops at
+    /// `candidate`, a Techno other than the scanner.
+    fn cell_walk_stops_at(&self, candidate: &GameEntity) -> bool {
+        // Only the healer and engineer arms read the type.
+        let obj = || {
+            self.rules
+                .object(self.interner.resolve(candidate.type_ref()))
+        };
+        // HealthRatio (`0x005F5C60`) against a Rules threshold.
+        let ratio =
+            |threshold| obj().map(|obj| candidate.health.compare_ratio(obj.strength, threshold));
+        if self.healer {
+            // `0x006F8A3F..0x006F8A6B`: a damaged ally (C0: below 1.0, or
+            // unordered).
+            return matches!(
+                ratio(1.0),
+                Some(MaskedX87Ordering::Less | MaskedX87Ordering::Unordered)
+            ) && self.is_ally(candidate);
+        }
+        // `0x006F8A76..0x006F8AB2`: a non-ally, unless the scanner rides a
+        // controlled transport; anything, for a berserk scanner.
+        if (!self.is_ally(candidate) && self.controller_house.is_none()) || self.berserk {
+            return true;
+        }
+        // `0x006F8AB8..0x006F8ACE`: what the transport's controller allies.
+        if self.controller_allies(candidate) {
+            return true;
+        }
+        // `0x006F8AD0..0x006F8B3C`: an Area Guard (`+0xAC`) engineer stops at
+        // a building at or below ConditionRed (`Rules+0x1708`, C0|C3) that
+        // costs its owner something (BuildingType vt+0x84, `0x0045EDD0`).
+        self.engineer
+            && self.scanner.mission.current().known() == Some(MissionType::AreaGuard)
+            && ratio(self.rules.general.condition_red)
+                .is_some_and(|order| order != MaskedX87Ordering::Greater)
+            && candidate.category == EntityCategory::Structure
+            && obj()
+                .zip(self.fire_world)
+                .is_some_and(|(obj, world)| world.cost_of(candidate.owner(), obj, self.rules) > 0)
+    }
+
+    /// G10, `0x006F7EA2..0x006F7FFB`: whether the ally arm refuses
+    /// `candidate`.
+    fn ally_arm_refuses(&self, candidate: &GameEntity, candidate_obj: &ObjectType) -> bool {
+        // `0x006F7EDA..0x006F7F1C`: an `AttackFriendlies=` scanner, an
+        // `InfantryClass+0x6D8` infantryman (neither represented), a berserk
+        // one or a controlled transport's passenger skips its own house's
+        // test; the passenger refuses what the controller's house allies
+        // (`0x006F7FE9..0x006F7FFB`).
+        if self.berserk || self.controller_house.is_some() {
+            return self.controller_allies(candidate);
+        }
+        if !self.is_ally(candidate) {
+            return false;
+        }
+        // `0x006F7F36..0x006F7F49`: only a healer or an engineer takes an
+        // ally, and only a damaged one (`0x006F7F4F..0x006F7F67`: C3, equal or
+        // unordered, refuses).
+        if (!self.healer && !self.engineer)
+            || matches!(
+                candidate.health.compare_ratio(candidate_obj.strength, 1.0),
+                MaskedX87Ordering::Equal | MaskedX87Ordering::Unordered
+            )
+        {
+            return true;
+        }
+        if self.attacker.category != EntityCategory::Unit {
+            return false;
+        }
+        if candidate.category == EntityCategory::Aircraft {
+            // `0x006F7F85..0x006F7FB7`: a vehicle takes an aircraft on the
+            // ground (GetHeight, vt+0x1C8), and not on a building's cell (the
+            // cell at its GetCoords, `0x00565730`; `0x0047C520` walks `+0xE4`).
+            let coords = object_get_coords(candidate, self.terrain);
+            return crate::sim::movement::air_movement::current_fly_height(candidate, self.terrain)
+                > 0
+                || self
+                    .cells
+                    .first_building_on_layer(
+                        lepton_to_cell(coords.x) as u16,
+                        lepton_to_cell(coords.y) as u16,
+                        MovementLayer::Ground,
+                    )
+                    .is_some();
+        }
+        // `0x006F7FC5..0x006F7FDD`: anything else answers vt+0x80.
+        !vehicle_like(self, candidate, candidate_obj)
     }
 
     /// The candidate's owner is `MultiplayPassive` (HouseType `+0x1A6`).
@@ -927,12 +1026,8 @@ pub(crate) fn greatest_threat(
     });
     let facts = attacker_facts(scanner, attacker_obj);
     let standing = ScannerStanding::resolve(fire_world, attacker);
-    // `0x006F3970(-1) < 0` (`0x006F8ED7`, `0x006F8F13`, `0x006F9C9F`).
-    let healer = matches!(
-        attacker.category,
-        EntityCategory::Infantry | EntityCategory::Unit
-    ) && super::combat_weapon::weapon_damage_value(scanner, attacker_obj, rules) < 0;
-    let controlled_transport = rides_controlled_transport(entities, rules, interner, scanner);
+    let healer = weapon_damage_value(scanner, attacker_obj, entities, rules, interner) < 0;
+    let controller_house = controlled_transport_house(entities, rules, interner, scanner);
     // House+54E0 within `0xF00` leptons, centre to centre (vt+0x48 of both):
     // `(dx² + dz²) + dy²` through `Sqrt_Approx` and ftol
     // (`0x0051E16E..0x0051E1F6`).
@@ -1050,13 +1145,11 @@ pub(crate) fn greatest_threat(
         mask,
         scan_coord,
         standing,
-        attacks_allies: scanner.berserk.active || controlled_transport,
-        scans_allies: healer
-            || (attacker.category == EntityCategory::Infantry
-                && !standing.human
-                && attacker_obj.engineer),
-        berserk_walks_allies: scanner.berserk.active && !healer,
-        berserk_skips_ally_test: scanner.berserk.active && !controlled_transport,
+        cells: occupancy,
+        healer,
+        engineer: attacker.category == EntityCategory::Infantry && attacker_obj.engineer,
+        berserk: scanner.berserk.active,
+        controller_house,
         fire_world,
     };
 
@@ -1077,13 +1170,17 @@ pub(crate) fn greatest_threat(
     // `AND EBX,0x4 @ 0x006F8F3A` gates the whole airborne pre-pass
     // (`TEST EBX,EBX @ 0x006F91A7`).
     let scan_air = mask & 4 != 0;
-    let index = ScanIndex::build(
-        entities,
-        occupancy,
-        scan_air,
-        (cx - radius, cy - radius),
-        (cx + radius, cy + radius),
-    );
+    // An AG-only scan walks no airborne subset: it neither walks the entity
+    // store nor allocates and sorts one.
+    let airborne = if scan_air {
+        airborne_index(
+            entities,
+            (cx - radius, cy - radius),
+            (cx + radius, cy + radius),
+        )
+    } else {
+        BTreeMap::new()
+    };
 
     let mut best: Option<u64> = None;
     // `local_50 = -1` — the keep test is strictly greater, so a score of 0 (the
@@ -1129,7 +1226,7 @@ pub(crate) fn greatest_threat(
             let (Ok(rx), Ok(ry)) = (u16::try_from(x), u16::try_from(y)) else {
                 continue;
             };
-            let Some(occupants) = index.airborne.get(&(rx, ry)) else {
+            let Some(occupants) = airborne.get(&(rx, ry)) else {
                 continue;
             };
             for &candidate_id in occupants {
@@ -1180,7 +1277,7 @@ pub(crate) fn greatest_threat(
             {
                 continue;
             }
-            let Some(candidate_id) = scan_cell_for_target(&ctx, &index, coord, scanner_zone) else {
+            let Some(candidate_id) = scan_cell_for_target(&ctx, coord, scanner_zone) else {
                 continue;
             };
             let Some(candidate) = entities.get(candidate_id) else {
@@ -1202,27 +1299,6 @@ pub(crate) fn greatest_threat(
         }
     }
     result(best)
-}
-
-/// Riding an `OpenTopped=` transport (`+0x11C`, TechnoType `+0x5E4`) that
-/// is mind-controlled (`+0x2C0`): `[ESP+0x13]` in the walks, `BL` in
-/// Evaluate_Candidate (`0x006F7EA2..0x006F7ED8`).
-fn rides_controlled_transport(
-    entities: &EntityStore,
-    rules: &RuleSet,
-    interner: &StringInterner,
-    scanner: &GameEntity,
-) -> bool {
-    scanner
-        .passenger_role
-        .inside_transport_id()
-        .and_then(|transport| entities.get(transport))
-        .is_some_and(|transport| {
-            transport.mind_control.controller().is_some()
-                && rules
-                    .object(interner.resolve(transport.type_ref()))
-                    .is_some_and(|obj| obj.open_topped)
-        })
 }
 
 /// `Greatest_Threat`'s mask: the caller's literal through the scanner's
@@ -1408,7 +1484,7 @@ fn global_list_scan(ctx: &ScanContext<'_>, flags: u32, zone: Option<u32>) -> Opt
     for candidate in ctx.entities.values() {
         // `0x006F9C92..0x006F9D0D`: a healer and a computer engineer also
         // look at allies.
-        if ctx.is_ally(candidate) && !ctx.attacks_allies() && !ctx.scans_allies() {
+        if !ctx.offers(candidate) {
             continue;
         }
         // `CMP [EDI+0x94],0x2 ; JNZ @ 0x006F9D13`: only objects the display
@@ -1433,29 +1509,23 @@ fn global_list_scan(ctx: &ScanContext<'_>, flags: u32, zone: Option<u32>) -> Opt
 }
 
 /// `TechnoClass::Scan_Cell_For_Target @ 0x006F8960`, narrowed to the armed
-/// attacker every reachable caller has.
+/// attacker every reachable caller has: the object it offers to
+/// [`evaluate_candidate`].
 ///
-/// The walk stops at the first hostile Techno in the selected list; allied
-/// entries are stepped over but do not end the walk, and if the list runs out
-/// with only allies the cell contributes nothing (the post-walk test at
-/// `0x006F8B56..0x006F8BE0` rejects the ally the walk was left holding). The
-/// result is that
-/// a cell holding three enemy infantry offers only the list head — if the gate
-/// then rejects that one, the other two are never seen.
+/// The walk (`0x006F8A17..0x006F8B43`) holds the last Techno it visited
+/// (`EBP`, `0x006F8A34`): another member, such as a tree, drops it
+/// (`0x006F8A23`) and the scanner itself leaves it (`0x006F8A19`). It stops at
+/// the first Techno [`ScanContext::cell_walk_stops_at`] names: an ordinary
+/// scanner's first non-ally, a healer's first damaged ally. If the list runs
+/// out, the walk keeps what it held. It offers what it holds when
+/// [`ScanContext::offers`] passes it (`0x006F8B5F..0x006F8BE0`), so an
+/// ordinary scanner's cell of allies offers nothing, and a cell of three enemy
+/// infantry offers only the list head: if the gate then rejects that one, the
+/// other two are never seen.
 ///
 /// A cell outside the scanner's zone offers nothing; see [`greatest_threat`].
-///
-/// A berserk scanner that is not a healer takes the first Techno, ally or not
-/// (`0x006F8AAA`), and the post-walk test passes an ally on (`0x006F8BD0`).
-///
-/// Not modelled: the other ally arms (`0x006F8A30..0x006F8B49`). A healer
-/// takes the first damaged ally instead of the first hostile, and an
-/// `AttackFriendlies=` scanner, a passenger of a mind-controlled `OpenTopped=`
-/// transport, an `InfantryClass+0x6D8` infantryman or an Area Guard computer
-/// engineer may take an ally; see the G10 residual in [`evaluate_candidate`].
 fn scan_cell_for_target(
     ctx: &ScanContext<'_>,
-    index: &ScanIndex<'_>,
     coord: (i16, i16),
     zone: Option<u32>,
 ) -> Option<u64> {
@@ -1494,19 +1564,34 @@ fn scan_cell_for_target(
     } else {
         (u16::try_from(coord.0).ok()?, u16::try_from(coord.1).ok()?)
     };
-    let (occupancy, layer) = index.cell_list(rx, ry)?;
-    for occupant in occupancy.iter_layer(layer) {
-        if occupant.entity_id == ctx.attacker.stable_id {
-            continue;
-        }
-        let Some(candidate) = ctx.entities.get(occupant.entity_id) else {
+    let layer = ctx.cell_list(rx, ry)?;
+    let terrain = ctx.fire_world.and_then(|world| {
+        world
+            .production
+            .terrain_object_cells
+            .get(&(rx, ry))
+            .copied()
+    });
+    let mut held = None;
+    for member in ctx.cells.cell_objects(rx, ry, layer, terrain) {
+        let CellObjectMember::Entity(id) = member else {
+            // `0x006F8A2A`: not a Techno.
+            held = None;
             continue;
         };
-        if ctx.berserk_walks_allies || !ctx.is_ally(candidate) {
-            return Some(occupant.entity_id);
+        if id == ctx.attacker.stable_id {
+            continue;
+        }
+        let Some(candidate) = ctx.entities.get(id) else {
+            continue;
+        };
+        held = Some(candidate);
+        if ctx.cell_walk_stops_at(candidate) {
+            break;
         }
     }
-    None
+    held.filter(|held| ctx.offers(held))
+        .map(GameEntity::stable_id)
 }
 
 /// `Evaluate_Candidate`'s distance cutoff, `0x006F8049..0x006F8170`: a
@@ -1639,37 +1724,12 @@ fn evaluate_candidate(
         return None;
     }
 
-    // G10/G11 — the ally arm and the self test (`0x006F7EA2..0x006F8001`). A
-    // berserk scanner skips the ally test (`0x006F7F0C`, `0x006F7FE9`) unless
-    // it rides a mind-controlled `OpenTopped=` transport.
-    //
-    // RESIDUAL — G10's other exceptions and the cell walk's other ally arms
-    // ([`scan_cell_for_target`]) are not ported, so every other scanner
-    // rejects every ally here. Natively a healer (retail: an IFV carrying an
-    // engineer, `[FV] Weapon2=RepairBullet`) takes a damaged ally, a computer
-    // engineer a damaged own building, and an `AttackFriendlies=` scanner (no
-    // retail type) or an `InfantryClass+0x6D8` infantryman takes allies as it
-    // takes enemies. A passenger of a mind-controlled `OpenTopped=` transport,
-    // berserk or not, instead rejects what its controller's house is allied
-    // with (`0x006F7FED..0x006F7FFB`). Trigger: an idle repair IFV beside a
-    // damaged vehicle; a guarding computer engineer near a damaged building; a
-    // mind-controlled transport carrying passengers. Effect: no automatic
-    // repair, and such passengers spare their own house's allies but attack
-    // their controller's. Frequency: whenever a repair IFV or a guarding
-    // computer engineer idles near damage. Downstream: target choice only; for
-    // these scanners the walks' ally exceptions ([`ScanContext::attacks_allies`],
-    // [`ScanContext::scans_allies`]) change nothing until this lands.
-    if candidate.stable_id() == ctx.attacker.stable_id
-        || (!ctx.berserk_skips_ally_test && ctx.is_ally(candidate))
-    {
-        return None;
-    }
     if candidate.passenger_role.is_inside_transport() {
         return None;
     }
 
     // G12 — the movement-zone gate, `0x006F7E32`-`0x006F7E9C`, in its native
-    // slot (between the in-transport reject and the distance test).
+    // slot (between the in-transport reject and the ally arm).
     //
     // `MOV EBP,[ESP+0x54]` reads arg6; `CMP EBP,-0x1 ; JZ 0x006F7EA2` skips the
     // whole block when the caller passed `-1`, which every ring-walk callsite
@@ -1710,6 +1770,25 @@ fn evaluate_candidate(
         if candidate_zone.is_some_and(|zone| zone != scanner_zone) {
             return None;
         }
+    }
+
+    // G10/G11 — the ally arm ([`ScanContext::ally_arm_refuses`]), then the
+    // self test (`0x006F8001`). A healer (retail: an IFV carrying an engineer,
+    // `[FV] Weapon2=RepairBullet`) takes a damaged ally.
+    //
+    // RESIDUAL — `AttackFriendlies=` (TechnoType `+0x6C0`) and
+    // `InfantryClass+0x6D8` are not represented. Natively the first scanner
+    // takes allies as it takes enemies; no retail type sets it. The second's
+    // cell walk stops at the first Techno (`0x006F8ADC`) and no walk offers it
+    // an ally, so an ally at the head of a cell's list hides the enemies
+    // behind it, where VERA steps past the ally. Trigger: a map trigger or
+    // team script that sets +0x6D8 (InfantryClass vt+0x514, `0x005220F0`;
+    // called at `0x006DDB46`, `0x006E097D`, `0x006EDD9F`). Frequency: none on
+    // retail rules without such a map. Downstream: target choice only.
+    if ctx.ally_arm_refuses(candidate, candidate_obj)
+        || candidate.stable_id() == ctx.attacker.stable_id
+    {
+        return None;
     }
 
     // G13 — distance. A non-zero `Threat_Range` is a hard cutoff; a zero one
@@ -2072,10 +2151,10 @@ fn quarry_terms(mask: u32, score: i32, all_to_hunt: bool, facts: QuarryFacts) ->
     Some(score)
 }
 
-/// `vt+0x80` as the class gate asks it: a 1x1 building with `UndeploysInto=`
-/// (`0x00457620` → `0x00465D40`) or an aircraft low enough to count as on
-/// the floor (`0x0041B910` → vt+0x50). Infantry answer false (`0x004263B0`);
-/// a unit never gets here, its own bit decides.
+/// The candidate's `vt+0x80`: a 1x1 building with `UndeploysInto=`
+/// (`0x00457620` → `0x00465D40`), an aircraft low enough to count as on the
+/// floor (`0x0041B910` → vt+0x50), or a Unit that is not `NonVehicle=`
+/// (`0x00746400`, UnitType `+0xE1B`). Infantry answer false (`0x004263B0`).
 fn vehicle_like(ctx: &ScanContext<'_>, candidate: &GameEntity, obj: &ObjectType) -> bool {
     match candidate.category {
         EntityCategory::Structure => obj.is_1x1_with_undeploy(),
@@ -2084,7 +2163,8 @@ fn vehicle_like(ctx: &ScanContext<'_>, candidate: &GameEntity, obj: &ObjectType)
             ctx.terrain,
             Some((ctx.rules, ctx.interner)),
         ),
-        EntityCategory::Unit | EntityCategory::Infantry => false,
+        EntityCategory::Unit => !obj.non_vehicle,
+        EntityCategory::Infantry => false,
     }
 }
 
@@ -3956,3 +4036,7 @@ mod bridge_tests;
 #[cfg(test)]
 #[path = "greatest_threat_mask_oracle_tests.rs"]
 mod mask_oracle_tests;
+
+#[cfg(test)]
+#[path = "greatest_threat_ally_tests.rs"]
+mod ally_tests;

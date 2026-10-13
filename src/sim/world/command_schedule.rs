@@ -126,24 +126,41 @@ impl Simulation {
         if let Some(rules) = rules {
             crate::sim::production::publish_production_changes(self, rules);
         }
-        let mut published = self.pending_commands.split_off(previous_pending);
+        let published = self.pending_commands.split_off(previous_pending);
+        let mut admitted = commands.to_vec();
+        self.admit_generated_frame_commands(&mut admitted, published, true);
+        admitted
+    }
+
+    /// Local events produced during the frame join the existing batch in
+    /// OutList insertion order before the canonical House-ordered dispatcher.
+    /// Recorded diagnostic batches already contain these events; consume one
+    /// exact regenerated copy per recorded entry only on that route. Ordinary
+    /// player cancellation and a strip cancellation may be identical and both
+    /// must execute. Future events stay with the one persisted queue owner.
+    pub(super) fn admit_generated_frame_commands(
+        &mut self,
+        admitted: &mut Vec<CommandEnvelope>,
+        mut generated: Vec<CommandEnvelope>,
+        commands_include_generated: bool,
+    ) {
         let execute_tick = self.session.tick.saturating_add(1);
-        for admitted in commands {
-            if admitted.execute_tick <= execute_tick
-                && let Some(index) = published.iter().position(|command| command == admitted)
-            {
-                published.remove(index);
+        if commands_include_generated {
+            for command in admitted.iter() {
+                if command.execute_tick <= execute_tick
+                    && let Some(index) = generated.iter().position(|fresh| fresh == command)
+                {
+                    generated.remove(index);
+                }
             }
         }
-        let mut admitted = commands.to_vec();
-        for command in published {
+        for command in generated {
             if command.execute_tick <= execute_tick {
                 admitted.push(command);
             } else {
                 self.pending_commands.push(command);
             }
         }
-        admitted
     }
 
     /// Admit and drain a diagnostic-replay batch, consuming exact matching
@@ -163,6 +180,7 @@ impl Simulation {
         &mut self,
         commands: impl IntoIterator<Item = CommandEnvelope>,
     ) -> Vec<CommandEnvelope> {
+        self.replaying_recorded_commands = true;
         let commands: Vec<_> = commands.into_iter().collect();
         let execute_tick = self.session.tick.saturating_add(1);
         for recorded in &commands {

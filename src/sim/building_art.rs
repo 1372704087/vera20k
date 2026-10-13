@@ -201,6 +201,10 @@ impl Simulation {
                     ),
                 });
         }
+        //446A61 sets the same House tech-recheck consumed at its late update.
+        if let Some(house) = self.houses.get_mut(&owner) {
+            house.request_tech_recheck();
+        }
         //446A77 invalidates retained House power and radar on every reached
         //opening (including capture), before publishing placement at446A84.
         self.invalidate_house_power(owner, true);

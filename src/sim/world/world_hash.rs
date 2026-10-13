@@ -856,6 +856,9 @@ impl Simulation {
             house.map_is_clear.hash(hasher);
             house.spy_sat_active.hash(hasher);
             house.tracking.hash_defeat_counters(hasher);
+            if house.tech_recheck_pending() {
+                b"house-tech-recheck-v1".hash(hasher);
+            }
             // House+0x164/+0x168 (Tech Hospital / Machine Shop). Tagged so a
             // house that never owned one keeps the historical stream, as the
             // spatial-threat and match-statistics folds above do.

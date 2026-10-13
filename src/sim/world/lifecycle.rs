@@ -1385,7 +1385,12 @@ impl Simulation {
                 context.effects(),
             );
         }
-        //44D5ED..44D63C also writes House26C/246/1FC. The retained
+        //44D61A writes the owner's House+1FC on the successful discovery
+        // path, even during scenario initialization or for a foreign viewer.
+        if let Some(house) = self.houses.get_mut(&owner) {
+            house.request_tech_recheck();
+        }
+        //44D5ED..44D63C also writes House26C/246. The retained
         // built-type Event19 and90-frame notification consumers remain
         // the large separate mechanism documented in ai_base_building.
         // Existing placement/opening owns the Super recheck; stock SOV01
@@ -2814,6 +2819,15 @@ impl Simulation {
                 stable_id,
                 crate::sim::house_tracking::HouseTracking::recount,
             );
+            // Building445D99 follows Recount and precedes Techno Limbo.
+            // The non-factory prerequisite path stops here: its strip
+            // cancellation is decided only after this frame's Factory sweep.
+            if let Some(entity) = self.substrate.entities.get(stable_id)
+                && entity.category == EntityCategory::Structure
+                && let Some(house) = self.houses.get_mut(&entity.owner())
+            {
+                house.request_tech_recheck();
+            }
             // 0x004459AE..0x004459CA (infantry) and the unit arm after it:
             // the building's self-heal counts leave its house on the same
             // first Limbo, each clamped at zero.

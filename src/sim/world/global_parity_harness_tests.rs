@@ -20,6 +20,9 @@
 //! handshake needs movement world-setup (terrain costs / resolved terrain) that
 //! the dedicated miner-dock suite (`miner_tests.rs`) provides and owns; this
 //! harness only guards that the miner system stays wired and deterministic.
+//!
+//! The `tools/spatial_oracle/*_replay/` and `foot_bridge_layer*.replay.json`
+//! receipts cited below left the tree; `git show 1b1a8b43e:<path>` retrieves them.
 
 use super::*;
 use crate::map::entities::{EntityCategory, MapEntity};

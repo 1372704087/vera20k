@@ -290,17 +290,12 @@ impl Simulation {
         if is_ally_by_object(Some(&self.house_alliances), &self.interner, owner, other) {
             return false;
         }
-        let (Some(house), Some(other_house)) = (self.houses.get(&owner), self.houses.get(&other))
-        else {
+        let (Some(house), Some(_)) = (self.houses.get(&owner), self.houses.get(&other)) else {
             return false;
         };
-        // 0x0050157C..0x0050159E: a house type of the `Civilian` side
-        // (SideClass::Find_Index 0x006A46D0), in a nonzero game mode.
-        if self.session.game_mode_nonzero
-            && rules
-                .side_index("Civilian")
-                .is_some_and(|civilian| other_house.side_index == civilian.0)
-        {
+        // 0x0050157C..0x0050159E: a house type of the `Civilian` side, in a
+        // nonzero game mode.
+        if self.session.game_mode_nonzero && self.house_type_is_civilian(other, rules) {
             return false;
         }
         // 0x005015B1..0x005015BF.

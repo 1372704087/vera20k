@@ -204,6 +204,17 @@ impl Simulation {
         overlay_registry: Option<&crate::rules::overlay_types::OverlayTypeRegistry>,
         frame_effects: FrameEffects<'_>,
     ) -> (bool, bool) {
+        // Scatter's found-cell arm immediately runs the locomotor. Its
+        // authoritative bridge flag can change before the ordinary movement
+        // phase, so that phase must rebuild its derived navigation view too.
+        let scatter_bridge_before = match cmd.payload {
+            Command::Scatter { entity_id } => self
+                .substrate
+                .entities
+                .get(entity_id)
+                .map(|entity| (entity_id, entity.on_bridge)),
+            _ => None,
+        };
         let cmd_owner_str = self.interner.resolve(cmd.owner).to_string();
         let applied = self.apply_command_with_overlays(
             &cmd_owner_str,
@@ -219,7 +230,13 @@ impl Simulation {
         let spawned_entity = synchronous_deploy
             || placed_building_owner.is_some()
             || applied && matches!(cmd.payload, Command::PlaceProducedMobile { .. })
-            || applied && matches!(cmd.payload, Command::LaunchSuperWeapon { .. });
+            || applied && matches!(cmd.payload, Command::LaunchSuperWeapon { .. })
+            || scatter_bridge_before.is_some_and(|(id, before)| {
+                self.substrate
+                    .entities
+                    .get(id)
+                    .is_some_and(|entity| entity.on_bridge != before)
+            });
         (applied, spawned_entity)
     }
 

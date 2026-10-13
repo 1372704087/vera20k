@@ -24,7 +24,7 @@ use crate::sim::combat::combat_aoe::CellTargetDetach;
 use crate::sim::combat::combat_aoe::expire_cell_target_references;
 use crate::sim::command::{
     COMMAND_RECORD_LEN, Command, CommandEnvelope, CommandRecord, ExitRecord, MegaMissionOrder,
-    MegaMissionRecord, MegaMissionTarget, SellWallAtCellRecord,
+    MegaMissionRecord, MegaMissionTarget, ScatterRecord, SellWallAtCellRecord,
 };
 use crate::sim::mission::MissionType;
 #[cfg(test)]
@@ -129,6 +129,41 @@ fn trace_wall_sell_zone_repair_step(
 }
 
 impl Simulation {
+    /// ScatterSelectedObjects730FE0 admits Techno vt+A0, without Guard's
+    /// IsActive test or miner exception. All retained entities are Technos.
+    pub(crate) fn scatter_key_command(&self, id: u64, rules: &RuleSet) -> Option<Command> {
+        self.techno_player_controllable(id, rules)
+            .then_some(Command::Scatter { entity_id: id })
+    }
+
+    /// ClickedEvent6FFE00 ->4C65E0 stores issuer registration and actor UID
+    /// independently. Ownership is not rechecked by Event7 at execution.
+    pub(crate) fn encode_scatter_record(
+        &self,
+        command_owner: crate::sim::intern::InternedId,
+        entity_id: u64,
+    ) -> Option<CommandRecord> {
+        if !self.houses.contains_key(&command_owner)
+            || self.substrate.entities.get(entity_id).is_none()
+        {
+            return None;
+        }
+        let house_id = self
+            .session
+            .house_order
+            .iter()
+            .position(|&owner| owner == command_owner)
+            .and_then(|index| i8::try_from(index).ok())?;
+        let typed = ScatterRecord {
+            house_id,
+            frame: self.session.binary_frame as i32,
+            entity_id: i32::try_from(entity_id).ok()?,
+        };
+        let mut record = CommandRecord::decode_exact(&[0; COMMAND_RECORD_LEN]).ok()?;
+        typed.write_into(&mut record);
+        Some(record)
+    }
+
     /// G/command-bar Guard730D60 chooses each admitted actor's current
     /// navigation Cell before Player_Send_Command6FFBE0 emits mission11.
     /// It admits an actor both IsControllable700C40 and IsActive7010D0
@@ -277,6 +312,20 @@ impl Simulation {
         record: &CommandRecord,
         execute_tick: u64,
     ) -> Option<CommandEnvelope> {
+        if let Some(typed) = ScatterRecord::decode(record) {
+            let house_index = usize::try_from(typed.house_id).ok()?;
+            let owner = *self.session.house_order.get(house_index)?;
+            if !self.houses.contains_key(&owner) {
+                return None;
+            }
+            let entity_id = u64::try_from(typed.entity_id).ok()?;
+            self.substrate.entities.get(entity_id)?;
+            return Some(CommandEnvelope::new(
+                owner,
+                execute_tick,
+                Command::Scatter { entity_id },
+            ));
+        }
         if let Some(typed) = MegaMissionRecord::decode(record) {
             let house_index = usize::try_from(typed.house_id).ok()?;
             let owner = *self.session.house_order.get(house_index)?;
@@ -649,6 +698,42 @@ impl Simulation {
     ) -> bool {
         match cmd {
             Command::Select { entity_ids, .. } => self.apply_selection_snapshot(entity_ids, rules),
+            Command::Scatter { entity_id } => {
+                // Event7 4C7859..4C78D5: clear planning tokens, then Foot,
+                // alive, on-map and untethered. There is no HP/owner/mission
+                // gate. Planning mode/back-pointers have no current owner;
+                // that separate unimplemented route remains a residual.
+                let admitted = self
+                    .substrate
+                    .entities
+                    .get(*entity_id)
+                    .is_some_and(|actor| {
+                        actor.category.is_foot()
+                            && actor.lifecycle.object_alive
+                            && !actor.lifecycle.in_limbo
+                            && actor.dock_entered_with.is_none()
+                    });
+                if !admitted {
+                    return false;
+                }
+                let Some(rules) = rules else {
+                    return false;
+                };
+                // Native also writes +6B2. Its observed consumers are class
+                // CRC4DBD60 and raw native Save/Load41035E/4103CD, not active
+                // peer checksum64DAB0. No unread Rust bookkeeping shadow is
+                // retained; class CRC/raw-native-image equivalence is absent.
+                self.scatter(
+                    *entity_id,
+                    None,
+                    crate::sim::movement::ScatterFlags::new(true, false),
+                    rules,
+                    overlay_registry,
+                    frame_effects,
+                )
+                .unwrap_or_else(|cause| panic!("player Scatter event: {cause}"));
+                true
+            }
             Command::Move {
                 entity_id,
                 target_rx,
@@ -2769,6 +2854,27 @@ mod tests {
         );
         entity.lifecycle.in_limbo = false;
         sim.substrate.entities.insert(entity);
+    }
+
+    #[test]
+    fn scatter_event_resolves_the_registered_actor_in_the_native_decoder() {
+        let mut sim = Simulation::new();
+        let local = sim.interner.intern("Local");
+        let actor_owner = sim.interner.intern("ActorOwner");
+        sim.houses
+            .insert(local, HouseState::new(local, 0, None, true, 0, 10));
+        sim.session.house_order = vec![local];
+        gsi_16_01_insert_identity_entity(&mut sim, 42, actor_owner);
+
+        // Original 4C65E0 writes the Abstract UID then kind0x34 into
+        // Event+7..11. Case7 at4C7859 resolves it independently of issuer.
+        let record = CommandRecord::encode(7, 0, 77, &[42, 0, 0, 0, 0x34]).unwrap();
+        let decoded = sim
+            .decode_native_command_record(&record, 900)
+            .expect("EVENT_SCATTER must reach the synchronized command decoder");
+        assert_eq!(decoded.owner, local);
+        assert_eq!(decoded.execute_tick, 900);
+        assert_eq!(decoded.payload, Command::Scatter { entity_id: 42 });
     }
 
     #[test]

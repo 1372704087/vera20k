@@ -213,7 +213,8 @@ pub(crate) fn sell_back(
     true
 }
 
-/// `Queue_Mission(Selling, 0)` then Commence (Sell_Back, `0x00447176`): the
+/// `Queue_Mission(Selling, 0)` then Commence (Sell_Back,
+/// `0x0044717D..0x00447185`, with literal mission `0x13`): the
 /// building leaves its mission for Selling, whose visits start the next
 /// frame ([`BuildingDown`]). `undeploy_order` marks the player's undeploy
 /// order. A building already Selling keeps its sale (Queue_Mission refuses

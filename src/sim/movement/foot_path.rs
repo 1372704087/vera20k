@@ -49,7 +49,6 @@ use crate::util::fixed_math::SIM_ZERO;
 /// ([`Simulation::astar_code2_chain_jams`]).
 struct FootSearchEntry<'a> {
     sim: &'a Simulation,
-    terrain: Option<&'a crate::map::resolved_terrain::ResolvedTerrainGrid>,
     receiver: Result<crate::sim::world::FootEntryReceiver<'a>, String>,
     threat_coefficient: crate::util::native_x87::NativeF64Bits,
     markers: super::path_markers::DeferredBridgeMarkerSearch<'a>,
@@ -57,7 +56,11 @@ struct FootSearchEntry<'a> {
 
 impl crate::sim::pathfinding::SearchFootEntry for FootSearchEntry<'_> {
     fn classify(&self, query: crate::sim::pathfinding::SearchEntryQuery) -> Result<u8, String> {
-        let terrain = self.terrain.ok_or("Foot search requires map cells")?;
+        let terrain = self
+            .sim
+            .resolved_terrain
+            .as_ref()
+            .ok_or("Foot search requires map cells")?;
         let receiver = self.receiver.as_ref().map_err(Clone::clone)?;
         let previous = query
             .from
@@ -108,7 +111,11 @@ impl crate::sim::pathfinding::SearchFootEntry for FootSearchEntry<'_> {
         Ok(self.threat_coefficient)
     }
     fn finishing_house_threat(&self, coord: (i16, i16)) -> Result<i32, String> {
-        let terrain = self.terrain.ok_or("Foot finishing requires map cells")?;
+        let terrain = self
+            .sim
+            .resolved_terrain
+            .as_ref()
+            .ok_or("Foot finishing requires map cells")?;
         //56BCD0 first resolves a Cell, including fixed-stride aliases and
         // shared Dummy replacement. Keep that observable query even when the
         // product cannot depend on House+59F0: signed-i32 * exact +/-0 is zero.
@@ -564,7 +571,6 @@ impl Simulation {
             // search fails at the first class question.
             let entry = FootSearchEntry {
                 sim: self,
-                terrain: self.resolved_terrain.as_ref(),
                 markers: marker_search,
                 receiver: self.foot_entry_receiver(id, rules, registry),
                 threat_coefficient: self

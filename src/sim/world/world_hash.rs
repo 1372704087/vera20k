@@ -925,6 +925,7 @@ impl Simulation {
             house.hash_event_notifications(hasher);
             house.hash_lost_building(hasher);
             house.hash_spy_gains(hasher);
+            house.hash_powered_unit_centers(hasher);
             house.hash_native_construction(hasher);
             house.hash_difficulty_biases(hasher);
             house.hash_scenario_parameters(hasher);
@@ -1441,6 +1442,14 @@ impl Simulation {
             }
             if entity.building_has_engineer {
                 b"building-has-engineer-v1".hash(hasher);
+            }
+            // Building+662 and Techno+1C8 (`sim::powered_unit`), folded only
+            // while set.
+            if entity.building_powered_center {
+                b"building-powered-center-v1".hash(hasher);
+            }
+            if entity.deactivated {
+                b"techno-deactivated-v1".hash(hasher);
             }
             // Infantry gameplay reads its class-owned Doing/Stage fields.
             // A restored presentation component is not a second state owner.

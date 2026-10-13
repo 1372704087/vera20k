@@ -117,6 +117,10 @@ Observing it sends no selection or lifecycle mutation. Historical sealed
 receipts may omit it, and omission supplies no observed Alive value. The fixed
 boolean remains part of the existing one-sample actor row.
 
+Actor `deactivated`, when present, is the Techno `+0x1C8` offline latch that
+`sim::powered_unit` owns: a Robot Tank whose house has no powered Robot Control
+Center. Historical receipts omit it; omission supplies no observed latch.
+
 Actor `retask` reads the existing `suspended_target` and `suspended_nav`
 references alongside current `target`, `archive`, `nav` and mission fields.
 References retain their distinct tagged target/navigation representations;

@@ -891,7 +891,7 @@ impl Simulation {
             .get(stable_id)
             .is_some_and(|entity| entity.lifecycle.object_alive)
         {
-            self.update_house_presence(stable_id, true);
+            self.house_added_to_game(stable_id);
         }
         // Techno6F6DAA: only successful placement of an alive Techno snaps
         // the body to this call's direction, before barrel elevation and idle.
@@ -2960,7 +2960,7 @@ impl Simulation {
                 );
             }
             // 6F6BD1: Removed_From_Game, also only on the first Limbo.
-            self.update_house_presence(stable_id, false);
+            self.house_removed_from_game(stable_id, context.rules(), context.effects());
             // BuildingClass::Limbo 0x00445946..0x00445988: an opened
             // Helipad's docks leave its house's AirportDocks.
             if let Some(rules) = context.rules()

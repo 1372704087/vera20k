@@ -71,12 +71,6 @@
 //!   (`0x007362A7..0x007362F5`); VERA runs none. Trigger: a destination for
 //!   a Chrono Miner in the warp's last frames. Effect: TimerCheck's draw
 //!   moves a frame and the warp's END up to one; the Drive goes nowhere.
-//! - PostWarpValidation's hover arm (`0x00718864..0x007188AF`): a Hover type
-//!   with `PoweredUnit=` (TechnoType `+0x410`) whose house has no matching
-//!   powering building (`HouseClass @ 0x0050E1B0`) loses its hover; VERA
-//!   reads neither, so every Hover type keeps it. Trigger: a Robot Tank
-//!   chronoshifted onto water while its owner has no Robot Control Center.
-//!   Effect: it floats instead of sinking.
 //! - A landed Aircraft that sinks keeps `+0x3CD` with nothing to end it:
 //!   VERA ports only the Unit's sinking (Unit AI `0x007364A1`); the Aircraft
 //!   AI's handling is not established. Trigger: an airfield's Harriers
@@ -598,7 +592,8 @@ impl Simulation {
     ///    kills the owner, reading each successor after the call;
     /// 2. a Naval type is out of place on a bridge cell or a Road cell
     ///    (LandType 1, `+0xEC`); a Hover type (SpeedType 3) is at home on
-    ///    water (module residual);
+    ///    water unless it is `PoweredUnit=` and its house has no powered
+    ///    center (`0x00718864..0x007188AF`, `sim::powered_unit`);
     /// 3. on a Water cell (LandType 2) with no bridge, an object that is not
     ///    Hover, Naval or Infantry sinks, its slaves go free, and its kill is
     ///    booked for the warping house (`0x00718968..0x007189F4`);
@@ -648,7 +643,8 @@ impl Simulation {
                 (
                     entity.category,
                     object.naval,
-                    object.speed_type == SpeedType::Hover,
+                    object.speed_type == SpeedType::Hover
+                        && !(object.powered_unit && !self.has_powered_center(entity.owner())),
                 )
             })
         }) else {

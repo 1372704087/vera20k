@@ -58,7 +58,14 @@ pub(super) struct WorldInstances {
 pub(super) struct DebugInstances {
     pub pathgrid: Vec<SpriteInstance>,
     pub cell_grid: Vec<SpriteInstance>,
-    pub path: Vec<SpriteInstance>,
+    /// Route stroke. **Solid white** texture — a thin line drawn with the iso
+    /// diamond loses its transparent corners and reads as a faint dotted trail.
+    pub path_stroke: Vec<SpriteInstance>,
+    /// Route waypoint nodes. Filled diamond: a node marks a *cell*.
+    pub path_nodes: Vec<SpriteInstance>,
+    /// Step-index glyphs for the route overlay. **Separate pool** because the
+    /// UVs address the GAME.FNT atlas, and one batch binds exactly one texture.
+    pub path_text: Vec<SpriteInstance>,
     pub heightmap: Vec<SpriteInstance>,
 }
 
@@ -456,7 +463,19 @@ fn build_smudge_instances(state: &AppState, sw: f32, sh: f32) -> Vec<SpriteInsta
 // ---------------------------------------------------------------------------
 
 /// Build debug visualization instances (only when toggled on via hotkeys).
+/// Build debug visualization instances (only when toggled on via hotkeys).
 pub(super) fn build_debug_instances(state: &AppState, sw: f32, sh: f32) -> DebugInstances {
+    // The route overlay needs three batches (white stroke / diamond nodes /
+    // FNT glyphs), so it is built once and split.
+    let path = if state.diag.debug_show_foot_path {
+        debug_overlays::build_path_overlay_instances(state)
+    } else {
+        debug_overlays::PathOverlayInstances {
+            stroke: Vec::new(),
+            nodes: Vec::new(),
+            text: Vec::new(),
+        }
+    };
     DebugInstances {
         pathgrid: if state.diag.debug_show_pathgrid {
             debug_overlays::build_terrain_cost_overlay_instances(state, sw, sh)
@@ -468,11 +487,9 @@ pub(super) fn build_debug_instances(state: &AppState, sw: f32, sh: f32) -> Debug
         } else {
             Vec::new()
         },
-        path: if state.diag.debug_show_pathgrid {
-            debug_overlays::build_path_overlay_instances(state, sw, sh)
-        } else {
-            Vec::new()
-        },
+        path_stroke: path.stroke,
+        path_nodes: path.nodes,
+        path_text: path.text,
         heightmap: if state.diag.debug_show_heightmap {
             debug_overlays::build_heightmap_overlay_instances(state, sw, sh)
         } else {

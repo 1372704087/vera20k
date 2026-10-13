@@ -373,7 +373,9 @@ fn upload_to_gpu(
     // Debug overlays
     pool.upload(&state.renderer.gpu, "debug_pathgrid", &debug.pathgrid);
     pool.upload(&state.renderer.gpu, "debug_cell_grid", &debug.cell_grid);
-    pool.upload(&state.renderer.gpu, "debug_path", &debug.path);
+    pool.upload(&state.renderer.gpu, "debug_path_stroke", &debug.path_stroke);
+    pool.upload(&state.renderer.gpu, "debug_path_nodes", &debug.path_nodes);
+    pool.upload(&state.renderer.gpu, "debug_path_text", &debug.path_text);
     pool.upload(&state.renderer.gpu, "debug_heightmap", &debug.heightmap);
 
     // Terrain + overlays

@@ -7,6 +7,8 @@ pub(crate) mod debug_overlays;
 pub(crate) mod debug_panel;
 #[cfg(feature = "dev-ui")]
 pub(crate) mod dev_overlay;
+#[cfg(feature = "dev-ui")]
+pub(crate) mod i18n;
 pub(crate) mod shell_capture;
 pub(crate) mod state;
 pub(crate) mod tactical_capture;

@@ -52,6 +52,16 @@ impl FrameTimer {
         let ms = self.frame_ms_mean();
         if ms <= 0.0 { 0.0 } else { 1000.0 / ms }
     }
+
+    /// Per-sample frame times in milliseconds, oldest first — feeds the dev
+    /// overlay's frame-time sparkline.
+    #[cfg(feature = "dev-ui")]
+    pub(crate) fn frame_ms_history(&self) -> Vec<f32> {
+        self.samples
+            .iter()
+            .map(|d| d.as_secs_f32() * 1000.0)
+            .collect()
+    }
 }
 
 impl Default for FrameTimer {
@@ -77,12 +87,19 @@ pub(crate) struct DiagnosticsState {
     pub(crate) debug_show_heightmap: bool,
     /// Debug unit inspector (X): mirrors sim-side per-entity event logging.
     pub(crate) debug_unit_inspector: bool,
+    /// Foot-path step overlay toggle (O): draws the selected units' remaining
+    /// path cells with per-step tint/scale, so the route order reads at a
+    /// glance. Decoupled from the PathGrid terrain-cost overlay.
+    pub(crate) debug_show_foot_path: bool,
     /// Optional per-tick parity digest capture (diagnostics; never perturbs
     /// the run being measured).
     pub(crate) parity_digest_sink: Option<crate::sim::parity_digest::ParityDigestSink>,
     /// Save-name text field in the dev overlay.
     #[cfg(feature = "dev-ui")]
     pub(crate) dev_overlay_save_name: String,
+    /// Active dev-ui language (Ctrl+Shift+I, or the overlay segmented control).
+    #[cfg(feature = "dev-ui")]
+    pub(crate) lang: crate::app::diagnostics::i18n::Lang,
     /// Rolling frame-time statistics for the dev overlay.
     pub(crate) frame_timer: FrameTimer,
 }
@@ -112,9 +129,12 @@ impl DiagnosticsState {
             debug_show_cell_grid: false,
             debug_show_heightmap: false,
             debug_unit_inspector: false,
+            debug_show_foot_path: false,
             parity_digest_sink,
             #[cfg(feature = "dev-ui")]
             dev_overlay_save_name: String::new(),
+            #[cfg(feature = "dev-ui")]
+            lang: crate::app::diagnostics::i18n::Lang::default(),
             frame_timer: FrameTimer::new(),
         }
     }
@@ -136,6 +156,13 @@ impl DiagnosticsState {
         &mut self,
     ) -> Option<crate::app::diagnostics::dev_overlay::DevOverlayAction> {
         self.pending_ui_action.take()
+    }
+
+    /// Rolling frame-time samples (ms, oldest first) for the dev overlay
+    /// sparkline.
+    #[cfg(feature = "dev-ui")]
+    pub(crate) fn frame_ms_history(&self) -> Vec<f32> {
+        self.frame_timer.frame_ms_history()
     }
 
     pub(crate) fn use_map_presentation_clock(&mut self) -> anyhow::Result<()> {

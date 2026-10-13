@@ -78,16 +78,34 @@ impl App {
     /// modifier that performed an Alt+Tab never delivers its release to this
     /// window, so it would otherwise stay latched and suppress force-fire and
     /// the ordinary cursor for the rest of the match.
-    pub(super) fn set_window_active(state: &mut AppState, active: bool) {
-        if state.platform.window_active == active {
-            return;
-        }
-        state.platform.window_active = active;
+    /// Forget every key the input layer believes is still down.
+    ///
+    /// gamemd's `WM_ACTIVATEAPP` edge drops the held-key set and the modifier
+    /// views, and it has to: a release that never reaches the tactical input
+    /// layer leaves those bytes set forever, and every later click is then
+    /// dispatched as if Shift/Ctrl were still held — a bare left-click becomes
+    /// a toggle-select, a move order resolves against a modifier it never
+    /// saw, and the match looks unresponsive.
+    ///
+    /// The debug overlay produces exactly that lost release: while it is up,
+    /// `dev_ui_consumed` keeps keyboard edges away from the tactical layer, so
+    /// the Ctrl/Shift of the `Ctrl+Shift+J` chord itself are still "held" when
+    /// the panel closes. Ending the debug pause runs the same teardown the
+    /// focus edge runs.
+    pub(crate) fn release_held_keyboard_state(state: &mut AppState) {
         state.match_state.input.keys_held.clear();
         state.match_state.input.hotkey_modifiers = ModifiersState::empty();
         state.platform.live_modifiers = ModifiersState::empty();
         state.platform.held_modifier_keys.clear();
         state.match_state.input.type_select.clear_held();
+    }
+
+    pub(super) fn set_window_active(state: &mut AppState, active: bool) {
+        if state.platform.window_active == active {
+            return;
+        }
+        state.platform.window_active = active;
+        Self::release_held_keyboard_state(state);
         // gamemd-derived: the `WM_ACTIVATEAPP` changed edge at 0x007778AC
         // stops/restores the primary DirectSound output through 0x00407020 /
         // 0x00407040 while secondary playback cursors continue. Keep this on
@@ -401,29 +419,24 @@ impl App {
             return;
         }
         state.renderer.debug_ui.begin_frame(&state.platform.window);
-        let previous = crate::app::diagnostics::debug_panel::push_debug_light_visuals(
-            &state.renderer.debug_ui.ctx,
-        );
+        // Clone the context handle (cheap — Rc inside): the panels now take
+        // `&mut AppState` (SpeedType chips write the overlay override), which
+        // would alias a direct `&state.renderer.debug_ui.ctx` borrow.
+        let ctx = state.renderer.debug_ui.ctx.clone();
+        let lang = state.diag.lang;
+        let previous =
+            crate::app::diagnostics::debug_panel::push_debug_visuals(&ctx);
         if state.diag.debug_show_pathgrid {
-            crate::app::diagnostics::debug_panel::draw_debug_panel(
-                &state.renderer.debug_ui.ctx,
-                state,
-            );
+            crate::app::diagnostics::debug_panel::draw_debug_panel(&ctx, state);
         }
-        crate::app::diagnostics::debug_panel::draw_event_history_panel(
-            &state.renderer.debug_ui.ctx,
-            state,
-        );
+        crate::app::diagnostics::debug_panel::draw_event_history_panel(&ctx, state);
         if state.match_state.match_presentation.show_hotkey_help {
-            crate::app::diagnostics::debug_panel::draw_hotkey_help(&state.renderer.debug_ui.ctx);
+            crate::app::diagnostics::debug_panel::draw_hotkey_help(&ctx, lang);
         }
         if state.match_state.debug_pause {
             Self::handle_dev_overlay(state);
         }
-        crate::app::diagnostics::debug_panel::pop_debug_light_visuals(
-            &state.renderer.debug_ui.ctx,
-            previous,
-        );
+        crate::app::diagnostics::debug_panel::pop_debug_visuals(&ctx, previous);
         state.renderer.debug_ui.end_frame_and_render(
             &state.renderer.gpu,
             encoder,
@@ -501,6 +514,7 @@ impl App {
             show_cell_grid: state.diag.debug_show_cell_grid,
             show_heightmap: state.diag.debug_show_heightmap,
             show_unit_inspector: state.diag.debug_unit_inspector,
+            show_foot_path: state.diag.debug_show_foot_path,
             reveal_map: state.match_state.sandbox_full_visibility,
             fps: state.diag.frame_timer.fps(),
             frame_ms: state.diag.frame_timer.frame_ms_mean(),
@@ -515,6 +529,13 @@ impl App {
                 .as_ref()
                 .map(|rt| &rt.simulation)
                 .map_or(0, |s| s.entities().len()),
+            frame_ms_history: state.diag.frame_ms_history(),
+            tick: state
+                .match_state
+                .sim_runtime
+                .as_ref()
+                .map_or(0, |rt| rt.simulation.session.tick),
+            lang: state.diag.lang,
             save_name_buf: &mut save_name,
             last_save_tick: state.persistence.last_save_tick(),
             last_save_age,
@@ -588,6 +609,16 @@ impl App {
             DevOverlayAction::TogglePathGrid => {
                 dispatch::toggle_pathgrid_overlay(state);
             }
+            DevOverlayAction::ToggleLanguage => {
+                state.diag.lang = state.diag.lang.toggled();
+                log::info!(
+                    "Dev UI language: {}",
+                    match state.diag.lang {
+                        crate::app::diagnostics::i18n::Lang::Zh => "zh-CN",
+                        crate::app::diagnostics::i18n::Lang::En => "en",
+                    }
+                );
+            }
             DevOverlayAction::ToggleCellGrid => {
                 state.diag.debug_show_cell_grid = !state.diag.debug_show_cell_grid;
             }
@@ -596,6 +627,9 @@ impl App {
             }
             DevOverlayAction::ToggleUnitInspector => {
                 dispatch::toggle_unit_inspector(state);
+            }
+            DevOverlayAction::ToggleFootPath => {
+                dispatch::toggle_foot_path_overlay(state);
             }
             DevOverlayAction::ToggleRevealMap => {
                 state.match_state.sandbox_full_visibility =

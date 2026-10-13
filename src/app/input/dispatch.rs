@@ -1436,12 +1436,41 @@ pub(crate) fn toggle_pathgrid_overlay(state: &mut AppState) {
     );
 }
 
+/// Toggle the foot-path step overlay (O hotkey / dev overlay checkbox).
+///
+/// Draws the selected units' remaining path cells with per-step tint and
+/// scale so the route order reads at a glance. Presentation-only: the flag
+/// never reaches the simulation, and no per-overlay state needs resetting
+/// when it turns off.
+pub(crate) fn toggle_foot_path_overlay(state: &mut AppState) {
+    state.diag.debug_show_foot_path = !state.diag.debug_show_foot_path;
+    log::info!(
+        "Debug foot-path step overlay: {}",
+        if state.diag.debug_show_foot_path {
+            "ON"
+        } else {
+            "OFF"
+        }
+    );
+}
+
 /// Toggle debug pause (J hotkey / dev overlay).
 ///
 /// On resume, local frame admission is re-anchored so elapsed modal time
 /// cannot cause a catch-up frame.
 pub(crate) fn toggle_debug_pause(state: &mut AppState) {
     state.match_state.debug_pause = !state.match_state.paused();
+    // The diagnostic GUI owns the pointer while it is up (see
+    // `App::release_in_game_pointer_state`), so a gesture started behind the
+    // panel loses its release and leaves the tactical body holding a button.
+    // Drop those bytes on both edges: closing the panel would otherwise leave
+    // the match deaf to the first clicks until a focus edge happened to run.
+    crate::app::App::release_in_game_pointer_state(state);
+    // Same for the keyboard: the Ctrl/Shift of this very chord are released
+    // while the overlay is up, and those releases never reach the tactical
+    // input layer — leaving every later click qualified by modifiers the
+    // player is no longer holding.
+    crate::app::App::release_held_keyboard_state(state);
     if !state.match_state.paused() {
         state.platform.frame_pacer.reset_for_immediate_frame();
     }
@@ -1807,6 +1836,10 @@ fn handle_options_hotkey(state: &mut AppState) {
     debug_assert!(!state.match_state.match_presentation.in_game_menu.is_open());
     if state.match_state.debug_pause {
         state.match_state.debug_pause = false;
+        // Same teardown as the `J` toggle: the overlay owned the pointer and
+        // swallowed the chord's modifier releases.
+        crate::app::App::release_in_game_pointer_state(state);
+        crate::app::App::release_held_keyboard_state(state);
         state.platform.frame_pacer.reset_for_immediate_frame();
         log::info!("Game resumed");
     } else {
@@ -1911,8 +1944,22 @@ fn handle_dev_hotkey_pressed(state: &mut AppState, code: winit::keyboard::KeyCod
         KeyCode::KeyX => {
             toggle_unit_inspector(state);
         }
+        KeyCode::KeyO => {
+            toggle_foot_path_overlay(state);
+        }
         KeyCode::KeyJ => {
             toggle_debug_pause(state);
+        }
+        #[cfg(feature = "dev-ui")]
+        KeyCode::KeyI => {
+            state.diag.lang = state.diag.lang.toggled();
+            log::info!(
+                "Dev UI language: {}",
+                match state.diag.lang {
+                    crate::app::diagnostics::i18n::Lang::Zh => "zh-CN",
+                    crate::app::diagnostics::i18n::Lang::En => "en",
+                }
+            );
         }
         KeyCode::Period if state.match_state.paused() => {
             state.diag.debug_frame_step_requested = true;

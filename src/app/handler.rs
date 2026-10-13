@@ -18,6 +18,57 @@ fn launcher_options_consumes_escape<T>(dialog: &Option<T>, is_escape: bool) -> b
 }
 
 impl App {
+    /// Drop every sticky in-game pointer byte.
+    ///
+    /// gamemd's capture-changed case drops the button-held byte and tears the
+    /// band rectangle down; without this the right-drag pan keeps applying its
+    /// anchor-relative step every frame and edge scroll stays inhibited until
+    /// the player right-clicks again. The gadget substrate keeps its own
+    /// sticky capture and must die on the same edge, or the next click is still
+    /// routed to the region that captured it (the release that would free it
+    /// was lost).
+    ///
+    /// A focus edge is the native trigger, but it is not the only way a
+    /// gesture can lose its release: while the debug overlay is up the
+    /// diagnostic GUI owns the pointer (`dev_ui_consumed` in the window-event
+    /// router) and every tactical press/release is dropped instead of
+    /// reaching the world. Whatever was half-done behind the overlay is
+    /// therefore still half-done when it closes, and the match looks dead
+    /// until something else — a minimise, an Alt+Tab — takes the focus away.
+    /// Ending the debug pause runs the same teardown so the first click after
+    /// the panel closes lands where the player aimed it.
+    pub(crate) fn release_in_game_pointer_state(state: &mut AppState) {
+        state.match_state.input.tactical_mouse.reset_on_focus_loss();
+        state.match_state.input.selection_state.cancel_drag();
+        state.match_state.input.minimap_dragging = false;
+        state
+            .match_state
+            .match_presentation
+            .in_game_gadgets
+            .cancel_pointer_capture();
+        state
+            .match_state
+            .match_presentation
+            .in_game_options
+            .dragging_slider = None;
+        state.match_state.match_presentation.in_game_options.buttons = Default::default();
+        state.match_state.match_presentation.pause_menu_interaction = Default::default();
+        state.match_state.match_presentation.abort_buttons = Default::default();
+        if let Some(dialog) = state.match_state.match_presentation.sound_dialog.as_mut() {
+            dialog.reset_interaction();
+        }
+        if let Some(browser) = state
+            .match_state
+            .match_presentation
+            .saved_game_browser
+            .as_mut()
+        {
+            browser.pressed_control = None;
+            browser.scroll_repeat_at = None;
+            browser.last_list_press = None;
+        }
+    }
+
     fn resize_surface_for_window_size(state: &mut AppState, size: PhysicalSize<u32>) {
         state.renderer.gpu.resize(size.width, size.height);
         state.renderer.depth_view = state.renderer.gpu.create_depth_texture();
@@ -408,48 +459,7 @@ impl ApplicationHandler for App {
             }
             WindowEvent::Focused(active) => {
                 if !active {
-                    // Losing focus takes the mouse capture away, and gamemd
-                    // handles that explicitly: its capture-changed case drops
-                    // the button-held byte and tears the band rectangle down.
-                    // Without this the right-drag pan keeps applying its
-                    // anchor-relative step every frame and edge scroll stays
-                    // inhibited until the player right-clicks again.
-                    state.match_state.input.tactical_mouse.reset_on_focus_loss();
-                    state.match_state.input.selection_state.cancel_drag();
-                    state.match_state.input.minimap_dragging = false;
-                    // The gadget substrate keeps its own sticky capture; it
-                    // must die with the same focus edge or the next click is
-                    // still routed to the region that captured it (the
-                    // release that would free it was lost with the focus).
-                    state
-                        .match_state
-                        .match_presentation
-                        .in_game_gadgets
-                        .cancel_pointer_capture();
-                    state
-                        .match_state
-                        .match_presentation
-                        .in_game_options
-                        .dragging_slider = None;
-                    state.match_state.match_presentation.in_game_options.buttons =
-                        Default::default();
-                    state.match_state.match_presentation.pause_menu_interaction =
-                        Default::default();
-                    state.match_state.match_presentation.abort_buttons = Default::default();
-                    if let Some(dialog) = state.match_state.match_presentation.sound_dialog.as_mut()
-                    {
-                        dialog.reset_interaction();
-                    }
-                    if let Some(browser) = state
-                        .match_state
-                        .match_presentation
-                        .saved_game_browser
-                        .as_mut()
-                    {
-                        browser.pressed_control = None;
-                        browser.scroll_repeat_at = None;
-                        browser.last_list_press = None;
-                    }
+                    Self::release_in_game_pointer_state(state);
                     if let Some(browser) = state
                         .frontend
                         .skirmish_shell_state

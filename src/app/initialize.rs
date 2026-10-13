@@ -29,6 +29,25 @@ fn startup_window_projection(
     )
 }
 
+/// Center the player's window on its monitor.
+///
+/// `WindowAttributes` carries no position, so without this the OS cascades
+/// the window wherever it likes. A full-screen or hidden capture surface has
+/// no meaningful position to center, and the window never resizes after
+/// creation (the menus fit whatever size the player drags it to), so one
+/// call at creation is enough.
+fn center_window_on_monitor(window: &Window) {
+    let Some(monitor) = window.current_monitor() else {
+        return;
+    };
+    let outer = window.outer_size();
+    let monitor_origin = monitor.position();
+    let monitor_size = monitor.size();
+    let x = monitor_origin.x + (monitor_size.width.saturating_sub(outer.width) / 2) as i32;
+    let y = monitor_origin.y + (monitor_size.height.saturating_sub(outer.height) / 2) as i32;
+    window.set_outer_position(winit::dpi::PhysicalPosition::new(x, y));
+}
+
 /// Keep the first actionable failure while still constructing the error-screen state.
 fn startup_asset_or_error<T>(result: Result<T>, error: &mut Option<String>) -> Option<T> {
     match result {
@@ -179,6 +198,11 @@ impl App {
             window_attrs = icon.apply(window_attrs);
         }
         let window: Arc<Window> = Arc::new(event_loop.create_window(window_attrs)?);
+        // The player's window opens centered on its monitor. Full-screen and
+        // hidden capture surfaces have no meaningful position to center.
+        if window_visible && !capture && !options_profile.full_screen {
+            center_window_on_monitor(&window);
+        }
         // gamemd's WinMain builds WWMouse (`0x006BDF1C`), whose constructor hides
         // the cursor, before the startup splash; from the first frame after it,
         // `show_os_cursor_only_without_game_cursor` owns the cursor.

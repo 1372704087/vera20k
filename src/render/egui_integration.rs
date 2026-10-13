@@ -15,6 +15,23 @@ use crate::render::gpu::GpuContext;
 const VERDANA_FONT_PATH: &str = "C:/Windows/Fonts/verdana.ttf";
 const CALIBRI_FONT_PATH: &str = "C:/Windows/Fonts/calibri.ttf";
 
+/// Candidate CJK fallback fonts, tried in order. The bilingual dev panels
+/// render Han glyphs, but Verdana/Calibri and egui's built-in font cover
+/// Latin only — without one of these the Chinese strings show up as `◻`
+/// replacement squares. epaint resolves a glyph against each font of a
+/// family in order, so this is appended AFTER the Latin font and only
+/// supplies the glyphs the Latin font lacks.
+const CJK_FONT_PATHS: &[&str] = &[
+    "C:/Windows/Fonts/msyh.ttc",     // Microsoft YaHei (simplified Chinese)
+    "C:/Windows/Fonts/simhei.ttf",   // SimHei (simplified Chinese)
+    "C:/Windows/Fonts/simsun.ttc",   // SimSun (simplified Chinese)
+    "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
+    "/usr/share/fonts/truetype/noto/NotoSansCJK-Regular.ttc",
+    "/usr/share/fonts/google-noto-cjk/NotoSansCJK-Regular.ttc",
+    "/usr/share/fonts/wenquanyi/wqy-microhei/wqy-microhei.ttc",
+    "/System/Library/Fonts/PingFang.ttc", // macOS
+];
+
 /// All egui state needed for input handling and rendering.
 ///
 /// Created once in App::initialize() alongside the GpuContext.
@@ -195,34 +212,68 @@ impl EguiIntegration {
     }
 }
 
-/// Load Verdana (or Calibri fallback) as the default proportional font.
-/// Falls back silently to egui's built-in font if neither is found.
+/// Load Verdana (or Calibri fallback) as the default proportional font, plus
+/// a CJK fallback for the bilingual dev panels. Falls back silently to egui's
+/// built-in font for anything not found.
 fn load_system_font(ctx: &egui::Context) {
-    let Some(font_path) = preferred_system_font_path(|path| std::path::Path::new(path).exists())
-    else {
-        log::info!("No Verdana/Calibri found — using egui default font");
-        return;
-    };
-
-    let Ok(font_bytes) = std::fs::read(font_path) else {
-        log::warn!("Failed to read font file: {}", font_path);
-        return;
-    };
-    let byte_length = font_bytes.len();
-    log::info!("Loaded system font: {} ({} bytes)", font_path, byte_length);
-
     let mut fonts = egui::FontDefinitions::default();
-    fonts.font_data.insert(
-        "sidebar_font".to_string(),
-        egui::FontData::from_owned(font_bytes).into(),
-    );
-    // Insert at the front of the Proportional family so it takes priority.
-    fonts
-        .families
-        .entry(egui::FontFamily::Proportional)
-        .or_default()
-        .insert(0, "sidebar_font".to_string());
-    ctx.set_fonts(fonts);
+    let mut loaded_any = false;
+
+    // Latin UI font: Verdana, then Calibri. Inserted at the FRONT of the
+    // Proportional family so it takes priority.
+    if let Some(font_path) = preferred_system_font_path(|path| std::path::Path::new(path).exists())
+    {
+        if let Ok(font_bytes) = std::fs::read(font_path) {
+            let byte_length = font_bytes.len();
+            log::info!("Loaded system font: {} ({} bytes)", font_path, byte_length);
+            fonts.font_data.insert(
+                "sidebar_font".to_string(),
+                egui::FontData::from_owned(font_bytes).into(),
+            );
+            fonts
+                .families
+                .entry(egui::FontFamily::Proportional)
+                .or_default()
+                .insert(0, "sidebar_font".to_string());
+            loaded_any = true;
+        } else {
+            log::warn!("Failed to read font file: {}", font_path);
+        }
+    } else {
+        log::info!("No Verdana/Calibri found — using egui default font");
+    }
+
+    // CJK fallback: appended at the END of both text families so egui only
+    // consults it for glyphs the primary fonts lack (per-glyph fallback).
+    if let Some(cjk_path) =
+        preferred_cjk_font_path(|path| std::path::Path::new(path).exists())
+    {
+        if let Ok(cjk_bytes) = std::fs::read(cjk_path) {
+            let byte_length = cjk_bytes.len();
+            log::info!(
+                "Loaded CJK fallback font: {} ({} bytes)",
+                cjk_path,
+                byte_length
+            );
+            fonts.font_data.insert(
+                "cjk_fallback".to_string(),
+                egui::FontData::from_owned(cjk_bytes).into(),
+            );
+            for family in [egui::FontFamily::Proportional, egui::FontFamily::Monospace] {
+                let list = fonts.families.entry(family).or_default();
+                if !list.iter().any(|name| name == "cjk_fallback") {
+                    list.push("cjk_fallback".to_string());
+                }
+            }
+            loaded_any = true;
+        } else {
+            log::warn!("Failed to read CJK font file: {}", cjk_path);
+        }
+    }
+
+    if loaded_any {
+        ctx.set_fonts(fonts);
+    }
 }
 
 fn preferred_system_font_path(path_exists: impl Fn(&str) -> bool) -> Option<&'static str> {
@@ -235,9 +286,20 @@ fn preferred_system_font_path(path_exists: impl Fn(&str) -> bool) -> Option<&'st
     }
 }
 
+/// First existing CJK candidate, or `None` when the platform ships none.
+fn preferred_cjk_font_path(path_exists: impl Fn(&str) -> bool) -> Option<&'static str> {
+    CJK_FONT_PATHS
+        .iter()
+        .copied()
+        .find(|path| path_exists(path))
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{CALIBRI_FONT_PATH, VERDANA_FONT_PATH, preferred_system_font_path};
+    use super::{
+        CALIBRI_FONT_PATH, CJK_FONT_PATHS, VERDANA_FONT_PATH, preferred_cjk_font_path,
+        preferred_system_font_path,
+    };
 
     #[test]
     fn system_font_selection_keeps_verdana_then_calibri_precedence() {
@@ -250,5 +312,28 @@ mod tests {
             Some(CALIBRI_FONT_PATH)
         );
         assert_eq!(preferred_system_font_path(|_| false), None);
+    }
+
+    #[test]
+    fn cjk_font_selection_prefers_first_existing_candidate() {
+        // YaHei wins when present (Windows primary CJK font).
+        assert_eq!(
+            preferred_cjk_font_path(|path| path == "C:/Windows/Fonts/msyh.ttc"),
+            Some("C:/Windows/Fonts/msyh.ttc")
+        );
+        // Falls through to later candidates when earlier ones are missing.
+        assert_eq!(
+            preferred_cjk_font_path(|path| path
+                == "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc"),
+            Some("/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc")
+        );
+        assert_eq!(preferred_cjk_font_path(|_| false), None);
+    }
+
+    #[test]
+    fn cjk_candidates_cover_major_platforms() {
+        assert!(CJK_FONT_PATHS.iter().any(|p| p.starts_with("C:/"))); // Windows
+        assert!(CJK_FONT_PATHS.iter().any(|p| p.starts_with("/usr/"))); // Linux
+        assert!(CJK_FONT_PATHS.iter().any(|p| p.starts_with("/System/"))); // macOS
     }
 }

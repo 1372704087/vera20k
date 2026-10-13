@@ -152,7 +152,7 @@ fn force_fire_detonation_builds_an_anim_instance_and_plays_its_report() {
     ));
     let grid = PathGrid::test_all_passable(64, 64);
 
-    // In range from the start, so the shot lands without a pursuit walk.
+    // In range from the start, so the shot lands without an approach walk.
     sim.queue_command(CommandEnvelope::new(
         owner_id,
         sim.session.tick + 1,
@@ -191,9 +191,9 @@ fn force_fire_detonation_builds_an_anim_instance_and_plays_its_report() {
 }
 
 #[test]
-fn force_fire_cell_pursuit_then_fire_integration() {
+fn force_fire_cell_approach_then_fire_integration() {
     // Full pipeline: ctrl-click on a far cell → ForceAttackCell command →
-    // attack_target=Cell set → out of range → pursuit issues movement →
+    // attack_target=Cell set → out of range → Mission_Attack's Approach moves →
     // (many ticks of walking) → in range → combat fires.
     use crate::sim::command::{Command, CommandEnvelope};
     use crate::sim::world::Simulation;
@@ -239,7 +239,7 @@ fn force_fire_cell_pursuit_then_fire_integration() {
     ));
 
     // Tick 1: EventClass applies the command at the native Main_Tick tail,
-    // after this frame's pursuit/object walk has already completed.
+    // after this frame's object walk has already completed.
     let pending = sim.take_due_commands();
     sim.advance_tick(&pending, Some(&rules), Some(&grid), None, 100);
 
@@ -253,14 +253,14 @@ fn force_fire_cell_pursuit_then_fire_integration() {
         "the completed object walk cannot observe a tail-dispatched command"
     );
 
-    // Tick 2: the next object walk observes the target and starts pursuit.
+    // Tick 2: the next object walk's Mission_Attack approaches the target.
     sim.advance_tick(&[], Some(&rules), Some(&grid), None, 100);
     assert!(
         sim.substrate
             .entities
             .get(1)
             .is_some_and(|e| e.movement_target.is_some()),
-        "the following frame starts out-of-range pursuit"
+        "the following frame approaches the out-of-range target"
     );
 
     // Tick many times until the unit walks into range and fires.
@@ -277,7 +277,7 @@ fn force_fire_cell_pursuit_then_fire_integration() {
                 .entities
                 .get(1)
                 .is_some_and(|e| e.attack_target.is_some()),
-            "attack_target dropped mid-pursuit (parity bug)"
+            "attack_target dropped mid-approach (parity bug)"
         );
     }
 

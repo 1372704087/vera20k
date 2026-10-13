@@ -92,7 +92,7 @@ fn unit(owner: &str, type_id: &str, cx: u16, cy: u16, cat: EntityCategory) -> Ma
 // See docs/research/TRACK_PROCESS_REPLAY_REGRESSION_NOTES.md, PR415 attribution.
 // Infantry ctor 517BBD supplies PrimaryFacing ROT 127 (asserted below).
 // 2026-09-23 Drive/Ship Process path request (behavior, not composition):
-// Drive/Ship orders from every producer (player, pursuit, rally, miners) are
+// Drive/Ship orders from every producer (player, Approach, rally, miners) are
 // accepted by the Unit setter without an order-time A*, PowerOn or redirect.
 // This fixture has no native zone topology, so the first Process searches in
 // the legacy inline lane, not the Find_Path owner. The pins move with that

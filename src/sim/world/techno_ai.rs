@@ -739,7 +739,7 @@ fn techno_ai_shell(
             slave_manager_slot(sim, id, rules, ctx.overlay_registry, ctx.effects);
             spawn_manager_slot(sim, id, rules, ctx.overlay_registry, ctx.effects);
             if let Some(rules) = rules {
-                open_transport_reach_step(sim, id, rules, ctx.overlay_registry, ctx.effects);
+                target_reach_step(sim, id, rules, ctx.overlay_registry, ctx.effects);
             }
             techno_common_post(sim, id, rules);
         }
@@ -1255,8 +1255,8 @@ pub(crate) fn ai_alive(sim: &Simulation, id: u64) -> bool {
 /// `MissionClass::AI @ 0x005B3060`'s last gate before a mission handler: Health
 /// above zero (`0x005B30A7`, signed). A crashing wreck is alive at Health 0, so
 /// its Techno AI runs but no handler does and its dispatch timer is not
-/// rewritten. VERA's handler stand-in, the attack pursuit, shares it.
-pub(crate) fn mission_handlers_run(sim: &Simulation, id: u64) -> bool {
+/// rewritten.
+fn mission_handlers_run(sim: &Simulation, id: u64) -> bool {
     sim.substrate
         .entities
         .get(id)
@@ -1440,58 +1440,46 @@ fn illegal_target_drop_step(sim: &mut Simulation, id: u64, rules: &RuleSet) {
     }
 }
 
-/// `TechnoClass::AI_Update @ 0x006FAAEF..0x006FABB8` for an open-topped
-/// transport's rider (`+0x82`): every frame, a rider holding a target it
-/// cannot hit from where it sits lets go of it.
+/// `TechnoClass::AI_Update @ 0x006FAAEF..0x006FABB8`, after the spawn
+/// manager: a Foot outside a team that holds a target it cannot reach, or an
+/// open-topped transport's rider (`+0x82`), approaches the target, then lets
+/// go of one it still cannot hit unless that left it a destination.
 ///
-/// The block admits a non-aircraft object with a target, outside a team
-/// (`vt+0x290`, VERA builds no production teams), whose NavCom is empty. It
-/// runs `Approach_Target(0)` (vt+0x53C; Infantry `0x00522340` chains into
-/// Foot `0x004D5690`) when the target is unreachable (`CanReachDestination`,
-/// vt+0x2C4) or, for a rider, always (`0x006FAB52`); then, NavCom still
-/// empty, it drops the target unless `CanFireAt(target, SelectWeapon)`
-/// (`0x006FAB86..0x006FABB2`). A rider never chases (`0x004D5782`) and is
-/// refused any destination (`0x004D94D7`), so out of range:
-/// - on its Guard (every rider: `SetInOpenTransport` puts it there) or any
-///   mission but the three below, Approach_Target itself drops the target and
-///   the destination (`0x004D571F..0x004D5744`);
-/// - on Attack, a human's Area Guard or a computer's Hunt, Approach_Target
-///   goes on to its approach search, and the block's own CanFireAt test drops
-///   the target.
+/// - The block skips an aircraft (vt+0x2C == 2), an object without a target,
+///   a team member (vt+0x290 = `0x0041C050`, Foot `+0x5D4`) and a Foot with a
+///   NavCom (`+0x5A4`). A building answers reachable (vt+0x2C4 =
+///   `0x00459D90`) and is no rider, so it never acts here.
+/// - A Foot asks IsInSameZoneAs (vt+0x2C4,
+///   [`Simulation::foot_is_in_same_zone_as`]). A reachable target held by an
+///   object outside a transport ends the block (`0x006FAB52`).
+/// - Otherwise the Foot runs Approach_Target(0) (vt+0x53C at `0x006FAB74`,
+///   [`Simulation::approach_target`]). With a NavCom then, the block ends;
+///   without, the target it then holds is measured with CanFireAt (vt+0x3A8)
+///   and the weapon SelectWeapon picks for it (vt+0x2E4), and a miss drops it
+///   (vt+0x3C8(NULL), `0x006FABB2`). CanFireAt answers yes for no target
+///   (`0x006F77BB`).
 ///
-/// In range, Approach_Target returns at `0x004D5A34` (a rider keeps its
-/// playfield byte `+0x3D5`). No draw.
+/// A rider never chases (`0x004D5782`) and is refused any destination
+/// (`0x004D94D7`): out of range on its Guard (every rider:
+/// `SetInOpenTransport` puts it there), Approach drops the target and the
+/// destination (`0x004D571F..0x004D5744`); on Attack, a human's Area Guard or
+/// a computer's Hunt, Approach goes on to its search, and the block's
+/// CanFireAt drops the target. In range, Approach returns at `0x004D5A34`.
 ///
-/// RESIDUAL: the approach search a rider on Attack, Area Guard (human) or
-/// Hunt (computer) runs (`0x004D57EA..`) is not ported; nothing but a Guard
-/// rider is known to reach this block.
+/// The block draws nothing itself. Approach draws through PlaceInfantryInCell
+/// (`0x00481180`): a `CloseRange=` infantryman's spot requests, and the
+/// destination setter of a Teleport or Jumpjet infantryman, which picks his
+/// spot in the cell it is given. A Die1/Die2 corpse does not run the block
+/// here (residual on [`dying_infantry_techno_ai`]).
 ///
 /// RESIDUAL: a unit rider runs the head of `UnitClass::Approach_Target @
-/// 0x007414E0` (`Simulation::unit_approach_head`) before the Foot body. Its
-/// three arms can take the target as the destination and return without
-/// Foot's Set_Destination(NULL):
-/// - a computer's `Crusher=` (`+0xD28`, or the CRUSHER ability) near a
-///   crushable techno;
-/// - a `BalloonHover=` type (`+0xD6A`) with a `Vertical=` weapon;
-/// - an `OmniCrusher=` type (`+0xD29`).
-///
-/// VERA runs the Foot arm for every rider: calling the head here needs what
-/// `UnitClass::Set_Destination @ 0x00741970` does with a rider, unreviewed.
-/// - Trigger: a modded unit rider with one of those flags. Retail's only
-///   unit riders are the Terror and Chaos Drones (`Size=2`), which have none.
-/// - Effect: none in retail. A modded rider calls
-///   `UnitClass::Set_Destination @ 0x00741970` with the target, whose arms
-///   ahead of the Foot refusal are not reviewed. It skips Foot's
-///   Set_Destination(NULL). The block's CanFireAt test still drops the target
-///   in the same frame.
-/// - Frequency and risk: modded data only.
-///
-/// RESIDUAL: the unreachable-target arm for every other object (vt+0x2C4
-/// false). Trigger: a Foot object without NavCom holding a target its
-/// movement zone cannot reach, e.g. a tank with a target across water.
-/// Effect: native approaches and drops a target it cannot hit; VERA keeps it.
-/// Frequency: uncommon. Risk: the object keeps a target it can never fire at.
-fn open_transport_reach_step(
+/// 0x007414E0` ([`Simulation::unit_approach_head`]), whose crush and
+/// BalloonHover arms take the target as the destination through
+/// `UnitClass::Set_Destination @ 0x00741970`, unreviewed for a rider ahead of
+/// the Foot refusal. Trigger: a modded unit rider with `Crusher=`,
+/// `OmniCrusher=` or `BalloonHover=`; retail's only unit riders, the Terror
+/// and Chaos Drones, have none. Effect: none in retail.
+fn target_reach_step(
     sim: &mut Simulation,
     id: u64,
     rules: &RuleSet,
@@ -1502,36 +1490,54 @@ fn open_transport_reach_step(
     let Some(entity) = sim.substrate.entities.get(id) else {
         return;
     };
-    if !entity.passenger_role.in_open_transport() || entity.navigation.nav_com.is_some() {
+    let Some(target) = entity.attack_target.as_ref().map(|attack| attack.target) else {
+        return;
+    };
+    if !matches!(
+        entity.category,
+        EntityCategory::Unit | EntityCategory::Infantry
+    ) || sim.team_script_vm.team_for_member(id).is_some()
+        || entity.navigation.nav_com.is_some()
+    {
+        return;
+    }
+    // A target that no longer resolves is cleared natively (`PointerExpired`)
+    // before this block; the Attack handler owns VERA's clear of it.
+    if let TargetKind::Entity(target_id) = target
+        && !sim.substrate.entities.contains(target_id)
+    {
+        return;
+    }
+    let rider = entity.passenger_role.in_open_transport();
+    // A rider asks too (`0x006FAB48`), though only `+0x82` decides for it.
+    // The query needs the map's cells, zones, bounds and size and a Foot's
+    // locomotor, which a loaded scenario always has; a fixture without them
+    // cannot ask and answers reachable.
+    let reachable = match sim.foot_is_in_same_zone_as(id, target, rules) {
+        Ok(reachable) => reachable,
+        Err(cause) => {
+            log::debug!("object {id} cannot ask IsInSameZoneAs: {cause}");
+            true
+        }
+    };
+    if reachable && !rider {
+        return;
+    }
+    sim.approach_target(id, rules, overlay_registry, effects);
+    let Some(entity) = sim.substrate.entities.get(id) else {
+        return;
+    };
+    if entity.navigation.nav_com.is_some() {
         return;
     }
     let Some(target) = entity.attack_target.as_ref().map(|attack| attack.target) else {
         return;
     };
-    // A target that no longer resolves is cleared natively (`PointerExpired`)
-    // before this block; the Attack handler owns VERA's clear of it.
-    if let TargetKind::Entity(target_id) = target
-        && sim.substrate.entities.get(target_id).is_none()
-    {
-        return;
-    }
     let weapon = target_scan::select_weapon(sim, rules, id, Some(target));
     if target_scan::can_fire_at(sim, rules, id, target, weapon, overlay_registry) {
         return;
     }
-    let human = sim.owner_is_human(entity.owner());
-    let approaches = match entity.mission.current().known() {
-        Some(MissionType::Attack) => true,
-        Some(MissionType::AreaGuard) => human,
-        Some(MissionType::Hunt) => !human,
-        _ => false,
-    };
-    if let Some(entity) = sim.substrate.entities.get_mut(id) {
-        crate::sim::mission::concrete_effects::represented_assign_target(entity, None);
-    }
-    if !approaches {
-        sim.assign_null_destination(id, Some(rules), overlay_registry, effects);
-    }
+    let _ = sim.assign_target_represented(id, None, Some(rules), overlay_registry, effects);
 }
 
 /// `TechnoClass::AI_Update @ 0x006FA30C..0x006FA46C`, every frame after the
@@ -1630,6 +1636,18 @@ fn allied_target_drop_step(sim: &mut Simulation, id: u64, rules: &RuleSet) {
 ///
 /// RESIDUAL: the rest of the subset (veterancy, drains, CaptureManager,
 /// self-heal, cloak, bomb) does nothing for a GI corpse and is not run.
+///
+/// RESIDUAL: the reach block (`0x006FAAEF..0x006FABB8`, [`target_reach_step`])
+/// runs for a corpse before its Stage clock, and is not run here. Trigger: a
+/// man killed while he holds a target in another zone. Effect: native runs
+/// Approach on the corpse, which can set it a destination and draw for a
+/// spot (PlaceInfantryInCell); how the class setters treat a Die1/Die2
+/// infantryman is not traced. Frequency: a man killed while his target lies
+/// across water or a cliff. Risk: a Scenario draw native makes and VERA
+/// does not. In the frame a carried bomb kills him, the Infantry dispatch
+/// still runs the block (it has no IsAlive gate, `0x006FA735`), as native
+/// does for a Die1/Die2 man, who stays IsAlive (the corpse reaches
+/// `0x006FABC4`); a death native UnInits at once ends at that gate instead.
 pub(super) fn dying_infantry_techno_ai(
     sim: &mut Simulation,
     id: u64,
@@ -1957,7 +1975,7 @@ fn unit_techno_bracket(
     }
     spawn_manager_slot(sim, id, rules, ctx.overlay_registry, ctx.effects);
     if let Some(rules) = rules {
-        open_transport_reach_step(sim, id, rules, ctx.overlay_registry, ctx.effects);
+        target_reach_step(sim, id, rules, ctx.overlay_registry, ctx.effects);
     }
     techno_common_post(sim, id, rules);
     BracketReach::Dispatched
@@ -2763,10 +2781,10 @@ mod tests {
 
     #[test]
     fn a_unit_that_passively_acquires_does_not_move_toward_the_target() {
-        // Pursuit regression guard. The passive commit writes the target
-        // pointer only; a Guard unit fires from where it stands. If pursuit
-        // ever picks these units up again they walk off across the map with no
-        // order to bring them home.
+        // The passive commit writes the target pointer only; a Guard unit fires
+        // from where it stands, and the reach block approaches only a target in
+        // another zone. A unit that chased these targets would walk off across
+        // the map with no order to bring it home.
         //
         // A target can only be acquired IN range, so the scenario has to open a
         // range gap afterwards: the unarmed Allied scout parks two cells away
@@ -2967,7 +2985,7 @@ mod tests {
         // target (`0x007077C0`) and the next passive scan picks again, marking
         // the new target as its own (`0x006FA6EE`). The invariant is checked
         // every tick: a target the tank was never ordered onto is always
-        // scanner-owned, or pursuit would chase it.
+        // scanner-owned.
         let rules = passive_rules();
         let grid = crate::sim::pathfinding::PathGrid::new(64, 64);
         let mut sim = Simulation::with_seed(0x5CA1_AB1E_0007);
@@ -3006,7 +3024,7 @@ mod tests {
                 tank.attack_target.is_none() || tank.passively_acquired_target,
                 "tick {tick}: the tank was never ordered to attack anything, so a target it \
                  holds must always be scanner-owned — a live target with the flag false takes \
-                 it out of the passive block, into pursuit, and it never releases"
+                 it out of the passive block, and it never releases"
             );
         }
         assert!(
@@ -5013,8 +5031,9 @@ mod tests {
     }
 
     /// The headline of GSI-07.20: a hunting object acquires past its own weapon
-    /// reach, and the target it installs is NOT flagged passively-acquired — so
-    /// the pursuit pass will close on it instead of skipping it. Native:
+    /// reach, and the target it installs is NOT flagged passively-acquired, so
+    /// nothing treats it as a scan pick-up (the crush arms, the off-mission
+    /// clear). Native:
     /// `FootClass::Mission_Hunt @ 0x004D5373` scans with threat mask `0`, and
     /// `TechnoClass::Greatest_Threat @ 0x006F8FE0` (`TEST AL,0x3 ; JZ`) jumps
     /// past the whole radius block for that mask; `Retaliate_And_Scan @
@@ -7815,6 +7834,10 @@ mod bridge_low_repair_tests;
 #[cfg(test)]
 #[path = "techno_ai/mirage_disguise_tests.rs"]
 mod mirage_disguise_tests;
+
+#[cfg(test)]
+#[path = "techno_ai/target_reach_tests.rs"]
+mod target_reach_tests;
 
 #[cfg(test)]
 use super::bridge_test_evidence;

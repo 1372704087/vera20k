@@ -1527,10 +1527,8 @@ mod tests {
     /// A computer's Kirov on Hunt on retail Dustbowl flies at what its scan
     /// picks: Mission_Hunt approaches what the scan holds (`0x004D54DD`), and
     /// the BalloonHover arm makes the target the destination, so the Kirov
-    /// closes past its bomb's range instead of stopping there. It stays on
-    /// Hunt; the pursuit pass's in-range stop, which this replaces for a
-    /// balloon, would have switched it to Attack through the NULL
-    /// destination's arm. A production witness, not a native comparison.
+    /// closes past its bomb's range instead of stopping there, and stays on
+    /// Hunt. A production witness, not a native comparison.
     #[test]
     #[ignore = "requires a retail RA2/YR install (RA2_DIR or config.toml)"]
     fn retail_dustbowl_hunting_kirov_flies_at_its_target_and_stays_on_hunt() {
@@ -1598,8 +1596,8 @@ mod tests {
                 *closest = (*closest).min(off);
             }
         }
-        // BlimpBomb's range is 1.5 cells (384 leptons); the pursuit pass
-        // stopped a balloon there.
+        // BlimpBomb's range is 1.5 cells (384 leptons): the Kirov closes past
+        // it.
         assert!(
             approached.values().any(|&closest| closest < 256),
             "{approached:?}"

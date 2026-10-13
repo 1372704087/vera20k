@@ -210,7 +210,7 @@ const FINAL_STREAM_STATES: (u64, u64, u64) = (
 );
 
 // 2026-09-23 Drive/Ship Process path request (behavior, not composition):
-// Drive/Ship orders from every producer (player, pursuit, rally, miners) are
+// Drive/Ship orders from every producer (player, Approach, rally, miners) are
 // accepted by the Unit setter without an order-time A*, PowerOn or redirect.
 // This fixture has no native zone topology, so the first Process searches in
 // the legacy inline lane, not the Find_Path owner. The pins move with that

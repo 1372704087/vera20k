@@ -981,7 +981,6 @@ fn gsi_08_04_moving_turretless_vehicle_does_not_turn_to_fire() {
     {
         let attacker = sim.substrate.entities.get_mut(1).unwrap();
         attacker.attack_target = Some(AttackTarget::new(2));
-        attacker.passively_acquired_target = true; // pursuit leaves this one alone
         attacker.navigation.nav_com = Some(crate::sim::components::NavTargetRef::cell(5, 1));
     }
 

@@ -735,13 +735,9 @@ impl Simulation {
     /// runs even when the class refuses. See
     /// tools/spatial_oracle/walk_percell_stop.{py,json,meta.json}.
     ///
-    /// A Unit whose approach its mission's Approach carries
-    /// (`mission_owns_approach`) takes the whole stop here, as natively, a
-    /// Jumpjet one from its descent; the pursuit stage
-    /// leaves it alone. For any other Unit that stage's in-range halt
-    /// (`world_orders.rs`) stands in for the InRange arm, tested each frame,
-    /// and only the `OpenTopped=` arm runs here. Every infantryman takes Infantry
-    /// `0x0051AA40`, a Rocketeer touching down in range included.
+    /// A Unit takes it from its locomotor's PerCell, a Jumpjet from its
+    /// descent; every infantryman takes Infantry `0x0051AA40`, a Rocketeer
+    /// touching down in range included.
     fn per_cell_range_stop(
         &mut self,
         id: u64,
@@ -757,17 +753,6 @@ impl Simulation {
         else {
             return;
         };
-        if category == EntityCategory::Unit
-            && !self
-                .substrate
-                .entities
-                .get(id)
-                .and_then(|entity| self.object_type(entity.type_ref(), rules))
-                .is_some_and(|obj| obj.open_topped)
-            && !self.mission_owns_approach(id, rules)
-        {
-            return;
-        }
         if !self.foot_per_cell_range_stop(id, rules, registry) {
             return;
         }

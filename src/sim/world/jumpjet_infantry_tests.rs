@@ -1263,7 +1263,7 @@ fn grounded_rocketeer() -> (super::Simulation, crate::rules::ruleset::RuleSet, u
     (sim, rules, shooter)
 }
 
-/// The ground route (factory rally, unload, pursuit, a grounded mover's Move)
+/// The ground route (factory rally, unload, Approach, a grounded mover's Move)
 /// gives a Rocketeer his cell through Foot's setter, as Infantry's does
 /// (`0x0051B1D2` -> `0x004D94B0`): the NavCom with the order (`0x004D9510`)
 /// and the Jumpjet's `Move_To` (`0x004D965D`). It left both to his `Process`.

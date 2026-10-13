@@ -1172,6 +1172,27 @@ impl Simulation {
         Ok(self.member_team_is_moving_outside_playfield(id))
     }
 
+    /// `FootClass::IsInSameZoneAs @ 0x004DBA50` (vt+0x2C4): the target's
+    /// coordinate for this mover (its vt+0x4C with the mover as requester,
+    /// `0x004DBA63`), cut to its cell toward zero, whose centre at height 0
+    /// takes the zone pre-check ([`Self::foot_path_zone_precheck`],
+    /// vt+0x2CC at `0x004DBAB8`).
+    pub(crate) fn foot_is_in_same_zone_as(
+        &self,
+        id: u64,
+        target: crate::sim::combat::TargetKind,
+        rules: &RuleSet,
+    ) -> Result<bool, String> {
+        let coord = super::navcom::nav_target_coordinate(
+            target.into(),
+            Some(id),
+            &self.substrate.entities,
+            self.resolved_terrain.as_ref(),
+            Some((rules, &self.interner)),
+        )?;
+        self.foot_path_zone_precheck(id, cell_centre(coord_cell(coord)), rules)
+    }
+
     /// Original Foot+2CC4D3810. Its MZ==-1 and Cell(0,0) exits precede
     /// navigation, Team, map and source-bridge queries.
     pub(crate) fn foot_path_zone_precheck(

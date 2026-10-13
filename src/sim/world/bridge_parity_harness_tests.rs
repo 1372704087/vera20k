@@ -94,7 +94,7 @@ const MIN_DISTINCT_DECK_CELLS: usize = 6;
 // v190 adds saved Foot neighbor history. Before(190) reproduces the full v189
 // fixture; its legacy grid has no retained plane. Route/RNG pins are unchanged.
 // 2026-09-23 Drive/Ship Process path request (behavior, not composition):
-// Drive/Ship orders from every producer (player, pursuit, rally, miners) are
+// Drive/Ship orders from every producer (player, Approach, rally, miners) are
 // accepted by the Unit setter without an order-time A*, PowerOn or redirect.
 // The fixture then had no native zone topology, so the first Process searched
 // in the since-removed legacy inline lane (see the 2026-10-01 entry below).

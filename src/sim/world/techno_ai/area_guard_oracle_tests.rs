@@ -4,7 +4,7 @@
 //! Logic/Display/occupancy order and retail readers. This adapter supplies the
 //! observed event-boundary state and transports pointers/Abstract IDs only.
 //! It neither constructs expected gameplay nor runs missing intervening ticks.
-//! Native network scheduling, locomotor Process and pursuit are excluded.
+//! Native network scheduling, locomotor Process and Approach are excluded.
 
 use super::*;
 use crate::sim::command::{

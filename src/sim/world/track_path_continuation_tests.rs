@@ -421,7 +421,7 @@ fn post_warp_rows_refuse_the_own_cell_search() {
 }
 
 /// A mission restore writes NavCom alone while +34 may still hold an older
-/// order (here a pursuit cell whose adapter was dropped). Native NavCom and
+/// order (here one whose adapter was dropped). Native NavCom and
 /// +34 never disagree after Unit 0x741970, so the deferred order completes the
 /// class setter toward NavCom instead of rescheduling the stale cell.
 #[test]
@@ -1384,12 +1384,12 @@ fn owner_change_mid_track_stops_the_tank_at_its_track_end() {
     );
 }
 
-/// Retaliation archives the order and a pursuit order moves +34 to its cell;
+/// Retaliation archives the order and Approach moves +34 to a firing cell;
 /// target expiry restores the archived NavCom and synchronously calls its
 /// class destination setter (Restore_Mission4D8F99). Drive4AFD99 publishes
 /// that destination before returning, while retaining the paid head. The
 /// Process that ends the track then requests the restored route; it never
-/// continues toward the stale pursuit cell. Native track_destination rows
+/// continues toward the stale firing cell. Native track_destination rows
 /// independently pin the setter's immediate destination/head transaction.
 #[test]
 fn restore_mid_track_heads_for_the_restored_order_at_the_track_end() {

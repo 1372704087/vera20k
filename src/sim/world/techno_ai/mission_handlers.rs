@@ -1219,8 +1219,8 @@ pub(crate) fn foot_enter_idle_mode_selection(
 ///    of the map but not the far side of a river.
 /// 3. **The infantry arms**, taken only by an infantryman (`What_Am_I` 0xF,
 ///    `0x004D53A0..0x004D53B4`) whose scan came back with a target: the
-///    engineer's, the C4 one and the no-flag arm are [`hunt_infantry_arm`];
-///    the VehicleThief's is recorded below.
+///    engineer's, the C4 one, the VehicleThief's and the no-flag arm are
+///    [`hunt_infantry_arm`].
 /// 4. **No target**: a human-owned object runs the idle-action virtual
 ///    (`vt+0x478`, `0x004D557C`); an AI-owned one walks home to its base cell.
 /// 5. **The tail** at `0x004D5582`, reached from every arm:
@@ -1238,17 +1238,8 @@ pub(crate) fn foot_enter_idle_mode_selection(
 /// non-infantry object at `0x004D54E3` and for an infantryman with none of the
 /// three type flags at `0x004D54D2`. That routine is the "drive to somewhere I
 /// can shoot my target from" search and ends in `Set_Destination`
-/// (`vt+0x480`). VERA runs it ([`Simulation::approach_target`]) for every
-/// mover it represents; for any other, the pursuit pass stands in, which runs
-/// for any object holding a target that is not flagged passively-acquired —
-/// and the scanner above deliberately leaves the flag clear, as native does.
-///
-/// RESIDUAL — **the VehicleThief type arm is not committed**
-/// (`+0xEC6`, `0x004D546C..0x004D54B9`): `Set_Destination(Target, 1)`,
-/// `Queue_Mission(Capture, 0)` and, when `Ready_To_Commence` (vt+0x200), a
-/// Commence (vt+0x1EC). Its Capture would steal a vehicle, a mechanism VERA
-/// does not port, so such a man takes no arm. Frequency: **zero on stock
-/// data** — no retail section sets the key.
+/// (`vt+0x480`); VERA runs it ([`Simulation::approach_target`]) for every
+/// mover the Foot body represents.
 ///
 /// RESIDUAL — **the AI return-to-base arm** (`0x004D54EE`-`0x004D5576`) is
 /// gated on `!HouseClass::IsControlledByHuman(this->Owner)` and
@@ -1281,9 +1272,9 @@ fn evaluate_foot_hunt(
     let mut no_target_arm = stupid_hunt;
     if !stupid_hunt {
         // The return value selects between the approach and infantry arms
-        // (VehicleThief's recorded above) and the idle / return-to-base arm
-        // (already covered elsewhere). The call itself is the mission: it is
-        // what installs the target the approach then closes on.
+        // and the idle / return-to-base arm (already covered elsewhere). The
+        // call itself is the mission: it is what installs the target the
+        // approach then closes on.
         let acquired = super::target_scan::scan(
             sim,
             id,
@@ -1334,14 +1325,20 @@ fn evaluate_foot_hunt(
 ///   building queues Sabotage (`0x004D53F9..0x004D5467`). Unlike
 ///   Mission_Attack's C4 arm it asks no `CanC4=`, and neither does the plant
 ///   ([`Simulation::infantry_per_cell_c4`]).
+/// - Otherwise a `VehicleThief=` one (`+0xEC6`) queues Capture whatever the
+///   target is (`0x004D546C..0x004D548F`, joining the Engineer arm's tail).
 ///
 /// Each of those takes the target as its destination (vt+0x480(target, 1)),
 /// queues its mission (vt+0x1E8(mission, 0)) and, when Ready_To_Commence
 /// (vt+0x200), commences it (vt+0x1EC); [`crate::sim::mission::capture`]
-/// then walks it in. Any other man (no `VehicleThief=`, see
-/// [`evaluate_foot_hunt`]) drops his destination (vt+0x480(NULL, 1),
+/// then walks it in. Any other man drops his destination (vt+0x480(NULL, 1),
 /// `0x004D54C6`) and approaches the target (`0x004D54D2`), so he picks his
 /// approach cell afresh on every dispatch.
+///
+/// RESIDUAL: the theft a `VehicleThief=` man commits on reaching a vehicle
+/// (`InfantryClass::PerCellProcess`, `0x0051A0DA`, `0x0051A1C3`) is not
+/// ported: he arrives and idles on Capture. Frequency: zero on stock data, as
+/// no retail section sets the key.
 ///
 /// Neither call runs for a man out of a deploy action whom the Foot body does
 /// not represent ([`Simulation::owns_foot_approach`]): his Target has left
@@ -1374,9 +1371,9 @@ fn hunt_infantry_arm(sim: &mut Simulation, id: u64, rules: &RuleSet, ctx: super:
         MissionType::Capture
     } else if c4 && building_target {
         MissionType::Sabotage
-    } else if object.vehicle_thief
-        || !entity.infantry_deploy_doing() && !sim.owns_foot_approach(id, rules)
-    {
+    } else if object.vehicle_thief {
+        MissionType::Capture
+    } else if !entity.infantry_deploy_doing() && !sim.owns_foot_approach(id, rules) {
         return;
     } else {
         sim.assign_null_destination(id, Some(rules), ctx.overlay_registry, ctx.effects);

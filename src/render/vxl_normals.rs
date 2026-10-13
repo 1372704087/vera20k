@@ -431,6 +431,32 @@ mod tests {
         }
     }
 
+    /// `0x00758670` writes only its mode's table and slots 253-255 of the
+    /// shared page buffer (`0x00B45990`); the slots between keep an earlier
+    /// draw's pages, where [`diffuse_pages`] holds zero. Retail `TIRE.VXL`,
+    /// the one model VERA draws through it, indexes none of them.
+    #[test]
+    fn retail_tire_indexes_only_pages_the_diffuse_initializer_writes() {
+        let Some((_, assets)) = crate::rules::retail_ini_fixture::retail_assets() else {
+            return;
+        };
+        let tire =
+            crate::assets::vxl_file::VxlFile::from_bytes(assets.get_ref("TIRE.VXL").unwrap())
+                .unwrap();
+        for limb in &tire.limbs {
+            let written = normal_table(limb.normals_mode).len();
+            assert!(!limb.voxels.is_empty());
+            for voxel in &limb.voxels {
+                let index = usize::from(voxel.normal_index);
+                assert!(
+                    index < written || index >= 253,
+                    "{} normal {index}",
+                    limb.name
+                );
+            }
+        }
+    }
+
     #[test]
     fn native_diffuse_initializer_matches_bounce_matrices_in_both_modes() {
         let vectors: serde_json::Value = serde_json::from_str(crate::test_fixture::text(

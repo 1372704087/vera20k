@@ -220,6 +220,60 @@ fn lines(events: &[SimSoundEvent], house: InternedId, line: &str) -> usize {
         .count()
 }
 
+/// Destroys `id` as expiring C4 does: no attacker and no survivors.
+fn destroy(sim: &mut Simulation, rules: &RuleSet, id: u64) {
+    let health = sim.substrate.entities.get(id).unwrap().health.current;
+    let c4 = sim.interner.intern(&rules.bridge_warheads.c4_name);
+    let hit = EntityDamageEvent::direct_receiver(
+        id,
+        health,
+        0,
+        RAD_NO_ATTACKER,
+        None,
+        c4,
+        ReceiverCallFlags {
+            ignore_defenses: true,
+            arg6: true,
+        },
+    );
+    sim.commit_direct_damage_receiver(rules, None, hit, FrameEffects::default());
+    assert!(
+        sim.substrate
+            .entities
+            .get(id)
+            .is_none_or(|entity| entity.dying)
+    );
+}
+
+/// The object's cell.
+fn cell(sim: &Simulation, id: u64) -> (u16, u16) {
+    let entity = sim.substrate.entities.get(id).unwrap();
+    (entity.position.rx, entity.position.ry)
+}
+
+/// The object's height above the ground (GetHeight).
+fn height(sim: &Simulation, id: u64) -> i32 {
+    crate::sim::movement::air_movement::current_fly_height(
+        sim.substrate.entities.get(id).unwrap(),
+        sim.resolved_terrain.as_ref(),
+    )
+}
+
+/// Orders the player's `id` to the cell `target`.
+fn order_move(sim: &mut Simulation, id: u64, target: (u16, u16)) {
+    let americans = sim.interner.get("Americans").unwrap();
+    sim.queue_command(CommandEnvelope::new(
+        americans,
+        sim.session.tick + 1,
+        Command::Move {
+            entity_id: id,
+            target_rx: target.0,
+            target_ry: target.1,
+            queue: false,
+        },
+    ));
+}
+
 /// GAROBO's operational edges through the production frame: its first
 /// working frame counts it and Reactivates the house's ROBOs (no sound, as
 /// none was offline); losing the only power plant leaves the house in low
@@ -261,28 +315,7 @@ fn losing_and_regaining_the_last_powered_center_switches_robot_tanks() {
     sim.substrate.entities.get_mut(tanks[0]).unwrap().selected = true;
 
     events.clear();
-    // The plant goes as C4 takes it: no attacker, no survivors.
-    let health = sim.substrate.entities.get(plant).unwrap().health.current;
-    let c4 = sim.interner.intern(&rules.bridge_warheads.c4_name);
-    let hit = EntityDamageEvent::direct_receiver(
-        plant,
-        health,
-        0,
-        RAD_NO_ATTACKER,
-        None,
-        c4,
-        ReceiverCallFlags {
-            ignore_defenses: true,
-            arg6: true,
-        },
-    );
-    sim.commit_direct_damage_receiver(&rules, None, hit, FrameEffects::default());
-    assert!(
-        sim.substrate
-            .entities
-            .get(plant)
-            .is_none_or(|plant| plant.dying)
-    );
+    destroy(&mut sim, &rules, plant);
     assert!(run_until(
         &mut sim,
         &rules,
@@ -339,13 +372,129 @@ fn losing_and_regaining_the_last_powered_center_switches_robot_tanks() {
     assert!(sim.techno_player_controllable(tanks[0], &rules));
 }
 
+/// Removed_From_Game's arm (`0x0050263B..0x00502776`): a destroyed center
+/// stops counting as it leaves the map, with no operational edge, and its
+/// house's ROBOs go offline in the same call.
+#[test]
+fn destroying_the_center_switches_its_robot_tanks_off() {
+    let Some(rules) = retail_rules() else {
+        return;
+    };
+    let (mut sim, grid) = arena(&rules);
+    let americans = sim.interner.get("Americans").unwrap();
+    spawn(&mut sim, &rules, "GAPOWR", "Americans", 3, 3);
+    let center = spawn(&mut sim, &rules, "GAROBO", "Americans", 8, 3);
+    let tanks = [
+        spawn(&mut sim, &rules, "ROBO", "Americans", 12, 14),
+        spawn(&mut sim, &rules, "ROBO", "Americans", 15, 14),
+    ];
+    let mut events = Vec::new();
+    assert!(run_until(
+        &mut sim,
+        &rules,
+        &grid,
+        300,
+        &mut events,
+        |sim| sim.has_powered_center(americans)
+    ));
+
+    events.clear();
+    destroy(&mut sim, &rules, center);
+    events.append(&mut sim.sound_events);
+    assert!(tanks.iter().all(|&id| offline(&sim, id)));
+    assert!(!sim.has_powered_center(americans));
+    assert_eq!(lines(&events, americans, EVA_ROBOT_TANKS_OFFLINE), 1);
+    assert_eq!(sounds(&events, "RobotTankOffline"), 2);
+}
+
+/// ChangeOwner (`0x0070158A..0x007015E6`) runs Removed_From_Game on the old
+/// house: a captured center stops counting there, and its old house's ROBOs
+/// go offline in the same call. Added_To_Game never counts, and Building
+/// `+0x6C8` has no ownership-change writer, so the captor counts it only at
+/// its next operational edge: here, when the captor's power fails and
+/// returns.
+#[test]
+fn a_captured_center_counts_for_its_captor_only_at_its_next_edge() {
+    let Some(rules) = retail_rules() else {
+        return;
+    };
+    let (mut sim, grid) = arena(&rules);
+    let americans = sim.interner.get("Americans").unwrap();
+    let russians = sim.interner.get("Russians").unwrap();
+    spawn(&mut sim, &rules, "GAPOWR", "Americans", 3, 3);
+    let center = spawn(&mut sim, &rules, "GAROBO", "Americans", 8, 3);
+    let tanks = [
+        spawn(&mut sim, &rules, "ROBO", "Americans", 12, 14),
+        spawn(&mut sim, &rules, "ROBO", "Americans", 15, 14),
+    ];
+    let plant = spawn(&mut sim, &rules, "GAPOWR", "Russians", 3, 26);
+    let rival = spawn(&mut sim, &rules, "ROBO", "Russians", 22, 24);
+    let mut events = Vec::new();
+    assert!(run_until(
+        &mut sim,
+        &rules,
+        &grid,
+        300,
+        &mut events,
+        |sim| sim.has_powered_center(americans)
+    ));
+
+    events.clear();
+    sim.change_owner_with_rules(center, russians, &rules, None, FrameEffects::default());
+    events.append(&mut sim.sound_events);
+    assert!(tanks.iter().all(|&id| offline(&sim, id)));
+    assert!(!sim.has_powered_center(americans));
+    assert_eq!(lines(&events, americans, EVA_ROBOT_TANKS_OFFLINE), 1);
+    assert_eq!(sounds(&events, "RobotTankOffline"), 2);
+    // Working for the Russians, it does not count for them.
+    run_until(&mut sim, &rules, &grid, 60, &mut events, |_| false);
+    assert!(!sim.has_powered_center(russians));
+
+    let working = |sim: &Simulation| {
+        sim.substrate
+            .entities
+            .get(center)
+            .unwrap()
+            .building_last_operational
+    };
+    destroy(&mut sim, &rules, plant);
+    assert!(run_until(
+        &mut sim,
+        &rules,
+        &grid,
+        300,
+        &mut events,
+        |sim| !working(sim)
+    ));
+    assert!(!sim.has_powered_center(russians));
+    events.clear();
+    spawn(&mut sim, &rules, "GAPOWR", "Russians", 14, 26);
+    assert!(run_until(
+        &mut sim,
+        &rules,
+        &grid,
+        300,
+        &mut events,
+        |sim| sim.has_powered_center(russians)
+    ));
+    assert!(working(&sim));
+    assert_eq!(lines(&events, russians, EVA_ROBOT_TANKS_BACK_ONLINE), 1);
+    assert_eq!(
+        sounds(&events, "RobotTankOnline"),
+        0,
+        "the rival was never offline"
+    );
+    assert!(!offline(&sim, rival));
+    assert!(tanks.iter().all(|&id| offline(&sim, id)));
+}
+
 /// The Unit's cell arrival (`0x00739F21..0x00739F59`): a ROBO whose house
 /// has no powered center goes offline at its first step, which Hover
 /// processes before it leaves its cell (`TryAdvancePathStep`'s
-/// Per_Cell_Process at `0x00515A1C` precedes the claim), and its Deactivate
-/// drops the order, so it stays there.
+/// Per_Cell_Process at `0x00515A1C` precedes the claim). Still on the
+/// ground, it is unpowered once Power_Off clears the byte, so it stays.
 #[test]
-fn a_robot_tank_without_a_powered_center_goes_offline_when_it_moves() {
+fn a_grounded_robot_tank_without_a_powered_center_goes_offline_where_it_stands() {
     let Some(rules) = retail_rules() else {
         return;
     };
@@ -354,16 +503,7 @@ fn a_robot_tank_without_a_powered_center_goes_offline_when_it_moves() {
     // A building keeps the house in the game (ShortGame=yes).
     spawn(&mut sim, &rules, "GAPOWR", "Americans", 3, 3);
     let tank = spawn(&mut sim, &rules, "ROBO", "Americans", 10, 16);
-    sim.queue_command(CommandEnvelope::new(
-        americans,
-        sim.session.tick + 1,
-        Command::Move {
-            entity_id: tank,
-            target_rx: 16,
-            target_ry: 16,
-            queue: false,
-        },
-    ));
+    order_move(&mut sim, tank, (16, 16));
     let mut events = Vec::new();
     assert!(run_until(
         &mut sim,
@@ -371,18 +511,57 @@ fn a_robot_tank_without_a_powered_center_goes_offline_when_it_moves() {
         &grid,
         300,
         &mut events,
-        |sim| { offline(sim, tank) }
+        |sim| offline(sim, tank)
     ));
-    let cell = |sim: &Simulation| {
-        let tank = sim.substrate.entities.get(tank).unwrap();
-        (tank.position.rx, tank.position.ry)
-    };
-    assert_eq!(cell(&sim), (10, 16));
+    assert_eq!(cell(&sim, tank), (10, 16));
+    assert_eq!(height(&sim, tank), 0);
     assert_eq!(sounds(&events, "RobotTankOffline"), 1);
     assert_eq!(lines(&events, americans, EVA_ROBOT_TANKS_OFFLINE), 0);
     run_until(&mut sim, &rules, &grid, 120, &mut events, |_| false);
-    assert_eq!(cell(&sim), (10, 16));
+    assert_eq!(cell(&sim, tank), (10, 16));
     assert!(offline(&sim, tank));
+}
+
+/// The same step for a ROBO still hovering: its height keeps it powered
+/// (`0x00516C70`) after Power_Off clears the byte, and Stop_Moving
+/// (`0x00516320`) keeps the head `TryAdvancePathStep` goes on to claim, so
+/// it settles into that next cell and stays there.
+#[test]
+fn a_hovering_robot_tank_without_a_powered_center_settles_into_its_next_cell() {
+    let Some(rules) = retail_rules() else {
+        return;
+    };
+    let (mut sim, grid) = arena(&rules);
+    spawn(&mut sim, &rules, "GAPOWR", "Americans", 3, 3);
+    let tank = spawn(&mut sim, &rules, "ROBO", "Americans", 10, 16);
+    let mut events = Vec::new();
+    assert!(run_until(
+        &mut sim,
+        &rules,
+        &grid,
+        300,
+        &mut events,
+        |sim| height(sim, tank) >= rules.general.hover_height / 2
+    ));
+    order_move(&mut sim, tank, (16, 16));
+    assert!(run_until(
+        &mut sim,
+        &rules,
+        &grid,
+        300,
+        &mut events,
+        |sim| offline(sim, tank)
+    ));
+    assert_eq!(cell(&sim, tank), (10, 16));
+    assert!(height(&sim, tank) > 0);
+    run_until(&mut sim, &rules, &grid, 300, &mut events, |_| false);
+    let settled = cell(&sim, tank);
+    assert_eq!(settled.0.abs_diff(10).max(settled.1.abs_diff(16)), 1);
+    assert_eq!(height(&sim, tank), 0);
+    run_until(&mut sim, &rules, &grid, 120, &mut events, |_| false);
+    assert_eq!(cell(&sim, tank), settled);
+    assert!(offline(&sim, tank));
+    assert_eq!(sounds(&events, "RobotTankOffline"), 1);
 }
 
 /// The latch (Techno `+0x1C8`), a building's share (`+0x662`) and the

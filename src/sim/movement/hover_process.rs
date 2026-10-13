@@ -239,12 +239,13 @@ impl Simulation {
         self.hover_halt(id);
     }
 
-    /// `Power_Off` 0x00516BF0, Hover's override of ILocomotion+0x5C: an
-    /// airborne Hover (its Is_Powered, 0x00516C70) whose Foot's mission
-    /// (`+0xAC`, read raw) is neither Sleep nor Enter spins as it settles,
-    /// a Shove of `Random(20, 30)` steps negated when `Random(0, 99) < 50`
-    /// (0x00516C11..0x00516C4B), which Process pays back while it stays
-    /// airborne; a moving one stops (0x00516C4E..0x00516C5B); then the base
+    /// `Power_Off` 0x00516BF0, Hover's override of ILocomotion+0x5C: a
+    /// powered Hover (its Is_Powered, 0x00516C70: the powered byte, or any
+    /// height) whose Foot's mission (`+0xAC`, read raw) is neither Sleep nor
+    /// Enter spins as it settles, a Shove of `Random(20, 30)` steps negated
+    /// when `Random(0, 99) < 50` (0x00516C11..0x00516C4B), which Process pays
+    /// back while it stays aloft; a moving one stops (0x00516C4E..0x00516C5B,
+    /// Stop_Moving 0x00516320, which keeps the head); then the base
     /// Power_Off (0x0055A910) clears the powered byte. Returns false when
     /// `id` is not on Hover.
     pub(crate) fn hover_power_off(&mut self, id: u64) -> bool {
@@ -254,12 +255,12 @@ impl Simulation {
         if runtime(entity).is_none() {
             return false;
         }
-        let airborne = hover_is_powered(entity, self.resolved_terrain.as_ref());
+        let powered = hover_is_powered(entity, self.resolved_terrain.as_ref());
         let settled = matches!(
             entity.mission.current().known(),
             Some(MissionType::Sleep | MissionType::Enter)
         );
-        if airborne && !settled {
+        if powered && !settled {
             let steps = self.scenario_rng.next_range_i32_inclusive(20, 30);
             let negate = self.scenario_rng.next_range_i32_inclusive(0, 99) < 50;
             let hover = self.hover_mut(id).expect("same Hover Foot");

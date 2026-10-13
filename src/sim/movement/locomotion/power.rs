@@ -9,7 +9,8 @@
 //! The base setters stop nothing and keep the destination. Every family
 //! keeps the base Power_On; Hover and Fly override Power_Off
 //! ([`Simulation::locomotor_power_off`](crate::sim::world::Simulation::locomotor_power_off)):
-//! a Hover that is still airborne spins down and a moving one stops.
+//! a powered Hover (its byte, or any height) spins down and a moving one
+//! stops.
 //!
 //! The flag itself lives on [`LocomotorState`]; this module owns the
 //! documentation of *when* it moves and what reads it, because that is the part

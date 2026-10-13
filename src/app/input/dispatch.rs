@@ -2671,18 +2671,20 @@ fn queue_deploy_undeploy_for_selected(state: &mut AppState) {
 ///   unloads them alone.
 /// - Otherwise a first walk (`0x00730B8C..0x00730C0E`) notes whether any
 ///   deployer is deployed and any is not, berserk ones included.
-/// - The issue walk then skips a berserk object (`0x00730C82`) and, when
-///   that walk found both, every deployed deployer, so only the undeployed
+/// - The issue walk then admits only an object the player may control
+///   (vt+0xA0) or that is active (vt+0x9C, `0x00730C38`, `0x00730C46`), as
+///   the Stop key does, skips a berserk object (`0x00730C82`) and, when the
+///   first walk found both, every deployed deployer, so only the undeployed
 ///   ones deploy.
 ///
 /// Its closing sound reads `Rules+0x72C`, which no INI key sets: the
 /// constructor's -1 (`0x0066606A`) plays nothing.
 ///
-/// RESIDUAL: the issue walk's other admission tests are not ported:
-/// `vt+0xA0` or `vt+0x9C`, bit 0 of `+0x14`, `vt+0x310` (`0x00700D10`) and
-/// `vt+0x314` (`0x00700D50`). `deploy_key_command`'s capability checks stand
-/// in for them, and their equivalence is unchecked. Trigger: an object one of
-/// them refuses. Effect: the deploy key orders it anyway. Frequency unknown.
+/// RESIDUAL: the issue walk's other admission tests are not ported: bit 0 of
+/// `+0x14`, `vt+0x310` (`0x00700D10`) and `vt+0x314` (`0x00700D50`).
+/// `deploy_key_command`'s capability checks stand in for them, and their
+/// equivalence is unchecked. Trigger: an object one of them refuses. Effect:
+/// the deploy key orders it anyway. Frequency unknown.
 fn deploy_key_commands(
     sim: &crate::sim::world::Simulation,
     rules: Option<&crate::rules::ruleset::RuleSet>,
@@ -2718,7 +2720,10 @@ fn deploy_key_commands(
         .iter()
         .copied()
         .filter(|&id| {
-            sim.entities()
+            rules.is_none_or(|rules| {
+                sim.techno_player_controllable(id, rules) || sim.techno_is_active(id, rules)
+            }) && sim
+                .entities()
                 .get(id)
                 .is_some_and(|entity| !entity.berserk.active)
                 && !(mixed && deployed(id) == Some(true))
@@ -3176,6 +3181,15 @@ mod deploy_key_tests {
     use crate::sim::passenger::{PassengerCargo, PassengerRole};
     use crate::sim::world::Simulation;
 
+    /// A battle whose player is `Americans`, so the issue walk's control
+    /// and activity tests can admit the fixture's objects.
+    fn player_sim() -> Simulation {
+        let mut sim = Simulation::new();
+        sim.session.game_mode_nonzero = true;
+        sim.session.current_house = Some(sim.interner.intern("Americans"));
+        sim
+    }
+
     #[test]
     fn simple_deployer_key_preserves_infantry_and_loaded_transport_actions() {
         let rules = RuleSet::from_ini(&IniFile::from_str(
@@ -3244,7 +3258,7 @@ mod deploy_key_tests {
             "[VehicleTypes]\n0=HELI\n[HELI]\nIsSimpleDeployer=yes\n",
         ))
         .expect("deploy key rules");
-        let mut sim = Simulation::new();
+        let mut sim = player_sim();
         let heli = sim
             .spawn_object_limbo_at_height("HELI", "Americans", 10, 10, 0, 0, &rules)
             .expect("the deploy key fixture builds");
@@ -3253,6 +3267,29 @@ mod deploy_key_tests {
             [Command::DeployMcv { entity_id: heli }]
         );
         sim.entities_mut().get_mut(heli).unwrap().berserk.active = true;
+        assert!(deploy_key_commands(&sim, Some(&rules), &[heli]).is_empty());
+    }
+
+    /// The issue walk admits an object the player may control (vt+0xA0) or
+    /// that is active (vt+0x9C, `0x00730C38`, `0x00730C46`): an offline one
+    /// is neither, and nor is another house's.
+    #[test]
+    fn the_deploy_key_skips_an_object_neither_controllable_nor_active() {
+        let rules = RuleSet::from_ini(&IniFile::from_str(
+            "[VehicleTypes]\n0=HELI\n[HELI]\nIsSimpleDeployer=yes\n",
+        ))
+        .expect("deploy key rules");
+        let mut sim = player_sim();
+        let mut spawn = |owner| {
+            sim.spawn_object_limbo_at_height("HELI", owner, 10, 10, 0, 0, &rules)
+                .expect("the deploy key fixture builds")
+        };
+        let (heli, theirs) = (spawn("Americans"), spawn("Russians"));
+        assert_eq!(
+            deploy_key_commands(&sim, Some(&rules), &[heli, theirs]),
+            [Command::DeployMcv { entity_id: heli }]
+        );
+        sim.entities_mut().get_mut(heli).unwrap().deactivated = true;
         assert!(deploy_key_commands(&sim, Some(&rules), &[heli]).is_empty());
     }
 
@@ -3265,7 +3302,7 @@ mod deploy_key_tests {
             "[InfantryTypes]\n0=GI\n[GI]\nDeployer=yes\nDeployFire=yes\n",
         ))
         .expect("deploy key rules");
-        let mut sim = Simulation::new();
+        let mut sim = player_sim();
         let mut spawn = |rx: u16| {
             sim.spawn_object("GI", "Americans", rx, 5, 0, &rules)
                 .expect("the deploy key fixture builds")

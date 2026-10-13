@@ -22,8 +22,11 @@
 //! - the Unit's cell arrival (`UnitClass::Per_Cell_Process`
 //!   `0x00739F21..0x00739F59`): a `PoweredUnit=` vehicle whose house has no
 //!   powered center (`HouseClass @ 0x0050E1B0`) goes offline when no building
-//!   stands in its cell (Hover runs it at each step before it leaves the
-//!   cell, `0x00515A1C`). Arrival never brings one back;
+//!   stands in its cell. Hover runs it at each step before it leaves the
+//!   cell (`TryAdvancePathStep`, `0x00515A1C`) and then claims the next
+//!   cell; Stop_Moving (`0x00516320`) keeps the head, so a tank on the
+//!   ground stays put while one still hovering settles into that cell.
+//!   Arrival never brings one back;
 //! - the sparks an offline Unit throws (`UnitClass::AI`
 //!   `0x007360C9..0x007361A4`).
 //!
@@ -37,8 +40,9 @@
 //! `movement::teleport_chrono`).
 //!
 //! Ledger: Deactivate draws twice from the Scenario stream through Hover's
-//! Power_Off when the tank is airborne and neither sleeping nor entering;
-//! an offline Unit draws twice on each of its spark frames. Timers: the
+//! Power_Off when its Is_Powered holds (`0x00516C70`: the powered byte,
+//! which a working tank keeps, or any height) and it is neither sleeping
+//! nor entering; an offline Unit draws twice on each of its spark frames. Timers: the
 //! mission and destination timers ResetOrdersToGuard writes. Detaches: none.
 //! `tools/robot_offline_oracle.py` executes Hover's Power_Off and the spark
 //! arm (`powered_unit_tests`).
@@ -50,6 +54,10 @@
 //!   `PlayerControl`, `0x0050E098..0x0050E0AC`) is the app's local-player
 //!   test, which is the multiplayer arm (`0x0050E0B0`). Trigger: a campaign
 //!   house the player controls loses its center. Effect: no line.
+//! - The three EVA sites also require the game to be active (`0x00A8E9A0`)
+//!   and no scenario initialization under way (`0x00A8E7AC`,
+//!   `0x0050E088..0x0050E0C4`); the walks push the line without them.
+//!   Inaudible: retail `evamd.ini` has no entries for either line.
 //! - Hover Process's water arm (`0x00514BB7..0x00514C0C`) drops an
 //!   unpowered Hover that settles below one level over water through
 //!   `ObjectClass::DropAsBomb @ 0x005F4160`, which VERA does not port

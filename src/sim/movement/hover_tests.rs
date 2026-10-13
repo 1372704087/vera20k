@@ -172,9 +172,9 @@ fn altitude_step_matches_original_controller() {
 }
 
 /// Power_Off (0x00516BF0) through [`Simulation::hover_power_off`]: the spin
-/// of an airborne Foot that is neither sleeping nor entering, with its two
-/// Scenario draws, then Stop_Moving (0x00516320) and the base Power_Off.
-/// With no terrain, GetHeight (0x005F5F40) is the Location's Z.
+/// of a powered Foot (byte or height) neither sleeping nor entering, with
+/// its two Scenario draws, then Stop_Moving (0x00516320) and the base
+/// Power_Off. With no terrain, GetHeight (0x005F5F40) is the Location's Z.
 #[test]
 fn power_off_matches_original_execution() {
     use crate::sim::world::Simulation;

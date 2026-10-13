@@ -825,6 +825,18 @@ fn ordinary_default_passive_false_does_not_accept_a_chain() {
 #[test]
 fn bridge_terminal_uses_owner_height_to_reach_ground_navcom_target() {
     let (mut sim, rules) = fixture();
+    // This route ends on an intact structural deck. A missing deck now
+    // correctly invokes DropAsBomb before the ordinary arrival completes.
+    let cell = sim
+        .resolved_terrain
+        .as_mut()
+        .unwrap()
+        .cell_mut(10, 9)
+        .unwrap();
+    cell.bridge_facts.raw_flags |= crate::map::bridge_facts::BRIDGE_FLAG_STRUCTURAL;
+    cell.has_bridge_deck = true;
+    cell.bridge_walkable = true;
+    cell.bridge_deck_level = 4;
     let mut grid = crate::sim::pathfinding::PathGrid::new(32, 32);
     grid.set_cell_for_test(10, 9, 0, true, false);
     sim.path_grid = Some(std::sync::Arc::new(grid));

@@ -39,6 +39,17 @@ use crate::util::native_x87::NativeF64Bits;
 
 mod foot_air;
 
+/// ObjectClass's retained fall words: +2C, +84, +8D and +8F.
+/// DropAsBomb5F4160 preserves the rate and parachute byte; landing5F3F86
+/// clears only falling. Constructor5F3900 initializes all four to zero.
+#[derive(Debug, Default, Clone, serde::Serialize, serde::Deserialize)]
+struct ObjectFallState {
+    rate: i32,
+    parachuted: bool,
+    falling: bool,
+    dropped_as_bomb: bool,
+}
+
 /// Frames the passive target-scan timer is armed for at object construction.
 /// The original's Techno constructor anchors the timer at the current frame and
 /// writes 45 as its duration, so a freshly built object waits that long before
@@ -994,12 +1005,9 @@ pub struct GameEntity {
     /// read it; cleared when the parent releases the child.
     #[serde(default)]
     pub spawn_owner_id: Option<u64>,
-    /// Parachute descent state. `Some` while a paradropped unit is descending
-    /// under a parachute, `None` otherwise. Set by
-    /// `parachute_descent::begin_parachute_descent`, cleared on landing. It
-    /// is also the object's IsFallingDown ([`Self::is_falling_down`]).
+    /// Object-level fall state, shared by Paradrop and DropAsBomb.
     #[serde(default)]
-    pub parachute_state: Option<crate::sim::movement::parachute_descent::ParachuteDescentState>,
+    fall: ObjectFallState,
     /// The IronCurtain or ForceShield state: the curtain's timer and its tint
     /// stage. `None` until the first curtain; `Some` after it, nullifying all
     /// damage (except healing) while the timer runs ([`is_invulnerable`]).
@@ -1864,7 +1872,7 @@ impl GameEntity {
             capture_manager: None,
             spawn_manager: None,
             spawn_owner_id: None,
-            parachute_state: None,
+            fall: ObjectFallState::default(),
             invulnerability: None,
             mind_control: Default::default(),
             temporal: Default::default(),
@@ -2013,17 +2021,68 @@ impl GameEntity {
 
     /// ObjectClass `+0x8D` IsFallingDown. `ObjectClass::Paradrop`
     /// (`0x005F5940`) raises it at `0x005F5965`, and `ObjectClass::AI`
-    /// clears it when the fall grounds (`0x005F3F86`). The paradrop descent is
-    /// VERA's only fall, so its state is the one owner.
+    /// clears it when the fall grounds (`0x005F3F86`).
     pub(crate) fn is_falling_down(&self) -> bool {
-        self.parachute_state.is_some()
+        self.fall.falling
+    }
+
+    pub(crate) fn was_dropped_as_bomb(&self) -> bool {
+        self.fall.dropped_as_bomb
+    }
+
+    pub(crate) fn fall_rate(&self) -> i32 {
+        self.fall.rate
+    }
+
+    pub(crate) fn is_parachuted(&self) -> bool {
+        self.fall.parachuted
+    }
+
+    /// Paradrop5F5940 raises +84/+8D and resets +2C before placement.
+    pub(crate) fn begin_parachute_fall(&mut self, z: i32) {
+        self.position.exact_z_leptons = Some(z);
+        self.fall.parachuted = true;
+        self.fall.falling = true;
+        self.fall.rate = 0;
+    }
+
+    /// DropAsBomb5F416A/71 writes neither Location nor FallRate nor +84.
+    pub(crate) fn begin_bomb_fall(&mut self) {
+        self.fall.falling = true;
+        self.fall.dropped_as_bomb = true;
+    }
+
+    pub(crate) fn finish_fall(&mut self) {
+        self.fall.falling = false;
+    }
+
+    /// ObjectAI5F3FBC..3FFA updates even the grounding frame's rate.
+    pub(crate) fn advance_fall_rate(&mut self, parachute_cap: i32, free_fall_cap: i32) {
+        self.fall.rate = if self.fall.parachuted {
+            self.fall.rate.wrapping_sub(1).max(parachute_cap)
+        } else {
+            use crate::util::native_x87::{NativeF64Bits, X87Chop53};
+            let gravity = X87Chop53::load_f64(NativeF64Bits::from_bits(0x3ff6_6666_6666_6666))
+                .expect("finite ObjectAI free-fall gravity 7EF248");
+            X87Chop53::ftol_i32_low_masked(X87Chop53::sub(
+                X87Chop53::load_i32(self.fall.rate),
+                gravity,
+            ))
+            .max(free_fall_cap)
+        };
     }
 
     /// Put a fixture into a fall where it is, with a FallRate of 0.
     #[cfg(test)]
     pub(crate) fn set_falling_down_for_test(&mut self, falling: bool) {
-        self.parachute_state = falling
-            .then_some(crate::sim::movement::parachute_descent::ParachuteDescentState { rate: 0 });
+        self.fall.falling = falling;
+        self.fall.parachuted = falling;
+        self.fall.rate = 0;
+    }
+
+    #[cfg(test)]
+    pub(crate) fn set_fall_rate_for_test(&mut self, rate: i32) {
+        self.fall.rate = rate;
     }
 
     /// Record a debug event if the event log is active. No-op when `debug_log` is `None`.

@@ -725,6 +725,22 @@ impl Simulation {
             );
             self.per_cell_range_stop(id, rules, registry, effects);
         }
+        // Foot4D8D31..4D8D53: a Foot whose structural deck disappeared
+        // takes the same DropAsBomb as BlowUpBridge's deck traversal.
+        let deck_gone = self.substrate.entities.get(id).is_some_and(|entity| {
+            entity.on_bridge
+                && self.resolved_terrain.as_ref().is_some_and(|terrain| {
+                    let cells = crate::map::resolved_terrain::NativeCellQuery::canonical(terrain);
+                    let at = position_world_coord(&entity.position);
+                    cells.flags(cells.lookup_world(at.x, at.y)) & 0x100 == 0
+                })
+        });
+        if deck_gone {
+            self.drop_as_bomb(
+                id,
+                crate::sim::world::UninitContext::new(rules, registry).with_effects(effects),
+            );
+        }
         // `0x006F5090`'s head lets a held Temporal target go.
         self.temporal_release_if_warping(id);
         self.promote_entity_playfield_membership_after_move(id);

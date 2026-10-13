@@ -989,7 +989,9 @@ use crate::sim::world::Simulation;
 // carry the goal.
 // 341 -> 342: each House retains its tech-tree recheck byte (+1FC).
 // Version 341 records cannot preserve a pending strip cancellation decision.
-const SNAPSHOT_VERSION: u32 = 342;
+// 342 -> 343: objects retain the complete Object fall state (rate, parachute,
+// falling and IsABomb), and falling runs inside MissionAI before dispatch.
+const SNAPSHOT_VERSION: u32 = 343;
 
 const SNAPSHOT_PRODUCT_MAGIC: [u8; 8] = *b"VERA20K\0";
 const SNAPSHOT_ENVELOPE_VERSION: u32 = 1;
@@ -4362,7 +4364,8 @@ mod tests {
         // 339 -> 340: a bounce body's orientation and rotation quaternions.
         // 340 -> 341: the Foot MegaMission replaces the OrderIntent goal.
         // 341 -> 342: the House tech-tree recheck byte.
-        assert_eq!(super::SNAPSHOT_VERSION, 342);
+        // 342 -> 343: the complete Object fall state.
+        assert_eq!(super::SNAPSHOT_VERSION, 343);
     }
 
     #[test]

@@ -219,14 +219,23 @@ impl crate::sim::world::Simulation {
     /// first Limbo (`0x004DB324`), the Chrono Warp on a Unit it arms
     /// (`0x006CCA65`); each body is skipped for an object already in Limbo.
     ///
-    /// RESIDUAL: Hover's body (`0x005171C0`, a clear at its Head_To_Coord) is
-    /// not ported. Trigger: a Hover Unit limboed or chronoshifted. Effect: its
-    /// raw occupation at its head stays until its next Mark.
+    /// Hover5171C0 clears the coordinate from its head getter514D10, which
+    /// substitutes Location for a null head; no power/limbo gate lives in it.
     pub(crate) fn locomotor_mark_all_occupation_bits_up(&mut self, id: u64) {
         self.release_track_occupation_before_foot_limbo(id);
         self.release_walk_occupation_before_foot_limbo(id);
         self.release_teleport_occupation_before_foot_limbo(id);
         self.release_jumpjet_occupation_before_foot_limbo(id);
+        let head = self.substrate.entities.get(id).and_then(|entity| {
+            entity.locomotor.as_ref()?.hover_runtime()?;
+            Some(super::foot_coordinate::head_or_current(
+                super::foot_coordinate::stored_head(entity),
+                super::foot_coordinate::current_coordinate(entity),
+            ))
+        });
+        if let Some(head) = head {
+            self.object_raw_receiver_at(id, head, false);
+        }
     }
 }
 

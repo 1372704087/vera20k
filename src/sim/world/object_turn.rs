@@ -821,7 +821,11 @@ impl Simulation {
             .entities
             .get(stable_id)
             .is_some_and(|entity| entity.category == EntityCategory::Structure);
-        let ai = sim.object_ai_visit_one_with_effects(stable_id, rules, object_ctx);
+        let mut ai = sim.object_ai_visit_one_with_effects(stable_id, rules, object_ctx);
+        if let Some(error) = ai.fall_error.take() {
+            return Err(error);
+        }
+        let mut per_cell_ran = ai.landed;
         outcome.bridge_state_changed |= ai.bridge_state_changed;
         outcome.ownership_changed |= ai.ownership_changed();
         if was_structure
@@ -872,37 +876,6 @@ impl Simulation {
             )
         {
             entity.mission_leaf.set_foot_idle_entry_latch(0);
-        }
-
-        // ObjectClass::AI's fall step (`0x005F3F11..0x005F3FA4`), which the
-        // Foot's TechnoClass::AI call (`0x004DA539`) reaches before Process.
-        //
-        // RESIDUAL: VERA runs it after the whole Techno visit, not at
-        // ObjectClass::AI's start. Trigger: a paradropped object landing.
-        // Effect: that frame's mission dispatch still sees it falling.
-        // Frequency: once per paradrop landing. Risk: the first mission
-        // Commence after landing waits one frame.
-        let mut per_cell_ran = false;
-        if let Some(rules) = rules
-            && sim.advance_fall(
-                stable_id,
-                rules.general.parachute_max_fall_rate,
-                Some(rules),
-                overlay_registry,
-                object_ctx.effects,
-            )
-        {
-            // Object AI5F3F8D: grounded fall completion calls vt+0x18C(2)
-            // before the parachute animation's wind-down.
-            outcome.bridge_state_changed |= sim.per_cell_process(
-                stable_id,
-                movement::PerCellReason::Arrival,
-                Some(rules),
-                overlay_registry,
-                object_ctx.effects,
-            )?;
-            per_cell_ran = true;
-            sim.wind_down_parachute_anim(rules, stable_id);
         }
 
         if !tube_active_at_entry {

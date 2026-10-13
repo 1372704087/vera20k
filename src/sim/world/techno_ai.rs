@@ -62,6 +62,8 @@ pub(super) struct ObjectAiOutcome {
     pub(super) visited: bool,
     pub(super) bridge_state_changed: bool,
     ownership_changed: bool,
+    pub(super) landed: bool,
+    pub(super) fall_error: Option<super::FrameAdvanceError>,
 }
 
 impl ObjectAiOutcome {
@@ -699,7 +701,7 @@ fn techno_ai_shell(
     }
     match category {
         EntityCategory::Unit => {
-            unit_techno_bracket(sim, id, rules, ctx, &mut outcome.bridge_state_changed);
+            unit_techno_bracket(sim, id, rules, ctx, outcome);
         }
         // InfantryClass::AI promotes queued missions via Ready→Commence
         // (`0x0051BC51`/`0x0051BF03`); fear, fire and sequence run in
@@ -721,7 +723,9 @@ fn techno_ai_shell(
                 return;
             }
             clear_passive_target_off_mission(sim, id, rules);
-            mission_counter_step(sim, id, rules, ctx.effects);
+            if !mission_counter_step(sim, id, rules, ctx, outcome) {
+                return;
+            }
             if let Some(rules) = rules
                 && mission_handlers_run(sim, id)
             {
@@ -774,7 +778,9 @@ fn techno_ai_shell(
             // its targets. A building commences a queued mission only at
             // Update's ready checks, never here.
             clear_passive_target_off_mission(sim, id, rules);
-            mission_counter_step(sim, id, rules, ctx.effects);
+            if !mission_counter_step(sim, id, rules, ctx, outcome) {
+                return;
+            }
             building_missions::dispatch(sim, id, rules, ctx, &mut outcome.bridge_state_changed);
             if sim
                 .substrate
@@ -901,7 +907,9 @@ fn techno_ai_shell(
                 return;
             }
             clear_passive_target_off_mission(sim, id, rules);
-            mission_counter_step(sim, id, rules, ctx.effects);
+            if !mission_counter_step(sim, id, rules, ctx, outcome) {
+                return;
+            }
             // MissionClass::AI, inside this slot and before Fly Process
             // (FootClass::AI4DA530).
             if let Some(rules) = rules
@@ -1220,12 +1228,26 @@ fn mission_counter_step(
     sim: &mut Simulation,
     id: u64,
     rules: Option<&RuleSet>,
-    effects: FrameEffects<'_>,
-) {
+    ctx: ObjectAiCtx<'_>,
+    outcome: &mut ObjectAiOutcome,
+) -> bool {
     if let Some(entity) = sim.substrate.entities.get_mut(id) {
         entity.mission.increment_ai_counter();
     }
-    sim.object_ai_sounds(id, rules, effects);
+    if let Some(rules) = rules {
+        match sim.object_ai_fall(id, rules, ctx.overlay_registry, ctx.effects) {
+            Ok((landed, changed)) => {
+                outcome.landed |= landed;
+                outcome.bridge_state_changed |= changed;
+            }
+            Err(error) => {
+                outcome.fall_error = Some(error);
+                return false;
+            }
+        }
+    }
+    sim.object_ai_sounds(id, rules, ctx.effects);
+    ai_alive(sim, id)
 }
 
 // ===== TechnoClass common-body bracket =====
@@ -1928,7 +1950,7 @@ fn unit_techno_bracket(
     id: u64,
     rules: Option<&RuleSet>,
     ctx: ObjectAiCtx<'_>,
-    bridge_state_changed: &mut bool,
+    outcome: &mut ObjectAiOutcome,
 ) -> BracketReach {
     techno_common_pre(sim, id, rules, ctx.overlay_registry, ctx.effects);
     // Guard B (IsAlive, `0x006FA23C`). A crashing wreck is alive at Health 0,
@@ -1941,7 +1963,9 @@ fn unit_techno_bracket(
     }
     // The off-mission passive-target clear runs BEFORE the +0xC4 counter.
     clear_passive_target_off_mission(sim, id, rules);
-    mission_counter_step(sim, id, rules, ctx.effects);
+    if !mission_counter_step(sim, id, rules, ctx, outcome) {
+        return BracketReach::Dispatched;
+    }
     // Mission_Dispatch position: the absorbed handler bodies run here,
     // timer-gated, ending with the verified post-handler epilogue write
     // (start = current frame, delay = handler return). One committed-selector
@@ -1949,7 +1973,7 @@ fn unit_techno_bracket(
     if mission_handlers_run(sim, id)
         && let Some(rules) = rules
     {
-        *bridge_state_changed |= dispatch_foot_mission(sim, id, rules, ctx);
+        outcome.bridge_state_changed |= dispatch_foot_mission(sim, id, rules, ctx);
     }
     // `UnitClass::AI @ 0x007361A9..0x007361E9`: a draining Floating Disc
     // re-checks the building under it every 16th frame and drops the link
@@ -1963,7 +1987,7 @@ fn unit_techno_bracket(
         id,
         rules,
         ctx.overlay_registry,
-        bridge_state_changed,
+        &mut outcome.bridge_state_changed,
         ctx.effects,
     );
     slave_manager_slot(sim, id, rules, ctx.overlay_registry, ctx.effects);
@@ -2381,7 +2405,13 @@ mod tests {
         // A live Unit reaches the dispatch point: +0xC4 counter tick; the
         // verb-owned current selector is untouched.
         assert_eq!(
-            unit_techno_bracket(&mut sim, 1, None, ObjectAiCtx::default(), &mut false),
+            unit_techno_bracket(
+                &mut sim,
+                1,
+                None,
+                ObjectAiCtx::default(),
+                &mut ObjectAiOutcome::default()
+            ),
             BracketReach::Dispatched
         );
         let u = sim.substrate.entities.get(1).unwrap();
@@ -2399,7 +2429,13 @@ mod tests {
         // Guard B (IsAlive) fires after the (empty) pre-block: a dead Unit runs
         // no mission work (counter stays 0).
         assert_eq!(
-            unit_techno_bracket(&mut sim, 1, None, ObjectAiCtx::default(), &mut false),
+            unit_techno_bracket(
+                &mut sim,
+                1,
+                None,
+                ObjectAiCtx::default(),
+                &mut ObjectAiOutcome::default()
+            ),
             BracketReach::DiedInPre
         );
         assert_eq!(
@@ -2418,7 +2454,13 @@ mod tests {
         e.crashing = true;
         sim.substrate.entities.insert(e);
         assert_eq!(
-            unit_techno_bracket(&mut sim, 1, None, ObjectAiCtx::default(), &mut false),
+            unit_techno_bracket(
+                &mut sim,
+                1,
+                None,
+                ObjectAiCtx::default(),
+                &mut ObjectAiOutcome::default()
+            ),
             BracketReach::Dispatched
         );
         assert_eq!(
@@ -2437,7 +2479,13 @@ mod tests {
         // common mission step for every live Unit (the miner FSM keeps driving
         // behavior; its mission commits arrive through the departure verbs).
         assert_eq!(
-            unit_techno_bracket(&mut sim, 1, None, ObjectAiCtx::default(), &mut false),
+            unit_techno_bracket(
+                &mut sim,
+                1,
+                None,
+                ObjectAiCtx::default(),
+                &mut ObjectAiOutcome::default()
+            ),
             BracketReach::Dispatched
         );
         assert_eq!(
@@ -5606,7 +5654,7 @@ mod tests {
         if gates.lifecycle_countdown_exit {
             return Err(HostTraceError::LifecyclePath);
         }
-        if entity.teleport_state().is_some() || entity.parachute_state.is_some() {
+        if entity.teleport_state().is_some() || entity.is_falling_down() {
             return Err(HostTraceError::SpecialLocomotorPath);
         }
 

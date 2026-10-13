@@ -718,6 +718,16 @@ impl ProcessedRulesLayers {
         )
     }
 
+    /// RulesClass's retained ObjectAI fall-rate limits, with and without a
+    /// parachute respectively (`+0x7B8`, `+0x7BC`).
+    pub(crate) fn fall_rate_controls(&self) -> (i32, i32) {
+        let state = self.native_type_construction_trace.registry_state();
+        (
+            state.rules_parachute_max_fall_rate,
+            state.rules_no_parachute_max_fall_rate,
+        )
+    }
+
     /// Consume only the typed-reader compatibility projection and deliberately
     /// discard the native constructor/registry receipt.
     ///
@@ -915,6 +925,8 @@ pub(crate) struct NativeRulesRegistryState {
     rules_gravity: i32,
     rules_missile_rot_var: f64,
     rules_safety_altitude: i32,
+    rules_parachute_max_fall_rate: i32,
+    rules_no_parachute_max_fall_rate: i32,
     rules_line_trail_override: [u8; 3],
     rules_prism_support: PrismSupportRules,
     rules_prism_type: Option<String>,
@@ -938,6 +950,9 @@ impl Default for NativeRulesRegistryState {
             rules_gravity: 3,
             rules_missile_rot_var: 0.25,
             rules_safety_altitude: 500,
+            // RulesClass ctor666163/66616D initializes +7B8/+7BC.
+            rules_parachute_max_fall_rate: -3,
+            rules_no_parachute_max_fall_rate: -100,
             rules_line_trail_override: [0; 3],
             rules_prism_support: PrismSupportRules::default(),
             rules_prism_type: None,
@@ -1009,6 +1024,8 @@ impl NativeRulesRegistryState {
             rules_gravity: self.rules_gravity,
             rules_missile_rot_var: self.rules_missile_rot_var,
             rules_safety_altitude: self.rules_safety_altitude,
+            rules_parachute_max_fall_rate: self.rules_parachute_max_fall_rate,
+            rules_no_parachute_max_fall_rate: self.rules_no_parachute_max_fall_rate,
             rules_line_trail_override: self.rules_line_trail_override,
             rules_prism_support: self.rules_prism_support,
             // Plain index vectors, so RulesClass keeps them; the next pass
@@ -1218,6 +1235,8 @@ struct RulesPassProcessor {
     rules_gravity: i32,
     rules_missile_rot_var: f64,
     rules_safety_altitude: i32,
+    rules_parachute_max_fall_rate: i32,
+    rules_no_parachute_max_fall_rate: i32,
     rules_line_trail_override: [u8; 3],
     rules_prism_support: PrismSupportRules,
     rules_prism_type: Option<String>,
@@ -1244,6 +1263,10 @@ impl Default for RulesPassProcessor {
             rules_gravity: NativeRulesRegistryState::default().rules_gravity,
             rules_missile_rot_var: NativeRulesRegistryState::default().rules_missile_rot_var,
             rules_safety_altitude: NativeRulesRegistryState::default().rules_safety_altitude,
+            rules_parachute_max_fall_rate: NativeRulesRegistryState::default()
+                .rules_parachute_max_fall_rate,
+            rules_no_parachute_max_fall_rate: NativeRulesRegistryState::default()
+                .rules_no_parachute_max_fall_rate,
             rules_line_trail_override: NativeRulesRegistryState::default()
                 .rules_line_trail_override,
             rules_prism_support: PrismSupportRules::default(),
@@ -1267,6 +1290,8 @@ impl RulesPassProcessor {
             rules_gravity: registry_state.rules_gravity,
             rules_missile_rot_var: registry_state.rules_missile_rot_var,
             rules_safety_altitude: registry_state.rules_safety_altitude,
+            rules_parachute_max_fall_rate: registry_state.rules_parachute_max_fall_rate,
+            rules_no_parachute_max_fall_rate: registry_state.rules_no_parachute_max_fall_rate,
             rules_line_trail_override: registry_state.rules_line_trail_override,
             rules_prism_support: registry_state.rules_prism_support,
             rules_prism_type: registry_state.rules_prism_type,
@@ -1686,6 +1711,16 @@ impl RulesPassProcessor {
             section.read_double("MissileROTVar", self.rules_missile_rot_var);
         self.rules_safety_altitude =
             section.read_int("MissileSafetyAltitude", self.rules_safety_altitude);
+        // ReadGeneral66F30E..66F350: ReadInt5276D0, exact-case keys,
+        // current +7B8/+7BC as defaults, in this order, without clamps.
+        // Original: tools.native_inspect disasm0x66F30E --bytes66;
+        // ctor0x666163 --bytes20 (supported retail gamemd3e81a617...).
+        self.rules_parachute_max_fall_rate =
+            section.read_int("ParachuteMaxFallRate", self.rules_parachute_max_fall_rate);
+        self.rules_no_parachute_max_fall_rate = section.read_int(
+            "NoParachuteMaxFallRate",
+            self.rules_no_parachute_max_fall_rate,
+        );
         // ReadGeneral's Prism block (`0x0067114F..0x006711B8`), current values
         // as defaults; RulesClass keeps them across Full_Init's reset.
         self.rules_prism_support = self.rules_prism_support.read_pass(section);
@@ -2625,6 +2660,8 @@ impl RulesPassProcessor {
                     rules_gravity: self.rules_gravity,
                     rules_missile_rot_var: self.rules_missile_rot_var,
                     rules_safety_altitude: self.rules_safety_altitude,
+                    rules_parachute_max_fall_rate: self.rules_parachute_max_fall_rate,
+                    rules_no_parachute_max_fall_rate: self.rules_no_parachute_max_fall_rate,
                     rules_line_trail_override: self.rules_line_trail_override,
                     rules_prism_support: self.rules_prism_support,
                     rules_prism_type: self.rules_prism_type,

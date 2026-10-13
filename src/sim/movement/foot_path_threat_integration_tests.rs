@@ -38,15 +38,12 @@ fn request_move(
         destination,
         0,
         sim.playfield_bounds,
-        None,
-        Some(rules),
     )
     .unwrap();
     let rng = sim.rng_state();
     let result = sim
         .foot_find_path(
             &request,
-            None,
             rules,
             Some(registry),
             crate::sim::world::FrameEffects::default(),

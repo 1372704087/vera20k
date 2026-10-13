@@ -9714,11 +9714,10 @@ fn repro_second_vehicle_ordered_onto_an_occupied_cell() {
     );
 }
 
-/// A Drive request made inside the movement pass searches with the owner
-/// sets the pass holds, brought current in place. Lending them a second time
-/// would build the owner's sets from every placement for each such pass.
+/// A Drive request made inside the movement pass prices its code-2 edges
+/// through the live receiver's chain, so no owner's block sets are built.
 #[test]
-fn drive_path_requests_inside_a_pass_bring_the_held_owner_sets_current() {
+fn drive_path_requests_inside_a_pass_build_no_owner_block_set() {
     let Some((mut sim, rules, grid)) = stacking_world(24) else {
         return;
     };
@@ -9739,19 +9738,14 @@ fn drive_path_requests_inside_a_pass_bring_the_held_owner_sets_current() {
         },
     );
     let _ = sim.advance_tick(&[cmd], Some(&rules), Some(&grid), None, 100);
-    // Ordinary Move now enters Unit741970 instead of eagerly finding a path
-    // in the command adapter. The command is admitted in the frame tail; the
-    // next movement visit creates the first owner view. Count that initial
-    // construction separately from rebuilding sets already held by a pass.
-    assert_eq!(sim.movement_pass_cache.block_index_view_builds(), 0);
     let mut moved_steps = 0;
     for _ in 0..60 {
         let tick = sim.advance_tick(&[], Some(&rules), Some(&grid), None, 100);
         moved_steps += tick.movement.moved_steps;
         assert_eq!(
             sim.movement_pass_cache.block_index_view_builds(),
-            1,
-            "a request inside a pass rebuilt the owner's sets"
+            0,
+            "a request inside a pass built an owner's block sets"
         );
     }
     assert!(

@@ -9,7 +9,6 @@
 //! residuals. JumpJet=true Infantry's +4F4/+4F8 conversion is a separate
 //! locomotor mechanism; its unrepresented continuation is reported explicitly.
 
-use super::block_index::HeldBlockSets;
 use super::foot_path::{FindPathResult, coord_cell};
 use super::ground_pose;
 use super::infantry_entry::InfantryEntryArgs;
@@ -35,7 +34,6 @@ impl Simulation {
     pub(crate) fn run_walk_admission_request(
         &mut self,
         request: WalkAdmissionRequest,
-        held: Option<&mut HeldBlockSets>,
         rules: Option<&RuleSet>,
         registry: Option<&OverlayTypeRegistry>,
         frame_effects: FrameEffects<'_>,
@@ -105,7 +103,6 @@ impl Simulation {
             request,
             candidate,
             code,
-            held,
             rules,
             registry,
             frame_effects,
@@ -119,7 +116,6 @@ impl Simulation {
         request: WalkAdmissionRequest,
         candidate: DriveCoord,
         code: u8,
-        held: Option<&mut HeldBlockSets>,
         rules: &RuleSet,
         registry: Option<&OverlayTypeRegistry>,
         frame_effects: FrameEffects<'_>,
@@ -161,7 +157,7 @@ impl Simulation {
                 self.walk_retry_admission(request)
             }
             2 => {
-                self.walk_blocked_delay(request, held, rules, registry, frame_effects)?;
+                self.walk_blocked_delay(request, rules, registry, frame_effects)?;
                 Ok(None)
             }
             3 => {
@@ -243,13 +239,12 @@ impl Simulation {
         registry: Option<&OverlayTypeRegistry>,
     ) -> Result<Option<FootPathRequest>, String> {
         let request =
-            WalkAdmissionRequest::for_response_test(&self.substrate.entities, id, allow_retry, rules)
+            WalkAdmissionRequest::for_response_test(&self.substrate.entities, id, allow_retry)
                 .ok_or("missing Walk corpus receiver")?;
         self.finish_walk_admission_response(
             request,
             candidate,
             code,
-            None,
             rules,
             registry,
             crate::sim::world::FrameEffects::default(),
@@ -338,7 +333,6 @@ impl Simulation {
     fn walk_blocked_delay(
         &mut self,
         request: WalkAdmissionRequest,
-        held: Option<&mut HeldBlockSets>,
         rules: &RuleSet,
         registry: Option<&OverlayTypeRegistry>,
         frame_effects: FrameEffects<'_>,
@@ -363,7 +357,7 @@ impl Simulation {
             .and_then(|loco| loco.walk_destination())
             .unwrap_or(DriveCoord { x: 0, y: 0, z: 0 });
         let request = request.into_path_request(destination, urgency);
-        let found = self.foot_find_path(&request, held, rules, registry, frame_effects)?;
+        let found = self.foot_find_path(&request, rules, registry, frame_effects)?;
         self.substrate
             .entities
             .get_mut(id)

@@ -1274,7 +1274,6 @@ fn infantry_under_span_admission_reads_ground_speed_with_deck_cost_grid() {
                         path_grid: Some(&grid),
                         resolved_terrain: Some(&terrain),
                         terrain_costs: Some(&costs),
-                        bypass_grid: false,
                         is_infantry: true,
                         mover_is_crusher: false,
                     })
@@ -1355,7 +1354,6 @@ fn unit_under_span_admission_reads_ground_row_beneath_deck() {
                     path_grid: Some(&grid),
                     resolved_terrain: Some(&terrain),
                     terrain_costs: Some(&costs),
-                    bypass_grid: false,
                     is_infantry: false,
                     mover_is_crusher: false,
                 })
@@ -1374,7 +1372,6 @@ fn unit_under_span_admission_reads_ground_row_beneath_deck() {
                     path_grid: Some(&grid),
                     resolved_terrain: Some(&terrain),
                     terrain_costs: Some(&costs),
-                    bypass_grid: false,
                     is_infantry: false,
                     mover_is_crusher: false,
                 })
@@ -1409,7 +1406,6 @@ fn infantry_under_span_admission_preserves_wall_and_grid_blocks() {
                 path_grid: Some(&grid),
                 resolved_terrain: Some(&terrain),
                 terrain_costs: Some(&costs),
-                bypass_grid: false,
                 is_infantry: true,
                 mover_is_crusher: false,
             })
@@ -1434,12 +1430,11 @@ fn infantry_under_span_admission_preserves_missing_target_rejection() {
                 path_grid,
                 resolved_terrain: None,
                 terrain_costs: None,
-                bypass_grid: true,
                 is_infantry: true,
                 mover_is_crusher: false,
             })
             .is_clear(),
-            "bypassing grid blockers must not admit an absent target"
+            "an absent target is refused"
         );
     }
 }
@@ -1819,61 +1814,31 @@ fn test_entity_blocks_fully_surrounded_no_path() {
 }
 
 // ---------------------------------------------------------------------------
-// Code-2 (friendly-moving blocker) dynamic cost tests
-// Matches gamemd.exe AStar_compute_edge_cost @ 0x00429830.
+// Code-2 (friendly-moving blocker) costs. `code2_multiplier` is the urgency
+// rule of AStar_compute_edge_cost @ 0x00429830; the tests after it drive the
+// reduced fallback's block-map chain (searches without a Foot receiver). The
+// live chain and the original executable's controls are tested in
+// `movement::foot_path::code2_chain_tests`.
 // ---------------------------------------------------------------------------
 
+/// `0x00429878..0x004299A6`: only urgency 0 asks the chain; urgency 2 routes
+/// around and any other nonzero urgency jams.
 #[test]
-fn original_hills_code2_clearing_queue_costs_match_the_existing_cost_owner() {
-    let packet: serde_json::Value = serde_json::from_str(crate::test_fixture::text(
-        "tools/spatial_oracle/astar_hills_markers.json",
-    ))
-    .unwrap();
-    assert_eq!(packet["code_unchanged"], true);
-    let native = &packet["blocker_prestate"];
-    assert_eq!(native["on_bridge"], false);
-    let cell = (
-        native["coord"][0].as_u64().unwrap() as u16,
-        native["coord"][1].as_u64().unwrap() as u16,
-    );
-    let direction = native["supplied_queue"][0].as_u64().unwrap() as usize;
-    let delta = crate::util::direction::DIRECTION_DELTAS[direction];
-    let next = (
-        (i32::from(cell.0) + delta.0) as u16,
-        (i32::from(cell.1) + delta.1) as u16,
-    );
-    // The owner consumes its existing selected-layer next-cell projection.
-    // Hills production integration independently checks the live code2 and
-    // queue/marker/search route; this pins original429830 scalar arithmetic.
-    let mut blockers = LayeredEntityBlockMap::new();
-    blockers.insert(
-        MovementLayer::Ground,
-        cell,
-        EntityBlockEntry {
-            next_cell: Some(next),
-            cost_code: 2,
-            blocker_is_infantry: false,
-        },
-    );
-    let controls = packet["costs"].as_array().unwrap();
-    assert_eq!(controls.len(), 6);
-    for control in controls {
-        assert_eq!(control["concrete_class"], 2);
-        assert_eq!(control["original_cost_trace"]["candidate_marked"], false);
-        assert_eq!(control["rng_before"], control["rng_after"]);
-        let actual = compute_code2_multiplier(
-            control["urgency"].as_u64().unwrap() as u8,
-            cell,
-            MovementLayer::Ground,
-            &blockers,
-        );
-        assert_eq!(
-            f64::from(actual),
-            control["cost"].as_f64().unwrap(),
-            "native Foot+578={} urgency={}",
-            control["supplied_speed_f64_bits"],
-            control["urgency"]
-        );
+fn code2_urgency_selects_the_multiplier_and_only_zero_asks_the_chain() {
+    for (urgency, jams, expected) in [
+        (0, false, CODE2_MULT_CLEARING),
+        (0, true, CODE2_MULT_JAM),
+        (1, false, CODE2_MULT_JAM),
+        (2, true, CODE2_MULT_ROUTE_AROUND),
+        (3, false, CODE2_MULT_JAM),
+    ] {
+        let mut asked = false;
+        let multiplier = code2_multiplier(urgency, || {
+            asked = true;
+            Ok::<_, ()>(jams)
+        });
+        assert_eq!(multiplier, Ok(expected), "urgency {urgency}");
+        assert_eq!(asked, urgency == 0, "urgency {urgency}");
     }
 }
 
@@ -2486,7 +2451,6 @@ fn astar_hierarchy_marker_follows_the_marked_straight_path() {
             urgency: 0,
             mover_is_crusher: false,
             is_infantry: false,
-            search_cost_classifier: None,
             foot_entry: None,
         },
     )
@@ -2665,7 +2629,6 @@ fn runtime_and_search_share_known_water_cell_admission() {
         Some(SpeedType::Track),
         Some(&terrain),
         Some(&costs),
-        false,
     ));
 
     let path = astar_search(

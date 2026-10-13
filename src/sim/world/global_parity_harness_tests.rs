@@ -1011,26 +1011,20 @@ fn global_skirmish_replay_is_deterministic_and_baseline_stable() {
         "Guard follows target expiry"
     );
     assert_eq!(post_guard_scan, guard_commenced.map(|frame| frame + 1));
-    // The movement pass keeps its owner block sets current from the entity
-    // store's touch log. Anything that hands out every entity mutably each
-    // frame (`values_mut`) would quietly turn that back into a whole-world
-    // read per frame, with correct results and no other symptom.
     assert_eq!(
         first_uncommitted_frame, None,
         "all scripted frames must commit"
     );
-    let world_reads = rec.movement_pass_cache.block_index_world_rebuilds();
-    // The blocker plane follows the same log. It is rebuilt from the whole map
-    // only when the terrain epoch or the wall plane moves (or a reader misses
-    // Foot deltas); a rebuild per moving object's turn would be thousands.
+    // The blocker plane follows the entity store's touch log. Anything that
+    // hands out every entity mutably each frame (`values_mut`) would quietly
+    // turn that back into a whole-world read per frame, with correct results
+    // and no other symptom. It is rebuilt from the whole map only when the
+    // terrain epoch or the wall plane moves (or a reader misses Foot deltas);
+    // a rebuild per moving object's turn would be thousands.
     let plane_reads = rec.movement_pass_cache.blocker_plane_world_rebuilds();
     assert!(
         plane_reads <= 60,
         "the blocker plane was rebuilt from the whole map {plane_reads} times"
-    );
-    assert!(
-        world_reads <= 2,
-        "the block index read every entity {world_reads} times; look for a new all-entity mutable walk"
     );
     assert!(
         miner_acquired_field && miner_moved && miner_cut_ore,

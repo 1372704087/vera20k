@@ -1,18 +1,20 @@
 //! Owner block sets kept current across object turns.
 //!
-//! A moving object's turn needs, for its owner, the cells buildings block and
-//! the soft-block entry of every occupied cell: the inputs of A*'s code-2/5/6
-//! edge costs (`AStar_compute_edge_cost 0x00429830`) and of the Drive selection
-//! gate. Building them walks every entity. Production runs one object per
-//! movement pass, so that walk ran once per moving object per frame.
+//! The reduced route search of an order (`Simulation::issue_ground_move`), the
+//! A* fallback for a mover no Foot receiver prices (#683), needs for its
+//! owner the cells buildings block and the soft-block entry of every occupied
+//! cell: its code-2/5/6 edge costs. A Foot path search reads none of this;
+//! its class answers each code and walks the code-2 chain over live objects
+//! (`Simulation::astar_code2_chain_jams`). Building the sets walks every
+//! entity.
 //!
-//! The sets are a pure function of the entities (plus rules, which a match does
-//! not change, the terrain the layer query reads, and the alliance graph). This index keeps each owner's sets between passes and re-derives
+//! The sets are a pure function of the entities (plus rules, which a match
+//! does not change, the terrain the layer query reads, and the alliance
+//! graph). This index keeps each owner's sets between loans and re-derives
 //! only the entities the store handed out mutably since
-//! (`EntityStore::take_touched`), at exactly the points where the sets used to
-//! be rebuilt, so a pass sees what a fresh build would give it. Move orders
-//! read the same kept sets (`Simulation::issue_ground_move`). Debug builds make
-//! that fresh build and compare.
+//! (`EntityStore::take_touched`), so a loan sees what a fresh build would give
+//! it. It also forwards the touched ids to the blocker plane. Debug builds
+//! make that fresh build and compare.
 //!
 //! One rule says what an entity contributes ([`contribution`]) and one insert
 //! says what an occupant does to its cell's entry ([`insert_unit`]); the
@@ -75,23 +77,22 @@ struct MovingContribution {
 /// points to from the current cell. Like native, which always steps one cell
 /// from the occupant, it never names the occupant's own cell.
 ///
-/// RESIDUAL: `AStar_compute_edge_cost 0x00429830` reads neither. For each
-/// occupant of the chain it takes the first object of the cell's list and,
-/// when its speed fraction (Foot+0x578) is nonzero, the PrimaryFacing
-/// (+0x388) direction rounded to eight (0x004298C4..DC), else the Foot+5E0
-/// head word (0x004298B3, -1 ends the chain clear); a non-Foot occupant
-/// jams (0x0042989A). Trigger: another owner's search past a friendly mover.
-/// Effect: mid-turn or with a stale head, the chain follows a different
-/// cell than native and costs x1 where native costs x4 (or the reverse).
-/// Frequency: every search through friendly traffic. Risk: route choice in
-/// congestion. Filed as #972; which allies count as moving belongs to
-/// Can_Enter_Cell (#683).
+/// RESIDUAL: `AStar_compute_edge_cost 0x00429830` reads neither; a Foot
+/// search walks its chain over the live cell lists
+/// (`Simulation::astar_code2_chain_jams`). Only an order's reduced route
+/// search still prices code 2 from these cells. Trigger: an order through
+/// `Simulation::issue_ground_move` to a mover no class setter takes (Fly,
+/// Rocket, no locomotor, a queued Walk Unit) past a friendly mover; no
+/// retail mover is one. Effect: that search follows a different cell than
+/// native's chain and costs x1 where native costs x4 (or the reverse); it
+/// only admits the order and keeps no route. Risk: that admission. #972;
+/// which allies count as moving belongs to Can_Enter_Cell (#683).
 ///
 /// RESIDUAL: a Walk whose head word is the tube word (8) names no adjacent
 /// cell, so it reads as stationary (code 6) for that frame, where the removed
 /// route copy pointed at the tube exit. Trigger: a friendly infantryman at a
 /// tube entrance before its next Process enters the tube. Frequency: tunnel
-/// maps, one frame per entry. Risk: another owner's search that frame
+/// maps, one frame per entry. Risk: an order's reduced search that frame
 /// soft-blocks that cell (cost x8) instead of passing it.
 ///
 /// RESIDUAL: the order adapter gates this read, but a Walk now finishes a
@@ -327,9 +328,9 @@ struct OwnerView {
     /// mover's house (`0x0073FB53`), under the alliance graph the index last
     /// saw; the index drops every view when that graph changes.
     friendly: BTreeMap<InternedId, bool>,
-    /// `None` while a movement pass holds it.
+    /// `None` while a search holds it.
     product: Option<OwnerBlockSet>,
-    /// Which loan holds the product. A pass that comes back with another
+    /// Which loan holds the product. A search that comes back with another
     /// number held sets this view no longer describes.
     loan: u64,
 }
@@ -455,7 +456,7 @@ impl TouchedBacklog {
     }
 }
 
-/// Each owner's block sets, kept between movement passes.
+/// Each owner's block sets, kept between loans.
 #[derive(Debug, Default)]
 pub(crate) struct OwnerBlockIndex {
     /// `None` until the first sync, and again whenever the store reports that
@@ -478,9 +479,9 @@ pub(crate) struct OwnerBlockIndex {
     last_loan: u64,
     /// Drained from the store but not yet re-derived here.
     pending: TouchedBacklog,
-    /// The same ids, for the movement pass's other product derived from the
-    /// entities (the blocker plane). The store's log has one consumer, this
-    /// index, which passes on what it takes.
+    /// The same ids, for the other product derived from the entities (the
+    /// blocker plane). The store's log has one consumer, this index, which
+    /// passes on what it takes.
     forwarded: TouchedBacklog,
     /// How many times the placements were rebuilt from every entity.
     #[cfg(test)]
@@ -491,17 +492,12 @@ pub(crate) struct OwnerBlockIndex {
     pub(crate) view_builds: usize,
 }
 
-/// Sets on loan to a movement pass, with the number that returns them.
+/// Sets on loan to an order's search, with the number that returns them.
 #[derive(Debug, Default)]
 pub(crate) struct LentOwnerBlockSet {
     loan: u64,
     pub(crate) sets: OwnerBlockSet,
 }
-
-/// The sets a movement pass holds, by owner. A path request the pass makes
-/// searches with its requester's owner's sets from here, brought current,
-/// because lending sets a pass already holds rebuilds them.
-pub(crate) type HeldBlockSets = BTreeMap<InternedId, LentOwnerBlockSet>;
 
 impl OwnerBlockIndex {
     /// Move the store's touch log into this index's backlog and the
@@ -572,7 +568,7 @@ impl OwnerBlockIndex {
     }
 
     /// The owner's sets as a build from the entities would give them now,
-    /// handed to the movement pass that asked. [`Self::give_back`] returns them.
+    /// handed to the search that asked. [`Self::give_back`] returns them.
     pub(crate) fn lend_current(
         &mut self,
         owner: InternedId,
@@ -593,7 +589,7 @@ impl OwnerBlockIndex {
                 view.bring_current(&mut product, placements, owner_name, alliances, interner);
                 product
             }
-            // No view yet, or its product is out with a pass that will be
+            // No view yet, or its product is out with a search that will be
             // refused: build from the placements.
             None => {
                 #[cfg(test)]
@@ -608,44 +604,6 @@ impl OwnerBlockIndex {
             &sets, entities, terrain, owner_name, alliances, interner, rules,
         );
         LentOwnerBlockSet { loan, sets }
-    }
-
-    /// Bring sets a pass already holds to the entities' current state.
-    pub(crate) fn refresh_lent(
-        &mut self,
-        owner: InternedId,
-        lent: &mut LentOwnerBlockSet,
-        entities: &mut EntityStore,
-        terrain: Option<&ResolvedTerrainGrid>,
-        alliances: &HouseAllianceMap,
-        interner: &StringInterner,
-        rules: Option<&RuleSet>,
-    ) {
-        self.sync_placements(entities, terrain, alliances, interner, rules);
-        let placements = self.placements.as_ref().expect("synced above");
-        let owner_name = interner.resolve(owner);
-        match self.owners.get_mut(&owner) {
-            Some(view) if view.product.is_none() && view.loan == lent.loan => {
-                view.bring_current(&mut lent.sets, placements, owner_name, alliances, interner);
-            }
-            // The view was dropped or lent again since: these sets are
-            // nobody's, so rebuild them and take the loan over.
-            _ => {
-                #[cfg(test)]
-                {
-                    self.view_builds += 1;
-                }
-                let view = self.owners.entry(owner).or_default();
-                view.product = None;
-                lent.sets = view.build(placements, owner_name, alliances, interner);
-                self.last_loan += 1;
-                view.loan = self.last_loan;
-                lent.loan = view.loan;
-            }
-        }
-        debug_assert_current(
-            &lent.sets, entities, terrain, owner_name, alliances, interner, rules,
-        );
     }
 
     /// Take back what [`Self::lend_current`] handed out. Sets whose view was
@@ -1002,9 +960,8 @@ mod tests {
     }
 
     /// Random edits through the store's own interface. Between them one owner
-    /// at a time is brought current, by a fresh loan or by refreshing sets a
-    /// pass still holds, and compared with a whole-world build; the owners
-    /// fall out of step with each other and with the edits.
+    /// at a time is now and then lent and compared with a whole-world build;
+    /// the owners fall out of step with each other and with the edits.
     #[test]
     fn random_edits_never_leave_the_sets_behind_the_world() {
         let rules = rules();
@@ -1023,7 +980,6 @@ mod tests {
             test_intern(name);
         }
         let interner = test_interner();
-        let mut held: Option<(usize, LentOwnerBlockSet)> = None;
         for _ in 0..1200 {
             let id = 1 + next(14);
             let cell = (4 + next(4) as u16, 4 + next(4) as u16);
@@ -1057,71 +1013,25 @@ mod tests {
             }
             let which = next(2) as usize;
             let owner = test_intern(OWNERS[which]);
-            let world = |entities: &EntityStore| {
-                build_owner_block_set(
-                    entities,
+            if next(3) == 0 {
+                let lent = index.lend_current(
+                    owner,
+                    &mut entities,
+                    None,
+                    &alliances,
+                    &interner,
+                    Some(&rules),
+                );
+                let expected = build_owner_block_set(
+                    &entities,
                     None,
                     OWNERS[which],
                     &alliances,
                     &interner,
                     Some(&rules),
-                )
-            };
-            match (next(6), held.take()) {
-                // A pass takes the sets and keeps them across further edits.
-                (0, None) => {
-                    let lent = index.lend_current(
-                        owner,
-                        &mut entities,
-                        None,
-                        &alliances,
-                        &interner,
-                        Some(&rules),
-                    );
-                    assert_eq!(lent.sets, world(&entities));
-                    held = Some((which, lent));
-                }
-                // The pass refreshes what it holds, or hands it back.
-                (0 | 1, Some((held_which, mut lent))) => {
-                    let held_owner = test_intern(OWNERS[held_which]);
-                    index.refresh_lent(
-                        held_owner,
-                        &mut lent,
-                        &mut entities,
-                        None,
-                        &alliances,
-                        &interner,
-                        Some(&rules),
-                    );
-                    let expected = build_owner_block_set(
-                        &entities,
-                        None,
-                        OWNERS[held_which],
-                        &alliances,
-                        &interner,
-                        Some(&rules),
-                    );
-                    assert_eq!(lent.sets, expected);
-                    held = Some((held_which, lent));
-                }
-                (2, Some((held_which, lent))) => {
-                    index.give_back(test_intern(OWNERS[held_which]), lent);
-                }
-                // Another pass asks for one owner, possibly the one on loan.
-                (3, still_held) => {
-                    let lent = index.lend_current(
-                        owner,
-                        &mut entities,
-                        None,
-                        &alliances,
-                        &interner,
-                        Some(&rules),
-                    );
-                    assert_eq!(lent.sets, world(&entities));
-                    index.give_back(owner, lent);
-                    held = still_held;
-                }
-                (_, still_held) => held = still_held,
+                );
+                assert_eq!(lent.sets, expected);
+                index.give_back(owner, lent);
             }
         }
         assert_eq!(
@@ -1144,7 +1054,7 @@ mod tests {
             index.lend_current(owner, entities, None, &alliances, &interner, Some(&rules))
         };
         let first = lend(&mut index, &mut entities);
-        // A second pass asks while the first still holds the sets.
+        // A second search asks while the first still holds the sets.
         entities.get_mut(1).unwrap().position.rx = 8;
         let second = lend(&mut index, &mut entities);
         index.give_back(owner, first);
@@ -1154,20 +1064,5 @@ mod tests {
         );
         index.give_back(owner, second);
         assert_eq!(code(&index, "Americans", MovementLayer::Ground, (8, 5)), 6);
-
-        // A pass holding refused sets is rebuilt on its next refresh.
-        let mut lent = lend(&mut index, &mut entities);
-        let _newer = lend(&mut index, &mut entities);
-        entities.get_mut(1).unwrap().position.rx = 9;
-        index.refresh_lent(
-            owner,
-            &mut lent,
-            &mut entities,
-            None,
-            &alliances,
-            &interner,
-            Some(&rules),
-        );
-        assert!(lent.sets.1.contains_key(MovementLayer::Ground, &(9, 5)));
     }
 }

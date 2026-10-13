@@ -100,7 +100,6 @@ fn production_finisher_forwards_native_real_and_mutable_dummy_receipts() {
                     mover_is_crusher: false,
                     is_infantry: false,
                     speed_type: None,
-                    slave_deposit_cells: [None; 2],
                 },
                 ground_blocks: None,
                 bridge_blocks: None,

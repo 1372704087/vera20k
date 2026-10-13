@@ -484,7 +484,6 @@ fn what_action_on_cell(
                         path_grid: Some(grid),
                         resolved_terrain: sim.resolved_terrain.as_ref(),
                         terrain_costs,
-                        bypass_grid: false,
                         is_infantry: entity.category
                             == crate::map::entities::EntityCategory::Infantry,
                         mover_is_crusher: crate::sim::movement::bump_crush::CrushCapability::of(

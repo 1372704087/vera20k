@@ -776,12 +776,10 @@ impl Simulation {
             destination,
             urgency,
             self.playfield_bounds,
-            Some(&self.type_handles),
-            Some(rules),
         )
         .ok_or_else(|| self.hover_error(id, "retired Hover Find_Path requester"))?;
         let found = self
-            .foot_find_path(&request, None, rules, registry, effects)
+            .foot_find_path(&request, rules, registry, effects)
             .map_err(|cause| self.hover_error(id, cause))?;
         //51668B..5166BA / 5168D0..516904: +640 = (Frame, PathDelay).
         if let Some(entity) = self.substrate.entities.get_mut(id) {

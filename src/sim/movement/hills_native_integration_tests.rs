@@ -757,7 +757,6 @@ fn hills_same_type_marker_downgrade_reaches_live_foot_search_and_cleanup() {
             crate::sim::movement::motion_query::is_moving(actor),
             Some(true)
         );
-        actor.movement_target = Some(MovementTarget::default());
         install_path_replay(&mut actor.navigation.path_replay, peer_cell, &peer_path, 1);
         assert_eq!(
             actor.navigation.path_replay.reference_cell,
@@ -782,6 +781,9 @@ fn hills_same_type_marker_downgrade_reaches_live_foot_search_and_cleanup() {
         let rng = sim.rng_state();
         // Concrete Unit73F0A0 produces code2 for both supplied Foot+578
         // speed controls; no class answer is substituted in the Rust search.
+        // The live chain from the peer's ground list prices it as 429830 did:
+        // a stopped peer heads for its queue head, a moving one along its
+        // facing, and the cell north of it lists nothing.
         for control in packet["costs"].as_array().unwrap() {
             let speed = match control["supplied_speed_f64_bits"].as_str().unwrap() {
                 "0000000000000000" => SIM_ZERO,
@@ -813,6 +815,20 @@ fn hills_same_type_marker_downgrade_reaches_live_foot_search_and_cleanup() {
             assert_eq!(
                 u64::from(entry),
                 control["concrete_class"].as_u64().unwrap()
+            );
+            let urgency = control["urgency"].as_u64().unwrap() as u8;
+            let multiplier = crate::sim::pathfinding::code2_multiplier(urgency, || {
+                sim.astar_code2_chain_jams(
+                    peer_cell,
+                    crate::sim::movement::locomotor::MovementLayer::Ground,
+                )
+            })
+            .unwrap();
+            assert_eq!(
+                f64::from(multiplier),
+                control["cost"].as_f64().unwrap(),
+                "native Foot+578={} urgency={urgency}",
+                control["supplied_speed_f64_bits"]
             );
             assert_eq!(control["rng_before"], control["rng_after"]);
         }
@@ -906,14 +922,11 @@ fn hills_same_type_marker_downgrade_reaches_live_foot_search_and_cleanup() {
             },
             urgency,
             sim.playfield_bounds,
-            None,
-            Some(&resources.rules),
         )
         .unwrap();
         assert_eq!(
             sim.foot_find_path(
                 &request,
-                None,
                 &resources.rules,
                 Some(&resources.overlay_registry),
                 crate::sim::world::FrameEffects::default()

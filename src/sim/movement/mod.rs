@@ -45,7 +45,6 @@ use crate::rules::locomotor_type::{MovementZone, SpeedType};
 use crate::sim::cell_rect::PlayfieldBounds;
 #[cfg(test)]
 use crate::sim::entity_store::EntityStore;
-use crate::sim::intern::InternedId;
 #[cfg(test)]
 use crate::sim::lifecycle_request::LifecycleRequest;
 use crate::sim::pathfinding::PathGrid;
@@ -236,9 +235,6 @@ pub(super) struct MoverPathFacts {
     pub mover_is_crusher: bool,
     pub is_infantry: bool,
     pub speed_type: Option<SpeedType>,
-    /// A slave's deposit Cells (`SlaveManagerClass 0x006B0880`), which its
-    /// `Can_Enter_Cell` admits past the master's footprint.
-    pub slave_deposit_cells: [Option<(u16, u16)>; 2],
 }
 
 impl MoverPathFacts {
@@ -250,7 +246,6 @@ impl MoverPathFacts {
             mover_is_crusher: snap.crush_capability().can_crush_units(),
             is_infantry: snap.category == EntityCategory::Infantry,
             speed_type: snap.speed_type,
-            slave_deposit_cells: snap.slave_deposit_cells,
         }
     }
 
@@ -282,7 +277,6 @@ impl MoverPathFacts {
             mover_is_crusher: bump_crush::CrushCapability::of(entity).can_crush_units(),
             is_infantry: entity.category == EntityCategory::Infantry,
             speed_type: None,
-            slave_deposit_cells: [None, None],
         }
     }
 
@@ -294,7 +288,6 @@ impl MoverPathFacts {
             mover_is_crusher,
             is_infantry,
             speed_type: None,
-            slave_deposit_cells: [None, None],
         }
     }
 }
@@ -309,17 +302,12 @@ pub(super) struct MoverSnapshot {
     pub movement_zone: MovementZone,
     pub omni_crusher: bool,
     pub regular_crusher: bool,
-    pub owner: InternedId,
     pub on_bridge: bool,
     pub locomotor: Option<locomotor::LocomotorState>,
     /// Native AStar hierarchy admission reads the stored TechnoClass+0x3D5
     /// byte. False under live MapClass authority bypasses hierarchy and uses
     /// flat A*; headless fixtures without authority retain hierarchy.
     pub allow_zone_hierarchy: bool,
-    /// A slave's deposit Cells (`sim::slave_deposit::slave_deposit_cells`):
-    /// `InfantryClass::Can_Enter_Cell` (`0x0051C29E..0x0051C2CA`) admits it
-    /// into them past the master's footprint.
-    pub slave_deposit_cells: [Option<(u16, u16)>; 2],
 }
 
 impl MoverSnapshot {

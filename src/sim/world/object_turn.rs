@@ -584,7 +584,6 @@ impl Simulation {
                 &mut sim.substrate.entities,
                 stable_id,
                 current_grid.as_deref(),
-                &sim.house_alliances,
                 &mut sim.substrate.occupancy,
                 &mut sim.substrate.cell_occupation,
                 &mut sim.substrate.raw_cell_occupation,
@@ -594,9 +593,7 @@ impl Simulation {
                 sim.playfield_bounds,
                 &mut sim.interner,
                 rules,
-                Some(&sim.type_handles),
                 &sim.houses,
-                &mut sim.movement_pass_cache,
             )
         };
         // Process_Movement's no-queue request and the Process_Track after it.
@@ -623,9 +620,8 @@ impl Simulation {
                 )
                 .map_err(|cause| frame_error(sim, cause))?;
             if let Some(request) = pending_movement.take_foot_path_request() {
-                let held = Some(pending_movement.held_block_sets());
                 let outcome = sim
-                    .run_foot_path_request(&request, held, rules, overlay_registry, effects)
+                    .run_foot_path_request(&request, rules, overlay_registry, effects)
                     .map_err(|cause| frame_error(sim, cause))?;
                 if outcome == movement::FootPathOutcome::Resume {
                     pending_movement.reenter_mover(
@@ -637,13 +633,7 @@ impl Simulation {
             }
             if let Some(request) = pending_movement.take_walk_admission_request() {
                 let retry = sim
-                    .run_walk_admission_request(
-                        request,
-                        Some(pending_movement.held_block_sets()),
-                        rules,
-                        overlay_registry,
-                        effects,
-                    )
+                    .run_walk_admission_request(request, rules, overlay_registry, effects)
                     .map_err(|cause| frame_error(sim, cause))?;
                 if let Some(request) = retry {
                     //75B716/75BABB/75BC04: one recursive Process(0),
@@ -665,7 +655,6 @@ impl Simulation {
                         id,
                         family,
                         movement::ProcessMovementArgs::OUTER,
-                        Some(pending_movement.held_block_sets()),
                         rules,
                         overlay_registry,
                         effects,
@@ -750,7 +739,6 @@ impl Simulation {
             .merge(movement::movement_tick::finish_movement_pass(
                 pending_movement,
                 &mut sim.substrate.entities,
-                &mut sim.movement_pass_cache,
             ));
         if let Some(tube_active) = movement_before {
             // Tube exits Unit73603F / Infantry51BA9B call vt+0x18C(2).

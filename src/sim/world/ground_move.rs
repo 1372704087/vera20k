@@ -5,9 +5,9 @@
 //! destination through
 //! [`Simulation::issue_ground_move`]: the blocker plane and, where the site
 //! asks for them, the mover's owner block sets, then
-//! `issue_move_command_with_destination`. Both come from the products the
-//! movement pass keeps current through the entity touch log
-//! (`MovementPassCache`). Each equals a whole-world build from the entities,
+//! `issue_move_command_with_destination`. Both come from products
+//! `MovementPassCache` keeps between reads and brings current from the entity
+//! touch log when read. Each equals a whole-world build from the entities,
 //! terrain, overlays, alliances and rules at this point of the frame; debug
 //! builds compare the two on every read. Scatter, air and other direct moves
 //! do not come through here. Ordinary represented Unit Move dispatches directly

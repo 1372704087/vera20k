@@ -14,13 +14,15 @@ use crate::sim::house_state::HouseState;
 use crate::sim::intern::InternedId;
 use crate::sim::world::Simulation;
 
-/// `[Sides]` with `Civilian` at `civilian_side` (absent past the list, as
-/// when no house has that side).
+/// `[Sides]` listing country `Country{n}` as side `n`, the one at
+/// `civilian_side` named `Civilian` (absent past the list, as when no house
+/// has that side).
 fn rules(civilian_side: usize) -> RuleSet {
-    let mut sides = String::from("[Sides]\n");
+    let mut sides = String::from("[Countries]\n0=Country0\n1=Country1\n2=Country2\n3=Country3\n");
+    sides.push_str("[Country0]\n[Country1]\n[Country2]\n[Country3]\n[Sides]\n");
     for index in 0..4 {
         if index == civilian_side {
-            sides.push_str("Civilian=Neutral\n");
+            sides.push_str(&format!("Civilian=Country{index}\n"));
         } else {
             sides.push_str(&format!("Side{index}=Country{index}\n"));
         }
@@ -81,8 +83,9 @@ Temporal=yes
     RuleSet::from_ini(&IniFile::from_str(&text)).expect("house defeat rules")
 }
 
-/// Houses `house0..` with the given side indices, in that array order, in a
-/// non-campaign game past frame zero.
+/// Houses `house0..` of type `Country{side}` (side `side` in [`rules`]) for
+/// the given side indices, in that array order, in a non-campaign game past
+/// frame zero.
 fn sim_with_houses(sides: &[u8]) -> (Simulation, Vec<InternedId>) {
     let mut sim = Simulation::with_seed(5);
     sim.session.game_mode_nonzero = true;
@@ -92,8 +95,9 @@ fn sim_with_houses(sides: &[u8]) -> (Simulation, Vec<InternedId>) {
         .enumerate()
         .map(|(n, &side)| {
             let id = sim.interner.intern(&format!("house{n}"));
+            let country = sim.interner.intern(&format!("Country{side}"));
             sim.houses
-                .insert(id, HouseState::new(id, side, None, false, 0, 10));
+                .insert(id, HouseState::new(id, side, Some(country), false, 0, 10));
             sim.session.house_order.push(id);
             id
         })
@@ -612,4 +616,49 @@ fn reveal_entire_map_reveals_once_and_only_to_the_current_house() {
     assert!(sim.houses[&houses[1]].map_is_clear);
     assert!(!sim.fog.whole_map_revealed_for_owner(houses[1]));
     assert!(!sim.fog.is_cell_revealed(houses[1], 7, 7));
+}
+
+/// The Civilian-side house is asked of each house's HouseType side
+/// (`[house+0x34]+0xBC` against `Find_Index("Civilian")`, every `0x006A46D0`
+/// caller). A map country outside `[Sides]` keeps the constructor's -1 even
+/// where the scenario's side resolver stores Civilian for its house through
+/// the declared side name, so it is passed over for the Neutral house. With
+/// no `Civilian` side, Find_Index's -1 matches that sideless type instead.
+#[test]
+fn the_civilian_house_is_asked_of_its_house_type() {
+    for (civilian_side, expected) in [("Civilian", 1), ("Other", 0)] {
+        let rules = RuleSet::from_ini(&IniFile::from_str(&format!(
+            "[Countries]\n0=Americans\n1=MapCountry\n2=Neutral\n\
+             [Americans]\n[MapCountry]\n[Neutral]\n\
+             [Sides]\nAllied=Americans\n{civilian_side}=Neutral\n"
+        )))
+        .expect("civilian house rules");
+        let mut sim = Simulation::with_seed(5);
+        let houses: Vec<InternedId> = [("MapHouse", "MapCountry"), ("Neutral", "Neutral")]
+            .into_iter()
+            .map(|(name, country)| {
+                let side = crate::sim::house_state::resolve_house_side_index(
+                    &rules,
+                    Some(country),
+                    Some(civilian_side),
+                    0,
+                );
+                let id = sim.interner.intern(name);
+                let country = sim.interner.intern(country);
+                sim.houses
+                    .insert(id, HouseState::new(id, side, Some(country), false, 0, 10));
+                sim.session.house_order.push(id);
+                id
+            })
+            .collect();
+        assert_eq!(
+            sim.houses[&houses[0]].side_index, sim.houses[&houses[1]].side_index,
+            "{civilian_side}: the resolver stores the declared side for the sideless country"
+        );
+        assert_eq!(
+            sim.civilian_side_house(&rules),
+            Some(houses[expected]),
+            "{civilian_side}"
+        );
+    }
 }

@@ -4,8 +4,6 @@
 //! RESIDUAL questions VERA cannot answer natively, each fixed to the value its
 //! missing producer would leave (trigger, effect and frequency are on the
 //! owning row in `fire_error.rs`):
-//! - `target_layer` answers the ground layer: VERA has no locomotor layer, so
-//!   T39 never fires (a Foot target taking off or landing below two levels).
 //! - `deploy_cell_ok` answers true: `CellClass 0x00487C10` is not ported, and
 //!   only U4's dormant DeployToFire reads it.
 //! - `locomotor_can_fire` answers OK: only the Tunnel locomotor, unused in
@@ -617,8 +615,21 @@ impl FireQuery for WorldQuery<'_, '_> {
         )
     }
 
+    /// T39 asks only a Foot target: its vt+0x78 ([`entity_layer`]).
+    ///
+    /// [`entity_layer`]: crate::sim::world::entity_layer
     fn target_layer(&mut self) -> i32 {
-        2
+        let Some(target) = self.subject.target_entity() else {
+            return i32::from(crate::sim::world::display_layers::DisplayLayer::GROUND.index());
+        };
+        i32::from(
+            crate::sim::world::entity_layer(
+                target,
+                self.subject.terrain(),
+                Some((self.subject.rules, &self.subject.world.interner)),
+            )
+            .index(),
+        )
     }
 
     fn target_cell(&mut self) -> Option<CellFacts> {

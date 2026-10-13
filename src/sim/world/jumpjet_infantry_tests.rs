@@ -1185,6 +1185,64 @@ fn a_rocketeer_lifting_off_clears_his_sub_cell() {
     assert_eq!(sim.substrate.raw_cell_occupation.ground_bits(52, 52), 0);
 }
 
+/// A Rocketeer lifting off stays in his cell's object list while his layer
+/// query (`0x0054B8D0`) answers Ground, below two levels (208 leptons), and
+/// leaves it once the query answers Air: Place_Down and Pick_Up
+/// (`0x005683C0`, `0x005687F0`) ask that query (`0x00568405`, `0x00568835`).
+/// Frame by frame through the production tick, his height, the layer query
+/// and the cell list agree.
+#[test]
+fn a_rocketeer_lifting_off_leaves_his_cell_list_at_two_levels() {
+    use crate::sim::command::Command;
+    use crate::sim::world::display_layers::DisplayLayer;
+    let (mut sim, rules, _) = grounded_rocketeer();
+    assert!(sim.apply_command(
+        "Americans",
+        &Command::Move {
+            entity_id: 1,
+            target_rx: 60,
+            target_ry: 52,
+            queue: false,
+        },
+        Some(&rules),
+    ));
+    let grid = crate::sim::pathfinding::PathGrid::test_all_passable(70, 70);
+    let (mut low, mut high) = (0, 0);
+    for frame in 0..90 {
+        sim.advance_tick(&[], Some(&rules), Some(&grid), None, 67);
+        let rocketeer = sim.substrate.entities.get(1).unwrap();
+        let height = crate::sim::movement::air_movement::current_fly_height(
+            rocketeer,
+            sim.resolved_terrain.as_ref(),
+        );
+        let layer = sim.entity_display_layer(1, Some(&rules)).unwrap();
+        let listed = sim
+            .substrate
+            .occupancy
+            .get(rocketeer.position.rx, rocketeer.position.ry)
+            .is_some_and(|cell| {
+                cell.iter_layer(crate::sim::movement::locomotor::MovementLayer::Ground)
+                    .any(|occupant| occupant.entity_id == 1)
+            });
+        assert_eq!(
+            layer == DisplayLayer::GROUND,
+            height < 208,
+            "frame {frame}: height {height}, layer {layer:?}"
+        );
+        assert_eq!(
+            listed,
+            layer == DisplayLayer::GROUND,
+            "frame {frame}: height {height}, layer {layer:?}"
+        );
+        if (1..208).contains(&height) {
+            low += 1;
+        } else if height >= 208 {
+            high += 1;
+        }
+    }
+    assert!(low > 0 && high > 0, "{low} frames low, {high} high");
+}
+
 /// A grounded Rocketeer, as an unload leaves him (Ground layer, height 0), and
 /// the fixture's Soviet unit.
 fn grounded_rocketeer() -> (super::Simulation, crate::rules::ruleset::RuleSet, u64) {

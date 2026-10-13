@@ -216,8 +216,8 @@ pub(crate) fn put_location(position: &mut Position, coord: DriveCoord) {
 /// a new caller that sets a marked object's Location.
 ///
 /// RESIDUAL: the change test reads [`position_world_coord`], whose Z is the
-/// stored level when no exact Z is kept (a missile, a tube owner, or an
-/// object a bridge DropIn set down). Only the rider copy depends on it; an
+/// stored level when no exact Z is kept (a missile or a tube owner).
+/// Only the rider copy depends on it; an
 /// extra copy changes nothing, and a Z-only change it misses leaves riders
 /// at the old Z.
 ///

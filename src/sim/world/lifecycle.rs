@@ -625,7 +625,7 @@ impl Simulation {
                 .wrapping_add(position.sub_y.to_num::<i32>()),
         ];
         let entity = self.substrate.entities.get(stable_id)?;
-        if entity.parachute_state.is_some() {
+        if entity.is_falling_down() {
             // Paradrop's Unlimbo coordinate is the drop coordinate, which
             // SetLocation then commits whole (`0x005F5A50`): the falling
             // object keeps the Z its drop gave it.
@@ -836,7 +836,7 @@ impl Simulation {
             entity.position.sub_y = position.sub_y;
             // The committed Location's GetHeight; a parachute keeps the
             // altitude its drop gave it.
-            if exact_z.is_some() && entity.parachute_state.is_none() {
+            if exact_z.is_some() && !entity.is_falling_down() {
                 let height =
                     crate::sim::movement::air_movement::current_fly_height(entity, terrain);
                 crate::sim::movement::ground_pose::mirror_height(entity, height);
@@ -1936,58 +1936,75 @@ impl Simulation {
         true
     }
 
-    /// Own the represented bridge DropIn's complete cell-list relayer.
-    /// Native ObjectClass::DropIn 0x005F4160 removes membership while OnBridge
-    /// is set, then clears it and re-enters through the multi-cell hooks.
-    /// The fresh entry order also owns reconstruction after snapshot restore.
-    ///
-    /// This preserves the existing Rust ground snap and locomotor reset for an
-    /// object that is not falling. DropIn writes no Location, so an object
-    /// already falling onto the deck keeps its Z and falls on to the ground
-    /// ([`Simulation::advance_fall`]). Native falling/unchanged-Z for the
-    /// others, IsABomb (`+0x8F`), concrete raw occupation callbacks, and
-    /// hidden-building occupation entry remain DRIFT. Add/RemoveContent skip Infantry raw callbacks;
-    /// full Mark/Unmark would also discard reservations and building smudges.
-    pub(super) fn drop_in_bridge_member(&mut self, stable_id: u64) {
+    /// ObjectClass::DropAsBomb5F4160: latch the fall before removing the
+    /// old layer, clear OnBridge, then re-enter the ground list. Location,
+    /// FallRate, parachute byte and locomotor order remain authoritative.
+    /// Native multi-cell content hooks differ from full teardown Mark:
+    /// neither building smudges nor unrelated track reservations are retired.
+    /// Residual: hidden-building content callbacks beyond this relayer.
+    pub(crate) fn drop_as_bomb(&mut self, stable_id: u64, context: UninitContext<'_>) {
+        let rules = context.rules;
         use crate::sim::movement::locomotor::MovementLayer;
         let Some(entity) = self.substrate.entities.get(stable_id) else {
             return;
         };
         let cells = entity_occupancy_cells(entity);
-        let current_cell = (entity.position.rx, entity.position.ry);
         let sub_cell = entity.sub_cell;
         let insertion = CellListInsertion::from_category(entity.category);
-        let ground_level = self
-            .terrain_cell_level(current_cell.0, current_cell.1)
-            .unwrap_or(0);
-        for &(rx, ry) in &cells {
-            self.substrate
-                .occupancy
-                .remove_on_layer(rx, ry, stable_id, MovementLayer::Bridge);
+        let old_layer = cell_list_layer_for_entity(entity, self.resolved_terrain.as_ref());
+        let world_z = crate::sim::movement::ground_pose::object_world_z_leptons(
+            entity,
+            self.resolved_terrain.as_ref(),
+        );
+        self.substrate
+            .entities
+            .get_mut(stable_id)
+            .unwrap()
+            .begin_bomb_fall();
+        let foot = self
+            .substrate
+            .entities
+            .get(stable_id)
+            .is_some_and(|entity| {
+                matches!(
+                    entity.category,
+                    EntityCategory::Unit | EntityCategory::Infantry | EntityCategory::Aircraft
+                )
+            });
+        if foot {
+            self.foot_mark_remove(stable_id, rules, context.registry, context.effects);
+        } else {
+            for &(rx, ry) in &cells {
+                self.substrate.occupancy.remove_on_layer(
+                    rx,
+                    ry,
+                    stable_id,
+                    old_layer.unwrap_or(MovementLayer::Ground),
+                );
+            }
         }
+        self.substrate.display.remove(stable_id);
         let entity = self
             .substrate
             .entities
             .get_mut(stable_id)
             .expect("member remains represented");
         entity.on_bridge = false;
-        entity.position.z = ground_level;
-        if !entity.is_falling_down() {
-            entity.position.exact_z_leptons = None;
-        }
-        entity.movement_target = None;
-        if let Some(loco) = entity.locomotor.as_mut() {
-            loco.layer = MovementLayer::Ground;
-        }
-        for &(rx, ry) in &cells {
-            self.substrate.occupancy.add(
-                rx,
-                ry,
-                stable_id,
-                MovementLayer::Ground,
-                sub_cell,
-                insertion,
-            );
+        entity.position.exact_z_leptons = Some(world_z);
+        self.submit_entity_display(stable_id, rules, None);
+        if foot {
+            self.foot_mark_put(stable_id, rules, context.registry, context.effects);
+        } else {
+            for &(rx, ry) in &cells {
+                self.substrate.occupancy.add(
+                    rx,
+                    ry,
+                    stable_id,
+                    MovementLayer::Ground,
+                    sub_cell,
+                    insertion,
+                );
+            }
         }
         // Rebuild only the derived vehicle projection, from the list the
         // member is now in: serialized head-to, handoff and current-cleared
@@ -2000,6 +2017,23 @@ impl Simulation {
         self.substrate
             .cell_occupation
             .reconcile_entity(entity, &self.substrate.occupancy);
+        //5F41D0..5F4218: Foot's active Is_Moving chooses the shared
+        // locomotor occupation release or the owner's raw Location receiver.
+        if let Some(entity) = self.substrate.entities.get(stable_id)
+            && matches!(
+                entity.category,
+                EntityCategory::Unit | EntityCategory::Infantry | EntityCategory::Aircraft
+            )
+            && entity.locomotor.is_some()
+        {
+            let moving = crate::sim::movement::motion_query::is_moving(entity).unwrap_or(false);
+            let coord = crate::sim::movement::ground_pose::position_world_coord(&entity.position);
+            if moving {
+                self.locomotor_mark_all_occupation_bits_up(stable_id);
+            } else {
+                self.object_raw_receiver_at(stable_id, coord, false);
+            }
+        }
     }
 
     /// Fixture boundary: puts a fixture object on the map and marks it

@@ -1989,15 +1989,20 @@ impl Simulation {
                 }
                 None => 0u8.hash(hasher),
             }
-            // ObjectClass +0x8D IsFallingDown and its FallRate: absent hashes
-            // the one zero byte the retired falling byte did. The fall's
-            // height is the Location Z, hashed with the position.
-            match entity.parachute_state.as_ref() {
-                Some(fall) => {
-                    1u8.hash(hasher);
-                    fall.rate.hash(hasher);
-                }
-                None => 0u8.hash(hasher),
+            // Preserve the idle hash while retaining every nonzero fall word.
+            // Landing retains the rate/+84/+8F for a later DropAsBomb.
+            if entity.is_falling_down()
+                || entity.fall_rate() != 0
+                || entity.is_parachuted()
+                || entity.was_dropped_as_bomb()
+            {
+                1u8.hash(hasher);
+                entity.is_falling_down().hash(hasher);
+                entity.fall_rate().hash(hasher);
+                entity.is_parachuted().hash(hasher);
+                entity.was_dropped_as_bomb().hash(hasher);
+            } else {
+                0u8.hash(hasher);
             }
 
             // S4b damage-Spark `+0x308`-equivalent live-system gate. Hashed because
@@ -2707,7 +2712,7 @@ mod mission_authority_hash_tests {
         let mut falling = base.clone();
         falling.set_falling_down_for_test(true);
         let mut faster = falling.clone();
-        faster.parachute_state.as_mut().unwrap().rate = -2;
+        faster.set_fall_rate_for_test(-2);
 
         let falling_hash = hash_entity(falling);
         assert_ne!(hash_entity(base), falling_hash, "IsFallingDown");

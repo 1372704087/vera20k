@@ -5,7 +5,7 @@
 //! replays the original executable's Hills controls.
 use super::*;
 use crate::rules::ini_parser::IniFile;
-use crate::sim::components::FootPathQueue;
+use crate::sim::components::{FootPathQueue, NavTargetRef};
 use crate::sim::movement::FacingClass;
 use crate::sim::pathfinding::code2_multiplier;
 use crate::util::fixed_math::SIM_ONE;
@@ -188,6 +188,54 @@ fn a_bridge_cell_lists_a_bridge_occupant_on_its_deck() {
     assert!(jams(&sim, (10, 10)), "two levels up: the ground list");
 }
 
+/// The search asks the chain about the Cell it enters (`0x00429F8A` passes
+/// the neighbour). A friendly tank stopped between two huts with a NavCom
+/// makes the searching tank's class answer 2 for its Cell. When it heads east
+/// onto nothing, the chain clears (x1) and the two-step route runs through it.
+/// When it heads north onto a hut, the chain jams (x4) and the four-step
+/// detour round the huts is cheaper. Finishing admits only class 0, so it
+/// straightens neither.
+#[test]
+fn a_jammed_chain_detours_the_route_and_a_clear_one_runs_through() {
+    let rules = rules();
+    for (head, through) in [(EAST, true), (NORTH, false)] {
+        let mut sim = arena(&rules);
+        spawn(&mut sim, &rules, "HUT", (10, 9));
+        spawn(&mut sim, &rules, "HUT", (10, 11));
+        let blocker = stopped(&mut sim, &rules, (10, 10), Some(head));
+        sim.substrate
+            .entities
+            .get_mut(blocker)
+            .unwrap()
+            .navigation
+            .nav_com = Some(NavTargetRef::cell(10, 5));
+        let tank = spawn(&mut sim, &rules, "TANK", (9, 10));
+        let request = FootPathRequest::track(
+            &sim.substrate.entities,
+            tank,
+            cell_centre((11, 10)),
+            0,
+            sim.playfield_bounds,
+        )
+        .unwrap();
+
+        assert_eq!(
+            sim.foot_find_path(&request, &rules, None, FrameEffects::default()),
+            Ok(FindPathResult::Route)
+        );
+        let route = sim
+            .substrate
+            .entities
+            .get(tank)
+            .unwrap()
+            .navigation
+            .path_replay
+            .route_cells();
+        assert_eq!(route.contains(&(10, 10)), through, "head {head}: {route:?}");
+        assert_eq!(route.last(), Some(&(11, 10)));
+    }
+}
+
 /// An off-map cell is the shared dummy, which lists nothing.
 #[test]
 fn an_off_map_step_clears() {
@@ -204,7 +252,9 @@ fn an_off_map_step_clears() {
 /// astar_hills_markers.json`): a same-House MTNK on its ground list with
 /// the queue words `0, 0`, facing north (its `+0x388` bytes are zero), at
 /// speed fraction 0 and 1.0, priced from the cell it stands in at urgency
-/// 0, 1 and 2. The cell north of it lists nothing, as in the arena.
+/// 0, 1 and 2. The cell north of it lists nothing. This arena is VERA's, so
+/// the check is a regression test of those prices; the Hills map row
+/// (`hills_native_integration_tests`) is the comparison with native.
 #[test]
 fn the_native_hills_controls_price_as_the_live_chain() {
     let packet: serde_json::Value = serde_json::from_str(crate::test_fixture::text(

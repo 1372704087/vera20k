@@ -77,23 +77,22 @@ struct MovingContribution {
 /// points to from the current cell. Like native, which always steps one cell
 /// from the occupant, it never names the occupant's own cell.
 ///
-/// RESIDUAL: `AStar_compute_edge_cost 0x00429830` reads neither. For each
-/// occupant of the chain it takes the first object of the cell's list and,
-/// when its speed fraction (Foot+0x578) is nonzero, the PrimaryFacing
-/// (+0x388) direction rounded to eight (0x004298C4..DC), else the Foot+5E0
-/// head word (0x004298B3, -1 ends the chain clear); a non-Foot occupant
-/// jams (0x0042989A). Trigger: another owner's search past a friendly mover.
-/// Effect: mid-turn or with a stale head, the chain follows a different
-/// cell than native and costs x1 where native costs x4 (or the reverse).
-/// Frequency: every search through friendly traffic. Risk: route choice in
-/// congestion. Filed as #972; which allies count as moving belongs to
-/// Can_Enter_Cell (#683).
+/// RESIDUAL: `AStar_compute_edge_cost 0x00429830` reads neither; a Foot
+/// search walks its chain over the live cell lists
+/// (`Simulation::astar_code2_chain_jams`). Only an order's reduced route
+/// search still prices code 2 from these cells. Trigger: an order through
+/// `Simulation::issue_ground_move` to a mover no class setter takes (Fly,
+/// Rocket, no locomotor, a queued Walk Unit) past a friendly mover; no
+/// retail mover is one. Effect: that search follows a different cell than
+/// native's chain and costs x1 where native costs x4 (or the reverse); it
+/// only admits the order and keeps no route. Risk: that admission. #972;
+/// which allies count as moving belongs to Can_Enter_Cell (#683).
 ///
 /// RESIDUAL: a Walk whose head word is the tube word (8) names no adjacent
 /// cell, so it reads as stationary (code 6) for that frame, where the removed
 /// route copy pointed at the tube exit. Trigger: a friendly infantryman at a
 /// tube entrance before its next Process enters the tube. Frequency: tunnel
-/// maps, one frame per entry. Risk: another owner's search that frame
+/// maps, one frame per entry. Risk: an order's reduced search that frame
 /// soft-blocks that cell (cost x8) instead of passing it.
 ///
 /// RESIDUAL: the order adapter gates this read, but a Walk now finishes a

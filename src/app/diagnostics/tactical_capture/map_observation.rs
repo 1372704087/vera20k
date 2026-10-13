@@ -3104,6 +3104,8 @@ impl TacticalCaptureSession {
                     "elite_flash_frames": entity.elite_flash_frames,
                     "object_alive": entity.is_object_alive(),
                     "in_limbo": entity.lifecycle.in_limbo, "dying": entity.dying,
+                    // Techno +0x1C8, the offline latch (`sim::powered_unit`).
+                    "deactivated": entity.deactivated,
                     // Mark and Logic membership are independent retained facts.
                     "cell_marked": entity.lifecycle.cell_marked,
                     "in_logic_vector": entity.in_logic_vector,

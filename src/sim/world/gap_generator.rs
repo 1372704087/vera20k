@@ -110,6 +110,9 @@ impl Simulation {
         }
         // `0x0043FB6D..0x0043FBE3`: the working sound precedes the dispatcher.
         self.building_working_sound_edge(id, operational, rules, frame_effects);
+        // The dispatcher opens with its `PowersUnit=` arms
+        // (`sim::powered_unit`).
+        self.powered_center_edge(id, operational, rules, frame_effects);
         // The `0x004549B0` off edge frees a Psychic Tower's captives
         // (`0x00454B3D`) before its gap and power slots.
         if !operational {

@@ -74,14 +74,6 @@ pub(crate) struct DroppedImpact {
     pub(crate) bridge_state_changed: bool,
 }
 
-/// AbstractFlags bit 2 (`+0x14 & 4`): the object is a FootClass.
-fn is_foot(category: EntityCategory) -> bool {
-    matches!(
-        category,
-        EntityCategory::Unit | EntityCategory::Infantry | EntityCategory::Aircraft
-    )
-}
-
 impl Simulation {
     /// The locomotor arm of `BulletClass::DetonateAtCoord`
     /// (`0x004694CB..0x00469700`), for an `IsLocomotor=` warhead whose
@@ -135,7 +127,7 @@ impl Simulation {
         };
         if holds_target
             || firer.locomotor_source.is_some()
-            || (is_foot(firer.category) && firer.foot_locomotor_swap_active)
+            || (firer.category.is_foot() && firer.foot_locomotor_swap_active)
         {
             return;
         }
@@ -150,7 +142,7 @@ impl Simulation {
         let Some(victim) = self.substrate.entities.get(victim_id) else {
             return;
         };
-        let admitted = is_foot(victim.category)
+        let admitted = victim.category.is_foot()
             && crate::sim::world::entity_layer(
                 victim,
                 self.resolved_terrain.as_ref(),
@@ -449,7 +441,9 @@ impl Simulation {
         let firer_house = firer_entity.owner();
         let terrain = self.resolved_terrain.as_ref();
         let held_height = self.substrate.entities.get(held).and_then(|entity| {
-            is_foot(entity.category)
+            entity
+                .category
+                .is_foot()
                 .then(|| crate::sim::movement::air_movement::current_fly_height(entity, terrain))
         });
         if let Some(entity) = self.substrate.entities.get_mut(held) {

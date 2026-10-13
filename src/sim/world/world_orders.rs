@@ -214,15 +214,11 @@ impl Simulation {
     /// House50B6F0, bunker link, Spawned, paralysis, warp, slave ownership and
     /// launched-missile count remain with their existing authoritative owners.
     ///
-    /// Ordinary Infantry +504 EMP and +1C8 Robot-offline start zero in the
-    /// native constructor. EMPulseApply4C575E admits RTTI1/2, not Infantry15;
-    /// Robot House writers scan all Techno but compare type pointers with
-    /// PowersUnit+40C, read by7132DF..713309 through UnitType7480D0.
-    /// Its UnitType pointer cannot match an ordinary InfantryType; the other
-    /// established writer is UnitPerCell739F59. This is not a generic EMP or
-    /// Robot implementation and makes no unreachable claim for50E1C0.
-    /// Unit+6D8 death-frame and Robot/EMP lifecycle producers remain separate
-    /// residuals; ordinary live Unit controls use their constructor -1/0/0.
+    /// Ordinary Infantry +504 EMP starts zero in the native constructor.
+    /// EMPulseApply4C575E admits RTTI1/2, not Infantry15. The deactivated
+    /// latch +1C8 (700CBC) has its owner in `sim::powered_unit`.
+    /// Unit+6D8 death-frame and EMP lifecycle producers remain separate
+    /// residuals; ordinary live Unit controls use their constructor -1/0.
     /// Arbitrary authored native raw-save bytes are outside this producer.
     /// See engineer_bridge_cursor_caller.md for executed gate controls/bounds.
     pub(crate) fn techno_player_controllable(&self, id: u64, rules: &RuleSet) -> bool {
@@ -259,6 +255,7 @@ impl Simulation {
             || actor.is_warped_out()
             || actor.is_warping_in()
             || actor.slave.owner().is_some()
+            || actor.deactivated
         {
             return false;
         }
@@ -271,6 +268,22 @@ impl Simulation {
             }
         }
         true
+    }
+
+    /// `TechnoClass::IsActive @ 0x007010D0` (vt+0x9C, no override): not
+    /// deactivated (`+0x1C8`), owned by the player's house (`0x0050B6F0`),
+    /// its current weapon (vt+0x3F4) typed and not vt+0x37C. `is_armed`
+    /// stands in for the weapon test; vt+0x37C (a Unit's death frames or
+    /// EMP) has no VERA producer, as in [`Self::techno_player_controllable`].
+    pub(crate) fn techno_is_active(&self, id: u64, rules: &RuleSet) -> bool {
+        let Some(actor) = self.substrate.entities.get(id) else {
+            return false;
+        };
+        !actor.deactivated
+            && self.house_is_human_player(actor.owner())
+            && self
+                .object_type(actor.type_ref(), rules)
+                .is_some_and(|object| combat::combat_weapon::is_armed(actor, object))
     }
 
     /// Object-route Engineer action in Infantry51E49E..51E637. Ordinary

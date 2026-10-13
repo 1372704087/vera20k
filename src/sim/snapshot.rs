@@ -975,7 +975,10 @@ use crate::sim::world::Simulation;
 // (Techno+2AC/+2B0/+427/+428, Foot+6AE), and the warp credit house (+42C)
 // moves from the Chrono Warp payload to the object. Version 336 records
 // carry the payload's house.
-const SNAPSHOT_VERSION: u32 = 337;
+// 337 -> 338: objects keep the deactivated latch (Techno+1C8), buildings
+// whether they count as a powered center (+662), and houses that count
+// (+2D8). Version 337 records lack them.
+const SNAPSHOT_VERSION: u32 = 338;
 
 const SNAPSHOT_PRODUCT_MAGIC: [u8; 8] = *b"VERA20K\0";
 const SNAPSHOT_ENVELOPE_VERSION: u32 = 1;
@@ -4343,7 +4346,8 @@ mod tests {
         // 334 -> 335: global Teleport delay and independent carrier relation.
         // 335 -> 336: saved world resources, local view and Tactical center.
         // 336 -> 337: Magnetron links and the object's warp credit house.
-        assert_eq!(super::SNAPSHOT_VERSION, 337);
+        // 337 -> 338: the deactivated latch and the powered-center counts.
+        assert_eq!(super::SNAPSHOT_VERSION, 338);
     }
 
     #[test]

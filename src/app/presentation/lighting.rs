@@ -233,14 +233,39 @@ fn techno_effect_light_at(
     let tinted = curtain.map_or(flashed, |curtain| {
         curtain.effect_tint_intensity(flashed, frame as i32)
     });
-    let ratio = if intensity == 0 {
+    with_intensity(tint, light, tinted)
+}
+
+/// UnitClass's DrawVoxelBody after its curtain arm (`0x0073C143..0x0073C158`):
+/// a deactivated Unit (`+0x1C8`, `sim::powered_unit`) draws at half the
+/// intensity, a signed division toward zero.
+pub(crate) fn deactivated_unit_light(
+    entity: &crate::sim::game_entity::GameEntity,
+    tint: [f32; 3],
+    light: crate::render::palette_light::PaletteLight,
+) -> ([f32; 3], crate::render::palette_light::PaletteLight) {
+    if entity.deactivated {
+        with_intensity(tint, light, light.brightness() / 2)
+    } else {
+        (tint, light)
+    }
+}
+
+/// `light` at `intensity`, with `tint` scaled by the same ratio.
+fn with_intensity(
+    tint: [f32; 3],
+    light: crate::render::palette_light::PaletteLight,
+    intensity: i32,
+) -> ([f32; 3], crate::render::palette_light::PaletteLight) {
+    let current = light.brightness();
+    let ratio = if current == 0 {
         1.0
     } else {
-        tinted as f32 / intensity as f32
+        intensity as f32 / current as f32
     };
     (
         tint.map(|channel| channel * ratio),
-        light.with_brightness(tinted),
+        light.with_brightness(intensity),
     )
 }
 

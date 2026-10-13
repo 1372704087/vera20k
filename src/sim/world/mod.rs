@@ -577,9 +577,11 @@ pub enum SimSoundEvent {
         owner: InternedId,
         radar: RadarEventRequest,
     },
-    /// One of the `HouseClass::Update` advice lines
-    /// (`EVA_InsufficientFunds` `0x004F8BA0`, `EVA_LowPower` `0x004F8D14`)
-    /// for a human house; `event` is the `evamd.ini` section name.
+    /// A `PlayEVA` line native speaks only for the player's house: the
+    /// `HouseClass::Update` advice (`EVA_InsufficientFunds` `0x004F8BA0`,
+    /// `EVA_LowPower` `0x004F8D14`), the depot's empty wallet, the crate
+    /// upgrades and the Robot Tank lines (`sim::powered_unit`). `event` is
+    /// the `evamd.ini` section name; the app applies the local-owner test.
     HouseEva {
         owner: InternedId,
         event: &'static str,
@@ -4682,10 +4684,33 @@ impl Simulation {
         ))
     }
 
-    /// `HouseClass::Added_To_Game @ 0x00502A80` (`adding`) or
-    /// `Removed_From_Game @ 0x005025F0` for an object on its owner's house,
-    /// priced with that house's current `Cost_Of` factors.
-    pub(crate) fn update_house_presence(&mut self, stable_id: u64, adding: bool) {
+    /// `HouseClass::Added_To_Game @ 0x00502A80` for an object on its owner's
+    /// house, priced with that house's current `Cost_Of` factors. It counts
+    /// no powered center and invalidates no power; the first GrandOpening
+    /// owns that invalidation.
+    pub(crate) fn house_added_to_game(&mut self, stable_id: u64) {
+        let Some(entity) = self.substrate.entities.get(stable_id) else {
+            return;
+        };
+        if let Some(house) = self.houses.get_mut(&entity.owner()) {
+            let factors = house.cost_factors();
+            house.tracking.added_to_game(entity, &factors);
+        }
+    }
+
+    /// `HouseClass::Removed_From_Game @ 0x005025F0` for an object on its
+    /// owner's house, priced like [`Self::house_added_to_game`]. Between its
+    /// sidebar update and its class switch, a counted `PowersUnit=` building
+    /// stops counting (`0x0050263B..0x00502776`,
+    /// [`Self::powered_center_removed`]); neither half reads what the other
+    /// writes. A Building invalidates its house's power even before the
+    /// DontScore gate (`0x005027FA`).
+    pub(crate) fn house_removed_from_game(
+        &mut self,
+        stable_id: u64,
+        rules: Option<&RuleSet>,
+        effects: FrameEffects<'_>,
+    ) {
         let Some(entity) = self.substrate.entities.get(stable_id) else {
             return;
         };
@@ -4693,16 +4718,10 @@ impl Simulation {
         let structure = entity.category == EntityCategory::Structure;
         if let Some(house) = self.houses.get_mut(&owner) {
             let factors = house.cost_factors();
-            if adding {
-                house.tracking.added_to_game(entity, &factors);
-            } else {
-                house.tracking.removed_from_game(entity, &factors);
-            }
+            house.tracking.removed_from_game(entity, &factors);
         }
-        // Removed_From_Game5027FA invalidates power for a Building even
-        // before its DontScore gate. Ordinary Added_To_Game has no matching
-        // writer; first GrandOpening owns that invalidation.
-        if !adding && structure {
+        self.powered_center_removed(stable_id, rules, effects);
+        if structure {
             self.invalidate_house_power(owner, false);
         }
     }
@@ -5001,7 +5020,7 @@ impl Simulation {
             .get(stable_id)
             .is_some_and(|entity| !entity.lifecycle.in_limbo);
         if on_map {
-            self.update_house_presence(stable_id, false);
+            self.house_removed_from_game(stable_id, rules, effects);
         }
         //7015A8 calls RecordTheKill(NULL) while the old owner is still
         //installed, then7015D2 adds CostOf(oldHouse) to the new owner's
@@ -5136,7 +5155,7 @@ impl Simulation {
         }
         // Techno701757..70178E: Added_To_Game on the new house (not in limbo).
         if on_map {
-            self.update_house_presence(stable_id, true);
+            self.house_added_to_game(stable_id);
         }
         if build_const_eligible
             && let Some(house) = self.houses.get_mut(&new_owner)

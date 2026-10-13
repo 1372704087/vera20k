@@ -1181,6 +1181,7 @@ def _actor(value: Any, label: str, *, building_state: bool = True,
                               *(('veterancy_raw_bits',) if 'veterancy_raw_bits' in actor else ()),
                               *(('veterancy_rank_cache',) if 'veterancy_rank_cache' in actor else ()),
                               *(('elite_flash_frames',) if 'elite_flash_frames' in actor else ()),
+                              *(('deactivated',) if 'deactivated' in actor else ()),
                               *(('building',) if building_state else ()),
                               *(('unit',) if 'unit' in actor else ()),
                               *(('jumpjet',) if 'jumpjet' in actor else ()),
@@ -1237,6 +1238,9 @@ def _actor(value: Any, label: str, *, building_state: bool = True,
     for key in ('object_alive', 'cell_marked', 'in_logic_vector'):
         if key in actor and type(actor[key]) is not bool:
             raise ValidationError(f'{label}.{key} must be a boolean')
+    # The offline latch (Techno +0x1C8); historical receipts omit it.
+    if 'deactivated' in actor and type(actor['deactivated']) is not bool:
+        raise ValidationError(f'{label}.deactivated must be a boolean')
     for key, low, high in (('veterancy_raw_bits', 0, (1 << 32) - 1),
                            ('veterancy_rank_cache', -1, 2),
                            ('elite_flash_frames', 0, (1 << 16) - 1)):

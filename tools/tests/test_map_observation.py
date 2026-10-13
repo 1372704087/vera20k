@@ -285,6 +285,16 @@ class MapObservationTests(unittest.TestCase):
                 with self.assertRaisesRegex(ValidationError, 'object_alive'):
                     observation._actor(actor, 'actor')
 
+    def test_offline_latch_is_an_optional_boolean(self):
+        actor = self.actor()
+        observation._actor(actor, 'historical')
+        for value in (False, True):
+            observation._actor(dict(actor, deactivated=value), 'projected')
+        for value in (None, 0, 1, 'true'):
+            with self.subTest(value=value):
+                with self.assertRaisesRegex(ValidationError, 'deactivated'):
+                    observation._actor(dict(actor, deactivated=value), 'bad')
+
     def test_veterancy_owner_projections_preserve_raw_bits_and_legacy_absence(self):
         actor = self.actor()
         observation._actor(actor, 'historical')

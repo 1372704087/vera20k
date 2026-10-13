@@ -1113,6 +1113,10 @@ pub struct GeneralRules {
     /// then Voc FindIndex7514D0, retaining the prior ID on missing, empty or
     /// unresolved text. The fixed SOUNDMD binder owns name resolution.
     pub guard_sound: Option<String>,
+    /// ScatterSelectedObjects730FE0's centered cue. Rules+728 starts at -1
+    /// (66585F/666063); AudioVisual66AE6C..66AEA2 reads exact ScatterSound
+    /// with ReadString128 and fixed Voc lookup, retaining failed selections.
+    pub scatter_sound: Option<String>,
     /// `[AudioVisual] ScoldSound=` (`Rules+0x700`, read at `0x0066ABE8`
     /// through `VocClass::FindByName`; retail `MenuScold`): ToggleRepair's
     /// sound when a repair is switched on at full Strength (`0x00447068`).
@@ -2206,6 +2210,7 @@ impl Default for GeneralRules {
             gui_move_out_sound: None,
             generic_click_sound: None,
             guard_sound: None,
+            scatter_sound: None,
             scold_sound: None,
             generic_beep_sound: None,
             gui_checkbox_sound: None,
@@ -3188,6 +3193,7 @@ impl GeneralRules {
                 .map(str::to_owned),
             // Native constructor -1; resolved by the fixed SOUNDMD binder.
             guard_sound: None,
+            scatter_sound: None,
             scold_sound: audio_visual
                 .read_name("ScoldSound", 0x80)
                 .map(str::to_owned),
@@ -3909,6 +3915,9 @@ impl RuleSet {
         self.general.guard_sound = ini
             .section("AudioVisual")
             .and_then(|section| sounds.read_rules_reference(section, "GuardSound"));
+        self.general.scatter_sound = ini
+            .section("AudioVisual")
+            .and_then(|section| sounds.read_rules_reference(section, "ScatterSound"));
         for object in &mut self.object_list {
             let section = ini.section(&object.id);
             object.bind_damage_sound_reference(section, sounds);

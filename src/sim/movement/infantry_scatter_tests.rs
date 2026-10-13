@@ -36,6 +36,116 @@ fn sim_with(entity: GameEntity) -> Simulation {
     sim
 }
 
+/// Event7's original GI receiver and RNG prefix. This deliberately has no
+/// map: the admitted receiver ends at nearby-cell search after the original
+/// jitter draw. Native immediate Process's later placement draw and movement
+/// are outside this prefix comparison and belong to their existing owners.
+#[test]
+fn player_scatter_event_gates_and_rng_prefix_match_native_gi() {
+    use crate::sim::command::Command;
+    use crate::sim::rng::SimRng;
+
+    let Some(retail) = crate::rules::retail_ini_fixture::retail_battle_rules() else {
+        return;
+    };
+    let controls: serde_json::Value = serde_json::from_str(crate::test_fixture::text(
+        "tools/input_oracle/player_scatter.json",
+    ))
+    .unwrap();
+    let mut checked = 0;
+    for row in controls["rows"].as_array().unwrap() {
+        let native_rng = |state: &serde_json::Value| {
+            let reference = state["rng"]["scenario"].as_str().unwrap();
+            row["complete_rng_states"][reference]["bytes"]
+                .as_str()
+                .unwrap()
+        };
+        for boundary in row["boundaries"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|boundary| {
+                boundary["label"]
+                    .as_str()
+                    .unwrap()
+                    .starts_with("delivered_original_Scatter_Event")
+            })
+        {
+            let before = &boundary["before"];
+            let actor = &before["actors"]["E1"];
+            let mut man = infantry();
+            set_mission(&mut man, MissionType::Guard);
+            man.mission_leaf
+                .set_infantry_doing_verified(actor["doing"].as_i64().unwrap() as i32)
+                .unwrap();
+            man.lifecycle.object_alive = actor["alive"].as_u64().unwrap() != 0;
+            man.lifecycle.in_limbo = actor["limbo"].as_u64().unwrap() != 0;
+            man.dock_entered_with = (actor["tether"].as_u64().unwrap() != 0).then_some(9);
+            let mut loco = LocomotorState::for_test_kind(LocomotorKind::Walk);
+            loco.set_walk_destination(
+                (actor["moving"].as_u64().unwrap() != 0).then(|| DriveCoord::cell(6, 5, 0)),
+            );
+            man.locomotor = Some(loco);
+            let mut sim = sim_with(man);
+            sim.intern_rule_type_ids(&retail.rules);
+            sim.resolve_type_handles(&retail.rules);
+            let owner = sim.interner.intern("Allies");
+            sim.houses
+                .insert(owner, HouseState::new(owner, 0, None, true, 0, 10));
+            sim.scenario_rng = SimRng::from_native_state_hex_for_test(native_rng(before));
+            let initial_rng = sim.scenario_rng.native_state_hex();
+            let reached = sim.apply_command(
+                "DifferentIssuer",
+                &Command::Scatter { entity_id: 1 },
+                Some(&retail.rules),
+            );
+            assert_eq!(
+                reached,
+                actor["tether"].as_u64().unwrap() == 0,
+                "{}",
+                row["name"]
+            );
+            let first = boundary["first_sequence"].as_u64().unwrap();
+            let last = boundary["last_sequence"].as_u64().unwrap();
+            let draw = row["ordered_calls"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|call| {
+                    let sequence = call["sequence"].as_u64().unwrap();
+                    (first..=last).contains(&sequence) && call["kind"] == "RNG_RandomRanged"
+                });
+            let expected = if let Some(draw) = draw {
+                assert_eq!(draw["args"], serde_json::json!([0, 4]));
+                assert_eq!(native_rng(&draw["before"]), initial_rng);
+                native_rng(&draw["after"])
+            } else {
+                assert_eq!(native_rng(&boundary["after"]), initial_rng);
+                &initial_rng
+            };
+            assert_eq!(
+                sim.scenario_rng.native_state_hex(),
+                expected,
+                "{}: receiver prefix",
+                row["name"]
+            );
+            assert_eq!(
+                sim.substrate
+                    .entities
+                    .get(1)
+                    .unwrap()
+                    .mission_leaf
+                    .as_infantry()
+                    .unwrap()
+                    .doing(),
+                actor["doing"].as_i64().unwrap() as i32
+            );
+            checked += 1;
+        }
+    }
+    assert_eq!(checked, 5);
+}
+
 /// Original51AA40 asks active718080, then the physical Cell4834A0 before
 /// its current-Attack/same-reference exception. An armed CLEG transaction
 /// cannot approve that prefix without map inputs. No admission is executed

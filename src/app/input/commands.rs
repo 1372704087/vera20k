@@ -833,6 +833,10 @@ pub(super) fn schedule_command_in_sim(
         _ => sim.interner.intern(owner),
     };
     let envelope = match payload {
+        Command::Scatter { entity_id } => {
+            let record = sim.encode_scatter_record(owner_id, entity_id)?;
+            SynchronizedCommand::opaque(record).decode_for_simulation(sim, execute_tick)?
+        }
         Command::ExitMatch => {
             let record = sim.encode_exit_record(owner_id)?;
             SynchronizedCommand::opaque(record).decode_for_simulation(sim, execute_tick)?

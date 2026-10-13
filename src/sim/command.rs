@@ -27,6 +27,8 @@ pub const SELL_WALL_AT_CELL_OPCODE: u8 = 0x17;
 pub const EXIT_OPCODE: u8 = 0x13;
 /// Native `EventClass` opcode for a MegaMission order envelope.
 pub const MEGAMISSION_OPCODE: u8 = 0x04;
+/// Native selected-object Scatter event.
+pub const SCATTER_OPCODE: u8 = 0x07;
 
 const MEGAMISSION_SOURCE_VALUE_OFFSET: usize = 0;
 const MEGAMISSION_SOURCE_KIND_OFFSET: usize = 4;
@@ -317,6 +319,48 @@ impl ExitRecord {
         (record.opcode() == EXIT_OPCODE).then(|| Self {
             house_id: record.house_id(),
             frame: record.frame_stamp() as u32,
+        })
+    }
+}
+
+/// Target event used by Scatter. Original `EventClass` constructor4C65E0
+/// writes the Abstract token at Event+7..11, preserving flags and unused tail.
+/// Its signed house check uses the existing null-header owner, including
+/// negative-house/positive-UID and positive-house/negative-UID controls.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ScatterRecord {
+    pub house_id: i8,
+    pub frame: i32,
+    pub entity_id: i32,
+}
+
+impl ScatterRecord {
+    pub fn write_into(self, record: &mut CommandRecord) {
+        record.set_issue_header(SCATTER_OPCODE, i32::from(self.house_id), self.frame);
+        if self.house_id < 0 {
+            return;
+        }
+        let (value, kind) = MegaMissionTarget::Object { id: self.entity_id }
+            .token()
+            .expect("an Abstract token has no Cell conversion");
+        record.payload_mut()[..4].copy_from_slice(&value.to_le_bytes());
+        record.payload_mut()[4] = kind;
+    }
+
+    pub fn decode(record: &CommandRecord) -> Option<Self> {
+        if record.opcode() != SCATTER_OPCODE {
+            return None;
+        }
+        let value = i32::from_le_bytes(record.payload()[..4].try_into().ok()?);
+        let MegaMissionTarget::Object { id } =
+            MegaMissionTarget::from_token(value, record.payload()[4])?
+        else {
+            return None;
+        };
+        Some(Self {
+            house_id: record.house_id(),
+            frame: record.frame_stamp(),
+            entity_id: id,
         })
     }
 }
@@ -683,6 +727,9 @@ pub enum Command {
     /// current completed head at execution; native carries type_index=-1,
     /// with no product identity or nonce. Appended to preserve saved indices.
     PlaceProducedMobile { category: ProductionCategory },
+    /// Event7: Scatter(NULL, forced=true, no_kidding=false). Appended so
+    /// existing saved/replayed command variant indices remain unchanged.
+    Scatter { entity_id: u64 },
 }
 
 /// Command with deterministic execution metadata.

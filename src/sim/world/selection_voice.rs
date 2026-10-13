@@ -78,11 +78,11 @@ impl Simulation {
     /// QueueVoice708D90's sole admission predicate. The caller owns any list
     /// draw and House50B6F0 query; the audio owner alone retains the pending
     /// and playing slots. Scalar requests consume no random draw.
-    pub(crate) fn queue_voice_request<'a>(
-        sound: Option<&'a str>,
+    pub(crate) fn queue_voice_request(
+        sound: Option<&str>,
         voices_enabled: bool,
         human_player: bool,
-    ) -> Option<&'a str> {
+    ) -> Option<&str> {
         sound.filter(|sound| voices_enabled && human_player && !sound.is_empty())
     }
 

@@ -1000,7 +1000,13 @@ fn classify_foot_entry<'a>(
                 continue;
             }
             if if infantry {
-                crate::sim::combat::combat_weapon::weapon_damage_value(e, obj, live.rules) <= 0
+                crate::sim::combat::combat_weapon::weapon_damage_value(
+                    e,
+                    obj,
+                    &live.sim.substrate.entities,
+                    live.rules,
+                    &live.sim.interner,
+                ) <= 0
             } else {
                 weapon0.is_none()
             } {
@@ -1075,7 +1081,14 @@ fn classify_foot_entry<'a>(
                     entry_result = if stationary_infantry == 3 { 6 } else { 2 };
                 }
             } else {
-                if crate::sim::combat::combat_weapon::weapon_damage_value(e, obj, live.rules) <= 0 {
+                if crate::sim::combat::combat_weapon::weapon_damage_value(
+                    e,
+                    obj,
+                    &live.sim.substrate.entities,
+                    live.rules,
+                    &live.sim.interner,
+                ) <= 0
+                {
                     return Ok(7);
                 }
                 entry_result = entry_result.max(5);

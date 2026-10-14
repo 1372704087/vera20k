@@ -331,7 +331,7 @@ fn stamp_building_cell_profile(
     let Some(obj) = obj else {
         return;
     };
-    ge.spotlight_capable = obj.has_spotlight;
+    ge.building_light.stamp(obj.has_spotlight);
     ge.type_facts.stamp(ge.category(), obj);
 }
 

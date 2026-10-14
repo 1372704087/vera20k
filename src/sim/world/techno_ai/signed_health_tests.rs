@@ -241,10 +241,10 @@ fn building_damage_fire_runs_before_yellow_crossing_selfheal() {
     let building = sim.entities().get(id).unwrap();
     assert_eq!(building.health.current(), 51);
     assert!(
-        building.damage_fire_state_active,
+        building.damage_fires.is_active(),
         "43FC39 precedes6FA756 INC"
     );
     sim.session.binary_frame = 901;
     sim.object_ai_stage(Some(&rules));
-    assert!(!sim.entities().get(id).unwrap().damage_fire_state_active);
+    assert!(!sim.entities().get(id).unwrap().damage_fires.is_active());
 }

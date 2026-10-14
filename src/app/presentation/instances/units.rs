@@ -1774,7 +1774,8 @@ mod tests {
             }
             let mut unit = GameEntity::test_default(1, "HTNK", "Russians", 10, 10);
             unit.flashing.start(int(&row["flash"]));
-            unit.deactivated = row["deactivated"].as_bool().unwrap();
+            unit.deactivated
+                .set_for_test(row["deactivated"].as_bool().unwrap());
             unit.invulnerability = Some(
                 crate::sim::superweapon::invulnerability::InvulnerabilityState::with_tint(
                     CdTimer::from_raw(int(&row["curtain"][0]), int(&row["curtain"][1])),

@@ -331,6 +331,7 @@ fn gap_operational_spy_sat_rechecks_live_candidates_per_viewer() {
             .get(1)
             .unwrap()
             .building_last_operational
+            .is_operational()
     );
     assert!(!gap.viewers[&a].active);
     assert!(gap.viewers[&b].active);

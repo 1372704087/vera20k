@@ -244,7 +244,7 @@ pub(crate) fn deactivated_unit_light(
     tint: [f32; 3],
     light: crate::render::palette_light::PaletteLight,
 ) -> ([f32; 3], crate::render::palette_light::PaletteLight) {
-    if entity.deactivated {
+    if entity.deactivated.is_offline() {
         with_intensity(tint, light, light.brightness() / 2)
     } else {
         (tint, light)

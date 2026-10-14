@@ -488,7 +488,7 @@ impl Fixture {
             "{boundary}: queued Building body",
         );
         assert_eq!(
-            building.building_last_operational,
+            building.building_last_operational.is_operational(),
             native["building"]["old_operational"] == 1,
             "{boundary}: retained operational state",
         );
@@ -507,7 +507,7 @@ impl Fixture {
             "{boundary}: Building dispatch timer",
         );
         assert_eq!(
-            building.damage_fire_state_active,
+            building.damage_fires.is_active(),
             native["damage_fire_active_5e8"] == 1,
             "{boundary}: damage-fire state"
         );
@@ -586,7 +586,7 @@ impl Fixture {
         if let Some(building) = self.sim.substrate.entities.get(self.building) {
             for (slots, key) in [
                 (&building.building_art.anim_slots()[..], "slots"),
-                (&building.damage_fire_anim_ids[..], "damage_fire_slots"),
+                (&building.damage_fires.anim_ids()[..], "damage_fire_slots"),
             ] {
                 let expected = if key == "slots" {
                     &native["building"][key]

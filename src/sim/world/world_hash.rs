@@ -1528,21 +1528,21 @@ fn hash_entity(entity: &GameEntity, frame: u32, hasher: &mut StateHasher) {
         b"building-storage-v1".hash(hasher);
         entity.building_art.storage().hash(hasher);
     }
-    if entity.building_last_operational {
+    if entity.building_last_operational.is_operational() {
         b"building-operational-v1".hash(hasher);
     }
     if !entity.building_art.stuff_enabled() {
         b"building-stuff-disabled-v1".hash(hasher);
     }
-    if entity.building_has_engineer {
+    if entity.building_has_engineer.is_set() {
         b"building-has-engineer-v1".hash(hasher);
     }
     // Building+662 and Techno+1C8 (`sim::powered_unit`), folded only
     // while set.
-    if entity.building_powered_center {
+    if entity.building_powered_center.is_counted() {
         b"building-powered-center-v1".hash(hasher);
     }
-    if entity.deactivated {
+    if entity.deactivated.is_offline() {
         b"techno-deactivated-v1".hash(hasher);
     }
     // Infantry gameplay reads its class-owned Doing/Stage fields.
@@ -1611,8 +1611,8 @@ fn hash_entity(entity: &GameEntity, frame: u32, hasher: &mut StateHasher) {
     entity.base_defense_response.hash(hasher);
     entity.regular_crusher.hash(hasher);
     entity.drive_accelerates.hash(hasher);
-    entity.damage_fire_state_active.hash(hasher);
-    entity.damage_fire_anim_ids.hash(hasher);
+    entity.damage_fires.is_active().hash(hasher);
+    entity.damage_fires.anim_ids().hash(hasher);
     entity.vision_range.hash(hasher);
     entity.sight_is_zero.hash(hasher);
     entity.sight_refresh_timers.hash(hasher);
@@ -1722,8 +1722,8 @@ fn hash_entity(entity: &GameEntity, frame: u32, hasher: &mut StateHasher) {
         .runtime_bridge_transition
         .pending_mismatch
         .hash(hasher);
-    entity.spotlight_capable.hash(hasher);
-    entity.building_light.hash(hasher);
+    entity.building_light.spotlight_capable().hash(hasher);
+    entity.building_light.light().hash(hasher);
     entity.low_bridge_tube_state.hash(hasher);
     if let Some(cloak) = entity.cloak.as_ref() {
         1u8.hash(hasher);

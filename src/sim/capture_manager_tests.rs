@@ -712,7 +712,8 @@ fn a_tower_going_offline_frees_its_captives() {
         .entities
         .get_mut(tower)
         .unwrap()
-        .building_last_operational = true;
+        .building_last_operational
+        .set_for_test(true);
     sim.substrate
         .entities
         .get_mut(tower)
@@ -1535,6 +1536,7 @@ fn selling_a_psychic_tower_frees_its_captives() {
             .get(tower)
             .unwrap()
             .building_last_operational
+            .is_operational()
     );
     let gi = spawn(&mut sim, &rules, "E1", "Americans", 12, 10);
     assert!(sim.capture_unit(

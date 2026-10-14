@@ -1105,7 +1105,7 @@ pub(crate) fn selection_dynamic_prefix(
     if entity.category() == EntityCategory::Structure {
         return false;
     }
-    if entity.slave.owner().is_some() || entity.deactivated {
+    if entity.slave.owner().is_some() || entity.deactivated.is_offline() {
         return false;
     }
     if entity.bunker_link.installed_in().is_some() {

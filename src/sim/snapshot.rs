@@ -1879,7 +1879,7 @@ fn restore_object_references(
             .building_art
             .anim_slots()
             .iter()
-            .chain(entity.damage_fire_anim_ids.iter())
+            .chain(entity.damage_fires.anim_ids().iter())
             .enumerate()
         {
             let Some(anim_id) = *anim_id else { continue };
@@ -5557,7 +5557,8 @@ mod tests {
                         .entities
                         .get_mut(owner)
                         .unwrap()
-                        .damage_fire_anim_ids[0] = Some(999);
+                        .damage_fires
+                        .set_slot_for_test(0, Some(999));
                     SnapshotRestoreError::MissingBuildingSlotAnim {
                         owner_id: owner,
                         slot: 21,
@@ -5569,7 +5570,8 @@ mod tests {
                         .entities
                         .get_mut(owner)
                         .unwrap()
-                        .damage_fire_anim_ids[0] = Some(anim);
+                        .damage_fires
+                        .set_slot_for_test(0, Some(anim));
                     SnapshotRestoreError::DuplicateBuildingSlotAnim {
                         anim_id: anim,
                         first_owner: owner,
@@ -5581,7 +5583,7 @@ mod tests {
                 _ => {
                     let entity = sim.substrate.entities.get_mut(owner).unwrap();
                     entity.building_art.anim_slots_mut_for_test()[3] = None;
-                    entity.damage_fire_anim_ids[0] = Some(anim);
+                    entity.damage_fires.set_slot_for_test(0, Some(anim));
                     entity.set_category_for_test(crate::map::entities::EntityCategory::Unit);
                     SnapshotRestoreError::InvalidBuildingAnimSlotOwner {
                         owner_id: owner,
@@ -5650,7 +5652,7 @@ mod tests {
         sim.substrate.anims.get_mut(anim).unwrap().runtime.paused = true;
         let building = sim.substrate.entities.get_mut(id).unwrap();
         building.building_art.anim_effect_replay_mut_for_test()[16] = true;
-        building.building_last_operational = true;
+        building.building_last_operational.set_for_test(true);
         building.building_art.set_stuff_enabled_for_test(false);
         building.building_art.storage_mut_for_test().amounts = [
             crate::util::native_x87::NativeF32Bits::from_bits(0x7fc01234),
@@ -5706,6 +5708,7 @@ mod tests {
                 .get(id)
                 .unwrap()
                 .building_last_operational
+                .is_operational()
         );
         assert!(
             !restored

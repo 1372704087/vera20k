@@ -176,7 +176,7 @@ fn scene(golden: &Value, row: &Value) -> (Simulation, RuleSet, u64, u64) {
     entity.set_owner_for_test(sim.interner.intern("A"));
     entity
         .health
-        .set(case["health"].as_i64().unwrap_or(1200) as i32);
+        .set_for_test(case["health"].as_i64().unwrap_or(1200) as i32);
     entity.install_native_stage_fixture(StageClass::constructed(200));
     entity.mission_leaf = MissionLeafState::constructed(EntityCategory::Structure, 200);
     entity
@@ -233,7 +233,7 @@ fn scene(golden: &Value, row: &Value) -> (Simulation, RuleSet, u64, u64) {
     let entity = sim.substrate.entities.get_mut(id).unwrap();
     entity.lifecycle.object_alive = case["alive"].as_i64().unwrap_or(1) != 0;
     if let Some(health) = case["callback_health"].as_i64() {
-        entity.health.set(health as i32);
+        entity.health.set_for_test(health as i32);
     }
     if case["unmatched"] == true {
         entity.building_art.anim_slots[usize::from(slot)] = None;

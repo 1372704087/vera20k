@@ -181,7 +181,12 @@ fn c4_attacker_death_does_not_abort_detonation() {
     plant_c4(&mut sim, &rules, bld, seal);
 
     // Mid-plant: kill the SEAL outright.
-    sim.substrate.entities.get_mut(seal).unwrap().health.set(0);
+    sim.substrate
+        .entities
+        .get_mut(seal)
+        .unwrap()
+        .health
+        .set_for_test(0);
     sim.substrate.entities.get_mut(seal).unwrap().dying = true;
     step(&mut sim, &rules);
     assert!(

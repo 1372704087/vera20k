@@ -93,7 +93,7 @@ fn joined_fixture(rules: &RuleSet, row: &Value) -> (Simulation, u64) {
             .get_mut(id)
             .unwrap()
             .health
-            .set(health as i32);
+            .set_for_test(health as i32);
     }
     let control = rules.buildup_control(name);
     let entry = match route {

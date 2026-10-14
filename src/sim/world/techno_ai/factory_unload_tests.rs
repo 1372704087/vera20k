@@ -396,7 +396,7 @@ fn actor_input(actor: &mut GameEntity, native: &Value) {
     actor.in_logic_vector = native["logic_registered"] == 1;
     actor.in_playfield = native["in_playfield"] == 1;
     actor.on_bridge = native["on_bridge"] == 1;
-    actor.health.set(int(&native["health"]));
+    actor.health.set_for_test(int(&native["health"]));
     actor.body_facing.snap(
         native["primary_facing"][0].as_u64().unwrap() as u16,
         int(&native["frame"]) as u32,

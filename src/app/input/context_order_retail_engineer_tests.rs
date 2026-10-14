@@ -136,7 +136,7 @@ fn retail_building_repair_input_walk_art_sound_house_and_retirement() {
         .unwrap();
     plant_entity
         .health
-        .set(before["actual_hp"].as_i64().unwrap() as i32);
+        .set_for_test(before["actual_hp"].as_i64().unwrap() as i32);
     plant_entity
         .estimated_health
         .reset(before["estimated_hp"].as_i64().unwrap() as i32);

@@ -3138,7 +3138,12 @@ mod tests {
         );
 
         assert!(move_onto(&mut sim, 2));
-        sim.substrate.entities.get_mut(2).unwrap().health.set(0);
+        sim.substrate
+            .entities
+            .get_mut(2)
+            .unwrap()
+            .health
+            .set_for_test(0);
         assert!(!move_onto(&mut sim, 2));
         assert_eq!(
             sim.substrate.entities.get(1).unwrap().navigation.nav_com,
@@ -3273,7 +3278,7 @@ mod tests {
 
         for kill in [
             |e: &mut GameEntity| e.lifecycle.object_alive = false,
-            |e: &mut GameEntity| e.health.set(0),
+            |e: &mut GameEntity| e.health.set_for_test(0),
         ] {
             let mut sim = Simulation::new();
             spawn_rule_backed_unit(&mut sim, 1, "AMCV", &rules);
@@ -3313,7 +3318,12 @@ mod tests {
         assert!(sim.order_object_token_admits(2));
 
         // Now the same target at zero strength, still present in the store.
-        sim.substrate.entities.get_mut(2).unwrap().health.set(0);
+        sim.substrate
+            .entities
+            .get_mut(2)
+            .unwrap()
+            .health
+            .set_for_test(0);
         assert!(
             sim.substrate.entities.contains(2),
             "target stays resolvable"

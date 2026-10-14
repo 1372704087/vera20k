@@ -758,7 +758,7 @@ fn a_sale_s_first_visit_stops_the_repair() {
             .unwrap()
             .strength;
         let entity = s.sim.substrate.entities.get_mut(building).unwrap();
-        entity.health.set(strength / 2);
+        entity.health.set_for_test(strength / 2);
         entity.repairing = repairing;
         let sale_order = crate::sim::command::CommandEnvelope::new(
             s.sim.substrate.entities.get(building).unwrap().owner(),

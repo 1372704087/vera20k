@@ -310,7 +310,7 @@ impl Fixture {
             entity
                 .mission_leaf
                 .set_building_ready_latch(int(&prior["building"]["building"]["done"]) as u8);
-            entity.health.set(int(&prior["health"]));
+            entity.health.set_for_test(int(&prior["health"]));
             entity.estimated_health.reset(int(&prior["health"]));
             entity.sample_building_health_for_power();
         }

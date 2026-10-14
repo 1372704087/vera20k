@@ -2107,7 +2107,12 @@ mod tests {
     fn unit_voice_dying_infantry_still_reaches_its_techno_head() {
         let (mut sim, rules) = unit_voice_fixture();
         sim.prepare_unit_voice_visits([9].into());
-        sim.substrate.entities.get_mut(9).unwrap().health.set(0);
+        sim.substrate
+            .entities
+            .get_mut(9)
+            .unwrap()
+            .health
+            .set_for_test(0);
         sim.begin_infantry_death_sequence(
             9,
             super::super::infantry_terminal::InfantryDeathSequence::Die1,
@@ -2391,7 +2396,7 @@ mod tests {
         let mut sim = Simulation::new();
         let mut e = entity_of(1, EntityCategory::Unit);
         // Killed, its UnInit deferred: native has already cleared IsAlive.
-        e.health.set(0);
+        e.health.set_for_test(0);
         sim.substrate.entities.insert(e);
         // Guard B (IsAlive) fires after the (empty) pre-block: a dead Unit runs
         // no mission work (counter stays 0).
@@ -2417,7 +2422,7 @@ mod tests {
     fn bracket_runs_on_for_a_health_zero_wreck() {
         let mut sim = Simulation::new();
         let mut e = entity_of(1, EntityCategory::Unit);
-        e.health.set(0);
+        e.health.set_for_test(0);
         e.crashing = true;
         sim.substrate.entities.insert(e);
         assert_eq!(
@@ -2649,7 +2654,7 @@ mod tests {
         );
         let timer = {
             let wreck = sim.substrate.entities.get_mut(1).expect("tank present");
-            wreck.health.set(0);
+            wreck.health.set_for_test(0);
             wreck.crashing = true;
             wreck.mission.dispatch_timer()
         };
@@ -2709,7 +2714,7 @@ mod tests {
         );
         {
             let wreck = sim.substrate.entities.get_mut(1).expect("disc present");
-            wreck.health.set(0);
+            wreck.health.set_for_test(0);
             wreck.crashing = true;
         }
         let mut shots = 0;
@@ -3030,7 +3035,12 @@ mod tests {
         // The invariant is checked EVERY tick, not just at the end: the leak
         // opens on the exact tick the victim dies and can be papered over by the
         // next cadence rescan, so an end-state assertion would miss it.
-        sim.substrate.entities.get_mut(2).unwrap().health.set(1);
+        sim.substrate
+            .entities
+            .get_mut(2)
+            .unwrap()
+            .health
+            .set_for_test(1);
         for tick in 0..80 {
             let _ = sim.advance_tick(&[], Some(&rules), Some(&grid), None, 67);
             let tank = sim.substrate.entities.get(1).expect("tank present");
@@ -6172,7 +6182,7 @@ mod tests {
             .get_mut(ORDINARY_DRIVE_HOST_ID)
             .unwrap()
             .health
-            .set(0);
+            .set_for_test(0);
         let trace = ordinary_drive_host_trace_ok(&sim, 20, HostTraceGates::ordinary());
 
         assert!(

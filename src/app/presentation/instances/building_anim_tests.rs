@@ -80,7 +80,7 @@ fn fixture(building_name: &str, damaged: bool) -> (Simulation, RuleSet, u64, Spr
     );
     building.set_type_ref_for_test(sim.interner.intern(building_name));
     building.set_owner_for_test(sim.interner.intern("A"));
-    building.health.set(if damaged { 40 } else { 100 });
+    building.health.set_for_test(if damaged { 40 } else { 100 });
     sim.substrate.entities.insert(building);
     let slots: &[u8] = if building_name == "NATBNK" {
         &[10, 11]

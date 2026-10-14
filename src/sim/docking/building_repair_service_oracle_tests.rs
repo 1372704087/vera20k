@@ -492,7 +492,7 @@ fn scene(golden: &Value, row: &Value) -> Scene {
                 int(&foot["nav_queue_count"]) as usize
             );
         }
-        unit.health.set(int(&before["health"]));
+        unit.health.set_for_test(int(&before["health"]));
         unit.estimated_health = EstimatedHealth::from_raw(int(&before["estimate"]));
         let at = &before["unit_coordinate"];
         unit.position.rx = (int(&at[0]) / 256) as u16;
@@ -606,7 +606,7 @@ fn native_pending_entry_and_radio_lifecycle_use_shared_command_owners() {
             let contact = scene.sim.substrate.entities.get_mut(scene.depot).unwrap();
             contact.lifecycle.object_alive = case["contact_alive"] != false;
             if let Some(health) = case["contact_health"].as_u64() {
-                contact.health.set(health as i32);
+                contact.health.set_for_test(health as i32);
             }
             if case["contact_is_unit"] == true {
                 // Explicit native original-Unit-vtable RTTI prestate. The

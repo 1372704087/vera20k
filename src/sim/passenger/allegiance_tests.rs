@@ -114,7 +114,7 @@ fn fixture(input: &Value) -> (Simulation, RuleSet, u64, Vec<InternedId>) {
         GameEntity::test_default_of_category(id, "B", "", 10, 11, EntityCategory::Structure);
     building.set_type_ref_for_test(sim.interner.intern("B"));
     building.set_owner_for_test(houses[input["current_owner"].as_u64().unwrap() as usize]);
-    building.health.set(100);
+    building.health.set_for_test(100);
     building.building_art.set_actually_placed_for_test(true);
     building.mission_leaf =
         crate::sim::mission::leaf::MissionLeafState::for_entity_category(EntityCategory::Structure);
@@ -156,7 +156,7 @@ fn fixture(input: &Value) -> (Simulation, RuleSet, u64, Vec<InternedId>) {
         .get_mut(id)
         .unwrap()
         .health
-        .set(integer(&input["current_hp"]));
+        .set_for_test(integer(&input["current_hp"]));
     sim.set_building_anim_slot(id, 3, false, false, 0, &rules)
         .unwrap();
     sim.sound_events.clear();

@@ -169,7 +169,7 @@ fn fixture(input: &Value, stock: &Value) -> (Scene, Vec<(u16, u16)>) {
                     .get_mut(id)
                     .unwrap()
                     .health
-                    .set(input["building_health"].as_i64().unwrap_or(100) as i32);
+                    .set_for_test(input["building_health"].as_i64().unwrap_or(100) as i32);
             }
             other => panic!("unhandled native fixture blocker {other}"),
         }

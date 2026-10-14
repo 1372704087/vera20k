@@ -80,7 +80,7 @@ fn with_buildup(mut rules: RuleSet) -> RuleSet {
 
 fn damage(sim: &mut Simulation, id: u64, actual: i32) {
     let entity = sim.substrate.entities.get_mut(id).unwrap();
-    entity.health.set(actual);
+    entity.health.set_for_test(actual);
     entity.estimated_health = EstimatedHealth::from_raw(-73);
 }
 

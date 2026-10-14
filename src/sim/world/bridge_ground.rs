@@ -299,7 +299,7 @@ mod tests {
             .get_mut(building)
             .unwrap()
             .health
-            .set(0);
+            .set_for_test(0);
         apply(
             &mut sim,
             &rules,

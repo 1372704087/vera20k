@@ -484,11 +484,16 @@ fn ordinary_friendly_repair_uses_capture_event_without_hut_exception() {
             .unwrap();
         // Supply the already-damaged prior from the native witness. Only its
         // ordinary building flags/HP and action/event admission are compared.
-        sim.substrate.entities.get_mut(target).unwrap().health.set(
-            row["arrivals"][0]["before"]["building"]["actual_hp"]
-                .as_i64()
-                .unwrap() as i32,
-        );
+        sim.substrate
+            .entities
+            .get_mut(target)
+            .unwrap()
+            .health
+            .set_for_test(
+                row["arrivals"][0]["before"]["building"]["actual_hp"]
+                    .as_i64()
+                    .unwrap() as i32,
+            );
         assert!(!rules.object("CABHUT").unwrap().bridge_repair_hut);
         let rng = (
             sim.scenario_rng.logical_state(),

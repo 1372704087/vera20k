@@ -262,7 +262,7 @@ mod tests {
         );
         entity.set_type_ref_for_test(sim.interner.intern(name));
         entity.set_owner_for_test(sim.interner.intern("Americans"));
-        entity.health.set(100);
+        entity.health.set_for_test(100);
         sim.entities_mut().insert(entity);
     }
     fn refinery_sim_with_bale() -> Simulation {
@@ -455,7 +455,7 @@ mod tests {
                 .get_mut(41)
                 .unwrap()
                 .health
-                .set(row.input.current);
+                .set_for_test(row.input.current);
             begin_refinery_unload_gate(&mut sim, &rules, 41);
             finalize(&mut sim);
             let id = sim.entities().get(41).unwrap().building_art.anim_slots()[10].unwrap();
@@ -483,7 +483,11 @@ mod tests {
     fn missing_damaged_name_smokes_without_constructing_or_changing_flag() {
         let rules = refinery_rules_and_art();
         let mut sim = refinery_sim_with_bale();
-        sim.entities_mut().get_mut(41).unwrap().health.set(50);
+        sim.entities_mut()
+            .get_mut(41)
+            .unwrap()
+            .health
+            .set_for_test(50);
         begin_refinery_unload_gate(&mut sim, &rules, 41);
         finalize(&mut sim);
         assert!(sim.bale_events.is_empty());

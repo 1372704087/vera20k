@@ -1480,7 +1480,7 @@ ConditionYellow=50%
         ge.set_type_ref_for_test(type_id);
         let obj = rules.object(type_ref).expect("type exists");
         ge.foundation = obj.foundation.clone();
-        ge.health.set(obj.strength);
+        ge.health.set_for_test(obj.strength);
         ge.estimated_health = crate::sim::estimated_health::EstimatedHealth::from_raw(obj.strength);
         ge.passenger_role = PassengerRole::Transport {
             cargo: PassengerCargo::new(obj.max_number_occupants, 1),
@@ -2191,7 +2191,7 @@ ConditionYellow=50%
         let pax = place_inside_garrison(&mut sim, &rules, bldg, "E1", "Americans");
 
         if let Some(building) = sim.substrate.entities.get_mut(bldg) {
-            building.health.set(100);
+            building.health.set_for_test(100);
             if let Some(cargo) = building.passenger_role.cargo_mut() {
                 cargo.garrison_fire_index = 3;
             }
@@ -2424,7 +2424,7 @@ ConditionYellow=50%
         );
 
         if let Some(building) = sim.substrate.entities.get_mut(bldg) {
-            building.health.set(100);
+            building.health.set_for_test(100);
             if let Some(cargo) = building.passenger_role.cargo_mut() {
                 cargo.garrison_fire_index = 3;
             }
@@ -2462,7 +2462,7 @@ ConditionYellow=50%
         assert!(!sim.live_object_order_snapshot().contains(&pax));
 
         if let Some(building) = sim.substrate.entities.get_mut(bldg) {
-            building.health.set(100);
+            building.health.set_for_test(100);
             if let Some(cargo) = building.passenger_role.cargo_mut() {
                 cargo.garrison_fire_index = 3;
             }
@@ -2501,7 +2501,7 @@ ConditionYellow=50%
                 .entities
                 .get_mut(bldg)
                 .expect("building exists");
-            building.health.set(100);
+            building.health.set_for_test(100);
         }
 
         assert!(
@@ -2771,7 +2771,7 @@ ConditionYellow=50%
         let actor = sim.substrate.entities.get_mut(passenger).unwrap();
         actor
             .health
-            .set(row["input"]["health"].as_i64().unwrap() as i32);
+            .set_for_test(row["input"]["health"].as_i64().unwrap() as i32);
         actor.attack_target = Some(crate::sim::combat::AttackTarget::new(transport));
         actor
             .mission_leaf

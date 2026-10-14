@@ -52,7 +52,11 @@ fn boarded_ifv(rules: &RuleSet, passenger_type: &str) -> (Simulation, u64, u64) 
         PassengerRole::Inside { transport_id, .. } if transport_id == ifv)
     );
     let tank = sim.spawn_object("MTNK", OWNER, 17, 16, 64, rules).unwrap();
-    sim.entities_mut().get_mut(tank).unwrap().health.set(100);
+    sim.entities_mut()
+        .get_mut(tank)
+        .unwrap()
+        .health
+        .set_for_test(100);
     (sim, ifv, tank)
 }
 
@@ -271,7 +275,11 @@ fn retail_far_repair_click_drives_into_range_and_heals_without_ctrl() {
     let rules = &retail.rules;
     let (mut sim, ifv, _) = repair_ifv(rules);
     let far = sim.spawn_object("MTNK", OWNER, 25, 16, 64, rules).unwrap();
-    sim.entities_mut().get_mut(far).unwrap().health.set(100);
+    sim.entities_mut()
+        .get_mut(far)
+        .unwrap()
+        .health
+        .set_for_test(100);
     let start = sim.entities().get(ifv).unwrap().position;
     let command = repair_click(&sim, rules, ifv, far);
     assert!(sim.apply_command(OWNER, &command, Some(rules)));
@@ -363,7 +371,7 @@ fn retail_repair_click_preserves_native_modifier_and_target_controls() {
         .get_mut(tank)
         .unwrap()
         .health
-        .set(rules.object("MTNK").unwrap().strength);
+        .set_for_test(rules.object("MTNK").unwrap().strength);
     assert!(
         unit_repair_branch_orders(
             &sim,
@@ -379,11 +387,19 @@ fn retail_repair_click_preserves_native_modifier_and_target_controls() {
         .commands
         .is_empty()
     );
-    sim.entities_mut().get_mut(tank).unwrap().health.set(100);
+    sim.entities_mut()
+        .get_mut(tank)
+        .unwrap()
+        .health
+        .set_for_test(100);
     let enemy = sim
         .spawn_object("MTNK", "Russians", 23, 16, 64, rules)
         .unwrap();
-    sim.entities_mut().get_mut(enemy).unwrap().health.set(100);
+    sim.entities_mut()
+        .get_mut(enemy)
+        .unwrap()
+        .health
+        .set_for_test(100);
     assert_eq!(
         sim.unit_repair_action(ifv, enemy, owner, rules),
         Some(UnitRepairAction::Move)
@@ -454,7 +470,7 @@ fn issued_repair_attack_is_not_readmitted_when_health_or_cargo_changes() {
         .get_mut(tank)
         .unwrap()
         .health
-        .set(rules.object("MTNK").unwrap().strength);
+        .set_for_test(rules.object("MTNK").unwrap().strength);
     assert!(sim.apply_command(OWNER, &command, Some(rules)));
     assert_eq!(
         sim.entities()
@@ -546,7 +562,11 @@ fn unit_repair_vehicle_class_matches_fire_error_including_undeploy_building() {
         let target = sim
             .spawn_object(kind, OWNER, cell.0, cell.1, 64, &rules)
             .unwrap();
-        sim.entities_mut().get_mut(target).unwrap().health.set(50);
+        sim.entities_mut()
+            .get_mut(target)
+            .unwrap()
+            .health
+            .set_for_test(50);
         targets.push(target);
     }
     assert_eq!(

@@ -139,7 +139,7 @@ fn fixture(input: &serde_json::Value) -> (Simulation, RuleSet) {
     let frame = sim.session.binary_frame;
     let entity = sim.substrate.entities.get_mut(1).unwrap();
     entity.position.exact_z_leptons = Some(xyz[2]);
-    entity.health.set(int(input, "health", 0) as i32);
+    entity.health.set_for_test(int(input, "health", 0) as i32);
     entity.crashing = int(input, "crashing", 1) != 0;
     let mut facing = FacingClass::new(
         int(input, "facing", 0x4000) as u16,
@@ -861,7 +861,7 @@ fn jumpjet_fixture(balloon: bool) -> (Simulation, RuleSet, u64, u64) {
     sim.remove_entity_occupancy(1);
     {
         let entity = sim.substrate.entities.get_mut(1).unwrap();
-        entity.health.set(300);
+        entity.health.set_for_test(300);
         entity.position.exact_z_leptons = Some(500);
         entity.body_facing = FacingClass::new(0x4000, 5);
         let loco = entity.locomotor.as_mut().unwrap();
@@ -1779,7 +1779,12 @@ fn retail_dustbowl_flak_shoots_down_a_nighthawk_and_a_kirov() {
             rider
         })
         .collect();
-    sim.substrate.entities.get_mut(kirov).unwrap().health.set(1);
+    sim.substrate
+        .entities
+        .get_mut(kirov)
+        .unwrap()
+        .health
+        .set_for_test(1);
     sim.resolve_type_handles(&resources.rules);
     let americans = sim.interner.intern("Americans");
     let russians = sim.interner.intern("Russians");

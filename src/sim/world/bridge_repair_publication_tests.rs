@@ -1977,7 +1977,7 @@ fn failed_jumpjet_stop_stock_fatal_receiver_precedes_cache_retirement() {
         }
         let e = sim.substrate.entities.get_mut(id).unwrap();
         e.health
-            .set(i32::try_from(row["input"]["health"].as_i64().unwrap()).unwrap());
+            .set_for_test(i32::try_from(row["input"]["health"].as_i64().unwrap()).unwrap());
         *e.locomotor.as_mut().unwrap().jumpjet_runtime_mut().unwrap() = JumpjetRuntime::default()
             .with_destination_for_test(DriveCoord {
                 x: 2752,

@@ -2993,7 +2993,7 @@ fn retaliation_gate_world(
         entity.set_owner_for_test(owner);
         entity.set_type_ref_for_test(sim.interner.intern(type_name));
         entity.set_category_for_test(category);
-        entity.health.set(health);
+        entity.health.set_for_test(health);
         entity.lifecycle.in_limbo = false;
         entity.lifecycle.cell_marked = true;
         entity.mission.apply_test_fixture(MissionTestFixture {
@@ -3204,7 +3204,7 @@ fn gsi_04_07_damage_retaliation_is_receiver_synchronous_and_uses_mission_overrid
         let mut victim = make_entity(2, "VICTIM", 8, 5, 100);
         victim.set_owner_for_test(victim_owner);
         victim.set_type_ref_for_test(victim_type);
-        victim.health.set(victim_health);
+        victim.health.set_for_test(victim_health);
         victim.lifecycle.in_limbo = false;
         victim.lifecycle.cell_marked = true;
         victim.mission.apply_test_fixture(MissionTestFixture {
@@ -3538,7 +3538,7 @@ fn gsi_04_07_damage_invulnerability_impact_precedes_warping_and_postlude() {
         .get_mut(healing_id)
         .unwrap()
         .health
-        .set(90);
+        .set_for_test(90);
     let hit_wh = sim.interner.intern("HitWH");
     let hits = vec![
         EntityDamageEvent::area(protected[0], 10, 0, source_id, Some(source_owner), hit_wh),
@@ -4289,7 +4289,7 @@ fn gsi_04_07_damage_repair_bullet_cellspread_zero_keeps_signed_area_record() {
 
     let mut entities = EntityStore::new();
     let mut target = make_entity(10, "TARGET", 8, 5, 180);
-    target.health.set(100);
+    target.health.set_for_test(100);
     entities.insert(target);
     let occupancy = OccupancyGrid::new();
     let mut interner = test_interner();
@@ -6531,7 +6531,7 @@ fn delayed_infantry_fire_cancels_when_target_dies_before_fire_frame() {
             .foot_firing_sequence_latch(),
         1
     );
-    store.get_mut(2).unwrap().health.set(0);
+    store.get_mut(2).unwrap().health.set_for_test(0);
     set_infantry_stage(&mut store, 1, 2);
 
     let result = tick_combat(
@@ -7973,13 +7973,13 @@ fn a_buildings_death_weapon_detonates_at_its_foundation_centre() {
     derrick.set_type_ref_for_test(sim.interner.intern("DERRICK"));
     derrick.foundation = "3x3".to_string();
     derrick.is_voxel = false;
-    derrick.health.set(100);
+    derrick.health.set_for_test(100);
     sim.substrate.entities.insert(derrick);
     let _ = sim.reveal(1);
     let mut victim = GameEntity::test_default(2, "VICTIM", "Neutral", 13, 11);
     victim.set_owner_for_test(owner);
     victim.set_type_ref_for_test(sim.interner.intern("VICTIM"));
-    victim.health.set(1000);
+    victim.health.set_for_test(1000);
     sim.substrate.entities.insert(victim);
     let _ = sim.reveal(2);
     sim.substrate.next_stable_object_id = 3;
@@ -9165,7 +9165,7 @@ fn gsi_04_07_damage_hostile_building_hit_latches_was_attacked_for_ai_repair() {
             .get_mut(target_id)
             .unwrap()
             .health
-            .set(200);
+            .set_for_test(200);
     }
     let warhead_ref = sim.interner.intern("HITWH");
     let events = [

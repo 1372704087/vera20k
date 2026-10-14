@@ -1359,7 +1359,7 @@ mod tests {
         ] {
             let mut air = GameEntity::test_default(stable_id, type_id, "Soviet", 5, 5);
             air.set_category_for_test(category);
-            air.health.set(1000);
+            air.health.set_for_test(1000);
             // Ordinary Aircraft41B920 reaches Object5F6B90: Object+74 must
             // be marked before the physical GetHeight threshold is queried.
             air.lifecycle.in_limbo = false;
@@ -1456,7 +1456,7 @@ mod tests {
             let mut target = GameEntity::test_default(stable_id, "MTNK", "Soviet", rx, 10);
             target.position.sub_x = SimFixed::from_num(sub_x);
             target.position.sub_y = CELL_CENTER_LEPTON;
-            target.health.set(300);
+            target.health.set_for_test(300);
             entities.insert(target);
         }
         let mut interner = test_interner();
@@ -1585,7 +1585,7 @@ mod tests {
             5,
             EntityCategory::Structure,
         );
-        building.health.set(300);
+        building.health.set_for_test(300);
         entities.insert(building);
         let mut occupancy = OccupancyGrid::new();
         occupancy.add(
@@ -1834,7 +1834,7 @@ mod tests {
                 let mut air = GameEntity::test_default(stable_id, "AIRBOMB", "Soviet", rx, 5);
                 air.set_category_for_test(EntityCategory::Aircraft);
                 air.lifecycle.in_limbo = false;
-                air.health.set(hp);
+                air.health.set_for_test(hp);
                 air.position.z = 0;
                 let mut air_locomotor =
                     crate::sim::movement::locomotor::LocomotorState::from_object_type(
@@ -1857,10 +1857,10 @@ mod tests {
 
             let mut center = GameEntity::test_default(20, "GROUNDBOMB", "Soviet", 5, 5);
             center.lifecycle.in_limbo = false;
-            center.health.set(hp);
+            center.health.set_for_test(hp);
             let mut east = GameEntity::test_default(10, "GROUNDBOMB", "Soviet", 7, 5);
             east.lifecycle.in_limbo = false;
-            east.health.set(hp);
+            east.health.set_for_test(hp);
 
             let mut entities = EntityStore::new();
             entities.insert(east);
@@ -2039,7 +2039,7 @@ mod tests {
             let mut entity = GameEntity::test_default(stable_id, "TESTUNIT", "Soviet", rx, ry);
             entity.position.sub_x = SimFixed::from_num(sub_x);
             entity.position.sub_y = SimFixed::from_num(sub_y);
-            entity.health.set(hp);
+            entity.health.set_for_test(hp);
             entity
         };
         let mut entities = EntityStore::new();
@@ -2641,7 +2641,7 @@ mod tests {
             );
             hut.set_owner_for_test(civilian);
             hut.set_type_ref_for_test(cabhut);
-            hut.health.set(2000);
+            hut.health.set_for_test(2000);
             entities.insert(hut);
 
             let mut occupancy = OccupancyGrid::new();
@@ -2767,12 +2767,12 @@ mod tests {
         let mut rookie = GameEntity::test_default(2, "MTNK", "Americans", 5, 5);
         rookie.set_owner_for_test(american);
         rookie.set_type_ref_for_test(mtnk);
-        rookie.health.set(300);
+        rookie.health.set_for_test(300);
         entities.insert(rookie);
         let mut veteran = GameEntity::test_default(3, "MTNK", "Americans", 5, 5);
         veteran.set_owner_for_test(american);
         veteran.set_type_ref_for_test(mtnk);
-        veteran.health.set(300);
+        veteran.health.set_for_test(300);
         veteran.veterancy.set_rank_for_test(100);
         entities.insert(veteran);
 
@@ -2894,21 +2894,21 @@ mod tests {
         let mut target = GameEntity::test_default(2, "TARGET", "SovietHouse", 5, 5);
         target.set_owner_for_test(soviet);
         target.set_type_ref_for_test(target_type);
-        target.health.set(1000);
+        target.health.set_for_test(1000);
         target.attack_target = Some(AttackTarget::new(1));
         entities.insert(target);
 
         let mut allied = GameEntity::test_default(3, "TARGET", "YuriHouse", 5, 5);
         allied.set_owner_for_test(yuri);
         allied.set_type_ref_for_test(target_type);
-        allied.health.set(1000);
+        allied.health.set_for_test(1000);
         allied.attack_target = Some(AttackTarget::new(1));
         entities.insert(allied);
 
         let mut immune = GameEntity::test_default(4, "IMMUNE", "SovietHouse", 5, 5);
         immune.set_owner_for_test(soviet);
         immune.set_type_ref_for_test(immune_type);
-        immune.health.set(1000);
+        immune.health.set_for_test(1000);
         immune.attack_target = Some(AttackTarget::new(1));
         entities.insert(immune);
 
@@ -2922,7 +2922,7 @@ mod tests {
         );
         building.set_owner_for_test(soviet);
         building.set_type_ref_for_test(building_type);
-        building.health.set(1000);
+        building.health.set_for_test(1000);
         building.attack_target = Some(AttackTarget::new(1));
         entities.insert(building);
 
@@ -3108,7 +3108,7 @@ mod tests {
         target.set_owner_for_test(normal_house);
         target.set_type_ref_for_test(e1);
         target.set_category_for_test(EntityCategory::Infantry);
-        target.health.set(20);
+        target.health.set_for_test(20);
         target.infantry = Some(crate::sim::game_entity::InfantryRuntime::new());
         target.infantry.as_mut().unwrap().is_prone = true;
         entities.insert(target);
@@ -3117,7 +3117,7 @@ mod tests {
         easy_prone.set_owner_for_test(easy_house);
         easy_prone.set_type_ref_for_test(e1);
         easy_prone.set_category_for_test(EntityCategory::Infantry);
-        easy_prone.health.set(100);
+        easy_prone.health.set_for_test(100);
         easy_prone.infantry = Some(crate::sim::game_entity::InfantryRuntime::new());
         easy_prone.infantry.as_mut().unwrap().is_prone = true;
         entities.insert(easy_prone);
@@ -3126,7 +3126,7 @@ mod tests {
         easy_standing.set_owner_for_test(easy_house);
         easy_standing.set_type_ref_for_test(e1);
         easy_standing.set_category_for_test(EntityCategory::Infantry);
-        easy_standing.health.set(100);
+        easy_standing.health.set_for_test(100);
         easy_standing.infantry = Some(crate::sim::game_entity::InfantryRuntime::new());
         entities.insert(easy_standing);
 
@@ -3320,7 +3320,7 @@ mod tests {
                 .set_infantry_doing_verified(fixture.doing)
                 .unwrap();
             victim.animation = fixture.animation.map(crate::sim::animation::Animation::new);
-            victim.health.set(health);
+            victim.health.set_for_test(health);
             victim.sub_cell = Some(2);
             victim.on_bridge = fixture
                 .entry_case

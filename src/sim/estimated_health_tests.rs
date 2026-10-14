@@ -37,7 +37,7 @@ fn actual_object_ai_recovers_each_category_on_binary_frame_mask() {
         let mut entity = GameEntity::test_default(1, "ESTIMATE", "Americans", 2, 2);
         entity.set_category_for_test(category);
         entity.lifecycle.in_limbo = false;
-        entity.health.set(100);
+        entity.health.set_for_test(100);
         entity.estimated_health = EstimatedHealth::from_raw(-100);
         sim.substrate.entities.insert(entity);
         sim.set_logic_order_for_test(vec![1]);
@@ -204,7 +204,7 @@ fn common_ai_recovers_before_self_heal_without_mirroring_actual_health() {
     let mut entity = GameEntity::test_default(1, "E1", "Americans", 5, 5);
     entity.set_category_for_test(EntityCategory::Infantry);
     entity.lifecycle.in_limbo = false;
-    entity.health.set(10);
+    entity.health.set_for_test(10);
     entity.estimated_health = EstimatedHealth::from_raw(10);
     sim.interner = crate::sim::intern::test_interner();
     sim.substrate.entities.insert(entity);

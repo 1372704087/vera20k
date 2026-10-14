@@ -664,7 +664,7 @@ mod tests {
                 .get_mut(10)
                 .unwrap()
                 .health
-                .set(actual);
+                .set_for_test(actual);
             let before = credits_for_owner(&sim, "Americans");
             assert!(sell_building_now_for_test(&mut sim, &rules, 10));
             assert_eq!(credits_for_owner(&sim, "Americans") - before, 200);

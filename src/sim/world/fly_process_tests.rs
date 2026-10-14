@@ -147,7 +147,7 @@ fn fixture(input: &serde_json::Value) -> (Simulation, RuleSet) {
     entity.position.sub_x = SimFixed::from_num(128);
     entity.position.sub_y = SimFixed::from_num(128);
     entity.position.exact_z_leptons = Some(int(input, "z", 1500) as i32);
-    entity.health.set(int(input, "health", 150) as i32);
+    entity.health.set_for_test(int(input, "health", 150) as i32);
     let facing = int(input, "facing", 0x4000) as u16;
     let rot = int(input, "rot", 3) as i32;
     entity.body_facing = FacingClass::new(facing, rot);
@@ -704,7 +704,7 @@ fn fly_death_stun_matches_native_rows() {
         let name = input["name"].as_str().unwrap();
         let (mut sim, rules) = stop_fixture(input);
         let entity = sim.substrate.entities.get_mut(AIRCRAFT).unwrap();
-        entity.health.set(0);
+        entity.health.set_for_test(0);
         if let Some(n) = input["target"].as_u64() {
             entity.attack_target = Some(AttackTarget {
                 target: TargetKind::Entity(10 + n),

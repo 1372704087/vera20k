@@ -1492,7 +1492,7 @@ fn a_warped_object_runs_none_of_its_ai_phases() {
     let cleg2 = spawn(&mut sim, &rules, "CLEG", "Russians", 10, 12);
     {
         let building = sim.substrate.entities.get_mut(plant).unwrap();
-        building.health.set(300);
+        building.health.set_for_test(300);
         building.repairing = true;
     }
     let americans = sim.interner.get("Americans").unwrap();
@@ -1850,7 +1850,7 @@ fn a_warped_building_cannot_be_captured() {
         .get_mut(plant)
         .unwrap()
         .health
-        .set(100);
+        .set_for_test(100);
     let americans = sim.interner.get("Americans").unwrap();
     let russians = sim.interner.get("Russians").unwrap();
     // Isolate the terminal Walk/PerCell2 boundary using the real command's

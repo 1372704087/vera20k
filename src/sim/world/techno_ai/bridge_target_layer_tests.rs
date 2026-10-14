@@ -235,7 +235,7 @@ fn supply_step(sim: &mut Simulation, rules: &RuleSet, input: &Value) {
             .get_mut(2)
             .unwrap()
             .health
-            .set(health as i32);
+            .set_for_test(health as i32);
     }
 }
 

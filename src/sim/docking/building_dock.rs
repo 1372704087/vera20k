@@ -1867,7 +1867,7 @@ mod tests {
         let (mut sim, rules) = setup(1);
         let owner = sim.substrate.entities.get(1).unwrap().owner();
         let unit = sim.substrate.entities.get_mut(1).unwrap();
-        unit.health.set(300);
+        unit.health.set_for_test(300);
         unit.estimated_health.reset(-20);
         let rng = sim.scenario_rng.state();
         assert_eq!(repair_request(&mut sim, &rules, 1), RadioResponse::Negatory);
@@ -2301,7 +2301,12 @@ mod tests {
         ] {
             let (mut sim, _) = setup(1);
             let rules = depot_rules_with_strength(strength);
-            sim.substrate.entities.get_mut(1).unwrap().health.set(hp);
+            sim.substrate
+                .entities
+                .get_mut(1)
+                .unwrap()
+                .health
+                .set_for_test(hp);
             let response = radio::transmit(
                 &mut sim,
                 DEPOT,
@@ -2324,7 +2329,7 @@ mod tests {
         let (mut sim, _) = setup(1);
         let rules = depot_rules_with_strength(i32::MAX);
         let unit = sim.substrate.entities.get_mut(1).unwrap();
-        unit.health.set(i32::MAX - 1);
+        unit.health.set_for_test(i32::MAX - 1);
         unit.estimated_health =
             crate::sim::estimated_health::EstimatedHealth::from_raw(i32::MAX - 2);
         assert_eq!(repair_request(&mut sim, &rules, 1), RadioResponse::Roger);
@@ -2348,7 +2353,7 @@ mod tests {
         assert_eq!(unit.estimated_health.get(), -12);
 
         let unit = sim.substrate.entities.get_mut(1).unwrap();
-        unit.health.set(299);
+        unit.health.set_for_test(299);
         unit.estimated_health.reset(-20);
         assert_eq!(
             repair_request(&mut sim, &rules, 1),
@@ -2856,7 +2861,12 @@ mod tests {
         assert!(linked(&sim, 1));
         let nav = sim.substrate.entities.get(1).unwrap().navigation.nav_com;
         assert!(nav.is_some());
-        sim.substrate.entities.get_mut(1).unwrap().health.set(300);
+        sim.substrate
+            .entities
+            .get_mut(1)
+            .unwrap()
+            .health
+            .set_for_test(300);
         let due = {
             let timer = sim
                 .substrate

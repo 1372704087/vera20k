@@ -256,7 +256,12 @@ fn gsi_08_12_promotion_mid_move_reaches_the_live_speed() {
 #[test]
 fn gsi_08_12_self_heal_pulses_one_point_on_the_repair_rate_cadence() {
     let (mut sim, rules, id) = spawned_grizzly();
-    sim.substrate.entities.get_mut(id).unwrap().health.set(100);
+    sim.substrate
+        .entities
+        .get_mut(id)
+        .unwrap()
+        .health
+        .set_for_test(100);
     sim.session.binary_frame = 14;
     self_heal_step(&mut sim, id, &rules);
     assert_eq!(

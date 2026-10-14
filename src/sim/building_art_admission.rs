@@ -225,7 +225,11 @@ mod tests {
         let (mut sim, rules, id) = fixture("NeedsEngineer=yes\nCapturable=yes\nPowered=no");
         let old = sim.entities().get(id).unwrap().building_art.anim_slots[3].unwrap();
         assert!(sim.anim(old).unwrap().runtime.paused);
-        sim.entities_mut().get_mut(id).unwrap().health.set(25);
+        sim.entities_mut()
+            .get_mut(id)
+            .unwrap()
+            .health
+            .set_for_test(25);
         sim.refresh_building_damage_state(id, &rules);
         let replaced = sim.entities().get(id).unwrap().building_art.anim_slots[3].unwrap();
         assert!(
@@ -271,7 +275,11 @@ mod tests {
             sim.interner.resolve(sim.anim(occupied).unwrap().type_id),
             "M"
         );
-        sim.entities_mut().get_mut(id).unwrap().health.set(25);
+        sim.entities_mut()
+            .get_mut(id)
+            .unwrap()
+            .health
+            .set_for_test(25);
         sim.refresh_building_damage_state(id, &rules);
         let damaged = sim.entities().get(id).unwrap().building_art.anim_slots[4].unwrap();
         assert_eq!(

@@ -735,7 +735,12 @@ fn a_damaged_computer_yard_starts_its_repair_as_its_build_up_completes() {
     let mcv = sim
         .spawn_object("AMCV", "Americans", 20, 22, 128, &rules)
         .expect("spawn MCV");
-    sim.substrate.entities.get_mut(mcv).unwrap().health.set(225);
+    sim.substrate
+        .entities
+        .get_mut(mcv)
+        .unwrap()
+        .health
+        .set_for_test(225);
     let deployed_at = sim.session.binary_frame;
     assert!(sim.deploy_mcv(
         mcv,
@@ -1212,7 +1217,7 @@ pub(crate) fn native_deploy_fixture(row: &serde_json::Value) -> (Simulation, Rul
     let actor = sim.substrate.entities.get_mut(id).unwrap();
     actor
         .health
-        .set(input["health"].as_i64().unwrap_or(100) as i32);
+        .set_for_test(input["health"].as_i64().unwrap_or(100) as i32);
     actor.position.sub_x = SimFixed::from_num(128);
     actor.position.sub_y = SimFixed::from_num(128);
     actor.position.exact_z_leptons = Some(0);

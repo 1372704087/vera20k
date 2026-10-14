@@ -3926,7 +3926,11 @@ mod tests {
         let hut = sim
             .spawn_object("CABHUT", owner, 10, 10, 0, &rules)
             .unwrap();
-        sim.entities_mut().get_mut(hut).unwrap().health.set(150);
+        sim.entities_mut()
+            .get_mut(hut)
+            .unwrap()
+            .health
+            .set_for_test(150);
         if relation == "allied" {
             sim.house_alliances
                 .entry("AMERICANS".into())

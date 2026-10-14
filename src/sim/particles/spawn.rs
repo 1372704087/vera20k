@@ -520,7 +520,7 @@ mod tests {
                 GameEntity::test_default(id, "TEST", "A", (x >> 8) as u16, (y >> 8) as u16);
             entity.set_type_ref_for_test(sim.interner.intern("TEST"));
             entity.set_owner_for_test(sim.interner.intern("A"));
-            entity.health.set(40);
+            entity.health.set_for_test(40);
             entity.position.sub_x = SimFixed::from_num(x & 255);
             entity.position.sub_y = SimFixed::from_num(y & 255);
             entity.position.exact_z_leptons = Some(z);

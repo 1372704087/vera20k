@@ -707,7 +707,7 @@ mod tests {
         store.insert(make_entity(1));
 
         let e = store.get_mut(1).expect("entity 1 should exist");
-        e.health.set(50);
+        e.health.set_for_test(50);
 
         let e = store.get(1).expect("entity 1 should exist");
         assert_eq!(e.health.current(), 50);
@@ -878,7 +878,7 @@ mod tests {
             if let Some(entity) = store.get_mut(id) {
                 entity
                     .health
-                    .set(entity.health.current().saturating_sub(10));
+                    .set_for_test(entity.health.current().saturating_sub(10));
             }
         }
 

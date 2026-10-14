@@ -626,11 +626,11 @@ fn iron_curtain_command_forces_authored_strength_and_attributes_retained_deaths(
     let frame = sim.session.binary_frame;
     {
         let object = sim.substrate.entities.get_mut(over_strength).unwrap();
-        object.health.set(150);
+        object.health.set_for_test(150);
     }
     {
         let object = sim.substrate.entities.get_mut(wounded).unwrap();
-        object.health.set(40);
+        object.health.set_for_test(40);
         apply_invulnerability(object, frame, 100, InvulnKind::IronCurtain);
     }
     launch_command(&mut sim, &rules, "IC", 5, 5);
@@ -912,7 +912,7 @@ fn iron_curtain_command_observes_native_deck_order_after_nested_bridge_drop_in()
         .get_mut(tank)
         .unwrap()
         .health
-        .set(10_000);
+        .set_for_test(10_000);
     let boomer = sim
         .construct_object_limbo_at_height("BOOM", "Americans", 5, 5, 0, 7, &rules)
         .unwrap();

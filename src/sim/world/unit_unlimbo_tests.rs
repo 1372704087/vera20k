@@ -1322,7 +1322,9 @@ fn retail_factory_exit_radio_matches_original_reciprocal_cleanup() {
                 &mut endpoint.position,
                 coord(&before["producer"]["position"]),
             );
-            endpoint.health.set(int(&before["producer"]["health"]));
+            endpoint
+                .health
+                .set_for_test(int(&before["producer"]["health"]));
             let mission = &before["producer"];
             endpoint.mission.apply_test_fixture(MissionTestFixture {
                 current: MissionId::from_raw(int(&mission["mission"])),

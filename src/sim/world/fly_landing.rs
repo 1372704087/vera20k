@@ -634,7 +634,8 @@ mod tests {
         e.position.sub_x = SimFixed::from_num(128);
         e.position.sub_y = SimFixed::from_num(128);
         e.position.exact_z_leptons = Some(input["registration_z"].as_i64().unwrap_or(900) as i32);
-        e.health.set(input["health"].as_i64().unwrap_or(100) as i32);
+        e.health
+            .set_for_test(input["health"].as_i64().unwrap_or(100) as i32);
         e.on_bridge = input["on_bridge"].as_bool().unwrap_or(false);
         e.locomotor = Some(LocomotorState::from_object_type(
             rules.object("TEST").unwrap(),

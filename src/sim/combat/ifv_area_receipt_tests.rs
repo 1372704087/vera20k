@@ -75,7 +75,7 @@ fn original_area_receipt_selects_nullify_after_em_effect_rng_and_before_return()
             target.position.exact_z_leptons = Some(624);
             target
                 .health
-                .set(input["receiver_health"].as_i64().unwrap() as i32);
+                .set_for_test(input["receiver_health"].as_i64().unwrap() as i32);
             target.invulnerability = Some(InvulnerabilityState::new(
                 crate::sim::timer::CdTimer::started(
                     input["ic_start"].as_u64().unwrap() as i32,
@@ -313,7 +313,9 @@ fn native_area_receipt_tracks_dispatch_and_strict_iron_curtain_boundary() {
                 SimFixed::from_num(128 + input["distance"].as_i64().unwrap() as i32);
             entity.position.sub_y = SimFixed::from_num(128);
             entity.position.exact_z_leptons = Some(624);
-            entity.health.set(input["health"].as_i64().unwrap() as i32);
+            entity
+                .health
+                .set_for_test(input["health"].as_i64().unwrap() as i32);
             entity.lifecycle.object_alive = input["alive"].as_bool().unwrap();
             entity.lifecycle.cell_marked = input["marked"].as_bool().unwrap();
             entity.lifecycle.in_limbo = input["limbo"].as_bool().unwrap();

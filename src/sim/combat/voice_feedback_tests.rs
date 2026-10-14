@@ -56,7 +56,7 @@ fn damage_feedback_matches_original_draws_house_admission_coordinates_and_contin
         );
         let mut target = GameEntity::test_default(1, "E1", "FeedbackHouse", 13, 14);
         target.set_category_for_test(EntityCategory::Infantry);
-        target.health.set(100);
+        target.health.set_for_test(100);
         target.lifecycle.in_limbo = false;
         target.lifecycle.cell_marked = true;
         target.in_playfield = true;

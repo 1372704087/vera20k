@@ -1749,7 +1749,7 @@ fn placement_command_rejects_marked_ground_mobiles_until_they_are_unmarked() {
                 .get_mut(blocker_id)
                 .unwrap()
                 .health
-                .set(0);
+                .set_for_test(0);
             sim.begin_infantry_death_sequence(
                 blocker_id,
                 crate::sim::world::InfantryDeathSequence::Die1,

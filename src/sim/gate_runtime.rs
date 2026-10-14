@@ -377,7 +377,7 @@ mod tests {
                 .get_mut(MOVER)
                 .unwrap()
                 .health
-                .set(input["blocker_health"].as_i64().unwrap_or(1000) as i32);
+                .set_for_test(input["blocker_health"].as_i64().unwrap_or(1000) as i32);
             sim.substrate.occupancy.add(
                 12,
                 12,

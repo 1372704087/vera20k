@@ -4412,7 +4412,7 @@ mod tests {
                 crate::sim::game_entity::GameEntity::test_default(1, "SIGNED", "Americans", 0, 0);
             entity.set_type_ref_for_test(sim.intern("SIGNED"));
             entity.set_owner_for_test(sim.intern("Americans"));
-            entity.health.set(actual);
+            entity.health.set_for_test(actual);
             entity.estimated_health =
                 crate::sim::estimated_health::EstimatedHealth::from_raw(estimated);
             sim.substrate.entities.insert(entity);
@@ -4439,7 +4439,7 @@ mod tests {
                 .get_mut(1)
                 .unwrap()
                 .health
-                .set(actual.wrapping_add(1));
+                .set_for_test(actual.wrapping_add(1));
             assert_ne!(restored.state_hash(), before);
             restored
                 .substrate
@@ -4447,7 +4447,7 @@ mod tests {
                 .get_mut(1)
                 .unwrap()
                 .health
-                .set(actual);
+                .set_for_test(actual);
             restored
                 .substrate
                 .entities

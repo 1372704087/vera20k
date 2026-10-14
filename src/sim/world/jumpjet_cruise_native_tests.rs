@@ -248,7 +248,7 @@ fn supplied_world(
     {
         let actor = sim.substrate.entities.get_mut(id).unwrap();
         actor.lifecycle.in_limbo = false;
-        actor.health.set(signed(&state["health"]));
+        actor.health.set_for_test(signed(&state["health"]));
         actor.on_bridge = state["on_bridge"].as_bool().unwrap();
         // make_fixture supplies zeroed Unit storage, retaining Foot+6B6=0.
         // All initial raw boundaries in jumpjet_states.raw.json.gz confirm
@@ -328,7 +328,9 @@ fn supplied_world(
         {
             let foreign = sim.substrate.entities.get_mut(other).unwrap();
             foreign.lifecycle.in_limbo = false;
-            foreign.health.set(signed(&state["other"]["health"]));
+            foreign
+                .health
+                .set_for_test(signed(&state["other"]["health"]));
             foreign.on_bridge = state["other"]["on_bridge"].as_bool().unwrap();
             put_location(
                 &mut foreign.position,

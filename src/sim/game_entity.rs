@@ -2386,7 +2386,7 @@ mod tests {
     fn test_is_alive() {
         let mut e = GameEntity::test_default(1, "E1", "Soviet", 10, 10);
         assert!(e.is_alive());
-        e.health.set(0);
+        e.health.set_for_test(0);
         assert!(!e.is_alive());
     }
 }
@@ -2410,7 +2410,8 @@ mod lifecycle_tests {
             e.lifecycle.cell_marked = bits & 0b00_0100 != 0;
             e.in_logic_vector = bits & 0b00_1000 != 0;
             e.dying = bits & 0b01_0000 != 0;
-            e.health.set(if bits & 0b10_0000 != 0 { 1 } else { 0 });
+            e.health
+                .set_for_test(if bits & 0b10_0000 != 0 { 1 } else { 0 });
 
             assert_eq!(e.is_object_alive(), bits & 0b00_0001 != 0);
             assert_eq!(e.lifecycle.in_limbo, bits & 0b00_0010 != 0);

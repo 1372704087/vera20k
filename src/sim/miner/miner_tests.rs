@@ -3335,7 +3335,7 @@ fn damaged_refinery_ore_only_unload_smokes_twice_without_special_anim() {
         let refinery = sim.substrate.entities.get_mut(2).expect("refinery");
         refinery
             .health
-            .set(rules.object("GAREFN").expect("refinery type").strength / 2);
+            .set_for_test(rules.object("GAREFN").expect("refinery type").strength / 2);
     }
 
     let trace = trace_unload_presentation(&mut sim, &rules, miner_id, 60);

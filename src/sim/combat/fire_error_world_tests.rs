@@ -46,7 +46,7 @@ fn spawn(
 ) {
     let mut entity = GameEntity::test_default(id, type_name, owner, at.0, at.1);
     entity.set_category_for_test(category);
-    entity.health.set(300);
+    entity.health.set_for_test(300);
     entity.lifecycle.in_limbo = false;
     store.insert(entity);
 }
@@ -415,7 +415,7 @@ fn a_repair_weapon_lets_go_of_a_healthy_vehicle() {
             "Americans",
             (12, 10),
         );
-        store.get_mut(2).unwrap().health.set(health);
+        store.get_mut(2).unwrap().health.set_for_test(health);
         store.get_mut(1).unwrap().attack_target = Some(AttackTarget::new(2));
         combat_frame(&mut store, &rules, &Default::default());
         (

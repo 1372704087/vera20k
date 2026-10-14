@@ -180,7 +180,7 @@ fn center_member(id: u64, row: &Value) -> GameEntity {
     entity.position.sub_x = SimFixed::from_num(x & 0xFF);
     entity.position.sub_y = SimFixed::from_num(y & 0xFF);
     entity.lifecycle.object_alive = flag(&row["active"]);
-    entity.health.set(int(&row["health"]));
+    entity.health.set_for_test(int(&row["health"]));
     entity.lifecycle.in_limbo = flag(&row["limbo"]);
     entity.in_playfield = flag(&row["in_playfield"]);
     entity.set_category_for_test(if flag(&row["aircraft"]) {

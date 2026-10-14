@@ -598,7 +598,7 @@ mod tests {
                 .get_mut(1)
                 .unwrap()
                 .health
-                .set(row.input.current);
+                .set_for_test(row.input.current);
             for up in [false, true] {
                 emit_bunker_wall_anim(&mut sim, 1, up, &rules);
                 let event = sim.bunker_wall_events.last().unwrap();
@@ -939,7 +939,12 @@ mod tests {
         let mut sim = installed_sim();
         sim.bunker_wall_events.clear();
         // Between native ConditionRed25% and ConditionYellow50%: walls use yellow.
-        sim.substrate.entities.get_mut(2).unwrap().health.set(400);
+        sim.substrate
+            .entities
+            .get_mut(2)
+            .unwrap()
+            .health
+            .set_for_test(400);
         release_normal(
             &mut sim,
             2,

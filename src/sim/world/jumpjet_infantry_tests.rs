@@ -885,7 +885,7 @@ fn rocketeer_crash_fixture(
     let height = input["height"].as_i64().unwrap_or(500) as i32;
     {
         let entity = sim.substrate.entities.get_mut(1).unwrap();
-        entity.health.set(125);
+        entity.health.set_for_test(125);
         entity.position.exact_z_leptons = Some(height);
         entity.body_facing = crate::sim::movement::FacingClass::new(0x4000, 127);
         entity

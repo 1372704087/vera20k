@@ -121,7 +121,7 @@ fn fixture(input: &Value) -> (Simulation, RuleSet, u64) {
     }
     let building = sim.substrate.entities.get_mut(id).unwrap();
     building.passenger_role = PassengerRole::Transport { cargo };
-    building.health.set(integer(&input["current_hp"]));
+    building.health.set_for_test(integer(&input["current_hp"]));
     building.building_art.damage_state_active = input["retained_damage_state"].as_bool().unwrap();
     (sim, rules, id)
 }

@@ -198,7 +198,7 @@ fn fixture(row: &Value, rules: &RuleSet, type_name: &str) -> (Simulation, u64) {
         },
     );
     actor.on_bridge = input["bridge"].as_bool().unwrap_or(false);
-    actor.health.set(
+    actor.health.set_for_test(
         row["before"]["health"]
             .as_i64()
             .or_else(|| input["health"].as_i64())

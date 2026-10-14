@@ -792,7 +792,12 @@ fn heal_base_crate_restores_the_owners_buildings() {
         .spawn_object("YARD", "Russians", 8, 20, 0, &rules)
         .unwrap();
     for id in [own, theirs] {
-        sim.substrate.entities.get_mut(id).unwrap().health.set(400);
+        sim.substrate
+            .entities
+            .get_mut(id)
+            .unwrap()
+            .health
+            .set_for_test(400);
     }
     place_registered_crate(&mut sim, &registry, (21, 22), POWERUP_HEAL_BASE as u8);
 

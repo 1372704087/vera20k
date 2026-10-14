@@ -2230,7 +2230,7 @@ fn dying_infantry_visits_shared_native_clock() {
         .entities
         .get_mut(fixture.actor)
         .unwrap();
-    actor.health.set(0);
+    actor.health.set_for_test(0);
     actor.install_native_stage_fixture(native_clock_fixture(&frame["before"]));
     fixture.sim.object_ai_visit_one(
         fixture.actor,

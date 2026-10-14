@@ -5,17 +5,19 @@ use super::{GameEntity, damage::DamageState};
 use crate::util::native_x87::{MaskedX87Chop53 as X87, MaskedX87Ordering, NativeF64Bits};
 
 /// Signed actual ObjectClass health (`ObjectClass+0x6C`, Strength), owned by
-/// this module: ReceiveDamage's commit below writes it, and every other
-/// native writer goes through [`Health::set`] or [`Health::heal`]. The live
-/// ObjectType's `strength` is the cap and ratio denominator; EstimatedHealth
-/// (`+0x70`) is independent state these writes never update.
+/// this module: constructors start it with [`Health::new`], ReceiveDamage's
+/// commit below writes it, and every other writer goes through
+/// [`Health::set`] or [`Health::heal`]. The live ObjectType's `strength` is
+/// the cap and ratio denominator; EstimatedHealth (`+0x70`) is independent
+/// state these writes never update.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct Health {
     current: i32,
 }
 
 impl Health {
-    /// The health a constructor or fixture gives a new object.
+    /// A health of `current`: a new object's, or a value a caller only reads
+    /// a ratio from.
     pub const fn new(current: i32) -> Self {
         Self { current }
     }
@@ -25,20 +27,38 @@ impl Health {
         self.current
     }
 
-    /// Store `value`, as the native writers outside ReceiveDamage do: a kill
-    /// before UnInit stores 0 (a crash, a crush, a garrison's or a dying
-    /// transport's passengers), PostMortem, ship sinking and the infantry
-    /// health reset store 1, a completed repair (an engineer's, the repair
-    /// step's or the depot's), a spawn reload and a slave heal store the
-    /// type's Strength, and map admission, conversion and crew survival store
-    /// their computed value. Each caller cites its native writer.
+    /// Store `value`. The native writers outside ReceiveDamage: a crash's
+    /// kill (`0x004DEC72`) and a parasite whose host dies under it
+    /// (`ParasiteClass::ExitUnit`, `0x0062A854`, `0x0062A8A0`) store 0;
+    /// PostMortem, ship sinking and the infantry health reset store 1; a
+    /// completed repair (an engineer's, the repair step's or the depot's), a
+    /// spawn reload and a slave heal store the type's Strength; map
+    /// admission, conversion and crew survival store their computed value.
+    ///
+    /// RESIDUAL: VERA also stores 0 before UnInit where native leaves the
+    /// health alone: a crushed object (`Crush_Or_Prescatter_Cell
+    /// 0x007416A0`), a transport's dying passengers (`KillPassengers
+    /// 0x00707CB0`, Unit ReceiveDamage's refused escape
+    /// `0x00738188..0x0073819B`) and a garrison's occupants (`KillOccupants
+    /// 0x004585C0`, `SellBuilding 0x00457DE0`). Trigger: each of those
+    /// deaths. Effect: a reader of the dead object's health between that
+    /// store and its removal sees 0 where native sees its last value.
+    /// Frequency: every crush and every passenger or occupant death. Risk: a
+    /// same-frame reader, such as `is_alive`, disagrees with native.
     pub(crate) fn set(&mut self, value: i32) {
         self.current = value;
     }
 
-    /// `Strength += amount` with wrapping, uncapped: the repair step, the
-    /// depot's radio heal and the self-heal pulses, whose callers cap at
-    /// Strength themselves.
+    /// Install a fixture's health.
+    #[cfg(test)]
+    pub(crate) fn set_for_test(&mut self, value: i32) {
+        self.current = value;
+    }
+
+    /// `+0x6C += amount` with wrapping. The repair step and the depot's radio
+    /// heal cap at the type's Strength themselves; the self-heal pulses add
+    /// without a cap (an `INC`, `0x006FA751..0x006FA757`, behind the
+    /// `!= Strength` test at `0x0070BF30`).
     pub(crate) fn heal(&mut self, amount: i32) {
         self.current = self.current.wrapping_add(amount);
     }

@@ -875,7 +875,7 @@ fn a_load_keeps_the_infection_and_restarts_both_parasite_timers() {
             .get_mut(tank)
             .unwrap()
             .health
-            .set(5);
+            .set_for_test(5);
         world.hit(&rules, tank, Some(rhino), 5, "AP");
         world.until(&rules, 60, |sim| sim.substrate.entities.get(tank).is_none());
     }

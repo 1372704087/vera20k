@@ -808,7 +808,7 @@ fn replay_category_history(
                         "alive" => entity.lifecycle.object_alive = value.as_bool().unwrap(),
                         "limbo" => entity.lifecycle.in_limbo = value.as_bool().unwrap(),
                         "selected" => entity.selected = value.as_bool().unwrap(),
-                        "health" => entity.health.set(value.as_i64().unwrap() as i32),
+                        "health" => entity.health.set_for_test(value.as_i64().unwrap() as i32),
                         other => panic!("unsupported declared actor-state writer {other}"),
                     }
                 }

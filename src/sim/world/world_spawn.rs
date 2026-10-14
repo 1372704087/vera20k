@@ -407,13 +407,12 @@ impl Simulation {
                 // Typed production admission has already resolved the class type.
                 // Rules-less construction remains an explicit diagnostic seam, using
                 // the supplied health directly rather than inventing a type maximum.
-                let health = Health::new(rules
-                        .map(|rules| {
-                            authored_health::map_object_type(map_ent.category, &map_ent.type_id, rules)
-                                .expect("resolved map type")
-                                .strength
-                        })
-                        .unwrap_or(map_ent.health));
+                let strength = rules.map(|rules| {
+                    authored_health::map_object_type(map_ent.category, &map_ent.type_id, rules)
+                        .expect("resolved map type")
+                        .strength
+                });
+                let health = Health::new(strength.unwrap_or(map_ent.health));
 
                 let uses_voxel_default: bool = match map_ent.category {
                     EntityCategory::Unit | EntityCategory::Aircraft => true,

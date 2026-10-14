@@ -33,7 +33,7 @@ fn fixture(relative_z: i32) -> (Simulation, RuleSet, u64) {
     entity.set_type_ref_for_test(sim.interner.intern("TEST"));
     entity.set_owner_for_test(owner);
     entity.set_category_for_test(EntityCategory::Unit);
-    entity.health.set(0);
+    entity.health.set_for_test(0);
     entity.lifecycle.in_limbo = false;
     entity.lifecycle.cell_marked = false;
     entity.position.sub_x = SimFixed::from_num(128);
@@ -430,7 +430,7 @@ fn retained_health_one_ship_is_illegal_as_firer_and_target() {
     firer.set_type_ref_for_test(sim.interner.intern("TEST"));
     firer.set_owner_for_test(sim.interner.intern("Russians"));
     firer.lifecycle.in_limbo = false;
-    firer.health.set(800);
+    firer.health.set_for_test(800);
     firer.position.z = 2;
     firer.position.exact_z_leptons = Some(208);
     sim.substrate.entities.insert(firer);

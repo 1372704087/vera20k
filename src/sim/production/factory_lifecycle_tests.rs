@@ -114,7 +114,7 @@ fn retail_prerequisite_loss_refunds_after_the_factory_charge_sweep() {
                 .get_mut(id)
                 .unwrap()
                 .health
-                .set(rules.object(name).unwrap().strength);
+                .set_for_test(rules.object(name).unwrap().strength);
             sim.remove_entity_occupancy(id);
             super::tests::stamp_type_foundation(&mut sim, rules, id);
             sim.add_entity_occupancy(id);
@@ -472,7 +472,7 @@ fn retail_superweapon_construction_survives_revalidation() {
                 .get_mut(id)
                 .unwrap()
                 .health
-                .set(rules.object(name).unwrap().strength);
+                .set_for_test(rules.object(name).unwrap().strength);
             // The compact helper marks one cell. Install the stock foundation
             // through the occupancy boundary before running whole-world ticks.
             sim.remove_entity_occupancy(id);

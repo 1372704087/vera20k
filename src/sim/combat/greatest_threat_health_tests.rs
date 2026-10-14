@@ -83,7 +83,7 @@ fn actual_scorer_consumes_live_signed_strength_and_masked_zero_division() {
         candidate.set_type_ref_for_test(interner.intern("CANDIDATE"));
         candidate
             .health
-            .set(row["current"].as_i64().unwrap() as i32);
+            .set_for_test(row["current"].as_i64().unwrap() as i32);
         entities.insert(candidate);
         let result = calculate_threat_score(
             &entities,

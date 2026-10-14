@@ -247,7 +247,7 @@ fn retail_capture_walk_rechecks_admission_and_respects_a_replacement_order() {
                     .get_mut(castle)
                     .unwrap()
                     .health
-                    .set(1);
+                    .set_for_test(1);
                 0
             }
             "full" | "other_owner" => {

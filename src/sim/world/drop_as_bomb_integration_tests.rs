@@ -173,7 +173,7 @@ fn run_drop(sim: &mut Simulation, rules: &RuleSet, carrier: u64, passenger: u64,
         .get_mut(carrier)
         .unwrap()
         .health
-        .set(37);
+        .set_for_test(37);
     let owner = sim.substrate.entities.get(carrier).unwrap().owner();
     let landing_xy =
         ground_pose::position_world_xy(&sim.substrate.entities.get(carrier).unwrap().position);

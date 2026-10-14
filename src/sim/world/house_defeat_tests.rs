@@ -242,7 +242,7 @@ fn native_blowup_all_corpus() {
                 entity.set_category_for_test(EntityCategory::Unit);
                 entity
                     .health
-                    .set(object["health"].as_i64().unwrap_or(100) as i32);
+                    .set_for_test(object["health"].as_i64().unwrap_or(100) as i32);
                 sim.substrate.entities.insert(entity);
                 id
             })

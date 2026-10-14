@@ -170,7 +170,7 @@ mod tests {
             .get_mut(id)
             .unwrap()
             .health
-            .set(health);
+            .set_for_test(health);
     }
 
     fn sim_with_house(credits: i32, human: bool) -> (Simulation, InternedId) {

@@ -187,7 +187,8 @@ fn unit(
         occupation.mark_deck(x as u16, y as u16, raw[3].as_u64().unwrap() as u8);
     }
     let e = sim.substrate.entities.get_mut(id).unwrap();
-    e.health.set(input["health"].as_i64().unwrap_or(300) as i32);
+    e.health
+        .set_for_test(input["health"].as_i64().unwrap_or(300) as i32);
     let z = crate::sim::movement::ground_pose::position_world_coord(&e.position).z;
     assert_eq!(z, input["z"].as_i64().unwrap_or(0) as i32, "Foot z");
     (sim, rules, registry, id)

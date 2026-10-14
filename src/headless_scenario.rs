@@ -2689,7 +2689,7 @@ mod retail_construction_tests {
         let strength = rules.object("HARV").expect("retail HARV").strength;
         let at = {
             let entity = sim.substrate.entities.get_mut(miner).unwrap();
-            entity.health.set(strength / 2);
+            entity.health.set_for_test(strength / 2);
             (i32::from(entity.position.rx), i32::from(entity.position.ry))
         };
         let america = house_of(sim, "Americans");

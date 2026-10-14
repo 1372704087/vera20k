@@ -236,7 +236,7 @@ fn fixture(row: &Value, rules: &RuleSet) -> (Simulation, u64, InternedId) {
         vehicle.lifecycle.in_limbo = false;
         vehicle.lifecycle.cell_marked = true;
         super::super::ground_pose::put_location(&mut vehicle.position, supplied);
-        vehicle.health.set(signed(&transport["health"]));
+        vehicle.health.set_for_test(signed(&transport["health"]));
         vehicle.on_bridge = transport
             .get("on_bridge")
             .and_then(Value::as_bool)

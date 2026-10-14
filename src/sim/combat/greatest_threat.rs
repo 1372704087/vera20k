@@ -3975,7 +3975,7 @@ mod tests {
                 EntityCategory::Unit,
             );
             let entity = entities.get_mut(id).unwrap();
-            entity.health.set(301);
+            entity.health.set_for_test(301);
             entity.estimated_health =
                 crate::sim::estimated_health::EstimatedHealth::from_raw(estimate);
         }

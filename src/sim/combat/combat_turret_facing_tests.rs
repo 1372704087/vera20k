@@ -429,7 +429,12 @@ fn removed_attacker_returns_to_body_same_tick() {
     let mut sim = Simulation::new();
     spawn_turreted(&mut sim, 1, 5, 5, 5);
     spawn_target(&mut sim, 2, 5, 8);
-    sim.substrate.entities.get_mut(2).unwrap().health.set(0); // dead at resolve
+    sim.substrate
+        .entities
+        .get_mut(2)
+        .unwrap()
+        .health
+        .set_for_test(0); // dead at resolve
     use_test_interner(&mut sim);
     let rules = rules_with_mtnk_rot(5);
     sim.substrate.entities.get_mut(1).unwrap().attack_target = Some(AttackTarget::new(2));
@@ -462,7 +467,12 @@ fn removed_attacker_holds_its_turret_through_the_dwell() {
         let mut sim = Simulation::new();
         spawn_turreted(&mut sim, 1, 5, 5, 5);
         spawn_target(&mut sim, 2, 5, 8);
-        sim.substrate.entities.get_mut(2).unwrap().health.set(0);
+        sim.substrate
+            .entities
+            .get_mut(2)
+            .unwrap()
+            .health
+            .set_for_test(0);
         use_test_interner(&mut sim);
         let rules = rules_with_mtnk_rot(5);
         sim.session.binary_frame = 100;
@@ -492,7 +502,12 @@ fn kill_tick_unit_facing_holds_target() {
     let mut sim = Simulation::new();
     spawn_turreted(&mut sim, 1, 5, 5, 100);
     spawn_target(&mut sim, 2, 5, 8);
-    sim.substrate.entities.get_mut(2).unwrap().health.set(10); // lethal: Damage=65
+    sim.substrate
+        .entities
+        .get_mut(2)
+        .unwrap()
+        .health
+        .set_for_test(10); // lethal: Damage=65
     use_test_interner(&mut sim);
     let rules = rules_with_mtnk_rot(100);
     sim.substrate.entities.get_mut(1).unwrap().attack_target = Some(AttackTarget::new(2));
@@ -560,7 +575,12 @@ fn kill_tick_barrel_holds_target_facing() {
     // first shot lethal.
     sim.substrate.entities.get_mut(1).unwrap().barrel_facing =
         Some(FacingClass::new(toward_target, 100));
-    sim.substrate.entities.get_mut(2).unwrap().health.set(10); // Damage=65
+    sim.substrate
+        .entities
+        .get_mut(2)
+        .unwrap()
+        .health
+        .set_for_test(10); // Damage=65
 
     sim.advance_tick(&[], Some(&rules), None, None, 67);
 
@@ -710,7 +730,12 @@ fn co_attacker_facing_matches_killer() {
     };
     sim.substrate.entities.get_mut(1).unwrap().barrel_facing =
         Some(FacingClass::new(killer_aim, 100));
-    sim.substrate.entities.get_mut(2).unwrap().health.set(10);
+    sim.substrate
+        .entities
+        .get_mut(2)
+        .unwrap()
+        .health
+        .set_for_test(10);
 
     sim.advance_tick(&[], Some(&rules), None, None, 67);
 
@@ -761,7 +786,12 @@ fn save_load_round_trip_on_kill_tick() {
     };
     sim.substrate.entities.get_mut(1).unwrap().barrel_facing =
         Some(FacingClass::new(toward_target, 100));
-    sim.substrate.entities.get_mut(2).unwrap().health.set(10);
+    sim.substrate
+        .entities
+        .get_mut(2)
+        .unwrap()
+        .health
+        .set_for_test(10);
 
     sim.advance_tick(&[], Some(&rules), None, None, 67); // kill tick
 

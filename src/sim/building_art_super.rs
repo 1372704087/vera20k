@@ -281,7 +281,7 @@ mod tests {
             .get_mut(id)
             .unwrap()
             .health
-            .set(int(&row["health"]));
+            .set_for_test(int(&row["health"]));
         (sim, rules, id)
     }
 

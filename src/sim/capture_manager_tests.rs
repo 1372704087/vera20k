@@ -713,7 +713,12 @@ fn a_tower_going_offline_frees_its_captives() {
         .get_mut(tower)
         .unwrap()
         .building_last_operational = true;
-    sim.substrate.entities.get_mut(tower).unwrap().health.set(0);
+    sim.substrate
+        .entities
+        .get_mut(tower)
+        .unwrap()
+        .health
+        .set_for_test(0);
     sim.visit_building_operational(
         tower,
         &rules,
@@ -793,7 +798,7 @@ fn native_decide_unit_fate_corpus() {
             .get_mut(unit)
             .unwrap()
             .health
-            .set(int("health"));
+            .set_for_test(int("health"));
         let controller_house = sim.interner.get("YuriCountry").unwrap();
         sim.houses
             .get_mut(&controller_house)
@@ -999,7 +1004,7 @@ fn native_overload_update_corpus() {
         entity.capture_manager = Some(manager);
         if input.get("kill").is_some() {
             // Dies to the first damaging row, as the fixture's owner does.
-            entity.health.set(50);
+            entity.health.set_for_test(50);
         }
         let location = crate::sim::movement::ground_pose::position_world_coord(&entity.position);
         let location = glam::IVec3::new(location.x, location.y, location.z);
@@ -1793,7 +1798,12 @@ fn a_killing_overload_frees_the_captives_before_the_sparks() {
         ));
     }
     // Row one (50 damage) at the first check, on a 50-health Mastermind.
-    sim.substrate.entities.get_mut(mind).unwrap().health.set(50);
+    sim.substrate
+        .entities
+        .get_mut(mind)
+        .unwrap()
+        .health
+        .set_for_test(50);
     for _ in 0..30 {
         sim.capture_manager_update(
             mind,

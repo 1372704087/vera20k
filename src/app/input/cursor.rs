@@ -2475,7 +2475,11 @@ Verses=100%,100%,100%,100%,100%,100%,100%,100%,100%,100%,100%
                     .unwrap();
                 // A damaged friendly hut and a capturable hostile hut must
                 // still terminate this branch instead of taking those fallbacks.
-                sim.entities_mut().get_mut(hut).unwrap().health.set(150);
+                sim.entities_mut()
+                    .get_mut(hut)
+                    .unwrap()
+                    .health
+                    .set_for_test(150);
                 if relation == "allied" {
                     sim.house_alliances
                         .entry("AMERICANS".into())

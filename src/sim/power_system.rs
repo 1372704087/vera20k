@@ -599,7 +599,9 @@ mod tests {
         assert_eq!(corpus["assessment_rows"].as_array().unwrap().len(), 32);
         for row in corpus["assessment_rows"].as_array().unwrap() {
             let mut entity = generator.clone();
-            entity.health.set(row["current"].as_i64().unwrap() as i32);
+            entity
+                .health
+                .set_for_test(row["current"].as_i64().unwrap() as i32);
             entity
                 .drain
                 .set_draining_me_for_test(row["draining"].as_bool().unwrap().then_some(99));

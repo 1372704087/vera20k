@@ -3302,7 +3302,7 @@ fn nested_transport_parent_expiry_preserves_its_independent_cargo() {
             let _ = sim.reveal(2);
             let parent = sim.substrate.entities.get_mut(1).unwrap();
             parent.lifecycle.object_alive = alive;
-            parent.health.set(health);
+            parent.health.set_for_test(health);
             let mut cargo = PassengerCargo::new(5, 2);
             cargo.board_forced(3, 1);
             let entity = sim.substrate.entities.get_mut(2).unwrap();
@@ -4480,7 +4480,7 @@ fn score_stats_credit_the_killer_and_charge_the_victim_once() {
     );
     insert_entity(&mut sim, 1, EntityCategory::Unit);
     let victim = sim.substrate.entities.get_mut(1).unwrap();
-    victim.health.set(0);
+    victim.health.set_for_test(0);
     sim.record_the_kill(
         1,
         None,
@@ -4529,7 +4529,7 @@ fn score_stats_come_from_the_kill_record_captured_at_destruction() {
     );
     insert_entity(&mut sim, 1, EntityCategory::Infantry);
     let victim = sim.substrate.entities.get_mut(1).unwrap();
-    victim.health.set(0);
+    victim.health.set_for_test(0);
     sim.record_the_kill(
         1,
         None,
@@ -4553,7 +4553,12 @@ fn score_stats_ignore_a_removal_that_was_not_a_destruction() {
     sim.houses
         .insert(owner, HouseState::new(owner, 0, None, true, 0, 10));
     insert_entity(&mut sim, 1, EntityCategory::Structure);
-    sim.substrate.entities.get_mut(1).unwrap().health.set(400);
+    sim.substrate
+        .entities
+        .get_mut(1)
+        .unwrap()
+        .health
+        .set_for_test(400);
 
     sim.uninit(1);
 
@@ -4574,7 +4579,12 @@ fn score_stats_count_a_self_inflicted_kill_but_award_no_points() {
     sim.houses
         .insert(owner, HouseState::new(owner, 0, None, true, 0, 10));
     insert_entity(&mut sim, 1, EntityCategory::Structure);
-    sim.substrate.entities.get_mut(1).unwrap().health.set(0);
+    sim.substrate
+        .entities
+        .get_mut(1)
+        .unwrap()
+        .health
+        .set_for_test(0);
     sim.record_the_kill(
         1,
         None,
@@ -4614,7 +4624,7 @@ fn dont_score_victims_book_no_kill_no_loss_and_no_points() {
     );
     insert_entity(&mut sim, 1, EntityCategory::Infantry);
     let victim = sim.substrate.entities.get_mut(1).unwrap();
-    victim.health.set(0);
+    victim.health.set_for_test(0);
     victim.dont_score = true;
     // Retained attribution does not bypass the victim's DontScore gate.
     victim.killed_by = Some(killer_owner);
@@ -4679,7 +4689,7 @@ fn lifecycle_authority_animated_death_stays_represented_until_uninit() {
     let _ = sim.reveal(1);
 
     let entity = sim.substrate.entities.get_mut(1).unwrap();
-    entity.health.set(0);
+    entity.health.set_for_test(0);
     entity.dying = true;
     let tracking = &sim.houses.get(&owner).unwrap().tracking;
     assert_eq!(
@@ -5882,7 +5892,7 @@ fn gsi_05_04_combat_fatal_expiry_keeps_authoritative_cell_target() {
     {
         let victim = sim.substrate.entities.get_mut(victim_id).unwrap();
         victim.set_type_ref_for_test(victim_type);
-        victim.health.set(10);
+        victim.health.set_for_test(10);
     }
     assert!(matches!(
         sim.try_reveal_entity(victim_id, common_raw_request(5, 6, 0, 128, 128)),
@@ -5979,7 +5989,7 @@ fn gsi_05_04_combat_fatal_garrison_recursion_keeps_cell_target() {
         let building = sim.substrate.entities.get_mut(building_id).unwrap();
         building.set_type_ref_for_test(building_type);
         building.foundation = "2x2".to_string();
-        building.health.set(10);
+        building.health.set_for_test(10);
         let mut cargo = PassengerCargo::new(5, 1);
         assert!(cargo.board(passenger_id, 1));
         building.passenger_role = PassengerRole::Transport { cargo };
@@ -6469,7 +6479,7 @@ fn wave_pointer_expiry_target_survives_dying_then_uninit_starts_decay_tail() {
         let target = sim.substrate.entities.get_mut(target_id).unwrap();
         target.position.rx = 4;
         target.position.ry = 0;
-        target.health.set(0);
+        target.health.set_for_test(0);
         target.dying = true;
     }
 
@@ -6523,7 +6533,7 @@ fn wave_pointer_expiry_owner_allows_dying_damage_then_uninit_nulls_later_calls()
     {
         let owner = sim.substrate.entities.get_mut(owner_id).unwrap();
         owner.set_type_ref_for_test(sim.interner.intern("FIRER"));
-        owner.health.set(0);
+        owner.health.set_for_test(0);
         owner.dying = true;
         owner.attack_target = Some(AttackTarget::for_cell(4, 5));
     }
@@ -6651,7 +6661,7 @@ fn gsi_01_05_lethal_bullet_commits_receiver_before_retirement_and_double_compact
     {
         let victim = sim.substrate.entities.get_mut(victim_id).unwrap();
         victim.set_type_ref_for_test(victim_type);
-        victim.health.set(10);
+        victim.health.set_for_test(10);
     }
     assert!(matches!(
         sim.try_reveal_entity(victim_id, common_raw_request(5, 6, 0, 128, 128)),
@@ -7798,7 +7808,7 @@ fn gsi_01_05_wave_reselects_live_cell_list_after_fatal_receiver_unmark() {
         let building = sim.substrate.entities.get_mut(building_id).unwrap();
         building.set_type_ref_for_test(building_type);
         building.foundation = "2x1".to_string();
-        building.health.set(10);
+        building.health.set_for_test(10);
     }
     assert!(matches!(
         sim.try_reveal_entity(building_id, common_raw_request(4, 5, 0, 128, 128)),

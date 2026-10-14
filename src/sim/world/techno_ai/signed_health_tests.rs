@@ -34,7 +34,9 @@ fn original_selfheal_tail_and_192_height_rows_retain_art_and_mark_smoke() {
             GameEntity::test_default_of_category(1, "SIGNED", "A", 2, 2, EntityCategory::Structure);
         entity.set_type_ref_for_test(sim.interner.intern("SIGNED"));
         entity.set_owner_for_test(sim.interner.intern("A"));
-        entity.health.set(input["current"].as_i64().unwrap() as i32);
+        entity
+            .health
+            .set_for_test(input["current"].as_i64().unwrap() as i32);
         entity
             .building_art
             .set_damage_state_active_for_test(input["old_flag"].as_u64().unwrap_or(1) == 1);
@@ -121,7 +123,9 @@ fn fixture(row: &serde_json::Value) -> (Simulation, RuleSet) {
     let mut entity = GameEntity::test_default(1, "SIGNED", "Americans", 2, 2);
     entity.set_type_ref_for_test(sim.interner.intern("SIGNED"));
     entity.set_owner_for_test(sim.interner.intern("Americans"));
-    entity.health.set(input["current"].as_i64().unwrap() as i32);
+    entity
+        .health
+        .set_for_test(input["current"].as_i64().unwrap() as i32);
     entity.estimated_health = crate::sim::estimated_health::EstimatedHealth::from_raw(-987654321);
     entity.set_category_for_test(if input["kind"] == "building" {
         EntityCategory::Structure
@@ -229,7 +233,7 @@ fn building_damage_fire_runs_before_yellow_crossing_selfheal() {
     );
     building.set_type_ref_for_test(sim.interner.intern("B"));
     building.set_owner_for_test(sim.interner.intern("A"));
-    building.health.set(50);
+    building.health.set_for_test(50);
     sim.substrate.entities.insert(building);
     sim.reveal(id);
     sim.session.binary_frame = 900;

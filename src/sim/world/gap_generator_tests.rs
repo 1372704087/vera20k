@@ -134,7 +134,7 @@ fn gap_operational_original_gate_and_native_order_corpus() {
         let entity = sim.substrate.entities.get_mut(1).unwrap();
         entity
             .health
-            .set(i32::try_from(v["health"].as_i64().unwrap()).unwrap());
+            .set_for_test(i32::try_from(v["health"].as_i64().unwrap()).unwrap());
         entity
             .mission
             .apply_test_fixture(crate::sim::mission::state::MissionTestFixture {

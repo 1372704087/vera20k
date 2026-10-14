@@ -233,7 +233,7 @@ impl Fixture {
             let entity = sim.substrate.entities.get_mut(building).unwrap();
             entity.finish_building_construction_for_test();
             ground_pose::put_location(&mut entity.position, coord(&before["position"]));
-            entity.health.set(int(&before["actual_hp"]));
+            entity.health.set_for_test(int(&before["actual_hp"]));
             entity.estimated_health.reset(int(&before["estimated_hp"]));
             entity.repairing = before["paid_repair"] == 1;
             entity.sample_building_health_for_power();
@@ -747,7 +747,7 @@ fn original_half_threshold_and_friendly_repair_object_actions() {
             .get_mut(fixture.building)
             .unwrap()
             .health
-            .set(int(&row["actual_hp"]));
+            .set_for_test(int(&row["actual_hp"]));
         let before = fixture.sim.state_hash();
         let expected = match int(&row["action"]) {
             9 => EngineerBuildingAction::Capture,

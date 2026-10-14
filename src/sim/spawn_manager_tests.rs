@@ -1479,7 +1479,7 @@ fn a_missile_shot_down_in_flight_explodes_where_it_is() {
     assert!(climbing(&sim), "the tilt ends and the missile climbs");
     let entity = sim.substrate.entities.get_mut(missile).expect("missile");
     assert!(!entity.lifecycle.in_limbo);
-    entity.health.set(0);
+    entity.health.set_for_test(0);
     entity.crashing = true;
     let target_health = sim.substrate.entities.get(target).unwrap().health.current();
 
@@ -1683,7 +1683,7 @@ fn reload_due_restores_actual_and_estimated_health_from_child_type() {
         manager.slots[0].timer = CdTimer::default();
         manager.update_timer = CdTimer::default();
         let aircraft = sim.substrate.entities.get_mut(child).unwrap();
-        aircraft.health.set(1);
+        aircraft.health.set_for_test(1);
         aircraft.estimated_health = crate::sim::estimated_health::EstimatedHealth::from_raw(-123);
         let strength = rules.object("HORNET").unwrap().strength;
 

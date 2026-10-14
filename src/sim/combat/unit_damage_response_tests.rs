@@ -245,7 +245,7 @@ fn computer_crusher_charges_a_crushable_attacker() {
                 .get_mut(rhino)
                 .unwrap()
                 .health
-                .set(health);
+                .set_for_test(health);
         }
         let source = if source_present {
             gi
@@ -316,7 +316,7 @@ fn damaged_computer_miner_heads_for_its_refinery() {
         let miner = spawn(&mut sim, &rules, "HARV", "Russians", (12, 12));
         let tank = spawn(&mut sim, &rules, "MTNK", "Americans", (12, 14));
         let entity = sim.substrate.entities.get_mut(miner).unwrap();
-        entity.health.set(health);
+        entity.health.set_for_test(health);
         entity.miner.as_mut().unwrap().cargo = vec![
             CargoBale {
                 resource_type: ResourceType::Ore,

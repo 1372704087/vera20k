@@ -412,7 +412,7 @@ fn fatal_coil_bolt_releases_navigation_before_the_next_logic_reader() {
     sim.intern_rule_type_ids(rules);
     sim.resolve_type_handles(rules);
     let victim = sim.substrate.entities.get_mut(target).unwrap();
-    victim.health.set(1);
+    victim.health.set_for_test(1);
     let anchor = (victim.position.rx, victim.position.ry);
     assert!(sim.rebuild_dynamic_navigation(rules));
     let blocked_before = sim.path_grid_snapshot().unwrap();
@@ -716,7 +716,7 @@ fn natural_charge_expiry_preserves_native_bullet_and_spark_visit_order() {
             // Supplied damaged receiver; the shared slot owner selects its ART.
             source_entity
                 .health
-                .set(rules.object("TESLA").unwrap().strength / 4);
+                .set_for_test(rules.object("TESLA").unwrap().strength / 4);
         }
         source_entity
             .mission

@@ -118,7 +118,12 @@ fn combatant_selection_ingress_precedes_destroy_and_is_not_replayed_at_tail() {
         crate::sim::world::FrameEffects::default(),
     );
     let selected_before_logic = sim.entities().get(1).unwrap().selected;
-    sim.substrate.entities.get_mut(1).unwrap().health.set(0);
+    sim.substrate
+        .entities
+        .get_mut(1)
+        .unwrap()
+        .health
+        .set_for_test(0);
     sim.object_destroy_callback(1, UninitContext::default());
     assert!(!sim.entities().get(1).unwrap().selected);
     let (tail_count, spawned) = sim.apply_due_commands(
@@ -739,7 +744,7 @@ fn advance_tick_finishes_dying_infantry_from_rules_catalog() {
         .get_mut(id)
         .expect("spawned infantry")
         .health
-        .set(0);
+        .set_for_test(0);
     sim.begin_infantry_death_sequence(
         id,
         super::infantry_terminal::InfantryDeathSequence::Die1,
@@ -1978,7 +1983,7 @@ fn gsi_04_07_damage_fatal_transport_lifecycle_brackets_nested_death_weapon() {
         let mut carrier = GameEntity::test_default(10, "BOOMER", "Soviet", 8, 5);
         carrier.set_owner_for_test(enemy);
         carrier.set_type_ref_for_test(sim.interner.intern("BOOMER"));
-        carrier.health.set(carrier_hp);
+        carrier.health.set_for_test(carrier_hp);
         carrier.passenger_role = crate::sim::passenger::PassengerRole::Transport { cargo };
         sim.substrate.entities.insert(carrier);
         let _ = sim.reveal(10);
@@ -2008,7 +2013,7 @@ fn gsi_04_07_damage_fatal_transport_lifecycle_brackets_nested_death_weapon() {
         listener.set_owner_for_test(owner);
         listener.set_type_ref_for_test(sim.interner.intern("LISTENER"));
         listener.is_voxel = false;
-        listener.health.set(300);
+        listener.health.set_for_test(300);
         sim.substrate.entities.insert(listener);
         let _ = sim.reveal(30);
 
@@ -2023,7 +2028,7 @@ fn gsi_04_07_damage_fatal_transport_lifecycle_brackets_nested_death_weapon() {
         nested_fatal.set_owner_for_test(owner);
         nested_fatal.set_type_ref_for_test(sim.interner.intern("LISTENER"));
         nested_fatal.is_voxel = false;
-        nested_fatal.health.set(107);
+        nested_fatal.health.set_for_test(107);
         sim.substrate.entities.insert(nested_fatal);
         let _ = sim.reveal(31);
 
@@ -7557,7 +7562,7 @@ fn test_attack_move_lethal_hit_expires_the_target_at_the_kill() {
     let rules = driving_combat_test_rules();
     let mut sim = attack_move_fight(&rules);
     if let Some(e) = sim.substrate.entities.get_mut(2) {
-        e.health.set(50);
+        e.health.set_for_test(50);
     }
     let grid = PathGrid::new(64, 64);
     let cmd = cmd_envelope(
@@ -7726,7 +7731,12 @@ fn an_attack_move_click_over_an_object_keeps_it_the_mega_destination() {
     assert_eq!(attacker.navigation.nav_com, None);
     assert!(attacker.mega_mission.is_attack_move());
 
-    sim.substrate.entities.get_mut(mcv).unwrap().health.set(0);
+    sim.substrate
+        .entities
+        .get_mut(mcv)
+        .unwrap()
+        .health
+        .set_for_test(0);
     assert!(!attack_move_onto(&mut sim, mcv));
     assert_eq!(
         sim.substrate
@@ -7809,7 +7819,12 @@ fn test_infantry_attack_move_kills_on_the_way_and_walks_on() {
         sim.substrate.entities.get_mut(id).unwrap().in_playfield = true;
     }
     // One M60 burst (25) kills.
-    sim.substrate.entities.get_mut(2).unwrap().health.set(20);
+    sim.substrate
+        .entities
+        .get_mut(2)
+        .unwrap()
+        .health
+        .set_for_test(20);
     let grid = PathGrid::new(64, 64);
     let cmd = cmd_envelope(
         &sim,
@@ -7908,7 +7923,12 @@ fn test_lethal_hit_restore_refuses_the_dying_archived_target() {
         ],
         None,
     );
-    sim.substrate.entities.get_mut(2).unwrap().health.set(50);
+    sim.substrate
+        .entities
+        .get_mut(2)
+        .unwrap()
+        .health
+        .set_for_test(50);
     {
         let tank = sim.substrate.entities.get_mut(1).unwrap();
         tank.attack_target = Some(AttackTarget::new(2));

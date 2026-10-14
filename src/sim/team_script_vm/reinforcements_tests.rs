@@ -600,7 +600,7 @@ fn shared_leader_matches_original_script3_signed_ratings_and_live_joined_gates()
                 entity.set_native_unique_id_for_test(int(&state["native_id"]));
                 entity.lifecycle.object_alive = int(&state["alive"]) != 0;
                 entity.lifecycle.in_limbo = int(&state["limbo"]) != 0;
-                entity.health.set(int(&state["health"]));
+                entity.health.set_for_test(int(&state["health"]));
                 id
             })
             .collect();

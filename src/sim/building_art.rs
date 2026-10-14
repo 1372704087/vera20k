@@ -977,7 +977,7 @@ pub(crate) fn slot_test_fixture() -> (Simulation, RuleSet, u64) {
     );
     entity.set_type_ref_for_test(sim.interner.intern("B"));
     entity.set_owner_for_test(sim.interner.intern("A"));
-    entity.health.set(100);
+    entity.health.set_for_test(100);
     sim.substrate.entities.insert(entity);
     sim.scenario_rng = crate::sim::rng::SimRng::new(0);
     (sim, rules, id)
@@ -1046,7 +1046,7 @@ mod slot_tests {
                 );
                 building.set_type_ref_for_test(sim.interner.intern(name));
                 building.set_owner_for_test(sim.interner.intern("A"));
-                building.health.set(if damaged { 40 } else { 100 });
+                building.health.set_for_test(if damaged { 40 } else { 100 });
                 sim.substrate.entities.insert(building);
                 let slot = row["slot"]["slot"].as_u64().unwrap() as u8;
                 let anim_id = sim
@@ -1427,7 +1427,11 @@ mod slot_tests {
             crate::sim::world::FrameEffects::default(),
         );
         let old = sim.entities().get(id).unwrap().building_art.anim_slots[3].unwrap();
-        sim.entities_mut().get_mut(id).unwrap().health.set(25);
+        sim.entities_mut()
+            .get_mut(id)
+            .unwrap()
+            .health
+            .set_for_test(25);
         sim.grand_opening(
             id,
             false,

@@ -222,12 +222,7 @@ fn retail_berserk_engineer_ifv_keeps_cursor_but_refuses_click() {
     // already published before the actor became berserk is still received.
     assert!(sim.apply_command(OWNER, &already_sent, Some(rules)));
     assert_eq!(
-        sim.entities()
-            .get(ifv)
-            .unwrap()
-            .attack_target
-            .as_ref()
-            .map(|attack| attack.target),
+        sim.entities().get(ifv).unwrap().attack_target.target(),
         Some(TargetKind::Entity(tank))
     );
 }
@@ -244,12 +239,7 @@ fn retail_engineer_ifv_plain_repair_click_reaches_attack_mission_and_heals() {
     let command = repair_click(&sim, rules, ifv, tank);
     assert!(sim.apply_command(OWNER, &command, Some(rules)));
     assert_eq!(
-        sim.entities()
-            .get(ifv)
-            .unwrap()
-            .attack_target
-            .as_ref()
-            .map(|attack| attack.target),
+        sim.entities().get(ifv).unwrap().attack_target.target(),
         Some(TargetKind::Entity(tank))
     );
     let grid = sim.path_grid_snapshot().unwrap();
@@ -473,12 +463,7 @@ fn issued_repair_attack_is_not_readmitted_when_health_or_cargo_changes() {
         .set_for_test(rules.object("MTNK").unwrap().strength);
     assert!(sim.apply_command(OWNER, &command, Some(rules)));
     assert_eq!(
-        sim.entities()
-            .get(ifv)
-            .unwrap()
-            .attack_target
-            .as_ref()
-            .map(|a| a.target),
+        sim.entities().get(ifv).unwrap().attack_target.target(),
         Some(TargetKind::Entity(tank)),
         "the event still commits its original target"
     );
@@ -509,12 +494,7 @@ fn issued_repair_attack_is_not_readmitted_when_health_or_cargo_changes() {
     assert_eq!(sim.entities().get(ifv).unwrap().current_weapon_number(), 0);
     assert!(sim.apply_command(OWNER, &command, Some(rules)));
     assert_eq!(
-        sim.entities()
-            .get(ifv)
-            .unwrap()
-            .attack_target
-            .as_ref()
-            .map(|a| a.target),
+        sim.entities().get(ifv).unwrap().attack_target.target(),
         Some(TargetKind::Entity(tank)),
         "cargo changes do not replace the issued event"
     );

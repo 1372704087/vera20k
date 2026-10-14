@@ -219,8 +219,8 @@ impl Replay {
         );
         let target = e
             .attack_target
-            .as_ref()
-            .map(|t| match t.target {
+            .target()
+            .map(|t| match t {
                 TargetKind::Entity(id) if id == self.first => "0x200c2000",
                 TargetKind::Entity(id) if id == self.second => "0x200c2800",
                 other => panic!("{context}: unexpected Target {other:?}"),

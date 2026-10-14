@@ -253,7 +253,7 @@ fn the_team_attacks_the_building_its_first_member_finds() {
         );
         let first = sim.substrate.entities.get(members[0]).unwrap();
         assert_eq!(
-            first.attack_target.as_ref().map(|attack| attack.target),
+            first.attack_target.target(),
             Some(crate::sim::combat::TargetKind::Entity(plants[pick])),
             "mode {mode}: the first member's target"
         );

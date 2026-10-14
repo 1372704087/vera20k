@@ -1227,7 +1227,7 @@ impl Simulation {
         // does not process.
         let mut clears_destination = false;
         if let Some(entity) = self.substrate.entities.get_mut(id) {
-            if entity.attack_target.is_some() {
+            if entity.attack_target.target().is_some() {
                 crate::sim::mission::concrete_effects::represented_assign_target(entity, None);
             }
             clears_destination =

@@ -420,7 +420,10 @@ fn capture_building_command_accepts_collapsed_noncapturable_hut_for_every_relati
             Some(NavTargetRef::building(cabhut)),
             "relation={relation}"
         );
-        assert!(actor.attack_target.is_none(), "native queue target is null");
+        assert!(
+            actor.attack_target.target().is_none(),
+            "native queue target is null"
+        );
         assert_eq!(
             (
                 sim.scenario_rng.logical_state(),

@@ -18,8 +18,7 @@ use crate::rules::ini_parser::IniFile;
 use crate::rules::overlay_types::OverlayTypeRegistry;
 use crate::rules::ruleset::RuleSet;
 use crate::rules::terrain_rules::{LandType, SpeedCostProfile, TerrainClass};
-use crate::sim::combat::AttackTarget;
-use crate::sim::combat::Health;
+use crate::sim::combat::{Health, TargetKind};
 use crate::sim::command::{Command, CommandEnvelope};
 use crate::sim::components::BuildingUp;
 use crate::sim::game_entity::GameEntity;
@@ -2590,7 +2589,8 @@ fn gsi_04_07_wall_placement_publishes_connectivity_neighbor_auto_destruction() {
         .entities
         .get_mut(1)
         .expect("construction yard listener")
-        .attack_target = Some(AttackTarget::for_cell(13, 10));
+        .attack_target
+        .set_for_test(Some(TargetKind::Cell(13, 10)));
     sim.tactical_dirty_cells.clear();
     sim.radar_terrain_dirty_cells.clear();
     sim.radar_terrain_dirty_generation = 0;
@@ -2632,6 +2632,7 @@ fn gsi_04_07_wall_placement_publishes_connectivity_neighbor_auto_destruction() {
             .get(1)
             .expect("construction yard listener")
             .attack_target
+            .target()
             .is_none(),
         "cleanup removal must broadcast CellClass pointer expiry before returning"
     );

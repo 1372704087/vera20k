@@ -507,7 +507,7 @@ fn destination_vectors() -> Vec<serde_json::Value> {
 }
 
 fn destination_fixture(row: &serde_json::Value) -> (Simulation, RuleSet) {
-    use crate::sim::combat::AttackTarget;
+    use crate::sim::combat::TargetKind;
     use crate::sim::docking::aircraft_dock::AircraftAmmo;
     let input = &row["input"];
     let height_row = serde_json::json!({"input": {
@@ -531,10 +531,12 @@ fn destination_fixture(row: &serde_json::Value) -> (Simulation, RuleSet) {
     entity.position.rx = 40;
     entity.position.ry = 64;
     entity.aircraft_ammo = Some(AircraftAmmo::new(input["ammo"].as_i64().unwrap_or(2) as i32));
-    entity.attack_target = input["target"]
-        .as_bool()
-        .unwrap_or(false)
-        .then(|| AttackTarget::new(2));
+    entity.attack_target.set_for_test(
+        input["target"]
+            .as_bool()
+            .unwrap_or(false)
+            .then(|| TargetKind::Entity(2)),
+    );
     entity
         .mission_leaf
         .set_aircraft_action_latch(input["ready"].as_bool().unwrap_or(false));

@@ -327,8 +327,10 @@ pub(super) fn reengagement_fixture(input: &Value) -> (Simulation, RuleSet) {
             dispatch_timer: MissionDispatchTimer::at_frame(100),
         });
     entity.mission_leaf = MissionLeafState::aircraft_raw_for_test(1, 1, false);
-    entity.attack_target = (!input["null_target"].as_bool().unwrap_or(false))
-        .then(|| crate::sim::combat::AttackTarget::new(2));
+    entity.attack_target.set_for_test(
+        (!input["null_target"].as_bool().unwrap_or(false))
+            .then(|| crate::sim::combat::TargetKind::Entity(2)),
+    );
     let mut ammo = AircraftAmmo::new(2);
     ammo.current = input["ammo"].as_i64().unwrap_or(2) as i32;
     if input["pending"].as_bool().unwrap_or(false) {

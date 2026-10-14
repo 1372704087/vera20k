@@ -1418,7 +1418,12 @@ fn restore_mid_track_heads_for_the_restored_order_at_the_track_end() {
     ));
     sim.session.binary_frame = frame;
     order(&mut sim, &rules, id, (10, 16));
-    sim.substrate.entities.get_mut(id).unwrap().attack_target = None;
+    sim.substrate
+        .entities
+        .get_mut(id)
+        .unwrap()
+        .attack_target
+        .set_for_test(None);
     assert!(
         sim.mission_restore_represented(
             id,

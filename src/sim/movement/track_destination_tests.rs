@@ -64,8 +64,9 @@ fn shared_null_destination_matches_original_gate_and_timer_boundaries() {
             ai_counter: 0,
             dispatch_timer: MissionDispatchTimer::at_frame(0),
         });
-        e.attack_target =
-            (input["target"] == true).then(|| crate::sim::combat::AttackTarget::for_cell(11, 10));
+        e.attack_target.set_for_test(
+            (input["target"] == true).then(|| crate::sim::combat::TargetKind::Cell(11, 10)),
+        );
         e.navigation.nav_com = (input["nav"] != false).then(|| NavTargetRef::cell(11, 10));
         e.foot_locomotor_swap_active = input["swap"] == true;
         if input["bunker"] == true {

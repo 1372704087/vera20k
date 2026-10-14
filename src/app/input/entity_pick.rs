@@ -2079,7 +2079,7 @@ mod tests {
         let tank = sim.entities().get(1).unwrap();
         assert_eq!(tank.bunker_link.installed_in(), Some(2));
         assert_eq!(
-            tank.attack_target.as_ref().map(|attack| attack.target),
+            tank.attack_target.target(),
             Some(crate::sim::combat::TargetKind::Entity(3))
         );
         assert_eq!(sim.entities().get(2).unwrap().bunker_occupant, Some(1));

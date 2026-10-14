@@ -267,8 +267,12 @@ fn fixture(row: &Value, rules: &RuleSet) -> (Simulation, u64, InternedId) {
             // The native TimerCheck fixture supplies a nonnull TarCom+2B4,
             // deliberately excluding passive-acquisition/idle callbacks.
             assert_ne!(before["actor"]["target"], "0x0");
-            sim.substrate.entities.get_mut(id).unwrap().attack_target =
-                Some(crate::sim::combat::AttackTarget::new(target));
+            sim.substrate
+                .entities
+                .get_mut(id)
+                .unwrap()
+                .attack_target
+                .set_for_test(Some(crate::sim::combat::TargetKind::Entity(target)));
         }
         assert_eq!((cell.0, cell.1), pair(&row["transport_input"]["mapcoords"]));
         assert_eq!(

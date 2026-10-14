@@ -321,7 +321,9 @@ fn the_warp_drops_attack_locks_on_its_owner() {
     let rules = rules(false);
     let mut sim = relocating_legionnaire((8, 9));
     let mut attacker = GameEntity::test_default(2, "CMON", "Russians", 4, 5);
-    attacker.attack_target = Some(crate::sim::combat::AttackTarget::new(1));
+    attacker
+        .attack_target
+        .set_for_test(Some(crate::sim::combat::TargetKind::Entity(1)));
     sim.substrate.entities.insert(attacker);
 
     sim.advance_live_object_turn(1, Some(&rules), techno_ai::ObjectAiCtx::default())
@@ -340,6 +342,7 @@ fn the_warp_drops_attack_locks_on_its_owner() {
             .get(2)
             .unwrap()
             .attack_target
+            .target()
             .is_none()
     );
 }

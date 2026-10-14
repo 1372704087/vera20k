@@ -694,7 +694,7 @@ fn assert_ground_command_fields(sim: &Simulation, id: u64, row: &Value, state: &
             ground_command_cell_reference(state, state["aux_nav"].as_u64().unwrap()),
             "{context}: auxiliary NavCom"
         );
-        match actor.attack_target.as_ref().map(|target| target.target) {
+        match actor.attack_target.target() {
             None => assert_eq!(
                 state["target"], 0,
                 "{context}: Target cleared before destination"

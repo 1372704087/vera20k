@@ -515,7 +515,7 @@ fn compare(row: &Value) {
         );
         if input["open_topped"] == true {
             assert_eq!(
-                entity.attack_target.is_none(),
+                entity.attack_target.target().is_none(),
                 of("assign_target").is_some(),
                 "{context}: target"
             );

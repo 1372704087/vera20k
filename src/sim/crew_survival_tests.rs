@@ -530,7 +530,7 @@ fn survivors_of_a_c4_charged_building_attack_an_enemy_planter() {
             assert_eq!(marks, expected_marks, "seed {seed}");
             for id in new_ids(&sim, &before) {
                 let survivor = sim.substrate.entities.get(id).unwrap();
-                let target = survivor.attack_target.as_ref().map(|target| target.target);
+                let target = survivor.attack_target.target();
                 if expect_attack {
                     assert_eq!(queued(&sim, id), MissionId::from_known(MissionType::Attack));
                     assert_eq!(target, Some(TargetKind::Entity(planter)));

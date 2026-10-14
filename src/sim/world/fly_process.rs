@@ -553,7 +553,7 @@ impl Simulation {
             && !state.has_phase_callback()
             && coord_cell(state.destination()) == coord_cell(location)
             && state.target_speed == SIM_ZERO
-            && (entity.attack_target.is_none()
+            && (entity.attack_target.target().is_none()
                 || entity
                     .aircraft_ammo
                     .as_ref()
@@ -621,7 +621,7 @@ impl Simulation {
                 .mission_leaf
                 .as_aircraft()
                 .is_some_and(|leaf| leaf.action_latch() != 0);
-        let target = entity.attack_target.as_ref().map(|attack| attack.target);
+        let target = entity.attack_target.target();
         let ammo = entity
             .aircraft_ammo
             .as_ref()

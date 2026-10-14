@@ -409,7 +409,7 @@ pub(crate) fn should_retaliate(
         .as_ref()
         .is_some_and(|manager| manager.is_full())
         || victim.spawn_manager.is_some()
-        || (human && victim.attack_target.is_some())
+        || (human && victim.attack_target.target().is_some())
         || crate::sim::mission::control::current_control(rules, &victim.mission)
             .is_some_and(|entry| !entry.retaliate)
     {
@@ -516,8 +516,7 @@ pub(crate) fn should_retaliate(
         .get(&victim.owner())
         .and_then(|house| house.enemy_house);
     if !human
-        && let Some(TargetKind::Entity(current_id)) =
-            victim.attack_target.as_ref().map(|target| target.target)
+        && let Some(TargetKind::Entity(current_id)) = victim.attack_target.target()
         && let (Some(current_score), Some(source_score)) = (
             calculate_ai_threat_score(
                 entities,

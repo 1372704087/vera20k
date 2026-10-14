@@ -8,8 +8,7 @@ use crate::map::resolved_terrain::{ResolvedTerrainCell, ResolvedTerrainGrid};
 use crate::rules::ini_parser::IniFile;
 use crate::rules::ruleset::RuleSet;
 use crate::sim::base_plan::{BasePlanNode, pack_base_plan_cell};
-use crate::sim::combat::Health;
-use crate::sim::combat::{AttackTarget, TargetKind};
+use crate::sim::combat::{Health, TargetKind};
 use crate::sim::command::Command;
 use crate::sim::game_entity::GameEntity;
 use crate::sim::house_state::HouseAiActivationLatches;
@@ -1281,7 +1280,9 @@ pub(crate) fn native_deploy_fixture(row: &serde_json::Value) -> (Simulation, Rul
         actor.navigation.nav_com = Some(crate::sim::components::NavTargetRef::cell(11, 10));
     }
     if before["target"].as_i64().unwrap_or(0) != 0 {
-        actor.attack_target = Some(AttackTarget::for_cell(10, 10));
+        actor
+            .attack_target
+            .set_for_test(Some(TargetKind::Cell(10, 10)));
     }
     if input["archive"].is_array() {
         let post = spawn_infantry(&mut sim, "E1", "Americans", 0, 0);
@@ -1438,7 +1439,7 @@ pub(crate) fn assert_native_deploy_state(sim: &Simulation, id: u64, row: &serde_
             expected["archive"] != 0,
             "{name}: archive identity retained"
         );
-        let target = actor.attack_target.as_ref().map(|target| target.target);
+        let target = actor.attack_target.target();
         assert_eq!(
             target,
             (expected["target"] != 0).then_some(TargetKind::Cell(10, 10)),

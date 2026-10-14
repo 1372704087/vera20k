@@ -8,8 +8,7 @@ use crate::map::entities::EntityCategory;
 use crate::map::playfield::PlayfieldBounds;
 use crate::rules::art_data::ArtRegistry;
 use crate::rules::{ini_parser::IniFile, ruleset::RuleSet};
-use crate::sim::combat::Health;
-use crate::sim::combat::{AttackTarget, TargetKind};
+use crate::sim::combat::{Health, TargetKind};
 use crate::sim::components::{DriveCoord, NavTargetRef};
 use crate::sim::docking::aircraft_dock::AircraftAmmo;
 use crate::sim::game_entity::GameEntity;
@@ -166,9 +165,9 @@ fn fixture(input: &serde_json::Value) -> (Simulation, RuleSet) {
     ammo.current = int(input, "ammo", 1) as i32;
     entity.aircraft_ammo = Some(ammo);
     if input["target"].is_array() {
-        entity.attack_target = Some(AttackTarget {
-            target: TargetKind::Entity(TARGET),
-        });
+        entity
+            .attack_target
+            .set_for_test(Some(TargetKind::Entity(TARGET)));
     }
     entity.navigation.nav_com = match &input["nav_com"] {
         serde_json::Value::String(kind) if kind == "dock" => {
@@ -589,9 +588,9 @@ fn fly_map_edge_gate_matches_native_rows() {
         }
         entity.in_playfield = flag(input, "in_playfield", true);
         if flag(input, "target", false) {
-            entity.attack_target = Some(AttackTarget {
-                target: TargetKind::Entity(TARGET),
-            });
+            entity
+                .attack_target
+                .set_for_test(Some(TargetKind::Entity(TARGET)));
             let mut target = GameEntity::new_at_frame_zero_for_test(
                 TARGET,
                 64,
@@ -707,9 +706,9 @@ fn fly_death_stun_matches_native_rows() {
         let entity = sim.substrate.entities.get_mut(AIRCRAFT).unwrap();
         entity.health.set_for_test(0);
         if let Some(n) = input["target"].as_u64() {
-            entity.attack_target = Some(AttackTarget {
-                target: TargetKind::Entity(10 + n),
-            });
+            entity
+                .attack_target
+                .set_for_test(Some(TargetKind::Entity(10 + n)));
         }
         sim.clear_lifecycle_test_events_for_test();
         sim.techno_death_stun(

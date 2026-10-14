@@ -386,7 +386,7 @@ fn unload_orders_each_loaded_transport_off_buildings() {
     let entity = f.entity(apc);
     assert_eq!(ordered(entity), Some(MissionType::Unload));
     assert_eq!(entity.navigation.nav_com, None);
-    assert!(entity.attack_target.is_none());
+    assert!(entity.attack_target.target().is_none());
 
     let parked = f.spawn("APC", 24, 24);
     f.load(parked, 1);
@@ -855,7 +855,9 @@ impl OracleTeam {
                 entity.radio_contacts.insert(zone);
             }
             entity.set_archive_target(flag(&member["archive"]).then_some(ORACLE_ARCHIVE));
-            entity.attack_target = Some(crate::sim::combat::AttackTarget::for_cell(2, 2));
+            entity
+                .attack_target
+                .set_for_test(Some(crate::sim::combat::TargetKind::Cell(2, 2)));
             members.push(id);
         }
         let script = sim.interner.intern("ROW_S");
@@ -961,7 +963,7 @@ impl OracleTeam {
                 };
                 assert_eq!(entity.navigation.nav_com, nav, "{at}: NavCom");
                 assert_eq!(
-                    entity.attack_target.as_ref().map(|attack| attack.target),
+                    entity.attack_target.target(),
                     (!untargeted[index]).then_some(crate::sim::combat::TargetKind::Cell(2, 2)),
                     "{at}: target"
                 );

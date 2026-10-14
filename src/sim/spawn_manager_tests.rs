@@ -815,7 +815,7 @@ fn a_missile_that_lost_its_target_retreats_for_good() {
         ai_counter: 0,
         dispatch_timer: MissionDispatchTimer::at_frame(0),
     });
-    entity.attack_target = None;
+    entity.attack_target.set_for_test(None);
     // Both edge picks draw on the Scenario stream: state 10's, then
     // Mission_Retreat's, each on the house's own edge.
     let mut rng = sim.scenario_rng.clone();
@@ -1068,7 +1068,9 @@ fn v3_attack_order_damages_the_target_through_the_spawned_rocket() {
     );
 
     if let Some(entity) = sim.substrate.entities.get_mut(v3) {
-        entity.attack_target = Some(crate::sim::combat::AttackTarget::new(target));
+        entity
+            .attack_target
+            .set_for_test(Some(crate::sim::combat::TargetKind::Entity(target)));
     }
 
     // The retail contract is a kill, not a scratch: FRAGILE has Strength=50
@@ -1109,8 +1111,12 @@ fn a_v3s_fire_reaches_its_manager_at_the_next_pass() {
     let target = sim
         .spawn_object("FRAGILE", "Yuri", 16, 10, 0, &rules)
         .expect("spawn FRAGILE");
-    sim.substrate.entities.get_mut(v3).unwrap().attack_target =
-        Some(crate::sim::combat::AttackTarget::new(target));
+    sim.substrate
+        .entities
+        .get_mut(v3)
+        .unwrap()
+        .attack_target
+        .set_for_test(Some(crate::sim::combat::TargetKind::Entity(target)));
     // A manager pass on every frame.
     let tick = |sim: &mut Simulation| {
         sim.substrate
@@ -1768,6 +1774,7 @@ fn hornets_hold_over_the_carrier_until_the_whole_wing_is_up() {
                 .get(*child)
                 .expect("hornet")
                 .attack_target
+                .target()
                 .is_none(),
             "a Hornet holding formation carries no attack order yet"
         );
@@ -2310,7 +2317,9 @@ fn stop_cancels_a_v3s_queued_launch() {
         .expect("spawn FRAGILE");
     // As after its fire: the V3 holds the target and its manager queued it.
     let entity = sim.substrate.entities.get_mut(v3).unwrap();
-    entity.attack_target = Some(crate::sim::combat::AttackTarget::new(target));
+    entity
+        .attack_target
+        .set_for_test(Some(crate::sim::combat::TargetKind::Entity(target)));
     entity
         .spawn_manager
         .as_mut()
@@ -2369,7 +2378,9 @@ fn a_null_target_drops_the_managers_queued_retarget() {
         .spawn_object("TARGET", "Yuri", 22, 10, 0, &rules)
         .expect("spawn TARGET");
     let entity = sim.substrate.entities.get_mut(dred).unwrap();
-    entity.attack_target = Some(crate::sim::combat::AttackTarget::new(second));
+    entity
+        .attack_target
+        .set_for_test(Some(crate::sim::combat::TargetKind::Entity(second)));
     let manager = entity.spawn_manager.as_mut().unwrap();
     manager.current_target = Some(TargetKind::Entity(first));
     manager.mode = SpawnManagerMode::Launching;
@@ -2435,7 +2446,9 @@ fn stop_recalls_a_carriers_attacking_wing() {
             .collect::<Vec<_>>()
     };
     let entity = sim.substrate.entities.get_mut(carrier).unwrap();
-    entity.attack_target = Some(crate::sim::combat::AttackTarget::new(target));
+    entity
+        .attack_target
+        .set_for_test(Some(crate::sim::combat::TargetKind::Entity(target)));
     entity
         .spawn_manager
         .as_mut()
@@ -2462,7 +2475,7 @@ fn stop_recalls_a_carriers_attacking_wing() {
         assert_eq!(state, SpawnSlotState::ComingHome);
         let hornet = sim.substrate.entities.get(hornet.unwrap()).unwrap();
         assert!(
-            hornet.attack_target.is_none(),
+            hornet.attack_target.target().is_none(),
             "the recall drops the target"
         );
     }
@@ -2536,7 +2549,9 @@ fn a_hornet_mid_pass_keeps_its_run_through_the_managers_re_issue() {
         .state = SpawnSlotState::Attacking;
     let frame = sim.session.binary_frame as i32;
     let child = sim.substrate.entities.get_mut(hornet).unwrap();
-    child.attack_target = Some(crate::sim::combat::AttackTarget::new(target));
+    child
+        .attack_target
+        .set_for_test(Some(crate::sim::combat::TargetKind::Entity(target)));
     child.rearm_timer = crate::sim::timer::CdTimer::started(frame, 7);
     child.mission.set_current_for_test(
         crate::sim::mission::MissionId::from_known(crate::sim::mission::MissionType::Attack),
@@ -2548,7 +2563,7 @@ fn a_hornet_mid_pass_keeps_its_run_through_the_managers_re_issue() {
     let child = sim.substrate.entities.get(hornet).unwrap();
     assert_eq!(crate::sim::aircraft::attack_state(child), Some(7));
     assert_eq!(
-        child.attack_target.as_ref().map(|a| a.target),
+        child.attack_target.target(),
         Some(TargetKind::Entity(target)),
         "the same target is not re-assigned"
     );
@@ -2560,7 +2575,10 @@ fn a_hornet_mid_pass_keeps_its_run_through_the_managers_re_issue() {
     pass(&mut sim, Some(other));
     let child = sim.substrate.entities.get(hornet).unwrap();
     assert_eq!(child.aircraft_ammo.as_ref().unwrap().current, 0);
-    assert!(child.attack_target.is_none(), "the aircraft arm drops it");
+    assert!(
+        child.attack_target.target().is_none(),
+        "the aircraft arm drops it"
+    );
 
     pass(&mut sim, None);
     let manager = sim

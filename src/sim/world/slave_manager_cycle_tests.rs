@@ -979,7 +979,7 @@ fn retail_rules_feed_the_slave_refinery_relocation() {
 fn an_attacker_of_a_packing_refinery_takes_the_slave_miner() {
     use crate::rules::ini_parser::IniFile;
     use crate::rules::ruleset::RuleSet;
-    use crate::sim::combat::{AttackTarget, TargetKind};
+    use crate::sim::combat::TargetKind;
     use crate::sim::rng::SimRng;
     use crate::sim::world::Simulation;
     let rules = RuleSet::from_ini_with_fixed_art_for_test(
@@ -1005,7 +1005,9 @@ fn an_attacker_of_a_packing_refinery_takes_the_slave_miner() {
         .expect("TANK");
     let frame = sim.session.binary_frame;
     let attacker = sim.substrate.entities.get_mut(tank).unwrap();
-    attacker.attack_target = Some(AttackTarget::new(refinery));
+    attacker
+        .attack_target
+        .set_for_test(Some(TargetKind::Entity(refinery)));
     attacker.passive_scan_timer.arm(frame, 100);
     let scan_timer = attacker.passive_scan_timer;
     sim.substrate
@@ -1050,7 +1052,7 @@ fn an_attacker_of_a_packing_refinery_takes_the_slave_miner() {
         .stable_id();
     let attacker = sim.substrate.entities.get(tank).unwrap();
     assert_eq!(
-        attacker.attack_target.as_ref().map(|target| target.target),
+        attacker.attack_target.target(),
         Some(TargetKind::Entity(miner))
     );
     // The Slave Miner's TechnoClass word and its one slave's, then the

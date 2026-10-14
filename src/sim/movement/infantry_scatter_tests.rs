@@ -222,7 +222,8 @@ fn forced_gates_and_draw_match_original_hut_caller() {
             .set_infantry_doing_verified(input["doing"].as_i64().unwrap() as i32)
             .unwrap();
         if flag("attack") {
-            man.attack_target = Some(crate::sim::combat::AttackTarget::new(9));
+            man.attack_target
+                .set_for_test(Some(crate::sim::combat::TargetKind::Entity(9)));
         }
         let mut loco = LocomotorState::for_test_kind(LocomotorKind::Walk);
         loco.set_walk_destination(flag("moving").then(|| DriveCoord::cell(6, 5, 0)));
@@ -290,7 +291,8 @@ fn forced_no_kidding_gates_match_native_walk_and_jumpjet_rows() {
                 },
             );
             if flag("has_target") {
-                man.attack_target = Some(crate::sim::combat::AttackTarget::new(9));
+                man.attack_target
+                    .set_for_test(Some(crate::sim::combat::TargetKind::Entity(9)));
             }
             let mut loco = LocomotorState::for_test_kind(kind);
             if let Some(state) = loco.jumpjet_runtime_mut() {
@@ -378,7 +380,9 @@ fn damage_gates_match_original_execution() {
         victim.locomotor = Some(loco);
         set_mission(&mut victim, MissionType::Guard);
         if flag("target", false) {
-            victim.attack_target = Some(crate::sim::combat::AttackTarget::new(9));
+            victim
+                .attack_target
+                .set_for_test(Some(crate::sim::combat::TargetKind::Entity(9)));
         }
         if flag("nav", false) {
             victim.navigation.nav_com = Some(NavTargetRef::cell(9, 9));

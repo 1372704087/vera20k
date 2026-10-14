@@ -908,8 +908,18 @@ pub(crate) fn process_boarding_passenger(
         if let Some(pax) = sim.substrate.entities.get_mut(pax_id) {
             pax.passenger_role
                 .set_inside_transport(transport_id, transport_open_topped);
+            // RESIDUAL: native boarding keeps the passenger's TarCom and
+            // passive flag: PerCellProcess's transport arms (Infantry
+            // `0x0051A3FC..0x0051A47E`, Unit `0x0073A28A..0x0073A31C` and
+            // `0x0073A6E8..0x0073A793`) write neither, nor does Limbo. VERA
+            // clears both for a closed transport. Trigger: boarding a closed
+            // transport while holding a target, which the Enter order's class
+            // setter has already cleared, so only a target acquired after the
+            // order. Effect: native's passenger leaves the transport still
+            // holding it. Frequency: rare. Risk: an unloaded passenger does
+            // not resume that attack.
             if !transport_open_topped {
-                pax.attack_target = None;
+                pax.attack_target.set(None);
                 pax.passively_acquired_target = false;
             }
         }
@@ -1015,7 +1025,8 @@ pub(crate) fn add_garrison_occupant(
     };
     if let Some(pax) = sim.substrate.entities.get_mut(pax_id) {
         pax.passenger_role.set_inside_transport(building_id, false);
-        pax.attack_target = None;
+        // The residual this function records: native Limbo keeps TarCom.
+        pax.attack_target.set(None);
         pax.passively_acquired_target = false;
     }
     sim.refresh_spatial_threat(building_id, rules, None);
@@ -1746,7 +1757,7 @@ ConditionYellow=50%
             ConcealOutcome::Concealed
         );
         let entity = sim.substrate.entities.get(rider).unwrap();
-        assert!(entity.attack_target.is_none());
+        assert!(entity.attack_target.target().is_none());
         assert_eq!(entity.passenger_role.inside_transport(), Some((hull, true)));
         assert!(
             entity.in_logic_vector,
@@ -1782,6 +1793,7 @@ ConditionYellow=50%
                 .get(rider)
                 .unwrap()
                 .attack_target
+                .target()
                 .is_some(),
             "repeated Limbo skips the native first-live target clear"
         );
@@ -2769,10 +2781,10 @@ ConditionYellow=50%
         let passenger =
             spawn_entering_infantry(&mut sim, &rules, "E1", "Americans", transport, 10, 10);
         let actor = sim.substrate.entities.get_mut(passenger).unwrap();
+        actor.health.set_for_test(row["input"]["health"].as_i64().unwrap() as i32);
         actor
-            .health
-            .set_for_test(row["input"]["health"].as_i64().unwrap() as i32);
-        actor.attack_target = Some(crate::sim::combat::AttackTarget::new(transport));
+            .attack_target
+            .set_for_test(Some(crate::sim::combat::TargetKind::Entity(transport)));
         actor
             .mission_leaf
             .set_foot_firing_sequence(row["before"]["firing_latch"].as_u64().unwrap() as u8);
@@ -2785,7 +2797,7 @@ ConditionYellow=50%
             PassengerRole::Inside { transport_id, open_topped: true }
                 if transport_id == transport
         ));
-        assert!(actor.attack_target.is_none());
+        assert!(actor.attack_target.target().is_none());
         // Original51B20E clears68D on a changed live target before any Doing
         // admission. Limbo51DF10 has already forced Ready during boarding;
         // therefore only this independent native latch output is transported

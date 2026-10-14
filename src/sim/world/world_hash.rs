@@ -17,7 +17,7 @@ use crate::sim::state_hasher::{self, StateHasher};
 mod retained_cell_hash_tests {
     use super::*;
     use crate::map::resolved_terrain::ResolvedTerrainGrid;
-    use crate::sim::combat::{AttackTarget, TargetKind};
+    use crate::sim::combat::TargetKind;
     use crate::sim::components::NavTargetRef;
     use crate::sim::game_entity::GameEntity;
 
@@ -32,16 +32,14 @@ mod retained_cell_hash_tests {
         // Every cell is deliberately unallocated. These different requested
         // coordinates retain the same process object; hashing may not stamp it.
         for retained_field in 0..7 {
-            entity.attack_target = None;
+            entity.attack_target.set_for_test(None);
             entity.suspended_attack_target = None;
             entity.set_archive_target(None);
             entity.navigation = Default::default();
             match retained_field {
-                0 => {
-                    entity.attack_target = Some(AttackTarget {
-                        target: TargetKind::Cell(1, 2),
-                    })
-                }
+                0 => entity
+                    .attack_target
+                    .set_for_test(Some(TargetKind::Cell(1, 2))),
                 1 => entity.suspended_attack_target = Some(TargetKind::Cell(3, 4)),
                 2 => entity.set_archive_target(Some(TargetKind::Cell(5, 6))),
                 3 => entity.navigation.nav_com = Some(NavTargetRef::cell(7, 8)),
@@ -588,7 +586,7 @@ impl Simulation {
                     };
                     self.substrate.entities.values().any(|entity| {
                         [
-                            entity.attack_target.as_ref().map(|attack| attack.target),
+                            entity.attack_target.target(),
                             entity.suspended_attack_target,
                             entity.archive_target(),
                         ]
@@ -1760,10 +1758,10 @@ fn hash_entity(entity: &GameEntity, frame: u32, hasher: &mut StateHasher) {
         0u8.hash(hasher);
     }
 
-    if let Some(ref attack) = entity.attack_target {
+    if let Some(target) = entity.attack_target.target() {
         1u8.hash(hasher);
 
-        attack.target.hash(hasher);
+        target.hash(hasher);
     } else {
         0u8.hash(hasher);
     }

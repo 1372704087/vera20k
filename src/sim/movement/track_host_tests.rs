@@ -1637,13 +1637,15 @@ fn per_cell_factory_harvester_queue_uses_live_readiness_and_preserves_miner_stat
 
 #[test]
 fn idle_receiver_cancels_burst_through_the_shared_target_setter() {
-    use crate::sim::combat::{AttackTarget, TargetKind};
+    use crate::sim::combat::TargetKind;
     use crate::sim::components::NavTargetRef;
     for family in [TrackFamily::Drive, TrackFamily::Ship] {
         for has_destination in [false, true] {
             let (mut sim, _, _) = fixture(family, 0);
             let entity = sim.substrate.entities.get_mut(1).unwrap();
-            entity.attack_target = Some(AttackTarget::for_cell(12, 10));
+            entity
+                .attack_target
+                .set_for_test(Some(TargetKind::Cell(12, 10)));
             entity.passively_acquired_target = true;
             entity.weapon_burst.complete_shot(2);
             entity.navigation.nav_com = has_destination.then(|| NavTargetRef::cell(12, 10));
@@ -1652,7 +1654,7 @@ fn idle_receiver_cancels_burst_through_the_shared_target_setter() {
             assert_eq!(entity.weapon_burst.index(), i32::from(has_destination));
             assert_eq!(entity.passively_acquired_target, has_destination);
             assert_eq!(
-                entity.attack_target.as_ref().map(|target| target.target),
+                entity.attack_target.target(),
                 has_destination.then_some(TargetKind::Cell(12, 10)),
             );
             assert_eq!(
@@ -1677,7 +1679,7 @@ fn native_depot_arrival_uses_the_original_terminal_handoff() {
     use crate::rules::art_data::ArtRegistry;
     use crate::rules::ini_parser::IniFile;
     use crate::rules::native_processing::{RulesLayerKind, RulesLayerStack};
-    use crate::sim::combat::{AttackTarget, TargetKind};
+    use crate::sim::combat::TargetKind;
     use crate::sim::components::NavTargetRef;
     use crate::sim::estimated_health::EstimatedHealth;
     use crate::sim::mission::MissionDispatchTimer;
@@ -1961,7 +1963,8 @@ fn native_depot_arrival_uses_the_original_terminal_handoff() {
             .is_string()
             .then_some(NavTargetRef::Building { id: depot });
         unit.navigation.nav_com_aux = None;
-        unit.attack_target = other.map(AttackTarget::new);
+        unit.attack_target
+            .set_for_test(other.map(TargetKind::Entity));
         let destination = &before["locomotor_destination"];
         let destination = DriveCoord {
             x: integer(&destination[0]),
@@ -2115,8 +2118,7 @@ fn native_depot_arrival_uses_the_original_terminal_handoff() {
                 .get(tank)
                 .unwrap()
                 .attack_target
-                .as_ref()
-                .map(|target| target.target),
+                .target(),
             (row["supplied_after"]["target"] == "other")
                 .then(|| TargetKind::Entity(other.unwrap())),
             "{context}: retained target"

@@ -1864,7 +1864,7 @@ fn restore_object_references(
     identities: &BTreeMap<u64, &'static str>,
 ) -> Result<(), SnapshotRestoreError> {
     use crate::sim::combat::TargetKind;
-    use crate::sim::game_entity::BunkerLink;
+    use crate::sim::docking::bunker_link::BunkerLink;
     use crate::sim::projectile::ProjectileTarget;
 
     let entity_ids: BTreeSet<u64> = sim.substrate.entities.keys_sorted().into_iter().collect();
@@ -2019,7 +2019,7 @@ fn restore_object_references(
                 target_id,
             )?;
         }
-        if let Some(TargetKind::Entity(target_id)) = entity.suspended_attack_target {
+        if let Some(TargetKind::Entity(target_id)) = entity.suspended_attack_target.target() {
             require_resolved_reference(
                 entity_ids.contains(&target_id),
                 "EntityStore",
@@ -2135,7 +2135,7 @@ fn restore_object_references(
         if let Some(target_id) = entity
             .miner
             .as_ref()
-            .and_then(|miner| miner.reserved_refinery)
+            .and_then(|miner| miner.reserved_refinery())
         {
             require_resolved_reference(
                 entity_ids.contains(&target_id),
@@ -2200,7 +2200,7 @@ fn restore_object_references(
                 system_id,
             )?;
         }
-        if let Some(target_id) = entity.bunker_occupant {
+        if let Some(target_id) = entity.bunker.occupant() {
             require_resolved_reference(
                 entity_ids.contains(&target_id),
                 "EntityStore",
@@ -2211,7 +2211,7 @@ fn restore_object_references(
             )?;
         }
         if let BunkerLink::Approaching(target_id) | BunkerLink::Installed(target_id) =
-            entity.bunker_link
+            entity.bunker.link()
         {
             require_resolved_reference(
                 entity_ids.contains(&target_id),
@@ -2223,7 +2223,7 @@ fn restore_object_references(
             )?;
         }
         if let Some(runtime) = entity.bunker_runtime.as_ref()
-            && let Some(target_id) = runtime.installing_unit
+            && let Some(target_id) = runtime.installing_unit()
         {
             require_resolved_reference(
                 entity_ids.contains(&target_id),
@@ -2380,12 +2380,13 @@ fn restore_object_references(
 
     // A deliberate weak identity: C4 kill credit may outlive its attacker.
     for entity in sim.substrate.entities.values_mut() {
-        if let Some(pending) = entity.pending_c4_detonation.as_mut()
-            && pending
-                .source_entity_id
-                .is_some_and(|id| !entity_ids.contains(&id))
+        if entity
+            .pending_c4_detonation
+            .pending()
+            .and_then(|pending| pending.source_entity_id())
+            .is_some_and(|id| !entity_ids.contains(&id))
         {
-            pending.source_entity_id = None;
+            entity.pending_c4_detonation.forget_source();
         }
     }
 
@@ -5162,10 +5163,16 @@ mod tests {
         sim.session.house_order.push(owner);
         let mut responder =
             crate::sim::game_entity::GameEntity::test_default(1, "E1", "Computer1", 4, 5);
-        responder.base_defense_response.recruitable_a = false;
-        responder.base_defense_response.recruitable_b = true;
+        responder
+            .base_defense_response
+            .set_recruitable_a_for_test(false);
+        responder
+            .base_defense_response
+            .set_recruitable_b_for_test(true);
         responder.set_archive_target(Some(crate::sim::combat::TargetKind::Entity(9)));
-        responder.base_defense_response.cooldown = crate::sim::timer::CdTimer::started(-11, 225);
+        responder
+            .base_defense_response
+            .set_cooldown_for_test(crate::sim::timer::CdTimer::started(-11, 225));
         sim.substrate.entities.insert(responder);
         let script_id = sim.interner.intern("BaseDefenseScript");
         let task_force_id = sim.interner.intern("BaseDefenseTaskForce");
@@ -5274,14 +5281,14 @@ mod tests {
         );
         let restored_responder = restored.substrate.entities.get(1).unwrap();
         let response = restored_responder.base_defense_response;
-        assert!(!response.recruitable_a);
-        assert!(response.recruitable_b);
+        assert!(!response.recruitable_a());
+        assert!(response.recruitable_b());
         assert_eq!(
             restored_responder.archive_target(),
             Some(crate::sim::combat::TargetKind::Entity(9))
         );
         assert_eq!(
-            response.cooldown,
+            response.cooldown(),
             crate::sim::timer::CdTimer::started(-11, 225)
         );
         let team = restored.team_script_vm.team(team_id).unwrap();
@@ -5831,8 +5838,9 @@ mod tests {
         use crate::map::entities::EntityCategory;
         use crate::sim::combat::Health;
         use crate::sim::combat::combat_weapon::WeaponSlot;
-        use crate::sim::game_entity::{DelayedFire, GameEntity, PendingBuildingFire};
+        use crate::sim::game_entity::GameEntity;
         use crate::sim::projectile::ProjectileCoord;
+        use crate::sim::world::{DelayedFire, PendingBuildingFire};
 
         let mut sim = Simulation::new();
         let owner = sim.interner.intern("Soviet");
@@ -5858,25 +5866,23 @@ mod tests {
         // authoritative delayed-fire state on that same post-load cursor.
         sim.scenario_rng = crate::sim::rng::SimRng::new(0);
         let without_latch = sim.state_hash();
-        let shot = PendingBuildingFire {
-            remaining_ticks: 17,
-            fire: DelayedFire::Weapon(WeaponSlot::Secondary),
-        };
+        let shot = PendingBuildingFire::new(17, DelayedFire::Weapon(WeaponSlot::Secondary));
         sim.substrate
             .entities
             .get_mut(1)
             .expect("Tesla Coil")
-            .pending_building_fire = Some(shot);
+            .pending_building_fire
+            .set_for_test(Some(shot));
         let with_latch = sim.state_hash();
         assert_ne!(with_latch, without_latch);
-        let beam = PendingBuildingFire {
-            remaining_ticks: 17,
-            fire: DelayedFire::SupportBeam {
+        let beam = PendingBuildingFire::new(
+            17,
+            DelayedFire::SupportBeam {
                 to: ProjectileCoord::new(1280, 1408, 378),
             },
-        };
+        );
         let supporter = sim.substrate.entities.get_mut(2).expect("second tower");
-        supporter.pending_building_fire = Some(beam);
+        supporter.pending_building_fire.set_for_test(Some(beam));
         supporter.prism_support_count.set_for_test(3);
         let with_beam = sim.state_hash();
         assert_ne!(with_beam, with_latch);
@@ -5886,8 +5892,14 @@ mod tests {
             .expect("delayed-fire snapshot")
             .sim;
         let entities = &restored.substrate.entities;
-        assert_eq!(entities.get(1).unwrap().pending_building_fire, Some(shot));
-        assert_eq!(entities.get(2).unwrap().pending_building_fire, Some(beam));
+        assert_eq!(
+            entities.get(1).unwrap().pending_building_fire.pending(),
+            Some(shot)
+        );
+        assert_eq!(
+            entities.get(2).unwrap().pending_building_fire.pending(),
+            Some(beam)
+        );
         assert_eq!(entities.get(2).unwrap().prism_support_count.count(), 3);
         assert_eq!(restored.state_hash(), with_beam);
     }
@@ -6346,8 +6358,8 @@ mod tests {
         aircraft.crate_multipliers.set_armor_multiplier_for_test(
             crate::util::native_x87::NativeF64Bits::from_bits(1.5_f64.to_bits()),
         );
-        aircraft.berserk.active = true;
-        aircraft.berserk.timer = -17;
+        aircraft.berserk.set_active_for_test(true);
+        aircraft.berserk.set_timer_for_test(-17);
         aircraft
             .ai_sell_repair
             .set_was_attacked_by_enemy_for_test(true);
@@ -6359,10 +6371,12 @@ mod tests {
                 &[3, 4],
             ),
         );
-        aircraft.pending_c4_detonation = Some(crate::sim::components::PendingC4Detonation {
-            timer: crate::sim::timer::CdTimer::started(11, 35),
-            source_entity_id: Some(3),
-        });
+        aircraft.pending_c4_detonation.set_for_test(Some(
+            crate::sim::c4_plant::PendingC4Detonation::new(
+                crate::sim::timer::CdTimer::started(11, 35),
+                Some(3),
+            ),
+        ));
         sim.substrate.entities.insert(aircraft);
         sim.substrate
             .entities
@@ -6453,12 +6467,12 @@ mod tests {
             .get_mut(entity_id)
             .unwrap()
             .berserk
-            .timer = -18;
+            .set_timer_for_test(-18);
         assert_ne!(sim.state_hash(), expected_hash, "berserk timer is hashed");
         {
             let entity = sim.substrate.entities.get_mut(entity_id).unwrap();
-            entity.berserk.timer = -17;
-            entity.berserk.active = false;
+            entity.berserk.set_timer_for_test(-17);
+            entity.berserk.set_active_for_test(false);
         }
         assert_ne!(
             sim.state_hash(),
@@ -6470,7 +6484,7 @@ mod tests {
             .get_mut(entity_id)
             .unwrap()
             .berserk
-            .active = true;
+            .set_active_for_test(true);
         sim.substrate
             .entities
             .get_mut(entity_id)
@@ -6556,16 +6570,16 @@ mod tests {
         assert_eq!(entity.air_spatial_bucket(), Some(143));
         assert_eq!(entity.air_spatial_enter_order(), 91);
         assert_eq!(entity.crate_multipliers.armor().bits(), 1.5_f64.to_bits());
-        assert!(entity.berserk.active);
-        assert_eq!(entity.berserk.timer, -17);
+        assert!(entity.berserk.is_active());
+        assert_eq!(entity.berserk.timer(), -17);
         assert!(entity.ai_sell_repair.was_attacked_by_enemy());
         assert_eq!(entity.damage_smoke_system_id.system(), Some(2));
         assert_eq!(
-            entity.pending_c4_detonation,
-            Some(crate::sim::components::PendingC4Detonation {
-                timer: crate::sim::timer::CdTimer::started(11, 35),
-                source_entity_id: Some(3),
-            })
+            entity.pending_c4_detonation.pending(),
+            Some(crate::sim::c4_plant::PendingC4Detonation::new(
+                crate::sim::timer::CdTimer::started(11, 35),
+                Some(3)
+            ))
         );
         assert_eq!(
             entity
@@ -7446,10 +7460,12 @@ mod tests {
         let mut entity = GameEntity::test_default(entity_id, "MTNK", "AMERICANS", 5, 6);
         entity.set_owner_for_test(owner);
         entity.set_type_ref_for_test(type_ref);
-        entity.pending_c4_detonation = Some(crate::sim::components::PendingC4Detonation {
-            timer: crate::sim::timer::CdTimer::from_raw(-1, 0),
-            source_entity_id: Some(999),
-        });
+        entity.pending_c4_detonation.set_for_test(Some(
+            crate::sim::c4_plant::PendingC4Detonation::new(
+                crate::sim::timer::CdTimer::from_raw(-1, 0),
+                Some(999),
+            ),
+        ));
         sim.substrate.entities.insert(entity);
         sim.add_entity_occupancy(entity_id);
 
@@ -7506,7 +7522,8 @@ mod tests {
                 .get(entity_id)
                 .expect("entity")
                 .pending_c4_detonation
-                .and_then(|pending| pending.source_entity_id),
+                .pending()
+                .and_then(|pending| pending.source_entity_id()),
             None,
             "a successful restore cleans a dangling weak reference"
         );
@@ -7529,10 +7546,12 @@ mod tests {
         let mut sim = Simulation::new();
         let entity_id = sim.allocate_stable_id();
         let mut entity = GameEntity::test_default(entity_id, "MTNK", "AMERICANS", 5, 6);
-        entity.pending_c4_detonation = Some(crate::sim::components::PendingC4Detonation {
-            timer: crate::sim::timer::CdTimer::from_raw(-1, 0),
-            source_entity_id: Some(999),
-        });
+        entity.pending_c4_detonation.set_for_test(Some(
+            crate::sim::c4_plant::PendingC4Detonation::new(
+                crate::sim::timer::CdTimer::from_raw(-1, 0),
+                Some(999),
+            ),
+        ));
         sim.substrate.entities.insert(entity);
 
         let particle_id = sim.allocate_stable_id();
@@ -7561,7 +7580,8 @@ mod tests {
                 .get(entity_id)
                 .expect("entity")
                 .pending_c4_detonation
-                .and_then(|pending| pending.source_entity_id),
+                .pending()
+                .and_then(|pending| pending.source_entity_id()),
             Some(999),
             "failed restoration must not clean a later weak reference"
         );
@@ -7636,10 +7656,12 @@ mod tests {
         let target = sim.allocate_stable_id();
 
         let mut parent_entity = GameEntity::test_default(parent, "CARRIER", "AMERICANS", 1, 1);
-        parent_entity.pending_c4_detonation = Some(crate::sim::components::PendingC4Detonation {
-            timer: crate::sim::timer::CdTimer::from_raw(-1, 0),
-            source_entity_id: Some(9_999),
-        });
+        parent_entity.pending_c4_detonation.set_for_test(Some(
+            crate::sim::c4_plant::PendingC4Detonation::new(
+                crate::sim::timer::CdTimer::from_raw(-1, 0),
+                Some(9_999),
+            ),
+        ));
         parent_entity.spawn_manager = Some(SpawnManagerState {
             spawn_type: sim.interner.intern("HORNET"),
             missile_family: None,
@@ -7791,7 +7813,8 @@ mod tests {
                     .get(ids.parent)
                     .unwrap()
                     .pending_c4_detonation
-                    .and_then(|pending| pending.source_entity_id),
+                    .pending()
+                    .and_then(|pending| pending.source_entity_id()),
                 Some(9_999),
                 "{role:?} rejection must precede later weak-reference cleanup"
             );
@@ -8316,11 +8339,13 @@ mod tests {
             let id = index as u64 + 1;
             let mut entity = GameEntity::test_default(id, "MTNK", "Americans", 5, 5);
             entity.mission_leaf = leaf;
-            entity.suspended_attack_target = Some(if index & 1 == 0 {
-                TargetKind::Entity(100 + id)
-            } else {
-                TargetKind::Cell(index as u16, (index + 1) as u16)
-            });
+            entity
+                .suspended_attack_target
+                .set_for_test(Some(if index & 1 == 0 {
+                    TargetKind::Entity(100 + id)
+                } else {
+                    TargetKind::Cell(index as u16, (index + 1) as u16)
+                }));
             entity.set_falling_down_for_test(index & 1 == 0);
             entity.locomotor = Some(LocomotorState::for_test_kind(LocomotorKind::Drive));
             if index == 0 {
@@ -8356,7 +8381,8 @@ mod tests {
             });
             assert_eq!(entity.mission_leaf, leaf);
             assert_eq!(
-                entity.suspended_attack_target, expected_suspended_target,
+                entity.suspended_attack_target.target(),
+                expected_suspended_target,
                 "suspended TargetKind variant and payload must round-trip"
             );
             assert_eq!(entity.is_falling_down(), index & 1 == 0);

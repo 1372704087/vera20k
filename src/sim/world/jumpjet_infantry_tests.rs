@@ -868,7 +868,7 @@ fn rocketeer_crash_fixture(
     {
         let entity = sim.substrate.entities.get_mut(1).unwrap();
         entity.animation = Some(crate::sim::animation::Animation::new(SequenceKind::Stand));
-        entity.infantry = Some(crate::sim::game_entity::InfantryRuntime::new());
+        entity.infantry = Some(crate::sim::infantry::InfantryRuntime::new());
         entity.mission_leaf = crate::sim::mission::leaf::MissionLeafState::for_entity_category(
             EntityCategory::Infantry,
         );
@@ -1548,7 +1548,11 @@ fn a_moving_rocketeers_reorder_runs_stop_driver_first() {
             0,
         );
         rocketeer.navigation.nav_com = Some(crate::sim::components::NavTargetRef::cell(60, 52));
-        rocketeer.infantry.as_mut().unwrap().cell_entry_blocked = held;
+        rocketeer
+            .infantry
+            .as_mut()
+            .unwrap()
+            .set_cell_entry_blocked_for_test(held);
         order(&mut sim, &rules, (60, 52));
         assert_rocketeer_flies_near(&sim, (60, 52));
         sim.substrate
@@ -1558,7 +1562,7 @@ fn a_moving_rocketeers_reorder_runs_stop_driver_first() {
             .infantry
             .as_ref()
             .unwrap()
-            .cell_entry_blocked
+            .cell_entry_blocked()
     };
     assert_eq!(answer(false), answer(true));
 }
@@ -1573,7 +1577,8 @@ fn foot_admission_refuses_a_rocketeers_order_during_a_locomotor_swap() {
         .entities
         .get_mut(1)
         .unwrap()
-        .foot_locomotor_swap_active = true;
+        .lift
+        .set_swap_active_for_test(true);
     assert_eq!(
         sim.assign_infantry_destination(
             1,

@@ -1084,7 +1084,7 @@ fn global_skirmish_replay_is_deterministic_and_baseline_stable() {
             miner_cut_ore |= harvester
                 .miner
                 .as_ref()
-                .is_some_and(|miner| !miner.cargo.is_empty());
+                .is_some_and(|miner| !miner.cargo().is_empty());
         }
         log.record_tick(tick, due, result.state_hash);
         if STREAM_CHECKPOINT_TICKS.contains(&tick) {

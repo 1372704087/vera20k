@@ -504,10 +504,10 @@ impl crate::sim::world::Simulation {
             return false;
         };
         let refused = nonnull
-            && (entity.foot_locomotor_swap_active
+            && (entity.lift.swap_active()
                 || entity.passenger_role.in_open_transport()
-                || entity.bunker_link.installed_in().is_some());
-        let holds = entity.locomotor_target.is_some();
+                || entity.bunker.link().installed_in().is_some());
+        let holds = entity.lift.target().is_some();
         self.substrate
             .entities
             .get_mut(id)

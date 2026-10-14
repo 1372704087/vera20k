@@ -93,7 +93,7 @@ impl Simulation {
                     .substrate
                     .entities
                     .get(id)
-                    .is_some_and(|entity| entity.berserk.active)
+                    .is_some_and(|entity| entity.berserk.is_active())
             })
             .collect()
     }
@@ -240,7 +240,8 @@ impl Simulation {
             }
             return crate::sim::production::undeploy_target(rules, &object.id).is_some();
         }
-        if !self.house_is_human_player(actor.owner()) || actor.bunker_link.installed_in().is_some()
+        if !self.house_is_human_player(actor.owner())
+            || actor.bunker.link().installed_in().is_some()
         {
             return false;
         }
@@ -891,7 +892,7 @@ impl Simulation {
             .entities
             .get(building_id)
             .and_then(|building| {
-                let pending = building.pending_c4_detonation?;
+                let pending = building.pending_c4_detonation.pending()?;
                 let object = rules.object(self.interner.resolve(building.type_ref()))?;
                 Some((
                     pending,
@@ -903,7 +904,7 @@ impl Simulation {
         else {
             return false;
         };
-        if !pending.timer.expired(self.session.binary_frame as i32) || health <= 0 {
+        if !pending.timer().expired(self.session.binary_frame as i32) || health <= 0 {
             return false;
         }
 
@@ -916,7 +917,7 @@ impl Simulation {
                 frame_effects,
             );
             if let Some(hut) = self.substrate.entities.get_mut(building_id) {
-                hut.pending_c4_detonation = None;
+                hut.pending_c4_detonation.cancel();
             }
             return changed;
         }
@@ -926,7 +927,7 @@ impl Simulation {
             health,
             0,
             pending
-                .source_entity_id
+                .source_entity_id()
                 .unwrap_or(crate::sim::combat::RAD_NO_ATTACKER),
             None,
             self.rule_handles().c4,
@@ -1050,7 +1051,11 @@ mod click_order_receiver_tests {
             spawn("MTNK", 6),
         );
         for id in [gassed_man, gassed_tank] {
-            sim.entities_mut().get_mut(id).unwrap().berserk.active = true;
+            sim.entities_mut()
+                .get_mut(id)
+                .unwrap()
+                .berserk
+                .set_active_for_test(true);
         }
         assert_eq!(
             sim.click_order_receivers(&[gassed_tank, tank, gassed_man, first]),

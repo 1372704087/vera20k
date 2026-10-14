@@ -518,7 +518,7 @@ pub(super) fn capability_cursor_for_hover(
                 return CursorFeedbackKind::Deploy;
             }
             // Own occupied tank bunker self-hover → eject (deploy cursor).
-            if entity.bunker_occupant.is_some() {
+            if entity.bunker.occupant().is_some() {
                 return CursorFeedbackKind::Deploy;
             }
             if rules.is_some_and(|rules| {
@@ -709,7 +709,7 @@ pub(super) fn capability_cursor_for_hover(
         // bunker shows the enter cursor (the click issues EnterBunker).
         if matches!(hover.kind, HoverTargetKind::FriendlyStructure)
             && hovered_entity
-                .is_some_and(|he| he.bunker_runtime.is_some() && he.bunker_occupant.is_none())
+                .is_some_and(|he| he.bunker_runtime.is_some() && he.bunker.occupant().is_none())
             && rules.is_some_and(|r| {
                 crate::sim::docking::bunker_link::can_auto_deploy_here(sim, best_id, r)
             })
@@ -985,7 +985,7 @@ pub(crate) fn select_best_for_action(
             continue;
         };
         let obj = rules.and_then(|r| r.object(sim.interner.resolve(entity.type_ref())));
-        let priority = if entity.berserk.active {
+        let priority = if entity.berserk.is_active() {
             0
         } else if !obj.is_some_and(|obj| is_armed(entity, obj)) {
             2
@@ -1730,7 +1730,7 @@ mod tests {
     fn bunker_stationary_force_fire_out_of_range_uses_native_default_arrow() {
         use crate::map::resolved_terrain::ResolvedTerrainGrid;
         use crate::sim::combat::TargetKind;
-        use crate::sim::game_entity::BunkerLink;
+        use crate::sim::docking::bunker_link::BunkerLink;
 
         let (mut sim, rules, tank) = sim_with_track_tank();
         sim.session.game_mode_nonzero = true;
@@ -1744,7 +1744,11 @@ mod tests {
                 })
                 .collect(),
         ));
-        sim.entities_mut().get_mut(tank).unwrap().bunker_link = BunkerLink::Installed(99);
+        sim.entities_mut()
+            .get_mut(tank)
+            .unwrap()
+            .bunker
+            .set_bunker_link_for_test(BunkerLink::Installed(99));
         assert_eq!(
             force_fire_feedback(&sim, tank, &TargetKind::Cell(20, 2), 1, Some(&rules), None),
             Some(None),
@@ -1835,7 +1839,7 @@ Verses=100%,100%,100%,100%,100%,100%,100%,100%,100%,100%,100%
     fn bunker_attack_actions_follow_native_entry_and_display_corpus() {
         use crate::app::input::context_order::{AttackAction, armed_action, attack_action};
         use crate::sim::combat::TargetKind;
-        use crate::sim::game_entity::BunkerLink;
+        use crate::sim::docking::bunker_link::BunkerLink;
         let corpus: serde_json::Value = serde_json::from_str(crate::test_fixture::text(
             "tools/spatial_oracle/bunker_attack_action.json",
         ))
@@ -1849,7 +1853,11 @@ Verses=100%,100%,100%,100%,100%,100%,100%,100%,100%,100%,100%
             let case = &row["input"];
             let (mut sim, rules, actor) = stationary_attack_fixture();
             if case["installed"].as_bool().unwrap() {
-                sim.entities_mut().get_mut(actor).unwrap().bunker_link = BunkerLink::Installed(99);
+                sim.entities_mut()
+                    .get_mut(actor)
+                    .unwrap()
+                    .bunker
+                    .set_bunker_link_for_test(BunkerLink::Installed(99));
             }
             // Active rearm never belongs to WhatAction's control/range gate.
             sim.entities_mut()
@@ -2232,12 +2240,16 @@ Verses=100%,100%,100%,100%,100%,100%,100%,100%,100%,100%,100%
         use crate::app::input::context_order::armed_action;
         use crate::map::resolved_terrain::ResolvedTerrainGrid;
         use crate::sim::combat::TargetKind;
-        use crate::sim::game_entity::BunkerLink;
+        use crate::sim::docking::bunker_link::BunkerLink;
         let (mut sim, rules, actor) = stationary_attack_fixture();
         let target = sim
             .spawn_object("TANK", "Soviets", 4, 2, 0, &rules)
             .unwrap();
-        sim.entities_mut().get_mut(actor).unwrap().bunker_link = BunkerLink::Installed(99);
+        sim.entities_mut()
+            .get_mut(actor)
+            .unwrap()
+            .bunker
+            .set_bunker_link_for_test(BunkerLink::Installed(99));
         for id in [actor, target] {
             let entity = sim.entities_mut().get_mut(id).unwrap();
             entity.lifecycle.cell_marked = true;
@@ -2512,7 +2524,11 @@ Verses=100%,100%,100%,100%,100%,100%,100%,100%,100%,100%,100%
             )
         };
         assert_eq!(best(&sim), Some(tank));
-        sim.entities_mut().get_mut(tank).unwrap().berserk.active = true;
+        sim.entities_mut()
+            .get_mut(tank)
+            .unwrap()
+            .berserk
+            .set_active_for_test(true);
         assert_eq!(best(&sim), Some(truck));
     }
 

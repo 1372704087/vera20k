@@ -821,7 +821,8 @@ pub const POST_SCATTER_WAIT_FRAMES: i32 = 10;
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::sim::game_entity::{GameEntity, InfantryRuntime};
+    use crate::sim::game_entity::GameEntity;
+    use crate::sim::infantry::InfantryRuntime;
     use crate::sim::occupancy::CellListInsertion;
     use std::collections::BTreeSet;
 
@@ -1307,9 +1308,10 @@ mod tests {
         let mut victim = GameEntity::test_default(2, "E1", "Soviet", 5, 5);
         victim.set_category_for_test(EntityCategory::Infantry);
         victim.crushable_facts.set_crushable_for_test(true);
-        victim.infantry = Some(InfantryRuntime {
-            is_prone: true,
-            ..InfantryRuntime::new()
+        victim.infantry = Some({
+            let mut runtime = InfantryRuntime::new();
+            runtime.set_is_prone_for_test(true);
+            runtime
         });
         entities.insert(victim);
         let interner = crate::sim::intern::test_interner();

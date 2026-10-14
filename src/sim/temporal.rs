@@ -375,7 +375,7 @@ impl Simulation {
                 {
                     return;
                 }
-                match entity.bunker_link.installed_in() {
+                match entity.bunker.link().installed_in() {
                     Some(bunker) if entity.category() == EntityCategory::Unit => {
                         // vtable +0x3C8 Assign_Target(bunker) on the firer.
                         let requested = Some(crate::sim::combat::TargetKind::Entity(bunker));

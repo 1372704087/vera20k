@@ -187,7 +187,7 @@ pub(crate) fn sell_back(
                 // Get_Mission (`vt+0x184`): the current mission, else the
                 // queued one.
                 entity.mission.effective().known() == Some(MissionType::Selling),
-                entity.pending_c4_detonation.is_some(),
+                entity.pending_c4_detonation.pending().is_some(),
             ))
         })
     else {
@@ -390,7 +390,7 @@ pub(crate) fn sell_stage_zero(
         .substrate
         .entities
         .get(id)
-        .and_then(|building| building.bunker_occupant)
+        .and_then(|building| building.bunker.occupant())
         .is_some()
     {
         crate::sim::docking::bunker_link::release_sell_destroy(sim, id, frame_effects);

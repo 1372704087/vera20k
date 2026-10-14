@@ -495,7 +495,11 @@ fn walk_consumer(input: &Value) -> (Simulation, RuleSet, u64) {
     let entity = sim.substrate.entities.get_mut(id).unwrap();
     entity.lifecycle.set_in_limbo_for_test(false);
     entity.health.set_for_test(100);
-    entity.infantry.as_mut().unwrap().is_prone = input["prone"] == true;
+    entity
+        .infantry
+        .as_mut()
+        .unwrap()
+        .set_is_prone_for_test(input["prone"] == true);
     entity
         .mission_leaf
         .set_infantry_doing_verified(input["current"].as_i64().unwrap() as i32)
@@ -542,7 +546,7 @@ fn walk_locomotion_actions_match_original_consumer_rows() {
             "{name}: Doing"
         );
         assert_eq!(
-            entity.infantry.as_ref().unwrap().is_prone,
+            entity.infantry.as_ref().unwrap().is_prone(),
             row["prone"] != 0,
             "{name}: prone"
         );
@@ -655,7 +659,11 @@ fn retail_teleport_default_action_matches_the_native_sequencer() {
         actor.lifecycle.cell_marked = true;
         actor.health.set_for_test(125);
         actor.position.exact_z_leptons = Some(0);
-        actor.infantry.as_mut().unwrap().is_prone = input["prone"].as_bool().unwrap();
+        actor
+            .infantry
+            .as_mut()
+            .unwrap()
+            .set_is_prone_for_test(input["prone"].as_bool().unwrap());
         assert_eq!(
             actor.locomotor.as_ref().unwrap().active_kind(),
             crate::rules::locomotor_type::LocomotorKind::Teleport,

@@ -609,7 +609,8 @@ fn native_pending_entry_and_radio_lifecycle_use_shared_command_owners() {
         let mut scene = scene(&golden, row);
         {
             let unit = scene.sim.substrate.entities.get_mut(scene.tank).unwrap();
-            unit.setter_force_reassign = case["force"] == true;
+            unit.setter_force_reassign
+                .set_for_test(case["force"] == true);
         }
         {
             let contact = scene.sim.substrate.entities.get_mut(scene.depot).unwrap();
@@ -944,7 +945,8 @@ fn native_unit_destination_power_tail_uses_raw_cell_and_shared_setters() {
         let flags = &row["setter_flags_before"];
         {
             let unit = scene.sim.substrate.entities.get_mut(scene.tank).unwrap();
-            unit.setter_force_reassign = int(&flags["force_reassign"]) != 0;
+            unit.setter_force_reassign
+                .set_for_test(int(&flags["force_reassign"]) != 0);
             unit.mission_leaf
                 .set_unit_deployed(int(&flags["deployed"]) as u8);
         }
@@ -1013,7 +1015,7 @@ fn native_unit_destination_power_tail_uses_raw_cell_and_shared_setters() {
         scene.compare(&row["steps"][0]["after"], name);
         let unit = scene.sim.substrate.entities.get(scene.tank).unwrap();
         assert_eq!(
-            u8::from(unit.setter_force_reassign),
+            u8::from(unit.setter_force_reassign.is_raised()),
             int(&row["setter_flags_after"]["force_reassign"]) as u8,
             "{name}: force-reassign byte"
         );

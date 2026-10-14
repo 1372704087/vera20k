@@ -151,7 +151,7 @@ fn fixture(row: &Value, state: &Value, rules: &RuleSet) -> SuppliedFootFixture {
         });
         actor.set_archive_target(archive);
         actor.attack_target.set_for_test(target);
-        actor.suspended_attack_target = suspended_target;
+        actor.suspended_attack_target.set_for_test(suspended_target);
         actor.navigation.suspended_nav_com = suspended_nav;
         actor.navigation.nav_com = nav;
         actor.navigation.nav_com_aux = aux;
@@ -192,10 +192,10 @@ fn fixture(row: &Value, state: &Value, rules: &RuleSet) -> SuppliedFootFixture {
             .mission_leaf
             .set_foot_firing_sequence(signed(&before["firing"]) as u8);
         if let Some(infantry) = actor.infantry.as_mut() {
-            infantry.idle_action_timer = MissionTimer::armed(
+            infantry.set_idle_action_timer_for_test(MissionTimer::armed(
                 signed(&before["idle_timer"][0]) as u32,
                 signed(&before["idle_timer"][2]) as u32,
-            );
+            ));
             actor
                 .mission_leaf
                 .set_infantry_doing_verified(signed(&before["doing"]))
@@ -221,7 +221,7 @@ fn assert_state(f: &mut SuppliedFootFixture, row: &Value, state: &Value) {
             "{name}: retained suspended selector"
         );
         assert_eq!(
-            actor.suspended_attack_target,
+            actor.suspended_attack_target.target(),
             f.target(&pointer(&expected["suspended_target"])),
             "{name}: suspended Target"
         );
@@ -485,8 +485,8 @@ fn area_guard_snapshot_retains_pending_order_post_and_retask_references() {
     let original = f.sim.substrate.entities.get(1).unwrap();
     assert_eq!(actor.mission, original.mission);
     assert_eq!(
-        actor.suspended_attack_target,
-        original.suspended_attack_target
+        actor.suspended_attack_target.target(),
+        original.suspended_attack_target.target()
     );
     assert_eq!(
         actor.navigation.suspended_nav_com,
@@ -510,7 +510,7 @@ fn area_guard_snapshot_retains_pending_order_post_and_retask_references() {
     assert_eq!(actor.archive_target(), original.archive_target());
     assert_eq!(actor.navigation.nav_com, original.navigation.nav_com);
     assert!(actor.archive_target().is_some());
-    assert!(actor.suspended_attack_target.is_none());
+    assert!(actor.suspended_attack_target.target().is_none());
     assert!(actor.navigation.suspended_nav_com.is_none());
     assert!(restored.pending_command_snapshot().is_empty());
 }

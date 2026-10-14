@@ -69,7 +69,7 @@ fn jumpjet_end_admitted(entity: &GameEntity) -> bool {
             && locomotor
                 .jumpjet_runtime()
                 .is_some_and(|runtime| !runtime.moving())
-    }) && (!entity.foot_locomotor_swap_active || entity.lift_may_end)
+    }) && (!entity.lift.swap_active() || entity.lift.may_end())
 }
 
 /// `TeleportLocomotionClass::Is_Ok_To_End @ 0x00719F30`: not moving (its
@@ -83,7 +83,7 @@ fn teleport_end_admitted(entity: &GameEntity) -> bool {
             && locomotor
                 .teleport_runtime()
                 .is_some_and(|runtime| !runtime.is_moving() && runtime.chrono().is_none())
-    }) && !entity.foot_locomotor_swap_active
+    }) && !entity.lift.swap_active()
 }
 
 /// `DriveLocomotionClass::Is_Ok_To_End @ 0x004AF970` tests IsMoving, the
@@ -101,7 +101,7 @@ fn drive_end_admitted(entity: &GameEntity) -> bool {
             && locomotor.piggyback.is_some()
             && locomotor.drive_end_permitted()
     }) && super::motion_query::is_moving(entity) != Some(true)
-        && !entity.foot_locomotor_swap_active
+        && !entity.lift.swap_active()
 }
 
 /// What one END did.
@@ -132,16 +132,9 @@ fn end_piggyback(entity: &mut GameEntity) -> PiggybackEnd {
             lift_ended: false,
         };
     };
-    let mut lift_ended = false;
-    if kind == LocomotorKind::Jumpjet && (entity.foot_locomotor_swap_active || entity.lift_may_end)
-    {
-        entity.foot_locomotor_swap_active = false;
-        entity.lift_may_end = false;
-        lift_ended = true;
-    }
+    let lift_ended = kind == LocomotorKind::Jumpjet && entity.lift.end();
     if matches!(kind, LocomotorKind::Jumpjet | LocomotorKind::Teleport) {
-        entity.manipulated_by = None;
-        entity.warped_by_house = None;
+        entity.drop_credit.forget();
     }
     let restored = entity
         .locomotor

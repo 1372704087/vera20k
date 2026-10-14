@@ -184,7 +184,7 @@ fn fixture(row: &Value) -> (Simulation, RuleSet, OverlayTypeRegistry, u64, Optio
     e.navigation.suspended_nav_com = None;
     e.attack_target
         .set_for_test((input["attack_target"] == true).then_some(TargetKind::Cell(11, 10)));
-    e.suspended_attack_target = None;
+    e.suspended_attack_target.set_for_test(None);
     e.navigation.path_replay.directions = vec![2, 3, 4, 5];
     e.navigation.path_replay.cursor = 0;
     e.navigation.path_replay.reference_cell =
@@ -231,7 +231,7 @@ fn fixture(row: &Value) -> (Simulation, RuleSet, OverlayTypeRegistry, u64, Optio
         e.lifecycle.cell_marked = true;
         e.on_bridge = input["obstacle_deck"] == true;
         let mut cloak = CloakRuntime::new(0);
-        cloak.state = input["cloak"].as_i64().unwrap_or(0) as i32;
+        cloak.set_state_for_test(input["cloak"].as_i64().unwrap_or(0) as i32);
         e.cloak = Some(cloak);
         sim.substrate.occupancy.add(
             10,
@@ -306,7 +306,7 @@ fn compare(sim: &Simulation, id: u64, other: Option<u64>, expected: &Value, row:
         ("suspended_nav", json!(nav(e.navigation.suspended_nav_com))),
         (
             "suspended_target",
-            json!(native_target(e.suspended_attack_target, other)),
+            json!(native_target(e.suspended_attack_target.target(), other)),
         ),
         ("mission", json!(e.mission.current().raw())),
         ("queued_mission", json!(e.mission.queued().raw())),
@@ -342,12 +342,12 @@ fn compare(sim: &Simulation, id: u64, other: Option<u64>, expected: &Value, row:
     let cloak = other.map(|other| sim.substrate.entities.get(other).unwrap().cloak.unwrap());
     let logical = cloak.map_or([0; 6], |c| {
         [
-            c.state,
-            c.depth as i32,
-            c.step_timer.timer.start_frame(),
-            c.step_timer.timer.duration(),
-            c.step_timer.speed,
-            c.step_delta,
+            c.state(),
+            c.depth() as i32,
+            c.step_timer().timer().start_frame(),
+            c.step_timer().timer().duration(),
+            c.step_timer().speed(),
+            c.step_delta(),
         ]
     });
     let expected_cloak: Vec<i32> = [0, 1, 3, 5, 6, 7]

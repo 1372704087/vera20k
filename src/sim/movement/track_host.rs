@@ -1187,7 +1187,7 @@ impl Simulation {
             return saved_base_return;
         }
         // 0x007389B1..0x007389BF: a Magnetron lets go of what it holds.
-        if entity.locomotor_target.is_some() {
+        if entity.lift.target().is_some() {
             self.release_locomotor(id, true, rules, None, effects);
         }
         let Some(entity) = self.substrate.entities.get_mut(id) else {
@@ -1214,7 +1214,7 @@ impl Simulation {
         if !has_destination
             && !miner
             && !armed
-            && (entity.mcv_deploy_pending
+            && (entity.mcv_deploy_pending.is_pending()
                 || current == Some(MissionType::AreaGuard)
                 || (current == Some(MissionType::Unload) && deploys_into))
         {

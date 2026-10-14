@@ -209,7 +209,7 @@ impl<'a> FireSubject<'a> {
             z: self.terrain().map_or(0, |terrain| {
                 crate::sim::movement::ground_pose::object_world_z_leptons(firer, Some(terrain))
             }),
-            berserk: firer.berserk.active,
+            berserk: firer.berserk.is_active(),
             falling: firer.is_falling_down(),
             sinking: firer.sinking.is_active(),
             in_open_transport: firer.passenger_role.in_open_transport(),
@@ -242,11 +242,11 @@ impl<'a> FireSubject<'a> {
                 .aircraft_ammo
                 .as_ref()
                 .map_or(-1, |ammo| ammo.current()),
-            cloak_state: firer.cloak.as_ref().map_or(0, |cloak| cloak.state),
+            cloak_state: firer.cloak.as_ref().map_or(0, |cloak| cloak.state()),
             current_weapon: combat_weapon::attacker_facts(firer, obj).current_weapon_number,
             draining_me: firer.drain.draining_me().is_some(),
             drain_target: link(firer.drain.target()),
-            locomotor_target: link(firer.locomotor_target),
+            locomotor_target: link(firer.lift.target()),
             temporal: firer
                 .temporal
                 .has_link()
@@ -272,7 +272,7 @@ impl<'a> FireSubject<'a> {
                 .map_or(firer.body_facing_current(frame), |facing| {
                     facing.current(frame)
                 }),
-            magnetron_lifted: firer.foot_locomotor_swap_active,
+            magnetron_lifted: firer.lift.swap_active(),
             navcom: firer.navigation.nav_com.is_some(),
             moving_faster_than_tenth: firer.foot_speed.above_tenth(),
             deploying: firer.unit_deploying(),
@@ -293,9 +293,7 @@ impl<'a> FireSubject<'a> {
                 .as_infantry()
                 .map_or(-1, |leaf| leaf.doing()),
             effective_mission: firer.mission.effective().raw(),
-            delayed_fire_counter: firer
-                .pending_building_fire
-                .map_or(0, |pending| pending.remaining_ticks),
+            delayed_fire_counter: firer.pending_building_fire.remaining_ticks(),
             ..FirerFacts::default()
         };
         let firer_type = FirerTypeFacts {
@@ -359,7 +357,7 @@ impl<'a> FireSubject<'a> {
                         draining_me: entity.drain.draining_me().is_some(),
                         warped_out: entity.is_warped_out(),
                         chrono_warp_latch: entity.chrono_warp_latch(),
-                        bunkered: entity.bunker_link.installed_in().is_some(),
+                        bunkered: entity.bunker.link().installed_in().is_some(),
                         health: entity.health,
                         parasite_lock_until: entity.parasite.launch_lock() as i32,
                         deploying: entity.unit_deploying(),

@@ -17,9 +17,8 @@ use crate::rules::ruleset::RuleSet;
 use crate::sim::bridge_state::BridgeRuntimeState;
 use crate::sim::combat::Health;
 use crate::sim::command::Command;
-use crate::sim::components::{NavTargetRef, PendingC4Detonation};
+use crate::sim::components::NavTargetRef;
 use crate::sim::game_entity::GameEntity;
-use crate::sim::timer::CdTimer;
 
 /// Minimal 20x20 synthetic terrain for command admission and C4 fallback
 /// controls. Live ordinary repair uses the shared resident entry fixture.
@@ -294,9 +293,9 @@ fn advance_until_c4_plant(
             .substrate
             .entities
             .get(target_id)
-            .and_then(|b| b.pending_c4_detonation)
+            .and_then(|b| b.pending_c4_detonation.pending())
         {
-            return pending.timer.start_frame() as u64;
+            return pending.timer().start_frame() as u64;
         }
     }
     panic!("no C4 was planted after entering the target building cell");
@@ -352,7 +351,7 @@ fn c4_order_from_a_distance_reaches_the_building_while_moving_or_idle() {
                 sim.substrate
                     .entities
                     .get(cabhut)
-                    .is_some_and(|b| b.pending_c4_detonation.is_some())
+                    .is_some_and(|b| b.pending_c4_detonation.pending().is_some())
             });
             let e = sim.substrate.entities.get(seal).unwrap();
             assert!(
@@ -672,7 +671,7 @@ fn c4_on_cabhut_collapses_bridge_and_hut_survives() {
         sim.substrate
             .entities
             .get(cabhut)
-            .and_then(|b| b.pending_c4_detonation)
+            .and_then(|b| b.pending_c4_detonation.pending())
             .is_none(),
         "adjacent SEAL must not plant C4 before entering CABHUT"
     );
@@ -724,7 +723,7 @@ fn c4_on_cabhut_collapses_bridge_and_hut_survives() {
     );
     assert!(!hut.death.is_dying(), "hut must not be marked dying");
     assert!(
-        hut.pending_c4_detonation.is_none(),
+        hut.pending_c4_detonation.pending().is_none(),
         "CABHUT pending C4 marker must clear after bridge dispatch"
     );
 
@@ -803,14 +802,13 @@ fn a_fused_bomb_on_a_cabhut_collapses_the_bridge_and_reports_it() {
 
 /// `seal`'s C4 charge on `target`, planted this frame.
 fn plant_c4(sim: &mut Simulation, rules: &RuleSet, target: u64, seal: u64) {
+    let frame = sim.session.binary_frame as i32;
     sim.substrate
         .entities
         .get_mut(target)
         .unwrap()
-        .pending_c4_detonation = Some(PendingC4Detonation {
-        timer: CdTimer::started(sim.session.binary_frame as i32, rules.c4_delay_frames()),
-        source_entity_id: Some(seal),
-    });
+        .pending_c4_detonation
+        .plant(frame, rules.c4_delay_frames(), seal);
 }
 
 #[test]
@@ -831,7 +829,7 @@ fn c4_on_cabhut_without_bridge_clears_pending_marker() {
     let hut = sim.substrate.entities.get(cabhut).unwrap();
     assert_eq!(hut.health.current(), cabhut_max_hp);
     assert!(!hut.death.is_dying());
-    assert!(hut.pending_c4_detonation.is_none());
+    assert!(hut.pending_c4_detonation.pending().is_none());
     assert!(
         !bridge_state_changed_seen,
         "no bridge evidence means no bridge-state change"
@@ -869,7 +867,7 @@ fn c4_on_invulnerable_cabhut_still_dispatches_bridge_and_clears_pending() {
     let hut = sim.substrate.entities.get(cabhut).unwrap();
     assert_eq!(hut.health.current(), cabhut_max_hp);
     assert!(!hut.death.is_dying());
-    assert!(hut.pending_c4_detonation.is_none());
+    assert!(hut.pending_c4_detonation.pending().is_none());
     assert!(bridge_state_changed_seen);
     for y in [14, 15, 16] {
         assert_eq!(
@@ -946,7 +944,7 @@ fn c4_on_cabhut_low_overlay_collapses_low_bridge() {
     let hut = sim.substrate.entities.get(cabhut).unwrap();
     assert_eq!(hut.health.current(), hut_hp);
     assert!(!hut.death.is_dying());
-    assert!(hut.pending_c4_detonation.is_none());
+    assert!(hut.pending_c4_detonation.pending().is_none());
     assert!(changed);
     for y in [14, 15, 16] {
         let cell = sim.resolved_terrain.as_ref().unwrap().cell(17, y).unwrap();

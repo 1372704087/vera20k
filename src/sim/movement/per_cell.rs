@@ -201,7 +201,7 @@ impl Simulation {
                 !entity
                     .miner
                     .as_ref()
-                    .is_some_and(|miner| miner.unload_active)
+                    .is_some_and(|miner| miner.unload_active())
             });
         if let Some(rules) = rules.filter(|_| promote) {
             self.mission_host_promote(id, self.session.binary_frame, rules);

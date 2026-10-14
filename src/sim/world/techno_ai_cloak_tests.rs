@@ -4,8 +4,8 @@ use crate::rules::ini_parser::IniFile;
 use crate::sim::combat::TargetKind;
 use crate::sim::combat::combat_weapon::WeaponSlot;
 use crate::sim::components::NavTargetRef;
-use crate::sim::game_entity::{DelayedFire, PendingBuildingFire};
 use crate::sim::snapshot::GameSnapshot;
+use crate::sim::world::{DelayedFire, PendingBuildingFire};
 use crate::util::fixed_math::SimFixed;
 
 fn rules() -> RuleSet {
@@ -60,7 +60,7 @@ fn stock_cloak_producer_healthy_trace_uses_type_speed_and_no_rng() {
             .cloak
             .as_ref()
             .unwrap()
-            .state,
+            .state(),
         1
     );
     assert_eq!(sim.scenario_rng.logical_state(), before);
@@ -103,7 +103,7 @@ fn stock_cloak_producer_healthy_trace_uses_type_speed_and_no_rng() {
             .cloak
             .as_ref()
             .unwrap()
-            .state,
+            .state(),
         2
     );
     assert_eq!(
@@ -137,7 +137,7 @@ fn stock_cloak_producer_current_fire_and_weapons_factory_contact_block_entry() {
             .cloak
             .as_ref()
             .unwrap()
-            .state,
+            .state(),
         0
     );
 
@@ -171,7 +171,7 @@ fn stock_cloak_producer_current_fire_and_weapons_factory_contact_block_entry() {
             .cloak
             .as_ref()
             .unwrap()
-            .state,
+            .state(),
         0
     );
 
@@ -196,7 +196,7 @@ fn stock_cloak_producer_current_fire_and_weapons_factory_contact_block_entry() {
             .cloak
             .as_ref()
             .unwrap()
-            .state,
+            .state(),
         1
     );
 }
@@ -243,7 +243,7 @@ fn fully_cloaked_sub_holding_a_target_does_not_surface() {
             .cloak
             .as_ref()
             .unwrap()
-            .state,
+            .state(),
         2,
         "holding a target is CanAutoCloak step 4, not a ShouldUncloak term"
     );
@@ -277,7 +277,7 @@ fn fully_cloaked_sub_holding_a_target_does_not_surface() {
             .cloak
             .as_ref()
             .unwrap()
-            .state,
+            .state(),
         2
     );
 }
@@ -312,7 +312,7 @@ fn chrono_warp_surfaces_a_fully_cloaked_sub() {
             .cloak
             .as_ref()
             .unwrap()
-            .state,
+            .state(),
         3
     );
     assert!(matches!(
@@ -356,7 +356,7 @@ fn stock_cloak_producer_honors_rank_selected_cloak_ability() {
             .cloak
             .as_ref()
             .unwrap()
-            .state,
+            .state(),
         1
     );
 }
@@ -406,7 +406,7 @@ fn sensor_deposit_alone_never_force_cloaks_an_eligible_unit() {
             .cloak
             .as_ref()
             .unwrap()
-            .state,
+            .state(),
         0,
         "no cloak generator field means the vt+0x420 cloak arm never runs"
     );
@@ -541,10 +541,12 @@ fn already_cloaked_object_is_refused_by_can_auto_cloak_step_two() {
             .rearm_timer
             .set_for_test(crate::sim::timer::CdTimer::started(0, 17));
         entity.weapon_burst.complete_shot(4);
-        entity.pending_building_fire = Some(PendingBuildingFire {
-            remaining_ticks: 7,
-            fire: DelayedFire::Weapon(WeaponSlot::Secondary),
-        });
+        entity
+            .pending_building_fire
+            .set_for_test(Some(PendingBuildingFire::new(
+                7,
+                DelayedFire::Weapon(WeaponSlot::Secondary),
+            )));
         entity.attack_target.set_for_test(Some(attack));
         entity
             .passive_scan
@@ -569,7 +571,7 @@ fn already_cloaked_object_is_refused_by_can_auto_cloak_step_two() {
             .cloak
             .as_ref()
             .unwrap()
-            .state,
+            .state(),
         2
     );
     let entity = sim.substrate.entities.get(targeter).unwrap();
@@ -585,11 +587,11 @@ fn already_cloaked_object_is_refused_by_can_auto_cloak_step_two() {
     );
     assert_eq!(entity.weapon_burst.index(), 1);
     assert_eq!(
-        entity.pending_building_fire,
-        Some(PendingBuildingFire {
-            remaining_ticks: 7,
-            fire: DelayedFire::Weapon(WeaponSlot::Secondary),
-        })
+        entity.pending_building_fire.pending(),
+        Some(PendingBuildingFire::new(
+            7,
+            DelayedFire::Weapon(WeaponSlot::Secondary)
+        ))
     );
     assert_eq!(entity.mission, mission_before);
     assert_eq!(
@@ -645,7 +647,7 @@ fn the_weapon_rearm_countdown_blocks_the_next_auto_cloak() {
                 .cloak
                 .as_ref()
                 .unwrap()
-                .state,
+                .state(),
             0,
             "frame {frame} is still inside the ROF window"
         );
@@ -666,7 +668,7 @@ fn the_weapon_rearm_countdown_blocks_the_next_auto_cloak() {
             .cloak
             .as_ref()
             .unwrap()
-            .state,
+            .state(),
         1,
         "the rearm countdown has expired, so the auto-cloak may begin"
     );
@@ -719,7 +721,7 @@ fn a_non_allied_sensors_neighbour_surfaces_a_cloaked_mover_on_cell_entry() {
             .cloak
             .as_ref()
             .unwrap()
-            .state,
+            .state(),
         3
     );
     assert!(matches!(
@@ -825,7 +827,7 @@ fn start_cloaking_drops_every_targeter_whose_house_cannot_sense_the_cell() {
             .cloak
             .as_ref()
             .unwrap()
-            .state,
+            .state(),
         1
     );
     assert!(

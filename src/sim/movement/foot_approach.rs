@@ -439,7 +439,7 @@ impl Simulation {
         };
         // 4D56A1..56B1: a Magnetron holding its target (+2AC == TarCom)
         // does not approach it.
-        if matches!(target, TargetKind::Entity(target) if actor.locomotor_target == Some(target)) {
+        if matches!(target, TargetKind::Entity(target) if actor.lift.target() == Some(target)) {
             return Ok(None);
         }
         let object = self
@@ -510,7 +510,7 @@ impl Simulation {
             .is_none_or(|h| h.is_controlled_by_human(self.session.game_mode_nonzero));
         let may_approach = object.can_approach_target
             && actor.drain.target().is_none()
-            && actor.bunker_link.installed_in().is_none()
+            && actor.bunker.link().installed_in().is_none()
             && !actor.passenger_role.in_open_transport();
         if !can_fire
             && (mission == Some(MissionType::Sticky)

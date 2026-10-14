@@ -45,14 +45,16 @@ mod retained_cell_hash_tests {
         // coordinates retain the same process object; hashing may not stamp it.
         for retained_field in 0..7 {
             entity.attack_target.set_for_test(None);
-            entity.suspended_attack_target = None;
+            entity.suspended_attack_target.set_for_test(None);
             entity.set_archive_target(None);
             entity.navigation = Default::default();
             match retained_field {
                 0 => entity
                     .attack_target
                     .set_for_test(Some(TargetKind::Cell(1, 2))),
-                1 => entity.suspended_attack_target = Some(TargetKind::Cell(3, 4)),
+                1 => entity
+                    .suspended_attack_target
+                    .set_for_test(Some(TargetKind::Cell(3, 4))),
                 2 => entity.set_archive_target(Some(TargetKind::Cell(5, 6))),
                 3 => entity.navigation.nav_com = Some(NavTargetRef::cell(7, 8)),
                 4 => entity.navigation.nav_com_aux = Some(NavTargetRef::cell(9, 10)),
@@ -708,7 +710,7 @@ impl Simulation {
                     self.substrate.entities.values().any(|entity| {
                         [
                             entity.attack_target.target(),
-                            entity.suspended_attack_target,
+                            entity.suspended_attack_target.target(),
                             entity.archive_target(),
                         ]
                         .into_iter()
@@ -1746,7 +1748,7 @@ fn hash_entity(entity: &GameEntity, frame: u32, hasher: &mut StateHasher) {
     entity.sight.range().hash(hasher);
     entity.sight.is_zero().hash(hasher);
     entity.sight_refresh_timers.hash(hasher);
-    if entity.gap_generator != crate::sim::vision::GapGeneratorRuntime::default() {
+    if entity.gap_generator != crate::sim::world::GapGeneratorRuntime::default() {
         b"gap-operational-v144".hash(hasher);
         entity.gap_generator.hash(hasher);
     }
@@ -1795,37 +1797,37 @@ fn hash_entity(entity: &GameEntity, frame: u32, hasher: &mut StateHasher) {
     }
     entity.foot_speed.crate_multiplier().hash(hasher);
     entity.foot_occupation_enabled.hash(hasher);
-    entity.foot_locomotor_swap_active.hash(hasher);
+    entity.lift.swap_active().hash(hasher);
     // The Magnetron's links and drop (Techno+2AC/+2B0/+427/+428) and
     // the warp or drop credit house (Techno+42C) are clear outside a
     // lift or a warp; Foot+6AE stays up after any Jumpjet touchdown
     // until an END clears it. Tagged like +0x1F8 below.
-    if entity.lift_may_end {
+    if entity.lift.may_end() {
         0x6ae_u32.hash(hasher);
     }
-    if let Some(target) = entity.locomotor_target {
+    if let Some(target) = entity.lift.target() {
         0x2ac_u32.hash(hasher);
         target.hash(hasher);
     }
-    if let Some(source) = entity.locomotor_source {
+    if let Some(source) = entity.lift.source() {
         0x2b0_u32.hash(hasher);
         source.hash(hasher);
     }
-    if entity.being_manipulated {
+    if entity.drop_credit.being_manipulated() {
         0x427_u32.hash(hasher);
     }
-    if let Some(firer) = entity.manipulated_by {
+    if let Some(firer) = entity.drop_credit.manipulated_by() {
         0x428_u32.hash(hasher);
         firer.hash(hasher);
     }
-    if let Some(house) = entity.warped_by_house {
+    if let Some(house) = entity.drop_credit.warped_by_house() {
         0x42c_u32.hash(hasher);
         house.hash(hasher);
     }
     // Techno+0x1F8 is up only between the Teleporter arm's can't-end
     // branch and the next Unit setter call; the tag keeps every
     // established stream unchanged while it is clear.
-    if entity.setter_force_reassign {
+    if entity.setter_force_reassign.is_raised() {
         0x1f8_u32.hash(hasher);
     }
     // Techno+0x284 stays zero until a blocked Chronosphere landing
@@ -1857,14 +1859,14 @@ fn hash_entity(entity: &GameEntity, frame: u32, hasher: &mut StateHasher) {
     entity.low_bridge_tube_state.hash(hasher);
     if let Some(cloak) = entity.cloak.as_ref() {
         1u8.hash(hasher);
-        cloak.state.hash(hasher);
-        cloak.depth.hash(hasher);
-        cloak.step_delta.hash(hasher);
-        cloak.step_timer.timer.start_frame().hash(hasher);
-        cloak.step_timer.speed.hash(hasher);
-        cloak.step_timer.timer.duration().hash(hasher);
-        cloak.recloak_delay.start_frame().hash(hasher);
-        cloak.recloak_delay.duration().hash(hasher);
+        cloak.state().hash(hasher);
+        cloak.depth().hash(hasher);
+        cloak.step_delta().hash(hasher);
+        cloak.step_timer().timer().start_frame().hash(hasher);
+        cloak.step_timer().speed().hash(hasher);
+        cloak.step_timer().timer().duration().hash(hasher);
+        cloak.recloak_delay().start_frame().hash(hasher);
+        cloak.recloak_delay().duration().hash(hasher);
     } else {
         0u8.hash(hasher);
     }
@@ -1906,7 +1908,7 @@ fn hash_entity(entity: &GameEntity, frame: u32, hasher: &mut StateHasher) {
     entity.rearm_timer.start_frame().hash(hasher);
     entity.rearm_timer.duration().hash(hasher);
     entity.weapon_burst.hash(hasher);
-    entity.pending_building_fire.hash(hasher);
+    entity.pending_building_fire.pending().hash(hasher);
     if entity.prism_support_count.count() != 0 {
         b"prism-support-count-v1".hash(hasher);
         entity.prism_support_count.count().hash(hasher);
@@ -1930,17 +1932,17 @@ fn hash_entity(entity: &GameEntity, frame: u32, hasher: &mut StateHasher) {
     }
 
     entity.hash_capture_infantry_type(hasher);
-    match entity.pending_c4_detonation {
+    match entity.pending_c4_detonation.pending() {
         Some(pending) => {
             true.hash(hasher);
-            pending.timer.remaining(frame as i32).hash(hasher);
-            pending.source_entity_id.hash(hasher);
+            pending.timer().remaining(frame as i32).hash(hasher);
+            pending.source_entity_id().hash(hasher);
         }
         None => false.hash(hasher),
     }
-    entity.bunker_occupant.hash(hasher);
+    entity.bunker.occupant().hash(hasher);
     // Reciprocal link + install machine are authoritative lifecycle state.
-    entity.bunker_link.hash(hasher);
+    entity.bunker.link().hash(hasher);
     entity.bunker_runtime.hash(hasher);
     if let Some(gate) = entity.building_gate {
         1u8.hash(hasher);
@@ -1953,16 +1955,16 @@ fn hash_entity(entity: &GameEntity, frame: u32, hasher: &mut StateHasher) {
 
     // Unit+68C remains the deployment authority. The former MCV-only
     // turn observation now hashes once in its retained locomotor class.
-    if entity.mcv_deploy_pending {
+    if entity.mcv_deploy_pending.is_pending() {
         0x4d435644u32.hash(hasher);
-        entity.mcv_deploy_pending.hash(hasher);
+        entity.mcv_deploy_pending.is_pending().hash(hasher);
     }
     entity.hash_deploy_attachment(hasher);
 
     if let Some(infantry) = entity.infantry {
         1u8.hash(hasher);
-        infantry.fear_level.hash(hasher);
-        infantry.is_prone.hash(hasher);
+        infantry.fear_level().hash(hasher);
+        infantry.is_prone().hash(hasher);
         // The idle-fidget countdown gates a scenario-RNG draw, so a
         // divergence here becomes a divergence of every later draw.
         // Folded in every schema variant rather than behind a gate: the
@@ -1971,11 +1973,11 @@ fn hash_entity(entity: &GameEntity, frame: u32, hasher: &mut StateHasher) {
         // tick, so their legacy probes already move with the draws this
         // timer schedules. Gating it would hide the field without
         // buying those probes back.
-        infantry.idle_action_timer.hash(hasher);
+        infantry.idle_action_timer().hash(hasher);
         // Infantry+6DC is written only by the failed-path receiver
         // 0x51DAF0; the tagged extension keeps every established
         // stream unchanged until a receiver actually stores 1.
-        if infantry.cell_entry_blocked {
+        if infantry.cell_entry_blocked() {
             0x36DC_u32.hash(hasher);
         }
     } else {
@@ -1987,9 +1989,9 @@ fn hash_entity(entity: &GameEntity, frame: u32, hasher: &mut StateHasher) {
         // The FSM cursor retired from this block at the substate-
         // authority flip: it is MissionCom.handler_state, folded by
         // `hash_mission_com` (and the pre-v29 reconstruction).
-        (miner.kind as u8).hash(hasher);
-        (miner.cargo.len() as u16).hash(hasher);
-        for bale in &miner.cargo {
+        (miner.kind() as u8).hash(hasher);
+        (miner.cargo().len() as u16).hash(hasher);
+        for bale in miner.cargo() {
             (bale.resource_type as u8).hash(hasher);
             bale.value.hash(hasher);
         }
@@ -1998,7 +2000,7 @@ fn hash_entity(entity: &GameEntity, frame: u32, hasher: &mut StateHasher) {
             // home_refinery: None.
             None::<u64>.hash(hasher);
         }
-        miner.reserved_refinery.hash(hasher);
+        miner.reserved_refinery().hash(hasher);
         let native_ore_field = true;
         if !native_ore_field {
             // The retired target_ore_cell (None) and harvest_timer
@@ -2008,8 +2010,8 @@ fn hash_entity(entity: &GameEntity, frame: u32, hasher: &mut StateHasher) {
         }
         if native_ore_field {
             // Unit+0x6D1/+0x6D2; the shared Stage is folded above.
-            miner.unload_active.hash(hasher);
-            miner.harvesting.hash(hasher);
+            miner.unload_active().hash(hasher);
+            miner.harvesting().hash(hasher);
         }
         if retired_dock_fold {
             // dock_queued false, dock_phase Approach (discriminant 0),
@@ -2188,7 +2190,7 @@ fn hash_entity(entity: &GameEntity, frame: u32, hasher: &mut StateHasher) {
         0x004D_9920_u32.hash(hasher);
         true.hash(hasher);
     }
-    match entity.suspended_attack_target {
+    match entity.suspended_attack_target.target() {
         Some(target) => {
             1u8.hash(hasher);
             target.hash(hasher);
@@ -2642,7 +2644,7 @@ mod mission_authority_hash_tests {
 
     fn hash_suspended_target(target: Option<TargetKind>) -> u64 {
         let mut entity = GameEntity::test_default(1, "MTNK", "Americans", 5, 5);
-        entity.suspended_attack_target = target;
+        entity.suspended_attack_target.set_for_test(target);
         hash_entity(entity)
     }
 
@@ -3418,9 +3420,13 @@ mod state_hash_field_tests {
 
         let mut changed = Simulation::new();
         let mut entity = entity;
-        entity.base_defense_response.recruitable_b = false;
+        entity
+            .base_defense_response
+            .set_recruitable_b_for_test(false);
         entity.set_archive_target(Some(crate::sim::combat::TargetKind::Entity(7)));
-        entity.base_defense_response.cooldown = crate::sim::timer::CdTimer::started(12, 225);
+        entity
+            .base_defense_response
+            .set_cooldown_for_test(crate::sim::timer::CdTimer::started(12, 225));
         changed.substrate.entities.insert(entity);
         assert_ne!(baseline_hash, changed.state_hash());
     }
@@ -3909,7 +3915,8 @@ mod infantry_hash_tests {
     use crate::map::entities::EntityCategory;
     use crate::sim::animation::{Animation, SequenceKind};
     use crate::sim::combat::Health;
-    use crate::sim::game_entity::{GameEntity, InfantryRuntime};
+    use crate::sim::game_entity::GameEntity;
+    use crate::sim::infantry::InfantryRuntime;
 
     fn hash_entity(sim: &mut Simulation, category: EntityCategory) -> GameEntity {
         GameEntity::new_at_frame_zero_for_test(
@@ -3982,10 +3989,11 @@ mod infantry_hash_tests {
         let mut sim_b = Simulation::new();
         let mut a = hash_entity(&mut sim_a, EntityCategory::Infantry);
         let b = hash_entity(&mut sim_b, EntityCategory::Infantry);
-        a.infantry = Some(InfantryRuntime {
-            fear_level: 10,
-            is_prone: false,
-            ..InfantryRuntime::new()
+        a.infantry = Some({
+            let mut runtime = InfantryRuntime::new();
+            runtime.set_fear_level_for_test(10);
+            runtime.set_is_prone_for_test(false);
+            runtime
         });
         sim_a.substrate.entities.insert(a);
         sim_b.substrate.entities.insert(b);
@@ -3995,10 +4003,11 @@ mod infantry_hash_tests {
         let mut sim_b = Simulation::new();
         let mut a = hash_entity(&mut sim_a, EntityCategory::Infantry);
         let b = hash_entity(&mut sim_b, EntityCategory::Infantry);
-        a.infantry = Some(InfantryRuntime {
-            fear_level: 0,
-            is_prone: true,
-            ..InfantryRuntime::new()
+        a.infantry = Some({
+            let mut runtime = InfantryRuntime::new();
+            runtime.set_fear_level_for_test(0);
+            runtime.set_is_prone_for_test(true);
+            runtime
         });
         sim_a.substrate.entities.insert(a);
         sim_b.substrate.entities.insert(b);
@@ -4011,9 +4020,10 @@ mod infantry_hash_tests {
         let mut sim_b = Simulation::new();
         let mut a = hash_entity(&mut sim_a, EntityCategory::Infantry);
         let b = hash_entity(&mut sim_b, EntityCategory::Infantry);
-        a.infantry = Some(InfantryRuntime {
-            cell_entry_blocked: true,
-            ..InfantryRuntime::new()
+        a.infantry = Some({
+            let mut runtime = InfantryRuntime::new();
+            runtime.set_cell_entry_blocked_for_test(true);
+            runtime
         });
         sim_a.substrate.entities.insert(a);
         sim_b.substrate.entities.insert(b);
@@ -4420,8 +4430,8 @@ mod rocking_hash_tests {
 mod c4_hash_tests {
     use super::Simulation;
     use crate::map::entities::EntityCategory;
+    use crate::sim::c4_plant::PendingC4Detonation;
     use crate::sim::combat::Health;
-    use crate::sim::components::PendingC4Detonation;
     use crate::sim::game_entity::GameEntity;
 
     #[test]
@@ -4453,10 +4463,11 @@ mod c4_hash_tests {
             .entities
             .get_mut(id)
             .unwrap()
-            .pending_c4_detonation = Some(PendingC4Detonation {
-            timer: crate::sim::timer::CdTimer::started(100, 30),
-            source_entity_id: Some(7),
-        });
+            .pending_c4_detonation
+            .set_for_test(Some(PendingC4Detonation::new(
+                crate::sim::timer::CdTimer::started(100, 30),
+                Some(7),
+            )));
         let h_with_pending = sim.state_hash();
         assert_ne!(
             h_initial, h_with_pending,

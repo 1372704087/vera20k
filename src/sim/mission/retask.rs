@@ -173,7 +173,7 @@ impl Simulation {
             self.begin_megamission_retask(id, mission, target, destination, rules, frame_effects);
         self.queue_order_mission(id, queued);
         if let Some(entity) = self.substrate.entities.get_mut(id) {
-            entity.suspended_attack_target = None;
+            entity.suspended_attack_target.clear();
             if entity.category() != crate::map::entities::EntityCategory::Structure {
                 entity.navigation.suspended_nav_com = None;
             }

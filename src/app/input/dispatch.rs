@@ -2803,7 +2803,7 @@ fn deploy_key_commands(
             }) && sim
                 .entities()
                 .get(id)
-                .is_some_and(|entity| !entity.berserk.active)
+                .is_some_and(|entity| !entity.berserk.is_active())
                 && !(mixed && deployed(id) == Some(true))
         })
         .filter_map(|id| deploy_key_command(sim, rules, id, local_owner))
@@ -3370,7 +3370,11 @@ mod deploy_key_tests {
             deploy_key_commands(&sim, Some(&rules), &[heli], sim.session.current_house),
             [Command::DeployMcv { entity_id: heli }]
         );
-        sim.entities_mut().get_mut(heli).unwrap().berserk.active = true;
+        sim.entities_mut()
+            .get_mut(heli)
+            .unwrap()
+            .berserk
+            .set_active_for_test(true);
         assert!(
             deploy_key_commands(&sim, Some(&rules), &[heli], sim.session.current_house).is_empty()
         );
@@ -3431,7 +3435,11 @@ mod deploy_key_tests {
             .mission_leaf
             .set_infantry_doing_verified(28)
             .unwrap();
-        sim.entities_mut().get_mut(gassed).unwrap().berserk.active = true;
+        sim.entities_mut()
+            .get_mut(gassed)
+            .unwrap()
+            .berserk
+            .set_active_for_test(true);
         let toggle = |entity_id| Command::ToggleInfantryDeploy { entity_id };
         let commands = |selection: &[u64]| {
             deploy_key_commands(&sim, Some(&rules), selection, sim.session.current_house)

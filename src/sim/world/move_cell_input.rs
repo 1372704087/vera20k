@@ -140,7 +140,7 @@ impl Simulation {
             Some(&cells),
         );
         let controllable = self.techno_player_controllable(id, rules);
-        let mut action = if entity.berserk.active
+        let mut action = if entity.berserk.is_active()
             || entity.is_warped_out()
             || entity.is_warping_in()
             || !controllable
@@ -389,7 +389,7 @@ impl Simulation {
             },
             MoveAction::Move => false,
         };
-        if refused || entity.berserk.active {
+        if refused || entity.berserk.is_active() {
             return Ok(None);
         }
         let target_entity = self

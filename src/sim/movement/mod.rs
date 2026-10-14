@@ -109,6 +109,7 @@ mod track_fresh_dispatch;
 pub(crate) mod track_head;
 mod track_host;
 mod track_path;
+pub(crate) use track_path::SetterForceReassign;
 pub(crate) mod track_process;
 mod track_speed;
 pub(crate) mod track_turn;

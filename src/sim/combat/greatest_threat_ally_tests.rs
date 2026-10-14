@@ -336,6 +336,10 @@ fn a_controlled_transports_rider_takes_its_own_house_and_spares_the_controllers(
     assert_eq!(scan(&entities), None);
     place(&mut entities, 5, "GI", OWNER, (8, 5), infantry, 100);
     assert_eq!(scan(&entities), Some(5), "the rider's own house's man");
-    entities.get_mut(RIDER).unwrap().berserk.active = true;
+    entities
+        .get_mut(RIDER)
+        .unwrap()
+        .berserk
+        .set_active_for_test(true);
     assert!(matches!(scan(&entities), Some(5 | 7)), "berserk");
 }

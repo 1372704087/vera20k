@@ -103,8 +103,8 @@ fn stock_cloak_tick_facts(
             .is_some_and(|contact_type| contact_type.weapons_factory)
     });
     let current_frame = sim.session.binary_frame as i32;
-    let cloak_state = entity.cloak.as_ref().map_or(0, |cloak| cloak.state);
-    let cloak_progress = entity.cloak.as_ref().map_or(0, |cloak| cloak.depth);
+    let cloak_state = entity.cloak.as_ref().map_or(0, |cloak| cloak.state());
+    let cloak_progress = entity.cloak.as_ref().map_or(0, |cloak| cloak.depth());
     let delay_expired = entity.cloak.as_ref().is_some_and(|cloak| {
         cloak.recloak_delay_expired(current_frame, entity.rearm_timer.timer())
     });
@@ -180,7 +180,7 @@ fn stock_cloak_tick_facts(
         // 7. `+0x2B0 && Foot && +0x6AD` (`0x006FBF57..0x006FBF7D`): an
         //    object a Magnetron holds aloft (`sim::locomotor_lift`). This
         //    producer serves Units only, so the Foot test holds.
-        && !(entity.locomotor_source.is_some() && entity.foot_locomotor_swap_active)
+        && !(entity.lift.source().is_some() && entity.lift.swap_active())
         // 8. `GetHeight() < 1`.
         && crate::sim::movement::air_movement::current_fly_height(
             entity,
@@ -604,16 +604,9 @@ pub(super) fn tick_stock_cloak_producer(
         return;
     }
 
-    if sim
-        .substrate
-        .entities
-        .get(id)
-        .is_some_and(|entity| entity.cloak.is_none())
-        && let Some(entity) = sim.substrate.entities.get_mut(id)
-    {
-        entity.cloak = Some(crate::sim::cloak_disguise::CloakRuntime::new(
-            sim.session.binary_frame as i32,
-        ));
+    let frame = sim.session.binary_frame as i32;
+    if let Some(entity) = sim.substrate.entities.get_mut(id) {
+        crate::sim::cloak_disguise::CloakRuntime::install_if_absent(&mut entity.cloak, frame);
     }
 
     let Some(facts) = stock_cloak_tick_facts(sim, id, rules) else {

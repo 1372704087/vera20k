@@ -241,7 +241,7 @@ impl ParasiteVictimFacts {
                 && target.health.current() != 0
                 && target.parasite.eater().is_none()
                 && target_obj.parasiteable
-                && target.bunker_link.installed_in().is_none(),
+                && target.bunker.link().installed_in().is_none(),
             on_water_set,
         }
     }
@@ -997,7 +997,10 @@ pub(crate) fn techno_target_facts<'a>(
         },
         on_bridge: target.on_bridge,
         cell_land_type,
-        submerged: target.cloak.as_ref().is_some_and(|cloak| cloak.state != 0),
+        submerged: target
+            .cloak
+            .as_ref()
+            .is_some_and(|cloak| cloak.state() != 0),
         is_ally,
     }
 }

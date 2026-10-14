@@ -817,7 +817,7 @@ fn sourceless_infantry_hit_takes_the_refused_scatter_arm_and_the_fear_ladder() {
         let victim = entities.get(2).unwrap();
         assert_eq!(victim.health.current(), 90);
         assert_eq!(
-            victim.infantry.as_ref().unwrap().fear_level,
+            victim.infantry.as_ref().unwrap().fear_level(),
             12,
             "human={human}"
         );
@@ -1160,14 +1160,14 @@ fn retail_gassed_infantry_scatters_and_fears() {
             },
         );
         let victim = sim.substrate.entities.get(ids[0]).unwrap();
-        assert!(victim.berserk.active, "{type_id} goes berserk");
+        assert!(victim.berserk.is_active(), "{type_id} goes berserk");
         assert_eq!(
             victim.health.current(),
             rules.object(type_id).unwrap().strength,
             "gas does no damage"
         );
         (
-            victim.infantry.as_ref().map(|man| man.fear_level),
+            victim.infantry.as_ref().map(|man| man.fear_level()),
             victim.navigation.nav_com.is_some(),
             victim.mission.queued().known(),
             pings.iter().any(|ping| ping.miner),
@@ -1221,7 +1221,7 @@ fn retail_gassed_infantry_drops_its_fire_and_path() {
         },
     );
     let man = sim.substrate.entities.get(ids[0]).unwrap();
-    assert!(man.berserk.active);
+    assert!(man.berserk.is_active());
     assert!(man.attack_target.target().is_none());
     assert_eq!(man.mission_leaf.foot_firing_sequence_latch(), 0);
     assert!(man.navigation.path_replay.remaining_directions().is_empty());
@@ -1244,7 +1244,7 @@ fn retail_berserk_gi_calms_down_in_the_frame_its_time_ends() {
     let gi = sim
         .spawn_object("E1", "Russians", 10, 10, 0, &rules)
         .unwrap();
-    let berserk = |active, timer| crate::sim::game_entity::BerserkState { active, timer };
+    let berserk = |active, timer| crate::sim::combat::BerserkState::for_test(active, timer);
     sim.substrate.entities.get_mut(gi).unwrap().berserk = berserk(true, 2);
     let frame = |sim: &mut Simulation| {
         sim.advance_tick(&[], Some(&rules), Some(&grid), None, 33);
@@ -1300,7 +1300,12 @@ fn retail_berserk_gi_targets_its_own_house() {
     for mask in masks {
         assert_eq!(scan(&mut sim, mask), None, "calm, {mask:?}");
     }
-    sim.substrate.entities.get_mut(gi).unwrap().berserk.active = true;
+    sim.substrate
+        .entities
+        .get_mut(gi)
+        .unwrap()
+        .berserk
+        .set_active_for_test(true);
     for mask in masks {
         assert_eq!(scan(&mut sim, mask), Some(ally), "berserk, {mask:?}");
     }
@@ -1541,7 +1546,7 @@ fn make_infantry_entity(id: u64, type_ref: &str, rx: u16, ry: u16, hp: i32) -> G
         crate::sim::mission::leaf::MissionLeafState::for_entity_category(EntityCategory::Infantry);
     e.set_is_voxel_for_test(false);
     e.animation = None;
-    e.infantry = Some(crate::sim::game_entity::InfantryRuntime::new());
+    e.infantry = Some(crate::sim::infantry::InfantryRuntime::new());
     e
 }
 
@@ -2208,7 +2213,13 @@ fn combat_damage_landed_applies_infantry_fear() {
     );
 
     assert_eq!(
-        store.get(2).unwrap().infantry.as_ref().unwrap().fear_level,
+        store
+            .get(2)
+            .unwrap()
+            .infantry
+            .as_ref()
+            .unwrap()
+            .fear_level(),
         100
     );
 }
@@ -2252,7 +2263,7 @@ fn ic_target_takes_zero_damage() {
             .unwrap()
             .infantry
             .as_ref()
-            .is_some_and(|inf| inf.fear_level == 0),
+            .is_some_and(|inf| inf.fear_level() == 0),
         "invulnerable targets should not gain fear because no damage lands"
     );
 }
@@ -2361,7 +2372,9 @@ fn gsi_04_07_damage_wall_dies_in_the_tail_after_both_attackers_fire() {
         ai_counter: 0,
         dispatch_timer: MissionDispatchTimer::at_frame(0),
     });
-    second.suspended_attack_target = Some(TargetKind::Entity(10));
+    second
+        .suspended_attack_target
+        .set_for_test(Some(TargetKind::Entity(10)));
     entities.insert(second);
     let mut interner = test_interner();
     let _handles =
@@ -2493,7 +2506,9 @@ fn gsi_04_07_damage_prior_projectile_fatal_death_weapon_is_inline() {
                 ai_counter: 0,
                 dispatch_timer: MissionDispatchTimer::at_frame(0),
             });
-        later_attacker.suspended_attack_target = Some(TargetKind::Entity(30));
+        later_attacker
+            .suspended_attack_target
+            .set_for_test(Some(TargetKind::Entity(30)));
         entities.insert(later_attacker);
         entities.insert(make_entity(30, "TARGET", 5, 5, 100));
         let mut interner = test_interner();
@@ -4591,10 +4606,11 @@ fn gsi_04_07_damage_postmortem_stock_barrel_delay_and_nested_order() {
         .entities
         .get_mut(edge)
         .unwrap()
-        .pending_c4_detonation = Some(crate::sim::components::PendingC4Detonation {
-        timer: crate::sim::timer::CdTimer::started(0, 40),
-        source_entity_id: Some(center),
-    });
+        .pending_c4_detonation
+        .set_for_test(Some(crate::sim::c4_plant::PendingC4Detonation::new(
+            crate::sim::timer::CdTimer::started(0, 40),
+            Some(center),
+        )));
     sim.overlay_grid = Some(OverlayGrid::new(20, 12));
     sim.resolved_terrain = Some(crate::sim::tiberium::test_support::flat_terrain(20, 12));
     sim.overlay_grid.as_mut().unwrap().place_overlay(8, 5, 0, 0);
@@ -4615,14 +4631,14 @@ fn gsi_04_07_damage_postmortem_stock_barrel_delay_and_nested_order() {
         sim.substrate
             .entities
             .get(id)
-            .and_then(|entity| entity.pending_c4_detonation)
+            .and_then(|entity| entity.pending_c4_detonation.pending())
             .expect("qualifying fatal barrel becomes PostMortem")
     };
-    assert_eq!(pending(&sim, center).timer.duration(), 5);
-    assert_eq!(pending(&sim, middle).timer.duration(), 20);
-    assert_eq!(pending(&sim, edge).timer.duration(), 35);
+    assert_eq!(pending(&sim, center).timer().duration(), 5);
+    assert_eq!(pending(&sim, middle).timer().duration(), 20);
+    assert_eq!(pending(&sim, edge).timer().duration(), 35);
     assert_eq!(
-        pending(&sim, edge).source_entity_id,
+        pending(&sim, edge).source_entity_id(),
         None,
         "center's exact-zero Destroy notification expires the retained source pointer"
     );
@@ -4649,6 +4665,7 @@ fn gsi_04_07_damage_postmortem_stock_barrel_delay_and_nested_order() {
             .get(middle)
             .unwrap()
             .pending_c4_detonation
+            .pending()
             .is_none()
     );
 
@@ -4775,10 +4792,11 @@ fn gsi_04_07_damage_postmortem_exact_zero_callbacks_precede_restore() {
         .get(target_id)
         .unwrap()
         .pending_c4_detonation
+        .pending()
         .expect("PostMortem arms the shared timer after callbacks");
-    assert_eq!(pending.timer.start_frame(), 0);
-    assert_eq!(pending.timer.duration(), 5);
-    assert_eq!(pending.source_entity_id, None);
+    assert_eq!(pending.timer().start_frame(), 0);
+    assert_eq!(pending.timer().duration(), 5);
+    assert_eq!(pending.source_entity_id(), None);
     let target = sim.substrate.entities.get(target_id).unwrap();
     assert_eq!(target.health.current(), 1);
     assert!(target.lifecycle.object_alive() && !target.lifecycle.in_limbo());
@@ -4877,7 +4895,10 @@ fn gsi_04_07_damage_postmortem_exact_zero_callbacks_precede_restore() {
     hit(&mut sim);
     let target = sim.substrate.entities.get(target_id).unwrap();
     assert_eq!(target.health.current(), 1);
-    assert_eq!(target.pending_c4_detonation, Some(original_pending));
+    assert_eq!(
+        target.pending_c4_detonation.pending(),
+        Some(original_pending)
+    );
     assert!(target.lifecycle.object_alive() && target.in_logic_vector.is_member());
     assert!(sim.substrate.occupancy.contains_entity(8, 5, target_id));
     assert!(!sim.substrate.pending_delete.contains_object(&target_id));
@@ -6295,7 +6316,11 @@ fn prone_infantry_uses_prone_fire_sequence_and_frame() {
     let rules = infantry_fire_frame_rules();
     let mut store = EntityStore::new();
     let mut attacker = make_infantry_entity(1, "E1", 5, 5, 125);
-    attacker.infantry.as_mut().unwrap().is_prone = true;
+    attacker
+        .infantry
+        .as_mut()
+        .unwrap()
+        .set_is_prone_for_test(true);
     attacker
         .mission_leaf
         .set_infantry_doing_verified(2)
@@ -6321,7 +6346,7 @@ fn prone_infantry_uses_prone_fire_sequence_and_frame() {
     assert_eq!(attacker.mission_leaf.foot_firing_sequence_latch(), 1);
     assert_eq!(attacker.mission_leaf.as_infantry().unwrap().doing(), 8);
     assert_eq!(attacker.infantry_sprite_pose(), Some((8, 0)));
-    assert!(attacker.infantry.as_ref().unwrap().is_prone);
+    assert!(attacker.infantry.as_ref().unwrap().is_prone());
     assert_eq!(store.get(2).unwrap().health.current(), 125);
 
     set_infantry_stage(&mut store, 1, 2);
@@ -6354,7 +6379,7 @@ fn prone_infantry_uses_prone_fire_sequence_and_frame() {
     let attacker = store.get(1).unwrap();
     assert_eq!(attacker.mission_leaf.foot_firing_sequence_latch(), 0);
     assert_eq!(attacker.infantry_sprite_pose(), Some((8, 3)));
-    assert!(attacker.infantry.as_ref().unwrap().is_prone);
+    assert!(attacker.infantry.as_ref().unwrap().is_prone());
     let ev = &result.consequences.fire_events()[0];
     assert_eq!(interner.resolve(ev.weapon_id), "M60");
     assert_eq!(ev.weapon_slot, WeaponSlot::Primary);
@@ -6394,7 +6419,7 @@ fn deployed_gi_uses_deployed_fire_visual_with_deploy_fire_weapon() {
     assert_eq!(attacker.mission_leaf.foot_firing_sequence_latch(), 1);
     assert_eq!(attacker.mission_leaf.as_infantry().unwrap().doing(), 29);
     assert_eq!(attacker.infantry_sprite_pose(), Some((29, 0)));
-    assert!(!attacker.infantry.as_ref().unwrap().is_prone);
+    assert!(!attacker.infantry.as_ref().unwrap().is_prone());
     assert_eq!(store.get(2).unwrap().health.current(), 300);
 
     // This supplied GI has SecondaryFire=4 and a standing secondary record.
@@ -6593,7 +6618,11 @@ fn test_prone_infantry_takes_scaled_direct_damage() {
     let mut store = EntityStore::new();
     store.insert(make_entity(1, "MTNK", 5, 5, 300));
     let mut target = make_infantry_entity(2, "E2", 8, 5, 125);
-    target.infantry.as_mut().unwrap().is_prone = true;
+    target
+        .infantry
+        .as_mut()
+        .unwrap()
+        .set_is_prone_for_test(true);
     store.insert(target);
 
     let mut interner = test_interner();
@@ -6639,7 +6668,11 @@ fn test_prone_infantry_takes_scaled_aoe_damage() {
     let mut store = EntityStore::new();
     store.insert(make_entity(1, "MTNK", 5, 5, 300));
     let mut target = make_infantry_entity(2, "E2", 8, 5, 125);
-    target.infantry.as_mut().unwrap().is_prone = true;
+    target
+        .infantry
+        .as_mut()
+        .unwrap()
+        .set_is_prone_for_test(true);
     store.insert(target);
 
     let mut interner = test_interner();
@@ -10981,7 +11014,9 @@ fn gsi_08_05_a_bunkered_vehicle_takes_the_bunker_damage_multiplier() {
         let mut store = EntityStore::new();
         let mut firer = make_entity_owned(1, "HTNK", 5, 5, 300, "Soviet");
         if bunkered {
-            firer.bunker_link = crate::sim::game_entity::BunkerLink::Installed(99);
+            firer.bunker.set_bunker_link_for_test(
+                crate::sim::docking::bunker_link::BunkerLink::Installed(99),
+            );
         }
         store.insert(firer);
         let _ = test_intern("MTNK");
@@ -11607,7 +11642,7 @@ fn gsi_08_05_a_berserk_firer_rearms_at_half_its_rof() {
         let rules = test_rules();
         let mut store = EntityStore::new();
         let mut tank = make_entity_owned(1, "MTNK", 5, 5, 300, "Soviet");
-        tank.berserk.active = berserk;
+        tank.berserk.set_active_for_test(berserk);
         store.insert(tank);
         store.insert(make_entity_owned(2, "MTNK", 7, 5, 300, "Americans"));
         let mut interner = test_interner();

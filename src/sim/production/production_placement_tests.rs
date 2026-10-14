@@ -3621,7 +3621,7 @@ fn a_sale_refunds_regardless_of_health_and_clears_peer_contacts() {
 #[test]
 fn sell_back_admits_by_control_buildup_and_firestorm_wall() {
     use super::{SellOrder, can_sell_building, sell_back};
-    use crate::sim::components::PendingC4Detonation;
+    use crate::sim::c4_plant::PendingC4Detonation;
     use crate::sim::world::SimSoundEvent;
     let mut rules = RuleSet::from_ini(&IniFile::from_str(
         "[InfantryTypes]\n[VehicleTypes]\n[AircraftTypes]\n\
@@ -3757,10 +3757,11 @@ fn sell_back_admits_by_control_buildup_and_firestorm_wall() {
         .entities
         .get_mut(1)
         .unwrap()
-        .pending_c4_detonation = Some(PendingC4Detonation {
-        timer: crate::sim::timer::CdTimer::started(0, 100),
-        source_entity_id: None,
-    });
+        .pending_c4_detonation
+        .set_for_test(Some(PendingC4Detonation::new(
+            crate::sim::timer::CdTimer::started(0, 100),
+            None,
+        )));
     assert!(!sell_back(
         &mut sim,
         &rules,

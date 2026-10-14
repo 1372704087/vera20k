@@ -2262,7 +2262,8 @@ fn megamission_mid_unload_abandons_the_unload_and_commences_the_order() {
     let miner = entity.miner.as_ref().unwrap();
     assert!(!miner.unload_active, "the unload latch is dropped");
     assert_eq!(
-        entity.display_type_override, None,
+        entity.display_type_override.image(),
+        None,
         "and the unload image with it"
     );
     assert_eq!(
@@ -2300,7 +2301,7 @@ fn harvest_order_mid_unload_drops_the_unload_latch_and_image() {
     let entity = sim.substrate.entities.get(miner_id).unwrap();
     let miner = entity.miner.as_ref().unwrap();
     assert!(!miner.unload_active);
-    assert_eq!(entity.display_type_override, None);
+    assert_eq!(entity.display_type_override.image(), None);
     assert_eq!(entity.tether.partner(), None);
     assert!(!crate::sim::miner::miner_dock::has_contact(
         &sim, 2, miner_id
@@ -3491,7 +3492,7 @@ fn refinery_death_drops_the_unloading_miner_at_the_kill() {
     );
     assert_eq!(miner.cargo, cargo_before);
     assert!(!miner.unload_active, "RUN_AWAY dropped the latch");
-    assert_eq!(miner_entity.display_type_override, None);
+    assert_eq!(miner_entity.display_type_override.image(), None);
     assert!(
         miner_entity.mission.current()
             == crate::sim::mission::MissionId::from_known(

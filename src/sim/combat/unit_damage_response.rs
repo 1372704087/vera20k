@@ -110,7 +110,7 @@ fn pips_positive(entity: &GameEntity, object: &ObjectType) -> bool {
         && entity
             .miner
             .as_ref()
-            .is_some_and(|miner| !miner.cargo.is_empty())
+            .is_some_and(|miner| !miner.cargo().is_empty())
 }
 
 impl Simulation {

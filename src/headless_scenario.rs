@@ -1606,8 +1606,8 @@ mod retail_construction_tests {
                     .iter()
                     .find(|&&id| {
                         sim.entities().get(id).is_some_and(|entity| {
-                            entity.bunker_link
-                                == crate::sim::game_entity::BunkerLink::Approaching(bunker)
+                            entity.bunker.link()
+                                == crate::sim::docking::bunker_link::BunkerLink::Approaching(bunker)
                         })
                     })
                     .map(|&id| (frame, id));
@@ -1616,7 +1616,7 @@ mod retail_construction_tests {
                 installed = sim
                     .entities()
                     .get(bunker)
-                    .and_then(|entity| entity.bunker_occupant)
+                    .and_then(|entity| entity.bunker.occupant())
                     .filter(|occupant| members.contains(occupant))
                     .map(|occupant| (frame, occupant));
             }
@@ -1680,10 +1680,10 @@ mod retail_construction_tests {
                 on_61 = Some((frame, members));
             } else if line.cursor() >= 2 && on_61.is_some() {
                 let held = sim.entities().get(free).is_none_or(|bunker| {
-                    bunker.bunker_occupant.is_some()
+                    bunker.bunker.occupant().is_some()
                         || bunker
                             .bunker_runtime
-                            .is_some_and(|runtime| runtime.installing_unit.is_some())
+                            .is_some_and(|runtime| runtime.installing_unit().is_some())
                 });
                 past = Some((frame, members, held));
                 break;
@@ -2621,7 +2621,7 @@ mod retail_construction_tests {
                 && let Some(pending) = sim
                     .entities()
                     .get(reactor)
-                    .and_then(|reactor| reactor.pending_c4_detonation)
+                    .and_then(|reactor| reactor.pending_c4_detonation.pending())
             {
                 planted = Some((frame, pending));
             }
@@ -2637,8 +2637,8 @@ mod retail_construction_tests {
         eprintln!("TANY: Sabotage at {sabotage:?}, planted {planted:?}, reactor died {died:?}");
         assert!(sabotage.is_some(), "Tanya never took Sabotage");
         let (plant_frame, pending) = planted.expect("Tanya planted no charge");
-        assert_eq!(pending.source_entity_id, Some(tanya));
-        assert_eq!(pending.timer.duration(), 26);
+        assert_eq!(pending.source_entity_id(), Some(tanya));
+        assert_eq!(pending.timer().duration(), 26);
         assert_eq!(died, Some(plant_frame + 26));
         assert!(
             scenario
@@ -2680,7 +2680,7 @@ mod retail_construction_tests {
                         && entity
                             .miner
                             .as_ref()
-                            .is_some_and(|miner| miner.cargo.len() >= 5)
+                            .is_some_and(|miner| miner.cargo().len() >= 5)
                 })
                 .map(|entity| entity.stable_id());
             if miner.is_some() {

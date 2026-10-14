@@ -180,7 +180,11 @@ fn retail_berserk_engineer_ifv_keeps_cursor_but_refuses_click() {
     let rules = &retail.rules;
     let (mut sim, ifv, tank) = repair_ifv(rules);
     let already_sent = repair_click(&sim, rules, ifv, tank);
-    sim.entities_mut().get_mut(ifv).unwrap().berserk.active = true;
+    sim.entities_mut()
+        .get_mut(ifv)
+        .unwrap()
+        .berserk
+        .set_active_for_test(true);
     let native: serde_json::Value = serde_json::from_str(crate::test_fixture::text(
         "tools/spatial_oracle/bunker_attack_action.json",
     ))

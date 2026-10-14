@@ -155,7 +155,9 @@ fn fireat_rearm_copy_matches_original_normal_and_disk_writers() {
     let native = corpus();
     for row in native["charge"]["fire_writers"].as_array().unwrap() {
         let mut entity = GameEntity::test_default(1, "FV", "Americans", 5, 5);
-        entity.berserk.active = row["berserk"].as_bool().unwrap();
+        entity
+            .berserk
+            .set_active_for_test(row["berserk"].as_bool().unwrap());
         let selection = (
             entity.current_weapon_number(),
             entity.current_turret_index(),
@@ -167,7 +169,7 @@ fn fireat_rearm_copy_matches_original_normal_and_disk_writers() {
         let duration = if row["disk_laser"].as_bool().unwrap() {
             supplied_get_rof
         } else {
-            fireat_rearm_frames(supplied_get_rof, entity.berserk.active)
+            fireat_rearm_frames(supplied_get_rof, entity.berserk.is_active())
         };
         entity.rearm_after_fire(int(row, "frame"), duration);
         assert_eq!(

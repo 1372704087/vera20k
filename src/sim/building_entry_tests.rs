@@ -12,7 +12,7 @@ use crate::rules::ini_parser::IniFile;
 use crate::rules::team_ai_ini::TeamAiDefinitionSource;
 use crate::sim::command::{Command, CommandEnvelope};
 use crate::sim::docking::bunker_install::BunkerState;
-use crate::sim::game_entity::BunkerLink;
+use crate::sim::docking::bunker_link::BunkerLink;
 use crate::sim::house_state::HouseState;
 use crate::sim::passenger::PassengerRole;
 use crate::sim::pathfinding::PathGrid;
@@ -238,7 +238,7 @@ fn tank_bunker_seek(sim: &mut Simulation, rules: &RuleSet, id: u64) -> bool {
 /// The bunker's install machine state and the unit it holds.
 fn install_state(sim: &Simulation, bunker: u64) -> (BunkerState, Option<u64>) {
     let runtime = entity(sim, bunker).bunker_runtime.unwrap();
-    (runtime.state, runtime.installing_unit)
+    (runtime.state(), runtime.installing_unit())
 }
 
 fn occupants(sim: &Simulation, building: u64) -> Vec<u64> {
@@ -1998,7 +1998,8 @@ fn the_nearest_free_own_tank_bunker_takes_the_tank() {
         .entities
         .get_mut(occupied)
         .unwrap()
-        .bunker_occupant = Some(occupant);
+        .bunker
+        .set_bunker_occupant_for_test(Some(occupant));
     let claimer = spawn(&mut sim, &rules, "YTNK", "YuriCountry", 14, 18);
     assert!(tank_bunker_seek(&mut sim, &rules, claimer));
     assert_eq!(
@@ -2027,7 +2028,7 @@ fn the_nearest_free_own_tank_bunker_takes_the_tank() {
         foot.mission.current(),
         MissionId::from_known(MissionType::Enter)
     );
-    assert_eq!(foot.bunker_link, BunkerLink::Approaching(free));
+    assert_eq!(foot.bunker.link(), BunkerLink::Approaching(free));
     assert!(foot.navigation.nav_com.is_some());
     assert_eq!(
         install_state(&sim, free),
@@ -2052,7 +2053,7 @@ fn a_refused_foot_or_a_held_tank_bunker_gets_no_order() {
         let mission = entity(&sim, id).mission;
         assert!(!tank_bunker_seek(&mut sim, &rules, id));
         assert_eq!(entity(&sim, id).mission, mission);
-        assert_eq!(entity(&sim, id).bunker_link, BunkerLink::None);
+        assert_eq!(entity(&sim, id).bunker.link(), BunkerLink::None);
     }
     assert_eq!(install_state(&sim, bunker), (BunkerState::Idle, None));
 
@@ -2061,7 +2062,8 @@ fn a_refused_foot_or_a_held_tank_bunker_gets_no_order() {
         .entities
         .get_mut(bunker)
         .unwrap()
-        .bunker_occupant = Some(occupant);
+        .bunker
+        .set_bunker_occupant_for_test(Some(occupant));
     let tank = spawn(&mut sim, &rules, "YTNK", "YuriCountry", 12, 16);
     let mission = entity(&sim, tank).mission;
 
@@ -2070,7 +2072,7 @@ fn a_refused_foot_or_a_held_tank_bunker_gets_no_order() {
     let foot = entity(&sim, tank);
     assert_eq!(foot.mission, mission);
     assert_eq!(foot.navigation.nav_com, None);
-    assert_eq!(foot.bunker_link, BunkerLink::None);
+    assert_eq!(foot.bunker.link(), BunkerLink::None);
 }
 
 /// Equidistant tank bunkers through the production walk: the house's list
@@ -2096,7 +2098,7 @@ fn of_equidistant_tank_bunkers_the_later_built_takes_the_tank() {
         assert!(tank_bunker_seek(&mut sim, &rules, tank));
 
         assert_eq!(
-            entity(&sim, tank).bunker_link,
+            entity(&sim, tank).bunker.link(),
             BunkerLink::Approaching(bunkers[1])
         );
     }
@@ -2123,12 +2125,12 @@ fn script_action_61_sends_the_members_a_tank_bunker_takes() {
     assert!(state.advance_pending());
     assert_eq!(sim.team_script_vm.team_for_member(first), None);
     let foot = entity(&sim, first);
-    assert_eq!(foot.bunker_link, BunkerLink::Approaching(bunker));
+    assert_eq!(foot.bunker.link(), BunkerLink::Approaching(bunker));
     assert_eq!(
         foot.mission.current(),
         MissionId::from_known(MissionType::Enter)
     );
-    assert_eq!(entity(&sim, second).bunker_link, BunkerLink::None);
+    assert_eq!(entity(&sim, second).bunker.link(), BunkerLink::None);
 }
 
 /// Through the production frame: a team's action 61 drives its Gattling
@@ -2143,11 +2145,11 @@ fn a_tank_bunker_team_member_drives_in_and_installs() {
     let team = seek_team(&mut sim, 61, vec![tank]);
 
     assert!(run_until(&mut sim, &rules, &grid, 900, |sim| {
-        entity(sim, bunker).bunker_occupant == Some(tank)
+        entity(sim, bunker).bunker.occupant() == Some(tank)
     }));
 
     assert_eq!(
-        entity(&sim, tank).bunker_link,
+        entity(&sim, tank).bunker.link(),
         BunkerLink::Installed(bunker)
     );
     assert_eq!(install_state(&sim, bunker), (BunkerState::Occupied, None));
@@ -2171,7 +2173,7 @@ fn a_tank_bunker_approach_ends_with_either_side() {
         sim.despawn_entity(gone);
 
         if bunker_goes {
-            assert_eq!(entity(&sim, tank).bunker_link, BunkerLink::None);
+            assert_eq!(entity(&sim, tank).bunker.link(), BunkerLink::None);
         } else {
             assert_eq!(install_state(&sim, bunker), (BunkerState::Idle, None));
         }
@@ -2198,7 +2200,7 @@ fn a_seeker_whose_tank_bunker_dies_gives_up_and_can_be_recruited() {
     let tank = spawn(&mut sim, &rules, "YTNK", "YuriCountry", 10, 10);
     let _team = seek_team(&mut sim, 61, vec![tank]);
     assert!(run_until(&mut sim, &rules, &grid, 30, |sim| {
-        entity(sim, tank).bunker_link == BunkerLink::Approaching(bunker)
+        entity(sim, tank).bunker.link() == BunkerLink::Approaching(bunker)
     }));
 
     sim.despawn_entity(bunker);
@@ -2207,7 +2209,7 @@ fn a_seeker_whose_tank_bunker_dies_gives_up_and_can_be_recruited() {
     assert!(run_until(&mut sim, &rules, &grid, 300, |sim| {
         entity(sim, tank).mission.current() != enter
     }));
-    assert_eq!(entity(&sim, tank).bunker_link, BunkerLink::None);
+    assert_eq!(entity(&sim, tank).bunker.link(), BunkerLink::None);
     let team = seek_team(&mut sim, 61, Vec::new());
     assert!(sim.team_can_add(team, tank, true, &rules).is_some());
 }
@@ -2245,7 +2247,7 @@ fn a_retail_tank_bunker_admits_the_lasher_and_the_gattling_tank() {
 
     assert!(tank_bunker_seek(&mut sim, rules, admitted[0].1));
     assert_eq!(
-        entity(&sim, admitted[0].1).bunker_link,
+        entity(&sim, admitted[0].1).bunker.link(),
         BunkerLink::Approaching(bunker)
     );
 }

@@ -96,11 +96,117 @@ use crate::sim::combat::combat_weapon::{self, WeaponSlot};
 use crate::sim::combat::fire_error::FireError;
 use crate::sim::combat::gattling::{StageCall, is_elite};
 use crate::sim::combat::{BuildingShot, fire_coord};
-use crate::sim::game_entity::{DelayedFire, PendingBuildingFire};
 use crate::sim::mission::authority::LiveReadyInputProvider;
 use crate::sim::mission::{MissionId, MissionType};
 use crate::sim::projectile::ProjectilePayload;
 use crate::sim::world::Simulation;
+
+/// A building's delayed fire (`BuildingClass+0x704` mode, `+0x714`
+/// countdown, `+0x708..+0x710` payload), armed by Mission_Attack and served by
+/// ProcessDelayedFire (`0x004503F0`) when the countdown ends.
+///
+/// A shot captures no target: expiry reads the building's live
+/// `attack_target`, with the weapon Mission_Attack saved.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub(crate) struct PendingBuildingFire {
+    /// Signed native timer value, clamped to zero by ProcessDelayedFire after
+    /// its pre-decrement.
+    remaining_ticks: i32,
+    fire: DelayedFire,
+}
+
+impl PendingBuildingFire {
+    /// A fire `remaining_ticks` frames from its end.
+    pub(crate) const fn new(remaining_ticks: i32, fire: DelayedFire) -> Self {
+        Self {
+            remaining_ticks,
+            fire,
+        }
+    }
+
+    /// The countdown (`+0x714`).
+    pub(crate) const fn remaining_ticks(self) -> i32 {
+        self.remaining_ticks
+    }
+
+    /// What it fires (`+0x704` mode, `+0x708..+0x710` payload).
+    pub(crate) const fn fire(self) -> DelayedFire {
+        self.fire
+    }
+}
+
+/// What a delayed fire does when its countdown ends.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub(crate) enum DelayedFire {
+    /// Mode 1: FireAt the live target with the saved weapon (`+0x708`).
+    Weapon(WeaponSlot),
+    /// Mode 2: a Prism support beam (`0x0044ABD0`) to the master's weapon-0
+    /// FLH as it stood at recruitment (`+0x708..+0x710`, world leptons).
+    SupportBeam {
+        to: crate::sim::projectile::ProjectileCoord,
+    },
+}
+
+impl std::hash::Hash for PendingBuildingFire {
+    /// A weapon shot folds as the pre-support latch did (countdown, then the
+    /// slot); a support beam folds a third tag and its point.
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.remaining_ticks.hash(state);
+        match self.fire {
+            DelayedFire::Weapon(slot) => slot.hash(state),
+            DelayedFire::SupportBeam { to } => {
+                2isize.hash(state);
+                to.hash(state);
+            }
+        }
+    }
+}
+
+/// The building's delayed-fire slot: `None` until Mission_Attack arms it
+/// ([`Self::arm`]); ProcessDelayedFire counts it down and ends it
+/// ([`Self::count_down`]).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(transparent)]
+pub(crate) struct BuildingDelayedFire {
+    pending: Option<PendingBuildingFire>,
+}
+
+impl BuildingDelayedFire {
+    /// The armed fire.
+    pub(crate) const fn pending(self) -> Option<PendingBuildingFire> {
+        self.pending
+    }
+
+    /// The countdown (`+0x714`): zero while no fire is armed, the
+    /// constructor's value and the one every end leaves.
+    pub(crate) fn remaining_ticks(self) -> i32 {
+        self.pending.map_or(0, |pending| pending.remaining_ticks)
+    }
+
+    /// Mission_Attack's arm: `fire` ends `delay` frames on.
+    fn arm(&mut self, delay: i32, fire: DelayedFire) {
+        self.pending = Some(PendingBuildingFire::new(delay, fire));
+    }
+
+    /// ProcessDelayedFire's countdown (`0x00450401..0x00450419`): an armed
+    /// fire's `+0x714` drops by one, a signed pre-decrement. At zero or below
+    /// it ends, clearing the mode (`0x00450452`, `0x004504D7`), and answers
+    /// what it fires.
+    fn count_down(&mut self) -> Option<DelayedFire> {
+        let pending = self.pending.as_mut()?;
+        pending.remaining_ticks = pending.remaining_ticks.wrapping_sub(1);
+        if pending.remaining_ticks > 0 {
+            return None;
+        }
+        self.pending.take().map(|pending| pending.fire)
+    }
+
+    /// Install a fixture's fire.
+    #[cfg(test)]
+    pub(crate) fn set_for_test(&mut self, pending: Option<PendingBuildingFire>) {
+        self.pending = pending;
+    }
+}
 
 /// The MissionClass stubs a building's table holds for every mission it has
 /// no handler of its own for (`0x005B2E10..0x005B2FC0`; its Capture,
@@ -1055,10 +1161,7 @@ fn arm_delayed_fire(
     let Some(entity) = sim.substrate.entities.get_mut(id) else {
         return;
     };
-    entity.pending_building_fire = Some(PendingBuildingFire {
-        remaining_ticks: delay,
-        fire,
-    });
+    entity.pending_building_fire.arm(delay, fire);
     let damaged =
         requested_damage_state(entity.health, obj.strength, rules.general.condition_yellow);
     sim.clear_building_anim_slot(id, ACTIVE_ANIM_SLOT);
@@ -1167,10 +1270,7 @@ fn prism_supporter(
         let admitted = candidate.lifecycle.object_alive()
             && candidate.type_ref() == master.type_ref()
             && candidate.rearm_timer.remaining(now) == 0
-            && candidate
-                .pending_building_fire
-                .map_or(0, |pending| pending.remaining_ticks)
-                == 0
+            && candidate.pending_building_fire.remaining_ticks() == 0
             && candidate.drain.draining_me().is_none()
             && candidate.mission.effective() != attack
             && candidate_id != id;
@@ -1226,15 +1326,9 @@ pub(super) fn process_delayed_fire(
     if entity.death.is_dying() || entity.health.current() == 0 {
         return;
     }
-    let Some(pending) = entity.pending_building_fire.as_mut() else {
+    let Some(fire) = entity.pending_building_fire.count_down() else {
         return;
     };
-    pending.remaining_ticks = pending.remaining_ticks.wrapping_sub(1);
-    if pending.remaining_ticks > 0 {
-        return;
-    }
-    let fire = pending.fire;
-    entity.pending_building_fire = None;
     match fire {
         DelayedFire::Weapon(slot) => {
             let Some(target) = entity.attack_target.target() else {

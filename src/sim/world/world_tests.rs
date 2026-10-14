@@ -71,8 +71,8 @@ fn gsi_04_05_map_recruitment_bytes_reach_persistent_techno_state() {
         .get(1)
         .expect("map unit spawned")
         .base_defense_response;
-    assert!(!response.recruitable_a);
-    assert!(response.recruitable_b);
+    assert!(!response.recruitable_a());
+    assert!(response.recruitable_b());
 }
 
 fn game_speed_command_sim() -> (Simulation, crate::sim::intern::InternedId) {
@@ -2859,7 +2859,7 @@ fn gsi_04_15_active_tube_leaf_preempts_unit_and_infantry_mission_host() {
                     sim.substrate
                         .entities
                         .get(2)
-                        .is_some_and(|building| building.pending_c4_detonation.is_none()),
+                        .is_some_and(|building| building.pending_c4_detonation.pending().is_none()),
                     "Tube final returns before Mission_Enter; no C4 claim is made"
                 );
             }
@@ -8088,7 +8088,8 @@ fn test_lethal_hit_restore_refuses_the_dying_archived_target() {
     {
         let tank = sim.substrate.entities.get_mut(1).unwrap();
         tank.attack_target.set_for_test(Some(TargetKind::Entity(2)));
-        tank.suspended_attack_target = Some(crate::sim::combat::TargetKind::Entity(2));
+        tank.suspended_attack_target
+            .set_for_test(Some(crate::sim::combat::TargetKind::Entity(2)));
         tank.mission
             .apply_test_fixture(crate::sim::mission::state::MissionTestFixture {
                 current: MissionId::from_known(MissionType::Attack),
@@ -8127,7 +8128,7 @@ fn test_lethal_hit_restore_refuses_the_dying_archived_target() {
         "Assign_Target refuses the dying archived target the Restore names"
     );
     assert_eq!(tank.mission.current().known(), Some(MissionType::Guard));
-    assert_eq!(tank.suspended_attack_target, None);
+    assert_eq!(tank.suspended_attack_target.target(), None);
 }
 
 /// The death arm's Stun (`0x00702210`: FootClass::Stun `0x004D5660`, then

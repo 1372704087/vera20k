@@ -3143,7 +3143,7 @@ impl Simulation {
             }
             entity.mission_leaf.reset_infantry_water_state();
             if let Some(infantry) = entity.infantry.as_mut() {
-                infantry.is_prone = false;
+                infantry.stand_up();
             }
             entity
                 .mission_leaf
@@ -3655,7 +3655,7 @@ impl Simulation {
                 matches!(
                     entity.category(),
                     EntityCategory::Unit | EntityCategory::Infantry | EntityCategory::Aircraft
-                ) && entity.foot_locomotor_swap_active
+                ) && entity.lift.swap_active()
             });
         if lifted {
             if let Some(entity) = self.substrate.entities.get_mut(stable_id) {
@@ -3795,7 +3795,7 @@ impl Simulation {
         };
         listener_id == expired_id
             || names(listener.attack_target.target())
-            || names(listener.suspended_attack_target)
+            || names(listener.suspended_attack_target.target())
             || names(listener.archive_target())
             || listener.has_live_contact_with(expired_id)
             || listener
@@ -3821,18 +3821,19 @@ impl Simulation {
             || listener
                 .miner
                 .as_ref()
-                .is_some_and(|miner| miner.reserved_refinery == Some(expired_id))
+                .is_some_and(|miner| miner.reserved_refinery() == Some(expired_id))
             || listener
                 .pending_c4_detonation
+                .pending()
                 .as_ref()
-                .is_some_and(|pending| pending.source_entity_id == Some(expired_id))
+                .is_some_and(|pending| pending.source_entity_id() == Some(expired_id))
             || listener.spawn_manager.is_some()
             || listener.capture_manager.is_some()
             || listener.temporal.has_link()
             || listener.parasite.eater().is_some()
-            || listener.locomotor_target == Some(expired_id)
-            || listener.locomotor_source == Some(expired_id)
-            || listener.manipulated_by == Some(expired_id)
+            || listener.lift.target() == Some(expired_id)
+            || listener.lift.source() == Some(expired_id)
+            || listener.drop_credit.manipulated_by() == Some(expired_id)
             || listener.mega_mission.references(expired_id)
     }
 
@@ -4238,7 +4239,7 @@ impl Simulation {
         // same-owner exemption applies only to `+0x2B4`.
         let clear_suspended_target = allow_clear
             && matches!(
-                listener.suspended_attack_target,
+                listener.suspended_attack_target.target(),
                 Some(TargetKind::Entity(id)) if id == expired_id
             );
         // Techno707AC2..707AD7 clears eight retained effect pointers on an
@@ -4310,7 +4311,7 @@ impl Simulation {
         let clear_refinery = listener
             .miner
             .as_ref()
-            .is_some_and(|miner| miner.reserved_refinery == Some(expired_id));
+            .is_some_and(|miner| miner.reserved_refinery() == Some(expired_id));
 
         // Steam gamemd3e81a617, TechnoPointerExpired7078B2..7078DB:
         // Transporter+11C survives a live hull's ordinary Limbo announcement,
@@ -4325,8 +4326,9 @@ impl Simulation {
                     || self.object_placement_scope_active()));
         let clear_c4_source = listener
             .pending_c4_detonation
+            .pending()
             .as_ref()
-            .is_some_and(|pending| pending.source_entity_id == Some(expired_id));
+            .is_some_and(|pending| pending.source_entity_id() == Some(expired_id));
         // `0x004D9AC9..0x004D9B43`, on either control: an attack-move's
         // MegaTarget becomes a MegaDestination at its GetCoords cell, and its
         // MegaDestination is dropped.
@@ -4353,7 +4355,7 @@ impl Simulation {
             .get_mut(listener_id)
             .expect("expiry listener read above");
         if clear_suspended_target {
-            listener.suspended_attack_target = None;
+            listener.suspended_attack_target.clear();
         }
         if clear_damage_smoke {
             listener.damage_smoke_system_id.forget();
@@ -4381,13 +4383,13 @@ impl Simulation {
             ammo.set_dock(None);
         }
         if clear_refinery && let Some(miner) = listener.miner.as_mut() {
-            miner.reserved_refinery = None;
+            miner.forget_refinery();
         }
         if clear_passenger_role {
             listener.passenger_role.clear_carrier_relation();
         }
-        if clear_c4_source && let Some(pending) = listener.pending_c4_detonation.as_mut() {
-            pending.source_entity_id = None;
+        if clear_c4_source {
+            listener.pending_c4_detonation.forget_source();
         }
         if expire_mega_pointer {
             listener
@@ -4923,7 +4925,7 @@ impl Simulation {
                 .substrate
                 .entities
                 .get(stable_id)
-                .is_some_and(|entity| entity.locomotor_target.is_some())
+                .is_some_and(|entity| entity.lift.target().is_some())
         {
             self.release_locomotor(
                 stable_id,

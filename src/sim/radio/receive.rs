@@ -852,7 +852,7 @@ fn unit_run_away(
         entity
             .miner
             .as_ref()
-            .is_some_and(|miner| miner.unload_active)
+            .is_some_and(|miner| miner.unload_active())
             && sim
                 .object_type(entity.type_ref(), rules)
                 .is_some_and(|object| object.harvester || object.weeder)
@@ -1755,12 +1755,13 @@ fn bunker_receive(
         }
         RadioMessage::DockNow => {
             // Commit: start the install machine if the bunker is idle.
-            if let Some(b) = sim.substrate.entities.get_mut(bld)
-                && let Some(rt) = b.bunker_runtime.as_mut()
-                && rt.state == BunkerState::Idle
+            if let Some(rt) = sim
+                .substrate
+                .entities
+                .get_mut(bld)
+                .and_then(|b| b.bunker_runtime.as_mut())
             {
-                rt.state = BunkerState::ArriveWait;
-                rt.installing_unit = Some(unit);
+                rt.dock_now(unit);
             }
             RadioResponse::Roger
         }
@@ -1797,10 +1798,13 @@ fn bunker_admits(sim: &Simulation, bld: u64, unit: u64) -> bool {
     if b.owner() != unit_owner {
         return false;
     }
-    if b.bunker_occupant.is_some() {
+    if b.bunker.occupant().is_some() {
         return false;
     }
-    matches!(b.bunker_runtime.map(|rt| rt.state), Some(BunkerState::Idle))
+    matches!(
+        b.bunker_runtime.map(|rt| rt.state()),
+        Some(BunkerState::Idle)
+    )
 }
 
 #[cfg(test)]
@@ -2194,9 +2198,19 @@ mod tests {
         assert_eq!(can_enter(&mut sim, 3, 2), RadioResponse::Negatory);
 
         // Occupied → rejected.
-        sim.substrate.entities.get_mut(2).unwrap().bunker_occupant = Some(99);
+        sim.substrate
+            .entities
+            .get_mut(2)
+            .unwrap()
+            .bunker
+            .set_bunker_occupant_for_test(Some(99));
         assert_eq!(can_enter(&mut sim, 1, 2), RadioResponse::Negatory);
-        sim.substrate.entities.get_mut(2).unwrap().bunker_occupant = None;
+        sim.substrate
+            .entities
+            .get_mut(2)
+            .unwrap()
+            .bunker
+            .set_bunker_occupant_for_test(None);
 
         // Installing (non-Idle) → rejected.
         sim.substrate
@@ -2206,7 +2220,7 @@ mod tests {
             .bunker_runtime
             .as_mut()
             .unwrap()
-            .state = BunkerState::ArriveWait;
+            .set_state_for_test(BunkerState::ArriveWait);
         assert_eq!(can_enter(&mut sim, 1, 2), RadioResponse::Negatory);
     }
 
@@ -2232,8 +2246,8 @@ mod tests {
             .unwrap()
             .bunker_runtime
             .unwrap();
-        assert_eq!(rt.state, BunkerState::ArriveWait);
-        assert_eq!(rt.installing_unit, Some(1));
+        assert_eq!(rt.state(), BunkerState::ArriveWait);
+        assert_eq!(rt.installing_unit(), Some(1));
     }
 
     #[test]

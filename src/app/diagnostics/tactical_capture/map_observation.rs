@@ -1665,23 +1665,24 @@ fn disguise_inputs(
 
 fn retask_observation(entity: &crate::sim::game_entity::GameEntity) -> Value {
     json!({
-        "suspended_target": entity.suspended_attack_target,
+        "suspended_target": entity.suspended_attack_target.target(),
         "suspended_nav": entity.navigation.suspended_nav_com,
     })
 }
 
 fn prism_observation(entity: &crate::sim::game_entity::GameEntity, frame: i32) -> Value {
-    use crate::sim::game_entity::DelayedFire;
+    use crate::sim::world::DelayedFire;
     if entity.category() != crate::map::entities::EntityCategory::Structure {
         return Value::Null;
     }
     let pending = entity
         .pending_building_fire
-        .map(|pending| match pending.fire {
+        .pending()
+        .map(|pending| match pending.fire() {
             DelayedFire::Weapon(slot) => json!({"mode": 1, "payload": {"weapon": slot},
-            "remaining": pending.remaining_ticks}),
+            "remaining": pending.remaining_ticks()}),
             DelayedFire::SupportBeam { to } => json!({"mode": 2,
-            "payload": {"to": [to.x, to.y, to.z]}, "remaining": pending.remaining_ticks}),
+            "payload": {"to": [to.x, to.y, to.z]}, "remaining": pending.remaining_ticks()}),
         });
     json!({"support_count": entity.prism_support_count, "pending": pending,
         "rearm": {"start": entity.rearm_timer.start_frame(),
@@ -3121,10 +3122,10 @@ impl TacticalCaptureSession {
                     None
                 };
                 let miner = entity.miner.as_ref().map(|miner| {
-                    json!({"cargo_bales": miner.cargo.len(),
-                        "capacity_bales": miner.capacity_bales,
-                        "unload_active": miner.unload_active,
-                        "harvesting": miner.harvesting})
+                    json!({"cargo_bales": miner.cargo().len(),
+                        "capacity_bales": miner.capacity_bales(),
+                        "unload_active": miner.unload_active(),
+                        "harvesting": miner.harvesting()})
                 });
                 // Preserve contact slot positions, including null holes. Reads
                 // of the contact/tether owners never send a radio query.
@@ -3140,8 +3141,8 @@ impl TacticalCaptureSession {
                         .object(type_name)
                         .context("cloak observation type absent")?;
                     Some(json!({
-                        "state_i32": cloak.state,
-                        "progress_i32": cloak.depth as i32,
+                        "state_i32": cloak.state(),
+                        "progress_i32": cloak.depth() as i32,
                         "cloaking_stages_i32": rules.general.cloaking_stages,
                         "voxel": entity.is_voxel(),
                         "no_shadow": object.no_shadow,
@@ -4987,7 +4988,9 @@ mod tests {
     fn actor_retask_snapshot_preserves_tagged_suspended_references() {
         use crate::sim::{combat::TargetKind, components::NavTargetRef, game_entity::GameEntity};
         let mut entity = GameEntity::test_default(1, "MTNK", "Americans", 10, 20);
-        entity.suspended_attack_target = Some(TargetKind::Cell(7, 8));
+        entity
+            .suspended_attack_target
+            .set_for_test(Some(TargetKind::Cell(7, 8)));
         entity.navigation.suspended_nav_com = Some(NavTargetRef::object(42));
         assert_eq!(
             retask_observation(&entity),
@@ -4995,7 +4998,9 @@ mod tests {
                 "suspended_target":{"Cell":[7,8]}, "suspended_nav":{"Object":{"id":42}}
             })
         );
-        entity.suspended_attack_target = Some(TargetKind::Entity(43));
+        entity
+            .suspended_attack_target
+            .set_for_test(Some(TargetKind::Entity(43)));
         entity.navigation.suspended_nav_com = Some(NavTargetRef::cell(9, 10));
         assert_eq!(
             retask_observation(&entity),
@@ -5003,7 +5008,7 @@ mod tests {
                 "suspended_target":{"Entity":43}, "suspended_nav":{"Cell":{"rx":9,"ry":10}}
             })
         );
-        entity.suspended_attack_target = None;
+        entity.suspended_attack_target.set_for_test(None);
         entity.navigation.suspended_nav_com = None;
         assert_eq!(
             retask_observation(&entity),

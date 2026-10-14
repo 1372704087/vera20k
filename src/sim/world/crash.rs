@@ -157,7 +157,7 @@ impl Simulation {
                 UninitContext::new(Some(rules), registry).with_effects(frame_effects),
             );
             if let Some(entity) = self.substrate.entities.get_mut(id)
-                && !entity.foot_locomotor_swap_active
+                && !entity.lift.swap_active()
             {
                 entity.health.set(0);
             }
@@ -356,7 +356,7 @@ impl Simulation {
             .substrate
             .entities
             .get(id)
-            .is_some_and(|entity| entity.foot_locomotor_swap_active)
+            .is_some_and(|entity| entity.lift.swap_active())
         {
             self.falling_damage(id, rules, overlay_registry, frame_effects)
         } else {
@@ -365,8 +365,7 @@ impl Simulation {
         };
         // `0x0054D097..0x0054D0A7`: after the notice, the drop's credit goes.
         if let Some(entity) = self.substrate.entities.get_mut(id) {
-            entity.manipulated_by = None;
-            entity.warped_by_house = None;
+            entity.drop_credit.forget();
         }
         bridge_state_changed
     }
@@ -423,7 +422,7 @@ impl Simulation {
             )),
         ))
         .max(0);
-        let attacker = entity.manipulated_by.unwrap_or(id);
+        let attacker = entity.drop_credit.manipulated_by().unwrap_or(id);
         let coords = crate::sim::movement::ground_pose::object_get_coords(
             entity,
             self.resolved_terrain.as_ref(),

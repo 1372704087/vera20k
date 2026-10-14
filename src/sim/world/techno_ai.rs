@@ -18,8 +18,11 @@ mod aircraft_guard;
 mod building_missile;
 mod building_missions;
 mod building_retaliation;
+#[cfg(test)]
+pub(crate) use building_missions::PendingBuildingFire;
 pub(crate) use building_missions::PrismSupport;
 pub(crate) use building_missions::queue_and_commence;
+pub(crate) use building_missions::{BuildingDelayedFire, DelayedFire};
 mod mission_handlers;
 mod target_scan;
 pub(crate) use mission_handlers::dispatch_foot_mission;
@@ -1318,7 +1321,7 @@ fn techno_common_steps(
 
 /// `TechnoClass::AI_Update`'s berserk block (`0x006F9F0D..0x006F9F6E`),
 /// after the voice probe: a berserk object counts its time down
-/// ([`BerserkState::count_down`](crate::sim::game_entity::BerserkState::count_down)).
+/// ([`BerserkState::count_down`](crate::sim::combat::BerserkState::count_down)).
 /// Once it calms down its target goes (`vt+0x3C8(0)`), and it queues Guard if
 /// its house is a human player's (`IsHuman`, House `+0x1EC`), else Hunt
 /// (`vt+0x1E8`). No draws. The Psychedelic arm (`combat::receiver_health`)
@@ -1594,7 +1597,7 @@ fn allied_target_drop_step(sim: &mut Simulation, id: u64, rules: &RuleSet) {
         && target_scan::weapon_at_index(sim, rules, id, 1)
             .and_then(|weapon| combat_weapon::warhead_of(rules, weapon))
             .is_some_and(|warhead| warhead.electric_assault);
-    if engineer || overpowers || occupiable || entity.berserk.active {
+    if engineer || overpowers || occupiable || entity.berserk.is_active() {
         return;
     }
     //6FA46C precedes the subsequent live target re-read and illegal test.
@@ -2039,7 +2042,8 @@ mod tests {
     use crate::rules::locomotor_type::LocomotorKind;
     use crate::sim::combat::TargetKind;
     use crate::sim::components::{DriveCoord, NavTargetRef};
-    use crate::sim::game_entity::{BunkerLink, GameEntity};
+    use crate::sim::docking::bunker_link::BunkerLink;
+    use crate::sim::game_entity::GameEntity;
     use crate::sim::miner::{Miner, MinerConfig, MinerKind};
     use crate::sim::mission::leaf::MissionLeafState;
     use crate::sim::mission::state::MissionTestFixture;
@@ -3744,11 +3748,21 @@ mod tests {
         };
 
         aim(&mut sim);
-        sim.substrate.entities.get_mut(1).unwrap().berserk.active = true;
+        sim.substrate
+            .entities
+            .get_mut(1)
+            .unwrap()
+            .berserk
+            .set_active_for_test(true);
         allied_target_drop_step(&mut sim, 1, &rules);
         assert!(held(&sim), "a berserk object keeps it");
 
-        sim.substrate.entities.get_mut(1).unwrap().berserk.active = false;
+        sim.substrate
+            .entities
+            .get_mut(1)
+            .unwrap()
+            .berserk
+            .set_active_for_test(false);
         allied_target_drop_step(&mut sim, 1, &rules);
         assert!(!held(&sim), "a computer house drops it");
 
@@ -3781,8 +3795,8 @@ mod tests {
             actor
                 .attack_target
                 .set_for_test(Some(TargetKind::Entity(2)));
-            actor.berserk.active = true;
-            actor.berserk.timer = 2;
+            actor.berserk.set_active_for_test(true);
+            actor.berserk.set_timer_for_test(2);
             let step = |sim: &mut Simulation| {
                 berserk_step(
                     sim,
@@ -3793,8 +3807,8 @@ mod tests {
                 );
                 let actor = sim.substrate.entities.get(1).unwrap();
                 (
-                    actor.berserk.active,
-                    actor.berserk.timer,
+                    actor.berserk.is_active(),
+                    actor.berserk.timer(),
                     actor.attack_target.target().is_some(),
                     actor.mission.queued().known(),
                 )
@@ -4780,7 +4794,7 @@ mod tests {
             }
             if cloaked {
                 let mut cloak = crate::sim::cloak_disguise::CloakRuntime::new(0);
-                cloak.state = 2;
+                cloak.set_state_for_test(2);
                 sim.substrate.entities.get_mut(2).unwrap().cloak = Some(cloak);
             }
             let dog = sim.substrate.entities.get_mut(1).unwrap();
@@ -4878,7 +4892,8 @@ mod tests {
             let mut sim = Simulation::with_seed(0x6A2E);
             let rules = representative_foot_handler_rules();
             let mut unit = entity_of(1, EntityCategory::Unit);
-            unit.bunker_link = BunkerLink::Installed(99);
+            unit.bunker
+                .set_bunker_link_for_test(BunkerLink::Installed(99));
             // Queue_Mission's immediate Commence reads the locomotor.
             unit.locomotor = Some(LocomotorState::for_test_kind(LocomotorKind::Drive));
             update_mission_test_fixture(&mut unit.mission, |fixture| {
@@ -5412,7 +5427,9 @@ mod tests {
                     unit.passenger_role =
                         crate::sim::passenger::PassengerRole::boarding_for_test(2);
                 } else {
-                    unit.bunker_link = crate::sim::game_entity::BunkerLink::Approaching(2);
+                    unit.bunker.set_bunker_link_for_test(
+                        crate::sim::docking::bunker_link::BunkerLink::Approaching(2),
+                    );
                 }
             }
             register_entity(&mut sim, unit);

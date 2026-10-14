@@ -667,7 +667,7 @@ pub(crate) fn commit_entities(
                 .substrate
                 .entities
                 .get(target_id)
-                .is_some_and(|target| !target.berserk.active);
+                .is_some_and(|target| !target.berserk.is_active());
         if starts_berserk {
             world.leave_team(target_id, false, Some(rules), run.effects());
         }
@@ -959,18 +959,9 @@ pub(crate) fn commit_entities(
             // restored object: a fresh null-source timer expiry must stay
             // uncredited, while a later sourced lethal hit captures anew.
             target.kill_record.clear();
-            let replace = target
+            target
                 .pending_c4_detonation
-                .is_none_or(|pending| duration_frames < pending.timer.remaining(current_frame));
-            if replace {
-                let retained_source = target
-                    .pending_c4_detonation
-                    .and_then(|pending| pending.source_entity_id);
-                target.pending_c4_detonation = Some(crate::sim::components::PendingC4Detonation {
-                    timer: crate::sim::timer::CdTimer::started(current_frame, duration_frames),
-                    source_entity_id: retained_source,
-                });
-            }
+                .arm_post_mortem(current_frame, duration_frames);
             // PostMortem's restore (`0x00701F60`, `0x00701F67`).
             target.lifecycle.restore_alive();
             target.health.set(1);

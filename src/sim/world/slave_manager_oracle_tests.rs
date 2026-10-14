@@ -239,7 +239,9 @@ pub(super) fn row_scene_edited(
             .spawn_object_with_overlay_registry("SMIN", "Americans", 15, 15, 0, rules, registry())
             .unwrap_or_else(|| panic!("slave miner for {}", input["name"]));
         let entity = sim.substrate.entities.get_mut(smin).unwrap();
-        entity.mcv_deploy_pending = input["deploy_pending"] == true;
+        entity
+            .mcv_deploy_pending
+            .set_for_test(input["deploy_pending"] == true);
         if let Some((nx, ny)) = input.get("owner_nav").map(cell) {
             entity.navigation.nav_com = Some(NavTargetRef::cell(nx, ny));
         }
@@ -524,7 +526,7 @@ fn compare_state(s: &SlaveScene, row: &Value, context: &str) {
         };
         assert_eq!(nav, expected["nav"], "{context}: owner NavCom");
         assert_eq!(
-            u64::from(owner.mcv_deploy_pending),
+            u64::from(owner.mcv_deploy_pending.is_pending()),
             expected["deploy_pending"].as_u64().unwrap(),
             "{context}: owner deploy pending"
         );

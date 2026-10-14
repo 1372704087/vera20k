@@ -1147,7 +1147,7 @@ pub(crate) fn greatest_threat(
         cells: occupancy,
         healer,
         engineer: attacker.category == EntityCategory::Infantry && attacker_obj.engineer,
-        berserk: scanner.berserk.active,
+        berserk: scanner.berserk.is_active(),
         controller_house,
         fire_world,
     };
@@ -3802,7 +3802,7 @@ mod tests {
             5,
             EntityCategory::Structure,
         );
-        building.bunker_occupant = Some(2);
+        building.bunker.set_bunker_occupant_for_test(Some(2));
         let tank = GameEntity::test_default(2, "TANK", "Owner", 5, 5);
         let mut entities = EntityStore::new();
         entities.insert(building);

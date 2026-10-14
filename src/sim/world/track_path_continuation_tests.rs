@@ -1164,7 +1164,7 @@ fn after_active_rows_gate_the_same_call_continuation() {
                 &crate::sim::miner::MinerConfig::default(),
                 0,
             );
-            miner.unload_active = true;
+            miner.set_unload_active_for_test(true);
             e.miner = Some(miner);
         }
         e.navigation.nav_com = navcom.map(|(target, _)| target);

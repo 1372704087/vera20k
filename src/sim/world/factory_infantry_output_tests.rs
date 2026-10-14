@@ -386,7 +386,9 @@ fn ground_command_fixture(
             state["deploy_bytes"][1] != 0,
             state["deploy_bytes"][2] != 0,
         );
-        actor.setter_force_reassign = state["force_reassign"] != 0;
+        actor
+            .setter_force_reassign
+            .set_for_test(state["force_reassign"] != 0);
         assert_eq!(
             state["skip_move"], 0,
             "stock MTNK has no producer for Foot+6AC"
@@ -402,11 +404,19 @@ fn ground_command_fixture(
             .mission_leaf
             .set_infantry_doing_verified(state["doing"].as_i64().unwrap() as i32)
             .unwrap();
-        actor.infantry.as_mut().unwrap().is_prone = state["prone"] != 0;
-        actor.infantry.as_mut().unwrap().cell_entry_blocked = state["entry_blocked"] != 0;
+        actor
+            .infantry
+            .as_mut()
+            .unwrap()
+            .set_is_prone_for_test(state["prone"] != 0);
+        actor
+            .infantry
+            .as_mut()
+            .unwrap()
+            .set_cell_entry_blocked_for_test(state["entry_blocked"] != 0);
     }
     if let Some(context) = context {
-        actor.berserk.active = context["berserk"] != 0;
+        actor.berserk.set_active_for_test(context["berserk"] != 0);
     }
     actor.install_native_stage_fixture(StageClass::from_native_fixture(
         state["stage_words"][0].as_i64().unwrap() as i32,
@@ -680,7 +690,7 @@ fn assert_ground_command_fields(sim: &Simulation, id: u64, row: &Value, state: &
             "{context}: Unit deploy bytes"
         );
         assert_eq!(
-            actor.setter_force_reassign,
+            actor.setter_force_reassign.is_raised(),
             state["force_reassign"] != 0,
             "{context}: force reassign"
         );
@@ -781,12 +791,12 @@ fn assert_ground_command_fields(sim: &Simulation, id: u64, row: &Value, state: &
             "{context}: Doing"
         );
         assert_eq!(
-            actor.infantry.as_ref().unwrap().is_prone,
+            actor.infantry.as_ref().unwrap().is_prone(),
             state["prone"] != 0,
             "{context}: prone"
         );
         assert_eq!(
-            actor.infantry.as_ref().unwrap().cell_entry_blocked,
+            actor.infantry.as_ref().unwrap().cell_entry_blocked(),
             state["entry_blocked"] != 0,
             "{context}: entry latch"
         );

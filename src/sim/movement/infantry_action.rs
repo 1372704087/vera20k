@@ -111,7 +111,7 @@ fn is_prone(entity: &GameEntity) -> bool {
     entity
         .infantry
         .as_ref()
-        .is_some_and(|infantry| infantry.is_prone)
+        .is_some_and(|infantry| infantry.is_prone())
 }
 
 fn deploy_action(doing: i32) -> bool {
@@ -352,7 +352,7 @@ impl Simulation {
         let fear = actor
             .infantry
             .as_ref()
-            .map_or(0, |infantry| infantry.fear_level);
+            .map_or(0, |infantry| infantry.fear_level());
         if requested == DO_WALK && fear >= 200 {
             requested = DO_PANIC;
         }
@@ -398,8 +398,8 @@ impl Simulation {
         };
         if let Some(infantry) = actor.infantry.as_mut() {
             match requested {
-                DO_DOWN => infantry.is_prone = true,
-                DO_UP | DO_DEPLOY => infantry.is_prone = false,
+                DO_DOWN => infantry.lie_down(),
+                DO_UP | DO_DEPLOY => infantry.stand_up(),
                 _ => {}
             }
         }

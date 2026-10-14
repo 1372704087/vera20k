@@ -89,7 +89,11 @@ fn infantry_fire_start_heading_matches_original_code_vectors() {
             );
         }
         firer.body_facing = body;
-        firer.infantry.as_mut().unwrap().is_prone = row["prone"] == 1;
+        firer
+            .infantry
+            .as_mut()
+            .unwrap()
+            .set_is_prone_for_test(row["prone"] == 1);
         if row["deployed"] == true {
             firer.mission_leaf.set_infantry_doing_verified(28).unwrap();
         }

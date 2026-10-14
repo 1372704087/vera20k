@@ -290,3 +290,73 @@ pub(super) fn commit_receiver_health(
         psychedelic: false,
     })
 }
+
+/// Accepted Psychedelic-warhead state owned by TechnoClass: the berserk byte
+/// (`Techno+0x298`) and its time, the signed dword at `+0x29C`. The receiver's
+/// Psychedelic arm starts it ([`Self::start`]) and `TechnoClass::AI_Update`
+/// counts it down ([`Self::count_down`]).
+///
+/// The time is the exact distance-zero damage kernel result, so it
+/// deliberately remains signed rather than becoming a Rust duration type.
+#[derive(
+    Debug, Clone, Copy, Default, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize,
+)]
+pub(crate) struct BerserkState {
+    active: bool,
+    timer: i32,
+}
+
+impl BerserkState {
+    /// The object is berserk.
+    pub(crate) const fn is_active(self) -> bool {
+        self.active
+    }
+
+    /// The time left. The Psychedelic arm and the countdown use the field;
+    /// tests read it through this.
+    #[cfg(test)]
+    pub(crate) const fn timer(self) -> i32 {
+        self.timer
+    }
+
+    /// A fixture's state.
+    #[cfg(test)]
+    pub(crate) fn for_test(active: bool, timer: i32) -> Self {
+        Self { active, timer }
+    }
+
+    /// Install a fixture's byte.
+    #[cfg(test)]
+    pub(crate) fn set_active_for_test(&mut self, active: bool) {
+        self.active = active;
+    }
+
+    /// Install a fixture's time.
+    #[cfg(test)]
+    pub(crate) fn set_timer_for_test(&mut self, timer: i32) {
+        self.timer = timer;
+    }
+
+    /// The Psychedelic arm's writes (`0x00701D6B..0x00701D7D`): the time,
+    /// then the flag. Answers whether this hit turned the object berserk; a
+    /// berserk object only has its time refreshed.
+    pub fn start(&mut self, time: i32) -> bool {
+        self.timer = time;
+        !std::mem::replace(&mut self.active, true)
+    }
+
+    /// `TechnoClass::AI_Update`'s countdown (`0x006F9F0D..0x006F9F31`): a
+    /// berserk object's time drops by one each frame. At zero or below the
+    /// flag and the time clear, and the answer is true.
+    pub fn count_down(&mut self) -> bool {
+        if !self.active {
+            return false;
+        }
+        self.timer = self.timer.wrapping_sub(1);
+        if self.timer > 0 {
+            return false;
+        }
+        *self = Self::default();
+        true
+    }
+}

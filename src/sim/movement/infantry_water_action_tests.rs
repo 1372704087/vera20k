@@ -226,8 +226,8 @@ fn fixture(row: &Value, rules: &RuleSet, type_name: &str) -> (Simulation, u64) {
         .mission_leaf
         .install_infantry_water_state_fixture(input["old_water_state"].as_i64().unwrap_or(1) as i32);
     let infantry = actor.infantry.as_mut().unwrap();
-    infantry.fear_level = input["fear"].as_u64().unwrap_or(0) as u16;
-    infantry.is_prone = false;
+    infantry.set_fear_level_for_test(input["fear"].as_u64().unwrap_or(0) as u16);
+    infantry.set_is_prone_for_test(false);
     actor.install_native_stage_fixture(StageClass::from_native_fixture(
         7,
         0,
@@ -293,7 +293,7 @@ fn compare(row: &Value, rules: &RuleSet, type_name: &str) -> (Simulation, u64) {
     );
     if let Some(prone) = out["prone"].as_u64() {
         assert_eq!(
-            actor.infantry.as_ref().unwrap().is_prone,
+            actor.infantry.as_ref().unwrap().is_prone(),
             prone != 0,
             "{input}: remapped action retains the actual prone byte"
         );

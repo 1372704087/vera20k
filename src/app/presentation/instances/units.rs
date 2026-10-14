@@ -748,7 +748,7 @@ pub(crate) fn drawn_model_id<'a>(
     {
         Cow::Owned(no_spawn_alt_type)
     } else if let Some(display_override) = (!no_spawn_alt)
-        .then_some(entity.display_type_override)
+        .then_some(entity.display_type_override.image())
         .flatten()
     {
         Cow::Borrowed(interner.resolve(display_override))
@@ -1166,7 +1166,7 @@ fn unit_shadow_admitted(
         && !entity.sinking.is_active()
         && band == EntityDrawBand::Ground
         && !no_shadow
-        && entity.cloak.as_ref().is_none_or(|cloak| cloak.state == 0)
+        && entity.cloak.as_ref().is_none_or(|cloak| cloak.state() == 0)
 }
 
 fn shadow_lookup_key(mut key: UnitSpriteKey, native_shadow: bool) -> UnitSpriteKey {
@@ -1867,7 +1867,7 @@ mod tests {
         }
         entity.locomotor = Some(LocomotorState::for_test_kind(LocomotorKind::Drive));
         let mut cloak = crate::sim::cloak_disguise::CloakRuntime::new(0);
-        cloak.state = 1;
+        cloak.set_state_for_test(1);
         entity.cloak = Some(cloak);
         assert!(!native_shadow_caller_eligible(
             &entity,
@@ -1885,7 +1885,7 @@ mod tests {
         assert!(!unit_shadow_admitted(&entity, true, EntityDrawBand::Ground));
         for state in [1, 2, 3] {
             let mut cloak = crate::sim::cloak_disguise::CloakRuntime::new(0);
-            cloak.state = state;
+            cloak.set_state_for_test(state);
             entity.cloak = Some(cloak);
             // StartCloaking703799 writes state1/progress0. At zero progress
             // the body's visual query may be ordinary; the shadow stays absent.
@@ -1895,7 +1895,7 @@ mod tests {
                 EntityDrawBand::Ground
             ));
         }
-        entity.cloak.as_mut().unwrap().state = 0;
+        entity.cloak.as_mut().unwrap().set_state_for_test(0);
         assert!(unit_shadow_admitted(&entity, false, EntityDrawBand::Ground));
     }
 

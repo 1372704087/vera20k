@@ -376,7 +376,8 @@ impl Simulation {
         // the planter leaves play.
         let c4_source = entity
             .pending_c4_detonation
-            .and_then(|pending| pending.source_entity_id);
+            .pending()
+            .and_then(|pending| pending.source_entity_id());
         let chance_max = if c4_source.is_some() { 1 } else { 2 } + if captured { 6 } else { 0 };
         let mut count = self.building_survivor_count(rules, building_id, no_survivor);
 

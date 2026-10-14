@@ -51,10 +51,10 @@ fn frame(s: &mut Scene) -> Sample {
         mission: miner.mission.current(),
         contact: miner.radio_contacts.slot(0),
         tethered: miner.tether.partner().is_some(),
-        unloading: state.unload_active,
+        unloading: state.unload_active(),
         facing: miner.body_facing_current(s.sim.session.binary_frame),
         ore: state
-            .cargo
+            .cargo()
             .iter()
             .filter(|b| b.resource_type == ResourceType::Ore)
             .count(),
@@ -200,13 +200,13 @@ fn spawn_returning_cmin(s: &mut Scene, cell: (u16, u16)) -> u64 {
     entity
         .mission
         .set_handler_state(MinerState::ReturnToRefinery.cursor());
-    entity.miner.as_mut().unwrap().cargo = vec![
+    entity.miner.as_mut().unwrap().set_cargo_for_test(vec![
         CargoBale {
             resource_type: ResourceType::Ore,
             value: 25,
         };
         20
-    ];
+    ]);
     id
 }
 
@@ -439,7 +439,7 @@ fn selling_the_refinery_mid_unload_hands_the_chrono_miner_to_harvest() {
         .miner
         .as_ref()
         .unwrap()
-        .cargo
+        .cargo()
         .len();
     let refinery = s.refinery;
     let type_id = s
@@ -476,20 +476,20 @@ fn selling_the_refinery_mid_unload_hands_the_chrono_miner_to_harvest() {
             .miner
             .as_ref()
             .unwrap()
-            .unload_active,
+            .unload_active(),
         "the order's frame changes nothing"
     );
     step(&mut s);
     let miner = s.sim.substrate.entities.get(s.miner).unwrap();
     let state = miner.miner.as_ref().unwrap();
-    assert!(!state.unload_active, "RUN_AWAY dropped the latch");
+    assert!(!state.unload_active(), "RUN_AWAY dropped the latch");
     assert!(miner.tether.partner().is_some());
     assert_eq!(
         miner.radio_contacts.slot(0),
         Some(refinery),
         "RUN_AWAY keeps the contact"
     );
-    assert_eq!(state.cargo.len(), before, "nothing more was dumped");
+    assert_eq!(state.cargo().len(), before, "nothing more was dumped");
     assert_eq!(
         miner.mission.current(),
         MissionId::from_known(MissionType::Harvest)
@@ -503,5 +503,5 @@ fn selling_the_refinery_mid_unload_hands_the_chrono_miner_to_harvest() {
     let miner = s.sim.substrate.entities.get(s.miner).unwrap();
     assert_eq!(miner.tether.partner(), None, "OVER_OUT released the miner");
     assert_eq!(miner.radio_contacts.slot(0), None);
-    assert_eq!(miner.miner.as_ref().unwrap().cargo.len(), before);
+    assert_eq!(miner.miner.as_ref().unwrap().cargo().len(), before);
 }

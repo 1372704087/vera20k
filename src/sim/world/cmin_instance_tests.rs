@@ -203,8 +203,12 @@ fn prepare(row: &Value) -> Scene {
     runtime.retries_left = u32::try_from(integer(&native["retries"])).unwrap();
     entity.navigation.nav_com = native_nav(row, &native["nav"]);
     entity.navigation.nav_com_aux = native_nav(row, &native["aux"]);
-    entity.setter_force_reassign = byte(&native["force_reassign"]) != 0;
-    entity.foot_locomotor_swap_active = byte(&native["swap_6ad"]) != 0;
+    entity
+        .setter_force_reassign
+        .set_for_test(byte(&native["force_reassign"]) != 0);
+    entity
+        .lift
+        .set_swap_active_for_test(byte(&native["swap_6ad"]) != 0);
     // Preserve unrelated Rust scheduler fields while supplying the recorded words.
     let mission = &mut entity.mission;
     mission.apply_test_fixture(MissionTestFixture {
@@ -296,12 +300,12 @@ fn assert_boundary(scene: &Scene, row: &Value, expected: &Value, context: &str) 
         "{context}: path latch"
     );
     assert_eq!(
-        entity.setter_force_reassign,
+        entity.setter_force_reassign.is_raised(),
         byte(&foot["force_reassign"]) != 0,
         "{context}: force"
     );
     assert_eq!(
-        entity.foot_locomotor_swap_active,
+        entity.lift.swap_active(),
         byte(&foot["swap_6ad"]) != 0,
         "{context}: Foot swap"
     );
@@ -399,7 +403,7 @@ fn owned_state(entity: &GameEntity) -> Value {
         &entity.foot_speed,
         ground_pose::position_world_coord(&entity.position),
         &entity.mission,
-        entity.foot_locomotor_swap_active,
+        entity.lift.swap_active(),
     ))
     .unwrap()
 }
@@ -432,7 +436,9 @@ fn replay(row: &Value) {
                 ));
             }
             "swap_end_refusal" | "successful_end" => {
-                entity.foot_locomotor_swap_active = byte(&before["state"]["foot"]["swap_6ad"]) != 0;
+                entity
+                    .lift
+                    .set_swap_active_for_test(byte(&before["state"]["foot"]["swap_6ad"]) != 0);
             }
             _ => {}
         }

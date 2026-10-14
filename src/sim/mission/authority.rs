@@ -46,6 +46,41 @@ mod ready_private {
     pub trait Sealed {}
 }
 
+/// SuspendedTarCom (`TechnoClass+0x2B8`): the target
+/// `TechnoClass::Override_Mission @ 0x007013A0` archives from TarCom
+/// (`+0x2B4`) before the override's own target ([`Self::archive`]), and
+/// `TechnoClass::Restore_Mission @ 0x007013E0` hands back to Assign_Target
+/// without clearing it. A megamission retask, a team's unlink and pointer
+/// expiry drop it ([`Self::clear`]).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(transparent)]
+pub(crate) struct SuspendedTarget {
+    target: Option<crate::sim::combat::TargetKind>,
+}
+
+impl SuspendedTarget {
+    /// The archived target.
+    pub(crate) const fn target(self) -> Option<crate::sim::combat::TargetKind> {
+        self.target
+    }
+
+    /// Override_Mission's archive of the live TarCom.
+    pub(crate) fn archive(&mut self, target: Option<crate::sim::combat::TargetKind>) {
+        self.target = target;
+    }
+
+    /// Drop the archived target.
+    pub(crate) fn clear(&mut self) {
+        self.target = None;
+    }
+
+    /// Install a fixture's archived target.
+    #[cfg(test)]
+    pub(crate) fn set_for_test(&mut self, target: Option<crate::sim::combat::TargetKind>) {
+        self.target = target;
+    }
+}
+
 /// Entity-local Restore transaction used after a represented pointer-expiry
 /// callback has already cleared the expired target through Assign_Target.
 ///
@@ -62,7 +97,7 @@ pub(crate) fn restore_entity_after_target_expiry(
         return false;
     }
 
-    let saved_target = entity.suspended_attack_target;
+    let saved_target = entity.suspended_attack_target.target();
     let saved_destination = entity.navigation.suspended_nav_com;
     let category = entity.category();
     let restored = verb::restore_base(&mut entity.mission);
@@ -323,7 +358,7 @@ fn evaluate_ready(
                 let unload_active = entity
                     .miner
                     .as_ref()
-                    .is_some_and(|miner| miner.unload_active);
+                    .is_some_and(|miner| miner.unload_active());
                 match rules {
                     Some(rules) => unit_ready_to_commence(UnitReadyView {
                         mission,
@@ -978,7 +1013,9 @@ impl Simulation {
             if entity.category() != EntityCategory::Structure {
                 entity.navigation.suspended_nav_com = entity.navigation.nav_com;
             }
-            entity.suspended_attack_target = entity.attack_target.target();
+            entity
+                .suspended_attack_target
+                .archive(entity.attack_target.target());
             verb::override_base(&mut entity.mission, packet.mission);
         }
         effects.apply_target(self, &prepared, packet.combat_target);
@@ -1007,7 +1044,7 @@ impl Simulation {
         if entity.mission.suspended() == MissionId::NONE {
             return Ok(false);
         }
-        let saved_target = entity.suspended_attack_target;
+        let saved_target = entity.suspended_attack_target.target();
         let saved_destination = entity.navigation.suspended_nav_com;
         let category = entity.category();
         let request = match category {
@@ -1579,7 +1616,11 @@ mod tests {
                 // Original5B3675..5B367B archives the non-null queued
                 // selector; current Move is used only without a queue.
                 assert_eq!(actor.mission.suspended(), GUARD, "{name}");
-                assert_eq!(actor.suspended_attack_target, prior_target, "{name}");
+                assert_eq!(
+                    actor.suspended_attack_target.target(),
+                    prior_target,
+                    "{name}"
+                );
                 assert_eq!(
                     actor.navigation.suspended_nav_com,
                     Some(NavTargetRef::cell(12, 10)),
@@ -1677,8 +1718,8 @@ mod tests {
         assert_eq!(after.mission, before.mission);
         assert_eq!(after.attack_target.target(), before.attack_target.target());
         assert_eq!(
-            after.suspended_attack_target,
-            before.suspended_attack_target
+            after.suspended_attack_target.target(),
+            before.suspended_attack_target.target()
         );
     }
 
@@ -1820,7 +1861,10 @@ mod tests {
             let after = sim.substrate.entities.get(1).unwrap();
             assert_eq!(after.mission.current(), ATTACK);
             assert_eq!(after.mission.suspended(), GUARD);
-            assert_eq!(after.suspended_attack_target, Some(TargetKind::Entity(7)));
+            assert_eq!(
+                after.suspended_attack_target.target(),
+                Some(TargetKind::Entity(7))
+            );
             assert!(matches!(
                 effects.events[0],
                 ConcreteEffectEvent::Preflight { .. }
@@ -1881,7 +1925,10 @@ mod tests {
 
         let after = sim.substrate.entities.get(1).unwrap();
         assert_eq!(after.mission, before_mission);
-        assert_eq!(after.suspended_attack_target, Some(TargetKind::Entity(7)));
+        assert_eq!(
+            after.suspended_attack_target.target(),
+            Some(TargetKind::Entity(7))
+        );
         assert_eq!(
             after.navigation.suspended_nav_com,
             Some(NavTargetRef::cell(1, 2))
@@ -1973,7 +2020,8 @@ mod tests {
             ai_counter: 12,
             dispatch_timer: MissionDispatchTimer::from_raw(13, 14),
         });
-        unit.suspended_attack_target = Some(TargetKind::Entity(7));
+        unit.suspended_attack_target
+            .set_for_test(Some(TargetKind::Entity(7)));
         unit.navigation.suspended_nav_com = Some(NavTargetRef::cell(8, 9));
         let mut sim = sim_with(unit);
         let mut effects = RecordingConcreteMissionEffects::available();
@@ -1985,7 +2033,10 @@ mod tests {
         let entity = sim.substrate.entities.get(1).unwrap();
         assert_eq!(entity.mission.current(), GUARD);
         assert_eq!(entity.mission.queued(), MOVE);
-        assert_eq!(entity.suspended_attack_target, Some(TargetKind::Entity(7)));
+        assert_eq!(
+            entity.suspended_attack_target.target(),
+            Some(TargetKind::Entity(7))
+        );
         assert_eq!(
             entity.navigation.suspended_nav_com,
             Some(NavTargetRef::cell(8, 9))

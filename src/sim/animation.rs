@@ -302,7 +302,7 @@ pub(crate) fn tick_unit_body_frame_counter(
     }
 
     if entity.locomotor.is_none()
-        || entity.foot_locomotor_swap_active
+        || entity.lift.swap_active()
         || entity.is_warped_out()
         || entity.is_warping_in()
     {

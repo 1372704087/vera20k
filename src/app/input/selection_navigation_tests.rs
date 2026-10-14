@@ -25,7 +25,8 @@ use crate::rules::{ini_parser::IniFile, ruleset::RuleSet};
 use crate::sim::combat::Health;
 use crate::sim::command::Command;
 use crate::sim::components::DriveCoord;
-use crate::sim::game_entity::{BunkerLink, GameEntity};
+use crate::sim::docking::bunker_link::BunkerLink;
+use crate::sim::game_entity::GameEntity;
 use crate::sim::house_state::HouseState;
 use crate::sim::movement::ground_pose;
 use crate::sim::world::{Simulation, display_layers::DisplayLayer};
@@ -1823,7 +1824,7 @@ fn fixture(inputs: &Inputs, selected: &[u64]) -> (Simulation, RuleSet) {
                 .veterancy
                 .set_raw_for_test(crate::util::native_x87::NativeF32Bits::from_bits(bits));
         }
-        entity.foot_locomotor_swap_active = actor.locomotor_swap;
+        entity.lift.set_swap_active_for_test(actor.locomotor_swap);
         if actor.mission_only {
             entity.mark_mission_only();
         }
@@ -1834,7 +1835,9 @@ fn fixture(inputs: &Inputs, selected: &[u64]) -> (Simulation, RuleSet) {
             entity.slave = crate::sim::slave_manager::SlaveLink::for_test(Some(999), Vec::new());
         }
         if actor.bunker {
-            entity.bunker_link = BunkerLink::Installed(999);
+            entity
+                .bunker
+                .set_bunker_link_for_test(BunkerLink::Installed(999));
         }
         if actor.docked {
             entity.tether.set_for_test(Some(999));

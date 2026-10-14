@@ -929,7 +929,7 @@ fn classify_foot_entry<'a>(
                     number_impassable_rows: bt.number_impassable_rows,
                     is_unit_repair: bt.unit_repair,
                     is_bunker: bt.bunker,
-                    bunker_occupied: b.bunker_occupant.is_some(),
+                    bunker_occupied: b.bunker.occupant().is_some(),
                 }) == BuildingOccupantEntryDecision::SkipBlocker
                 {
                     continue;
@@ -995,7 +995,7 @@ fn classify_foot_entry<'a>(
                         number_impassable_rows: bt.number_impassable_rows,
                         is_unit_repair: bt.unit_repair,
                         is_bunker: bt.bunker,
-                        bunker_occupied: b.bunker_occupant.is_some(),
+                        bunker_occupied: b.bunker.occupant().is_some(),
                     }) == BuildingOccupantEntryDecision::SkipBlocker
                 {
                     continue;

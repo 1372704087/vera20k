@@ -725,7 +725,7 @@ fn a_computer_team_iron_curtains_itself() {
     for member in members {
         let entity = sim.entities().get(member).expect("member");
         assert_eq!(
-            entity.invulnerability.as_ref().map(|state| state.kind),
+            entity.invulnerability.as_ref().map(|state| state.kind()),
             Some(crate::sim::superweapon::invulnerability::InvulnKind::IronCurtain),
             "member {member} is under the Iron Curtain"
         );

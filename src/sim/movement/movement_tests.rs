@@ -1368,7 +1368,6 @@ fn gsi_04_10_crusher_and_omnicrusher_never_enter_or_crush_a_terrain_object_cell(
                 &mut entities,
                 Some(&grid),
                 &Default::default(),
-                &Default::default(),
                 &mut occupancy,
                 &mut rng,
                 tick,

@@ -409,10 +409,11 @@ impl Simulation {
             .as_ref()
             .and_then(|terrain| terrain.cell(rx, ry))
             .is_some_and(|cell| {
-                !crate::sim::pathfinding::cell_entry::speed_type_allows_cell(
-                    cell,
-                    crate::rules::locomotor_type::SpeedType::Foot,
-                )
+                // The land row (`0x0089EA40`) gives Foot no speed; an
+                // unbound row admits.
+                cell.speed_costs
+                    .cost_for_speed_type(crate::rules::locomotor_type::SpeedType::Foot)
+                    == Some(0)
             });
         if footless && !on_bridge {
             return false;

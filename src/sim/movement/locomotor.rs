@@ -86,7 +86,6 @@ pub struct LocomotorState {
     /// Stay airborne after reaching destination (BalloonHover=yes).
     pub balloon_hover: bool,
     /// Which terrain type this unit traverses (from rules.ini SpeedType=).
-    /// Used to select the correct TerrainCostGrid for cost-aware pathfinding.
     pub speed_type: SpeedType,
     /// Pathfinder movement zone — determines crush capability and special routing.
     /// Cached from ObjectType at spawn to avoid per-tick RuleSet lookups.

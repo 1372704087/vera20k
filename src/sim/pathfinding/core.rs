@@ -1,28 +1,24 @@
 //! A* pathfinding on the isometric grid.
 //!
 //! PathGrid stores per-cell walkability and bridge metadata (ground_walkable,
-//! bridge_walkable, transition, height levels). Flat A* reads ground_walkable;
-//! layered A* reads both layers for bridge-aware routing.
+//! bridge_walkable, transition, height levels). A* reads its heights and bridge
+//! flags for node heights and closed lists.
 //!
-//! Live Foot searches delegate neighbor admission to the concrete Unit/Infantry
-//! receiver. Its native cost class drives expansion and edge cost here; grid
-//! passability remains a compatibility boundary for callers without a Foot.
-//! The same admitted search owns its temporary markers through reconstruction
-//! and both finishing passes.
+//! Every search asks the Foot's Unit/Infantry `+0x1AC` receiver for each
+//! neighbor; its native cost class drives expansion and edge cost here. The
+//! same admitted search owns its temporary markers through reconstruction and
+//! both finishing passes.
 //!
 //! ## Dependency rules
 //! - Part of sim/ — depends on map/ (resolved terrain for walkability).
 //! - sim/ NEVER depends on render/, ui/, audio/, net/.
 
-use super::cell_entry::{CanEnterCellContext, evaluate_can_enter_cell, search_cell_cost_decision};
 use super::stamped_table::StampedTable;
-use super::terrain_cost::TerrainCostGrid;
 use super::zone_hierarchy::{MarkedZones, ZoneLevelGraph};
 use super::zone_search::PathSearchFailure;
 use crate::map::bridge_facts::BRIDGE_FLAG_ANCHOR_SELF;
 use crate::map::resolved_terrain::ResolvedTerrainGrid;
 use crate::map::tube_facts::{TubeId, TubeSource};
-use crate::rules::locomotor_type::{MovementZone, SpeedType};
 use crate::sim::movement::locomotor::MovementLayer;
 use crate::util::direction_tables::CELL_DELTAS;
 use std::cell::RefCell;
@@ -422,163 +418,6 @@ pub(crate) fn compute_node_height(
     ground + if deck { 4 } else { 0 }
 }
 
-fn is_structural_bridge_deck_height(path_height: i16, cell: &PathCell) -> bool {
-    cell.has_structural_bridge() && path_height == cell.signed_level() + 4
-}
-
-/// Whether an edge needs the bridge-traversal legality check at all.
-///
-/// **VERA adapter, not a native skip predicate.** `AStar_main_loop` calls the
-/// `+0x1AC` slot unconditionally at `0x00429F54`; Unit's receiver in turn calls
-/// CheckBridgeTraversal (0x004D9C60). This includes structural deck-to-deck
-/// edges: 0x004D9E08 can refuse those when the candidate lacks 0x200, even
-/// though both cells carry 0x100 and their raw ground levels match.
-///
-/// The remaining bypass is between structural cells when the parent is not
-/// at its raw level+4 and the candidate lacks 0x200. The caller then uses its
-/// local height-difference rule. That reduced under-bridge domain is not a
-/// claim of the unconditional native receiver contract.
-pub(crate) fn needs_bridge_traversal_for_edge(
-    current_height: i16,
-    current_cell: &PathCell,
-    neighbor_cell: &PathCell,
-) -> bool {
-    let structural_deck_to_structural =
-        is_structural_bridge_deck_height(current_height, current_cell)
-            && neighbor_cell.has_structural_bridge();
-    neighbor_cell.has_bridgehead_transition()
-        || !neighbor_cell.has_structural_bridge()
-        || !current_cell.has_structural_bridge()
-        || structural_deck_to_structural
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct BridgeTraversalInput<'a> {
-    pub candidate: &'a PathCell,
-    pub candidate_coord: (u16, u16),
-    pub direction: i8,
-    pub path_height: i16,
-    pub parent: Option<(&'a PathCell, (u16, u16))>,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct BridgeTraversalResult {
-    pub allowed: bool,
-    pub force_bridge_list: bool,
-}
-
-pub(crate) fn resolve_parent_for_bridge_traversal<'a>(
-    grid: &'a PathGrid,
-    candidate_coord: (u16, u16),
-    direction: i8,
-    explicit_parent: Option<(&'a PathCell, (u16, u16))>,
-) -> Option<(&'a PathCell, (u16, u16))> {
-    if let Some(parent) = explicit_parent {
-        return Some(parent);
-    }
-    if !(0..=7).contains(&direction) {
-        return None;
-    }
-    let rotated = ((direction - 4) & 7) as usize;
-    let (dx, dy) = CELL_DELTAS[rotated];
-    let px = candidate_coord.0 as i32 + dx;
-    let py = candidate_coord.1 as i32 + dy;
-    if px < 0 || py < 0 || px >= grid.width() as i32 || py >= grid.height() as i32 {
-        return None;
-    }
-    let coord = (px as u16, py as u16);
-    grid.cell(coord.0, coord.1).map(|cell| (cell, coord))
-}
-
-pub(crate) fn check_bridge_traversal(
-    grid: &PathGrid,
-    input: BridgeTraversalInput<'_>,
-) -> BridgeTraversalResult {
-    if input.direction == -1 {
-        return BridgeTraversalResult {
-            allowed: true,
-            force_bridge_list: false,
-        };
-    }
-    let mut path_height = input.path_height;
-
-    let Some((parent, _parent_coord)) = resolve_parent_for_bridge_traversal(
-        grid,
-        input.candidate_coord,
-        input.direction,
-        input.parent,
-    ) else {
-        // `0x004D9CC5`: `TEST ESI,ESI; JZ 0x004D9E5E` — a null parent is
-        // **allowed** (`XOR EAX,EAX`), not refused. Reached on the outer map
-        // ring, where the predecessor cell resolves off-map.
-        return BridgeTraversalResult {
-            allowed: true,
-            force_bridge_list: false,
-        };
-    };
-
-    if path_height == -1 && parent.has_structural_bridge() {
-        path_height = parent.signed_level() + 4;
-        if !input.candidate.has_bridgehead_transition() {
-            return BridgeTraversalResult {
-                allowed: false,
-                force_bridge_list: false,
-            };
-        }
-    }
-
-    let candidate_level = input.candidate.signed_level();
-    let parent_selected = if parent.has_structural_bridge() {
-        parent.signed_level()
-    } else {
-        path_height
-    };
-    let diff = parent_selected - candidate_level;
-    let mut force_bridge_list = false;
-    let allowed = match diff.abs() {
-        0 => {
-            let all_bridge_transition = input.candidate.has_structural_bridge()
-                && input.candidate.has_bridgehead_transition()
-                && parent.has_structural_bridge();
-            all_bridge_transition || path_height == -1 || path_height == candidate_level
-        }
-        1 => {
-            if diff < 1 {
-                parent.slope_type != 0
-            } else {
-                input.candidate.slope_type != 0
-            }
-        }
-        4 => {
-            if parent.signed_level() == candidate_level - 4 {
-                path_height == candidate_level && parent.has_structural_bridge()
-            } else if candidate_level == parent.signed_level() - 4 {
-                if input.candidate.has_structural_bridge()
-                    && input.candidate.has_bridgehead_transition()
-                {
-                    force_bridge_list = true;
-                    true
-                } else {
-                    false
-                }
-            } else {
-                // `0x004D9D8F-0x004D9D94`: `ADD EAX,-0x4; CMP EBX,EAX; JNZ
-                // 0x004D9E5E` — when the parent's own level is neither
-                // `candidate ± 4`, the step is **allowed** with no deck flag.
-                // Reached when the parent carries no structural bridge, so
-                // `parent_selected` is the path height rather than the level.
-                true
-            }
-        }
-        _ => false,
-    };
-
-    BridgeTraversalResult {
-        allowed,
-        force_bridge_list,
-    }
-}
-
 fn encode_from(cell_idx: usize, on_bridge: bool) -> usize {
     cell_idx | if on_bridge { CAME_FROM_BRIDGE } else { 0 }
 }
@@ -610,20 +449,21 @@ fn search_cell_allocated(terrain: Option<&ResolvedTerrainGrid>, coord: (u16, u16
     })
 }
 
-/// Configuration for the unified A* search. All fields optional; defaults
-/// produce a bare ground-only search equivalent to the old `find_path`.
-#[derive(Default)]
+/// Configuration for the unified A* search.
 pub struct AStarOptions<'a> {
-    /// Terrain speed multipliers (cost 0 = blocked for this SpeedType).
-    pub terrain_costs: Option<&'a TerrainCostGrid>,
-    /// The mover type's `IsTrain=` flag (`TechnoTypeClass+0xC94`), which
-    /// `AStar_main_loop` reads at `0x00429B64`/`0x00429C79` to zero every
-    /// passable `+0x1AC` class. Residual: no mover supplies it (always false);
-    /// no retail `rulesmd.ini` type sets `IsTrain=`, so the arm is dormant.
+    /// The mover type's `IsTrain=` flag (`TechnoTypeClass+0xC94`):
+    /// `AStar_main_loop` sets its gate byte at `0x00429C79` and then zeroes
+    /// every passable `+0x1AC` class (`0x00429F5C..0x00429F69`). Residual: no
+    /// mover supplies it (always false), and the search's other train arms
+    /// are unported: the start height at `0x00429B64..0x00429BB0`, the start
+    /// neighbours closed against the train's facing at
+    /// `0x00429C87..0x00429D25`, the hierarchy bypass at `0x0042CACC` and
+    /// Find_Path's code-6 destination skip at `0x004D3A66`/`0x004D3AA5`. No
+    /// retail type sets `IsTrain=`, so all are dormant.
     pub mover_is_train: bool,
-    /// Full live Foot +1AC owner. When supplied, its class is the sole terrain
-    /// and object admission verdict; the reduced grid/wall adapters are unused.
-    pub foot_entry: Option<&'a dyn SearchFootEntry>,
+    /// The Foot's `+0x1AC` (`0x00429F54`): the only terrain and object
+    /// admission verdict, and the edge's cost class.
+    pub foot_entry: &'a dyn SearchFootEntry,
     /// Search-scoped temporary marker overlay equivalent to
     /// `CellClass+0x140 & 0x40000`. Destination hits multiply normal compass
     /// edge cost, but do not change walkability or persistent pathgrid state.
@@ -632,22 +472,29 @@ pub struct AStarOptions<'a> {
     /// after wrapper/zone admission. A* and both finishing passes consume
     /// the transaction before it is discarded ahead of Foot Mark1.
     pub marker_overlay: Option<&'a SearchMarkerOverlay>,
-    /// Reduced-admission searches only (no Foot +1AC search entry): selects
-    /// the crusher arm of the reduced terrain entry. Searches through the live
-    /// +1AC answer it natively and ignore this.
-    pub mover_is_crusher: bool,
     /// Code-2 urgency escalation (0 = look-ahead chain walk, 1 = traffic penalty,
     /// 2 = route around). Matches gamemd.exe PathfinderClass+0x3C.
     pub urgency: u8,
     /// Binary-style hierarchy marker gate. Present only when blocker-neighbor
     /// counts are also available for the same search.
     pub(crate) hierarchy_gate: Option<HierarchyGate<'a>>,
-    /// Movement zone for water mover bypass and passability matrix.
-    pub movement_zone: Option<MovementZone>,
-    /// Resolved terrain for cliff cost and water passability checks.
+    /// The map's cells, for the allocated-Cell test and Tube edges.
     pub resolved_terrain: Option<&'a ResolvedTerrainGrid>,
-    /// Select the Infantry subcell rules in the reduced entry adapter.
-    pub is_infantry: bool,
+}
+
+impl<'a> AStarOptions<'a> {
+    /// A search asking `foot_entry`, with no hierarchy gate, markers,
+    /// urgency, train flag or map cells.
+    pub fn new(foot_entry: &'a dyn SearchFootEntry) -> Self {
+        Self {
+            mover_is_train: false,
+            foot_entry,
+            marker_overlay: None,
+            urgency: 0,
+            hierarchy_gate: None,
+            resolved_terrain: None,
+        }
+    }
 }
 
 /// Candidate input at the shared Foot +1AC boundary. A* expands copied Cell
@@ -706,29 +553,18 @@ pub trait SearchFootEntry {
     }
 }
 
-/// The mover facts the A* cost evaluation consults for every neighbour.
-///
-/// These facts travel together through every search entry, so they travel as
-/// one value. `urgency` drives the code-2 escalation, `mover_is_crusher` and
-/// `is_infantry` select the `Can_Enter_Cell` class arm, and `foot_entry` is
-/// the live Foot `+0x1AC` receiver.
+/// The mover facts every search entry carries: `urgency` drives the code-2
+/// escalation, and `foot_entry` is the Foot's `+0x1AC` receiver.
 ///
 /// This deliberately excludes `allow_zone_hierarchy` and `playfield_bounds`
 /// (hierarchy admission, not per-neighbour cost) and both movement-zone
 /// parameters: `mz` selects the zone map/hierarchy to consult, while
-/// `movement_zone` is the mover's own zone for passability, and
-/// `movement_zone.unwrap_or(mz)` is the documented fallback between them.
-/// Deliberately **not** `Default`. A defaulted value would mean
-/// `mover_is_crusher: false`, and ledger row I9c records exactly that shape as a
-/// landed regression: five first searches passed a literal `false` and crushers
-/// detoured around sandbags their own crossing would drive through. Every
-/// construction site names every field, so the facts always come from a mover.
+/// `movement_zone` is the mover's own zone, and `movement_zone.unwrap_or(mz)`
+/// is the documented fallback between them.
 #[derive(Clone, Copy)]
 pub struct MoverSearchFacts<'a> {
     pub urgency: u8,
-    pub mover_is_crusher: bool,
-    pub is_infantry: bool,
-    pub foot_entry: Option<&'a dyn SearchFootEntry>,
+    pub foot_entry: &'a dyn SearchFootEntry,
 }
 
 /// Reconstruct a layered path from dual came_from arrays.
@@ -809,8 +645,6 @@ pub fn astar_search(
     goal: (u16, u16),
     options: &AStarOptions<'_>,
 ) -> Result<Vec<LayeredPathStep>, PathSearchFailure> {
-    let is_water_mover = options.movement_zone.is_some_and(|mz| mz.is_water_mover());
-
     // Start cell may be blocked (e.g. unit standing inside a building footprint
     // after undock). The start node is seeded into the open set without a
     // passability check; only neighbor expansion calls Can_Enter_Cell. If all
@@ -936,56 +770,14 @@ pub fn astar_search(
                 let n_idx = ny as usize * w + nx as usize;
                 let neighbor_cell = grid.cell(nx, ny).unwrap_or(&DEFAULT_BLOCKED_CELL);
 
-                // Closed-list selection: uses CURRENT node's height vs neighbor ground_level
-                let mut neighbor_use_bridge = is_at_bridge_level(current.height, neighbor_cell);
+                // Closed-list selection (0x00429E54): the CURRENT node's height
+                // against the candidate. Foot+1AC's own 0x004D9C60 list choice
+                // stays local to the class.
+                let neighbor_use_bridge = is_at_bridge_level(current.height, neighbor_cell);
 
                 // Compute what height the NEW node carries forward (separate computation)
                 let neighbor_height =
                     compute_node_height(current.height, Some(cur_cell), neighbor_cell);
-
-                // Live +1AC owns these height/list predicates (Foot4D9C60).
-                // Keep the reduced checks only for callers without a live owner.
-                if options.foot_entry.is_none() {
-                    // Height-diff legality gate. Diff-1 transitions require the LOWER cell's
-                    // raw slope byte to be nonzero; diff ∈ {±2, ±3, ±4, ±5+} is
-                    // always blocked. Legitimate bridge transitions arrive here as diff-0
-                    // because `compute_node_height` already shifts unit Z onto/off the deck.
-                    let needs_bridge_traversal =
-                        needs_bridge_traversal_for_edge(current.height, cur_cell, neighbor_cell);
-                    if needs_bridge_traversal {
-                        let bridge_traversal = check_bridge_traversal(
-                            grid,
-                            BridgeTraversalInput {
-                                candidate: neighbor_cell,
-                                candidate_coord: (nx, ny),
-                                direction: dir_index as i8,
-                                path_height: current.height,
-                                parent: Some((cur_cell, (cx, cy))),
-                            },
-                        );
-                        if !bridge_traversal.allowed {
-                            continue;
-                        }
-                        if bridge_traversal.force_bridge_list {
-                            neighbor_use_bridge = true;
-                        }
-                    } else {
-                        let diff = neighbor_height - current.height;
-                        let lower_slope = if diff < 0 {
-                            neighbor_cell.slope_type
-                        } else {
-                            cur_cell.slope_type
-                        };
-                        let legal = match diff.abs() {
-                            0 => true,
-                            1 => lower_slope != 0,
-                            _ => false,
-                        };
-                        if !legal {
-                            continue;
-                        }
-                    }
-                }
 
                 // Closed check on appropriate list
                 // Binary `1.009` handling is an early closed-neighbor skip/fallback
@@ -1014,62 +806,20 @@ pub fn astar_search(
                 }
 
                 // Original429F54 calls the complete Foot+1AC for every reached
-                // neighbor. In particular, Capture/NavCom may admit a building
-                // that the static PathGrid closes. 429FEA tests THIS class before
-                // the blocked-goal tail42A17D. No second terrain/object verdict.
-                let refused_cost_class = if let Some(entry) = options.foot_entry {
-                    Some(
-                        entry
-                            .classify(SearchEntryQuery {
-                                from: Some((cx, cy)),
-                                candidate: SearchEntryCandidate::CopiedCoord((nx, ny)),
-                                direction: dir_index as i32,
-                                path_height: i32::from(current.height),
-                            })
-                            .map_err(PathSearchFailure::CellEntryUnavailable)?,
-                    )
-                } else {
-                    // Walkability check on the determined layer. Ground->Bridge entry
-                    // still requires 0x200. Deck-to-deck moves passed the same
-                    // flag's diff-0 gate in CheckBridgeTraversal; bridge_walkable
-                    // alone does not admit a Forward2-style transverse stamp slot.
-                    let neighbor_passable = if neighbor_use_bridge {
-                        let prev_on_bridge = is_at_bridge_level(current.height, cur_cell);
-                        let bridge_terrain_passable =
-                            is_cell_passable_for_mover_on_layer_with_speed(
-                                grid,
-                                nx,
-                                ny,
-                                MovementLayer::Bridge,
-                                options.movement_zone,
-                                None,
-                                options.resolved_terrain,
-                                options.terrain_costs,
-                            );
-                        if prev_on_bridge {
-                            bridge_terrain_passable
-                        } else {
-                            bridge_terrain_passable && neighbor_cell.transition
-                        }
-                    } else {
-                        is_cell_passable_for_category_on_layer(
-                            grid,
-                            nx,
-                            ny,
-                            MovementLayer::Ground,
-                            options.movement_zone,
-                            None,
-                            options.resolved_terrain,
-                            options.terrain_costs,
-                            options.is_infantry,
-                            options.mover_is_crusher,
-                        )
-                    };
-                    (!neighbor_passable).then_some(7)
-                };
-                if let Some(refused_class) = refused_cost_class
-                    && refused_class >= 7
-                {
+                // neighbor; its class is the only terrain and object verdict.
+                // In particular, Capture/NavCom may admit a building that the
+                // static PathGrid closes. 429FEA tests THIS class before the
+                // blocked-goal tail42A17D.
+                let cost_class = options
+                    .foot_entry
+                    .classify(SearchEntryQuery {
+                        from: Some((cx, cy)),
+                        candidate: SearchEntryCandidate::CopiedCoord((nx, ny)),
+                        direction: dir_index as i32,
+                        path_height: i32::from(current.height),
+                    })
+                    .map_err(PathSearchFailure::CellEntryUnavailable)?;
+                if cost_class >= 7 {
                     // Impassable-destination abort. When the goal cell is
                     // refused and the search has reached a cell adjacent to
                     // it, gamemd leaves the main loop immediately and drops
@@ -1097,80 +847,28 @@ pub fn astar_search(
                     continue;
                 }
 
-                // The land-type × SpeedType row, read as a **passability
-                // predicate only**: zero closes the cell, any non-zero value
-                // opens it and weighs exactly the same as any other.
-                //
-                // Retail provenance: land-type speed table — the twelve rows at
-                // `0x0089EA40` filled by `RulesClass::ReadSpeedTypeLandTypeTable`
-                // @ `0x00674000`. All twelve read sites, exhaustively:
-                // passability gates (`CellClass::CheckCellPassability` @
-                // `0x004835DE`, `InfantryClass::Can_Enter_Cell` @ `0x0051C750`
-                // and `0x0051C7BC`, `UnitClass::Can_Enter_Cell` @ `0x0073FAB5`,
-                // building placement @ `0x0047CA58`, and the Foot-column
-                // `FCOMP 0.0f` at `0x0051895A` in the unnamed function around
-                // `0x00518930`); runtime speed consumers
-                // (`DriveLocomotionClass::Process_Movement` @ `0x004B3CA3`,
-                // `ShipLocomotionClass::Process_Movement` @ `0x006A32F2`);
-                // AI/action queries (`UnitClass::What_Action_OnObject` @
-                // `0x007400A1`, `UnitClass::Mission_Hunt` @ `0x00740C9C`); and
-                // the RulesClass save/load pair that streams the block whole
-                // (`0x0067F882`, `0x0067FAF6`). **No path-search function is
-                // among them.**
-                //
-                // The search's own edge cost is built by `AStar_compute_edge_cost`
-                // @ `0x00429830` for `AStar_main_loop` @ `0x00429A90` out of the
-                // `FootClass` `+0x1AC` cost class (base table `0x0081870C`), the
-                // code-2 blocker override, a `CellClass+0x140 & 0x40000` term,
-                // the dormant `PathfinderClass+0x01` bridge-flank term and the
-                // direction tiebreaks at `0x0081872C`. Both `Can_Enter_Cell`
-                // implementations reduce the land row to `== 0.0 → class 7`, so
-                // no gradation reaches the cost class either.
-                let terrain_cost: u8 = if neighbor_use_bridge || is_water_mover {
-                    100 // bridge layer or water mover: no terrain cost modifiers
-                } else if let Some(cost_grid) = options.terrain_costs {
-                    cost_grid.cost_at(nx, ny)
+                // A train (`IsTrain=`, gate byte set at `0x00429C79`) takes
+                // class 0 for every admitted class (`0x00429F5C..0x00429F69`).
+                let cost_class = if options.mover_is_train {
+                    0
                 } else {
-                    100 // no cost grid: uniform cost
+                    cost_class
                 };
-                // A neighbour the cost class already admitted is NOT re-judged
-                // here. Review caught this making the whole wall route inert in
-                // production: a non-crushable `Wall=yes` overlay reduces to zone
-                // `WALL`, which sets `overlay_blocks`, which `terrain_cost.rs`
-                // turns into `COST_BLOCKED` (0) for **every** SpeedType. So the
-                // gate below dropped exactly the cells the class had just priced
-                // at 60x/20x, a few lines after admitting them, and the only
-                // reason the first test passed was that it supplied no cost grid.
+
+                // The edge cost (`AStar_compute_edge_cost @ 0x00429830`) is
+                // built from this class (base table `0x0081870C`), the code-2
+                // blocker override, the `CellClass+0x140 & 0x40000` marker,
+                // the dormant `PathfinderClass+0x01` bridge-flank term and the
+                // direction tiebreaks at `0x0081872C`. No land row enters it:
+                // the classes read the row only as passability (Unit
+                // `0x0073FAB5`, Infantry `0x0051C750`), answering 7 for zero.
                 //
-                // Native takes one verdict from one slot: `AStar_main_loop`
-                // has no second terrain gate at this position, and the land-row
-                // check that belongs to this decision is already inside the
-                // class - `0x0073FAB5` reads the stored LandType and returns 7
-                // for a zero row, which `evaluate_can_enter_cell` models and
-                // `the_wall_arm_answers_seven_where_the_land_row_refuses` pins.
-                // Applying it twice is what refused the wall.
-                if terrain_cost == 0 && refused_cost_class.is_none() {
-                    continue;
-                }
-
-                // One native class supplies both admission and the edge base.
-                // Reduced adapters use None for clear; live Foot returns Some(0).
-                let raw_cost_class = refused_cost_class.unwrap_or(0);
-                let search_cost = search_cell_cost_decision(raw_cost_class, options.mover_is_train);
-                if !search_cost.expands {
-                    continue;
-                }
-
                 // Step cost — uniform across all 8 compass directions.
                 // AStar_main_loop checks only the destination through
                 // Can_Enter_Cell. PathfinderClass+0x01 is constructor-zero and
                 // has no retail writer, so the dormant bridge-flank block does
                 // not inspect either cardinal beside a diagonal destination.
-                let mut step_cost = STEP_COST;
-                step_cost = apply_search_cost_class_multiplier(
-                    step_cost,
-                    search_cost.effective_cost_class.unwrap_or(0),
-                );
+                let mut step_cost = apply_search_cost_class_multiplier(STEP_COST, cost_class);
 
                 // No height term. `AStar_compute_edge_cost` @ `0x00429830`
                 // multiplies by exactly four things — the `0x0081870C` class
@@ -1184,18 +882,16 @@ pub fn astar_search(
                 // cost. A ×4 on height change would have made every ramp step
                 // cost as much as four flat ones.
 
-                // The class's code-2 multiplier; the live receiver walks the
-                // chain on the list the class was asked about.
-                if let Some(entry) = options.foot_entry
-                    && search_cost.effective_cost_class == Some(2)
-                {
+                // The class's code-2 multiplier; the receiver walks the chain
+                // on the list the class was asked about.
+                if cost_class == 2 {
                     let list = if neighbor_use_bridge {
                         MovementLayer::Bridge
                     } else {
                         MovementLayer::Ground
                     };
                     step_cost *= code2_multiplier(options.urgency, || {
-                        entry.code2_chain_jams((nx, ny), list)
+                        options.foot_entry.code2_chain_jams((nx, ny), list)
                     })
                     .map_err(PathSearchFailure::CellEntryUnavailable)?;
                 }
@@ -1290,90 +986,6 @@ fn apply_search_cost_class_multiplier(step_cost: i32, cost_class: u8) -> i32 {
     step_cost.saturating_mul(multiplier)
 }
 
-/// Check if a cell is passable for pathfinding purposes.
-///
-/// For water movers (`MovementZone::Water` / `WaterBeach`), the normal PathGrid
-/// marks water cells as non-walkable. Ships need to bypass PathGrid entirely and
-/// use the passability matrix instead (zone 10 = water only).
-///
-/// For all other movers (or when `movement_zone` is `None`), uses the shared
-/// terrain-entry evaluator above `PathGrid`.
-pub fn is_cell_passable_for_mover(
-    grid: &PathGrid,
-    x: u16,
-    y: u16,
-    movement_zone: Option<MovementZone>,
-    resolved_terrain: Option<&ResolvedTerrainGrid>,
-) -> bool {
-    is_cell_passable_for_mover_on_layer_with_speed(
-        grid,
-        x,
-        y,
-        MovementLayer::Ground,
-        movement_zone,
-        None,
-        resolved_terrain,
-        None,
-    )
-}
-
-/// Infantry-aware variant of `is_cell_passable_for_mover_on_layer_with_speed`.
-///
-/// `is_infantry` selects the sub-cell view of terrain-object occupation: retail
-/// terrain objects close a cell to infantry only when every functional sub-cell
-/// bit is set.
-pub fn is_cell_passable_for_category_on_layer(
-    grid: &PathGrid,
-    x: u16,
-    y: u16,
-    terrain_layer: MovementLayer,
-    movement_zone: Option<MovementZone>,
-    speed_type: Option<SpeedType>,
-    resolved_terrain: Option<&ResolvedTerrainGrid>,
-    terrain_costs: Option<&TerrainCostGrid>,
-    is_infantry: bool,
-    mover_is_crusher: bool,
-) -> bool {
-    evaluate_can_enter_cell(CanEnterCellContext {
-        target: (x, y),
-        terrain_layer,
-        movement_zone,
-        speed_type,
-        path_grid: Some(grid),
-        resolved_terrain,
-        terrain_costs,
-        is_infantry,
-        mover_is_crusher,
-    })
-    .is_clear()
-}
-
-pub fn is_cell_passable_for_mover_on_layer_with_speed(
-    grid: &PathGrid,
-    x: u16,
-    y: u16,
-    terrain_layer: MovementLayer,
-    movement_zone: Option<MovementZone>,
-    speed_type: Option<SpeedType>,
-    resolved_terrain: Option<&ResolvedTerrainGrid>,
-    terrain_costs: Option<&TerrainCostGrid>,
-) -> bool {
-    evaluate_can_enter_cell(CanEnterCellContext {
-        target: (x, y),
-        terrain_layer,
-        movement_zone,
-        speed_type,
-        path_grid: Some(grid),
-        resolved_terrain,
-        terrain_costs,
-        is_infantry: false,
-        // Callers of this wrapper (bridge plane, scheduling, placement) carry
-        // no mover type; the crusher route of the wall arm is not theirs.
-        mover_is_crusher: false,
-    })
-    .is_clear()
-}
-
 /// Per-cell walkability and bridge metadata for pathfinding.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct PathCell {
@@ -1429,10 +1041,6 @@ impl PathCell {
         self.bridge_structural
     }
 
-    pub fn has_bridgehead_transition(&self) -> bool {
-        self.transition
-    }
-
     pub fn signed_level(&self) -> i16 {
         self.ground_level as i8 as i16
     }
@@ -1486,8 +1094,9 @@ const DEFAULT_BLOCKED_CELL: PathCell = PathCell {
 /// Unified walkability grid for pathfinding.
 ///
 /// Each cell stores ground walkability, bridge walkability, transition flags,
-/// and height levels. Flat A* reads `ground_walkable` via `is_walkable()`;
-/// layered A* reads both layers for bridge-aware routing.
+/// and height levels. A* reads only the heights and bridge flags, for its node
+/// heights and closed lists; whether a cell may be entered is the Foot's
+/// `+0x1AC` answer.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PathGrid {
     cells: Vec<PathCell>,
@@ -1546,7 +1155,7 @@ fn project_terrain_path_cell(
         // - Intact bridge deck → walkable (overrides underlying terrain)
         // - Destroyed bridge deck → revert to underlying terrain
         // - Cliff → blocked
-        // - Water → walkable (SpeedType cost=0 blocks ground in A*)
+        // - Water → walkable (the mover's Can_Enter_Cell reads the land row)
         // - Everything else → use ground_walk_blocked
         ground_walkable: if cell.overlay_blocks || cell.terrain_object_blocks {
             false
@@ -1560,14 +1169,9 @@ fn project_terrain_path_cell(
         } else if cell.bridge_walkable && cell.bridge_transition {
             // Bridgehead ramp: walkable on the ground layer regardless
             // of the TMP ramp tile's ground_walk_blocked flag. gamemd
-            // gates ground entry through the SpeedType/LandType matrix
-            // (land_type=Clear/Road → passable for vehicles/infantry);
-            // we don't yet route non-water movers through that matrix,
-            // so the boolean would otherwise reject a same-height
-            // plateau→bridgehead step and trap the unit on the wrong
-            // side. The bridge-layer gate at A* expansion still
-            // enforces "enter bridge via bridgehead" via the
-            // bridge_transition flag on the next deck cell.
+            // gates ground entry through the mover's SpeedType/LandType
+            // row and its bridge entry through Foot `0x004D9C60`, both
+            // inside the class's Can_Enter_Cell.
             true
         } else if cell.is_cliff_like {
             false
@@ -1830,10 +1434,9 @@ impl PathGrid {
     /// Build from resolved terrain with bridge metadata.
     ///
     /// Ground walkability: water cells and bridge deck cells are kept walkable
-    /// even when `ground_walk_blocked` is true — SpeedType-dependent blocking
-    /// is handled by TerrainCostGrid (cost=0 blocks ground units in A*).
-    /// This preserves the behavior of the old flat PathGrid where Float/Hover/
-    /// Amphibious units could path through water via cost > 0.
+    /// even when `ground_walk_blocked` is true; SpeedType-dependent blocking
+    /// belongs to the readers' land rows (a search's Foot `+0x1AC` reads its
+    /// own).
     pub fn from_resolved_terrain_with_bridges(terrain: &ResolvedTerrainGrid) -> Self {
         let size = terrain.width() as usize * terrain.height() as usize;
         let mut cells = vec![DEFAULT_BLOCKED_CELL; size];
@@ -2156,66 +1759,79 @@ fn apply_search_marker_cost(
     }
 }
 
-/// Find a path from start to goal using A* search.
-///
-/// Returns `Some(path)` where path is a sequence of (rx, ry) cells from
-/// start to goal (both inclusive). Returns `None` if no path exists or
-/// the search exceeds MAX_SEARCH_NODES.
+/// Test receiver over a bare `PathGrid`: class 0 where the ground plane is
+/// walkable, 7 elsewhere, and no threat. A* behaviour tests ask it in place of
+/// a Foot; it ports no `Can_Enter_Cell`, which `world::object_entry` owns.
+#[cfg(test)]
+pub(crate) struct WalkableEntry<'a> {
+    grid: &'a PathGrid,
+    cells: Option<&'a ResolvedTerrainGrid>,
+}
+
+#[cfg(test)]
+impl<'a> WalkableEntry<'a> {
+    pub(crate) fn new(grid: &'a PathGrid) -> Self {
+        Self { grid, cells: None }
+    }
+
+    /// Also answers the retained cells path finishing forwards, by their
+    /// coordinates in `cells`.
+    pub(crate) fn with_cells(grid: &'a PathGrid, cells: &'a ResolvedTerrainGrid) -> Self {
+        Self {
+            grid,
+            cells: Some(cells),
+        }
+    }
+}
+
+#[cfg(test)]
+impl SearchFootEntry for WalkableEntry<'_> {
+    fn classify(&self, query: SearchEntryQuery) -> Result<u8, String> {
+        let (x, y) = match query.candidate {
+            SearchEntryCandidate::CopiedCoord(coord) => coord,
+            SearchEntryCandidate::RetainedNativeCell(cell) => {
+                let cells = self
+                    .cells
+                    .ok_or("WalkableEntry without cells answers copied coordinates only")?;
+                let (x, y) = cells.native_cell_coord(cell);
+                (x as u16, y as u16)
+            }
+        };
+        Ok(if self.grid.is_walkable(x, y) { 0 } else { 7 })
+    }
+    fn finishing_threat_coefficient(
+        &self,
+    ) -> Result<crate::util::native_x87::NativeF64Bits, String> {
+        Ok(crate::util::native_x87::NativeF64Bits::POSITIVE_ZERO)
+    }
+    fn finishing_house_threat(&self, _coord: (i16, i16)) -> Result<i32, String> {
+        Ok(0)
+    }
+    fn hierarchy_house_threat(&self, _padded_index: i32) -> Result<i32, String> {
+        Ok(0)
+    }
+}
+
+/// A ground search over `grid` asking [`WalkableEntry`]: the cells from
+/// start to goal, both inclusive, or `None`.
+#[cfg(test)]
 pub fn find_path(grid: &PathGrid, start: (u16, u16), goal: (u16, u16)) -> Option<Vec<(u16, u16)>> {
     let steps = astar_search(
         grid,
         start,
         MovementLayer::Ground,
         goal,
-        &AStarOptions::default(),
+        &AStarOptions::new(&WalkableEntry::new(grid)),
     )
     .ok()?;
     Some(steps.into_iter().map(|s| (s.rx, s.ry)).collect())
 }
 
-/// A* pathfinding with optional land-row passability.
-///
-/// When `costs` is `Some`, a cell whose land row is zero is closed; every
-/// non-zero row expands at the same step cost, which is what the native search
-/// does (see the provenance in `astar_search`).
-#[cfg(test)]
-pub fn find_path_with_costs(
+pub(crate) fn find_path_marker(
     grid: &PathGrid,
     start: (u16, u16),
     goal: (u16, u16),
-    costs: Option<&TerrainCostGrid>,
-    movement_zone: Option<MovementZone>,
-    resolved_terrain: Option<&ResolvedTerrainGrid>,
-    mover_is_crusher: bool,
-    is_infantry: bool,
-) -> Option<Vec<(u16, u16)>> {
-    find_path_with_costs_marker(
-        grid,
-        start,
-        goal,
-        costs,
-        None,
-        movement_zone,
-        resolved_terrain,
-        None,
-        MoverSearchFacts {
-            urgency: 0,
-            mover_is_crusher,
-            is_infantry,
-            foot_entry: None,
-        },
-    )
-    .ok()
-    .map(|steps| steps.into_iter().map(|step| (step.rx, step.ry)).collect())
-}
-
-pub(crate) fn find_path_with_costs_marker(
-    grid: &PathGrid,
-    start: (u16, u16),
-    goal: (u16, u16),
-    costs: Option<&TerrainCostGrid>,
     hierarchy_gate: Option<HierarchyGate<'_>>,
-    movement_zone: Option<MovementZone>,
     resolved_terrain: Option<&ResolvedTerrainGrid>,
     marker_overlay: Option<&SearchMarkerOverlay>,
     facts: MoverSearchFacts<'_>,
@@ -2226,16 +1842,11 @@ pub(crate) fn find_path_with_costs_marker(
         MovementLayer::Ground,
         goal,
         &AStarOptions {
-            terrain_costs: costs,
             hierarchy_gate,
             marker_overlay,
             urgency: facts.urgency,
-            mover_is_crusher: facts.mover_is_crusher,
-            is_infantry: facts.is_infantry,
-            foot_entry: facts.foot_entry,
-            movement_zone,
             resolved_terrain,
-            ..Default::default()
+            ..AStarOptions::new(facts.foot_entry)
         },
     )
 }
@@ -2285,53 +1896,12 @@ pub fn truncate_layered_path(
     }
 }
 
-/// Bridge-aware A* pathfinding with height-based routing.
-///
-/// Uses dual closed lists (ground/bridge) per cell for bridge-aware routing.
-/// Returns per-cell layer assignment derived from height comparison.
-#[cfg(test)]
-pub fn find_layered_path(
-    grid: &PathGrid,
-    start: (u16, u16),
-    start_layer: MovementLayer,
-    goal: (u16, u16),
-    terrain_costs: Option<&TerrainCostGrid>,
-    resolved_terrain: Option<&ResolvedTerrainGrid>,
-    mover_is_crusher: bool,
-    is_infantry: bool,
-) -> Option<Vec<LayeredPathStep>> {
-    // Test-facing wrapper for pure layered pathfinding: no mover zone, so the
-    // Foot class arm of the cell predicate is not consulted. Production enters
-    // through `zone_search::find_layered_path_zoned_marker_detailed`, which
-    // passes the mover's zone to `find_layered_path_marker`.
-    find_layered_path_marker(
-        grid,
-        start,
-        start_layer,
-        goal,
-        terrain_costs,
-        None,
-        None,
-        resolved_terrain,
-        None,
-        MoverSearchFacts {
-            urgency: 0,
-            mover_is_crusher,
-            is_infantry,
-            foot_entry: None,
-        },
-    )
-    .ok()
-}
-
 pub(crate) fn find_layered_path_marker(
     grid: &PathGrid,
     start: (u16, u16),
     start_layer: MovementLayer,
     goal: (u16, u16),
-    terrain_costs: Option<&TerrainCostGrid>,
     hierarchy_gate: Option<HierarchyGate<'_>>,
-    movement_zone: Option<MovementZone>,
     resolved_terrain: Option<&ResolvedTerrainGrid>,
     marker_overlay: Option<&SearchMarkerOverlay>,
     facts: MoverSearchFacts<'_>,
@@ -2345,21 +1915,11 @@ pub(crate) fn find_layered_path_marker(
         start_layer,
         goal,
         &AStarOptions {
-            terrain_costs,
-            // The mover's zone selects its SpeedType row and the Foot class arm
-            // of the cell predicate (walls, crushable walls, under-span ground
-            // admission). Every other search wrapper already carried it; this
-            // one ran the layered fallbacks with `None`, which made
-            // `evaluate_shared_cell_leaf` return on land passability alone.
-            movement_zone,
             resolved_terrain,
             hierarchy_gate,
             marker_overlay,
             urgency: facts.urgency,
-            mover_is_crusher: facts.mover_is_crusher,
-            is_infantry: facts.is_infantry,
-            foot_entry: facts.foot_entry,
-            ..Default::default()
+            ..AStarOptions::new(facts.foot_entry)
         },
     )
 }

@@ -1587,8 +1587,8 @@ mod tests {
     #[test]
     fn find_nearby_no_candidate_returns_none() {
         // Every cell rejected -> no candidate -> None. WALL zone_type with a Normal
-        // movement-zone rejects in speed_type_allows_cell (only the destroyer family
-        // crosses walls), so every candidate fails passability.
+        // movement-zone rejects in `cell_rect`'s land test (only the destroyer
+        // family crosses walls), so every candidate fails passability.
         let mut terrain = flat_terrain(3, 3);
         for c in terrain.cells.iter_mut() {
             c.zone_type = zone_class::WALL;

@@ -789,13 +789,19 @@ fn spawn_cell_passable(
     require_water: bool,
 ) -> bool {
     if require_water {
-        crate::sim::pathfinding::is_cell_passable_for_mover(
-            grid,
-            cell.0,
-            cell.1,
-            Some(MovementZone::Water),
-            resolved_terrain,
-        )
+        // The reduced ZoneType matrix with the coastal-water fallback, and no
+        // wall off a bridgehead; this legacy adapter asks no Can_Enter_Cell.
+        resolved_terrain
+            .and_then(|terrain| terrain.cell(cell.0, cell.1))
+            .is_some_and(|cell| {
+                use crate::map::resolved_terrain::zone_class;
+                let surface = crate::sim::pathfinding::passability::is_passable_for_zone(
+                    cell.zone_type,
+                    MovementZone::Water,
+                ) || cell.is_water;
+                let wall = matches!(cell.zone_type, zone_class::WALL | zone_class::CRUSHABLE);
+                surface && (!wall || cell.is_bridge_transition_cell())
+            })
     } else {
         grid.is_walkable(cell.0, cell.1)
     }

@@ -1,24 +1,13 @@
-//! Per-SpeedType land-row grid: the A*'s passability predicate, and the
-//! movement chain's runtime speed multiplier.
+//! Per-SpeedType land-row grid, published beside the navigation views.
 //!
 //! Each cell carries its land-type row for one SpeedType (0 = impassable,
-//! otherwise a whole-percent speed). **The A* reads it as a predicate only** —
-//! zero closes the cell, and every non-zero percentage weighs the same. That is
-//! the native split: `AStar_main_loop` @ `0x00429A90` builds its edge cost from
-//! `AStar_compute_edge_cost` @ `0x00429830`, whose only inputs are the
-//! `FootClass` `+0x1AC` cost class (base table at `0x0081870C`), the code-2
-//! blocker override, a `CellClass+0x140 & 0x40000` term, the dormant
-//! `PathfinderClass+0x01` bridge-flank term, and the per-direction tiebreaks at
-//! `0x0081872C`. Nothing terrain-derived enters it, and the two `Can_Enter_Cell`
-//! implementations that back `+0x1AC` reduce the land row to `== 0.0 → class 7`.
-//! The graded value's one real consumer is the runtime speed chain
-//! (`sim::pathfinding::terrain_speed`).
-//!
-//! ## Design
-//! `TerrainCostGrid` is built from map data + a `SpeedType` and provides the
-//! lookup the A* search reads. It is separate from `PathGrid`
-//! (which is boolean walkability) because it also folds in the per-SpeedType
-//! land rows, bridge decks, ramps and terrain-object sub-cell occupation.
+//! otherwise a whole-percent speed). No simulation decision reads the values.
+//! The path search asks the Foot's `+0x1AC` class (`world::object_entry`), which
+//! reads the cell's own land row (`UnitClass::Can_Enter_Cell` at `0x0073FAB5`,
+//! `InfantryClass::Can_Enter_Cell` at `0x0051C750`); the runtime speed chain
+//! reads the cell's row itself (`sim::pathfinding::terrain_speed`). App
+//! diagnostics display the grid, and the Recalc publication gates read its
+//! emptiness as "navigation installed".
 //!
 //! ## Dependency rules
 //! - Part of sim/ — depends on map/ (MapCell, TilesetLookup).
@@ -39,12 +28,11 @@ const COST_BLOCKED: u8 = 0;
 /// Per-cell land row for one SpeedType.
 ///
 /// Values: 0 = impassable, otherwise a whole-percent speed. Built once per
-/// SpeedType from map data. The A* planner reads only the zero/non-zero split;
-/// the percentage itself is the movement chain's business.
+/// SpeedType from map data.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TerrainCostGrid {
-    /// Row as the planner reads it: an elevated deck overrides the terrain
-    /// beneath it, so this is the *deck* answer on a stamped cell.
+    /// The row with an elevated deck overriding the terrain beneath it: the
+    /// *deck* answer on a stamped cell.
     costs: Vec<u8>,
     /// Row of the cell's own land type with no deck override — what
     /// `UnitClass::Can_Enter_Cell` @ `0x0073FAB5` and
@@ -55,7 +43,7 @@ pub struct TerrainCostGrid {
     height: u16,
 }
 
-/// Build every ground/naval terrain-cost row used by the simulation.
+/// Build every ground/naval terrain-cost row.
 /// Winged movement deliberately has no grid because it ignores terrain.
 pub(crate) fn build_canonical_terrain_cost_grids(
     terrain: &ResolvedTerrainGrid,
@@ -94,7 +82,7 @@ pub(crate) fn refresh_canonical_terrain_costs_at(
     }
 }
 
-/// One cell's `(planner_row, ground_row)`: the first carries the elevated-deck
+/// One cell's `(row, ground_row)`: the first carries the elevated-deck
 /// override, the second is the land row of the terrain itself. They differ only
 /// on an elevated deck cell.
 fn resolved_cell_costs(
@@ -567,124 +555,6 @@ mod tests {
         assert!(!grid.is_walkable_for_infantry(0, 0));
         assert!(!grid.is_walkable(0, 0));
         assert_eq!(grid.terrain_object_cell_bits_at(0, 0), 0x1C);
-    }
-
-    /// The relaxed Foot cost row is worthless unless the search is told the
-    /// mover is infantry: the neighbour gate short-circuits on `is_walkable`,
-    /// which is false for a partially-occupied tree cell, before the cost grid
-    /// is ever consulted. This drives the production entry point end to end on a
-    /// 3x1 corridor whose only middle cell is a `bits=4` tree — an infantryman
-    /// must walk through it, a vehicle must fail outright.
-    #[test]
-    fn a_graded_land_row_does_not_bend_the_path() {
-        // Every reader of the native land-type table at 0x0089EA40 is a
-        // passability gate, a runtime speed consumer or an AI query; no
-        // path-search function reads it. So a non-zero percentage must weigh
-        // exactly like any other non-zero percentage.
-        //
-        // The fixture is built so a weighted search would answer differently:
-        // the straight run along y=2 crosses three 25% cells, while the y=1
-        // detour is the same four steps at full speed. Under a
-        // `cost × 100 / percentage` weighting the detour is strictly cheaper.
-        use crate::sim::pathfinding::{PathGrid, find_path_with_costs};
-
-        let build = |graded: bool| {
-            let mut cells = Vec::with_capacity(15);
-            for ry in 0..3u16 {
-                for rx in 0..5u16 {
-                    let track = if graded && ry == 2 && (1..=3).contains(&rx) {
-                        25
-                    } else {
-                        100
-                    };
-                    cells.push(ResolvedTerrainCell {
-                        speed_costs: SpeedCostProfile {
-                            track: Some(track),
-                            ..SpeedCostProfile::default()
-                        },
-                        ..make_resolved_cell(rx, ry)
-                    });
-                }
-            }
-            ResolvedTerrainGrid::from_cells(5, 3, cells)
-        };
-
-        let route = |terrain: &ResolvedTerrainGrid| {
-            let grid = PathGrid::from_resolved_terrain(terrain);
-            let costs = TerrainCostGrid::from_resolved_terrain(terrain, SpeedType::Track);
-            find_path_with_costs(
-                &grid,
-                (0, 2),
-                (4, 2),
-                Some(&costs),
-                None,
-                Some(terrain),
-                false,
-                false,
-            )
-        };
-
-        let flat = build(false);
-        let graded = build(true);
-        assert_eq!(
-            TerrainCostGrid::from_resolved_terrain(&graded, SpeedType::Track).cost_at(2, 2),
-            25,
-            "precondition: the graded strip really is graded",
-        );
-        let flat_path = route(&flat).expect("flat route exists");
-        assert_eq!(
-            route(&graded),
-            Some(flat_path),
-            "a slow-but-passable land row must not change the route",
-        );
-    }
-
-    #[test]
-    fn infantry_astar_routes_through_a_partially_occupied_tree_cell() {
-        use crate::sim::pathfinding::{PathGrid, find_path_with_costs};
-        let terrain = ResolvedTerrainGrid::from_cells(
-            3,
-            1,
-            vec![
-                make_resolved_cell(0, 0),
-                tree_cell(1, 0, 4),
-                make_resolved_cell(2, 0),
-            ],
-        );
-        let grid = PathGrid::from_resolved_terrain(&terrain);
-        let foot = TerrainCostGrid::from_resolved_terrain(&terrain, SpeedType::Foot);
-        let track = TerrainCostGrid::from_resolved_terrain(&terrain, SpeedType::Track);
-
-        let infantry_path = find_path_with_costs(
-            &grid,
-            (0, 0),
-            (2, 0),
-            Some(&foot),
-            None,
-            Some(&terrain),
-            false,
-            true,
-        );
-        assert_eq!(
-            infantry_path,
-            Some(vec![(0, 0), (1, 0), (2, 0)]),
-            "infantry must path through a single-sub-cell tree",
-        );
-
-        let vehicle_path = find_path_with_costs(
-            &grid,
-            (0, 0),
-            (2, 0),
-            Some(&track),
-            None,
-            Some(&terrain),
-            false,
-            false,
-        );
-        assert_eq!(
-            vehicle_path, None,
-            "a vehicle has no route: the tree closes the whole cell",
-        );
     }
 
     #[test]

@@ -72,6 +72,19 @@ The release workflow builds `vera20k` with default features. egui, egui-wgpu,
 egui-winit, eframe and rfd belong only to the optional UI builds. Their packages
 remain in `Cargo.lock` so those builds stay reproducible.
 
+`dev-ui` implies `dev-overlays`, which covers the renderer-native diagnostic
+overlays and the debug pause reached by the Ctrl+Shift chord (cell grid,
+heightmap, pathgrid, terrain cost, unit inspector, foot path, fog, pause,
+single-step). Those need no egui, so `--features dev-overlays` alone builds them
+without the panel stack:
+
+```sh
+python -m tools.cargo_run -- build --locked --release --features dev-overlays --bin vera20k
+```
+
+Default builds carry neither feature, so no diagnostic overlay or debug-pause
+hotkey is reachable from a release binary.
+
 ## Cargo ownership and labeled builds
 
 ```sh

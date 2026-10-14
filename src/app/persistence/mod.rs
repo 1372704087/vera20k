@@ -460,11 +460,13 @@ pub(crate) enum SaveWriteStage {
 
 /// Save write failure retaining the old caller-visible stage distinction.
 #[derive(Debug)]
+#[cfg_attr(not(feature = "dev-overlays"), allow(dead_code))]
 pub(crate) struct SaveWriteError {
     stage: SaveWriteStage,
     source: std::io::Error,
 }
 
+#[cfg_attr(not(feature = "dev-overlays"), allow(dead_code))]
 impl SaveWriteError {
     fn write_file(source: std::io::Error) -> Self {
         Self {
@@ -495,6 +497,7 @@ pub(crate) struct SaveRepository {
     directory: PathBuf,
 }
 
+#[cfg_attr(not(feature = "dev-overlays"), allow(dead_code))]
 impl SaveRepository {
     fn new() -> Self {
         Self {
@@ -675,6 +678,7 @@ fn sort_panel_entries_by_embedded_time(entries: &mut [SaveEntry]) {
     entries.sort_by_key(|entry| std::cmp::Reverse(entry.header.save_timestamp));
 }
 
+#[cfg_attr(not(feature = "dev-overlays"), allow(dead_code))]
 fn newest_modified_path(
     candidates: impl Iterator<Item = (PathBuf, SystemTime)>,
 ) -> Option<PathBuf> {

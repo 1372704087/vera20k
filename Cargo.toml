@@ -50,8 +50,15 @@ path = "src/bin/inspect-water-tiles.rs"
 
 [features]
 default = []
-# Optional in-engine diagnostic overlay. Player UI uses the retail UI owners.
-dev-ui = ["dep:egui", "dep:egui-wgpu", "dep:egui-winit"]
+# Renderer-native diagnostic overlays and the debug pause reached by the
+# Ctrl+Shift dev chord (grid, heightmap, pathgrid, inspector, fog, pause, ...).
+# Kept separate from `dev-ui`: these need no egui, so `--features dev-overlays`
+# alone gives the world overlays without compiling the egui panel stack.
+# Release builds (default features) carry none of them.
+dev-overlays = []
+# Optional in-engine diagnostic overlay (egui panels). Player UI uses the retail
+# UI owners. Implies `dev-overlays` so a dev build keeps its world overlays.
+dev-ui = ["dep:egui", "dep:egui-wgpu", "dep:egui-winit", "dev-overlays"]
 # Standalone asset/video tools; this does not enable the engine overlay.
 tools-ui = ["dep:eframe", "dep:rfd"]
 

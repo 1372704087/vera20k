@@ -270,8 +270,11 @@ fn main() -> Result<(), String> {
                 first_tick + slot,
                 Command::AttackMove {
                     entity_id: unit.id,
-                    target_rx: clamp(target_home.0, unit.offset.0),
-                    target_ry: clamp(target_home.1, unit.offset.1),
+                    target: None,
+                    destination: Some(vera20k::sim::combat::TargetKind::Cell(
+                        clamp(target_home.0, unit.offset.0),
+                        clamp(target_home.1, unit.offset.1),
+                    )),
                 },
             ));
         }

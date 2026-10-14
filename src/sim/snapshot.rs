@@ -1002,7 +1002,9 @@ use crate::sim::world::Simulation;
 // 345 -> 346: pending Move and AttackMove commands drop the unread queue flag,
 // and a Move onto an object is a new Command variant; both change the bincode
 // schema.
-const SNAPSHOT_VERSION: u32 = 346;
+// 346 -> 347: a pending AttackMove carries the event's target and destination
+// tokens, and MegaDestination may name an object.
+const SNAPSHOT_VERSION: u32 = 347;
 
 const SNAPSHOT_PRODUCT_MAGIC: [u8; 8] = *b"VERA20K\0";
 const SNAPSHOT_ENVELOPE_VERSION: u32 = 1;
@@ -4386,7 +4388,8 @@ mod tests {
         // 343 -> 344: retained deploy-voice suppression and bound voice slots.
         // 344 -> 345: Smoke scalars and individual Particle AIR identities.
         // 345 -> 346: Move commands without the queue flag, and MoveToObject.
-        assert_eq!(super::SNAPSHOT_VERSION, 346);
+        // 346 -> 347: AttackMove tokens and an object MegaDestination.
+        assert_eq!(super::SNAPSHOT_VERSION, 347);
     }
 
     #[test]

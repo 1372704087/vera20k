@@ -821,8 +821,11 @@ fn harness_script() -> Vec<(u64, Command)> {
             40,
             Command::AttackMove {
                 entity_id: 4,
-                target_rx: 38 + HARNESS_COORD_SHIFT,
-                target_ry: 8 + HARNESS_COORD_SHIFT,
+                target: None,
+                destination: Some(crate::sim::combat::TargetKind::Cell(
+                    38 + HARNESS_COORD_SHIFT,
+                    8 + HARNESS_COORD_SHIFT,
+                )),
             },
         ),
         (

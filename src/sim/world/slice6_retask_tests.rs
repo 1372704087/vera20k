@@ -386,8 +386,8 @@ fn replay_hash_stable_through_slice6() {
             3,
             Command::AttackMove {
                 entity_id: 1,
-                target_rx: 15,
-                target_ry: 3,
+                target: None,
+                destination: Some(crate::sim::combat::TargetKind::Cell(15, 3)),
             },
         ),
         (
@@ -656,7 +656,7 @@ fn slice6_move_command_retasks_via_mission_substrate_and_clears_state() {
     {
         let e = sim.substrate.entities.get_mut(1).expect("unit");
         e.attack_target = Some(AttackTarget::new(2));
-        e.mega_mission = MegaMission::attack_move(Some((3, 3)));
+        e.mega_mission = MegaMission::attack_move(Some(crate::sim::combat::TargetKind::Cell(3, 3)));
     }
 
     let issued = sim.apply_command(

@@ -6,9 +6,9 @@
 //! (`0x004DF320`), RefreshMegaMission (`0x004DF4B0`) and the PointerExpired
 //! slice (`0x004D9AC9..0x004D9B43`) for Unit and Infantry, with QueueMission,
 //! the scan and the setters as recording stubs. Compared here are the rows
-//! whose state a [`MegaMission`] can hold: a mission of NONE or 29, cell
-//! destinations, object or cell targets, every present event tag resolving to
-//! a token, and no scripted callback. Each compares the answer, the four
+//! whose state a [`MegaMission`] can hold: a mission of NONE or 29, cell or
+//! object destinations and targets, every present event tag resolving to a
+//! token, and no scripted callback. Each compares the answer, the four
 //! fields, the mission the body queues and the destination and target its
 //! setters receive.
 //!
@@ -21,9 +21,7 @@
 //!   the radar's attack-move lines call it (`0x0063BC53`, `0x0063C4A2`);
 //! - setup events holding a token a decoded event never carries: a missing
 //!   object (tag 52, index 999), an unsupported tag (1), an invalid tag
-//!   (255), or an event mission outside the mission table (-128, 127);
-//! - object destinations, which a MegaMission here cannot hold (its residual
-//!   in `mega_mission.rs`).
+//!   (255), or an event mission outside the mission table (-128, 127).
 
 use super::MegaMission;
 use crate::map::entities::EntityCategory;
@@ -41,7 +39,7 @@ use serde_json::Value;
 
 const OWNER: u64 = 1;
 // The corpus `pointers`, and what each stands for here: the two destinations
-// are cells, the three targets objects 2..=4.
+// are cells, the three targets objects 2..=4, which a destination may name too.
 const DESTINATION_A: i64 = 0x2000_3000;
 const DESTINATION_B: i64 = 0x2000_3100;
 const TARGET_A: i64 = 0x2000_4000;
@@ -49,13 +47,24 @@ const TARGET_B: i64 = 0x2000_4100;
 const TARGET_C: i64 = 0x2000_4200;
 const CELL_A: (u16, u16) = (10, 12);
 const CELL_B: (u16, u16) = (20, 22);
+/// The object an expiring DESTINATION_A stands for.
+const DESTINATION_OBJECT: u64 = 5;
 
-/// A destination token, or `None` when it is no cell.
-fn destination(token: i64) -> Option<Option<(u16, u16)>> {
+/// A cell token's Cell.
+fn cell(token: i64) -> Option<(u16, u16)> {
+    match token {
+        DESTINATION_A => Some(CELL_A),
+        DESTINATION_B => Some(CELL_B),
+        _ => None,
+    }
+}
+
+/// A destination token: a Cell, one of the target objects, or none.
+fn destination(token: i64) -> Option<Option<TargetKind>> {
     match token {
         0 => Some(None),
-        DESTINATION_A => Some(Some(CELL_A)),
-        DESTINATION_B => Some(Some(CELL_B)),
+        DESTINATION_A | DESTINATION_B => cell(token).map(|(rx, ry)| Some(TargetKind::Cell(rx, ry))),
+        TARGET_A | TARGET_B | TARGET_C => target(token),
         _ => None,
     }
 }
@@ -241,11 +250,11 @@ fn compare_after(sim: &Simulation, row: &Value, unread_mission: Option<i64>, con
     for event in row["events"].as_array().unwrap() {
         match event["name"].as_str().unwrap() {
             "assign_destination" => {
-                let cell = destination(int(&event["args"][0]))
+                let destination = destination(int(&event["args"][0]))
                     .unwrap_or_else(|| panic!("{context}: destination token"));
                 assert_eq!(
                     entity.navigation.nav_com,
-                    cell.map(|(rx, ry)| NavTargetRef::cell(rx, ry)),
+                    destination.map(NavTargetRef::from),
                     "{context}: Set_Destination"
                 );
             }
@@ -321,29 +330,38 @@ fn mega_mission_bodies_match_the_original_rows() {
                 compare_after(&sim, row, None, context);
             }
             "expiry_slice" => {
-                let expired = match int(&input["expired_pointer"]) {
-                    TARGET_A => 2,
-                    TARGET_B => 3,
-                    TARGET_C => 4,
-                    _ => continue,
-                };
                 // The map lookup answers its configured cell: DESTINATION_B
                 // unless the row names another.
-                let Some(cell) = input
-                    .get("map_cell")
-                    .map_or(Some(Some(CELL_B)), |cell| destination(int(cell)))
+                let Some(cell) =
+                    input
+                        .get("map_cell")
+                        .map_or(Some(Some(CELL_B)), |token| match int(token) {
+                            0 => Some(None),
+                            token => cell(token).map(Some),
+                        })
                 else {
                     continue;
                 };
                 let Some(mut sim) = fixture(row, &format!("{letter}00"), None) else {
                     continue;
                 };
-                sim.substrate
-                    .entities
-                    .get_mut(OWNER)
-                    .unwrap()
-                    .mega_mission
-                    .pointer_expired(expired, cell);
+                let mega = &mut sim.substrate.entities.get_mut(OWNER).unwrap().mega_mission;
+                let expired = match int(&input["expired_pointer"]) {
+                    TARGET_A => 2,
+                    TARGET_B => 3,
+                    TARGET_C => 4,
+                    // No Cell expires here, so an expiring DESTINATION_A
+                    // stands for an object MegaDestination, which the slice
+                    // compares by pointer (`0x004D9B35..0x004D9B3D`).
+                    DESTINATION_A => {
+                        if mega.destination == Some(TargetKind::Cell(CELL_A.0, CELL_A.1)) {
+                            mega.destination = Some(TargetKind::Entity(DESTINATION_OBJECT));
+                        }
+                        DESTINATION_OBJECT
+                    }
+                    _ => continue,
+                };
+                mega.pointer_expired(expired, cell);
                 compare_after(&sim, row, None, context);
             }
             "setup" => {
@@ -401,12 +419,12 @@ fn mega_mission_bodies_match_the_original_rows() {
     }
     let expected = [
         ("clear", 4),
-        ("expiry_slice", 16),
+        ("expiry_slice", 24),
         ("has_saved_mission", 4),
         ("idle_resume", 112),
         ("is_attack_move", 4),
         ("resume", 48),
-        ("setup", 44),
+        ("setup", 62),
     ]
     .map(|(entry, count)| (entry.to_owned(), count));
     assert_eq!(compared, std::collections::BTreeMap::from(expected));

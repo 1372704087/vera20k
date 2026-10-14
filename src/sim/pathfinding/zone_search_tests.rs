@@ -1292,7 +1292,9 @@ fn gsi_04_12_attack_move_resume_threads_exact_blocker_counts() {
             .unwrap()
             .install_drive_state_for_test(Some(Default::default()))
     );
-    mover.mega_mission = crate::sim::mission::mega_mission::MegaMission::attack_move(Some((3, 0)));
+    mover.mega_mission = crate::sim::mission::mega_mission::MegaMission::attack_move(Some(
+        crate::sim::combat::TargetKind::Cell(3, 0),
+    ));
     let blocker = gsi_04_12_cell_listed_entity(2, "MTNK", "Russians", 2, 0);
 
     let mut sim = Simulation::new();
@@ -1321,7 +1323,7 @@ fn gsi_04_12_attack_move_resume_threads_exact_blocker_counts() {
     assert_eq!(route.last().copied(), Some((3, 0)));
     assert_eq!(
         resumed.mega_mission.destination(),
-        Some((3, 0)),
+        Some(crate::sim::combat::TargetKind::Cell(3, 0)),
         "resume must preserve the continuing attack-move"
     );
 }

@@ -601,11 +601,15 @@ pub enum Command {
     Attack { attacker_id: u64, target_id: u64 },
     /// Force-attack a target (ignores friendship — Ctrl+click).
     ForceAttack { attacker_id: u64, target_id: u64 },
-    /// Attack-move toward a cell (logic can retarget along path).
+    /// Attack-move: the MEGAMISSION event with mission 29 that ClickedMission
+    /// (`0x006FFBE0`) promotes a Move or Attack click to. Its tokens are the
+    /// click's: an attack click's object as `target` (`0x004D76B1..0x004D76C1`),
+    /// a Move click's Cell or object as `destination` (`0x004D7C76`).
+    /// `Assign_Target_Command` stores them as MegaTarget and MegaDestination.
     AttackMove {
         entity_id: u64,
-        target_rx: u16,
-        target_ry: u16,
+        target: Option<crate::sim::combat::TargetKind>,
+        destination: Option<crate::sim::combat::TargetKind>,
     },
     /// Area Guard with the first MegaMission token as its destination/post.
     /// A null post is retained until the Foot handler chooses its own cell.

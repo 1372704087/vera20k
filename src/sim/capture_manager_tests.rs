@@ -1614,8 +1614,9 @@ fn a_released_captive_resumes_its_attack_move() {
     let yuri = spawn(&mut sim, &rules, "YURI", "YuriCountry", 10, 10);
     let gi = spawn(&mut sim, &rules, "E1", "Americans", 12, 10);
     let captive = sim.substrate.entities.get_mut(gi).unwrap();
-    captive.mega_mission =
-        crate::sim::mission::mega_mission::MegaMission::attack_move(Some((30, 30)));
+    captive.mega_mission = crate::sim::mission::mega_mission::MegaMission::attack_move(Some(
+        crate::sim::combat::TargetKind::Cell(30, 30),
+    ));
     // Its FootClass::AI has cleared Foot+6B3 since the Unlimbo (`0x004DA54E`).
     captive.mission_leaf.set_foot_idle_entry_latch(0);
     assert!(sim.capture_unit(

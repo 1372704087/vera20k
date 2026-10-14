@@ -2658,8 +2658,9 @@ fn gsi_04_15_active_tube_leaf_preempts_unit_and_infantry_mission_host() {
         entity.lifecycle.in_limbo = false;
         entity.lifecycle.cell_marked = false;
         if category == EntityCategory::Unit {
-            entity.mega_mission =
-                crate::sim::mission::mega_mission::MegaMission::attack_move(Some((2, 0)));
+            entity.mega_mission = crate::sim::mission::mega_mission::MegaMission::attack_move(
+                Some(crate::sim::combat::TargetKind::Cell(2, 0)),
+            );
         } else {
             entity.attack_target = Some(AttackTarget::for_cell(0, 0));
             entity.passively_acquired_target = true;
@@ -2762,7 +2763,10 @@ fn gsi_04_15_active_tube_leaf_preempts_unit_and_infantry_mission_host() {
                 assert!(entity.attack_target.is_none());
                 assert!(!entity.passively_acquired_target);
                 assert!(entity.movement_target.is_none());
-                assert_eq!(entity.mega_mission.destination(), Some((2, 0)));
+                assert_eq!(
+                    entity.mega_mission.destination(),
+                    Some(crate::sim::combat::TargetKind::Cell(2, 0))
+                );
                 assert!(entity.mega_mission.is_attack_move());
             } else {
                 assert!(entity.passively_acquired_target);
@@ -5483,8 +5487,9 @@ fn test_structural_bridge_collapse_preserves_dynamic_navigation_and_snapshot() {
         // searches the live grid.
         let unit = sim.substrate.entities.get_mut(2).unwrap();
         unit.movement_target = None;
-        unit.mega_mission =
-            crate::sim::mission::mega_mission::MegaMission::attack_move(Some((6, 3)));
+        unit.mega_mission = crate::sim::mission::mega_mission::MegaMission::attack_move(Some(
+            crate::sim::combat::TargetKind::Cell(6, 3),
+        ));
         assert!(sim.foot_continue_mega_mission(
             2,
             Some(&rules),
@@ -7320,8 +7325,8 @@ fn test_attack_move_command_chrono_miner_uses_ground_path() {
         1,
         Command::AttackMove {
             entity_id: entity,
-            target_rx: 8,
-            target_ry: 2,
+            target: None,
+            destination: Some(crate::sim::combat::TargetKind::Cell(8, 2)),
         },
     );
 
@@ -7425,9 +7430,9 @@ fn test_attack_command_rejects_friendly_target() {
     );
 }
 
-#[test]
-fn test_attack_move_auto_acquires_enemy() {
-    let rules = driving_combat_test_rules();
+/// An American MTNK (1) at (20, 20) and a Russian E1 (2) two cells east of
+/// it, in the playfield.
+fn attack_move_fight(rules: &RuleSet) -> Simulation {
     let mut sim: Simulation = Simulation::new();
     // The Unit setter's Move_To needs map cells, and the threat scan's ring
     // walk skips cells outside the Map Size diamond: the fight is inside it.
@@ -7474,13 +7479,20 @@ fn test_attack_move_auto_acquires_enemy() {
                 trigger_tag: None,
             },
         ],
-        Some(&rules),
+        Some(rules),
     );
-    assert!(sim.rebuild_dynamic_navigation(&rules));
+    assert!(sim.rebuild_dynamic_navigation(rules));
     // This spawn leaves IsInPlayfield (`+0x3D5`) clear; the scan reads it.
     for id in [1, 2] {
         sim.substrate.entities.get_mut(id).unwrap().in_playfield = true;
     }
+    sim
+}
+
+#[test]
+fn test_attack_move_auto_acquires_enemy() {
+    let rules = driving_combat_test_rules();
+    let mut sim = attack_move_fight(&rules);
     let grid = PathGrid::new(64, 64);
     let cmd = cmd_envelope(
         &sim,
@@ -7488,8 +7500,8 @@ fn test_attack_move_auto_acquires_enemy() {
         1,
         Command::AttackMove {
             entity_id: 1,
-            target_rx: 30,
-            target_ry: 20,
+            target: None,
+            destination: Some(crate::sim::combat::TargetKind::Cell(30, 20)),
         },
     );
 
@@ -7539,59 +7551,7 @@ fn test_attack_move_auto_acquires_enemy() {
 #[test]
 fn test_attack_move_lethal_hit_expires_the_target_at_the_kill() {
     let rules = driving_combat_test_rules();
-    let mut sim: Simulation = Simulation::new();
-    // The Unit setter's Move_To needs map cells, and the threat scan's ring
-    // walk skips cells outside the Map Size diamond: the fight is inside it.
-    install_rectangular_test_map(&mut sim, 32, 32);
-    sim.install_resolved_terrain_for_new_map(gsi_04_10_clear_terrain(64, 64));
-    sim.spawn_from_map(
-        &[
-            MapEntity {
-                owner: "Americans".to_string(),
-                type_id: "MTNK".to_string(),
-                health: 256,
-                cell_x: 20,
-                cell_y: 20,
-                facing: 64,
-                category: EntityCategory::Unit,
-                sub_cell: 0,
-                veterancy: Some(0),
-                high: false,
-                mission: None,
-                recruitable_a: true,
-                recruitable_b: true,
-                structure_upgrades: [None, None, None],
-                structure_ai_sellable: false,
-                structure_ai_repairable: false,
-                trigger_tag: None,
-            },
-            MapEntity {
-                owner: "Russians".to_string(),
-                type_id: "E1".to_string(),
-                health: 256,
-                cell_x: 22,
-                cell_y: 20,
-                facing: 64,
-                category: EntityCategory::Infantry,
-                sub_cell: 0,
-                veterancy: Some(0),
-                high: false,
-                mission: None,
-                recruitable_a: true,
-                recruitable_b: true,
-                structure_upgrades: [None, None, None],
-                structure_ai_sellable: false,
-                structure_ai_repairable: false,
-                trigger_tag: None,
-            },
-        ],
-        Some(&rules),
-    );
-    assert!(sim.rebuild_dynamic_navigation(&rules));
-    // This spawn leaves IsInPlayfield (`+0x3D5`) clear; the scan reads it.
-    for id in [1, 2] {
-        sim.substrate.entities.get_mut(id).unwrap().in_playfield = true;
-    }
+    let mut sim = attack_move_fight(&rules);
     if let Some(e) = sim.substrate.entities.get_mut(2) {
         e.health.current = 50;
     }
@@ -7602,8 +7562,8 @@ fn test_attack_move_lethal_hit_expires_the_target_at_the_kill() {
         1,
         Command::AttackMove {
             entity_id: 1,
-            target_rx: 30,
-            target_ry: 20,
+            target: None,
+            destination: Some(crate::sim::combat::TargetKind::Cell(30, 20)),
         },
     );
 
@@ -7633,7 +7593,7 @@ fn test_attack_move_lethal_hit_expires_the_target_at_the_kill() {
     );
     assert_eq!(
         attacker.mega_mission.destination(),
-        Some((30, 20)),
+        Some(crate::sim::combat::TargetKind::Cell(30, 20)),
         "the attack-move order outlives its target"
     );
     assert!(attacker.mega_mission.is_attack_move());
@@ -7654,6 +7614,106 @@ fn test_attack_move_lethal_hit_expires_the_target_at_the_kill() {
         }
     }
     assert!(resumed, "the attack-move resumes towards its destination");
+}
+
+/// An attack-move click on an enemy sends it as the event target, which
+/// `Assign_Target_Command` stores as MegaTarget and answers Attack
+/// (`0x004DF12A..0x004DF186`). The event hands it to the class target setter
+/// (`0x004C7467`) and its NULL destination to the destination setter
+/// (`0x004C747C`).
+#[test]
+fn an_attack_move_click_on_an_enemy_attacks_it_as_the_mega_target() {
+    let rules = driving_combat_test_rules();
+    let mut sim = attack_move_fight(&rules);
+    assert!(sim.apply_command(
+        "Americans",
+        &Command::AttackMove {
+            entity_id: 1,
+            target: Some(crate::sim::combat::TargetKind::Entity(2)),
+            destination: None,
+        },
+        Some(&rules),
+    ));
+    let attacker = sim.substrate.entities.get(1).unwrap();
+    assert!(attacker.mega_mission.is_attack_move());
+    assert!(attacker.mega_mission.targets(2));
+    assert_eq!(attacker.mega_mission.destination(), None);
+    assert_eq!(
+        attacker.mission.queued(),
+        MissionId::from_known(MissionType::Attack)
+    );
+    assert_eq!(
+        attacker.attack_target.as_ref().map(|attack| attack.target),
+        Some(crate::sim::combat::TargetKind::Entity(2))
+    );
+    assert_eq!(attacker.navigation.nav_com, None);
+}
+
+/// An attack-move click over an object sends it as the event destination,
+/// which `Assign_Target_Command` stores as MegaDestination and answers Move
+/// (`0x004DF12A..0x004DF186`); the class destination setter takes it as the
+/// NavCom (`0x004C747C`). When the object expires, Foot PointerExpired drops
+/// both (`0x004D9A0F..0x004D9ABD`, `0x004D9B35..0x004D9B3D`) and the order
+/// stays an attack-move. A dead destination rejects the whole event
+/// (`0x004C7263..0x004C7299`).
+#[test]
+fn an_attack_move_click_over_an_object_keeps_it_the_mega_destination() {
+    let rules = driving_combat_test_rules();
+    let mut sim = attack_move_fight(&rules);
+    let mcv = sim
+        .spawn_object("AMCV", "Americans", 18, 20, 0, &rules)
+        .unwrap();
+    let attack_move_onto = |sim: &mut Simulation, id| {
+        sim.apply_command(
+            "Americans",
+            &Command::AttackMove {
+                entity_id: 1,
+                target: None,
+                destination: Some(crate::sim::combat::TargetKind::Entity(id)),
+            },
+            Some(&rules),
+        )
+    };
+
+    assert!(attack_move_onto(&mut sim, mcv));
+    let attacker = sim.substrate.entities.get(1).unwrap();
+    assert!(attacker.mega_mission.is_attack_move());
+    assert_eq!(
+        attacker.mega_mission.destination(),
+        Some(crate::sim::combat::TargetKind::Entity(mcv))
+    );
+    assert_eq!(
+        attacker.mission.queued(),
+        MissionId::from_known(MissionType::Move)
+    );
+    assert_eq!(
+        attacker.navigation.nav_com,
+        Some(crate::sim::components::NavTargetRef::Entity { id: mcv })
+    );
+
+    sim.detach_all_pointer_expired(
+        mcv,
+        &rules,
+        None,
+        crate::sim::world::FrameEffects::default(),
+    );
+    let attacker = sim.substrate.entities.get(1).unwrap();
+    assert_eq!(attacker.mega_mission.destination(), None);
+    assert_eq!(attacker.navigation.nav_com, None);
+    assert!(attacker.mega_mission.is_attack_move());
+
+    sim.substrate.entities.get_mut(mcv).unwrap().health.current = 0;
+    assert!(!attack_move_onto(&mut sim, mcv));
+    assert_eq!(
+        sim.substrate
+            .entities
+            .get(1)
+            .unwrap()
+            .mega_mission
+            .destination(),
+        None,
+        "the refused event stores nothing"
+    );
 }
 
 /// An infantryman's attack-move through `advance_tick`: the scan on its
@@ -7714,8 +7774,8 @@ fn test_infantry_attack_move_kills_on_the_way_and_walks_on() {
         1,
         Command::AttackMove {
             entity_id: 1,
-            target_rx: 30,
-            target_ry: 20,
+            target: None,
+            destination: Some(crate::sim::combat::TargetKind::Cell(30, 20)),
         },
     );
     let _ = sim.advance_tick(&[cmd], Some(&rules), Some(&grid), None, 100);

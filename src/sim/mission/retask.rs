@@ -34,7 +34,7 @@ impl Simulation {
         id: u64,
         mission: MissionType,
         target: Option<crate::sim::combat::TargetKind>,
-        destination: Option<(u16, u16)>,
+        destination: Option<crate::sim::combat::TargetKind>,
         rules: Option<&crate::rules::ruleset::RuleSet>,
         frame_effects: FrameEffects<'_>,
     ) -> MissionType {
@@ -165,7 +165,7 @@ impl Simulation {
         id: u64,
         mission: MissionType,
         target: Option<crate::sim::combat::TargetKind>,
-        destination: Option<(u16, u16)>,
+        destination: Option<crate::sim::combat::TargetKind>,
         rules: Option<&crate::rules::ruleset::RuleSet>,
         frame_effects: FrameEffects<'_>,
     ) {

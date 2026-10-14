@@ -150,7 +150,9 @@ impl TechnoDiscoveryHistory {
         self.discovered_by_current_house
     }
 
-    /// `+0x41C`.
+    /// `+0x41C`. Discovery and Conceal read the field here; tests read it
+    /// through this.
+    #[cfg(test)]
     pub(crate) const fn discovered_by_other_house(self) -> bool {
         self.discovered_by_other_house
     }

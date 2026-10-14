@@ -348,10 +348,7 @@ pub(super) fn place_unit_crate(
     frame_effects: FrameEffects<'_>,
 ) -> UnitCrateOutcome {
     use crate::rules::locomotor_type::MovementZone;
-    use crate::sim::find_nearby_cell::{
-        NearbyFootprint, NearbyQuery, PassabilityArgs, find_nearby_passable_cell,
-        map_owned_radius_cap,
-    };
+    use crate::sim::find_nearby_cell::PassabilityArgs;
     use crate::sim::world::PlacementEvidence;
     let (Ok(rx), Ok(ry)) = (u16::try_from(cell.0), u16::try_from(cell.1)) else {
         return UnitCrateOutcome::NoObject;
@@ -381,38 +378,16 @@ pub(super) fn place_unit_crate(
         .object_in_category(ObjectCategory::Vehicle, type_id)
         .and_then(|object| {
             // `0x0048231E..0x00482366` push `(cell, Type+0x67C, -1, 0, 0, 1,
-            // 1, 0, 0, 0, 1, &0, 0, 0)`: the type's SpeedType, zone -1,
-            // MovementZone Normal, not bridge-aware, 1x1, no overlay
-            // rejection, no height or obstacle gate, bridge cells allowed, a
-            // zero target cell, no quadrant skip, no final occupancy check.
-            let (width, height) = sim.map_size_diamond()?;
-            let query = NearbyQuery {
-                native_cells: None,
-                raw_occupation: Some(&sim.substrate.raw_cell_occupation),
-                passability: PassabilityArgs {
+            // 1, 0, 0, 0, 1, &0, 0, 0)`: the type's SpeedType, zone -1 and
+            // MovementZone Normal in the NearbyLocation shape.
+            sim.nearby_location_cell(
+                (i32::from(rx), i32::from(ry)),
+                PassabilityArgs {
                     speed_type: object.speed_type,
                     required_zone_id: None,
                     movement_zone: MovementZone::Normal,
                     bridge_aware_zone: false,
                 },
-                footprint: NearbyFootprint::SINGLE,
-                allow_bridge_cells: true,
-                check_height: false,
-                check_occupancy: false,
-                radius_cap: map_owned_radius_cap(width, height),
-                target_cell: None,
-                path_grid: sim.path_grid(),
-                resolved_terrain: sim.resolved_terrain.as_ref(),
-                overlay_grid: sim.overlay_grid.as_ref(),
-                occupancy: Some(&sim.substrate.occupancy),
-                entities: Some(&sim.substrate.entities),
-                zone_grid: sim.zone_grid.as_ref(),
-                playfield_bounds: sim.playfield_bounds,
-            };
-            find_nearby_passable_cell(
-                (i32::from(rx), i32::from(ry)),
-                &query,
-                sim.session.binary_frame,
             )
         });
     if let Some((nx, ny)) = nearby {

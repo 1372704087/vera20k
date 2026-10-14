@@ -753,12 +753,14 @@ impl crate::sim::world::Simulation {
     }
 
     /// `MapClass::Find_Nearby_Passable_Cell` in the argument shape
-    /// NearbyLocation (`0x00703590`) and Teleport Update_Position
-    /// (`0x0071854F..0x007185D5`) push: one cell, the height-aware anchor,
-    /// bridge cells allowed, no height or occupancy check, the map's radius
-    /// cap and no target cell; each caller supplies the seed and the
-    /// passability inputs. `None` when nothing passes or the map size is
-    /// unknown.
+    /// NearbyLocation (`0x00703590`), Teleport Update_Position
+    /// (`0x0071854F..0x007185D5`), PickupCrate's goodie
+    /// (`0x0048231E..0x00482366`) and Mission_Unload's pre-move and vehicle
+    /// passenger (`0x0073D772..0x0073D7B0`, `0x0073DA96..0x0073DADD`) push: one
+    /// cell, no overlay rejection, no height, obstacle or occupancy check,
+    /// bridge cells allowed, a zero target cell, no quadrant skip, and the
+    /// map's radius cap; each caller supplies the seed and the passability
+    /// inputs. `None` when nothing passes or the map size is unknown.
     pub(crate) fn nearby_location_cell(
         &self,
         seed: (i32, i32),
@@ -1773,11 +1775,13 @@ mod tests {
         assert_eq!(rows.len(), 6);
     }
 
-    /// With the map's playfield diamond threaded into the query, occupancy rejects
-    /// rectangle-inside but diamond-outside cells. Missing fields reject the exact
-    /// MapClass query rather than substituting the retired rectangle fallback.
+    /// The final occupancy check tests the footprint's four corners against the
+    /// playfield diamond (`CellRect::CheckOccupancy @ 0x00586780`); the anchor
+    /// gate tests only the anchor. A 2x2 footprint whose anchor is inside the
+    /// diamond but whose far corner is outside passes without the occupancy
+    /// check and fails with it. Missing bounds reject every candidate.
     #[test]
-    fn find_nearby_occupancy_rejects_off_diamond_cells_when_bounds_threaded() {
+    fn find_nearby_occupancy_rejects_a_footprint_corner_off_the_diamond() {
         use crate::sim::cell_rect::PlayfieldBounds;
         // Diamond (same fixture as the cell_rect acceptance tests): pass iff
         // 12 < x+y <= 26, x−y < 14, y−x < 6.
@@ -1791,36 +1795,19 @@ mod tests {
         let terrain = flat_terrain(30, 30);
         let path_grid = PathGrid::from_resolved_terrain(&terrain);
         let mut q = base_query(&terrain, &path_grid);
+        q.footprint = NearbyFootprint::new(2, 2);
+        q.radius_cap = 1;
+        q.playfield_bounds = Some(bounds);
+        // Anchor (13,12): sum 25, inside; far corner (14,13): sum 27, outside.
+        assert_eq!(find_nearby_passable_cell((13, 12), &q, 0), Some((13, 12)));
         q.check_occupancy = true;
+        assert_eq!(find_nearby_passable_cell((13, 12), &q, 0), None);
+        q.check_occupancy = false;
         q.playfield_bounds = None;
-
-        // Without configured MapClass fields no exact query can be made.
         assert_eq!(
-            find_nearby_passable_cell((14, 13), &q, 0),
+            find_nearby_passable_cell((13, 12), &q, 0),
             None,
             "missing bounds must not approximate MapClass with a rectangle"
-        );
-
-        // With the diamond: the seed and every other sum>26 ring cell are rejected;
-        // the pool is exactly the three in-diamond ring-1 survivors in ring order
-        // ((13,12), (14,12), (13,13)) and the frame counter walks that pool.
-        q.playfield_bounds = Some(bounds);
-        let in_diamond = |c: (u16, u16)| {
-            let (x, y) = (c.0 as i32, c.1 as i32);
-            12 < x + y && x + y <= 26 && x - y < 14 && y - x < 6
-        };
-        for frame in 0..6u32 {
-            let pick = find_nearby_passable_cell((14, 13), &q, frame)
-                .expect("in-diamond candidates exist on ring 1");
-            assert!(
-                in_diamond(pick),
-                "FNPC picked off-diamond cell {pick:?} with bounds threaded"
-            );
-        }
-        assert_eq!(
-            find_nearby_passable_cell((14, 13), &q, 0),
-            Some((13, 12)),
-            "frame 0 picks the first in-diamond survivor in engine ring order"
         );
     }
 }

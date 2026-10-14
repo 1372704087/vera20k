@@ -291,9 +291,9 @@ fn primary_free_unit_cell(
 /// refused; a zero target cell, so selection is the frame-counter modulo and
 /// draws no RNG; no quadrant skip; no final occupancy check.
 ///
-/// The seed is under the building, but Cell Recalc classes cells by land,
-/// overlay and terrain object only (`zone_class`), so the seed answers the
-/// zone of the ground around it.
+/// The seed is under the building, but Cell Recalc's zone class ignores
+/// buildings, except a FirestormWall one (`0x00483D8E`; none in retail), so
+/// the seed answers the zone of the ground around it.
 fn find_free_unit_nearby_cell(
     sim: &Simulation,
     rules: &RuleSet,

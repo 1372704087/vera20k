@@ -1037,6 +1037,60 @@ fn relaxed_pass_drives_vehicle_passenger_to_the_fnpc_cell() {
     );
 }
 
+/// The vehicle passenger's Find_Nearby_Passable_Cell (`0x0073DA96..0x0073DADD`)
+/// runs the playfield anchor gate with no height gate. The strict pass takes
+/// octant 5, exit (19, 21), which lies outside this playfield diamond
+/// (`y - x < 2`), so ring 0 fails and ring 1 answers. Its only in-diamond
+/// cells besides the transport's own are (19, 20) and (20, 21), raised two
+/// levels.
+#[test]
+fn vehicle_passenger_off_the_playfield_exit_lands_on_raised_in_playfield_ground() {
+    let mut fx = Fixture::new(|_, _| false);
+    fx.sim.playfield_bounds = Some(crate::map::playfield::PlayfieldBounds {
+        base: 0,
+        off_fc: -1,
+        off_100: -100,
+        off_104: 100,
+        off_108: 200,
+    });
+    let terrain = fx.sim.resolved_terrain.as_mut().unwrap();
+    for (x, y) in [(19, 20), (20, 21)] {
+        terrain.cell_mut(x, y).unwrap().level = 2;
+    }
+    let bfrt = fx.spawn("BFRT", 20, 20, 0);
+    let bggy = fx.spawn("BGGY", 24, 24, 0);
+    assert_eq!(
+        fx.sim.techno_limbo_with_rules(bggy, &fx.rules, None),
+        ConcealOutcome::Concealed
+    );
+    let boarded = fx
+        .sim
+        .substrate
+        .entities
+        .get_mut(bfrt)
+        .and_then(|t| t.passenger_role.cargo_mut())
+        .is_some_and(|cargo| cargo.board(bggy, 1));
+    assert!(boarded, "cargo accepts the vehicle");
+    fx.sim
+        .substrate
+        .entities
+        .get_mut(bggy)
+        .expect("passenger")
+        .passenger_role = PassengerRole::Inside {
+        transport_id: bfrt,
+        open_topped: true,
+    };
+    assert!(fx.apply(Command::UnloadPassengers { transport_id: bfrt }));
+
+    let order = fx.run_until_revealed_with_missions(&[bggy], 200);
+    assert_eq!(order.len(), 1, "the vehicle left: {order:?}");
+    let cell = fx.cell(bggy);
+    assert!(
+        [(19, 20), (20, 21)].contains(&cell),
+        "placed on raised in-playfield ground, not the exit: {cell:?}"
+    );
+}
+
 fn set_altitude(fx: &mut Fixture, id: u64, altitude: i32) {
     let loco = fx
         .sim

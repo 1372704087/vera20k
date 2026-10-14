@@ -20,9 +20,7 @@ use crate::rules::ruleset::RuleSet;
 use crate::sim::cell_rect::{
     IsClearToMoveResult, LiveCellPassabilityQuery, evaluate_live_cell_passability,
 };
-use crate::sim::find_nearby_cell::{
-    NearbyFootprint, NearbyQuery, PassabilityArgs, find_nearby_passable_cell, map_owned_radius_cap,
-};
+use crate::sim::find_nearby_cell::PassabilityArgs;
 use crate::sim::game_entity::GameEntity;
 use crate::sim::mission::authority::EntityReadyInputProvider;
 use crate::sim::mission::{MissionId, MissionType};
@@ -284,50 +282,6 @@ fn passenger_can_enter(
     )
 }
 
-/// `MapClass::Find_Nearby_Passable_Cell @ 0x0056DC20` as Mission_Unload asks
-/// it: the state-0 water-to-land pre-move (`0x0073D772..0x0073D7B0`, Wheel,
-/// seeded at the transport's own cell) and the vehicle passenger's placement
-/// (`0x0073DA96..0x0073DADD`, the passenger type's SpeedType `+0x67C`, seeded
-/// at the exit cell). Both push zone -1, MovementZone Normal, not
-/// bridge-aware, 1x1, no overlay rejection, no height or obstacle gate,
-/// bridge cells allowed, a zero target cell (selection by frame modulo), no
-/// quadrant skip and no final occupancy check.
-fn find_nearby_passable_for(
-    sim: &Simulation,
-    seed: (u16, u16),
-    speed_type: SpeedType,
-) -> Option<(u16, u16)> {
-    let (width, height) = sim.map_size_diamond()?;
-    let query = NearbyQuery {
-        native_cells: None,
-        raw_occupation: Some(&sim.substrate.raw_cell_occupation),
-        passability: PassabilityArgs {
-            speed_type,
-            required_zone_id: None,
-            movement_zone: MovementZone::Normal,
-            bridge_aware_zone: false,
-        },
-        footprint: NearbyFootprint::SINGLE,
-        allow_bridge_cells: true,
-        check_height: false,
-        check_occupancy: false,
-        radius_cap: map_owned_radius_cap(width, height),
-        target_cell: None,
-        path_grid: sim.path_grid(),
-        resolved_terrain: sim.resolved_terrain.as_ref(),
-        overlay_grid: sim.overlay_grid.as_ref(),
-        occupancy: Some(&sim.substrate.occupancy),
-        entities: Some(&sim.substrate.entities),
-        zone_grid: sim.zone_grid.as_ref(),
-        playfield_bounds: sim.playfield_bounds,
-    };
-    find_nearby_passable_cell(
-        (i32::from(seed.0), i32::from(seed.1)),
-        &query,
-        sim.session.binary_frame,
-    )
-}
-
 fn queue_guard(sim: &mut Simulation, id: u64) {
     let now = sim.session.binary_frame;
     let _ = sim.mission_queue_exact(
@@ -492,9 +446,24 @@ fn eject_head_passenger(
                     .entities
                     .get(pax_id)
                     .expect("passenger resolved above");
+                // `0x0073DA96..0x0073DADD`: the passenger type's SpeedType
+                // (`+0x67C`), zone -1, MovementZone Normal, seeded at the exit.
+                // Residual: native Unlimbos at the null cell's coordinate when
+                // nothing passes; VERA keeps the exit cell. That needs the exit
+                // outside the playfield with no admitted cell within 32 rings.
                 let cell = sim
                     .object_type(passenger.type_ref(), rules)
-                    .and_then(|object| find_nearby_passable_for(sim, exit, object.speed_type))
+                    .and_then(|object| {
+                        sim.nearby_location_cell(
+                            (i32::from(exit.0), i32::from(exit.1)),
+                            PassabilityArgs {
+                                speed_type: object.speed_type,
+                                required_zone_id: None,
+                                movement_zone: MovementZone::Normal,
+                                bridge_aware_zone: false,
+                            },
+                        )
+                    })
                     .unwrap_or(exit);
                 (cell, None)
             };
@@ -604,8 +573,19 @@ pub(crate) fn unit_mission_unload(
                 // Track 1, Wheel 2, Hover 3, ...), a land-only type — not for
                 // the transport's own (hover) type, which is what makes a
                 // hover transport leave the water before it unloads.
-                let seed = (entity.position.rx, entity.position.ry);
-                if let Some(cell) = find_nearby_passable_for(sim, seed, SpeedType::Wheel) {
+                // Zone -1, MovementZone Normal, seeded at the transport's own
+                // cell (`0x0073D772..0x0073D7B0`). Residual: when nothing
+                // passes, native still sets the destination to the null cell
+                // (`0x0073D7B5..0x0073D7D1`); VERA sets none and waits. That
+                // needs no Wheel ground within 32 rings of the transport.
+                let seed = (i32::from(entity.position.rx), i32::from(entity.position.ry));
+                let wheel_land = PassabilityArgs {
+                    speed_type: SpeedType::Wheel,
+                    required_zone_id: None,
+                    movement_zone: MovementZone::Normal,
+                    bridge_aware_zone: false,
+                };
+                if let Some(cell) = sim.nearby_location_cell(seed, wheel_land) {
                     // `Set_Destination` only — the committed selector stays
                     // Unload and state 0 re-runs once the drive has ended.
                     if let Err(cause) = sim.assign_destination_represented(

@@ -711,7 +711,7 @@ mod tests {
             .get(passenger_id)
             .expect("passenger should survive sell eject");
         assert!(passenger.passenger_role.is_none());
-        assert!(!passenger.dying);
+        assert!(!passenger.death.is_dying());
         assert!(
             passenger.position.rx < 10
                 || passenger.position.rx > 11

@@ -263,7 +263,7 @@ pub(crate) fn tick_unit_body_frame_counter(
     binary_frame: u32,
 ) {
     if entity.category() != crate::map::entities::EntityCategory::Unit
-        || entity.dying
+        || entity.death.is_dying()
         || !entity.lifecycle.object_alive()
         || entity.lifecycle.in_limbo()
         || entity.is_falling_down()
@@ -400,12 +400,12 @@ fn tick_animations_impl(
         let Some(entity) = entities.get(id) else {
             continue;
         };
-        if entity.dying && !tick_dying {
+        if entity.death.is_dying() && !tick_dying {
             continue;
         }
         // The stage steps in TechnoClass::AI_Update (`0x006FAC4D`), which a
         // warped object never reaches (`GameEntity::ai_frozen`): its pose holds.
-        if !entity.dying && entity.ai_frozen() {
+        if !entity.death.is_dying() && entity.ai_frozen() {
             continue;
         }
         // Its Doing's sequence, which its actions restart and whose stage
@@ -416,7 +416,7 @@ fn tick_animations_impl(
         }
         if entity.animation.is_none() {
             // Dying entity with no animation → ready for despawn.
-            if entity.dying {
+            if entity.death.is_dying() {
                 dying_finished.push(id);
             }
             continue;
@@ -432,7 +432,7 @@ fn tick_animations_impl(
             .expect("an animated entity was just read");
 
         // Dying entities: only advance the death animation, skip all transitions.
-        if entity.dying {
+        if entity.death.is_dying() {
             if anim.finished {
                 dying_finished.push(id);
                 continue;
@@ -551,7 +551,7 @@ pub(crate) fn tick_dying_animation(
     game_options: &crate::sim::game_options::GameOptions,
     _binary_frame: u32,
 ) -> bool {
-    debug_assert!(entity.dying);
+    debug_assert!(entity.death.is_dying());
     let Some(anim) = entity.animation.as_mut() else {
         return true;
     };

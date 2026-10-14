@@ -44,7 +44,7 @@ mod infantry_terminal;
 mod jumpjet_cruise;
 #[cfg(test)]
 pub(crate) use infantry_terminal::InfantryDeathSequence;
-pub(crate) use infantry_terminal::{InfantryDeathPostlude, InfantryTerminal};
+pub(crate) use infantry_terminal::{InfantryDeathPostlude, InfantryTerminal, TerminalLifetime};
 mod aircraft_attack;
 mod aircraft_enter;
 mod aircraft_fire_location;
@@ -2363,7 +2363,7 @@ impl Simulation {
                                     && self.substrate.entities.get(target_id).is_some_and(
                                         |entity| {
                                             entity.is_alive()
-                                                && !entity.dying
+                                                && !entity.death.is_dying()
                                                 && !entity.lifecycle.in_limbo()
                                                 && entity.lifecycle.object_alive()
                                         },
@@ -3919,7 +3919,7 @@ impl Simulation {
                     && member
                     && entity.lifecycle.object_alive()
                     && !entity.lifecycle.in_limbo()
-                    && !entity.dying
+                    && !entity.death.is_dying()
                     && entity.health.current() > 0
                     && entity.category() != EntityCategory::Structure
                     && self
@@ -6143,7 +6143,7 @@ impl Simulation {
             .substrate
             .entities
             .get(stable_id)
-            .filter(|e| e.category() == EntityCategory::Structure && !e.dying)
+            .filter(|e| e.category() == EntityCategory::Structure && !e.death.is_dying())
             .map(|e| (e.owner(), e.type_ref()))
         else {
             return;

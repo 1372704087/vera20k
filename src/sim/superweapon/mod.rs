@@ -755,7 +755,10 @@ pub fn tick_superweapon_instances(sim: &mut Simulation, rules: &RuleSet) {
             .substrate
             .entities
             .values()
-            .filter(|e| e.category() == crate::map::entities::EntityCategory::Structure && !e.dying)
+            .filter(|e| {
+                e.category() == crate::map::entities::EntityCategory::Structure
+                    && !e.death.is_dying()
+            })
             .map(|e| e.owner())
             .collect();
         let mut ordered: Vec<InternedId> = sim
@@ -911,7 +914,7 @@ fn owned_live_buildings(
         .filter_map(|&id| sim.substrate.entities.get(id))
         .filter(move |building| {
             building.category() == crate::map::entities::EntityCategory::Structure
-                && !building.dying
+                && !building.death.is_dying()
                 && !building.lifecycle.in_limbo()
                 && building.owner() == owner
         })

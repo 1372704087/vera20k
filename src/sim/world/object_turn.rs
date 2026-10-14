@@ -817,7 +817,7 @@ impl Simulation {
         // successful finalization clears the payload but must still skip
         // every ordinary locomotor tail and the second mission checkpoint.
         let tube_active_at_entry = sim.substrate.entities.get(stable_id).is_some_and(|entity| {
-            !entity.dying
+            !entity.death.is_dying()
                 && matches!(
                     entity.category(),
                     EntityCategory::Unit | EntityCategory::Infantry
@@ -841,12 +841,12 @@ impl Simulation {
                 .substrate
                 .entities
                 .get(stable_id)
-                .is_none_or(|entity| entity.dying)
+                .is_none_or(|entity| entity.death.is_dying())
         {
             outcome.destroyed_structure = true;
         }
         if sim.substrate.entities.get(stable_id).is_none_or(|entity| {
-            entity.dying
+            entity.death.is_dying()
                 || (!tube_active_at_entry
                     && matches!(
                         entity.category(),
@@ -937,7 +937,7 @@ impl Simulation {
                 .substrate
                 .entities
                 .get(stable_id)
-                .is_none_or(|e| e.dying || !e.lifecycle.object_alive())
+                .is_none_or(|e| e.death.is_dying() || !e.lifecycle.object_alive())
         {
             return Ok(outcome);
         }

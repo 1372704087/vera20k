@@ -2126,7 +2126,12 @@ fn dying_corpse_break_frees_the_dock_before_its_animation_ends() {
     crate::sim::miner::miner_dock::test_support::enter_dock(&mut sim, occupant, 2);
 
     // What the damage receiver does for a unit with a death animation.
-    sim.substrate.entities.get_mut(occupant).unwrap().dying = true;
+    sim.substrate
+        .entities
+        .get_mut(occupant)
+        .unwrap()
+        .death
+        .set_dying_for_test(true);
     crate::sim::radio::broadcast_break(
         &mut sim,
         occupant,
@@ -2351,7 +2356,12 @@ fn full_miner_return_passes_over_a_dying_refinery() {
     spawn_refinery(&mut sim, 2, 10, 10);
     spawn_refinery(&mut sim, 3, 24, 10);
     fill_and_return(&mut sim, miner_id);
-    sim.substrate.entities.get_mut(2).expect("refinery").dying = true;
+    sim.substrate
+        .entities
+        .get_mut(2)
+        .expect("refinery")
+        .death
+        .set_dying_for_test(true);
 
     for wide in [false, true] {
         assert_eq!(
@@ -3445,7 +3455,7 @@ fn refinery_death_drops_the_unloading_miner_at_the_kill() {
         sim.substrate
             .entities
             .get(2)
-            .is_none_or(|refinery| refinery.dying || refinery.health.current() == 0),
+            .is_none_or(|refinery| refinery.death.is_dying() || refinery.health.current() == 0),
         "the refinery died"
     );
     let miner_entity = sim

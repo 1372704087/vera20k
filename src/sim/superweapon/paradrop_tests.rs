@@ -139,7 +139,9 @@ fn planes(sim: &Simulation) -> Vec<u64> {
         .substrate
         .entities
         .values()
-        .filter(|entity| sim.interner.resolve(entity.type_ref()) == "PDPLANE" && !entity.dying)
+        .filter(|entity| {
+            sim.interner.resolve(entity.type_ref()) == "PDPLANE" && !entity.death.is_dying()
+        })
         .map(|entity| entity.stable_id())
         .collect();
     planes.sort_unstable();

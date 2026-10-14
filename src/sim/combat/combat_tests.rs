@@ -1687,7 +1687,7 @@ fn lifecycle_authority_immediate_combat_death_reaches_uninit_without_precleanup(
         .expect("world must still be able to UnInit the victim");
     assert_eq!(dead.health.current(), 0);
     assert!(
-        !dead.dying,
+        !dead.death.is_dying(),
         "immediate UnInit, not combat, owns the death gate"
     );
     assert!(dead.selected, "UnInit owns deselection");
@@ -1746,7 +1746,7 @@ fn lifecycle_authority_combat_leaves_transport_cargo_for_carrier_uninit() {
     );
     let passenger = store.get(2).unwrap();
     assert_eq!(passenger.health.current(), 125);
-    assert!(!passenger.dying);
+    assert!(!passenger.death.is_dying());
     assert_eq!(passenger.passenger_role.inside_transport_id(), Some(1));
     assert!(passenger.selected);
     assert!(passenger.attack_target.target().is_some());
@@ -1781,7 +1781,7 @@ fn lifecycle_authority_animated_combat_handoff_changes_only_dying_and_sequence()
     assert_eq!(result.despawned_ids, vec![1]);
     let dead = store.get(1).unwrap();
     assert_eq!(dead.health.current(), 0);
-    assert!(dead.dying);
+    assert!(dead.death.is_dying());
     assert_eq!(dead.mission_leaf.as_infantry().unwrap().doing(), 11);
     assert_eq!(dead.native_stage().value(), 0);
     assert_eq!(dead.infantry_sprite_pose(), Some((11, 0)));
@@ -4622,7 +4622,7 @@ fn gsi_04_07_damage_postmortem_stock_barrel_delay_and_nested_order() {
     for id in [center, middle, edge] {
         let barrel = sim.substrate.entities.get(id).unwrap();
         assert_eq!(barrel.health.current(), 1);
-        assert!(barrel.lifecycle.object_alive() && !barrel.dying);
+        assert!(barrel.lifecycle.object_alive() && !barrel.death.is_dying());
     }
     assert_eq!(
         sim.overlay_grid.as_ref().unwrap().cell(8, 5).overlay_id,
@@ -4671,7 +4671,7 @@ fn gsi_04_07_damage_postmortem_stock_barrel_delay_and_nested_order() {
         .get(center)
         .expect("UnInit keeps physical storage until the pending-delete drain");
     assert_eq!(expired.health.current(), 0);
-    assert!(expired.dying && !expired.lifecycle.object_alive());
+    assert!(expired.death.is_dying() && !expired.lifecycle.object_alive());
     assert!(!expired.in_logic_vector);
     assert!(!sim.substrate.occupancy.contains_entity(8, 5, center));
     assert!(sim.substrate.pending_delete.contains_object(&center));

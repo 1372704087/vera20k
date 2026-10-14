@@ -259,7 +259,7 @@ pub(crate) fn is_operational_for_output(
 /// (+90) or actual HP. Rust tombstones remain excluded until physical removal.
 fn participates_in_power_accounting(entity: &GameEntity) -> bool {
     entity.category() == EntityCategory::Structure
-        && !entity.dying
+        && !entity.death.is_dying()
         && !entity.lifecycle.in_limbo()
         && entity.lifecycle.cell_marked
 }
@@ -470,7 +470,7 @@ fn radar_provider_available(
         if entity.owner() != owner
             || entity.lifecycle.in_limbo()
             || !entity.lifecycle.cell_marked
-            || entity.dying
+            || entity.death.is_dying()
             || !entity.building_online()
             || entity.mission.current().known() == Some(crate::sim::mission::MissionType::Selling)
             || entity.mission.queued().known() == Some(crate::sim::mission::MissionType::Selling)

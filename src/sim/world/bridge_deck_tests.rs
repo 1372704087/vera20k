@@ -56,9 +56,9 @@ fn structural_fallout_retires_effect_only_ground_victim() {
         crate::sim::world::FrameEffects::default(),
     );
     let object = sim.substrate.entities.get(victim).unwrap();
-    assert!(object.infantry_terminal.is_none());
+    assert!(object.death.infantry_terminal().is_none());
     assert!(!object.lifecycle.object_alive());
-    assert!(object.dying && !object.selected);
+    assert!(object.death.is_dying() && !object.selected);
     assert!(!sim.substrate.occupancy.contains_entity(4, 4, victim));
     assert!(!sim.live_object_order_snapshot().contains(&victim));
     assert_eq!(

@@ -606,7 +606,7 @@ impl Simulation {
         let Some(entity) = self.substrate.entities.get(stable_id) else {
             return;
         };
-        if entity.dying
+        if entity.death.is_dying()
             || entity.lifecycle.in_limbo()
             || !matches!(
                 entity.category(),

@@ -502,7 +502,7 @@ fn assert_retail_target_state_restored(live: &Simulation, restored: &Simulation,
                 after.lifecycle.object_alive()
             );
             assert_eq!(before.lifecycle.in_limbo(), after.lifecycle.in_limbo());
-            assert_eq!(before.dying, after.dying);
+            assert_eq!(before.death.is_dying(), after.death.is_dying());
         }
     }
     for xy in [(64, 69), (66, 69)] {

@@ -1468,10 +1468,10 @@ fn hash_entity(entity: &GameEntity, frame: u32, hasher: &mut StateHasher) {
     entity.lifecycle.object_alive().hash(hasher);
     entity.lifecycle.in_limbo().hash(hasher);
     entity.lifecycle.cell_marked.hash(hasher);
-    entity.dying.hash(hasher);
+    entity.death.is_dying().hash(hasher);
     entity.dirty_rect_eligible.hash(hasher);
     entity.destruction_recorded.hash(hasher);
-    entity.infantry_terminal.hash(hasher);
+    entity.death.infantry_terminal().hash(hasher);
     // TechnoClass+0x3D5 is mutable admission state, not a derived
     // position query: ordinary movement is promote-only while
     // teleport and Set_Clipped_LocalSize own exact demotions.
@@ -2432,7 +2432,7 @@ mod lifecycle_hash_tests {
             entity.lifecycle.cell_marked = !entity.lifecycle.cell_marked;
         });
         assert_entity_mutation_changes_hash(|entity| {
-            entity.dying = !entity.dying;
+            entity.death.set_dying_for_test(!entity.death.is_dying());
         });
         assert_entity_mutation_changes_hash(|entity| {
             entity.dirty_rect_eligible = !entity.dirty_rect_eligible;

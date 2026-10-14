@@ -186,7 +186,7 @@ impl Simulation {
             let Some(entity) = sim.substrate.entities.get(id) else {
                 return;
             };
-            if entity.dying {
+            if entity.death.is_dying() {
                 return;
             }
             if !matches!(
@@ -210,7 +210,7 @@ impl Simulation {
         let Some(entity) = self.substrate.entities.get(id) else {
             return;
         };
-        if (entity.dying && entity.category() != EntityCategory::Infantry)
+        if (entity.death.is_dying() && entity.category() != EntityCategory::Infantry)
             || !matches!(
                 entity.category(),
                 EntityCategory::Unit | EntityCategory::Infantry | EntityCategory::Aircraft
@@ -532,10 +532,10 @@ impl Simulation {
         let Some(entity) = self.substrate.entities.get(id) else {
             return ObjectAiOutcome::default();
         };
-        if entity.infantry_terminal.is_some() {
+        if entity.death.infantry_terminal().is_some() {
             return self.visit_infantry_terminal(id, rules, ctx);
         }
-        if entity.dying {
+        if entity.death.is_dying() {
             let Some(rules) = rules else {
                 return outcome;
             };
@@ -784,7 +784,7 @@ fn techno_ai_shell(
                 .substrate
                 .entities
                 .get(id)
-                .is_none_or(|entity| entity.dying)
+                .is_none_or(|entity| entity.death.is_dying())
             {
                 return;
             }
@@ -2322,7 +2322,12 @@ mod tests {
         // Mark id 2 dying AFTER set_logic_order_for_test — that helper resets
         // presence / in_logic_vector but does NOT touch `dying`, and id 2 stays
         // in the live order.
-        sim.substrate.entities.get_mut(2).unwrap().dying = true;
+        sim.substrate
+            .entities
+            .get_mut(2)
+            .unwrap()
+            .death
+            .set_dying_for_test(true);
 
         let visited = sim.object_ai_walk(true, None, ObjectAiCtx::default());
         assert_eq!(
@@ -3051,7 +3056,7 @@ mod tests {
             sim.substrate
                 .entities
                 .get(2)
-                .is_none_or(|e| e.health.current() == 0 || e.dying),
+                .is_none_or(|e| e.health.current() == 0 || e.death.is_dying()),
             "precondition: the first victim died"
         );
         let tank = sim.substrate.entities.get(1).expect("tank present");
@@ -7469,7 +7474,12 @@ MinLowPowerProductionSpeed=0.4\nMaxLowPowerProductionSpeed=0.85\n\n\
             sim.substrate.entities.get(1).unwrap().mission.ai_counter(),
             1
         );
-        sim.substrate.entities.get_mut(1).unwrap().dying = true;
+        sim.substrate
+            .entities
+            .get_mut(1)
+            .unwrap()
+            .death
+            .set_dying_for_test(true);
         sim.object_ai_stage(None);
         assert_eq!(
             sim.substrate.entities.get(1).unwrap().mission.ai_counter(),

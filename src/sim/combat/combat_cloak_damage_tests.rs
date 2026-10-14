@@ -174,7 +174,7 @@ fn healing_overflow_stays_on_techno_nonzero_continuation_and_uncloaks() {
     assert_eq!(landed.cloak_state, 3, "negative HP must still uncloak");
     let victim = entities.get(2).unwrap();
     assert!(victim.lifecycle.object_alive());
-    assert!(!victim.dying);
+    assert!(!victim.death.is_dying());
     assert_eq!(victim.estimated_health.get(), -1234);
 }
 

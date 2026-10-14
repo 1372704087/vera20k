@@ -964,7 +964,7 @@ pub(crate) fn commit_entities(
             // PostMortem's restore (`0x00701F60`, `0x00701F67`).
             target.lifecycle.restore_alive();
             target.health.set(1);
-            target.dying = false;
+            target.death.restore();
             #[cfg(test)]
             death
                 .receiver_stage_trace
@@ -1745,7 +1745,7 @@ fn finish_concrete_death(
     {
         // Non-Infantry SHP lifetime remains on its existing path.
         if let Some(entity) = world.substrate.entities.get_mut(dead_id) {
-            entity.dying = true;
+            entity.death.begin();
             if let (Some(sequence), Some(anim)) = (
                 crate::sim::animation::death_sequence_for_inf_death(inf_death),
                 entity.animation.as_mut(),

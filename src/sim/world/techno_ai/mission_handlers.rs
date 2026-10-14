@@ -62,7 +62,10 @@ pub(crate) fn dispatch_foot_mission(
         // Mission5B306C..5B30AC admits only an alive, positive-health receiver.
         // Pin direct receiver calls as well as the enclosing object-AI host:
         // harvest_attack_return.json dead_source / zero_health_source.
-        if entity.dying || !entity.is_object_alive() || !super::mission_handlers_run(sim, id) {
+        if entity.death.is_dying()
+            || !entity.is_object_alive()
+            || !super::mission_handlers_run(sim, id)
+        {
             return bridge_changed;
         }
         let category = entity.category();
@@ -1455,7 +1458,10 @@ fn c4_sabotage_building(sim: &Simulation, id: u64, rules: &RuleSet) -> Option<u6
         return None;
     };
     let target = sim.substrate.entities.get(building)?;
-    if target.category() != EntityCategory::Structure || target.dying || !target.is_alive() {
+    if target.category() != EntityCategory::Structure
+        || target.death.is_dying()
+        || !target.is_alive()
+    {
         return None;
     }
     sim.object_type(target.type_ref(), rules)
@@ -1508,7 +1514,10 @@ fn computer_capture_building(sim: &Simulation, id: u64, rules: &RuleSet) -> Opti
         return None;
     };
     let target = sim.substrate.entities.get(building)?;
-    if target.category() != EntityCategory::Structure || target.dying || !target.is_alive() {
+    if target.category() != EntityCategory::Structure
+        || target.death.is_dying()
+        || !target.is_alive()
+    {
         return None;
     }
     let object = sim.object_type(entity.type_ref(), rules)?;
@@ -2116,7 +2125,7 @@ fn harvester_guard_override_requeues_harvest(sim: &Simulation, id: u64, rules: &
             .any(|sid| {
                 sim.substrate.entities.get(sid).is_some_and(|building| {
                     building.category() == EntityCategory::Structure
-                        && !building.dying
+                        && !building.death.is_dying()
                         && building.owner() == entity.owner()
                         && sim
                             .object_type(building.type_ref(), rules)
@@ -2432,7 +2441,7 @@ fn attack_target_is_stale(sim: &Simulation, id: u64) -> bool {
     !sim.substrate
         .entities
         .get(target_id)
-        .is_some_and(|target| !target.dying && target.is_alive())
+        .is_some_and(|target| !target.death.is_dying() && target.is_alive())
 }
 
 #[cfg(test)]

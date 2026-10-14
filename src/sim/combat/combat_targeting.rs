@@ -372,7 +372,7 @@ pub(crate) fn should_retaliate(
     // The receiver asks only in its surviving arms; a victim the represented
     // lifecycle already retired cannot be one.
     if !victim.is_alive()
-        || victim.dying
+        || victim.death.is_dying()
         || !victim.lifecycle.object_alive()
         || victim.lifecycle.in_limbo()
     {

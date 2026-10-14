@@ -4720,7 +4720,7 @@ impl Simulation {
         };
         // Consume deferred/retained Infantry lifetime before pointer-expiry
         // callbacks, including an UnInit that overtakes receiver delivery.
-        entity.infantry_terminal = None;
+        entity.death.end_infantry_policy();
         // `FootClass::UnInit @ 0x004DE5DD` frees a controller's captives
         // first (a crushed or otherwise removed Yuri or Mastermind).
         let foot = matches!(
@@ -4780,7 +4780,7 @@ impl Simulation {
         let _ = self.techno_limbo_with_context(stable_id, context);
         if let Some(entity) = self.substrate.entities.get_mut(stable_id) {
             entity.lifecycle.object_alive = false;
-            entity.dying = true;
+            entity.death.begin();
         }
         #[cfg(test)]
         self.trace_lifecycle_for_test(LifecycleTestEvent::UninitAliveCleared { stable_id });

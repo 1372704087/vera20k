@@ -1727,7 +1727,7 @@ pub fn recompute_owner_visibility_in_place(
     let admitted: Vec<_> = entities
         .values()
         .filter(|entity| {
-            !entity.dying
+            !entity.death.is_dying()
                 && !entity.lifecycle.in_limbo()
                 && (!config.require_playfield_membership || entity.in_playfield)
                 && !entity.passenger_role.is_inside_transport()

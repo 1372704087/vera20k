@@ -631,7 +631,7 @@ pub(crate) fn apply_aoe_damage_with_terrain_and_scenario<O: Into<AoEDamageOrigin
         // Dying corpses (uninit'd this tick, awaiting the end-of-tick drain)
         // are off the live object list — exclude them. A sold/captured corpse
         // keeps health>0, so gate on `dying`, not just health.
-        if entity.health.current() == 0 || entity.dying {
+        if entity.health.current() == 0 || entity.death.is_dying() {
             continue;
         }
 
@@ -864,7 +864,7 @@ fn push_airborne_aoe_damage(
     let Some(entity) = entities.get(entity_id) else {
         return;
     };
-    if entity.health.current() == 0 || entity.dying {
+    if entity.health.current() == 0 || entity.death.is_dying() {
         return;
     }
     let target_z = crate::sim::movement::ground_pose::object_world_z_leptons(entity, Some(terrain));
@@ -952,7 +952,7 @@ fn push_entity_aoe_damage(
     let Some(entity) = entities.get(entity_id) else {
         return;
     };
-    if entity.health.current() == 0 || entity.dying {
+    if entity.health.current() == 0 || entity.death.is_dying() {
         return;
     }
 

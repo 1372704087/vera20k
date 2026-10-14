@@ -1041,7 +1041,7 @@ impl SpawnHost for WorldSpawn<'_, '_> {
             .substrate
             .entities
             .get(self.owner_id)
-            .is_some_and(|owner| owner.lifecycle.object_alive() && !owner.dying)
+            .is_some_and(|owner| owner.lifecycle.object_alive() && !owner.death.is_dying())
     }
 
     fn owner_cell(&self) -> (i32, i32) {

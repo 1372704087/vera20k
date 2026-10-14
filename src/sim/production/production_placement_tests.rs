@@ -3847,7 +3847,7 @@ fn sell_player_built_garrisoned_building_demolishes_and_ejects_alive() {
     );
     // Occupant placed on the map alive.
     let pax = sim.substrate.entities.get(31).expect("occupant exists");
-    assert!(!pax.dying, "occupant should not be dying");
+    assert!(!pax.death.is_dying(), "occupant should not be dying");
     assert!(pax.health.current() > 0, "occupant should be alive");
     assert!(pax.passenger_role.is_none(), "occupant role should be None");
 }

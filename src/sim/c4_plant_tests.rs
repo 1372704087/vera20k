@@ -348,7 +348,7 @@ fn a_tanya_ordered_to_sabotage_walks_in_and_plants_the_charge() {
             .substrate
             .entities
             .get(building)
-            .is_none_or(|building| building.dying);
+            .is_none_or(|building| building.death.is_dying());
         if gone {
             assert_eq!(frame, planted + 26);
             break;
@@ -360,7 +360,7 @@ fn a_tanya_ordered_to_sabotage_walks_in_and_plants_the_charge() {
         sim.substrate
             .entities
             .get(tanya)
-            .is_some_and(|tanya| !tanya.dying)
+            .is_some_and(|tanya| !tanya.death.is_dying())
     );
 }
 

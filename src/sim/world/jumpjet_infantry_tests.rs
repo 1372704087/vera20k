@@ -1050,7 +1050,10 @@ fn a_shot_down_rocketeer_falls_like_the_native_crash() {
         }
         let entity = entity.expect("a crashing Rocketeer stays");
         let crash = output["kills"][0].as_array().unwrap().last().unwrap()["after"].clone();
-        assert!(entity.crash.is_crashing() && !entity.dying, "{name}");
+        assert!(
+            entity.crash.is_crashing() && !entity.death.is_dying(),
+            "{name}"
+        );
         assert_eq!(entity.health.current(), 0, "{name}");
         assert_eq!(
             i64::from(entity.mission_leaf.as_infantry().unwrap().doing()),

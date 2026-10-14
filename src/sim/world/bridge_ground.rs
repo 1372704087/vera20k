@@ -224,7 +224,7 @@ mod tests {
         assert!(sim.substrate.entities.get(gi).unwrap().destruction_recorded);
         assert!(!sim.live_object_order_snapshot().contains(&gi));
         let head = sim.substrate.entities.get(terror).unwrap();
-        assert!(head.infantry_terminal.is_some());
+        assert!(head.death.infantry_terminal().is_some());
         assert!(head.destruction_recorded);
         assert!(sim.live_object_order_snapshot().contains(&terror));
         // Drive its actual Die2 clock through terminal visits and confirm
@@ -236,7 +236,8 @@ mod tests {
                 .entities
                 .get(terror)
                 .unwrap()
-                .infantry_terminal
+                .death
+                .infantry_terminal()
                 .is_none()
             {
                 break;
@@ -248,7 +249,7 @@ mod tests {
             );
         }
         let head = sim.substrate.entities.get(terror).unwrap();
-        assert!(head.infantry_terminal.is_none());
+        assert!(head.death.infantry_terminal().is_none());
         assert!(!head.lifecycle.object_alive());
         assert!(head.destruction_recorded);
         assert!(!sim.live_object_order_snapshot().contains(&terror));
@@ -371,7 +372,7 @@ mod tests {
         let object = sim.substrate.entities.get(gi).unwrap();
         assert_eq!(object.mission_leaf.as_infantry().unwrap().doing(), 11);
         assert_eq!(object.native_stage().value(), 0);
-        assert!(object.infantry_terminal.is_none());
+        assert!(object.death.infantry_terminal().is_none());
         assert!(!object.lifecycle.object_alive());
         assert!(!sim.live_object_order_snapshot().contains(&gi));
         assert_eq!(sim.substrate.pending_delete, pending);

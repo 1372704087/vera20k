@@ -256,7 +256,7 @@ pub(crate) fn building_at_cell(sim: &Simulation, rx: u16, ry: u16) -> Option<u64
 /// `Simulation` while it applies fire emissions).
 pub(crate) fn building_at_cell_in_store(entities: &EntityStore, rx: u16, ry: u16) -> Option<u64> {
     entities.values().find_map(|entity| {
-        if entity.category() != EntityCategory::Structure || entity.dying {
+        if entity.category() != EntityCategory::Structure || entity.death.is_dying() {
             return None;
         }
         let (width, height) = crate::rules::foundation::foundation_dimensions(&entity.foundation);

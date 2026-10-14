@@ -393,7 +393,7 @@ fn gsi_13_06_counter_suppressions_hold_the_persistent_value() {
     dead.lifecycle.set_object_alive_for_test(false);
     variants.push(("not native-alive", dead));
     let mut dying = base.clone();
-    dying.dying = true;
+    dying.death.set_dying_for_test(true);
     variants.push(("dying", dying));
     let mut falling = base.clone();
     falling.set_falling_down_for_test(true);
@@ -1287,7 +1287,7 @@ fn presentation_skips_dying_infantry_without_changing_its_stage_or_action() {
         .unwrap()
     );
     let actor = sim.substrate.entities.get_mut(id).unwrap();
-    actor.dying = true;
+    actor.death.set_dying_for_test(true);
     actor.health.set_for_test(0);
     actor.set_native_stage_value(14);
     let dead = tick_animations(
@@ -1315,7 +1315,7 @@ fn completed_infantry_death_is_removed_by_the_class_sequencer() {
         .unwrap()
     );
     let actor = sim.substrate.entities.get_mut(id).unwrap();
-    actor.dying = true;
+    actor.death.set_dying_for_test(true);
     actor.health.set_for_test(0);
     actor.set_native_stage_value(15);
     assert!(sim.infantry_sequencer(id, &rules, crate::sim::world::FrameEffects::default()));
@@ -1347,7 +1347,7 @@ fn infantry_death_finishes_at_its_sequence_count_and_not_one_frame_early() {
         .unwrap()
     );
     let actor = sim.substrate.entities.get_mut(id).unwrap();
-    actor.dying = true;
+    actor.death.set_dying_for_test(true);
     actor.health.set_for_test(0);
     actor.set_native_stage_value(14);
     assert_eq!(

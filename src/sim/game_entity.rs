@@ -1011,14 +1011,14 @@ pub struct GameEntity {
     /// Whether this entity ignores per-cell radiation damage (ImmuneToRadiation= in rules.ini).
     #[serde(default)]
     pub immune_to_radiation: bool,
-    /// Whether this entity is playing its death animation (health=0, not yet despawned).
-    /// Dying entities are excluded from combat targeting, pathfinding, and selection.
-    /// A dying object stays cell-marked until its terminal UnInit. Products
-    /// derived from the entities (the movement pass's blocker plane and block
-    /// sets) follow the flag through the store's touch log, like any other field.
-    pub dying: bool,
-    /// Retained Infantry lifetime policy; sprite animation stores progress only.
-    pub(crate) infantry_terminal: Option<crate::sim::world::InfantryTerminal>,
+    /// The terminal lifetime (the dying mark and the Infantry terminal
+    /// policy), a [`TerminalLifetime`] that `world::infantry_terminal` owns.
+    /// Products derived from the entities (the movement pass's blocker plane
+    /// and block sets) follow it through the store's touch log, like any
+    /// other field.
+    ///
+    /// [`TerminalLifetime`]: crate::sim::world::TerminalLifetime
+    pub(crate) death: crate::sim::world::TerminalLifetime,
     /// Foot+53C/+540 latch and countdown. The shared Foot sound owner alone
     /// writes these; the process-local audio handle is not simulation state.
     #[serde(default)]
@@ -1815,8 +1815,7 @@ impl GameEntity {
             drive_accelerates: true,
             omni_crush_resistant: false,
             immune_to_radiation: false,
-            dying: false,
-            infantry_terminal: None,
+            death: crate::sim::world::TerminalLifetime::default(),
             move_sound: crate::sim::world::MoveSoundState::default(),
             crash: crate::sim::world::CrashLatch::default(),
             sinking: crate::sim::world::SinkingState::default(),
@@ -2091,7 +2090,7 @@ impl GameEntity {
     /// `is_object_alive()`; death-sequence state still suppresses current raw-store
     /// consumers even while ObjectClass native-alive remains set.
     pub fn is_active(&self) -> bool {
-        self.lifecycle.object_alive() && !self.dying
+        self.lifecycle.object_alive() && !self.death.is_dying()
     }
 
     /// ObjectClass IsAlive (`+0x90`) as the per-object AI and a Unit's fire
@@ -2375,7 +2374,7 @@ mod lifecycle_tests {
             e.lifecycle.set_in_limbo_for_test(bits & 0b00_0010 != 0);
             e.lifecycle.cell_marked = bits & 0b00_0100 != 0;
             e.in_logic_vector = bits & 0b00_1000 != 0;
-            e.dying = bits & 0b01_0000 != 0;
+            e.death.set_dying_for_test(bits & 0b01_0000 != 0);
             e.health
                 .set_for_test(if bits & 0b10_0000 != 0 { 1 } else { 0 });
 
@@ -2383,9 +2382,12 @@ mod lifecycle_tests {
             assert_eq!(e.lifecycle.in_limbo(), bits & 0b00_0010 != 0);
             assert_eq!(e.lifecycle.cell_marked, bits & 0b00_0100 != 0);
             assert_eq!(e.in_logic_vector, bits & 0b00_1000 != 0);
-            assert_eq!(e.dying, bits & 0b01_0000 != 0);
+            assert_eq!(e.death.is_dying(), bits & 0b01_0000 != 0);
             assert_eq!(e.is_alive(), bits & 0b10_0000 != 0);
-            assert_eq!(e.is_active(), e.lifecycle.object_alive() && !e.dying,);
+            assert_eq!(
+                e.is_active(),
+                e.lifecycle.object_alive() && !e.death.is_dying(),
+            );
         }
     }
 }

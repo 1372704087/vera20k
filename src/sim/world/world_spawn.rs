@@ -1706,7 +1706,7 @@ impl Simulation {
         let Some(source) = self.substrate.entities.get(stable_id) else {
             return false;
         };
-        if source.dying || source.lifecycle.in_limbo() {
+        if source.death.is_dying() || source.lifecycle.in_limbo() {
             return false;
         }
         // Deploy asks CanDeploySlashUnload (vslot +0x314, 0x00700D50) first

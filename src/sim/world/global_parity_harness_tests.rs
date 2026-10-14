@@ -1152,7 +1152,7 @@ fn global_skirmish_replay_is_deterministic_and_baseline_stable() {
         rep.substrate
             .entities
             .values()
-            .all(|e| e.building_storage == Default::default() && e.aircraft_ammo.is_none()),
+            .all(|e| *e.building_art.storage() == Default::default() && e.aircraft_ammo.is_none()),
         "the fixture contains no storage or aircraft state"
     );
 

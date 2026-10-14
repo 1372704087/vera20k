@@ -3082,7 +3082,7 @@ impl TacticalCaptureSession {
                 let building = if entity.category == crate::map::entities::EntityCategory::Structure
                 {
                     let slots: Vec<_> = entity
-                        .building_anim_slots
+                        .building_art.anim_slots()
                         .iter()
                         .enumerate()
                         .filter_map(|(slot, anim_id)| {
@@ -3106,7 +3106,7 @@ impl TacticalCaptureSession {
                     "queued_body_state": entity.queued_building_body_state(),
                     "construction_control": entity.building_construction_control(),
                     "stage": entity.native_stage(), "ready_latch": entity.building_ready_latch(),
-                    "actually_placed": entity.building_actually_placed,
+                    "actually_placed": entity.building_art.actually_placed(),
                     "last_operational": entity.building_last_operational,
                     "animation_slots": slots,
                     "voxel_gun": {

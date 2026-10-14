@@ -91,11 +91,11 @@ pub(crate) use navcom::set_walk_destination_coord;
 pub(crate) use navcom::{building_dock_cell, building_dock_coordinate, nav_target_coordinate};
 #[cfg(test)]
 pub(crate) mod fresh_oracle_seam;
+pub(crate) mod path_batch;
 mod path_markers;
 #[cfg(test)]
 pub(crate) use path_markers::fixture_path_replay;
 mod per_cell;
-pub(crate) mod repath_batch;
 pub(crate) use per_cell::PerCellReason;
 pub(crate) mod ready_producer;
 mod scatter;

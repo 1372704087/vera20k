@@ -342,7 +342,7 @@ impl SharedCellDummy {
     /// Run `work` with this Dummy's packed coordinate/level/slope word private
     /// to the current thread: its stamps and reads use a copy taken now, and
     /// the shared word stays as it is. Path searches running side by side
-    /// (`movement::repath_batch`) stamp through it, so they neither race on
+    /// (`movement::path_batch`) stamp through it, so they neither race on
     /// the Dummy nor change what later lookups on the simulation thread see.
     pub(crate) fn detached<R>(&self, work: impl FnOnce() -> R) -> R {
         struct Restore(Option<(usize, u64)>);

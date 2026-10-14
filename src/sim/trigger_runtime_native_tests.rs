@@ -1853,7 +1853,7 @@ fn native_trigger_reveal_initial_event48_tags_receive_neutral_discovery_dispatch
             false,
             0,
         );
-        entity.building_actually_placed = true;
+        entity.building_art.set_actually_placed_for_test(true);
         sim.substrate.entities.insert(entity);
         sim.attach_object_trigger_tag(id, Some(lead["tag"].as_str().unwrap()));
         let tag = sim.trigger_runtime.attachments[&TagAttachment::Object(id)];

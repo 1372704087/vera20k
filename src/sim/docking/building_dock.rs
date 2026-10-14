@@ -1310,8 +1310,8 @@ pub(crate) fn mission_repair(
         // when neither service slot exists. Recreating them would reset their
         // stages and consume additional constructor RNG on every dispatch.
         if status != 1
-            || building.building_anim_slots[8].is_some()
-            || building.building_anim_slots[11].is_some()
+            || building.building_art.anim_slots()[8].is_some()
+            || building.building_art.anim_slots()[11].is_some()
         {
             idle_service_art(sim, rules, depot, status != 1);
         }
@@ -1319,7 +1319,7 @@ pub(crate) fn mission_repair(
         if status == 2 {
             building.mission.set_handler_state(1);
         }
-        if status == 0 || (status == 1 && building.building_anim_slots[18].is_none()) {
+        if status == 0 || (status == 1 && building.building_art.anim_slots()[18].is_none()) {
             // State0 Queue44C6EA preserves +6DD; only state1's no-contact
             // arm44C18E sets ready before asking Queue to commence Guard.
             if status == 1 {
@@ -1384,7 +1384,7 @@ pub(crate) fn mission_repair(
     }
     if status == 1 {
         // The ProductionAnim must finish before the first paid step.
-        if sim.substrate.entities.get(depot)?.building_anim_slots[8].is_some() {
+        if sim.substrate.entities.get(depot)?.building_art.anim_slots()[8].is_some() {
             return Some(1);
         }
         if distance_to_pad(sim, rules, depot, unit).is_some_and(|d| d < 200) {
@@ -3204,7 +3204,8 @@ mod tests {
             .entities
             .get(DEPOT)
             .unwrap()
-            .building_anim_slots;
+            .building_art
+            .anim_slots();
         assert_eq!((slots[3], slots[12]), (Some(active), Some(idle)));
         assert_eq!(sim.scenario_rng.state(), rng);
     }

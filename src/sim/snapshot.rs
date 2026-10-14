@@ -1008,9 +1008,13 @@ use crate::sim::world::Simulation;
 // searches and the Foots waiting for the next frame's batch.
 // 348 -> 349: the move-order adapter (`MovementTarget`) is gone (#689); Foot's
 // NavCom and the locomotor own every order. Version 348 records carry it.
-// 349 -> 350: the locomotor's altitude mirror is gone (#692); an object's
-// height is its Location Z. Version 349 records carry it.
-const SNAPSHOT_VERSION: u32 = 350;
+// 349 -> 350: each waiting Foot names the request it repeats, no-queue or
+// code-2 ladder.
+// 350 -> 351: a Building's animation art fields move into one record
+// (`BuildingArt`), which changes the entity's field order.
+// 351 -> 352: the locomotor's altitude mirror is gone (#692); an object's
+// height is its Location Z. Version 351 records carry it.
+const SNAPSHOT_VERSION: u32 = 352;
 
 const SNAPSHOT_PRODUCT_MAGIC: [u8; 8] = *b"VERA20K\0";
 const SNAPSHOT_ENVELOPE_VERSION: u32 = 1;
@@ -1872,7 +1876,8 @@ fn restore_object_references(
     for (owner_id, entity) in sim.substrate.entities.iter_sorted() {
         // Diagnostic slots0..20 are Building+55C, slots21..28 are +5C8.
         for (slot, anim_id) in entity
-            .building_anim_slots
+            .building_art
+            .anim_slots()
             .iter()
             .chain(entity.damage_fire_anim_ids.iter())
             .enumerate()
@@ -4397,8 +4402,10 @@ mod tests {
         // 346 -> 347: AttackMove tokens and an object MegaDestination.
         // 347 -> 348: the batched re-path setting and its waiting Foots.
         // 348 -> 349: no move-order adapter (`MovementTarget`).
-        // 349 -> 350: no locomotor altitude copy; height is the Location Z.
-        assert_eq!(super::SNAPSHOT_VERSION, 350);
+        // 349 -> 350: the request each waiting Foot repeats.
+        // 350 -> 351: the Building's animation art in one record.
+        // 351 -> 352: no locomotor altitude copy; height is the Location Z.
+        assert_eq!(super::SNAPSHOT_VERSION, 352);
     }
 
     #[test]
@@ -5502,7 +5509,8 @@ mod tests {
                         .entities
                         .get_mut(owner)
                         .unwrap()
-                        .building_anim_slots[3] = Some(target);
+                        .building_art
+                        .anim_slots_mut_for_test()[3] = Some(target);
                     SnapshotRestoreError::MissingBuildingSlotAnim {
                         owner_id: owner,
                         slot: 3,
@@ -5522,7 +5530,8 @@ mod tests {
                         .entities
                         .get_mut(owner)
                         .unwrap()
-                        .building_anim_slots[4] = Some(anim);
+                        .building_art
+                        .anim_slots_mut_for_test()[4] = Some(anim);
                     SnapshotRestoreError::DuplicateBuildingSlotAnim {
                         anim_id: anim,
                         first_owner: owner,
@@ -5572,7 +5581,7 @@ mod tests {
                 }
                 _ => {
                     let entity = sim.substrate.entities.get_mut(owner).unwrap();
-                    entity.building_anim_slots[3] = None;
+                    entity.building_art.anim_slots_mut_for_test()[3] = None;
                     entity.damage_fire_anim_ids[0] = Some(anim);
                     entity.category = crate::map::entities::EntityCategory::Unit;
                     SnapshotRestoreError::InvalidBuildingAnimSlotOwner {
@@ -5608,7 +5617,7 @@ mod tests {
         // Anim UnInit4255B0 broadcasts before deferred physical deletion;
         // Building451B40 clears slot3 immediately but retains Anim+118.
         assert_eq!(
-            sim.entities().get(owner).unwrap().building_anim_slots[3],
+            sim.entities().get(owner).unwrap().building_art.anim_slots()[3],
             None
         );
         assert!(sim.anim(anim).unwrap().building_slot.is_none());
@@ -5641,16 +5650,16 @@ mod tests {
             .current_frame = 17;
         sim.substrate.anims.get_mut(anim).unwrap().runtime.paused = true;
         let building = sim.substrate.entities.get_mut(id).unwrap();
-        building.building_anim_effect_replay[16] = true;
+        building.building_art.anim_effect_replay_mut_for_test()[16] = true;
         building.building_last_operational = true;
-        building.building_stuff_enabled = false;
-        building.building_storage.amounts = [
+        building.building_art.set_stuff_enabled_for_test(false);
+        building.building_art.storage_mut_for_test().amounts = [
             crate::util::native_x87::NativeF32Bits::from_bits(0x7fc01234),
             crate::util::native_x87::NativeF32Bits::NEGATIVE_ZERO,
             crate::util::native_x87::NativeF32Bits::ONE,
             crate::util::native_x87::NativeF32Bits::from_bits(0xbf800000),
         ];
-        building.building_storage.refinery_tier = -17;
+        building.building_art.storage_mut_for_test().refinery_tier = -17;
         assert_ne!(sim.scenario_rng.logical_state(), load_rng);
         let bytes = GameSnapshot::save(&sim, 1, 2, "building-anim.map", 0);
         // Native Scenario load consumes the saved RNG bytes, then reseeds zero.
@@ -5666,7 +5675,12 @@ mod tests {
         restored.restore_after_snapshot_load().unwrap();
         assert_eq!(restored.scenario_rng.logical_state(), load_rng);
         assert_eq!(
-            restored.entities().get(id).unwrap().building_anim_slots[3],
+            restored
+                .entities()
+                .get(id)
+                .unwrap()
+                .building_art
+                .anim_slots()[3],
             Some(anim)
         );
         assert!(
@@ -5674,7 +5688,8 @@ mod tests {
                 .entities()
                 .get(id)
                 .unwrap()
-                .building_damage_state_active
+                .building_art
+                .damage_state_active()
         );
         assert_eq!(restored.anim(anim).unwrap().runtime.current_frame, 17);
         assert!(restored.anim(anim).unwrap().runtime.paused);
@@ -5683,7 +5698,8 @@ mod tests {
                 .entities()
                 .get(id)
                 .unwrap()
-                .building_anim_effect_replay[16]
+                .building_art
+                .anim_effect_replay()[16]
         );
         assert!(
             restored
@@ -5692,10 +5708,17 @@ mod tests {
                 .unwrap()
                 .building_last_operational
         );
-        assert!(!restored.entities().get(id).unwrap().building_stuff_enabled);
+        assert!(
+            !restored
+                .entities()
+                .get(id)
+                .unwrap()
+                .building_art
+                .stuff_enabled()
+        );
         assert_eq!(
-            restored.entities().get(id).unwrap().building_storage,
-            sim.entities().get(id).unwrap().building_storage
+            restored.entities().get(id).unwrap().building_art.storage(),
+            sim.entities().get(id).unwrap().building_art.storage()
         );
         assert_eq!(restored.anim(anim).unwrap().building_slot, Some((id, 3)));
         assert_eq!(restored.state_hash(), expected);

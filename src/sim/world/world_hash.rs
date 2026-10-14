@@ -486,9 +486,9 @@ impl Simulation {
         // IDs are folded (duplicates are intentionally preserved here).
         self.substrate.pending_delete.hash_state(hasher);
         self.load_objects.hash_state(hasher);
-        // Code-2 re-paths waiting for the next frame's batch.
-        if let Some(batch) = &self.repath_batch {
-            b"repath-batch-v1".hash(hasher);
+        // Path searches waiting for the next frame's batch.
+        if let Some(batch) = &self.path_batch {
+            b"path-batch-v2".hash(hasher);
             batch.hash(hasher);
         }
 
@@ -1296,7 +1296,7 @@ impl Simulation {
     }
 
     /// Hash all entity components in stable-entity-ID order.
-    /// BTreeMap iterates in key order (= stable_id), so no manual sort needed.
+    /// The store iterates in stable_id order, so no manual sort needed.
     /// Each entity folds into its own digest, spread over threads in large
     /// worlds; the digests fold in that order.
     fn hash_entities(&self, hasher: &mut impl Hasher) {
@@ -1508,26 +1508,26 @@ fn hash_entity(entity: &GameEntity, frame: u32, hasher: &mut StateHasher) {
     }
     entity.body_frame_counter.hash(hasher);
     // Building+6E6 is retained transition state, independent of HP.
-    if entity.building_damage_state_active {
+    if entity.building_art.damage_state_active() {
         b"building-damage-state-v1".hash(hasher);
     }
-    if entity.building_actually_placed
-        || entity.building_anim_slots.iter().any(Option::is_some)
-        || (entity.building_anim_effect_replay.iter().any(|v| *v))
+    if entity.building_art.actually_placed()
+        || entity.building_art.anim_slots().iter().any(Option::is_some)
+        || (entity.building_art.anim_effect_replay().iter().any(|v| *v))
     {
         b"building-anim-slots-v1".hash(hasher);
-        entity.building_actually_placed.hash(hasher);
-        entity.building_anim_slots.hash(hasher);
-        entity.building_anim_effect_replay.hash(hasher);
+        entity.building_art.actually_placed().hash(hasher);
+        entity.building_art.anim_slots().hash(hasher);
+        entity.building_art.anim_effect_replay().hash(hasher);
     }
-    if entity.building_storage != Default::default() {
+    if *entity.building_art.storage() != Default::default() {
         b"building-storage-v1".hash(hasher);
-        entity.building_storage.hash(hasher);
+        entity.building_art.storage().hash(hasher);
     }
     if entity.building_last_operational {
         b"building-operational-v1".hash(hasher);
     }
-    if !entity.building_stuff_enabled {
+    if !entity.building_art.stuff_enabled() {
         b"building-stuff-disabled-v1".hash(hasher);
     }
     if entity.building_has_engineer {
@@ -3743,14 +3743,16 @@ mod building_anim_slot_hash_tests {
             .entities
             .get_mut(id)
             .unwrap()
-            .building_damage_state_active = true;
+            .building_art
+            .set_damage_state_active_for_test(true);
         assert_ne!(advanced, sim.state_hash());
         let retained = sim.state_hash();
         sim.substrate
             .entities
             .get_mut(id)
             .unwrap()
-            .building_anim_slots
+            .building_art
+            .anim_slots_mut_for_test()
             .swap(3, 4);
         assert_ne!(retained, sim.state_hash());
     }

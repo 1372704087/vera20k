@@ -764,7 +764,7 @@ impl Simulation {
         overlay_registry: Option<&crate::rules::overlay_types::OverlayTypeRegistry>,
         effects: super::FrameEffects<'_>,
     ) -> Result<LiveObjectPassOutcome, super::FrameAdvanceError> {
-        self.answer_batched_repaths(rules, overlay_registry);
+        self.answer_batched_path_searches(rules, overlay_registry);
         let miner_config = rules.map(crate::sim::miner::MinerConfig::from_rules);
         let terrain_spawner_cells = self
             .production
@@ -780,7 +780,7 @@ impl Simulation {
         };
 
         let mut outcome = LiveObjectPassOutcome::default();
-        self.try_for_each_live_object::<super::FrameAdvanceError>(|sim, stable_id| {
+        let walked = self.try_for_each_live_object::<super::FrameAdvanceError>(|sim, stable_id| {
             let turn = sim.advance_live_object_turn(stable_id, rules, object_ctx)?;
             outcome.movement.merge(turn.movement);
             outcome.destroyed_structure |= turn.destroyed_structure;
@@ -790,7 +790,9 @@ impl Simulation {
                 outcome.tube_turn_owned_ids.insert(stable_id);
             }
             Ok(())
-        })?;
+        });
+        self.finish_batched_path_searches();
+        walked?;
         Ok(outcome)
     }
 

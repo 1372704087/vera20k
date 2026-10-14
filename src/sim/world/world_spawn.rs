@@ -1,8 +1,7 @@
 //! Entity spawning for the Simulation.
 //!
 //! Handles spawning entities from map data (`spawn_from_map`) and from
-//! production (`spawn_object`). All entities are stored in EntityStore only
-//! (BTreeMap<u64, GameEntity>).
+//! production (`spawn_object`). All entities are stored in EntityStore only.
 //!
 //! Dependency rules: same as sim/ (depends on rules/, map/; never render/ui/audio/net).
 

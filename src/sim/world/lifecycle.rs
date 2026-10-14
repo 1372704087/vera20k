@@ -3019,7 +3019,7 @@ impl Simulation {
             if let Some(rules) = context.rules()
                 && let Some(entity) = self.substrate.entities.get(stable_id)
                 && entity.category == EntityCategory::Structure
-                && entity.building_actually_placed
+                && entity.building_art.actually_placed()
                 && let Some(object) = self.object_type(entity.type_ref(), rules)
                 && object.helipad
             {

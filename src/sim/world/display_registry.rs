@@ -444,7 +444,7 @@ mod tests {
     }
 
     /// Kept Ground keys through the production entry points. Units move by
-    /// `get_mut` and in their own turn, the anims attached to them follow,
+    /// `get_mut`, the anims attached to them follow,
     /// anims move by themselves, members leave and rejoin, and scans switch
     /// between rules and none and follow a type handle rebuild. Before each
     /// scan the display is copied through its saved form, which keeps
@@ -556,8 +556,7 @@ mod tests {
                 }
                 1 => {
                     let unit = units[next(4) as usize];
-                    let mut turn = sim.substrate.entities.take_turn(unit).unwrap();
-                    let entity = turn.entity();
+                    let entity = sim.substrate.entities.get_mut(unit).unwrap();
                     entity.position.rx = (entity.position.rx as i32 - delta.signum()) as u16;
                     entity.position.sub_y = SimFixed::from_num((128 - delta).rem_euclid(256));
                 }

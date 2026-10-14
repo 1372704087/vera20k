@@ -1498,7 +1498,14 @@ fn mirage_voxel_unit_shp_layout_does_not_create_a_second_stand_walk_clock() {
     let id = sim
         .spawn_object_limbo_at_height("ACTOR", "Americans", 3, 3, 0, 0, &rules)
         .unwrap();
-    for (sequence, moving) in [(SequenceKind::Stand, false), (SequenceKind::Walk, true)] {
+    // Neither an order nor its absence switches the generic sequence: the
+    // Unit SHP draw asks Is_Moving itself.
+    for (sequence, moving) in [
+        (SequenceKind::Stand, false),
+        (SequenceKind::Stand, true),
+        (SequenceKind::Walk, false),
+        (SequenceKind::Walk, true),
+    ] {
         let actor = sim.substrate.entities.get_mut(id).unwrap();
         assert!(actor.is_voxel);
         actor.body_frame_counter = 17;

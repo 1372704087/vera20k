@@ -374,13 +374,10 @@ pub fn advance_animation(
 
 /// Advance all animated entities by one reached native gameplay frame.
 ///
-/// 1. Dying entities: skip auto-transitions, only advance death animation.
-///    Returns IDs of dying entities whose death animation has finished.
-/// 2. Auto-transitions: entities with MovementTarget switch to Walk;
-///    entities without MovementTarget switch back to Stand.
-/// 3. Attack transitions: stationary entities with attack_target switch to
-///    Attack (or FireProne/DeployedFire depending on stance).
-/// 4. Advances frame timing for each entity's current sequence.
+/// 1. Dying entities: only advance the death animation. Returns IDs of
+///    dying entities whose death animation has finished.
+/// 2. Advances frame timing for each entity's current sequence, following a
+///    completed sequence's `TransitionTo`.
 ///
 /// `sequences` maps type_id → SequenceSet for frame timing lookup.
 /// Entities whose type_id isn't in the map are skipped (no animation advance).
@@ -452,16 +449,11 @@ fn tick_animations_impl(
             continue;
         }
 
-        let has_movement: bool = entity.movement_target.is_some();
         // Infantry never enters this cascade: Doing/Stage is its only
-        // sequence clock. Retain the existing non-Infantry visual transitions.
+        // sequence clock. Motion does not switch the sequence either: the Unit
+        // SHP draw picks Walk or Stand by the locomotor's Is_Moving (vt+0x10 at
+        // `0x0073C696`, `resolve_shp_vehicle_body_frame`).
         let seq_set = sequence_set_for_type(sequences, rules, interner.resolve(type_ref));
-        if has_movement && anim.sequence == SequenceKind::Stand {
-            anim.switch_to(SequenceKind::Walk);
-        } else if !has_movement && matches!(anim.sequence, SequenceKind::Walk | SequenceKind::Crawl)
-        {
-            anim.switch_to(SequenceKind::Stand);
-        }
 
         // Advance frame timing.
         let Some(set) = seq_set else {

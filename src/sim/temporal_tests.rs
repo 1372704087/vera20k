@@ -1735,6 +1735,50 @@ fn a_released_mover_does_not_resume_its_order() {
     );
 }
 
+/// The freeze calls `Set_Destination(0, 1)` only for a non-NULL NavCom
+/// (Unit `0x00736337..0x0073634D`). Without one, a warped tank whose
+/// Techno+0x1F8 override would make the Unit setter run anyway (`0x00741A88`)
+/// keeps that override and the NavQueue the setter would clear, whatever
+/// order adapter it carries.
+#[test]
+fn a_warped_foot_without_a_navcom_skips_the_null_setter() {
+    use crate::sim::components::{MovementTarget, NavTargetRef};
+    let rules = rules();
+    let (mut sim, _grid) = arena(10, &rules);
+    let tank = spawn(&mut sim, &rules, "HTNK", "Americans", 12, 10);
+    let cleg = spawn(&mut sim, &rules, "CLEG", "Russians", 10, 10);
+    sim.temporal_initiate_warp(
+        cleg,
+        Some(tank),
+        &rules,
+        None,
+        crate::sim::world::FrameEffects::default(),
+    );
+    {
+        let tank = sim.substrate.entities.get_mut(tank).unwrap();
+        assert!(tank.navigation.nav_com.is_none());
+        tank.navigation.nav_queue.push(NavTargetRef::cell(9, 16));
+        tank.setter_force_reassign = true;
+        tank.movement_target = Some(MovementTarget::default());
+    }
+    assert!(
+        sim.temporal_ai_prologue(
+            tank,
+            &rules,
+            crate::sim::world::ObjectAiCtx::default(),
+            &mut false,
+        ),
+        "frozen"
+    );
+    let tank = entity(&sim, tank);
+    assert!(tank.setter_force_reassign, "no setter call");
+    assert_eq!(tank.navigation.nav_queue, vec![NavTargetRef::cell(9, 16)]);
+    assert!(
+        tank.movement_target.is_none(),
+        "the adapter goes with the freeze"
+    );
+}
+
 /// InfantryClass::PerCellProcess turns an engineer away from a building
 /// being warped (`0x00519EF2`); released, the building can be captured.
 #[test]

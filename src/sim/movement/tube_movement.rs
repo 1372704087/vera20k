@@ -17,7 +17,6 @@ use crate::map::tube_facts::{TubeFact, TubeId, TubeSource};
 use crate::rules::ruleset::RuleSet;
 use crate::sim::components::{DriveCoord, Position};
 use crate::sim::entity_store::EntityStore;
-use crate::sim::game_entity::GameEntity;
 use crate::sim::intern::StringInterner;
 use crate::sim::movement::ScatterFlags;
 use crate::sim::movement::bump_crush;
@@ -575,17 +574,12 @@ fn scatter_exit_blockers(
             blocker.category,
             EntityCategory::Unit | EntityCategory::Infantry
         ) || blocker.locomotor.is_none()
-            || locomotor_is_moving(blocker)
+            || super::motion_query::is_moving(blocker) == Some(true)
         {
             continue;
         }
         scatters.request(blocker_id, ScatterFlags::new(true, true));
     }
-}
-
-fn locomotor_is_moving(entity: &GameEntity) -> bool {
-    // Other families still require their retained-state/lifecycle migration.
-    super::motion_query::is_moving(entity).unwrap_or_else(|| entity.movement_target.is_some())
 }
 
 fn stop_blocked_mover(entities: &mut EntityStore, entity_id: u64) {

@@ -678,13 +678,12 @@ pub struct GameEntity {
     /// `sim::radio` owns the slots (`RadioClass+0xE4`/`+0xE8`).
     #[serde(default)]
     pub(crate) radio_contacts: Contacts,
-    /// Models the TechnoClass dock-entered flag (ENTER_DOCK(0x18) sets it,
-    /// LEAVE_DOCK(0x19)/BREAK clears it). `Some(other_sid)` while this entity is
-    /// linked-and-entered at that dock partner; `None` otherwise. The radio
-    /// receivers set and clear it; teardown paths that reset an entity also
-    /// clear it.
+    /// The tether latch (`TechnoClass+0x418`), a [`Tether`] that `sim::radio`
+    /// owns.
+    ///
+    /// [`Tether`]: crate::sim::radio::Tether
     #[serde(default)]
-    pub dock_entered_with: Option<u64>,
+    pub(crate) tether: crate::sim::radio::Tether,
     /// Persistent TechnoClass hostile-hit latch (`WasAttackedByEnemy`, native
     /// byte +0x3D1). It is independent of retaliation's transient attacker
     /// pointer and is consumed by the building AI low-credit sell decision.
@@ -1750,7 +1749,7 @@ impl GameEntity {
             current_turret_index: -1,
             charge_turret_delay: 0,
             radio_contacts: Contacts::default(),
-            dock_entered_with: None,
+            tether: crate::sim::radio::Tether::default(),
             was_attacked_by_enemy: false,
             ai_sellable: false,
             ai_repairable: false,

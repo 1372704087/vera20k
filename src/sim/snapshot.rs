@@ -2058,12 +2058,12 @@ fn restore_object_references(
             )?;
         }
 
-        if let Some(target_id) = entity.dock_entered_with {
+        if let Some(target_id) = entity.tether.partner() {
             require_resolved_reference(
                 entity_ids.contains(&target_id),
                 "EntityStore",
                 entity_id,
-                "dock_entered_with",
+                "tether",
                 "EntityStore",
                 target_id,
             )?;

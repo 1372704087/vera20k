@@ -734,7 +734,8 @@ fn war_factory_spawn_contact_is_marked_per_produced_mover() {
             .entities
             .get(produced)
             .unwrap()
-            .dock_entered_with,
+            .tether
+            .partner(),
         Some(10),
         "WF exit must set the dock-entered (+0x418) flag toward the factory"
     );
@@ -743,7 +744,8 @@ fn war_factory_spawn_contact_is_marked_per_produced_mover() {
             .entities
             .get(unrelated)
             .unwrap()
-            .dock_entered_with,
+            .tether
+            .partner(),
         None,
         "unrelated vehicles get no dock-entered flag"
     );

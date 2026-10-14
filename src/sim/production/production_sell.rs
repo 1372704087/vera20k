@@ -424,7 +424,7 @@ pub(crate) fn sell_stage_one(
         .substrate
         .entities
         .get(id)
-        .is_none_or(|building| building.dock_entered_with.is_some())
+        .is_none_or(|building| building.tether.partner().is_some())
     {
         return false;
     }

@@ -1234,7 +1234,7 @@ fn per_cell_factory_clearance_precedes_ready_and_preserves_foot_stop_scope() {
     for id in [1, 2] {
         let entity = sim.substrate.entities.get(id).unwrap();
         assert_eq!(entity.radio_contacts.slot(0), None);
-        assert_eq!(entity.dock_entered_with, None);
+        assert_eq!(entity.tether.partner(), None);
     }
     let unit = sim.substrate.entities.get(1).unwrap();
     assert_eq!(unit.mission.current().known(), Some(MissionType::Unload));
@@ -1624,7 +1624,7 @@ fn per_cell_factory_harvester_queue_uses_live_readiness_and_preserves_miner_stat
             for id in [1, 2] {
                 let entity = sim.substrate.entities.get(id).unwrap();
                 assert_eq!(entity.radio_contacts.slot(0), None);
-                assert_eq!(entity.dock_entered_with, None);
+                assert_eq!(entity.tether.partner(), None);
             }
             assert_eq!(
                 sim.rng_state(),
@@ -1761,8 +1761,8 @@ fn native_depot_arrival_uses_the_original_terminal_handoff() {
             "pending_entry": name(unit.pending_entry()),
             "unit_contacts": (0..unit.radio_contacts.capacity()).map(|n| name(unit.radio_contacts.slot(n))).collect::<Vec<_>>(),
             "building_contacts": (0..building.radio_contacts.capacity()).map(|n| name(building.radio_contacts.slot(n))).collect::<Vec<_>>(),
-            "unit_tether": u8::from(unit.dock_entered_with.is_some()),
-            "building_tether": u8::from(building.dock_entered_with.is_some()),
+            "unit_tether": u8::from(unit.tether.partner().is_some()),
+            "building_tether": u8::from(building.tether.partner().is_some()),
             "building_mission": building.mission.current().raw(),
             "building_queued": building.mission.queued().raw(),
             "status": building.mission.handler_state(),
@@ -1943,7 +1943,9 @@ fn native_depot_arrival_uses_the_original_terminal_handoff() {
             if before[contacts][0].is_string() {
                 entity.radio_contacts.insert(peer);
             }
-            entity.dock_entered_with = (integer(&before[tether]) != 0).then_some(peer);
+            entity
+                .tether
+                .set_for_test((integer(&before[tether]) != 0).then_some(peer));
         }
         let at = &before["unit_coordinate"];
         let coordinate = DriveCoord {

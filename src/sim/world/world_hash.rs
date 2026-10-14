@@ -1783,7 +1783,7 @@ fn hash_entity(entity: &GameEntity, frame: u32, hasher: &mut StateHasher) {
     entity.radio_contacts.hash_fold(hasher);
     // Dock-entered flag (+0x418 analogue). Intended one-time re-baseline
     // at this behavior boundary alongside the slot-folded contacts.
-    match entity.dock_entered_with {
+    match entity.tether.partner() {
         Some(sid) => {
             1u8.hash(hasher);
             sid.hash(hasher);

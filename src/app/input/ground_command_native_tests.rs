@@ -15,8 +15,9 @@ fn produce_move(
     clicked: (u16, u16),
     shift: bool,
 ) -> CommandEnvelope {
-    let resolved = ordinary_cell_move_goal(sim, rules, owner, id, clicked, MoveClick::Cell, shift)
-        .expect("original input emits an ordinary Move");
+    let resolved =
+        ordinary_cell_move_goal(sim, rules, None, owner, id, clicked, MoveClick::Cell, shift)
+            .expect("original input emits an ordinary Move");
     assert!(!resolved.queue, "native Shift still emits ordinary Move");
     let issued = CommandEnvelope::new(
         owner,

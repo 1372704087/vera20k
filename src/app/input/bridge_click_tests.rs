@@ -308,6 +308,7 @@ fn follow_clicked_goal(
     let admitted = super::commands::ordinary_cell_move_goal(
         scenario.sim(),
         &scenario.runtime.resources.rules,
+        Some(&scenario.runtime.resources.overlay_registry),
         owner,
         entity_id,
         goal,
@@ -460,6 +461,7 @@ fn shift_walk_cell_input_uses_ordinary_resolver_and_move_record() {
     let ordinary = super::commands::ordinary_cell_move_goal(
         &sim,
         &rules,
+        None,
         owner,
         actor,
         clicked,
@@ -471,6 +473,7 @@ fn shift_walk_cell_input_uses_ordinary_resolver_and_move_record() {
     let shifted = super::commands::ordinary_cell_move_goal(
         &sim,
         &rules,
+        None,
         owner,
         actor,
         clicked,
@@ -502,33 +505,19 @@ fn shift_walk_cell_input_uses_ordinary_resolver_and_move_record() {
         ordinary_move(&sim, owner, actor, ordinary.cell)
     );
 
-    // Object-click and attack-move contexts retain their existing adapter.
-    let other_context = super::commands::ordinary_cell_move_goal(
+    // Only a Move over an object keeps the queue-flag adapter.
+    let object = super::commands::ordinary_cell_move_goal(
         &sim,
         &rules,
+        None,
         owner,
         actor,
         clicked,
-        MoveClick::AttackMoveCell,
+        MoveClick::Object,
         true,
     )
     .unwrap();
-    assert!(other_context.queue);
-    let (mut unit_sim, unit_owner, units) = commandable_movers();
-    // The Unit What_Action refuses a non-player House's click (7404BF).
-    unit_sim.session.game_mode_nonzero = true;
-    unit_sim.session.current_house = Some(unit_owner);
-    let unrepresented_unit = super::commands::ordinary_cell_move_goal(
-        &unit_sim,
-        &rules,
-        unit_owner,
-        units[0],
-        clicked,
-        MoveClick::Cell,
-        true,
-    )
-    .unwrap();
-    assert!(unrepresented_unit.queue);
+    assert!(object.queue);
 }
 
 #[test]
@@ -540,6 +529,7 @@ fn ordinary_walk_cell_input_reaches_near_bank_and_valid_high_bridge() {
         let chosen = super::commands::ordinary_cell_move_goal(
             &sim,
             &rules,
+            None,
             owner,
             actor,
             clicked,
@@ -599,6 +589,7 @@ fn encoded_walk_destination_survives_topology_change_before_due_frame() {
     let chosen = super::commands::ordinary_cell_move_goal(
         &sim,
         &rules,
+        None,
         owner,
         actor,
         clicked,
@@ -618,6 +609,7 @@ fn encoded_walk_destination_survives_topology_change_before_due_frame() {
         super::commands::ordinary_cell_move_goal(
             &sim,
             &rules,
+            None,
             owner,
             actor,
             clicked,
@@ -653,6 +645,7 @@ fn direct_simulation_walk_move_is_an_already_resolved_destination() {
         super::commands::ordinary_cell_move_goal(
             &sim,
             &rules,
+            None,
             owner,
             actor,
             (9, 5),

@@ -858,61 +858,52 @@ pub(crate) struct CellMoveGoal {
     pub(crate) queue: bool,
 }
 
-/// What a Move click is over. It picks the receiver's class What_Action and
-/// whether the Foot Cell query resolves the clicked Cell.
+/// What a Move click is over.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum MoveClick {
-    /// An ordinary Move click on a Cell.
+    /// A Move or attack-move click on a Cell.
     Cell,
-    /// An attack-move click on a Cell.
-    AttackMoveCell,
     /// A Move over an object, toward the object's own Cell: force-move onto
     /// it, or a healer's Move over an enemy.
     Object,
 }
 
-/// Move-click producer only. The receiver's class What_Action refusal
-/// ([`Simulation::move_click_refused`]) and the native4DE1D0 resolver precede
-/// event encoding; synchronized/replay/internal Move payloads are already
-/// resolved. Original initialized GI and MTNK Shift0x10 still execute that
-/// resolver and emit ordinary MegaMission (111-byte Event)/Move2 ->
-/// class(Cell,1); neither appends a queued waypoint (Infantry51AA40,
-/// Unit741970). Native input/event/true-RET controls: walk_first_path.json
-/// `gi_reissue`.
+/// Move-click producer only. A click on a Cell resolves each receiver's own
+/// Cell ([`Simulation::cell_click_destination`]) before event encoding;
+/// synchronized/replay/internal Move payloads are already resolved. Original
+/// initialized GI and MTNK Shift0x10 still execute that resolver and emit
+/// ordinary MegaMission (111-byte Event)/Move2 -> class(Cell,1); neither
+/// appends a queued waypoint (Infantry51AA40, Unit741970). Native
+/// input/event/true-RET controls: walk_first_path.json `gi_reissue`.
 ///
-/// [`Simulation::move_click_refused`]: crate::sim::world::Simulation::move_click_refused
+/// [`Simulation::cell_click_destination`]: crate::sim::world::Simulation::cell_click_destination
 pub(crate) fn ordinary_cell_move_goal(
     sim: &crate::sim::world::Simulation,
     rules: &crate::rules::ruleset::RuleSet,
+    registry: Option<&crate::rules::overlay_types::OverlayTypeRegistry>,
     viewer: InternedId,
     entity_id: u64,
     clicked: (u16, u16),
     click: MoveClick,
-    queued_input: bool,
+    shift: bool,
 ) -> Option<CellMoveGoal> {
-    if sim.move_click_refused(entity_id, rules, click == MoveClick::Object) {
-        return None;
-    }
-    if click == MoveClick::Cell
-        && (!queued_input
-            || sim.infantry_setter_receiver(entity_id, rules)
-            || sim.drive_unit_setter_receiver(entity_id))
-        && let Some(result) = sim.ordinary_ground_foot_cell_input(viewer, entity_id, clicked, rules)
-    {
-        return match result {
+    if click != MoveClick::Object {
+        return match sim.cell_click_destination(viewer, entity_id, clicked, shift, rules, registry)
+        {
             Ok(cell) => cell.map(|cell| CellMoveGoal { cell, queue: false }),
             Err(cause) => {
-                log::warn!("ordinary Foot cell input: {cause}");
+                log::warn!("Cell click input: {cause}");
                 None
             }
         };
     }
-    //Existing compatibility adapter for what the Foot Cell query above does
-    //not resolve: other locomotors (Hover, Teleport, Jumpjet, Fly), high
-    //movers, attack-move, object and queued input. It snaps an unwalkable
-    //click to a nearby walkable Cell rather than running 4DE1D0 (#689). Its
-    //queue flag only keeps a queued command out of the MegaMission codec; the
-    //sim takes it as an ordinary Move.
+    if sim.object_move_click_refused(entity_id, rules) {
+        return None;
+    }
+    //Existing compatibility adapter for a Move over an object: it snaps an
+    //unwalkable Cell to a nearby walkable one rather than running the object
+    //receiver 4D74E0 (#689). Its queue flag only keeps a queued command out of
+    //the MegaMission codec; the sim takes it as an ordinary Move.
     let mut goal = clicked;
     if let Some(grid) = sim.path_grid()
         && !crate::app::match_runtime::sim_tick::is_any_layer_walkable(grid, goal.0, goal.1)
@@ -923,7 +914,7 @@ pub(crate) fn ordinary_cell_move_goal(
     }
     Some(CellMoveGoal {
         cell: goal,
-        queue: queued_input,
+        queue: shift,
     })
 }
 

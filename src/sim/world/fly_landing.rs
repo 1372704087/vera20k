@@ -812,13 +812,18 @@ mod tests {
                 e.mark_mission_only();
             }
             let owner = e.owner();
-            let mut visibility = serde_json::to_value(OwnerVisibility::new(128, 128)).unwrap();
+            let visibility = serde_json::to_value(OwnerVisibility::new(128, 128)).unwrap();
             let x = row["exposed"][0].as_u64().unwrap() as usize;
             let y = row["exposed"][1].as_u64().unwrap() as usize;
-            visibility["ground_flags"][y * 128 + x] = input["bits"].clone();
             sim.fog
                 .by_owner
                 .insert(owner, serde_json::from_value(visibility).unwrap());
+            sim.fog.set_ground_bits_for_test(
+                owner,
+                x as u16,
+                y as u16,
+                input["bits"].as_u64().unwrap() as u8,
+            );
             assert!(!sim.fog.is_cell_visible(owner, x as u16, y as u16));
             let request = DriveCoord {
                 x: row["query"][0].as_i64().unwrap() as i32,

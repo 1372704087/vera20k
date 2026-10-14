@@ -854,19 +854,6 @@ impl Simulation {
         })
     }
 
-    /// The represented Unit setter's active Drive cohort. A queued (Shift)
-    /// Cell click takes the ordinary Foot Cell query only for it and Walk
-    /// Infantry, the receivers the original Shift controls cover.
-    pub(crate) fn drive_unit_setter_receiver(&self, id: u64) -> bool {
-        self.substrate.entities.get(id).is_some_and(|actor| {
-            track_unit(actor)
-                && actor
-                    .locomotor
-                    .as_ref()
-                    .is_some_and(|loco| loco.active_kind() == LocomotorKind::Drive)
-        })
-    }
-
     /// Unit 0x741970(target, clear_queue). Calls whose receiver may be of any
     /// class reach it through the class-setter dispatcher
     /// ([`Self::assign_destination_represented`], mode 1, and

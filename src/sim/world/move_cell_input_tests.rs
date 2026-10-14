@@ -8,6 +8,7 @@ use crate::rules::ini_parser::IniFile;
 use crate::rules::ruleset::RuleSet;
 use crate::rules::terrain_rules::TerrainClass;
 use crate::sim::bridge_state::{BridgeEndpointRecord, BridgeRecordKind};
+use crate::sim::intern::InternedId;
 use serde_json::{Value, json};
 
 /// 20 Infantry/Walk, 7 Unit/Drive and 2 Unit/Ship receivers of the same
@@ -40,7 +41,7 @@ fn ordinary_foot_input_matches_native_admission_rows() {
             in_tube: false,
             move_to_shroud: input["move_to_shroud"].as_bool().unwrap_or(true),
             teleporter: false,
-            jumpjet_type: false,
+            special_type: false,
             movement_zone: match input["movement_zone"].as_u64().unwrap_or(4) {
                 0 => MovementZone::Normal,
                 1 => MovementZone::Crusher,
@@ -177,6 +178,140 @@ fn isolated_cell_queries_preserve_all_modeled_dummy_inputs_and_identity() {
     assert_eq!(format!("{canonical:?}"), before);
 }
 
+/// The walk scene's river map with retail rules: the retail E1 it spawns at
+/// (5,5) and `type_name` for the same House at (6,4).
+fn retail_scene(type_name: &str) -> Option<(Simulation, RuleSet, InternedId, u64, u64)> {
+    let rules = crate::rules::retail_ini_fixture::retail_battle_rules()?.rules;
+    let (mut sim, rules, gi) = Simulation::walk_cell_input_test_scene_with(rules, false);
+    let owner = sim.interner.get("Local").unwrap();
+    let id = sim
+        .spawn_object(type_name, "Local", 6, 4, 0, &rules)
+        .unwrap_or_else(|| panic!("retail {type_name} spawns"));
+    sim.resolve_type_handles(&rules);
+    for cell in [(6, 4), (9, 5), (10, 5), (11, 5), (12, 5)] {
+        assert!(
+            cell_is_in_playfield_height_aware_in_query(
+                (i32::from(cell.0), i32::from(cell.1)),
+                sim.playfield_bounds,
+                sim.resolved_terrain.as_ref(),
+                None,
+            ),
+            "{cell:?}"
+        );
+    }
+    Some((sim, rules, owner, gi, id))
+}
+
+fn query(mouse_over: bool, shift: bool) -> CellActionQuery {
+    CellActionQuery { mouse_over, shift }
+}
+
+/// The cursor update asks What_Action with its mouse-over argument
+/// (`0x0069300B`), which answers Move before Can_Enter_Cell
+/// (`0x00700B51..0x00700B57`); the click asks it, so a retail Grizzly's
+/// click over the river answers NoMove and resolves to its own bank. Shift
+/// answers Move before the probe (`0x00700B03`).
+#[test]
+fn only_the_click_asks_can_enter_cell() {
+    let Some((sim, rules, owner, _, tank)) = retail_scene("MTNK") else {
+        return;
+    };
+    let ask = |mouse_over, shift| {
+        sim.cell_move_action(owner, tank, (9, 5), query(mouse_over, shift), &rules, None)
+            .unwrap()
+    };
+    assert_eq!(ask(true, false), CellMoveAction::Move);
+    assert_eq!(ask(false, false), CellMoveAction::NoMove);
+    assert_eq!(ask(false, true), CellMoveAction::Move);
+    let goal = sim
+        .cell_click_destination(owner, tank, (9, 5), false, &rules, None)
+        .unwrap()
+        .unwrap();
+    assert!(goal.0 < 8, "{goal:?}");
+}
+
+/// Every receiver takes the Cell resolver, aircraft included, and an
+/// Aircraft is special there (`0x004DE325..0x004DE335`): a retail Harrier
+/// keeps a clicked river Cell, where the retail GI's click resolves to its
+/// own bank.
+#[test]
+fn an_aircraft_click_keeps_a_river_cell() {
+    let Some((sim, rules, owner, gi, harrier)) = retail_scene("ORCA") else {
+        return;
+    };
+    assert_eq!(
+        sim.cell_click_destination(owner, harrier, (9, 5), false, &rules, None),
+        Ok(Some((9, 5)))
+    );
+    let goal = sim
+        .cell_click_destination(owner, gi, (9, 5), false, &rules, None)
+        .unwrap()
+        .unwrap();
+    assert!(goal.0 < 8, "{goal:?}");
+}
+
+/// A Teleporter whose own What_Action answers Move keeps the clicked Cell,
+/// even across the river (`0x004DE467..0x004DE47E`). Over the river its
+/// Can_Enter_Cell answers NoMove, so the zone test and FNPC send it to its
+/// own bank (`0x004DE484..0x004DE528`). Retail CLEG.
+#[test]
+fn a_teleporter_keeps_a_cell_it_can_enter() {
+    let Some((sim, rules, owner, _, legionnaire)) = retail_scene("CLEG") else {
+        return;
+    };
+    assert!(rules.object("CLEG").unwrap().teleporter);
+    assert_eq!(
+        sim.cell_click_destination(owner, legionnaire, (11, 5), false, &rules, None),
+        Ok(Some((11, 5)))
+    );
+    let goal = sim
+        .cell_click_destination(owner, legionnaire, (10, 5), false, &rules, None)
+        .unwrap()
+        .unwrap();
+    assert!(goal.0 < 8, "{goal:?}");
+}
+
+/// Foot's shroud rung (`0x004DDE64..0x004DDEBE`): over a shrouded Cell a
+/// retail CLEG (MoveToShroud=no) answers NoMove for the cursor and the
+/// click alike, and its click resolves nothing (`0x004DE26B..0x004DE284`);
+/// a retail Grizzly answers Move and its click resolves a Cell.
+#[test]
+fn shroud_bars_a_type_without_move_to_shroud() {
+    let Some((mut sim, rules, owner, _, legionnaire)) = retail_scene("CLEG") else {
+        return;
+    };
+    let tank = sim.spawn_object("MTNK", "Local", 6, 6, 0, &rules).unwrap();
+    sim.resolve_type_handles(&rules);
+    assert!(!rules.object("CLEG").unwrap().move_to_shroud);
+    assert!(rules.object("MTNK").unwrap().move_to_shroud);
+    let shrouded = (12, 5);
+    sim.fog = crate::sim::vision::FogState::new(16, 16);
+    sim.fog.reveal_cells_for_owner(
+        owner,
+        (0..16)
+            .flat_map(|y| (0..16).map(move |x| (x, y)))
+            .filter(|&cell| cell != shrouded),
+    );
+    assert!(!sim.fog.is_cell_revealed(owner, shrouded.0, shrouded.1));
+    for mouse_over in [true, false] {
+        let ask = |id| {
+            sim.cell_move_action(owner, id, shrouded, query(mouse_over, false), &rules, None)
+                .unwrap()
+        };
+        assert_eq!(ask(legionnaire), CellMoveAction::NoMove);
+        assert_eq!(ask(tank), CellMoveAction::Move);
+    }
+    assert_eq!(
+        sim.cell_click_destination(owner, legionnaire, shrouded, false, &rules, None),
+        Ok(None)
+    );
+    assert!(
+        sim.cell_click_destination(owner, tank, shrouded, false, &rules, None)
+            .unwrap()
+            .is_some()
+    );
+}
+
 impl Simulation {
     /// Synthetic incoming terrain/bridge records; movement, input, codec and
     /// scheduled-frame owners remain production. Native flood/path goldens
@@ -190,6 +325,15 @@ impl Simulation {
              [Water]\nFoot=0%\nTrack=0%\nFloat=100%\n",
         ))
         .unwrap();
+        Self::walk_cell_input_test_scene_with(rules, bridge)
+    }
+
+    /// [`Self::walk_cell_input_test_scene`] with the given rules: their
+    /// `[Clear]` and `[Water]` rows price the cells, and their E1 is spawned.
+    pub(crate) fn walk_cell_input_test_scene_with(
+        rules: RuleSet,
+        bridge: bool,
+    ) -> (Self, RuleSet, u64) {
         let mut sim = Self::with_seed(0x4de1d0);
         sim.intern_rule_type_ids(&rules);
         let owner = sim.interner.intern("Local");

@@ -2380,12 +2380,13 @@ fn restore_object_references(
 
     // A deliberate weak identity: C4 kill credit may outlive its attacker.
     for entity in sim.substrate.entities.values_mut() {
-        if let Some(pending) = entity.pending_c4_detonation.as_mut()
-            && pending
-                .source_entity_id
-                .is_some_and(|id| !entity_ids.contains(&id))
+        if entity
+            .pending_c4_detonation
+            .pending()
+            .and_then(|pending| pending.source_entity_id())
+            .is_some_and(|id| !entity_ids.contains(&id))
         {
-            pending.source_entity_id = None;
+            entity.pending_c4_detonation.forget_source();
         }
     }
 
@@ -5832,8 +5833,9 @@ mod tests {
         use crate::map::entities::EntityCategory;
         use crate::sim::combat::Health;
         use crate::sim::combat::combat_weapon::WeaponSlot;
-        use crate::sim::game_entity::{DelayedFire, GameEntity, PendingBuildingFire};
+        use crate::sim::game_entity::GameEntity;
         use crate::sim::projectile::ProjectileCoord;
+        use crate::sim::world::{DelayedFire, PendingBuildingFire};
 
         let mut sim = Simulation::new();
         let owner = sim.interner.intern("Soviet");
@@ -5859,25 +5861,23 @@ mod tests {
         // authoritative delayed-fire state on that same post-load cursor.
         sim.scenario_rng = crate::sim::rng::SimRng::new(0);
         let without_latch = sim.state_hash();
-        let shot = PendingBuildingFire {
-            remaining_ticks: 17,
-            fire: DelayedFire::Weapon(WeaponSlot::Secondary),
-        };
+        let shot = PendingBuildingFire::new(17, DelayedFire::Weapon(WeaponSlot::Secondary));
         sim.substrate
             .entities
             .get_mut(1)
             .expect("Tesla Coil")
-            .pending_building_fire = Some(shot);
+            .pending_building_fire
+            .set_for_test(Some(shot));
         let with_latch = sim.state_hash();
         assert_ne!(with_latch, without_latch);
-        let beam = PendingBuildingFire {
-            remaining_ticks: 17,
-            fire: DelayedFire::SupportBeam {
+        let beam = PendingBuildingFire::new(
+            17,
+            DelayedFire::SupportBeam {
                 to: ProjectileCoord::new(1280, 1408, 378),
             },
-        };
+        );
         let supporter = sim.substrate.entities.get_mut(2).expect("second tower");
-        supporter.pending_building_fire = Some(beam);
+        supporter.pending_building_fire.set_for_test(Some(beam));
         supporter.prism_support_count.set_for_test(3);
         let with_beam = sim.state_hash();
         assert_ne!(with_beam, with_latch);
@@ -5887,8 +5887,14 @@ mod tests {
             .expect("delayed-fire snapshot")
             .sim;
         let entities = &restored.substrate.entities;
-        assert_eq!(entities.get(1).unwrap().pending_building_fire, Some(shot));
-        assert_eq!(entities.get(2).unwrap().pending_building_fire, Some(beam));
+        assert_eq!(
+            entities.get(1).unwrap().pending_building_fire.pending(),
+            Some(shot)
+        );
+        assert_eq!(
+            entities.get(2).unwrap().pending_building_fire.pending(),
+            Some(beam)
+        );
         assert_eq!(entities.get(2).unwrap().prism_support_count.count(), 3);
         assert_eq!(restored.state_hash(), with_beam);
     }
@@ -6360,10 +6366,12 @@ mod tests {
                 &[3, 4],
             ),
         );
-        aircraft.pending_c4_detonation = Some(crate::sim::components::PendingC4Detonation {
-            timer: crate::sim::timer::CdTimer::started(11, 35),
-            source_entity_id: Some(3),
-        });
+        aircraft.pending_c4_detonation.set_for_test(Some(
+            crate::sim::c4_plant::PendingC4Detonation::new(
+                crate::sim::timer::CdTimer::started(11, 35),
+                Some(3),
+            ),
+        ));
         sim.substrate.entities.insert(aircraft);
         sim.substrate
             .entities
@@ -6562,11 +6570,11 @@ mod tests {
         assert!(entity.ai_sell_repair.was_attacked_by_enemy());
         assert_eq!(entity.damage_smoke_system_id.system(), Some(2));
         assert_eq!(
-            entity.pending_c4_detonation,
-            Some(crate::sim::components::PendingC4Detonation {
-                timer: crate::sim::timer::CdTimer::started(11, 35),
-                source_entity_id: Some(3),
-            })
+            entity.pending_c4_detonation.pending(),
+            Some(crate::sim::c4_plant::PendingC4Detonation::new(
+                crate::sim::timer::CdTimer::started(11, 35),
+                Some(3)
+            ))
         );
         assert_eq!(
             entity
@@ -7447,10 +7455,12 @@ mod tests {
         let mut entity = GameEntity::test_default(entity_id, "MTNK", "AMERICANS", 5, 6);
         entity.set_owner_for_test(owner);
         entity.set_type_ref_for_test(type_ref);
-        entity.pending_c4_detonation = Some(crate::sim::components::PendingC4Detonation {
-            timer: crate::sim::timer::CdTimer::from_raw(-1, 0),
-            source_entity_id: Some(999),
-        });
+        entity.pending_c4_detonation.set_for_test(Some(
+            crate::sim::c4_plant::PendingC4Detonation::new(
+                crate::sim::timer::CdTimer::from_raw(-1, 0),
+                Some(999),
+            ),
+        ));
         sim.substrate.entities.insert(entity);
         sim.add_entity_occupancy(entity_id);
 
@@ -7507,7 +7517,8 @@ mod tests {
                 .get(entity_id)
                 .expect("entity")
                 .pending_c4_detonation
-                .and_then(|pending| pending.source_entity_id),
+                .pending()
+                .and_then(|pending| pending.source_entity_id()),
             None,
             "a successful restore cleans a dangling weak reference"
         );
@@ -7530,10 +7541,12 @@ mod tests {
         let mut sim = Simulation::new();
         let entity_id = sim.allocate_stable_id();
         let mut entity = GameEntity::test_default(entity_id, "MTNK", "AMERICANS", 5, 6);
-        entity.pending_c4_detonation = Some(crate::sim::components::PendingC4Detonation {
-            timer: crate::sim::timer::CdTimer::from_raw(-1, 0),
-            source_entity_id: Some(999),
-        });
+        entity.pending_c4_detonation.set_for_test(Some(
+            crate::sim::c4_plant::PendingC4Detonation::new(
+                crate::sim::timer::CdTimer::from_raw(-1, 0),
+                Some(999),
+            ),
+        ));
         sim.substrate.entities.insert(entity);
 
         let particle_id = sim.allocate_stable_id();
@@ -7562,7 +7575,8 @@ mod tests {
                 .get(entity_id)
                 .expect("entity")
                 .pending_c4_detonation
-                .and_then(|pending| pending.source_entity_id),
+                .pending()
+                .and_then(|pending| pending.source_entity_id()),
             Some(999),
             "failed restoration must not clean a later weak reference"
         );
@@ -7637,10 +7651,12 @@ mod tests {
         let target = sim.allocate_stable_id();
 
         let mut parent_entity = GameEntity::test_default(parent, "CARRIER", "AMERICANS", 1, 1);
-        parent_entity.pending_c4_detonation = Some(crate::sim::components::PendingC4Detonation {
-            timer: crate::sim::timer::CdTimer::from_raw(-1, 0),
-            source_entity_id: Some(9_999),
-        });
+        parent_entity.pending_c4_detonation.set_for_test(Some(
+            crate::sim::c4_plant::PendingC4Detonation::new(
+                crate::sim::timer::CdTimer::from_raw(-1, 0),
+                Some(9_999),
+            ),
+        ));
         parent_entity.spawn_manager = Some(SpawnManagerState {
             spawn_type: sim.interner.intern("HORNET"),
             missile_family: None,
@@ -7792,7 +7808,8 @@ mod tests {
                     .get(ids.parent)
                     .unwrap()
                     .pending_c4_detonation
-                    .and_then(|pending| pending.source_entity_id),
+                    .pending()
+                    .and_then(|pending| pending.source_entity_id()),
                 Some(9_999),
                 "{role:?} rejection must precede later weak-reference cleanup"
             );

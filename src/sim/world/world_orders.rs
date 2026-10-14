@@ -891,7 +891,7 @@ impl Simulation {
             .entities
             .get(building_id)
             .and_then(|building| {
-                let pending = building.pending_c4_detonation?;
+                let pending = building.pending_c4_detonation.pending()?;
                 let object = rules.object(self.interner.resolve(building.type_ref()))?;
                 Some((
                     pending,
@@ -903,7 +903,7 @@ impl Simulation {
         else {
             return false;
         };
-        if !pending.timer.expired(self.session.binary_frame as i32) || health <= 0 {
+        if !pending.timer().expired(self.session.binary_frame as i32) || health <= 0 {
             return false;
         }
 
@@ -916,7 +916,7 @@ impl Simulation {
                 frame_effects,
             );
             if let Some(hut) = self.substrate.entities.get_mut(building_id) {
-                hut.pending_c4_detonation = None;
+                hut.pending_c4_detonation.cancel();
             }
             return changed;
         }
@@ -926,7 +926,7 @@ impl Simulation {
             health,
             0,
             pending
-                .source_entity_id
+                .source_entity_id()
                 .unwrap_or(crate::sim::combat::RAD_NO_ATTACKER),
             None,
             self.rule_handles().c4,

@@ -4,8 +4,8 @@ use crate::rules::ini_parser::IniFile;
 use crate::sim::combat::TargetKind;
 use crate::sim::combat::combat_weapon::WeaponSlot;
 use crate::sim::components::NavTargetRef;
-use crate::sim::game_entity::{DelayedFire, PendingBuildingFire};
 use crate::sim::snapshot::GameSnapshot;
+use crate::sim::world::{DelayedFire, PendingBuildingFire};
 use crate::util::fixed_math::SimFixed;
 
 fn rules() -> RuleSet {
@@ -541,10 +541,12 @@ fn already_cloaked_object_is_refused_by_can_auto_cloak_step_two() {
             .rearm_timer
             .set_for_test(crate::sim::timer::CdTimer::started(0, 17));
         entity.weapon_burst.complete_shot(4);
-        entity.pending_building_fire = Some(PendingBuildingFire {
-            remaining_ticks: 7,
-            fire: DelayedFire::Weapon(WeaponSlot::Secondary),
-        });
+        entity
+            .pending_building_fire
+            .set_for_test(Some(PendingBuildingFire::new(
+                7,
+                DelayedFire::Weapon(WeaponSlot::Secondary),
+            )));
         entity.attack_target.set_for_test(Some(attack));
         entity
             .passive_scan
@@ -585,11 +587,11 @@ fn already_cloaked_object_is_refused_by_can_auto_cloak_step_two() {
     );
     assert_eq!(entity.weapon_burst.index(), 1);
     assert_eq!(
-        entity.pending_building_fire,
-        Some(PendingBuildingFire {
-            remaining_ticks: 7,
-            fire: DelayedFire::Weapon(WeaponSlot::Secondary),
-        })
+        entity.pending_building_fire.pending(),
+        Some(PendingBuildingFire::new(
+            7,
+            DelayedFire::Weapon(WeaponSlot::Secondary)
+        ))
     );
     assert_eq!(entity.mission, mission_before);
     assert_eq!(

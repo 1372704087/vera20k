@@ -8,12 +8,13 @@ use crate::map::entities::EntityCategory;
 use crate::rules::art_data::ArtRegistry;
 use crate::rules::ini_parser::IniFile;
 use crate::rules::ruleset::RuleSet;
-use crate::sim::game_entity::{DelayedFire, GameEntity, PendingBuildingFire};
+use crate::sim::game_entity::GameEntity;
 use crate::sim::house_state::HouseState;
 use crate::sim::mission::state::MissionTestFixture;
 use crate::sim::mission::{MissionDispatchTimer, MissionId, MissionType};
 use crate::sim::projectile::ProjectileCoord;
 use crate::sim::timer::CdTimer;
+use crate::sim::world::{DelayedFire, PendingBuildingFire};
 use crate::sim::world::{LifecycleOutput, Simulation, TickLane};
 use crate::util::fixed_math::SimFixed;
 use serde_json::{Value, json};
@@ -279,10 +280,12 @@ fn production_frame_orders_laser_update_before_delayed_support_birth() {
     sim.session.binary_frame = 200;
     let to = ProjectileCoord::new(3600, 2700, 0);
     let source = sim.substrate.entities.get_mut(tower).unwrap();
-    source.pending_building_fire = Some(PendingBuildingFire {
-        remaining_ticks: 1,
-        fire: DelayedFire::SupportBeam { to },
-    });
+    source
+        .pending_building_fire
+        .set_for_test(Some(PendingBuildingFire::new(
+            1,
+            DelayedFire::SupportBeam { to },
+        )));
     source.prism_support_count.set_for_test(2);
     source.mission_leaf.set_building_ready_latch(1);
     source.mission.apply_test_fixture(MissionTestFixture {
@@ -331,7 +334,7 @@ fn production_frame_orders_laser_update_before_delayed_support_birth() {
         .unwrap();
     assert_birth(*birth, &expected["laser"], "production support visit");
     let source = sim.substrate.entities.get(tower).unwrap();
-    assert!(source.pending_building_fire.is_none());
+    assert!(source.pending_building_fire.pending().is_none());
     assert_eq!(source.prism_support_count.count(), 0);
     assert_eq!(
         source.rearm_timer.timer(),
@@ -385,10 +388,12 @@ fn retail_delayed_main_uses_preclear_count_and_failed_admission_emits_no_laser()
         source
             .attack_target
             .set_for_test(Some(TargetKind::Entity(target)));
-        source.pending_building_fire = Some(PendingBuildingFire {
-            remaining_ticks: 1,
-            fire: DelayedFire::Weapon(WeaponSlot::Primary),
-        });
+        source
+            .pending_building_fire
+            .set_for_test(Some(PendingBuildingFire::new(
+                1,
+                DelayedFire::Weapon(WeaponSlot::Primary),
+            )));
         source.prism_support_count.set_for_test(1);
         source.rearm_timer.set_for_test(CdTimer::started(100, 0));
         source.mission_leaf.set_building_ready_latch(1);

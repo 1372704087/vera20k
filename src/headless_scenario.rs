@@ -2621,7 +2621,7 @@ mod retail_construction_tests {
                 && let Some(pending) = sim
                     .entities()
                     .get(reactor)
-                    .and_then(|reactor| reactor.pending_c4_detonation)
+                    .and_then(|reactor| reactor.pending_c4_detonation.pending())
             {
                 planted = Some((frame, pending));
             }
@@ -2637,8 +2637,8 @@ mod retail_construction_tests {
         eprintln!("TANY: Sabotage at {sabotage:?}, planted {planted:?}, reactor died {died:?}");
         assert!(sabotage.is_some(), "Tanya never took Sabotage");
         let (plant_frame, pending) = planted.expect("Tanya planted no charge");
-        assert_eq!(pending.source_entity_id, Some(tanya));
-        assert_eq!(pending.timer.duration(), 26);
+        assert_eq!(pending.source_entity_id(), Some(tanya));
+        assert_eq!(pending.timer().duration(), 26);
         assert_eq!(died, Some(plant_frame + 26));
         assert!(
             scenario

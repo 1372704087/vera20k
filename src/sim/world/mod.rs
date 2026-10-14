@@ -97,6 +97,8 @@ mod trigger_camera_tests;
 pub(crate) use techno_ai::DamageSpark;
 pub(crate) use techno_ai::ObjectAiCtx;
 pub(crate) use techno_ai::PassiveScan;
+#[cfg(test)]
+pub(crate) use techno_ai::PendingBuildingFire;
 pub(crate) use techno_ai::PrismSupport;
 pub(crate) use techno_ai::direct_greatest_threat;
 #[cfg(test)]
@@ -107,6 +109,7 @@ pub(crate) use techno_ai::passive_target_acquire;
 pub(crate) use techno_ai::queue_and_commence;
 pub(crate) use techno_ai::retaliate_and_scan;
 pub(crate) use techno_ai::techno_unlimbo_idle_mode;
+pub(crate) use techno_ai::{BuildingDelayedFire, DelayedFire};
 pub(crate) use techno_ai::{can_fire_at, weapon_at_index};
 mod command_schedule;
 mod selection_voice;

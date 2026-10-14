@@ -5,9 +5,9 @@
 use super::*;
 use crate::rules::art_data::ArtRegistry;
 use crate::rules::ini_parser::IniFile;
-use crate::sim::game_entity::{DelayedFire, PendingBuildingFire};
 use crate::sim::rng::SimRng;
 use crate::sim::world::Simulation;
+use crate::sim::world::{DelayedFire, PendingBuildingFire};
 
 fn delayed_building_rules_with_delay(delay: i32) -> RuleSet {
     let rules_ini = IniFile::from_str(
@@ -102,11 +102,12 @@ fn gsi_05_10_tesla_arms_without_emission_and_fires_on_visit_28() {
             .entities
             .get(tower)
             .unwrap()
-            .pending_building_fire,
-        Some(PendingBuildingFire {
-            remaining_ticks: 27,
-            fire: DelayedFire::Weapon(WeaponSlot::Primary),
-        })
+            .pending_building_fire
+            .pending(),
+        Some(PendingBuildingFire::new(
+            27,
+            DelayedFire::Weapon(WeaponSlot::Primary)
+        ))
     );
 
     for visit in 2..=27 {
@@ -137,6 +138,7 @@ fn gsi_05_10_tesla_arms_without_emission_and_fires_on_visit_28() {
             .get(tower)
             .unwrap()
             .pending_building_fire
+            .pending()
             .is_none()
     );
 }
@@ -171,8 +173,9 @@ fn gsi_05_10_expiry_reads_live_target_but_keeps_saved_weapon_slot() {
             .get(tower)
             .unwrap()
             .pending_building_fire
+            .pending()
             .unwrap()
-            .fire,
+            .fire(),
         DelayedFire::Weapon(WeaponSlot::Secondary)
     );
 
@@ -180,11 +183,10 @@ fn gsi_05_10_expiry_reads_live_target_but_keeps_saved_weapon_slot() {
     building
         .attack_target
         .set_for_test(Some(TargetKind::Entity(ground)));
+    let fire = building.pending_building_fire.pending().unwrap().fire();
     building
         .pending_building_fire
-        .as_mut()
-        .unwrap()
-        .remaining_ticks = 1;
+        .set_for_test(Some(PendingBuildingFire::new(1, fire)));
     let expiry = combat_visit(&mut sim, &rules, &mut main_rng, 2);
 
     assert_eq!(expiry.consequences.fire_events().len(), 1);
@@ -221,16 +223,15 @@ fn gsi_05_10_expiry_error_clears_without_retarget_or_shot() {
     building
         .attack_target
         .set_for_test(Some(TargetKind::Entity(99_999)));
+    let fire = building.pending_building_fire.pending().unwrap().fire();
     building
         .pending_building_fire
-        .as_mut()
-        .unwrap()
-        .remaining_ticks = 1;
+        .set_for_test(Some(PendingBuildingFire::new(1, fire)));
     let expiry = combat_visit(&mut sim, &rules, &mut main_rng, 2);
 
     assert!(expiry.consequences.fire_events().is_empty());
     let building = sim.substrate.entities.get(tower).unwrap();
-    assert!(building.pending_building_fire.is_none());
+    assert!(building.pending_building_fire.pending().is_none());
     assert_eq!(
         building.attack_target.target().unwrap(),
         TargetKind::Entity(99_999),
@@ -285,6 +286,7 @@ fn gsi_05_10_non_delayed_fires_at_once_and_a_lone_prism_arms_its_own_shot() {
             .get(ordinary)
             .unwrap()
             .pending_building_fire
+            .pending()
             .is_none()
     );
     assert_eq!(
@@ -292,11 +294,12 @@ fn gsi_05_10_non_delayed_fires_at_once_and_a_lone_prism_arms_its_own_shot() {
             .entities
             .get(prism)
             .unwrap()
-            .pending_building_fire,
-        Some(PendingBuildingFire {
-            remaining_ticks: 27,
-            fire: DelayedFire::Weapon(WeaponSlot::Primary),
-        })
+            .pending_building_fire
+            .pending(),
+        Some(PendingBuildingFire::new(
+            27,
+            DelayedFire::Weapon(WeaponSlot::Primary)
+        ))
     );
 }
 
@@ -321,6 +324,7 @@ fn gsi_05_10_delays_at_or_below_one_expire_on_the_arming_visit() {
                 .get(tower)
                 .unwrap()
                 .pending_building_fire
+                .pending()
                 .is_none(),
             "delay {delay} clamps to zero and clears on the arming visit"
         );

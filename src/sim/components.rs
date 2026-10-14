@@ -759,27 +759,6 @@ impl RockingState {
     }
 }
 
-/// Shared per-building C4 / PostMortem detonation timer.
-///
-/// Native BuildingClass uses one latch and timer triple for both an infantry
-/// C4 plant and a qualifying `CausesDelayKill` fatal hit. Once elapsed, the
-/// building's own Update fires a forced C4Warhead receiver packet with damage
-/// equal to its current HP.
-///
-/// IronCurtain/ForceShield entry cancels this state. Normal targets keep an
-/// expired latch if the forced receiver unexpectedly leaves them alive;
-/// BridgeRepairHut owns the separate consume-and-clear branch.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
-pub struct PendingC4Detonation {
-    /// Native Building timer (`+0x528` start, `+0x530` duration), signed and
-    /// unclamped; its remaining time drives the shorten test, the Building
-    /// Update expiry and the checksum.
-    pub timer: crate::sim::timer::CdTimer,
-    /// Retained source-object identity (`+0x540`). Fresh PostMortem arms leave
-    /// this null; shortening an infantry C4 timer preserves its source.
-    pub source_entity_id: Option<u64>,
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -912,15 +891,6 @@ mod tests {
             });
 
         assert_ne!(hash_drive(&drive_a), hash_drive(&drive_b));
-    }
-
-    #[test]
-    fn c4_state_types_are_send_sync_copy() {
-        fn assert_send_sync<T: Send + Sync>() {}
-        assert_send_sync::<PendingC4Detonation>();
-        // Compile-time Copy assertion via fn-bound:
-        fn _assert_copy<T: Copy>() {}
-        _assert_copy::<PendingC4Detonation>();
     }
 
     #[test]

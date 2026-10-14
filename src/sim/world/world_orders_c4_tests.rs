@@ -6,9 +6,9 @@ use crate::map::entities::EntityCategory;
 use crate::rules::art_data::ArtRegistry;
 use crate::rules::ini_parser::IniFile;
 use crate::rules::ruleset::RuleSet;
+use crate::sim::c4_plant::PendingC4Detonation;
 use crate::sim::combat::Health;
 use crate::sim::command::{Command, CommandEnvelope};
-use crate::sim::components::PendingC4Detonation;
 use crate::sim::game_entity::GameEntity;
 use crate::sim::mission::MissionType;
 use crate::sim::timer::CdTimer;
@@ -139,10 +139,11 @@ fn plant_c4(sim: &mut Simulation, rules: &RuleSet, target: u64, seal: u64) {
         .entities
         .get_mut(target)
         .unwrap()
-        .pending_c4_detonation = Some(PendingC4Detonation {
-        timer: CdTimer::started(sim.session.binary_frame as i32, rules.c4_delay_frames()),
-        source_entity_id: Some(seal),
-    });
+        .pending_c4_detonation
+        .set_for_test(Some(PendingC4Detonation::new(
+            CdTimer::started(sim.session.binary_frame as i32, rules.c4_delay_frames()),
+            Some(seal),
+        )));
 }
 
 #[test]
@@ -239,6 +240,7 @@ fn c4_iron_curtain_application_cancels_pending_detonation() {
             .get(bld)
             .unwrap()
             .pending_c4_detonation
+            .pending()
             .is_none(),
         "Building IronCurtain entry must cancel the shared C4/PostMortem latch"
     );
@@ -274,10 +276,11 @@ fn a_planted_charge_survives_its_planters_stop() {
         .entities
         .get_mut(bld)
         .unwrap()
-        .pending_c4_detonation = Some(PendingC4Detonation {
-        timer: CdTimer::started(plant_start as i32, rules.c4_delay_frames()),
-        source_entity_id: Some(seal),
-    });
+        .pending_c4_detonation
+        .set_for_test(Some(PendingC4Detonation::new(
+            CdTimer::started(plant_start as i32, rules.c4_delay_frames()),
+            Some(seal),
+        )));
     sim.queue_command(CommandEnvelope::new(
         owner,
         sim.session.tick + 1,
@@ -290,6 +293,7 @@ fn a_planted_charge_survives_its_planters_stop() {
             .get(bld)
             .unwrap()
             .pending_c4_detonation
+            .pending()
             .is_some(),
         "PARITY: claimed plant survives Stop on attacker"
     );
@@ -338,6 +342,7 @@ fn cannot_c4_building_rejects_plant_command() {
             .get(oil)
             .unwrap()
             .pending_c4_detonation
+            .pending()
             .is_none(),
         "rejected PlantC4 must not set pending_c4_detonation on the target"
     );
@@ -373,6 +378,7 @@ fn non_c4_unit_rejects_plant_command() {
             .get(bld)
             .unwrap()
             .pending_c4_detonation
+            .pending()
             .is_none(),
         "rejected PlantC4 must not set pending_c4_detonation on the target"
     );

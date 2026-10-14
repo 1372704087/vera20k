@@ -519,7 +519,7 @@ pub(crate) fn draw_event_history_panel(ctx: &egui::Context, state: &AppState) {
             }
 
             for entity in &selected {
-                if let Some(ref log) = entity.debug_log {
+                if let Some(ref log) = entity.debug_log() {
                     ui.label(
                         egui::RichText::new(format!(
                             "{} (id={})",
@@ -531,7 +531,7 @@ pub(crate) fn draw_event_history_panel(ctx: &egui::Context, state: &AppState) {
                     );
                     ui.separator();
 
-                    if log.events.is_empty() {
+                    if log.events().is_empty() {
                         ui.label(
                             egui::RichText::new("(no events recorded)")
                                 .color(egui::Color32::from_rgb(140, 140, 140)),
@@ -540,7 +540,7 @@ pub(crate) fn draw_event_history_panel(ctx: &egui::Context, state: &AppState) {
                         egui::ScrollArea::vertical()
                             .max_height(400.0)
                             .show(ui, |ui| {
-                                let events: Vec<_> = log.events.iter().rev().take(30).collect();
+                                let events: Vec<_> = log.events().iter().rev().take(30).collect();
                                 for event in events {
                                     let (color, text) = format_debug_event_light(event);
                                     ui.colored_label(color, text);

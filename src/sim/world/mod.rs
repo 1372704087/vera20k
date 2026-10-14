@@ -94,8 +94,10 @@ mod techno_ai;
 mod trigger_camera;
 #[cfg(test)]
 mod trigger_camera_tests;
+pub(crate) use techno_ai::DamageSpark;
 pub(crate) use techno_ai::ObjectAiCtx;
 pub(crate) use techno_ai::PassiveScan;
+pub(crate) use techno_ai::PrismSupport;
 pub(crate) use techno_ai::direct_greatest_threat;
 #[cfg(test)]
 pub(crate) use techno_ai::dispatch_foot_mission;
@@ -4100,13 +4102,7 @@ impl Simulation {
     pub(crate) fn set_debug_event_logging(&mut self, enabled: bool) {
         self.debug_event_logging = enabled;
         for entity in self.substrate.entities.values_mut() {
-            if enabled {
-                if entity.debug_log.is_none() {
-                    entity.debug_log = Some(crate::sim::debug_event_log::DebugEventLog::new());
-                }
-            } else {
-                entity.debug_log = None;
-            }
+            entity.set_debug_logging(enabled);
         }
     }
 
@@ -5184,7 +5180,7 @@ impl Simulation {
         if category == EntityCategory::Structure
             && let Some(entity) = self.substrate.entities.get_mut(stable_id)
         {
-            entity.has_been_captured = true;
+            entity.has_been_captured.mark();
             entity.repairing.stop_on_capture();
         }
         // `0x00448C6E..0x00448C94`, after the owner swap: the old house

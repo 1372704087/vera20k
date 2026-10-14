@@ -571,13 +571,12 @@ pub struct GameEntity {
     /// A building's delayed fire: a delayed shot, or a Prism support beam.
     #[serde(default)]
     pub pending_building_fire: Option<PendingBuildingFire>,
-    /// `BuildingClass+0x664`, the supporters a Prism master has recruited for
-    /// its next shot (constructor 0, `0x0043B895`). Mission_Attack counts
-    /// them (`0x0044B4D7`); the shot's bonus (`0x004504CD`), a support beam
-    /// (`0x0044ACCA`) and Mission_Attack's null-target and drop tails
-    /// (`0x0044AF9F`, `0x0044B0ED`) reset it.
+    /// The Prism master's recruited supporters (`BuildingClass+0x664`), a
+    /// [`PrismSupport`] that `techno_ai::building_missions` owns.
+    ///
+    /// [`PrismSupport`]: crate::sim::world::PrismSupport
     #[serde(default)]
-    pub prism_support_count: i32,
+    pub(crate) prism_support_count: crate::sim::world::PrismSupport,
     /// Techno+138, constructor6F2B99..6F2BCA=0; SetGunnerWeapon70DC70 owns writes.
     /// Combat selection and turret facing read the same signed weapon number.
     current_weapon_number: i32,
@@ -775,11 +774,12 @@ pub struct GameEntity {
     /// `TechnoClass+0x2D0` manager pointer: present iff `Spawns=` resolved.
     #[serde(default)]
     pub spawn_manager: Option<crate::sim::spawn_manager::SpawnManagerState>,
-    /// Back-pointer from a spawned child to the parent that owns its pool
-    /// (native child `+0x2D4`). Kill credit and the "do not self-RTB" gate
-    /// read it; cleared when the parent releases the child.
+    /// A spawned child's SpawnOwner (`TechnoClass+0x2D4`), a [`SpawnOwner`]
+    /// that `spawn_manager` owns.
+    ///
+    /// [`SpawnOwner`]: crate::sim::spawn_manager::SpawnOwner
     #[serde(default)]
-    pub spawn_owner_id: Option<u64>,
+    pub(crate) spawn_owner_id: crate::sim::spawn_manager::SpawnOwner,
     /// Object-level fall state, shared by Paradrop and DropAsBomb.
     #[serde(default)]
     fall: ObjectFallState,
@@ -877,12 +877,12 @@ pub struct GameEntity {
     /// IronCurtain/ForceShield entry cancels it; `None` means no shared latch.
     #[serde(default)]
     pub pending_c4_detonation: Option<PendingC4Detonation>,
-    /// Building `+0x6E3` HasBeenCaptured: cleared by the BuildingClass
-    /// constructor (`0x0043B96C`), set by every `BuildingClass::ChangeOwner`
-    /// (`0x00448723`). Read by the survivor count, the survivor roll and the
-    /// building crew pick (`crew_survival`). Hashed and persisted (v194).
+    /// A building's HasBeenCaptured byte (`BuildingClass+0x6E3`), a
+    /// [`HasBeenCaptured`] that `crew_survival` owns.
+    ///
+    /// [`HasBeenCaptured`]: crate::sim::crew_survival::HasBeenCaptured
     #[serde(default)]
-    pub has_been_captured: bool,
+    pub(crate) has_been_captured: crate::sim::crew_survival::HasBeenCaptured,
     /// Stable ID of the unit installed in a `Bunker=yes` building.
     ///
     /// Mirrors the live `BuildingClass+0x2E4` role for tank bunkers: an empty
@@ -948,32 +948,24 @@ pub struct GameEntity {
     /// bytes. Snapshot migration defaults reproduce Techno construction.
     #[serde(default)]
     pub(crate) base_defense_response: BaseDefenseResponseState,
-    /// Sim-side model of gamemd's TechnoClass `+0x308` (`DamageSparkSystem`): the
-    /// `session.tick` at which the live AI_Update damage-Spark particle system
-    /// expires and the object may roll again. `0` = no live system (may roll;
-    /// matches `+0x308 == NULL`); `u64::MAX` = a system whose `Lifetime <= 0`
-    /// holds indefinitely; otherwise the system is live while `session.tick <
-    /// live_until`. Set on a successful spark roll to `spawn_tick + sparkType.Lifetime`
-    /// (matching the spawned `ParticleSystemClass` decrementing once per tick), so
-    /// the per-object draw cadence stays bit-aligned with gamemd. Hashed (it gates
-    /// future `scenario_rng` draws). Dormant in stock YR — see
-    /// [`crate::rules::object_type::ObjectType::emits_damage_spark`].
+    /// The damage-Spark system handle (`TechnoClass+0x308`) as its expiry
+    /// tick, a [`DamageSpark`] that `techno_ai` owns.
+    ///
+    /// [`DamageSpark`]: crate::sim::world::DamageSpark
     #[serde(default)]
-    pub damage_particle_live_until: u64,
-    /// Active TechnoClass damage-Smoke `ParticleSystemClass` identity
-    /// (`TechnoClass +0x310`). The system is created synchronously by the
-    /// surviving ReceiveDamage postlude and explicitly UnInit when health
-    /// recovers above `ConditionYellow`.
+    pub(crate) damage_particle_live_until: crate::sim::world::DamageSpark,
+    /// The damage-Smoke system handle (`TechnoClass+0x310`), a
+    /// [`DamageSmoke`] that `particles::spawn` owns.
+    ///
+    /// [`DamageSmoke`]: crate::sim::particles::spawn::DamageSmoke
     #[serde(default)]
-    pub damage_smoke_system_id: Option<u64>,
-    /// `UnitClass+0x6E4`: the number of passengers a transport's Unload keeps
-    /// aboard. Written by `UnitClass::Mission_Unload @ 0x0073D630` state 0
-    /// (`0x0073D830`/`0x0073D83C`: a `TurretCount > 0` transport keeps one
-    /// unless it carries exactly one) and read by state 3's
-    /// `cargo > keep` gate (`0x0073D8C3`). Zero for every other object.
-    /// Hashed only when non-zero (see `world_hash`).
+    pub(crate) damage_smoke_system_id: crate::sim::particles::spawn::DamageSmoke,
+    /// The passengers a transport's Unload keeps aboard (`UnitClass+0x6E4`),
+    /// an [`UnloadKeep`] that `transport_unload` owns.
+    ///
+    /// [`UnloadKeep`]: crate::sim::transport_unload::UnloadKeep
     #[serde(default)]
-    pub transport_unload_keep_count: u32,
+    pub(crate) transport_unload_keep_count: crate::sim::transport_unload::UnloadKeep,
     /// Oil derricks' ProduceCash timer ([`credit_income`](crate::sim::credit_income)).
     #[serde(default)]
     pub(crate) produce_cash: crate::sim::credit_income::ProduceCash,
@@ -987,7 +979,7 @@ pub struct GameEntity {
     /// Debug event log — records movement/state transitions for the inspector panel.
     /// Only allocated when debug inspector is active (X hotkey). Not included in state hashing.
     #[serde(skip)]
-    pub debug_log: Option<DebugEventLog>,
+    debug_log: Option<DebugEventLog>,
     /// Techno+508, the contribution last published to the House spatial maps.
     /// Constructor6F310C..6F311E leaves this dword unwritten; None preserves
     /// that domain until admitted alive Unlimbo6F6ED2 or Add70F689 writes it.
@@ -1569,7 +1561,7 @@ impl GameEntity {
             chrono_warp_delay: 0,
             attack_target: TarCom::default(),
             pending_building_fire: None,
-            prism_support_count: 0,
+            prism_support_count: Default::default(),
             current_weapon_number: 0,
             current_turret_index: -1,
             charge_turret_delay: 0,
@@ -1611,7 +1603,7 @@ impl GameEntity {
             low_bridge_tube_state: None,
             capture_manager: None,
             spawn_manager: None,
-            spawn_owner_id: None,
+            spawn_owner_id: Default::default(),
             fall: ObjectFallState::default(),
             invulnerability: None,
             mind_control: Default::default(),
@@ -1639,7 +1631,7 @@ impl GameEntity {
             display_type_override: None,
             capture_infantry_type_index: -1,
             pending_c4_detonation: None,
-            has_been_captured: false,
+            has_been_captured: Default::default(),
             bunker_occupant: None,
             bunker_link: BunkerLink::None,
             building_gate: None,
@@ -1660,9 +1652,9 @@ impl GameEntity {
             mission_leaf: MissionLeafState::constructed(category, construction_frame as i32),
             suspended_attack_target: None,
             base_defense_response: BaseDefenseResponseState::default(),
-            damage_particle_live_until: 0,
-            damage_smoke_system_id: None,
-            transport_unload_keep_count: 0,
+            damage_particle_live_until: Default::default(),
+            damage_smoke_system_id: Default::default(),
+            transport_unload_keep_count: Default::default(),
             produce_cash: crate::sim::credit_income::ProduceCash::new(construction_frame),
             drain: Default::default(),
             parasite: crate::sim::combat::parasite::FootParasite::new(construction_frame),
@@ -1805,6 +1797,23 @@ impl GameEntity {
     #[cfg(test)]
     pub(crate) fn set_fall_rate_for_test(&mut self, rate: i32) {
         self.fall.rate = rate;
+    }
+
+    /// The debug event log, while debug event logging is on. The `dev-ui`
+    /// debug panel reads it.
+    #[cfg(any(test, feature = "dev-ui"))]
+    pub(crate) fn debug_log(&self) -> Option<&DebugEventLog> {
+        self.debug_log.as_ref()
+    }
+
+    /// Turn the debug event log on (keeping one the object has) or off
+    /// (dropping it).
+    pub(crate) fn set_debug_logging(&mut self, enabled: bool) {
+        if !enabled {
+            self.debug_log = None;
+        } else if self.debug_log.is_none() {
+            self.debug_log = Some(DebugEventLog::new());
+        }
     }
 
     /// Record a debug event if the event log is active. No-op when `debug_log` is `None`.

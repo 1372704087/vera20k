@@ -298,7 +298,7 @@ impl Fixture {
             );
             let entity = sim.substrate.entities.get_mut(building).unwrap();
             entity.repairing.set_for_test(before["paid_repair"] == 1);
-            entity.has_been_captured = false;
+            entity.has_been_captured.set_for_test(false);
             // The preceding fixture transfer is supplied setup, not this
             // arrival. Consume its identical idle request through the owner.
             entity.apply_queued_building_body(0, &sim.session.game_options);

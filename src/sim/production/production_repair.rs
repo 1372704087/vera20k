@@ -445,7 +445,7 @@ fn auto_repair_start(sim: &mut Simulation, rules: &RuleSet, id: u64) {
         return;
     }
     let controlled = house.is_controlled_by_human(sim.session.game_mode_nonzero);
-    if !(entity.has_been_captured || entity.ai_sell_repair.ai_repairable() || controlled) {
+    if !(entity.has_been_captured.is_set() || entity.ai_sell_repair.ai_repairable() || controlled) {
         return;
     }
     let delay = house.repair_delay();

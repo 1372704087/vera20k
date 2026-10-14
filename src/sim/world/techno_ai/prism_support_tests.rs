@@ -305,7 +305,7 @@ impl Fixture {
             entity.drain.set_draining_me_for_test(Some(u64::MAX));
         }
         if let Some(count) = state["count"].as_i64() {
-            entity.prism_support_count = count as i32;
+            entity.prism_support_count.set_for_test(count as i32);
         }
         if let Some(veterancy) = state["veterancy"].as_f64() {
             entity
@@ -367,7 +367,7 @@ impl Fixture {
         let name = self.name(id);
         let (mode, countdown) = delayed_fire(entity);
         assert_eq!(
-            i64::from(entity.prism_support_count),
+            i64::from(entity.prism_support_count.count()),
             native["count"].as_i64().unwrap(),
             "{at} {name} count"
         );
@@ -725,7 +725,7 @@ fn prism_support_bonus_matches_the_original() {
         let entity = fixture.sim.substrate.entities.get(master).unwrap();
         let native = &row["master"];
         assert_eq!(
-            i64::from(entity.prism_support_count),
+            i64::from(entity.prism_support_count.count()),
             native["count"].as_i64().unwrap(),
             "{name} count"
         );

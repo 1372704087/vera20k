@@ -18,6 +18,7 @@ mod aircraft_guard;
 mod building_missile;
 mod building_missions;
 mod building_retaliation;
+pub(crate) use building_missions::PrismSupport;
 pub(crate) use building_missions::queue_and_commence;
 mod mission_handlers;
 mod target_scan;
@@ -1728,6 +1729,30 @@ fn techno_common_pre(
     super::techno_ai_cloak::tick_stock_cloak_producer(sim, id, rules, overlay_registry, effects);
 }
 
+/// Sim-side model of gamemd's TechnoClass `+0x308` (`DamageSparkSystem`): the
+/// `session.tick` at which the live AI_Update damage-Spark particle system
+/// expires and the object may roll again. `0` = no live system (may roll;
+/// matches `+0x308 == NULL`); `u64::MAX` = a system whose `Lifetime <= 0`
+/// holds indefinitely; otherwise the system is live while `session.tick <
+/// live_until`. Set on a successful spark roll to `spawn_tick + sparkType.Lifetime`
+/// (matching the spawned `ParticleSystemClass` decrementing once per tick), so
+/// the per-object draw cadence stays bit-aligned with gamemd. Hashed (it gates
+/// future `scenario_rng` draws). Dormant in stock YR — see
+/// [`crate::rules::object_type::ObjectType::emits_damage_spark`]. Only the
+/// spark roll writes it.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(transparent)]
+pub(crate) struct DamageSpark {
+    live_until: u64,
+}
+
+impl DamageSpark {
+    /// The tick the live system expires.
+    pub(crate) const fn live_until(self) -> u64 {
+        self.live_until
+    }
+}
+
 /// `damage_particle_live_until` sentinel for a spawned spark system whose
 /// `Lifetime <= 0`: gamemd's `ParticleSystemClass::AI` removal counter (set from
 /// `Type+0x2b8`) only fires on `--counter == 0`, so a non-positive lifetime never
@@ -1789,7 +1814,7 @@ fn techno_common_post(sim: &mut Simulation, id: u64, rules: Option<&RuleSet>) {
         return;
     };
     let type_ref = entity.type_ref();
-    let live_until_in = entity.damage_particle_live_until;
+    let live_until_in = entity.damage_particle_live_until.live_until();
     let Some(obj) = rules.object(sim.interner.resolve(type_ref)) else {
         return;
     };
@@ -1871,7 +1896,7 @@ fn techno_common_post(sim: &mut Simulation, id: u64, rules: Option<&RuleSet>) {
     if live_until != live_until_in
         && let Some(entity) = sim.substrate.entities.get_mut(id)
     {
-        entity.damage_particle_live_until = live_until;
+        entity.damage_particle_live_until.live_until = live_until;
     }
 }
 
@@ -7628,6 +7653,7 @@ ConditionRedSparkingProbability={red_prob}\nConditionYellowSparkingProbability={
             .get(id)
             .unwrap()
             .damage_particle_live_until
+            .live_until()
     }
 
     #[test]

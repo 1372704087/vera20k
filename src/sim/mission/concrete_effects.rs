@@ -606,7 +606,7 @@ pub(crate) fn represented_assign_target_admitted(
     // (PDPLANE, SPYP) or have no VERA producer (BPLN's Airstrike).
     let requested = if requested.is_some()
         && entity.category() == crate::map::entities::EntityCategory::Aircraft
-        && entity.spawn_owner_id.is_some()
+        && entity.spawn_owner_id.owner().is_some()
         && matches!(crate::sim::aircraft::attack_state(entity), Some(5..=9))
         && let Some(ammo) = entity.aircraft_ammo.as_mut()
         && ammo.current() != 0

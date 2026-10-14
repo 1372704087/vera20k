@@ -146,6 +146,35 @@ use crate::util::native_x87::{MaskedX87Chop53 as X87, MaskedX87Ordering, NativeF
 const SURVIVOR_REQUEST_X: i32 = 0x80;
 const SURVIVOR_REQUEST_Y: i32 = 0xA4;
 
+/// A building's HasBeenCaptured byte, `BuildingClass+0x6E3`. The
+/// BuildingClass constructor clears it (`0x0043B96C`) and every
+/// `BuildingClass::ChangeOwner` sets it (`0x00448723`, [`Self::mark`]). The
+/// survivor count, the survivor roll and the building crew pick read it.
+/// Hashed and persisted (v194).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(transparent)]
+pub(crate) struct HasBeenCaptured {
+    set: bool,
+}
+
+impl HasBeenCaptured {
+    /// The building has changed owner.
+    pub(crate) const fn is_set(self) -> bool {
+        self.set
+    }
+
+    /// `BuildingClass::ChangeOwner`'s write (`0x00448723`).
+    pub(crate) fn mark(&mut self) {
+        self.set = true;
+    }
+
+    /// Install a fixture's byte.
+    #[cfg(test)]
+    pub(crate) fn set_for_test(&mut self, set: bool) {
+        self.set = set;
+    }
+}
+
 /// The building's foundation cells in `vt+0x108(0)` list order (the order
 /// Phase B walks), from its origin cell.
 pub(crate) fn foundation_cells(rx: u16, ry: u16, foundation: &str) -> Vec<(u16, u16)> {
@@ -258,7 +287,7 @@ impl Simulation {
         if !object.crewed {
             return None;
         }
-        let captured = entity.has_been_captured;
+        let captured = entity.has_been_captured.is_set();
         let armed = crate::sim::combat::combat_weapon::is_armed(entity, object);
         let yard = object.factory == Some(FactoryType::BuildingType);
         let side = self.houses.get(&entity.owner())?.side_index;
@@ -299,7 +328,7 @@ impl Simulation {
         if divisor == 0 {
             return 0;
         }
-        let divisor = if entity.has_been_captured {
+        let divisor = if entity.has_been_captured.is_set() {
             divisor.wrapping_add(divisor)
         } else {
             divisor
@@ -341,7 +370,7 @@ impl Simulation {
         };
         let owner = entity.owner();
         let origin = (entity.position.rx, entity.position.ry);
-        let captured = entity.has_been_captured;
+        let captured = entity.has_been_captured.is_set();
         let cells = foundation_cells(origin.0, origin.1, &object.foundation);
         // C4AppliedBy (+0x540); the pointer-expiry broadcast clears it when
         // the planter leaves play.

@@ -11155,7 +11155,7 @@ fn debug_toggle_updates_existing_and_future_entities() {
         sim.entities()
             .get(existing)
             .expect("existing")
-            .debug_log
+            .debug_log()
             .is_none(),
         "logging starts disabled"
     );
@@ -11165,7 +11165,7 @@ fn debug_toggle_updates_existing_and_future_entities() {
         sim.entities()
             .get(existing)
             .expect("existing")
-            .debug_log
+            .debug_log()
             .is_some(),
         "enabling allocates a log on the existing entity"
     );
@@ -11176,7 +11176,7 @@ fn debug_toggle_updates_existing_and_future_entities() {
         sim.entities()
             .get(future)
             .expect("future")
-            .debug_log
+            .debug_log()
             .is_some(),
         "an entity spawned after enabling logs from the spawn flag"
     );
@@ -11186,14 +11186,14 @@ fn debug_toggle_updates_existing_and_future_entities() {
         sim.entities()
             .get(existing)
             .expect("existing")
-            .debug_log
+            .debug_log()
             .is_none()
     );
     assert!(
         sim.entities()
             .get(future)
             .expect("future")
-            .debug_log
+            .debug_log()
             .is_none(),
         "disabling clears every entity's log"
     );

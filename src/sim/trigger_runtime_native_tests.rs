@@ -1379,7 +1379,8 @@ fn native_all01_reactor_damage_uses_retail_rules_and_shared_power_owner() {
             .entities
             .get(1)
             .unwrap()
-            .damage_smoke_system_id,
+            .damage_smoke_system_id
+            .system(),
         Some(*id)
     );
     assert!(system.particles.is_empty(), "no particle AI visit yet");

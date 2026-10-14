@@ -3569,7 +3569,7 @@ fn gsi_04_07_damage_invulnerability_impact_precedes_warping_and_postlude() {
         let victim = sim.substrate.entities.get(id).unwrap();
         assert_eq!(victim.health.current(), 100);
         assert!(!victim.ai_sell_repair.was_attacked_by_enemy());
-        assert_eq!(victim.damage_smoke_system_id, None);
+        assert_eq!(victim.damage_smoke_system_id.system(), None);
     }
     assert_eq!(
         sim.substrate
@@ -3700,6 +3700,7 @@ fn gsi_04_07_damage_receiver_smoke_creation_precedes_retaliation() {
     );
     let system_id = victim
         .damage_smoke_system_id
+        .system()
         .expect("yellow crossing attaches a Smoke system");
     let system = sim.particle_systems().get(system_id).unwrap();
     assert_eq!(
@@ -3745,7 +3746,8 @@ fn gsi_04_07_damage_receiver_smoke_creation_precedes_retaliation() {
             .entities
             .get(victim_id)
             .unwrap()
-            .damage_smoke_system_id,
+            .damage_smoke_system_id
+            .system(),
         Some(system_id)
     );
 
@@ -3780,7 +3782,8 @@ fn gsi_04_07_damage_receiver_smoke_creation_precedes_retaliation() {
             .entities
             .get(victim_id)
             .unwrap()
-            .damage_smoke_system_id,
+            .damage_smoke_system_id
+            .system(),
         Some(system_id),
         "mark-only Destroy retains +0x310 until the system's own Limbo"
     );
@@ -3794,7 +3797,8 @@ fn gsi_04_07_damage_receiver_smoke_creation_precedes_retaliation() {
             .entities
             .get(victim_id)
             .unwrap()
-            .damage_smoke_system_id,
+            .damage_smoke_system_id
+            .system(),
         None,
         "done-empty Limbo clears +0x310 before physical finalization"
     );

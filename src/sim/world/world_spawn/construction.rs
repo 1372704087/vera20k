@@ -94,7 +94,7 @@ impl Simulation {
         // current house is distinct from the notification/viewer binding.
         ge.discovery.owned_by_current_house = self.session.current_house == Some(ge.owner());
         if self.debug_event_logging {
-            ge.debug_log = Some(crate::sim::debug_event_log::DebugEventLog::new());
+            ge.set_debug_logging(true);
         }
 
         stamp_scoring_flags(ge, obj, rules);

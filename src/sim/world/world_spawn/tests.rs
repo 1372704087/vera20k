@@ -1639,7 +1639,7 @@ fn techno_constructor_routes_preserve_components_and_authored_overrides() {
                     .unwrap(),
             };
             let entity = sim.substrate.entities.get(id).unwrap();
-            assert!(entity.debug_log.is_some(), "{type_id} route {route}");
+            assert!(entity.debug_log().is_some(), "{type_id} route {route}");
             assert!(entity.tracking_facts.dont_score());
             assert_eq!(entity.health.current(), if route == 0 { 100 } else { 200 });
             assert_eq!(entity.veterancy.rank(), if route == 0 { 100 } else { 0 });
@@ -1893,7 +1893,7 @@ fn techno_constructor_spawn_manager_pool_draws_parent_then_children_and_cancels_
     for (index, child_id) in child_ids.iter().copied().enumerate() {
         let child = sim.substrate.entities.get(child_id).expect("spawn child");
         assert_eq!(child.techno_ctor_random_word(), words[index + 1]);
-        assert_eq!(child.spawn_owner_id, Some(parent_id));
+        assert_eq!(child.spawn_owner_id.owner(), Some(parent_id));
         assert!(child.lifecycle.in_limbo() && !child.lifecycle.cell_marked);
     }
     assert_eq!(sim.scenario_rng.logical_state(), expected.logical_state());

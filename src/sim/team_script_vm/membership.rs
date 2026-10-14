@@ -180,7 +180,7 @@ impl Simulation {
         if entity.building_entry.seeking() {
             return None;
         }
-        if entity.drain_target.is_some() || entity.bunker_link.installed_in().is_some() {
+        if entity.drain.target().is_some() || entity.bunker_link.installed_in().is_some() {
             return None;
         }
         if let Some(current) = current_team.and_then(|id| vm.teams.get(&id))

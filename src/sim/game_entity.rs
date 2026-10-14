@@ -1195,51 +1195,16 @@ pub struct GameEntity {
     /// Hashed only when non-zero (see `world_hash`).
     #[serde(default)]
     pub transport_unload_keep_count: u32,
-    /// `BuildingClass+0x6D0`/`+0x6D8` ProduceCash timer (oil derricks). Seeded
-    /// to the constructor's dead state (`start = construction frame`,
-    /// `duration = 0`, `BuildingClass::Constructor @ 0x0043B92B..0x0043B937`);
-    /// only a capture from a `MultiplayPassive` house (`BuildingClass::
-    /// ChangeOwner @ 0x004482DB..0x004482F9`) and the re-arm in
-    /// `BuildingClass::Update @ 0x0043FD5B..0x0043FD86` give it a duration.
-    /// `+0x6D4`, the middle dword, is scratch the fire test never reads.
-    /// Zero-duration on every non-derrick object. Hashed (v135) and persisted.
+    /// Oil derricks' ProduceCash timer ([`credit_income`](crate::sim::credit_income)).
     #[serde(default)]
-    pub produce_cash_timer: crate::sim::timer::CdTimer,
-    /// `TechnoClass+0x1CC DrainTarget`: the building this object is draining
-    /// (Floating Disc). Set by `Fire_At`'s `DrainWeapon` arm, cleared by
-    /// `UnitClass::AI`'s cell recheck, the ally check in `AI_Update`, and
-    /// pointer expiry. Hashed (v135) and persisted.
+    pub(crate) produce_cash: crate::sim::credit_income::ProduceCash,
+    /// The Floating Disc drain link pair ([`credit_income`](crate::sim::credit_income)).
     #[serde(default)]
-    pub drain_target: Option<u64>,
-    /// `TechnoClass+0x1D0 DrainingMe`: the object draining this one — the
-    /// reciprocal of `drain_target`. The victim's `AI_Update` reads it for the
-    /// money transfer. Hashed (v135) and persisted.
+    pub(crate) drain: crate::sim::credit_income::Drain,
+    /// The parasite fields: the ParasiteClass a dog or drone owns, the eater
+    /// attached to a victim, paralysis ([`parasite`](crate::sim::combat::parasite)).
     #[serde(default)]
-    pub draining_me: Option<u64>,
-    /// Foot+69C `ParasiteImUsing`: this owner's ParasiteClass, allocated by
-    /// `TechnoClass::Init_Managers @ 0x006F4145` for a weapon-0 Parasite
-    /// warhead (attack dog, Terror Drone). Hashed and persisted (v193).
-    #[serde(default)]
-    pub parasite: Option<Box<crate::sim::combat::parasite::ParasiteState>>,
-    /// Foot+694 `ParasiteEatingMe`: the owner whose parasite is attached to
-    /// this victim (AttachTo `0x0062AB2B`). Hashed and persisted (v193).
-    #[serde(default)]
-    pub parasite_eating_me: Option<u64>,
-    /// Foot+698: frame before which parasite shots at this Foot are refused
-    /// (`TechnoClass::Fire @ 0x006FF81F`, GetFireError `0x006FCAE1`).
-    #[serde(default)]
-    pub parasite_launch_lock: u32,
-    /// Foot+6A0 ParalysisTimer, read through [`Self::is_paralyzed`]. FootClass
-    /// ctor `0x004D33FC` starts it at the construction frame with zero
-    /// duration; ParasiteClass arms it (release, bites) and clears it.
-    #[serde(default)]
-    pub paralysis_timer: crate::sim::timer::CdTimer,
-    /// Techno+432 ReselectIfLimboed memo (`TechnoClass::Fire @ 0x006FF79C`),
-    /// consumed by a successful parasite release. Process-local like
-    /// `selected`: written only for the local player's selection, so it is
-    /// saved but never folded into the peer hash.
-    #[serde(default)]
-    pub limbo_reselect: bool,
+    pub(crate) parasite: crate::sim::combat::parasite::FootParasite,
     /// Debug event log — records movement/state transitions for the inspector panel.
     /// Only allocated when debug inspector is active (X hotkey). Not included in state hashing.
     #[serde(skip)]
@@ -1874,14 +1839,9 @@ impl GameEntity {
             damage_particle_live_until: 0,
             damage_smoke_system_id: None,
             transport_unload_keep_count: 0,
-            produce_cash_timer: crate::sim::timer::CdTimer::started(construction_frame as i32, 0),
-            drain_target: None,
-            draining_me: None,
-            parasite: None,
-            parasite_eating_me: None,
-            parasite_launch_lock: 0,
-            paralysis_timer: crate::sim::timer::CdTimer::started(construction_frame as i32, 0),
-            limbo_reselect: false,
+            produce_cash: crate::sim::credit_income::ProduceCash::new(construction_frame),
+            drain: Default::default(),
+            parasite: crate::sim::combat::parasite::FootParasite::new(construction_frame),
             debug_log: None,
         }
     }
@@ -2098,14 +2058,6 @@ impl GameEntity {
             5, // vision_range = 5 cells
             true,
         )
-    }
-
-    /// FootClass::IsParalyzed `0x004DE770` (vtable +0x380): the Foot+6A0
-    /// timer has time left. Readers: GetFireError `0x006FC623`/`0x006FCCD5`,
-    /// CloakingTick `0x006FB775`, ShouldUncloak `0x006FBCC0`, and the
-    /// locomotor movement setters.
-    pub fn is_paralyzed(&self, frame: u32) -> bool {
-        self.paralysis_timer.remaining(frame as i32) != 0
     }
 
     /// Whether this entity is alive (health > 0).

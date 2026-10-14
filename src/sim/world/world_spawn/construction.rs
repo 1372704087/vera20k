@@ -229,9 +229,7 @@ impl Simulation {
                 ge.veterancy.rank(),
             )
         {
-            ge.parasite = Some(Box::new(
-                crate::sim::combat::parasite::ParasiteState::constructed(self.session.binary_frame),
-            ));
+            ge.parasite.allocate_class(self.session.binary_frame);
         }
         install_authored_bridge(ge, origin);
 

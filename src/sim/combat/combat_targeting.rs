@@ -398,7 +398,7 @@ pub(crate) fn should_retaliate(
     }
     // `0x00708807..0x0070881F`: draining (`+0x1CC`) for a house that is not
     // human (`House+0x1EC`).
-    if victim.drain_target.is_some() && !house.is_some_and(|house| house.is_human) {
+    if victim.drain.target().is_some() && !house.is_some_and(|house| house.is_human) {
         return false;
     }
     // `0x0070882F` a full CaptureManager (being controlled is no gate);
@@ -545,7 +545,7 @@ pub(crate) fn should_retaliate(
         return false;
     }
     // `0x00708AAA..0x00708AC3`: a Foot never turns on the parasite eating it.
-    if victim.parasite_eating_me == Some(source_id) {
+    if victim.parasite.eater() == Some(source_id) {
         return false;
     }
     // `0x00708AC5..0x00708B09`: the selected weapon's Verses against the

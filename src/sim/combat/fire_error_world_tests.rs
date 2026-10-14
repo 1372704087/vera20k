@@ -100,7 +100,9 @@ fn coil_shot(tank_at: (u16, u16), setup: impl FnOnce(&mut GameEntity)) -> (i32, 
 #[test]
 fn a_drained_defence_drops_its_target_and_holds_fire() {
     assert_eq!(
-        coil_shot((12, 10), |coil| coil.draining_me = Some(9)),
+        coil_shot((12, 10), |coil| coil
+            .drain
+            .set_draining_me_for_test(Some(9))),
         (300, false)
     );
     let (health, kept) = coil_shot((12, 10), |_| {});

@@ -295,7 +295,7 @@ impl Fixture {
             entity.rearm_timer = CdTimer::started(start, rearm[1].as_i64().unwrap() as i32);
         }
         if state["drained"] == true {
-            entity.draining_me = Some(u64::MAX);
+            entity.drain.set_draining_me_for_test(Some(u64::MAX));
         }
         if let Some(count) = state["count"].as_i64() {
             entity.prism_support_count = count as i32;

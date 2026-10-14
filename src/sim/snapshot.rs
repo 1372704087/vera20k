@@ -2603,13 +2603,8 @@ impl Simulation {
         let frame = self.session.binary_frame;
         for id in self.substrate.entities.keys_sorted() {
             self.restore_move_sound_state_after_load(id);
-            if let Some(parasite) = self
-                .substrate
-                .entities
-                .get_mut(id)
-                .and_then(|entity| entity.parasite.as_deref_mut())
-            {
-                parasite.restart_timers_after_load(frame);
+            if let Some(entity) = self.substrate.entities.get_mut(id) {
+                entity.parasite.restart_timers_after_load(frame);
             }
         }
         self.rebuild_logic_membership();

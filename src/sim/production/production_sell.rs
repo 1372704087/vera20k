@@ -273,7 +273,7 @@ pub fn can_sell_building(sim: &Simulation, rules: &RuleSet, id: u64) -> bool {
             Some(MissionType::Selling | MissionType::Construction)
         );
     entity.category == EntityCategory::Structure
-        && entity.draining_me.is_none()
+        && entity.drain.draining_me().is_none()
         && !object.unsellable
         && (buildup_sale || object.firestorm_wall)
 }

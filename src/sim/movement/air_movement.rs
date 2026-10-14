@@ -241,8 +241,10 @@ pub(crate) fn ensure_fly_secondary_facing(entity: &mut crate::sim::game_entity::
         .get_or_insert_with(|| super::FacingClass::with_rate_of(initial, body));
 }
 
-/// Shared represented MoveTo/BeginTakeoff refusal gates. EMP and Foot+6A0
-/// still require their missing native owners; do not substitute deploy state.
+/// Shared represented MoveTo/BeginTakeoff refusal gates. EMP still requires
+/// its missing native owner, and Foot+6A0 paralysis
+/// ([`FootParasite::is_paralyzed`](crate::sim::combat::parasite::FootParasite::is_paralyzed))
+/// is not read here yet; do not substitute deploy state.
 pub(crate) fn fly_coordinate_admitted(entity: &crate::sim::game_entity::GameEntity) -> bool {
     !entity.locomotor.as_ref().is_some_and(|l| !l.powered)
         && !super::locomotor_owner::owner_is_warping(entity)

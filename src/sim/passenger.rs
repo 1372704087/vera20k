@@ -426,7 +426,7 @@ pub fn can_enter_transport(
     // mobile Unit chain.
     if passenger.owner() != transport.owner()
         || (transport.category == EntityCategory::Structure && !transport.building_online())
-        || passenger.parasite_eating_me.is_some()
+        || passenger.parasite.eater().is_some()
         || (transport.category != EntityCategory::Aircraft
             && passenger
                 .capture_manager

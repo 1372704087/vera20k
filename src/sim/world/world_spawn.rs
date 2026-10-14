@@ -1722,7 +1722,7 @@ impl Simulation {
         let stolen_mcv = source.mind_control.controller().is_some()
             && crate::sim::mcv_deploy::deploys_into(self, source, rules)
                 .is_some_and(|yard| yard.construction_yard);
-        if source.parasite_eating_me.is_some() || stolen_mcv {
+        if source.parasite.eater().is_some() || stolen_mcv {
             if let Some(entity) = self.substrate.entities.get_mut(stable_id) {
                 entity.mcv_deploy_pending = false;
             }

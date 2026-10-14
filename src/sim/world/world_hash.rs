@@ -1385,25 +1385,26 @@ fn hash_entity(entity: &GameEntity, frame: u32, hasher: &mut StateHasher) {
     // timer and the `TechnoClass+0x1CC/+0x1D0` drain link pair.
     // All three drive future wallet writes, so a divergence here
     // desyncs credits; every object carries them.
-    entity.produce_cash_timer.hash(hasher);
-    entity.drain_target.hash(hasher);
-    entity.draining_me.hash(hasher);
+    entity.produce_cash.timer().hash(hasher);
+    entity.drain.target().hash(hasher);
+    entity.drain.draining_me().hash(hasher);
     // ParasiteClass (Foot+69C) of dogs and drones, the victim's
     // Foot+694/+698 links, and Foot+6A0 once it has been armed.
     // `limbo_reselect` (+432) is deliberately absent: it is set
     // only for the local player's selection, so peers differ.
-    if let Some(parasite) = entity.parasite.as_deref() {
+    let parasite = &entity.parasite;
+    if let Some(class) = parasite.class() {
         b"parasite-v193".hash(hasher);
-        parasite.hash(hasher);
+        class.hash(hasher);
     }
-    if entity.parasite_eating_me.is_some() || entity.parasite_launch_lock != 0 {
+    if parasite.eater().is_some() || parasite.launch_lock() != 0 {
         b"parasite-victim-v193".hash(hasher);
-        entity.parasite_eating_me.hash(hasher);
-        entity.parasite_launch_lock.hash(hasher);
+        parasite.eater().hash(hasher);
+        parasite.launch_lock().hash(hasher);
     }
-    if entity.paralysis_timer.duration() != 0 {
+    if parasite.paralysis().duration() != 0 {
         0x6a0_u32.hash(hasher);
-        entity.paralysis_timer.hash(hasher);
+        parasite.paralysis().hash(hasher);
     }
     // Foot+5C4..+5D1, an attack-move order: its scan, resume and
     // pointer expiry (`sim::mission::mega_mission`).

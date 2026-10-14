@@ -245,7 +245,7 @@ impl Simulation {
             return false;
         }
         if object.spawned
-            || actor.is_paralyzed(self.session.binary_frame)
+            || actor.parasite.is_paralyzed(self.session.binary_frame)
             || actor.is_warped_out()
             || actor.is_warping_in()
             || actor.slave.owner().is_some()

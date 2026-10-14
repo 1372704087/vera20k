@@ -294,9 +294,9 @@ fn warp_object(
     {
         return;
     }
-    if let Some(eater) = entity.parasite_eating_me
+    if let Some(eater) = entity.parasite.eater()
         && sim.substrate.entities.get(eater).is_some_and(|eater| {
-            eater.parasite.is_some()
+            eater.parasite.class().is_some()
                 && sim
                     .object_type(eater.type_ref(), rules)
                     .is_some_and(|object| object.naval)

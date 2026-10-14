@@ -344,7 +344,7 @@ fn recalculate_power_for_owner(
             produced = produced.wrapping_add(output);
             //508D1E calls70FEC0 (DrainingMe != null), then repeats the
             // live GetPowerOutput getter and tests its signed result >0.
-            has_drained_power_source |= entity.draining_me.is_some() && output > 0;
+            has_drained_power_source |= entity.drain.draining_me().is_some() && output > 0;
         }
 
         // Drain branch: always full rated value regardless of health.
@@ -600,7 +600,9 @@ mod tests {
         for row in corpus["assessment_rows"].as_array().unwrap() {
             let mut entity = generator.clone();
             entity.health.current = row["current"].as_i64().unwrap() as i32;
-            entity.draining_me = row["draining"].as_bool().unwrap().then_some(99);
+            entity
+                .drain
+                .set_draining_me_for_test(row["draining"].as_bool().unwrap().then_some(99));
             entity.lifecycle.in_limbo = row["limbo"].as_bool().unwrap();
             entity.lifecycle.cell_marked = row["marked"].as_bool().unwrap();
             let mut entities = EntityStore::default();
@@ -618,7 +620,11 @@ mod tests {
                 "{row}"
             );
             // The next real assessment clears the retained flag on detach.
-            entities.get_mut(1).unwrap().draining_me = None;
+            entities
+                .get_mut(1)
+                .unwrap()
+                .drain
+                .set_draining_me_for_test(None);
             tick_power_states(&mut states, &mut entities, &rules, &interner, 0);
             assert!(!states[&owner].has_drained_power_source);
         }

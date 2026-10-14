@@ -502,7 +502,7 @@ impl crate::sim::world::Simulation {
         {
             return Ok(false);
         }
-        if actor.is_paralyzed(self.session.binary_frame)
+        if actor.parasite.is_paralyzed(self.session.binary_frame)
             || actor.is_warped_out()
             || actor.is_warping_in()
         {

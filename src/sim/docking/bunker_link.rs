@@ -44,7 +44,7 @@ pub fn can_auto_deploy_here(sim: &Simulation, unit_id: u64, rules: &RuleSet) -> 
         && obj.has_turret
         && crate::sim::combat::combat_weapon::is_armed(unit, obj)
         && obj.speed_type != crate::rules::locomotor_type::SpeedType::Hover
-        && unit.parasite_eating_me.is_none()
+        && unit.parasite.eater().is_none()
 }
 
 /// VERA's tank bunker entry adapter, in place of the native route: the
@@ -672,7 +672,8 @@ mod tests {
                     .entities
                     .get_mut(id)
                     .unwrap()
-                    .parasite_eating_me = Some(99);
+                    .parasite
+                    .set_eater_for_test(Some(99));
             }
             assert_eq!(
                 can_auto_deploy_here(&sim, id, &rules),

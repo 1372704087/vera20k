@@ -1823,7 +1823,7 @@ fn fixture(inputs: &Inputs, selected: &[u64]) -> (Simulation, RuleSet) {
                 .veterancy
                 .set_raw_for_test(crate::util::native_x87::NativeF32Bits::from_bits(bits));
         }
-        entity.foot_locomotor_swap_active = actor.locomotor_swap;
+        entity.lift.set_swap_active_for_test(actor.locomotor_swap);
         if actor.mission_only {
             entity.mark_mission_only();
         }

@@ -1665,7 +1665,7 @@ fn disguise_inputs(
 
 fn retask_observation(entity: &crate::sim::game_entity::GameEntity) -> Value {
     json!({
-        "suspended_target": entity.suspended_attack_target,
+        "suspended_target": entity.suspended_attack_target.target(),
         "suspended_nav": entity.navigation.suspended_nav_com,
     })
 }
@@ -4988,7 +4988,9 @@ mod tests {
     fn actor_retask_snapshot_preserves_tagged_suspended_references() {
         use crate::sim::{combat::TargetKind, components::NavTargetRef, game_entity::GameEntity};
         let mut entity = GameEntity::test_default(1, "MTNK", "Americans", 10, 20);
-        entity.suspended_attack_target = Some(TargetKind::Cell(7, 8));
+        entity
+            .suspended_attack_target
+            .set_for_test(Some(TargetKind::Cell(7, 8)));
         entity.navigation.suspended_nav_com = Some(NavTargetRef::object(42));
         assert_eq!(
             retask_observation(&entity),
@@ -4996,7 +4998,9 @@ mod tests {
                 "suspended_target":{"Cell":[7,8]}, "suspended_nav":{"Object":{"id":42}}
             })
         );
-        entity.suspended_attack_target = Some(TargetKind::Entity(43));
+        entity
+            .suspended_attack_target
+            .set_for_test(Some(TargetKind::Entity(43)));
         entity.navigation.suspended_nav_com = Some(NavTargetRef::cell(9, 10));
         assert_eq!(
             retask_observation(&entity),
@@ -5004,7 +5008,7 @@ mod tests {
                 "suspended_target":{"Entity":43}, "suspended_nav":{"Cell":{"rx":9,"ry":10}}
             })
         );
-        entity.suspended_attack_target = None;
+        entity.suspended_attack_target.set_for_test(None);
         entity.navigation.suspended_nav_com = None;
         assert_eq!(
             retask_observation(&entity),

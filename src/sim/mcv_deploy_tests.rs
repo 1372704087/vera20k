@@ -80,7 +80,7 @@ fn finish(sim: &mut Simulation, rules: &RuleSet, id: u64) -> usize {
                 .and_then(|r| r.retained())
                 .cloned(),
             &e.body_facing,
-            e.mcv_deploy_pending,
+            e.mcv_deploy_pending.is_pending(),
             &e.mission,
             &e.foot_speed
         ))
@@ -186,7 +186,7 @@ fn turn_completion_converts_before_the_next_mission_retry() {
     tick(&mut sim, &rules, Some(Command::DeployMcv { entity_id: id }));
     tick(&mut sim, &rules, None);
     let e = sim.substrate.entities.get(id).unwrap();
-    assert!(e.mcv_deploy_pending);
+    assert!(e.mcv_deploy_pending.is_pending());
     // Still turning toward DeployFacing=4 (0x8000) at ROT 10.
     assert_eq!(e.body_facing.destination(), 0x8000);
     assert!(e.body_facing.is_rotating(sim.session.binary_frame));
@@ -228,13 +228,15 @@ fn pending_turn_roundtrips_through_save_and_hashes_its_latches() {
         .entities
         .get_mut(id)
         .unwrap()
-        .mcv_deploy_pending = false;
+        .mcv_deploy_pending
+        .set_for_test(false);
     assert_ne!(hash, sim.state_hash());
     sim.substrate
         .entities
         .get_mut(id)
         .unwrap()
-        .mcv_deploy_pending = true;
+        .mcv_deploy_pending
+        .set_for_test(true);
     assert!(rules.object("AMCV").unwrap().move_sound.is_empty());
     let sound = sim.substrate.entities.get(id).unwrap().move_sound;
     assert!(!sound.is_active());
@@ -341,7 +343,7 @@ fn placement_is_rechecked_on_turn_completion() {
         .entities
         .get(id)
         .expect("blocked MCV survives");
-    assert!(!mcv.death.is_dying() && !mcv.mcv_deploy_pending);
+    assert!(!mcv.death.is_dying() && !mcv.mcv_deploy_pending.is_pending());
     assert_eq!(yards(&sim), 1, "only the blocking building exists");
     sim.uninit_with_rules(blocker, &rules);
     for _ in 0..35 {
@@ -386,7 +388,8 @@ fn continuation_result_and_rotation_edge_match_original_blocks() {
         let e = sim.substrate.entities.get_mut(id).unwrap();
         e.death
             .set_dying_for_test(row["alive"].as_u64().unwrap() == 0);
-        e.mcv_deploy_pending = row["flag"].as_u64().unwrap() != 0;
+        e.mcv_deploy_pending
+            .set_for_test(row["flag"].as_u64().unwrap() != 0);
         e.navigation.nav_com = (row["nav"].as_u64().unwrap() != 0)
             .then_some(crate::sim::components::NavTargetRef::cell(30, 30));
         e.mission
@@ -403,7 +406,7 @@ fn continuation_result_and_rotation_edge_match_original_blocks() {
             "{row}"
         );
         assert_eq!(
-            e.mcv_deploy_pending,
+            e.mcv_deploy_pending.is_pending(),
             row["out_flag"].as_u64().unwrap() != 0,
             "{row}"
         );
@@ -473,7 +476,7 @@ fn retail_mcv_and_target_rules_deploy_with_one_command() {
 fn active_track_and_same_cell_destination_preserve_the_rotation_latch() {
     let (mut sim, rules, id) = fixture("AMCV", 128, 5, 4);
     let e = sim.substrate.entities.get_mut(id).unwrap();
-    e.mcv_deploy_pending = true;
+    e.mcv_deploy_pending.set_for_test(true);
     let drive = e.locomotor.as_mut().unwrap();
     assert!(drive.ensure_installed_track_state());
     assert!(drive.store_track_turn_latched(

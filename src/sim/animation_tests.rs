@@ -412,7 +412,7 @@ fn gsi_13_06_counter_suppressions_hold_the_persistent_value() {
     )));
     variants.push(("warp in", warp_in));
     let mut swapped = base.clone();
-    swapped.foot_locomotor_swap_active = true;
+    swapped.lift.set_swap_active_for_test(true);
     variants.push(("locomotor swap", swapped));
 
     for (name, mut entity) in variants {
@@ -1717,7 +1717,7 @@ fn unit_body_counter_matches_original_foot_cadence() {
                     .attack_target
                     .set_for_test(Some(TargetKind::Entity(42)));
             }
-            entity.foot_locomotor_swap_active = flag("locomotor_swap");
+            entity.lift.set_swap_active_for_test(flag("locomotor_swap"));
             // BeingWarpedOut (`+0x270`) through a Temporal chain's head,
             // WarpingIn (`+0x271`) through the teleport's warp-in.
             if flag("warp_out") {

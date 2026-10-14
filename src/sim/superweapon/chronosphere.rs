@@ -466,7 +466,7 @@ fn arm_chrono_warp(
     crate::sim::radio::broadcast_break(sim, id, Some(rules), frame_effects);
     // `0x006CCC67`: the Super's owner, credited if the warp sinks the object.
     if let Some(entity) = sim.substrate.entities.get_mut(id) {
-        entity.warped_by_house = Some(warp.owner);
+        entity.drop_credit.credit_warp(warp.owner);
     }
     if let Err(error) = sim.assign_destination_represented(
         id,

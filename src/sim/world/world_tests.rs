@@ -8088,7 +8088,8 @@ fn test_lethal_hit_restore_refuses_the_dying_archived_target() {
     {
         let tank = sim.substrate.entities.get_mut(1).unwrap();
         tank.attack_target.set_for_test(Some(TargetKind::Entity(2)));
-        tank.suspended_attack_target = Some(crate::sim::combat::TargetKind::Entity(2));
+        tank.suspended_attack_target
+            .set_for_test(Some(crate::sim::combat::TargetKind::Entity(2)));
         tank.mission
             .apply_test_fixture(crate::sim::mission::state::MissionTestFixture {
                 current: MissionId::from_known(MissionType::Attack),
@@ -8127,7 +8128,7 @@ fn test_lethal_hit_restore_refuses_the_dying_archived_target() {
         "Assign_Target refuses the dying archived target the Restore names"
     );
     assert_eq!(tank.mission.current().known(), Some(MissionType::Guard));
-    assert_eq!(tank.suspended_attack_target, None);
+    assert_eq!(tank.suspended_attack_target.target(), None);
 }
 
 /// The death arm's Stun (`0x00702210`: FootClass::Stun `0x004D5660`, then

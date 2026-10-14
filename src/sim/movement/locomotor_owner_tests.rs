@@ -211,7 +211,7 @@ fn refused_restore_keeps_live_head_and_forced_segment() {
             entity.navigation.nav_com,
             Some(crate::sim::components::NavTargetRef::cell(12, 8))
         );
-        assert!(entity.setter_force_reassign);
+        assert!(entity.setter_force_reassign.is_raised());
         assert_eq!(
             entity.mission.current(),
             crate::sim::mission::MissionId::NONE
@@ -724,7 +724,7 @@ fn drive_end_uses_native_gates_and_preserves_owner_state() {
                     .unwrap()
                     .store_drive_end_permission(false);
             }
-            2 => entity.foot_locomotor_swap_active = true,
+            2 => entity.lift.set_swap_active_for_test(true),
             3 => {
                 entity.locomotor.as_mut().unwrap().store_track_destination(
                     TrackFamily::Drive,
@@ -761,7 +761,7 @@ fn drive_end_denial_flags_survive_save_and_block_generic_restore() {
             .as_mut()
             .unwrap()
             .store_drive_end_permission(permission);
-        entity.foot_locomotor_swap_active = permission;
+        entity.lift.set_swap_active_for_test(permission);
         let bytes = GameSnapshot::save(&sim, 0, 0, "drive_end_gate", 0);
         let mut loaded = GameSnapshot::load(&bytes).unwrap().sim;
         assert_eq!(loaded.state_hash(), sim.state_hash());
@@ -773,7 +773,7 @@ fn drive_end_denial_flags_survive_save_and_block_generic_restore() {
             .as_mut()
             .unwrap()
             .store_drive_end_permission(true);
-        entity.foot_locomotor_swap_active = false;
+        entity.lift.set_swap_active_for_test(false);
         assert_ne!(loaded.state_hash(), before);
         assert!(loaded.try_end_piggyback(1, None));
     }

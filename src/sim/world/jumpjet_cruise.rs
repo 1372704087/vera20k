@@ -227,10 +227,10 @@ impl JumpjetFlightHost for CruiseHost<'_> {
         self.owner().attack_target.target().is_some()
     }
     fn piggyback_active(&self) -> bool {
-        self.owner().foot_locomotor_swap_active
+        self.owner().lift.swap_active()
     }
     fn piggyback_arrival(&mut self, runtime: &mut JumpjetRuntime) {
-        let Some(holder) = self.owner().locomotor_source else {
+        let Some(holder) = self.owner().lift.source() else {
             return;
         };
         let id = self.stable_id;
@@ -460,8 +460,8 @@ impl JumpjetFlightHost for CruiseHost<'_> {
         let id = self.stable_id;
         let deploy_to_land = self.owner_kind() == FlightOwnerKind::Unit && self.type_flag_6ad();
         let owner = self.sim.substrate.entities.get_mut(id).unwrap();
-        owner.lift_may_end = true;
-        owner.being_manipulated = false;
+        owner.lift.allow_end();
+        owner.drop_credit.land();
         owner.crash.lower();
         if deploy_to_land {
             owner.set_landing_for_deploy(false);
@@ -522,7 +522,7 @@ impl JumpjetFlightHost for CruiseHost<'_> {
         [x, y, z]
     }
     fn dropped(&self) -> bool {
-        self.owner().being_manipulated
+        self.owner().drop_credit.being_manipulated()
     }
     fn crush_below(&mut self, runtime: &mut JumpjetRuntime) -> bool {
         let Some(rules) = self.rules else {
@@ -592,8 +592,7 @@ impl JumpjetFlightHost for CruiseHost<'_> {
     }
     fn clear_drop_credit(&mut self) {
         let owner = self.sim.substrate.entities.get_mut(self.stable_id).unwrap();
-        owner.manipulated_by = None;
-        owner.warped_by_house = None;
+        owner.drop_credit.forget();
     }
     fn set_on_bridge(&mut self) {
         self.sim

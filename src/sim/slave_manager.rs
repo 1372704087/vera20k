@@ -688,7 +688,7 @@ impl Simulation {
         let building = owner.category() == EntityCategory::Structure;
         let unit = owner.category() == EntityCategory::Unit;
         let driving = owner.navigation.nav_com.is_some();
-        let deploy_pending = owner.mcv_deploy_pending;
+        let deploy_pending = owner.mcv_deploy_pending.is_pending();
         let guarding = owner.mission.current().known() == Some(MissionType::Guard);
         let constructing_or_selling = owner.constructing_or_selling();
         let built = !owner.in_construction_bstate();

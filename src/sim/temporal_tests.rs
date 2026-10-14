@@ -1801,7 +1801,7 @@ fn a_warped_foot_without_a_navcom_skips_the_null_setter() {
         let tank = sim.substrate.entities.get_mut(tank).unwrap();
         assert!(tank.navigation.nav_com.is_none());
         tank.navigation.nav_queue.push(NavTargetRef::cell(9, 16));
-        tank.setter_force_reassign = true;
+        tank.setter_force_reassign.set_for_test(true);
     }
     assert!(
         sim.temporal_ai_prologue(
@@ -1813,7 +1813,7 @@ fn a_warped_foot_without_a_navcom_skips_the_null_setter() {
         "frozen"
     );
     let tank = entity(&sim, tank);
-    assert!(tank.setter_force_reassign, "no setter call");
+    assert!(tank.setter_force_reassign.is_raised(), "no setter call");
     assert_eq!(tank.navigation.nav_queue, vec![NavTargetRef::cell(9, 16)]);
 }
 

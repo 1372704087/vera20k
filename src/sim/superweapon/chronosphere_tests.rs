@@ -188,7 +188,9 @@ pub(crate) fn place(
     entity.position.z = level + deck;
     entity.on_bridge = bridge;
     if latch {
-        entity.warped_by_house = Some(entity.owner());
+        entity
+            .drop_credit
+            .set_warped_by_house_for_test(Some(entity.owner()));
         entity
             .locomotor
             .as_mut()

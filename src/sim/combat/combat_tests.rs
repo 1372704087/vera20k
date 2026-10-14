@@ -2366,7 +2366,9 @@ fn gsi_04_07_damage_wall_dies_in_the_tail_after_both_attackers_fire() {
         ai_counter: 0,
         dispatch_timer: MissionDispatchTimer::at_frame(0),
     });
-    second.suspended_attack_target = Some(TargetKind::Entity(10));
+    second
+        .suspended_attack_target
+        .set_for_test(Some(TargetKind::Entity(10)));
     entities.insert(second);
     let mut interner = test_interner();
     let _handles =
@@ -2498,7 +2500,9 @@ fn gsi_04_07_damage_prior_projectile_fatal_death_weapon_is_inline() {
                 ai_counter: 0,
                 dispatch_timer: MissionDispatchTimer::at_frame(0),
             });
-        later_attacker.suspended_attack_target = Some(TargetKind::Entity(30));
+        later_attacker
+            .suspended_attack_target
+            .set_for_test(Some(TargetKind::Entity(30)));
         entities.insert(later_attacker);
         entities.insert(make_entity(30, "TARGET", 5, 5, 100));
         let mut interner = test_interner();

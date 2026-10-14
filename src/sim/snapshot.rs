@@ -1016,7 +1016,14 @@ use crate::sim::world::Simulation;
 // height is its Location Z. Version 351 records carry it.
 // 352 -> 353: each object carries its infantry house-tracking latches
 // (`Techno+0x438/+0x439`), which changes the entity's field order.
-const SNAPSHOT_VERSION: u32 = 353;
+// 353 -> 354: integrate the ALL01 r6 branch (its fork-local schema345).
+// TriggerType Event+54/LiveTrigger+2C and capture-transfer state, active
+// ChronoScreenEffect, initial House Techno type/cell records, shared result
+// CdTimer, automatic-garrison seek691, PatrolScan and Team transport-origin
+// inputs retain their existing owners. Main353 and r6/345 records do not
+// share this integrated bincode layout and are both refused. The one House
+// tech-tree recheck stays main's authority; EntityStore indexes remain derived.
+const SNAPSHOT_VERSION: u32 = 354;
 
 const SNAPSHOT_PRODUCT_MAGIC: [u8; 8] = *b"VERA20K\0";
 const SNAPSHOT_ENVELOPE_VERSION: u32 = 1;
@@ -2431,8 +2438,8 @@ impl Simulation {
             }
         }
         for (&owner, house) in &self.houses {
-            let Some(outcome) = house.outcome_state else {
-                if house.is_defeated || house.has_won || house.has_lost {
+            let Some(outcome) = house.outcome() else {
+                if house.is_defeated || house.has_won() || house.has_lost() {
                     return Err(SnapshotRestoreError::InvalidHouseOutcomeState {
                         owner,
                         reason: "terminal flags require serialized outcome authority",
@@ -2442,10 +2449,11 @@ impl Simulation {
             };
             let flags_match = match outcome.kind {
                 crate::sim::house_state::HouseOutcomeKind::Victory => {
-                    house.has_won && !house.has_lost && !house.is_defeated
+                    //FlagWin4FC9EE guards Won/FlagToDie/Lost, not Defeated.
+                    house.has_won() && !house.has_lost()
                 }
                 crate::sim::house_state::HouseOutcomeKind::Defeat => {
-                    house.has_lost && !house.has_won
+                    house.has_lost() && !house.has_won()
                 }
             };
             if !flags_match {
@@ -2454,16 +2462,17 @@ impl Simulation {
                     reason: "kind disagrees with terminal house flags",
                 });
             }
-            let next_tick = self.session.tick.saturating_add(1);
-            let timer_position_is_valid = if outcome.exit_ready {
-                outcome.savour_until_tick <= next_tick
-            } else {
-                outcome.savour_until_tick > self.session.tick
-            };
-            if !timer_position_is_valid {
+            // A pending result can legally have an expired timer: campaign
+            // AllowWin Tags still block it, or this frame's House rung has not
+            // visited it yet. Only the admitted exit latch requires zero.
+            if outcome.exit_ready
+                && !house
+                    .outcome_timer()
+                    .expired(self.session.binary_frame as i32)
+            {
                 return Err(SnapshotRestoreError::InvalidHouseOutcomeState {
                     owner,
-                    reason: "SavourDelay target disagrees with expiry latch",
+                    reason: "shared result timer disagrees with expiry latch",
                 });
             }
         }
@@ -4399,7 +4408,8 @@ mod tests {
         // 350 -> 351: the Building's animation art in one record.
         // 351 -> 352: no locomotor altitude copy; height is the Location Z.
         // 352 -> 353: each object's infantry house-tracking latches.
-        assert_eq!(super::SNAPSHOT_VERSION, 353);
+        // 353 -> 354: integrated ALL01 retained Tag/ChronoScreen/House/Team state.
+        assert_eq!(super::SNAPSHOT_VERSION, 354);
     }
 
     #[test]
@@ -5960,6 +5970,7 @@ mod tests {
 
         let mut original = Simulation::with_seed(0x104);
         original.session.tick = 145;
+        original.session.binary_frame = 145;
         let owner = original.interner.intern("Americans");
         original
             .houses
@@ -5970,7 +5981,7 @@ mod tests {
                 .houses
                 .get_mut(&owner)
                 .expect("house")
-                .flag_to_win(100, 90)
+                .accept_win_result(100, 90, false)
         );
         assert_ne!(
             original.state_hash(),
@@ -5981,20 +5992,18 @@ mod tests {
         original
             .houses
             .get_mut(&owner)
-            .and_then(|house| house.outcome_state.as_mut())
-            .expect("outcome")
-            .savour_until_tick += 1;
+            .expect("house")
+            .supply_allow_win_tag_state(0, crate::sim::timer::CdTimer::started(100, 91));
         assert_ne!(
             original.state_hash(),
             accepted_hash,
-            "the absolute Savour target itself is hash-relevant"
+            "the shared result timer itself is hash-relevant"
         );
         original
             .houses
             .get_mut(&owner)
-            .and_then(|house| house.outcome_state.as_mut())
-            .expect("outcome")
-            .savour_until_tick -= 1;
+            .expect("house")
+            .supply_allow_win_tag_state(0, crate::sim::timer::CdTimer::started(100, 90));
         original.sound_events.push(SimSoundEvent::MatchOutcome {
             owner,
             kind: HouseOutcomeKind::Victory,
@@ -6016,14 +6025,19 @@ mod tests {
         assert_eq!(restored.state_hash(), saved_hash);
 
         let restored_house = restored.houses.get(&owner).expect("restored house");
-        let outcome = restored_house.outcome_state.expect("accepted outcome");
+        let outcome = restored_house.outcome().expect("accepted outcome");
         assert_eq!(outcome.kind, HouseOutcomeKind::Victory);
         assert!(!outcome.exit_ready);
-        assert_eq!(outcome.savour_until_tick - restored.session.tick, 45);
+        assert_eq!(
+            restored_house
+                .outcome_timer()
+                .remaining(restored.session.binary_frame as i32),
+            45
+        );
 
         let mut boundary = restored_house.clone();
-        assert!(!boundary.advance_outcome_savour(189));
-        assert!(boundary.advance_outcome_savour(190));
+        assert!(!boundary.advance_outcome_savour(189, true));
+        assert!(boundary.advance_outcome_savour(190, true));
     }
 
     #[test]
@@ -6036,8 +6050,18 @@ mod tests {
             let mut house = HouseState::new(owner, 0, None, true, 10_000, 10);
             match terminal_flag {
                 "is_defeated" => house.is_defeated = true,
-                "has_won" => house.has_won = true,
-                "has_lost" => house.has_lost = true,
+                "has_won" => house.supply_outcome_state_for_test(
+                    true,
+                    false,
+                    None,
+                    crate::sim::timer::CdTimer::default(),
+                ),
+                "has_lost" => house.supply_outcome_state_for_test(
+                    false,
+                    true,
+                    None,
+                    crate::sim::timer::CdTimer::default(),
+                ),
                 _ => unreachable!(),
             }
             malformed.houses.insert(owner, house);

@@ -72,6 +72,15 @@ pub struct EntityStore {
     /// Uninit retains an entry; remove compacts it. Class/category is immutable
     /// while stored, like indexed identity (replace through remove/insert).
     infantry_registry: Vec<u64>,
+    /// Derived TechnoClass registration index from monotonic constructor IDs.
+    /// Production construction stores each parent before manager children;
+    /// see construction33/55,world_spawn::store_with_constructor_managers,
+    /// authored_health::unlimbo and reinforcement construction. Stable ID is
+    /// authoritative, this cache is rebuilt on restore and never serialized.
+    /// UnInit keeps a row; physical remove compacts the registry independently
+    /// of the dense storage's empty slots and compaction schedule.
+    /// RMG PreconsumedGenerated registration parity is not established here.
+    techno_registry: Vec<u64>,
     /// Which entities may have changed since each reader last took its log
     /// ([`Self::take_touched`]). Every route to a `&mut GameEntity` goes
     /// through the store, so an entity missing from a log has not changed.
@@ -140,6 +149,7 @@ impl Clone for EntityStore {
             entities: self.entities.clone(),
             slot_of: self.slot_of.clone(),
             infantry_registry: self.infantry_registry.clone(),
+            techno_registry: self.techno_registry.clone(),
             touched: TouchLogs::everything(),
         }
     }
@@ -164,6 +174,7 @@ impl EntityStore {
             entities: Vec::new(),
             slot_of: HashMap::default(),
             infantry_registry: Vec::new(),
+            techno_registry: Vec::new(),
             touched: TouchLogs::everything(),
         }
     }
@@ -193,6 +204,9 @@ impl EntityStore {
                 self.reindex_from(slot);
             }
         }
+        if let Err(index) = self.techno_registry.binary_search(&id) {
+            self.techno_registry.insert(index, id);
+        }
         self.remove_infantry_index(id);
         if infantry {
             let index = self
@@ -209,6 +223,9 @@ impl EntityStore {
         let removed = self.entities[slot].take().map(|entity| *entity);
         self.touched.note(stable_id, self.len());
         self.remove_infantry_index(stable_id);
+        if let Ok(index) = self.techno_registry.binary_search(&stable_id) {
+            self.techno_registry.remove(index);
+        }
         // Compact once a quarter of the slots are empty, so a walk skips few
         // and compaction's cost spreads over many removals.
         let empty = self.ids.len() - self.slot_of.len();
@@ -346,6 +363,15 @@ impl EntityStore {
         .into_iter()
         .map(|slot| self.ids[slot])
         .collect()
+    }
+
+    /// Action14's full Techno array, independent of Logic and Display order.
+    /// Read length/slot afresh after callbacks; append/removal is visible.
+    pub(crate) fn techno_registry_at(&self, index: usize) -> Option<u64> {
+        self.techno_registry.get(index).copied()
+    }
+    pub(crate) fn techno_registry_len(&self) -> usize {
+        self.techno_registry.len()
     }
 
     /// Native InfantryClass array index. Read afresh after a callback: removing
@@ -487,6 +513,7 @@ impl<'de> serde::Deserialize<'de> for EntityStore {
             store.entities.push(Some(entity));
         }
         store.rebuild_infantry_registry();
+        store.techno_registry = store.ids.clone();
         Ok(store)
     }
 }
@@ -614,6 +641,11 @@ mod tests {
                     store.keys_sorted(),
                     model.keys().copied().collect::<Vec<_>>()
                 );
+                assert_eq!(
+                    store.techno_registry,
+                    model.keys().copied().collect::<Vec<_>>(),
+                    "native registration rows must not follow dense empty slots"
+                );
                 let stored: Vec<(u64, u16)> = store
                     .iter_sorted()
                     .rev()
@@ -651,6 +683,7 @@ mod tests {
         assert_eq!(saved, bincode::serialize(&map).unwrap());
         let restored: EntityStore = bincode::deserialize(&saved).unwrap();
         assert_eq!(restored.keys_sorted(), [2, 4, 7]);
+        assert_eq!(restored.techno_registry, [2, 4, 7]);
         assert_eq!(bincode::serialize(&restored).unwrap(), saved);
     }
 

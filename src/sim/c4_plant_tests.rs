@@ -85,8 +85,11 @@ const SABOTAGE: MissionId = MissionId::from_known(MissionType::Sabotage);
 
 fn rules() -> RuleSet {
     let art = IniFile::from_str(ART);
-    let mut rules = RuleSet::from_ini_with_fixed_art_for_test(&IniFile::from_str(RULES), &art)
-        .expect("C4 plant rules");
+    let mut rules = RuleSet::from_ini_with_fixed_art_for_test(
+        &crate::sim::arena_fixture::clear_ground_ini(RULES),
+        &art,
+    )
+    .expect("C4 plant rules");
     rules.install_art_data(ArtRegistry::from_ini(&art));
     rules
 }

@@ -12,6 +12,7 @@
 use super::foot_path::{FindPathResult, coord_cell};
 use super::ground_pose;
 use super::infantry_entry::InfantryEntryArgs;
+use super::locomotor::MovementLayer;
 use super::movement_tick::{FootPathRequest, WalkAdmissionRequest};
 use super::track_fresh::BlockingObject;
 use crate::map::cell_index::NativeCellIdentity;
@@ -186,7 +187,8 @@ impl Simulation {
                     .as_ref()
                     .unwrap()
                     .native_cell_coord(native);
-                let blocker = self.find_blocking_object((at.0 as u16, at.1 as u16));
+                let blocker =
+                    self.find_blocking_object((at.0 as u16, at.1 as u16), MovementLayer::Ground);
                 if request.allows_retry() {
                     return self.walk_retry_admission(request);
                 }
@@ -649,7 +651,7 @@ mod tests {
         sim.production.terrain_object_cells.insert(tree, 900);
         mark_terrain_raw_occupation(&mut sim.substrate.raw_cell_occupation, tree, 5);
         assert!(matches!(
-            sim.find_blocking_object(tree),
+            sim.find_blocking_object(tree, crate::sim::movement::locomotor::MovementLayer::Ground,),
             Some(super::BlockingObject::Terrain)
         ));
         let mission = sim.substrate.entities.get(id).unwrap().mission.current();

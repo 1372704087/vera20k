@@ -74,8 +74,9 @@ use crate::sim::world::{PlacementEvidence, SimSoundEvent, Simulation};
 
 /// The paradrop plane. gamemd holds the literal (`0x00839708`, looked up at
 /// `0x006CD2F9` and `0x006CD542` through `AircraftTypeClass::FindIndex @
-/// 0x0041CAA0`); no INI key names it.
-const PDPLANE: &str = "PDPLANE";
+/// 0x0041CAA0`); reinforcement65DBAF shares this literal and type owner.
+/// No INI key names it.
+pub(crate) const PDPLANE: &str = "PDPLANE";
 
 #[derive(Debug, Clone, Copy)]
 pub enum ParaDropKind {
@@ -229,7 +230,16 @@ pub(super) fn send_planes(
 ) -> bool {
     let owner_name = sim.interner.resolve(owner).to_string();
     let plane = sim.with_object_placement_scope(|sim| {
-        sim.construct_object_limbo_at_height(plane_type, &owner_name, 0, 0, 0, 0, rules)
+        sim.construct_object_limbo_at_height(
+            plane_type,
+            &owner_name,
+            0,
+            0,
+            0,
+            0,
+            rules,
+            frame_effects,
+        )
     });
     let Some(plane) = plane else {
         return false;
@@ -284,7 +294,15 @@ pub(super) fn send_planes(
         return false;
     }
     if let Some((infantry, count)) = payload.filter(|&(_, count)| count != 0) {
-        board_passengers(sim, rules, plane, &owner_name, infantry, count);
+        board_passengers(
+            sim,
+            rules,
+            plane,
+            &owner_name,
+            infantry,
+            count,
+            frame_effects,
+        );
     }
     let now = sim.session.binary_frame;
     if let Some(entity) = sim.substrate.entities.get_mut(plane) {
@@ -304,6 +322,7 @@ fn board_passengers(
     owner_name: &str,
     infantry: &str,
     count: u32,
+    frame_effects: FrameEffects<'_>,
 ) {
     let known = rules
         .infantry_ids
@@ -317,20 +336,28 @@ fn board_passengers(
         return;
     };
     for _ in 0..count {
-        let Some(passenger) =
-            sim.construct_object_limbo_at_height(infantry, owner_name, 0, 0, 0, 0, rules)
-        else {
+        let Some(passenger) = sim.construct_object_limbo_at_height(
+            infantry,
+            owner_name,
+            0,
+            0,
+            0,
+            0,
+            rules,
+            frame_effects,
+        ) else {
             continue;
         };
         if let Some(rider) = sim.substrate.entities.get_mut(passenger) {
             rider.passenger_role.set_inside_transport(plane, false);
         }
-        let Some(entity) = sim.substrate.entities.get_mut(plane) else {
+        if !sim.substrate.entities.contains(plane) {
             return;
-        };
-        entity
-            .passenger_role
-            .ensure_hold()
-            .board_forced(passenger, size);
+        }
+        let _ = sim.add_cargo_passenger_chain(
+            plane,
+            &[(passenger, size)],
+            crate::sim::world::UninitContext::with_rules(rules).with_effects(frame_effects),
+        );
     }
 }

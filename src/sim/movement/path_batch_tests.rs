@@ -16,7 +16,9 @@ const WEST_STEP: u8 = 6;
 
 /// A tank, a tank that cannot move, an infantryman and a one-cell building.
 fn rules() -> RuleSet {
-    RuleSet::from_ini(&IniFile::from_str(
+    // This synthetic scene needs native buildable Clear ground and the
+    // explicitly intended one-cell HUT foundation in the fixed ART reader.
+    let ini = crate::sim::arena_fixture::clear_ground_ini(
         "[VehicleTypes]\n0=TANK\n1=STUCK\n[InfantryTypes]\n0=E1\n[BuildingTypes]\n0=HUT\n\
          [TANK]\nStrength=300\nSpeed=6\n\
          Locomotor={4A582741-9839-11D1-B709-00A024DDAFD1}\n\
@@ -25,8 +27,9 @@ fn rules() -> RuleSet {
          [E1]\nStrength=100\nSpeed=4\n\
          Locomotor={4A582744-9839-11D1-B709-00A024DDAFD1}\n\
          [HUT]\nStrength=100\n",
-    ))
-    .expect("batch rules")
+    );
+    RuleSet::from_ini_with_fixed_art_for_test(&ini, &IniFile::from_str("[HUT]\nFoundation=1x1\n"))
+        .expect("batch rules")
 }
 
 /// The flat arena with an overlay grid, which the batch needs.

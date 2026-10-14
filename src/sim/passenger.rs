@@ -9,8 +9,9 @@
 //! vehicles, landed aircraft and paradrops.
 //!
 //! ## Original engine reference
-//! The original engine uses a linked-list at offsets +0x1D0/+0x1CC for passenger
-//! storage; we use Vec<u64> for simplicity.
+//! CargoClass at Foot+0x114 holds a count and head at +0x118; cargo members
+//! follow their Foot+0x30 link. This owner's Vec keeps that same head order.
+//! Building garrisons use a separate append-order occupants vector.
 //!
 //! ## Dependency rules
 //! - Part of sim/ — depends on rules/ (ObjectType), sim/game_entity, sim/entity_store.
@@ -30,7 +31,6 @@ use crate::rules::ruleset::RuleSet;
 use crate::sim::game_entity::GameEntity;
 use crate::sim::house_state::HouseState;
 use crate::sim::intern::{InternedId, StringInterner};
-use crate::sim::pathfinding::PathGrid;
 use crate::sim::world::{ConcealOutcome, FrameEffects, SimSoundEvent, Simulation, UninitContext};
 
 /// The cargo hold of a type that holds passengers: CargoClass `Passengers`
@@ -212,9 +212,20 @@ impl PassengerCargo {
     /// limbo-created infantry; it is driven by `*ParaDropNum`, not by PDPLANE's
     /// `Passengers=` or `SizeLimit=`.
     pub fn board_forced(&mut self, stable_id: u64, passenger_size: u32) {
-        self.passengers.insert(0, stable_id);
-        self.passenger_sizes.insert(0, passenger_size);
-        self.total_size += passenger_size;
+        self.board_forced_chain(&[(stable_id, passenger_size)]);
+    }
+
+    /// Cargo4733A0 attaches an existing Foot+30 chain ahead of the old head.
+    /// Full reinforcement65DF88 supplies a whole reverse-construction chain;
+    /// single radio/paradrop admissions use the same storage operation.
+    /// Class Limbo belongs to Simulation::add_cargo_passenger_chain before
+    /// this splice. Known Foot IDs replace native raw link/AbstractFlags reads.
+    pub(crate) fn board_forced_chain(&mut self, head_first: &[(u64, u32)]) {
+        self.passengers
+            .splice(0..0, head_first.iter().map(|&(id, _)| id));
+        self.passenger_sizes
+            .splice(0..0, head_first.iter().map(|&(_, size)| size));
+        self.total_size += head_first.iter().map(|&(_, size)| size).sum::<u32>();
     }
 
     /// Remove a specific passenger. Returns true if found and removed.
@@ -242,14 +253,6 @@ impl PassengerCargo {
         }
     }
 
-    /// Restore a failed head-pop at the cargo head (the native failure path
-    /// re-runs `AddPassenger`, which prepends).
-    fn restore_front(&mut self, stable_id: u64, passenger_size: u32) {
-        self.passengers.insert(0, stable_id);
-        self.passenger_sizes.insert(0, passenger_size);
-        self.total_size += passenger_size;
-    }
-
     /// Is the cargo hold empty?
     pub fn is_empty(&self) -> bool {
         self.passengers.is_empty()
@@ -273,6 +276,43 @@ impl PassengerCargo {
         self.total_size = 0;
         self.garrison_fire_index = 0;
         passengers
+    }
+}
+
+impl Simulation {
+    /// CargoClass::AddPassenger4733A0: Limbo the supplied head, then attach
+    /// its existing member chain without count/size admission. The caller
+    /// owns transport/rider policy; this native leaf does not write +11C or
+    /// OpenTopped. No member/Team removal or owner transfer is invented here.
+    /// Steam gamemd3e81a617..08600; Full65DF88 and ordinary radio admission
+    /// share PassengerCargo's prepend/recount owner.
+    pub(crate) fn add_cargo_passenger_chain(
+        &mut self,
+        transport_id: u64,
+        head_first: &[(u64, u32)],
+        context: UninitContext<'_>,
+    ) -> bool {
+        let Some(&(head, _)) = head_first.first() else {
+            return true;
+        };
+        let _ = self.techno_limbo_with_context(head, context);
+        let Some(transport) = self.substrate.entities.get_mut(transport_id) else {
+            return false;
+        };
+        if transport.category() == EntityCategory::Structure
+            && !transport.passenger_role.is_transport()
+        {
+            return false;
+        }
+        // Every native Foot has CargoClass even when Type.Passengers is0.
+        // Make its empty hold at the first raw Cargo attach; ordinary
+        // capacity admission remains a caller policy.
+        let cargo = transport.passenger_role.ensure_hold();
+        // The existing size cache belongs to Cargo as well: ordinary callers
+        // supply their admitted type size; retries retain the popped size.
+        // Native quantity is the chain length, not its configured capacity.
+        cargo.board_forced_chain(head_first);
+        true
     }
 }
 
@@ -425,13 +465,30 @@ impl PassengerRole {
     /// The hold of a type without `Passengers=` that is loaded anyway, made
     /// on first use: every native Techno has its CargoClass (`+0x114`), and
     /// `HouseClass::SendParadropPlanes` fills the paradrop plane's through
-    /// `CargoClass::AddPassenger` (`0x0065E7F5`). Any carrier relation the
-    /// entity had is dropped with its old role.
+    /// `CargoClass::AddPassenger` (`0x0065E7F5`). The entity's own carrier
+    /// relation (`+0x11C`, `+0x82`) is a separate Techno field that
+    /// `CargoClass::AddPassenger` (`0x004733A0`) does not write, so the hold
+    /// keeps it.
     pub(crate) fn ensure_hold(&mut self) -> &mut PassengerCargo {
         if !self.is_transport() {
-            self.role = Role::Transport {
-                cargo: PassengerCargo::new(0, 0),
+            let carrier_relation = match self.role {
+                Role::Boarding {
+                    target_transport_id,
+                } => CarrierRelation::Boarding {
+                    target_transport_id,
+                },
+                Role::Inside {
+                    transport_id,
+                    open_topped,
+                } => CarrierRelation::Inside {
+                    transport_id,
+                    open_topped,
+                },
+                Role::None | Role::Transport { .. } => CarrierRelation::Outside,
             };
+            let mut cargo = PassengerCargo::new(0, 0);
+            cargo.carrier_relation = carrier_relation;
+            self.role = Role::Transport { cargo };
         }
         match &mut self.role {
             Role::Transport { cargo } => cargo,
@@ -536,8 +593,7 @@ pub fn can_enter_transport(
             transport_obj,
             cargo,
             rules,
-            &sim.houses,
-            sim.path_grid(),
+            sim,
         );
     }
     if transport.category() == EntityCategory::Unit {
@@ -579,8 +635,9 @@ pub fn can_enter_transport(
 /// house is `MultiplayPassive=`), the building is neither full nor at red
 /// health, and the infantryman is not mind-controlled.
 ///
-/// RESIDUALS: the playfield test (`MapClass::IsCoordsInPlayfield`) is the
-/// path grid's bounds; the `Assaulter=` arm (`0x00457DAD..0x00457DD3`: an
+/// Map5785F0 tests the building's actual GetCoords through the shared
+/// height-aware playfield owner, rather than the navigation rectangle.
+/// RESIDUALS: the `Assaulter=` arm (`0x00457DAD..0x00457DD3`: an
 /// assaulter may enter an occupied building of a house it is not allied
 /// with) is not represented. No retail infantry is an assaulter.
 pub fn can_dock_occupier_garrison(
@@ -590,8 +647,7 @@ pub fn can_dock_occupier_garrison(
     building_obj: &ObjectType,
     cargo: &PassengerCargo,
     rules: &RuleSet,
-    houses: &BTreeMap<InternedId, HouseState>,
-    path_grid: Option<&PathGrid>,
+    sim: &Simulation,
 ) -> bool {
     if !building_obj.can_be_occupied {
         return false;
@@ -599,9 +655,15 @@ pub fn can_dock_occupier_garrison(
     if building.building_up() || building.building_down() {
         return false;
     }
-    if let Some(grid) = path_grid
-        && (building.position.rx >= grid.width() || building.position.ry >= grid.height())
-    {
+    let coord = crate::sim::movement::ground_pose::object_get_coords(
+        building,
+        sim.resolved_terrain.as_ref(),
+    );
+    if !crate::sim::cell_rect::cell_is_in_playfield_leptons(
+        (coord.x, coord.y, coord.z),
+        sim.playfield_bounds,
+        sim.resolved_terrain.as_ref(),
+    ) {
         return false;
     }
     // `BuildingClass::CanDock @ 0x00457D3E`: a building being warped out
@@ -613,7 +675,7 @@ pub fn can_dock_occupier_garrison(
         return false;
     }
     let same_owner = passenger.owner() == building.owner();
-    if !same_owner && !owner_is_multiplay_passive(building.owner(), houses) {
+    if !same_owner && !owner_is_multiplay_passive(building.owner(), &sim.houses) {
         return false;
     }
     if cargo.count() == building_obj.max_number_occupants {
@@ -654,8 +716,7 @@ pub(crate) fn building_can_be_occupied_by(
         building_obj,
         cargo,
         rules,
-        &sim.houses,
-        sim.path_grid(),
+        sim,
     )
 }
 
@@ -1046,18 +1107,9 @@ pub(crate) fn process_boarding_passenger(
         {
             pax.on_bridge = false;
         }
-        let boarded = sim
-            .substrate
-            .entities
-            .get_mut(transport_id)
-            .and_then(|t| t.passenger_role.cargo_mut())
-            .is_some_and(|cargo| {
-                // CargoClass4733A0 is an unconditional prepend after the
-                // class radio receiver admitted the passenger. A second
-                // count-based gate would disagree with Unit's total Size.
-                cargo.board_forced(pax_id, pax_size);
-                true
-            });
+        //4733A0 repeats the head's virtual Limbo before its unconditional
+        //prepend, after the class PerCellProcess admission prefix above.
+        let boarded = sim.add_cargo_passenger_chain(transport_id, &[(pax_id, pax_size)], context);
         debug_assert!(boarded, "boarding admission changed during one transaction");
         if !boarded {
             // No mutation can race the single-threaded transaction, but recover
@@ -1609,6 +1661,11 @@ ConditionYellow=50%
         rx: u16,
         ry: u16,
     ) -> u64 {
+        //457CE0 requires the native map/playfield query even in these
+        //synthetic occupant fixtures; a missing map is not an admission.
+        if sim.playfield_bounds.is_none() {
+            crate::sim::arena_fixture::supply_native_map(sim);
+        }
         if sim.session.house_order.is_empty() {
             let civilian_side = rules.side_index("Civilian").map_or(2, |side| side.0);
             for (name, side, human) in [
@@ -2708,8 +2765,7 @@ ConditionYellow=50%
                 transport_obj,
                 cargo,
                 &rules,
-                &sim.houses,
-                None,
+                &sim,
             ),
             "CanDock requires Occupier=yes infantry"
         );
@@ -2836,6 +2892,10 @@ ConditionYellow=50%
         let pax = spawn_entering_infantry(&mut sim, &rules, "E1", "Americans", bldg, 10, 10);
         let grid = crate::sim::pathfinding::PathGrid::new(5, 5);
         sim.install_fixture_path_grid(Some(&grid));
+        // CanDock reads the native playfield owner, not the A* rectangle.
+        sim.playfield_bounds =
+            Some(crate::map::playfield::PlayfieldBounds::from_normalized_local_size(5, 0, 0, 5, 5));
+        sim.playfield_size_height = Some(5);
 
         assert!(
             !can_enter_transport(&sim, &rules, pax, bldg),
@@ -3369,26 +3429,35 @@ ConditionYellow=50%
             (9, 12),
             (9, 9),
         ] {
-            let blocker_id = sim.allocate_stable_id();
-            let mut blocker = GameEntity::test_default(blocker_id, "E1", "Allied", bx, by);
-            blocker.set_category_for_test(EntityCategory::Infantry);
-            blocker.set_owner_for_test(owner_id);
-            blocker.set_type_ref_for_test(sim.interner.intern("E1"));
-            blocker.sub_cell = Some(2);
-            (blocker.position.sub_x, blocker.position.sub_y) =
-                lepton::subcell_lepton_offset(Some(2));
-            sim.substrate.entities.insert(blocker);
-            assert!(matches!(
-                sim.reveal(blocker_id),
-                RevealOutcome::Revealed { .. }
-            ));
+            // One infantryman leaves two native subcells available. Supply
+            // the fully occupied prior this blocked-ejection test requires.
+            // Native functional slots are 2, 3 and 4 (raw mask 0x1C).
+            for subcell in [2, 3, 4] {
+                let blocker_id = sim.allocate_stable_id();
+                let mut blocker = GameEntity::test_default(blocker_id, "E1", "Allied", bx, by);
+                blocker.set_category_for_test(EntityCategory::Infantry);
+                blocker.set_owner_for_test(owner_id);
+                blocker.set_type_ref_for_test(sim.interner.intern("E1"));
+                blocker.sub_cell = Some(subcell);
+                (blocker.position.sub_x, blocker.position.sub_y) =
+                    lepton::subcell_lepton_offset(Some(subcell));
+                sim.substrate.entities.insert(blocker);
+                assert!(matches!(
+                    sim.reveal(blocker_id),
+                    RevealOutcome::Revealed { .. }
+                ));
+            }
         }
 
         eject_via_event(&mut sim, &rules, building_id);
 
         assert!(
             !sim.substrate.entities.contains(pax),
-            "blocked occupant must reach UnInit and the shared test drain"
+            "blocked occupant must reach UnInit and the shared test drain: {:?}",
+            sim.substrate
+                .entities
+                .get(pax)
+                .map(|entity| entity.position)
         );
         assert!(!sim.substrate.pending_delete.contains_object(&pax));
     }

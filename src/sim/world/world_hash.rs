@@ -1298,7 +1298,7 @@ impl Simulation {
     }
 
     /// Hash all entity components in stable-entity-ID order.
-    /// BTreeMap iterates in key order (= stable_id), so no manual sort needed.
+    /// The store iterates in stable_id order, so no manual sort needed.
     /// Each entity folds into its own digest, spread over threads in large
     /// worlds; the digests fold in that order.
     fn hash_entities(&self, hasher: &mut impl Hasher) {

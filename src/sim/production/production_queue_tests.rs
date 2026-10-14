@@ -946,7 +946,7 @@ fn human_mobile_completion_retains_identity_until_next_frame_place() {
         entity.lifecycle.in_limbo(),
         "Strip emits PLACE before Unlimbo"
     );
-    assert!(!entity.in_logic_vector);
+    assert!(!entity.in_logic_vector.is_member());
     let factory = sim
         .production
         .factories
@@ -1145,7 +1145,7 @@ fn factory_constructor_start_cancel_and_promotion_own_scenario_words() {
     let vehicle_entity = sim.substrate.entities.get(vehicle_id).unwrap();
     assert!(vehicle_entity.lifecycle.in_limbo());
     assert!(!vehicle_entity.lifecycle.cell_marked);
-    assert!(!vehicle_entity.in_logic_vector);
+    assert!(!vehicle_entity.in_logic_vector.is_member());
     assert!(!vehicle_entity.in_playfield);
     assert_eq!(vehicle_entity.techno_ctor_random_word(), mtnk_word);
 
@@ -1167,7 +1167,7 @@ fn factory_constructor_start_cancel_and_promotion_own_scenario_words() {
     let e1_entity = sim.substrate.entities.get(e1_id).unwrap();
     assert!(e1_entity.lifecycle.in_limbo());
     assert!(!e1_entity.lifecycle.cell_marked);
-    assert!(!e1_entity.in_logic_vector);
+    assert!(!e1_entity.in_logic_vector.is_member());
     assert!(!e1_entity.in_playfield);
     assert_eq!(e1_entity.techno_ctor_random_word(), e1_word);
 
@@ -1298,7 +1298,7 @@ fn cancelled_constructor_building_runs_shared_destructor_without_uninit() {
                 .unwrap()
         );
         assert!(building.lifecycle.in_limbo() && !building.lifecycle.cell_marked);
-        assert!(!building.in_logic_vector);
+        assert!(!building.in_logic_vector.is_member());
         if control["input"]["equal_sample_control"] == true {
             // Same isolated health-sampling rung as the native equality control;
             // a held product receives no normal AI turn.

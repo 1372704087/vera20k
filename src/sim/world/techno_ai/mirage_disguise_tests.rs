@@ -357,7 +357,7 @@ fn whole_unit_fixture(
             "{role}: Limbo"
         );
         assert_eq!(
-            entity.in_logic_vector,
+            entity.in_logic_vector.is_member(),
             before["logic_registered"] != 0,
             "{role}: Logic registration"
         );

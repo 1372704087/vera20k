@@ -731,7 +731,7 @@ impl Simulation {
         };
         self.queue_crew_mission(id, mission);
         if selected_by_player && let Some(entity) = self.substrate.entities.get_mut(id) {
-            entity.selected = true;
+            entity.selection.select();
         }
     }
 
@@ -943,7 +943,7 @@ impl Simulation {
             if dying.selected_by_player
                 && let Some(entity) = sim.substrate.entities.get_mut(passenger)
             {
-                entity.selected = true;
+                entity.selection.select();
             }
         });
     }

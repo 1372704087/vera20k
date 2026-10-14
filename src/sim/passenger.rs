@@ -1973,7 +1973,7 @@ ConditionYellow=50%
         assert!(entity.attack_target.target().is_none());
         assert_eq!(entity.passenger_role.inside_transport(), Some((hull, true)));
         assert!(
-            entity.in_logic_vector,
+            entity.in_logic_vector.is_member(),
             "native Limbo preserves its own rider Logic membership"
         );
         assert_eq!(
@@ -2510,7 +2510,7 @@ ConditionYellow=50%
         assert!(passenger.lifecycle.object_alive());
         assert!(passenger.lifecycle.in_limbo());
         assert!(!passenger.lifecycle.cell_marked);
-        assert!(!passenger.in_logic_vector);
+        assert!(!passenger.in_logic_vector.is_member());
         assert!(
             sim.live_object_order_snapshot().contains(&bldg),
             "the garrisoned building stays in the active order"
@@ -2579,7 +2579,7 @@ ConditionYellow=50%
         );
         assert!(passenger_entity.lifecycle.in_limbo());
         assert!(!passenger_entity.lifecycle.cell_marked);
-        assert!(passenger_entity.in_logic_vector);
+        assert!(passenger_entity.in_logic_vector.is_member());
         assert_eq!(
             sim.live_object_order_snapshot(),
             vec![transport, tail, passenger]
@@ -3172,7 +3172,7 @@ ConditionYellow=50%
         assert!(unloaded.lifecycle.object_alive());
         assert!(!unloaded.lifecycle.in_limbo());
         assert!(unloaded.lifecycle.cell_marked);
-        assert!(unloaded.in_logic_vector);
+        assert!(unloaded.in_logic_vector.is_member());
 
         // Assert StructureAbandoned was emitted with the PRE-revert owner (Americans).
         let mut found = false;

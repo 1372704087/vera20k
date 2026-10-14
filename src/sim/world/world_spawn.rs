@@ -1512,7 +1512,7 @@ impl Simulation {
         // facts explicit so storage can never imply cell or logic presence.
         ge.lifecycle.reset_constructed();
         ge.lifecycle.cell_marked = false;
-        ge.in_logic_vector = false;
+        ge.in_logic_vector.mark(false);
         ge.kill_record.reset_constructed();
 
         self.substrate.entities.insert(ge);
@@ -2011,7 +2011,7 @@ impl Simulation {
                 yard_obj.id.clone(),
                 yard_obj.deploy_facing,
                 (
-                    entity.selected,
+                    entity.selection.is_selected(),
                     entity.veterancy.clone(),
                     entity.attack_target.target(),
                 ),
@@ -2218,7 +2218,9 @@ impl Simulation {
         // slot initialization. Otherwise full-health animations consume IDs/RNG
         // here and ActuallyPlaced suppresses the real completion callback.
         converted_health.apply(&mut destination);
-        destination.selected = was_selected;
+        if was_selected {
+            destination.selection.select();
+        }
         // Construction is queued before the Unlimbo (0x007396D5), so its
         // cell-put and owner discoveries leave the yard shut while that
         // Unlimbo begins its build-up.
@@ -2458,7 +2460,7 @@ impl Simulation {
                     rx,
                     ry,
                     entity.position.z,
-                    entity.selected,
+                    entity.selection.is_selected(),
                 ))
             })
         else {
@@ -2549,7 +2551,9 @@ impl Simulation {
         self.add_unit_sensor_after_unlimbo(new_sid, rules);
         if let Some(unit) = self.substrate.entities.get_mut(new_sid) {
             converted_health.apply(unit);
-            unit.selected = was_selected;
+            if was_selected {
+                unit.selection.select();
+            }
             // The VeterancyClass (`+0x150`); the rank cache (`+0x13C`) stays
             // the unit's own.
             unit.veterancy.inherit(&veterancy);

@@ -775,7 +775,7 @@ mod tests {
             .get_mut(hornet)
             .expect("aircraft")
             .discovery
-            .owned_by_current_house = true;
+            .set_owned_by_current_house_for_test(true);
         sim.fog = crate::sim::vision::FogState::new(33, 33);
         let centre = TeamTarget::Cell { x: 12, y: 12 };
         assert!(sim.team_member_refuses_cell(hornet, centre, &rules, Some(&registry)));

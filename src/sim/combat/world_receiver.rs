@@ -556,7 +556,7 @@ pub(crate) fn commit_entities(
             .get(target_id)
             .is_some_and(|target| {
                 target.category() == EntityCategory::Unit
-                    && target.selected
+                    && target.selection.is_selected()
                     && world.session.current_house == Some(target.owner())
             })
         {

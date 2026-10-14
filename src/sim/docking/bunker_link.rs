@@ -130,7 +130,7 @@ pub fn install_bunker_link(sim: &mut Simulation, building_id: u64, unit_id: u64,
     }
     if let Some(u) = sim.substrate.entities.get_mut(unit_id) {
         u.bunker_link = BunkerLink::Installed(building_id);
-        u.selected = false;
+        u.selection.deselect();
     }
     if let Some(rt) = sim
         .substrate
@@ -699,7 +699,12 @@ mod tests {
         // Native deselection preserves this live membership.
         assert!(matches!(sim.reveal(1), RevealOutcome::Revealed { .. }));
 
-        sim.substrate.entities.get_mut(1).unwrap().selected = true;
+        sim.substrate
+            .entities
+            .get_mut(1)
+            .unwrap()
+            .selection
+            .set_selected_for_test(true);
         install_bunker_link(&mut sim, 2, 1, &rules);
 
         let bunker = sim.substrate.entities.get(2).unwrap();
@@ -708,11 +713,14 @@ mod tests {
 
         let unit = sim.substrate.entities.get(1).unwrap();
         assert_eq!(unit.bunker_link, BunkerLink::Installed(2));
-        assert!(unit.in_logic_vector, "install leaves the unit active");
+        assert!(
+            unit.in_logic_vector.is_member(),
+            "install leaves the unit active"
+        );
         assert!(unit.lifecycle.object_alive());
         assert!(!unit.lifecycle.in_limbo());
         assert!(unit.lifecycle.cell_marked);
-        assert!(!unit.selected);
+        assert!(!unit.selection.is_selected());
         assert_eq!(
             unit.mission.current(),
             MissionId::from_known(MissionType::Guard)
@@ -773,7 +781,7 @@ mod tests {
         );
         let unit = sim.substrate.entities.get(1).unwrap();
         assert_eq!(unit.bunker_link, BunkerLink::None);
-        assert!(unit.in_logic_vector, "unit revealed");
+        assert!(unit.in_logic_vector.is_member(), "unit revealed");
         assert!(unit.lifecycle.object_alive());
         assert!(!unit.lifecycle.in_limbo());
         assert!(unit.lifecycle.cell_marked);
@@ -808,7 +816,7 @@ mod tests {
         release_sell_destroy(&mut sim, 2, crate::sim::world::FrameEffects::default());
         let unit = sim.substrate.entities.get(1).unwrap();
         assert_eq!(unit.bunker_link, BunkerLink::None);
-        assert!(unit.in_logic_vector, "unit remains active");
+        assert!(unit.in_logic_vector.is_member(), "unit remains active");
         assert!(unit.lifecycle.object_alive());
         assert!(!unit.lifecycle.in_limbo());
         assert!(unit.lifecycle.cell_marked);
@@ -843,7 +851,10 @@ mod tests {
         );
         let unit = sim.substrate.entities.get(1).unwrap();
         assert_eq!(unit.bunker_link, BunkerLink::None);
-        assert!(unit.in_logic_vector, "clear preserves live membership");
+        assert!(
+            unit.in_logic_vector.is_member(),
+            "clear preserves live membership"
+        );
         assert!(unit.lifecycle.object_alive());
         assert!(!unit.lifecycle.in_limbo());
         assert!(unit.lifecycle.cell_marked);
@@ -968,7 +979,10 @@ mod tests {
         ));
         let unit = sim.substrate.entities.get(1).unwrap();
         assert_eq!(unit.bunker_link, BunkerLink::None);
-        assert!(unit.in_logic_vector, "occupant remains active after sell");
+        assert!(
+            unit.in_logic_vector.is_member(),
+            "occupant remains active after sell"
+        );
         assert_eq!((unit.position.rx, unit.position.ry), (12, 12));
         assert_eq!(
             unit.locomotor

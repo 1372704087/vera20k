@@ -2179,7 +2179,12 @@ fn native_initiate_warp_corpus() {
                 .link = Some(TemporalLink::default());
             chain(&mut sim, other, &[target], 555);
         }
-        sim.substrate.entities.get_mut(target).unwrap().selected = true;
+        sim.substrate
+            .entities
+            .get_mut(target)
+            .unwrap()
+            .selection
+            .set_selected_for_test(true);
         if flag("gattling") {
             // Spun up with its loop playing, so one decay tick shows.
             sim.substrate.entities.get_mut(target).unwrap().gattling =
@@ -2258,7 +2263,7 @@ fn native_initiate_warp_corpus() {
         );
         if input["player"].as_bool() != Some(false) {
             assert_eq!(
-                !entity(&sim, target).selected,
+                !entity(&sim, target).selection.is_selected(),
                 native("deselect"),
                 "{name}: Deselect"
             );

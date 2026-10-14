@@ -3002,7 +3002,7 @@ mod tests {
                 true,
             );
             entity.lifecycle.set_in_limbo_for_test(false);
-            entity.in_logic_vector = true;
+            entity.in_logic_vector.set_for_test(true);
             entity.on_bridge = on_bridge;
             sim.substrate.entities.insert(entity);
             sim.add_entity_occupancy(stable_id);
@@ -5398,7 +5398,7 @@ mod tests {
                 5,
                 false,
             );
-            entity.in_logic_vector = true;
+            entity.in_logic_vector.set_for_test(true);
             sim.substrate.entities.insert(entity);
             sim.substrate
                 .logic
@@ -6221,7 +6221,7 @@ mod tests {
         let mut entity = GameEntity::test_default(entity_id, "MTNK", "Americans", 5, 7);
         entity.lifecycle.set_in_limbo_for_test(false);
         entity.lifecycle.cell_marked = false;
-        entity.in_logic_vector = true;
+        entity.in_logic_vector.set_for_test(true);
         entity.position.z = 3;
         entity.position.exact_z_leptons = Some(-37);
         entity.low_bridge_tube_state = Some(LowBridgeTubeMovementState {
@@ -7492,6 +7492,7 @@ mod tests {
                 .get(entity_id)
                 .expect("entity")
                 .in_logic_vector
+                .is_member()
         );
         assert!(
             restored
@@ -8551,7 +8552,7 @@ mod tests {
         entity.lifecycle.set_object_alive_for_test(false);
         entity.lifecycle.set_in_limbo_for_test(true);
         entity.lifecycle.cell_marked = false;
-        entity.in_logic_vector = false;
+        entity.in_logic_vector.set_for_test(false);
         entity.death.set_dying_for_test(true);
         entity.removal_facts.set_dirty_rect_eligible_for_test(true);
         entity.kill_record.set_destruction_recorded_for_test(true);
@@ -8571,7 +8572,7 @@ mod tests {
         assert!(!restored_entity.lifecycle.object_alive());
         assert!(restored_entity.lifecycle.in_limbo());
         assert!(!restored_entity.lifecycle.cell_marked);
-        assert!(!restored_entity.in_logic_vector);
+        assert!(!restored_entity.in_logic_vector.is_member());
         assert!(restored_entity.death.is_dying());
         assert!(restored_entity.removal_facts.dirty_rect_eligible());
         assert!(restored_entity.kill_record.is_recorded());
@@ -8606,7 +8607,7 @@ mod tests {
         restored.rebuild_logic_membership();
 
         let member = restored.substrate.entities.get(1).expect("member restored");
-        assert!(member.in_logic_vector);
+        assert!(member.in_logic_vector.is_member());
         assert!(!member.lifecycle.in_limbo());
         assert!(!member.lifecycle.cell_marked);
 
@@ -8615,7 +8616,7 @@ mod tests {
             .entities
             .get(2)
             .expect("non-member restored");
-        assert!(!non_member.in_logic_vector);
+        assert!(!non_member.in_logic_vector.is_member());
         assert!(!non_member.lifecycle.in_limbo());
         assert!(non_member.lifecycle.cell_marked);
     }
@@ -9063,10 +9064,24 @@ mod tests {
             .entities
             .insert(GameEntity::test_default(1, "MTNK", "Americans", 5, 5));
         sim.reveal(1);
-        assert!(sim.substrate.entities.get(1).unwrap().in_logic_vector);
+        assert!(
+            sim.substrate
+                .entities
+                .get(1)
+                .unwrap()
+                .in_logic_vector
+                .is_member()
+        );
         assert_eq!(sim.live_object_order_snapshot(), vec![1]);
         sim.conceal(1);
-        assert!(!sim.substrate.entities.get(1).unwrap().in_logic_vector);
+        assert!(
+            !sim.substrate
+                .entities
+                .get(1)
+                .unwrap()
+                .in_logic_vector
+                .is_member()
+        );
         assert!(sim.live_object_order_snapshot().is_empty());
         assert!(sim.substrate.entities.get(1).is_some()); // conceal keeps the store slot
     }
@@ -9088,7 +9103,7 @@ mod tests {
         assert!(matches!(outcome, RevealOutcome::Revealed { .. }));
 
         let e = sim.substrate.entities.get(id).expect("entity in store");
-        assert!(e.in_logic_vector, "must be in the active order");
+        assert!(e.in_logic_vector.is_member(), "must be in the active order");
         assert!(!e.lifecycle.in_limbo());
         assert!(e.lifecycle.cell_marked);
         assert_eq!(sim.live_object_order_snapshot(), vec![id]);
@@ -9113,7 +9128,10 @@ mod tests {
         let id = sim.create_limbo(ge);
 
         let e = sim.substrate.entities.get(id).expect("entity in store");
-        assert!(!e.in_logic_vector, "limbo object is not an active member");
+        assert!(
+            !e.in_logic_vector.is_member(),
+            "limbo object is not an active member"
+        );
         assert!(e.lifecycle.in_limbo());
         assert!(!e.lifecycle.cell_marked);
         assert!(sim.live_object_order_snapshot().is_empty());

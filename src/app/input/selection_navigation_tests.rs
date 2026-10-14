@@ -268,7 +268,11 @@ fn veterancy_navigation_keeps_shared_snapshot_without_pointer_expiry() {
         .unwrap()
         .lifecycle
         .set_object_alive_for_test(false);
-    sim.entities_mut().get_mut(40).unwrap().selected = false;
+    sim.entities_mut()
+        .get_mut(40)
+        .unwrap()
+        .selection
+        .set_selected_for_test(false);
 
     reconcile_selection_order_for_sim(&mut input, &sim, Some(&rules));
 
@@ -363,7 +367,7 @@ fn assert_navigation_boundary(
             continue;
         };
         assert_eq!(
-            entity.selected,
+            entity.selection.is_selected(),
             actor["selected"].as_bool().unwrap(),
             "{label}: committed bit{id}"
         );
@@ -811,7 +815,9 @@ fn replay_category_history(
                         "limbo" => entity
                             .lifecycle
                             .set_in_limbo_for_test(value.as_bool().unwrap()),
-                        "selected" => entity.selected = value.as_bool().unwrap(),
+                        "selected" => entity
+                            .selection
+                            .set_selected_for_test(value.as_bool().unwrap()),
                         "health" => entity.health.set_for_test(value.as_i64().unwrap() as i32),
                         other => panic!("unsupported declared actor-state writer {other}"),
                     }
@@ -885,10 +891,15 @@ fn replay_category_history(
                 input.follow_target = serde_json::from_value(step["follow"].clone()).unwrap();
                 input.type_select = boundary_mode(step);
                 for actor in &history.inputs.actors {
-                    sim.entities_mut().get_mut(actor.id).unwrap().selected = step["selected_flags"]
-                        [actor.id.to_string()]
-                    .as_bool()
-                    .unwrap();
+                    sim.entities_mut()
+                        .get_mut(actor.id)
+                        .unwrap()
+                        .selection
+                        .set_selected_for_test(
+                            step["selected_flags"][actor.id.to_string()]
+                                .as_bool()
+                                .unwrap(),
+                        );
                 }
                 for draw in step["main_draws"].as_array().unwrap() {
                     assert_eq!(
@@ -1125,7 +1136,9 @@ fn combatant_native_cleanup_boundaries_reconcile_without_resetting_map_scope() {
                 entity
                     .lifecycle
                     .set_in_limbo_for_test(boundary["limbo"].as_bool().unwrap());
-                entity.selected = boundary["selected"].as_bool().unwrap();
+                entity
+                    .selection
+                    .set_selected_for_test(boundary["selected"].as_bool().unwrap());
             }
             // A consumed input can leave a different committed selection
             // after lifecycle/refusal. Matching selected bits alone must not
@@ -1522,7 +1535,11 @@ fn combatant_histories_match_native_membership_scope_follow_and_voice_continuati
             ));
             for actor in &history.inputs.actors {
                 assert_eq!(
-                    sim.entities().get(actor.id).unwrap().selected,
+                    sim.entities()
+                        .get(actor.id)
+                        .unwrap()
+                        .selection
+                        .is_selected(),
                     step["selected_flags"][actor.id.to_string()]
                         .as_bool()
                         .unwrap(),
@@ -1795,8 +1812,12 @@ fn fixture(inputs: &Inputs, selected: &[u64]) -> (Simulation, RuleSet) {
         entity.lifecycle.set_object_alive_for_test(actor.alive);
         entity.lifecycle.set_in_limbo_for_test(actor.limbo);
         entity.in_playfield = actor.in_playfield;
-        entity.discovery.discovered_by_current_house = actor.discovered;
-        entity.selected = selected.contains(&actor.id);
+        entity
+            .discovery
+            .set_discovered_by_current_house_for_test(actor.discovered);
+        entity
+            .selection
+            .set_selected_for_test(selected.contains(&actor.id));
         if let Some(bits) = actor.veterancy_raw_bits {
             entity
                 .veterancy
@@ -2084,7 +2105,11 @@ fn execute_histories_match_selection_follow_modes_placement_and_camera() {
                     actor.id
                 );
                 assert_eq!(
-                    sim.entities().get(actor.id).unwrap().selected,
+                    sim.entities()
+                        .get(actor.id)
+                        .unwrap()
+                        .selection
+                        .is_selected(),
                     row.selected.contains(&actor.id),
                     "{} step {index}: sim must remain uncommitted",
                     row.id
@@ -2105,7 +2130,11 @@ fn execute_histories_match_selection_follow_modes_placement_and_camera() {
         let expected = row.steps.last().unwrap();
         for actor in &row.inputs.actors {
             assert_eq!(
-                sim.entities().get(actor.id).unwrap().selected,
+                sim.entities()
+                    .get(actor.id)
+                    .unwrap()
+                    .selection
+                    .is_selected(),
                 expected.selected_flags[&actor.id.to_string()],
                 "{}: committed bit for {}",
                 row.id,
@@ -2208,7 +2237,12 @@ fn snapshot_restores_singleton_anchor_and_retained_layer_order_for_next_key() {
     }
     for actor in &row.inputs.actors {
         assert_eq!(
-            restored.entities().get(actor.id).unwrap().selected,
+            restored
+                .entities()
+                .get(actor.id)
+                .unwrap()
+                .selection
+                .is_selected(),
             row.steps[0].selected_flags[&actor.id.to_string()]
         );
     }

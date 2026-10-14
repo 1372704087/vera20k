@@ -259,7 +259,9 @@ fn simulation_fixture_for_type(
     );
     entity.set_type_ref_for_test(sim.interner.intern(type_name));
     entity.set_owner_for_test(sim.interner.intern(owner));
-    entity.selected = input["selected"].as_bool().unwrap_or(true);
+    entity
+        .selection
+        .set_selected_for_test(input["selected"].as_bool().unwrap_or(true));
     entity
         .lifecycle
         .set_object_alive_for_test(input["alive"].as_bool().unwrap_or(true));
@@ -802,7 +804,7 @@ fn production_rally_workload_timing() {
             template.set_category_for_test(EntityCategory::Unit);
             template.set_type_ref_for_test(sim.interner.intern("MTNK"));
         }
-        template.selected = !pending;
+        template.selection.set_selected_for_test(!pending);
         let ledger: Vec<_> = (10..10 + count as u64).collect();
         for &id in &ledger {
             let mut entity = template.clone();
@@ -889,7 +891,7 @@ fn production_rally_workload_timing() {
         for id in 1..=count as u64 {
             let mut entity = template.clone();
             entity.set_stable_id_for_test(id);
-            entity.selected = selected;
+            entity.selection.set_selected_for_test(selected);
             ground_pose::put_location(
                 &mut entity.position,
                 DriveCoord {

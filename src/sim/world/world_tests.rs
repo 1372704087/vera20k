@@ -100,7 +100,7 @@ fn combatant_selection_ingress_precedes_destroy_and_is_not_replayed_at_tail() {
     infantry.set_category_for_test(EntityCategory::Infantry);
     infantry.lifecycle.set_object_alive_for_test(true);
     infantry.lifecycle.set_in_limbo_for_test(false);
-    infantry.selected = false;
+    infantry.selection.set_selected_for_test(false);
     sim.substrate.entities.insert(infantry);
     let commands = [CommandEnvelope::new(
         owner,
@@ -117,7 +117,7 @@ fn combatant_selection_ingress_precedes_destroy_and_is_not_replayed_at_tail() {
         1,
         crate::sim::world::FrameEffects::default(),
     );
-    let selected_before_logic = sim.entities().get(1).unwrap().selected;
+    let selected_before_logic = sim.entities().get(1).unwrap().selection.is_selected();
     sim.substrate
         .entities
         .get_mut(1)
@@ -125,7 +125,7 @@ fn combatant_selection_ingress_precedes_destroy_and_is_not_replayed_at_tail() {
         .health
         .set_for_test(0);
     sim.object_destroy_callback(1, UninitContext::default());
-    assert!(!sim.entities().get(1).unwrap().selected);
+    assert!(!sim.entities().get(1).unwrap().selection.is_selected());
     let (tail_count, spawned) = sim.apply_due_commands(
         &commands,
         None,
@@ -135,7 +135,7 @@ fn combatant_selection_ingress_precedes_destroy_and_is_not_replayed_at_tail() {
     );
 
     assert!(
-        !sim.entities().get(1).unwrap().selected,
+        !sim.entities().get(1).unwrap().selection.is_selected(),
         "an earlier selection must not undo same-frame Destroy/Deselect"
     );
     assert!(selected_before_logic, "local Select commits before Logic");
@@ -145,7 +145,7 @@ fn combatant_selection_ingress_precedes_destroy_and_is_not_replayed_at_tail() {
     // A distinct later real P remains admitted, as the executed native
     // infantry_health_zero_alive_true control pins. Do not add a health gate.
     assert!(sim.try_select_object(1, None));
-    assert!(sim.entities().get(1).unwrap().selected);
+    assert!(sim.entities().get(1).unwrap().selection.is_selected());
 }
 
 #[test]
@@ -2119,7 +2119,7 @@ fn gsi_04_07_damage_fatal_transport_lifecycle_brackets_nested_death_weapon() {
         let entity = fatal.substrate.entities.get(id).unwrap();
         assert_eq!(entity.health.current(), 0);
         assert!(!entity.lifecycle.object_alive());
-        assert!(!entity.in_logic_vector);
+        assert!(!entity.in_logic_vector.is_member());
     }
     let listener = fatal.substrate.entities.get(30).unwrap();
     assert_eq!(
@@ -2480,13 +2480,27 @@ fn unregister_live_object_clears_flag_when_vector_entry_is_missing() {
     sim.substrate.entities.insert(entity);
     sim.reveal(10);
     sim.substrate.logic.set_order_for_test(Vec::new());
-    assert!(sim.substrate.entities.get(10).unwrap().in_logic_vector);
+    assert!(
+        sim.substrate
+            .entities
+            .get(10)
+            .unwrap()
+            .in_logic_vector
+            .is_member()
+    );
 
     sim.unregister_live_object(10);
 
     sim.debug_assert_logic_membership_consistent();
     assert!(sim.live_object_order_snapshot().is_empty());
-    assert!(!sim.substrate.entities.get(10).unwrap().in_logic_vector);
+    assert!(
+        !sim.substrate
+            .entities
+            .get(10)
+            .unwrap()
+            .in_logic_vector
+            .is_member()
+    );
 }
 
 /// A house whose tracked buildings and on-map units stand for objects the
@@ -6244,8 +6258,18 @@ fn test_select_command_applies_snapshot_selection() {
     );
     let _ = sim.advance_tick(&[select], None, None, None, 33);
 
-    assert!(!sim.substrate.entities.get(1).is_some_and(|e| e.selected));
-    assert!(sim.substrate.entities.get(2).is_some_and(|e| e.selected));
+    assert!(
+        !sim.substrate
+            .entities
+            .get(1)
+            .is_some_and(|e| e.selection.is_selected())
+    );
+    assert!(
+        sim.substrate
+            .entities
+            .get(2)
+            .is_some_and(|e| e.selection.is_selected())
+    );
 }
 
 #[test]
@@ -6281,8 +6305,18 @@ fn test_select_command_replaces_previous_selection() {
     );
     let _ = sim.advance_tick(&[cmd2], None, None, None, 33);
 
-    assert!(!sim.substrate.entities.get(1).is_some_and(|e| e.selected));
-    assert!(sim.substrate.entities.get(2).is_some_and(|e| e.selected));
+    assert!(
+        !sim.substrate
+            .entities
+            .get(1)
+            .is_some_and(|e| e.selection.is_selected())
+    );
+    assert!(
+        sim.substrate
+            .entities
+            .get(2)
+            .is_some_and(|e| e.selection.is_selected())
+    );
 }
 
 #[test]
@@ -6307,8 +6341,18 @@ fn test_select_command_deduplicates_without_reordering_payload() {
     );
     let _ = sim.advance_tick(&[select], None, None, None, 33);
 
-    assert!(sim.substrate.entities.get(1).is_some_and(|e| e.selected));
-    assert!(sim.substrate.entities.get(2).is_some_and(|e| e.selected));
+    assert!(
+        sim.substrate
+            .entities
+            .get(1)
+            .is_some_and(|e| e.selection.is_selected())
+    );
+    assert!(
+        sim.substrate
+            .entities
+            .get(2)
+            .is_some_and(|e| e.selection.is_selected())
+    );
 }
 
 /// One ordinary type plus one carrying `Selectable=no` — the flag stock puts on
@@ -6349,12 +6393,17 @@ fn test_select_command_rejects_selectable_no_type() {
     );
     let _ = sim.advance_tick(&[select], Some(&rules), None, None, 33);
 
-    assert!(sim.substrate.entities.get(tank).is_some_and(|e| e.selected));
+    assert!(
+        sim.substrate
+            .entities
+            .get(tank)
+            .is_some_and(|e| e.selection.is_selected())
+    );
     assert!(
         !sim.substrate
             .entities
             .get(unselectable)
-            .is_some_and(|e| e.selected),
+            .is_some_and(|e| e.selection.is_selected()),
         "a Selectable=no object must never join the selection"
     );
 }
@@ -6394,12 +6443,17 @@ fn item83_final_select_allows_caller_admitted_nonlocal_entity() {
     );
     let _ = sim.advance_tick(&[select], Some(&rules), None, None, 33);
 
-    assert!(sim.substrate.entities.get(mine).is_some_and(|e| e.selected));
+    assert!(
+        sim.substrate
+            .entities
+            .get(mine)
+            .is_some_and(|e| e.selection.is_selected())
+    );
     assert!(
         sim.substrate
             .entities
             .get(theirs)
-            .is_some_and(|e| e.selected)
+            .is_some_and(|e| e.selection.is_selected())
     );
 }
 
@@ -6428,7 +6482,7 @@ fn test_select_command_rejects_limbo_object() {
         !sim.substrate
             .entities
             .get(cargo)
-            .is_some_and(|e| e.selected),
+            .is_some_and(|e| e.selection.is_selected()),
         "an in-limbo object has no map presence to select"
     );
 }
@@ -6449,7 +6503,12 @@ fn item83_fresh_selection_rejects_warp_out_but_keeps_preexisting_selection() {
         crate::sim::temporal::TemporalState::warped_by_for_test(wingman);
 
     assert!(
-        sim.substrate.entities.get(tank).unwrap().selected,
+        sim.substrate
+            .entities
+            .get(tank)
+            .unwrap()
+            .selection
+            .is_selected(),
         "entering warp-out does not retroactively remove an existing selection"
     );
     assert!(sim.apply_command(
@@ -6460,8 +6519,22 @@ fn item83_fresh_selection_rejects_warp_out_but_keeps_preexisting_selection() {
         },
         Some(&rules),
     ));
-    assert!(sim.substrate.entities.get(tank).unwrap().selected);
-    assert!(sim.substrate.entities.get(wingman).unwrap().selected);
+    assert!(
+        sim.substrate
+            .entities
+            .get(tank)
+            .unwrap()
+            .selection
+            .is_selected()
+    );
+    assert!(
+        sim.substrate
+            .entities
+            .get(wingman)
+            .unwrap()
+            .selection
+            .is_selected()
+    );
 
     assert!(sim.apply_command(
         "Americans",
@@ -6472,7 +6545,12 @@ fn item83_fresh_selection_rejects_warp_out_but_keeps_preexisting_selection() {
         Some(&rules),
     ));
     assert!(
-        !sim.substrate.entities.get(tank).unwrap().selected,
+        !sim.substrate
+            .entities
+            .get(tank)
+            .unwrap()
+            .selection
+            .is_selected(),
         "an ordinary replacement still deselects an omitted warp-out member"
     );
     assert!(!sim.try_select_object(tank, Some(&rules)));
@@ -6491,7 +6569,12 @@ fn test_try_select_object_rejects_an_already_selected_object() {
         !sim.try_select_object(tank, Some(&rules)),
         "the selection group holds no duplicates"
     );
-    assert!(sim.substrate.entities.get(tank).is_some_and(|e| e.selected));
+    assert!(
+        sim.substrate
+            .entities
+            .get(tank)
+            .is_some_and(|e| e.selection.is_selected())
+    );
 }
 
 #[test]
@@ -6503,7 +6586,7 @@ fn test_deploy_mcv_replaces_vehicle_with_conyard() {
         .spawn_object("AMCV", "Americans", 20, 22, 128, &rules)
         .expect("spawn MCV");
     if let Some(e) = sim.substrate.entities.get_mut(mcv) {
-        e.selected = true;
+        e.selection.set_selected_for_test(true);
     }
 
     let cmd = cmd_envelope(&sim, "Americans", 1, Command::DeployMcv { entity_id: mcv });
@@ -8266,7 +8349,7 @@ fn test_undeploy_conyard_spawns_mcv() {
         .spawn_object("AMCV", "Americans", 20, 22, 128, &rules)
         .expect("spawn MCV");
     if let Some(e) = sim.substrate.entities.get_mut(mcv) {
-        e.selected = true;
+        e.selection.set_selected_for_test(true);
     }
     let deploy_cmd = cmd_envelope(&sim, "Americans", 1, Command::DeployMcv { entity_id: mcv });
     let _ = sim.advance_tick(&[deploy_cmd], Some(&rules), None, None, 33);
@@ -8284,7 +8367,7 @@ fn test_undeploy_conyard_spawns_mcv() {
     // Clear building_up so we can undeploy (can't undeploy during construction).
     if let Some(e) = sim.substrate.entities.get_mut(yard_id) {
         e.finish_building_construction_for_test();
-        e.selected = true;
+        e.selection.set_selected_for_test(true);
     }
 
     // Undeploy the ConYard: Sell's stage 0 and stage 1 visits, then the
@@ -8332,7 +8415,7 @@ fn test_undeploy_conyard_spawns_mcv() {
         .entities
         .values()
         .filter(|e| e.type_ref() == amcv_id)
-        .map(|e| (e.position.rx, e.position.ry, e.selected))
+        .map(|e| (e.position.rx, e.position.ry, e.selection.is_selected()))
         .collect();
     assert_eq!(mcvs.len(), 1, "Exactly one MCV should exist after undeploy");
     let (rx, ry, selected) = mcvs[0];
@@ -11076,7 +11159,10 @@ fn current_rust_frame_call_order_is_preserved() {
     assert!(output.tick.frame_committed);
     assert_eq!(sim.session.tick, tick_before + 1);
     assert!(
-        sim.substrate.entities.get(1).is_some_and(|e| e.selected),
+        sim.substrate
+            .entities
+            .get(1)
+            .is_some_and(|e| e.selection.is_selected()),
         "a due command executes in the frame that drained it"
     );
     // Once-per-pass drain: nothing left for a second consumer.
@@ -11132,7 +11218,7 @@ fn runtime_frame_call_order_matches_the_app_seam() {
             .substrate
             .entities
             .get(1)
-            .is_some_and(|e| e.selected),
+            .is_some_and(|e| e.selection.is_selected()),
         "a due command executes in the runtime frame that drained it"
     );
     assert!(runtime.simulation.take_due_commands().is_empty());
@@ -11577,7 +11663,7 @@ fn a_group_spread_keeps_aircraft_out_of_shrouded_cells() {
             .expect("Harrier spawns");
         for id in [west, east] {
             let harrier = sim.substrate.entities.get_mut(id).unwrap();
-            harrier.discovery.owned_by_current_house = true;
+            harrier.discovery.set_owned_by_current_house_for_test(true);
         }
         let owner = sim.interner.intern("Americans");
         sim.fog = crate::sim::vision::FogState::new(32, 32);

@@ -443,7 +443,10 @@ fn fatal_coil_bolt_releases_navigation_before_the_next_logic_reader() {
         !victim.lifecycle.cell_marked,
         "fatal receiver already unmarked"
     );
-    assert!(!victim.in_logic_vector, "fatal receiver already left Logic");
+    assert!(
+        !victim.in_logic_vector.is_member(),
+        "fatal receiver already left Logic"
+    );
     for &(x, y) in &cells {
         assert!(
             sim.path_grid().unwrap().is_walkable(x, y),

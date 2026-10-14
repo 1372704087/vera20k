@@ -1134,7 +1134,7 @@ fn a_killing_hit_lets_the_passengers_out() {
             assert!(passenger.passenger_role.is_none());
             assert_eq!((passenger.position.rx, passenger.position.ry), (10, 10));
             assert_eq!(passenger.kill_record.killer(), None);
-            assert!(!passenger.selected);
+            assert!(!passenger.selection.is_selected());
             assert_eq!(queued(&sim, id), mission, "{owner}");
             assert!(!sim.substrate.pending_delete.contains_object(&id));
         }
@@ -1279,13 +1279,26 @@ fn a_selected_vehicle_selects_its_escapees_and_crewman() {
             let mcv = spawn(&mut sim, &rules, "AMCV", "AlliedHuman", 20, 10);
             let passengers = load_passengers(&mut sim, &rules, apc, "AlliedHuman", 2);
             for id in [apc, mcv] {
-                sim.substrate.entities.get_mut(id).unwrap().selected = selected;
+                sim.substrate
+                    .entities
+                    .get_mut(id)
+                    .unwrap()
+                    .selection
+                    .set_selected_for_test(selected);
             }
             kill(&mut sim, &rules, apc, ORDINARY);
             let before = sim.substrate.entities.keys_sorted();
             kill(&mut sim, &rules, mcv, ORDINARY);
             for id in passengers.into_iter().chain(new_ids(&sim, &before)) {
-                assert_eq!(sim.substrate.entities.get(id).unwrap().selected, selected);
+                assert_eq!(
+                    sim.substrate
+                        .entities
+                        .get(id)
+                        .unwrap()
+                        .selection
+                        .is_selected(),
+                    selected
+                );
             }
             crewmen += new_ids(&sim, &before).len();
         }
@@ -1304,12 +1317,17 @@ fn a_selected_foreign_vehicle_selects_nothing() {
     sim.session.current_house = Some(player);
     let apc = spawn(&mut sim, &rules, "APC", "Americans", 10, 10);
     let passengers = load_passengers(&mut sim, &rules, apc, "Americans", 2);
-    sim.substrate.entities.get_mut(apc).unwrap().selected = true;
+    sim.substrate
+        .entities
+        .get_mut(apc)
+        .unwrap()
+        .selection
+        .set_selected_for_test(true);
     kill(&mut sim, &rules, apc, ORDINARY);
     for id in passengers {
         let passenger = sim.substrate.entities.get(id).unwrap();
         assert!(passenger.lifecycle.object_alive() && !passenger.lifecycle.in_limbo());
-        assert!(!passenger.selected);
+        assert!(!passenger.selection.is_selected());
     }
 }
 

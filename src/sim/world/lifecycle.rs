@@ -121,6 +121,79 @@ impl RemovalFacts {
     }
 }
 
+/// Client-relative Techno discovery history, native +41A/+41B/+41C.
+/// Constructor6F2FB5..6F2FC1 clears all three; InitManagers6F3F40 and
+/// ChangeOwner70173B classify only the current owner. Discovery6F4960 and
+/// Conceal6F4A40 own the two retained observations. Infantry raw Save/Load
+/// preserves the bytes: never reconstruct them from the restored owner.
+/// Native peer CRC64DAB0 omits them; this is also omitted from the shared
+/// Rust peer hash. The separate diagnostic CRC70C270 is not that checksum.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub(crate) struct TechnoDiscoveryHistory {
+    /// `+0x41A`: the current house owns the object.
+    owned_by_current_house: bool,
+    /// `+0x41B`: the current house has discovered it.
+    discovered_by_current_house: bool,
+    /// `+0x41C`: a single historical byte for all other receiver houses, not
+    /// a house set.
+    discovered_by_other_house: bool,
+}
+
+impl TechnoDiscoveryHistory {
+    /// `+0x41A`.
+    pub(crate) const fn owned_by_current_house(self) -> bool {
+        self.owned_by_current_house
+    }
+
+    /// `+0x41B`.
+    pub(crate) const fn discovered_by_current_house(self) -> bool {
+        self.discovered_by_current_house
+    }
+
+    /// `+0x41C`.
+    pub(crate) const fn discovered_by_other_house(self) -> bool {
+        self.discovered_by_other_house
+    }
+
+    /// InitManagers (`0x006F3F40`) and ChangeOwner (`0x0070173B..0x00701751`)
+    /// classify only the owner byte.
+    pub(crate) fn classify_owner(&mut self, owned_by_current_house: bool) {
+        self.owned_by_current_house = owned_by_current_house;
+    }
+
+    /// Install a fixture's owner byte.
+    #[cfg(test)]
+    pub(crate) fn set_owned_by_current_house_for_test(&mut self, owned: bool) {
+        self.owned_by_current_house = owned;
+    }
+
+    /// Install a fixture's current-house discovered byte.
+    #[cfg(test)]
+    pub(crate) fn set_discovered_by_current_house_for_test(&mut self, discovered: bool) {
+        self.discovered_by_current_house = discovered;
+    }
+
+    /// Install a fixture's other-house discovered byte.
+    #[cfg(test)]
+    pub(crate) fn set_discovered_by_other_house_for_test(&mut self, discovered: bool) {
+        self.discovered_by_other_house = discovered;
+    }
+
+    /// A fixture's three bytes.
+    #[cfg(test)]
+    pub(crate) fn for_test(
+        owned_by_current_house: bool,
+        discovered_by_current_house: bool,
+        discovered_by_other_house: bool,
+    ) -> Self {
+        Self {
+            owned_by_current_house,
+            discovered_by_current_house,
+            discovered_by_other_house,
+        }
+    }
+}
+
 /// Independent ObjectClass lifecycle facts.
 ///
 /// These bytes deliberately do not derive from health, store presence, cell
@@ -2545,7 +2618,7 @@ impl Simulation {
                 .substrate
                 .entities
                 .get(stable_id)
-                .is_some_and(|entity| entity.in_logic_vector),
+                .is_some_and(|entity| entity.in_logic_vector.is_member()),
         }
     }
 
@@ -2587,7 +2660,7 @@ impl Simulation {
             }
             ObjectKind::Entity => {
                 if let Some(entity) = self.substrate.entities.get_mut(stable_id) {
-                    entity.in_logic_vector = member;
+                    entity.in_logic_vector.mark(member);
                 }
             }
         }
@@ -2857,7 +2930,7 @@ impl Simulation {
         }
 
         if let Some(entity) = self.substrate.entities.get_mut(stable_id) {
-            entity.selected = false;
+            entity.selection.deselect();
         }
         #[cfg(test)]
         self.trace_lifecycle_for_test(LifecycleTestEvent::ConcealDeselected);
@@ -3383,7 +3456,7 @@ impl Simulation {
         self.trace_lifecycle_for_test(LifecycleTestEvent::DestroyRadioBreakCompleted { stable_id });
 
         if let Some(target) = self.substrate.entities.get_mut(stable_id) {
-            target.selected = false;
+            target.selection.deselect();
         }
         #[cfg(test)]
         self.trace_lifecycle_for_test(LifecycleTestEvent::DestroyDeselected { stable_id });
@@ -3584,7 +3657,7 @@ impl Simulation {
             });
         if lifted {
             if let Some(entity) = self.substrate.entities.get_mut(stable_id) {
-                entity.selected = false;
+                entity.selection.deselect();
             }
             return;
         }
@@ -3610,7 +3683,7 @@ impl Simulation {
             self.object_destroy_callback(stable_id, context);
         }
         if let Some(entity) = self.substrate.entities.get_mut(stable_id) {
-            entity.selected = false;
+            entity.selection.deselect();
         }
     }
 

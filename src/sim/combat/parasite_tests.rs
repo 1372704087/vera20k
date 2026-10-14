@@ -893,7 +893,14 @@ fn the_reselect_memo_stays_out_of_the_peer_hash() {
         let dog = arena.spawn(&rules, "DOG", "Russians", (10, 10));
         let gi = arena.spawn(&rules, "E1", "Americans", (11, 10));
         arena.sim.session.current_house = Some(arena.sim.interner.intern(local));
-        arena.sim.substrate.entities.get_mut(dog).unwrap().selected = selected;
+        arena
+            .sim
+            .substrate
+            .entities
+            .get_mut(dog)
+            .unwrap()
+            .selection
+            .set_selected_for_test(selected);
         arena.attack(dog, gi);
         arena.until(&rules, 100, |sim| {
             sim.substrate

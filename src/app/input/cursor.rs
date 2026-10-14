@@ -1564,7 +1564,7 @@ mod tests {
 
         // 4. Mark the SEAL as selected (mirrors clicking it in-game).
         if let Some(e) = sim.entities_mut().get_mut(seal_id) {
-            e.selected = true;
+            e.selection.set_selected_for_test(true);
         }
 
         // 5. Construct the hover descriptor the runtime would build when
@@ -1621,7 +1621,7 @@ mod tests {
             .expect("Refinery spawned");
 
         if let Some(e) = sim.entities_mut().get_mut(miner_id) {
-            e.selected = true;
+            e.selection.set_selected_for_test(true);
         }
 
         let hover = HoverTargetKindWithId {
@@ -2196,7 +2196,7 @@ Verses=100%,100%,100%,100%,100%,100%,100%,100%,100%,100%,100%
             let occupant = sim.entities().get(gi).unwrap();
             assert!(occupant.lifecycle.in_limbo());
             assert!(!occupant.lifecycle.cell_marked);
-            assert!(!occupant.in_logic_vector);
+            assert!(!occupant.in_logic_vector.is_member());
             assert!(!sim.live_object_order_snapshot().contains(&gi));
             assert_eq!(
                 occupant.passenger_role.inside_transport(),
@@ -2245,7 +2245,7 @@ Verses=100%,100%,100%,100%,100%,100%,100%,100%,100%,100%,100%
                     actor.ai_frozen(),
                     actor.lifecycle.object_alive(),
                     actor.lifecycle.in_limbo(),
-                    actor.in_logic_vector,
+                    actor.in_logic_vector.is_member(),
                     actor.health.current(),
                     sim.building_operational_state(house, &rules),
                 )

@@ -278,21 +278,6 @@ pub struct StructureUpgradeLink {
     pub slot: u8,
 }
 
-/// Client-relative Techno discovery history, native +41A/+41B/+41C.
-/// Constructor6F2FB5..6F2FC1 clears all three; InitManagers6F3F40 and
-/// ChangeOwner70173B classify only the current owner. Discovery6F4960 and
-/// Conceal6F4A40 own the two retained observations. Infantry raw Save/Load
-/// preserves the bytes: never reconstruct them from the restored owner.
-/// Native peer CRC64DAB0 omits them; this is also omitted from the shared
-/// Rust peer hash. The separate diagnostic CRC70C270 is not that checksum.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-pub struct TechnoDiscoveryHistory {
-    pub owned_by_current_house: bool,
-    pub discovered_by_current_house: bool,
-    /// A single historical byte for all other receiver houses, not a house set.
-    pub discovered_by_other_house: bool,
-}
-
 /// Every game object (unit, infantry, building, aircraft) is one `GameEntity`.
 /// Core fields are always present; optional subsystems use `Option<T>`. A
 /// mechanism's own state is a record its module defines and alone writes
@@ -325,7 +310,11 @@ pub struct GameEntity {
     /// One native Techno stage clock. Class receivers mutate through this
     /// owner; animation, miner and buildup components carry no competing copy.
     stage: crate::sim::stage::StageClass,
-    pub discovery: TechnoDiscoveryHistory,
+    /// The client-relative discovery bytes (`+0x41A..+0x41C`), a
+    /// [`TechnoDiscoveryHistory`] that `world::lifecycle` owns.
+    ///
+    /// [`TechnoDiscoveryHistory`]: crate::sim::world::TechnoDiscoveryHistory
+    pub(crate) discovery: crate::sim::world::TechnoDiscoveryHistory,
     /// Authored structure-upgrade identity. `None` for ordinary Technos.
     pub structure_upgrade_link: Option<StructureUpgradeLink>,
     /// World position in isometric cell coordinates + cached screen position.
@@ -426,12 +415,11 @@ pub struct GameEntity {
     is_voxel: bool,
 
     // --- Bool markers (were zero-size ECS components) ---
-    /// Committed ObjectClass selection membership in simulation state.
-    /// `Command::Select` updates it through `apply_selection_snapshot`; lifecycle,
-    /// transport and combat paths also clear or restore it. Combat reads it for
-    /// selected-unit effects and parasite reselect. The app keeps input order and
-    /// pending commands separately, then reconciles that ledger after the frame.
-    pub selected: bool,
+    /// IsSelected (`ObjectClass+0x83`), a [`Selection`] that `sim::selection`
+    /// owns.
+    ///
+    /// [`Selection`]: crate::sim::selection::Selection
+    pub(crate) selection: crate::sim::selection::Selection,
     /// Offline for want of a powering building (`TechnoClass+0x1C8`), a
     /// [`Deactivation`] that `sim::powered_unit` owns.
     ///
@@ -443,12 +431,13 @@ pub struct GameEntity {
     ///
     /// [`RepairByte`]: crate::sim::production::RepairByte
     pub(crate) repairing: crate::sim::production::RepairByte,
-    /// LogicClass active-vector membership — mirrors gamemd ObjectClass+0x98.
-    /// True iff this entity is currently in `Simulation::logic`. Not serialized:
-    /// Rust snapshots rebuild it from the serialized LogicVector order. Exact
-    /// native save/load reconstruction remains unverified.
+    /// IsInLogic (`ObjectClass+0x98`), a [`LogicMembership`] that
+    /// `world::logic_vector` owns. Not saved: a load rebuilds it from the saved
+    /// vector order.
+    ///
+    /// [`LogicMembership`]: crate::sim::world::LogicMembership
     #[serde(skip)]
-    pub in_logic_vector: bool,
+    pub(crate) in_logic_vector: crate::sim::world::LogicMembership,
     /// Independent, serialized ObjectClass lifecycle facts, an
     /// [`ObjectLifecycle`] that `world::lifecycle` owns.
     #[serde(default)]
@@ -1040,7 +1029,7 @@ impl GameEntity {
             cloaking_stages,
             invisible,
             self.category == EntityCategory::Structure,
-            self.discovery.owned_by_current_house,
+            self.discovery.owned_by_current_house(),
             true,
             query,
         )
@@ -1501,7 +1490,7 @@ impl GameEntity {
             native_cloak_displacement: crate::util::native_x87::NativeF32Bits::POSITIVE_ZERO,
             techno_ctor_random_word,
             stage: crate::sim::stage::StageClass::constructed(construction_frame as i32),
-            discovery: TechnoDiscoveryHistory::default(),
+            discovery: Default::default(),
             structure_upgrade_link: None,
             position: Position {
                 rx,
@@ -1535,10 +1524,10 @@ impl GameEntity {
             ),
             gap_generator: crate::sim::vision::GapGeneratorRuntime::default(),
             is_voxel,
-            selected: false,
+            selection: Default::default(),
             deactivated: Default::default(),
             repairing: Default::default(),
-            in_logic_vector: false,
+            in_logic_vector: Default::default(),
             lifecycle: ObjectLifecycle::default(),
             in_playfield: false,
             mission_only: false,
@@ -2045,7 +2034,9 @@ mod tests {
             cloak.state = row["state"].as_i64().unwrap() as i32;
             cloak.depth = row["depth"].as_i64().unwrap() as u32;
             entity.cloak = Some(cloak);
-            entity.discovery.owned_by_current_house = row["owned"].as_bool().unwrap();
+            entity
+                .discovery
+                .set_owned_by_current_house_for_test(row["owned"].as_bool().unwrap());
             let query = if row["force"].as_bool().unwrap() {
                 crate::sim::cloak_disguise::VisualCharacterQuery::sensor(false, false, false)
             } else {
@@ -2107,7 +2098,7 @@ mod tests {
         assert_eq!(e.veterancy.rank(), 0);
         assert_eq!(e.sight.range(), 5);
         assert!(e.is_voxel);
-        assert!(!e.selected);
+        assert!(!e.selection.is_selected());
         assert!(!e.repairing.is_on());
         assert!(e.locomotor.is_none());
         assert!(e.attack_target.target().is_none());
@@ -2183,7 +2174,7 @@ mod lifecycle_tests {
     fn lifecycle_authority_state_axes_are_independent() {
         let mut e = GameEntity::test_default(1, "E1", "Americans", 3, 3);
         assert_eq!(e.lifecycle, ObjectLifecycle::default());
-        assert!(!e.in_logic_vector);
+        assert!(!e.in_logic_vector.is_member());
         assert!(!e.removal_facts.dirty_rect_eligible());
         assert!(!e.kill_record.is_recorded());
 
@@ -2192,7 +2183,7 @@ mod lifecycle_tests {
             e.lifecycle.set_object_alive_for_test(bits & 0b00_0001 != 0);
             e.lifecycle.set_in_limbo_for_test(bits & 0b00_0010 != 0);
             e.lifecycle.cell_marked = bits & 0b00_0100 != 0;
-            e.in_logic_vector = bits & 0b00_1000 != 0;
+            e.in_logic_vector.set_for_test(bits & 0b00_1000 != 0);
             e.death.set_dying_for_test(bits & 0b01_0000 != 0);
             e.health
                 .set_for_test(if bits & 0b10_0000 != 0 { 1 } else { 0 });
@@ -2200,7 +2191,7 @@ mod lifecycle_tests {
             assert_eq!(e.is_object_alive(), bits & 0b00_0001 != 0);
             assert_eq!(e.lifecycle.in_limbo(), bits & 0b00_0010 != 0);
             assert_eq!(e.lifecycle.cell_marked, bits & 0b00_0100 != 0);
-            assert_eq!(e.in_logic_vector, bits & 0b00_1000 != 0);
+            assert_eq!(e.in_logic_vector.is_member(), bits & 0b00_1000 != 0);
             assert_eq!(e.death.is_dying(), bits & 0b01_0000 != 0);
             assert_eq!(e.is_alive(), bits & 0b10_0000 != 0);
             assert_eq!(

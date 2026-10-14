@@ -901,7 +901,7 @@ pub(crate) mod tests {
             assert!(!pax.death.is_dying());
             assert!(!pax.lifecycle.in_limbo());
             assert!(pax.lifecycle.cell_marked);
-            assert!(pax.in_logic_vector);
+            assert!(pax.in_logic_vector.is_member());
         }
 
         let occupancy_ids: Vec<u64> = sim

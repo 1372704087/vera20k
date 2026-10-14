@@ -100,7 +100,7 @@ fn constructed_depot_waiters_take_the_freed_slot_in_live_logic_order() {
             }
         }
         let building = sim.substrate.entities.get(depot).unwrap();
-        assert!(building.lifecycle.cell_marked && building.in_logic_vector);
+        assert!(building.lifecycle.cell_marked && building.in_logic_vector.is_member());
         // Constructors register the starting tanks before the later depot.
         // The second case explicitly changes only the prepared Logic order,
         // proving that stable IDs/storage order do not decide admission.

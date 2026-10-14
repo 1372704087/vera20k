@@ -3008,7 +3008,7 @@ fn live_instances_match_all_native_supplied_histories_and_serialization() {
                                     false,
                                 );
                             object.lifecycle.set_in_limbo_for_test(true);
-                            object.in_logic_vector = false;
+                            object.in_logic_vector.set_for_test(false);
                             sim.substrate.entities.insert(object);
                             objects.push(id);
                         } else {

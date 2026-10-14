@@ -166,9 +166,9 @@ pub(crate) fn attack_action(
     } else if let TargetKind::Entity(target_id) = *target
         && let Some(object) = sim.entities().get(target_id)
         && !(armed && human && object.owner() != actor.owner())
-        && !(actor.is_mission_only() && actor.discovery.owned_by_current_house)
+        && !(actor.is_mission_only() && actor.discovery.owned_by_current_house())
         && sim.object_is_selectable(target_id, Some(rules))
-        && !object.selected
+        && !object.selection.is_selected()
         && !object.is_warped_out()
     {
         AttackAction::Select
@@ -1110,7 +1110,7 @@ fn left_release(
                 && sim
                     .entities()
                     .get(id)
-                    .is_some_and(|object| !object.selected)
+                    .is_some_and(|object| !object.selection.is_selected())
         }),
     };
     if selects {
@@ -2615,7 +2615,11 @@ mod tests {
         assert_eq!(click(&[tank, gi], None, (3, 5)), Dispatch);
         assert_eq!(click(&[gi, tank], None, (6, 5)), Nothing);
         // 0 over an object already selected does nothing (`0x004ABE0B`).
-        sim.entities_mut().get_mut(friend).unwrap().selected = true;
+        sim.entities_mut()
+            .get_mut(friend)
+            .unwrap()
+            .selection
+            .set_selected_for_test(true);
         assert_eq!(
             berserk_selection_click(&sim, &rules, &[orca], Some(&over_friend), (3, 5), owner),
             Nothing
@@ -2921,7 +2925,11 @@ mod tests {
         );
         assert_eq!(click(&sim, mcv), None);
 
-        sim.entities_mut().get_mut(enemy).unwrap().selected = true;
+        sim.entities_mut()
+            .get_mut(enemy)
+            .unwrap()
+            .selection
+            .set_selected_for_test(true);
         assert_eq!(action(&sim, mcv), AttackAction::NoMove);
         assert_eq!(
             cursor(&sim, mcv),
@@ -2948,11 +2956,15 @@ mod tests {
                 target_ry,
             })
         );
-        sim.entities_mut().get_mut(enemy).unwrap().selected = false;
+        sim.entities_mut()
+            .get_mut(enemy)
+            .unwrap()
+            .selection
+            .set_selected_for_test(false);
 
         let loaner = sim.entities_mut().get_mut(mcv).unwrap();
         loaner.mark_mission_only();
-        loaner.discovery.owned_by_current_house = true;
+        loaner.discovery.set_owned_by_current_house_for_test(true);
         assert_eq!(action(&sim, mcv), AttackAction::NoMove);
 
         assert_eq!(

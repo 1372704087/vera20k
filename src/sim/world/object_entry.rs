@@ -345,7 +345,7 @@ impl Simulation {
             return 0;
         };
         if self.session.game_mode_nonzero
-            || !e.discovery.owned_by_current_house
+            || !e.discovery.owned_by_current_house()
             || e.is_mission_only()
         {
             return 0;

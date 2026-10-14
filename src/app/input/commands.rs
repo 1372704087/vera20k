@@ -681,7 +681,7 @@ fn preferred_local_owner_for_sim(
     // Sandbox fallback: prefer owner of selected unit first.
     for entity in sim.entities().values() {
         let owner_str = sim.interner.resolve(entity.owner());
-        if entity.selected && is_playable_house_name(owner_str) {
+        if entity.selection.is_selected() && is_playable_house_name(owner_str) {
             return Some(owner_str.to_string());
         }
     }

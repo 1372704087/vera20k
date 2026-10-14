@@ -289,7 +289,7 @@ fn spawn_stock_miner(
     assert!(entity.lifecycle.object_alive());
     assert!(!entity.lifecycle.in_limbo());
     assert!(entity.lifecycle.cell_marked);
-    assert!(entity.in_logic_vector);
+    assert!(entity.in_logic_vector.is_member());
     assert!(sim.live_object_order_snapshot().contains(&id));
     assert_eq!(
         entity.miner.as_ref().expect("miner component").kind,
@@ -366,7 +366,7 @@ fn spawn_stock_refinery(
     assert!(entity.lifecycle.object_alive());
     assert!(!entity.lifecycle.in_limbo());
     assert!(entity.lifecycle.cell_marked);
-    assert!(entity.in_logic_vector);
+    assert!(entity.in_logic_vector.is_member());
     assert!(sim.live_object_order_snapshot().contains(&id));
     id
 }

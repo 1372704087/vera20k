@@ -2056,7 +2056,7 @@ pub(crate) fn selected_stable_ids_in_order(
     let mut ordered = Vec::new();
     for &id in selection_order {
         if let Some(entity) = sim.entities().get(id)
-            && (selection_order_pending || entity.selected)
+            && (selection_order_pending || entity.selection.is_selected())
         {
             ordered.push(id);
         }
@@ -2080,7 +2080,7 @@ fn admit_missing_selected_ids(
     let mut members: HashSet<_> = ordered.iter().copied().collect();
     let mut ordered = VecDeque::from(ordered);
     for entity in sim.entities().values() {
-        if entity.selected && members.insert(entity.stable_id()) {
+        if entity.selection.is_selected() && members.insert(entity.stable_id()) {
             insert_selected_id(&mut ordered, entity.stable_id(), sim, rules);
         }
     }
@@ -2092,7 +2092,7 @@ fn selection_membership_committed(sim: &crate::sim::world::Simulation, ordered: 
     let mut committed_count = 0;
     sim.entities()
         .values()
-        .filter(|entity| entity.selected)
+        .filter(|entity| entity.selection.is_selected())
         .all(|entity| {
             committed_count += 1;
             members.contains(&entity.stable_id())
@@ -2171,7 +2171,7 @@ pub(crate) fn selection_order_for_world(
         .filter(|id| {
             sim.entities()
                 .get(*id)
-                .is_some_and(|entity| entity.selected)
+                .is_some_and(|entity| entity.selection.is_selected())
         })
         .collect();
     let reconciled = admit_missing_selected_ids(reconciled, sim, rules);
@@ -2390,7 +2390,7 @@ mod item83_selection_order_tests {
             let mut entity = GameEntity::test_default(id, type_name, "Americans", 10, 20);
             entity.set_type_ref_for_test(sim.interner.intern(type_name));
             entity.set_owner_for_test(sim.interner.intern("Americans"));
-            entity.selected = selected;
+            entity.selection.set_selected_for_test(selected);
             sim.entities_mut().insert(entity);
         }
         (sim, rules)

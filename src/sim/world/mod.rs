@@ -154,12 +154,13 @@ pub(crate) use crash::CrashLatch;
 pub(crate) use display_registry::entity_layer;
 pub(crate) use lifecycle::{
     BuildingLight, ConcealOutcome, LifecycleOutput, ObjectLifecycle, PlacementEvidence,
-    RemovalFacts, RevealOutcome, RevealPosition, RevealRequest, UninitContext,
+    RemovalFacts, RevealOutcome, RevealPosition, RevealRequest, TechnoDiscoveryHistory,
+    UninitContext,
 };
 #[cfg(test)]
 pub(crate) use lifecycle::{LifecycleTestEvent, RevealFailure};
 pub(crate) use load_object_lifecycle::{LoadObjectLifecycle, OverlayConstructionReceipt};
-pub(crate) use logic_vector::LogicVector;
+pub(crate) use logic_vector::{LogicMembership, LogicVector};
 pub(crate) use object_entry::FootEntryReceiver;
 #[cfg(test)]
 pub(crate) use substrate::DeferredDeleteQueue;
@@ -4274,7 +4275,7 @@ impl Simulation {
                 self.substrate
                     .entities
                     .get(id)
-                    .is_some_and(|entity| entity.in_logic_vector)
+                    .is_some_and(|entity| entity.in_logic_vector.is_member())
                     || self
                         .substrate
                         .anims
@@ -4307,7 +4308,7 @@ impl Simulation {
             .substrate
             .entities
             .values()
-            .filter(|e| e.in_logic_vector)
+            .filter(|e| e.in_logic_vector.is_member())
             .count();
         let flagged_anims = self
             .substrate
@@ -4381,7 +4382,7 @@ impl Simulation {
                     entity.stable_id()
                 );
                 debug_assert!(
-                    !entity.in_logic_vector,
+                    !entity.in_logic_vector.is_member(),
                     "dead entity {} must leave LogicVector before alive clear",
                     entity.stable_id()
                 );
@@ -4554,7 +4555,7 @@ impl Simulation {
     #[cfg(test)]
     pub(crate) fn set_logic_order_for_test(&mut self, order: Vec<u64>) {
         for entity in self.substrate.entities.values_mut() {
-            entity.in_logic_vector = false;
+            entity.in_logic_vector.mark(false);
         }
         for anim in self.substrate.anims.values_mut() {
             anim.in_logic_vector = false;
@@ -4576,7 +4577,7 @@ impl Simulation {
         }
         for &id in &order {
             if let Some(e) = self.substrate.entities.get_mut(id) {
-                e.in_logic_vector = true;
+                e.in_logic_vector.mark(true);
             } else if let Some(anim) = self.substrate.anims.get_mut(id) {
                 anim.in_logic_vector = true;
             } else if let Some(debris) = self.substrate.voxel_anims.get_mut(id) {
@@ -5238,7 +5239,9 @@ impl Simulation {
         // Techno701735..701751 writes the owner then recomputes only +41A.
         // A former current-house object's +41B history survives the transfer.
         if let Some(entity) = self.substrate.entities.get_mut(stable_id) {
-            entity.discovery.owned_by_current_house = self.session.current_house == Some(new_owner);
+            entity
+                .discovery
+                .classify_owner(self.session.current_house == Some(new_owner));
         }
         // Techno701757..70178E: Added_To_Game on the new house (not in limbo).
         if on_map {
@@ -5498,7 +5501,7 @@ impl Simulation {
     /// heavy load-arg dependency) so save/load membership is unit-testable.
     pub(crate) fn rebuild_logic_membership(&mut self) {
         for entity in self.substrate.entities.values_mut() {
-            entity.in_logic_vector = false;
+            entity.in_logic_vector.mark(false);
         }
         for anim in self.substrate.anims.values_mut() {
             anim.in_logic_vector = false;
@@ -5520,7 +5523,7 @@ impl Simulation {
         }
         for &id in &self.substrate.logic.snapshot() {
             if let Some(entity) = self.substrate.entities.get_mut(id) {
-                entity.in_logic_vector = true;
+                entity.in_logic_vector.mark(true);
             } else if let Some(anim) = self.substrate.anims.get_mut(id) {
                 anim.in_logic_vector = true;
             } else if let Some(debris) = self.substrate.voxel_anims.get_mut(id) {

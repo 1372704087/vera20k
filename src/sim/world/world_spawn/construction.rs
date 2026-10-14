@@ -92,7 +92,8 @@ impl Simulation {
         // InitManagers6F3F40 classifies the owner after construction; it does
         // not manufacture either discovery-history byte. The launch-owned
         // current house is distinct from the notification/viewer binding.
-        ge.discovery.owned_by_current_house = self.session.current_house == Some(ge.owner());
+        ge.discovery
+            .classify_owner(self.session.current_house == Some(ge.owner()));
         if self.debug_event_logging {
             ge.set_debug_logging(true);
         }

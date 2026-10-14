@@ -841,7 +841,7 @@ fn a_bio_reactor_unload_command_reveals_its_passenger() {
         let passenger = entity(&sim, passenger_id);
         assert!(passenger.lifecycle.object_alive());
         assert!(passenger.lifecycle.cell_marked);
-        assert!(passenger.in_logic_vector);
+        assert!(passenger.in_logic_vector.is_member());
         assert!(!passenger.building_entry.should_enter_absorber());
         assert!(passenger.house_tracking_latches().is_counted());
         assert!(!passenger.house_tracking_latches().is_absorbed());

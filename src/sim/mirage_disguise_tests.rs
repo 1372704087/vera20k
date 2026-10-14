@@ -99,7 +99,7 @@ fn fixture(row: &Value) -> Simulation {
     entity.position.sub_x = SimFixed::from_num(x % 256);
     entity.position.sub_y = SimFixed::from_num(y % 256);
     entity.position.exact_z_leptons = Some(z);
-    entity.health.current = signed(&before["health"]);
+    entity.health.set(signed(&before["health"]));
     entity.locomotor = Some(LocomotorState::for_test_kind(LocomotorKind::Drive));
     entity.disguise = Some(state_from_native(&mut sim, before));
     let origin = (entity.position.rx, entity.position.ry);
@@ -377,9 +377,7 @@ fn native_mirage_constructor_initializes_identity_and_timer_frame() {
         0,
         0,
         owner,
-        crate::sim::components::Health {
-            current: signed(&expected["health"]),
-        },
+        crate::sim::combat::Health::new(signed(&expected["health"])),
         kind,
         EntityCategory::Unit,
         0,

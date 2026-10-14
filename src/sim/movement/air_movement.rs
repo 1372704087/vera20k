@@ -209,7 +209,7 @@ pub(crate) fn fly_speed_facts(
                     )
             });
     FlySpeedFacts {
-        health: entity.health.current,
+        health: entity.health.current(),
         height: current_fly_height(entity, terrain),
         distance,
         slow: FlySlowFacts {
@@ -473,7 +473,7 @@ pub(crate) fn update_fly_height(
             ground_z,
             on_bridge: entity.on_bridge,
             structural_bridge,
-            health: entity.health.current,
+            health: entity.health.current(),
             has_passenger,
             is_dropship: object.is_some_and(|o| o.is_dropship),
             flight_level,

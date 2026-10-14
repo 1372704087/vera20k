@@ -271,7 +271,7 @@ impl Fixture {
             entity.lifecycle.object_alive = false;
         }
         if let Some(health) = state["health"].as_u64() {
-            entity.health.current = health as i32;
+            entity.health.set(health as i32);
         }
         if state["mission"].is_string() || state["queued"].is_string() {
             entity.mission.apply_test_fixture(MissionTestFixture {

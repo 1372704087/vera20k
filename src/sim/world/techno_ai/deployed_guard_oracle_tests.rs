@@ -235,7 +235,7 @@ fn supplied_fixture(row: &Value) -> (Simulation, RuleSet, u64) {
                 .unwrap();
     }
     let actor = sim.substrate.entities.get_mut(id).unwrap();
-    actor.health.current = 100;
+    actor.health.set(100);
     actor.lifecycle.in_limbo = false;
     actor.lifecycle.object_alive = true;
     // The companion supplies a post-constructor Location at Cell10,10;

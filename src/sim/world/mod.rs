@@ -2694,7 +2694,7 @@ impl Simulation {
         overlay_registry: Option<&crate::rules::overlay_types::OverlayTypeRegistry>,
         frame_effects: FrameEffects<'_>,
     ) {
-        let Some(health) = self.substrate.entities.get(id).map(|e| e.health.current) else {
+        let Some(health) = self.substrate.entities.get(id).map(|e| e.health.current()) else {
             return;
         };
         let warhead = self.interner.intern(&rules.bridge_warheads.c4_name);
@@ -3919,7 +3919,7 @@ impl Simulation {
                     && entity.lifecycle.object_alive
                     && !entity.lifecycle.in_limbo
                     && !entity.dying
-                    && entity.health.current > 0
+                    && entity.health.current() > 0
                     && entity.category() != EntityCategory::Structure
                     && self
                         .houses

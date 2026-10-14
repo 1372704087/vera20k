@@ -310,7 +310,7 @@ impl Fixture {
             entity
                 .mission_leaf
                 .set_building_ready_latch(int(&prior["building"]["building"]["done"]) as u8);
-            entity.health.current = int(&prior["health"]);
+            entity.health.set(int(&prior["health"]));
             entity.estimated_health.reset(int(&prior["health"]));
             entity.sample_building_health_for_power();
         }
@@ -755,7 +755,7 @@ impl Fixture {
     fn assert_state(&self, native: &Value, boundary: &str) {
         let entity = self.sim.substrate.entities.get(self.building).unwrap();
         assert_eq!(
-            entity.health.current,
+            entity.health.current(),
             int(&native["health"]),
             "{boundary}: actual health"
         );
@@ -900,7 +900,7 @@ impl Fixture {
                 "{boundary}: crew constructor order"
             );
             assert_eq!(
-                actual.health.current,
+                actual.health.current(),
                 int(&native["health"]),
                 "{boundary}: crew health"
             );

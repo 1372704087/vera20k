@@ -331,7 +331,7 @@ mod tests {
                 13,
                 0,
                 owner,
-                crate::sim::components::Health { current: 100 },
+                crate::sim::combat::Health::new(100),
                 sim.interner.intern(name),
                 EntityCategory::Structure,
                 0,
@@ -455,7 +455,8 @@ mod tests {
         use super::super::display_layers::DisplayLayers;
         use crate::rules::art_data::ArtRegistry;
         use crate::sim::anim_class::AnimWorldCoord;
-        use crate::sim::components::{AnimClassSpawnDescriptor, Health};
+        use crate::sim::combat::Health;
+        use crate::sim::components::AnimClassSpawnDescriptor;
 
         let mut rules = RuleSet::from_ini(&IniFile::from_str(
             "[BuildingTypes]\n0=GATE\n[GATE]\nStrength=100\nGate=yes\n\
@@ -486,7 +487,7 @@ mod tests {
                 0,
                 0,
                 house,
-                Health { current: 100 },
+                Health::new(100),
                 type_ref,
                 category,
                 0,

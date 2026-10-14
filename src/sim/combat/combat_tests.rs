@@ -9,7 +9,7 @@ use crate::map::entities::EntityCategory;
 use crate::map::houses::HouseAllianceMap;
 use crate::rules::ini_parser::IniFile;
 use crate::rules::ruleset::RuleSet;
-use crate::sim::components::Health;
+use crate::sim::combat::Health;
 use crate::sim::entity_store::EntityStore;
 use crate::sim::game_entity::GameEntity;
 use crate::sim::house_state::HouseState;
@@ -298,7 +298,7 @@ fn align_attackers_to_targets(store: &mut EntityStore) {
 
 fn make_entity(id: u64, type_ref: &str, rx: u16, ry: u16, hp: i32) -> GameEntity {
     let mut e = GameEntity::test_default(id, type_ref, "Test", rx, ry);
-    e.health = Health { current: hp };
+    e.health = Health::new(hp);
     e.lifecycle.in_limbo = false;
     e
 }
@@ -312,7 +312,7 @@ fn make_entity_owned(
     owner: &str,
 ) -> GameEntity {
     let mut e = GameEntity::test_default(id, type_ref, owner, rx, ry);
-    e.health = Health { current: hp };
+    e.health = Health::new(hp);
     e.lifecycle.in_limbo = false;
     e
 }
@@ -554,7 +554,7 @@ fn gsi_04_05_building_attack_frame_precedes_immune_receiver_exit() {
         &mut sound_sink,
     );
 
-    assert_eq!(entities.get(2).unwrap().health.current, 100);
+    assert_eq!(entities.get(2).unwrap().health.current(), 100);
     assert_eq!(
         trace_hook.entries,
         vec![BaseDefenseResponseTraceEntry {
@@ -655,9 +655,9 @@ fn gsi_04_05_protected_techno_response_runs_after_object_health_commit() {
         ],
         "ToProtect calls once after Object health; Buildings first run their wrapper response"
     );
-    assert_eq!(entities.get(2).unwrap().health.current, 90);
-    assert_eq!(entities.get(3).unwrap().health.current, 90);
-    assert_eq!(entities.get(4).unwrap().health.current, 90);
+    assert_eq!(entities.get(2).unwrap().health.current(), 90);
+    assert_eq!(entities.get(3).unwrap().health.current(), 90);
+    assert_eq!(entities.get(4).unwrap().health.current(), 90);
 }
 
 /// The protected-Techno call is the tail of result 1's own arm (switch
@@ -745,7 +745,7 @@ fn gsi_04_05_protected_techno_response_runs_only_on_result_one() {
         }],
         "only the computer's result-1 hit reaches the protected-Techno call"
     );
-    let health = |id| entities.get(id).map_or(0, |entity| entity.health.current);
+    let health = |id| entities.get(id).map_or(0, |entity| entity.health.current());
     assert_eq!(
         [health(2), health(3), health(4), health(5), health(6)],
         [90, 40, 20, 0, 90]
@@ -814,7 +814,7 @@ fn sourceless_infantry_hit_takes_the_refused_scatter_arm_and_the_fear_ladder() {
         );
 
         let victim = entities.get(2).unwrap();
-        assert_eq!(victim.health.current, 90);
+        assert_eq!(victim.health.current(), 90);
         assert_eq!(
             victim.infantry.as_ref().unwrap().fear_level,
             12,
@@ -878,7 +878,7 @@ fn retail_damage_scatter_tail_admits_by_rank_ability_and_ownership() {
             None,
         );
         let actor = sim.substrate.entities.get(id).unwrap();
-        assert!(actor.health.current < rules.object(type_id).unwrap().strength);
+        assert!(actor.health.current() < rules.object(type_id).unwrap().strength);
         (sim.scenario_rng.state() != rng, actor.navigation.nav_com)
     };
     let (drew, nav) = run("TANY", true, 100, false);
@@ -1161,7 +1161,7 @@ fn retail_gassed_infantry_scatters_and_fears() {
         let victim = sim.substrate.entities.get(ids[0]).unwrap();
         assert!(victim.berserk.active, "{type_id} goes berserk");
         assert_eq!(
-            victim.health.current,
+            victim.health.current(),
             rules.object(type_id).unwrap().strength,
             "gas does no damage"
         );
@@ -1402,7 +1402,7 @@ fn retail_berserk_gi_shoots_its_own_house() {
         sim.substrate
             .entities
             .get(friend)
-            .is_none_or(|man| man.health.current < strength)
+            .is_none_or(|man| man.health.current() < strength)
     };
     for _ in 0..150 {
         if shot(&sim) {
@@ -1465,7 +1465,7 @@ fn gsi_04_05_building_self_damage_return_zero_stops_receiver_commit() {
         &mut sound_sink,
     );
 
-    assert_eq!(entities.get(5).unwrap().health.current, 100);
+    assert_eq!(entities.get(5).unwrap().health.current(), 100);
     assert_eq!(
         houses[&victim_owner]
             .strategy_emergency
@@ -1526,7 +1526,7 @@ fn gsi_04_05_building_attack_frame_remains_live_after_world_receiver_dispatch() 
             .get(target_id)
             .unwrap()
             .health
-            .current,
+            .current(),
         80,
         "repeated qualifying receiver records in one frame remain admitted"
     );
@@ -1554,7 +1554,7 @@ fn make_structure_entity(
     let mut entity = make_entity(id, type_ref, rx, ry, max);
     entity.set_category_for_test(EntityCategory::Structure);
     entity.is_voxel = false;
-    entity.health = Health { current };
+    entity.health = Health::new(current);
     entity
 }
 
@@ -1681,7 +1681,7 @@ fn lifecycle_authority_immediate_combat_death_reaches_uninit_without_precleanup(
     let dead = store
         .get(1)
         .expect("world must still be able to UnInit the victim");
-    assert_eq!(dead.health.current, 0);
+    assert_eq!(dead.health.current(), 0);
     assert!(
         !dead.dying,
         "immediate UnInit, not combat, owns the death gate"
@@ -1736,7 +1736,7 @@ fn lifecycle_authority_combat_leaves_transport_cargo_for_carrier_uninit() {
     let carrier = store.get(1).unwrap();
     assert_eq!(carrier.passenger_role.cargo().unwrap().passengers, vec![2]);
     let passenger = store.get(2).unwrap();
-    assert_eq!(passenger.health.current, 125);
+    assert_eq!(passenger.health.current(), 125);
     assert!(!passenger.dying);
     assert!(matches!(
         passenger.passenger_role,
@@ -1775,7 +1775,7 @@ fn lifecycle_authority_animated_combat_handoff_changes_only_dying_and_sequence()
     assert!(result.immediate_uninit_ids.is_empty());
     assert_eq!(result.despawned_ids, vec![1]);
     let dead = store.get(1).unwrap();
-    assert_eq!(dead.health.current, 0);
+    assert_eq!(dead.health.current(), 0);
     assert!(dead.dying);
     assert_eq!(dead.mission_leaf.as_infantry().unwrap().doing(), 11);
     assert_eq!(dead.native_stage().value(), 0);
@@ -2068,7 +2068,7 @@ fn test_tick_combat_applies_damage() {
         &mut main_rng,
     );
 
-    let target_health = store.get(2).expect("target alive").health.current;
+    let target_health = store.get(2).expect("target alive").health.current();
     assert_eq!(
         target_health,
         300 - 48,
@@ -2224,7 +2224,7 @@ fn ic_target_takes_zero_damage() {
             InvulnKind::IronCurtain,
         ));
     }
-    let initial_hp = store.get(2).expect("target alive").health.current;
+    let initial_hp = store.get(2).expect("target alive").health.current();
     let mut main_rng = SimRng::new(1);
     tick_combat(
         &mut store,
@@ -2237,7 +2237,7 @@ fn ic_target_takes_zero_damage() {
         &mut main_rng,
     );
     assert_eq!(
-        store.get(2).expect("target alive").health.current,
+        store.get(2).expect("target alive").health.current(),
         initial_hp,
         "IC-invulnerable target must take zero damage"
     );
@@ -2559,7 +2559,7 @@ fn gsi_04_07_damage_prior_projectile_fatal_death_weapon_is_inline() {
     }
 
     let (fatal, fatal_grid, fatal_entities, fatal_rng) = run(10, true);
-    assert_eq!(fatal_entities.get(10).unwrap().health.current, 0);
+    assert_eq!(fatal_entities.get(10).unwrap().health.current(), 0);
     assert_eq!(fatal.consequences.effects().immediate_uninit_ids, vec![10]);
     assert_eq!(fatal_grid.cell(8, 5).overlay_id, None);
     assert_eq!(
@@ -2621,7 +2621,7 @@ fn gsi_04_07_damage_prior_projectile_fatal_death_weapon_is_inline() {
             .immediate_uninit_ids
             .is_empty()
     );
-    assert_eq!(surviving_entities.get(10).unwrap().health.current, 1);
+    assert_eq!(surviving_entities.get(10).unwrap().health.current(), 1);
     assert_eq!(
         survives
             .consequences
@@ -2634,7 +2634,7 @@ fn gsi_04_07_damage_prior_projectile_fatal_death_weapon_is_inline() {
     );
 
     let (ungated, ungated_grid, ungated_entities, ungated_rng) = run(10, false);
-    assert_eq!(ungated_entities.get(10).unwrap().health.current, 0);
+    assert_eq!(ungated_entities.get(10).unwrap().health.current(), 0);
     assert_eq!(ungated_grid.cell(8, 5).overlay_id, Some(0));
     assert_eq!(ungated_rng, {
         let mut expected = SimRng::new(1);
@@ -2993,7 +2993,7 @@ fn retaliation_gate_world(
         entity.set_owner_for_test(owner);
         entity.set_type_ref_for_test(sim.interner.intern(type_name));
         entity.set_category_for_test(category);
-        entity.health.current = health;
+        entity.health.set(health);
         entity.lifecycle.in_limbo = false;
         entity.lifecycle.cell_marked = true;
         entity.mission.apply_test_fixture(MissionTestFixture {
@@ -3204,7 +3204,7 @@ fn gsi_04_07_damage_retaliation_is_receiver_synchronous_and_uses_mission_overrid
         let mut victim = make_entity(2, "VICTIM", 8, 5, 100);
         victim.set_owner_for_test(victim_owner);
         victim.set_type_ref_for_test(victim_type);
-        victim.health.current = victim_health;
+        victim.health.set(victim_health);
         victim.lifecycle.in_limbo = false;
         victim.lifecycle.cell_marked = true;
         victim.mission.apply_test_fixture(MissionTestFixture {
@@ -3313,7 +3313,7 @@ fn gsi_04_07_damage_retaliation_is_receiver_synchronous_and_uses_mission_overrid
         );
         let victim = entities.get(2).expect("deferred storage keeps victim");
         Outcome {
-            health: victim.health.current,
+            health: victim.health.current(),
             current: victim.mission.current(),
             suspended: victim.mission.suspended(),
             target: victim.attack_target.as_ref().map(|target| target.target),
@@ -3452,7 +3452,7 @@ fn gsi_04_07_damage_retaliation_peek_rejects_limbo_attacker() {
         );
         let victim = entities.get(2).expect("victim survives");
         (
-            victim.health.current,
+            victim.health.current(),
             victim.was_attacked_by_enemy,
             victim.mission.current(),
             victim.mission.suspended(),
@@ -3538,7 +3538,7 @@ fn gsi_04_07_damage_invulnerability_impact_precedes_warping_and_postlude() {
         .get_mut(healing_id)
         .unwrap()
         .health
-        .current = 90;
+        .set(90);
     let hit_wh = sim.interner.intern("HitWH");
     let hits = vec![
         EntityDamageEvent::area(protected[0], 10, 0, source_id, Some(source_owner), hit_wh),
@@ -3568,7 +3568,7 @@ fn gsi_04_07_damage_invulnerability_impact_precedes_warping_and_postlude() {
 
     for id in protected {
         let victim = sim.substrate.entities.get(id).unwrap();
-        assert_eq!(victim.health.current, 100);
+        assert_eq!(victim.health.current(), 100);
         assert!(!victim.was_attacked_by_enemy);
         assert_eq!(victim.damage_smoke_system_id, None);
     }
@@ -3578,7 +3578,7 @@ fn gsi_04_07_damage_invulnerability_impact_precedes_warping_and_postlude() {
             .get(healing_id)
             .unwrap()
             .health
-            .current,
+            .current(),
         100,
         "negative healing bypasses IC without an impact"
     );
@@ -3588,7 +3588,7 @@ fn gsi_04_07_damage_invulnerability_impact_precedes_warping_and_postlude() {
             .get(ignored_id)
             .unwrap()
             .health
-            .current,
+            .current(),
         90,
         "ignoreDefenses bypasses IC without an impact"
     );
@@ -3658,7 +3658,7 @@ fn gsi_04_07_damage_receiver_smoke_creation_precedes_retaliation() {
     );
     {
         let victim = sim.substrate.entities.get_mut(victim_id).unwrap();
-        victim.health = Health { current: 180 };
+        victim.health = Health::new(180);
         victim.mission.apply_test_fixture(MissionTestFixture {
             current: MissionId::from_known(MissionType::Guard),
             suspended: MissionId::NONE,
@@ -3689,7 +3689,7 @@ fn gsi_04_07_damage_receiver_smoke_creation_precedes_retaliation() {
     );
 
     let victim = sim.substrate.entities.get(victim_id).unwrap();
-    assert_eq!(victim.health.current, 120);
+    assert_eq!(victim.health.current(), 120);
     assert_eq!(
         victim.mission.current(),
         MissionId::from_known(MissionType::Attack)
@@ -3769,7 +3769,7 @@ fn gsi_04_07_damage_receiver_smoke_creation_precedes_retaliation() {
             .get(victim_id)
             .unwrap()
             .health
-            .current,
+            .current(),
         180
     );
     assert!(
@@ -4101,7 +4101,7 @@ fn gsi_04_07_damage_spawn_and_slave_managers_block_retaliation() {
             &mut sound_sink,
         );
         let victim = entities.get(2).expect("victim survives");
-        assert_eq!(victim.health.current, 99);
+        assert_eq!(victim.health.current(), 99);
         (
             victim.mission.current(),
             victim.mission.suspended(),
@@ -4232,7 +4232,7 @@ fn gsi_04_07_damage_full_capture_manager_blocks_retaliation() {
 
         let victim = entities.get(2).expect("tower survives");
         Outcome {
-            health: victim.health.current,
+            health: victim.health.current(),
             mission: victim.mission.current(),
             suspended: victim.mission.suspended(),
             target: victim.attack_target.as_ref().map(|target| target.target),
@@ -4289,7 +4289,7 @@ fn gsi_04_07_damage_repair_bullet_cellspread_zero_keeps_signed_area_record() {
 
     let mut entities = EntityStore::new();
     let mut target = make_entity(10, "TARGET", 8, 5, 180);
-    target.health.current = 100;
+    target.health.set(100);
     entities.insert(target);
     let occupancy = OccupancyGrid::new();
     let mut interner = test_interner();
@@ -4338,7 +4338,7 @@ fn gsi_04_07_damage_repair_bullet_cellspread_zero_keeps_signed_area_record() {
     );
 
     // The detonation commits its receivers inline: one heal of 50.
-    assert_eq!(entities.get(10).unwrap().health.current, 150);
+    assert_eq!(entities.get(10).unwrap().health.current(), 150);
 }
 
 /// `Apply_area_damage`'s dispatch skips an `InvisibleInGame=` building
@@ -4391,8 +4391,8 @@ fn gsi_04_07_area_dispatch_skips_an_invisible_in_game_building() {
         &mut fatal_lifecycle,
         &mut sound_sink,
     );
-    assert_eq!(entities.get(1).unwrap().health.current, 6000);
-    assert_eq!(entities.get(2).unwrap().health.current, 200);
+    assert_eq!(entities.get(1).unwrap().health.current(), 6000);
+    assert_eq!(entities.get(2).unwrap().health.current(), 200);
 }
 
 #[test]
@@ -4488,7 +4488,7 @@ fn gsi_04_07_damage_receiver_updates_grudge_before_retaliation() {
         &mut fatal_lifecycle,
         &mut sound_sink,
     );
-    assert_eq!(entities.get(3).unwrap().health.current, 1000);
+    assert_eq!(entities.get(3).unwrap().health.current(), 1000);
     assert_eq!(threat_persistence(&houses), threat_before_zero);
     let victim = &houses[&victim_house];
     assert!(!victim.grudge_scores.contains_key(&source_house));
@@ -4531,7 +4531,7 @@ fn gsi_04_07_damage_receiver_updates_grudge_before_retaliation() {
         &mut fatal_lifecycle,
         &mut sound_sink,
     );
-    assert_eq!(entities.get(2).unwrap().health.current, 500);
+    assert_eq!(entities.get(2).unwrap().health.current(), 500);
     let victim = &houses[&victim_house];
     assert_eq!(victim.grudge_scores.get(&source_house), Some(&350));
     assert_eq!(victim.enemy_house, Some(source_house));
@@ -4624,7 +4624,7 @@ fn gsi_04_07_damage_postmortem_stock_barrel_delay_and_nested_order() {
     );
     for id in [center, middle, edge] {
         let barrel = sim.substrate.entities.get(id).unwrap();
-        assert_eq!(barrel.health.current, 1);
+        assert_eq!(barrel.health.current(), 1);
         assert!(barrel.lifecycle.object_alive && !barrel.dying);
     }
     assert_eq!(
@@ -4673,7 +4673,7 @@ fn gsi_04_07_damage_postmortem_stock_barrel_delay_and_nested_order() {
         .entities
         .get(center)
         .expect("UnInit keeps physical storage until the pending-delete drain");
-    assert_eq!(expired.health.current, 0);
+    assert_eq!(expired.health.current(), 0);
     assert!(expired.dying && !expired.lifecycle.object_alive);
     assert!(!expired.in_logic_vector);
     assert!(!sim.substrate.occupancy.contains_entity(8, 5, center));
@@ -4769,7 +4769,7 @@ fn gsi_04_07_damage_postmortem_exact_zero_callbacks_precede_restore() {
     assert_eq!(pending.timer.duration(), 5);
     assert_eq!(pending.source_entity_id, None);
     let target = sim.substrate.entities.get(target_id).unwrap();
-    assert_eq!(target.health.current, 1);
+    assert_eq!(target.health.current(), 1);
     assert!(target.lifecycle.object_alive && !target.lifecycle.in_limbo);
     assert!(target.in_logic_vector && target.lifecycle.cell_marked);
     assert!(
@@ -4864,7 +4864,7 @@ fn gsi_04_07_damage_postmortem_exact_zero_callbacks_precede_restore() {
     sim.clear_lifecycle_test_events_for_test();
     hit(&mut sim);
     let target = sim.substrate.entities.get(target_id).unwrap();
-    assert_eq!(target.health.current, 1);
+    assert_eq!(target.health.current(), 1);
     assert_eq!(target.pending_c4_detonation, Some(original_pending));
     assert!(target.lifecycle.object_alive && target.in_logic_vector);
     assert!(sim.substrate.occupancy.contains_entity(8, 5, target_id));
@@ -4950,7 +4950,7 @@ fn gsi_04_07_damage_postmortem_fresh_null_expiry_does_not_recredit_initial_kille
     assert_eq!(sim.houses[&owner_a].economy.score(), 1_400);
     for target_id in [expiry_target, later_target] {
         let target = sim.substrate.entities.get(target_id).unwrap();
-        assert_eq!(target.health.current, 1);
+        assert_eq!(target.health.current(), 1);
         assert_eq!(target.killed_by, None);
     }
 
@@ -4971,7 +4971,7 @@ fn gsi_04_07_damage_postmortem_fresh_null_expiry_does_not_recredit_initial_kille
         crate::sim::world::FrameEffects::default(),
     );
     let later = sim.substrate.entities.get(later_target).unwrap();
-    assert_eq!(later.health.current, 0);
+    assert_eq!(later.health.current(), 0);
     assert_eq!(later.killed_by, Some(owner_b));
     assert_eq!(sim.houses[&owner_b].stats.buildings_killed(), 1);
     assert_eq!(sim.houses[&owner_b].economy.score(), 700);
@@ -4988,7 +4988,7 @@ fn gsi_04_07_damage_postmortem_fresh_null_expiry_does_not_recredit_initial_kille
         crate::sim::world::FrameEffects::default(),
     );
     let expired = sim.substrate.entities.get(expiry_target).unwrap();
-    assert_eq!(expired.health.current, 0);
+    assert_eq!(expired.health.current(), 0);
     assert_eq!(expired.killed_by, None);
     assert!(sim.substrate.pending_delete.contains_object(&expiry_target));
     assert_eq!(
@@ -5159,7 +5159,7 @@ fn gsi_08_05_tick_combat_respects_the_jittered_cooldown() {
 
     // First shot fires immediately (no reload running).
     fire_at(0, &mut store, &mut interner, &mut main_rng);
-    let h1: i32 = store.get(2).unwrap().health.current;
+    let h1: i32 = store.get(2).unwrap().health.current();
     assert!(h1 < 300, "the first shot lands at once");
 
     // `TechnoClass::GetROF @ 0x006FCFA0` returns `ROF + RandomRanged(0, 2)`,
@@ -5177,7 +5177,7 @@ fn gsi_08_05_tick_combat_respects_the_jittered_cooldown() {
         fire_at(frame, &mut store, &mut interner, &mut main_rng);
     }
     assert_eq!(
-        store.get(2).unwrap().health.current,
+        store.get(2).unwrap().health.current(),
         h1,
         "no second shot before the countdown reaches zero"
     );
@@ -5193,7 +5193,7 @@ fn gsi_08_05_tick_combat_respects_the_jittered_cooldown() {
     // The countdown's last frame fires.
     fire_at(cooldown, &mut store, &mut interner, &mut main_rng);
     assert!(
-        store.get(2).unwrap().health.current < h1,
+        store.get(2).unwrap().health.current() < h1,
         "the shot lands on the frame the countdown clears"
     );
 }
@@ -5398,7 +5398,7 @@ fn a_struck_building_sounds_the_global_damage_cue_only_on_a_state_crossing() {
         entities.insert(attacker);
         let mut victim = GameEntity::test_default(2, victim_type, "Soviet", 4, 7);
         victim.set_category_for_test(victim_category);
-        victim.health = Health { current: 100 };
+        victim.health = Health::new(100);
         crate::sim::movement::ground_pose::put_location(&mut victim.position, coordinate);
         victim.lifecycle.in_limbo = false;
         victim.in_playfield = true;
@@ -5453,7 +5453,7 @@ fn a_struck_building_sounds_the_global_damage_cue_only_on_a_state_crossing() {
             &mut hooks,
             &mut sound_sink,
         );
-        let hp = entities.get(2).map_or(0, |victim| victim.health.current);
+        let hp = entities.get(2).map_or(0, |victim| victim.health.current());
         (collected, hp)
     };
 
@@ -5586,7 +5586,7 @@ fn a_techno_speaks_its_voice_feedback_only_on_the_half_strength_crossing() {
         entities.insert(attacker);
         let mut victim = GameEntity::test_default(2, victim_type, "Soviet", 4, 7);
         victim.set_category_for_test(victim_category);
-        victim.health = Health { current: 100 };
+        victim.health = Health::new(100);
         victim.lifecycle.in_limbo = false;
         victim.in_playfield = true;
         entities.insert(victim);
@@ -5661,7 +5661,7 @@ fn a_techno_speaks_its_voice_feedback_only_on_the_half_strength_crossing() {
                 "other damage results and empty lists are silent"
             );
         }
-        let hp = entities.get(2).map_or(0, |victim| victim.health.current);
+        let hp = entities.get(2).map_or(0, |victim| victim.health.current());
         (collected, hp)
     };
 
@@ -5882,7 +5882,7 @@ fn test_tick_combat_out_of_range() {
         &mut main_rng,
     );
 
-    let target_health = store.get(2).unwrap().health.current;
+    let target_health = store.get(2).unwrap().health.current();
     assert_eq!(
         target_health, 300,
         "Out-of-range target should not take damage"
@@ -5920,7 +5920,7 @@ fn undeployed_guardian_gi_vs_infantry_uses_m60() {
     let ev = &result.consequences.fire_events()[0];
     assert_eq!(interner.resolve(ev.weapon_id), "M60");
     assert_eq!(ev.weapon_slot, WeaponSlot::Primary);
-    assert_eq!(store.get(2).unwrap().health.current, 110);
+    assert_eq!(store.get(2).unwrap().health.current(), 110);
 }
 
 /// `TechnoClass::FireAt 0x006FE5E2..0x006FE622`: every launched shot whose
@@ -5956,7 +5956,7 @@ fn a_shot_debits_its_targets_estimate_unless_inaccurate() {
             &mut SimRng::new(1),
         );
         let target = store.get(2).unwrap();
-        assert_eq!(target.health.current, 110, "the bullet lands either way");
+        assert_eq!(target.health.current(), 110, "the bullet lands either way");
         assert_eq!(
             target.estimated_health.get(),
             if inaccurate { before } else { before - 15 },
@@ -6047,7 +6047,7 @@ fn deployed_guardian_gi_vs_rhino_at_six_cells_uses_missilelauncher() {
     let ev = &result.consequences.fire_events()[0];
     assert_eq!(interner.resolve(ev.weapon_id), "MissileLauncher");
     assert_eq!(ev.weapon_slot, WeaponSlot::Secondary);
-    assert_eq!(store.get(2).unwrap().health.current, 400);
+    assert_eq!(store.get(2).unwrap().health.current(), 400);
     assert_eq!(result.projectile_spawns.len(), 1);
 }
 
@@ -6105,7 +6105,7 @@ fn test_infantry_vs_heavy_armor() {
         &mut main_rng,
     );
 
-    let h: i32 = store.get(2).unwrap().health.current;
+    let h: i32 = store.get(2).unwrap().health.current();
     assert_eq!(
         h,
         300 - 6,
@@ -6134,7 +6134,7 @@ fn infantry_standing_fire_waits_for_fire_frame() {
         &mut main_rng,
     );
 
-    assert_eq!(store.get(2).unwrap().health.current, 125);
+    assert_eq!(store.get(2).unwrap().health.current(), 125);
     assert!(result.consequences.fire_events().is_empty());
     let attacker = store.get(1).unwrap();
     assert_eq!(attacker.mission_leaf.foot_firing_sequence_latch(), 1);
@@ -6153,7 +6153,7 @@ fn infantry_standing_fire_waits_for_fire_frame() {
         0,
         &mut main_rng,
     );
-    assert_eq!(store.get(2).unwrap().health.current, 125);
+    assert_eq!(store.get(2).unwrap().health.current(), 125);
     assert!(result.consequences.fire_events().is_empty());
 
     set_infantry_stage(&mut store, 1, 2);
@@ -6167,7 +6167,7 @@ fn infantry_standing_fire_waits_for_fire_frame() {
         0,
         &mut main_rng,
     );
-    assert_eq!(store.get(2).unwrap().health.current, 100);
+    assert_eq!(store.get(2).unwrap().health.current(), 100);
     assert_eq!(result.consequences.fire_events().len(), 1);
     let ev = &result.consequences.fire_events()[0];
     assert_eq!(interner.resolve(ev.weapon_id), "M60");
@@ -6307,7 +6307,7 @@ fn prone_infantry_uses_prone_fire_sequence_and_frame() {
     assert_eq!(attacker.mission_leaf.as_infantry().unwrap().doing(), 8);
     assert_eq!(attacker.infantry_sprite_pose(), Some((8, 0)));
     assert!(attacker.infantry.as_ref().unwrap().is_prone);
-    assert_eq!(store.get(2).unwrap().health.current, 125);
+    assert_eq!(store.get(2).unwrap().health.current(), 125);
 
     set_infantry_stage(&mut store, 1, 2);
     let result = tick_combat(
@@ -6320,7 +6320,7 @@ fn prone_infantry_uses_prone_fire_sequence_and_frame() {
         0,
         &mut main_rng,
     );
-    assert_eq!(store.get(2).unwrap().health.current, 125);
+    assert_eq!(store.get(2).unwrap().health.current(), 125);
     assert!(result.consequences.fire_events().is_empty());
 
     set_infantry_stage(&mut store, 1, 3);
@@ -6334,7 +6334,7 @@ fn prone_infantry_uses_prone_fire_sequence_and_frame() {
         0,
         &mut main_rng,
     );
-    assert_eq!(store.get(2).unwrap().health.current, 100);
+    assert_eq!(store.get(2).unwrap().health.current(), 100);
     assert_eq!(result.consequences.fire_events().len(), 1);
     let attacker = store.get(1).unwrap();
     assert_eq!(attacker.mission_leaf.foot_firing_sequence_latch(), 0);
@@ -6380,7 +6380,7 @@ fn deployed_gi_uses_deployed_fire_visual_with_deploy_fire_weapon() {
     assert_eq!(attacker.mission_leaf.as_infantry().unwrap().doing(), 29);
     assert_eq!(attacker.infantry_sprite_pose(), Some((29, 0)));
     assert!(!attacker.infantry.as_ref().unwrap().is_prone);
-    assert_eq!(store.get(2).unwrap().health.current, 300);
+    assert_eq!(store.get(2).unwrap().health.current(), 300);
 
     // This supplied GI has SecondaryFire=4 and a standing secondary record.
     set_infantry_stage(&mut store, 1, 3);
@@ -6395,7 +6395,7 @@ fn deployed_gi_uses_deployed_fire_visual_with_deploy_fire_weapon() {
         &mut main_rng,
     );
     assert!(result.consequences.fire_events().is_empty());
-    assert_eq!(store.get(2).unwrap().health.current, 300);
+    assert_eq!(store.get(2).unwrap().health.current(), 300);
     assert_eq!(
         store
             .get(1)
@@ -6417,7 +6417,7 @@ fn deployed_gi_uses_deployed_fire_visual_with_deploy_fire_weapon() {
         &mut main_rng,
     );
     assert_eq!(
-        store.get(2).unwrap().health.current,
+        store.get(2).unwrap().health.current(),
         260,
         "deployed-fire should use the DeployFireWeapon secondary slot"
     );
@@ -6531,7 +6531,7 @@ fn delayed_infantry_fire_cancels_when_target_dies_before_fire_frame() {
             .foot_firing_sequence_latch(),
         1
     );
-    store.get_mut(2).unwrap().health.current = 0;
+    store.get_mut(2).unwrap().health.set(0);
     set_infantry_stage(&mut store, 1, 2);
 
     let result = tick_combat(
@@ -6553,7 +6553,7 @@ fn delayed_infantry_fire_cancels_when_target_dies_before_fire_frame() {
             .foot_firing_sequence_latch(),
         0
     );
-    assert_eq!(store.get(2).unwrap().health.current, 0);
+    assert_eq!(store.get(2).unwrap().health.current(), 0);
     assert!(result.consequences.fire_events().is_empty());
     assert!(
         store.get(1).unwrap().attack_target.is_none(),
@@ -6600,7 +6600,7 @@ fn test_prone_infantry_takes_scaled_direct_damage() {
         &mut main_rng,
     );
 
-    let target_health = store.get(2).expect("target alive").health.current;
+    let target_health = store.get(2).expect("target alive").health.current();
     assert_eq!(
         target_health, 75,
         "100 damage with ProneDamage=50% should deal 50"
@@ -6646,7 +6646,7 @@ fn test_prone_infantry_takes_scaled_aoe_damage() {
         &mut main_rng,
     );
 
-    let target_health = store.get(2).expect("target alive").health.current;
+    let target_health = store.get(2).expect("target alive").health.current();
     assert_eq!(
         target_health, 75,
         "AoE center hit should also respect ProneDamage=50%"
@@ -6691,7 +6691,7 @@ fn an_unseen_target_is_fired_at() {
     );
 
     assert!(!result.consequences.fire_events().is_empty());
-    assert!(store.get(2).expect("target alive").health.current < 300);
+    assert!(store.get(2).expect("target alive").health.current() < 300);
 }
 
 /// Two identical enemies share one cell. `TechnoClass::Scan_Cell_For_Target @
@@ -7158,7 +7158,7 @@ fn crusher_driveover_destroys_wall_but_noncrusher_does_not() {
         veh.omni_crusher = obj.omni_crusher;
         veh.locomotor =
             Some(crate::sim::movement::locomotor::LocomotorState::from_object_type(obj, 0));
-        veh.health = Health { current: 300 };
+        veh.health = Health::new(300);
         sim.substrate.entities.insert(veh);
         sim.substrate.entities.rebuild_infantry_registry();
         sim
@@ -7193,7 +7193,7 @@ fn crusher_driveover_destroys_wall_but_noncrusher_does_not() {
         sim.substrate
             .entities
             .get(2)
-            .is_some_and(|e| e.health.current == 300),
+            .is_some_and(|e| e.health.current() == 300),
         "crusher takes no damage from crushing the wall"
     );
     let walls_left = sim
@@ -7335,7 +7335,7 @@ fn build_minimal_sim_with_gawall_row(
         let mut entity = GameEntity::test_default(next_id, "GAWALL", "Test", rx, ry);
         entity.set_owner_for_test(owner_id);
         entity.set_type_ref_for_test(type_id);
-        entity.health = Health { current: 400 };
+        entity.health = Health::new(400);
         sim.substrate.entities.insert(entity);
     }
     sim.overlay_grid = Some(grid);
@@ -7658,7 +7658,10 @@ fn v3_non_killing_aoe_emits_one_detonation_anim() {
     );
 
     assert!(
-        store.get(2).map(|e| e.health.current > 0).unwrap_or(false),
+        store
+            .get(2)
+            .map(|e| e.health.current() > 0)
+            .unwrap_or(false),
         "target must survive (test setup invariant)"
     );
     let v3exp = interner.intern("V3EXP");
@@ -7833,7 +7836,7 @@ fn an_inviso_death_weapon_scatters_its_anim_inside_the_receiver() {
     );
 
     assert_eq!(scenario_rng.logical_state(), expected_rng.logical_state());
-    assert_eq!(store.get(2).unwrap().health.current, 0);
+    assert_eq!(store.get(2).unwrap().health.current(), 0);
     let ucexplod = interner.intern("UCEXPLOD");
     let tankexp = interner.intern("TANKEXP");
     assert_eq!(
@@ -7928,7 +7931,7 @@ fn a_death_weapon_over_water_picks_its_anim_at_the_zero_location() {
         None,
     );
 
-    assert_eq!(store.get(2).unwrap().health.current, 0);
+    assert_eq!(store.get(2).unwrap().health.current(), 0);
     let anims: Vec<_> = result
         .fixture_anims
         .iter()
@@ -7970,13 +7973,13 @@ fn a_buildings_death_weapon_detonates_at_its_foundation_centre() {
     derrick.set_type_ref_for_test(sim.interner.intern("DERRICK"));
     derrick.foundation = "3x3".to_string();
     derrick.is_voxel = false;
-    derrick.health.current = 100;
+    derrick.health.set(100);
     sim.substrate.entities.insert(derrick);
     let _ = sim.reveal(1);
     let mut victim = GameEntity::test_default(2, "VICTIM", "Neutral", 13, 11);
     victim.set_owner_for_test(owner);
     victim.set_type_ref_for_test(sim.interner.intern("VICTIM"));
-    victim.health.current = 1000;
+    victim.health.set(1000);
     sim.substrate.entities.insert(victim);
     let _ = sim.reveal(2);
     sim.substrate.next_stable_object_id = 3;
@@ -7995,9 +7998,9 @@ fn a_buildings_death_weapon_detonates_at_its_foundation_centre() {
         )],
         crate::sim::world::FrameEffects::default(),
     );
-    assert_eq!(sim.substrate.entities.get(1).unwrap().health.current, 0);
+    assert_eq!(sim.substrate.entities.get(1).unwrap().health.current(), 0);
     assert_eq!(
-        sim.substrate.entities.get(2).unwrap().health.current,
+        sim.substrate.entities.get(2).unwrap().health.current(),
         900,
         "the full 100 at 512 leptons from the foundation centre"
     );
@@ -8184,7 +8187,7 @@ fn persistent_projectile_delays_damage_across_save_load_continuation() {
         0,
         &mut scenario_rng,
     );
-    assert_eq!(entities.get(2).unwrap().health.current, 500);
+    assert_eq!(entities.get(2).unwrap().health.current(), 500);
     assert_eq!(fire.projectile_spawns.len(), 1);
 
     let mut sim = crate::sim::world::Simulation::new();
@@ -8264,7 +8267,7 @@ fn persistent_projectile_delays_damage_across_save_load_continuation() {
         &mut main_rng,
         None,
     );
-    assert_eq!(entities.get(2).unwrap().health.current, 490);
+    assert_eq!(entities.get(2).unwrap().health.current(), 490);
 }
 
 /// One Inviso bullet's detonation draws in the frame's tail: the anim
@@ -8328,7 +8331,7 @@ fn inviso_scatter_uses_scenario_rng_only_for_effect_and_paired_smudge() {
     );
 
     assert_eq!(scenario_rng.logical_state(), expected_rng.logical_state());
-    assert_eq!(store.get(2).unwrap().health.current, 490);
+    assert_eq!(store.get(2).unwrap().health.current(), 490);
     assert_eq!(result.fixture_anims.len(), 1);
     assert_eq!(
         constructed_anim_coord(&result.fixture_anims[0]),
@@ -8634,7 +8637,7 @@ fn inviso_special_arms_claim_the_impact_and_keep_the_shared_tail() {
         );
 
         assert_eq!(
-            store.get(2).unwrap().health.current,
+            store.get(2).unwrap().health.current(),
             500,
             "{special_key}: the arm claims the impact, so no area damage"
         );
@@ -8691,7 +8694,7 @@ fn inviso_parasite_grapple_claims_the_impact() {
     );
 
     assert_eq!(result.consequences.fire_events().len(), 1);
-    assert_eq!(store.get(2).unwrap().health.current, 500);
+    assert_eq!(store.get(2).unwrap().health.current(), 500);
 }
 
 /// The conditional DirectRocker arm (`0x00469796..0x004697B2`) claims the
@@ -8719,7 +8722,7 @@ fn inviso_direct_rocker_at_a_cell_keeps_ordinary_damage() {
     );
 
     assert!(
-        store.get(2).unwrap().health.current < 500,
+        store.get(2).unwrap().health.current() < 500,
         "a cell target is never a UnitClass, so the ordinary arm runs"
     );
 }
@@ -8814,7 +8817,7 @@ fn combat_resolves_in_live_object_order_not_stable_id() {
             "live order [2,1]: B (live-order-first) must fire first"
         );
         // B's bullet leads the Logic tail and lands; A's is skipped this frame.
-        assert_eq!(store.get(3).unwrap().health.current, 2);
+        assert_eq!(store.get(3).unwrap().health.current(), 2);
         assert_eq!(result.projectile_spawns.len(), 1);
         assert_eq!(result.projectile_spawns[0].source_id, 1);
     }
@@ -8848,7 +8851,7 @@ fn combat_resolves_in_live_object_order_not_stable_id() {
             1,
             "empty live order: stable-id fallback fires A first"
         );
-        assert_eq!(store.get(3).unwrap().health.current, 2);
+        assert_eq!(store.get(3).unwrap().health.current(), 2);
         assert_eq!(result.projectile_spawns.len(), 1);
         assert_eq!(result.projectile_spawns[0].source_id, 2);
     }
@@ -8969,11 +8972,11 @@ fn rad_damage_fires_on_application_delay_boundary_only() {
     assert_eq!(native_row(15, 5)["admitted"], false);
     rad_combat_tick(&mut sim, &rules, 15);
     assert_eq!(
-        i64::from(sim.substrate.entities.get(inf).unwrap().health.current),
+        i64::from(sim.substrate.entities.get(inf).unwrap().health.current()),
         native_row(15, 0)["final_health"].as_i64().unwrap()
     );
     assert_eq!(
-        i64::from(sim.substrate.entities.get(tank).unwrap().health.current),
+        i64::from(sim.substrate.entities.get(tank).unwrap().health.current()),
         native_row(15, 5)["final_health"].as_i64().unwrap()
     );
 
@@ -8984,8 +8987,8 @@ fn rad_damage_fires_on_application_delay_boundary_only() {
     assert_eq!(native_row(16, 0)["admitted"], true);
     assert_eq!(native_row(16, 5)["admitted"], true);
     rad_combat_tick(&mut sim, &rules, 16);
-    let inf_hp = sim.substrate.entities.get(inf).unwrap().health.current;
-    let tank_hp = sim.substrate.entities.get(tank).unwrap().health.current;
+    let inf_hp = sim.substrate.entities.get(inf).unwrap().health.current();
+    let tank_hp = sim.substrate.entities.get(tank).unwrap().health.current();
     assert_eq!(
         i64::from(inf_hp),
         native_row(16, 0)["final_health"].as_i64().unwrap()
@@ -9009,11 +9012,11 @@ fn rad_damage_fires_on_application_delay_boundary_only() {
     assert_eq!(native_row(17, 5)["admitted"], false);
     rad_combat_tick(&mut sim, &rules, 17);
     assert_eq!(
-        sim.substrate.entities.get(inf).unwrap().health.current,
+        sim.substrate.entities.get(inf).unwrap().health.current(),
         inf_hp
     );
     assert_eq!(
-        sim.substrate.entities.get(tank).unwrap().health.current,
+        sim.substrate.entities.get(tank).unwrap().health.current(),
         tank_hp
     );
 }
@@ -9047,7 +9050,8 @@ fn gsi_04_07_damage_periodic_radiation_enters_direct_receiver_once() {
     let result = rad_combat_tick(&mut sim, &rules, 16);
     let target = sim.substrate.entities.get(tank).unwrap();
     assert_eq!(
-        target.health.current, 294,
+        target.health.current(),
+        294,
         "raw 100 / VeteranArmor 1.5 = 66; ftol(66 x heavy 10%) = 6 once"
     );
     assert!(
@@ -9100,7 +9104,7 @@ fn radiation_skips_only_objects_in_the_air() {
     );
 
     rad_combat_tick(&mut sim, &rules, 16);
-    let health = |id| sim.substrate.entities.get(id).unwrap().health.current;
+    let health = |id| sim.substrate.entities.get(id).unwrap().health.current();
     assert_eq!(health(high), 300, "in the air at 208");
     assert!(health(low) < 300, "not in the air below 208");
     assert!(health(hover) < 300, "a hovering unit is not in the air");
@@ -9161,7 +9165,7 @@ fn gsi_04_07_damage_hostile_building_hit_latches_was_attacked_for_ai_repair() {
             .get_mut(target_id)
             .unwrap()
             .health
-            .current = 200;
+            .set(200);
     }
     let warhead_ref = sim.interner.intern("HITWH");
     let events = [
@@ -9335,12 +9339,17 @@ fn buildings_take_no_rad_damage() {
 
     rad_combat_tick(&mut sim, &rules, 16);
     assert_eq!(
-        sim.substrate.entities.get(building).unwrap().health.current,
+        sim.substrate
+            .entities
+            .get(building)
+            .unwrap()
+            .health
+            .current(),
         750,
         "buildings are exempt from radiation damage"
     );
     assert_eq!(
-        sim.substrate.entities.get(deso).unwrap().health.current,
+        sim.substrate.entities.get(deso).unwrap().health.current(),
         200,
         "ImmuneToRadiation units are exempt"
     );
@@ -10827,7 +10836,7 @@ fn gsi_08_05_elite_rof_and_firepower_abilities_reach_the_fire_path() {
             0,
             &mut SimRng::new(0x475A_5A4C),
         );
-        let dealt = 400 - store.get(2).expect("target").health.current;
+        let dealt = 400 - store.get(2).expect("target").health.current();
         let reload = store
             .get(1)
             .map(|attacker| attacker.rearm_timer.duration() as u16)
@@ -10882,7 +10891,7 @@ fn gsi_08_05_a_heal_skips_the_firepower_rank_stage() {
             0,
             &mut SimRng::new(0x475A_5A4C),
         );
-        store.get(2).expect("patient").health.current - 200
+        store.get(2).expect("patient").health.current() - 200
     };
     assert_eq!(heal_once(false), 50);
     assert_eq!(heal_once(true), 50, "not ftol(-50 * 1.1) = -55");
@@ -10923,7 +10932,7 @@ fn gsi_08_05_a_sonic_shot_carries_no_damage() {
         1,
         "the Dolphin fired"
     );
-    assert_eq!(store.get(2).expect("target").health.current, 100);
+    assert_eq!(store.get(2).expect("target").health.current(), 100);
 }
 
 /// A vehicle installed in a Tank Bunker fires for `ftol(damage * f32
@@ -10963,7 +10972,7 @@ fn gsi_08_05_a_bunkered_vehicle_takes_the_bunker_damage_multiplier() {
             0,
             &mut SimRng::new(0x475A_5A4C),
         );
-        400 - store.get(2).expect("target").health.current
+        400 - store.get(2).expect("target").health.current()
     };
     assert_eq!(fire_once(false), 90);
     assert_eq!(fire_once(true), 116, "ftol(90 * 1.3f)");
@@ -11021,7 +11030,7 @@ fn gsi_08_05_a_garrison_shot_takes_the_f32_occupy_multiplier() {
         1,
         "the garrison fired"
     );
-    assert_eq!(store.get(2).expect("target").health.current, 125 - 36);
+    assert_eq!(store.get(2).expect("target").health.current(), 125 - 36);
 }
 
 /// `UnitClass::Death_Explosion @ 0x00738680` plays one anim from the dying
@@ -11186,7 +11195,7 @@ fn gsi_08_12_a_garrison_kill_pays_the_occupant_next_in_line() {
         &mut SimRng::new(1),
     );
 
-    assert_eq!(store.get(2).map_or(0, |victim| victim.health.current), 0);
+    assert_eq!(store.get(2).map_or(0, |victim| victim.health.current()), 0);
     let raw = |id: u64| store.get(id).unwrap().veterancy.raw().bits();
     assert_eq!(raw(10), 0, "the building never ranks");
     assert_eq!(raw(shooter), 0, "the shooter is not the one paid");
@@ -11255,7 +11264,7 @@ fn gsi_08_05_a_mixed_garrison_rearms_with_the_next_occupants_weapon() {
     );
 
     assert!(
-        store.get(2).unwrap().health.current < 400,
+        store.get(2).unwrap().health.current() < 400,
         "the quick gun fired"
     );
     let building = store.get(10).unwrap();
@@ -11302,7 +11311,7 @@ fn gsi_08_12_a_base_defence_kill_pays_nobody() {
         0,
         &mut SimRng::new(1),
     );
-    assert_eq!(store.get(2).map_or(0, |victim| victim.health.current), 0);
+    assert_eq!(store.get(2).map_or(0, |victim| victim.health.current()), 0);
     assert_eq!(store.get(1).unwrap().veterancy.raw().bits(), 0);
 }
 

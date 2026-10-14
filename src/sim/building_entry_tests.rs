@@ -848,7 +848,7 @@ fn the_nearest_own_bunker_with_room_takes_an_occupier() {
             .unwrap()
             .add_occupant(id, 1);
     }
-    sim.substrate.entities.get_mut(far).unwrap().health.current = 100;
+    sim.substrate.entities.get_mut(far).unwrap().health.set(100);
     assert!(!garrison_seek(&mut sim, &rules, infantry));
     assert!(!entity(&sim, infantry).building_entry.seeking());
 }

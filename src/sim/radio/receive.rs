@@ -1489,7 +1489,7 @@ fn techno_repair_tick(
     let Some(entity) = sim.substrate.entities.get_mut(techno) else {
         return RadioResponse::None;
     };
-    entity.health.current = entity.health.current.wrapping_add(heal);
+    entity.health.heal(heal);
     entity.estimated_health.add_repair(heal);
     let eater = entity.parasite.eater();
     if let Some(eater) = eater {
@@ -1507,7 +1507,7 @@ fn techno_repair_tick(
         return RadioResponse::None;
     };
     if entity.health.is_full(strength) {
-        entity.health.current = strength;
+        entity.health.set(strength);
         entity.estimated_health.reset(strength);
         RadioResponse::RepairComplete
     } else {
@@ -1706,7 +1706,7 @@ fn radio_hello(sim: &mut Simulation, receiver: u64, sender: Option<u64>) -> Radi
     ) else {
         return RadioResponse::None;
     };
-    if this.health.current == 0 {
+    if this.health.current() == 0 {
         return RadioResponse::None;
     }
     let ally = |asker, other| {
@@ -1795,7 +1795,7 @@ fn bunker_admits(sim: &Simulation, bld: u64, unit: u64) -> bool {
     let Some(b) = sim.substrate.entities.get(bld) else {
         return false;
     };
-    if b.dying || b.health.current == 0 {
+    if b.dying || b.health.current() == 0 {
         return false;
     }
     if b.owner() != unit_owner {
@@ -1811,7 +1811,7 @@ fn bunker_admits(sim: &Simulation, bld: u64, unit: u64) -> bool {
 mod tests {
     use super::dock_pad_cell;
     use crate::map::entities::EntityCategory;
-    use crate::sim::components::Health;
+    use crate::sim::combat::Health;
     use crate::sim::game_entity::GameEntity;
     use crate::sim::radio::{
         RadioMessage, RadioPayload, RadioResponse, RadioTestEvent, broadcast_break,
@@ -1829,7 +1829,7 @@ mod tests {
             0,
             0,
             owner_id,
-            Health { current: 900 },
+            Health::new(900),
             type_id,
             EntityCategory::Structure,
             0,
@@ -1850,7 +1850,7 @@ mod tests {
             0,
             0,
             owner_id,
-            Health { current: 200 },
+            Health::new(200),
             type_id,
             EntityCategory::Unit,
             0,
@@ -1871,7 +1871,7 @@ mod tests {
             0,
             0,
             owner_id,
-            Health { current: 1000 },
+            Health::new(1000),
             type_id,
             EntityCategory::Structure,
             0,
@@ -1930,7 +1930,7 @@ mod tests {
             0,
             128,
             owner,
-            Health { current: 125 },
+            Health::new(125),
             type_ref,
             EntityCategory::Infantry,
             0,
@@ -2731,7 +2731,7 @@ mod tests {
                 128,
                 128,
                 own,
-                Health { current: 100 },
+                Health::new(100),
                 carrier_type,
                 EntityCategory::Unit,
                 0,
@@ -2759,7 +2759,7 @@ mod tests {
                 } else {
                     own
                 },
-                Health { current: 100 },
+                Health::new(100),
                 passenger_type,
                 EntityCategory::Infantry,
                 0,

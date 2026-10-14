@@ -179,7 +179,7 @@ fn infantry_unlimbo_matches_native_gate_incoming_membership_and_signed_xy() {
                 0,
                 0,
                 owner,
-                Health { current: 1000 },
+                Health::new(1000),
                 ty,
                 EntityCategory::Structure,
                 0,
@@ -533,7 +533,7 @@ fn building_contact_constructor_matches_original_slots_before_hello() {
             0,
             0,
             owner,
-            Health { current: 500 },
+            Health::new(500),
             type_id,
             EntityCategory::Structure,
             0,
@@ -1576,7 +1576,7 @@ fn techno_constructor_routes_preserve_components_and_authored_overrides() {
             let entity = sim.substrate.entities.get(id).unwrap();
             assert!(entity.debug_log.is_some(), "{type_id} route {route}");
             assert!(entity.dont_score);
-            assert_eq!(entity.health.current, if route == 0 { 100 } else { 200 });
+            assert_eq!(entity.health.current(), if route == 0 { 100 } else { 200 });
             assert_eq!(entity.veterancy.rank(), if route == 0 { 100 } else { 0 });
             assert_eq!(entity.lifecycle.in_limbo, route == 2);
             if route == 0 {
@@ -1718,7 +1718,7 @@ fn techno_constructor_diagnostic_path_is_simulation_owned_and_draws_once() {
         0,
         0,
         owner,
-        Health { current: 1000 },
+        Health::new(1000),
         type_ref,
         EntityCategory::Structure,
         0,
@@ -2374,7 +2374,7 @@ fn signed_constructor_and_authored_health_consume_original_corpus() {
             .unwrap();
         assert_eq!(entity.category(), category);
         assert_eq!(
-            entity.health.current,
+            entity.health.current(),
             row["output"]["actual"].as_i64().unwrap() as i32,
             "{row}"
         );
@@ -2516,7 +2516,7 @@ fn map_admission_uses_class_health_and_rejects_unresolved_types() {
         assert_eq!(sim.spawn_from_map(&[placement], Some(&rules)), 1, "{row}");
         let entity = sim.substrate.entities.values().next().unwrap();
         assert_eq!(
-            entity.health.current,
+            entity.health.current(),
             row["output"]["actual"].as_i64().unwrap() as i32,
             "{row}"
         );
@@ -2572,7 +2572,7 @@ fn authored_unlimbo_preserves_scenario_scope_and_applies_native_class_health() {
             .unwrap()
             .unwrap();
         assert_eq!(entity.category(), category);
-        assert_eq!(entity.health.current, 65_536);
+        assert_eq!(entity.health.current(), 65_536);
         // ScenarioFullInit686B4F keeps A8E7AC raised through all map-object
         // readers. This terrain-less diagnostic coordinate is outside the
         // ordinary playfield gate; that gate cannot supply a false authored
@@ -2594,7 +2594,7 @@ fn authored_unlimbo_preserves_scenario_scope_and_applies_native_class_health() {
             .expect("original authored-health arithmetic control");
         let admitted = sim.substrate.entities.get(id).unwrap();
         assert_eq!(
-            admitted.health.current,
+            admitted.health.current(),
             native["output"]["actual"].as_i64().unwrap() as i32,
             "{kind}"
         );

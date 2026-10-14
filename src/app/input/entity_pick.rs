@@ -1132,7 +1132,7 @@ pub(crate) fn is_local_player_selectable_object(
     rules: Option<&RuleSet>,
     entity: &crate::sim::game_entity::GameEntity,
 ) -> bool {
-    entity.health.current > 0
+    entity.health.current() > 0
         && !entity.lifecycle.in_limbo
         && entity.in_playfield
         && entity.category() != EntityCategory::Structure
@@ -1308,7 +1308,7 @@ fn static_selection_gate(
 ) -> bool {
     entity.lifecycle.object_alive
         // `0x006F32D3`: no Health — a crashing aircraft falls alive at 0.
-        && entity.health.current > 0
+        && entity.health.current() > 0
         && !entity.lifecycle.in_limbo
         && !entity.is_warped_out()
         // The mouse/type caller's aggregate admission includes +0x3D5.
@@ -1339,7 +1339,7 @@ fn is_local_band_candidate(
 mod tests {
     use super::*;
     use crate::rules::ini_parser::IniFile;
-    use crate::sim::components::Health;
+    use crate::sim::combat::Health;
     use crate::sim::game_entity::GameEntity;
     use crate::sim::intern::StringInterner;
 
@@ -1355,7 +1355,7 @@ mod tests {
             0,
             0,
             owner,
-            Health { current: 1000 },
+            Health::new(1000),
             type_ref,
             EntityCategory::Structure,
             0,
@@ -1436,7 +1436,7 @@ mod tests {
             0,
             0,
             owner,
-            Health { current: 100 },
+            Health::new(100),
             type_ref,
             category,
             0,
@@ -2484,7 +2484,7 @@ mod tests {
         entity.lifecycle.in_limbo = false;
         entity.in_playfield = true;
         assert!(static_selection_gate(&entity, "ORCA", None, true));
-        entity.health.current = 0;
+        entity.health.set(0);
         entity.crashing = true;
         assert!(!static_selection_gate(&entity, "ORCA", None, true));
     }

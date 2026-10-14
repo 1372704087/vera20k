@@ -556,7 +556,7 @@ mod tests {
 
     #[test]
     fn building_hidden_anchor_is_drawn_without_entering_screen_selection() {
-        use crate::sim::components::Health;
+        use crate::sim::combat::Health;
 
         let mut sim = crate::sim::world::Simulation::new();
         let local_owner = sim.interner.intern("Americans");
@@ -572,7 +572,7 @@ mod tests {
             0,
             0,
             neutral_owner,
-            Health { current: 100 },
+            Health::new(100),
             building_type,
             EntityCategory::Structure,
             0,
@@ -625,7 +625,7 @@ mod tests {
 
     #[test]
     fn ordinary_building_admission_matches_executed_native_controls() {
-        use crate::sim::components::Health;
+        use crate::sim::combat::Health;
 
         let native: serde_json::Value = serde_json::from_str(crate::test_fixture::text(
             "tools/procedural_drawing_oracle/building_reveal.json",
@@ -663,7 +663,7 @@ mod tests {
                 0,
                 0,
                 owner,
-                Health { current: 100 },
+                Health::new(100),
                 type_id,
                 EntityCategory::Structure,
                 0,
@@ -713,7 +713,7 @@ mod tests {
 
     #[test]
     fn shroud_pop_in_mobile_admission_matches_original_class_entries() {
-        use crate::sim::components::Health;
+        use crate::sim::combat::Health;
 
         let native: serde_json::Value = serde_json::from_str(crate::test_fixture::text(
             "tools/procedural_drawing_oracle/entity_reveal.json",
@@ -747,7 +747,7 @@ mod tests {
                 0,
                 0,
                 owner,
-                Health { current: 100 },
+                Health::new(100),
                 type_id,
                 category,
                 0,
@@ -893,7 +893,7 @@ mod tests {
     #[test]
     fn item83_band_preflight_source_bulk_registers_hidden_live_building_only() {
         use crate::app::input::entity_pick::compute_box_selection_snapshot;
-        use crate::sim::components::Health;
+        use crate::sim::combat::Health;
 
         let mut sim = crate::sim::world::Simulation::new();
         let local_owner = sim.interner.intern("Americans");
@@ -908,7 +908,7 @@ mod tests {
             0,
             0,
             enemy_owner,
-            Health { current: 100 },
+            Health::new(100),
             mobile_type,
             EntityCategory::Unit,
             0,
@@ -922,7 +922,7 @@ mod tests {
             0,
             0,
             enemy_owner,
-            Health { current: 100 },
+            Health::new(100),
             building_type,
             EntityCategory::Structure,
             0,

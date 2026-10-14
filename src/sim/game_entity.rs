@@ -19,10 +19,9 @@ use crate::map::entities::EntityCategory;
 use crate::sim::animation::Animation;
 use crate::sim::cloak_disguise::{CloakRuntime, DisguiseRuntime};
 use crate::sim::combat::combat_weapon::WeaponSlot;
-use crate::sim::combat::{AttackTarget, TargetKind};
+use crate::sim::combat::{AttackTarget, Health, TargetKind};
 use crate::sim::components::{
-    HarvestOverlay, Health, NavigationState, PendingC4Detonation, Position, RockingState,
-    VoxelAnimation,
+    HarvestOverlay, NavigationState, PendingC4Detonation, Position, RockingState, VoxelAnimation,
 };
 use crate::sim::debug_event_log::{DebugEventKind, DebugEventLog};
 use crate::sim::docking::aircraft_dock::AircraftAmmo;
@@ -435,8 +434,9 @@ pub struct GameEntity {
     /// `TechnoClass::ChangeOwner @ 0x007014A0` moves it; here only the store's
     /// owner-change path does ([`Self::set_owner_from_store`]).
     owner: InternedId,
-    /// Current and maximum hit points.
-    pub health: Health,
+    /// The object's health (`ObjectClass+0x6C`), a [`Health`] that
+    /// `combat::object_health` owns.
+    pub(crate) health: Health,
     /// Object+70: signed damage reservations/recovery, not an actual-HP cache.
     /// Native constructors and map admission seed this from admitted health.
     pub(crate) estimated_health: crate::sim::estimated_health::EstimatedHealth,
@@ -1726,7 +1726,7 @@ impl GameEntity {
             owner,
             health,
             estimated_health: crate::sim::estimated_health::EstimatedHealth::from_raw(
-                health.current,
+                health.current(),
             ),
             type_ref,
             category,
@@ -2100,7 +2100,7 @@ impl GameEntity {
             0, // z = ground level
             0, // facing = north
             crate::sim::intern::test_intern(owner),
-            Health { current: 100 },
+            Health::new(100),
             crate::sim::intern::test_intern(type_ref),
             category,
             0, // veterancy = rookie
@@ -2111,7 +2111,7 @@ impl GameEntity {
 
     /// Whether this entity is alive (health > 0).
     pub fn is_alive(&self) -> bool {
-        self.health.current > 0
+        self.health.current() > 0
     }
 
     /// Whether ObjectClass native-alive state is set. This is intentionally
@@ -2134,7 +2134,7 @@ impl GameEntity {
     /// as dead here unless the object is crashing, and a wreck keeps IsAlive
     /// until its impact. A death sequence (`dying`) runs through its own path.
     pub fn is_ai_alive(&self) -> bool {
-        self.is_active() && (self.health.current > 0 || self.crashing)
+        self.is_active() && (self.health.current() > 0 || self.crashing)
     }
 
     /// Infantry522510's Doing27..30 deployment predicate. Undeploy31 already
@@ -2204,11 +2204,11 @@ impl GameEntity {
     /// and tell the host to invalidate the owning House's derived state.
     pub(crate) fn sample_building_health_for_power(&mut self) -> bool {
         if self.category != EntityCategory::Structure
-            || self.building_power_health_sample == self.health.current
+            || self.building_power_health_sample == self.health.current()
         {
             return false;
         }
-        self.building_power_health_sample = self.health.current;
+        self.building_power_health_sample = self.health.current();
         true
     }
 
@@ -2318,7 +2318,7 @@ mod tests {
         assert_eq!(e.position.ry, 40);
         assert_eq!(e.position.z, 0);
         assert_eq!(e.body_facing_current(0), 0);
-        assert_eq!(e.health.current, 100);
+        assert_eq!(e.health.current(), 100);
         assert_eq!(e.category, EntityCategory::Unit);
         assert_eq!(e.veterancy.rank(), 0);
         assert_eq!(e.vision_range, 5);
@@ -2386,7 +2386,7 @@ mod tests {
     fn test_is_alive() {
         let mut e = GameEntity::test_default(1, "E1", "Soviet", 10, 10);
         assert!(e.is_alive());
-        e.health.current = 0;
+        e.health.set(0);
         assert!(!e.is_alive());
     }
 }
@@ -2410,7 +2410,7 @@ mod lifecycle_tests {
             e.lifecycle.cell_marked = bits & 0b00_0100 != 0;
             e.in_logic_vector = bits & 0b00_1000 != 0;
             e.dying = bits & 0b01_0000 != 0;
-            e.health.current = if bits & 0b10_0000 != 0 { 1 } else { 0 };
+            e.health.set(if bits & 0b10_0000 != 0 { 1 } else { 0 });
 
             assert_eq!(e.is_object_alive(), bits & 0b00_0001 != 0);
             assert_eq!(e.lifecycle.in_limbo, bits & 0b00_0010 != 0);

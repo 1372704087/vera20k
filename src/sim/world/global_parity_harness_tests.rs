@@ -139,7 +139,7 @@ pub(super) fn print_replay_summary(name: &str, sim: &Simulation) {
         .map(|id| {
             let e = sim.substrate.entities.get(id).unwrap();
             serde_json::json!({"id":id,"type":sim.resolve(e.type_ref()),
-            "health":e.health.current,"position":e.position,"mission":e.mission,
+            "health":e.health.current(),"position":e.position,"mission":e.mission,
             "target":e.attack_target,"nav":e.navigation.nav_com,
             "passive_timer":e.passive_scan_timer,"last_scan":e.last_target_scan_frame,
             "rearm":e.rearm_timer})
@@ -1169,7 +1169,7 @@ fn global_skirmish_replay_is_deterministic_and_baseline_stable() {
         rep.substrate
             .entities
             .get(4)
-            .map(|tank| tank.health.current),
+            .map(|tank| tank.health.current()),
         None,
         "the retasked tank dies in its duel"
     );
@@ -1177,7 +1177,7 @@ fn global_skirmish_replay_is_deterministic_and_baseline_stable() {
         rep.substrate
             .entities
             .get(6)
-            .map(|tank| tank.health.current),
+            .map(|tank| tank.health.current()),
         Some(108),
         "tank 6 takes four 105mm hits (65 * 75% heavy)"
     );

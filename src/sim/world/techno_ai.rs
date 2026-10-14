@@ -697,7 +697,7 @@ fn techno_ai_shell(
     if let Some(entity) = sim.substrate.entities.get_mut(id) {
         entity
             .estimated_health
-            .recover(entity.health.current, sim.session.binary_frame);
+            .recover(entity.health.current(), sim.session.binary_frame);
     }
     match category {
         EntityCategory::Unit => {
@@ -832,7 +832,7 @@ fn techno_ai_shell(
                 // native returns admit only a live, nonzero-health building.
                 if sim.substrate.entities.get(id).is_some_and(|entity| {
                     entity.lifecycle.object_alive
-                        && entity.health.current != 0
+                        && entity.health.current() != 0
                         && !entity.is_warped_out()
                         && !entity.is_warping_in()
                 }) {
@@ -1055,7 +1055,7 @@ fn house_heal_arm(sim: &mut Simulation, id: u64, rules: &RuleSet, infantry: bool
         return;
     }
     let strength = object.strength;
-    let health = entity.health.current;
+    let health = entity.health.current();
     if health >= strength || health == 0 {
         return;
     }
@@ -1087,9 +1087,9 @@ fn house_heal_arm(sim: &mut Simulation, id: u64, rules: &RuleSet, infantry: bool
     let Some(entity) = sim.substrate.entities.get_mut(id) else {
         return;
     };
-    let missing = strength.wrapping_sub(entity.health.current);
+    let missing = strength.wrapping_sub(entity.health.current());
     let heal = if step < missing { step } else { missing };
-    entity.health.current = entity.health.current.wrapping_add(heal);
+    entity.health.heal(heal);
     // Only the unit arm carries the damage-smoke tail before the cloak tick;
     // the infantry arm rejoins the common flow at 0x006FA941.
     if !infantry {
@@ -1128,7 +1128,7 @@ fn self_heal_step(sim: &mut Simulation, id: u64, rules: &RuleSet) {
         return;
     }
     if let Some(entity) = sim.substrate.entities.get_mut(id) {
-        entity.health.current = entity.health.current.wrapping_add(1);
+        entity.health.heal(1);
     }
     sim.retire_damage_smoke_after_self_heal(id, rules);
 }
@@ -1249,7 +1249,7 @@ fn mission_handlers_run(sim: &Simulation, id: u64) -> bool {
     sim.substrate
         .entities
         .get(id)
-        .is_some_and(|entity| entity.health.current > 0)
+        .is_some_and(|entity| entity.health.current() > 0)
 }
 
 /// `TechnoClass::AI_Update`'s leading common steps, in native order: the
@@ -1651,7 +1651,7 @@ pub(super) fn dying_infantry_techno_ai(
     if let Some(entity) = sim.substrate.entities.get_mut(id) {
         entity
             .estimated_health
-            .recover(entity.health.current, sim.session.binary_frame);
+            .recover(entity.health.current(), sim.session.binary_frame);
     }
     allied_target_drop_step(sim, id, rules);
     illegal_target_drop_step(sim, id, rules);
@@ -2107,7 +2107,7 @@ mod tests {
     fn unit_voice_dying_infantry_still_reaches_its_techno_head() {
         let (mut sim, rules) = unit_voice_fixture();
         sim.prepare_unit_voice_visits([9].into());
-        sim.substrate.entities.get_mut(9).unwrap().health.current = 0;
+        sim.substrate.entities.get_mut(9).unwrap().health.set(0);
         sim.begin_infantry_death_sequence(
             9,
             super::super::infantry_terminal::InfantryDeathSequence::Die1,
@@ -2391,7 +2391,7 @@ mod tests {
         let mut sim = Simulation::new();
         let mut e = entity_of(1, EntityCategory::Unit);
         // Killed, its UnInit deferred: native has already cleared IsAlive.
-        e.health.current = 0;
+        e.health.set(0);
         sim.substrate.entities.insert(e);
         // Guard B (IsAlive) fires after the (empty) pre-block: a dead Unit runs
         // no mission work (counter stays 0).
@@ -2417,7 +2417,7 @@ mod tests {
     fn bracket_runs_on_for_a_health_zero_wreck() {
         let mut sim = Simulation::new();
         let mut e = entity_of(1, EntityCategory::Unit);
-        e.health.current = 0;
+        e.health.set(0);
         e.crashing = true;
         sim.substrate.entities.insert(e);
         assert_eq!(
@@ -2649,7 +2649,7 @@ mod tests {
         );
         let timer = {
             let wreck = sim.substrate.entities.get_mut(1).expect("tank present");
-            wreck.health.current = 0;
+            wreck.health.set(0);
             wreck.crashing = true;
             wreck.mission.dispatch_timer()
         };
@@ -2657,20 +2657,20 @@ mod tests {
         for _ in 0..200 {
             let _ = sim.advance_tick(&[], Some(&rules), Some(&grid), None, 67);
             let wreck = sim.substrate.entities.get(1).expect("the wreck stays");
-            assert_eq!(wreck.health.current, 0, "a wreck does not heal");
+            assert_eq!(wreck.health.current(), 0, "a wreck does not heal");
             assert_eq!(
                 wreck.mission.dispatch_timer(),
                 timer,
                 "no Guard handler ran, so its epilogue never wrote the timer"
             );
             acquired |= wreck.attack_target.is_some() && wreck.passively_acquired_target;
-            if sim.substrate.entities.get(2).unwrap().health.current < 3000 {
+            if sim.substrate.entities.get(2).unwrap().health.current() < 3000 {
                 break;
             }
         }
         assert!(acquired, "the passive scan picked the enemy up");
         assert!(
-            sim.substrate.entities.get(2).unwrap().health.current < 3000,
+            sim.substrate.entities.get(2).unwrap().health.current() < 3000,
             "the wreck's fire update shot it"
         );
     }
@@ -2709,7 +2709,7 @@ mod tests {
         );
         {
             let wreck = sim.substrate.entities.get_mut(1).expect("disc present");
-            wreck.health.current = 0;
+            wreck.health.set(0);
             wreck.crashing = true;
         }
         let mut shots = 0;
@@ -2725,7 +2725,7 @@ mod tests {
         }
         assert!(shots >= 2, "the wreck kept firing its laser ({shots})");
         assert_eq!(
-            sim.substrate.entities.get(2).unwrap().health.current,
+            sim.substrate.entities.get(2).unwrap().health.current(),
             3000,
             "a crashing owner's disk laser deals nothing"
         );
@@ -3030,7 +3030,7 @@ mod tests {
         // The invariant is checked EVERY tick, not just at the end: the leak
         // opens on the exact tick the victim dies and can be papered over by the
         // next cadence rescan, so an end-state assertion would miss it.
-        sim.substrate.entities.get_mut(2).unwrap().health.current = 1;
+        sim.substrate.entities.get_mut(2).unwrap().health.set(1);
         for tick in 0..80 {
             let _ = sim.advance_tick(&[], Some(&rules), Some(&grid), None, 67);
             let tank = sim.substrate.entities.get(1).expect("tank present");
@@ -3045,7 +3045,7 @@ mod tests {
             sim.substrate
                 .entities
                 .get(2)
-                .is_none_or(|e| e.health.current == 0 || e.dying),
+                .is_none_or(|e| e.health.current() == 0 || e.dying),
             "precondition: the first victim died"
         );
         let tank = sim.substrate.entities.get(1).expect("tank present");
@@ -3075,13 +3075,13 @@ mod tests {
         }
         let scout = sim.substrate.entities.get(1).expect("scout present");
         assert!(
-            scout.health.current
+            scout.health.current()
                 < rules
                     .object(sim.interner.resolve(scout.type_ref()))
                     .unwrap()
                     .strength,
             "an unordered base defence must actually shoot what it picks up: {}/{}",
-            scout.health.current,
+            scout.health.current(),
             rules
                 .object(sim.interner.resolve(scout.type_ref()))
                 .unwrap()
@@ -3177,7 +3177,7 @@ mod tests {
                 .attack_target
                 .as_ref()
                 .map(|attack| attack.target),
-            sim.substrate.entities.get(3).unwrap().health.current,
+            sim.substrate.entities.get(3).unwrap().health.current(),
         )
     }
 
@@ -3285,13 +3285,13 @@ mod tests {
         );
         let enemy = sim.substrate.entities.get(2).expect("enemy present");
         assert!(
-            enemy.health.current
+            enemy.health.current()
                 < rules
                     .object(sim.interner.resolve(enemy.type_ref()))
                     .unwrap()
                     .strength,
             "and it must actually open fire: {}/{}",
-            enemy.health.current,
+            enemy.health.current(),
             rules
                 .object(sim.interner.resolve(enemy.type_ref()))
                 .unwrap()
@@ -3371,24 +3371,24 @@ mod tests {
         let allied = sim.substrate.entities.get(1).expect("allied tank present");
         let soviet = sim.substrate.entities.get(2).expect("soviet tank present");
         assert!(
-            allied.health.current
+            allied.health.current()
                 < rules
                     .object(sim.interner.resolve(allied.type_ref()))
                     .unwrap()
                     .strength
-                || soviet.health.current
+                || soviet.health.current()
                     < rules
                         .object(sim.interner.resolve(soviet.type_ref()))
                         .unwrap()
                         .strength,
             "a passively acquired target must actually be fired on: \
              allied {}/{}, soviet {}/{}",
-            allied.health.current,
+            allied.health.current(),
             rules
                 .object(sim.interner.resolve(allied.type_ref()))
                 .unwrap()
                 .strength,
-            soviet.health.current,
+            soviet.health.current(),
             rules
                 .object(sim.interner.resolve(soviet.type_ref()))
                 .unwrap()
@@ -3515,7 +3515,7 @@ mod tests {
             0,
             0,
             owner_ref,
-            crate::sim::components::Health { current: 100 },
+            crate::sim::combat::Health::new(100),
             type_ref,
             category,
             0,
@@ -5747,7 +5747,7 @@ mod tests {
             let due = entity.mission.dispatch_timer().due(native_frame);
             events.push(HostTraceEvent::DispatchTimerGate { due });
             if due {
-                let health_pass = entity.health.current > 0;
+                let health_pass = entity.health.current() > 0;
                 events.push(HostTraceEvent::DispatchHealthGate { pass: health_pass });
                 if health_pass {
                     let byte6e0 = gates.unit_move_bytes[0];
@@ -6172,7 +6172,7 @@ mod tests {
             .get_mut(ORDINARY_DRIVE_HOST_ID)
             .unwrap()
             .health
-            .current = 0;
+            .set(0);
         let trace = ordinary_drive_host_trace_ok(&sim, 20, HostTraceGates::ordinary());
 
         assert!(
@@ -6929,7 +6929,7 @@ MinLowPowerProductionSpeed=0.4\nMaxLowPowerProductionSpeed=0.85\n\n\
             0,
             0,
             owner,
-            crate::sim::components::Health { current: 100 },
+            crate::sim::combat::Health::new(100),
             type_ref,
             EntityCategory::Unit,
             0,
@@ -6949,7 +6949,7 @@ MinLowPowerProductionSpeed=0.4\nMaxLowPowerProductionSpeed=0.85\n\n\
             0,
             0,
             owner,
-            crate::sim::components::Health { current: 100 },
+            crate::sim::combat::Health::new(100),
             type_ref,
             EntityCategory::Aircraft,
             0,
@@ -6971,7 +6971,7 @@ MinLowPowerProductionSpeed=0.4\nMaxLowPowerProductionSpeed=0.85\n\n\
             0,
             0,
             owner,
-            crate::sim::components::Health { current: 100 },
+            crate::sim::combat::Health::new(100),
             type_ref,
             EntityCategory::Infantry,
             0,
@@ -7213,7 +7213,7 @@ MinLowPowerProductionSpeed=0.4\nMaxLowPowerProductionSpeed=0.85\n\n\
             0,
             0,
             owner,
-            crate::sim::components::Health { current: 100 },
+            crate::sim::combat::Health::new(100),
             type_ref,
             EntityCategory::Structure,
             0,
@@ -7262,7 +7262,7 @@ MinLowPowerProductionSpeed=0.4\nMaxLowPowerProductionSpeed=0.85\n\n\
             0,
             0,
             owner,
-            crate::sim::components::Health { current: 100 },
+            crate::sim::combat::Health::new(100),
             fact_type,
             EntityCategory::Structure,
             0,
@@ -7341,7 +7341,7 @@ MinLowPowerProductionSpeed=0.4\nMaxLowPowerProductionSpeed=0.85\n\n\
             0, // z = ground level
             0, // facing = north
             owner,
-            crate::sim::components::Health { current: 100 },
+            crate::sim::combat::Health::new(100),
             type_ref,
             EntityCategory::Unit,
             0, // veterancy = rookie
@@ -7572,7 +7572,7 @@ ConditionRedSparkingProbability={red_prob}\nConditionYellowSparkingProbability={
             0,
             0,
             owner,
-            crate::sim::components::Health { current },
+            crate::sim::combat::Health::new(current),
             type_ref,
             EntityCategory::Unit,
             0,
@@ -7764,7 +7764,7 @@ ConditionRedSparkingProbability=1.0\nConditionYellowSparkingProbability=1.0\n\n\
             0,
             0,
             owner,
-            crate::sim::components::Health { current: 20 },
+            crate::sim::combat::Health::new(20),
             type_ref,
             EntityCategory::Unit,
             0,

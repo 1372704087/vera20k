@@ -238,7 +238,7 @@ pub(super) fn resolve_receive_damage(
     // Building442230 returns before Techno for Health0, after its wrapper
     // response (already executed by commit_entities). Infantry/Unit instead
     // delegate and can re-enter Techno's fatal tail at zero Health.
-    if target.category() == EntityCategory::Structure && target.health.current == 0 {
+    if target.category() == EntityCategory::Structure && target.health.current() == 0 {
         return None;
     }
     let warhead = rules.warhead(interner.resolve(event.warhead_ref))?;
@@ -280,7 +280,7 @@ pub(super) fn resolve_receive_damage(
                 .map(|object| armor_index(&object.armor))
                 .unwrap_or(0) as u8,
         ),
-        current_hp: target.health.current,
+        current_hp: target.health.current(),
         object_immune: target_type.is_some_and(|object| object.immune),
     };
     let type_immune = target_type.is_some_and(|object| object.type_immune)

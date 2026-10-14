@@ -1350,8 +1350,8 @@ mod tests {
     #[test]
     fn gsi_17_01_map_terrain_entry_becomes_a_force_fireable_object() {
         use crate::map::overlay::parse_terrain_objects;
+        use crate::sim::combat::Health;
         use crate::sim::command::{Command, CommandEnvelope};
-        use crate::sim::components::Health;
         use crate::sim::game_entity::GameEntity;
         use crate::sim::pathfinding::PathGrid;
         use crate::sim::terrain_object::TerrainObjectLifecycle;
@@ -1385,7 +1385,7 @@ mod tests {
         let mut sim = Simulation::new();
         let attacker_id = sim.allocate_stable_id();
         let mut attacker = GameEntity::test_default(attacker_id, "MTNK", "Americans", 5, 5);
-        attacker.health = Health { current: 300 };
+        attacker.health = Health::new(300);
         let owner_id = attacker.owner();
         // `test_default` interns both owner and type through the shared test
         // interner. Snapshot it only after constructing the entity so those

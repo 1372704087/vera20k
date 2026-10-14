@@ -831,7 +831,7 @@ impl OracleTeam {
             }
             let entity = sim.substrate.entities.get_mut(id).unwrap();
             entity.lifecycle.object_alive = flag(&member["active"]);
-            entity.health.current = int(&member["health"]);
+            entity.health.set(int(&member["health"]));
             entity.lifecycle.in_limbo = flag(&member["limbo"]);
             let count = usize::try_from(int(&member["count"])).unwrap();
             if count > 0 {

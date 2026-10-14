@@ -74,7 +74,9 @@ fn rocketeer(input: &Value) -> (Simulation, RuleSet, u64) {
     // jumpjet_infantry_actions.Actions supplies OWNER+74=1; Do_Action's
     // Object5F6B90 height predicate requires this independently of XYZ.
     entity.lifecycle.cell_marked = true;
-    entity.health.current = input["health"].as_i64().unwrap_or(125) as _;
+    entity
+        .health
+        .set(input["health"].as_i64().unwrap_or(125) as _);
     entity.on_bridge = input["on_bridge"].as_bool().unwrap_or(false);
     entity.position.exact_z_leptons = Some(height);
     entity
@@ -341,7 +343,7 @@ fn walk_consumer(input: &Value) -> (Simulation, RuleSet, u64) {
         .expect("infantryman");
     let entity = sim.substrate.entities.get_mut(id).unwrap();
     entity.lifecycle.in_limbo = false;
-    entity.health.current = 100;
+    entity.health.set(100);
     entity.infantry.as_mut().unwrap().is_prone = input["prone"] == true;
     entity
         .mission_leaf
@@ -491,7 +493,7 @@ fn retail_teleport_default_action_matches_the_native_sequencer() {
         let actor = sim.substrate.entities.get_mut(id).unwrap();
         actor.lifecycle.in_limbo = false;
         actor.lifecycle.cell_marked = true;
-        actor.health.current = 125;
+        actor.health.set(125);
         actor.position.exact_z_leptons = Some(0);
         actor.infantry.as_mut().unwrap().is_prone = input["prone"].as_bool().unwrap();
         assert_eq!(

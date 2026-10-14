@@ -820,7 +820,7 @@ pub(crate) fn tick_combat_with_fog_and_main_rng_with_terrain_area(
                 .filter(|&id| {
                     world.substrate.entities.get(id).is_some_and(|entity| {
                         entity.category() == EntityCategory::Structure
-                            && entity.health.current > 0
+                            && entity.health.current() > 0
                             && !entity.lifecycle.in_limbo
                     })
                 })

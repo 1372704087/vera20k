@@ -1242,7 +1242,7 @@ fn retail_dustbowl_a_computer_without_its_yard_sells_off_and_hunts() {
         .entities
         .values()
         .find(|e| !e.dying && e.owner() == owner && sim.interner.resolve(e.type_ref()) == "NACNST")
-        .map(|e| (e.stable_id(), e.health.current))
+        .map(|e| (e.stable_id(), e.health.current()))
         .expect("the yard");
 
     // The yard goes, with no attacker (so no building attack is noted).

@@ -183,7 +183,7 @@ impl Arena {
             .substrate
             .entities
             .get(id)
-            .map(|e| e.health.current)
+            .map(|e| e.health.current())
     }
 
     /// Retired by UnInit: pending delete, or already drained.
@@ -279,7 +279,7 @@ fn dog_bite_kills_the_infantry_and_releases_the_dog_where_it_stood() {
         sim.substrate
             .entities
             .get(gi)
-            .is_none_or(|v| v.health.current == 0)
+            .is_none_or(|v| v.health.current() == 0)
     });
     let death_frame = arena.frame();
 
@@ -290,7 +290,7 @@ fn dog_bite_kills_the_infantry_and_releases_the_dog_where_it_stood() {
             .is_some_and(|d| !d.lifecycle.in_limbo)
     });
     let dog_entity = arena.sim.substrate.entities.get(dog).unwrap();
-    assert!(dog_entity.health.current > 0, "the dog survives its kill");
+    assert!(dog_entity.health.current() > 0, "the dog survives its kill");
     assert_eq!(
         (dog_entity.position.rx, dog_entity.position.ry),
         (11, 10),
@@ -404,7 +404,7 @@ fn drone_bites_on_its_weapon_rate_until_the_host_dies_then_drops_off() {
             .substrate
             .entities
             .get(tank)
-            .map_or(0, |t| t.health.current);
+            .map_or(0, |t| t.health.current());
         if hp != last {
             bites.push((sim.session.binary_frame, hp));
             last = hp;
@@ -428,7 +428,7 @@ fn drone_bites_on_its_weapon_rate_until_the_host_dies_then_drops_off() {
             .is_some_and(|d| !d.lifecycle.in_limbo)
     });
     let drone_entity = arena.sim.substrate.entities.get(drone).unwrap();
-    assert!(drone_entity.health.current > 0);
+    assert!(drone_entity.health.current() > 0);
     assert_eq!(
         (drone_entity.position.rx, drone_entity.position.ry),
         (11, 10)
@@ -572,7 +572,7 @@ fn a_sonic_hit_ejects_the_drone_alive_beside_its_host_and_drops_the_shooter_targ
     let frame = arena.frame();
     let released = arena.sim.substrate.entities.get(drone).unwrap();
     assert!(!released.lifecycle.in_limbo && released.lifecycle.object_alive);
-    assert_eq!(released.health.current, 100);
+    assert_eq!(released.health.current(), 100);
     assert_eq!(host_facing, 0);
     assert_eq!(
         released.body_facing.destination(),
@@ -825,7 +825,7 @@ fn a_load_keeps_the_infection_and_restarts_both_parasite_timers() {
         sim.substrate
             .entities
             .get(tank)
-            .is_some_and(|t| t.health.current == 250)
+            .is_some_and(|t| t.health.current() == 250)
     });
     // Third-party AP (100% against heavy): 20 raw arms 35 frames of suppression.
     arena.hit(&rules, tank, Some(rhino), 20, "AP");
@@ -875,7 +875,7 @@ fn a_load_keeps_the_infection_and_restarts_both_parasite_timers() {
             .get_mut(tank)
             .unwrap()
             .health
-            .current = 5;
+            .set(5);
         world.hit(&rules, tank, Some(rhino), 5, "AP");
         world.until(&rules, 60, |sim| sim.substrate.entities.get(tank).is_none());
     }
@@ -958,7 +958,7 @@ fn a_dog_released_on_a_bridge_deck_stays_on_the_deck() {
         sim.substrate
             .entities
             .get(gi)
-            .is_none_or(|v| v.health.current == 0)
+            .is_none_or(|v| v.health.current() == 0)
     });
     arena.until(&rules, 100, |sim| {
         sim.substrate

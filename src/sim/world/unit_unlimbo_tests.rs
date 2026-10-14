@@ -166,7 +166,7 @@ fn assert_actor(sim: &Simulation, id: u64, native: &Value, name: &str) {
         assert_eq!(json!(actual), native[label], "{name}: {label}");
     }
     assert_eq!(
-        json!(actor.health.current),
+        json!(actor.health.current()),
         native["health"],
         "{name}: Health"
     );
@@ -341,7 +341,7 @@ fn assert_radio_pair(sim: &Simulation, ids: (u64, u64), native: &Value, name: &s
             ("limbo", i32::from(endpoint.lifecycle.in_limbo)),
             ("marked", i32::from(endpoint.lifecycle.cell_marked)),
             ("in_playfield", i32::from(endpoint.in_playfield)),
-            ("health", endpoint.health.current),
+            ("health", endpoint.health.current()),
             ("mission", endpoint.mission.current().raw()),
             ("queued", endpoint.mission.queued().raw()),
         ] {
@@ -1322,7 +1322,7 @@ fn retail_factory_exit_radio_matches_original_reciprocal_cleanup() {
                 &mut endpoint.position,
                 coord(&before["producer"]["position"]),
             );
-            endpoint.health.current = int(&before["producer"]["health"]);
+            endpoint.health.set(int(&before["producer"]["health"]));
             let mission = &before["producer"];
             endpoint.mission.apply_test_fixture(MissionTestFixture {
                 current: MissionId::from_raw(int(&mission["mission"])),

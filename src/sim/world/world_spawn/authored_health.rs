@@ -50,7 +50,7 @@ pub(super) fn authored_health(category: EntityCategory, authored: i32, strength:
 
 fn apply(entity: &mut GameEntity, authored: i32, strength: i32) {
     let actual = authored_health(entity.category(), authored, strength);
-    entity.health.current = actual;
+    entity.health.set(actual);
     entity.estimated_health.reset(actual);
 }
 

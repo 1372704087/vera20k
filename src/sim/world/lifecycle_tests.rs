@@ -11,8 +11,9 @@ use crate::map::resolved_terrain::{ResolvedTerrainCell, ResolvedTerrainGrid};
 use crate::rules::locomotor_type::LocomotorKind;
 use crate::rules::terrain_rules::{SpeedCostProfile, TerrainClass};
 use crate::sim::anim_class::{AnimObject, AnimRuntime, AnimWorldCoord};
+use crate::sim::combat::Health;
 use crate::sim::combat::{AttackTarget, TargetKind};
-use crate::sim::components::{DriveOccupationFootprint, Health, NavTargetRef};
+use crate::sim::components::{DriveOccupationFootprint, NavTargetRef};
 use crate::sim::game_entity::GameEntity;
 use crate::sim::house_state::HouseState;
 use crate::sim::mission::state::MissionTestFixture;
@@ -81,7 +82,7 @@ fn native_trigger_reveal_cell_put_discovers_unshrouded_campaign_resident() {
             0,
             0,
             owner,
-            Health { current: 100 },
+            Health::new(100),
             typ,
             EntityCategory::Infantry,
             0,
@@ -320,7 +321,7 @@ pub(super) fn insert_entity(sim: &mut Simulation, stable_id: u64, category: Enti
         0,
         0,
         owner,
-        Health { current: 100 },
+        Health::new(100),
         type_ref,
         category,
         0,
@@ -367,7 +368,7 @@ fn insert_reservation_building(
         0,
         0,
         owner,
-        Health { current: 100 },
+        Health::new(100),
         type_ref,
         EntityCategory::Structure,
         0,
@@ -3301,7 +3302,7 @@ fn nested_transport_parent_expiry_preserves_its_independent_cargo() {
             let _ = sim.reveal(2);
             let parent = sim.substrate.entities.get_mut(1).unwrap();
             parent.lifecycle.object_alive = alive;
-            parent.health.current = health;
+            parent.health.set(health);
             let mut cargo = PassengerCargo::new(5, 2);
             cargo.board_forced(3, 1);
             let entity = sim.substrate.entities.get_mut(2).unwrap();
@@ -4479,7 +4480,7 @@ fn score_stats_credit_the_killer_and_charge_the_victim_once() {
     );
     insert_entity(&mut sim, 1, EntityCategory::Unit);
     let victim = sim.substrate.entities.get_mut(1).unwrap();
-    victim.health.current = 0;
+    victim.health.set(0);
     sim.record_the_kill(
         1,
         None,
@@ -4528,7 +4529,7 @@ fn score_stats_come_from_the_kill_record_captured_at_destruction() {
     );
     insert_entity(&mut sim, 1, EntityCategory::Infantry);
     let victim = sim.substrate.entities.get_mut(1).unwrap();
-    victim.health.current = 0;
+    victim.health.set(0);
     sim.record_the_kill(
         1,
         None,
@@ -4552,7 +4553,7 @@ fn score_stats_ignore_a_removal_that_was_not_a_destruction() {
     sim.houses
         .insert(owner, HouseState::new(owner, 0, None, true, 0, 10));
     insert_entity(&mut sim, 1, EntityCategory::Structure);
-    sim.substrate.entities.get_mut(1).unwrap().health.current = 400;
+    sim.substrate.entities.get_mut(1).unwrap().health.set(400);
 
     sim.uninit(1);
 
@@ -4573,7 +4574,7 @@ fn score_stats_count_a_self_inflicted_kill_but_award_no_points() {
     sim.houses
         .insert(owner, HouseState::new(owner, 0, None, true, 0, 10));
     insert_entity(&mut sim, 1, EntityCategory::Structure);
-    sim.substrate.entities.get_mut(1).unwrap().health.current = 0;
+    sim.substrate.entities.get_mut(1).unwrap().health.set(0);
     sim.record_the_kill(
         1,
         None,
@@ -4613,7 +4614,7 @@ fn dont_score_victims_book_no_kill_no_loss_and_no_points() {
     );
     insert_entity(&mut sim, 1, EntityCategory::Infantry);
     let victim = sim.substrate.entities.get_mut(1).unwrap();
-    victim.health.current = 0;
+    victim.health.set(0);
     victim.dont_score = true;
     // Retained attribution does not bypass the victim's DontScore gate.
     victim.killed_by = Some(killer_owner);
@@ -4678,7 +4679,7 @@ fn lifecycle_authority_animated_death_stays_represented_until_uninit() {
     let _ = sim.reveal(1);
 
     let entity = sim.substrate.entities.get_mut(1).unwrap();
-    entity.health.current = 0;
+    entity.health.set(0);
     entity.dying = true;
     let tracking = &sim.houses.get(&owner).unwrap().tracking;
     assert_eq!(
@@ -5881,7 +5882,7 @@ fn gsi_05_04_combat_fatal_expiry_keeps_authoritative_cell_target() {
     {
         let victim = sim.substrate.entities.get_mut(victim_id).unwrap();
         victim.set_type_ref_for_test(victim_type);
-        victim.health.current = 10;
+        victim.health.set(10);
     }
     assert!(matches!(
         sim.try_reveal_entity(victim_id, common_raw_request(5, 6, 0, 128, 128)),
@@ -5978,7 +5979,7 @@ fn gsi_05_04_combat_fatal_garrison_recursion_keeps_cell_target() {
         let building = sim.substrate.entities.get_mut(building_id).unwrap();
         building.set_type_ref_for_test(building_type);
         building.foundation = "2x2".to_string();
-        building.health.current = 10;
+        building.health.set(10);
         let mut cargo = PassengerCargo::new(5, 1);
         assert!(cargo.board(passenger_id, 1));
         building.passenger_role = PassengerRole::Transport { cargo };
@@ -6468,7 +6469,7 @@ fn wave_pointer_expiry_target_survives_dying_then_uninit_starts_decay_tail() {
         let target = sim.substrate.entities.get_mut(target_id).unwrap();
         target.position.rx = 4;
         target.position.ry = 0;
-        target.health.current = 0;
+        target.health.set(0);
         target.dying = true;
     }
 
@@ -6522,7 +6523,7 @@ fn wave_pointer_expiry_owner_allows_dying_damage_then_uninit_nulls_later_calls()
     {
         let owner = sim.substrate.entities.get_mut(owner_id).unwrap();
         owner.set_type_ref_for_test(sim.interner.intern("FIRER"));
-        owner.health.current = 0;
+        owner.health.set(0);
         owner.dying = true;
         owner.attack_target = Some(AttackTarget::for_cell(4, 5));
     }
@@ -6531,7 +6532,7 @@ fn wave_pointer_expiry_owner_allows_dying_damage_then_uninit_nulls_later_calls()
     {
         let receiver = sim.substrate.entities.get_mut(receiver_id).unwrap();
         receiver.set_type_ref_for_test(sim.interner.intern("VICTIM"));
-        receiver.health = Health { current: 30 };
+        receiver.health = Health::new(30);
     }
     assert!(matches!(
         sim.try_reveal_entity(receiver_id, common_raw_request(4, 5, 0, 128, 128)),
@@ -6573,7 +6574,7 @@ fn wave_pointer_expiry_owner_allows_dying_damage_then_uninit_nulls_later_calls()
             .get(receiver_id)
             .unwrap()
             .health
-            .current,
+            .current(),
         20,
         "DamageArea consults the represented owner pointer, not health/dying state",
     );
@@ -6599,7 +6600,7 @@ fn wave_pointer_expiry_owner_allows_dying_damage_then_uninit_nulls_later_calls()
             .get(receiver_id)
             .unwrap()
             .health
-            .current,
+            .current(),
         20,
         "the now-null live owner makes every later DamageArea call a no-op",
     );
@@ -6650,7 +6651,7 @@ fn gsi_01_05_lethal_bullet_commits_receiver_before_retirement_and_double_compact
     {
         let victim = sim.substrate.entities.get_mut(victim_id).unwrap();
         victim.set_type_ref_for_test(victim_type);
-        victim.health.current = 10;
+        victim.health.set(10);
     }
     assert!(matches!(
         sim.try_reveal_entity(victim_id, common_raw_request(5, 6, 0, 128, 128)),
@@ -6749,7 +6750,7 @@ fn gsi_01_05_terminal_wave_damages_once_before_single_current_removal() {
         .get_mut(victim_id)
         .unwrap()
         .set_type_ref_for_test(victim_type);
-    sim.substrate.entities.get_mut(victim_id).unwrap().health = Health { current: 30 };
+    sim.substrate.entities.get_mut(victim_id).unwrap().health = Health::new(30);
     assert!(matches!(
         sim.try_reveal_entity(victim_id, common_raw_request(4, 5, 0, 128, 128)),
         RevealOutcome::Revealed { .. }
@@ -6812,7 +6813,7 @@ fn gsi_01_05_terminal_wave_damages_once_before_single_current_removal() {
             .get(victim_id)
             .unwrap()
             .health
-            .current,
+            .current(),
         20,
         "Wave receiver fires once at its Logic slot and is not replayed later"
     );
@@ -6983,7 +6984,12 @@ fn wave_elite_ambient_damage_carries_within_cell_and_resets_on_next_cell() {
     assert!(sim.object_ai_visit_one(wave_id, Some(&rules), ObjectAiCtx::default()));
 
     assert_eq!(
-        sim.substrate.entities.get(first_id).unwrap().health.current,
+        sim.substrate
+            .entities
+            .get(first_id)
+            .unwrap()
+            .health
+            .current(),
         93
     );
     assert_eq!(
@@ -6992,12 +6998,17 @@ fn wave_elite_ambient_damage_carries_within_cell_and_resets_on_next_cell() {
             .get(second_id)
             .unwrap()
             .health
-            .current,
+            .current(),
         93,
         "second occupant receives the first callback's 7-point mutable value",
     );
     assert_eq!(
-        sim.substrate.entities.get(next_id).unwrap().health.current,
+        sim.substrate
+            .entities
+            .get(next_id)
+            .unwrap()
+            .health
+            .current(),
         85,
         "the next recorded cell reloads elite AmbientDamage=15, never Damage=8",
     );
@@ -7098,7 +7109,7 @@ fn wave_shared_damage_passes_a_unit_inside_its_war_factory() {
     sim.admit_wave(wave_id, wave);
 
     assert!(sim.object_ai_visit_one(wave_id, Some(&rules), ObjectAiCtx::default()));
-    let health = |id: u64| sim.substrate.entities.get(id).unwrap().health.current;
+    let health = |id: u64| sim.substrate.entities.get(id).unwrap().health.current();
     assert_eq!(health(first_id), 100);
     assert_eq!(health(second_id), 90);
 }
@@ -7199,14 +7210,19 @@ fn wave_walks_nonbuilding_terrain_building_order_and_terrain_owns_wood_gate() {
             .collect::<Vec<_>>();
         (
             selected,
-            sim.substrate.entities.get(unit_id).unwrap().health.current,
+            sim.substrate
+                .entities
+                .get(unit_id)
+                .unwrap()
+                .health
+                .current(),
             sim.production.terrain_objects[&terrain_id].health,
             sim.substrate
                 .entities
                 .get(building_id)
                 .unwrap()
                 .health
-                .current,
+                .current(),
         )
     }
 
@@ -7368,7 +7384,7 @@ fn assert_direct_fatal_death_weapon_starts_crater(bridge: bool) {
     insert_entity(&mut sim, victim_id, EntityCategory::Unit);
     let victim = sim.substrate.entities.get_mut(victim_id).unwrap();
     victim.set_type_ref_for_test(sim.interner.intern("VICTIM"));
-    victim.health = Health { current: 1 };
+    victim.health = Health::new(1);
     assert!(matches!(
         sim.try_reveal_entity(victim_id, common_raw_request(4, 5, 0, 128, 128)),
         RevealOutcome::Revealed { .. }
@@ -7782,7 +7798,7 @@ fn gsi_01_05_wave_reselects_live_cell_list_after_fatal_receiver_unmark() {
         let building = sim.substrate.entities.get_mut(building_id).unwrap();
         building.set_type_ref_for_test(building_type);
         building.foundation = "2x1".to_string();
-        building.health.current = 10;
+        building.health.set(10);
     }
     assert!(matches!(
         sim.try_reveal_entity(building_id, common_raw_request(4, 5, 0, 128, 128)),
@@ -8126,7 +8142,7 @@ fn insert_naval_build_const_fixture(
         0,
         0,
         owner,
-        Health { current: 1000 },
+        Health::new(1000),
         type_ref,
         EntityCategory::Structure,
         0,

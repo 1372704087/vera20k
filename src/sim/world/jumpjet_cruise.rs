@@ -1632,7 +1632,7 @@ mod tests {
             )
         };
         let sim = &scenario.runtime.simulation;
-        let strength = sim.substrate.entities.get(tank).unwrap().health.current;
+        let strength = sim.substrate.entities.get(tank).unwrap().health.current();
         let mut orders = vec![CommandEnvelope::new(
             sim.interner.get("Americans").expect("house"),
             sim.session.tick + 1,
@@ -1650,7 +1650,7 @@ mod tests {
                 damaged = true;
                 break;
             };
-            damaged |= target.health.current < strength;
+            damaged |= target.health.current() < strength;
             let entity = sim.substrate.entities.get(disc).expect("Disc lives");
             if frame > 0 {
                 assert_eq!(

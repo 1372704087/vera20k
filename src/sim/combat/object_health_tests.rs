@@ -173,3 +173,24 @@ fn receiver_commit_keeps_negative_heal_on_exact_zero_techno_tail_and_wide_hits()
         }
     }
 }
+
+/// The integer `is_full` answers what the masked chop53 division and
+/// FCOMP against 1.0 answer, including x/0, 0/0 and the i32 extremes.
+#[test]
+fn is_full_matches_the_masked_ratio_compare() {
+    use crate::util::native_x87::MaskedX87Ordering::{Equal, Greater};
+    let mut values = vec![i32::MIN, i32::MIN + 1, i32::MAX - 1, i32::MAX];
+    for base in [0i32, 1, 2, 3, 100, 600, 1 << 24, 1 << 30] {
+        for delta in [-1i32, 0, 1] {
+            let v = base + delta;
+            values.extend([v, -v]);
+        }
+    }
+    for &strength in &values {
+        for &health in &values {
+            let health = Health::new(health);
+            let native = matches!(health.compare_ratio(strength, 1.0), Equal | Greater);
+            assert_eq!(health.is_full(strength), native, "{health:?} / {strength}");
+        }
+    }
+}

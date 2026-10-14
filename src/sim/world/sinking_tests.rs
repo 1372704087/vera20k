@@ -33,7 +33,7 @@ fn fixture(relative_z: i32) -> (Simulation, RuleSet, u64) {
     entity.set_type_ref_for_test(sim.interner.intern("TEST"));
     entity.set_owner_for_test(owner);
     entity.set_category_for_test(EntityCategory::Unit);
-    entity.health.current = 0;
+    entity.health.set(0);
     entity.lifecycle.in_limbo = false;
     entity.lifecycle.cell_marked = false;
     entity.position.sub_x = SimFixed::from_num(128);
@@ -75,7 +75,7 @@ fn native_sink_suffix_preserves_cadence_coordinates_and_complete_rng_states() {
             "{name}"
         );
         assert_eq!(
-            entity.health.current,
+            entity.health.current(),
             expected["health"].as_i64().unwrap() as i32,
             "{name}"
         );
@@ -430,7 +430,7 @@ fn retained_health_one_ship_is_illegal_as_firer_and_target() {
     firer.set_type_ref_for_test(sim.interner.intern("TEST"));
     firer.set_owner_for_test(sim.interner.intern("Russians"));
     firer.lifecycle.in_limbo = false;
-    firer.health.current = 800;
+    firer.health.set(800);
     firer.position.z = 2;
     firer.position.exact_z_leptons = Some(208);
     sim.substrate.entities.insert(firer);

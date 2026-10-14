@@ -755,7 +755,7 @@ fn retarget_and_counter_warp_release() {
     assert_eq!(head_of(&sim, other_tank), Some(red));
     assert_eq!(link(&sim, red).warp_remaining, 4000, "a fresh start");
     assert_eq!(
-        entity(&sim, tank).health.current,
+        entity(&sim, tank).health.current(),
         400,
         "nothing was lost or healed"
     );
@@ -1168,14 +1168,14 @@ fn a_warped_object_is_frozen_and_immune() {
         &[hit(false)],
         crate::sim::world::FrameEffects::default(),
     );
-    assert_eq!(entity(&sim, tank).health.current, 400, "immune");
+    assert_eq!(entity(&sim, tank).health.current(), 400, "immune");
     sim.commit_noncombat_aoe_hits(
         &rules,
         None,
         &[hit(true)],
         crate::sim::world::FrameEffects::default(),
     );
-    assert_eq!(entity(&sim, tank).health.current, 300, "ignoreDefenses");
+    assert_eq!(entity(&sim, tank).health.current(), 300, "ignoreDefenses");
 }
 
 /// Through the production fire path: a Chrono Legionnaire ordered to attack a
@@ -1220,7 +1220,7 @@ fn a_chrono_legionnaire_erases_a_tank() {
         sim.advance_tick(&commands, Some(&rules), Some(&grid), None, 33);
         if started.is_none() && head_of(&sim, tank) == Some(cleg) {
             started = Some(frame);
-            assert_eq!(entity(&sim, tank).health.current, 400, "no damage");
+            assert_eq!(entity(&sim, tank).health.current(), 400, "no damage");
         }
         if erased(&sim, tank) {
             erased_after = Some(frame);
@@ -1340,7 +1340,7 @@ fn only_temporal_fire_reaches_a_warped_target() {
         sim.advance_tick(&commands, Some(&rules), Some(&grid), None, 33);
     }
     assert_eq!(head_of(&sim, tank), Some(cleg), "still warped");
-    assert_eq!(entity(&sim, tank).health.current, 400);
+    assert_eq!(entity(&sim, tank).health.current(), 400);
     assert!(
         entity(&sim, gi)
             .attack_target
@@ -1401,7 +1401,7 @@ fn moving_releases_the_target() {
     }
     assert_eq!(head_of(&sim, tank), None, "released on the move");
     assert!(!erased(&sim, tank));
-    assert_eq!(entity(&sim, tank).health.current, 400);
+    assert_eq!(entity(&sim, tank).health.current(), 400);
 }
 
 /// A snapshot taken mid-warp restores the chain and the head.
@@ -1492,7 +1492,7 @@ fn a_warped_object_runs_none_of_its_ai_phases() {
     let cleg2 = spawn(&mut sim, &rules, "CLEG", "Russians", 10, 12);
     {
         let building = sim.substrate.entities.get_mut(plant).unwrap();
-        building.health.current = 300;
+        building.health.set(300);
         building.repairing = true;
     }
     let americans = sim.interner.get("Americans").unwrap();
@@ -1556,7 +1556,7 @@ fn a_warped_object_runs_none_of_its_ai_phases() {
     sim.session.binary_frame = sim.session.binary_frame.next_multiple_of(14);
     let ctx = crate::sim::world::ObjectAiCtx::default();
     sim.object_ai_visit_one(plant, Some(&rules), ctx);
-    assert_eq!(entity(&sim, plant).health.current, 300, "no repair");
+    assert_eq!(entity(&sim, plant).health.current(), 300, "no repair");
     assert_eq!(
         sim.houses[&sim.interner.get("Americans").unwrap()]
             .economy
@@ -1567,7 +1567,7 @@ fn a_warped_object_runs_none_of_its_ai_phases() {
     // Released, the building repairs again.
     sim.temporal_let_go(cleg2);
     sim.object_ai_visit_one(plant, Some(&rules), ctx);
-    assert!(entity(&sim, plant).health.current > 300);
+    assert!(entity(&sim, plant).health.current() > 300);
 }
 
 /// Evaluate_Candidate probes GetFireError first (`0x006F7CE8`), whose
@@ -1850,7 +1850,7 @@ fn a_warped_building_cannot_be_captured() {
         .get_mut(plant)
         .unwrap()
         .health
-        .current = 100;
+        .set(100);
     let americans = sim.interner.get("Americans").unwrap();
     let russians = sim.interner.get("Russians").unwrap();
     // Isolate the terminal Walk/PerCell2 boundary using the real command's

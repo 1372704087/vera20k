@@ -295,7 +295,7 @@ pub(crate) fn fire_sale(
         };
         let sells =
             sim.substrate.entities.get(id).is_some_and(|building| {
-                !building.lifecycle.in_limbo && building.health.current > 0
+                !building.lifecycle.in_limbo && building.health.current() > 0
             });
         if sells {
             sell_back(sim, rules, id, SellOrder::Computer, registry, frame_effects);

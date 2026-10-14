@@ -607,7 +607,7 @@ fn replay_hash_stable_through_slice6() {
                 .get(id)
                 .expect("actor lives")
                 .health
-                .current,
+                .current(),
             health,
             "retask window must not turn into a combat/death fixture"
         );

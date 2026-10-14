@@ -506,7 +506,7 @@ impl Simulation {
         if entity.category() != EntityCategory::Infantry {
             return false;
         }
-        entity.health.current = 0;
+        entity.health.set(0);
         entity.dying = true;
         // Legacy raw coordinate scans can revisit an UnInit'd object before
         // pending deletion drains it. Preserve their HP write, but never give

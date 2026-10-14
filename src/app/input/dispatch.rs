@@ -832,8 +832,8 @@ mod item83_click_route_tests {
     use crate::app::input::entity_pick::compute_type_select_click_mutation;
     use crate::app::types::OrderMode;
     use crate::map::entities::EntityCategory;
+    use crate::sim::combat::Health;
     use crate::sim::command::Command;
-    use crate::sim::components::Health;
     use crate::sim::entity_store::EntityStore;
     use crate::sim::game_entity::GameEntity;
     use crate::sim::intern::StringInterner;
@@ -935,7 +935,7 @@ mod item83_click_route_tests {
                 0,
                 0,
                 owner,
-                Health { current: 100 },
+                Health::new(100),
                 type_ref,
                 EntityCategory::Unit,
                 0,
@@ -2344,7 +2344,7 @@ mod item83_selection_order_tests {
     use crate::map::entities::EntityCategory;
     use crate::rules::ini_parser::IniFile;
     use crate::rules::ruleset::RuleSet;
-    use crate::sim::components::Health;
+    use crate::sim::combat::Health;
     use crate::sim::game_entity::GameEntity;
     use crate::sim::world::Simulation;
     use std::collections::VecDeque;
@@ -2432,7 +2432,7 @@ mod item83_selection_order_tests {
                     0,
                     0,
                     owner,
-                    Health { current: 100 },
+                    Health::new(100),
                     type_ref,
                     EntityCategory::Infantry,
                     0,

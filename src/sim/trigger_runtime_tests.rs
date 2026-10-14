@@ -102,7 +102,7 @@ fn spawn_type(sim: &mut Simulation, type_id: &str) -> u64 {
         0,
         0,
         owner_id,
-        crate::sim::components::Health { current: 100 },
+        crate::sim::combat::Health::new(100),
         type_id_interned,
         EntityCategory::Unit,
         0,
@@ -537,7 +537,7 @@ fn techno_playfield_action_40_exact_recompute_and_mobile_reveal_callback() {
     use crate::map::playfield::PlayfieldBounds;
     use crate::rules::ini_parser::IniFile;
     use crate::rules::ruleset::RuleSet;
-    use crate::sim::components::Health;
+    use crate::sim::combat::Health;
     use crate::sim::house_state::HouseState;
 
     let header = MapHeader {
@@ -611,7 +611,7 @@ fn techno_playfield_action_40_exact_recompute_and_mobile_reveal_callback() {
         0,
         0,
         owner,
-        Health { current: 100 },
+        Health::new(100),
         mobile_type,
         EntityCategory::Unit,
         100,
@@ -627,7 +627,7 @@ fn techno_playfield_action_40_exact_recompute_and_mobile_reveal_callback() {
         0,
         0,
         owner,
-        Health { current: 100 },
+        Health::new(100),
         building_type,
         EntityCategory::Structure,
         0,

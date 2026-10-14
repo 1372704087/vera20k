@@ -729,7 +729,7 @@ fn retail_builds_step_at_the_native_frames() {
                 .object(sim.interner.resolve(entity.type_ref()))
                 .expect("retail building")
                 .strength;
-            entity.health.current = strength;
+            entity.health.set(strength);
         }
         let type_id = sim.interner.intern(unit);
 

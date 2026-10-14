@@ -1692,7 +1692,7 @@ fn evaluate_candidate(
     // G6 — `InLimbo`/`Health == 0`. Actual retained Cell lists and separate
     // airborne registrations are not filtered or reconstructed from these
     // facts; eligibility belongs to this receiver.
-    if candidate.health.current == 0 || candidate.dying || candidate.lifecycle.in_limbo {
+    if candidate.health.current() == 0 || candidate.dying || candidate.lifecycle.in_limbo {
         return None;
     }
 
@@ -3975,7 +3975,7 @@ mod tests {
                 EntityCategory::Unit,
             );
             let entity = entities.get_mut(id).unwrap();
-            entity.health.current = 301;
+            entity.health.set(301);
             entity.estimated_health =
                 crate::sim::estimated_health::EstimatedHealth::from_raw(estimate);
         }

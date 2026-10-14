@@ -46,7 +46,7 @@ fn spawn(
 ) {
     let mut entity = GameEntity::test_default(id, type_name, owner, at.0, at.1);
     entity.set_category_for_test(category);
-    entity.health.current = 300;
+    entity.health.set(300);
     entity.lifecycle.in_limbo = false;
     store.insert(entity);
 }
@@ -89,7 +89,7 @@ fn coil_shot(tank_at: (u16, u16), setup: impl FnOnce(&mut GameEntity)) -> (i32, 
         &mut rng,
     );
     (
-        store.get(2).unwrap().health.current,
+        store.get(2).unwrap().health.current(),
         store.get(1).unwrap().attack_target.is_some(),
     )
 }
@@ -173,7 +173,7 @@ fn a_warping_in_unit_holds_fire_until_it_lands() {
             &mut rng,
         );
         (
-            store.get(2).unwrap().health.current,
+            store.get(2).unwrap().health.current(),
             store.get(1).unwrap().attack_target.is_some(),
         )
     };
@@ -247,7 +247,7 @@ fn an_unpowered_defence_drops_its_target() {
         power.insert(test_interner().intern("Soviet"), power_state);
         combat_frame(&mut store, &rules, &power);
         (
-            store.get(2).unwrap().health.current,
+            store.get(2).unwrap().health.current(),
             store.get(1).unwrap().attack_target.is_some(),
         )
     };
@@ -280,7 +280,7 @@ fn an_empty_garrison_drops_its_target() {
     );
     store.get_mut(1).unwrap().attack_target = Some(AttackTarget::new(2));
     combat_frame(&mut store, &rules, &Default::default());
-    assert_eq!(store.get(2).unwrap().health.current, 300);
+    assert_eq!(store.get(2).unwrap().health.current(), 300);
     assert!(store.get(1).unwrap().attack_target.is_none());
 }
 
@@ -341,7 +341,7 @@ fn a_garrison_fires_its_occupy_weapon_or_nothing() {
         };
         combat_frame(&mut store, &rules, &Default::default());
         (
-            store.get(2).unwrap().health.current,
+            store.get(2).unwrap().health.current(),
             store.get(1).unwrap().attack_target.is_some(),
         )
     };
@@ -388,7 +388,7 @@ fn a_warping_in_unit_holds_fire_and_its_target() {
         10,
     )));
     combat_frame(&mut store, &rules, &Default::default());
-    assert_eq!(store.get(2).unwrap().health.current, 300);
+    assert_eq!(store.get(2).unwrap().health.current(), 300);
     assert!(store.get(1).unwrap().attack_target.is_some());
 }
 
@@ -415,11 +415,11 @@ fn a_repair_weapon_lets_go_of_a_healthy_vehicle() {
             "Americans",
             (12, 10),
         );
-        store.get_mut(2).unwrap().health.current = health;
+        store.get_mut(2).unwrap().health.set(health);
         store.get_mut(1).unwrap().attack_target = Some(AttackTarget::new(2));
         combat_frame(&mut store, &rules, &Default::default());
         (
-            store.get(2).unwrap().health.current,
+            store.get(2).unwrap().health.current(),
             store.get(1).unwrap().attack_target.is_some(),
         )
     };

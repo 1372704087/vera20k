@@ -560,7 +560,7 @@ pub fn has_active_radar(
 mod tests {
     use super::*;
     use crate::rules::ini_parser::IniFile;
-    use crate::sim::components::Health;
+    use crate::sim::combat::Health;
     use crate::sim::game_entity::GameEntity;
     use crate::sim::intern;
 
@@ -599,7 +599,7 @@ mod tests {
         assert_eq!(corpus["assessment_rows"].as_array().unwrap().len(), 32);
         for row in corpus["assessment_rows"].as_array().unwrap() {
             let mut entity = generator.clone();
-            entity.health.current = row["current"].as_i64().unwrap() as i32;
+            entity.health.set(row["current"].as_i64().unwrap() as i32);
             entity
                 .drain
                 .set_draining_me_for_test(row["draining"].as_bool().unwrap().then_some(99));
@@ -703,7 +703,7 @@ mod tests {
             10,
             EntityCategory::Structure,
         );
-        e.health = Health { current: hp };
+        e.health = Health::new(hp);
         e.lifecycle.in_limbo = false;
         e.lifecycle.cell_marked = true;
         e
@@ -1157,7 +1157,8 @@ BuildSpeed=0.02
 
         let entity = store.get(1).expect("entity should exist");
         assert_eq!(
-            entity.health.current, 100,
+            entity.health.current(),
+            100,
             "low power must not damage buildings (gamemd parity)"
         );
     }

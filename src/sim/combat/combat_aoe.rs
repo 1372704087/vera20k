@@ -631,7 +631,7 @@ pub(crate) fn apply_aoe_damage_with_terrain_and_scenario<O: Into<AoEDamageOrigin
         // Dying corpses (uninit'd this tick, awaiting the end-of-tick drain)
         // are off the live object list — exclude them. A sold/captured corpse
         // keeps health>0, so gate on `dying`, not just health.
-        if entity.health.current == 0 || entity.dying {
+        if entity.health.current() == 0 || entity.dying {
             continue;
         }
 
@@ -864,7 +864,7 @@ fn push_airborne_aoe_damage(
     let Some(entity) = entities.get(entity_id) else {
         return;
     };
-    if entity.health.current == 0 || entity.dying {
+    if entity.health.current() == 0 || entity.dying {
         return;
     }
     let target_z = crate::sim::movement::ground_pose::object_world_z_leptons(entity, Some(terrain));
@@ -952,7 +952,7 @@ fn push_entity_aoe_damage(
     let Some(entity) = entities.get(entity_id) else {
         return;
     };
-    if entity.health.current == 0 || entity.dying {
+    if entity.health.current() == 0 || entity.dying {
         return;
     }
 
@@ -1359,7 +1359,7 @@ mod tests {
         ] {
             let mut air = GameEntity::test_default(stable_id, type_id, "Soviet", 5, 5);
             air.set_category_for_test(category);
-            air.health.current = 1000;
+            air.health.set(1000);
             // Ordinary Aircraft41B920 reaches Object5F6B90: Object+74 must
             // be marked before the physical GetHeight threshold is queried.
             air.lifecycle.in_limbo = false;
@@ -1456,7 +1456,7 @@ mod tests {
             let mut target = GameEntity::test_default(stable_id, "MTNK", "Soviet", rx, 10);
             target.position.sub_x = SimFixed::from_num(sub_x);
             target.position.sub_y = CELL_CENTER_LEPTON;
-            target.health.current = 300;
+            target.health.set(300);
             entities.insert(target);
         }
         let mut interner = test_interner();
@@ -1554,10 +1554,10 @@ mod tests {
         );
         assert!(death.despawned_ids.is_empty());
         assert!(pings.is_empty());
-        assert_eq!(entities.get(320).unwrap().health.current, 132);
-        assert_eq!(entities.get(384).unwrap().health.current, 188);
-        assert_eq!(entities.get(385).unwrap().health.current, 188);
-        assert_eq!(entities.get(386).unwrap().health.current, 300);
+        assert_eq!(entities.get(320).unwrap().health.current(), 132);
+        assert_eq!(entities.get(384).unwrap().health.current(), 188);
+        assert_eq!(entities.get(385).unwrap().health.current(), 188);
+        assert_eq!(entities.get(386).unwrap().health.current(), 300);
     }
 
     #[test]
@@ -1585,7 +1585,7 @@ mod tests {
             5,
             EntityCategory::Structure,
         );
-        building.health.current = 300;
+        building.health.set(300);
         entities.insert(building);
         let mut occupancy = OccupancyGrid::new();
         occupancy.add(
@@ -1761,7 +1761,7 @@ mod tests {
             assert!(pings.is_empty());
             (
                 records,
-                entities.get(1).unwrap().health.current,
+                entities.get(1).unwrap().health.current(),
                 effects
                     .combat_light_requests
                     .iter()
@@ -1834,7 +1834,7 @@ mod tests {
                 let mut air = GameEntity::test_default(stable_id, "AIRBOMB", "Soviet", rx, 5);
                 air.set_category_for_test(EntityCategory::Aircraft);
                 air.lifecycle.in_limbo = false;
-                air.health.current = hp;
+                air.health.set(hp);
                 air.position.z = 0;
                 let mut air_locomotor =
                     crate::sim::movement::locomotor::LocomotorState::from_object_type(
@@ -1857,10 +1857,10 @@ mod tests {
 
             let mut center = GameEntity::test_default(20, "GROUNDBOMB", "Soviet", 5, 5);
             center.lifecycle.in_limbo = false;
-            center.health.current = hp;
+            center.health.set(hp);
             let mut east = GameEntity::test_default(10, "GROUNDBOMB", "Soviet", 7, 5);
             east.lifecycle.in_limbo = false;
-            east.health.current = hp;
+            east.health.set(hp);
 
             let mut entities = EntityStore::new();
             entities.insert(east);
@@ -2002,7 +2002,7 @@ mod tests {
             );
         }
         for id in [40, 30, 5, 20, 10] {
-            assert_eq!(fatal_entities.get(id).unwrap().health.current, 0);
+            assert_eq!(fatal_entities.get(id).unwrap().health.current(), 0);
         }
 
         let (hit_order, survives, surviving_walls, surviving_entities, surviving_rng) = run(11);
@@ -2014,7 +2014,7 @@ mod tests {
             assert_eq!(surviving_walls.cell(rx, ry).overlay_id, Some(0));
         }
         for id in [40, 30, 5, 20, 10] {
-            assert_eq!(surviving_entities.get(id).unwrap().health.current, 1);
+            assert_eq!(surviving_entities.get(id).unwrap().health.current(), 1);
         }
     }
 
@@ -2039,7 +2039,7 @@ mod tests {
             let mut entity = GameEntity::test_default(stable_id, "TESTUNIT", "Soviet", rx, ry);
             entity.position.sub_x = SimFixed::from_num(sub_x);
             entity.position.sub_y = SimFixed::from_num(sub_y);
-            entity.health.current = hp;
+            entity.health.set(hp);
             entity
         };
         let mut entities = EntityStore::new();
@@ -2144,10 +2144,10 @@ mod tests {
         assert!(pings.is_empty());
         assert_eq!(handled_deaths, vec![200]);
         assert_eq!(death.immediate_uninit_ids, vec![200]);
-        assert_eq!(entities.get(200).unwrap().health.current, 0);
-        assert_eq!(entities.get(100).unwrap().health.current, 70);
-        assert_eq!(entities.get(300).unwrap().health.current, 70);
-        assert_eq!(entities.get(400).unwrap().health.current, 70);
+        assert_eq!(entities.get(200).unwrap().health.current(), 0);
+        assert_eq!(entities.get(100).unwrap().health.current(), 70);
+        assert_eq!(entities.get(300).unwrap().health.current(), 70);
+        assert_eq!(entities.get(400).unwrap().health.current(), 70);
     }
 
     #[test]
@@ -2577,9 +2577,9 @@ mod tests {
                 ids,
                 captured_houses,
                 [
-                    entities.get(1).unwrap().health.current,
-                    entities.get(2).unwrap().health.current,
-                    entities.get(3).unwrap().health.current,
+                    entities.get(1).unwrap().health.current(),
+                    entities.get(2).unwrap().health.current(),
+                    entities.get(3).unwrap().health.current(),
                 ],
             )
         }
@@ -2641,7 +2641,7 @@ mod tests {
             );
             hut.set_owner_for_test(civilian);
             hut.set_type_ref_for_test(cabhut);
-            hut.health.current = 2000;
+            hut.health.set(2000);
             entities.insert(hut);
 
             let mut occupancy = OccupancyGrid::new();
@@ -2704,7 +2704,11 @@ mod tests {
                 &mut fatal_lifecycle,
                 &mut sound_sink,
             );
-            (entities.get(2).unwrap().health.current, pings.len(), death)
+            (
+                entities.get(2).unwrap().health.current(),
+                pings.len(),
+                death,
+            )
         }
 
         let (immune_hp, immune_pings, immune_death) = run(true);
@@ -2763,12 +2767,12 @@ mod tests {
         let mut rookie = GameEntity::test_default(2, "MTNK", "Americans", 5, 5);
         rookie.set_owner_for_test(american);
         rookie.set_type_ref_for_test(mtnk);
-        rookie.health.current = 300;
+        rookie.health.set(300);
         entities.insert(rookie);
         let mut veteran = GameEntity::test_default(3, "MTNK", "Americans", 5, 5);
         veteran.set_owner_for_test(american);
         veteran.set_type_ref_for_test(mtnk);
-        veteran.health.current = 300;
+        veteran.health.set(300);
         veteran.veterancy.set_rank_for_test(100);
         entities.insert(veteran);
 
@@ -2838,9 +2842,9 @@ mod tests {
             &mut sound_sink,
         );
 
-        assert_eq!(entities.get(2).unwrap().health.current, 210);
+        assert_eq!(entities.get(2).unwrap().health.current(), 210);
         assert_eq!(
-            entities.get(3).unwrap().health.current,
+            entities.get(3).unwrap().health.current(),
             240,
             "STRONGER divides 90 by stock VeteranArmor 1.5 at the live receiver"
         );
@@ -2890,21 +2894,21 @@ mod tests {
         let mut target = GameEntity::test_default(2, "TARGET", "SovietHouse", 5, 5);
         target.set_owner_for_test(soviet);
         target.set_type_ref_for_test(target_type);
-        target.health.current = 1000;
+        target.health.set(1000);
         target.attack_target = Some(AttackTarget::new(1));
         entities.insert(target);
 
         let mut allied = GameEntity::test_default(3, "TARGET", "YuriHouse", 5, 5);
         allied.set_owner_for_test(yuri);
         allied.set_type_ref_for_test(target_type);
-        allied.health.current = 1000;
+        allied.health.set(1000);
         allied.attack_target = Some(AttackTarget::new(1));
         entities.insert(allied);
 
         let mut immune = GameEntity::test_default(4, "IMMUNE", "SovietHouse", 5, 5);
         immune.set_owner_for_test(soviet);
         immune.set_type_ref_for_test(immune_type);
-        immune.health.current = 1000;
+        immune.health.set(1000);
         immune.attack_target = Some(AttackTarget::new(1));
         entities.insert(immune);
 
@@ -2918,7 +2922,7 @@ mod tests {
         );
         building.set_owner_for_test(soviet);
         building.set_type_ref_for_test(building_type);
-        building.health.current = 1000;
+        building.health.set(1000);
         building.attack_target = Some(AttackTarget::new(1));
         entities.insert(building);
 
@@ -2996,7 +3000,7 @@ mod tests {
         assert!(pings.is_empty());
 
         let target = entities.get(2).unwrap();
-        assert_eq!(target.health.current, 1000, "Psychedelic skips Object HP");
+        assert_eq!(target.health.current(), 1000, "Psychedelic skips Object HP");
         assert!(target.berserk.active);
         assert_eq!(target.berserk.timer, 300, "600 x heavy Verses 50%");
         assert!(target.attack_target.is_none());
@@ -3008,7 +3012,7 @@ mod tests {
 
         for stable_id in [3, 4, 5] {
             let control = entities.get(stable_id).unwrap();
-            assert_eq!(control.health.current, 1000);
+            assert_eq!(control.health.current(), 1000);
             assert_eq!(control.berserk, Default::default());
             assert_eq!(
                 control.attack_target.as_ref().map(|target| target.target),
@@ -3056,7 +3060,7 @@ mod tests {
         let target = entities.get(2).unwrap();
         assert!(refresh_death.despawned_ids.is_empty());
         assert!(refresh_pings.is_empty());
-        assert_eq!(target.health.current, 1000);
+        assert_eq!(target.health.current(), 1000);
         assert_eq!(target.berserk.timer, 300);
         assert_eq!(
             target.attack_target.as_ref().map(|target| target.target),
@@ -3104,7 +3108,7 @@ mod tests {
         target.set_owner_for_test(normal_house);
         target.set_type_ref_for_test(e1);
         target.set_category_for_test(EntityCategory::Infantry);
-        target.health.current = 20;
+        target.health.set(20);
         target.infantry = Some(crate::sim::game_entity::InfantryRuntime::new());
         target.infantry.as_mut().unwrap().is_prone = true;
         entities.insert(target);
@@ -3113,7 +3117,7 @@ mod tests {
         easy_prone.set_owner_for_test(easy_house);
         easy_prone.set_type_ref_for_test(e1);
         easy_prone.set_category_for_test(EntityCategory::Infantry);
-        easy_prone.health.current = 100;
+        easy_prone.health.set(100);
         easy_prone.infantry = Some(crate::sim::game_entity::InfantryRuntime::new());
         easy_prone.infantry.as_mut().unwrap().is_prone = true;
         entities.insert(easy_prone);
@@ -3122,7 +3126,7 @@ mod tests {
         easy_standing.set_owner_for_test(easy_house);
         easy_standing.set_type_ref_for_test(e1);
         easy_standing.set_category_for_test(EntityCategory::Infantry);
-        easy_standing.health.current = 100;
+        easy_standing.health.set(100);
         easy_standing.infantry = Some(crate::sim::game_entity::InfantryRuntime::new());
         entities.insert(easy_standing);
 
@@ -3195,7 +3199,7 @@ mod tests {
             &mut sound_sink,
         );
 
-        assert_eq!(entities.get(2).unwrap().health.current, 0);
+        assert_eq!(entities.get(2).unwrap().health.current(), 0);
         assert!(death.despawned_ids.contains(&2));
         // The Easy house's `[Easy] Armor=1.2` divides nothing: it only feeds
         // `House+0x1A0`, which no damage path reads. Its country's
@@ -3203,12 +3207,12 @@ mod tests {
         // after the prone pre-scale: ftol(ftol(65 * .5) / 1.2) = 26. Dividing
         // first would give ftol(ftol(65 / 1.2) * .5) = 27.
         assert_eq!(
-            entities.get(3).unwrap().health.current,
+            entities.get(3).unwrap().health.current(),
             74,
             "ftol(65 * .5) = 32, then the country's 1.2 yields 26 (not 27)"
         );
         assert_eq!(
-            entities.get(4).unwrap().health.current,
+            entities.get(4).unwrap().health.current(),
             46,
             "standing Infantry bypasses the concrete prone pre-scale: 65 / 1.2 = 54"
         );
@@ -3316,7 +3320,7 @@ mod tests {
                 .set_infantry_doing_verified(fixture.doing)
                 .unwrap();
             victim.animation = fixture.animation.map(crate::sim::animation::Animation::new);
-            victim.health.current = health;
+            victim.health.set(health);
             victim.sub_cell = Some(2);
             victim.on_bridge = fixture
                 .entry_case
@@ -3542,7 +3546,7 @@ mod tests {
                 .get(2)
                 .expect("victim remains represented");
             Outcome {
-                health: victim.health.current,
+                health: victim.health.current(),
                 fear: victim
                     .infantry
                     .as_ref()
@@ -4141,7 +4145,7 @@ mod tests {
                 .get(victim_id)
                 .unwrap()
                 .health
-                .current,
+                .current(),
             890,
             "nested raw-100 null-source C4 completes before the later parent receiver"
         );
@@ -4274,7 +4278,7 @@ mod tests {
                 .get(victim_id)
                 .unwrap()
                 .health
-                .current,
+                .current(),
             1000
         );
         let terrain = &sim.production.terrain_objects[&terrain_id];

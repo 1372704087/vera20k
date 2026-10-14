@@ -326,7 +326,7 @@ pub(crate) fn build_building_status_instances(
             // A health display needs the live type; no saved maximum fallback.
             continue;
         };
-        let ratio = display_health_ratio(health.current, strength);
+        let ratio = display_health_ratio(health.current(), strength);
         let depth: f32 = 0.0006;
 
         // Pip count: floor(H * 7.5) — from original (screen1.y - screen2.y) / 2.
@@ -374,7 +374,7 @@ pub(crate) fn build_building_status_instances(
                 continue;
             }
             // ftol(ratio * numPips), clamped to [1, numPips].
-            let filled: u32 = if health.current > 0 {
+            let filled: u32 = if health.current() > 0 {
                 ((num_pips as f32 * ratio) as u32).max(1).min(num_pips)
             } else {
                 0
@@ -420,7 +420,7 @@ pub(crate) fn build_building_status_instances(
                 continue;
             }
             let fill_color = health_fill_color(ratio, cond_y, cond_r);
-            let filled: u32 = if health.current > 0 {
+            let filled: u32 = if health.current() > 0 {
                 ((num_pips as f32 * ratio) as u32).max(1).min(num_pips)
             } else {
                 0
@@ -974,7 +974,7 @@ pub(crate) fn build_unit_status_fill_instances(
         else {
             continue;
         };
-        let ratio = display_health_ratio(health.current, obj.strength);
+        let ratio = display_health_ratio(health.current(), obj.strength);
 
         let is_infantry: bool = e.category() == EntityCategory::Infantry;
         let num_pips: u32 = if is_infantry {

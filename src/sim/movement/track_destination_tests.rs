@@ -855,7 +855,7 @@ fn destination_receipt_actor(
     before: &Value,
 ) -> GameEntity {
     use crate::map::entities::EntityCategory;
-    use crate::sim::components::Health;
+    use crate::sim::combat::Health;
     use crate::sim::mission::state::MissionTestFixture;
     use crate::sim::mission::{MissionDispatchTimer, MissionId};
 
@@ -877,9 +877,7 @@ fn destination_receipt_actor(
         level,
         0,
         owner,
-        Health {
-            current: object.strength,
-        },
+        Health::new(object.strength),
         sim.interner.intern(family),
         if family == "E1" {
             EntityCategory::Infantry

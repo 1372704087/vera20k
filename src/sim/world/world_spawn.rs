@@ -23,9 +23,9 @@ use crate::rules::overlay_types::OverlayTypeRegistry;
 use crate::rules::ruleset::RuleSet;
 use crate::sim::base_plan::pack_base_plan_cell;
 use crate::sim::base_plan_generation::{preflight_recalc, recalc_base_plan};
+use crate::sim::combat::Health;
 use crate::sim::combat::TargetKind;
 use crate::sim::combat::veterancy::{has_weapon_ability, rank_from_u16};
-use crate::sim::components::Health;
 use crate::sim::game_entity::{
     GameEntity, GeneratedTechnoInit, StructureUpgradeLink, TechnoConstructorInit,
 };
@@ -407,15 +407,13 @@ impl Simulation {
                 // Typed production admission has already resolved the class type.
                 // Rules-less construction remains an explicit diagnostic seam, using
                 // the supplied health directly rather than inventing a type maximum.
-                let health = Health {
-                    current: rules
+                let health = Health::new(rules
                         .map(|rules| {
                             authored_health::map_object_type(map_ent.category, &map_ent.type_id, rules)
                                 .expect("resolved map type")
                                 .strength
                         })
-                        .unwrap_or(map_ent.health),
-                };
+                        .unwrap_or(map_ent.health));
 
                 let uses_voxel_default: bool = match map_ent.category {
                     EntityCategory::Unit | EntityCategory::Aircraft => true,

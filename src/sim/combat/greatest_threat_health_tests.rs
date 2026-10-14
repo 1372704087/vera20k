@@ -1,6 +1,6 @@
 use super::*;
 use crate::rules::ini_parser::IniFile;
-use crate::sim::components::Health;
+use crate::sim::combat::Health;
 use serde_json::Value;
 
 fn bits(row: &Value, key: &str) -> NativeF64Bits {
@@ -16,9 +16,7 @@ fn native_health_term_spills_and_retaliation_predicates_preserve_nonfinite_value
     let rows = corpus["health_terms"].as_array().unwrap();
     assert_eq!(rows.len(), 672);
     for row in rows {
-        let health = Health {
-            current: row["current"].as_i64().unwrap() as i32,
-        };
+        let health = Health::new(row["current"].as_i64().unwrap() as i32);
         let strength = row["strength"].as_i64().unwrap() as i32;
         let ratio = health.ratio(strength);
         let before_store = ScoreX87::add(
@@ -83,7 +81,9 @@ fn actual_scorer_consumes_live_signed_strength_and_masked_zero_division() {
         entities.insert(scorer);
         let mut candidate = GameEntity::test_default(2, "CANDIDATE", "Soviet", 2, 2);
         candidate.set_type_ref_for_test(interner.intern("CANDIDATE"));
-        candidate.health.current = row["current"].as_i64().unwrap() as i32;
+        candidate
+            .health
+            .set(row["current"].as_i64().unwrap() as i32);
         entities.insert(candidate);
         let result = calculate_threat_score(
             &entities,

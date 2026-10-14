@@ -406,7 +406,7 @@ fn phase_b_interleaves_each_cells_roll_with_its_mark() {
                 (
                     type_name(&sim, id),
                     (entity.position.rx, entity.position.ry),
-                    entity.health.current,
+                    entity.health.current(),
                 )
             })
             .collect();
@@ -736,7 +736,7 @@ fn a_crewed_vehicle_rolls_crew_escape_then_places_its_crewman() {
                     assert_eq!(crew.len(), 1);
                     let crewman = sim.substrate.entities.get(crew[0]).unwrap();
                     assert_eq!(type_name(&sim, crew[0]), "E1");
-                    assert_eq!(crewman.health.current, health);
+                    assert_eq!(crewman.health.current(), health);
                     assert_eq!((crewman.position.rx, crewman.position.ry), (10, 10));
                     // Unlimbo commits Guard (`0x006F6E2A`); the crew Queue
                     // then queues Hunt, or leaves Guard alone
@@ -983,7 +983,7 @@ fn a_killing_hit_lets_the_vehicle_crew_out_unless_arg6() {
                 let crewman = sim.substrate.entities.get(*id).unwrap();
                 assert_eq!(type_name(&sim, *id), "E1");
                 assert_eq!((crewman.position.rx, crewman.position.ry), (10, 10));
-                assert!((5..=62).contains(&crewman.health.current));
+                assert!((5..=62).contains(&crewman.health.current()));
             }
             escaped += crew.len();
         }
@@ -1002,7 +1002,7 @@ fn a_killing_hit_releases_the_bio_reactors_infantry() {
     kill(&mut sim, &rules, reactor, ORDINARY);
     for id in absorbed {
         let passenger = sim.substrate.entities.get(id).expect("released");
-        assert!(passenger.lifecycle.object_alive && passenger.health.current > 0);
+        assert!(passenger.lifecycle.object_alive && passenger.health.current() > 0);
         assert!(!passenger.lifecycle.in_limbo);
     }
 }
@@ -1198,7 +1198,7 @@ fn a_gunner_transport_on_its_suicide_weapon_explodes() {
             .get(bystander)
             .unwrap()
             .health
-            .current
+            .current()
             < 200;
         if explodes {
             assert!(!passenger.lifecycle.object_alive);
@@ -1341,11 +1341,11 @@ fn retail_rules_crew_the_power_plant_and_the_mcv() {
             assert_eq!(type_name(&sim, id), "E1");
             match (entity.position.rx, entity.position.ry) {
                 (10..=11, 10..=11) => {
-                    assert!((5..=125).contains(&entity.health.current));
+                    assert!((5..=125).contains(&entity.health.current()));
                     plant_crew += 1;
                 }
                 (20, 10) => {
-                    assert!((5..=62).contains(&entity.health.current));
+                    assert!((5..=62).contains(&entity.health.current()));
                     mcv_crew += 1;
                 }
                 cell => panic!("crewman {id} at {cell:?}"),
@@ -1479,7 +1479,7 @@ fn retail_dustbowl_crews_scatter_off_their_wrecks() {
                 "seed {seed:#x}: {} crewman {id} {} spawned {spawn:?} (plant {plant_cell:?}, MCV {mcv_cell:?}), Scatter to {destination:?}, at {cell:?} after 45 frames, health {}",
                 if from_plant { "plant" } else { "MCV" },
                 scenario.sim().interner.resolve(entity.type_ref()),
-                entity.health.current
+                entity.health.current()
             );
             assert_eq!(scenario.sim().interner.resolve(entity.type_ref()), "E1");
             let Some(crate::sim::components::NavTargetRef::Cell { rx, ry }) = destination else {

@@ -456,7 +456,7 @@ impl Simulation {
                 let Some(entity) = self.substrate.entities.get(id) else {
                     continue;
                 };
-                if entity.lifecycle.in_limbo || entity.health.current <= 0 {
+                if entity.lifecycle.in_limbo || entity.health.current() <= 0 {
                     continue;
                 }
                 let Some(object) = self.object_type(entity.type_ref(), rules) else {
@@ -689,7 +689,7 @@ impl Simulation {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::sim::components::Health;
+    use crate::sim::combat::Health;
     use crate::sim::game_entity::GameEntity;
 
     /// The oracle's supplied physical MapClass: Size8x8, LocalSize0,0,8,8,
@@ -849,7 +849,7 @@ mod tests {
             0,
             0,
             owner,
-            Health { current: 100 },
+            Health::new(100),
             type_ref,
             category,
             0,
@@ -1126,7 +1126,7 @@ mod tests {
                     0,
                     0,
                     owner,
-                    Health { current: health },
+                    Health::new(health),
                     type_ref,
                     EntityCategory::Structure,
                     0,

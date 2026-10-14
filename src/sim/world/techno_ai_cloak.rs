@@ -526,7 +526,7 @@ pub(crate) fn emit_configured_cloak_sound(sim: &mut Simulation, id: u64, rules: 
 }
 
 fn health_strictly_above_condition_red(
-    health: crate::sim::components::Health,
+    health: crate::sim::combat::Health,
     strength: i32,
     condition_red: f64,
 ) -> bool {
@@ -538,7 +538,7 @@ fn health_strictly_above_condition_red(
 #[test]
 fn original_health_ratio_corpus_populates_cloak_tick_facts() {
     use crate::rules::ini_parser::IniFile;
-    use crate::sim::components::Health;
+    use crate::sim::combat::Health;
     use crate::sim::game_entity::GameEntity;
     for row in crate::sim::health_ratio_fixture::rows() {
         let mut rules = RuleSet::from_ini(&IniFile::from_str(&format!(
@@ -557,9 +557,7 @@ fn original_health_ratio_corpus_populates_cloak_tick_facts() {
             0,
             0,
             owner,
-            Health {
-                current: row.input.current,
-            },
+            Health::new(row.input.current),
             type_ref,
             EntityCategory::Unit,
             0,

@@ -510,7 +510,7 @@ pub(crate) fn emit_bunker_wall_anim(
         return;
     };
     let damaged = at_or_below_condition_yellow(
-        b.health.current,
+        b.health.current(),
         object.strength,
         rules.general.condition_yellow,
     );
@@ -527,7 +527,7 @@ pub(crate) fn emit_bunker_wall_anim(
 fn at_or_below_condition_yellow(current: i32, strength: i32, condition_yellow: f64) -> bool {
     use crate::util::native_x87::MaskedX87Ordering::{Equal, Less, Unordered};
     matches!(
-        crate::sim::components::Health { current }.compare_ratio(strength, condition_yellow),
+        crate::sim::combat::Health::new(current).compare_ratio(strength, condition_yellow),
         Less | Equal | Unordered
     )
 }
@@ -537,7 +537,7 @@ mod tests {
     use super::*;
     use crate::map::entities::EntityCategory;
     use crate::rules::ini_parser::IniFile;
-    use crate::sim::components::Health;
+    use crate::sim::combat::Health;
     use crate::sim::docking::bunker_install::BunkerRuntime;
     use crate::sim::game_entity::GameEntity;
     use crate::sim::mission::MissionId;
@@ -571,7 +571,7 @@ mod tests {
             0,
             0,
             owner_id,
-            Health { current: 1000 },
+            Health::new(1000),
             type_id,
             EntityCategory::Structure,
             0,
@@ -593,7 +593,12 @@ mod tests {
             rules.general.condition_yellow = row.input.yellow();
             let mut sim = Simulation::new();
             spawn_bunker(&mut sim, 1, "A");
-            sim.substrate.entities.get_mut(1).unwrap().health.current = row.input.current;
+            sim.substrate
+                .entities
+                .get_mut(1)
+                .unwrap()
+                .health
+                .set(row.input.current);
             for up in [false, true] {
                 emit_bunker_wall_anim(&mut sim, 1, up, &rules);
                 let event = sim.bunker_wall_events.last().unwrap();
@@ -615,7 +620,7 @@ mod tests {
             0,
             0,
             owner_id,
-            Health { current: 400 },
+            Health::new(400),
             type_id,
             EntityCategory::Unit,
             0,
@@ -934,7 +939,7 @@ mod tests {
         let mut sim = installed_sim();
         sim.bunker_wall_events.clear();
         // Between native ConditionRed25% and ConditionYellow50%: walls use yellow.
-        sim.substrate.entities.get_mut(2).unwrap().health.current = 400;
+        sim.substrate.entities.get_mut(2).unwrap().health.set(400);
         release_normal(
             &mut sim,
             2,

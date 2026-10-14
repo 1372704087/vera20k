@@ -1747,7 +1747,7 @@ fn native_depot_arrival_uses_the_original_terminal_handoff() {
         json!({
             "frame": sim.session.binary_frame,
             "unit_coordinate": [at.x,at.y,at.z],
-            "health": unit.health.current,
+            "health": unit.health.current(),
             "estimate": unit.estimated_health.get(),
             "balance": house.economy.credits(),
             "spent": house.economy.spent_credits(),
@@ -1955,7 +1955,7 @@ fn native_depot_arrival_uses_the_original_terminal_handoff() {
         unit.position.sub_x = SimFixed::from_num(coordinate.x % 256);
         unit.position.sub_y = SimFixed::from_num(coordinate.y % 256);
         unit.position.exact_z_leptons = Some(coordinate.z);
-        unit.health.current = integer(&before["health"]);
+        unit.health.set(integer(&before["health"]));
         unit.estimated_health = EstimatedHealth::from_raw(integer(&before["estimate"]));
         unit.navigation.nav_com = before["unit_nav"]
             .is_string()

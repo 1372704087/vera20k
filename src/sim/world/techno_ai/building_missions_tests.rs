@@ -1118,7 +1118,7 @@ fn retail_defence_guards_attacks_and_returns(
             .substrate
             .entities
             .get(grunt)
-            .is_none_or(|entity| entity.health.current == 0)
+            .is_none_or(|entity| entity.health.current() == 0)
     });
     assert!(killed.is_some(), "{kind} kills the {infantry}");
     for _ in 0..3 {
@@ -1300,7 +1300,7 @@ fn retail_dustbowl_prism_towers_forward_their_charge() {
             .get(mcv)
             .unwrap()
             .health
-            .current;
+            .current();
         let binary_frame = scenario.sim().session.binary_frame as i32;
         let output = retail_frame(&mut scenario, Vec::new());
         let after = [master, near, far].map(|id| fire(&scenario, id));
@@ -1349,7 +1349,7 @@ fn retail_dustbowl_prism_towers_forward_their_charge() {
                 .get(mcv)
                 .unwrap()
                 .health
-                .current;
+                .current();
             shot = Some((frame, health - after));
             let entity = scenario.sim().substrate.entities.get(master).unwrap();
             assert_eq!(

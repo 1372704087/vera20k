@@ -63,7 +63,7 @@ fn return_exceeds_too_far_threshold(
 ) -> Option<bool> {
     let miner = sim.substrate.entities.get(miner_sid)?;
     let refinery = sim.substrate.entities.get(refinery_sid)?;
-    if refinery.dying || refinery.health.current == 0 {
+    if refinery.dying || refinery.health.current() == 0 {
         return None;
     }
 
@@ -984,7 +984,9 @@ fn handle_return(
             .entities
             .get(bay)
             .filter(|entity| {
-                !entity.dying && entity.health.current != 0 && entity.radio_contacts.has_free_or(id)
+                !entity.dying
+                    && entity.health.current() != 0
+                    && entity.radio_contacts.has_free_or(id)
             })
             .map(|_| bay),
         None => find_docking_bay(sim, rules, snap.entity_id, false, false, frame_effects),
@@ -1474,7 +1476,7 @@ fn scan_docking_type(
         }
         // gamemd removes a dead building from the house list through
         // Limbo; VERA keeps the entity through its death animation.
-        if entity.dying || entity.health.current == 0 {
+        if entity.dying || entity.health.current() == 0 {
             continue;
         }
         if !wide && !entity.radio_contacts.has_free_or(requester) {
@@ -1730,7 +1732,7 @@ pub(crate) fn effective_purifier_count(
 mod harvest_scan_dispatch_tests {
     use super::*;
     use crate::rules::ini_parser::IniFile;
-    use crate::sim::components::Health;
+    use crate::sim::combat::Health;
     use crate::sim::game_entity::GameEntity;
     use crate::sim::miner::MinerKind;
     use crate::sim::mission::MissionType;
@@ -1798,7 +1800,7 @@ mod harvest_scan_dispatch_tests {
             0,
             0,
             owner,
-            Health { current: 900 },
+            Health::new(900),
             type_ref,
             EntityCategory::Structure,
             0,
@@ -1847,7 +1849,7 @@ mod harvest_scan_dispatch_tests {
             0,
             0,
             owner,
-            Health { current: 600 },
+            Health::new(600),
             type_ref,
             EntityCategory::Unit,
             0,
@@ -2365,7 +2367,7 @@ mod harvest_scan_dispatch_tests {
             0,
             0,
             owner,
-            Health { current: 300 },
+            Health::new(300),
             type_ref,
             EntityCategory::Unit,
             0,

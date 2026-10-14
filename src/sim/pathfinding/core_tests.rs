@@ -9,7 +9,7 @@ use crate::rules::locomotor_type::{MovementZone, SpeedType};
 use crate::rules::terrain_rules::{SpeedCostProfile, TerrainClass};
 use crate::sim::movement::locomotor::MovementLayer;
 use crate::sim::pathfinding::terrain_cost::TerrainCostGrid;
-use crate::sim::pathfinding::zone_hierarchy::{ZoneLevelGraph, ZoneRecord};
+use crate::sim::pathfinding::zone_hierarchy::{MarkedZones, ZoneLevelGraph, ZoneRecord};
 use crate::sim::pathfinding::zone_map::ZoneId;
 
 fn bridge_test_cell(level: u8, structural: bool, transition: bool, slope_type: u8) -> PathCell {
@@ -623,6 +623,28 @@ fn test_find_path_around_obstacle() {
             assert!(y >= 9, "Path must not cross blocked cells at (3,{})", y);
         }
     }
+}
+
+#[test]
+fn test_find_path_after_another_search_ignores_its_closed_cells() {
+    // The thread's A* workspace keeps its buffers between searches. A search
+    // on a bigger map leaves them bigger, and the way back runs through cells
+    // the way there closed; neither may reach a later search.
+    find_path(&PathGrid::new(40, 40), (0, 0), (39, 39)).expect("open-map route");
+    let mut grid: PathGrid = PathGrid::new(10, 10);
+    for y in 0..9 {
+        grid.set_blocked(3, y, true);
+    }
+    find_path(&grid, (1, 5), (5, 5)).expect("Should find path around wall");
+    let back = find_path(&grid, (5, 5), (1, 5));
+    let fresh = std::thread::scope(|scope| {
+        scope
+            .spawn(|| find_path(&grid, (5, 5), (1, 5)))
+            .join()
+            .expect("fresh-workspace search")
+    });
+    assert!(back.is_some(), "Should find the way back");
+    assert_eq!(back, fresh);
 }
 
 #[test]
@@ -1404,9 +1426,9 @@ fn infantry_under_span_astar_keeps_ground_hierarchy_gate() {
     let counts = BlockerNeighborCounts::new(8, 1);
     for include_under_span in [false, true] {
         let marked = if include_under_span {
-            std::collections::BTreeSet::from([1, 2])
+            MarkedZones::from_iter([1, 2])
         } else {
-            std::collections::BTreeSet::from([1])
+            MarkedZones::from_iter([1])
         };
         let path = astar_search(
             &grid,
@@ -1783,7 +1805,7 @@ fn row_level0_graph(zones: &[ZoneId]) -> ZoneLevelGraph {
 fn astar_hierarchy_rejects_unmarked_one_ring_zone_without_blocker_exception() {
     let grid = PathGrid::new(3, 1);
     let level0_zones = row_level0_graph(&[1, 2, 3]);
-    let marked_zones = BTreeSet::from([1, 3]);
+    let marked_zones = MarkedZones::from_iter([1, 3]);
     let blocker_counts = BlockerNeighborCounts::new(3, 1);
 
     let path = astar_search(
@@ -1811,7 +1833,7 @@ fn astar_hierarchy_rejects_unmarked_one_ring_zone_without_blocker_exception() {
 fn astar_hierarchy_allows_off_marker_cell_with_blocker_neighbor_count() {
     let grid = PathGrid::new(3, 1);
     let level0_zones = row_level0_graph(&[1, 2, 3]);
-    let marked_zones = BTreeSet::from([1, 3]);
+    let marked_zones = MarkedZones::from_iter([1, 3]);
     let mut blocker_counts = BlockerNeighborCounts::new(3, 1);
     blocker_counts.set_count(1, 0, 1);
 
@@ -1843,7 +1865,7 @@ fn astar_hierarchy_allows_off_marker_cell_with_blocker_neighbor_count() {
 fn astar_hierarchy_marker_follows_the_marked_straight_path() {
     let grid = PathGrid::new(4, 1);
     let level0_zones = row_level0_graph(&[1, 2, 3, 4]);
-    let marked_zones = BTreeSet::from([1, 2, 3, 4]);
+    let marked_zones = MarkedZones::from_iter([1, 2, 3, 4]);
     let blocker_counts = BlockerNeighborCounts::new(4, 1);
 
     let path = find_path_with_costs_marker(

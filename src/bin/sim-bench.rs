@@ -15,6 +15,9 @@
 //! the timed region) identify the simulation result, so two builds can be
 //! compared for identical behavior as well as for speed.
 //!
+//! `--map` also takes a loose map file; `python -m tools.scale_map` writes the
+//! flat 500x500-cell map used for 20,000-unit, 30-house runs.
+//!
 //! Build with `cargo build --release --bin sim-bench`; timings from a debug
 //! build are not meaningful.
 

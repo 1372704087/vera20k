@@ -79,16 +79,14 @@
 
 pub(crate) mod native_path_entry;
 
-use std::collections::BTreeSet;
-
 use super::{BlockerNeighborCounts, MoverSearchFacts, SearchMarkerOverlay};
 
 use super::terrain_cost::TerrainCostGrid;
 use super::zone_hierarchy::{
-    ZoneLevelGraph, ZonePrecheckExclusions, ZonePrecheckOutcome, ZonePrecheckThreat,
+    MarkedZones, ZoneLevelGraph, ZonePrecheckExclusions, ZonePrecheckOutcome, ZonePrecheckThreat,
     zone_precheck_flat,
 };
-use super::zone_map::{ZoneGrid, ZoneId};
+use super::zone_map::ZoneGrid;
 use super::{
     HierarchyGate, LayeredPathStep, PathGrid, find_layered_path_marker, find_path_with_costs_marker,
 };
@@ -206,12 +204,11 @@ fn native_path_zone_equality(
     )
 }
 
-
 /// The level-0 corridor a passed `Zone_precheck` hands the cell A*
 /// (`AStar_main_loop @ 0x00429A90`'s last argument, `allowHS`).
 struct HierarchyCorridor<'a> {
     level0_zones: &'a ZoneLevelGraph,
-    marked_level0: BTreeSet<ZoneId>,
+    marked_level0: MarkedZones,
     blocker_neighbor_counts: &'a BlockerNeighborCounts,
 }
 

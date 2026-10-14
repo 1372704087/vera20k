@@ -327,8 +327,12 @@ fn compare_rows(json: &str, expected_count: usize, repair_projection: bool) {
                 } else {
                     EntityCategory::Unit
                 });
-                blocker.crushable = node["crushable"].as_bool().unwrap_or(false);
-                blocker.omni_crush_resistant = node["resistant"].as_bool().unwrap_or(false);
+                blocker
+                    .crushable_facts
+                    .set_crushable_for_test(node["crushable"].as_bool().unwrap_or(false));
+                blocker.mover_facts.set_omni_crush_resistant_for_test(
+                    node["resistant"].as_bool().unwrap_or(false),
+                );
                 blocker.foot_occupation_enabled = node["occupation"].as_bool().unwrap_or(true);
                 if !building {
                     blocker.locomotor = Some(LocomotorState::for_test_kind(LocomotorKind::Drive));

@@ -163,7 +163,9 @@ pub(crate) use object_entry::FootEntryReceiver;
 pub(crate) use substrate::DeferredDeleteQueue;
 pub use substrate::EnterOrderCounter;
 pub(crate) use substrate::{DeferredDeleteTicket, ObjectSubstrate};
-pub(crate) use world_spawn::{GeneratedTechnoInitError, GeneratedTechnoInitTable, TypeFacts};
+pub(crate) use world_spawn::{
+    CrushableFacts, GeneratedTechnoInitError, GeneratedTechnoInitTable, MoverFacts, TypeFacts,
+};
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
@@ -5144,7 +5146,7 @@ impl Simulation {
             house.tracking.add_tracking(entity);
             //701607..70164D: DontScore suppresses this captured-object
             //count, not the preceding old-House price addition.
-            if !entity.dont_score {
+            if !entity.tracking_facts.dont_score() {
                 house.stats.record_kill(category);
             }
         }
@@ -5909,7 +5911,7 @@ impl Simulation {
             // weapon ability (`HasWeaponAbility(0x11)`). No stock type grants
             // the ability through `VeteranAbilities=`/`EliteAbilities=`, so only
             // the flag is modelled here.
-            if !e.regular_crusher || !e.is_active() {
+            if !e.mover_facts.regular_crusher() || !e.is_active() {
                 continue;
             }
             let (rx, ry) = (e.position.rx, e.position.ry);

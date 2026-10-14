@@ -2422,7 +2422,7 @@ pub(crate) fn tick_combat(
                 if entity.category() == EntityCategory::Structure
                     || entity.death.is_dying()
                     || !entity.is_alive()
-                    || entity.immune_to_radiation
+                    || entity.mover_facts.immune_to_radiation()
                     || entity.passenger_role.is_inside_transport()
                     || crate::sim::movement::air_movement::is_high_flying(
                         entity,

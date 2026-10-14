@@ -783,7 +783,7 @@ fn shroud_current_sight_live_refresh_gates_preserve_or_reload_native_timer() {
         let entity = sim.substrate.entities.get_mut(2).unwrap();
         entity.lifecycle.set_in_limbo_for_test(false);
         entity.in_playfield = true;
-        entity.vision_range = 0;
+        entity.sight.set_vision_range_for_test(0);
     }
     sim.refresh_high_flying_sight_before_process(2, None);
     assert_eq!(

@@ -95,7 +95,7 @@ fn fixture(input: &Value) -> (Simulation, RuleSet) {
         infantry.set_owner_for_test(sim.interner.intern("Americans"));
         infantry.set_type_ref_for_test(sim.interner.intern("E1"));
         infantry.set_category_for_test(EntityCategory::Infantry);
-        infantry.is_voxel = false;
+        infantry.set_is_voxel_for_test(false);
         infantry.sub_cell = Some(2);
         infantry.passenger_role = crate::sim::passenger::PassengerRole::inside_for_test(1, false);
         sim.substrate.entities.insert(infantry);

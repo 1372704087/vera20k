@@ -266,7 +266,7 @@ impl DrawState {
                 false,
             ),
         );
-        let voxel = observer.drawn_voxel.unwrap_or(entity.is_voxel);
+        let voxel = observer.drawn_voxel.unwrap_or(entity.is_voxel());
         Self::resolve(
             DrawStateInput {
                 cloak: Some(CloakDrawInput {

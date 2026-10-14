@@ -90,10 +90,6 @@ impl InfantryRuntime {
     }
 }
 
-fn default_true() -> bool {
-    true
-}
-
 /// The barrel elevation's rate: the TechnoClass constructor passes 3
 /// (`PUSH 3` at `0x006F2EDE`) to `FacingClass(int) @ 0x004C91E0`.
 const BARREL_ELEVATION_ROT: i32 = 3;
@@ -419,14 +415,9 @@ pub struct GameEntity {
     /// attribution. It does not defer or suppress the native score callback.
     #[serde(skip)]
     pub killed_by: Option<InternedId>,
-    /// Type's `DontScore=`, copied in at spawn so the score bookkeeping and the
-    /// house counts (`house_tracking`) can honor it without a `RuleSet`
-    /// borrow — the same reason `foundation` is copied. Persisted: a count
-    /// removed after a reload must skip it as its addition did.
-    #[serde(default)]
-    pub dont_score: bool,
-    /// The other type facts the house counts test (`house_tracking`), copied
-    /// in at construction.
+    /// The type facts the house counts and the score test (`DontScore=` and
+    /// the rest), a [`TrackingFacts`](crate::sim::house_tracking::TrackingFacts)
+    /// that construction stamps.
     #[serde(default)]
     pub(crate) tracking_facts: crate::sim::house_tracking::TrackingFacts,
     /// Native infantry total-count latches (`Techno+0x438/+0x439`), owned by
@@ -434,13 +425,11 @@ pub struct GameEntity {
     /// sets the once-counted latch when it adds House+0x2F4.
     #[serde(default)]
     house_tracking_latches: crate::sim::house_tracking::InfantryTrackingLatches,
-    /// Fog-of-war sight range in cells.
-    pub vision_range: u16,
-    /// Exact immutable Type+5E8 == 0 predicate used by InfantryUnlimbo51E0EF.
-    /// The fog range above clamps/truncates the raw Sight integer and cannot
-    /// answer this query. Construction resolves it once; snapshots preserve
-    /// it for rules-less re-entry, independently of client discovery history.
-    pub(crate) sight_is_zero: bool,
+    /// The fog sight range and the zero-`Sight=` fact, a [`SightFacts`] that
+    /// `sim::vision` owns.
+    ///
+    /// [`SightFacts`]: crate::sim::vision::SightFacts
+    pub(crate) sight: crate::sim::vision::SightFacts,
     /// Foot65C/664 high-flying sight refresh timer, virtualized per viewer.
     /// Independent of the retained sight-admission latch and stored footprint.
     pub(crate) sight_refresh_timers: crate::sim::vision::SightRefreshTimers,
@@ -448,8 +437,9 @@ pub struct GameEntity {
     pub(crate) gap_generator: crate::sim::vision::GapGeneratorRuntime,
 
     // --- Render model (mutually exclusive) ---
-    /// True = VXL/HVA model, false = SHP sprite; effective art metadata is authoritative.
-    pub is_voxel: bool,
+    /// True = VXL/HVA model, false = SHP sprite; effective art metadata is
+    /// authoritative. Only the constructor writes it ([`Self::is_voxel`]).
+    is_voxel: bool,
 
     // --- Bool markers (were zero-size ECS components) ---
     /// Committed ObjectClass selection membership in simulation state.
@@ -846,35 +836,21 @@ pub struct GameEntity {
     pub(crate) aircraft_ammo: Option<AircraftAmmo>,
     /// Infantry sub-cell position (0–4). Only meaningful for infantry.
     pub sub_cell: Option<u8>,
-    /// Whether this entity can be crushed by vehicles (Crushable= in rules.ini).
-    /// Default false — only specific infantry and some walls are crushable.
-    pub crushable: bool,
-    /// Whether deployed infantry remains crushable by regular crushers.
-    /// Defaults true; `DeployedCrushable=no` low-silhouette infantry blocks regular crush.
-    #[serde(default = "default_true")]
-    pub deployed_crushable: bool,
+    /// `Crushable=` and `DeployedCrushable=`, a [`CrushableFacts`] that
+    /// construction stamps.
+    ///
+    /// [`CrushableFacts`]: crate::sim::world::CrushableFacts
+    pub(crate) crushable_facts: crate::sim::world::CrushableFacts,
     /// Techno+2A4, cleared by construction and retained independently of
     /// Doing. Infantry520B4E/520BAD update it after their Do_Action request
     /// even when the requested Deployed/Ready sequence refuses.
     #[serde(default)]
     native_crush_immunity: u8,
-    /// Whether this entity can crush non-Crushable targets (OmniCrusher= in rules.ini).
-    /// Only Battle Fortress has this in YR.
-    pub omni_crusher: bool,
-    /// Whether this entity has normal TechnoType `Crusher=yes` capability.
-    /// Kept separate from MovementZone and OmniCrusher; activation waits for the
-    /// Drive PerCellProcess path so legacy cell-based crush does not drift.
-    #[serde(default)]
-    pub regular_crusher: bool,
-    /// Whether Drive/Ship locomotion should ramp toward its target speed fraction.
-    /// Parsed from `Accelerates=` and kept separate from raw `Speed=`.
-    #[serde(default = "default_true")]
-    pub drive_accelerates: bool,
-    /// Whether this entity is immune to ALL crush types (OmniCrushResistant= in rules.ini).
-    pub omni_crush_resistant: bool,
-    /// Whether this entity ignores per-cell radiation damage (ImmuneToRadiation= in rules.ini).
-    #[serde(default)]
-    pub immune_to_radiation: bool,
+    /// `OmniCrusher=`, `Crusher=`, `Accelerates=`, `OmniCrushResistant=` and
+    /// `ImmuneToRadiation=`, a [`MoverFacts`] that construction stamps.
+    ///
+    /// [`MoverFacts`]: crate::sim::world::MoverFacts
+    pub(crate) mover_facts: crate::sim::world::MoverFacts,
     /// The terminal lifetime (the dying mark and the Infantry terminal
     /// policy), a [`TerminalLifetime`] that `world::infantry_terminal` owns.
     /// Products derived from the entities (the movement pass's blocker plane
@@ -1307,6 +1283,17 @@ impl GameEntity {
         self.type_ref
     }
 
+    /// A VXL/HVA model (true) or an SHP sprite.
+    pub(crate) const fn is_voxel(&self) -> bool {
+        self.is_voxel
+    }
+
+    /// Install a fixture's model kind.
+    #[cfg(test)]
+    pub(crate) fn set_is_voxel_for_test(&mut self, is_voxel: bool) {
+        self.is_voxel = is_voxel;
+    }
+
     /// The concrete class, fixed at construction.
     pub const fn category(&self) -> EntityCategory {
         self.category
@@ -1533,7 +1520,6 @@ impl GameEntity {
         Self {
             killed_by: None,
             cached_spatial_threat: None,
-            dont_score: false,
             tracking_facts: Default::default(),
             house_tracking_latches: Default::default(),
             stable_id,
@@ -1570,8 +1556,7 @@ impl GameEntity {
             flashing: Default::default(),
             armor_multiplier: NativeF64Bits::ONE,
             firepower_multiplier: NativeF64Bits::ONE,
-            vision_range,
-            sight_is_zero: false,
+            sight: crate::sim::vision::SightFacts::new(vision_range),
             sight_refresh_timers: crate::sim::vision::SightRefreshTimers::at_construction(
                 construction_frame,
             ),
@@ -1663,14 +1648,9 @@ impl GameEntity {
             } else {
                 None
             },
-            crushable: false,
-            deployed_crushable: true,
+            crushable_facts: Default::default(),
             native_crush_immunity: 0,
-            omni_crusher: false,
-            regular_crusher: false,
-            drive_accelerates: true,
-            omni_crush_resistant: false,
-            immune_to_radiation: false,
+            mover_facts: Default::default(),
             death: crate::sim::world::TerminalLifetime::default(),
             move_sound: crate::sim::world::MoveSoundState::default(),
             crash: crate::sim::world::CrashLatch::default(),
@@ -2136,7 +2116,7 @@ mod tests {
         assert_eq!(e.health.current(), 100);
         assert_eq!(e.category, EntityCategory::Unit);
         assert_eq!(e.veterancy.rank(), 0);
-        assert_eq!(e.vision_range, 5);
+        assert_eq!(e.sight.range(), 5);
         assert!(e.is_voxel);
         assert!(!e.selected);
         assert!(!e.repairing.is_on());

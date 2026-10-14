@@ -55,7 +55,7 @@ fn ordinary_drive_retires_selector_before_entering_an_explicit_tube() {
             .unwrap()
             .install_drive_state_for_test(Some(Default::default()))
     );
-    entity.drive_accelerates = false;
+    entity.mover_facts.set_drive_accelerates_for_test(false);
     sim.substrate.entities.insert(entity);
     assert!(matches!(
         sim.reveal(1),
@@ -246,7 +246,7 @@ fn test_drive_arrival_clears_navcom_same_tick() {
 
     let mut e = GameEntity::test_default(1, "HTNK", "Americans", 0, 0);
     e.locomotor = Some(LocomotorState::for_test_kind(LocomotorKind::Drive));
-    e.drive_accelerates = false;
+    e.mover_facts.set_drive_accelerates_for_test(false);
     // One live speed lepton plus residual7 pays the terminal point: the
     // rules-less type speed (10 leptons a frame) at Foot+578 0.15.
     let one_lepton = SimFixed::lit("0.15");
@@ -920,7 +920,7 @@ fn forced_track_object_turn_relinks_each_committed_cell() {
     entity.set_type_ref_for_test(sim.intern("CMIN"));
     entity.set_category_for_test(EntityCategory::Unit);
     entity.locomotor = Some(make_drive_loco_for_test());
-    entity.drive_accelerates = false;
+    entity.mover_facts.set_drive_accelerates_for_test(false);
     assert!(
         entity
             .locomotor

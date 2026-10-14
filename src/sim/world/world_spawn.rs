@@ -7,7 +7,7 @@
 
 mod authored_health;
 mod construction;
-pub(crate) use construction::TypeFacts;
+pub(crate) use construction::{CrushableFacts, MoverFacts, TypeFacts};
 
 use crate::sim::world::FrameEffects;
 use std::collections::BTreeMap;

@@ -23,8 +23,8 @@ fn fixture() -> (Simulation, RuleSet) {
     entity.lifecycle.set_object_alive_for_test(true);
     entity.lifecycle.set_in_limbo_for_test(false);
     entity.lifecycle.cell_marked = true;
-    entity.is_voxel = false;
-    entity.drive_accelerates = false;
+    entity.set_is_voxel_for_test(false);
+    entity.mover_facts.set_drive_accelerates_for_test(false);
     entity.locomotor = Some(LocomotorState::for_test_kind(LocomotorKind::Drive));
     assert!(
         entity
@@ -665,7 +665,7 @@ fn terminal_arrival_resets_owner_speed_before_next_accelerating_move() {
         crate::sim::world::FrameEffects::default(),
     ));
     let entity = sim.substrate.entities.get_mut(1).unwrap();
-    entity.drive_accelerates = true;
+    entity.mover_facts.set_drive_accelerates_for_test(true);
     // The first Process after the order requests the route from the grid.
     sim.install_fixture_path_grid(Some(&grid));
     sim.advance_live_object_turn(1, Some(&rules), techno_ai::ObjectAiCtx::default())

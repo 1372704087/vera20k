@@ -2584,9 +2584,13 @@ mod tests {
             obj,
             sim.session.binary_frame,
         ));
-        entity.regular_crusher = obj.crusher;
-        entity.drive_accelerates = obj.accelerates;
-        entity.omni_crusher = obj.omni_crusher;
+        entity.mover_facts.set_regular_crusher_for_test(obj.crusher);
+        entity
+            .mover_facts
+            .set_drive_accelerates_for_test(obj.accelerates);
+        entity
+            .mover_facts
+            .set_omni_crusher_for_test(obj.omni_crusher);
         // A directly-inserted GameEntity keeps the constructed `in_limbo`
         // byte; production spawns clear it through Reveal. Order admission
         // reads that byte, so the fixture must model a revealed object.

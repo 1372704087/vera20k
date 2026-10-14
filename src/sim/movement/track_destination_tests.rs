@@ -433,7 +433,7 @@ fn repeated_move_orders_sample_live_native_speed() {
             TrackFamily::Ship
         };
         let entity = sim.substrate.entities.get_mut(1).unwrap();
-        entity.drive_accelerates = false;
+        entity.mover_facts.set_drive_accelerates_for_test(false);
         entity.foot_speed.set_speed_fraction(SIM_ONE);
         let loco = entity.locomotor.as_mut().unwrap();
         let mut progress = loco.track_progress(family).unwrap();

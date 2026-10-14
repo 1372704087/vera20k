@@ -1539,7 +1539,7 @@ fn make_infantry_entity(id: u64, type_ref: &str, rx: u16, ry: u16, hp: i32) -> G
     e.set_category_for_test(EntityCategory::Infantry);
     e.mission_leaf =
         crate::sim::mission::leaf::MissionLeafState::for_entity_category(EntityCategory::Infantry);
-    e.is_voxel = false;
+    e.set_is_voxel_for_test(false);
     e.animation = None;
     e.infantry = Some(crate::sim::game_entity::InfantryRuntime::new());
     e
@@ -1555,7 +1555,7 @@ fn make_structure_entity(
 ) -> GameEntity {
     let mut entity = make_entity(id, type_ref, rx, ry, max);
     entity.set_category_for_test(EntityCategory::Structure);
-    entity.is_voxel = false;
+    entity.set_is_voxel_for_test(false);
     entity.health = Health::new(current);
     entity
 }
@@ -7153,8 +7153,8 @@ fn crusher_driveover_destroys_wall_but_noncrusher_does_not() {
         let mut veh = GameEntity::test_default(2, veh_type, "Test", 5, 5);
         veh.set_owner_for_test(owner_id);
         veh.set_type_ref_for_test(veh_type_id);
-        veh.regular_crusher = obj.crusher;
-        veh.omni_crusher = obj.omni_crusher;
+        veh.mover_facts.set_regular_crusher_for_test(obj.crusher);
+        veh.mover_facts.set_omni_crusher_for_test(obj.omni_crusher);
         veh.locomotor =
             Some(crate::sim::movement::locomotor::LocomotorState::from_object_type(obj, 0));
         veh.health = Health::new(300);
@@ -7253,7 +7253,7 @@ fn crushable_fence_falls_to_any_crusher_and_plays_its_crush_sound() {
         let mut veh = GameEntity::test_default(2, veh_type, "Test", 5, 5);
         veh.set_owner_for_test(owner_id);
         veh.set_type_ref_for_test(veh_type_id);
-        veh.regular_crusher = obj.crusher;
+        veh.mover_facts.set_regular_crusher_for_test(obj.crusher);
         veh.locomotor =
             Some(crate::sim::movement::locomotor::LocomotorState::from_object_type(obj, 0));
         sim.substrate.entities.insert(veh);
@@ -7973,7 +7973,7 @@ fn a_buildings_death_weapon_detonates_at_its_foundation_centre() {
     derrick
         .type_facts
         .set_foundation_for_test("3x3".to_string());
-    derrick.is_voxel = false;
+    derrick.set_is_voxel_for_test(false);
     derrick.health.set_for_test(100);
     sim.substrate.entities.insert(derrick);
     let _ = sim.reveal(1);
@@ -11115,7 +11115,7 @@ fn gsi_08_12_a_dont_score_victim_pays_no_experience() {
 
     for victim_id in 2..=6u64 {
         let mut victim = make_entity_owned(victim_id, "HTNK", 8, 5, 1, "Americans");
-        victim.dont_score = true;
+        victim.tracking_facts.set_dont_score_for_test(true);
         store.insert(victim);
         install_entity_attack_target_for_test(&mut store, 1, victim_id);
         // Each victim is a fresh shot: clear the reload the last kill armed.
@@ -12468,7 +12468,7 @@ fn a_drive_crusher_without_crusherall_leaves_a_plain_wall_standing() {
         let mut veh = GameEntity::test_default(2, veh_type, "Test", 5, 5);
         veh.set_owner_for_test(owner_id);
         veh.set_type_ref_for_test(veh_type_id);
-        veh.regular_crusher = obj.crusher;
+        veh.mover_facts.set_regular_crusher_for_test(obj.crusher);
         veh.locomotor =
             Some(crate::sim::movement::locomotor::LocomotorState::from_object_type(obj, 0));
         sim.substrate.entities.insert(veh);

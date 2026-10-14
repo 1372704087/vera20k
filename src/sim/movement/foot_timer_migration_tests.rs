@@ -62,7 +62,7 @@ fn fixture(kind: LocomotorKind) -> Simulation {
     entity.lifecycle.set_in_limbo_for_test(false);
     entity.lifecycle.cell_marked = true;
     entity.locomotor = Some(LocomotorState::for_test_kind(kind));
-    entity.drive_accelerates = false;
+    entity.mover_facts.set_drive_accelerates_for_test(false);
     match kind {
         LocomotorKind::Drive => assert!(
             entity

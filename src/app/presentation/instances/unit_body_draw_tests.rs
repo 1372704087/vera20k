@@ -205,7 +205,7 @@ fn retail_siege_chopper_draws_schd_only_after_deployment_completes() {
     let id = sim
         .spawn_object_limbo_at_height("SCHP", "Americans", 10, 10, 0, 0, rules)
         .expect("retail Siege Chopper builds");
-    assert!(sim.entities().get(id).unwrap().is_voxel);
+    assert!(sim.entities().get(id).unwrap().is_voxel());
     sim.entities_mut().get_mut(id).unwrap().body_frame_counter = 1;
     let frame_counts = std::collections::BTreeMap::from([
         (("SCHP".to_string(), VxlLayer::Body, 0), 2),
@@ -390,7 +390,7 @@ fn retail_voxel_bodies_draw_the_sprites_their_model_is_seeded_with() {
             continue;
         };
         let entity = sim.entities().get(id).expect("the object was just built");
-        if !entity.is_voxel {
+        if !entity.is_voxel() {
             continue;
         }
         let is_aircraft = entity.category() == EntityCategory::Aircraft;

@@ -88,7 +88,7 @@ impl Simulation {
     ) {
         let category = ge.category();
         let initial = ge.body_facing.destination();
-        let uses_voxel = ge.is_voxel;
+        let uses_voxel = ge.is_voxel();
         // InitManagers6F3F40 classifies the owner after construction; it does
         // not manufacture either discovery-history byte. The launch-owned
         // current house is distinct from the notification/viewer binding.
@@ -98,7 +98,8 @@ impl Simulation {
         }
 
         stamp_scoring_flags(ge, obj, rules);
-        ge.sight_is_zero = obj.is_some_and(|object| object.sight == 0);
+        ge.sight
+            .stamp_zero(obj.is_some_and(|object| object.sight == 0));
         // The class constructor's one `+0x388` rate write (`Set_ROT`): `ROT=`
         // for a unit (`0x00735579`), an aircraft (`0x00413FE7`) and a building
         // (`BuildingClass::Init`, `0x00442CA5`, without testing `Turret=`: a
@@ -167,13 +168,8 @@ impl Simulation {
             ge.set_gunner_weapon(0, obj);
         }
         ge.initialize_voxel_recoil(obj.recoil);
-        ge.crushable = obj.crushable;
-        ge.deployed_crushable = obj.deployed_crushable;
-        ge.omni_crusher = obj.omni_crusher;
-        ge.regular_crusher = obj.crusher;
-        ge.drive_accelerates = obj.accelerates;
-        ge.omni_crush_resistant = obj.omni_crush_resistant;
-        ge.immune_to_radiation = obj.immune_to_radiation;
+        ge.crushable_facts = CrushableFacts::stamp(obj);
+        ge.mover_facts = MoverFacts::stamp(obj);
         ge.occupier = obj.occupier;
         if category == EntityCategory::Structure && obj.gate {
             ge.building_gate = Some(crate::sim::game_entity::BuildingGateRuntime::at_frame(
@@ -320,7 +316,6 @@ fn stamp_scoring_flags(
     obj: Option<&crate::rules::object_type::ObjectType>,
     rules: Option<&RuleSet>,
 ) {
-    ge.dont_score = obj.is_some_and(|o| o.dont_score);
     ge.tracking_facts = crate::sim::house_tracking::TrackingFacts::of(ge.category(), obj, rules);
 }
 
@@ -333,6 +328,159 @@ fn stamp_building_cell_profile(
     };
     ge.building_light.stamp(obj.has_spotlight);
     ge.type_facts.stamp(ge.category(), obj);
+}
+
+/// `Crushable=` and `DeployedCrushable=`, copied when the object is built for
+/// the crush passes (natively read through the type pointer). Only the
+/// construction stamp writes them.
+///
+/// Nothing reads the `DeployedCrushable=` copy: the deploy completion
+/// re-reads the type's key (`0x00520B3B`, `0x00520B9A`) and stamps the
+/// object's crush immunity byte instead. The copy stays because saves carry
+/// it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub(crate) struct CrushableFacts {
+    /// `Crushable=`: a crusher may crush the object.
+    crushable: bool,
+    /// `DeployedCrushable=`: a deployed infantryman stays crushable by a
+    /// regular crusher; `no` (low-silhouette infantry) blocks it. Unread
+    /// (see the type doc).
+    #[serde(default = "default_true")]
+    deployed_crushable: bool,
+}
+
+impl Default for CrushableFacts {
+    /// The object before the stamp: not crushable, crushable when deployed.
+    fn default() -> Self {
+        Self {
+            crushable: false,
+            deployed_crushable: true,
+        }
+    }
+}
+
+impl CrushableFacts {
+    /// Copy the type's facts.
+    fn stamp(obj: &ObjectType) -> Self {
+        Self {
+            crushable: obj.crushable,
+            deployed_crushable: obj.deployed_crushable,
+        }
+    }
+
+    /// `Crushable=`.
+    pub(crate) const fn crushable(self) -> bool {
+        self.crushable
+    }
+
+    /// Install a fixture's `Crushable=`.
+    #[cfg(test)]
+    pub(crate) fn set_crushable_for_test(&mut self, value: bool) {
+        self.crushable = value;
+    }
+}
+
+/// `OmniCrusher=`, `Crusher=`, `Accelerates=`, `OmniCrushResistant=` and
+/// `ImmuneToRadiation=`, copied when the object is built for the crush, drive
+/// and radiation passes (natively read through the type pointer). Only the
+/// construction stamp writes them.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub(crate) struct MoverFacts {
+    /// `OmniCrusher=`: crushes targets that are not `Crushable=` (only the
+    /// Battle Fortress in YR).
+    omni_crusher: bool,
+    /// `Crusher=`: the ordinary crush, kept apart from MovementZone and
+    /// `OmniCrusher=`; it acts on the Drive PerCellProcess path.
+    #[serde(default)]
+    regular_crusher: bool,
+    /// `Accelerates=`: Drive/Ship locomotion ramps toward its target speed
+    /// fraction.
+    #[serde(default = "default_true")]
+    drive_accelerates: bool,
+    /// `OmniCrushResistant=`: immune to every crush.
+    omni_crush_resistant: bool,
+    /// `ImmuneToRadiation=`: per-cell radiation does no damage.
+    #[serde(default)]
+    immune_to_radiation: bool,
+}
+
+impl Default for MoverFacts {
+    /// The object before the stamp: accelerates, nothing else.
+    fn default() -> Self {
+        Self {
+            omni_crusher: false,
+            regular_crusher: false,
+            drive_accelerates: true,
+            omni_crush_resistant: false,
+            immune_to_radiation: false,
+        }
+    }
+}
+
+impl MoverFacts {
+    /// Copy the type's facts.
+    fn stamp(obj: &ObjectType) -> Self {
+        Self {
+            omni_crusher: obj.omni_crusher,
+            regular_crusher: obj.crusher,
+            drive_accelerates: obj.accelerates,
+            omni_crush_resistant: obj.omni_crush_resistant,
+            immune_to_radiation: obj.immune_to_radiation,
+        }
+    }
+
+    /// `OmniCrusher=`.
+    pub(crate) const fn omni_crusher(self) -> bool {
+        self.omni_crusher
+    }
+
+    /// `Crusher=`.
+    pub(crate) const fn regular_crusher(self) -> bool {
+        self.regular_crusher
+    }
+
+    /// `Accelerates=`.
+    pub(crate) const fn drive_accelerates(self) -> bool {
+        self.drive_accelerates
+    }
+
+    /// `OmniCrushResistant=`.
+    pub(crate) const fn omni_crush_resistant(self) -> bool {
+        self.omni_crush_resistant
+    }
+
+    /// `ImmuneToRadiation=`.
+    pub(crate) const fn immune_to_radiation(self) -> bool {
+        self.immune_to_radiation
+    }
+
+    /// Install a fixture's `OmniCrusher=`.
+    #[cfg(test)]
+    pub(crate) fn set_omni_crusher_for_test(&mut self, value: bool) {
+        self.omni_crusher = value;
+    }
+
+    /// Install a fixture's `Crusher=`.
+    #[cfg(test)]
+    pub(crate) fn set_regular_crusher_for_test(&mut self, value: bool) {
+        self.regular_crusher = value;
+    }
+
+    /// Install a fixture's `Accelerates=`.
+    #[cfg(test)]
+    pub(crate) fn set_drive_accelerates_for_test(&mut self, value: bool) {
+        self.drive_accelerates = value;
+    }
+
+    /// Install a fixture's `OmniCrushResistant=`.
+    #[cfg(test)]
+    pub(crate) fn set_omni_crush_resistant_for_test(&mut self, value: bool) {
+        self.omni_crush_resistant = value;
+    }
+}
+
+fn default_true() -> bool {
+    true
 }
 
 /// Facts the object's type fixes, copied when the object is built so paths

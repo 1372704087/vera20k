@@ -578,7 +578,7 @@ fn actual_entry_turn_gate_precedes_speed_and_points_for_both_families() {
             let mut sim = fixture(kind);
             setup_turn(&mut sim, kind, false, true, true);
             let entity = sim.substrate.entities.get_mut(1).unwrap();
-            entity.drive_accelerates = false;
+            entity.mover_facts.set_drive_accelerates_for_test(false);
             entity.foot_speed.set_speed_fraction(SimFixed::lit("0.25"));
             let (valid, latch, mut track) = retained(entity, kind);
             track.residual = 17;
@@ -666,7 +666,7 @@ fn ordinary_fresh_turn_and_drive_refusal_reach_entry_without_running_speed() {
                 // Facing the path's east octant, the refused mover reaches
                 // Can_Enter_Cell; facing north, the other turns first.
                 entity.body_facing = FacingClass::new(if refused { 0x4000 } else { 0 }, 0);
-                entity.drive_accelerates = false;
+                entity.mover_facts.set_drive_accelerates_for_test(false);
                 entity.foot_speed.set_speed_fraction(SimFixed::lit("0.25"));
                 let speed_before = entity.foot_speed.clone();
                 entity.navigation.nav_com = Some(NavTargetRef::cell(10, 8));
@@ -848,7 +848,7 @@ fn live_rotation_returns_before_fresh_selection_with_a_queued_path_and_no_displa
             .active_slope_transition_mut()
             .unwrap()
             .snap(2, 100);
-        entity.drive_accelerates = false;
+        entity.mover_facts.set_drive_accelerates_for_test(false);
         entity.navigation.nav_com = Some(NavTargetRef::cell(8, 7));
         entity.navigation.path_replay = FootPathQueue {
             directions: vec![0, 0],
@@ -916,8 +916,8 @@ fn actual_turn_and_arrival_crush_use_binary_frame_for_both_shield_kinds() {
                     sim.session.tick = tick;
                     sim.session.binary_frame = frame;
                     let crusher = sim.substrate.entities.get_mut(1).unwrap();
-                    crusher.regular_crusher = true;
-                    crusher.drive_accelerates = false;
+                    crusher.mover_facts.set_regular_crusher_for_test(true);
+                    crusher.mover_facts.set_drive_accelerates_for_test(false);
                     let position = crusher.position;
                     let current = super::super::ground_pose::position_world_coord(&position);
                     let arrival = reason == PerCellReason::Arrival;
@@ -972,10 +972,10 @@ fn actual_turn_and_arrival_crush_use_binary_frame_for_both_shield_kinds() {
                             crate::sim::mission::leaf::MissionLeafState::for_entity_category(
                                 EntityCategory::Infantry,
                             );
-                        victim.is_voxel = false;
+                        victim.set_is_voxel_for_test(false);
                         victim.sub_cell = Some(0);
                         victim.position = position;
-                        victim.crushable = true;
+                        victim.crushable_facts.set_crushable_for_test(true);
                         victim.lifecycle.set_object_alive_for_test(true);
                         victim.lifecycle.set_in_limbo_for_test(false);
                         victim.lifecycle.cell_marked = true;

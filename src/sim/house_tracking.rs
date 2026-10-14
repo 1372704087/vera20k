@@ -140,6 +140,11 @@ use crate::sim::world::Simulation;
 /// ([`TrackingFacts::of`]).
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct TrackingFacts {
+    /// `DontScore=`: the score bookkeeping and the house counts skip the
+    /// object. Persisted, so a count removed after a reload skips it as its
+    /// addition did.
+    #[serde(default)]
+    dont_score: bool,
     /// `ObjectType+0x232` Insignificant.
     insignificant: bool,
     /// A building tracked with the units: a 1x1 undeployer, or one that
@@ -184,6 +189,7 @@ impl TrackingFacts {
                     .and_then(|undeploys| rules.and_then(|rules| rules.object(undeploys)))
                     .is_some_and(|undeploys| undeploys.resource_gatherer));
         Self {
+            dont_score: ty.dont_score,
             insignificant: ty.insignificant,
             unit_like_building,
             resource_gatherer: ty.resource_gatherer,
@@ -194,6 +200,17 @@ impl TrackingFacts {
                 .then(|| ty.factory.map(|factory| FactorySlot::of(factory, ty.naval)))
                 .flatten(),
         }
+    }
+
+    /// `DontScore=`.
+    pub(crate) const fn dont_score(self) -> bool {
+        self.dont_score
+    }
+
+    /// Install a fixture's `DontScore=`.
+    #[cfg(test)]
+    pub(crate) fn set_dont_score_for_test(&mut self, value: bool) {
+        self.dont_score = value;
     }
 
     /// An `Insignificant=` object's facts.
@@ -420,7 +437,7 @@ impl HouseTracking {
 
     fn track(&mut self, entity: &mut GameEntity, delta: i32) {
         let facts = entity.tracking_facts;
-        if facts.insignificant || entity.dont_score {
+        if facts.insignificant || entity.tracking_facts.dont_score() {
             return;
         }
         match entity.category() {
@@ -672,7 +689,7 @@ impl HouseTracking {
             let total = self.force_values.total(value.kind);
             *total = total.wrapping_add(factors.adjust(value.cost, value.factor_slot.into()));
         }
-        let dont_score = entity.dont_score;
+        let dont_score = entity.tracking_facts.dont_score();
         let counts = match entity.category() {
             // The Unit case (increment at `0x00502CF9`) has no DontScore test.
             EntityCategory::Unit => &mut self.active_unit_types,
@@ -701,7 +718,7 @@ impl HouseTracking {
             let total = self.force_values.total(value.kind);
             *total = total.wrapping_sub(factors.adjust(value.cost, value.factor_slot.into()));
         }
-        if entity.dont_score {
+        if entity.tracking_facts.dont_score() {
             return;
         }
         let counts = match entity.category() {

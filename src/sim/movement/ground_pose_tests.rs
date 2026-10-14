@@ -58,7 +58,7 @@ fn mover(sim: &mut Simulation, kind: LocomotorKind) -> GameEntity {
         }
         LocomotorKind::Walk => {
             entity.set_category_for_test(EntityCategory::Infantry);
-            entity.is_voxel = false;
+            entity.set_is_voxel_for_test(false);
             entity.sub_cell = Some(0);
             // Walk follows its Foot+5E0 route toward its destination.
             entity

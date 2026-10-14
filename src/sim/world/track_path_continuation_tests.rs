@@ -979,7 +979,7 @@ fn forced_track_end_requests_its_own_cell_in_the_same_process() {
     // in the fixture rules the Accelerates ramp would never leave 0.
     let e = sim.substrate.entities.get_mut(id).unwrap();
     e.navigation.path_replay = FootPathQueue::default();
-    e.drive_accelerates = false;
+    e.mover_facts.set_drive_accelerates_for_test(false);
     let head = DriveCoord {
         x: 10 * 256,
         y: 11 * 256,

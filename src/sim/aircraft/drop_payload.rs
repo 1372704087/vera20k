@@ -196,10 +196,7 @@ fn add_ammo(sim: &mut Simulation, id: u64, delta: i32) -> i32 {
         .entities
         .get_mut(id)
         .and_then(|plane| plane.aircraft_ammo.as_mut())
-        .map_or(0, |ammo| {
-            ammo.current = ammo.current.wrapping_add(delta);
-            ammo.current
-        })
+        .map_or(0, |ammo| ammo.add(delta))
 }
 
 /// From the landing point through SpawnParachuted
@@ -615,7 +612,7 @@ mod tests {
             .aircraft_ammo
             .as_mut()
             .unwrap()
-            .current = ammo;
+            .set_current_for_test(ammo);
     }
 
     fn ammo(sim: &Simulation, id: u64) -> i32 {
@@ -626,7 +623,7 @@ mod tests {
             .aircraft_ammo
             .as_ref()
             .unwrap()
-            .current
+            .current()
     }
 
     fn cargo(sim: &Simulation, id: u64) -> Vec<u64> {

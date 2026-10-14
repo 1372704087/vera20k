@@ -941,10 +941,10 @@ pub struct GameEntity {
     /// (`0x004D33D2..0x004D33DE`) and written only by `sim::building_entry`.
     #[serde(default)]
     pub(crate) building_entry: crate::sim::building_entry::BuildingEntryLatches,
-    /// Aircraft ammo tracking and airfield docking state.
-    /// Present on all Aircraft, including signed negative native Ammo counts.
-    /// Non-aircraft entities have no aircraft ammo owner.
-    pub aircraft_ammo: Option<AircraftAmmo>,
+    /// An aircraft's Ammo (`TechnoClass+0x2FC`), pending release and dock,
+    /// an [`AircraftAmmo`] that `docking::aircraft_dock` owns. Present on all
+    /// Aircraft, including signed negative native Ammo counts.
+    pub(crate) aircraft_ammo: Option<AircraftAmmo>,
     /// Infantry sub-cell position (0–4). Only meaningful for infantry.
     pub sub_cell: Option<u8>,
     /// Whether this entity can be crushed by vehicles (Crushable= in rules.ini).

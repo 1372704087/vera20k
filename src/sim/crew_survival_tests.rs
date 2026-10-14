@@ -310,7 +310,8 @@ fn survivor_count_divides_the_refund_by_the_side_divisor() {
             .entities
             .get_mut(id)
             .unwrap()
-            .has_been_captured = captured;
+            .has_been_captured
+            .set_for_test(captured);
         assert_eq!(
             sim.building_survivor_count(&rules, id, false),
             expected,
@@ -331,7 +332,14 @@ fn a_captured_building_remembers_it() {
     let rules = rules();
     let mut sim = sim_with_houses(1);
     let id = spawn(&mut sim, &rules, "GAPOWR", "Americans", 10, 10);
-    assert!(!sim.substrate.entities.get(id).unwrap().has_been_captured);
+    assert!(
+        !sim.substrate
+            .entities
+            .get(id)
+            .unwrap()
+            .has_been_captured
+            .is_set()
+    );
     sim.substrate
         .entities
         .get_mut(id)
@@ -348,7 +356,7 @@ fn a_captured_building_remembers_it() {
         crate::sim::world::FrameEffects::default(),
     );
     let building = sim.substrate.entities.get(id).unwrap();
-    assert!(building.has_been_captured);
+    assert!(building.has_been_captured.is_set());
     assert!(!building.repairing.is_on());
     assert!(
         !sim.sound_events
@@ -436,7 +444,8 @@ fn a_captured_yard_rolls_one_in_nine_without_the_engineer_draw() {
         .entities
         .get_mut(yard)
         .unwrap()
-        .has_been_captured = true;
+        .has_been_captured
+        .set_for_test(true);
     let mut replay = sim.scenario_rng.clone();
     let mut marks = Vec::new();
     sim.spawn_building_survivors(

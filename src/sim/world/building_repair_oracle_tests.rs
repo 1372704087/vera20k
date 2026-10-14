@@ -320,7 +320,9 @@ fn update_scene(corpus: &Value, input: &Value) -> (Simulation, RuleSet, Option<u
     building.in_playfield = true;
     building.estimated_health = EstimatedHealth::from_raw(int("estimate", health.into()));
     building.repairing.set_for_test(flag("repairing", false));
-    building.has_been_captured = flag("captured", false);
+    building
+        .has_been_captured
+        .set_for_test(flag("captured", false));
     building
         .ai_sell_repair
         .set_ai_repairable_for_test(flag("ai_repairable", true));
@@ -365,7 +367,8 @@ fn update_scene(corpus: &Value, input: &Value) -> (Simulation, RuleSet, Option<u
             .entities
             .get_mut(1)
             .unwrap()
-            .damage_smoke_system_id = Some(smoke);
+            .damage_smoke_system_id
+            .set_for_test(Some(smoke));
         smoke
     });
     sim.scenario_rng = SimRng::new(input["seed"].as_u64().unwrap_or(1));

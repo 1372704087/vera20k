@@ -835,10 +835,45 @@ fn waits(sim: &Simulation, id: u64) -> bool {
     })
 }
 
+/// `BuildingClass+0x664`, the supporters a Prism master has recruited for its
+/// next shot. The constructor clears it (`0x0043B895`); Mission_Attack counts
+/// each recruit (`0x0044B4D7`, [`Self::recruit`]); the shot's bonus
+/// (`0x004504CD`), a support beam (`0x0044ACCA`) and Mission_Attack's
+/// null-target and drop tails (`0x0044AF9F`, `0x0044B0ED`) reset it
+/// ([`Self::reset`]). The laser's Prism arm reads it through the fire path.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(transparent)]
+pub(crate) struct PrismSupport {
+    count: i32,
+}
+
+impl PrismSupport {
+    /// The recruited supporters.
+    pub(crate) const fn count(self) -> i32 {
+        self.count
+    }
+
+    /// Mission_Attack's recruit (`0x0044B4D7`); a native dword, so it wraps.
+    fn recruit(&mut self) {
+        self.count = self.count.wrapping_add(1);
+    }
+
+    /// `+0x664 = 0`.
+    fn reset(&mut self) {
+        self.count = 0;
+    }
+
+    /// Install a fixture's count.
+    #[cfg(test)]
+    pub(crate) fn set_for_test(&mut self, count: i32) {
+        self.count = count;
+    }
+}
+
 /// `+0x664 = 0`, the Prism support count, after both tails' SetTarget(0).
 fn clear_support_count(sim: &mut Simulation, id: u64) {
     if let Some(entity) = sim.substrate.entities.get_mut(id) {
-        entity.prism_support_count = 0;
+        entity.prism_support_count.reset();
     }
 }
 
@@ -1054,7 +1089,7 @@ fn prism_arm(
     let Some(master) = sim.substrate.entities.get(id) else {
         return;
     };
-    let supporter = (master.prism_support_count < rules.general.prism_support.max)
+    let supporter = (master.prism_support_count.count() < rules.general.prism_support.max)
         .then(|| prism_supporter(sim, id, rules, obj))
         .flatten();
     let Some(supporter) = supporter else {
@@ -1069,7 +1104,7 @@ fn prism_arm(
         return;
     };
     if let Some(master) = sim.substrate.entities.get_mut(id) {
-        master.prism_support_count = master.prism_support_count.wrapping_add(1);
+        master.prism_support_count.recruit();
     }
     // `vt+0xB0(out, 0, {0, 0, 0})` (`0x0044B4F6`): the master's weapon-0 FLH.
     let Some(master) = sim.substrate.entities.get(id) else {
@@ -1232,7 +1267,7 @@ pub(super) fn process_delayed_fire(
                 .entities
                 .get_mut(id)
                 .expect("live support source");
-            entity.prism_support_count = 0;
+            entity.prism_support_count.reset();
             entity
                 .rearm_timer
                 .start(now, rules.general.prism_support.delay);
@@ -1358,11 +1393,11 @@ impl Simulation {
         let Some(entity) = self.substrate.entities.get_mut(id) else {
             return ProjectilePayload::UNSCALED;
         };
-        let count = entity.prism_support_count;
+        let count = entity.prism_support_count.count();
         if count == 0 {
             return ProjectilePayload::UNSCALED;
         }
-        entity.prism_support_count = 0;
+        entity.prism_support_count.reset();
         support_multiplier(rules.general.prism_support.modifier, count)
     }
 

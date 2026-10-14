@@ -184,7 +184,8 @@ fn original_area_receipt_selects_nullify_after_em_effect_rng_and_before_return()
                     .entities
                     .get(receiver)
                     .unwrap()
-                    .damage_smoke_system_id,
+                    .damage_smoke_system_id
+                    .system(),
                 Some(*id)
             );
         } else if let Some(receiver) = receiver {
@@ -195,6 +196,7 @@ fn original_area_receipt_selects_nullify_after_em_effect_rng_and_before_return()
                     .get(receiver)
                     .unwrap()
                     .damage_smoke_system_id
+                    .system()
                     .is_none()
             );
         }

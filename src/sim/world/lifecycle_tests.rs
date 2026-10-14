@@ -3865,7 +3865,8 @@ fn completed_empty_smoke_limbo_clears_every_matching_techno_before_late_drain() 
             .entities
             .get_mut(id)
             .unwrap()
-            .damage_smoke_system_id = Some(smoke_id);
+            .damage_smoke_system_id
+            .set_for_test(Some(smoke_id));
     }
     let rng = [
         sim.scenario_rng.native_state_hex(),
@@ -3879,7 +3880,8 @@ fn completed_empty_smoke_limbo_clears_every_matching_techno_before_late_drain() 
             .entities
             .get(1)
             .unwrap()
-            .damage_smoke_system_id,
+            .damage_smoke_system_id
+            .system(),
         Some(4)
     );
     assert!(sim.substrate.pending_delete.is_empty());
@@ -3898,7 +3900,8 @@ fn completed_empty_smoke_limbo_clears_every_matching_techno_before_late_drain() 
             .entities
             .get(1)
             .unwrap()
-            .damage_smoke_system_id,
+            .damage_smoke_system_id
+            .system(),
         Some(4)
     );
     assert!(sim.substrate.pending_delete.is_empty());
@@ -3918,7 +3921,8 @@ fn completed_empty_smoke_limbo_clears_every_matching_techno_before_late_drain() 
                 .entities
                 .get(id)
                 .unwrap()
-                .damage_smoke_system_id,
+                .damage_smoke_system_id
+                .system(),
             None,
             "the expiry callback clears every exact match, not only the producer"
         );
@@ -3928,7 +3932,8 @@ fn completed_empty_smoke_limbo_clears_every_matching_techno_before_late_drain() 
             .entities
             .get(3)
             .unwrap()
-            .damage_smoke_system_id,
+            .damage_smoke_system_id
+            .system(),
         Some(5)
     );
     let system = sim.substrate.particle_systems.get(4).unwrap();
@@ -3975,7 +3980,8 @@ fn completed_empty_smoke_limbo_clears_every_matching_techno_before_late_drain() 
             .entities
             .get(3)
             .unwrap()
-            .damage_smoke_system_id,
+            .damage_smoke_system_id
+            .system(),
         Some(5)
     );
     assert!(

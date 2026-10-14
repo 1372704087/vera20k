@@ -1985,7 +1985,7 @@ fn restore_object_references(
         // TechnoClass__Load @ 0x0070BF50 queues the spawned-child parent
         // pointer at Techno+0x2D4. It is an independently swizzled slot: native
         // load does not require a reciprocal SpawnControl entry.
-        if let Some(parent_id) = entity.spawn_owner_id {
+        if let Some(parent_id) = entity.spawn_owner_id.owner() {
             require_resolved_reference(
                 entity_ids.contains(&parent_id),
                 "EntityStore",
@@ -2190,7 +2190,7 @@ fn restore_object_references(
             )?;
         }
 
-        if let Some(system_id) = entity.damage_smoke_system_id {
+        if let Some(system_id) = entity.damage_smoke_system_id.system() {
             require_resolved_reference(
                 particle_system_ids.contains(&system_id),
                 "EntityStore",
@@ -5878,7 +5878,7 @@ mod tests {
         };
         let supporter = sim.substrate.entities.get_mut(2).expect("second tower");
         supporter.pending_building_fire = Some(beam);
-        supporter.prism_support_count = 3;
+        supporter.prism_support_count.set_for_test(3);
         let with_beam = sim.state_hash();
         assert_ne!(with_beam, with_latch);
 
@@ -5889,7 +5889,7 @@ mod tests {
         let entities = &restored.substrate.entities;
         assert_eq!(entities.get(1).unwrap().pending_building_fire, Some(shot));
         assert_eq!(entities.get(2).unwrap().pending_building_fire, Some(beam));
-        assert_eq!(entities.get(2).unwrap().prism_support_count, 3);
+        assert_eq!(entities.get(2).unwrap().prism_support_count.count(), 3);
         assert_eq!(restored.state_hash(), with_beam);
     }
 
@@ -6352,7 +6352,7 @@ mod tests {
         aircraft
             .ai_sell_repair
             .set_was_attacked_by_enemy_for_test(true);
-        aircraft.damage_smoke_system_id = Some(2);
+        aircraft.damage_smoke_system_id.set_for_test(Some(2));
         aircraft.capture_manager = Some(
             crate::sim::capture_manager::CaptureManagerState::with_victims_for_test(
                 3,
@@ -6513,7 +6513,8 @@ mod tests {
             .entities
             .get_mut(entity_id)
             .unwrap()
-            .damage_smoke_system_id = None;
+            .damage_smoke_system_id
+            .set_for_test(None);
         assert_ne!(
             sim.state_hash(),
             expected_hash,
@@ -6523,7 +6524,8 @@ mod tests {
             .entities
             .get_mut(entity_id)
             .unwrap()
-            .damage_smoke_system_id = Some(2);
+            .damage_smoke_system_id
+            .set_for_test(Some(2));
         sim.substrate
             .entities
             .get_mut(entity_id)
@@ -6558,7 +6560,7 @@ mod tests {
         assert!(entity.berserk.active);
         assert_eq!(entity.berserk.timer, -17);
         assert!(entity.ai_sell_repair.was_attacked_by_enemy());
-        assert_eq!(entity.damage_smoke_system_id, Some(2));
+        assert_eq!(entity.damage_smoke_system_id.system(), Some(2));
         assert_eq!(
             entity.pending_c4_detonation,
             Some(crate::sim::components::PendingC4Detonation {
@@ -7669,7 +7671,7 @@ mod tests {
         sim.substrate.entities.insert(parent_entity);
 
         let mut child_entity = GameEntity::test_default(child, "HORNET", "AMERICANS", 2, 1);
-        child_entity.spawn_owner_id = Some(parent);
+        child_entity.spawn_owner_id.set_for_test(Some(parent));
         sim.substrate.entities.insert(child_entity);
         sim.substrate
             .entities
@@ -7757,7 +7759,8 @@ mod tests {
                         .entities
                         .get_mut(ids.child)
                         .unwrap()
-                        .spawn_owner_id = Some(9_999);
+                        .spawn_owner_id
+                        .set_for_test(Some(9_999));
                     ("EntityStore", ids.child, "spawn_owner_id")
                 }
                 MissingRole::ProjectileSource => {
@@ -7818,7 +7821,8 @@ mod tests {
             .entities
             .get_mut(ids.child)
             .unwrap()
-            .spawn_owner_id = None;
+            .spawn_owner_id
+            .set_for_test(None);
         let projectile = sim.projectiles.get_mut(ids.projectile).unwrap();
         projectile.source_id = RAD_NO_ATTACKER;
         projectile.target = ProjectileTarget::Cell { rx: 11, ry: 12 };
@@ -8216,7 +8220,8 @@ mod tests {
             .entities
             .get_mut(ids.child)
             .unwrap()
-            .spawn_owner_id = Some(ids.target);
+            .spawn_owner_id
+            .set_for_test(Some(ids.target));
 
         assert_eq!(sim.restore_after_snapshot_load(), Ok(()));
         assert_eq!(
@@ -8238,7 +8243,8 @@ mod tests {
                 .entities
                 .get(ids.child)
                 .unwrap()
-                .spawn_owner_id,
+                .spawn_owner_id
+                .owner(),
             Some(ids.target)
         );
     }

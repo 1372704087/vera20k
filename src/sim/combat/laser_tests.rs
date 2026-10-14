@@ -208,7 +208,8 @@ fn admitted_laser_births_match_original_building_and_unit_callers() {
             .entities
             .get_mut(1)
             .unwrap()
-            .prism_support_count = count;
+            .prism_support_count
+            .set_for_test(count);
         if input["kind"] == "support" {
             let to = if name == "production_support" {
                 // Receiver FLH is independently established by the actual
@@ -282,7 +283,7 @@ fn production_frame_orders_laser_update_before_delayed_support_birth() {
         remaining_ticks: 1,
         fire: DelayedFire::SupportBeam { to },
     });
-    source.prism_support_count = 2;
+    source.prism_support_count.set_for_test(2);
     source.mission_leaf.set_building_ready_latch(1);
     source.mission.apply_test_fixture(MissionTestFixture {
         current: MissionId::from_known(MissionType::Guard),
@@ -331,7 +332,7 @@ fn production_frame_orders_laser_update_before_delayed_support_birth() {
     assert_birth(*birth, &expected["laser"], "production support visit");
     let source = sim.substrate.entities.get(tower).unwrap();
     assert!(source.pending_building_fire.is_none());
-    assert_eq!(source.prism_support_count, 0);
+    assert_eq!(source.prism_support_count.count(), 0);
     assert_eq!(
         source.rearm_timer.timer(),
         CdTimer::from_raw(
@@ -388,7 +389,7 @@ fn retail_delayed_main_uses_preclear_count_and_failed_admission_emits_no_laser()
             remaining_ticks: 1,
             fire: DelayedFire::Weapon(WeaponSlot::Primary),
         });
-        source.prism_support_count = 1;
+        source.prism_support_count.set_for_test(1);
         source.rearm_timer.set_for_test(CdTimer::started(100, 0));
         source.mission_leaf.set_building_ready_latch(1);
         source.mission.apply_test_fixture(MissionTestFixture {
@@ -436,7 +437,8 @@ fn retail_delayed_main_uses_preclear_count_and_failed_admission_emits_no_laser()
                     .entities
                     .get(tower)
                     .unwrap()
-                    .prism_support_count,
+                    .prism_support_count
+                    .count(),
                 0
             );
         } else {
@@ -446,7 +448,8 @@ fn retail_delayed_main_uses_preclear_count_and_failed_admission_emits_no_laser()
                     .entities
                     .get(tower)
                     .unwrap()
-                    .prism_support_count,
+                    .prism_support_count
+                    .count(),
                 1
             );
         }

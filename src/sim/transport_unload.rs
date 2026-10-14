@@ -34,6 +34,24 @@ use crate::sim::world::{FrameEffects, SimSoundEvent, Simulation};
 use crate::util::direction_tables::CELL_DELTAS;
 use crate::util::lepton::CELL_CENTER_LEPTON;
 
+/// `UnitClass+0x6E4`: the passengers a transport's Unload keeps aboard.
+/// `UnitClass::Mission_Unload @ 0x0073D630` state 0 writes it
+/// (`0x0073D830`/`0x0073D83C`: a `TurretCount > 0` transport keeps one unless
+/// it carries exactly one) and state 3's `cargo > keep` gate reads it
+/// (`0x0073D8C3`). Zero for every other object; hashed only when non-zero.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(transparent)]
+pub(crate) struct UnloadKeep {
+    count: u32,
+}
+
+impl UnloadKeep {
+    /// The passengers kept aboard.
+    pub(crate) const fn count(self) -> u32 {
+        self.count
+    }
+}
+
 /// `DAT_008458D0`: `[4, 5, 6, 7, 0, 1, 2, 3]` — the octant the transport
 /// turns to so that its REAR faces the chosen exit cell.
 const fn opposite_octant(octant: usize) -> usize {
@@ -902,7 +920,7 @@ pub(crate) fn unit_mission_unload(
                     .is_some_and(|obj| obj.turret_count > 0);
                 if let Some(entity) = sim.substrate.entities.get_mut(id) {
                     if turreted {
-                        entity.transport_unload_keep_count = if cargo == 1 { 0 } else { 1 };
+                        entity.transport_unload_keep_count.count = if cargo == 1 { 0 } else { 1 };
                     }
                     //73D86C dispatches the active ILocomotion+4C owner.
                     crate::sim::movement::locomotor_do_turn(
@@ -929,7 +947,8 @@ pub(crate) fn unit_mission_unload(
             unload_epilogue(sim, rules, id)
         }
         STATE_EJECT => {
-            if entity.passenger_role.passenger_count() > entity.transport_unload_keep_count {
+            if entity.passenger_role.passenger_count() > entity.transport_unload_keep_count.count()
+            {
                 let _ = eject_head_passenger(sim, rules, id, overlay_registry, effects);
             } else if let Some(entity) = sim.substrate.entities.get_mut(id) {
                 entity.mission.set_handler_state(STATE_DONE);

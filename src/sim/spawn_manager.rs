@@ -79,6 +79,35 @@ use crate::util::direction_tables::CELL_DELTAS;
 #[path = "spawn_manager_oracle_tests.rs"]
 mod oracle_tests;
 
+/// A spawned child's SpawnOwner, `TechnoClass+0x2D4`: the object whose
+/// spawn manager holds the child. The manager's launch sets it
+/// (`0x006B7947`); `TechnoClass::PointerExpired` drops it when that owner
+/// expires, whatever the control (`0x007077EE..0x007077FD`,
+/// [`Self::forget`]). Kill credit and the "do not self-RTB" gate read it.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(transparent)]
+pub(crate) struct SpawnOwner {
+    owner: Option<u64>,
+}
+
+impl SpawnOwner {
+    /// The owner's stable id.
+    pub(crate) const fn owner(self) -> Option<u64> {
+        self.owner
+    }
+
+    /// PointerExpired's drop of an expiring owner.
+    pub(crate) fn forget(&mut self) {
+        self.owner = None;
+    }
+
+    /// Install a fixture's owner.
+    #[cfg(test)]
+    pub(crate) fn set_for_test(&mut self, owner: Option<u64>) {
+        self.owner = owner;
+    }
+}
+
 /// Frames the manager waits before its very first AI pass
 /// (`UpdateTimer.Duration = 0x14` at construction).
 const FIRST_UPDATE_DELAY_FRAMES: i32 = 20;
@@ -1290,7 +1319,7 @@ impl SpawnHost for WorldSpawn<'_, '_> {
 
     fn adopt(&mut self, child: u64) {
         if let Some(entity) = self.sim.substrate.entities.get_mut(child) {
-            entity.spawn_owner_id = Some(self.owner_id);
+            entity.spawn_owner_id.owner = Some(self.owner_id);
         }
     }
 

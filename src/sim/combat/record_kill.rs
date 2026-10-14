@@ -69,7 +69,7 @@ fn award_kill_experience(
         Some((killer_id, cost_of(killer_type)))
     } else if killer_type.missile_spawn {
         // Branch 3: a spawned missile pays its launcher.
-        killer.spawn_owner_id.and_then(trainable_cost)
+        killer.spawn_owner_id.owner().and_then(trainable_cost)
     } else {
         // Branch 4: an occupied building pays the occupant at its fire index.
         combat_weapon::firing_occupant_id(killer, killer_type).and_then(|occupant| {

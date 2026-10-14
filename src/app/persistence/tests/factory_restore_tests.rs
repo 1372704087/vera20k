@@ -597,14 +597,13 @@ fn factory_restore_rejects_inconsistent_roots() {
                     .unwrap()
                     .set_category_for_test(crate::map::entities::EntityCategory::Infantry);
             }
-            "manager-owned-root" => {
-                saved
-                    .substrate
-                    .entities
-                    .get_mut(parent)
-                    .unwrap()
-                    .spawn_owner_id = Some(parent)
-            }
+            "manager-owned-root" => saved
+                .substrate
+                .entities
+                .get_mut(parent)
+                .unwrap()
+                .spawn_owner_id
+                .set_for_test(Some(parent)),
             "child-root-alias" => {
                 let manager = saved
                     .substrate

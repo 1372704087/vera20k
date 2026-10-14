@@ -155,7 +155,9 @@ fn crew_scene(input: &Value) -> (SlaveScene, Vec<u64>) {
     let owner = sim.substrate.entities.get(refinery).unwrap().owner();
     sim.houses.get_mut(&owner).unwrap().side_index = input["side"].as_u64().unwrap() as u8;
     let building = sim.substrate.entities.get_mut(refinery).unwrap();
-    building.has_been_captured = input["captured"] == true;
+    building
+        .has_been_captured
+        .set_for_test(input["captured"] == true);
     building.selected = input["selected"] == true;
     let mut passengers = Vec::new();
     if let Some(names) = input["passengers"].as_array() {

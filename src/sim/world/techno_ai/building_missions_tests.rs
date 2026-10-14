@@ -1331,7 +1331,7 @@ fn retail_dustbowl_prism_towers_forward_their_charge() {
                         crate::sim::timer::CdTimer::started(binary_frame, 45),
                         "the downtime starts on the beam's frame"
                     );
-                    assert_eq!(entity.prism_support_count, 0);
+                    assert_eq!(entity.prism_support_count.count(), 0);
                     beams.push((frame, id));
                 }
                 _ => {}
@@ -1361,7 +1361,8 @@ fn retail_dustbowl_prism_towers_forward_their_charge() {
             shot = Some((frame, health - after));
             let entity = scenario.sim().substrate.entities.get(master).unwrap();
             assert_eq!(
-                entity.prism_support_count, 0,
+                entity.prism_support_count.count(),
+                0,
                 "the bonus restarts the count"
             );
             break;

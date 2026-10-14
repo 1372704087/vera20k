@@ -1540,7 +1540,7 @@ fn hash_entity(entity: &GameEntity, frame: u32, hasher: &mut StateHasher) {
         0x5c4_u32.hash(hasher);
         entity.mega_mission.hash(hasher);
     }
-    if entity.has_been_captured {
+    if entity.has_been_captured.is_set() {
         // Building+6E3: doubles the survivor divisor, widens the
         // survivor roll and skips the engineer roll at death.
         0x6e3_u32.hash(hasher);
@@ -1907,9 +1907,9 @@ fn hash_entity(entity: &GameEntity, frame: u32, hasher: &mut StateHasher) {
     entity.rearm_timer.duration().hash(hasher);
     entity.weapon_burst.hash(hasher);
     entity.pending_building_fire.hash(hasher);
-    if entity.prism_support_count != 0 {
+    if entity.prism_support_count.count() != 0 {
         b"prism-support-count-v1".hash(hasher);
-        entity.prism_support_count.hash(hasher);
+        entity.prism_support_count.count().hash(hasher);
     }
     // One native weapon owner replaces last-shot/transport copies.
     // The turret index and saved charge duration only drive drawing.
@@ -2053,8 +2053,8 @@ fn hash_entity(entity: &GameEntity, frame: u32, hasher: &mut StateHasher) {
             // transport's own Unload state 0. Folded only when set so
             // objects that never unloaded (every pinned harness
             // object) keep their v-schema bytes.
-            if entity.transport_unload_keep_count != 0 {
-                entity.transport_unload_keep_count.hash(hasher);
+            if entity.transport_unload_keep_count.count() != 0 {
+                entity.transport_unload_keep_count.count().hash(hasher);
             }
         }
         None => {
@@ -2099,7 +2099,7 @@ fn hash_entity(entity: &GameEntity, frame: u32, hasher: &mut StateHasher) {
         1u8.hash(hasher);
         manager.hash(hasher);
     }
-    if let Some(owner_id) = entity.spawn_owner_id {
+    if let Some(owner_id) = entity.spawn_owner_id.owner() {
         2u8.hash(hasher);
         owner_id.hash(hasher);
     }
@@ -2214,10 +2214,10 @@ fn hash_entity(entity: &GameEntity, frame: u32, hasher: &mut StateHasher) {
     // S4b damage-Spark `+0x308`-equivalent live-system gate. Hashed because
     // it gates future scenario_rng draws (a divergence here desyncs the
     // stream). Zero for every entity in stock YR (the gate is Cyborg-only).
-    entity.damage_particle_live_until.hash(hasher);
+    entity.damage_particle_live_until.live_until().hash(hasher);
     // ReceiveDamage damage-Smoke `+0x310` identity. This gates later
     // spawn/RNG and remains set while a marked system drains.
-    entity.damage_smoke_system_id.hash(hasher);
+    entity.damage_smoke_system_id.system().hash(hasher);
 }
 
 /// One locomotor object, field for field, and the object its piggyback slot

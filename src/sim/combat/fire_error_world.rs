@@ -231,7 +231,8 @@ impl<'a> FireSubject<'a> {
             // `+0x308`: the damage-spark system, armed and expired on
             // `session.tick` by `techno_ai`'s common post step (`0` none,
             // `u64::MAX` held).
-            spark_particles_live: self.world.session.tick < firer.damage_particle_live_until,
+            spark_particles_live: self.world.session.tick
+                < firer.damage_particle_live_until.live_until(),
             // T45: the object's own rearm countdown (`+0x2EC`).
             rearming: firer
                 .rearm_timer

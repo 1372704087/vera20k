@@ -3737,8 +3737,8 @@ impl Simulation {
                 .iter()
                 .any(|target| Self::nav_ref_targets_expired(target, expired_id))
             || listener.pending_entry() == Some(expired_id)
-            || listener.spawn_owner_id == Some(expired_id)
-            || listener.damage_smoke_system_id == Some(expired_id)
+            || listener.spawn_owner_id.owner() == Some(expired_id)
+            || listener.damage_smoke_system_id.system() == Some(expired_id)
             || listener
                 .aircraft_ammo
                 .as_ref()
@@ -4079,7 +4079,7 @@ impl Simulation {
             .is_some_and(|cargo| cargo.passengers().contains(&expired_id));
         // `0x007077EE..0x007077FD`, after the radio and cargo, whatever the
         // control: a child whose SpawnOwner (`+0x2D4`) expires forgets it.
-        let drops_spawn_owner = listener.spawn_owner_id == Some(expired_id);
+        let drops_spawn_owner = listener.spawn_owner_id.owner() == Some(expired_id);
 
         // `TechnoClass::PointerExpired @ 0x007077C0`, the `allowClear` local
         // (`[ESP+0x24]`): it starts true and is cancelled only on the
@@ -4141,7 +4141,7 @@ impl Simulation {
                 let _ = cargo.disembark(expired_id);
             }
             if drops_spawn_owner {
-                listener.spawn_owner_id = None;
+                listener.spawn_owner_id.forget();
             }
         }
 
@@ -4169,7 +4169,7 @@ impl Simulation {
         // Techno707AC2..707AD7 clears eight retained effect pointers on an
         // exact match, including damage-Smoke+310. It precedes the control
         // gate707AE7 and is independent of the target's sensor/owner guards.
-        let clear_damage_smoke = listener.damage_smoke_system_id == Some(expired_id);
+        let clear_damage_smoke = listener.damage_smoke_system_id.system() == Some(expired_id);
         // Techno707AE7..707B03 clears ArchiveTarget+218 on control1. The
         // later Foot4D99F1..4D99FC clears a still-matching archive on both
         // controls, independent of sensors and same-owner target exemptions.
@@ -4281,7 +4281,7 @@ impl Simulation {
             listener.suspended_attack_target = None;
         }
         if clear_damage_smoke {
-            listener.damage_smoke_system_id = None;
+            listener.damage_smoke_system_id.forget();
         }
         if clear_archive_target {
             listener.set_archive_target(None);

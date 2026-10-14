@@ -346,7 +346,11 @@ fn v3_launcher_gets_a_missile_pool_on_spawn() {
         child.lifecycle.in_limbo(),
         "a docked spawn child sits in limbo until launch"
     );
-    assert_eq!(child.spawn_owner_id, Some(v3), "back-pointer to the parent");
+    assert_eq!(
+        child.spawn_owner_id.owner(),
+        Some(v3),
+        "back-pointer to the parent"
+    );
 }
 
 #[test]
@@ -1205,7 +1209,12 @@ fn a_live_spawners_own_expiry_rebuilds_its_docked_missile() {
     let rebuilt = manager(&sim).slots[0].spawn.expect("the slot is rebuilt");
     assert_ne!(rebuilt, docked);
     assert_eq!(
-        sim.substrate.entities.get(rebuilt).unwrap().spawn_owner_id,
+        sim.substrate
+            .entities
+            .get(rebuilt)
+            .unwrap()
+            .spawn_owner_id
+            .owner(),
         Some(v3)
     );
 }
@@ -1850,7 +1859,7 @@ fn a_dead_carriers_airborne_hornet_crashes() {
         .expect("a crashing Hornet stays represented until its impact");
     assert!(hornet.crash.is_crashing() && hornet.lifecycle.object_alive());
     assert_eq!(hornet.health.current(), 0);
-    assert_eq!(hornet.spawn_owner_id, None);
+    assert_eq!(hornet.spawn_owner_id.owner(), None);
     assert!(
         hornet
             .rocking

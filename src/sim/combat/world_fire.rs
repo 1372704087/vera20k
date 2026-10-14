@@ -1151,7 +1151,7 @@ pub(super) fn emit_admitted_fire(
         .substrate
         .entities
         .get(snap.stable_id)
-        .map_or(0, |entity| entity.prism_support_count);
+        .map_or(0, |entity| entity.prism_support_count.count());
     let warhead = selected.warhead;
     let base_damage = fireat_damage(world, rules, snap, obj, weapon, is_garrison);
     let ProjectileDelivery {

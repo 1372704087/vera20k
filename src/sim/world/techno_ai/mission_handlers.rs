@@ -87,7 +87,7 @@ pub(crate) fn dispatch_foot_mission(
                 .get(id)
                 .is_some_and(crate::sim::game_entity::GameEntity::is_harvester);
         let entry_adapter = entity.passenger_role.boarding_transport_id().is_some()
-            || entity.bunker_link.approaching().is_some();
+            || entity.bunker.link().approaching().is_some();
         // `FootClass::Mission_Move @ 0x004D4200` keeps its cadence while the
         // NavCom is set (`0x004D4203`) or the locomotor's `Is_Moving` holds
         // (`0x004D422A`); the order itself is not an input.
@@ -1746,7 +1746,7 @@ pub(super) fn evaluate_foot_area_guard(
         .substrate
         .entities
         .get(id)
-        .is_some_and(|entity| entity.bunker_link.installed_in().is_some())
+        .is_some_and(|entity| entity.bunker.link().installed_in().is_some())
     {
         let now = sim.session.binary_frame;
         let _ = sim.mission_queue_exact(
@@ -2541,13 +2541,15 @@ mod harvester_guard_override_tests {
     fn fill_cargo(sim: &mut Simulation) {
         let entity = sim.substrate.entities.get_mut(MINER_ID).expect("miner");
         let miner = entity.miner.as_mut().expect("miner");
-        let capacity = miner.capacity_bales;
-        miner.cargo = (0..capacity)
-            .map(|_| CargoBale {
-                resource_type: ResourceType::Ore,
-                value: 25,
-            })
-            .collect();
+        let capacity = miner.capacity_bales();
+        miner.set_cargo_for_test(
+            (0..capacity)
+                .map(|_| CargoBale {
+                    resource_type: ResourceType::Ore,
+                    value: 25,
+                })
+                .collect(),
+        );
     }
 
     fn dispatch(sim: &mut Simulation, rules: &RuleSet) {

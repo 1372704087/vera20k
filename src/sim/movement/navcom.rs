@@ -506,7 +506,7 @@ impl crate::sim::world::Simulation {
         let refused = nonnull
             && (entity.lift.swap_active()
                 || entity.passenger_role.in_open_transport()
-                || entity.bunker_link.installed_in().is_some());
+                || entity.bunker.link().installed_in().is_some());
         let holds = entity.lift.target().is_some();
         self.substrate
             .entities

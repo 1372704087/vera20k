@@ -128,7 +128,7 @@ fn whole_unit_fixture(
         SuppliedFootFixture, install_recorded_cell_coordinates, oracle, signed, xyz,
     };
     use crate::sim::combat::Health;
-    use crate::sim::game_entity::InfantryRuntime;
+    use crate::sim::infantry::InfantryRuntime;
     use crate::sim::mission::state::MissionTestFixture;
     use crate::sim::mission::{MissionDispatchTimer, MissionId, MissionTimer};
     use crate::sim::movement::locomotor::MovementLayer;

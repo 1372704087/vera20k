@@ -256,7 +256,7 @@ fn actual_type_wins_display_art_except_the_harvester_unloading_body() {
     let display = runtime.simulation.interner.intern("CUSTOM");
     let unloading = runtime.simulation.interner.intern("UNLOAD");
     set_live_level(&mut runtime, (3, 3), 4);
-    tank.display_type_override = Some(display);
+    tank.display_type_override.set_for_test(Some(display));
     let mut disguise = DisguiseRuntime::default();
     disguise.acquire(0, Some(unloading), None);
     tank.disguise = Some(disguise);
@@ -266,7 +266,9 @@ fn actual_type_wins_display_art_except_the_harvester_unloading_body() {
 
     // Unit+6C4 is temporarily replaced for the unloading body. The original
     // type still owns the callers that explicitly do not request that body.
-    harvester.display_type_override = Some(unloading);
+    harvester
+        .display_type_override
+        .set_for_test(Some(unloading));
     assert_eq!(
         unit_z_adjust_in_runtime(Some(&runtime), &harvester, true),
         5
@@ -276,7 +278,7 @@ fn actual_type_wins_display_art_except_the_harvester_unloading_body() {
         unit_z_adjust_in_runtime(Some(&runtime), &harvester, false),
         19
     );
-    harvester.display_type_override = None;
+    harvester.display_type_override.set_for_test(None);
     assert_eq!(
         unit_z_adjust_in_runtime(Some(&runtime), &harvester, true),
         19
@@ -424,7 +426,9 @@ fn composite_split_uses_active_unloading_type_and_not_art_override() {
         &harvester,
         true
     ));
-    harvester.display_type_override = Some(runtime.simulation.interner.intern("UNLOAD"));
+    harvester
+        .display_type_override
+        .set_for_test(Some(runtime.simulation.interner.intern("UNLOAD")));
     assert!(unit_bridge_split_in_runtime(
         Some(&runtime),
         &harvester,

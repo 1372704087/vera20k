@@ -349,7 +349,9 @@ pub(super) fn reengagement_fixture(input: &Value) -> (Simulation, RuleSet) {
         entity.passenger_role = PassengerRole::inside_for_test(4, true);
     }
     if input["bunker"].as_bool().unwrap_or(false) {
-        entity.bunker_link = crate::sim::game_entity::BunkerLink::Installed(2);
+        entity
+            .bunker
+            .set_bunker_link_for_test(crate::sim::docking::bunker_link::BunkerLink::Installed(2));
     }
     let path = &mut entity.navigation.path_runtime;
     path.movement_timer = crate::sim::timer::CdTimer::from_raw(7, 23);

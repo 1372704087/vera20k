@@ -10,7 +10,7 @@ use super::*;
 use crate::map::resolved_terrain::{ResolvedTerrainGrid, test_flat_cell};
 use crate::rules::locomotor_type::LocomotorKind;
 use crate::sim::docking::bunker_install::{BunkerRuntime, BunkerState, tick_bunker_install};
-use crate::sim::game_entity::BunkerLink;
+use crate::sim::docking::bunker_link::BunkerLink;
 use crate::sim::movement::{DriveLocomotionRuntime, FacingClass, ShipLocomotionRuntime};
 use crate::util::fixed_math::SimFixed;
 use serde_json::{Value, json};
@@ -435,7 +435,9 @@ fn bunker_dispatch_matches_separate_native_force_then_owner_speed_write() {
                 z: 312,
             },
         );
-        entity.bunker_link = BunkerLink::Approaching(2);
+        entity
+            .bunker
+            .set_bunker_link_for_test(BunkerLink::Approaching(2));
         let current = match selector {
             67 => 0x2000,
             68 => 0x6000,
@@ -456,9 +458,11 @@ fn bunker_dispatch_matches_separate_native_force_then_owner_speed_write() {
         building.set_owner_for_test(sim.intern("Americans"));
         building.set_type_ref_for_test(sim.intern("NATBNK"));
         crate::sim::movement::ground_pose::put_location(&mut building.position, supplied(case));
-        building.bunker_runtime = Some(BunkerRuntime {
-            state: BunkerState::TurnToBuilding,
-            installing_unit: Some(UNIT),
+        building.bunker_runtime = Some({
+            let mut runtime = BunkerRuntime::idle();
+            runtime.set_state_for_test(BunkerState::TurnToBuilding);
+            runtime.set_installing_unit_for_test(Some(UNIT));
+            runtime
         });
         sim.substrate.entities.insert(building);
         tick_bunker_install(
@@ -482,7 +486,7 @@ fn bunker_dispatch_matches_separate_native_force_then_owner_speed_write() {
                 .unwrap()
                 .bunker_runtime
                 .unwrap()
-                .state,
+                .state(),
             BunkerState::TrackStep
         );
         assert_raw_cells(&sim, case);

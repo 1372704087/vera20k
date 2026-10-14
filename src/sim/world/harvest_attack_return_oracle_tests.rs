@@ -292,7 +292,7 @@ impl Replay {
         compare_state(s, &json!({"input": input, "state": native}), context);
         if let Some(miner) = e.miner.as_ref() {
             assert_eq!(
-                u8::from(miner.unload_active),
+                u8::from(miner.unload_active()),
                 int(&native["unloading"]) as u8,
                 "{context}: unload latch"
             );

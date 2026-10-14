@@ -606,8 +606,8 @@ fn shroud_current_sight_live_foot_timer_keeps_viewer_histories_and_snapshot() {
             .get_mut(2)
             .unwrap()
             .sight_refresh_timers;
-        clocks.by_viewer.insert(a, CdTimer::started(104, 15));
-        clocks.by_viewer.insert(b, CdTimer::started(119, 15));
+        clocks.reload(a, 104);
+        clocks.reload(b, 119);
     }
     // Native Scenario deserialization resets only this RNG to Seed(0).
     sim.scenario_rng = crate::sim::rng::SimRng::new(0);
@@ -636,11 +636,11 @@ fn shroud_current_sight_live_foot_timer_keeps_viewer_histories_and_snapshot() {
     assert_eq!(clocks.timer(a), CdTimer::started(119, 15));
     assert_eq!(clocks.timer(b), CdTimer::started(119, 15));
     assert!(
-        !clocks.by_viewer.contains_key(&c),
+        !clocks.has_timer_for_test(c),
         "nonallied viewer never borrows another viewer's countdown"
     );
     assert!(
-        !clocks.by_viewer.contains_key(&reverse),
+        !clocks.has_timer_for_test(reverse),
         "reverse-only alliance must not consume source-house timer gate"
     );
     sim.fog.flush_pending_gap_conceal(120);

@@ -404,8 +404,16 @@ fn ground_command_fixture(
             .mission_leaf
             .set_infantry_doing_verified(state["doing"].as_i64().unwrap() as i32)
             .unwrap();
-        actor.infantry.as_mut().unwrap().is_prone = state["prone"] != 0;
-        actor.infantry.as_mut().unwrap().cell_entry_blocked = state["entry_blocked"] != 0;
+        actor
+            .infantry
+            .as_mut()
+            .unwrap()
+            .set_is_prone_for_test(state["prone"] != 0);
+        actor
+            .infantry
+            .as_mut()
+            .unwrap()
+            .set_cell_entry_blocked_for_test(state["entry_blocked"] != 0);
     }
     if let Some(context) = context {
         actor.berserk.set_active_for_test(context["berserk"] != 0);
@@ -783,12 +791,12 @@ fn assert_ground_command_fields(sim: &Simulation, id: u64, row: &Value, state: &
             "{context}: Doing"
         );
         assert_eq!(
-            actor.infantry.as_ref().unwrap().is_prone,
+            actor.infantry.as_ref().unwrap().is_prone(),
             state["prone"] != 0,
             "{context}: prone"
         );
         assert_eq!(
-            actor.infantry.as_ref().unwrap().cell_entry_blocked,
+            actor.infantry.as_ref().unwrap().cell_entry_blocked(),
             state["entry_blocked"] != 0,
             "{context}: entry latch"
         );

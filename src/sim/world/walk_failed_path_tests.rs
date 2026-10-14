@@ -112,7 +112,7 @@ fn far_failure_stops_walk_clears_target_and_queues_guard_for_a_human_house() {
     // 0x4D4149 Assign_Target(NULL).
     assert!(e.attack_target.target().is_none());
     // A Clear current cell answers 0 at 0x51DBAC.
-    assert!(!e.infantry.as_ref().unwrap().cell_entry_blocked);
+    assert!(!e.infantry.as_ref().unwrap().cell_entry_blocked());
     // The failure tail never touches +64C; the oracle far row keeps 10.
     assert_eq!(e.navigation.path_runtime.retries_left, retries_before);
     // The NULL setter's Set_Destination_Internal tail rewrote +640 to duration 0.
@@ -157,7 +157,7 @@ fn building_target_redirects_to_a_nearby_cell_and_the_walk_completes_there() {
     // This is separate from the Find_Path failure tail.
     let guard = MissionId::from_known(MissionType::Guard);
     assert!(e.mission.queued() == guard || e.mission.current() == guard);
-    assert!(!e.infantry.as_ref().unwrap().cell_entry_blocked);
+    assert!(!e.infantry.as_ref().unwrap().cell_entry_blocked());
 }
 
 #[test]
@@ -241,7 +241,7 @@ fn near_failure_returns_before_the_null_setter_and_guard_queue() {
     // retained until the outer Process (oracle near row: nav kept, dest 0).
     assert!(e.locomotor.as_ref().unwrap().walk_destination().is_none());
     assert!(e.navigation.nav_com.is_some());
-    assert!(!e.infantry.as_ref().unwrap().cell_entry_blocked);
+    assert!(!e.infantry.as_ref().unwrap().cell_entry_blocked());
 }
 
 /// A Walk destination in the infantryman's own cell reaches Find_Path like
@@ -304,7 +304,7 @@ fn receiver_records_an_impassable_current_cell() {
     )
     .unwrap();
     let e = sim.substrate.entities.get(id).unwrap();
-    assert!(e.infantry.as_ref().unwrap().cell_entry_blocked);
+    assert!(e.infantry.as_ref().unwrap().cell_entry_blocked());
     assert!(e.locomotor.as_ref().unwrap().walk_destination().is_none());
     assert_ne!(sim.state_hash(), before);
 }
@@ -466,12 +466,12 @@ fn infantry_damage_scatter_reaches_the_ordinary_walk_process() {
     );
     assert_eq!(e.locomotor.as_ref().unwrap().step_head(), None);
     assert_eq!(e.mission.queued(), MissionId::from_known(MissionType::Move));
-    assert_eq!(e.infantry.as_ref().unwrap().fear_level, 300);
+    assert_eq!(e.infantry.as_ref().unwrap().fear_level(), 300);
     // Isolate the damage-created destination's ordinary Walk continuation.
     // The independently native-compared5200B0 panic tail can issue another
     // NULL Scatter immediately on arrival while this Fraidycat's fear>50.
     let e = sim.substrate.entities.get_mut(victim).unwrap();
-    e.infantry.as_mut().unwrap().fear_level = 0;
+    e.infantry.as_mut().unwrap().set_fear_level_for_test(0);
     e.attack_target.set_for_test(None);
     // The same production tick host that handles normal orders must consume
     // the damage-created request. The native corpus proves the first FindPath
@@ -522,7 +522,7 @@ fn first_limbo_runs_the_infantry_stop_driver() {
     order_walk(&mut sim, &rules, id, (11, 10));
     let _ = sim.techno_limbo_with_rules(id, &rules, Some(&registry));
     let e = sim.substrate.entities.get(id).unwrap();
-    assert!(e.infantry.as_ref().unwrap().cell_entry_blocked);
+    assert!(e.infantry.as_ref().unwrap().cell_entry_blocked());
     let loco = e.locomotor.as_ref().unwrap();
     assert_eq!((loco.walk_destination(), loco.step_head()), (None, None));
     assert_eq!(loco.walk_is_moving(), Some(false));

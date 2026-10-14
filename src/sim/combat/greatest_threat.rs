@@ -3802,7 +3802,7 @@ mod tests {
             5,
             EntityCategory::Structure,
         );
-        building.bunker_occupant = Some(2);
+        building.bunker.set_bunker_occupant_for_test(Some(2));
         let tank = GameEntity::test_default(2, "TANK", "Owner", 5, 5);
         let mut entities = EntityStore::new();
         entities.insert(building);

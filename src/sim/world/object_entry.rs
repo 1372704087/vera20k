@@ -925,7 +925,7 @@ fn classify_foot_entry<'a>(
                         checked_building_id:blocker_id,candidate_building_id:first_building(),
                         candidate_x:p.0 as u16,building_origin_x:b.position.rx,
                         number_impassable_rows:bt.number_impassable_rows,is_unit_repair:bt.unit_repair,is_bunker:bt.bunker,
-                        bunker_occupied:b.bunker_occupant.is_some(),
+                        bunker_occupied:b.bunker.occupant().is_some(),
                     }),crate::sim::pathfinding::cell_entry::BuildingOccupantEntryDecision::SkipBlocker) {
                     continue;
                 }
@@ -986,7 +986,7 @@ fn classify_foot_entry<'a>(
                             checked_building_id:blocker_id,candidate_building_id:first_building(),
                             candidate_x:p.0 as u16,building_origin_x:b.position.rx,
                             number_impassable_rows:bt.number_impassable_rows,is_unit_repair:bt.unit_repair,is_bunker:bt.bunker,
-                            bunker_occupied:b.bunker_occupant.is_some(),
+                            bunker_occupied:b.bunker.occupant().is_some(),
                         }),crate::sim::pathfinding::cell_entry::BuildingOccupantEntryDecision::SkipBlocker) {continue;}
                 if bt.invisible_in_game {
                     continue;

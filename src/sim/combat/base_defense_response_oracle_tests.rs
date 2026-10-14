@@ -556,7 +556,7 @@ fn native_base_response_live_threat_matches_representable_original_rows() {
             EntityCategory::Unit
         });
         if input["linked_threat"].is_number() {
-            owner.bunker_occupant = Some(2);
+            owner.bunker.set_bunker_occupant_for_test(Some(2));
         }
         if count > 0 {
             let mut cargo = PassengerCargo::new(count as u32, 1);

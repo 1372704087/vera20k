@@ -28,10 +28,10 @@ fn sample(s: &Scene, id: u64) -> Sample {
         mission: miner.mission.current(),
         contact: miner.radio_contacts.slot(0),
         tethered: miner.tether.partner().is_some(),
-        unloading: state.unload_active,
+        unloading: state.unload_active(),
         facing: miner.body_facing_current(s.sim.session.binary_frame),
         ore: state
-            .cargo
+            .cargo()
             .iter()
             .filter(|b| b.resource_type == ResourceType::Ore)
             .count(),
@@ -77,13 +77,13 @@ fn spawn_returning_miner(s: &mut Scene, cell: (u16, u16)) -> u64 {
     entity
         .mission
         .set_handler_state(MinerState::ReturnToRefinery.cursor());
-    entity.miner.as_mut().unwrap().cargo = vec![
+    entity.miner.as_mut().unwrap().set_cargo_for_test(vec![
         CargoBale {
             resource_type: ResourceType::Ore,
             value: 25,
         };
         40
-    ];
+    ]);
     id
 }
 
@@ -373,7 +373,8 @@ fn selling_the_refinery_mid_unload_hands_the_miner_to_harvest() {
             .entities
             .get(s.miner)
             .unwrap()
-            .display_type_override,
+            .display_type_override
+            .image(),
         None
     );
     frame(&mut s);

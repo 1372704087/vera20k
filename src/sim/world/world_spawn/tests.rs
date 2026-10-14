@@ -1647,8 +1647,8 @@ fn techno_constructor_routes_preserve_components_and_authored_overrides() {
             assert_eq!(entity.veterancy.rank(), if route == 0 { 100 } else { 0 });
             assert_eq!(entity.lifecycle.in_limbo(), route == 2);
             if route == 0 {
-                assert!(!entity.base_defense_response.recruitable_a);
-                assert!(!entity.base_defense_response.recruitable_b);
+                assert!(!entity.base_defense_response.recruitable_a());
+                assert!(!entity.base_defense_response.recruitable_b());
             }
             match type_id {
                 "CREW" => {

@@ -192,10 +192,10 @@ fn fixture(row: &Value, state: &Value, rules: &RuleSet) -> SuppliedFootFixture {
             .mission_leaf
             .set_foot_firing_sequence(signed(&before["firing"]) as u8);
         if let Some(infantry) = actor.infantry.as_mut() {
-            infantry.idle_action_timer = MissionTimer::armed(
+            infantry.set_idle_action_timer_for_test(MissionTimer::armed(
                 signed(&before["idle_timer"][0]) as u32,
                 signed(&before["idle_timer"][2]) as u32,
-            );
+            ));
             actor
                 .mission_leaf
                 .set_infantry_doing_verified(signed(&before["doing"]))

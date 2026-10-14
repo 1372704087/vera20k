@@ -748,7 +748,7 @@ pub(crate) fn drawn_model_id<'a>(
     {
         Cow::Owned(no_spawn_alt_type)
     } else if let Some(display_override) = (!no_spawn_alt)
-        .then_some(entity.display_type_override)
+        .then_some(entity.display_type_override.image())
         .flatten()
     {
         Cow::Borrowed(interner.resolve(display_override))

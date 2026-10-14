@@ -485,7 +485,10 @@ impl Simulation {
         if !unit_scatter_admitted(unit, flags, rules, self.session.binary_frame)
             || crate::sim::mission::control::current_control(rules, &unit.mission)
                 .is_some_and(|entry| entry.paralyzed)
-            || unit.miner.as_ref().is_some_and(|miner| miner.unload_active)
+            || unit
+                .miner
+                .as_ref()
+                .is_some_and(|miner| miner.unload_active())
             || (unit.navigation.nav_com.is_some() && unit.turret_rotation_latch.is_set())
         {
             return Ok(());

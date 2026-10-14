@@ -37,6 +37,7 @@ mod unit_unlimbo_tests;
 pub(crate) use sinking::SinkingState;
 pub mod edge_cell;
 mod gap_generator;
+pub(crate) use gap_generator::GapGeneratorRuntime;
 pub(crate) use gap_generator::LastOperational;
 mod house_base;
 mod house_defeat;
@@ -1943,7 +1944,7 @@ impl Simulation {
                         .substrate
                         .entities
                         .get(stable_id)
-                        .and_then(|building| building.bunker_occupant)
+                        .and_then(|building| building.bunker.occupant())
                         .is_some()
                 {
                     crate::sim::docking::bunker_link::release_sell_destroy(
@@ -6035,8 +6036,8 @@ impl Simulation {
     fn collect_active_vision_structures(&self, _rules: &RuleSet) -> ActiveVisionStructures {
         let mut effects = ActiveVisionStructures::default();
         for entity in self.substrate.entities.values() {
-            for (&viewer, deposit) in &entity.gap_generator.viewers {
-                if !deposit.active {
+            for (&viewer, deposit) in entity.gap_generator.viewers() {
+                if !deposit.active() {
                     continue;
                 }
                 effects.gap_generators.entry(viewer).or_default().push(
@@ -6045,7 +6046,7 @@ impl Simulation {
                         owner: entity.owner(),
                         rx: entity.position.rx,
                         ry: entity.position.ry,
-                        radius: deposit.radius,
+                        radius: deposit.radius(),
                     },
                 );
             }

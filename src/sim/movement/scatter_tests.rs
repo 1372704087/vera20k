@@ -840,7 +840,7 @@ fn unit_source_arm_matches_original_execution() {
                 &crate::sim::miner::MinerConfig::default(),
                 0,
             );
-            miner.unload_active = true;
+            miner.set_unload_active_for_test(true);
             actor.miner = Some(miner);
         }
         let head = coord("head", [0, 0, 0]);

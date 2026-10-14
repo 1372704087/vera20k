@@ -6,6 +6,50 @@ use crate::map::entities::EntityCategory;
 use crate::rules::ruleset::RuleSet;
 use crate::sim::world::FrameEffects;
 use crate::sim::{intern::InternedId, power_system, vision};
+use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
+
+/// Retained Building gap admission, separate from per-viewer cell receipts.
+///
+/// `TechnoClass::TechnoClass @ 0x006F2B40` clears `+0x269`/`+0x26C` and
+/// `BuildingClass::BuildingClass @ 0x0043B740` clears `+0x6C8`; the original
+/// Building save/load preserves all three fields. See the Phase3 gap report.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub(crate) struct GapGeneratorRuntime {
+    /// `+0x269`/`+0x26C` belong to each represented native local player's
+    /// client. A single viewer's SpySat bracket can change them before
+    /// `BuildingClass+0x6C8`.
+    viewers: BTreeMap<InternedId, GapDeposit>,
+}
+
+impl GapGeneratorRuntime {
+    /// Each viewer's deposit.
+    pub(crate) fn viewers(&self) -> &BTreeMap<InternedId, GapDeposit> {
+        &self.viewers
+    }
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub(crate) struct GapDeposit {
+    /// `TechnoClass+0x269`: deposit admission, even when no hostile viewer is
+    /// present.
+    active: bool,
+    /// `TechnoClass+0x26C`: lazily copied signed `Type+0xCD2`, retained after
+    /// removal.
+    radius: i32,
+}
+
+impl GapDeposit {
+    /// `TechnoClass+0x269`.
+    pub(crate) fn active(&self) -> bool {
+        self.active
+    }
+
+    /// `TechnoClass+0x26C`.
+    pub(crate) fn radius(&self) -> i32 {
+        self.radius
+    }
+}
 
 /// The building's last operational sample, `BuildingClass+0x6C8`: the
 /// `0x004555D0` result `BuildingClass::Update @ 0x0043FB20` takes for every

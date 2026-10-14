@@ -2042,7 +2042,8 @@ mod tests {
     use crate::rules::locomotor_type::LocomotorKind;
     use crate::sim::combat::TargetKind;
     use crate::sim::components::{DriveCoord, NavTargetRef};
-    use crate::sim::game_entity::{BunkerLink, GameEntity};
+    use crate::sim::docking::bunker_link::BunkerLink;
+    use crate::sim::game_entity::GameEntity;
     use crate::sim::miner::{Miner, MinerConfig, MinerKind};
     use crate::sim::mission::leaf::MissionLeafState;
     use crate::sim::mission::state::MissionTestFixture;
@@ -4891,7 +4892,8 @@ mod tests {
             let mut sim = Simulation::with_seed(0x6A2E);
             let rules = representative_foot_handler_rules();
             let mut unit = entity_of(1, EntityCategory::Unit);
-            unit.bunker_link = BunkerLink::Installed(99);
+            unit.bunker
+                .set_bunker_link_for_test(BunkerLink::Installed(99));
             // Queue_Mission's immediate Commence reads the locomotor.
             unit.locomotor = Some(LocomotorState::for_test_kind(LocomotorKind::Drive));
             update_mission_test_fixture(&mut unit.mission, |fixture| {
@@ -5425,7 +5427,9 @@ mod tests {
                     unit.passenger_role =
                         crate::sim::passenger::PassengerRole::boarding_for_test(2);
                 } else {
-                    unit.bunker_link = crate::sim::game_entity::BunkerLink::Approaching(2);
+                    unit.bunker.set_bunker_link_for_test(
+                        crate::sim::docking::bunker_link::BunkerLink::Approaching(2),
+                    );
                 }
             }
             register_entity(&mut sim, unit);

@@ -70,7 +70,8 @@ fn latch_unloading_image(sim: &mut Simulation, id: u64, image: &str) {
     sim.entities_mut()
         .get_mut(id)
         .expect("the object was just built")
-        .display_type_override = Some(image);
+        .display_type_override
+        .set_for_test(Some(image));
 }
 
 #[test]

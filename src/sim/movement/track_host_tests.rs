@@ -1035,7 +1035,7 @@ fn per_cell_promotes_queued_mission_before_tail_without_dispatching_handler() {
             None
         ));
         let mut miner = Miner::new(MinerKind::War, &MinerConfig::default(), 0);
-        miner.unload_active = unload_active;
+        miner.set_unload_active_for_test(unload_active);
         entity.miner = Some(miner);
         entity.mission.apply_test_fixture(MissionTestFixture {
             current: MissionId::from_known(MissionType::Move),

@@ -633,7 +633,10 @@ impl Simulation {
         if human
             && type_allows_up
             && super::navcom::nav_targets_same_receiver(actor.navigation.nav_com, requested)
-            && actor.infantry.as_ref().is_some_and(|state| state.is_prone)
+            && actor
+                .infantry
+                .as_ref()
+                .is_some_and(|state| state.is_prone())
         {
             self.infantry_do_action(id, 7, false, rules, frame_effects)?;
         }

@@ -3122,10 +3122,10 @@ impl TacticalCaptureSession {
                     None
                 };
                 let miner = entity.miner.as_ref().map(|miner| {
-                    json!({"cargo_bales": miner.cargo.len(),
-                        "capacity_bales": miner.capacity_bales,
-                        "unload_active": miner.unload_active,
-                        "harvesting": miner.harvesting})
+                    json!({"cargo_bales": miner.cargo().len(),
+                        "capacity_bales": miner.capacity_bales(),
+                        "unload_active": miner.unload_active(),
+                        "harvesting": miner.harvesting()})
                 });
                 // Preserve contact slot positions, including null holes. Reads
                 // of the contact/tether owners never send a radio query.

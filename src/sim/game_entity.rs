@@ -18,7 +18,8 @@
 use crate::map::entities::EntityCategory;
 use crate::sim::animation::Animation;
 use crate::sim::cloak_disguise::{CloakRuntime, DisguiseRuntime};
-use crate::sim::combat::{Health, TarCom, TargetKind};
+use crate::sim::combat::base_defense_response::BaseDefenseResponseState;
+use crate::sim::combat::{Health, TarCom};
 use crate::sim::components::{
     HarvestOverlay, NavigationState, Position, RockingState, VoxelAnimation,
 };
@@ -26,13 +27,12 @@ use crate::sim::debug_event_log::{DebugEventKind, DebugEventLog};
 use crate::sim::docking::aircraft_dock::AircraftAmmo;
 use crate::sim::intern::InternedId;
 use crate::sim::miner::Miner;
-use crate::sim::mission::{MissionCom, MissionLeafState, MissionTimer, MissionType};
+use crate::sim::mission::{MissionCom, MissionLeafState, MissionType};
 use crate::sim::movement::locomotor::LocomotorState;
 use crate::sim::movement::tube_movement::LowBridgeTubeMovementState;
 use crate::sim::passenger::PassengerRole;
 use crate::sim::radio::Contacts;
 use crate::sim::superweapon::invulnerability::InvulnerabilityState;
-use crate::sim::timer::CdTimer;
 use crate::sim::world::ObjectLifecycle;
 
 mod foot_air;
@@ -48,46 +48,6 @@ struct ObjectFallState {
     dropped_as_bomb: bool,
 }
 
-/// Infantry-only runtime fear/prone state.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-pub struct InfantryRuntime {
-    pub fear_level: u16,
-    pub is_prone: bool,
-    /// Countdown to this man's next idle fidget.
-    ///
-    /// Re-armed to a fresh random wait every time the idle action fires, and
-    /// only then — the same one-shot timer gamemd keeps on the infantry object.
-    /// Its default is the unarmed sentinel, which reads as already due, so a
-    /// freshly built infantryman is eligible on his first idle turn.
-    #[serde(default)]
-    pub idle_action_timer: MissionTimer,
-    /// Infantry+6DC. `InfantryClass` failed-path receiver `0x0051DAF0`
-    /// (Infantry vtable +0x500, called from `FootClass::Find_Path` failure
-    /// `0x004D4044` and `Do_Action` `0x0051D6F0` at zero health) writes the
-    /// current-cell `Can_Enter_Cell` answer here: 1 when the answer is nonzero
-    /// (`0x51DBBE`), otherwise the zero answer byte (`0x51DBAC`). Readers:
-    /// Infantry Mission_Move restart `0x00520FF1` and save/load `0x00521D0F`.
-    #[serde(default)]
-    pub cell_entry_blocked: bool,
-}
-
-impl Default for InfantryRuntime {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl InfantryRuntime {
-    pub fn new() -> Self {
-        Self {
-            fear_level: 0,
-            is_prone: false,
-            idle_action_timer: MissionTimer::default(),
-            cell_entry_blocked: false,
-        }
-    }
-}
-
 /// The barrel elevation's rate: the TechnoClass constructor passes 3
 /// (`PUSH 3` at `0x006F2EDE`) to `FacingClass(int) @ 0x004C91E0`.
 const BARREL_ELEVATION_ROT: i32 = 3;
@@ -100,70 +60,6 @@ pub(crate) const BARREL_LEVEL: u16 = 0x4000;
 /// `0x006F6DD9`, `SUB` at `0x006F6DDF`), kept to a word.
 pub(crate) fn unlimbo_barrel_target(fire_angle: i32) -> u16 {
     BARREL_LEVEL.wrapping_sub(u16::from(fire_angle as u8) << 8)
-}
-
-/// Persistent TechnoClass state used by the active House base-defence
-/// responder. The two admission bytes are constructor-true; cooldown writes
-/// occur only after a responder assignment or strict budget overshoot. The
-/// ArchiveTarget (`+0x218`) stored here is the general Techno field, which
-/// responders, miners, the slave manager and the rally click all write.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
-pub(crate) struct BaseDefenseResponseState {
-    pub(crate) recruitable_a: bool,
-    pub(crate) recruitable_b: bool,
-    archive_target: Option<TargetKind>,
-    /// `TechnoClass+0x650`/`+0x658`: the attacker's call-for-help cooldown
-    /// (`TechnoClass::RespondToBaseAttack @ 0x00708171..0x00708192`, written
-    /// at `0x0070879E..0x007087A9`); the constructor leaves it at `-1`, 0.
-    pub(crate) cooldown: CdTimer,
-}
-
-impl Default for BaseDefenseResponseState {
-    fn default() -> Self {
-        Self {
-            recruitable_a: true,
-            recruitable_b: true,
-            archive_target: None,
-            cooldown: CdTimer::from_raw(-1, 0),
-        }
-    }
-}
-
-/// The unit side of the tank-bunker reciprocal link (the pre-install approach
-/// state plus the installed link, folded into one hashed field). Distinct from
-/// `PassengerRole` cargo: a bunker is a single reciprocal link, never cargo.
-#[derive(
-    Debug, Clone, Copy, PartialEq, Eq, Hash, Default, serde::Serialize, serde::Deserialize,
-)]
-pub enum BunkerLink {
-    /// Not heading to or inside any bunker.
-    #[default]
-    None,
-    /// Ordered into bunker `id`, still approaching (pre-install); the install
-    /// machine resets once this marker no longer names its bunker. Cleared by
-    /// the install and by either side's despawn
-    /// (`bunker_link::break_links_on_despawn`); a retask leaves it
-    /// (`sim::building_entry` residual).
-    Approaching(u64),
-    /// Installed inside bunker `id` (reciprocal of `building.bunker_occupant`).
-    Installed(u64),
-}
-
-impl BunkerLink {
-    /// The bunker this unit is installed in, if any.
-    pub fn installed_in(self) -> Option<u64> {
-        match self {
-            BunkerLink::Installed(id) => Some(id),
-            _ => None,
-        }
-    }
-    /// The bunker this unit is approaching, if any.
-    pub fn approaching(self) -> Option<u64> {
-        match self {
-            BunkerLink::Approaching(id) => Some(id),
-            _ => None,
-        }
-    }
 }
 
 pub(crate) use crate::sim::gate_runtime::BuildingGateRuntime;
@@ -326,7 +222,7 @@ pub struct GameEntity {
     /// Independent of the retained sight-admission latch and stored footprint.
     pub(crate) sight_refresh_timers: crate::sim::vision::SightRefreshTimers,
     /// Building43FB20 operational edge and Techno6FB170/6FB470 deposit latch.
-    pub(crate) gap_generator: crate::sim::vision::GapGeneratorRuntime,
+    pub(crate) gap_generator: crate::sim::world::GapGeneratorRuntime,
 
     // --- Render model (mutually exclusive) ---
     /// True = VXL/HVA model, false = SHP sprite; effective art metadata is
@@ -615,8 +511,9 @@ pub struct GameEntity {
     pub voxel_animation: Option<VoxelAnimation>,
     /// Harvest overlay animation (oregath.shp ore-gathering visual).
     pub harvest_overlay: Option<HarvestOverlay>,
-    /// Harvester state machine (ore collection, refinery docking, cargo).
-    pub miner: Option<Miner>,
+    /// The harvester's hold, unload and harvest latches, a [`Miner`] that
+    /// `sim::miner` owns; construction installs it for a harvester type.
+    pub(crate) miner: Option<Miner>,
     /// `SlaveManagerClass` of an `Enslaves=` master (`TechnoClass+0x2D8`).
     #[serde(default)]
     pub(crate) slave_manager: Option<crate::sim::slave_manager::SlaveManager>,
@@ -749,10 +646,11 @@ pub struct GameEntity {
     /// `+0x11C` Transporter, `+0x82` InOpenToppedTransport), a
     /// [`PassengerRole`] that `sim::passenger` owns.
     pub(crate) passenger_role: PassengerRole,
-    /// Temporary VXL model override for visual-only state changes.
-    /// When Some, the renderer should use this type's VXL model instead of `type_ref`.
-    /// Set during refinery unloading (UnloadingClass= from rules.ini).
-    pub display_type_override: Option<InternedId>,
+    /// The image a harvester shows while it unloads, an [`UnloadImage`] that
+    /// `miner::refinery_dock` owns.
+    ///
+    /// [`UnloadImage`]: crate::sim::miner::UnloadImage
+    pub(crate) display_type_override: crate::sim::miner::UnloadImage,
     /// Techno+338, constructor6F2EC8=-1. Infantry capture519F94 stores its
     /// native InfantryType array index. Building consumers are diagnostics;
     /// the Unit hijacker lifecycle is a separate mechanism.
@@ -775,16 +673,12 @@ pub struct GameEntity {
     /// [`HasBeenCaptured`]: crate::sim::crew_survival::HasBeenCaptured
     #[serde(default)]
     pub(crate) has_been_captured: crate::sim::crew_survival::HasBeenCaptured,
-    /// Stable ID of the unit installed in a `Bunker=yes` building.
+    /// Both ends of the tank-bunker reciprocal link, a [`BunkerLinks`] that
+    /// `docking::bunker_link` owns.
     ///
-    /// Mirrors the live `BuildingClass+0x2E4` role for tank bunkers: an empty
-    /// bunker can be skipped by the NumberImpassableRows helper, while an
-    /// occupied bunker remains a normal building blocker.
+    /// [`BunkerLinks`]: crate::sim::docking::bunker_link::BunkerLinks
     #[serde(default)]
-    pub bunker_occupant: Option<u64>,
-    /// Unit side of the bunker reciprocal link (approach + installed states).
-    #[serde(default)]
-    pub bunker_link: BunkerLink,
+    pub(crate) bunker: crate::sim::docking::bunker_link::BunkerLinks,
     /// Runtime state for `Gate=yes` building passability.
     ///
     /// Native gate passability4525F0 accepts only mission `0x18` plus stable-open helper
@@ -799,7 +693,7 @@ pub struct GameEntity {
     /// spawn (state `Idle` when empty); its presence marks the entity as a tank
     /// bunker. Drives entry admission → install.
     #[serde(default)]
-    pub bunker_runtime: Option<crate::sim::docking::bunker_install::BunkerRuntime>,
+    pub(crate) bunker_runtime: Option<crate::sim::docking::bunker_install::BunkerRuntime>,
     /// Techno+130/+134, both cleared by the Techno constructor. Animation ownership
     /// and the Jumpjet landing request survive independently of Unit6E0..6E2.
     deploy_anim: Option<crate::sim::anim_class::AnimId>,
@@ -812,7 +706,7 @@ pub struct GameEntity {
     pub(crate) mcv_deploy_pending: crate::sim::mcv_deploy::DeployContinuation,
     /// Infantry fear/prone runtime. `None` for non-infantry entities.
     #[serde(default)]
-    pub infantry: Option<InfantryRuntime>,
+    pub(crate) infantry: Option<crate::sim::infantry::InfantryRuntime>,
     /// Optional body-rocking state only. Drive/Ship slope transitions belong
     /// to their typed locomotor payloads. This defaults to `None` and becomes
     /// present only when an explicit body-rocking producer activates it.
@@ -1057,12 +951,12 @@ impl GameEntity {
     /// rally point share this one field, stored in
     /// [`BaseDefenseResponseState`].
     pub(crate) fn archive_target(&self) -> Option<crate::sim::combat::TargetKind> {
-        self.base_defense_response.archive_target
+        self.base_defense_response.archive_target()
     }
 
     /// `TechnoClass::Set_ArchiveTarget @ 0x0070C610`, a plain store.
     pub(crate) fn set_archive_target(&mut self, target: Option<crate::sim::combat::TargetKind>) {
-        self.base_defense_response.archive_target = target;
+        self.base_defense_response.set_archive_target(target);
     }
 
     pub(crate) fn deploy_voice_suppressed(&self) -> bool {
@@ -1347,7 +1241,7 @@ impl GameEntity {
     pub fn is_harvester(&self) -> bool {
         self.miner
             .as_ref()
-            .is_some_and(|miner| miner.kind != crate::sim::miner::MinerKind::Slave)
+            .is_some_and(|miner| miner.kind() != crate::sim::miner::MinerKind::Slave)
     }
 
     /// The committed mission read at TechnoAI6FA697, before its class's
@@ -1430,7 +1324,7 @@ impl GameEntity {
             sight_refresh_timers: crate::sim::vision::SightRefreshTimers::at_construction(
                 construction_frame,
             ),
-            gap_generator: crate::sim::vision::GapGeneratorRuntime::default(),
+            gap_generator: crate::sim::world::GapGeneratorRuntime::default(),
             is_voxel,
             selection: Default::default(),
             deactivated: Default::default(),
@@ -1520,12 +1414,11 @@ impl GameEntity {
             crash: crate::sim::world::CrashLatch::default(),
             sinking: crate::sim::world::SinkingState::default(),
             passenger_role: PassengerRole::default(),
-            display_type_override: None,
+            display_type_override: Default::default(),
             capture_infantry_type_index: -1,
             pending_c4_detonation: Default::default(),
             has_been_captured: Default::default(),
-            bunker_occupant: None,
-            bunker_link: BunkerLink::None,
+            bunker: Default::default(),
             building_gate: None,
             door: crate::sim::door::DoorClass::at_frame(construction_frame),
             bunker_runtime: None,
@@ -1533,7 +1426,7 @@ impl GameEntity {
             landing_for_deploy: false,
             mcv_deploy_pending: Default::default(),
             infantry: if category == EntityCategory::Infantry {
-                Some(InfantryRuntime::new())
+                Some(crate::sim::infantry::InfantryRuntime::new())
             } else {
                 None
             },

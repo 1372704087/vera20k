@@ -1864,7 +1864,7 @@ fn restore_object_references(
     identities: &BTreeMap<u64, &'static str>,
 ) -> Result<(), SnapshotRestoreError> {
     use crate::sim::combat::TargetKind;
-    use crate::sim::game_entity::BunkerLink;
+    use crate::sim::docking::bunker_link::BunkerLink;
     use crate::sim::projectile::ProjectileTarget;
 
     let entity_ids: BTreeSet<u64> = sim.substrate.entities.keys_sorted().into_iter().collect();
@@ -2135,7 +2135,7 @@ fn restore_object_references(
         if let Some(target_id) = entity
             .miner
             .as_ref()
-            .and_then(|miner| miner.reserved_refinery)
+            .and_then(|miner| miner.reserved_refinery())
         {
             require_resolved_reference(
                 entity_ids.contains(&target_id),
@@ -2200,7 +2200,7 @@ fn restore_object_references(
                 system_id,
             )?;
         }
-        if let Some(target_id) = entity.bunker_occupant {
+        if let Some(target_id) = entity.bunker.occupant() {
             require_resolved_reference(
                 entity_ids.contains(&target_id),
                 "EntityStore",
@@ -2211,7 +2211,7 @@ fn restore_object_references(
             )?;
         }
         if let BunkerLink::Approaching(target_id) | BunkerLink::Installed(target_id) =
-            entity.bunker_link
+            entity.bunker.link()
         {
             require_resolved_reference(
                 entity_ids.contains(&target_id),
@@ -2223,7 +2223,7 @@ fn restore_object_references(
             )?;
         }
         if let Some(runtime) = entity.bunker_runtime.as_ref()
-            && let Some(target_id) = runtime.installing_unit
+            && let Some(target_id) = runtime.installing_unit()
         {
             require_resolved_reference(
                 entity_ids.contains(&target_id),
@@ -5164,10 +5164,16 @@ mod tests {
         sim.session.house_order.push(owner);
         let mut responder =
             crate::sim::game_entity::GameEntity::test_default(1, "E1", "Computer1", 4, 5);
-        responder.base_defense_response.recruitable_a = false;
-        responder.base_defense_response.recruitable_b = true;
+        responder
+            .base_defense_response
+            .set_recruitable_a_for_test(false);
+        responder
+            .base_defense_response
+            .set_recruitable_b_for_test(true);
         responder.set_archive_target(Some(crate::sim::combat::TargetKind::Entity(9)));
-        responder.base_defense_response.cooldown = crate::sim::timer::CdTimer::started(-11, 225);
+        responder
+            .base_defense_response
+            .set_cooldown_for_test(crate::sim::timer::CdTimer::started(-11, 225));
         sim.substrate.entities.insert(responder);
         let script_id = sim.interner.intern("BaseDefenseScript");
         let task_force_id = sim.interner.intern("BaseDefenseTaskForce");
@@ -5276,14 +5282,14 @@ mod tests {
         );
         let restored_responder = restored.substrate.entities.get(1).unwrap();
         let response = restored_responder.base_defense_response;
-        assert!(!response.recruitable_a);
-        assert!(response.recruitable_b);
+        assert!(!response.recruitable_a());
+        assert!(response.recruitable_b());
         assert_eq!(
             restored_responder.archive_target(),
             Some(crate::sim::combat::TargetKind::Entity(9))
         );
         assert_eq!(
-            response.cooldown,
+            response.cooldown(),
             crate::sim::timer::CdTimer::started(-11, 225)
         );
         let team = restored.team_script_vm.team(team_id).unwrap();

@@ -241,7 +241,7 @@ impl ParasiteVictimFacts {
                 && target.health.current() != 0
                 && target.parasite.eater().is_none()
                 && target_obj.parasiteable
-                && target.bunker_link.installed_in().is_none(),
+                && target.bunker.link().installed_in().is_none(),
             on_water_set,
         }
     }

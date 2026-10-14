@@ -358,7 +358,7 @@ fn evaluate_ready(
                 let unload_active = entity
                     .miner
                     .as_ref()
-                    .is_some_and(|miner| miner.unload_active);
+                    .is_some_and(|miner| miner.unload_active());
                 match rules {
                     Some(rules) => unit_ready_to_commence(UnitReadyView {
                         mission,

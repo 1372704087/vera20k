@@ -318,13 +318,13 @@ fn damaged_computer_miner_heads_for_its_refinery() {
         let tank = spawn(&mut sim, &rules, "MTNK", "Americans", (12, 14));
         let entity = sim.substrate.entities.get_mut(miner).unwrap();
         entity.health.set_for_test(health);
-        entity.miner.as_mut().unwrap().cargo = vec![
+        entity.miner.as_mut().unwrap().set_cargo_for_test(vec![
             CargoBale {
                 resource_type: ResourceType::Ore,
                 value: 25,
             };
             bales
-        ];
+        ]);
         setup(&mut sim, miner, refinery);
         hit(&mut sim, &rules, miner, tank, 1);
         let contact = sim

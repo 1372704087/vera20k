@@ -644,13 +644,13 @@ fn fill(s: &mut Scene, status: u64) {
     let entity = s.sim.substrate.entities.get_mut(s.miner).unwrap();
     let miner = entity.miner.as_mut().unwrap();
     if status != 0 {
-        miner.cargo = vec![
+        miner.set_cargo_for_test(vec![
             CargoBale {
                 resource_type: ResourceType::Ore,
                 value: 25,
             };
-            usize::from(miner.capacity_bales)
-        ];
+            usize::from(miner.capacity_bales())
+        ]);
     }
     entity.mission.set_handler_state(match status {
         0 => MinerState::SearchOre.cursor(),

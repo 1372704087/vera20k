@@ -185,8 +185,8 @@ fn fixture(row: &Value, rules: &RuleSet) -> (Simulation, u64, InternedId) {
         .set_infantry_doing_verified(signed(&before["actor"]["doing"]))
         .unwrap();
     let infantry = actor.infantry.as_mut().unwrap();
-    infantry.is_prone = signed(&before["actor"]["prone"]) != 0;
-    infantry.cell_entry_blocked = signed(&before["actor"]["entry_blocked"]) != 0;
+    infantry.set_is_prone_for_test(signed(&before["actor"]["prone"]) != 0);
+    infantry.set_cell_entry_blocked_for_test(signed(&before["actor"]["entry_blocked"]) != 0);
     let stage = &before["actor"]["stage"];
     actor.install_native_stage_fixture(StageClass::from_native_fixture(
         signed(&stage[0]),
@@ -402,12 +402,12 @@ fn assert_state(sim: &Simulation, id: u64, owner: InternedId, native: &Value, co
         "{context}: Doing"
     );
     assert_eq!(
-        actor.infantry.unwrap().is_prone,
+        actor.infantry.unwrap().is_prone(),
         signed(&expected["prone"]) != 0,
         "{context}: prone"
     );
     assert_eq!(
-        actor.infantry.unwrap().cell_entry_blocked,
+        actor.infantry.unwrap().cell_entry_blocked(),
         signed(&expected["entry_blocked"]) != 0,
         "{context}: entry blocked"
     );

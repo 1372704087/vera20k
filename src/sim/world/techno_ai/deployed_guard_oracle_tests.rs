@@ -244,7 +244,11 @@ fn supplied_fixture(row: &Value) -> (Simulation, RuleSet, u64) {
     ground_pose::put_location(&mut actor.position, coordinate(&before["position"]));
     actor.on_bridge = input["bridge"] != 0;
     actor.set_falling_down_for_test(input["falling"].as_i64().unwrap_or(0) != 0);
-    actor.infantry.as_mut().unwrap().is_prone = before["prone"] != 0;
+    actor
+        .infantry
+        .as_mut()
+        .unwrap()
+        .set_is_prone_for_test(before["prone"] != 0);
     actor.mission_leaf = MissionLeafState::infantry_raw_for_test(
         signed(&before["firing"]) as u8,
         signed(&before["doing"]),
@@ -337,7 +341,7 @@ fn assert_actor(actor: &GameEntity, expected: &Value, row: &Value, rearm: bool) 
         "doing": actor.mission_leaf.as_infantry().unwrap().doing(),
         "pending": actor.mission_leaf.as_infantry().unwrap().pending_deploy(),
         "firing": actor.mission_leaf.foot_firing_sequence_latch(),
-        "prone": u8::from(actor.infantry.as_ref().unwrap().is_prone),
+        "prone": u8::from(actor.infantry.as_ref().unwrap().is_prone()),
         "crush": actor.native_crush_immunity(), "frame": stage.value(), "changed": raw["changed"],
         "stage": [stage.timer().start_frame(), stage.timer().duration(), stage.rate(), signed(&raw["increment"])],
         "reload": [actor.passive_scan.timer().start_frame as i32, actor.passive_scan.timer().duration as i32],

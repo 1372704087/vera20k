@@ -423,7 +423,7 @@ pub(crate) fn draw_debug_panel(ctx: &egui::Context, state: &AppState) {
                         egui::RichText::new(format!(
                             "Miner: {} ({:?})",
                             sim.interner.resolve(entity.type_ref()),
-                            miner.kind
+                            miner.kind()
                         ))
                         .strong(),
                     );
@@ -451,16 +451,16 @@ pub(crate) fn draw_debug_panel(ctx: &egui::Context, state: &AppState) {
                     ui.colored_label(state_color, format!("State: {miner_state:?}"));
                     ui.label(format!(
                         "Cargo: {}/{}",
-                        miner.cargo.len(),
-                        miner.capacity_bales
+                        miner.cargo().len(),
+                        miner.capacity_bales()
                     ));
                     ui.label(format!(
                         "Stage: {} (rate {}) harvesting: {}",
                         entity.native_stage().value(),
                         entity.native_stage().rate(),
-                        miner.harvesting
+                        miner.harvesting()
                     ));
-                    if let Some(ref_id) = miner.reserved_refinery {
+                    if let Some(ref_id) = miner.reserved_refinery() {
                         let ref_type = sim
                             .entities()
                             .get(ref_id)

@@ -70,7 +70,9 @@ fn shared_null_destination_matches_original_gate_and_timer_boundaries() {
         e.navigation.nav_com = (input["nav"] != false).then(|| NavTargetRef::cell(11, 10));
         e.lift.set_swap_active_for_test(input["swap"] == true);
         if input["bunker"] == true {
-            e.bunker_link = crate::sim::game_entity::BunkerLink::Installed(2);
+            e.bunker.set_bunker_link_for_test(
+                crate::sim::docking::bunker_link::BunkerLink::Installed(2),
+            );
         }
         if input["open_transport"] == true {
             e.passenger_role = crate::sim::passenger::PassengerRole::inside_for_test(2, true);

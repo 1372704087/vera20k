@@ -390,7 +390,7 @@ pub(crate) fn sell_stage_zero(
         .substrate
         .entities
         .get(id)
-        .and_then(|building| building.bunker_occupant)
+        .and_then(|building| building.bunker.occupant())
         .is_some()
     {
         crate::sim::docking::bunker_link::release_sell_destroy(sim, id, frame_effects);

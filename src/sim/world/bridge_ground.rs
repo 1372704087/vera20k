@@ -415,7 +415,12 @@ mod tests {
         let occupant = place(&mut sim, &rules, "TANK", 6);
         crate::sim::docking::bunker_link::install_bunker_link(&mut sim, bunker, occupant, &rules);
         assert_eq!(
-            sim.substrate.entities.get(bunker).unwrap().bunker_occupant,
+            sim.substrate
+                .entities
+                .get(bunker)
+                .unwrap()
+                .bunker
+                .occupant(),
             Some(occupant)
         );
         assert_eq!(

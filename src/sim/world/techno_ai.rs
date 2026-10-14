@@ -2598,7 +2598,7 @@ mod tests {
             }
             last_dispatch = Some(timer);
             // A dispatch after the last shot's rearm was armed saw this timer.
-            let rearm = tank.rearm_timer;
+            let rearm = tank.rearm_timer.timer();
             if rearm.duration() > 0
                 && rearm.start_frame() < timer.start_frame()
                 && rearm.remaining(timer.start_frame()) != 0
@@ -2948,7 +2948,7 @@ mod tests {
         {
             let e = sim.substrate.entities.get_mut(1).unwrap();
             e.attack_target.set_for_test(Some(TargetKind::Entity(2)));
-            e.rearm_timer = rearm;
+            e.rearm_timer.set_for_test(rearm);
             e.passively_acquired_target = true;
             e.passive_scan_timer.clear();
         }
@@ -2957,7 +2957,8 @@ mod tests {
         let attack = e.attack_target.target().expect("target retained");
         assert_eq!(attack, TargetKind::Entity(2));
         assert_eq!(
-            e.rearm_timer, rearm,
+            e.rearm_timer.timer(),
+            rearm,
             "re-picking the same target must leave the ROF cooldown untouched"
         );
     }
@@ -2983,7 +2984,7 @@ mod tests {
         {
             let e = sim.substrate.entities.get_mut(1).unwrap();
             e.attack_target.set_for_test(Some(TargetKind::Entity(2)));
-            e.rearm_timer = rearm;
+            e.rearm_timer.set_for_test(rearm);
             e.passively_acquired_target = true;
             e.passive_scan_timer.clear();
         }
@@ -2997,7 +2998,7 @@ mod tests {
             "the victim in range is kept"
         );
         assert!(e.passively_acquired_target);
-        assert_eq!(e.rearm_timer, rearm);
+        assert_eq!(e.rearm_timer.timer(), rearm);
     }
 
     #[test]
@@ -4896,7 +4897,9 @@ mod tests {
                 let mut sim = Simulation::with_seed(0x6A30);
                 let rules = representative_foot_handler_rules();
                 let mut object = entity_of(1, category);
-                object.rearm_timer = crate::sim::timer::CdTimer::started(armed_at, 30);
+                object
+                    .rearm_timer
+                    .set_for_test(crate::sim::timer::CdTimer::started(armed_at, 30));
                 update_mission_test_fixture(&mut object.mission, |fixture| {
                     fixture.current = MissionId::from_known(mission);
                     fixture.dispatch_timer = MissionDispatchTimer::at_frame(0);

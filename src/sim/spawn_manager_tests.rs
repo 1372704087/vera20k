@@ -2552,7 +2552,9 @@ fn a_hornet_mid_pass_keeps_its_run_through_the_managers_re_issue() {
     child
         .attack_target
         .set_for_test(Some(crate::sim::combat::TargetKind::Entity(target)));
-    child.rearm_timer = crate::sim::timer::CdTimer::started(frame, 7);
+    child
+        .rearm_timer
+        .set_for_test(crate::sim::timer::CdTimer::started(frame, 7));
     child.mission.set_current_for_test(
         crate::sim::mission::MissionId::from_known(crate::sim::mission::MissionType::Attack),
         7,
@@ -2568,7 +2570,7 @@ fn a_hornet_mid_pass_keeps_its_run_through_the_managers_re_issue() {
         "the same target is not re-assigned"
     );
     assert_eq!(
-        child.rearm_timer,
+        child.rearm_timer.timer(),
         crate::sim::timer::CdTimer::started(frame, 7)
     );
 

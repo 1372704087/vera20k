@@ -2781,7 +2781,9 @@ ConditionYellow=50%
         let passenger =
             spawn_entering_infantry(&mut sim, &rules, "E1", "Americans", transport, 10, 10);
         let actor = sim.substrate.entities.get_mut(passenger).unwrap();
-        actor.health.set_for_test(row["input"]["health"].as_i64().unwrap() as i32);
+        actor
+            .health
+            .set_for_test(row["input"]["health"].as_i64().unwrap() as i32);
         actor
             .attack_target
             .set_for_test(Some(crate::sim::combat::TargetKind::Entity(transport)));

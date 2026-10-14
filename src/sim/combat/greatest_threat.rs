@@ -333,8 +333,8 @@ pub(crate) fn calculate_threat_score(
         let mut term = ScoreX87::mul(coeff_b, verses);
         if candidate
             .attack_target
-            .as_ref()
-            .is_some_and(|target| target.target == super::TargetKind::Entity(scorer.stable_id()))
+            .target()
+            .is_some_and(|target| target == super::TargetKind::Entity(scorer.stable_id()))
         {
             term = ScoreX87::neg(term);
         }
@@ -3819,7 +3819,7 @@ mod tests {
         let mut cargo = PassengerCargo::new(2, 1);
         assert!(cargo.board(2, 1));
         assert!(cargo.board(3, 1));
-        building.passenger_role = PassengerRole::Transport { cargo };
+        building.passenger_role = PassengerRole::transport(cargo);
         assert_eq!(
             live_threat_posed(
                 &building,

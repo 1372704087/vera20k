@@ -449,7 +449,7 @@ fn admit_attacker_fire<'r>(
         // even when a frame-zero action can shoot in this same call.
         // Both actor and target are live reads after the synchronous callbacks.
         // Native5209BB/5209D2 reloads Target for SelectWeapon/GetFireError.
-        let target = actor.attack_target.as_ref().map(|attack| attack.target);
+        let target = actor.attack_target.target();
         (weapon_index, selected) = combat_weapon::select_weapon_against(
             rules,
             actor,
@@ -489,11 +489,8 @@ fn admit_attacker_fire<'r>(
     let firing_snapshot;
     let snap = if infantry_fire {
         let actor = world.substrate.entities.get(snap.stable_id)?;
-        firing_snapshot = build_attacker_snapshot(
-            actor,
-            actor.attack_target.as_ref()?.target,
-            snap.garrison.clone(),
-        );
+        firing_snapshot =
+            build_attacker_snapshot(actor, actor.attack_target.target()?, snap.garrison.clone());
         &firing_snapshot
     } else {
         snap
@@ -1490,10 +1487,7 @@ pub(super) fn emit_admitted_fire(
             .get_mut(snap.stable_id)
             .and_then(|building| building.passenger_role.cargo_mut())
     {
-        let count = cargo.count() as u8;
-        if count > 0 {
-            cargo.garrison_fire_index = (cargo.garrison_fire_index + 1) % count;
-        }
+        cargo.advance_garrison_fire_index();
     }
     // Techno6FF0B7..6FF15B: only a successfully launched shot arms recoil.
     // Stock recoil buildings have their own Turret=yes. Building4527D0's
@@ -1647,7 +1641,7 @@ fn shot_target(
 ) -> Option<TargetKind> {
     match building_shot {
         Some(shot) => Some(shot.target()),
-        None => entity.attack_target.as_ref().map(|attack| attack.target),
+        None => entity.attack_target.target(),
     }
 }
 
@@ -1660,8 +1654,7 @@ fn fireat_tarcom(world: &Simulation, snap: &AttackerSnapshot) -> Option<TargetKi
         .substrate
         .entities
         .get(snap.stable_id)
-        .and_then(|firer| firer.attack_target.as_ref())
-        .map(|attack| attack.target)
+        .and_then(|firer| firer.attack_target.target())
 }
 
 /// `TechnoClass::FireAt 0x006FE582..0x006FE622`, right after the bullet is
@@ -1877,9 +1870,8 @@ fn infantry_fire_tail(
     };
     let Some(target) = actor
         .attack_target
-        .as_ref()
-        .filter(|attack| target_present(Some(attack), &world.substrate.entities))
-        .map(|attack| attack.target)
+        .target()
+        .filter(|&target| target_present(Some(target), &world.substrate.entities))
     else {
         return;
     };
@@ -1931,7 +1923,7 @@ pub(crate) fn visit_fire(
                     .filter(|obj| combat_weapon::is_occupied(actor, obj))
                     .and_then(|_| actor.passenger_role.cargo())
                     .map(|cargo| GarrisonSnapshot {
-                        fire_index: cargo.garrison_fire_index,
+                        fire_index: cargo.garrison_fire_index(),
                         occupant_count: cargo.count() as u8,
                     });
                 AttackerSnapshot {
@@ -1987,7 +1979,7 @@ pub(crate) fn visit_fire(
         }
         FireVisit::InfantryTarget(id) => {
             let actor = world.substrate.entities.get(id);
-            let target = actor.and_then(|actor| actor.attack_target.as_ref().map(|a| a.target));
+            let target = actor.and_then(|actor| actor.attack_target.target());
             if let (Some(actor), Some(target)) = (actor, target) {
                 let snap = build_attacker_snapshot(actor, target, None);
                 let reach = resolve_attacker_fire(
@@ -2457,7 +2449,7 @@ pub(crate) fn tick_combat(
     effects.append(late_death);
     under_attack_events.append(&mut late_pings);
 
-    // Phase 5: remove AttackTarget from finished attackers.
+    // Phase 5: clear finished attackers' targets.
     remove_attack.sort_unstable();
     remove_attack.dedup();
     for &attacker_id in &remove_attack {

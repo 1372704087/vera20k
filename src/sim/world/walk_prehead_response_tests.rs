@@ -181,10 +181,8 @@ fn fixture(row: &Value) -> (Simulation, RuleSet, OverlayTypeRegistry, u64, Optio
     e.foot_speed.set_speed_fraction(SIM_ZERO);
     e.navigation.nav_com = Some(NavTargetRef::Cell { rx: 10, ry: 10 });
     e.navigation.suspended_nav_com = None;
-    e.attack_target =
-        (input["attack_target"] == true).then_some(crate::sim::combat::AttackTarget {
-            target: TargetKind::Cell(11, 10),
-        });
+    e.attack_target
+        .set_for_test((input["attack_target"] == true).then_some(TargetKind::Cell(11, 10)));
     e.suspended_attack_target = None;
     e.navigation.path_replay.directions = vec![2, 3, 4, 5];
     e.navigation.path_replay.cursor = 0;
@@ -302,10 +300,7 @@ fn compare(sim: &Simulation, id: u64, other: Option<u64>, expected: &Value, row:
         ("nav", json!(nav(e.navigation.nav_com))),
         (
             "target",
-            json!(native_target(
-                e.attack_target.as_ref().map(|a| a.target),
-                other
-            )),
+            json!(native_target(e.attack_target.target(), other)),
         ),
         ("suspended_nav", json!(nav(e.navigation.suspended_nav_com))),
         (

@@ -295,7 +295,7 @@ fn receive_damage_scatter_admitted(
     {
         return Ok(false);
     }
-    if entity.attack_target.is_some() || entity.navigation.nav_com.is_some() {
+    if entity.attack_target.target().is_some() || entity.navigation.nav_com.is_some() {
         return Ok(false);
     }
     if refused {
@@ -490,7 +490,7 @@ impl Simulation {
         {
             return Ok(());
         }
-        if crate::sim::combat::target_present(unit.attack_target.as_ref(), &self.substrate.entities)
+        if crate::sim::combat::target_present(unit.attack_target.target(), &self.substrate.entities)
             && !flags.forced
             && self.scenario_rng.next_range_u32_inclusive(1, 4) != 1
         {

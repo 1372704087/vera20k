@@ -248,7 +248,7 @@ fn fixture(input: &Value) -> (Simulation, RuleSet) {
         e.set_gunner_selection_for_test(passenger["current"].as_i64().unwrap_or(0) as i32, -1);
         cargo.board_forced(id, 1);
     }
-    sim.substrate.entities.get_mut(1).unwrap().passenger_role = PassengerRole::Transport { cargo };
+    sim.substrate.entities.get_mut(1).unwrap().passenger_role = PassengerRole::transport(cargo);
     // The original global Cell flags belong to CurrentHouse, even when the
     // searching aircraft belongs to a different house. No UI cache is built.
     let viewer = sim.interner.intern("CURRENT_HOUSE");
@@ -327,8 +327,10 @@ pub(super) fn reengagement_fixture(input: &Value) -> (Simulation, RuleSet) {
             dispatch_timer: MissionDispatchTimer::at_frame(100),
         });
     entity.mission_leaf = MissionLeafState::aircraft_raw_for_test(1, 1, false);
-    entity.attack_target = (!input["null_target"].as_bool().unwrap_or(false))
-        .then(|| crate::sim::combat::AttackTarget::new(2));
+    entity.attack_target.set_for_test(
+        (!input["null_target"].as_bool().unwrap_or(false))
+            .then(|| crate::sim::combat::TargetKind::Entity(2)),
+    );
     let mut ammo = AircraftAmmo::new(2);
     ammo.current = input["ammo"].as_i64().unwrap_or(2) as i32;
     if input["pending"].as_bool().unwrap_or(false) {
@@ -342,10 +344,7 @@ pub(super) fn reengagement_fixture(input: &Value) -> (Simulation, RuleSet) {
         .then(|| NavTargetRef::cell(32, 32));
     entity.foot_locomotor_swap_active = input["swap"].as_bool().unwrap_or(false);
     if input["open_transport"].as_bool().unwrap_or(false) {
-        entity.passenger_role = PassengerRole::Inside {
-            transport_id: 4,
-            open_topped: true,
-        };
+        entity.passenger_role = PassengerRole::inside_for_test(4, true);
     }
     if input["bunker"].as_bool().unwrap_or(false) {
         entity.bunker_link = crate::sim::game_entity::BunkerLink::Installed(2);

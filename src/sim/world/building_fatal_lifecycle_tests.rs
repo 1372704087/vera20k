@@ -687,7 +687,7 @@ impl Fixture {
             );
         }
         assert_eq!(
-            attacker.attack_target.as_ref().map(|target| target.target),
+            attacker.attack_target.target(),
             (target != 0).then_some(TargetKind::Entity(self.building)),
             "{boundary}: firer target expiry",
         );

@@ -1312,7 +1312,7 @@ impl Simulation {
         let Some(entity) = self.substrate.entities.get(id) else {
             return false;
         };
-        if entity.navigation.nav_com.is_some() || entity.attack_target.is_some() {
+        if entity.navigation.nav_com.is_some() || entity.attack_target.target().is_some() {
             return false;
         }
         self.unit_enter_idle_mode(id, rules, false, effects)

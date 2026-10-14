@@ -3014,7 +3014,7 @@ mod tests {
             assert_eq!(actor.mission.dispatch_timer(), before_timer);
             assert!(actor.suspended_attack_target.is_none());
             assert!(actor.navigation.suspended_nav_com.is_none());
-            assert!(actor.attack_target.is_none());
+            assert!(actor.attack_target.target().is_none());
             assert!(
                 !actor.mega_mission.is_attack_move(),
                 "Assign_Target_Command answers Area Guard with Clear_All_TarCom"
@@ -3204,7 +3204,7 @@ mod tests {
         );
         assert!(cargo.board(3, rules.object("E1").unwrap().size));
         sim.substrate.entities.get_mut(1).unwrap().passenger_role =
-            crate::sim::passenger::PassengerRole::Transport { cargo };
+            crate::sim::passenger::PassengerRole::transport(cargo);
         let grid = crate::sim::pathfinding::PathGrid::new(64, 64);
         sim.install_fixture_path_grid(Some(&grid));
         let rider_target = |sim: &Simulation| {
@@ -3213,8 +3213,7 @@ mod tests {
                 .get(3)
                 .unwrap()
                 .attack_target
-                .as_ref()
-                .map(|attack| attack.target)
+                .target()
         };
 
         assert!(sim.apply_command(
@@ -3338,7 +3337,7 @@ mod tests {
             Some(&rules),
         ));
         let attacker = sim.substrate.entities.get(1).unwrap();
-        assert!(attacker.attack_target.is_none());
+        assert!(attacker.attack_target.target().is_none());
         assert_eq!(attacker.mission.queued(), MissionId::NONE);
     }
 

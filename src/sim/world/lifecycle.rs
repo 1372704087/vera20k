@@ -15,7 +15,6 @@ use crate::sim::lifecycle_request::LifecycleRequest;
 use crate::sim::occupancy::{
     BUILDING_OCCUPATION_BIT, CellListInsertion, cell_list_layer_for_entity, entity_occupancy_cells,
 };
-use crate::sim::passenger::PassengerRole;
 use crate::sim::projectile::ProjectileTarget;
 use crate::util::lepton::BRIDGE_DECK_HEIGHT_LEPTONS;
 use crate::util::lepton::LEPTONS_PER_LEVEL;
@@ -3611,14 +3610,14 @@ impl Simulation {
             target.is_some_and(|target| Self::nav_ref_targets_expired(target, expired_id))
         };
         listener_id == expired_id
-            || names(listener.attack_target.as_ref().map(|attack| attack.target))
+            || names(listener.attack_target.target())
             || names(listener.suspended_attack_target)
             || names(listener.archive_target())
             || listener.has_live_contact_with(expired_id)
             || listener
                 .passenger_role
                 .cargo()
-                .is_some_and(|cargo| cargo.passengers.contains(&expired_id))
+                .is_some_and(|cargo| cargo.passengers().contains(&expired_id))
             || listener.passenger_role.boarding_transport_id() == Some(expired_id)
             || listener.passenger_role.inside_transport_id() == Some(expired_id)
             || nav_names(listener.navigation.suspended_nav_com.as_ref())
@@ -3753,9 +3752,9 @@ impl Simulation {
     ///    the null-out then does not run.
     ///
     /// The native sweep has callers in area damage, building sale, owner change,
-    /// building placement and teleportation. The represented owner-change and
-    /// bridge-damage callers share this owner; the other caller chains remain
-    /// separate migration work.
+    /// building placement and teleportation. The represented owner-change,
+    /// bridge-damage and teleport (`0x007193C7`) callers share this owner; the
+    /// other caller chains remain separate migration work.
     ///
     /// RESIDUALS, recorded rather than guessed:
     /// - The native suppression clause (`0x0070D4DB..0x0070D4FB`) skips the
@@ -3840,13 +3839,7 @@ impl Simulation {
         self.substrate
             .entities
             .get(listener_id)
-            .is_some_and(|listener| {
-                listener
-                    .attack_target
-                    .as_ref()
-                    .map(|current| current.target)
-                    == Some(target)
-            })
+            .is_some_and(|listener| listener.attack_target.target() == Some(target))
     }
 
     /// Infantry PerCell repair519D17..519D36 calls each registered Infantry
@@ -3958,9 +3951,10 @@ impl Simulation {
         let Some(listener) = self.substrate.entities.get(listener_id) else {
             return;
         };
-        let current_target_matches = listener.attack_target.as_ref().is_some_and(
-            |target| matches!(target.target, TargetKind::Entity(id) if id == expired_id),
-        );
+        let current_target_matches = listener
+            .attack_target
+            .target()
+            .is_some_and(|target| matches!(target, TargetKind::Entity(id) if id == expired_id));
         let listener_owner = listener.owner();
         let mission_is_suspended =
             listener.mission.suspended() != crate::sim::mission::MissionId::NONE;
@@ -3970,10 +3964,10 @@ impl Simulation {
         // reference to the expiring object.
         let drops_contact =
             control == PointerExpiryControl::Uninit && listener.has_live_contact_with(expired_id);
-        let drops_passenger = matches!(
-            &listener.passenger_role,
-            PassengerRole::Transport { cargo } if cargo.passengers.contains(&expired_id)
-        );
+        let drops_passenger = listener
+            .passenger_role
+            .cargo()
+            .is_some_and(|cargo| cargo.passengers().contains(&expired_id));
         // `0x007077EE..0x007077FD`, after the radio and cargo, whatever the
         // control: a child whose SpawnOwner (`+0x2D4`) expires forgets it.
         let drops_spawn_owner = listener.spawn_owner_id == Some(expired_id);
@@ -4034,9 +4028,7 @@ impl Simulation {
 
             // TechnoClass removes an expiring passenger from its CargoClass before
             // clearing its target/archive/manager reference family.
-            if drops_passenger
-                && let PassengerRole::Transport { cargo } = &mut listener.passenger_role
-            {
+            if drops_passenger && let Some(cargo) = listener.passenger_role.cargo_mut() {
                 let _ = cargo.disembark(expired_id);
             }
             if drops_spawn_owner {

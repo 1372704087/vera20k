@@ -98,7 +98,7 @@ pub(crate) fn dispatch_foot_mission(
             entry_adapter,
             timer_due: entity.mission.dispatch_timer().due(now),
             moving_or_queued: moving || entity.mission.queued() != MissionId::NONE,
-            has_attack_target: entity.attack_target.is_some(),
+            has_attack_target: entity.attack_target.target().is_some(),
             // The destination slot alone, NOT the wider "is this object in
             // motion" test above: the idle-mode selector branches on exactly
             // that one field.
@@ -440,7 +440,7 @@ pub(crate) fn dispatch_foot_mission(
                         ctx.effects,
                     );
                     let actor = sim.substrate.entities.get(id).expect("deployed shim actor");
-                    let actual_target = actor.attack_target.as_ref().map(|attack| attack.target);
+                    let actual_target = actor.attack_target.target();
                     let error = crate::sim::combat::fire_error_world::FireSubject {
                         world: sim,
                         rules,
@@ -773,7 +773,7 @@ pub(crate) fn dispatch_foot_mission(
         && let Some(entity) = sim.substrate.entities.get_mut(id)
     {
         // A missing handle is expiry cleanup, not Assign_Target(NULL).
-        entity.attack_target = None;
+        entity.attack_target.set(None);
     }
     if let Some(queued_mission) = evaluation.queue {
         let _ = sim.mission_queue_exact(
@@ -1005,7 +1005,7 @@ impl Simulation {
             rules,
             entity.category(),
             entity.mission.current().known(),
-            entity.attack_target.is_some(),
+            entity.attack_target.target().is_some(),
             entity.navigation.nav_com.is_some(),
             entity.mission.effective().known(),
         );
@@ -1366,7 +1366,7 @@ fn hunt_infantry_arm(sim: &mut Simulation, id: u64, rules: &RuleSet, ctx: super:
             object,
             crate::rules::object_type::Ability::C4,
         );
-    let Some(target) = entity.attack_target.as_ref().map(|attack| attack.target) else {
+    let Some(target) = entity.attack_target.target() else {
         return;
     };
     let building_target = match target {
@@ -1451,8 +1451,7 @@ fn c4_sabotage_building(sim: &Simulation, id: u64, rules: &RuleSet) -> Option<u6
     {
         return None;
     }
-    let crate::sim::combat::TargetKind::Entity(building) = entity.attack_target.as_ref()?.target
-    else {
+    let crate::sim::combat::TargetKind::Entity(building) = entity.attack_target.target()? else {
         return None;
     };
     let target = sim.substrate.entities.get(building)?;
@@ -1505,8 +1504,7 @@ fn computer_capture_building(sim: &Simulation, id: u64, rules: &RuleSet) -> Opti
     if sim.owner_is_human(entity.owner()) {
         return None;
     }
-    let crate::sim::combat::TargetKind::Entity(building) = entity.attack_target.as_ref()?.target
-    else {
+    let crate::sim::combat::TargetKind::Entity(building) = entity.attack_target.target()? else {
         return None;
     };
     let target = sim.substrate.entities.get(building)?;
@@ -1606,7 +1604,7 @@ fn evaluate_foot_rescue(
             &EntityReadyInputProvider,
         );
         let _ = sim.mission_commence_exact(id, sim.session.binary_frame);
-    } else if state == 0 && actor.attack_target.is_none() {
+    } else if state == 0 && actor.attack_target.target().is_none() {
         if actor.archive_target().is_none() {
             let post = foot_physical_cell_target(sim, id);
             sim.substrate
@@ -1668,7 +1666,7 @@ fn evaluate_foot_rescue(
             .substrate
             .entities
             .get(id)
-            .is_some_and(|actor| actor.attack_target.is_some())
+            .is_some_and(|actor| actor.attack_target.target().is_some())
         {
             return MissionHandlerEvaluation::cadence(1);
         }
@@ -1812,7 +1810,7 @@ pub(super) fn evaluate_foot_area_guard(
         .substrate
         .entities
         .get(id)
-        .is_some_and(|entity| entity.attack_target.is_none());
+        .is_some_and(|entity| entity.attack_target.target().is_none());
     // `0x004D6ED1..0x004D6F32`: with a Target the body approaches it instead
     // of scanning; without a post it does neither (`0x004D6E66`).
     if !needs_target && archive.is_some() {
@@ -1855,7 +1853,7 @@ pub(super) fn evaluate_foot_area_guard(
         .substrate
         .entities
         .get(id)
-        .is_some_and(|entity| entity.attack_target.is_none())
+        .is_some_and(|entity| entity.attack_target.target().is_none())
     {
         let _ = sim.infantry_idle_action(id, rules, ctx.effects);
     }
@@ -2031,7 +2029,7 @@ pub(super) fn evaluate_foot_guard_cadence(
         .substrate
         .entities
         .get(id)
-        .is_some_and(|entity| entity.attack_target.is_none())
+        .is_some_and(|entity| entity.attack_target.target().is_none())
     {
         let _ = sim.infantry_idle_action(id, rules, effects);
     }
@@ -2270,14 +2268,11 @@ fn foot_dispatch_in_cadence_band(sim: &Simulation, rules: &RuleSet, id: u64) -> 
     if !foot_type_takes_cadence_band(sim, rules, attacker, CLOSE_PRIMARY_RANGE_LEPTONS) {
         return false;
     };
-    let Some(crate::sim::combat::AttackTarget {
-        target: crate::sim::combat::TargetKind::Entity(target_id),
-        ..
-    }) = attacker.attack_target.as_ref()
+    let Some(crate::sim::combat::TargetKind::Entity(target_id)) = attacker.attack_target.target()
     else {
         return false;
     };
-    let Some(target) = sim.substrate.entities.get(*target_id) else {
+    let Some(target) = sim.substrate.entities.get(target_id) else {
         return false;
     };
     native_distance_is_in_cadence_band(&attacker.position, &target.position)
@@ -2372,7 +2367,7 @@ fn infantry_deployed_attack_reacquire(
         .substrate
         .entities
         .get(id)
-        .and_then(|actor| actor.attack_target.as_ref().map(|attack| attack.target));
+        .and_then(|actor| actor.attack_target.target());
     if target.is_some_and(|target| {
         super::target_scan::can_fire_at(sim, rules, id, target, weapon_index, ctx.overlay_registry)
     }) {
@@ -2430,16 +2425,13 @@ fn attack_target_is_stale(sim: &Simulation, id: u64) -> bool {
     let Some(attacker) = sim.substrate.entities.get(id) else {
         return false;
     };
-    let Some(crate::sim::combat::AttackTarget {
-        target: crate::sim::combat::TargetKind::Entity(target_id),
-        ..
-    }) = attacker.attack_target.as_ref()
+    let Some(crate::sim::combat::TargetKind::Entity(target_id)) = attacker.attack_target.target()
     else {
         return false;
     };
     !sim.substrate
         .entities
-        .get(*target_id)
+        .get(target_id)
         .is_some_and(|target| !target.dying && target.is_alive())
 }
 

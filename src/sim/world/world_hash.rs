@@ -17,7 +17,7 @@ use crate::sim::state_hasher::{self, StateHasher};
 mod retained_cell_hash_tests {
     use super::*;
     use crate::map::resolved_terrain::ResolvedTerrainGrid;
-    use crate::sim::combat::{AttackTarget, TargetKind};
+    use crate::sim::combat::TargetKind;
     use crate::sim::components::NavTargetRef;
     use crate::sim::game_entity::GameEntity;
 
@@ -32,16 +32,14 @@ mod retained_cell_hash_tests {
         // Every cell is deliberately unallocated. These different requested
         // coordinates retain the same process object; hashing may not stamp it.
         for retained_field in 0..7 {
-            entity.attack_target = None;
+            entity.attack_target.set_for_test(None);
             entity.suspended_attack_target = None;
             entity.set_archive_target(None);
             entity.navigation = Default::default();
             match retained_field {
-                0 => {
-                    entity.attack_target = Some(AttackTarget {
-                        target: TargetKind::Cell(1, 2),
-                    })
-                }
+                0 => entity
+                    .attack_target
+                    .set_for_test(Some(TargetKind::Cell(1, 2))),
                 1 => entity.suspended_attack_target = Some(TargetKind::Cell(3, 4)),
                 2 => entity.set_archive_target(Some(TargetKind::Cell(5, 6))),
                 3 => entity.navigation.nav_com = Some(NavTargetRef::cell(7, 8)),
@@ -588,7 +586,7 @@ impl Simulation {
                     };
                     self.substrate.entities.values().any(|entity| {
                         [
-                            entity.attack_target.as_ref().map(|attack| attack.target),
+                            entity.attack_target.target(),
                             entity.suspended_attack_target,
                             entity.archive_target(),
                         ]
@@ -1760,10 +1758,10 @@ fn hash_entity(entity: &GameEntity, frame: u32, hasher: &mut StateHasher) {
         0u8.hash(hasher);
     }
 
-    if let Some(ref attack) = entity.attack_target {
+    if let Some(target) = entity.attack_target.target() {
         1u8.hash(hasher);
 
-        attack.target.hash(hasher);
+        target.hash(hasher);
     } else {
         0u8.hash(hasher);
     }
@@ -1887,30 +1885,28 @@ fn hash_entity(entity: &GameEntity, frame: u32, hasher: &mut StateHasher) {
     }
 
     // Passenger/transport state.
-    match &entity.passenger_role {
-        crate::sim::passenger::PassengerRole::None => {
-            0u8.hash(hasher);
-        }
-        crate::sim::passenger::PassengerRole::Transport { cargo } => {
+    let role = &entity.passenger_role;
+    match role.cargo() {
+        Some(cargo) => {
             1u8.hash(hasher);
-            cargo.capacity.hash(hasher);
-            (cargo.passengers.len() as u32).hash(hasher);
-            for &pid in &cargo.passengers {
+            cargo.capacity().hash(hasher);
+            (cargo.passengers().len() as u32).hash(hasher);
+            for &pid in cargo.passengers() {
                 pid.hash(hasher);
             }
-            debug_assert_eq!(cargo.passenger_sizes.len(), cargo.passengers.len());
-            for &passenger_size in &cargo.passenger_sizes {
+            debug_assert_eq!(cargo.passenger_sizes().len(), cargo.passengers().len());
+            for &passenger_size in cargo.passenger_sizes() {
                 passenger_size.hash(hasher);
             }
-            cargo.total_size.hash(hasher);
+            cargo.total_size().hash(hasher);
             // A Foot can own cargo while boarding/riding another
             // transport (Unit PerCell 0x0073A730..0x0073A77C).
             // Only append a live parent relation, preserving ordinary
             // outside-cargo hash controls.
-            if let Some(parent) = entity.passenger_role.boarding_transport_id() {
+            if let Some(parent) = role.boarding_transport_id() {
                 2u8.hash(hasher);
                 parent.hash(hasher);
-            } else if let Some((parent, open_topped)) = entity.passenger_role.inside_transport() {
+            } else if let Some((parent, open_topped)) = role.inside_transport() {
                 3u8.hash(hasher);
                 parent.hash(hasher);
                 open_topped.hash(hasher);
@@ -1923,22 +1919,20 @@ fn hash_entity(entity: &GameEntity, frame: u32, hasher: &mut StateHasher) {
                 entity.transport_unload_keep_count.hash(hasher);
             }
         }
-        crate::sim::passenger::PassengerRole::Boarding {
-            target_transport_id,
-        } => {
-            2u8.hash(hasher);
-            target_transport_id.hash(hasher);
-        }
-        crate::sim::passenger::PassengerRole::Inside {
-            transport_id,
-            open_topped,
-        } => {
-            3u8.hash(hasher);
-            transport_id.hash(hasher);
-            // `+0x82`, folded only when set so a closed transport's
-            // cargo keeps its historical hash.
-            if *open_topped {
-                1u8.hash(hasher);
+        None => {
+            if let Some(target_transport_id) = role.boarding_transport_id() {
+                2u8.hash(hasher);
+                target_transport_id.hash(hasher);
+            } else if let Some((transport_id, open_topped)) = role.inside_transport() {
+                3u8.hash(hasher);
+                transport_id.hash(hasher);
+                // `+0x82`, folded only when set so a closed transport's
+                // cargo keeps its historical hash.
+                if open_topped {
+                    1u8.hash(hasher);
+                }
+            } else {
+                0u8.hash(hasher);
             }
         }
     }
@@ -4338,7 +4332,7 @@ mod passenger_cargo_hash_tests {
         let mut cargo = PassengerCargo::new(5, 0);
         cargo.board_forced(10, first_size);
         cargo.board_forced(11, second_size);
-        carrier.passenger_role = PassengerRole::Transport { cargo };
+        carrier.passenger_role = PassengerRole::transport(cargo);
         sim.substrate.entities.insert(carrier);
         sim
     }
@@ -4393,7 +4387,7 @@ mod passenger_cargo_hash_tests {
                 .passenger_role
                 .cargo()
                 .unwrap()
-                .passengers,
+                .passengers(),
             [11, 10]
         );
     }

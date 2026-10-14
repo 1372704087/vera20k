@@ -149,8 +149,8 @@ fn nav_target(nav: NavTargetRef) -> TeamTarget {
 fn tarcom_names(entity: &GameEntity, target: TeamTarget) -> bool {
     entity
         .attack_target
-        .as_ref()
-        .is_some_and(|attack| attack.target == target.target_kind())
+        .target()
+        .is_some_and(|attack| attack == target.target_kind())
 }
 
 /// The cell holding a member's Location (`vt+0x1BC`), as a team target.
@@ -610,7 +610,7 @@ impl Simulation {
                 entity,
                 self.team_member_initiated(team_id, member),
                 self.object_placement_scope_active(),
-            ) || entity.attack_target.is_some()
+            ) || entity.attack_target.target().is_some()
             {
                 continue;
             }
@@ -630,7 +630,7 @@ impl Simulation {
             let Some(entity) = self.substrate.entities.get(member) else {
                 continue;
             };
-            if entity.attack_target.is_some() || entity.navigation.nav_com.is_some() {
+            if entity.attack_target.target().is_some() || entity.navigation.nav_com.is_some() {
                 continue;
             }
             let current = entity.mission.effective().raw();
@@ -1574,7 +1574,7 @@ impl Simulation {
                             > rules.general.close_enough
                             || crate::sim::movement::motion_query::is_moving(entity) == Some(true)
                     });
-                    if !still_moving && entity.attack_target.is_none() {
+                    if !still_moving && entity.attack_target.target().is_none() {
                         self.team_member_set_destination(
                             member,
                             None,
@@ -1592,7 +1592,7 @@ impl Simulation {
                     }
                 }
             } else {
-                if aggressive && entity.attack_target.is_some() {
+                if aggressive && entity.attack_target.target().is_some() {
                     continue;
                 }
                 if entity.mission.effective() != MissionId::from_known(MissionType::Move) {
@@ -2047,7 +2047,7 @@ impl Simulation {
             let Some(entity) = self.substrate.entities.get(member) else {
                 continue;
             };
-            if entity.attack_target.is_none() {
+            if entity.attack_target.target().is_none() {
                 self.team_member_assign_target(member, target, rules, registry, frame_effects);
             }
             let Some(entity) = self.substrate.entities.get(member) else {

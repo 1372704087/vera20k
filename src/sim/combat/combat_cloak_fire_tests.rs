@@ -31,7 +31,7 @@ fn entities(target_type: &str) -> EntityStore {
     // `+0x388` against the target. Face it east at the target one cell away so
     // this fixture exercises the DecloakToFire arm rather than turn-to-fire.
     bsub.body_facing.snap(0x4000, 0);
-    bsub.attack_target = Some(AttackTarget::new(2));
+    bsub.attack_target.set_for_test(Some(TargetKind::Entity(2)));
     let mut cloak = CloakRuntime::new(0);
     cloak.establish_unlimbo_fully_cloaked();
     bsub.cloak = Some(cloak);
@@ -51,8 +51,8 @@ fn resolve_once(
     out: &mut CombatEmit,
 ) {
     let attacker = entities.get(1).unwrap();
-    let attack = attacker.attack_target.as_ref().unwrap();
-    let snap = build_attacker_snapshot(attacker, attack.target, None);
+    let attack = attacker.attack_target.target().unwrap();
+    let snap = build_attacker_snapshot(attacker, attack, None);
     let mut rng = SimRng::new(0xC10A_F1AE);
     let mut hooks: Option<&mut FixtureTrace> = None;
     resolve_attacker_fire(
@@ -102,7 +102,7 @@ fn bsub_cruise_launcher_uncloaks_without_same_tick_fire_then_retry_fires() {
         "0x736DF0 case 9 calls StartUncloaking"
     );
     assert!(
-        entities.get(1).unwrap().attack_target.is_some(),
+        entities.get(1).unwrap().attack_target.target().is_some(),
         "target is retained for retry"
     );
     assert!(blocked.fire_events.is_empty());

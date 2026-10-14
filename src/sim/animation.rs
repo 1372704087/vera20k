@@ -282,8 +282,8 @@ pub(crate) fn tick_unit_body_frame_counter(
     // HoverAttack is Type+390, not TurretSpins. Native deploy6E0 only
     // excludes that hover-attack walk arm; it does not suppress IdleRate.
     let moving = crate::sim::movement::motion_query::is_moving_now(entity, rules, binary_frame);
-    let walking =
-        moving || (entity.attack_target.is_some() && hover_attack && !entity.is_fully_deployed());
+    let walking = moving
+        || (entity.attack_target.target().is_some() && hover_attack && !entity.is_fully_deployed());
     let due = (walking && (binary_frame as i32) % cadence.walk_rate == 0)
         || (cadence.idle_rate != 0 && !moving && (binary_frame as i32) % cadence.idle_rate == 0)
         // GetHeight (vt+0x1C8) at `0x004DA9CD`.

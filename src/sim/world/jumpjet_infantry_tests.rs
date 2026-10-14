@@ -268,7 +268,7 @@ fn retail_dustbowl_rocketeer_flies_hovers_and_fires_in_its_airborne_poses() {
         let shooter = sim.substrate.entities.get(rocketeer).expect("rocketeer");
         let in_range = shooter.position.rx.abs_diff(target.position.rx) <= 4
             && shooter.position.ry.abs_diff(target.position.ry) <= 1;
-        if in_range && now.fraction > 6553 && shooter.attack_target.is_some() {
+        if in_range && now.fraction > 6553 && shooter.attack_target.target().is_some() {
             held_by_speed += 1;
         }
         for event in output
@@ -369,7 +369,7 @@ fn retail_dustbowl_parked_rocketeer_engages_nearby_enemies() {
         )),
         "parked on its NavCom's cell"
     );
-    assert!(parked.attack_target.is_none());
+    assert!(parked.attack_target.target().is_none());
     // A conscript three cells beyond the hold, the only enemy within its
     // 20mm's range.
     let conscript = sim
@@ -474,7 +474,7 @@ fn a_parked_rocketeer_scans_and_fires_on_move() {
     assert!(parked, "the Rocketeer parks on its NavCom's cell");
     let entity = sim.substrate.entities.get(1).unwrap();
     assert_eq!(entity.mission.current().known(), Some(MissionType::Move));
-    assert!(entity.attack_target.is_none());
+    assert!(entity.attack_target.target().is_none());
     // The shooter steps three cells east of the hold.
     sim.remove_entity_occupancy(shooter);
     {
@@ -492,8 +492,8 @@ fn a_parked_rocketeer_scans_and_fires_on_move() {
             break;
         };
         assert_eq!(entity.mission.current().known(), Some(MissionType::Move));
-        acquired |= entity.attack_target.as_ref().map(|attack| attack.target)
-            == Some(crate::sim::combat::TargetKind::Entity(shooter));
+        acquired |=
+            entity.attack_target.target() == Some(crate::sim::combat::TargetKind::Entity(shooter));
         fired |= entity.rearm_timer != rearm;
         if fired {
             break;
@@ -671,8 +671,7 @@ fn retail_dustbowl_shot_down_rocketeer_falls_and_leaves_no_body() {
             sim.substrate
                 .entities
                 .get(flak)
-                .and_then(|entity| entity.attack_target.as_ref())
-                .map(|attack| attack.target),
+                .and_then(|entity| entity.attack_target.target()),
         );
         if entity.is_none() {
             break;

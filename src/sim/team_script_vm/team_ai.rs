@@ -509,7 +509,7 @@ impl Simulation {
             let stray = self.team_stray(team_id, rules);
             let mission = entity.mission.effective().known();
             let area_guarding_target =
-                mission == Some(MissionType::AreaGuard) && entity.attack_target.is_some();
+                mission == Some(MissionType::AreaGuard) && entity.attack_target.target().is_some();
             if self.team_member_distance(entity, zone) > stray && !area_guarding_target {
                 if entity.navigation.nav_com.is_some() {
                     continue;

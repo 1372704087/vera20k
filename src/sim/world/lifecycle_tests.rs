@@ -11,8 +11,7 @@ use crate::map::resolved_terrain::{ResolvedTerrainCell, ResolvedTerrainGrid};
 use crate::rules::locomotor_type::LocomotorKind;
 use crate::rules::terrain_rules::{SpeedCostProfile, TerrainClass};
 use crate::sim::anim_class::{AnimObject, AnimRuntime, AnimWorldCoord};
-use crate::sim::combat::Health;
-use crate::sim::combat::{AttackTarget, TargetKind};
+use crate::sim::combat::{Health, TargetKind};
 use crate::sim::components::{DriveOccupationFootprint, NavTargetRef};
 use crate::sim::game_entity::GameEntity;
 use crate::sim::house_state::HouseState;
@@ -549,10 +548,7 @@ fn receiver_garrison_survivor_keeps_height_aware_playfield_membership() {
     {
         let passenger = sim.substrate.entities.get_mut(passenger_id).unwrap();
         passenger.set_type_ref_for_test(passenger_type);
-        passenger.passenger_role = PassengerRole::Inside {
-            transport_id: building_id,
-            open_topped: false,
-        };
+        passenger.passenger_role = PassengerRole::inside_for_test(building_id, false);
     }
     {
         let building = sim.substrate.entities.get_mut(building_id).unwrap();
@@ -560,7 +556,7 @@ fn receiver_garrison_survivor_keeps_height_aware_playfield_membership() {
         building.foundation = "2x2".to_string();
         let mut cargo = PassengerCargo::new(5, 1);
         assert!(cargo.board(passenger_id, 1));
-        building.passenger_role = PassengerRole::Transport { cargo };
+        building.passenger_role = PassengerRole::transport(cargo);
     }
     assert!(matches!(
         sim.try_reveal_entity_with_context(
@@ -2535,10 +2531,8 @@ fn open_topped_direct_registration_keeps_hidden_passenger_live() {
     let _ = sim.reveal(2);
 
     assert_eq!(sim.techno_limbo(1), super::ConcealOutcome::Concealed);
-    sim.substrate.entities.get_mut(1).unwrap().passenger_role = PassengerRole::Inside {
-        transport_id: 99,
-        open_topped: true,
-    };
+    sim.substrate.entities.get_mut(1).unwrap().passenger_role =
+        PassengerRole::inside_for_test(99, true);
 
     assert!(sim.register_open_topped_passenger(1));
     let passenger = sim.substrate.entities.get(1).unwrap();
@@ -3184,15 +3178,11 @@ fn lifecycle_authority_transport_uninits_passengers_in_cargo_order_before_carrie
     let mut cargo = PassengerCargo::new(5, 1);
     cargo.board_forced(2, 1);
     cargo.board_forced(3, 1);
-    sim.substrate.entities.get_mut(1).unwrap().passenger_role = PassengerRole::Transport { cargo };
-    sim.substrate.entities.get_mut(2).unwrap().passenger_role = PassengerRole::Inside {
-        transport_id: 1,
-        open_topped: false,
-    };
-    sim.substrate.entities.get_mut(3).unwrap().passenger_role = PassengerRole::Inside {
-        transport_id: 1,
-        open_topped: false,
-    };
+    sim.substrate.entities.get_mut(1).unwrap().passenger_role = PassengerRole::transport(cargo);
+    sim.substrate.entities.get_mut(2).unwrap().passenger_role =
+        PassengerRole::inside_for_test(1, false);
+    sim.substrate.entities.get_mut(3).unwrap().passenger_role =
+        PassengerRole::inside_for_test(1, false);
     sim.lifecycle_test_events.clear();
 
     sim.uninit(1);
@@ -3208,14 +3198,22 @@ fn lifecycle_authority_transport_uninits_passengers_in_cargo_order_before_carrie
         })
         .collect::<Vec<_>>();
     assert_eq!(notify_order, vec![3, 2, 1]);
-    assert!(matches!(
-        sim.substrate.entities.get(2).unwrap().passenger_role,
-        PassengerRole::None
-    ));
-    assert!(matches!(
-        sim.substrate.entities.get(3).unwrap().passenger_role,
-        PassengerRole::None
-    ));
+    assert!(
+        sim.substrate
+            .entities
+            .get(2)
+            .unwrap()
+            .passenger_role
+            .is_none()
+    );
+    assert!(
+        sim.substrate
+            .entities
+            .get(3)
+            .unwrap()
+            .passenger_role
+            .is_none()
+    );
     let cargo = sim
         .substrate
         .entities
@@ -3224,10 +3222,10 @@ fn lifecycle_authority_transport_uninits_passengers_in_cargo_order_before_carrie
         .passenger_role
         .cargo()
         .unwrap();
-    assert!(cargo.passengers.is_empty());
-    assert!(cargo.passenger_sizes.is_empty());
-    assert_eq!(cargo.total_size, 0);
-    assert_eq!(cargo.garrison_fire_index, 0);
+    assert!(cargo.passengers().is_empty());
+    assert!(cargo.passenger_sizes().is_empty());
+    assert_eq!(cargo.total_size(), 0);
+    assert_eq!(cargo.garrison_fire_index(), 0);
 }
 
 #[test]
@@ -3239,12 +3237,11 @@ fn nested_transport_uninit_keeps_inner_cargo_until_its_recursive_transaction() {
     let _ = sim.reveal(1);
     let mut outer = PassengerCargo::new(12, 6);
     outer.board_forced(2, 3);
-    sim.substrate.entities.get_mut(1).unwrap().passenger_role =
-        PassengerRole::Transport { cargo: outer };
+    sim.substrate.entities.get_mut(1).unwrap().passenger_role = PassengerRole::transport(outer);
     let mut inner = PassengerCargo::new(5, 2);
     inner.board_forced(3, 1);
     let entity = sim.substrate.entities.get_mut(2).unwrap();
-    entity.passenger_role = PassengerRole::Transport { cargo: inner };
+    entity.passenger_role = PassengerRole::transport(inner);
     entity.passenger_role.set_inside_transport(1, false);
     sim.substrate
         .entities
@@ -3306,7 +3303,7 @@ fn nested_transport_parent_expiry_preserves_its_independent_cargo() {
             let mut cargo = PassengerCargo::new(5, 2);
             cargo.board_forced(3, 1);
             let entity = sim.substrate.entities.get_mut(2).unwrap();
-            entity.passenger_role = PassengerRole::Transport { cargo };
+            entity.passenger_role = PassengerRole::transport(cargo);
             if inside {
                 entity.passenger_role.set_inside_transport(1, false);
             } else {
@@ -3344,8 +3341,8 @@ fn nested_transport_parent_expiry_preserves_its_independent_cargo() {
                 },
                 "inside={inside}, control1={conceal_control}, alive={alive}, health={health}, scope={placement_scope}"
             );
-            assert_eq!(role.cargo().unwrap().passengers, [3]);
-            assert_eq!(role.cargo().unwrap().total_size, 1);
+            assert_eq!(role.cargo().unwrap().passengers(), [3]);
+            assert_eq!(role.cargo().unwrap().total_size(), 1);
             assert_eq!(
                 sim.substrate
                     .entities
@@ -3476,9 +3473,9 @@ fn pointer_expiry_clears_live_target_and_navigation_refs() {
     let _ = sim.try_reveal_entity(2, request(9, 11, PlacementEvidence::MarkSucceeded));
 
     let listener = sim.substrate.entities.get_mut(1).unwrap();
-    listener.attack_target = Some(AttackTarget {
-        target: TargetKind::Entity(2),
-    });
+    listener
+        .attack_target
+        .set_for_test(Some(TargetKind::Entity(2)));
     listener.suspended_attack_target = Some(TargetKind::Entity(2));
     listener.navigation.suspended_nav_com = Some(NavTargetRef::Entity { id: 2 });
     listener.navigation.nav_com_aux = Some(NavTargetRef::Object { id: 2 });
@@ -3491,7 +3488,7 @@ fn pointer_expiry_clears_live_target_and_navigation_refs() {
     sim.uninit(2);
 
     let listener = sim.substrate.entities.get(1).unwrap();
-    assert!(listener.attack_target.is_none());
+    assert!(listener.attack_target.target().is_none());
     assert!(listener.suspended_attack_target.is_none());
     assert!(listener.navigation.suspended_nav_com.is_none());
     assert!(listener.navigation.nav_com_aux.is_none());
@@ -3578,7 +3575,9 @@ fn target_expiry_rearms_passive_scan_and_restores_suspended_mission() {
     sim.session.binary_frame = 105;
 
     let listener = sim.substrate.entities.get_mut(1).unwrap();
-    listener.attack_target = Some(AttackTarget::new(2));
+    listener
+        .attack_target
+        .set_for_test(Some(TargetKind::Entity(2)));
     listener.suspended_attack_target = Some(TargetKind::Entity(3));
     listener.navigation.suspended_nav_com = Some(NavTargetRef::Cell { rx: 7, ry: 8 });
     listener.passive_scan_timer.arm(100, 20);
@@ -3605,10 +3604,7 @@ fn target_expiry_rearms_passive_scan_and_restores_suspended_mission() {
         MissionId::from_known(MissionType::Guard)
     );
     assert_eq!(listener.mission.suspended(), MissionId::NONE);
-    assert_eq!(
-        listener.attack_target.as_ref().map(|target| target.target),
-        Some(TargetKind::Entity(3))
-    );
+    assert_eq!(listener.attack_target.target(), Some(TargetKind::Entity(3)));
     assert_eq!(
         listener.navigation.nav_com,
         Some(NavTargetRef::Cell { rx: 7, ry: 8 })
@@ -3655,7 +3651,9 @@ fn infantry_target_expiry_clears_firing_action_before_target() {
             .unwrap()
         );
         let listener = sim.substrate.entities.get_mut(1).unwrap();
-        listener.attack_target = Some(AttackTarget::new(2));
+        listener
+            .attack_target
+            .set_for_test(Some(TargetKind::Entity(2)));
         listener.mission_leaf =
             crate::sim::mission::MissionLeafState::infantry_raw_for_test(1, doing);
         // Isolate the class action: the separate PointerExpired timer gate
@@ -3664,7 +3662,7 @@ fn infantry_target_expiry_clears_firing_action_before_target() {
         let before = sim.scenario_rng.logical_state();
         sim.uninit_with_rules(2, &rules);
         let listener = sim.substrate.entities.get(1).unwrap();
-        assert!(listener.attack_target.is_none());
+        assert!(listener.attack_target.target().is_none());
         assert_eq!(listener.infantry_sprite_pose().unwrap().0, expected_doing);
         let leaf = listener.mission_leaf.as_infantry().unwrap();
         assert_eq!(leaf.firing_sequence_latch(), 0);
@@ -3952,15 +3950,11 @@ fn expiring_mixed_size_passenger_updates_transport_total_exactly() {
     let mut cargo = PassengerCargo::new(5, 0);
     cargo.board_forced(2, 3);
     cargo.board_forced(3, 1);
-    sim.substrate.entities.get_mut(1).unwrap().passenger_role = PassengerRole::Transport { cargo };
-    sim.substrate.entities.get_mut(2).unwrap().passenger_role = PassengerRole::Inside {
-        transport_id: 1,
-        open_topped: false,
-    };
-    sim.substrate.entities.get_mut(3).unwrap().passenger_role = PassengerRole::Inside {
-        transport_id: 1,
-        open_topped: false,
-    };
+    sim.substrate.entities.get_mut(1).unwrap().passenger_role = PassengerRole::transport(cargo);
+    sim.substrate.entities.get_mut(2).unwrap().passenger_role =
+        PassengerRole::inside_for_test(1, false);
+    sim.substrate.entities.get_mut(3).unwrap().passenger_role =
+        PassengerRole::inside_for_test(1, false);
 
     sim.uninit(2);
 
@@ -3972,9 +3966,9 @@ fn expiring_mixed_size_passenger_updates_transport_total_exactly() {
         .passenger_role
         .cargo()
         .unwrap();
-    assert_eq!(cargo.passengers, vec![3]);
-    assert_eq!(cargo.passenger_sizes, vec![1]);
-    assert_eq!(cargo.total_size, 1);
+    assert_eq!(cargo.passengers(), vec![3]);
+    assert_eq!(cargo.passenger_sizes(), vec![1]);
+    assert_eq!(cargo.total_size(), 1);
 }
 
 #[test]
@@ -5231,7 +5225,8 @@ fn gsi_05_02_mixed_fixture() -> (Simulation, [u64; 6]) {
         .entities
         .get_mut(entity_id)
         .unwrap()
-        .attack_target = Some(AttackTarget::for_cell(1, 0));
+        .attack_target
+        .set_for_test(Some(TargetKind::Cell(1, 0)));
     sim.register_live_object(entity_id);
 
     let anim_id = sim.allocate_stable_id();
@@ -5980,10 +5975,7 @@ fn gsi_05_04_combat_fatal_garrison_recursion_keeps_cell_target() {
     {
         let passenger = sim.substrate.entities.get_mut(passenger_id).unwrap();
         passenger.set_type_ref_for_test(passenger_type);
-        passenger.passenger_role = PassengerRole::Inside {
-            transport_id: building_id,
-            open_topped: false,
-        };
+        passenger.passenger_role = PassengerRole::inside_for_test(building_id, false);
     }
     {
         let building = sim.substrate.entities.get_mut(building_id).unwrap();
@@ -5992,7 +5984,7 @@ fn gsi_05_04_combat_fatal_garrison_recursion_keeps_cell_target() {
         building.health.set_for_test(10);
         let mut cargo = PassengerCargo::new(5, 1);
         assert!(cargo.board(passenger_id, 1));
-        building.passenger_role = PassengerRole::Transport { cargo };
+        building.passenger_role = PassengerRole::transport(cargo);
     }
     assert!(matches!(
         sim.try_reveal_entity_with_context(
@@ -6473,7 +6465,9 @@ fn wave_pointer_expiry_target_survives_dying_then_uninit_starts_decay_tail() {
         let owner = sim.substrate.entities.get_mut(owner_id).unwrap();
         owner.position.rx = 0;
         owner.position.ry = 0;
-        owner.attack_target = Some(AttackTarget::new(target_id));
+        owner
+            .attack_target
+            .set_for_test(Some(TargetKind::Entity(target_id)));
     }
     {
         let target = sim.substrate.entities.get_mut(target_id).unwrap();
@@ -6535,7 +6529,9 @@ fn wave_pointer_expiry_owner_allows_dying_damage_then_uninit_nulls_later_calls()
         owner.set_type_ref_for_test(sim.interner.intern("FIRER"));
         owner.health.set_for_test(0);
         owner.dying = true;
-        owner.attack_target = Some(AttackTarget::for_cell(4, 5));
+        owner
+            .attack_target
+            .set_for_test(Some(TargetKind::Cell(4, 5)));
     }
     let receiver_id = sim.allocate_stable_id();
     insert_entity(&mut sim, receiver_id, EntityCategory::Unit);
@@ -6629,7 +6625,8 @@ fn wave_pointer_expiry_ignores_unrelated_object_and_preserves_owner_link() {
         .entities
         .get_mut(owner_id)
         .unwrap()
-        .attack_target = Some(AttackTarget::new(target_id));
+        .attack_target
+        .set_for_test(Some(TargetKind::Entity(target_id)));
     let wave_id = sim.allocate_stable_id();
     sim.admit_wave(
         wave_id,
@@ -6791,9 +6788,8 @@ fn gsi_01_05_terminal_wave_damages_once_before_single_current_removal() {
         .entities
         .get_mut(firer_id)
         .unwrap()
-        .attack_target = Some(AttackTarget {
-        target: TargetKind::Entity(victim_id),
-    });
+        .attack_target
+        .set_for_test(Some(TargetKind::Entity(victim_id)));
     let mut wave = Wave::new_owned(
         0,
         firer_id,
@@ -6874,9 +6870,9 @@ fn terminal_type_zero_wave_with_empty_recorded_vector_has_no_damage_area_tail() 
     {
         let firer = sim.substrate.entities.get_mut(firer_id).unwrap();
         firer.set_type_ref_for_test(sim.interner.intern("FIRER"));
-        firer.attack_target = Some(AttackTarget {
-            target: TargetKind::Cell(4, 5),
-        });
+        firer
+            .attack_target
+            .set_for_test(Some(TargetKind::Cell(4, 5)));
     }
     let wave_id = sim.allocate_stable_id();
     let mut wave = Wave::new_owned(
@@ -6966,9 +6962,9 @@ fn wave_elite_ambient_damage_carries_within_cell_and_resets_on_next_cell() {
         let firer = sim.substrate.entities.get_mut(firer_id).unwrap();
         firer.set_type_ref_for_test(sim.interner.intern("FIRER"));
         firer.veterancy.set_rank_for_test(200);
-        firer.attack_target = Some(AttackTarget {
-            target: TargetKind::Entity(next_id),
-        });
+        firer
+            .attack_target
+            .set_for_test(Some(TargetKind::Entity(next_id)));
     }
 
     let wave_id = sim.allocate_stable_id();
@@ -7099,9 +7095,9 @@ fn wave_shared_damage_passes_a_unit_inside_its_war_factory() {
     {
         let firer = sim.substrate.entities.get_mut(firer_id).unwrap();
         firer.set_type_ref_for_test(sim.interner.intern("FIRER"));
-        firer.attack_target = Some(AttackTarget {
-            target: TargetKind::Entity(second_id),
-        });
+        firer
+            .attack_target
+            .set_for_test(Some(TargetKind::Entity(second_id)));
     }
     let wave_id = sim.allocate_stable_id();
     let mut wave = Wave::new_owned(
@@ -7185,9 +7181,9 @@ fn wave_walks_nonbuilding_terrain_building_order_and_terrain_owns_wood_gate() {
         {
             let firer = sim.substrate.entities.get_mut(firer_id).unwrap();
             firer.set_type_ref_for_test(sim.interner.intern("FIRER"));
-            firer.attack_target = Some(AttackTarget {
-                target: TargetKind::Entity(building_id),
-            });
+            firer
+                .attack_target
+                .set_for_test(Some(TargetKind::Entity(building_id)));
         }
         let wave_id = sim.allocate_stable_id();
         let mut wave = Wave::new_owned(
@@ -7273,9 +7269,9 @@ fn wave_tail_consumes_wall_roll_before_mandatory_cliff_chance_roll() {
     {
         let firer = sim.substrate.entities.get_mut(firer_id).unwrap();
         firer.set_type_ref_for_test(sim.interner.intern("FIRER"));
-        firer.attack_target = Some(AttackTarget {
-            target: TargetKind::Cell(4, 1),
-        });
+        firer
+            .attack_target
+            .set_for_test(Some(TargetKind::Cell(4, 1)));
     }
 
     let mut cells = Vec::new();
@@ -7413,7 +7409,9 @@ fn assert_direct_fatal_death_weapon_starts_crater(bridge: bool) {
         insert_entity(&mut sim, firer_id, EntityCategory::Unit);
         let firer = sim.substrate.entities.get_mut(firer_id).unwrap();
         firer.set_type_ref_for_test(sim.interner.intern("FIRER"));
-        firer.attack_target = Some(AttackTarget::new(victim_id));
+        firer
+            .attack_target
+            .set_for_test(Some(TargetKind::Entity(victim_id)));
         let wave_id = sim.allocate_stable_id();
         let mut wave = Wave::new_owned(
             0,
@@ -7490,9 +7488,9 @@ fn wave_cliff_collapse_consumes_exact_body_rng_and_spawns_row_major_anims() {
     {
         let firer = sim.substrate.entities.get_mut(firer_id).unwrap();
         firer.set_type_ref_for_test(sim.interner.intern("FIRER"));
-        firer.attack_target = Some(AttackTarget {
-            target: TargetKind::Cell(4, 1),
-        });
+        firer
+            .attack_target
+            .set_for_test(Some(TargetKind::Cell(4, 1)));
     }
     let mut cells = Vec::new();
     for ry in 0..16 {
@@ -7725,6 +7723,7 @@ fn wave_cliff_collapse_consumes_exact_body_rng_and_spawns_row_major_anims() {
             .get(firer_id)
             .unwrap()
             .attack_target
+            .target()
             .is_none()
     );
 
@@ -7829,9 +7828,8 @@ fn gsi_01_05_wave_reselects_live_cell_list_after_fatal_receiver_unmark() {
         .entities
         .get_mut(firer_id)
         .unwrap()
-        .attack_target = Some(AttackTarget {
-        target: TargetKind::Entity(building_id),
-    });
+        .attack_target
+        .set_for_test(Some(TargetKind::Entity(building_id)));
     let mut wave = Wave::new_owned(
         0,
         firer_id,
@@ -7974,7 +7972,9 @@ fn detach_sweep_restores_before_clearing_target_in_descending_id_order() {
 
     for attacker in [1, 2] {
         let entity = sim.substrate.entities.get_mut(attacker).unwrap();
-        entity.attack_target = Some(AttackTarget::new(3));
+        entity
+            .attack_target
+            .set_for_test(Some(TargetKind::Entity(3)));
         entity.suspended_attack_target = Some(TargetKind::Entity(4));
         entity.navigation.nav_com = None;
         entity.navigation.suspended_nav_com = Some(NavTargetRef::Cell { rx: 7, ry: 8 });
@@ -8001,7 +8001,7 @@ fn detach_sweep_restores_before_clearing_target_in_descending_id_order() {
         // Restore-then-clear: the archived target is reinstalled and the
         // null-out is skipped because it no longer matches the detaching object.
         assert_eq!(
-            entity.attack_target.as_ref().map(|target| target.target),
+            entity.attack_target.target(),
             Some(TargetKind::Entity(4)),
             "attacker {attacker} kept the target the Restore installed"
         );
@@ -8043,7 +8043,9 @@ fn detach_sweep_clears_target_when_no_mission_was_suspended() {
     insert_entity(&mut sim, 2, EntityCategory::Structure);
 
     let attacker = sim.substrate.entities.get_mut(1).unwrap();
-    attacker.attack_target = Some(AttackTarget::new(2));
+    attacker
+        .attack_target
+        .set_for_test(Some(TargetKind::Entity(2)));
     attacker.passively_acquired_target = true;
     attacker
         .mission
@@ -8053,7 +8055,7 @@ fn detach_sweep_clears_target_when_no_mission_was_suspended() {
     sim.stop_all_targeting_on_detach(2, None, None, crate::sim::world::FrameEffects::default());
 
     let attacker = sim.substrate.entities.get(1).unwrap();
-    assert!(attacker.attack_target.is_none());
+    assert!(attacker.attack_target.target().is_none());
     assert!(!attacker.passively_acquired_target);
     assert_eq!(
         attacker.mission.current(),
@@ -8082,7 +8084,9 @@ fn detach_sweep_never_matches_a_cell_target() {
     insert_entity(&mut sim, 2, EntityCategory::Structure);
 
     let attacker = sim.substrate.entities.get_mut(1).unwrap();
-    attacker.attack_target = Some(AttackTarget::for_cell(9, 11));
+    attacker
+        .attack_target
+        .set_for_test(Some(TargetKind::Cell(9, 11)));
     attacker.mission.apply_test_fixture(attack_fixture(
         MissionType::Attack,
         MissionId::from_known(MissionType::Move),
@@ -8092,7 +8096,7 @@ fn detach_sweep_never_matches_a_cell_target() {
 
     let attacker = sim.substrate.entities.get(1).unwrap();
     assert_eq!(
-        attacker.attack_target.as_ref().map(|target| target.target),
+        attacker.attack_target.target(),
         Some(TargetKind::Cell(9, 11))
     );
     assert_eq!(
@@ -8108,7 +8112,9 @@ fn bridge_cell_success_restores_before_conditional_target_clear() {
     insert_entity(&mut sim, 1, EntityCategory::Infantry);
     insert_entity(&mut sim, 2, EntityCategory::Unit);
     let attacker = sim.substrate.entities.get_mut(1).unwrap();
-    attacker.attack_target = Some(AttackTarget::for_cell(9, 11));
+    attacker
+        .attack_target
+        .set_for_test(Some(TargetKind::Cell(9, 11)));
     attacker.suspended_attack_target = Some(TargetKind::Entity(2));
     attacker.navigation.suspended_nav_com = Some(NavTargetRef::Cell { rx: 7, ry: 8 });
     attacker.mission.apply_test_fixture(attack_fixture(
@@ -8123,10 +8129,7 @@ fn bridge_cell_success_restores_before_conditional_target_clear() {
         crate::sim::world::FrameEffects::default(),
     );
     let attacker = sim.substrate.entities.get(1).unwrap();
-    assert_eq!(
-        attacker.attack_target.as_ref().map(|target| target.target),
-        Some(TargetKind::Entity(2))
-    );
+    assert_eq!(attacker.attack_target.target(), Some(TargetKind::Entity(2)));
     assert_eq!(
         attacker.navigation.nav_com,
         Some(NavTargetRef::Cell { rx: 7, ry: 8 })

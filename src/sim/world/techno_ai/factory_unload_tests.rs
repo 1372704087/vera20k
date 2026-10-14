@@ -410,7 +410,7 @@ fn actor_input(actor: &mut GameEntity, native: &Value) {
         );
     }
     assert_eq!(native["target"], "0x0");
-    actor.attack_target = None;
+    actor.attack_target.set_for_test(None);
     actor.mission.apply_test_fixture(MissionTestFixture {
         current: MissionId::from_raw(int(&native["mission"])),
         suspended: MissionId::NONE,

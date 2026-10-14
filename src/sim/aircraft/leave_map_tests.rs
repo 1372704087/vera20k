@@ -9,7 +9,7 @@ use crate::map::entities::EntityCategory;
 use crate::map::playfield::PlayfieldBounds;
 use crate::rules::ini_parser::IniFile;
 use crate::rules::ruleset::RuleSet;
-use crate::sim::combat::AttackTarget;
+use crate::sim::combat::TargetKind;
 use crate::sim::game_entity::GameEntity;
 use crate::sim::mission::state::MissionTestFixture;
 use crate::sim::mission::{MissionDispatchTimer, MissionId};
@@ -63,7 +63,9 @@ fn world(row: &Value) -> Simulation {
     plane.position.sub_y = SimFixed::from_num(128);
     plane.position.exact_z_leptons = Some(1500);
     if flag(row, "target") {
-        plane.attack_target = Some(AttackTarget::for_cell(40, 40));
+        plane
+            .attack_target
+            .set_for_test(Some(TargetKind::Cell(40, 40)));
     }
     plane.mission.apply_test_fixture(MissionTestFixture {
         current: MissionId::from_raw(int(&row["current"])),

@@ -242,7 +242,7 @@ fn supply_step(sim: &mut Simulation, rules: &RuleSet, input: &Value) {
 fn assert_state(sim: &Simulation, state: &Value, label: &str) {
     use crate::sim::combat::TargetKind;
     let source = sim.substrate.entities.get(1).unwrap();
-    let name = match source.attack_target.as_ref().map(|a| a.target) {
+    let name = match source.attack_target.target() {
         None => "null",
         Some(TargetKind::Entity(1)) => "source",
         Some(TargetKind::Entity(2)) => "target",
@@ -614,6 +614,7 @@ pub(super) fn retail_hills_collapsed_scene(
                 .get(source)
                 .unwrap()
                 .attack_target
+                .target()
                 .is_none()
         );
         assert!(
@@ -692,6 +693,7 @@ pub(super) fn retail_hills_collapsed_scene(
                 .get(source)
                 .unwrap()
                 .attack_target
+                .target()
                 .is_none()
         );
         std::mem::swap(&mut runtime.simulation, &mut first);

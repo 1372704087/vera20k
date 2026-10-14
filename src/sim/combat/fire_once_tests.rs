@@ -116,10 +116,12 @@ fn fixture(row: &Value, rules: &RuleSet) -> (Simulation, Vec<u64>, [u64; 2], Opt
                 integer(&before["dispatch_timer"][2]),
             );
             actor.rearm_timer = timer(&before["rearm_timer"]);
-            actor.attack_target = target(&before["target"], targets).map(|value| match value {
-                TargetKind::Entity(id) => AttackTarget::new(id),
-                _ => unreachable!(),
-            });
+            actor
+                .attack_target
+                .set_for_test(target(&before["target"], targets).map(|value| match value {
+                    TargetKind::Entity(id) => TargetKind::Entity(id),
+                    _ => unreachable!(),
+                }));
             actor.set_archive_target(target(&before["archive"], targets));
             actor.navigation.nav_com = target(&before["destination"], targets).map(|value| {
                 let TargetKind::Entity(id) = value else {
@@ -213,10 +215,7 @@ fn assert_boundary(
     {
         let actor = sim.substrate.entities.get(id).unwrap();
         assert_eq!(
-            label(
-                actor.attack_target.as_ref().map(|target| target.target),
-                targets
-            ),
+            label(actor.attack_target.target(), targets),
             after["target"],
             "{name}: target"
         );

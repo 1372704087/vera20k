@@ -1379,7 +1379,10 @@ fn cancelled_constructor_building_runs_shared_destructor_without_uninit() {
         }
         if let Some(observer) = observer {
             let actor = sim.substrate.entities.get(observer).unwrap();
-            assert!(actor.attack_target.is_none(), "43BD67 expiry clears Target");
+            assert!(
+                actor.attack_target.target().is_none(),
+                "43BD67 expiry clears Target"
+            );
             assert_eq!(
                 [
                     i64::from(actor.passive_scan_timer.start_frame),

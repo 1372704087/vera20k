@@ -592,7 +592,7 @@ fn mission_guard(sim: &mut Simulation, id: u64, rules: &RuleSet, ctx: ObjectAiCt
                 .passenger_role
                 .cargo()
                 .is_none_or(|cargo| cargo.is_empty());
-        let has_target = entity.attack_target.is_some();
+        let has_target = entity.attack_target.target().is_some();
         if let Some(entity) = sim.substrate.entities.get_mut(id) {
             // `0x00449701`.
             entity.mission_leaf.set_building_ready_latch(1);
@@ -712,7 +712,7 @@ fn mission_attack(
 /// answering the target and weapon.
 fn attack_prelude(sim: &mut Simulation, id: u64, rules: &RuleSet) -> Option<(TargetKind, i32)> {
     let entity = sim.substrate.entities.get(id)?;
-    let Some(target) = entity.attack_target.as_ref().map(|attack| attack.target) else {
+    let Some(target) = entity.attack_target.target() else {
         let _ = sim.assign_target_represented(
             id,
             None,
@@ -1184,7 +1184,7 @@ pub(super) fn process_delayed_fire(
     entity.pending_building_fire = None;
     match fire {
         DelayedFire::Weapon(slot) => {
-            let Some(target) = entity.attack_target.as_ref().map(|attack| attack.target) else {
+            let Some(target) = entity.attack_target.target() else {
                 return;
             };
             let weapon = match slot {
@@ -1306,7 +1306,7 @@ pub(super) fn range_drop(sim: &mut Simulation, id: u64, rules: &RuleSet, ctx: Ob
     if entity.dying || entity.health.current() == 0 {
         return;
     }
-    let Some(target) = entity.attack_target.as_ref().map(|attack| attack.target) else {
+    let Some(target) = entity.attack_target.target() else {
         return;
     };
     let weapon = select_weapon(sim, rules, id, Some(target));
@@ -1418,7 +1418,7 @@ impl Simulation {
             .substrate
             .entities
             .get(id)
-            .is_some_and(|entity| entity.attack_target.is_some())
+            .is_some_and(|entity| entity.attack_target.target().is_some())
         {
             let _ = mission_attack(self, id, rules, ctx, &mut false);
         }

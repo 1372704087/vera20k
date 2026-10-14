@@ -1162,7 +1162,7 @@ pub(super) mod retail_tests {
             last_location = Some(position_world_coord(&entity.position));
             let targeted = flak.iter().any(|&id| {
                 sim.substrate.entities.get(id).is_some_and(|flak| {
-                    flak.attack_target.as_ref().map(|attack| attack.target)
+                    flak.attack_target.target()
                         == Some(crate::sim::combat::TargetKind::Entity(missile))
                 })
             });
@@ -1188,7 +1188,7 @@ pub(super) mod retail_tests {
                         .substrate
                         .entities
                         .get(id)
-                        .is_none_or(|flak| flak.attack_target.is_none())),
+                        .is_none_or(|flak| flak.attack_target.target().is_none())),
                     "Crash's Detach_All drops the rocket from every Flak Track"
                 );
             }

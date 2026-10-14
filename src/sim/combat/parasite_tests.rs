@@ -5,9 +5,7 @@
 
 use crate::map::entities::EntityCategory;
 use crate::rules::{ini_parser::IniFile, ruleset::RuleSet};
-use crate::sim::combat::{
-    AttackTarget, EntityDamageEvent, RAD_NO_ATTACKER, ReceiverCallFlags, TargetKind,
-};
+use crate::sim::combat::{EntityDamageEvent, RAD_NO_ATTACKER, ReceiverCallFlags, TargetKind};
 use crate::sim::command::{Command, CommandEnvelope};
 use crate::sim::pathfinding::PathGrid;
 use crate::sim::world::Simulation;
@@ -551,7 +549,8 @@ fn a_sonic_hit_ejects_the_drone_alive_beside_its_host_and_drops_the_shooter_targ
         .entities
         .get_mut(dolphin)
         .unwrap()
-        .attack_target = Some(AttackTarget::new(tank));
+        .attack_target
+        .set_for_test(Some(TargetKind::Entity(tank)));
     arena
         .sim
         .substrate
@@ -595,6 +594,7 @@ fn a_sonic_hit_ejects_the_drone_alive_beside_its_host_and_drops_the_shooter_targ
             .get(dolphin)
             .unwrap()
             .attack_target
+            .target()
             .is_none()
     );
 }
@@ -995,7 +995,7 @@ fn a_parasite_order_on_an_iron_curtained_host_is_dropped() {
         sim.substrate
             .entities
             .get(drone)
-            .is_some_and(|d| d.attack_target.is_none() && sim.session.tick > 2)
+            .is_some_and(|d| d.attack_target.target().is_none() && sim.session.tick > 2)
     });
     assert!(!arena.in_limbo(drone));
     assert_eq!(arena.eater_of(tank), None);

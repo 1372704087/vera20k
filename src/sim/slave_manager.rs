@@ -1102,7 +1102,7 @@ impl Simulation {
         rules: &RuleSet,
     ) -> Option<(u16, u16)> {
         use crate::sim::find_nearby_cell::{
-            NearbyAnchorGate, NearbyFootprint, NearbyQuery, NearbySearchOptions, PassabilityArgs,
+            NearbyFootprint, NearbyQuery, NearbySearchOptions, PassabilityArgs,
             find_nearby_passable_cell_with_options, map_owned_radius_cap,
         };
         let owner = self.substrate.entities.get(master)?;
@@ -1144,7 +1144,6 @@ impl Simulation {
                     bridge_aware_zone: search.bridge_aware,
                 },
                 footprint: NearbyFootprint::new(search.footprint.0, search.footprint.1),
-                anchor_gate: NearbyAnchorGate::NativeHeightAware,
                 allow_bridge_cells: search.allow_bridge_cells,
                 check_height: search.check_height,
                 check_occupancy: search.check_occupancy,

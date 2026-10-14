@@ -347,9 +347,10 @@ pub(super) fn place_unit_crate(
     center: DriveCoord,
     frame_effects: FrameEffects<'_>,
 ) -> UnitCrateOutcome {
+    use crate::rules::locomotor_type::MovementZone;
     use crate::sim::find_nearby_cell::{
-        NearbyAnchorGate, NearbyFootprint, NearbyQuery, NearbySearchOptions, PassabilityArgs,
-        RADIUS_HARD_CAP, find_nearby_passable_cell_with_options,
+        NearbyFootprint, NearbyQuery, PassabilityArgs, find_nearby_passable_cell,
+        map_owned_radius_cap,
     };
     use crate::sim::world::PlacementEvidence;
     let (Ok(rx), Ok(ry)) = (u16::try_from(cell.0), u16::try_from(cell.1)) else {
@@ -379,23 +380,26 @@ pub(super) fn place_unit_crate(
     let nearby = rules
         .object_in_category(ObjectCategory::Vehicle, type_id)
         .and_then(|object| {
-            // `(cell, SpeedType, -1, 0, 0, 1, 1, 0, 0, 0, 1, &0, 0, 0)`: the
-            // free-unit query shape, bridge cells refused, the level gate on.
+            // `0x0048231E..0x00482366` push `(cell, Type+0x67C, -1, 0, 0, 1,
+            // 1, 0, 0, 0, 1, &0, 0, 0)`: the type's SpeedType, zone -1,
+            // MovementZone Normal, not bridge-aware, 1x1, no overlay
+            // rejection, no height or obstacle gate, bridge cells allowed, a
+            // zero target cell, no quadrant skip, no final occupancy check.
+            let (width, height) = sim.map_size_diamond()?;
             let query = NearbyQuery {
                 native_cells: None,
-                raw_occupation: None,
+                raw_occupation: Some(&sim.substrate.raw_cell_occupation),
                 passability: PassabilityArgs {
                     speed_type: object.speed_type,
                     required_zone_id: None,
-                    movement_zone: object.movement_zone,
+                    movement_zone: MovementZone::Normal,
                     bridge_aware_zone: false,
                 },
                 footprint: NearbyFootprint::SINGLE,
-                anchor_gate: NearbyAnchorGate::UnverifiedCompatibilityBypass,
-                allow_bridge_cells: false,
-                check_height: true,
+                allow_bridge_cells: true,
+                check_height: false,
                 check_occupancy: false,
-                radius_cap: RADIUS_HARD_CAP,
+                radius_cap: map_owned_radius_cap(width, height),
                 target_cell: None,
                 path_grid: sim.path_grid(),
                 resolved_terrain: sim.resolved_terrain.as_ref(),
@@ -405,10 +409,9 @@ pub(super) fn place_unit_crate(
                 zone_grid: sim.zone_grid.as_ref(),
                 playfield_bounds: sim.playfield_bounds,
             };
-            find_nearby_passable_cell_with_options(
+            find_nearby_passable_cell(
                 (i32::from(rx), i32::from(ry)),
                 &query,
-                NearbySearchOptions::default(),
                 sim.session.binary_frame,
             )
         });

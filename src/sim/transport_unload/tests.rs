@@ -670,6 +670,43 @@ fn hover_transport_on_water_moves_to_shore_before_unloading() {
     }
 }
 
+/// The water-to-land pre-move pushes no height gate (`0x0073D782`): a bank
+/// two levels above the water still answers Find_Nearby_Passable_Cell, so the
+/// landing craft is sent to it instead of waiting on the water.
+#[test]
+fn hover_transport_on_water_is_sent_to_a_raised_bank() {
+    let mut fx = Fixture::new(|rx, _| rx < 25);
+    let terrain = fx.sim.resolved_terrain.as_mut().unwrap();
+    for y in 0..MAP {
+        for x in 25..MAP {
+            terrain.cell_mut(x, y).unwrap().level = 2;
+        }
+    }
+    let lcrf = fx.spawn("LCRF", 20, 20, 0x40);
+    fx.board(lcrf, 2);
+    assert!(fx.apply(Command::UnloadPassengers { transport_id: lcrf }));
+
+    let mut sent = None;
+    for _ in 0..10 {
+        fx.tick();
+        sent = fx
+            .sim
+            .substrate
+            .entities
+            .get(lcrf)
+            .unwrap()
+            .navigation
+            .nav_com;
+        if sent.is_some() {
+            break;
+        }
+    }
+    assert!(
+        matches!(sent, Some(crate::sim::components::NavTargetRef::Cell { rx, .. }) if rx >= 25),
+        "sent to the raised bank: {sent:?}"
+    );
+}
+
 /// A Move order re-assigns the mission and interrupts the unload.
 #[test]
 fn move_order_cancels_a_running_unload() {
@@ -954,12 +991,10 @@ fn relaxed_pass_drives_vehicle_passenger_to_the_fnpc_cell() {
     // so the state-3 scan starts at octant 5; the strict pass fails
     // everywhere (ring two is water) and the relaxed restart accepts octant
     // 6 (W), exit cell (19, 20). The FNPC expectation is taken now, with the
-    // passenger still in limbo, exactly as the handler sees it.
+    // passenger still in limbo, exactly as the handler sees it: the free exit
+    // cell passes every argument, so ring 0 answers it.
     let exit = (19u16, 20u16);
-    let expected = {
-        let pax = fx.sim.substrate.entities.get(bggy).expect("passenger");
-        super::find_nearby_passable_for(&fx.sim, &fx.rules, pax, exit, None).expect("FNPC result")
-    };
+    let expected = exit;
     let spawn_elevation = fx
         .sim
         .substrate

@@ -1299,7 +1299,7 @@ impl Simulation {
         footprint: (i32, i32),
     ) -> Option<(u16, u16)> {
         use crate::sim::find_nearby_cell::{
-            NearbyAnchorGate, NearbyFootprint, NearbyQuery, NearbySearchOptions, PassabilityArgs,
+            NearbyFootprint, NearbyQuery, NearbySearchOptions, PassabilityArgs,
             find_nearby_passable_cell_with_options, map_owned_radius_cap,
         };
         let terrain = self.resolved_terrain.as_ref()?;
@@ -1321,7 +1321,6 @@ impl Simulation {
                     bridge_aware_zone: false,
                 },
                 footprint: NearbyFootprint::new(footprint.0, footprint.1),
-                anchor_gate: NearbyAnchorGate::NativeHeightAware,
                 allow_bridge_cells: true,
                 check_height: false,
                 check_occupancy: false,

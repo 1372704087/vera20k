@@ -492,8 +492,8 @@ impl Simulation {
     ) -> bool {
         use crate::rules::locomotor_type::{MovementZone, SpeedType};
         use crate::sim::find_nearby_cell::{
-            NearbyAnchorGate, NearbyFootprint, NearbyQuery, PassabilityArgs,
-            find_nearby_passable_cell, map_owned_radius_cap,
+            NearbyFootprint, NearbyQuery, PassabilityArgs, find_nearby_passable_cell,
+            map_owned_radius_cap,
         };
         let Some(rules) = rules else {
             return false;
@@ -517,7 +517,6 @@ impl Simulation {
                     bridge_aware_zone: false,
                 },
                 footprint: NearbyFootprint::SINGLE,
-                anchor_gate: NearbyAnchorGate::NativeHeightAware,
                 allow_bridge_cells: true,
                 check_height: false,
                 check_occupancy: false,

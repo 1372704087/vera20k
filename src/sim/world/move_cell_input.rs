@@ -14,8 +14,7 @@ use crate::sim::cell_rect::{PlayfieldBounds, cell_is_in_playfield_height_aware_i
 use crate::sim::combat::TargetKind;
 use crate::sim::components::{DriveCoord, NavTargetRef};
 use crate::sim::find_nearby_cell::{
-    NearbyAnchorGate, NearbyFootprint, NearbyQuery, PassabilityArgs, find_nearby_passable_cell,
-    map_owned_radius_cap,
+    NearbyFootprint, NearbyQuery, PassabilityArgs, find_nearby_passable_cell, map_owned_radius_cap,
 };
 use crate::sim::intern::InternedId;
 use crate::sim::movement::ground_pose;
@@ -632,7 +631,6 @@ impl ClickMap<'_> {
                     bridge_aware_zone: bridge,
                 },
                 footprint: NearbyFootprint::SINGLE,
-                anchor_gate: NearbyAnchorGate::NativeHeightAware,
                 allow_bridge_cells: true,
                 check_height: true,
                 check_occupancy: false,

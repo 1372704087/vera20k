@@ -1058,7 +1058,7 @@ const STAGING_MIN_CELLS: i32 = 3;
 fn refinery_staging_cell(sim: &Simulation, rules: &RuleSet, bay: u64) -> Option<(u16, u16)> {
     use crate::rules::locomotor_type::SpeedType;
     use crate::sim::find_nearby_cell::{
-        NearbyAnchorGate, NearbyFootprint, NearbyQuery, PassabilityArgs, find_nearby_passable_cell,
+        NearbyFootprint, NearbyQuery, PassabilityArgs, find_nearby_passable_cell,
         map_owned_radius_cap,
     };
     let building = sim.substrate.entities.get(bay)?;
@@ -1086,7 +1086,6 @@ fn refinery_staging_cell(sim: &Simulation, rules: &RuleSet, bay: u64) -> Option<
                 bridge_aware_zone: false,
             },
             footprint: NearbyFootprint::SINGLE,
-            anchor_gate: NearbyAnchorGate::NativeHeightAware,
             allow_bridge_cells: true,
             check_height: false,
             check_occupancy: false,

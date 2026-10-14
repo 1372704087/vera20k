@@ -837,7 +837,7 @@ mod tests {
 // 0x00AC13C8; its two derived globals, 2x for the flight threshold and 4x
 // for the 416-lepton deck offset, are already pinned in `util::lepton`.
 // VERA instead passes the mover's raw layer as `start_layer` and the goal
-// cell's own bridge flag as `goal_layer` (`movement_path::goal_zone_layer`,
+// cell's own bridge flag as `goal_layer` (`zone_search::admit_zone_search`,
 // `zone_map::ZoneGrid::can_reach`).
 //
 // Trigger: a reachability query by a ground unit whose destination ground
@@ -846,10 +846,10 @@ mod tests {
 // yet on a bridge to a cell on the deck, or a unit on the deck to a cell
 // up on the bank.
 //
-// Effect: the zone id is looked up on the wrong layer, so a move order
-// across a bridge can be judged unreachable and substituted with a nearby
-// cell, or judged reachable and pathed on the wrong layer. It moves where
-// the unit ends up, not whether it renders on the deck.
+// Effect: the zone id is looked up on the wrong layer, so a move across a
+// bridge can be judged unreachable, or judged reachable and pathed on the
+// wrong layer. It moves where the unit ends up, not whether it renders on
+// the deck.
 //
 // Frequency: `FootClass::Locomotion_AI` is a per-tick caller, so this is
 // per tick per moving ground unit whose destination sits four or more
@@ -858,10 +858,10 @@ mod tests {
 // every cell crossing; the real one is lower than that but not by much,
 // and it lands on a different system.
 //
-// Blocker: the layer arguments are threaded through every move-order
-// caller as `MovementLayer`, and this needs the mover's location and its
-// destination coordinate at the same point, in leptons, to compute two
-// `GetGroundHeight`s. That is a signature change across the order path,
-// not a change here.
+// Blocker: the one production search (`FootPathRequest::search`) passes
+// the mover's current layer as `start_layer`, and this needs the mover's
+// location and its destination coordinate at the same point, in leptons,
+// to compute two `GetGroundHeight`s. That is a signature change along the
+// Foot search, not a change here.
 // Residual (formerly an ignored placeholder test): gamemd 0x005F6A70 adjusts the reachability on-bridge layer by destination ground height; VERA passes the raw mover layer.
 // Unimplemented: destination-height on-bridge layer for Can_Reach_Zone 0x0056D100.

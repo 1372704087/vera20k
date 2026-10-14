@@ -1326,20 +1326,13 @@ mod tests {
     }
 
     #[test]
-    fn gsi_04_15_detached_tube_mover_is_absent_from_both_blocker_snapshots() {
+    fn gsi_04_15_detached_tube_mover_is_absent_from_the_blocker_plane() {
         let mut entities = EntityStore::new();
         let mut mover = GameEntity::test_default(7, "MTNK", "Americans", 2, 2);
         mover.lifecycle.in_limbo = false;
         mover.lifecycle.cell_marked = false;
         entities.insert(mover);
         let interner = crate::sim::intern::test_interner();
-        let alliances = crate::map::houses::HouseAllianceMap::new();
-
-        let (ground, dynamic) = super::super::block_index::build_owner_block_set(
-            &entities, None, "Russians", &alliances, &interner, None,
-        );
-        assert!(ground.is_empty());
-        assert!(!dynamic.contains_any(&(2, 2)));
 
         let counts = build_blocker_neighbor_counts_with_overlays(
             &entities, 5, 5, None, None, &interner, None,

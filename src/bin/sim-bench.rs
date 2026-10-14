@@ -7,9 +7,8 @@
 //! each `SimRuntime` frame and prints the distribution.
 //!
 //! `--queue-at T` also gives every object a queued attack-move back home from
-//! tick T, spread like the first orders. A Walk mover already under way
-//! searches its path when such an order is given, so this exercises the
-//! order-time path search (owner block sets and blocker plane) at scale.
+//! tick T, spread like the first orders, so movers already under way take a
+//! new destination at scale.
 //!
 //! The run is deterministic for a given map, seed and arguments: the final
 //! `Simulation::state_hash` (and the optional periodic hashes, taken outside

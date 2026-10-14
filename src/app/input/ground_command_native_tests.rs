@@ -1,7 +1,7 @@
 //! Original MTNK input/Event/class comparisons at the app/simulation boundary.
 //! Simulation fixture setup and native comparisons stay with their owners.
 
-use super::{ordinary_cell_move_goal, roundtrip_ordinary_local_megamission};
+use super::{MoveClick, ordinary_cell_move_goal, roundtrip_ordinary_local_megamission};
 use crate::rules::ruleset::RuleSet;
 use crate::sim::command::{Command, CommandEnvelope};
 use crate::sim::intern::InternedId;
@@ -15,7 +15,7 @@ fn produce_move(
     clicked: (u16, u16),
     shift: bool,
 ) -> CommandEnvelope {
-    let resolved = ordinary_cell_move_goal(sim, rules, owner, id, clicked, true, shift)
+    let resolved = ordinary_cell_move_goal(sim, rules, owner, id, clicked, MoveClick::Cell, shift)
         .expect("original input emits an ordinary Move");
     assert!(!resolved.queue, "native Shift still emits ordinary Move");
     let issued = CommandEnvelope::new(

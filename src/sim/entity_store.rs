@@ -77,9 +77,8 @@ pub struct EntityStore {
 /// Each reads its own log, so one reader's take leaves the others' intact.
 #[derive(Debug, Clone, Copy)]
 pub(crate) enum TouchReader {
-    /// The movement pass's owner block index, which passes on what it takes
-    /// to the blocker plane.
-    BlockIndex = 0,
+    /// The movement pass's kept blocker plane.
+    BlockerPlane = 0,
     /// The kept Ground display sort keys.
     GroundKeys = 1,
 }
@@ -399,12 +398,12 @@ mod tests {
             store.insert(make_entity(id));
         }
         // Nothing has been derived from a fresh store yet.
-        assert_eq!(store.take_touched(TouchReader::BlockIndex), Touched::All);
+        assert_eq!(store.take_touched(TouchReader::BlockerPlane), Touched::All);
         assert_eq!(store.take_touched(TouchReader::GroundKeys), Touched::All);
         store.get_mut(2).unwrap().position.rx += 1;
         drop(store.take_turn(3));
         assert_eq!(
-            store.take_touched(TouchReader::BlockIndex),
+            store.take_touched(TouchReader::BlockerPlane),
             Touched::Ids(vec![2, 3])
         );
         store.get_mut(1);
@@ -413,15 +412,15 @@ mod tests {
             Touched::Ids(vec![2, 3, 1])
         );
         assert_eq!(
-            store.take_touched(TouchReader::BlockIndex),
+            store.take_touched(TouchReader::BlockerPlane),
             Touched::Ids(vec![1])
         );
         let mut copy = store.clone();
         assert_eq!(copy.take_touched(TouchReader::GroundKeys), Touched::All);
-        assert_eq!(copy.take_touched(TouchReader::BlockIndex), Touched::All);
+        assert_eq!(copy.take_touched(TouchReader::BlockerPlane), Touched::All);
         let _ = store.values_mut().count();
         assert_eq!(store.take_touched(TouchReader::GroundKeys), Touched::All);
-        assert_eq!(store.take_touched(TouchReader::BlockIndex), Touched::All);
+        assert_eq!(store.take_touched(TouchReader::BlockerPlane), Touched::All);
     }
 
     #[test]

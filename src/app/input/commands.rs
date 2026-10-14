@@ -858,22 +858,42 @@ pub(crate) struct CellMoveGoal {
     pub(crate) queue: bool,
 }
 
-/// Cell-click producer only. The native4DE1D0 resolver precedes event
-/// encoding; synchronized/replay/internal Move payloads are already resolved.
-/// Original initialized GI and MTNK Shift0x10 still execute that resolver and
-/// emit ordinary MegaMission (111-byte Event)/Move2 -> class(Cell,1); neither
-/// appends a queued waypoint (Infantry51AA40, Unit741970).
-/// Native input/event/true-RET controls: walk_first_path.json `gi_reissue`.
+/// What a Move click is over. It picks the receiver's class What_Action and
+/// whether the Foot Cell query resolves the clicked Cell.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum MoveClick {
+    /// An ordinary Move click on a Cell.
+    Cell,
+    /// An attack-move click on a Cell.
+    AttackMoveCell,
+    /// A Move over an object, toward the object's own Cell: force-move onto
+    /// it, or a healer's Move over an enemy.
+    Object,
+}
+
+/// Move-click producer only. The receiver's class What_Action refusal
+/// ([`Simulation::move_click_refused`]) and the native4DE1D0 resolver precede
+/// event encoding; synchronized/replay/internal Move payloads are already
+/// resolved. Original initialized GI and MTNK Shift0x10 still execute that
+/// resolver and emit ordinary MegaMission (111-byte Event)/Move2 ->
+/// class(Cell,1); neither appends a queued waypoint (Infantry51AA40,
+/// Unit741970). Native input/event/true-RET controls: walk_first_path.json
+/// `gi_reissue`.
+///
+/// [`Simulation::move_click_refused`]: crate::sim::world::Simulation::move_click_refused
 pub(crate) fn ordinary_cell_move_goal(
     sim: &crate::sim::world::Simulation,
     rules: &crate::rules::ruleset::RuleSet,
     viewer: InternedId,
     entity_id: u64,
     clicked: (u16, u16),
-    native_ground_receiver: bool,
+    click: MoveClick,
     queued_input: bool,
 ) -> Option<CellMoveGoal> {
-    if native_ground_receiver
+    if sim.move_click_refused(entity_id, rules, click == MoveClick::Object) {
+        return None;
+    }
+    if click == MoveClick::Cell
         && (!queued_input
             || sim.infantry_setter_receiver(entity_id, rules)
             || sim.drive_unit_setter_receiver(entity_id))
@@ -887,12 +907,12 @@ pub(crate) fn ordinary_cell_move_goal(
             }
         };
     }
-    //Existing compatibility adapter for other locomotors (Hover, Teleport,
-    //Jumpjet, Fly), high movers and attack-move/queued input. Their native
-    //caller contracts remain separate. A queued Teleport/high receiver may
-    //share class setter coverage but returns None from the ordinary Foot input
-    //owner above, so it retains this compatibility queue flag. Ship's caller
-    //migration remains separate (#687/#689).
+    //Existing compatibility adapter for what the Foot Cell query above does
+    //not resolve: other locomotors (Hover, Teleport, Jumpjet, Fly), high
+    //movers, attack-move, object and queued input. It snaps an unwalkable
+    //click to a nearby walkable Cell rather than running 4DE1D0 (#689). Its
+    //queue flag only keeps a queued command out of the MegaMission codec; the
+    //sim takes it as an ordinary Move.
     let mut goal = clicked;
     if let Some(grid) = sim.path_grid()
         && !crate::app::match_runtime::sim_tick::is_any_layer_walkable(grid, goal.0, goal.1)

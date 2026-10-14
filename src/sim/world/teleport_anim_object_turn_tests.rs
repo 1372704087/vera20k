@@ -465,7 +465,6 @@ fn restoration_callbacks_forward_overlay_inputs_before_any_destination_write() {
 /// which arms the warp, not a route no Process follows.
 #[test]
 fn a_ground_order_arms_the_warp() {
-    use crate::sim::world::GroundMove;
     let rules = rules(false);
     let mut sim = relocating_legionnaire((8, 9));
     install_destination_cells(&mut sim, &rules);
@@ -475,22 +474,15 @@ fn a_ground_order_arms_the_warp() {
         .unwrap()
         .install_teleport_state_for_test(None);
 
-    let accepted = sim.issue_ground_move(
-        GroundMove {
-            entity_id: 1,
-            target: (12, 7),
-            speed: crate::util::fixed_math::SimFixed::from_num(4),
-            queue: false,
-            speed_type: None,
-            owner_blocks: true,
-            object_destination: None,
-        },
+    sim.assign_destination_represented(
+        1,
+        Some(crate::sim::components::NavTargetRef::cell(12, 7)),
         Some(&rules),
         None,
         crate::sim::world::FrameEffects::default(),
-    );
+    )
+    .unwrap();
 
-    assert!(accepted);
     let mover = sim.substrate.entities.get(1).unwrap();
     assert!(mover.movement_target.is_none());
     let warp = mover.teleport_state().expect("armed warp");

@@ -565,8 +565,9 @@ pub enum Command {
         entity_ids: Vec<u64>,
         additive: bool,
     },
-    /// Move one entity to a target cell.
-    /// Speed is resolved at dispatch time by `movement::order_speed`.
+    /// Move one entity to a target cell: the class setter (vt+0x480) takes
+    /// the cell. The sim does not read `queue`; a Shift click still sends an
+    /// ordinary Move.
     Move {
         entity_id: u64,
         target_rx: u16,

@@ -413,10 +413,18 @@ impl ConcreteMissionEffects for RepresentedConcreteMissionEffects<'_> {
             .entities
             .get_mut(prepared.receiver)
             .expect("preflight guaranteed receiver");
-        // Bare-storage fixtures and the still-unmigrated locomotor paths retain
-        // their represented NavCom write set. Ordinary Units and Walk,
-        // Teleport or Jumpjet Infantry always run the sole class owner above,
-        // including admission/refusal.
+        // RESIDUAL: a receiver no class setter above represents keeps the
+        // NavCom write set alone: a rules-less fixture, a Unit or Infantry
+        // without a constructed locomotor (the zero-speed gate in
+        // `should_construct_locomotor`), a Fly or Rocket Unit, or an Infantry
+        // on Drive, Ship, Hover, Fly or Rocket. Trigger: an order to such an
+        // object; in retail rules only the four types without rules data
+        // (DeathDummy, YDUM, VISC_LRG, VISC_SML) lack a locomotor, and no
+        // other VehicleType or InfantryType falls here
+        // (`every_retail_unit_and_infantry_type_reaches_its_class_setter`).
+        // Effect: the order skips the setter's admission, timers and Move_To.
+        // Frequency: none in retail play observed. Risk: such an object keeps
+        // a NavCom no locomotor drives toward.
         represented_assign_destination_mode_one(entity, Some(requested));
         false
     }
@@ -739,6 +747,71 @@ impl ConcreteMissionEffects for RecordingConcreteMissionEffects {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Every retail `[VehicleTypes]` and `[InfantryTypes]` entry, spawned
+    /// through production, reaches its class setter (Unit `0x741970`,
+    /// Infantry `0x51AA40`) rather than the NavCom-only fallback, except the
+    /// four without rules data, which construct no locomotor
+    /// (`should_construct_locomotor`'s zero-speed gate): `DeathDummy` reads
+    /// only `Primary=`, and `YDUM`, `VISC_LRG` and `VISC_SML` have no section.
+    /// No map is installed: the receiver tests read the object alone, and
+    /// without one a naval type is not refused a land cell.
+    #[test]
+    fn every_retail_unit_and_infantry_type_reaches_its_class_setter() {
+        let Some((rules_ini, art_ini)) = crate::rules::retail_ini_fixture::retail_rules_and_art()
+        else {
+            return;
+        };
+        let mut rules =
+            crate::rules::ruleset::RuleSet::from_ini_with_fixed_art_for_test(&rules_ini, &art_ini)
+                .expect("retail rules parse");
+        rules.install_art_data(crate::rules::art_data::ArtRegistry::from_ini(&art_ini));
+        let mut unspawned = Vec::new();
+        let mut without_locomotor = Vec::new();
+        let mut unrepresented = Vec::new();
+        for type_id in rules.vehicle_ids.iter().chain(&rules.infantry_ids) {
+            let mut sim = Simulation::new();
+            let Some(id) = sim.spawn_object(type_id, "Americans", 10, 10, 64, &rules) else {
+                unspawned.push(type_id.as_str());
+                continue;
+            };
+            let actor = sim.substrate.entities.get(id).expect("spawned");
+            let Some(locomotor) = actor.locomotor.as_ref() else {
+                without_locomotor.push(type_id.as_str());
+                continue;
+            };
+            let represented = match actor.category {
+                crate::map::entities::EntityCategory::Unit => {
+                    sim.unit_setter_receiver(id, Some(&rules))
+                }
+                crate::map::entities::EntityCategory::Infantry => {
+                    sim.infantry_setter_receiver(id, &rules)
+                }
+                _ => false,
+            };
+            if !represented {
+                unrepresented.push(format!(
+                    "{type_id} {:?} {:?}",
+                    actor.category,
+                    locomotor.active_kind()
+                ));
+            }
+        }
+        assert!(
+            rules.vehicle_ids.len() + rules.infantry_ids.len() > 100,
+            "the retail rosters were read"
+        );
+        assert_eq!(unspawned, Vec::<&str>::new(), "types that did not spawn");
+        assert_eq!(
+            without_locomotor,
+            ["DeathDummy", "YDUM", "VISC_LRG", "VISC_SML"]
+        );
+        assert_eq!(
+            unrepresented,
+            Vec::<String>::new(),
+            "types without a class setter"
+        );
+    }
 
     #[test]
     fn production_concrete_effects_never_claim_partial_setter_coverage() {

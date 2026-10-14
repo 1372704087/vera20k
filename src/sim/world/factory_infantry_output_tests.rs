@@ -1470,23 +1470,14 @@ fn check_initialized_no_order_contexts(names: &[&str]) {
                 .iter()
                 .any(|call| call["kind"] == "Event_Construct")
         );
-        let owner = sim.interner.get("Americans").unwrap();
         // Production order: the click producer keeps only the objects whose
         // ClickedAction can send (`click_order_receivers`, the Berserk
-        // refusal), then asks the move query.
+        // refusal), then asks the class What_Action refusal.
         let berserk_refused = sim.click_order_receivers(&[id]).is_empty();
         assert_eq!(berserk_refused, name.contains("berserk"), "{name}");
         if !berserk_refused {
-            assert_eq!(
-                sim.ordinary_ground_foot_cell_input(
-                    owner,
-                    id,
-                    fixture_cell(&row["inputs"][0]["clicked"]),
-                    &rules
-                )
-                .unwrap()
-                .unwrap(),
-                None,
+            assert!(
+                sim.move_click_refused(id, &rules, false),
                 "{name}: original input emits no Move event"
             );
         }
@@ -1511,6 +1502,7 @@ fn initialized_gi_non_deployer_input_reaches_original_class_refusal() {
         return;
     };
     assert!(!rules.object("E1").unwrap().deployer);
+    assert!(!sim.move_click_refused(id, &rules, false));
     let owner = sim.interner.get("Americans").unwrap();
     let resolved = sim
         .ordinary_ground_foot_cell_input(

@@ -102,9 +102,10 @@ pub(crate) use crate::sim::building_construction::BuildingUp;
 
 /// Move-order scheduling adapter, with no gamemd counterpart (#689).
 ///
-/// The order adapter a move order attaches (ground orders through
-/// `issue_move_command_with_destination`, Jumpjet orders through their own
-/// setter). Its readers take its presence as "moving". It keeps no goal: the
+/// The scheduling adapter the class setters attach to an accepted
+/// destination (`movement_commands::prepare_destination_execution`; a Jumpjet
+/// through its order adapter). Its readers take its presence as "moving". It
+/// keeps no goal: the
 /// locomotor destination and Foot's NavCom own it. No order keeps route
 /// cells either: a Foot's route is its Foot+5E0 queue
 /// (`navigation.path_replay`).

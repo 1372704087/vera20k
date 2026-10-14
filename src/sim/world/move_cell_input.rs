@@ -7,14 +7,70 @@ use crate::sim::components::DriveCoord;
 use crate::sim::movement::ground_pose;
 
 impl Simulation {
+    /// Whether the receiver's class What_Action refuses a Move click for its
+    /// House or deployment state, whatever its locomotor; What_Action's
+    /// Cell-content rungs are not modelled here. Every Move click producer
+    /// asks this before resolving the Cell, and a refusal sends nothing.
+    /// Decoded and internal commands never ask: the class setters keep their
+    /// own later refusals (Infantry51AA40's human Doing guard, Unit741970's
+    /// deployment test).
+    /// - Infantry over a Cell (51F800): action0 for a non-player House50B6F0;
+    ///   a Deployer (layered ReadBool 524606..524620, default false) in
+    ///   Doing27..30 maps action1 to2 (51F8ED..51F94E), and only that live
+    ///   query2 refuses its click (51F277..51F28C). Over an object (51E3B0)
+    ///   only the Deployer arm runs, for a player House (51EB81..51EBD7).
+    /// - Unit over a Cell (7404B0): action0 for a non-player House50B6F0
+    ///   (7404BF); Move then becomes action0 while Unit6E0, 6E1 or 6E2 is set
+    ///   (740709..740727), so its IsSimpleDeployer arm (740752..74077C) finds
+    ///   no Move left; CellClick738910 re-queries 6E0. Over an object (73FD50)
+    ///   only a player's deployed (6E0) IsSimpleDeployer maps Move to2
+    ///   (74037A..7403AD).
+    ///
+    /// Each class's Berserk refusal (51F28F..51F29E, 73893D..73894C) is
+    /// `click_order_receivers`, which the producers apply first. Aircraft keep
+    /// their own wrapper. Original Cell controls: walk_first_path.json
+    /// `gi_reissue` GI/MTNK input rows, which precede MegaMission entirely.
+    pub(crate) fn move_click_refused(
+        &self,
+        id: u64,
+        rules: &crate::rules::ruleset::RuleSet,
+        over_object: bool,
+    ) -> bool {
+        use crate::map::entities::EntityCategory;
+        let Some(entity) = self.substrate.entities.get(id) else {
+            return false;
+        };
+        let human = self.house_is_human_player(entity.owner());
+        let object = rules.object(self.interner.resolve(entity.type_ref()));
+        match entity.category {
+            EntityCategory::Infantry => {
+                let deploying =
+                    object.is_some_and(|object| object.deployer) && entity.infantry_deploy_doing();
+                if over_object {
+                    human && deploying
+                } else {
+                    !human || deploying
+                }
+            }
+            EntityCategory::Unit if over_object => {
+                human
+                    && entity.is_fully_deployed()
+                    && object.is_some_and(|object| object.is_simple_deployer)
+            }
+            EntityCategory::Unit => !human || entity.is_deployed(),
+            EntityCategory::Aircraft | EntityCategory::Structure => false,
+        }
+    }
+
     /// Resolve the ordinary grounded Foot Cell-click corridor (4DE1D0) before
     /// event encoding, for Walk infantry and Drive/Ship Units. The receiver is
     /// class-generic: Unit differs only in +70 (0x7404B0, ordinary action1
     /// or outside-playfield action2) and What_Am_I, and reads its locomotor
     /// only through Foot+4C (0x4DBDF0). Unit reach: BandBox_LeftUp -> 4AE750 ->
-    /// 738910 -> 4D7D50 -> 4D806F -> 4DE1D0 (static chain). None leaves other
-    /// actor/caller families on their existing input adapter; it is not
-    /// permission to reinterpret a decoded Move.
+    /// 738910 -> 4D7D50 -> 4D806F -> 4DE1D0 (static chain). The class
+    /// What_Action refusal ([`Self::move_click_refused`]) precedes it. None
+    /// leaves other actor/caller families on their existing input adapter; it
+    /// is not permission to reinterpret a decoded Move.
     pub(crate) fn ordinary_ground_foot_cell_input(
         &self,
         viewer: crate::sim::intern::InternedId,
@@ -66,31 +122,6 @@ impl Simulation {
             });
         if entity.lifecycle.cell_marked && height >= 2 * GROUND_LEVEL_HEIGHT_LEPTONS {
             return None;
-        }
-        // The selected ordinary Move action first passes the class input
-        // wrappers, not the later destination setter. Original51F800
-        // returns action0 for a non-player House50B6F0; for a local Deployer
-        // in Doing27..30 it maps Foot action1 to2 (51F8ED..51F94E). Only that
-        // live query2 refuses the Doing-family click at51F277..51F28C.
-        // Deployer is the existing layered ReadBool owner (524606..524620),
-        // defaultfalse. Unit7404B0 independently applies House50B6F0, then
-        // its6E0/1/2 deployment suffix740709..740727. CellClick738910
-        // re-queries6E0. Reuse the existing deployment predicate; stock MTNK
-        // has SimpleDeployer=0. Each class's Berserk refusal (51F28F..51F29E,
-        // 73893D..73894C) is `click_order_receivers`, which every click
-        // producer applies before this query; both refusals send nothing.
-        // Original initialized controls: walk_first_path.json gi_reissue
-        // GI/MTNK input rows; these checks precede MegaMission entirely.
-        // Other class/action/high/Teleport input remains on its existing
-        // adapter; decoded or internal commands never run this input owner.
-        let infantry = entity.category == crate::map::entities::EntityCategory::Infantry;
-        let drive_unit = self.drive_unit_setter_receiver(id);
-        if (infantry || drive_unit)
-            && (!self.house_is_human_player(entity.owner())
-                || (infantry && object.deployer && entity.infantry_deploy_doing())
-                || (drive_unit && entity.is_deployed()))
-        {
-            return Some(Ok(None));
         }
         let coordinate = match self.foot_navigation_coordinate(id) {
             Ok(coordinate) => coordinate,

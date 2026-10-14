@@ -9,13 +9,11 @@
 use crate::sim::world::FrameEffects;
 use std::collections::BTreeSet;
 
-use super::ground_move::GroundMove;
 use super::{SimSoundEvent, Simulation, SimulationWallRuntimeHost};
 use crate::map::entities::EntityCategory;
 use crate::map::houses::are_houses_friendly;
 #[cfg(test)]
 use crate::rules::locomotor_type::MovementZone;
-use crate::rules::locomotor_type::SpeedType;
 use crate::rules::ruleset::RuleSet;
 use crate::sim::cell_rect::canonical_cell_coord;
 use crate::sim::combat;
@@ -29,7 +27,6 @@ use crate::sim::command::{
 use crate::sim::mission::MissionType;
 #[cfg(test)]
 use crate::sim::movement;
-use crate::sim::movement::locomotor::MovementLayer;
 use crate::sim::overlay_grid::{
     OverlayRecalcOutcome, RecomputeResult, runtime_wall_cleanup_visit_at,
 };
@@ -37,18 +34,15 @@ use crate::sim::passenger;
 use crate::sim::pathfinding::PathGrid;
 use crate::sim::pathfinding::zone_incremental::ZoneRepairKind;
 use crate::sim::production;
-use crate::util::fixed_math::{SimFixed, ra2_speed_to_leptons_per_second};
+use crate::util::fixed_math::SimFixed;
 
-/// Read-only snapshot of entity + rules data needed for issuing movement commands.
-/// Captured once to avoid repeated entity lookups and type_ref clones.
+/// Read-only snapshot of entity + rules data the destination setters schedule
+/// motion with. Captured once to avoid repeated entity lookups.
 ///
-/// `pub(crate)` so the movement callers outside `world` (the track
-/// continuation, transport unload and the bunker link) issue their moves with
-/// the same facts as a Move command.
+/// `pub(crate)` so the setters outside `world` (the track path and the track
+/// continuation) take the same order speed.
 pub(crate) struct MoveInfo {
     pub(crate) speed: SimFixed,
-    pub(crate) loco_layer: MovementLayer,
-    pub(crate) speed_type: SpeedType,
     pub(crate) is_harvester: bool,
     #[cfg(test)]
     pub(crate) movement_zone: MovementZone,
@@ -646,19 +640,11 @@ impl Simulation {
         rules: Option<&RuleSet>,
     ) -> Option<MoveInfo> {
         let e = self.substrate.entities.get(entity_id)?;
-        let loco = e.locomotor.as_ref();
-        let loco_layer = e.movement_layer_or_ground();
-        let speed_type = loco.map(|l| l.speed_type).unwrap_or(SpeedType::Track);
-
         let obj = rules.and_then(|r| self.object_type(e.type_ref(), r));
-        // The resolver behind Move, AttackMove, Enter, C4, capture and
-        // bunker-entry.
         let speed = crate::sim::movement::order_speed(e, obj, rules, &self.houses);
 
         Some(MoveInfo {
             speed,
-            loco_layer,
-            speed_type,
             is_harvester: obj.is_some_and(|o| o.harvester),
             #[cfg(test)]
             movement_zone: obj.map_or(MovementZone::Normal, |o| o.movement_zone),
@@ -738,12 +724,11 @@ impl Simulation {
                 entity_id,
                 target_rx,
                 target_ry,
-                queue,
+                queue: _,
             } => self.apply_move_command(
                 command_owner,
                 *entity_id,
                 (*target_rx, *target_ry),
-                *queue,
                 MissionType::Move,
                 rules,
                 overlay_registry,
@@ -1015,12 +1000,11 @@ impl Simulation {
                 entity_id,
                 target_rx,
                 target_ry,
-                queue,
+                queue: _,
             } => self.apply_move_command(
                 command_owner,
                 *entity_id,
                 (*target_rx, *target_ry),
-                *queue,
                 MissionType::AttackMove,
                 rules,
                 overlay_registry,
@@ -1415,24 +1399,20 @@ impl Simulation {
                     return false;
                 }
                 // Validate transport exists and has cargo capacity.
-                let transport_info = self.substrate.entities.get(*transport_id).and_then(|t| {
-                    t.passenger_role.cargo()?;
-                    // CanBeOccupiedBy is also the cursor's garrison predicate,
-                    // but that action sends Capture8, never this Enter7 payload
-                    // (Infantry51E6A8 -> Foot4D7716). Retire the old adapter
-                    // rather than inventing Boarding state for a garrison.
-                    if t.category == crate::map::entities::EntityCategory::Structure
-                        && self
-                            .object_type(t.type_ref(), rules)
-                            .is_some_and(|object| object.can_be_occupied)
-                    {
-                        return None;
-                    }
-                    Some((t.position.rx, t.position.ry))
+                // CanBeOccupiedBy is also the cursor's garrison predicate,
+                // but that action sends Capture8, never this Enter7 payload
+                // (Infantry51E6A8 -> Foot4D7716). Retire the old adapter
+                // rather than inventing Boarding state for a garrison.
+                let carrier = self.substrate.entities.get(*transport_id).is_some_and(|t| {
+                    t.passenger_role.cargo().is_some()
+                        && !(t.category == crate::map::entities::EntityCategory::Structure
+                            && self
+                                .object_type(t.type_ref(), rules)
+                                .is_some_and(|object| object.can_be_occupied))
                 });
-                let Some((trx, try_)) = transport_info else {
+                if !carrier {
                     return false;
-                };
+                }
                 // Shared carrier admission owner (Unit0F and building Enter).
                 if !passenger::can_enter_transport(self, rules, *passenger_id, *transport_id) {
                     return false;
@@ -1451,38 +1431,25 @@ impl Simulation {
                 if self.duplicate_enter_is_noop(*passenger_id, *transport_id) {
                     return true;
                 }
+                // Infantry51F190 -> Foot4D76F8 ->6FFBE0 carries the clicked
+                // object as Destination for Enter7, as Unit738902 does
+                // (Steam3e81a617): Enter7, NULL Target. Event4C747C hands it
+                // to the class setter, which samples its live +4C through the
+                // shared coordinate owner after its prelude
+                // (foot_navigation_coordinate corpus). An object without that
+                // coordinate refuses the order before it is queued.
                 let transport_ref = crate::sim::components::NavTargetRef::object(*transport_id);
-                let object_destination = if self.infantry_setter_receiver(*passenger_id, rules)
-                    || self
-                        .substrate
-                        .entities
-                        .get(*passenger_id)
-                        .is_some_and(|actor| {
-                            actor.category == crate::map::entities::EntityCategory::Unit
-                        }) {
-                    // Infantry51F190 -> Foot4D76F8 ->6FFBE0 carries the
-                    // clicked object as Destination for Enter7. Event
-                    //4C747C preserves it; Infantry51AA40 samples its live
-                    //+4C through the shared coordinate owner after its
-                    //prelude (foot_navigation_coordinate corpus). Unit
-                    //738902 forwards the same Enter click to Foot4D76F8:
-                    //Enter7, NULL Target, clicked Object Destination. Its
-                    //Event4C747C receiver is Unit741970 (Steam3e81a617).
-                    let Ok(coord) = crate::sim::movement::nav_target_coordinate(
-                        transport_ref,
-                        Some(*passenger_id),
-                        &self.substrate.entities,
-                        self.resolved_terrain.as_ref(),
-                        Some((rules, &self.interner)),
-                    ) else {
-                        return false;
-                    };
-                    Some((transport_ref, coord))
-                } else {
-                    // Aircraft retains its separate Cell adapter pending
-                    // its object-click/setter migration.
-                    None
-                };
+                if crate::sim::movement::nav_target_coordinate(
+                    transport_ref,
+                    Some(*passenger_id),
+                    &self.substrate.entities,
+                    self.resolved_terrain.as_ref(),
+                    Some((rules, &self.interner)),
+                )
+                .is_err()
+                {
+                    return false;
+                }
                 // Retask onto Enter; the target setter below owns combat cancellation.
                 self.queue_megamission(
                     *passenger_id,
@@ -1504,31 +1471,15 @@ impl Simulation {
                 if let Some(e) = self.substrate.entities.get_mut(*passenger_id) {
                     passenger::begin_boarding(e, *transport_id);
                 }
-                // The Infantry/Unit class keeps the transport token; the
-                // remaining route adapter uses its physical approach cell.
-                let info = self.resolve_move_info(*passenger_id, Some(rules));
-                let speed = info
-                    .as_ref()
-                    .map(|i| i.speed)
-                    .unwrap_or(ra2_speed_to_leptons_per_second(4));
-                let speed_type = info
-                    .as_ref()
-                    .map(|i| i.speed_type)
-                    .unwrap_or(SpeedType::Track);
-                self.issue_ground_move(
-                    GroundMove {
-                        entity_id: *passenger_id,
-                        target: (trx, try_),
-                        speed,
-                        queue: false,
-                        speed_type: Some(speed_type),
-                        owner_blocks: true,
-                        object_destination,
-                    },
+                if let Err(cause) = self.assign_destination_represented(
+                    *passenger_id,
+                    Some(transport_ref),
                     Some(rules),
                     overlay_registry,
                     frame_effects,
-                );
+                ) {
+                    log::warn!("Enter destination {passenger_id}: {cause}");
+                }
                 true
             }
             Command::UnloadPassengers { transport_id } => {
@@ -1692,11 +1643,11 @@ impl Simulation {
                 }
                 if let Some(e) = self.substrate.entities.get_mut(*entity_id) {
                     e.set_archive_target(None);
-                    // Clear in-progress movement so the miner re-paths.
-                    e.movement_target = None;
                 }
+                // The setter's unchanged-NavCom return leaves a miner already
+                // driving to this cell alone.
                 if let Some(rules) = rules {
-                    let _ = crate::sim::miner::miner_system::issue_stock_miner_drive_move(
+                    crate::sim::miner::miner_system::assign_miner_cell_destination(
                         self,
                         rules,
                         *entity_id,
@@ -1756,23 +1707,20 @@ impl Simulation {
                         ) {
                             return None;
                         }
-                        Some((
-                            b.position.rx,
-                            b.position.ry,
-                            b.owner(),
-                            crate::sim::movement::nav_target_coordinate(
-                                crate::sim::components::NavTargetRef::Building {
-                                    id: *target_building_id,
-                                },
-                                Some(*attacker_id),
-                                &self.substrate.entities,
-                                self.resolved_terrain.as_ref(),
-                                Some((rules, &self.interner)),
-                            )
-                            .ok()?,
-                        ))
+                        // The class setter samples the building's +4C.
+                        crate::sim::movement::nav_target_coordinate(
+                            crate::sim::components::NavTargetRef::Building {
+                                id: *target_building_id,
+                            },
+                            Some(*attacker_id),
+                            &self.substrate.entities,
+                            self.resolved_terrain.as_ref(),
+                            Some((rules, &self.interner)),
+                        )
+                        .ok()?;
+                        Some(b.owner())
                     });
-                let Some((trx, try_, target_owner, target_coord)) = target_info else {
+                let Some(target_owner) = target_info else {
                     return false;
                 };
                 // Enemy-only.
@@ -1810,34 +1758,17 @@ impl Simulation {
                 // the NavCom, so the Infantry +1AC admits its footprint cells to a
                 // Sabotage C4 carrier (`0x0051C2D3..`); the walk ends inside, where
                 // the arrival plants the charge (`sim::c4_plant`).
-                let info = self.resolve_move_info(*attacker_id, Some(rules));
-                let speed = info
-                    .as_ref()
-                    .map(|i| i.speed)
-                    .unwrap_or(ra2_speed_to_leptons_per_second(4));
-                let speed_type = info
-                    .as_ref()
-                    .map(|i| i.speed_type)
-                    .unwrap_or(crate::rules::locomotor_type::SpeedType::Foot);
-                self.issue_ground_move(
-                    GroundMove {
-                        entity_id: *attacker_id,
-                        target: (trx, try_),
-                        speed,
-                        queue: false,
-                        speed_type: Some(speed_type),
-                        owner_blocks: true,
-                        object_destination: Some((
-                            crate::sim::components::NavTargetRef::Building {
-                                id: *target_building_id,
-                            },
-                            target_coord,
-                        )),
-                    },
+                if let Err(cause) = self.assign_destination_represented(
+                    *attacker_id,
+                    Some(crate::sim::components::NavTargetRef::Building {
+                        id: *target_building_id,
+                    }),
                     Some(rules),
                     overlay_registry,
                     frame_effects,
-                );
+                ) {
+                    log::warn!("Sabotage destination {attacker_id}: {cause}");
+                }
                 true
             }
             Command::CaptureBuilding {
@@ -1864,24 +1795,21 @@ impl Simulation {
                         {
                             return None;
                         }
-                        Some((
-                            b.position.rx,
-                            b.position.ry,
-                            crate::sim::movement::nav_target_coordinate(
-                                crate::sim::components::NavTargetRef::Building {
-                                    id: *target_building_id,
-                                },
-                                Some(*engineer_id),
-                                &self.substrate.entities,
-                                self.resolved_terrain.as_ref(),
-                                Some((rules, &self.interner)),
-                            )
-                            .ok()?,
-                        ))
+                        // The class setter samples the building's +4C.
+                        crate::sim::movement::nav_target_coordinate(
+                            crate::sim::components::NavTargetRef::Building {
+                                id: *target_building_id,
+                            },
+                            Some(*engineer_id),
+                            &self.substrate.entities,
+                            self.resolved_terrain.as_ref(),
+                            Some((rules, &self.interner)),
+                        )
+                        .ok()
                     });
-                let Some((trx, try_, target_coord)) = target_info else {
+                if target_info.is_none() {
                     return false;
-                };
+                }
                 // Infantry51F190 maps actions28/29 toFootaction9 before
                 // delayed Event delivery. Mutable type, relation and HP
                 // action predicates are re-evaluated only at actual arrival.
@@ -1913,34 +1841,17 @@ impl Simulation {
                 // token. The class publishes NavCom and the Walk destination
                 // after its prelude; a caller write would change its moving
                 // and same-reference tests before the actual class call.
-                let info = self.resolve_move_info(*engineer_id, Some(rules));
-                let speed = info
-                    .as_ref()
-                    .map(|i| i.speed)
-                    .unwrap_or(ra2_speed_to_leptons_per_second(4));
-                let speed_type = info
-                    .as_ref()
-                    .map(|i| i.speed_type)
-                    .unwrap_or(crate::rules::locomotor_type::SpeedType::Foot);
-                self.issue_ground_move(
-                    GroundMove {
-                        entity_id: *engineer_id,
-                        target: (trx, try_),
-                        speed,
-                        queue: false,
-                        speed_type: Some(speed_type),
-                        owner_blocks: true,
-                        object_destination: Some((
-                            crate::sim::components::NavTargetRef::Building {
-                                id: *target_building_id,
-                            },
-                            target_coord,
-                        )),
-                    },
+                if let Err(cause) = self.assign_destination_represented(
+                    *engineer_id,
+                    Some(crate::sim::components::NavTargetRef::Building {
+                        id: *target_building_id,
+                    }),
                     Some(rules),
                     overlay_registry,
                     frame_effects,
-                );
+                ) {
+                    log::warn!("Capture destination {engineer_id}: {cause}");
+                }
                 true
             }
             Command::LaunchSuperWeapon {
@@ -2380,30 +2291,21 @@ impl Simulation {
     /// ([`Simulation::foot_assign_target_command`]). The event then runs the
     /// same arm for both: Assign_Target(null) at `0x004C7467` and the class
     /// destination setter with the cell at `0x004C747C`.
+    ///
+    /// The event has no queued form: a Shift-click still builds an ordinary
+    /// MegaMission (walk_first_path.json `gi_reissue`), so a command's queue
+    /// flag changes nothing here.
     fn apply_move_command(
         &mut self,
         command_owner: &str,
         entity_id: u64,
         (target_rx, target_ry): (u16, u16),
-        queue: bool,
         mission: MissionType,
         rules: Option<&RuleSet>,
         overlay_registry: Option<&crate::rules::overlay_types::OverlayTypeRegistry>,
         frame_effects: FrameEffects<'_>,
     ) -> bool {
         if !self.entity_owned_by_id(command_owner, entity_id) {
-            return false;
-        }
-        if self
-            .substrate
-            .entities
-            .get(entity_id)
-            .is_some_and(|e| e.is_deployed())
-            && !rules.is_some_and(|rules| {
-                self.infantry_setter_receiver(entity_id, rules)
-                    || self.drive_unit_setter_receiver(entity_id)
-            })
-        {
             return false;
         }
         // Event4C7353 queues Move and clears Target before the class
@@ -2413,8 +2315,6 @@ impl Simulation {
         // in walk_first_path.json retain queued2 even when the void
         // class setter leaves NavCom NULL. Decoded commands must not
         // repeat the input wrapper's separate no-order decision.
-        // Other class adapters retain the legacy early gate until
-        // their destination owner is represented (remaining #687).
         // Native order admission: a dead, zero-strength or in-limbo
         // actor abandons the whole order and keeps its previous one.
         if !self.order_actor_admits(entity_id) {
@@ -2435,85 +2335,30 @@ impl Simulation {
         // resets retained burst state; dropping Target alone cannot.
         let _ =
             self.assign_target_represented(entity_id, None, rules, overlay_registry, frame_effects);
-        // Snapshot speed, locomotor, and rules data in one lookup.
-        let Some(info) = self.resolve_move_info(entity_id, rules) else {
-            return false;
-        };
-        let aircraft = self
-            .substrate
-            .entities
-            .get(entity_id)
-            .is_some_and(|e| e.category == EntityCategory::Aircraft);
-
-        if let Some(rules) = rules.filter(|_| aircraft) {
-            // Event4C747C's virtual+480 is Aircraft41AA80: the NavCom
-            // and the locomotor's Move_To. Mission_Move flies it from
-            // there (`aircraft::move_mission`).
-            self.assign_aircraft_destination(
-                entity_id,
-                Some(crate::sim::components::NavTargetRef::cell(
-                    target_rx, target_ry,
-                )),
-                rules,
-                frame_effects,
-            );
-            true
-        } else if info.loco_layer == MovementLayer::Air {
-            // Air units fly in straight lines — no A* pathfinding needed.
-            self.issue_air_cell_destination(
-                entity_id,
-                (target_rx, target_ry),
-                info.speed,
-                rules,
-                overlay_registry,
-                frame_effects,
-            )
-        } else if !queue
-            && let Some(rules) = rules
-            && self.unit_setter_receiver(entity_id, Some(rules))
-        {
-            // Event4C746F pushes1;4C747C calls virtual+480 with
-            // the resolved destination. Unit741970 owns same-NavCom
-            // return/force, class preprocessing and queue clearing.
-            // Native: track_destination.json Unit rows, replayed by
-            // command_move_destinations_match_native_unit_setter.
-            // The setter is void: a guarded class refusal still
-            // executes this Event. Use the shared dispatcher, as
-            // for internal Drive orders, rather than interpreting
-            // the class's implementation result as input refusal.
-            // Original delayed6E0 MTNK: walk_first_path.json.
-            self.assign_destination_represented(
-                entity_id,
-                Some(crate::sim::components::NavTargetRef::cell(
-                    target_rx, target_ry,
-                )),
-                Some(rules),
-                overlay_registry,
-                frame_effects,
-            )
-            .map_or_else(
-                |cause| {
-                    log::warn!("Unit Move destination {}: {cause}", entity_id);
-                    false
-                },
-                |()| true,
-            )
-        } else {
-            self.issue_ground_move(
-                GroundMove {
-                    entity_id,
-                    target: (target_rx, target_ry),
-                    speed: info.speed,
-                    queue,
-                    speed_type: Some(info.speed_type),
-                    owner_blocks: true,
-                    object_destination: None,
-                },
-                rules,
-                overlay_registry,
-                frame_effects,
-            )
-        }
+        // Event4C746F pushes 1; 4C747C calls virtual+480 with the cell, the
+        // class setter whatever the locomotor: Unit741970, Infantry51AA40 or
+        // Aircraft41AA80. Each owns its same-NavCom return, preprocessing and
+        // queue clearing. The setter is void: a guarded class refusal still
+        // executes this Event, so its result is no input refusal. Native:
+        // track_destination.json Unit rows, replayed by
+        // command_move_destinations_match_native_unit_setter; original
+        // delayed 6E0 MTNK: walk_first_path.json.
+        self.assign_destination_represented(
+            entity_id,
+            Some(crate::sim::components::NavTargetRef::cell(
+                target_rx, target_ry,
+            )),
+            rules,
+            overlay_registry,
+            frame_effects,
+        )
+        .map_or_else(
+            |cause| {
+                log::warn!("Move destination {entity_id}: {cause}");
+                false
+            },
+            |()| true,
+        )
     }
 
     /// Event4C73B9 queues AreaGuard, clears suspended references, then the
@@ -2684,6 +2529,7 @@ mod tests {
     use crate::sim::miner::{Miner, MinerConfig, MinerKind, MinerState};
     use crate::sim::mission::MissionId;
     use crate::sim::movement::locomotor::LocomotorState;
+    use crate::util::fixed_math::ra2_speed_to_leptons_per_second;
 
     fn amcv_move_rules() -> RuleSet {
         let ini = IniFile::from_str(

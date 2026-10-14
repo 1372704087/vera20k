@@ -155,8 +155,7 @@ impl Simulation {
     /// directly (0x4B0D3F), and a NavCom object's pointer expiry clears NavCom
     /// but not +34 (0x4D9ABD). Process_Movement does not need the adapter (the
     /// outer gates in `track_turn` admit a moving Drive/Ship); its readers
-    /// that treat it as "moving" do: `block_index`'s moving next cell and the
-    /// bunker install.
+    /// that treat it as "moving" do, such as the bunker install.
     fn ensure_track_scheduling_adapter(&mut self, id: u64, rules: Option<&RuleSet>) {
         let destination = self.substrate.entities.get(id).and_then(|entity| {
             if entity.movement_target.is_some() {

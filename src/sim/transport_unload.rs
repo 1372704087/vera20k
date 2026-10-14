@@ -33,7 +33,7 @@ use crate::sim::passenger::{
     DepartureFailure, DepartureRoute, depart_cargo_head, reveal_unloaded_passenger,
 };
 use crate::sim::pathfinding::passability::LandType;
-use crate::sim::world::{FrameEffects, GroundMove, SimSoundEvent, Simulation};
+use crate::sim::world::{FrameEffects, SimSoundEvent, Simulation};
 use crate::util::direction_tables::CELL_DELTAS;
 use crate::util::fixed_math::SIM_ZERO;
 use crate::util::lepton::CELL_CENTER_LEPTON;
@@ -337,36 +337,6 @@ fn find_nearby_passable_for(
     )
 }
 
-/// `Set_Destination(cell, 1)` through the shared ground-order dispatcher.
-/// A represented Drive Unit reaches its class setter without a path grid;
-/// its later Process owns route search. Other callers retain their adapters.
-fn issue_ground_destination(
-    sim: &mut Simulation,
-    rules: &RuleSet,
-    id: u64,
-    dest: (u16, u16),
-    overlay_registry: Option<&crate::rules::overlay_types::OverlayTypeRegistry>,
-    effects: FrameEffects<'_>,
-) {
-    let Some(info) = sim.resolve_move_info(id, Some(rules)) else {
-        return;
-    };
-    let _ = sim.issue_ground_move(
-        GroundMove {
-            entity_id: id,
-            target: dest,
-            speed: info.speed,
-            queue: false,
-            speed_type: Some(info.speed_type),
-            owner_blocks: true,
-            object_destination: None,
-        },
-        Some(rules),
-        overlay_registry,
-        effects,
-    );
-}
-
 fn queue_guard(sim: &mut Simulation, id: u64) {
     let now = sim.session.binary_frame;
     let _ = sim.mission_queue_exact(
@@ -573,7 +543,15 @@ fn eject_head_passenger(
             // Unit73DBDB queues the passenger's Move directly, before
             // class destination73DC06; it does not execute a player event.
             sim.queue_order_mission(pax_id, MissionType::Move);
-            issue_ground_destination(sim, rules, pax_id, dest, overlay_registry, effects);
+            if let Err(cause) = sim.assign_destination_represented(
+                pax_id,
+                Some(crate::sim::components::NavTargetRef::cell(dest.0, dest.1)),
+                Some(rules),
+                overlay_registry,
+                effects,
+            ) {
+                log::warn!("Unload destination {pax_id}: {cause}");
+            }
             // `0x0073DC0C..0x0073DC19`: a transport in a team takes the
             // passenger into it (`Add_Member(passenger, 0)`); boarding's
             // Conceal had removed it from its own.
@@ -639,7 +617,15 @@ pub(crate) fn unit_mission_unload(
                 {
                     // `Set_Destination` only — the committed selector stays
                     // Unload and state 0 re-runs once the drive has ended.
-                    issue_ground_destination(sim, rules, id, cell, overlay_registry, effects);
+                    if let Err(cause) = sim.assign_destination_represented(
+                        id,
+                        Some(crate::sim::components::NavTargetRef::cell(cell.0, cell.1)),
+                        Some(rules),
+                        overlay_registry,
+                        effects,
+                    ) {
+                        log::warn!("Unload destination {id}: {cause}");
+                    }
                 }
                 return WAIT_MOVING_FRAMES;
             }
@@ -978,8 +964,16 @@ fn eject_from_aircraft(
             // Aircraft415C05 queues Move directly before destination415C21,
             // followed by its radio callbacks. No Event Archive clear.
             sim.queue_order_mission(pax_id, MissionType::Move);
-            if let Some(dest) = scan_cell {
-                issue_ground_destination(sim, rules, pax_id, dest, overlay_registry, effects);
+            if let Some(dest) = scan_cell
+                && let Err(cause) = sim.assign_destination_represented(
+                    pax_id,
+                    Some(crate::sim::components::NavTargetRef::cell(dest.0, dest.1)),
+                    Some(rules),
+                    overlay_registry,
+                    effects,
+                )
+            {
+                log::warn!("Unload destination {pax_id}: {cause}");
             }
             Ok(())
         },

@@ -16,11 +16,12 @@
 use std::collections::BTreeMap;
 
 use crate::map::entities::EntityCategory;
+#[cfg(test)]
 use crate::map::houses::HouseAllianceMap;
 use crate::map::resolved_terrain::ResolvedTerrainGrid;
 use crate::rules::locomotor_type::{LocomotorKind, MovementZone, SpeedType};
 use crate::sim::cell_rect::PlayfieldBounds;
-use crate::sim::entity_store::EntityStore;
+use crate::sim::entity_store::{EntityStore, TouchReader};
 use crate::sim::infantry;
 #[cfg(test)]
 use crate::sim::lifecycle_request::LifecycleRequest;
@@ -31,8 +32,8 @@ use crate::sim::pathfinding::terrain_speed::TerrainSpeedConfig;
 #[cfg(test)]
 use crate::sim::pathfinding::zone_map::ZoneGrid;
 use crate::sim::rng::SimRng;
+use crate::sim::touch_log::Touched;
 
-use super::block_index::{LentOwnerBlockSet, OwnerBlockIndex};
 use super::bump_crush;
 use super::locomotor::MovementLayer;
 use super::movement_path::supports_layered_bridge_pathing;
@@ -204,8 +205,7 @@ impl FootPathRequest {
     /// The Simulation wrapper calls this only between its real Mark0/Mark1.
     /// The context's blocker plane is brought current after the actor left
     /// its cell; this reuses the single existing search. `foot_entry` answers
-    /// every class question and walks every code-2 chain, so the search reads
-    /// no owner block set.
+    /// every class question and walks every code-2 chain.
     pub(super) fn search(
         &self,
         goal: crate::sim::components::DriveCoord,
@@ -236,19 +236,15 @@ impl FootPathRequest {
             ctx.blocker_neighbor_counts.is_some() == ctx.path_grid.is_some(),
             "path build on a pass that skipped the blocker plane; see pass_may_build_paths"
         );
-        super::movement_path::find_move_path_with_marker_detailed(
+        super::movement_path::find_move_path(
             ctx,
             layered,
             start,
             layer,
             goal,
             snap.speed_type.and_then(|speed| terrain_costs.get(&speed)),
-            None,
-            None,
-            None,
             snap.movement_zone,
             Some(snap.movement_zone),
-            None,
             None,
             //The admitted search prepares markers and applies native42AECA
             //urgency downgrade through the live Foot provider.
@@ -605,10 +601,6 @@ fn advance_ordinary_mover(
 #[derive(Default)]
 pub(crate) struct MovementPassCache {
     blocker: BlockerPlaneCache,
-    /// Each owner's block sets for an order's reduced route search, kept
-    /// current from the entity store's touch log instead of rebuilt from
-    /// every entity per order.
-    block_index: OwnerBlockIndex,
 }
 
 #[derive(Default)]
@@ -650,20 +642,6 @@ impl MovementPassCache {
             .plane
     }
 
-    /// How often the block index had to read every entity: once at the start,
-    /// and again only when something hands out the whole store mutably.
-    #[cfg(test)]
-    pub(crate) fn block_index_world_rebuilds(&self) -> usize {
-        self.block_index.world_rebuilds
-    }
-
-    /// How often an owner's sets were built from every placement instead of
-    /// brought current.
-    #[cfg(test)]
-    pub(crate) fn block_index_view_builds(&self) -> usize {
-        self.block_index.view_builds
-    }
-
     /// How often the blocker plane was rebuilt from the whole map and every
     /// entity.
     #[cfg(test)]
@@ -683,61 +661,7 @@ impl MovementPassCache {
         interner: &crate::sim::intern::StringInterner,
         rules: Option<&crate::rules::ruleset::RuleSet>,
     ) -> &crate::sim::pathfinding::BlockerNeighborCounts {
-        let touched = self.block_index.take_forwarded(entities);
-        Self::blocker_plane_in(
-            &mut self.blocker,
-            touched,
-            entities,
-            grid,
-            resolved_terrain,
-            overlay_grid,
-            interner,
-            rules,
-        )
-    }
-
-    /// Owner sets for an order's reduced route search, which no Foot receiver
-    /// prices (`Simulation::issue_ground_move`); [`Self::give_back`] returns
-    /// them.
-    pub(crate) fn lend_block_set(
-        &mut self,
-        owner: crate::sim::intern::InternedId,
-        entities: &mut EntityStore,
-        resolved_terrain: Option<&ResolvedTerrainGrid>,
-        alliances: &HouseAllianceMap,
-        interner: &crate::sim::intern::StringInterner,
-        rules: Option<&crate::rules::ruleset::RuleSet>,
-    ) -> LentOwnerBlockSet {
-        self.block_index.lend_current(
-            owner,
-            entities,
-            resolved_terrain,
-            alliances,
-            interner,
-            rules,
-        )
-    }
-
-    pub(crate) fn give_back(
-        &mut self,
-        owner: crate::sim::intern::InternedId,
-        lent: LentOwnerBlockSet,
-    ) {
-        self.block_index.give_back(owner, lent);
-    }
-
-    /// On the blocker field alone, so a pass can hold the plane while it
-    /// updates the block index beside it.
-    fn blocker_plane_in<'a>(
-        blocker: &'a mut BlockerPlaneCache,
-        touched: super::block_index::TouchedBacklog,
-        entities: &EntityStore,
-        grid: &PathGrid,
-        resolved_terrain: Option<&ResolvedTerrainGrid>,
-        overlay_grid: Option<&crate::sim::overlay_grid::OverlayGrid>,
-        interner: &crate::sim::intern::StringInterner,
-        rules: Option<&crate::rules::ruleset::RuleSet>,
-    ) -> &'a crate::sim::pathfinding::BlockerNeighborCounts {
+        let blocker = &mut self.blocker;
         let key = BlockerPlaneKey {
             terrain_epoch: resolved_terrain.map(ResolvedTerrainGrid::mutation_epoch),
             overlay_epoch: overlay_grid.map(|grid| grid.blocker_plane_epoch()),
@@ -746,9 +670,13 @@ impl MovementPassCache {
             rules: rules.map(|rules| std::ptr::from_ref(rules) as usize),
         };
         let retained_foot = overlay_grid.is_some();
+        let touched = match entities.take_touched(TouchReader::BlockerPlane) {
+            Touched::All => None,
+            Touched::Ids(ids) => Some(ids),
+        };
         match blocker.entry.as_mut().filter(|entry| {
             entry.key == key
-                && !touched.everything
+                && touched.is_some()
                 && overlay_grid.is_none_or(|grid| {
                     grid.foot_neighbor_changes_since(entry.foot_revision)
                         .is_some()
@@ -764,7 +692,7 @@ impl MovementPassCache {
                     }
                     entry.foot_revision = grid.foot_neighbor_revision();
                 }
-                for id in touched.ids {
+                for id in touched.into_iter().flatten() {
                     let now = entities.get(id).and_then(|entity| {
                         bump_crush::blocker_plane_source(
                             entity,

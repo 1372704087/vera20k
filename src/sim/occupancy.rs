@@ -14,6 +14,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use crate::map::entities::EntityCategory;
+use crate::sim::cell_map::CellMap;
 use crate::sim::game_entity::GameEntity;
 use crate::sim::intern::InternedId;
 use crate::sim::movement::locomotor::{LocomotorState, MovementLayer};
@@ -258,7 +259,7 @@ impl RawCellKey {
 /// cache below.
 #[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub(crate) struct RawCellOccupationGrid {
-    cells: BTreeMap<(u16, u16), RawCellOccupation>,
+    cells: CellMap<RawCellOccupation>,
     // The process-global fallback Cell is not Scenario save payload. Map
     // Resize reconstructs it: Cell47BC2D/30 owners=-1,47BD95/9B raw bytes=0.
     #[serde(skip)]
@@ -311,8 +312,7 @@ impl RawCellOccupationGrid {
             RawCellKey::Real(x, y) if put => {
                 if mask != 0 && matches!(layer, MovementLayer::Ground | MovementLayer::Bridge) {
                     self.cells
-                        .entry((x, y))
-                        .or_default()
+                        .get_or_insert_with((x, y), Default::default)
                         .write(layer, mask, owner, true);
                 }
             }
@@ -344,7 +344,7 @@ impl RawCellOccupationGrid {
 
     pub(crate) fn mark_ground(&mut self, rx: u16, ry: u16, mask: u8) {
         if mask != 0 {
-            self.cells.entry((rx, ry)).or_default().ground |= mask;
+            self.cells.get_or_insert_with((rx, ry), Default::default).ground |= mask;
         }
     }
 
@@ -388,7 +388,7 @@ impl RawCellOccupationGrid {
 
     pub(crate) fn mark_deck(&mut self, rx: u16, ry: u16, mask: u8) {
         if mask != 0 {
-            self.cells.entry((rx, ry)).or_default().deck |= mask;
+            self.cells.get_or_insert_with((rx, ry), Default::default).deck |= mask;
         }
     }
 
@@ -450,7 +450,7 @@ impl RawCellOccupationGrid {
     pub(crate) fn entries(
         &self,
     ) -> impl Iterator<Item = (u16, u16, u8, u8, Option<InternedId>, Option<InternedId>)> + '_ {
-        self.cells.iter().map(|(&(rx, ry), cell)| {
+        self.cells.iter().map(|((rx, ry), cell)| {
             (
                 rx,
                 ry,
@@ -470,7 +470,7 @@ impl RawCellOccupationGrid {
 /// guarded decrements that reach zero remove the sparse entry.
 #[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub(crate) struct HiddenOccupationGrid {
-    cells: BTreeMap<(u16, u16), u32>,
+    cells: CellMap<u32>,
 }
 
 impl HiddenOccupationGrid {
@@ -561,7 +561,7 @@ impl HiddenOccupationGrid {
     }
 
     pub(crate) fn entries(&self) -> impl Iterator<Item = (u16, u16, u32)> + '_ {
-        self.cells.iter().map(|(&(rx, ry), &count)| (rx, ry, count))
+        self.cells.iter().map(|((rx, ry), &count)| (rx, ry, count))
     }
 }
 
@@ -577,7 +577,7 @@ impl HiddenOccupationGrid {
 /// or locomotor phase.
 #[derive(Debug, Default, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub(crate) struct AirSlotGrid {
-    cells: BTreeMap<(u16, u16), u64>,
+    cells: CellMap<u64>,
 }
 
 impl AirSlotGrid {
@@ -602,7 +602,7 @@ impl AirSlotGrid {
     }
 
     pub(crate) fn entries(&self) -> impl Iterator<Item = (u16, u16, u64)> + '_ {
-        self.cells.iter().map(|(&(rx, ry), &owner)| (rx, ry, owner))
+        self.cells.iter().map(|((rx, ry), &owner)| (rx, ry, owner))
     }
 }
 
@@ -787,7 +787,7 @@ impl OwnerOccupationFootprints {
 /// and rebuilt from serialized entity/Drive state.
 #[derive(Debug, Clone, Default)]
 pub struct CellOccupationGrid {
-    cells: BTreeMap<(u16, u16), CellVehicleOccupation>,
+    cells: CellMap<CellVehicleOccupation>,
     footprints_by_owner: BTreeMap<u64, OwnerOccupationFootprints>,
 }
 
@@ -876,7 +876,7 @@ impl CellOccupationGrid {
         if !matches!(layer, MovementLayer::Ground | MovementLayer::Bridge) {
             return;
         }
-        let cell = self.cells.entry((rx, ry)).or_default();
+        let cell = self.cells.get_or_insert_with((rx, ry), Default::default);
         cell.plane_mut(layer)
             .expect("ground/deck layer has an occupation plane")
             .mark(entity_id);
@@ -1161,7 +1161,7 @@ impl CellOccupancy {
 /// See tools/spatial_oracle/jumpjet_entry_discovery.{py,json,meta.json}.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct OccupancyGrid {
-    cells: BTreeMap<(u16, u16), CellOccupancy>,
+    cells: CellMap<CellOccupancy>,
     /// Monotonic counter bumped on every cell-membership mutation. Lets the
     /// movement tick detect when a mover's pathfinding entity-block snapshot is
     /// stale and must be rebuilt before a same-tick repath. Transient scheduling
@@ -1186,7 +1186,7 @@ impl OccupancyGrid {
         &self,
         entities: &crate::sim::entity_store::EntityStore,
     ) -> Result<(), String> {
-        for (&cell, occupants) in &self.cells {
+        for (cell, occupants) in self.cells.iter() {
             let mut seen = BTreeSet::new();
             for occupant in &occupants.occupants {
                 if !matches!(
@@ -1258,7 +1258,7 @@ impl OccupancyGrid {
             })
             .sum();
         list_count.hash(hasher);
-        for (&cell, occupants) in &self.cells {
+        for (cell, occupants) in self.cells.iter() {
             for layer in [MovementLayer::Ground, MovementLayer::Bridge] {
                 let count = occupants.iter_layer(layer).count();
                 if count == 0 {
@@ -1333,7 +1333,7 @@ impl OccupancyGrid {
     /// Create an empty occupancy grid.
     pub fn new() -> Self {
         Self {
-            cells: BTreeMap::new(),
+            cells: CellMap::new(),
             generation: 0,
         }
     }
@@ -1363,7 +1363,7 @@ impl OccupancyGrid {
             sub_cell,
             is_building: insertion == CellListInsertion::AppendBuilding,
         };
-        let occ = self.cells.entry((rx, ry)).or_default();
+        let occ = self.cells.get_or_insert_with((rx, ry), Default::default);
         match insertion {
             CellListInsertion::PrependNonBuilding => {
                 let index = occ
@@ -1526,7 +1526,7 @@ impl OccupancyGrid {
     ) -> impl Iterator<Item = (u16, u16)> + '_ {
         self.cells
             .iter()
-            .filter_map(move |(&cell, occupants)| (!occupants.is_empty_on(layer)).then_some(cell))
+            .filter_map(move |(cell, occupants)| (!occupants.is_empty_on(layer)).then_some(cell))
     }
 
     /// Check if a specific entity is in a specific cell.

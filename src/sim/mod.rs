@@ -121,6 +121,7 @@ pub(crate) mod unit_simple_deploy;
 
 // --- Persistent cell occupancy ---
 pub mod cell_kernel;
+pub(crate) mod cell_map;
 pub mod cell_rect;
 pub mod find_nearby_cell;
 pub mod occupancy;

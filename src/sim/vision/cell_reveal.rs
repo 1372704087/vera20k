@@ -170,12 +170,19 @@ impl FogState {
             state.reveal();
         }
         state.transient_visible = matches!(key, VisibilityCell::Real(_));
-        if state.open {
+        let open = state.open;
+        if open {
             *ground |= GROUND_VISIBLE | GROUND_OPEN;
         } else {
             *ground &= !(GROUND_VISIBLE | GROUND_OPEN);
         }
         if let VisibilityCell::Real(index) = key {
+            vis.tracked.transient.push(index as u32);
+            if !open {
+                // The next pass's sight puts back cleared ground bits under
+                // its footprints (`SightApply::Mark`), so it visits them all.
+                vis.tracked.complete = false;
+            }
             vis.publish_knowledge(index);
         }
         let ground = self.map_cell_edge_frame(viewer, cell, false, native_cells);

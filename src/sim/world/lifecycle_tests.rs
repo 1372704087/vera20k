@@ -70,7 +70,7 @@ fn native_trigger_reveal_cell_put_discovers_unshrouded_campaign_resident() {
         sim.fog = FogState::new(24, 24);
         let mut plane = OwnerVisibility::new(24, 24);
         if revealed {
-            plane.mark_sight(10, 10);
+            plane.mark_visible(10, 10);
         }
         sim.fog.by_owner.insert(player, plane);
         let typ = sim.interner.intern("E1");

@@ -393,12 +393,12 @@ fn command_move_destinations_match_native_unit_setter() {
 
 /// Original rank setters750090/7500B0 -> Unit741970(cell,1) -> the live
 /// Drive4B0F20/Ship6A05F0 speed prefix, from track_speed_native.order_histories.
-/// A repeated destination preserves the old VERA order-speed stamp; the
-/// production prefix reads the promoted rank anyway. The forced-repeat
-/// control reaches the Foot tail again. No paid points or promotion AI are
-/// claimed by this comparison: the native and Rust prefixes stop at budget.
+/// A repeated destination returns before any write; the production prefix
+/// reads the promoted rank anyway. The forced-repeat control reaches the Foot
+/// tail again. No paid points or promotion AI are claimed by this comparison:
+/// the native and Rust prefixes stop at budget.
 #[test]
-fn repeated_move_orders_keep_the_stamp_but_sample_live_native_speed() {
+fn repeated_move_orders_sample_live_native_speed() {
     use crate::sim::combat::veterancy;
     use crate::sim::movement::track_process::TrackFamily;
     use crate::util::fixed_math::SIM_ONE;
@@ -449,7 +449,6 @@ fn repeated_move_orders_keep_the_stamp_but_sample_live_native_speed() {
         loco.store_track_progress(family, progress);
         loco.store_track_valid(family, true);
         loco.store_track_target_fraction(family, SIM_ONE);
-        let initial_stamp = SimFixed::from_num(input["raw"].as_i64().unwrap() * 15);
         let rng_before = [
             sim.main_rng.state(),
             sim.scenario_rng.state(),
@@ -465,12 +464,8 @@ fn repeated_move_orders_keep_the_stamp_but_sample_live_native_speed() {
                 rank => panic!("unexpected native rank {rank}"),
             }
             entity.setter_force_reassign = step["forced"] == true;
-            let retained_before = serde_json::to_value((
-                &entity.navigation,
-                &entity.locomotor,
-                &entity.movement_target,
-            ))
-            .unwrap();
+            let retained_before =
+                serde_json::to_value((&entity.navigation, &entity.locomotor)).unwrap();
             assert!(sim.apply_command(
                 "Americans",
                 &crate::sim::command::Command::Move {
@@ -483,12 +478,7 @@ fn repeated_move_orders_keep_the_stamp_but_sample_live_native_speed() {
             let entity = sim.substrate.entities.get(1).unwrap();
             if step["setter_objects_unchanged"] == true {
                 assert_eq!(
-                    serde_json::to_value((
-                        &entity.navigation,
-                        &entity.locomotor,
-                        &entity.movement_target,
-                    ))
-                    .unwrap(),
+                    serde_json::to_value((&entity.navigation, &entity.locomotor)).unwrap(),
                     retained_before,
                     "the native same-NavCom setter returns before any write: {step}",
                 );
@@ -524,15 +514,6 @@ fn repeated_move_orders_keep_the_stamp_but_sample_live_native_speed() {
                 sim.current_speed_for_test(1, &rules),
                 native_speed,
                 "{step}"
-            );
-            assert_eq!(
-                entity.movement_target.as_ref().unwrap().speed,
-                if step["forced"] == true {
-                    SimFixed::from_num(native_speed * 15)
-                } else {
-                    initial_stamp
-                },
-                "only an accepted new/forced destination refreshes the adapter: {step}",
             );
             let speed = super::super::track_speed::advance(
                 sim.substrate.entities.get_mut(1).unwrap(),
@@ -1066,7 +1047,7 @@ fn noncell_foot_destinations_match_original_anytown_class_calls() {
                 crate::sim::world::FrameEffects::default(),
             )
         } else {
-            sim.set_infantry_destination(
+            sim.assign_infantry_destination(
                 1,
                 requested,
                 &rules,

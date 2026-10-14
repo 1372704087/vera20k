@@ -1661,7 +1661,7 @@ fn lifecycle_authority_immediate_combat_death_reaches_uninit_without_precleanup(
     let mut dead = make_entity(1, "MTNK", 5, 5, 0);
     dead.selected = true;
     dead.attack_target = Some(AttackTarget::new(2));
-    dead.movement_target = Some(crate::sim::components::MovementTarget::default());
+    dead.navigation.nav_com = Some(crate::sim::components::NavTargetRef::cell(9, 9));
     dead.in_logic_vector = true;
     dead.lifecycle.in_limbo = false;
     dead.lifecycle.cell_marked = true;
@@ -1688,7 +1688,7 @@ fn lifecycle_authority_immediate_combat_death_reaches_uninit_without_precleanup(
     assert!(dead.selected, "UnInit owns deselection");
     assert!(dead.attack_target.is_some(), "UnInit owns attack cleanup");
     assert!(
-        dead.movement_target.is_some(),
+        dead.navigation.nav_com.is_some(),
         "UnInit owns movement cleanup"
     );
     assert!(dead.in_logic_vector, "UnInit owns LogicVector removal");
@@ -1724,7 +1724,7 @@ fn lifecycle_authority_combat_leaves_transport_cargo_for_carrier_uninit() {
     };
     passenger.selected = true;
     passenger.attack_target = Some(AttackTarget::new(3));
-    passenger.movement_target = Some(crate::sim::components::MovementTarget::default());
+    passenger.navigation.nav_com = Some(crate::sim::components::NavTargetRef::cell(9, 9));
     store.insert(passenger);
     store.insert(make_entity(3, "MTNK", 6, 5, 300));
 
@@ -1746,7 +1746,7 @@ fn lifecycle_authority_combat_leaves_transport_cargo_for_carrier_uninit() {
     ));
     assert!(passenger.selected);
     assert!(passenger.attack_target.is_some());
-    assert!(passenger.movement_target.is_some());
+    assert!(passenger.navigation.nav_com.is_some());
 }
 
 #[test]
@@ -1757,7 +1757,7 @@ fn lifecycle_authority_animated_combat_handoff_changes_only_dying_and_sequence()
     let mut dead = make_infantry_entity(1, "E1", 5, 5, 0);
     dead.selected = true;
     dead.attack_target = Some(AttackTarget::new(2));
-    dead.movement_target = Some(crate::sim::components::MovementTarget::default());
+    dead.navigation.nav_com = Some(crate::sim::components::NavTargetRef::cell(9, 9));
     dead.in_logic_vector = true;
     dead.lifecycle.in_limbo = false;
     dead.lifecycle.cell_marked = true;
@@ -1781,7 +1781,7 @@ fn lifecycle_authority_animated_combat_handoff_changes_only_dying_and_sequence()
     assert_eq!(dead.infantry_sprite_pose(), Some((11, 0)));
     assert!(dead.selected);
     assert!(dead.attack_target.is_some());
-    assert!(dead.movement_target.is_some());
+    assert!(dead.navigation.nav_com.is_some());
     assert!(dead.in_logic_vector);
     assert!(dead.lifecycle.object_alive);
     assert!(!dead.lifecycle.in_limbo);
@@ -3227,8 +3227,7 @@ fn gsi_04_07_damage_retaliation_is_receiver_synchronous_and_uses_mission_overrid
         // here is the inline mission Override, not turn-to-fire.
         victim.body_facing.snap(0xC000, 0);
         victim.navigation.nav_com = Some(crate::sim::components::NavTargetRef::cell(9, 5));
-        // Supply the actual class receiver for the NULL destination below;
-        // a bare adapter without a locomotor cannot exercise Unit741970.
+        // Supply the actual class receiver for the NULL destination below.
         victim.locomotor = Some(
             crate::sim::movement::locomotor::LocomotorState::from_object_type(
                 rules.object("VICTIM").unwrap(),
@@ -3247,7 +3246,6 @@ fn gsi_04_07_damage_retaliation_is_receiver_synchronous_and_uses_mission_overrid
                         )))
                 ))
         );
-        victim.movement_target = Some(crate::sim::components::MovementTarget::default());
         entities.insert(victim);
 
         let mut occupancy = OccupancyGrid::new();
@@ -3325,7 +3323,7 @@ fn gsi_04_07_damage_retaliation_is_receiver_synchronous_and_uses_mission_overrid
             target: victim.attack_target.as_ref().map(|target| target.target),
             nav_com: victim.navigation.nav_com,
             suspended_nav_com: victim.navigation.suspended_nav_com,
-            has_movement: victim.movement_target.is_some(),
+            has_movement: crate::sim::movement::motion_query::is_moving(&victim) == Some(true),
             fired: result
                 .consequences
                 .fire_events()

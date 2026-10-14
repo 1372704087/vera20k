@@ -974,40 +974,6 @@ fn veterancy_promotion_step(sim: &mut Simulation, id: u64, rules: &RuleSet) {
         rx,
         ry,
     });
-    refresh_mover_speed_after_promotion(sim, id, rules);
-}
-
-/// Re-derive a moving unit's `FASTER` speed the moment its rank crosses.
-///
-/// gamemd never caches a mover speed: the ground locomotors call
-/// `FootClass::GetCurrentSpeed @ 0x004DB1A0` through vtable slot `+0x538` on
-/// every frame they step (`DriveLocomotionClass::Process_Drive_Track
-/// @ 0x004B1274`, `WalkLocomotionClass::ProcessMovement @ 0x0075BFC0`,
-/// `ShipLocomotionClass::Process_Drive_Track @ 0x006A093C`,
-/// `HoverLocomotionClass::Move @ 0x00514372`), so a unit promoted mid-path
-/// speeds up on the very next frame. VERA's track and Walk steps and the
-/// readiness gate query the getter live; the Jumpjet order speed
-/// (`jumpjet_order_speed`) still reads the `MovementTarget::speed` stamp made
-/// at path creation, so the stamp is refreshed here when the rank changes. The
-/// crate multiplier and the house factor do not refresh it: such a mover keeps
-/// its stamp until its next order.
-fn refresh_mover_speed_after_promotion(sim: &mut Simulation, id: u64, rules: &RuleSet) {
-    let Some(entity) = sim.substrate.entities.get(id) else {
-        return;
-    };
-    if entity.movement_target.is_none() {
-        return;
-    }
-    let obj = sim.object_type(entity.type_ref(), rules);
-    let speed = crate::sim::movement::order_speed(entity, obj, Some(rules), &sim.houses);
-    if let Some(target) = sim
-        .substrate
-        .entities
-        .get_mut(id)
-        .and_then(|e| e.movement_target.as_mut())
-    {
-        target.speed = speed;
-    }
 }
 
 /// The house self-heal pulse of `TechnoClass::AI_Update`, read from the
@@ -2057,7 +2023,7 @@ mod tests {
     use crate::rules::ini_parser::IniFile;
     use crate::rules::locomotor_type::LocomotorKind;
     use crate::sim::combat::{AttackTarget, TargetKind};
-    use crate::sim::components::{DriveCoord, MovementTarget, NavTargetRef};
+    use crate::sim::components::{DriveCoord, NavTargetRef};
     use crate::sim::game_entity::{BunkerLink, GameEntity};
     use crate::sim::miner::{Miner, MinerConfig, MinerKind};
     use crate::sim::mission::leaf::MissionLeafState;
@@ -2897,7 +2863,7 @@ mod tests {
             "a passively-acquired target must never be pursued — the unit holds its ground"
         );
         assert!(
-            soviet.movement_target.is_none(),
+            crate::sim::movement::motion_query::is_moving(&soviet) != Some(true),
             "no movement may be issued for a scanner-acquired target"
         );
     }
@@ -3304,7 +3270,7 @@ mod tests {
             "the arrival hook committed Guard — the unit must not be left on Move"
         );
         assert!(
-            tank.movement_target.is_none(),
+            crate::sim::movement::motion_query::is_moving(&tank) != Some(true),
             "precondition: the move actually finished"
         );
         assert_eq!(
@@ -3376,8 +3342,8 @@ mod tests {
 
     #[test]
     fn stop_remains_committed_until_the_mission_owner_replaces_it() {
-        // TechnoAI6FA697 reads +AC. An empty movement adapter cannot turn Stop
-        // into Guard before the command/mission owner actually commences it.
+        // TechnoAI6FA697 reads +AC: nothing turns Stop into Guard before the
+        // command/mission owner actually commences it.
         let mut e = GameEntity::test_default(1, "MTNK", "Americans", 5, 5);
         e.mission
             .apply_test_fixture(fixture_with_current(&e.mission, MissionType::Stop));
@@ -3386,9 +3352,6 @@ mod tests {
             MissionType::Stop,
             "the passive consumer may not infer a mission transition"
         );
-        // While the order is still live, the committed selector wins.
-        e.movement_target = Some(MovementTarget::default());
-        assert_eq!(e.passive_acquire_mission(), MissionType::Stop);
     }
 
     fn fixture_with_current(mission: &MissionCom, current: MissionType) -> MissionTestFixture {
@@ -4060,7 +4023,6 @@ mod tests {
             .unwrap();
         {
             let e = sim.substrate.entities.get_mut(1).unwrap();
-            e.movement_target = Some(MovementTarget::default());
             e.attack_target = Some(AttackTarget::new(9));
             e.passively_acquired_target = true;
         }
@@ -6590,7 +6552,7 @@ mod tests {
         let sim = ordinary_drive_host_sim(12);
         let entity = sim.substrate.entities.get(ORDINARY_DRIVE_HOST_ID).unwrap();
         assert_eq!(entity.mission.current().known(), Some(MissionType::Move));
-        assert!(entity.movement_target.is_none());
+        assert!(crate::sim::movement::motion_query::is_moving(&entity) != Some(true));
         assert!(entity.attack_target.is_none());
         assert!(entity.pending_entry().is_none() && entity.radio_contacts.is_empty());
         assert!(entity.miner.is_none());
@@ -7042,7 +7004,6 @@ MinLowPowerProductionSpeed=0.4\nMaxLowPowerProductionSpeed=0.85\n\n\
         } else {
             crate::util::fixed_math::SIM_ZERO
         });
-        entity.movement_target = walking.then(crate::sim::components::MovementTarget::default);
     }
 
     #[test]
@@ -7133,20 +7094,6 @@ MinLowPowerProductionSpeed=0.4\nMaxLowPowerProductionSpeed=0.85\n\n\
              test proves nothing"
         );
         assert_eq!(e.mission.current(), MissionId::NONE);
-
-        // Retiring the path adapter alone does not finish a paid Walk step.
-        sim.substrate.entities.get_mut(1).unwrap().movement_target = None;
-        sim.object_ai_post_movement_promote(Some(&rules));
-        assert_eq!(
-            sim.substrate
-                .entities
-                .get(1)
-                .unwrap()
-                .mission
-                .queued()
-                .known(),
-            Some(MissionType::Move)
-        );
 
         // Movement ended during the tick's movement phases.
         set_walking(&mut sim, 1, false);
@@ -7392,10 +7339,9 @@ MinLowPowerProductionSpeed=0.4\nMaxLowPowerProductionSpeed=0.85\n\n\
             5, // vision_range = 5 cells
             true,
         );
-        e.movement_target = Some(MovementTarget::default());
         // Out of limbo, where `FootClass::AI` admits a Process (`0x004DA86E`).
-        // The ground corridor's Walk Process retires the empty target on the
-        // first Process.
+        // The ground corridor's Walk Process takes its idle tail (Walk75BCE3)
+        // on the first Process.
         e.lifecycle.in_limbo = false;
         e.locomotor = Some(
             crate::sim::movement::locomotor::LocomotorState::for_test_kind(
@@ -7411,12 +7357,16 @@ MinLowPowerProductionSpeed=0.4\nMaxLowPowerProductionSpeed=0.85\n\n\
     #[test]
     fn tick_never_projects_a_mission_from_the_machines() {
         let mut sim = Simulation::new();
-        insert_s2_scoped_move_unit(&mut sim, 1, 5, 5); // default target: arrives tick 1
+        insert_s2_scoped_move_unit(&mut sim, 1, 5, 5); // an idle Walk
         sim.set_logic_order_for_test(vec![1]);
 
         let _ = sim.advance_tick(&[], None, None, None, 67);
         let e = sim.substrate.entities.get(1).unwrap();
-        assert!(e.movement_target.is_none(), "fixture must arrive on tick 1");
+        assert_ne!(
+            crate::sim::movement::motion_query::is_moving(e),
+            Some(true),
+            "the fixture stands"
+        );
         assert_eq!(
             e.mission.current(),
             MissionId::NONE,
@@ -7434,32 +7384,37 @@ MinLowPowerProductionSpeed=0.4\nMaxLowPowerProductionSpeed=0.85\n\n\
     }
 
     /// `FootClass::AI` calls no locomotor Process while the object falls
-    /// (ObjectClass `+0x8D`, tested at `0x004DA826`): the mover's empty target
-    /// outlives the frame, and the Process retires it once the fall ends.
+    /// (ObjectClass `+0x8D`, tested at `0x004DA826`): the idle Walk's tail
+    /// (Walk75BCE3), which stops a positive Foot speed, waits until the fall
+    /// ends.
     #[test]
     fn a_falling_mover_gets_no_process() {
+        use crate::util::fixed_math::{SIM_ONE, SIM_ZERO};
         let mut sim = Simulation::new();
         insert_s2_scoped_move_unit(&mut sim, 1, 5, 5);
-        sim.substrate
-            .entities
-            .get_mut(1)
-            .unwrap()
-            .set_falling_down_for_test(true);
+        let mover = sim.substrate.entities.get_mut(1).unwrap();
+        mover.set_falling_down_for_test(true);
+        mover.foot_speed.set_speed_fraction(SIM_ONE);
         sim.set_logic_order_for_test(vec![1]);
 
         let _ = sim.advance_tick(&[], None, None, None, 67);
         let mover = sim.substrate.entities.get_mut(1).unwrap();
-        assert!(mover.movement_target.is_some(), "no Process while falling");
+        assert_eq!(
+            mover.foot_speed.applied_fraction(),
+            SIM_ONE,
+            "no Process while falling"
+        );
 
         mover.set_falling_down_for_test(false);
         let _ = sim.advance_tick(&[], None, None, None, 67);
-        assert!(
+        assert_eq!(
             sim.substrate
                 .entities
                 .get(1)
                 .unwrap()
-                .movement_target
-                .is_none(),
+                .foot_speed
+                .applied_fraction(),
+            SIM_ZERO,
             "the landed mover's Process runs"
         );
     }
@@ -7495,7 +7450,6 @@ MinLowPowerProductionSpeed=0.4\nMaxLowPowerProductionSpeed=0.85\n\n\
         insert_s2_scoped_move_unit(&mut sim, 1, 5, 5); // dispatched on tick 1
         insert_s2_scoped_move_unit(&mut sim, 2, 8, 8);
         // never collected; never scoped
-        sim.substrate.entities.get_mut(2).unwrap().movement_target = None;
         sim.set_logic_order_for_test(vec![1, 2]);
 
         let _ = sim.advance_tick(&[], None, None, None, 67);
@@ -7520,14 +7474,13 @@ MinLowPowerProductionSpeed=0.4\nMaxLowPowerProductionSpeed=0.85\n\n\
 
     /// Load trusts serialized MissionCom: a save carrying a verb-committed
     /// mission that no legacy machine could re-derive (Move current, no
-    /// movement_target) must restore an IDENTICAL state hash and value.
+    /// destination) must restore an IDENTICAL state hash and value.
     /// Guards the deleted post-load re-derive against reintroduction.
     #[test]
     fn save_load_round_trip_trusts_serialized_mission() {
         use crate::sim::snapshot::GameSnapshot;
         let mut sim = Simulation::new();
         insert_s2_scoped_move_unit(&mut sim, 1, 5, 5);
-        sim.substrate.entities.get_mut(1).unwrap().movement_target = None;
         update_mission_test_fixture(
             &mut sim.substrate.entities.get_mut(1).unwrap().mission,
             |fixture| {

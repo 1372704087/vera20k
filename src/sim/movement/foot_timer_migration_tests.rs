@@ -8,7 +8,7 @@ use crate::map::entities::EntityCategory;
 use crate::rules::ini_parser::IniFile;
 use crate::rules::locomotor_type::LocomotorKind;
 use crate::rules::ruleset::RuleSet;
-use crate::sim::components::{DriveCoord, FootPathQueue, Health, MovementTarget};
+use crate::sim::components::{DriveCoord, FootPathQueue, Health};
 use crate::sim::game_entity::GameEntity;
 use crate::sim::movement::{DriveLocomotionRuntime, ShipLocomotionRuntime};
 use crate::sim::occupancy::OccupancyGrid;
@@ -16,7 +16,7 @@ use crate::sim::pathfinding::PathGrid;
 use crate::sim::snapshot::GameSnapshot;
 use crate::sim::timer::CdTimer;
 use crate::sim::world::Simulation;
-use crate::util::fixed_math::{SIM_ZERO, SimFixed};
+use crate::util::fixed_math::SimFixed;
 use serde_json::Value;
 
 fn rules(path_delay: &str, blockage: &str, walk: bool) -> RuleSet {
@@ -162,7 +162,6 @@ fn install_stationary_path_request(sim: &mut Simulation) {
         cursor: 0,
         reference_cell: Some((8, 8)),
     };
-    entity.movement_target = Some(MovementTarget { speed: SIM_ZERO });
 }
 
 #[test]
@@ -323,10 +322,6 @@ fn paid_walk_progress_clears_only_blocked_latch_and_retains_timer_words() {
             y: 8 * 256 + 128,
             z: 0,
         }));
-    entity.movement_target = Some(MovementTarget {
-        speed: SimFixed::from_num(165),
-        ..Default::default()
-    });
     entity
         .navigation
         .path_runtime

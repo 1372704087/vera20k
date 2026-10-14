@@ -241,7 +241,9 @@ fn cross_repaired_road(scene: &mut HeadlessScenario) {
         );
         assert!(actor.low_bridge_tube_state.is_none());
         crossed_gap |= (114..=116).contains(&actor.position.rx) && actor.position.ry == 59;
-        if (actor.position.rx, actor.position.ry) == (115, 63) && actor.movement_target.is_none() {
+        if (actor.position.rx, actor.position.ry) == (115, 63)
+            && crate::sim::movement::motion_query::is_moving(&actor) != Some(true)
+        {
             assert!(crossed_gap, "the FV must physically cross the repaired row");
             assert_eq!(actor.position.exact_z_leptons, Some(208));
             assert!(

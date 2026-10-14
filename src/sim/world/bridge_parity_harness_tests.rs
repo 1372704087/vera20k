@@ -345,7 +345,12 @@ const MIN_DISTINCT_DECK_CELLS: usize = 6;
 // as per-House and per-entity digests, cell grids and footprint lists
 // fold as packed byte records, and the edge cache also covers
 // uninitialized cells: code that writes no simulation state.
-const BRIDGE_HARNESS_FINAL_HASH: u64 = 0x5D16_9C8A_E6B9_8915;
+// Snapshot349 drops the move-order adapter (`MovementTarget`, #689), whose
+// presence and speed stamp every entity's fold hashed. Hash composition
+// only: a control binary (main with a hash that skips only that fold)
+// gives this value in the same test, with every tripwire above green.
+// Control removed. Previous: 0x5D16_9C8A_E6B9_8915.
+const BRIDGE_HARNESS_FINAL_HASH: u64 = 0x13A7_184B_5F5F_A088;
 
 fn bridge_ini() -> IniFile {
     // One armed ground vehicle and one distant infantryman on a second house, so
@@ -712,7 +717,7 @@ fn bridge_crossing_replay_is_deterministic_and_baseline_stable() {
         // Nodes of the route the first Find_Path installed: the start cell
         // plus one Foot+5E0 word per later cell.
         if order_accepted_path.is_none()
-            && entity.movement_target.is_some()
+            && crate::sim::movement::motion_query::is_moving(&entity) == Some(true)
             && !entity.navigation.path_replay.directions.is_empty()
         {
             order_accepted_path = Some(entity.navigation.path_replay.directions.len() + 1);
@@ -866,7 +871,7 @@ fn bridge_crossing_replay_is_deterministic_and_baseline_stable() {
         "arrival must retire the paid track head"
     );
     assert!(
-        arrived.movement_target.is_none(),
+        crate::sim::movement::motion_query::is_moving(&arrived) != Some(true),
         "arrival must retire the completed path"
     );
 

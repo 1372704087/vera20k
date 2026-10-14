@@ -257,9 +257,9 @@ pub(crate) fn current_type_speed(
 /// resolves the builder's UNCHECKED "aircraft FASTER" residual: not applied.
 ///
 /// `Teleport` stays inside the gate deliberately. Native's teleport locomotor
-/// does not query `+0x538` either, but VERA's teleport machine ignores
-/// `MovementTarget::speed` outright (stock `[CLEG] Speed=5` is a dummy the INI
-/// itself comments as unused), and a teleporter that piggybacks Drive carries
+/// does not query `+0x538` either, but VERA's teleport machine reads no mover
+/// speed (stock `[CLEG] Speed=5` is a dummy the INI itself comments as
+/// unused), and a teleporter that piggybacks Drive carries
 /// `LocomotorKind::Drive` here — where the drive locomotor really does query
 /// the getter. So admitting `Teleport` changes no observable speed and keeps
 /// the piggyback case correct.

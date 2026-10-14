@@ -503,7 +503,10 @@ fn unit_null_arm_moves_hover_and_jumpjet_units() {
     ] {
         let actor = sim.substrate.entities.get(id).unwrap();
         assert_eq!(actor.locomotor.as_ref().unwrap().active_kind(), kind);
-        assert!(actor.movement_target.is_none() && actor.navigation.nav_com.is_none());
+        assert!(
+            crate::sim::movement::motion_query::is_moving(&actor) != Some(true)
+                && actor.navigation.nav_com.is_none()
+        );
     }
     let rng = sim.scenario_rng.state();
     let flags = ScatterFlags::new(true, true);
@@ -520,7 +523,10 @@ fn unit_null_arm_moves_hover_and_jumpjet_units() {
         .unwrap()
     );
     let unit = sim.substrate.entities.get(hover).unwrap();
-    assert!(unit.movement_target.is_some(), "the Hover route");
+    assert!(
+        crate::sim::movement::motion_query::is_moving(&unit) == Some(true),
+        "the Hover route"
+    );
     assert_eq!(
         unit.navigation.nav_com,
         Some(crate::sim::components::NavTargetRef::cell(cell.0, cell.1))
@@ -544,7 +550,7 @@ fn unit_null_arm_moves_hover_and_jumpjet_units() {
         Some(NavTargetRef::cell(cell.0, cell.1)),
         "the Jumpjet's setter writes its NavCom"
     );
-    assert!(unit.movement_target.is_some());
+    assert!(crate::sim::movement::motion_query::is_moving(&unit) == Some(true));
     assert_eq!(sim.scenario_rng.state(), rng);
 }
 

@@ -394,22 +394,6 @@ impl Simulation {
                 {
                     loco.store_track_destination(family, None);
                 }
-                // Retire only the completed order adapter before PerCell. The
-                // native terminal tail has no legacy finalizer/body-turn reset;
-                // a callback may install a new path that must survive this tail.
-                if let Some(entity) = self.substrate.entities.get_mut(id) {
-                    if reached {
-                        entity.movement_target = None;
-                    } else if entity.movement_target.is_some()
-                        && entity
-                            .navigation
-                            .path_replay
-                            .remaining_directions()
-                            .is_empty()
-                    {
-                        super::movement_commands::spend_track_route(entity);
-                    }
-                }
                 self.unit_per_cell_process(
                     id,
                     super::per_cell::PerCellReason::Arrival,
@@ -433,12 +417,6 @@ impl Simulation {
                             return Ok(TrackPass::aborted(moved));
                         }
                     }
-                }
-                if !reached
-                    && let Some(entity) = self.substrate.entities.get_mut(id)
-                    && entity.movement_target.is_none()
-                {
-                    entity.navigation.pending_arrival_clear = entity.navigation.nav_com.is_some();
                 }
                 if self.track_navigation_gate(id, rules, effects) {
                     return Ok(TrackPass::aborted(moved));
@@ -1123,22 +1101,15 @@ impl Simulation {
                     None
                 }
             });
-        // 4D838E..83CA: vt+0x480(queue[0], 0), then the queue shift. Drive
-        // and Ship finish the setter at their next Process entry
-        // (`complete_pending_order`); another receiver runs it here.
-        let track = entity.locomotor.as_ref().is_some_and(|loco| {
-            matches!(
-                loco.active_kind(),
-                crate::rules::locomotor_type::LocomotorKind::Drive
-                    | crate::rules::locomotor_type::LocomotorKind::Ship
-            )
-        });
+        // 4D838E..83CA: vt+0x480(queue[0], 0), then the queue shift. A
+        // receiver whose setter is not represented takes NavCom and its
+        // locomotor's Move_To here and owes the setter to its next Process
+        // entry (`complete_pending_order`).
         let setter_now = queued_cell.is_some_and(|(rx, ry)| {
-            !track
-                && rules.is_some_and(|rules| {
-                    let target = crate::sim::components::NavTargetRef::cell(rx, ry);
-                    self.destination_setter_available(id, target, rules, registry)
-                })
+            rules.is_some_and(|rules| {
+                let target = crate::sim::components::NavTargetRef::cell(rx, ry);
+                self.destination_setter_available(id, target, rules, registry)
+            })
         });
         let entity = self
             .substrate
@@ -1219,7 +1190,7 @@ impl Simulation {
                 }
             };
             if let Err(cause) =
-                self.set_infantry_destination(id, destination, rules, registry, effects)
+                self.assign_infantry_destination(id, destination, rules, registry, effects)
             {
                 log::debug!("Infantry {id} idle Archive destination: {cause}");
             }

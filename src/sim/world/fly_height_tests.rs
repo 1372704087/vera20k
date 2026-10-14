@@ -602,8 +602,6 @@ fn fly_destination_orders_match_original_retained_xyz_and_refusals() {
             "{input}"
         );
         assert_eq!(sim.scenario_rng.logical_state(), before_rng);
-        // MoveTo writes the Fly alone; no order adapter follows it.
-        assert!(entity.movement_target.is_none());
         if !accepted {
             assert_eq!(sim.shared_cell_dummy.snapshot().coord, (-7, -8), "{input}");
         }
@@ -676,7 +674,6 @@ fn fly_retained_destination_drives_subcell_arrival_after_save_and_restore() {
             crate::sim::world::FrameEffects::default(),
         );
         let entity = instance.substrate.entities.get(1).unwrap();
-        assert!(entity.movement_target.is_none());
         // Arrival must not invent a native destination clear.
         assert_eq!(
             entity

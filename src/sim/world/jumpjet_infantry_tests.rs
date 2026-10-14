@@ -1365,7 +1365,7 @@ fn the_class_setter_flies_a_rocketeer_to_an_object() {
     let (mut sim, rules, shooter) = grounded_rocketeer();
     move_shooter(&mut sim, shooter, (46, 44));
     assert_eq!(
-        sim.set_infantry_destination(
+        sim.assign_infantry_destination(
             1,
             crate::sim::components::NavTargetRef::object(shooter),
             &rules,
@@ -1403,7 +1403,7 @@ fn the_mission_destination_setter_flies_a_rocketeer() {
 fn an_order_to_a_rocketeers_own_cell_is_ignored() {
     let (mut sim, rules, _) = grounded_rocketeer();
     assert_eq!(
-        sim.set_infantry_destination(
+        sim.assign_infantry_destination(
             1,
             crate::sim::components::NavTargetRef::cell(52, 52),
             &rules,
@@ -1433,7 +1433,7 @@ fn an_object_order_into_a_rocketeers_own_cell_is_ignored() {
     let (mut sim, rules, shooter) = grounded_rocketeer();
     move_shooter(&mut sim, shooter, (52, 52));
     assert_eq!(
-        sim.set_infantry_destination(
+        sim.assign_infantry_destination(
             1,
             crate::sim::components::NavTargetRef::object(shooter),
             &rules,
@@ -1522,7 +1522,7 @@ fn a_moving_rocketeers_reorder_runs_stop_driver_first() {
     let order =
         |sim: &mut super::Simulation, rules: &crate::rules::ruleset::RuleSet, cell: (u16, u16)| {
             assert_eq!(
-                sim.set_infantry_destination(
+                sim.assign_infantry_destination(
                     1,
                     crate::sim::components::NavTargetRef::cell(cell.0, cell.1),
                     rules,
@@ -1571,7 +1571,7 @@ fn foot_admission_refuses_a_rocketeers_order_during_a_locomotor_swap() {
         .unwrap()
         .foot_locomotor_swap_active = true;
     assert_eq!(
-        sim.set_infantry_destination(
+        sim.assign_infantry_destination(
             1,
             crate::sim::components::NavTargetRef::cell(60, 52),
             &rules,
@@ -1700,7 +1700,6 @@ fn a_rocketeer_taken_over_in_flight_stops_over_his_cell() {
         "the re-target is the cell he is over"
     );
     assert_eq!(rocketeer.navigation.nav_com, None);
-    assert!(rocketeer.movement_target.is_none());
     for _ in 0..120 {
         sim.advance_tick(&[], Some(&rules), Some(&grid), None, 67);
     }

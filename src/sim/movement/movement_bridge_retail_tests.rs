@@ -325,7 +325,7 @@ fn prepare_commanding_house(scenario: &mut crate::headless_scenario::HeadlessSce
     name
 }
 
-/// Report why the order never became a `MovementTarget`, so a harness failure is
+/// Report why the order never became a NavCom, so a harness failure is
 /// distinguishable from a height defect.
 ///
 /// Takes the span geometry as loose cells rather than a `HighBridgeSpan` so the
@@ -435,12 +435,6 @@ fn diagnose_rejected_order(
         simulation,
         resources,
     } = &mut scenario.runtime;
-    println!(
-        "resolve_move_info: {:?}",
-        simulation
-            .resolve_move_info(entity_id, Some(&resources.rules))
-            .is_some()
-    );
     let applied = simulation.apply_command(
         owner_name,
         &Command::Move {
@@ -452,15 +446,11 @@ fn diagnose_rejected_order(
     );
     println!("direct apply_command(Move) -> {applied}");
     println!(
-        "movement_target after direct apply: {:?}",
-        simulation
-            .entities()
-            .get(entity_id)
-            .and_then(|entity| entity.movement_target.as_ref().map(|_| entity
-                .navigation
-                .path_replay
-                .route_cells()
-                .len()))
+        "NavCom and route length after direct apply: {:?}",
+        simulation.entities().get(entity_id).map(|entity| (
+            entity.navigation.nav_com,
+            entity.navigation.path_replay.route_cells().len()
+        ))
     );
 }
 
@@ -482,13 +472,13 @@ fn route_reinstalled(
 
 /// The accepted order's Foot+5E0 route still ahead: the reference cell plus
 /// the cells its remaining words step through. Empty until the first Drive
-/// Process installs it; `None` when the order was refused (no adapter).
+/// Process installs it; `None` when the order was refused (no NavCom).
 fn accepted_route(
     scenario: &crate::headless_scenario::HeadlessScenario,
     entity_id: u64,
 ) -> Option<Vec<(u16, u16)>> {
     let entity = scenario.sim().entities().get(entity_id)?;
-    entity.movement_target.as_ref()?;
+    entity.navigation.nav_com?;
     Some(entity.navigation.path_replay.route_cells())
 }
 
@@ -753,7 +743,7 @@ fn drive_across_high_bridge_with_order(
             loco_layer,
             prefix_z: facts.effective_cell_z_for_layer(loco_layer),
         });
-        if entity.movement_target.is_none() {
+        if crate::sim::movement::motion_query::is_moving(&entity) != Some(true) {
             idle_frames += 1;
             if idle_frames >= 30 {
                 break;
@@ -1473,7 +1463,7 @@ fn drive_across_low_bridge(map_file: &str, unit_type: &str) {
             loco_layer,
             prefix_z: facts.effective_cell_z_for_layer(loco_layer),
         });
-        if entity.movement_target.is_none() {
+        if crate::sim::movement::motion_query::is_moving(&entity) != Some(true) {
             idle_frames += 1;
             if idle_frames >= 30 {
                 break;
@@ -2033,7 +2023,7 @@ fn tank_repathing_around_a_deck_blocker_stays_on_the_bridge_layer() {
         .sim()
         .entities()
         .get(crosser)
-        .filter(|entity| entity.movement_target.is_some())
+        .filter(|entity| crate::sim::movement::motion_query::is_moving(&entity) == Some(true))
         // The route the first Process installed from the near approach.
         .map(|entity| {
             entity
@@ -2127,7 +2117,7 @@ fn tank_repathing_around_a_deck_blocker_stays_on_the_bridge_layer() {
         if blocker_parked.is_none()
             && let Some(parked) = sim.entities().get(blocker).filter(|parked| {
                 (parked.position.rx, parked.position.ry) == park_cell
-                    && parked.movement_target.is_none()
+                    && crate::sim::movement::motion_query::is_moving(&parked) != Some(true)
             })
         {
             let deck = sim
@@ -2154,7 +2144,7 @@ fn tank_repathing_around_a_deck_blocker_stays_on_the_bridge_layer() {
         {
             ground_layer_deck_frames.push(row);
         }
-        if entity.movement_target.is_some() {
+        if crate::sim::movement::motion_query::is_moving(&entity) == Some(true) {
             let route = &entity.navigation.path_replay;
             if route_reinstalled(&previous_route, route) {
                 path_rebuilds += 1;
@@ -3406,7 +3396,7 @@ fn record_until(
             loco_layer,
             prefix_z: facts.effective_cell_z_for_layer(loco_layer),
         });
-        if entity.movement_target.is_none() {
+        if crate::sim::movement::motion_query::is_moving(&entity) != Some(true) {
             idle_frames += 1;
             if idle_frames >= 30 {
                 break;

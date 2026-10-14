@@ -646,12 +646,10 @@ fn hover_transport_on_water_moves_to_shore_before_unloading() {
     for _ in 0..3 {
         fx.tick();
     }
-    let moving = fx
-        .sim
-        .substrate
-        .entities
-        .get(lcrf)
-        .is_some_and(|e| e.movement_target.is_some() || e.navigation.nav_com.is_some());
+    let moving = fx.sim.substrate.entities.get(lcrf).is_some_and(|e| {
+        crate::sim::movement::motion_query::is_moving(&e) == Some(true)
+            || e.navigation.nav_com.is_some()
+    });
     assert!(moving, "the landing craft is driven toward land first");
     assert_eq!(
         fx.cargo_ids(lcrf).len(),
@@ -1086,10 +1084,10 @@ fn descending_nighthawk_draws_no_scenario_rng_until_it_ejects() {
 }
 
 /// `UnitClass::Mission_Unload` state 0 waits (`return 10`) only while the
-/// locomotor's Is_Moving (`0x0073D729`) is true. An order alone does not hold
-/// the unload; a Drive with a destination does, before it has any speed.
+/// locomotor's Is_Moving (`0x0073D729`) is true: a Drive with a destination
+/// holds the unload before it has any speed.
 #[test]
-fn unit_unload_waits_on_the_locomotors_is_moving_not_the_order() {
+fn unit_unload_waits_on_the_locomotors_is_moving() {
     let run = |setup: &dyn Fn(&mut crate::sim::game_entity::GameEntity)| {
         let mut fx = Fixture::new(|_, _| false);
         let bfrt = fx.spawn("BFRT", 20, 20, 0x40);
@@ -1106,11 +1104,6 @@ fn unit_unload_waits_on_the_locomotors_is_moving_not_the_order() {
     };
     let waiting = (super::WAIT_MOVING_FRAMES, super::STATE_PICK_EXIT);
     assert_ne!(run(&|_| {}), waiting, "a standing transport unloads");
-    assert_ne!(
-        run(&|e| e.movement_target = Some(crate::sim::components::MovementTarget::default())),
-        waiting,
-        "an order alone does not hold the unload"
-    );
     assert_eq!(
         run(&|e| {
             {
@@ -1252,10 +1245,10 @@ fn unload_order_stops_a_driving_transport_where_it_is() {
 }
 
 /// `AircraftClass::Mission_Unload` state 2 moves on to state 3 when the
-/// locomotor's Is_Moving (`0x0041549D`) is false; the order is not asked.
+/// locomotor's Is_Moving (`0x0041549D`) is false.
 /// The fixture's `[SHAD]` is an aircraft to reach this slot.
 #[test]
-fn landed_aircraft_transport_unload_asks_the_locomotor_not_the_order() {
+fn landed_aircraft_transport_unload_asks_the_locomotor() {
     let run = |setup: &dyn Fn(&mut crate::sim::game_entity::GameEntity)| {
         let mut fx = Fixture::new(|_, _| false);
         let shad = fx.spawn("SHAD", 20, 20, 0);
@@ -1283,9 +1276,9 @@ fn landed_aircraft_transport_unload_asks_the_locomotor_not_the_order() {
         handler_state(&fx, shad)
     };
     assert_eq!(
-        run(&|e| e.movement_target = Some(crate::sim::components::MovementTarget::default())),
+        run(&|_| {}),
         super::AIR_STATE_EJECT,
-        "an order alone does not hold a landed aircraft transport"
+        "a still landed aircraft transport ejects"
     );
     assert_eq!(
         run(&|e| {

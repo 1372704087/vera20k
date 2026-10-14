@@ -374,10 +374,8 @@ impl JumpjetFlightHost for CruiseHost<'_> {
         let rules = self.rules;
         let registry = self.registry;
         let frame_effects = self.frame_effects;
-        let speed = self.sim.jumpjet_order_speed(id, rules);
         runtime.with_owner_call(self.sim, id, |sim| {
             sim.jumpjet_stop_moving(id, rules, registry, frame_effects);
-            sim.publish_jumpjet_order_adapter(id, speed);
         });
         runtime.phase()
     }
@@ -733,11 +731,6 @@ impl Simulation {
                 entry_state == STATE_TRANSLATE && matches!(state, STATE_HOLD | STATE_DESCEND);
             let height = host.height_above_ground();
             let entity = host.sim.substrate.entities.get_mut(stable_id).unwrap();
-            // The order adapter retires with the flight; the class fields
-            // keep the destination.
-            if host.touched_down || ended_cruise {
-                entity.movement_target = None;
-            }
             entity.locomotor.as_mut().unwrap().altitude = SimFixed::from_num(height.max(0));
             if host.crash_latched
                 && entity.category == EntityCategory::Infantry
@@ -861,7 +854,7 @@ mod tests {
 
     /// The fixture's order to cell (16,10) at frame 1001, as Foot's setter
     /// gives it: the Cell NavCom (`0x004D9510`), then the Jumpjet's `Move_To`
-    /// with the cell's coordinate (`0x004D965D`), and the order's adapter.
+    /// with the cell's coordinate (`0x004D965D`).
     fn order_east(sim: &mut Simulation) {
         sim.session.binary_frame = 1001;
         let request = crate::sim::movement::target_cell_coord(
@@ -880,7 +873,6 @@ mod tests {
             .nav_com = Some(crate::sim::components::NavTargetRef::cell(16, 10));
         sim.jumpjet_move_to(1, request, None)
             .expect("Move_To on the fixture map");
-        sim.publish_jumpjet_order_adapter(1, SimFixed::from_num(14));
     }
 
     /// Park a Jumpjet with no order in a given native state and run the tick.
@@ -888,7 +880,6 @@ mod tests {
         let mut sim = hovering_jumpjet(0x40);
         {
             let entity = sim.substrate.entities.get_mut(1).expect("jumpjet");
-            entity.movement_target = None;
             let locomotor = entity.locomotor.as_mut().expect("locomotor");
             locomotor.balloon_hover = balloon_hover;
             locomotor.altitude = SimFixed::from_num(if state == jumpjet_flight::STATE_GROUND {
@@ -1104,7 +1095,6 @@ mod tests {
             assert_eq!(stats.arrivals, u32::from(last), "{name}: frame {index}");
         }
         let entity = sim.substrate.entities.get(1).expect("jumpjet");
-        assert!(entity.movement_target.is_none());
         let locomotor = entity.locomotor.as_ref().expect("locomotor");
         assert_eq!(
             locomotor.jumpjet_runtime().map(|runtime| runtime.phase()),
@@ -1190,7 +1180,6 @@ mod tests {
         );
         let entity = sim.substrate.entities.get(1).expect("jumpjet");
         assert!(entity.navigation.nav_com.is_none());
-        assert!(entity.movement_target.is_none());
 
         for frame in 0..400 {
             sim.session.binary_frame = 1022 + frame;
@@ -1237,7 +1226,6 @@ mod tests {
             sim.interner = crate::sim::intern::test_interner();
             {
                 let entity = sim.substrate.entities.get_mut(1).expect("jumpjet");
-                entity.movement_target = None;
                 let runtime = entity
                     .locomotor
                     .as_mut()

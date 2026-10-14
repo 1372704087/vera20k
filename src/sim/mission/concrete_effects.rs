@@ -418,7 +418,7 @@ impl ConcreteMissionEffects for RepresentedConcreteMissionEffects<'_> {
                 // `InfantryClass::Assign_Destination @ 0x0051AA40`.
                 crate::map::entities::EntityCategory::Infantry => {
                     let _ = sim
-                        .set_infantry_destination(
+                        .assign_infantry_destination(
                             prepared.receiver,
                             requested,
                             rules,

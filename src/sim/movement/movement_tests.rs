@@ -5,7 +5,7 @@ use super::track_head::committed_track_head;
 
 use super::*;
 use crate::map::entities::EntityCategory;
-use crate::sim::components::{DriveCoord, MovementTarget, NavTargetRef};
+use crate::sim::components::{DriveCoord, NavTargetRef};
 use crate::sim::entity_store::EntityStore;
 use crate::sim::game_entity::GameEntity;
 use crate::sim::intern::test_interner;
@@ -61,14 +61,11 @@ fn ordinary_drive_retires_selector_before_entering_an_explicit_tube() {
         sim.reveal(1),
         crate::sim::world::RevealOutcome::Revealed { .. }
     ));
-    prepare_track_destination(
-        sim.substrate.entities.get_mut(1).unwrap(),
-        (5, 0),
-        None,
-        SimFixed::from_num(256),
-        Some(&terrain),
-        crate::sim::movement::DestinationTiming::new(0, 60),
-    );
+    {
+        let entity = sim.substrate.entities.get_mut(1).unwrap();
+        super::navcom::set_destination_internal_cell(entity, (5, 0), Some(&terrain), 0);
+        crate::sim::movement::DestinationTiming::new(0, 60).accept(entity);
+    }
     // Unit741970 accepts without a route; the first Process requests it.
     let accepted = sim.substrate.entities.get(1).unwrap();
     assert!(
@@ -272,10 +269,6 @@ fn test_drive_arrival_clears_navcom_same_tick() {
                     })
             ))
     );
-    e.movement_target = Some(MovementTarget {
-        // One live speed lepton plus residual7 pays the terminal point.
-        speed: SimFixed::from_num(15),
-    });
     e.lifecycle.in_limbo = false;
     entities.insert(e);
 
@@ -284,7 +277,7 @@ fn test_drive_arrival_clears_navcom_same_tick() {
     let mut lifecycle_requests = Vec::new();
     tick_movement(&mut entities, &mut test_interner(), &mut lifecycle_requests);
     let entity = entities.get(1).expect("entity exists");
-    assert!(entity.movement_target.is_none());
+    assert!(crate::sim::movement::motion_query::is_moving(&entity) != Some(true));
     assert_eq!(entity.navigation.nav_com, None);
     assert!(!entity.navigation.pending_arrival_clear);
     let drive = entity
@@ -342,7 +335,6 @@ fn walk_path_timer_waits_without_double_aging_or_losing_owner_state() {
                 NavTargetRef::cell(cell.0, cell.1),
                 target_cell_coord(cell.0, cell.1, None),
             ),
-            SimFixed::from_num(150),
             None,
             timing,
         ));
@@ -394,9 +386,8 @@ fn walk_path_timer_waits_without_double_aging_or_losing_owner_state() {
             assert_eq!(sim.scenario_rng.logical_state(), rng);
         }
 
-        // Native null setter writes persistent timers even without an adapter;
-        // the next accepted order must not recreate or truncate the dword count.
-        sim.substrate.entities.get_mut(1).unwrap().movement_target = None;
+        // Native null setter writes persistent timers; the next accepted order
+        // must not recreate or truncate the dword count.
         sim.session.binary_frame = 200;
         assert!(sim.set_infantry_null_destination(
             1,
@@ -751,7 +742,7 @@ fn walk_arrival_keeps_list_order_and_snapshot_continuation() {
         LocomotorKind::Walk,
     );
     assert_eq!(
-        sim.set_infantry_destination(
+        sim.assign_infantry_destination(
             walker,
             NavTargetRef::cell(4, 1),
             &rules,
@@ -889,7 +880,7 @@ fn walk_arrival_keeps_list_order_and_snapshot_continuation() {
             entity.locomotor.as_ref().and_then(|l| l.step_head()),
             entity.navigation.path_replay.clone(),
         ));
-        if entity.movement_target.is_none() {
+        if crate::sim::movement::motion_query::is_moving(&entity) != Some(true) {
             break;
         }
     }
@@ -898,13 +889,9 @@ fn walk_arrival_keeps_list_order_and_snapshot_continuation() {
         "the walker never arrived in a new cell; trace={trace:?}"
     );
     assert_eq!(previous_cell, (4, 1), "trace={trace:#?}");
-    assert!(
-        sim.substrate
-            .entities
-            .get(walker)
-            .unwrap()
-            .movement_target
-            .is_none()
+    assert_ne!(
+        crate::sim::movement::motion_query::is_moving(sim.substrate.entities.get(walker).unwrap()),
+        Some(true)
     );
     println!("cell-arrival Infantry frames: {trace:?}");
 }
@@ -917,7 +904,7 @@ fn forced_drive_rules(name: &str, speed: u32) -> crate::rules::ruleset::RuleSet 
 }
 
 #[test]
-fn forced_track_object_turn_relinks_each_committed_cell_without_a_movement_target() {
+fn forced_track_object_turn_relinks_each_committed_cell() {
     let rules = forced_drive_rules("CMIN", 5);
     let mut sim = Simulation::new();
     crate::sim::arena_fixture::flat_ground(&mut sim, &rules);
@@ -998,8 +985,6 @@ fn forced_track_object_turn_relinks_each_committed_cell_without_a_movement_targe
         sim.process_ground_locomotor_for_test(1, Some(&rules), None, None)
             .unwrap();
         let entity = sim.substrate.entities.get(1).unwrap();
-        // Only the track end's same-Process continuation requests a route.
-        assert!(committed_track_head(entity).is_none() || entity.movement_target.is_none());
         let current_cell = (entity.position.rx, entity.position.ry);
         assert!(
             sim.substrate
@@ -1056,8 +1041,7 @@ type RouteAndGoal = (Vec<(u16, u16)>, Option<(u16, u16)>);
 
 /// A Drive order on clear ground and its first Process: the order installs
 /// no route (Unit741970); the Process's Find_Path installs the segment.
-/// Returns the route that Find_Path installed from `start` and the adapter's
-/// goal.
+/// Returns the route that Find_Path installed from `start` and the goal.
 fn drive_first_process_route(start: (u16, u16), goal: (u16, u16)) -> RouteAndGoal {
     let mut sim = Simulation::with_seed(7);
     crate::sim::arena_fixture::supply_native_map(&mut sim);
@@ -1283,7 +1267,9 @@ fn walk_infantry_corridor(
         if visited.last() != Some(&cell) {
             visited.push(cell);
         }
-        if e.navigation.nav_com.is_none() && e.movement_target.is_none() {
+        if e.navigation.nav_com.is_none()
+            && crate::sim::movement::motion_query::is_moving(&e) != Some(true)
+        {
             break;
         }
     }
@@ -1354,9 +1340,6 @@ fn gsi_04_10_crusher_and_omnicrusher_never_enter_or_crush_a_terrain_object_cell(
                 .unwrap()
                 .install_drive_state_for_test(Some(Default::default()))
         );
-        tank.movement_target = Some(MovementTarget {
-            speed: SimFixed::from_num(1024),
-        });
         entities.insert(tank);
 
         let mut lifecycle_requests = Vec::new();
@@ -1425,13 +1408,12 @@ fn sharp_turn_preserves_path_node_count() {
         "E->SW must be a null table entry for this test to exercise the substitute"
     );
 
-    let mut entity = gsi_06_13_fixture_mover(
+    let entity = gsi_06_13_fixture_mover(
         (10, 10),
         0x40,
         vec![(10, 10), (11, 10), (10, 11)],
         vec![2, 5],
     );
-    entity.movement_target.as_mut().unwrap().speed = SIM_ZERO;
     let mut sim = crate::sim::world::Simulation::new();
     sim.interner = test_interner();
     sim.substrate.entities.insert(entity);
@@ -1525,9 +1507,6 @@ fn gsi_06_13_fixture_mover(
     e.lifecycle.in_limbo = false;
     e.lifecycle.cell_marked = true;
     let goal = *path.last().expect("non-empty path");
-    e.movement_target = Some(MovementTarget {
-        speed: SimFixed::from_num(768),
-    });
     e.navigation.path_replay = crate::sim::components::FootPathQueue {
         directions,
         cursor: 0,
@@ -1543,8 +1522,8 @@ fn gsi_06_13_fixture_mover(
                     .with_target_speed_fraction_for_test(SIM_ONE)
             ))
     );
-    // A seeded path is only the route adapter. Native terminal +504 checks
-    // NavCom independently; install the real destination before executing it.
+    // A seeded path is only Foot+5E0. Native terminal +504 checks NavCom
+    // independently; install the real destination before executing it.
     super::navcom::set_destination_internal_cell(&mut e, goal, None, 0);
     e
 }
@@ -1588,7 +1567,7 @@ fn group_gis_do_not_jump_or_lose_their_goal() {
                     dx * dx + dy * dy <= 32 * 32,
                     "unexpected jump seed={seed} tick={tick} GI={id} delta=({dx},{dy})"
                 );
-                if e.movement_target.is_some()
+                if crate::sim::movement::motion_query::is_moving(&e) == Some(true)
                     && e.locomotor.as_ref().unwrap().walk_destination_cell() != Some((3, 3))
                 {
                     let dx = i32::from(p.rx) - 3;
@@ -1601,7 +1580,8 @@ fn group_gis_do_not_jump_or_lose_their_goal() {
             }
             if ids.iter().all(|&id| {
                 let e = sim.substrate.entities.get(id).unwrap();
-                e.movement_target.is_none() && e.navigation.nav_com.is_none()
+                crate::sim::movement::motion_query::is_moving(&e) != Some(true)
+                    && e.navigation.nav_com.is_none()
             }) {
                 break;
             }

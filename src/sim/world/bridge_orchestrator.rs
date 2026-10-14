@@ -1009,8 +1009,6 @@ mod tests {
         entity.lifecycle.in_limbo = false;
         entity.lifecycle.cell_marked = true;
         entity.locomotor = Some(drive_loco_on_bridge());
-        // DropAsBomb does not change the destination/order.
-        entity.movement_target = Some(crate::sim::components::MovementTarget::default());
         sim.substrate.entities.insert(entity);
         1
     }
@@ -1022,6 +1020,13 @@ mod tests {
         let mut sim = Simulation::new();
         sim.resolved_terrain = Some(water_below_bridge_terrain(3));
         let id = spawn_deck_unit(&mut sim);
+        let order = Some(crate::sim::components::NavTargetRef::cell(7, 5));
+        sim.substrate
+            .entities
+            .get_mut(id)
+            .unwrap()
+            .navigation
+            .nav_com = order;
         sim.substrate.occupancy.add(
             5,
             5,
@@ -1041,8 +1046,8 @@ mod tests {
         assert_eq!(e.position.z, 3, "Location is retained");
         assert!(e.was_dropped_as_bomb() && e.is_falling_down());
         assert!(!e.on_bridge, "OnBridge cleared by DropIn");
-        assert!(
-            e.movement_target.is_some(),
+        assert_eq!(
+            e.navigation.nav_com, order,
             "DropAsBomb does not write orders"
         );
         assert_eq!(e.health.current, 256, "DropIn never harms — no damage");

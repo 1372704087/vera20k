@@ -5,7 +5,6 @@ use crate::map::playfield::PlayfieldBounds;
 use crate::rules::ini_parser::IniFile;
 use crate::sim::combat::veterancy::{self, LEVEL_ELITE, LEVEL_ROOKIE, LEVEL_UNSAMPLED};
 use crate::sim::world::SimSoundEvent;
-use crate::util::fixed_math::SimFixed;
 
 /// `[MTNK]` carries the stock Grizzly's own lines verbatim (`rulesmd.ini`:
 /// `Strength=300`, `Speed=7`, `Cost=700`,
@@ -114,9 +113,10 @@ fn gsi_08_12_promotion_step_announces_each_crossing_once() {
     );
 }
 
-/// Issue the ordinary player `Command::Move` and read its order-speed stamp.
-/// Native keeps no such stamp: Drive queries the live getter each Process.
-fn move_order_speed(sim: &mut Simulation, rules: &RuleSet, id: u64) -> SimFixed {
+/// Issue the ordinary player `Command::Move` and read the mover's live
+/// GetCurrentSpeed (`0x004DB1A0`) at full Foot+578. Native keeps no order
+/// speed: Drive queries the getter each Process.
+fn ordered_mover_speed(sim: &mut Simulation, rules: &RuleSet, id: u64) -> i32 {
     let grid = crate::sim::pathfinding::PathGrid::new(64, 64);
     sim.install_fixture_path_grid(Some(&grid));
     let (rx, ry) = {
@@ -133,19 +133,24 @@ fn move_order_speed(sim: &mut Simulation, rules: &RuleSet, id: u64) -> SimFixed 
         Some(rules),
     );
     assert!(issued, "the ordinary move command must issue");
-    sim.substrate
-        .entities
-        .get(id)
-        .and_then(|e| e.movement_target.as_ref())
-        .expect("the move order attached a movement target")
-        .speed
+    full_speed(sim, rules, id)
 }
 
-/// Fresh ordinary `Command::Move` orders stamp the adjusted type speed via
-/// `Simulation::resolve_move_info` and the canonical Unit destination setter.
-/// Each rank starts without a NavCom: Unit741970 returns without any write
-/// for a repeated destination unless forced. That separate case is replayed
-/// by `repeated_move_orders_keep_the_stamp_but_sample_live_native_speed`.
+/// The live getter at full Foot+578.
+fn full_speed(sim: &mut Simulation, rules: &RuleSet, id: u64) -> i32 {
+    sim.substrate
+        .entities
+        .get_mut(id)
+        .expect("mover")
+        .foot_speed
+        .set_speed_fraction(crate::util::fixed_math::SIM_ONE);
+    sim.current_speed_for_test(id, rules)
+}
+
+/// An ordered mover's live speed carries `FASTER`. Each rank starts without
+/// a NavCom: Unit741970 returns without any write for a repeated destination
+/// unless forced. That separate case is replayed by
+/// `repeated_move_orders_sample_live_native_speed`.
 ///
 /// gamemd asks the getter for the speed on every frame a ground mover steps
 /// (vtable slot `+0x538` from `DriveLocomotionClass::Process_Drive_Track
@@ -155,32 +160,27 @@ fn move_order_speed(sim: &mut Simulation, rules: &RuleSet, id: u64) -> SimFixed 
 /// because its ability list omits `FASTER`.
 /// Native getter and retained order/prefix evidence: track_speed_native.json.
 #[test]
-fn gsi_08_12_faster_reaches_the_ordinary_move_order() {
-    const FRAMES_PER_SECOND: i32 = 15;
+fn gsi_08_12_faster_reaches_the_ordered_movers_speed() {
     let (mut sim, rules, id) = spawned_grizzly();
-
-    let rookie = move_order_speed(&mut sim, &rules, id);
     assert_eq!(
-        rookie,
-        SimFixed::from_num(17 * FRAMES_PER_SECOND),
+        ordered_mover_speed(&mut sim, &rules, id),
+        17,
         "a rookie Grizzly moves at its plain Speed=7"
     );
 
     let (mut sim, rules, id) = spawned_grizzly();
     veterancy::set_veteran(sim.substrate.entities.get_mut(id).unwrap());
-    let veteran = move_order_speed(&mut sim, &rules, id);
     assert_eq!(
-        veteran,
-        SimFixed::from_num(20 * FRAMES_PER_SECOND),
+        ordered_mover_speed(&mut sim, &rules, id),
+        20,
         "the veteran list carries FASTER, so the ordered move takes ftol(17 * 1.2) = 20"
     );
 
     let (mut sim, rules, id) = spawned_grizzly();
     veterancy::set_elite(sim.substrate.entities.get_mut(id).unwrap());
-    let elite = move_order_speed(&mut sim, &rules, id);
     assert_eq!(
-        elite,
-        SimFixed::from_num(20 * FRAMES_PER_SECOND),
+        ordered_mover_speed(&mut sim, &rules, id),
+        20,
         "HasWeaponAbility @ 0x0070D0D0: elite inherits the veteran list"
     );
 
@@ -188,23 +188,18 @@ fn gsi_08_12_faster_reaches_the_ordinary_move_order() {
     let (mut sim, rules, control_id) = spawned_vehicle("HTNK");
     veterancy::set_elite(sim.substrate.entities.get_mut(control_id).unwrap());
     assert_eq!(
-        move_order_speed(&mut sim, &rules, control_id),
-        SimFixed::from_num(15 * FRAMES_PER_SECOND),
+        ordered_mover_speed(&mut sim, &rules, control_id),
+        15,
         "no FASTER token means no multiply, whatever the rank"
     );
 }
 
-/// The promotion detector also refreshes VERA's scheduling adapter stamp.
-/// Drive and Ship query their speed independently every Process; the native
-/// repeated-order history tests that live getter without this AI refresh.
+/// A promotion mid-move speeds the mover up on its next query, with no new
+/// order: Drive and Ship read the live getter every Process.
 #[test]
-fn gsi_08_12_promotion_mid_move_refreshes_the_order_speed_stamp() {
-    const FRAMES_PER_SECOND: i32 = 15;
+fn gsi_08_12_promotion_mid_move_reaches_the_live_speed() {
     let (mut sim, rules, id) = spawned_grizzly();
-    assert_eq!(
-        move_order_speed(&mut sim, &rules, id),
-        SimFixed::from_num(17 * FRAMES_PER_SECOND)
-    );
+    assert_eq!(ordered_mover_speed(&mut sim, &rules, id), 17);
 
     // Silent first sample, then the veteran crossing while the path is live.
     veterancy_promotion_step(&mut sim, id, &rules);
@@ -212,14 +207,9 @@ fn gsi_08_12_promotion_mid_move_refreshes_the_order_speed_stamp() {
     veterancy_promotion_step(&mut sim, id, &rules);
 
     assert_eq!(
-        sim.substrate
-            .entities
-            .get(id)
-            .and_then(|e| e.movement_target.as_ref())
-            .expect("still moving")
-            .speed,
-        SimFixed::from_num(20 * FRAMES_PER_SECOND),
-        "the promotion detector refreshed the adapter without a new order"
+        full_speed(&mut sim, &rules, id),
+        20,
+        "the promoted mover's getter carries FASTER without a new order"
     );
 }
 

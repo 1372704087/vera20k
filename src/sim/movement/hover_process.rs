@@ -305,25 +305,10 @@ impl Simulation {
         let rules = rules.ok_or_else(|| self.hover_error(id, "Hover Process requires rules"))?;
         let mut out = HoverProcessOutcome::default();
         if self.hover_is_moving(id) && !self.hover_move(id, rules, registry, &mut out, effects)? {
-            self.retire_hover_adapter(id);
             return Ok(out);
         }
         self.hover_process_tail(id, rules, registry, effects);
-        self.retire_hover_adapter(id);
         Ok(out)
-    }
-
-    /// The `movement_target` a Hover order installs
-    /// (`prepare_destination_execution`), which only the movement pass's own
-    /// gates and the state hash read, drops once Is_Moving (0x00514C30) is
-    /// false, with the waypoints the corridor lane dropped at arrival (#689
-    /// residual).
-    fn retire_hover_adapter(&mut self, id: u64) {
-        if let Some(entity) = self.substrate.entities.get_mut(id)
-            && runtime(entity).is_some_and(|hover| !hover.is_moving())
-        {
-            entity.movement_target = None;
-        }
     }
 
     /// Process 0x00514325..0x00514A1E. Returns false when Process returns

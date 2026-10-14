@@ -496,7 +496,7 @@ fn execute(
             //Original class EAX is register residue (e.g.100), not a Bool
             //contract. Compare the owned state/query/fullRNG below instead.
             let _ = sim
-                .set_infantry_destination(
+                .assign_infantry_destination(
                     id,
                     NavTargetRef::cell(rx, ry),
                     rules,
@@ -1131,7 +1131,7 @@ fn overlay_destination_without_registered_inputs_is_atomic() {
             "Teleport Cell admission requires registered overlay inputs before mutation"
         );
         assert!(
-            sim.set_infantry_destination(
+            sim.assign_infantry_destination(
                 id,
                 target,
                 &rules,
@@ -1171,7 +1171,7 @@ fn teleport_admission_input_error_restores_physical_occupation() {
         .speed_costs = crate::rules::terrain_rules::SpeedCostProfile::default();
     let raw = bincode::serialize(&sim.substrate.raw_cell_occupation).unwrap();
     assert!(
-        !sim.set_infantry_destination(
+        !sim.assign_infantry_destination(
             id,
             NavTargetRef::cell(12, 10),
             &rules,

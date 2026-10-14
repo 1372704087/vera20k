@@ -1,7 +1,8 @@
 //! Locomotor component and access to each movement mechanism's runtime.
 //!
-//! `MovementTarget` owns destination/path data. Mechanism payloads own native
-//! controller state; shared fields retain movement and presentation adapters.
+//! Foot's NavCom and path queue live in `NavigationState`. Mechanism payloads
+//! own native controller state, including each locomotor's destination; shared
+//! fields retain movement and presentation adapters.
 //! Current world Z is authoritative in Object coordinates. `altitude` is its
 //! bounded cache, while Fly's integer target lives in its own payload.
 
@@ -51,11 +52,11 @@ pub enum AirMovePhase {
 
 /// Runtime locomotor state attached to each movable ECS entity.
 ///
-/// Created from `ObjectType` at spawn time. The movement system reads this
-/// to decide how to process the entity's `MovementTarget` each tick. It is
-/// one complete locomotor object: a piggyback suspends the whole object in
-/// the new active object's `piggyback` slot and restores it, keeping only the
-/// Foot's layer (see [`piggyback::end`]).
+/// Created from `ObjectType` at spawn time. Each object's Process runs the
+/// active mechanism it holds. It is one complete locomotor object: a
+/// piggyback suspends the whole object in the new active object's `piggyback`
+/// slot and restores it, keeping only the Foot's layer (see
+/// [`piggyback::end`]).
 ///
 /// `balloon_hover`, `speed_type` and `movement_zone` cache the
 /// Foot's type: set at construction, copied into a BEGIN's temporary and never

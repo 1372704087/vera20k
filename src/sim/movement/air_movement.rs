@@ -519,9 +519,8 @@ pub(crate) mod tests {
         assert!(ok);
 
         // MoveTo retains the cell's centre as the Fly destination and marks
-        // it moving (`0x004CCE1C..0x004CCE6E`); no order adapter or route.
+        // it moving (`0x004CCE1C..0x004CCE6E`); no route.
         let e = sim.substrate.entities.get(1).expect("has entity");
-        assert!(e.movement_target.is_none());
         let fly = e.locomotor.as_ref().and_then(|l| l.fly_runtime()).unwrap();
         assert!(fly.moving());
         let destination = fly.destination();
@@ -537,9 +536,8 @@ pub(crate) mod tests {
     }
 
     /// A vehicle Jumpjet's order takes its own `Move_To`: Foot's NavCom, then
-    /// the locomotor's destination at the ordered cell's floor, which the
-    /// movement adapter publishes as the goal. Its phase is its own state
-    /// field: `AirMovePhase` stays untouched.
+    /// the locomotor's destination at the ordered cell's floor. Its phase is
+    /// its own state field: `AirMovePhase` stays untouched.
     #[test]
     fn a_jumpjet_order_does_not_write_the_fly_phase() {
         // Unit orders now enter the class destination owner, whose type/speed
@@ -569,7 +567,11 @@ pub(crate) mod tests {
         .expect("the Unit setter takes the cell");
 
         let e = sim.substrate.entities.get(id).expect("has entity");
-        assert!(e.movement_target.is_some(), "the order itself is accepted");
+        assert_eq!(
+            crate::sim::movement::motion_query::is_moving(e),
+            Some(true),
+            "the order itself is accepted"
+        );
         assert_eq!(
             e.navigation.nav_com,
             Some(crate::sim::components::NavTargetRef::cell(20, 15))

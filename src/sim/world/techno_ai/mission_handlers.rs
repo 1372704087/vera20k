@@ -2840,18 +2840,12 @@ mod move_arrival_tests {
             .known()
     }
 
-    /// The order is not an input: a tank whose Drive is still and whose
-    /// NavCom is null arrives even while VERA still holds its order.
+    /// A tank whose Drive is still and whose NavCom is null arrives.
     #[test]
-    fn an_order_alone_does_not_keep_a_unit_on_move() {
+    fn a_still_unit_without_a_navcom_leaves_move() {
         let rules = rules();
         let mut sim = Simulation::new();
         spawn_on_move(&mut sim, "MTNK", LocomotorKind::Drive);
-        sim.substrate
-            .entities
-            .get_mut(UNIT_ID)
-            .expect("unit")
-            .movement_target = Some(crate::sim::components::MovementTarget::default());
 
         assert_eq!(dispatch(&mut sim, &rules), Some(MissionType::Guard));
     }

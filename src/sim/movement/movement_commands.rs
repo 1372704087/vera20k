@@ -1,5 +1,5 @@
-//! Destination acceptance shared by the class setters: admission, the
-//! locomotor Move_To tails and the scheduling adapter they install.
+//! Destination acceptance shared by the class setters: admission and the
+//! locomotor Move_To tails.
 //!
 //! No order searches a route here. The class setters (`Simulation::
 //! set_unit_destination`, `Simulation::assign_infantry_destination`) accept a
@@ -10,10 +10,8 @@
 
 use crate::map::resolved_terrain::ResolvedTerrainGrid;
 use crate::rules::locomotor_type::LocomotorKind;
-use crate::sim::components::MovementTarget;
 use crate::sim::entity_store::EntityStore;
 use crate::sim::game_entity::GameEntity;
-use crate::util::fixed_math::SimFixed;
 
 /// Check if an entity can accept a new movement destination.
 ///
@@ -27,29 +25,6 @@ pub(crate) fn can_accept_destination(entity: &GameEntity) -> bool {
         return false;
     }
     true
-}
-
-/// A committed head comes from the active locomotor after world callbacks;
-/// the physical path and raw occupation metadata cannot reconstruct it.
-pub(super) fn committed_movement_head(entity: &GameEntity) -> Option<(u16, u16)> {
-    let head = if entity.locomotor.as_ref()?.kind == LocomotorKind::Walk {
-        entity.locomotor.as_ref()?.step_head()?
-    } else {
-        super::track_head::committed_track_head(entity)?
-    };
-    Some(((head.x / 256) as u16, (head.y / 256) as u16))
-}
-
-/// Keep only physical movement already accepted by the locomotor. The caller
-/// owns destination/queue writes: explicit Attack's null setter does not clear
-/// NavQueue, whereas the Unit setter's null arm (`0x007423BE`) does.
-pub(crate) fn retain_committed_movement(e: &mut GameEntity) {
-    // Walk75BD29 samples current XYZ against its paid head; a Drive/Ship
-    // curve finishes at its head after Foot+5E0 retires. Keep the scheduling
-    // adapter while a head remains.
-    if committed_movement_head(e).is_none() {
-        e.movement_target = None;
-    }
 }
 
 /// Read the movement goal for diagnostics without retaining another copy,
@@ -122,52 +97,6 @@ impl DestinationTiming {
     }
 }
 
-/// Ordinary Unit741970 -> Foot4D94B0 -> Drive4AFD40/Ship69F450 accepts
-/// before any FindPath, preserves power and a paid head, and clears only the
-/// live path word (741E88) unless Enter lacks a radio contact
-/// (tools/spatial_oracle/track_path_continuation, Enter rows); the setter's
-/// flag-gated NavQueue Clear (7422E8..7422F4) empties the waypoint queue
-/// (track_destination NavQueue rows). Neither map availability nor an A* result admits the
-/// destination: the first no-queue Process owns the request (Drive 4B28A3,
-/// Ship 6A1EF3). Native evidence: track_destination unit rows and
-/// track_order_path. The class preprocessing (the Teleporter arm, +1F8 and
-/// the Foot+0x6AC skip) belongs to `Simulation::set_unit_destination`; this
-/// tail's remaining caller, the deferred Restore setter
-/// (`Simulation::complete_pending_order`), has none of it, nor the
-/// radio-building and deploy-byte arms.
-pub(crate) fn prepare_track_destination(
-    entity: &mut GameEntity,
-    target: (u16, u16),
-    object_destination: Option<(
-        crate::sim::components::NavTargetRef,
-        crate::sim::components::DriveCoord,
-    )>,
-    speed: SimFixed,
-    resolved_terrain: Option<&ResolvedTerrainGrid>,
-    timing: crate::sim::movement::DestinationTiming,
-) {
-    clear_destination_path_head(entity);
-    entity.navigation.nav_queue.clear();
-    if let Some((reference, coord)) = object_destination {
-        super::navcom::set_destination_internal_coord(
-            entity,
-            reference,
-            coord,
-            resolved_terrain,
-            timing.binary_frame,
-        );
-    } else {
-        super::navcom::set_destination_internal_cell(
-            entity,
-            target,
-            resolved_terrain,
-            timing.binary_frame,
-        );
-    }
-    timing.accept(entity);
-    prepare_destination_execution(entity, speed);
-}
-
 /// Accepted destination -> Walk75ACB0, without searching or advancing
 /// Process. The class caller owns preceding admission and its path-head
 /// write; the captured coordinate comes from the shared target +4C owner.
@@ -180,7 +109,6 @@ pub(crate) fn prepare_walk_destination(
         crate::sim::components::NavTargetRef,
         crate::sim::components::DriveCoord,
     ),
-    speed: SimFixed,
     resolved_terrain: Option<&ResolvedTerrainGrid>,
     timing: crate::sim::movement::DestinationTiming,
 ) -> bool {
@@ -203,7 +131,6 @@ pub(crate) fn prepare_walk_destination(
         timing.binary_frame,
     );
     timing.accept(entity);
-    prepare_destination_execution(entity, speed);
     true
 }
 
@@ -217,37 +144,4 @@ pub(crate) fn clear_destination_path_head(entity: &mut GameEntity) {
     {
         entity.navigation.path_replay.clear_live_head();
     }
-}
-
-/// Install the empty-route scheduling adapter for a Drive/Ship Foot whose
-/// locomotor destination was set outside the ordinary setter (the outer
-/// Process NavCom reissue). Process_Movement follows +34 without it; only the
-/// movement pass's own adapter gates read it.
-pub(super) fn schedule_track_process(entity: &mut GameEntity, speed: SimFixed) {
-    prepare_destination_execution(entity, speed);
-}
-
-/// A track terminal that found the Foot+5E0 queue empty (Drive 0x4B280D
-/// compares it with -1) short of the retained locomotor destination (+34):
-/// the adapter stays while +34 does, as the next Process_Movement reaches the
-/// no-queue arm (Drive 0x4B281C / Ship 0x6A1E75), in the same Process after
-/// the track end (`track_continuation`) or on the next visit. With no
-/// destination left it retires.
-pub(super) fn spend_track_route(entity: &mut GameEntity) {
-    let destination = entity.locomotor.as_ref().and_then(|loco| {
-        loco.track_destination(super::track_process::TrackFamily::from_kind(
-            loco.active_kind(),
-        )?)
-    });
-    if destination.is_none() {
-        entity.movement_target = None;
-    }
-}
-
-/// MovementTarget is only the scheduling adapter. Retain a paid head, never
-/// turn or search at order time. The ordinary Process owns the first route
-/// and subsequent head selection for Walk, Drive and Ship. Every family keeps
-/// its goal in its locomotor destination and Foot's NavCom, not here.
-pub(super) fn prepare_destination_execution(entity: &mut GameEntity, speed: SimFixed) {
-    entity.movement_target = Some(MovementTarget { speed });
 }

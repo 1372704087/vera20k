@@ -97,7 +97,6 @@ fn completed_path_head_speed_matches_original_pre_percell_gate() {
 
 #[test]
 fn completed_corner_keeps_heading_until_next_head_is_accepted() {
-    use crate::sim::components::MovementTarget;
     use crate::sim::movement::{FacingClass, ground_pose, walk_head};
 
     let rules = RuleSet::from_ini(&IniFile::from_str(
@@ -130,7 +129,6 @@ fn completed_corner_keeps_heading_until_next_head_is_accepted() {
         cursor: 0,
         reference_cell: Some((5, 5)),
     };
-    actor.movement_target = Some(MovementTarget::default());
     let loco = actor.locomotor.as_mut().unwrap();
     loco.set_walk_destination(Some(DriveCoord::cell(6, 6, 0)));
     loco.set_step_head(Some(head));

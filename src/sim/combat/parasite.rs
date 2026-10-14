@@ -319,9 +319,6 @@ impl Simulation {
                 crate::sim::mission::concrete_effects::represented_assign_target(entity, None);
             }
             self.assign_null_destination(owner, Some(rules), None, effects);
-            if let Some(entity) = self.substrate.entities.get_mut(owner) {
-                entity.movement_target = None;
-            }
         }
         crate::sim::world::enter_idle_mode(self, owner, rules, None, effects);
     }

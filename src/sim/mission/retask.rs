@@ -94,7 +94,6 @@ impl Simulation {
         self.assign_null_destination(id, Some(rules), None, frame_effects);
         let _ = self.assign_target_represented(id, None, Some(rules), None, frame_effects);
         if let Some(entity) = self.substrate.entities.get_mut(id) {
-            entity.movement_target = None;
             entity.set_archive_target(None);
         }
         let _ = self.mission_assign_exact(id, MissionId::from_known(MissionType::Guard), now);

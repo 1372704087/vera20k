@@ -15,7 +15,7 @@
 
 use crate::sim::intern::InternedId;
 use crate::sim::movement::locomotor::MovementLayer;
-use crate::util::fixed_math::{SIM_ZERO, SimFixed};
+use crate::util::fixed_math::SimFixed;
 
 /// World position in isometric cell coordinates plus sub-cell lepton offset.
 ///
@@ -100,25 +100,6 @@ pub(crate) use crate::sim::building_construction::BuildingDown;
 #[cfg(test)]
 pub(crate) use crate::sim::building_construction::BuildingUp;
 
-/// Move-order scheduling adapter, with no gamemd counterpart (#689).
-///
-/// The scheduling adapter the class setters attach to an accepted
-/// destination (`movement_commands::prepare_destination_execution`; a Jumpjet
-/// through its order adapter). Only the movement pass's own scheduling and
-/// the state hash still read its presence; every "is it moving" reader asks
-/// the locomotor (`movement::motion_query`). It keeps no goal: the
-/// locomotor destination and Foot's NavCom own it. No order keeps route
-/// cells either: a Foot's route is its Foot+5E0 queue
-/// (`navigation.path_replay`).
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-pub struct MovementTarget {
-    /// The order's speed in leptons per second, stamped when the adapter is
-    /// attached. Movement reads the owner's live speed getter, not this; the
-    /// stamp stays only for the Jumpjet order speed, the no-rules fallback in
-    /// `foot_speed::adjusted_speed` and the state hash.
-    pub speed: SimFixed,
-}
-
 /// Native-like navigation target reference.
 ///
 /// In gamemd this is an `AbstractClass*`. Phase 1 needs cell targets for normal
@@ -148,8 +129,7 @@ impl NavTargetRef {
 
 /// FootClass-style owner navigation fields.
 ///
-/// `nav_com` is the owner destination. It must stay separate from
-/// `MovementTarget`, which is only the active execution path.
+/// `nav_com` is the owner destination (Foot+0x5A4).
 #[derive(Debug, Clone, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub struct NavigationState {
     /// Foot+55C is retained lifecycle history, not current occupancy.
@@ -242,7 +222,7 @@ impl NavigationState {
 /// both timers at the current frame (0x4D3320, 0x4D335B), stores +64C = 10
 /// (0x4D332C) and +6B7 = 0 (0x4D3451). Set_Destination_Internal 0x004D94B0
 /// rewrites the timers and latch at 0x4D96C2..0x4D9707 for every accepted
-/// setter, including a null destination, so this owner outlives MovementTarget.
+/// setter, including a null destination.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub struct FootPathRuntime {
     /// Foot+640/+648, including the native frame anchor.
@@ -613,13 +593,6 @@ pub struct DriveOccupationFootprint {
     pub layer: MovementLayer,
 }
 
-/// An adapter with a zero speed stamp.
-impl Default for MovementTarget {
-    fn default() -> Self {
-        Self { speed: SIM_ZERO }
-    }
-}
-
 /// Which part of a multi-part voxel model an entity/atlas entry represents.
 ///
 /// Non-turret units use `Composite` (body+turret+barrel baked together).
@@ -856,6 +829,7 @@ pub struct PendingC4Detonation {
 mod tests {
     use super::*;
     use crate::sim::movement::DriveLocomotionRuntime;
+    use crate::util::fixed_math::SIM_ZERO;
 
     #[test]
     fn test_position_creation() {
@@ -877,7 +851,6 @@ mod tests {
         fn assert_send_sync<T: Send + Sync>() {}
         assert_send_sync::<Position>();
         assert_send_sync::<Health>();
-        assert_send_sync::<MovementTarget>();
         assert_send_sync::<BuildingUp>();
         assert_send_sync::<VoxelAnimation>();
         assert_send_sync::<HarvestOverlay>();

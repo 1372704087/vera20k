@@ -682,7 +682,7 @@ mod tests {
     use super::*;
     use crate::map::resolved_terrain::{ResolvedTerrainCell, ResolvedTerrainGrid};
     use crate::map::tube_facts::TubeSource;
-    use crate::sim::components::{Health, MovementTarget};
+    use crate::sim::components::Health;
     use crate::sim::game_entity::GameEntity;
     use crate::sim::occupancy::CellListInsertion;
 
@@ -826,10 +826,6 @@ mod tests {
             entity.lifecycle.cell_marked = false;
             entity.position.rx = 2;
             entity.foot_speed.set_speed_fraction(SimFixed::lit("0.625"));
-            entity.movement_target = Some(MovementTarget {
-                speed: SimFixed::from_num(150),
-                ..Default::default()
-            });
             let state = LowBridgeTubeMovementState {
                 tube_id: TubeId(0),
                 cursor: 2,

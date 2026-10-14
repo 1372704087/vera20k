@@ -934,8 +934,6 @@ mod tests {
             .find(|row| row["input"]["name"] == "human_stationary")
             .unwrap();
         let (mut sim, rules) = fear_fixture(row);
-        sim.substrate.entities.get_mut(1).unwrap().movement_target =
-            Some(crate::sim::components::MovementTarget::default());
         assert!(
             !sim.infantry_fear_turn(1, &rules, None, crate::sim::world::FrameEffects::default())
                 .unwrap()

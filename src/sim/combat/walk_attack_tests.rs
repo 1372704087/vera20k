@@ -181,12 +181,11 @@ fn walk_destination_search_observes_route_opened_before_process() {
             crate::sim::components::NavTargetRef::cell(14, 10),
             destination_coord
         ),
-        crate::util::fixed_math::SimFixed::from_num(4),
         sim.resolved_terrain.as_ref(),
         crate::sim::movement::DestinationTiming::new(0, 60),
     ));
     let e = sim.substrate.entities.get(actor).unwrap();
-    assert!(e.movement_target.is_some());
+    assert!(crate::sim::movement::motion_query::is_moving(&e) == Some(true));
     assert!(e.navigation.nav_com.is_some());
     assert!(e.locomotor.as_ref().unwrap().walk_destination().is_some());
 }
@@ -311,26 +310,21 @@ fn walk_attack_range_entry_finishes_paid_head_then_accepts_new_move() {
     let e = sim.substrate.entities.get(actor).unwrap();
     assert_eq!(e.locomotor.as_ref().unwrap().step_head(), Some(head));
     assert!(
-        e.movement_target.is_some(),
+        crate::sim::movement::motion_query::is_moving(&e) == Some(true),
         "range entry must not strand the paid head"
     );
     assert!(e.navigation.nav_com.is_some());
     for _ in 0..80 {
         walk_frame(&mut sim, &rules);
-        if sim
-            .substrate
-            .entities
-            .get(actor)
-            .unwrap()
-            .movement_target
-            .is_none()
+        if crate::sim::movement::motion_query::is_moving(sim.substrate.entities.get(actor).unwrap())
+            != Some(true)
         {
             break;
         }
     }
     let e = sim.substrate.entities.get(actor).unwrap();
     assert!(
-        e.movement_target.is_none(),
+        crate::sim::movement::motion_query::is_moving(&e) != Some(true),
         "completed-head PerCell range stop ends the approach"
     );
     assert_eq!(e.locomotor.as_ref().unwrap().step_head(), None);
@@ -426,7 +420,7 @@ fn ordered_walk_attack_nulls_destination_but_preserves_paid_head_and_queues() {
             e.locomotor.as_ref().unwrap().walk_animation_moving(),
             Some(true)
         );
-        assert!(e.movement_target.is_some());
+        assert!(crate::sim::movement::motion_query::is_moving(&e) == Some(true));
         assert!(e.navigation.nav_com.is_none());
         let mut expected = queue;
         expected.clear_live_head();
@@ -462,8 +456,8 @@ fn ordered_walk_attack_nulls_destination_but_preserves_paid_head_and_queues() {
 }
 
 /// An owner change nulls the Walk destination through the class setter
-/// (0x007014E9) and drops the order adapter. Walk75AEC0 still runs on its
-/// paid head, so the man finishes that step instead of stalling mid-cell.
+/// (0x007014E9). Walk75AEC0 still runs on its paid head, so the man finishes
+/// that step instead of stalling mid-cell.
 #[test]
 fn owner_change_finishes_the_paid_walk_head() {
     use crate::sim::command::Command;
@@ -487,7 +481,6 @@ fn owner_change_finishes_the_paid_walk_head() {
         crate::sim::world::FrameEffects::default(),
     );
     let e = sim.substrate.entities.get(actor).unwrap();
-    assert!(e.movement_target.is_none());
     assert_eq!(e.locomotor.as_ref().unwrap().walk_destination(), None);
     assert_eq!(e.locomotor.as_ref().unwrap().step_head(), Some(head));
     for _ in 0..80 {
@@ -558,7 +551,7 @@ fn area_guard_nulls_the_walk_destination() {
 
 #[test]
 fn walk_null_setter_matches_original_caller_rows() {
-    use crate::sim::components::{DriveCoord, FootPathQueue, MovementTarget, NavTargetRef};
+    use crate::sim::components::{DriveCoord, FootPathQueue, NavTargetRef};
     use crate::sim::mission::{MissionDispatchTimer, MissionId, state::MissionTestFixture};
     let corpus: serde_json::Value = serde_json::from_str(crate::test_fixture::text(
         "tools/spatial_oracle/walk_percell_stop.json",
@@ -599,7 +592,6 @@ fn walk_null_setter_matches_original_caller_rows() {
         if input["contact"] == true {
             e.radio_contacts.insert(victim);
         }
-        e.movement_target = Some(MovementTarget::default());
         e.navigation.path_runtime.start_movement(0, 5);
         e.navigation.path_runtime.start_blocked(0, 6);
         e.navigation.path_runtime.path_blocked = true;
@@ -660,7 +652,6 @@ fn walk_null_setter_matches_original_caller_rows() {
             e.navigation.nav_queue.len(),
             row["nav_queue_count"].as_u64().unwrap() as usize
         );
-        assert!(e.movement_target.is_some());
         let path = &e.navigation.path_runtime;
         assert!(!path.path_blocked);
         assert_eq!(

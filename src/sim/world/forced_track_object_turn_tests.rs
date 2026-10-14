@@ -182,11 +182,6 @@ fn every_bunker_selector_restores_before_first_point_midcurve_and_paid_sentinel(
                 );
             }
             let entity = sim.substrate.entities.get(1).unwrap();
-            // Only the track end's same-Process continuation requests a route.
-            assert!(
-                crate::sim::movement::track_head::committed_track_head(entity).is_none()
-                    || entity.movement_target.is_none()
-            );
             assert!(stats.moved_steps <= 1, "Speed=1 cannot pay two points");
             if frame == 0 {
                 assert_eq!(
@@ -253,5 +248,4 @@ fn forced_object_turn_queries_live_speed_and_advances_shp_once() {
     );
     assert!(outcome.moved_steps > 1);
     assert_eq!(entity.body_frame_counter, before_body + 1);
-    assert!(entity.movement_target.is_none());
 }

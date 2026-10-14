@@ -431,7 +431,9 @@ fn move_retail_fv(
             )
             .unwrap();
         let entity = runtime.simulation.substrate.entities.get(id).unwrap();
-        if (entity.position.rx, entity.position.ry) == stop_at && entity.movement_target.is_none() {
+        if (entity.position.rx, entity.position.ry) == stop_at
+            && crate::sim::movement::motion_query::is_moving(&entity) != Some(true)
+        {
             assert_eq!(
                 entity.on_bridge, deck,
                 "ordinary Move selected wrong layer at {stop_at:?}"

@@ -116,7 +116,7 @@ fn first_track_process_route(
 ) -> Option<Vec<(u16, u16)>> {
     let entity = sim.substrate.entities.get(id).expect("fixture mover");
     assert!(
-        entity.movement_target.is_some(),
+        crate::sim::movement::motion_query::is_moving(&entity) == Some(true),
         "the order scheduled a Process"
     );
     assert!(
@@ -142,7 +142,7 @@ fn first_track_process_route(
     sim.process_ground_locomotor_for_test(id, rules, Some(grid), None)
         .expect("the first Process completes");
     let entity = sim.substrate.entities.get(id)?;
-    entity.movement_target.as_ref()?;
+    entity.navigation.nav_com?;
     Some(installed_route(entity, start))
 }
 
@@ -1112,7 +1112,7 @@ fn gsi_04_12_interaction_order_entry_threads_exact_blocker_counts() {
         Some(NavTargetRef::building(target_id))
     );
     assert!(
-        engineer.movement_target.is_some(),
+        crate::sim::movement::motion_query::is_moving(&engineer) == Some(true),
         "accepted Capture request"
     );
     assert_eq!(
@@ -1420,7 +1420,7 @@ fn gsi_04_12_drive_pending_continuation_keeps_hierarchy_context_and_raw_route() 
     assert_eq!(continued.navigation.nav_com, Some(NavTargetRef::cell(3, 0)));
     assert!(!continued.navigation.pending_arrival_clear);
     assert!(
-        continued.movement_target.is_some(),
+        crate::sim::movement::motion_query::is_moving(&continued) == Some(true),
         "pending Drive continuation should rebuild the hierarchy route"
     );
     let route = installed_route(continued, (1, 0));

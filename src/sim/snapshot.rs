@@ -1023,7 +1023,8 @@ use crate::sim::world::Simulation;
 // inputs retain their existing owners. Main353 and r6/345 records do not
 // share this integrated bincode layout and are both refused. The one House
 // tech-tree recheck stays main's authority; EntityStore indexes remain derived.
-const SNAPSHOT_VERSION: u32 = 354;
+// 354 -> 355: the path batch keeps where its next capped pass starts.
+const SNAPSHOT_VERSION: u32 = 355;
 
 const SNAPSHOT_PRODUCT_MAGIC: [u8; 8] = *b"VERA20K\0";
 const SNAPSHOT_ENVELOPE_VERSION: u32 = 1;
@@ -4410,7 +4411,8 @@ mod tests {
         // 351 -> 352: no locomotor altitude copy; height is the Location Z.
         // 352 -> 353: each object's infantry house-tracking latches.
         // 353 -> 354: integrated ALL01 retained Tag/ChronoScreen/House/Team state.
-        assert_eq!(super::SNAPSHOT_VERSION, 354);
+        // 354 -> 355: the path batch's next capped turn.
+        assert_eq!(super::SNAPSHOT_VERSION, 355);
     }
 
     #[test]

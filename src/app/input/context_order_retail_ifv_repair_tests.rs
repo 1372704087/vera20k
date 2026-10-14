@@ -201,7 +201,7 @@ fn retail_berserk_engineer_ifv_keeps_cursor_but_refuses_click() {
     let owner = sim.entities().get(ifv).unwrap().owner();
     assert_eq!(
         berserk_selection_click(&sim, rules, &[ifv], Some(&hover), (0, 0), owner),
-        BerserkSelectionClick::Dispatch
+        LeftRelease::Dispatch
     );
     // Over itself the healer arm answers Select (`0x0073FE3B`), since the
     // berserk base answer (0) skips the self action.
@@ -211,7 +211,7 @@ fn retail_berserk_engineer_ifv_keeps_cursor_but_refuses_click() {
     };
     assert_eq!(
         berserk_selection_click(&sim, rules, &[ifv], Some(&over_itself), (0, 0), owner),
-        BerserkSelectionClick::Select
+        LeftRelease::Select
     );
     assert_eq!(sim.state_hash(), prior);
     // The refusal belongs to ClickedAction, not Event::Execute. An event

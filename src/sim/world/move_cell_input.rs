@@ -286,6 +286,48 @@ impl Simulation {
         )
     }
 
+    /// The class rungs of a Foot's What_Action over an object that turn the
+    /// Techno action `action` into another Move action; each ClickedAction
+    /// wrapper's re-ask (`0x007388A1`, `0x0051F1A1`) answers them too:
+    /// - the deployer rungs turn Move into NoMove for a player's Deployer in
+    ///   Doing27..30 (Infantry `0x0051EB81..0x0051EBD7`) and a player's
+    ///   deployed (6E0) IsSimpleDeployer (Unit `0x0074037A..0x007403AD`);
+    /// - the tails turn 0 into NoMove for a player's Unit or Infantry it
+    ///   may control (vt+0xA0; Unit `0x007403EB..0x00740414`, Infantry
+    ///   `0x0051F05E..0x0051F08B`).
+    pub(crate) fn foot_object_class_action(
+        &self,
+        id: u64,
+        action: MoveAction,
+        rules: &RuleSet,
+    ) -> MoveAction {
+        let Some(entity) = self.substrate.entities.get(id) else {
+            return action;
+        };
+        let Some(object) = rules.object(self.interner.resolve(entity.type_ref())) else {
+            return action;
+        };
+        let human = self.house_is_human_player(entity.owner());
+        match (entity.category, action) {
+            (EntityCategory::Infantry, MoveAction::Move)
+                if human && object.deployer && entity.infantry_deploy_doing() =>
+            {
+                MoveAction::NoMove
+            }
+            (EntityCategory::Unit, MoveAction::Move)
+                if human && object.is_simple_deployer && entity.is_fully_deployed() =>
+            {
+                MoveAction::NoMove
+            }
+            (EntityCategory::Unit | EntityCategory::Infantry, MoveAction::None)
+                if human && self.techno_player_controllable(id, rules) =>
+            {
+                MoveAction::NoMove
+            }
+            _ => action,
+        }
+    }
+
     /// The destination a Foot's Move or NoMove click over an object orders:
     /// the object, or a Cell near it. The click loop
     /// (`0x004AE829..0x004AE844`) hands each receiver's own What_Action over
@@ -297,14 +339,7 @@ impl Simulation {
     /// (`0x006FFC23..0x006FFCA9`).
     ///
     /// `action` is the receiver's What_Action over the object before the class
-    /// rungs, which each wrapper's re-ask (`0x007388A1`, `0x0051F1A1`) also
-    /// answers:
-    /// - the deployer rungs turn Move into NoMove for a player's Deployer in
-    ///   Doing27..30 (Infantry `0x0051EB81..0x0051EBD7`) and a player's
-    ///   deployed (6E0) IsSimpleDeployer (Unit `0x0074037A..0x007403AD`);
-    /// - the tails turn 0 into NoMove for a player's Unit or Infantry it
-    ///   may control (vt+0xA0; Unit `0x007403EB..0x00740414`, Infantry
-    ///   `0x0051F05E..0x0051F08B`).
+    /// rungs ([`Self::foot_object_class_action`]).
     ///
     /// No order (`None`) for:
     /// - action 0 that no tail turned (`0x004D7521..0x004D7527`);
@@ -344,25 +379,7 @@ impl Simulation {
         let object = rules
             .object(self.interner.resolve(entity.type_ref()))
             .ok_or("Move click receiver lacks its type")?;
-        let human = self.house_is_human_player(entity.owner());
-        let action = match (entity.category, action) {
-            (EntityCategory::Infantry, MoveAction::Move)
-                if human && object.deployer && entity.infantry_deploy_doing() =>
-            {
-                MoveAction::NoMove
-            }
-            (EntityCategory::Unit, MoveAction::Move)
-                if human && object.is_simple_deployer && entity.is_fully_deployed() =>
-            {
-                MoveAction::NoMove
-            }
-            (EntityCategory::Unit | EntityCategory::Infantry, MoveAction::None)
-                if human && self.techno_player_controllable(id, rules) =>
-            {
-                MoveAction::NoMove
-            }
-            _ => action,
-        };
+        let action = self.foot_object_class_action(id, action, rules);
         let refused = match action {
             MoveAction::None => true,
             MoveAction::NoMove => match entity.category {

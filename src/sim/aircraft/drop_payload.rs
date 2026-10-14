@@ -1168,7 +1168,9 @@ mod tests {
         sim.session.binary_frame = 77;
         let plane = sim.substrate.entities.get_mut(aircraft_id).unwrap();
         plane.mission_leaf.set_paradrop_passes_for_test(-2);
-        plane.rearm_timer = crate::sim::timer::CdTimer::started(3, 40);
+        plane
+            .rearm_timer
+            .set_for_test(crate::sim::timer::CdTimer::started(3, 40));
 
         drop_payload(
             &mut sim,
@@ -1185,7 +1187,7 @@ mod tests {
             5
         );
         assert_eq!(
-            plane.rearm_timer,
+            plane.rearm_timer.timer(),
             crate::sim::timer::CdTimer::started(77, 0)
         );
         assert_eq!(ammo(&sim, aircraft_id), 3);
@@ -1247,7 +1249,13 @@ mod tests {
                 .mission_leaf
                 .set_paradrop_passes_for_test(2);
             block_three_spots(&mut sim, (51, 20));
-            let rearm = sim.substrate.entities.get(aircraft_id).unwrap().rearm_timer;
+            let rearm = sim
+                .substrate
+                .entities
+                .get(aircraft_id)
+                .unwrap()
+                .rearm_timer
+                .timer();
 
             drop_payload(
                 &mut sim,
@@ -1265,7 +1273,7 @@ mod tests {
                 plane.mission_leaf.as_aircraft().unwrap().paradrop_passes(),
                 2
             );
-            assert_eq!(plane.rearm_timer, rearm);
+            assert_eq!(plane.rearm_timer.timer(), rearm);
             let passenger = sim.substrate.entities.get(passenger_id).unwrap();
             assert_eq!(
                 passenger.passenger_role.inside_transport_id(),

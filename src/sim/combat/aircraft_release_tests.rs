@@ -191,8 +191,12 @@ fn aircraft_request_preserves_rearm_and_state3_does_not_fire_early() {
             .is_empty()
     );
     let frame = sim.session.binary_frame as i32;
-    sim.substrate.entities.get_mut(1).unwrap().rearm_timer =
-        crate::sim::timer::CdTimer::started(frame, 4);
+    sim.substrate
+        .entities
+        .get_mut(1)
+        .unwrap()
+        .rearm_timer
+        .set_for_test(crate::sim::timer::CdTimer::started(frame, 4));
     assert!(
         dispatch(&mut sim, &rules)
             .consequences

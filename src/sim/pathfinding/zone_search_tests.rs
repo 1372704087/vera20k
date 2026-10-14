@@ -913,7 +913,7 @@ fn gsi_04_12_completed_ground_unit_clearance_rally_threads_exact_blocker_counts(
     // insertion-ordered building projection used by native FindFactory.
     let building = sim.substrate.entities.get_mut(factory).unwrap();
     building.finish_building_construction_for_test();
-    building.building_actually_placed = true;
+    building.building_art.set_actually_placed_for_test(true);
     sim.append_house_base_building_for_test(factory);
     let produced_type = sim.interner.intern("MTNK");
     sim.substrate

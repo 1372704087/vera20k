@@ -545,7 +545,7 @@ pub(super) fn spawn_structure(
     ge.lifecycle.in_limbo = false;
     ge.in_playfield = true;
     ge.finish_building_construction_for_test();
-    ge.building_actually_placed = true;
+    ge.building_art.set_actually_placed_for_test(true);
     ge.tracking_facts = crate::sim::house_tracking::TrackingFacts::of(
         crate::map::entities::EntityCategory::Structure,
         rules.object(type_id),

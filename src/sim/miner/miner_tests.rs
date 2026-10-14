@@ -3190,7 +3190,8 @@ fn trace_unload_presentation(
                 .entities
                 .get(2)
                 .expect("refinery")
-                .building_anim_slots[10]
+                .building_art
+                .anim_slots()[10]
                 .and_then(|id| sim.anim(id))
                 .is_some_and(|anim| anim.type_id == special),
         );

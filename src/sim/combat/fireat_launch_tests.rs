@@ -487,7 +487,7 @@ fn grand_cannon_recoil_follows_successful_launch_ai_and_snapshot() {
         actor.mission,
         actor.attack_target,
         actor.last_fire_frame,
-        actor.building_actually_placed,
+        actor.building_art.actually_placed(),
         actor.building_body_state(),
         actor.body_facing
     );

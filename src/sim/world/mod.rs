@@ -4678,7 +4678,7 @@ impl Simulation {
             .substrate
             .entities
             .get(stable_id)
-            .is_some_and(|entity| entity.building_actually_placed);
+            .is_some_and(|entity| entity.building_art.actually_placed());
         if !placed || (infantry == 0 && units == 0) {
             return;
         }

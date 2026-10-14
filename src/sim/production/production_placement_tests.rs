@@ -1153,7 +1153,7 @@ fn stock_refinery_free_unit_spawns_on_building_up_completion_once() {
         building.building_ready_latch(),
         building.building_body_state(),
         building.native_stage(),
-        building.building_actually_placed,
+        building.building_art.actually_placed(),
         unit_ids(&sim, "Americans", "CMIN")
     );
     assert!(

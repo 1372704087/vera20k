@@ -457,6 +457,7 @@ impl Simulation {
                     entity,
                     &config,
                     heights.as_deref(),
+                    self.resolved_terrain.as_ref(),
                     ability,
                     &self.interner,
                 );

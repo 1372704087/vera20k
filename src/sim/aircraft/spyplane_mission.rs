@@ -178,6 +178,7 @@ fn snapshot(sim: &mut Simulation, id: u64, rules: &RuleSet, sound: bool) {
             plane,
             &config,
             heights.as_deref(),
+            sim.resolved_terrain.as_ref(),
             ability,
             &sim.interner,
             damage,

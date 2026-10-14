@@ -770,6 +770,7 @@ fn test_in_place_preserves_revealed() {
         &alliances,
         &cfg,
         None,
+        None,
         &ti(),
         None,
     );
@@ -787,6 +788,7 @@ fn test_in_place_preserves_revealed() {
         Some(&grid),
         &alliances,
         &cfg,
+        None,
         None,
         &ti(),
         None,
@@ -812,6 +814,7 @@ fn test_dead_owner_keeps_revealed() {
         &alliances,
         &cfg,
         None,
+        None,
         &ti(),
         None,
     );
@@ -825,6 +828,7 @@ fn test_dead_owner_keeps_revealed() {
         Some(&grid),
         &alliances,
         &cfg,
+        None,
         None,
         &ti(),
         None,
@@ -855,6 +859,7 @@ fn test_in_place_matches_fresh() {
         Some(&grid),
         &alliances,
         &cfg,
+        None,
         None,
         &ti(),
         None,
@@ -905,6 +910,7 @@ fn test_gap_generator_sets_gap_covered_flag() {
         Some(&PathGrid::new(30, 30)),
         &Default::default(),
         &default_config(),
+        None,
         None,
         &ti(),
         None,
@@ -1518,16 +1524,15 @@ fn an_airborne_viewer_sees_past_a_cliff() {
 fn an_aircrafts_altitude_moves_its_revealed_disc() {
     use crate::rules::locomotor_type::LocomotorKind;
     use crate::sim::movement::locomotor::{LocomotorState, MovementLayer};
-    use crate::util::fixed_math::SimFixed;
 
     let mut store = EntityStore::new();
     let mut entity = GameEntity::test_default(1, "BEAG", "Americans", 30, 30);
     entity.category = EntityCategory::Aircraft;
     entity.lifecycle.in_limbo = false;
     entity.vision_range = 1;
+    entity.position.exact_z_leptons = Some(1500);
     let mut loco = LocomotorState::for_test_kind(LocomotorKind::Fly);
     loco.layer = MovementLayer::Air;
-    loco.altitude = SimFixed::from_num(1500);
     entity.locomotor = Some(loco);
     store.insert(entity);
 
@@ -1632,6 +1637,7 @@ fn shroud_current_sight_matches_original_native_sequences() {
                         &Default::default(),
                         &default_config(),
                         None,
+                        None,
                         &interner,
                         None,
                     );
@@ -1729,6 +1735,7 @@ fn shroud_current_sight_allied_gap_and_pending_survive_serialization() {
         &alliances,
         &default_config(),
         None,
+        None,
         &interner,
         None,
     );
@@ -1746,6 +1753,7 @@ fn shroud_current_sight_allied_gap_and_pending_survive_serialization() {
         None,
         &alliances,
         &default_config(),
+        None,
         None,
         &interner,
         None,
@@ -1833,6 +1841,7 @@ fn shroud_current_sight_direct_allies_do_not_reexport_immunity() {
         &alliances,
         &default_config(),
         None,
+        None,
         &interner,
         None,
     );
@@ -1893,6 +1902,7 @@ fn shroud_current_sight_unchanged_refresh_does_not_invent_a_return_event() {
             &Default::default(),
             &default_config(),
             None,
+            None,
             &interner,
             None,
         )
@@ -1910,6 +1920,7 @@ fn shroud_current_sight_unchanged_refresh_does_not_invent_a_return_event() {
         &mut fog,
         store.get(1).unwrap(),
         &default_config(),
+        None,
         None,
         false,
         &interner,
@@ -1941,6 +1952,7 @@ fn shroud_current_sight_unchanged_refresh_does_not_invent_a_return_event() {
         &mut fog,
         store.get(1).unwrap(),
         &default_config(),
+        None,
         None,
         false,
         &interner,

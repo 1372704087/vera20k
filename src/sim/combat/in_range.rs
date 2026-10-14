@@ -1016,12 +1016,13 @@ mod tests {
         e
     }
 
+    /// An aircraft `altitude_lep` above level-0 flat ground.
     fn aircraft_at_altitude(altitude_lep: i64) -> GameEntity {
         let mut e = GameEntity::test_default(2, "ORCA", "Test", 10, 10);
         e.category = EntityCategory::Aircraft;
         e.lifecycle.cell_marked = true;
+        e.position.exact_z_leptons = Some(altitude_lep as i32);
         let mut loco = LocomotorState::for_test_kind(LocomotorKind::Fly);
-        loco.altitude = SimFixed::from_num(altitude_lep as i32);
         loco.speed_type = SpeedType::Winged;
         loco.movement_zone = MovementZone::Fly;
         e.locomotor = Some(loco);
@@ -1040,28 +1041,8 @@ mod tests {
     }
 
     #[test]
-    fn world_z_airborne_aircraft_adds_altitude() {
-        let mut e = aircraft_at_altitude(1500);
-        e.position.z = 0;
-        let terrain = flat_terrain(16, 16);
-        assert_eq!(
-            crate::sim::movement::ground_pose::object_world_z_leptons(&e, Some(&terrain)),
-            1500
-        );
-
-        let mut e2 = aircraft_at_altitude(800);
-        e2.position.z = 2;
-        let mut elevated = flat_terrain(16, 16);
-        elevated.cells[10 * 16 + 10].level = 2;
-        assert_eq!(
-            crate::sim::movement::ground_pose::object_world_z_leptons(&e2, Some(&elevated)),
-            1008
-        );
-    }
-
-    #[test]
-    fn gsi_04_03b_world_z_uses_exact_sloped_subcell_and_air_altitude() {
-        let mut entity = aircraft_at_altitude(500);
+    fn gsi_04_03b_world_z_uses_exact_sloped_subcell() {
+        let mut entity = ground_entity_at_level(2);
         entity.position.sub_x = SimFixed::from_num(64);
         entity.position.sub_y = SimFixed::from_num(192);
         let mut terrain = flat_terrain(16, 16);
@@ -1070,7 +1051,7 @@ mod tests {
         cell.slope_type = 1;
         assert_eq!(
             crate::sim::movement::ground_pose::object_world_z_leptons(&entity, Some(&terrain)),
-            734
+            234
         );
     }
 
@@ -2310,7 +2291,14 @@ mod tests {
         entities.insert(ground_target(6, 5, 0, "TGT"));
         let target = TargetKind::Entity(200);
 
-        let cruising = kirov_at(5, 5, KIROV_JUMPJET_HEIGHT_LEPTONS);
+        let mut cruising = kirov_at(5, 5, KIROV_JUMPJET_HEIGHT_LEPTONS);
+        crate::sim::movement::ground_pose::set_height(
+            &mut cruising.position,
+            false,
+            KIROV_JUMPJET_HEIGHT_LEPTONS as i32,
+            Some(&terrain),
+            None,
+        );
         let src = fire_source_coords(
             &cruising,
             &target,
@@ -2339,7 +2327,14 @@ mod tests {
 
         // The same airship one lepton below the split is NOT high-flying, so
         // native charges its altitude and the shot is refused.
-        let climbing = kirov_at(5, 5, HIGH_FLIGHT_THRESHOLD_LEPTONS - 1);
+        let mut climbing = kirov_at(5, 5, HIGH_FLIGHT_THRESHOLD_LEPTONS - 1);
+        crate::sim::movement::ground_pose::set_height(
+            &mut climbing.position,
+            false,
+            (HIGH_FLIGHT_THRESHOLD_LEPTONS - 1) as i32,
+            Some(&terrain),
+            None,
+        );
         let climbing_src = fire_source_coords(
             &climbing,
             &target,

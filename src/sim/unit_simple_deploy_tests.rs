@@ -10,7 +10,6 @@ use crate::sim::command::Command;
 use crate::sim::snapshot::GameSnapshot;
 use crate::sim::stage::StageClass;
 use crate::sim::timer::CdTimer;
-use crate::util::fixed_math::SimFixed;
 use serde_json::{Value, json};
 use std::sync::OnceLock;
 
@@ -92,7 +91,6 @@ fn native_fixture(input: &Value, before: &Value) -> (Simulation, RuleSet, u64) {
     let height = input["height"].as_i64().unwrap_or(0) as i32;
     entity.position.exact_z_leptons = Some(height);
     let locomotor = entity.locomotor.as_mut().expect("production Jumpjet");
-    locomotor.altitude = SimFixed::from_num(height);
     if height > 0 {
         locomotor.layer = crate::sim::movement::locomotor::MovementLayer::Air;
     }
@@ -435,8 +433,9 @@ fn advance_until(
 }
 
 fn altitude(sim: &Simulation, id: u64) -> i32 {
-    crate::sim::movement::ground_pose::object_altitude_leptons(
+    crate::sim::movement::air_movement::current_fly_height(
         sim.substrate.entities.get(id).unwrap(),
+        sim.resolved_terrain.as_ref(),
     )
 }
 

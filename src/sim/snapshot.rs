@@ -1008,7 +1008,9 @@ use crate::sim::world::Simulation;
 // searches and the Foots waiting for the next frame's batch.
 // 348 -> 349: the move-order adapter (`MovementTarget`) is gone (#689); Foot's
 // NavCom and the locomotor own every order. Version 348 records carry it.
-const SNAPSHOT_VERSION: u32 = 349;
+// 349 -> 350: the locomotor's altitude mirror is gone (#692); an object's
+// height is its Location Z. Version 349 records carry it.
+const SNAPSHOT_VERSION: u32 = 350;
 
 const SNAPSHOT_PRODUCT_MAGIC: [u8; 8] = *b"VERA20K\0";
 const SNAPSHOT_ENVELOPE_VERSION: u32 = 1;
@@ -4395,7 +4397,8 @@ mod tests {
         // 346 -> 347: AttackMove tokens and an object MegaDestination.
         // 347 -> 348: the batched re-path setting and its waiting Foots.
         // 348 -> 349: no move-order adapter (`MovementTarget`).
-        assert_eq!(super::SNAPSHOT_VERSION, 349);
+        // 349 -> 350: no locomotor altitude copy; height is the Location Z.
+        assert_eq!(super::SNAPSHOT_VERSION, 350);
     }
 
     #[test]

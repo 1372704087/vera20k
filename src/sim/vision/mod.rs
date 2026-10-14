@@ -162,9 +162,12 @@ fn iso_height_shift_cells(height_leptons: i32) -> i32 {
 /// elevation and flight altitude are one quantity here too. A falling object
 /// and a rocket read their Location Z, which the fall and the flight
 /// (`RocketLocomotionClass::Process`, `rocket_movement`) move every frame
-/// anyway. An Air-layer locomotor's altitude lifts an object as
-/// `render::locomotor_visual` lifts one without an exact coordinate.
-fn entity_height_leptons(entity: &crate::sim::game_entity::GameEntity) -> i32 {
+/// anyway. An object on the Air layer adds its GetHeight
+/// (`ObjectClass::GetHeight @ 0x005F5F40`) to the stored level.
+fn entity_height_leptons(
+    entity: &crate::sim::game_entity::GameEntity,
+    terrain: Option<&crate::map::resolved_terrain::ResolvedTerrainGrid>,
+) -> i32 {
     use crate::rules::locomotor_type::LocomotorKind;
     use crate::sim::movement::locomotor::MovementLayer;
 
@@ -177,12 +180,14 @@ fn entity_height_leptons(entity: &crate::sim::game_entity::GameEntity) -> i32 {
     {
         return z;
     }
-    let terrain: i32 = i32::from(entity.position.z) * LEPTONS_PER_HEIGHT_LEVEL;
+    let level: i32 = i32::from(entity.position.z) * LEPTONS_PER_HEIGHT_LEVEL;
     let above_ground: i32 = match entity.locomotor.as_ref() {
-        Some(loco) if loco.layer == MovementLayer::Air && !rocket => loco.altitude.to_num::<i32>(),
+        Some(loco) if loco.layer == MovementLayer::Air && !rocket => {
+            crate::sim::movement::air_movement::current_fly_height(entity, terrain)
+        }
         _ => 0,
     };
-    terrain + above_ground
+    level + above_ground
 }
 
 /// Per-owner visibility stored as a flat grid of flag bytes.
@@ -1621,7 +1626,7 @@ pub fn recompute_owner_visibility_with_rules(
 ) -> FogState {
     let mut fog = FogState::default();
     recompute_owner_visibility_in_place(
-        &mut fog, entities, path_grid, alliances, config, None, interner, rules,
+        &mut fog, entities, path_grid, alliances, config, None, None, interner, rules,
     );
     fog
 }
@@ -1661,6 +1666,7 @@ pub fn recompute_owner_visibility_in_place(
     alliances: &HouseAllianceMap,
     config: &VisionConfig,
     height_grid: Option<&[u8]>,
+    terrain: Option<&crate::map::resolved_terrain::ResolvedTerrainGrid>,
     interner: &crate::sim::intern::StringInterner,
     rules: Option<&crate::rules::ruleset::RuleSet>,
 ) {
@@ -1768,7 +1774,7 @@ pub fn recompute_owner_visibility_in_place(
         // An unchanged source on tracked maps would only mark its footprints
         // again, which changes nothing: every footprint cell kept its ground
         // bits, and its published bits match its knowledge.
-        let geometry = entity_sight_geometry(entity, owner, config, sight_ability, None);
+        let geometry = entity_sight_geometry(entity, owner, config, terrain, sight_ability, None);
         if retained_footprints
             && viewers.iter().all(|viewer| !untracked.contains(viewer))
             && retained_sight_matches(fog, entity.stable_id(), geometry, viewers)
@@ -1799,6 +1805,7 @@ pub(crate) fn reveal_entity_vision(
     entity: &crate::sim::game_entity::GameEntity,
     config: &VisionConfig,
     height_grid: Option<&[u8]>,
+    terrain: Option<&crate::map::resolved_terrain::ResolvedTerrainGrid>,
     sight_ability: bool,
     interner: &StringInterner,
 ) {
@@ -1807,6 +1814,7 @@ pub(crate) fn reveal_entity_vision(
         entity,
         config,
         height_grid,
+        terrain,
         sight_ability,
         interner,
         false,
@@ -1822,6 +1830,7 @@ pub(crate) fn force_refresh_entity_vision(
     entity: &crate::sim::game_entity::GameEntity,
     config: &VisionConfig,
     height_grid: Option<&[u8]>,
+    terrain: Option<&crate::map::resolved_terrain::ResolvedTerrainGrid>,
     sight_ability: bool,
     interner: &StringInterner,
 ) {
@@ -1830,6 +1839,7 @@ pub(crate) fn force_refresh_entity_vision(
         entity,
         config,
         height_grid,
+        terrain,
         sight_ability,
         interner,
         true,
@@ -1852,6 +1862,7 @@ pub(crate) fn force_refresh_entity_vision_at_radius(
     entity: &crate::sim::game_entity::GameEntity,
     config: &VisionConfig,
     height_grid: Option<&[u8]>,
+    terrain: Option<&crate::map::resolved_terrain::ResolvedTerrainGrid>,
     sight_ability: bool,
     interner: &StringInterner,
     radius: i32,
@@ -1862,6 +1873,7 @@ pub(crate) fn force_refresh_entity_vision_at_radius(
         entity,
         config,
         height_grid,
+        terrain,
         sight_ability,
         interner,
         true,
@@ -1875,6 +1887,7 @@ pub(crate) fn refresh_entity_vision_for_viewer(
     entity: &crate::sim::game_entity::GameEntity,
     config: &VisionConfig,
     height_grid: Option<&[u8]>,
+    terrain: Option<&crate::map::resolved_terrain::ResolvedTerrainGrid>,
     sight_ability: bool,
     interner: &StringInterner,
     viewer: InternedId,
@@ -1884,6 +1897,7 @@ pub(crate) fn refresh_entity_vision_for_viewer(
         entity,
         config,
         height_grid,
+        terrain,
         sight_ability,
         interner,
         true,
@@ -1897,6 +1911,7 @@ fn update_entity_sight_admission(
     entity: &crate::sim::game_entity::GameEntity,
     config: &VisionConfig,
     height_grid: Option<&[u8]>,
+    terrain: Option<&crate::map::resolved_terrain::ResolvedTerrainGrid>,
     sight_ability: bool,
     interner: &StringInterner,
     force_refresh: bool,
@@ -1909,6 +1924,7 @@ fn update_entity_sight_admission(
         entity.owner(),
         config,
         height_grid,
+        terrain,
         sight_ability,
         radius_override,
     ) else {
@@ -1967,6 +1983,7 @@ pub(crate) fn entity_sight_footprint(
     entity: &crate::sim::game_entity::GameEntity,
     config: &VisionConfig,
     height_grid: Option<&[u8]>,
+    terrain: Option<&crate::map::resolved_terrain::ResolvedTerrainGrid>,
     sight_ability: bool,
     revealer: InternedId,
 ) -> Option<SightAdmission> {
@@ -1976,6 +1993,7 @@ pub(crate) fn entity_sight_footprint(
         revealer,
         config,
         height_grid,
+        terrain,
         sight_ability,
         None,
     )
@@ -1990,10 +2008,18 @@ fn entity_sight_admission(
     revealer: InternedId,
     config: &VisionConfig,
     height_grid: Option<&[u8]>,
+    terrain: Option<&crate::map::resolved_terrain::ResolvedTerrainGrid>,
     sight_ability: bool,
     radius_override: Option<u16>,
 ) -> Option<SightAdmission> {
-    let geometry = entity_sight_geometry(entity, revealer, config, sight_ability, radius_override);
+    let geometry = entity_sight_geometry(
+        entity,
+        revealer,
+        config,
+        terrain,
+        sight_ability,
+        radius_override,
+    );
     sight_admission(fog, geometry, config, height_grid)
 }
 
@@ -2044,10 +2070,11 @@ fn entity_sight_geometry(
     entity: &crate::sim::game_entity::GameEntity,
     revealer: InternedId,
     config: &VisionConfig,
+    terrain: Option<&crate::map::resolved_terrain::ResolvedTerrainGrid>,
     sight_ability: bool,
     radius_override: Option<u16>,
 ) -> SightGeometry {
-    let height_leptons: i32 = entity_height_leptons(entity);
+    let height_leptons: i32 = entity_height_leptons(entity, terrain);
 
     // Elevation raises sight MULTIPLICATIVELY, off the object's world Z in
     // leptons, not additively off its terrain level:

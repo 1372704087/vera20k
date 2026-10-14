@@ -1136,6 +1136,7 @@ fn idle_squid_body_counter_starts_move_sound() {
         },
         object.hover_attack,
         object.deploy_to_land,
+        None,
         4,
     );
     assert_eq!(sim.substrate.entities.get(1).unwrap().body_frame_counter, 1);

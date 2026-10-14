@@ -826,7 +826,6 @@ impl Simulation {
         // yet. Trigger: a loaded OpenTopped transport revealed away from its
         // riders. Frequency: none known in retail. Effect: the riders keep
         // their old Location.
-        let terrain = context.terrain().or(self.resolved_terrain.as_ref());
         if let Some(entity) = self.substrate.entities.get_mut(stable_id) {
             entity.position.rx = position.rx;
             entity.position.ry = position.ry;
@@ -834,13 +833,6 @@ impl Simulation {
             entity.position.exact_z_leptons = exact_z;
             entity.position.sub_x = position.sub_x;
             entity.position.sub_y = position.sub_y;
-            // The committed Location's GetHeight; a parachute keeps the
-            // altitude its drop gave it.
-            if exact_z.is_some() && !entity.is_falling_down() {
-                let height =
-                    crate::sim::movement::air_movement::current_fly_height(entity, terrain);
-                crate::sim::movement::ground_pose::mirror_height(entity, height);
-            }
         }
         if let Some(rules) = context.rules {
             self.reposition_building_anim_slots(stable_id, rules);

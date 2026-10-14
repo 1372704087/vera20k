@@ -32,7 +32,6 @@ use crate::sim::passenger::{
 use crate::sim::pathfinding::passability::LandType;
 use crate::sim::world::{FrameEffects, SimSoundEvent, Simulation};
 use crate::util::direction_tables::CELL_DELTAS;
-use crate::util::fixed_math::SIM_ZERO;
 use crate::util::lepton::CELL_CENTER_LEPTON;
 
 /// `DAT_008458D0`: `[4, 5, 6, 7, 0, 1, 2, 3]` — the octant the transport
@@ -659,10 +658,7 @@ fn aircraft_landed(
     terrain: Option<&crate::map::resolved_terrain::ResolvedTerrainGrid>,
 ) -> bool {
     crate::sim::movement::air_movement::current_fly_height(entity, terrain) == 0
-        && entity
-            .locomotor
-            .as_ref()
-            .is_none_or(|loco| loco.altitude == SIM_ZERO)
+        && entity.flight_attitude.is_level()
 }
 
 /// The Aircraft Unload slot `0x004151E0`, for a `Passengers > 0` aircraft;

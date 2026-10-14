@@ -532,6 +532,7 @@ fn spyplane_missions_match_native() {
                 plane,
                 &config,
                 None,
+                None,
                 false,
                 &sim.interner,
                 4,

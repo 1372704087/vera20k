@@ -1919,19 +1919,13 @@ fn considered_aircraft_infantry_is_air_only_while_high_flying() {
         );
 
         if altitude_leptons > 0 {
-            // Airborne: its Location Z above the mapless ground, with the
-            // locomotor's altitude copy.
+            // Airborne: its Location Z above the mapless ground.
             let rocketeer = sim
                 .substrate
                 .entities
                 .get_mut(target)
                 .expect("target should exist");
             rocketeer.position.exact_z_leptons = Some(altitude_leptons as i32);
-            rocketeer
-                .locomotor
-                .as_mut()
-                .expect("Rocketeer carries a locomotor")
-                .altitude = crate::util::fixed_math::SimFixed::from_num(altitude_leptons);
         }
 
         install_entity_attack_target_for_test(&mut sim.substrate.entities, attacker, target);
@@ -8112,7 +8106,7 @@ fn gsi_04_11_persistent_projectile_keeps_exact_lepton_z() {
     let rules = persistent_projectile_rules();
     // These are ground objects on levels 7 and 11, not aircraft above a
     // missing map's zero floor. The live flight queries need that terrain;
-    // neither the legacy position level nor the altitude cache owns it.
+    // the legacy position level does not own it.
     let mut terrain = crate::map::resolved_terrain::ResolvedTerrainGrid::from_cells(
         12,
         12,
@@ -9071,8 +9065,6 @@ fn radiation_skips_only_objects_in_the_air() {
     use crate::rules::locomotor_type::LocomotorKind;
     use crate::sim::movement::locomotor::LocomotorState;
 
-    use crate::util::fixed_math::SimFixed;
-
     let rules = radiation_rules();
     let mut sim = crate::sim::world::Simulation::new();
     let mut spawn = |kind, rx| {
@@ -9088,9 +9080,9 @@ fn radiation_skips_only_objects_in_the_air() {
         paratrooper.set_falling_down_for_test(true);
         paratrooper.set_fall_rate_for_test(-3);
     }
-    let mut locomotor = LocomotorState::for_test_kind(LocomotorKind::Hover);
-    locomotor.altitude = SimFixed::from_num(120);
-    sim.substrate.entities.get_mut(hover).unwrap().locomotor = Some(locomotor);
+    sim.substrate.entities.get_mut(hover).unwrap().locomotor =
+        Some(LocomotorState::for_test_kind(LocomotorKind::Hover));
+    sim.set_object_height_unmarked(hover, 120);
     sim.radiation.apply_detonation(
         crate::sim::radiation::RadDetonation {
             rx: 5,
@@ -11734,7 +11726,7 @@ fn gsi_08_08_kirov_vertical_bomb_falls_and_detonates() {
     // Retail lists ZEP under `[VehicleTypes]`: the Kirov is a UnitClass.
     let mut kirov = make_entity_owned(1, "ZEP", 5, 5, 2000, "Soviet");
     let zep_object = rules.object("ZEP").expect("ZEP object type");
-    let mut locomotor =
+    let locomotor =
         crate::sim::movement::locomotor::LocomotorState::from_object_type(zep_object, 0);
     // The hover altitude is NOT hand-set: `JumpjetHeight=750` has to arrive
     // through the native Jumpjet Link_To_Object copy as the hover target, and
@@ -11746,9 +11738,7 @@ fn gsi_08_08_kirov_vertical_bomb_falls_and_detonates() {
         "`JumpjetHeight=750` must reach the locomotor's hover target; a 500 here \
          means the rules->locomotor hop is broken, not the flight model"
     );
-    locomotor.altitude = crate::util::fixed_math::SimFixed::from_num(
-        locomotor.jumpjet_runtime().unwrap().params().height,
-    );
+    kirov.position.exact_z_leptons = Some(locomotor.jumpjet_runtime().unwrap().params().height);
     kirov.locomotor = Some(locomotor);
     store.insert(kirov);
     let _ = test_intern("HTNK");

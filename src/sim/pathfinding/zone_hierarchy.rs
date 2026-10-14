@@ -10,6 +10,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use super::passability;
+use super::stamped_table::StampedTable;
 use super::zone_map::{ZONE_INVALID, ZoneId};
 use crate::rules::locomotor_type::MovementZone;
 use crate::util::native_x87::{NativeF32Bits, NativeF64Bits, X87Chop53};
@@ -526,11 +527,44 @@ impl ZonePrecheckExclusions {
     }
 }
 
+/// The zones one precheck level marked: its route's zones, as a bitset by
+/// zone id. The cell A*'s corridor gate asks it for every neighbour, so
+/// membership is one word test.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub(crate) struct MarkedZones {
+    /// Bit `z % 64` of word `z / 64` is set for each marked zone `z`; the last
+    /// word holds the highest marked zone, so equal sets compare equal.
+    bits: Vec<u64>,
+}
+
+impl MarkedZones {
+    pub(crate) fn contains(&self, zone: &ZoneId) -> bool {
+        let zone = usize::from(*zone);
+        self.bits
+            .get(zone / 64)
+            .is_some_and(|word| word & (1 << (zone % 64)) != 0)
+    }
+}
+
+impl FromIterator<ZoneId> for MarkedZones {
+    fn from_iter<I: IntoIterator<Item = ZoneId>>(zones: I) -> Self {
+        let mut bits = Vec::new();
+        for zone in zones {
+            let zone = usize::from(zone);
+            if bits.len() <= zone / 64 {
+                bits.resize(zone / 64 + 1, 0);
+            }
+            bits[zone / 64] |= 1 << (zone % 64);
+        }
+        Self { bits }
+    }
+}
+
 /// Successful precheck output: selected paths and marker sets per hierarchy level.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct ZonePrecheckResult {
     pub paths: [Vec<ZoneId>; ZONE_PRECHECK_LEVELS],
-    pub marked: [BTreeSet<ZoneId>; ZONE_PRECHECK_LEVELS],
+    pub marked: [MarkedZones; ZONE_PRECHECK_LEVELS],
     #[cfg(test)]
     pub pops: Vec<(usize, ZoneId, u32, u32)>,
 }
@@ -539,7 +573,7 @@ impl ZonePrecheckResult {
     fn new() -> Self {
         Self {
             paths: std::array::from_fn(|_| Vec::new()),
-            marked: std::array::from_fn(|_| BTreeSet::new()),
+            marked: std::array::from_fn(|_| MarkedZones::default()),
             #[cfg(test)]
             pops: Vec::new(),
         }
@@ -570,6 +604,10 @@ struct PrecheckNode {
 struct PrecheckQueue(Vec<usize>);
 
 impl PrecheckQueue {
+    fn clear(&mut self) {
+        self.0.clear();
+    }
+
     fn push(&mut self, node: usize, nodes: &[PrecheckNode]) {
         let mut position = self.0.len();
         self.0.push(node);
@@ -714,13 +752,59 @@ type ActiveZoneThreat<'a> = (
     &'a dyn Fn(i32) -> Result<i32, String>,
 );
 
+/// Reusable scratch for `search_precheck_level`: pure scratch, nothing in it
+/// outlives one level search.
+#[derive(Default)]
+struct PrecheckScratch {
+    /// The best cost each zone has been reached with in the running search.
+    best: StampedTable<NativeF32Bits>,
+    nodes: Vec<PrecheckNode>,
+    heap: PrecheckQueue,
+}
+
+thread_local! {
+    /// Precheck scratch reused across calls; the sim thread runs one precheck
+    /// at a time and a precheck never starts another.
+    static PRECHECK_SCRATCH: std::cell::RefCell<PrecheckScratch> =
+        std::cell::RefCell::new(PrecheckScratch::default());
+}
+
 fn search_precheck_level(
     graph: &ZoneLevelGraph,
     level: usize,
     start: ZoneId,
     goal: ZoneId,
     movement_zone: MovementZone,
-    parent_marked: Option<&BTreeSet<ZoneId>>,
+    parent_marked: Option<&MarkedZones>,
+    exclusions: &ZonePrecheckExclusions,
+    threat: Option<ActiveZoneThreat<'_>>,
+) -> Result<Option<PrecheckLevelResult>, String> {
+    PRECHECK_SCRATCH.with(|cell| {
+        let mut scratch = cell
+            .try_borrow_mut()
+            .expect("zone precheck re-entered: a precheck must not start another");
+        search_precheck_level_in(
+            &mut scratch,
+            graph,
+            level,
+            start,
+            goal,
+            movement_zone,
+            parent_marked,
+            exclusions,
+            threat,
+        )
+    })
+}
+
+fn search_precheck_level_in(
+    scratch: &mut PrecheckScratch,
+    graph: &ZoneLevelGraph,
+    level: usize,
+    start: ZoneId,
+    goal: ZoneId,
+    movement_zone: MovementZone,
+    parent_marked: Option<&MarkedZones>,
     exclusions: &ZonePrecheckExclusions,
     threat: Option<ActiveZoneThreat<'_>>,
 ) -> Result<Option<PrecheckLevelResult>, String> {
@@ -738,27 +822,29 @@ fn search_precheck_level(
     }
 
     let zone_count = graph.zone_count() as usize;
-    let mut best = vec![None; zone_count + 1];
-    let mut nodes = vec![PrecheckNode {
+    let PrecheckScratch { best, nodes, heap } = scratch;
+    best.begin(zone_count + 1, NativeF32Bits::from_bits(0));
+    nodes.clear();
+    heap.clear();
+    nodes.push(PrecheckNode {
         parent: None,
         zone: start,
         cost: NativeF32Bits::from_bits(0),
         depth: 0,
-    }];
-    let mut heap = PrecheckQueue::default();
-    best[start as usize] = Some(NativeF32Bits::from_bits(0));
-    heap.push(0, &nodes);
+    });
+    best.set(usize::from(start), NativeF32Bits::from_bits(0));
+    heap.push(0, nodes);
     #[cfg(test)]
     let mut pops = Vec::new();
 
-    while let Some(index) = heap.pop(&nodes) {
+    while let Some(index) = heap.pop(nodes) {
         let node = &nodes[index];
         let (zone, cost, depth) = (node.zone, node.cost, node.depth);
         #[cfg(test)]
         pops.push((level, zone, cost.bits(), depth));
         if zone == goal {
             return Ok(Some(PrecheckLevelResult {
-                path: reconstruct_zone_path(&nodes, index),
+                path: reconstruct_zone_path(nodes, index),
                 #[cfg(test)]
                 pops,
             }));
@@ -790,7 +876,10 @@ fn search_precheck_level(
                 continue;
             };
             let new_cost = precheck_edge_cost(cost, base_cost, threat_cost, edge.flag);
-            if best[neighbor as usize].is_some_and(|best| !precheck_cost_less(new_cost, best)) {
+            if best
+                .get(usize::from(neighbor))
+                .is_some_and(|best| !precheck_cost_less(new_cost, best))
+            {
                 continue;
             }
             if let Some(marked) = parent_marked {
@@ -806,7 +895,7 @@ fn search_precheck_level(
                 continue;
             }
             {
-                best[neighbor as usize] = Some(new_cost);
+                best.set(usize::from(neighbor), new_cost);
                 let next = nodes.len();
                 nodes.push(PrecheckNode {
                     parent: Some(index),
@@ -814,7 +903,7 @@ fn search_precheck_level(
                     cost: new_cost,
                     depth: depth + 1,
                 });
-                heap.push(next, &nodes);
+                heap.push(next, nodes);
             }
         }
     }
@@ -889,6 +978,19 @@ mod tests {
         assert_eq!(result.paths[1], vec![1, 2, 3, 4]);
         assert_eq!(result.paths[0], vec![1, 2, 3, 4, 5, 6]);
         assert!(result.marked[0].contains(&4));
+    }
+
+    #[test]
+    fn marked_zones_hold_ids_past_the_first_word() {
+        let marked: MarkedZones = [3, 64, 200].into_iter().collect();
+        for zone in [3, 64, 200] {
+            assert!(marked.contains(&zone), "{zone}");
+        }
+        for zone in [4, 63, 65, 199, 10_000] {
+            assert!(!marked.contains(&zone), "{zone}");
+        }
+        assert_eq!(marked, [200, 64, 3].into_iter().collect());
+        assert_ne!(marked, [3, 64].into_iter().collect());
     }
 
     #[test]

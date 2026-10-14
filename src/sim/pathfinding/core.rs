@@ -15,9 +15,9 @@
 //! - sim/ NEVER depends on render/, ui/, audio/, net/.
 
 use super::cell_entry::{CanEnterCellContext, evaluate_can_enter_cell, search_cell_cost_decision};
+use super::stamped_table::StampedTable;
 use super::terrain_cost::TerrainCostGrid;
-use super::zone_hierarchy::ZoneLevelGraph;
-use super::zone_map::ZoneId;
+use super::zone_hierarchy::{MarkedZones, ZoneLevelGraph};
 use super::zone_search::PathSearchFailure;
 use crate::map::bridge_facts::BRIDGE_FLAG_ANCHOR_SELF;
 use crate::map::resolved_terrain::ResolvedTerrainGrid;
@@ -47,47 +47,33 @@ impl PathDescriptor {
     };
 }
 
-/// Reusable scratch buffers for `astar_search`. Lives in a thread-local so
-/// repeated repaths share one set of full-map-sized Vecs instead of allocating
-/// six fresh `vec![…; total_cells]` arrays per call (was the dominant heap
-/// pressure source during repath storms — engineer micro, scatter cascades).
+/// One layer's closed list: a (cell, layer) is closed in the running search
+/// while it holds a descriptor. Closing writes the descriptor
+/// (close-on-generation), so a closed cell's parent and height are current.
+type ClosedLayer = StampedTable<PathDescriptor>;
+
+/// Reusable scratch for `astar_search`. Lives in a thread-local so repeated
+/// repaths share one set of full-map-sized buffers instead of allocating them
+/// per call (was the dominant heap pressure source during repath storms —
+/// engineer micro, scatter cascades).
 ///
-/// `reset(total_cells)` grows each buffer if the map is bigger than the
-/// previous call and refills with the sentinel value; the `BinaryHeap` is
-/// cleared but keeps capacity. Use through `with_workspace` only; the helper
-/// asserts non-reentrancy so a future recursive A* caller fails loudly
-/// instead of silently sharing buffers.
+/// A search touches only the cells it reaches, so `reset` clears nothing: the
+/// closed lists forget the previous search at once (see `StampedTable`). The
+/// buffers grow when a map is bigger than any before; the `BinaryHeap` is
+/// cleared but keeps capacity. Use through `with_pathfind_workspace` only; it
+/// asserts non-reentrancy so a future recursive A* caller fails loudly instead
+/// of silently sharing buffers.
 #[derive(Default)]
 struct PathfindWorkspace {
-    ground_g: Vec<i32>,
-    bridge_g: Vec<i32>,
-    ground_from: Vec<PathDescriptor>,
-    bridge_from: Vec<PathDescriptor>,
-    ground_closed: Vec<bool>,
-    bridge_closed: Vec<bool>,
+    ground: ClosedLayer,
+    bridge: ClosedLayer,
     open: BinaryHeap<Reverse<AStarNode>>,
 }
 
 impl PathfindWorkspace {
     fn reset(&mut self, total_cells: usize) {
-        fn refill<T: Copy>(buf: &mut Vec<T>, len: usize, fill: T) {
-            buf.clear();
-            buf.resize(len, fill);
-        }
-        refill(&mut self.ground_g, total_cells, i32::MAX);
-        refill(&mut self.bridge_g, total_cells, i32::MAX);
-        refill(
-            &mut self.ground_from,
-            total_cells,
-            PathDescriptor::UNVISITED,
-        );
-        refill(
-            &mut self.bridge_from,
-            total_cells,
-            PathDescriptor::UNVISITED,
-        );
-        refill(&mut self.ground_closed, total_cells, false);
-        refill(&mut self.bridge_closed, total_cells, false);
+        self.ground.begin(total_cells, PathDescriptor::UNVISITED);
+        self.bridge.begin(total_cells, PathDescriptor::UNVISITED);
         self.open.clear();
     }
 }
@@ -104,7 +90,7 @@ thread_local! {
 }
 
 /// Run `body` with exclusive mutable access to the thread-local A* workspace,
-/// pre-reset to hold `total_cells` entries.
+/// reset for a search over `total_cells` cells.
 fn with_pathfind_workspace<R>(
     total_cells: usize,
     body: impl FnOnce(&mut PathfindWorkspace) -> R,
@@ -331,7 +317,7 @@ impl BlockerNeighborCounts {
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct HierarchyGate<'a> {
     pub level0_zones: &'a ZoneLevelGraph,
-    pub marked_level0: &'a BTreeSet<ZoneId>,
+    pub marked_level0: &'a MarkedZones,
     pub blocker_neighbor_counts: &'a BlockerNeighborCounts,
 }
 
@@ -748,8 +734,8 @@ pub struct MoverSearchFacts<'a> {
 /// Walks backward from goal using `decode_from` to follow the parent chain
 /// across ground/bridge transitions.
 fn reconstruct_path_dual(
-    ground_from: &[PathDescriptor],
-    bridge_from: &[PathDescriptor],
+    ground: &ClosedLayer,
+    bridge: &ClosedLayer,
     start_idx: usize,
     start_on_bridge: bool,
     goal_idx: usize,
@@ -769,10 +755,11 @@ fn reconstruct_path_dual(
             MovementLayer::Ground
         };
         let descriptor = if current_bridge {
-            bridge_from[current_idx]
+            bridge.get(current_idx)
         } else {
-            ground_from[current_idx]
-        };
+            ground.get(current_idx)
+        }
+        .expect("path reconstruction reached a cell this search never closed");
         path.push(LayeredPathStep {
             rx: x,
             ry: y,
@@ -847,26 +834,15 @@ pub fn astar_search(
     let h = grid.height() as usize;
     let total_cells = w * h;
 
-    // Persistent A* scratch buffers reused across calls. Destructured into
-    // local mutable references so the rest of the function reads/writes
-    // `ground_g[..]`, `open.push(..)`, etc. unchanged.
+    // Persistent A* scratch reused across calls; see `PathfindWorkspace`.
+    // A node's g travels in the open set: the closed lists hold only the
+    // stamp and the parent descriptor.
     with_pathfind_workspace(total_cells, |ws| {
-        // Split-borrow the workspace fields. The g_cost and came_from buffers
-        // get re-borrowed inline in the body's `(&mut bridge_g, &mut bridge_from)`
-        // tuple, which needs the bindings to be `mut`-declared.
         let PathfindWorkspace {
-            ref mut ground_g,
-            ref mut bridge_g,
-            ref mut ground_from,
-            ref mut bridge_from,
-            ref mut ground_closed,
-            ref mut bridge_closed,
+            ref mut ground,
+            ref mut bridge,
             ref mut open,
         } = *ws;
-        let mut ground_g = &mut *ground_g;
-        let mut bridge_g = &mut *bridge_g;
-        let mut ground_from = &mut *ground_from;
-        let mut bridge_from = &mut *bridge_from;
 
         let start_idx = start.1 as usize * w + start.0 as usize;
         let start_on_bridge = is_at_bridge_level(start_height, start_cell);
@@ -878,13 +854,9 @@ pub fn astar_search(
             height: compute_node_height(start_height, None, start_cell),
         };
         if start_on_bridge {
-            bridge_from[start_idx] = start_descriptor;
-            bridge_g[start_idx] = 0;
-            bridge_closed[start_idx] = true;
+            bridge.set(start_idx, start_descriptor);
         } else {
-            ground_from[start_idx] = start_descriptor;
-            ground_g[start_idx] = 0;
-            ground_closed[start_idx] = true;
+            ground.set(start_idx, start_descriptor);
         }
 
         open.push(Reverse(AStarNode {
@@ -921,8 +893,8 @@ pub fn astar_search(
             if (cx, cy) == goal && current.height == goal_height {
                 // Use the node's push-time layer flag (same value came_from was keyed on).
                 return Ok(reconstruct_path_dual(
-                    ground_from,
-                    bridge_from,
+                    ground,
+                    bridge,
                     start_idx,
                     start_on_bridge,
                     c_idx,
@@ -1019,10 +991,10 @@ pub fn astar_search(
                 // nuance, not true A* reopen. Do not reinsert selected-layer closed
                 // cells without a dedicated parity fixture for the blocked-goal path.
                 if neighbor_use_bridge {
-                    if bridge_closed[n_idx] {
+                    if bridge.contains(n_idx) {
                         continue;
                     }
-                } else if ground_closed[n_idx] {
+                } else if ground.contains(n_idx) {
                     continue;
                 }
 
@@ -1112,8 +1084,8 @@ pub fn astar_search(
                         // Use the current node's push-time layer flag (same
                         // value came_from was keyed on when pushed).
                         return Ok(reconstruct_path_dual(
-                            ground_from,
-                            bridge_from,
+                            ground,
+                            bridge,
                             start_idx,
                             start_on_bridge,
                             c_idx,
@@ -1237,21 +1209,18 @@ pub fn astar_search(
                 // cell, so g is write-once and there is no relaxation: the
                 // route that discovers a cell first owns it. The closed test
                 // for this (cell, layer) already ran above.
-                let (g_array, from_array) = if neighbor_use_bridge {
-                    (&mut bridge_g, &mut bridge_from)
+                let layer = if neighbor_use_bridge {
+                    &mut *bridge
                 } else {
-                    (&mut ground_g, &mut ground_from)
+                    &mut *ground
                 };
-                g_array[n_idx] = tentative_g;
-                from_array[n_idx] = PathDescriptor {
-                    parent: encode_from(c_idx, on_bridge),
-                    height: neighbor_height,
-                };
-                if neighbor_use_bridge {
-                    bridge_closed[n_idx] = true;
-                } else {
-                    ground_closed[n_idx] = true;
-                }
+                layer.set(
+                    n_idx,
+                    PathDescriptor {
+                        parent: encode_from(c_idx, on_bridge),
+                        height: neighbor_height,
+                    },
+                );
                 let h = euclidean_heuristic(nx, ny, goal.0, goal.1);
                 open.push(Reverse(AStarNode {
                     f_cost: tentative_g + h,
@@ -1274,19 +1243,20 @@ pub fn astar_search(
                 && search_cell_allocated(options.resolved_terrain, (nx, ny))
             {
                 let n_idx = ny as usize * w + nx as usize;
-                if !ground_closed[n_idx] {
+                if !ground.contains(n_idx) {
                     let neighbor_cell = grid.cell(nx, ny).unwrap_or(&DEFAULT_BLOCKED_CELL);
                     let neighbor_height = neighbor_cell.signed_level();
                     let tube_steps = i32::try_from(path_len).unwrap_or(1).max(1);
                     let tentative_g = current.g_cost + STEP_COST * tube_steps + TUBE_DIR_TIEBREAK;
 
                     // Same close-on-generation rule as the compass edges.
-                    ground_g[n_idx] = tentative_g;
-                    ground_from[n_idx] = PathDescriptor {
-                        parent: encode_from(c_idx, on_bridge),
-                        height: neighbor_height,
-                    };
-                    ground_closed[n_idx] = true;
+                    ground.set(
+                        n_idx,
+                        PathDescriptor {
+                            parent: encode_from(c_idx, on_bridge),
+                            height: neighbor_height,
+                        },
+                    );
                     let h = euclidean_heuristic(nx, ny, goal.0, goal.1);
                     open.push(Reverse(AStarNode {
                         f_cost: tentative_g + h,

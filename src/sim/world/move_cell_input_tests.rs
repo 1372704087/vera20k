@@ -140,7 +140,7 @@ fn ground_walk_order_preserves_native_human_deploy_refusal() {
         json!(u8::from(walk.walk_is_moving().unwrap())),
         native["moving"]
     );
-    let timer = actor.navigation.path_runtime.movement_timer;
+    let timer = actor.navigation.path_runtime.movement_timer();
     assert_eq!(
         json!({"start_frame": timer.start_frame(), "duration": timer.duration()}),
         native["movement_timer"]
@@ -531,7 +531,7 @@ fn a_move_onto_a_tank_walks_the_gi_beside_it() {
         assert!(result.frame_committed, "{result:?}");
     }
     let tank = sim.entities().get(target).unwrap().position;
-    let Some(NavTargetRef::Cell { rx, ry }) = sim.entities().get(gi).unwrap().navigation.nav_com
+    let Some(NavTargetRef::Cell { rx, ry }) = sim.entities().get(gi).unwrap().navigation.nav_com()
     else {
         panic!("Find_Path retargets the GI to a Cell");
     };
@@ -661,7 +661,7 @@ impl Simulation {
         sim.fog.width = 16;
         sim.fog.height = 16;
         sim.fog.reveal_all_for_owner(owner);
-        assert!(sim.entities().get(actor).unwrap().lifecycle.cell_marked);
+        assert!(sim.entities().get(actor).unwrap().lifecycle.cell_marked());
         (sim, rules, actor)
     }
 

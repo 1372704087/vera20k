@@ -95,8 +95,8 @@ impl Simulation {
                 // Literal GUID7E9A40 is Hover (4A582742), not Drive
                 // (4A582741 at7E9A30). Native ctor/GetClassID controls pin it.
                 && unit.locomotor.as_ref().is_some_and(|locomotor| locomotor.active_kind() == crate::rules::locomotor_type::LocomotorKind::Hover)
-                && unit.navigation.nav_com.is_none();
-            let aimed = matches!(unit.navigation.nav_com,
+                && unit.navigation.nav_com().is_none();
+            let aimed = matches!(unit.navigation.nav_com(),
                 Some(crate::sim::components::NavTargetRef::Entity { id: nav }
                     | crate::sim::components::NavTargetRef::Object { id: nav }
                     | crate::sim::components::NavTargetRef::Building { id: nav }) if nav == contact);
@@ -106,8 +106,10 @@ impl Simulation {
             if restore && let Some(unit) = self.substrate.entities.get_mut(id) {
                 // Unit73A4E9 restores only the raw NavCom; unlike the Foot
                 // setter this does not clear NavComAux or change movement.
-                unit.navigation.nav_com =
-                    Some(crate::sim::components::NavTargetRef::Building { id: contact });
+                unit.navigation
+                    .set_nav_com(Some(crate::sim::components::NavTargetRef::Building {
+                        id: contact,
+                    }));
             }
             self.foot_per_cell_process(id, PerCellReason::Arrival, Some(rules), registry, effects);
             crate::sim::radio::transmit_to_contact(
@@ -217,7 +219,7 @@ impl Simulation {
             return;
         };
         let at = (entity.position.rx, entity.position.ry);
-        let layer = if entity.on_bridge {
+        let layer = if entity.on_bridge() {
             MovementLayer::Bridge
         } else {
             MovementLayer::Ground
@@ -317,7 +319,7 @@ impl Simulation {
         if unit.tether.partner().is_none() {
             return;
         }
-        let nav_com = unit.navigation.nav_com;
+        let nav_com = unit.navigation.nav_com();
         let nav_techno = match nav_com {
             Some(
                 NavTargetRef::Entity { id }
@@ -391,7 +393,7 @@ impl Simulation {
         let Some(unit) = self.substrate.entities.get(id) else {
             return;
         };
-        let nav_com = unit.navigation.nav_com;
+        let nav_com = unit.navigation.nav_com();
         if nav_com.is_some()
             && !super::navcom::nav_targets_same_receiver(
                 nav_com,
@@ -641,7 +643,7 @@ impl Simulation {
         {
             return Ok(false);
         }
-        let Some(building) = (match infantry.navigation.nav_com {
+        let Some(building) = (match infantry.navigation.nav_com() {
             Some(
                 NavTargetRef::Entity { id }
                 | NavTargetRef::Object { id }
@@ -735,7 +737,7 @@ impl Simulation {
         // Foot4D8D31..4D8D53: a Foot whose structural deck disappeared
         // takes the same DropAsBomb as BlowUpBridge's deck traversal.
         let deck_gone = self.substrate.entities.get(id).is_some_and(|entity| {
-            entity.on_bridge
+            entity.on_bridge()
                 && self.resolved_terrain.as_ref().is_some_and(|terrain| {
                     let cells = crate::map::resolved_terrain::NativeCellQuery::canonical(terrain);
                     let at = position_world_coord(&entity.position);

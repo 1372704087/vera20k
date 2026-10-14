@@ -686,7 +686,7 @@ impl Duel {
             actor.health.current(),
             actor.mission,
             actor.attack_target,
-            actor.navigation.nav_com,
+            actor.navigation.nav_com(),
             crate::sim::movement::motion_query::is_moving(actor),
             actor.foot_speed.applied_fraction(),
             actor.last_fire_frame.frame(),

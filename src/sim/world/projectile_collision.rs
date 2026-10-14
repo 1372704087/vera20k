@@ -933,8 +933,10 @@ mod tests {
                         .type_facts
                         .set_foundation_for_test(dimensions.clone());
                 }
-                entity.lifecycle.cell_marked = target["marked"].as_bool().unwrap_or(true);
-                entity.on_bridge = target["on_bridge"].as_bool().unwrap_or(false);
+                entity
+                    .lifecycle
+                    .set_cell_marked(target["marked"].as_bool().unwrap_or(true));
+                entity.set_on_bridge(target["on_bridge"].as_bool().unwrap_or(false));
                 // The supplied phase is the installed Rocket's MissionState.
                 if target["rocket"].as_bool().unwrap_or(false)
                     && target["phase"].as_u64().unwrap() != 0
@@ -1596,8 +1598,8 @@ mod tests {
                 .unwrap()
                 .position
                 .exact_z_leptons = Some(z - if voxel { 300 } else { 0 });
-            assert!(sim.substrate.entities.get(source).unwrap().in_playfield);
-            assert!(sim.substrate.entities.get(target).unwrap().in_playfield);
+            assert!(sim.substrate.entities.get(source).unwrap().in_playfield());
+            assert!(sim.substrate.entities.get(target).unwrap().in_playfield());
             let firer = sim.substrate.entities.get_mut(source).unwrap();
             firer.body_facing.snap(0x4000, 0);
             firer
@@ -1626,7 +1628,7 @@ mod tests {
                 runtime.simulation.substrate.entities.get(source).map(|e| (
                     &e.attack_target,
                     e.lifecycle,
-                    e.in_playfield,
+                    e.in_playfield(),
                     e.mission.current()
                 )),
                 runtime.simulation.live_object_order_snapshot()

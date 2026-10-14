@@ -657,7 +657,7 @@ fn retail_battle_fortress_player_boarding_retires_walking_speed() {
         println!(
             "{kind} speed={:?} nav={:?} doing={:?}",
             actor.foot_speed.applied_fraction(),
-            actor.navigation.nav_com,
+            actor.navigation.nav_com(),
             actor.mission_leaf.as_infantry().map(|leaf| leaf.doing())
         );
         assert_eq!(

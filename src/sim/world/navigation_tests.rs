@@ -165,7 +165,7 @@ fn recalc_keeps_marked_structure_over_partial_terrain_occupation_and_bridge_deck
         crate::sim::game_entity::GameEntity::test_default(47, "YARD", "Americans", 6, 6);
     structure.set_category_for_test(EntityCategory::Structure);
     structure.set_type_ref_for_test(sim.interner.intern("YARD"));
-    structure.lifecycle.cell_marked = true;
+    structure.lifecycle.set_cell_marked(true);
     structure.death.set_dying_for_test(true); // Dying still owns its marked footprint.
     sim.substrate.entities.insert(structure);
     assert!(sim.rebuild_dynamic_navigation(&rules));
@@ -241,17 +241,17 @@ fn assert_retained_roles(sim: &Simulation, parent_id: u64, upgrade_id: u64, held
             .get(parent_id)
             .unwrap()
             .lifecycle
-            .cell_marked
+            .cell_marked()
     );
     let upgrade = sim.substrate.entities.get(upgrade_id).unwrap();
-    assert!(!upgrade.lifecycle.in_limbo() && !upgrade.lifecycle.cell_marked);
+    assert!(!upgrade.lifecycle.in_limbo() && !upgrade.lifecycle.cell_marked());
     assert!(
         upgrade
             .structure_upgrade_link()
             .is_some_and(|link| link.parent_stable_id() == parent_id)
     );
     let held = sim.substrate.entities.get(held_id).unwrap();
-    assert!(held.lifecycle.in_limbo() && !held.lifecycle.cell_marked);
+    assert!(held.lifecycle.in_limbo() && !held.lifecycle.cell_marked());
     assert_eq!(
         sim.production
             .factories
@@ -303,7 +303,7 @@ fn held_factory_and_attached_upgrade_stay_off_navigation_through_frame_and_resto
         .values()
         .find(|entity| entity.structure_upgrade_link().is_some())
         .unwrap();
-    assert!(!upgrade.lifecycle.in_limbo() && !upgrade.lifecycle.cell_marked);
+    assert!(!upgrade.lifecycle.in_limbo() && !upgrade.lifecycle.cell_marked());
     let upgrade_id = upgrade.stable_id();
     assert!(enqueue_by_type(
         &mut sim,
@@ -323,7 +323,7 @@ fn held_factory_and_attached_upgrade_stay_off_navigation_through_frame_and_resto
         .entity_id
         .unwrap();
     let held = sim.substrate.entities.get(held_id).unwrap();
-    assert!(held.lifecycle.in_limbo() && !held.lifecycle.cell_marked);
+    assert!(held.lifecycle.in_limbo() && !held.lifecycle.cell_marked());
     assert_eq!((held.position.rx, held.position.ry), (0, 0));
 
     assert!(sim.rebuild_dynamic_navigation(&rules));
@@ -392,7 +392,7 @@ fn held_factory_and_attached_upgrade_stay_off_navigation_through_frame_and_resto
             .get(parent_id)
             .unwrap()
             .lifecycle
-            .cell_marked
+            .cell_marked()
     );
     assert!(restored.rebuild_dynamic_navigation(&rules));
     assert!(restored.path_grid_snapshot().unwrap().is_walkable(6, 6));
@@ -421,7 +421,7 @@ fn structure_changes_publish_footprint_cells_without_rebuilding_zones() {
         crate::sim::game_entity::GameEntity::test_default(9, "YARD", "Americans", 6, 6);
     structure.set_category_for_test(EntityCategory::Structure);
     structure.set_type_ref_for_test(sim.interner.intern("YARD"));
-    structure.lifecycle.cell_marked = true;
+    structure.lifecycle.set_cell_marked(true);
     sim.substrate.entities.insert(structure);
     assert!(
         sim.finalize_frame_overlays_and_navigation(Some(&rules), Some(&overlays), false, true)
@@ -446,7 +446,7 @@ fn structure_changes_publish_footprint_cells_without_rebuilding_zones() {
         .get_mut(9)
         .unwrap()
         .lifecycle
-        .cell_marked = false;
+        .set_cell_marked(false);
     let zones_before = zone_storage(&sim);
     sim.finalize_frame_overlays_and_navigation(Some(&rules), Some(&overlays), false, true);
     assert_eq!(*sim.path_grid_snapshot().unwrap(), *open);

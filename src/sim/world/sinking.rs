@@ -153,7 +153,7 @@ impl Simulation {
         let mut coord = position_world_coord(&entity.position);
         let floor = ground_surface_z_at(
             [coord.x, coord.y],
-            entity.on_bridge,
+            entity.on_bridge(),
             self.resolved_terrain.as_ref(),
             None,
         )

@@ -106,7 +106,7 @@ fn slave_refinery_deploys_digs_carries_home_pays_and_goes_out_again() {
         let entity = s.scene.sim.substrate.entities.get(slave).unwrap();
         assert!(!entity.lifecycle.in_limbo());
         assert!(
-            entity.navigation.nav_com.is_some(),
+            entity.navigation.nav_com().is_some(),
             "scattered off the drop cell"
         );
     }
@@ -343,7 +343,7 @@ fn a_harvest_order_sends_the_slave_miner_to_deploy_beside_the_field() {
         .get(s.master)
         .unwrap()
         .navigation
-        .nav_com;
+        .nav_com();
     assert!(
         nav.is_some() && nav != Some(NavTargetRef::cell(24, 20)),
         "driving to a deploy cell, not onto the clicked ore: {nav:?}"
@@ -879,7 +879,7 @@ fn a_refinery_whose_ore_runs_out_packs_up_and_moves_to_the_next_field() {
                 // `BuildingClass::Mission_Selling 0x0044A091..0x0044A0AE`: the
                 // unit is sent to the refinery's archived cell, its own.
                 let unit = sim.substrate.entities.get(holder).unwrap();
-                assert_eq!(unit.navigation.nav_com, Some(NavTargetRef::cell(12, 12)));
+                assert_eq!(unit.navigation.nav_com(), Some(NavTargetRef::cell(12, 12)));
                 assert_eq!(unit.mission.queued().known(), Some(MissionType::Move));
                 assert_eq!(manager_state_of(&s, holder), ManagerState::PackingUp);
                 let manager = unit.slave_manager.as_ref().unwrap();

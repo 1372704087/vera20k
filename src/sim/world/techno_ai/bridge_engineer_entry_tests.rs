@@ -138,7 +138,7 @@ fn capture_probe(
     let query = json!({
         "actor": engineer, "hut":hut, "type":sim.interner.resolve(actor.type_ref()),
         "movement_zone": object.movement_zone.matrix_row(), "speed_type":format!("{:?}",object.speed_type),
-        "position":actor.position, "on_bridge":actor.on_bridge, "in_playfield":actor.in_playfield,
+        "position":actor.position, "on_bridge":actor.on_bridge(), "in_playfield":actor.in_playfield(),
         "mission_only":actor.is_mission_only(), "lifecycle":actor.lifecycle,
         "tube":actor.low_bridge_tube_state, "locomotor":actor.locomotor,
         "mission":actor.mission, "navigation":actor.navigation,

@@ -254,7 +254,7 @@ impl Simulation {
             .as_infantry()
             .ok_or("Do_Action requires Infantry Doing")?
             .doing();
-        let on_bridge = actor.on_bridge;
+        let on_bridge = actor.on_bridge();
         if current == DO_PARADROP && actor.is_falling_down() {
             return Ok(false);
         }
@@ -722,7 +722,7 @@ impl Simulation {
                 .substrate
                 .entities
                 .get(id)
-                .and_then(|actor| actor.navigation.nav_com);
+                .and_then(|actor| actor.navigation.nav_com());
             if let Some(destination) = destination {
                 if let Err(cause) =
                     self.assign_infantry_destination(id, destination, rules, registry, effects)

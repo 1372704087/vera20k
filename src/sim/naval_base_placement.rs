@@ -149,7 +149,7 @@ fn first_yard_distance_accepts(
         || !yard.type_facts.build_const_eligible()
         || !yard.lifecycle.object_alive()
         || yard.lifecycle.in_limbo()
-        || !yard.lifecycle.cell_marked
+        || !yard.lifecycle.cell_marked()
     {
         return false;
     }
@@ -580,7 +580,7 @@ mod tests {
             .set_foundation_for_test(foundation.to_string());
         yard.type_facts.set_build_const_eligible_for_test(true);
         yard.lifecycle.set_in_limbo_for_test(false);
-        yard.lifecycle.cell_marked = true;
+        yard.lifecycle.set_cell_marked(true);
         sim.substrate.entities.insert(yard);
     }
 

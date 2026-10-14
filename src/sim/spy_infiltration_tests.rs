@@ -544,12 +544,12 @@ fn an_infiltrator_that_is_no_agent_is_scattered_from_the_building() {
                 .get(thief)
                 .unwrap()
                 .navigation
-                .nav_com
+                .nav_com()
                 .is_none()
     });
     assert!(entered, "the infiltrator never reached the building");
     let entity = sim.entities().get(thief).expect("the infiltrator stays");
-    assert!(entity.navigation.nav_com.is_none());
+    assert!(entity.navigation.nav_com().is_none());
     assert!(
         !events
             .iter()

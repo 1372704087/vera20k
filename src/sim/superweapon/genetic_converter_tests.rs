@@ -412,7 +412,11 @@ fn the_mutation_arm_matches_native() {
             sim.reveal(victim),
             crate::sim::world::RevealOutcome::Revealed { .. }
         ));
-        sim.substrate.entities.get_mut(victim).unwrap().on_bridge = row["on_bridge"] == true;
+        sim.substrate
+            .entities
+            .get_mut(victim)
+            .unwrap()
+            .set_on_bridge(row["on_bridge"] == true);
         // The listed objects, each a real object of its kind elsewhere.
         for (n, what) in rows(row, "listed").iter().enumerate() {
             let (kind, insertion, sub_cell) = match int(what) {
@@ -663,7 +667,7 @@ fn the_make_infantry_end_matches_native() {
             if ends {
                 assert!(!infantry.lifecycle.in_limbo(), "{row}");
                 let lifted = events(row, "mark").count() == 2;
-                assert_eq!(infantry.on_bridge, lifted, "{row}");
+                assert_eq!(infantry.on_bridge(), lifted, "{row}");
                 let hunt = events(row, "queue").next().is_some();
                 assert_eq!(
                     infantry.mission.queued() == MissionId::from_known(MissionType::Hunt),
@@ -938,7 +942,7 @@ fn a_fourth_infantryman_at_a_full_cells_centre_mutates() {
     let three: Vec<u64> = (0..3).map(|_| spawn(&mut sim, (40, 40))).collect();
     let spots: BTreeSet<Option<u8>> = three
         .iter()
-        .map(|&id| sim.substrate.entities.get(id).unwrap().sub_cell)
+        .map(|&id| sim.substrate.entities.get(id).unwrap().sub_cell())
         .collect();
     assert_eq!(spots, BTreeSet::from([Some(2), Some(3), Some(4)]));
 
@@ -958,7 +962,7 @@ fn a_fourth_infantryman_at_a_full_cells_centre_mutates() {
         CellListInsertion::PrependNonBuilding,
     );
     for &id in &three {
-        let spot = sim.substrate.entities.get(id).unwrap().sub_cell;
+        let spot = sim.substrate.entities.get(id).unwrap().sub_cell();
         let occupancy = &mut sim.substrate.occupancy;
         occupancy.remove(40, 40, id);
         occupancy.add(
@@ -978,7 +982,7 @@ fn a_fourth_infantryman_at_a_full_cells_centre_mutates() {
     {
         let entity = sim.substrate.entities.get_mut(fourth).unwrap();
         ground_pose::put_location(&mut entity.position, centre);
-        entity.sub_cell = Some(0);
+        entity.set_sub_cell(Some(0));
     }
     assert!(sim.object_raw_receiver_at(fourth, centre, true));
     let listed: Vec<u64> = sim

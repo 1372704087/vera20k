@@ -110,14 +110,14 @@ mod tests {
         let mut entity = GameEntity::test_default(1, "E1", "Americans", 10, 10);
         entity.lifecycle.set_in_limbo_for_test(false);
         entity.position.exact_z_leptons = Some(416);
-        entity.on_bridge = true;
+        entity.set_on_bridge(true);
         entity.set_fall_rate_for_test(int(&row["input"], "rate", 0));
         sim.substrate.entities.insert(entity);
         sim.drop_as_bomb(1, crate::sim::world::UninitContext::default());
         let entity = sim.substrate.entities.get(1).unwrap();
         assert_eq!(entity.is_falling_down(), row["falling"].as_bool().unwrap());
         assert_eq!(entity.was_dropped_as_bomb(), row["bomb"].as_bool().unwrap());
-        assert_eq!(entity.on_bridge, row["bridge"].as_bool().unwrap());
+        assert_eq!(entity.on_bridge(), row["bridge"].as_bool().unwrap());
         assert_eq!(entity.position.exact_z_leptons, Some(int(row, "z", 0)));
         assert_eq!(entity.fall_rate(), int(row, "rate", 0));
         assert!(!entity.is_parachuted());

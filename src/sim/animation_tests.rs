@@ -1704,7 +1704,7 @@ fn unit_body_counter_matches_original_foot_cadence() {
                 .foot_speed
                 .set_speed_fraction(SimFixed::from_num(i32::from(flag("moving"))));
             entity.position.exact_z_leptons = Some(integer("height", 0));
-            entity.locomotor.as_mut().unwrap().layer = layer;
+            entity.locomotor.as_mut().unwrap().set_layer(layer);
             if let Some(flags) = input["flags"].as_array() {
                 entity.set_unit_simple_deploy_for_test(
                     flags[0].as_u64().unwrap() != 0,

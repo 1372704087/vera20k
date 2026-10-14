@@ -243,7 +243,9 @@ pub(super) fn row_scene_edited(
             .mcv_deploy_pending
             .set_for_test(input["deploy_pending"] == true);
         if let Some((nx, ny)) = input.get("owner_nav").map(cell) {
-            entity.navigation.nav_com = Some(NavTargetRef::cell(nx, ny));
+            entity
+                .navigation
+                .set_nav_com(Some(NavTargetRef::cell(nx, ny)));
         }
         smin
     } else {
@@ -402,7 +404,9 @@ fn place_slave(
             .unwrap();
     }
     if let Some((nx, ny)) = node.get("nav").map(cell) {
-        entity.navigation.nav_com = Some(NavTargetRef::cell(nx, ny));
+        entity
+            .navigation
+            .set_nav_com(Some(NavTargetRef::cell(nx, ny)));
     }
     let storage = node["storage"].as_array();
     let mut cargo = Vec::new();
@@ -519,7 +523,7 @@ fn compare_state(s: &SlaveScene, row: &Value, context: &str) {
             expected["queued"].as_i64().unwrap(),
             "{context}: owner queued mission"
         );
-        let nav = match owner.navigation.nav_com {
+        let nav = match owner.navigation.nav_com() {
             Some(NavTargetRef::Cell { rx, ry }) => serde_json::json!([rx, ry]),
             None => Value::Null,
             Some(other) => panic!("{context}: owner NavCom {other:?}"),
@@ -591,7 +595,7 @@ fn compare_state(s: &SlaveScene, row: &Value, context: &str) {
                 "{context}: queued"
             );
         }
-        let nav = match entity.navigation.nav_com {
+        let nav = match entity.navigation.nav_com() {
             Some(NavTargetRef::Cell { rx, ry }) => serde_json::json!([rx, ry]),
             None => Value::Null,
             Some(other) => panic!("{context}: NavCom {other:?}"),

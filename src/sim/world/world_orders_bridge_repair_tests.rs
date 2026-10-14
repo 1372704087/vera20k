@@ -358,7 +358,7 @@ fn c4_order_from_a_distance_reaches_the_building_while_moving_or_idle() {
                 planted,
                 "{building} moving={moving}: SEAL stopped at {:?} nav={:?} mission={:?}",
                 (e.position.rx, e.position.ry),
-                e.navigation.nav_com,
+                e.navigation.nav_com(),
                 e.mission.current()
             );
         }
@@ -415,7 +415,7 @@ fn capture_building_command_accepts_collapsed_noncapturable_hut_for_every_relati
         );
         let actor = sim.substrate.entities.get(engineer).unwrap();
         assert_eq!(
-            actor.navigation.nav_com,
+            actor.navigation.nav_com(),
             Some(NavTargetRef::building(cabhut)),
             "relation={relation}"
         );
@@ -525,7 +525,7 @@ fn ordinary_friendly_repair_uses_capture_event_without_hut_exception() {
         );
         let actor = sim.substrate.entities.get(engineer).unwrap();
         assert_eq!(
-            actor.navigation.nav_com,
+            actor.navigation.nav_com(),
             Some(NavTargetRef::building(target)),
             "target_owner={target_owner}"
         );
@@ -617,7 +617,10 @@ fn queued_hut_capture_survives_repair_before_event_execution() {
             "relation={relation}"
         );
         let actor = sim.substrate.entities.get(engineer).unwrap();
-        assert_eq!(actor.navigation.nav_com, Some(NavTargetRef::building(hut)));
+        assert_eq!(
+            actor.navigation.nav_com(),
+            Some(NavTargetRef::building(hut))
+        );
         assert_eq!(
             (
                 sim.scenario_rng.logical_state(),

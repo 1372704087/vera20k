@@ -1342,7 +1342,7 @@ fn emit_unit_terrain_body(
     // the shared Object5F5F40/Map578080 owners with an isolated render query.
     let grounded = crate::sim::movement::ground_pose::query_ground_height(cells, physical)
         .is_ok_and(|ground| {
-            crate::sim::movement::ground_pose::height_at_z(world_z, ground, entity.on_bridge) == 0
+            crate::sim::movement::ground_pose::height_at_z(world_z, ground, entity.on_bridge()) == 0
         });
     let mut pieces = Vec::with_capacity(2);
     for (piece, sprite, z_adjust, gradient, material) in [
@@ -1459,7 +1459,7 @@ pub(crate) fn resolve_object_shp_frame(
                 let cell = cells.lookup((entity.position.rx as i16, entity.position.ry as i16));
                 cells.land_type(cell) == 2
             });
-            if water && !entity.on_bridge { 16 } else { 0 }
+            if water && !entity.on_bridge() { 16 } else { 0 }
         } else {
             doing
         };

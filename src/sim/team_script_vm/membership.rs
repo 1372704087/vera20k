@@ -349,7 +349,7 @@ impl Simulation {
             .get_mut(entity_id)
             .is_some_and(|entity| {
                 entity.mission.clear_suspended();
-                entity.navigation.suspended_nav_com = None;
+                entity.navigation.set_suspended_nav_com(None);
                 entity.suspended_attack_target.clear();
                 entity.lifecycle.object_alive()
                     && !entity.crash.is_crashing()
@@ -379,7 +379,7 @@ impl Simulation {
                 self.substrate
                     .entities
                     .get(member)
-                    .is_some_and(|entity| entity.in_playfield)
+                    .is_some_and(|entity| entity.in_playfield())
             })
         })
     }

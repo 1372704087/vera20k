@@ -168,7 +168,7 @@ fn unit_render_slope_state(
     // `TiltCrashJumpjet=` arm: a Jumpjet body never takes a cell slope, landed
     // or airborne.
     let jumpjet = entity.locomotor.as_ref().is_some_and(|locomotor| {
-        locomotor.kind == crate::rules::locomotor_type::LocomotorKind::Jumpjet
+        locomotor.active_kind() == crate::rules::locomotor_type::LocomotorKind::Jumpjet
     });
     // A body that has left the floor has no cell slope to sit on, so it never
     // enters the drive-track tilt transition. Upper-layer bodies therefore
@@ -846,7 +846,7 @@ fn body_pose(
         rocking.angle_sideways().to_num::<f32>(),
         rocking.angle_forwards().to_num::<f32>(),
     ];
-    match locomotor.kind {
+    match locomotor.active_kind() {
         LocomotorKind::Fly if entity.crash.is_crashing() && band != EntityDrawBand::Ground => {
             Some(PoseTilt::Fly(angles))
         }

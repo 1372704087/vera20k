@@ -1178,11 +1178,11 @@ impl Simulation {
         if let Some(entity) = self.substrate.entities.get_mut(stable_id)
             && is_infantry
         {
-            entity.sub_cell = Some(crate::sim::movement::bump_crush::priority_sub_cell(
+            entity.set_sub_cell(Some(crate::sim::movement::bump_crush::priority_sub_cell(
                 requested_position.sub_x,
                 requested_position.sub_y,
-            ));
-            entity.on_bridge = false;
+            )));
+            entity.set_on_bridge(false);
         }
         let outcome = self.try_reveal_entity_with_context(
             stable_id,
@@ -1506,7 +1506,7 @@ impl Simulation {
         // This boundary receives newly constructed objects. Make those constructor
         // facts explicit so storage can never imply cell or logic presence.
         ge.lifecycle.reset_constructed();
-        ge.lifecycle.cell_marked = false;
+        ge.lifecycle.set_cell_marked(false);
         ge.in_logic_vector.mark(false);
         ge.kill_record.reset_constructed();
 
@@ -1532,7 +1532,7 @@ impl Simulation {
         let Some(entity) = self.substrate.entities.get(stable_id) else {
             return false;
         };
-        debug_assert!(entity.lifecycle.in_limbo() && !entity.lifecycle.cell_marked);
+        debug_assert!(entity.lifecycle.in_limbo() && !entity.lifecycle.cell_marked());
         let spawn_children = self
             .substrate
             .entities
@@ -1676,10 +1676,10 @@ impl Simulation {
                 );
             };
             if let Some(entity) = self.substrate.entities.get_mut(stable_id) {
-                entity.sub_cell = Some(crate::sim::movement::bump_crush::priority_sub_cell(
+                entity.set_sub_cell(Some(crate::sim::movement::bump_crush::priority_sub_cell(
                     position.sub_x,
                     position.sub_y,
-                ));
+                )));
             }
             position
         } else {
@@ -1866,7 +1866,7 @@ impl Simulation {
                 (
                     entity.category(),
                     entity.veterancy.rank(),
-                    entity.in_playfield,
+                    entity.in_playfield(),
                     entity.type_ref(),
                 )
             })
@@ -1985,7 +1985,7 @@ impl Simulation {
             }
             return false;
         }
-        if source.navigation.nav_com.is_some()
+        if source.navigation.nav_com().is_some()
             || crate::sim::movement::motion_query::is_moving(source) == Some(true)
         {
             return false;

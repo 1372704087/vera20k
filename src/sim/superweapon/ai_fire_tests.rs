@@ -477,7 +477,11 @@ fn the_genetic_mutator_target_matches_native() {
                     None,
                     crate::sim::world::FrameEffects::default()
                 ));
-                sim.substrate.entities.get_mut(id).unwrap().on_bridge = true;
+                sim.substrate
+                    .entities
+                    .get_mut(id)
+                    .unwrap()
+                    .set_on_bridge(true);
                 assert!(sim.foot_mark_put(
                     id,
                     Some(&rules),
@@ -506,7 +510,7 @@ fn the_genetic_mutator_target_matches_native() {
             for &id in &members {
                 let entity = sim.substrate.entities.get(id).unwrap();
                 let (sub_cell, insertion) = (
-                    entity.sub_cell,
+                    entity.sub_cell(),
                     crate::sim::occupancy::CellListInsertion::from_category(entity.category()),
                 );
                 sim.substrate.occupancy.add(
@@ -1003,7 +1007,11 @@ fn the_psychic_dominator_target_matches_native() {
                     None,
                     crate::sim::world::FrameEffects::default()
                 ));
-                sim.substrate.entities.get_mut(id).unwrap().on_bridge = true;
+                sim.substrate
+                    .entities
+                    .get_mut(id)
+                    .unwrap()
+                    .set_on_bridge(true);
                 assert!(sim.foot_mark_put(
                     id,
                     Some(&rules),
@@ -1029,7 +1037,7 @@ fn the_psychic_dominator_target_matches_native() {
             for &id in &members {
                 let entity = sim.substrate.entities.get(id).unwrap();
                 let (sub_cell, insertion) = (
-                    entity.sub_cell,
+                    entity.sub_cell(),
                     crate::sim::occupancy::CellListInsertion::from_category(entity.category()),
                 );
                 sim.substrate.occupancy.add(

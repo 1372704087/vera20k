@@ -198,7 +198,7 @@ fn nav_com_absent(sim: &Simulation, id: u64) -> bool {
     sim.substrate
         .entities
         .get(id)
-        .is_some_and(|plane| plane.navigation.nav_com.is_none())
+        .is_some_and(|plane| plane.navigation.nav_com().is_none())
 }
 
 /// `Queue_Mission(mission, 0)` (vt+0x1E8 = `0x0041BA90`).

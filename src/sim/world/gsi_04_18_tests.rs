@@ -64,7 +64,7 @@ fn insert_structure(
         false,
     );
     entity.lifecycle.set_in_limbo_for_test(false);
-    entity.lifecycle.cell_marked = false;
+    entity.lifecycle.set_cell_marked(false);
     sim.substrate.next_stable_object_id = sim.substrate.next_stable_object_id.max(stable_id + 1);
     sim.substrate.entities.insert(entity);
     sim.add_entity_occupancy(stable_id);
@@ -89,7 +89,7 @@ fn insert_sight_unit(sim: &mut Simulation, stable_id: u64, owner: InternedId, rx
         false,
     );
     entity.lifecycle.set_in_limbo_for_test(false);
-    entity.lifecycle.cell_marked = false;
+    entity.lifecycle.set_cell_marked(false);
     sim.substrate.next_stable_object_id = sim.substrate.next_stable_object_id.max(stable_id + 1);
     sim.substrate.entities.insert(entity);
     sim.add_entity_occupancy(stable_id);
@@ -560,9 +560,9 @@ fn shroud_current_sight_live_foot_timer_keeps_viewer_histories_and_snapshot() {
     insert_sight_unit(&mut sim, 2, a, 13, 13);
     {
         let entity = sim.substrate.entities.get_mut(2).unwrap();
-        entity.in_playfield = true;
+        entity.set_in_playfield(true);
         let mut loco = LocomotorState::for_test_kind(LocomotorKind::Jumpjet);
-        loco.layer = MovementLayer::Air;
+        loco.set_layer(MovementLayer::Air);
         // Keep the admitted high-flight height through the actual Process below.
 
         let runtime = loco.jumpjet_runtime_mut().expect("jumpjet runtime");
@@ -699,7 +699,7 @@ fn shroud_current_sight_live_refresh_gates_preserve_or_reload_native_timer() {
     let (mut sim, _rules, owner) = fixture();
     insert_sight_unit(&mut sim, 2, owner, 13, 13);
     let mut loco = LocomotorState::for_test_kind(LocomotorKind::Fly);
-    loco.layer = MovementLayer::Air;
+    loco.set_layer(MovementLayer::Air);
     loco.fly_runtime_mut().unwrap().current_speed = SimFixed::from_num(1);
     sim.substrate.entities.get_mut(2).unwrap().locomotor = Some(loco);
     sim.set_object_height_unmarked(2, 207);
@@ -782,7 +782,7 @@ fn shroud_current_sight_live_refresh_gates_preserve_or_reload_native_timer() {
     {
         let entity = sim.substrate.entities.get_mut(2).unwrap();
         entity.lifecycle.set_in_limbo_for_test(false);
-        entity.in_playfield = true;
+        entity.set_in_playfield(true);
         entity.sight.set_vision_range_for_test(0);
     }
     sim.refresh_high_flying_sight_before_process(2, None);

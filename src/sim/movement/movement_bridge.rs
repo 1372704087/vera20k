@@ -272,11 +272,11 @@ pub(super) fn apply_bridge_layer_state(
         BridgeStateUpdate::Unchanged => {}
     }
     if let Some(loco) = locomotor {
-        loco.layer = if *on_bridge {
+        loco.set_layer(if *on_bridge {
             MovementLayer::Bridge
         } else {
             MovementLayer::Ground
-        };
+        });
     }
 }
 
@@ -762,7 +762,7 @@ mod tests {
     /// with sensible defaults — LocomotorState has no `Default` impl.
     fn make_loco(layer: MovementLayer) -> Option<LocomotorState> {
         let mut loco = LocomotorState::for_test_kind(LocomotorKind::Drive);
-        loco.layer = layer;
+        loco.set_layer(layer);
         Some(loco)
     }
 
@@ -795,7 +795,7 @@ mod tests {
             } else {
                 MovementLayer::Ground
             };
-            assert_eq!(loco.unwrap().layer, expected, "{update:?}");
+            assert_eq!(loco.unwrap().layer(), expected, "{update:?}");
         }
     }
 }

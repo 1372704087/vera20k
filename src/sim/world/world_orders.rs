@@ -438,7 +438,7 @@ impl Simulation {
         let actor = self.substrate.entities.get(actor_id)?;
         let building = self.substrate.entities.get(building_id)?;
         if actor.category() != EntityCategory::Infantry
-            || actor.navigation.nav_com.is_some()
+            || actor.navigation.nav_com().is_some()
             || building.category() != EntityCategory::Structure
         {
             return None;
@@ -554,7 +554,7 @@ impl Simulation {
         ) {
             return InfantryPerCellBuildingAdmission::MissionNotAdmitted;
         }
-        let nav_object = match infantry.navigation.nav_com {
+        let nav_object = match infantry.navigation.nav_com() {
             Some(
                 NavTargetRef::Entity { id }
                 | NavTargetRef::Object { id }

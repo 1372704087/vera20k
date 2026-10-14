@@ -42,7 +42,7 @@ fn paid_walk_matches_original_numeric_facing_and_boundary_vectors() {
         }
         entity.body_facing = body;
         entity.foot_speed.set_speed_fraction(SimFixed::lit("0.5"));
-        entity.navigation.path_runtime.path_blocked = true;
+        entity.navigation.path_runtime.set_path_blocked(true);
         let speed = input["speed"].as_i64().unwrap() as i32;
         // The corpus stops before the same-cell SetCoords/SetHeight
         // (`0x0075C20F`, `0x0075C21C`), so it records the proposal's Z. Stand
@@ -85,7 +85,7 @@ fn paid_walk_matches_original_numeric_facing_and_boundary_vectors() {
         let heading = entity.body_facing.current(100);
         assert_eq!(u64::from(heading), row["facing"].as_u64().unwrap());
         assert_eq!(entity.foot_speed.applied_fraction(), SIM_ONE);
-        assert!(!entity.navigation.path_runtime.path_blocked);
+        assert!(!entity.navigation.path_runtime.path_blocked());
     }
 }
 
@@ -108,7 +108,7 @@ fn idle_walk_scold_tails_match_original_through_ordinary_process() {
         actor.set_category_for_test(EntityCategory::Infantry);
         actor.locomotor = Some(LocomotorState::for_test_kind(LocomotorKind::Walk));
         if let crate::sim::movement::locomotion::LocomotorRuntimePayload::Walk(state) =
-            &mut actor.locomotor.as_mut().unwrap().runtime_payload
+            actor.locomotor.as_mut().unwrap().runtime_payload_mut()
         {
             // Supplied retained byte at the native tail boundary.
             state.animation_moving = true;

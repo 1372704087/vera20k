@@ -102,7 +102,7 @@ fn radar_get_height_leptons(
         });
     let mut height = crate::sim::movement::ground_pose::object_world_z_leptons(entity, None)
         .wrapping_sub(ground);
-    if entity.on_bridge {
+    if entity.on_bridge() {
         height = height.wrapping_sub(crate::util::lepton::BRIDGE_DECK_HEIGHT_LEPTONS);
     }
     height
@@ -819,13 +819,13 @@ mod tests {
         let terrain = flat_terrain(32);
         let mut entity =
             crate::sim::game_entity::GameEntity::test_default(1, "DOT", "Enemy", 12, 10);
-        entity.in_playfield = false;
+        entity.set_in_playfield(false);
         assert!(radar_fresh_mode_one_membership(
             &entity,
             Some(bounds),
             Some(&terrain),
         ));
-        entity.in_playfield = true;
+        entity.set_in_playfield(true);
         entity.position.rx = 2;
         entity.position.ry = 2;
         assert!(!radar_fresh_mode_one_membership(

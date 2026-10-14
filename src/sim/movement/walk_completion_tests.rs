@@ -56,16 +56,18 @@ fn completed_path_head_speed_matches_original_pre_percell_gate() {
             z: 0,
         };
         let actor = sim.substrate.entities.get_mut(id).unwrap();
-        actor.navigation.nav_com = Some(NavTargetRef::cell(10, 10));
-        actor.navigation.path_replay = FootPathQueue {
-            directions: if path_head == -1 {
+        actor
+            .navigation
+            .set_nav_com(Some(NavTargetRef::cell(10, 10)));
+        actor.navigation.path_replay = FootPathQueue::for_test(
+            if path_head == -1 {
                 vec![2]
             } else {
                 vec![2, path_head as u8]
             },
-            cursor: 0,
-            reference_cell: Some((5, 5)),
-        };
+            0,
+            Some((5, 5)),
+        );
         actor
             .foot_speed
             .set_speed_fraction(fraction(&row["input"]["requested_bits"]));
@@ -123,12 +125,8 @@ fn completed_corner_keeps_heading_until_next_head_is_accepted() {
     actor.position.sub_x = SimFixed::from_num(184);
     actor.position.sub_y = SimFixed::from_num(64);
     actor.body_facing = body;
-    actor.navigation.nav_com = Some(NavTargetRef::cell(6, 6));
-    actor.navigation.path_replay = FootPathQueue {
-        directions: vec![2, 4],
-        cursor: 0,
-        reference_cell: Some((5, 5)),
-    };
+    actor.navigation.set_nav_com(Some(NavTargetRef::cell(6, 6)));
+    actor.navigation.path_replay = FootPathQueue::for_test(vec![2, 4], 0, Some((5, 5)));
     let loco = actor.locomotor.as_mut().unwrap();
     loco.set_walk_destination(Some(DriveCoord::cell(6, 6, 0)));
     loco.set_step_head(Some(head));
@@ -257,22 +255,27 @@ fn post_percell_completion_matches_original_setter_refusal_and_stop_order() {
         loco.set_walk_destination(Some(coord(&input["destination"])));
         // The corpus enters after PerCell with supplied class bytes still set,
         // including the null-destination contrast and replacement-head rows.
-        if let LocomotorRuntimePayload::Walk(state) = &mut loco.runtime_payload {
+        if let LocomotorRuntimePayload::Walk(state) = loco.runtime_payload_mut() {
             state.head = retained(&input["head"]);
             state.moving = true;
             state.animation_moving = true;
         }
-        actor.navigation.nav_com = Some(NavTargetRef::Entity { id: 2 });
-        actor.navigation.nav_com_aux = Some(NavTargetRef::Entity { id: 123 });
-        actor.navigation.nav_queue = vec![NavTargetRef::cell(20, 15), NavTargetRef::cell(21, 15)];
-        actor.navigation.path_replay = FootPathQueue {
-            directions: vec![2, 3, 4, 5],
-            cursor: 0,
-            reference_cell: Some((9, 8)),
-        };
+        actor
+            .navigation
+            .set_nav_com(Some(NavTargetRef::Entity { id: 2 }));
+        actor
+            .navigation
+            .set_nav_com_aux(Some(NavTargetRef::Entity { id: 123 }));
+        actor
+            .navigation
+            .set_nav_queue_for_test(vec![NavTargetRef::cell(20, 15), NavTargetRef::cell(21, 15)]);
+        actor.navigation.path_replay = FootPathQueue::for_test(vec![2, 3, 4, 5], 0, Some((9, 8)));
         actor.navigation.path_runtime.start_movement(50, 5);
         actor.navigation.path_runtime.start_blocked(40, 6);
-        actor.navigation.path_runtime.retries_left = input["retries"].as_u64().unwrap() as u32;
+        actor
+            .navigation
+            .path_runtime
+            .set_retries_left(input["retries"].as_u64().unwrap() as u32);
         actor.navigation.path_runtime.set_scold_latch_for_test(255);
         actor.foot_speed.set_speed_fraction(SimFixed::lit("0.75"));
         let owner = actor.owner();
@@ -307,12 +310,12 @@ fn post_percell_completion_matches_original_setter_refusal_and_stop_order() {
             "{input}"
         );
         assert_eq!(
-            actor.navigation.nav_com.is_some(),
+            actor.navigation.nav_com().is_some(),
             row["nav"].as_bool().unwrap(),
             "{input}"
         );
         assert_eq!(
-            actor.navigation.nav_com_aux.is_some(),
+            actor.navigation.nav_com_aux().is_some(),
             row["aux"] != 0,
             "{input}"
         );
@@ -329,17 +332,17 @@ fn post_percell_completion_matches_original_setter_refusal_and_stop_order() {
             "{input}"
         );
         assert_eq!(
-            actor.navigation.nav_queue.len() as u64,
+            actor.navigation.nav_queue().len() as u64,
             row["nav_queue_count"].as_u64().unwrap(),
             "{input}"
         );
         for (timer, expected) in [
             (
-                actor.navigation.path_runtime.movement_timer,
+                actor.navigation.path_runtime.movement_timer(),
                 &row["movement_timer"],
             ),
             (
-                actor.navigation.path_runtime.blocked_timer,
+                actor.navigation.path_runtime.blocked_timer(),
                 &row["blocked_timer"],
             ),
         ] {
@@ -352,7 +355,7 @@ fn post_percell_completion_matches_original_setter_refusal_and_stop_order() {
             );
         }
         assert_eq!(
-            actor.navigation.path_runtime.retries_left as u64,
+            actor.navigation.path_runtime.retries_left() as u64,
             row["retries"].as_u64().unwrap(),
             "{input}"
         );
@@ -414,7 +417,14 @@ fn paid_walk_world_scold_tails_match_original_boundaries() {
                     crate::sim::world::FrameEffects::default(),
                 )
                 .unwrap();
-                assert!(sim.substrate.entities.get(1).unwrap().lifecycle.cell_marked);
+                assert!(
+                    sim.substrate
+                        .entities
+                        .get(1)
+                        .unwrap()
+                        .lifecycle
+                        .cell_marked()
+                );
             }
             "common_return" => sim.run_walk_boundary(
                 1,

@@ -188,7 +188,7 @@ fn place_garrison_passenger_at_cell(
         .substrate
         .entities
         .get(passenger_id)
-        .map(|pax| pax.sub_cell)
+        .map(|pax| pax.sub_cell())
     else {
         return false;
     };
@@ -607,7 +607,7 @@ pub(crate) mod tests {
             0,
             EntityCategory::Infantry,
         );
-        pax.sub_cell = sub_cell;
+        pax.set_sub_cell(sub_cell);
         pax.set_owner_for_test(sim.interner.intern(owner));
         pax.set_type_ref_for_test(sim.interner.intern("E1"));
         pax.passenger_role.set_inside_transport(transport_id, false);
@@ -900,7 +900,7 @@ pub(crate) mod tests {
             assert!(pax.passenger_role.is_none());
             assert!(!pax.death.is_dying());
             assert!(!pax.lifecycle.in_limbo());
-            assert!(pax.lifecycle.cell_marked);
+            assert!(pax.lifecycle.cell_marked());
             assert!(pax.in_logic_vector.is_member());
         }
 
@@ -1042,11 +1042,11 @@ pub(crate) mod tests {
         // the class setter's cell NavCom.
         assert!(
             matches!(
-                passenger.navigation.nav_com,
+                passenger.navigation.nav_com(),
                 Some(crate::sim::components::NavTargetRef::Cell { .. })
             ),
             "successful Scatter should set a cell NavCom after its RNG draw: {:?}",
-            passenger.navigation.nav_com
+            passenger.navigation.nav_com()
         );
     }
 

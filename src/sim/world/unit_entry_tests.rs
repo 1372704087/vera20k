@@ -515,7 +515,7 @@ fn compare_rows(json: &str, expected_count: usize, repair_projection: bool) {
         mover.set_owner_for_test(ours);
         mover.set_type_ref_for_test(sim.intern("MOVER"));
         mover.set_category_for_test(EntityCategory::Unit);
-        mover.in_playfield = flag("in_playfield");
+        mover.set_in_playfield(flag("in_playfield"));
         if flag("mission_only") {
             mover.mark_mission_only();
         }
@@ -596,7 +596,7 @@ fn compare_rows(json: &str, expected_count: usize, repair_projection: bool) {
                 blocker.mover_facts.set_omni_crush_resistant_for_test(
                     node["resistant"].as_bool().unwrap_or(false),
                 );
-                blocker.foot_occupation_enabled = node["occupation"].as_bool().unwrap_or(true);
+                blocker.set_foot_occupation_enabled(node["occupation"].as_bool().unwrap_or(true));
                 if !building {
                     blocker.locomotor = Some(LocomotorState::for_test_kind(LocomotorKind::Drive));
                 }
@@ -650,7 +650,7 @@ fn compare_rows(json: &str, expected_count: usize, repair_projection: bool) {
                         "walk" => {
                             blocker.set_category_for_test(EntityCategory::Infantry);
                             let mut loco = LocomotorState::for_test_kind(LocomotorKind::Walk);
-                            let LocomotorRuntimePayload::Walk(walk) = &mut loco.runtime_payload
+                            let LocomotorRuntimePayload::Walk(walk) = loco.runtime_payload_mut()
                             else {
                                 unreachable!()
                             };
@@ -673,7 +673,9 @@ fn compare_rows(json: &str, expected_count: usize, repair_projection: bool) {
                     }
                 }
                 if node["nav"].as_bool().unwrap_or(false) {
-                    blocker.navigation.nav_com = Some(NavTargetRef::cell(11, 10));
+                    blocker
+                        .navigation
+                        .set_nav_com(Some(NavTargetRef::cell(11, 10)));
                 }
                 if node["turn"].as_bool().unwrap_or(false) {
                     let mut facing = crate::sim::movement::FacingClass::new(0, 5);
@@ -711,9 +713,9 @@ fn compare_rows(json: &str, expected_count: usize, repair_projection: bool) {
                 .get_mut(90)
                 .unwrap()
                 .navigation
-                .nav_com = Some(NavTargetRef::Entity {
-                id: ids[index as usize],
-            });
+                .set_nav_com(Some(NavTargetRef::Entity {
+                    id: ids[index as usize],
+                }));
         }
         for id in ids {
             sim.substrate.occupancy.add(

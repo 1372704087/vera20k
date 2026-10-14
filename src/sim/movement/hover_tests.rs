@@ -53,18 +53,22 @@ fn mark_all_occupation_bits_matches_original_head_and_raw_plane_controls() {
         let mut entity = GameEntity::test_default(1, "YHVR", "Confederation", 9, 10);
         entity.position.exact_z_leptons = Some(int(&input["location"][2]));
         entity.lifecycle.set_in_limbo_for_test(false);
-        entity.foot_occupation_enabled = false;
-        entity.on_bridge = input["on_bridge"].as_bool().unwrap();
+        entity.set_foot_occupation_enabled(false);
+        entity.set_on_bridge(input["on_bridge"].as_bool().unwrap());
         let mut loco =
             LocomotorState::for_test_kind(crate::rules::locomotor_type::LocomotorKind::Hover);
-        loco.runtime_payload =
+        loco.set_runtime_payload_for_test(
             super::super::locomotion::piggyback::LocomotorRuntimePayload::Hover(HoverRuntime {
                 destination: slot(&input["destination"]),
                 head: slot(&input["head"]),
                 ..HoverRuntime::default()
-            });
+            }),
+        );
         entity.locomotor = Some(loco);
-        entity.navigation.path_replay.directions = vec![2];
+        entity
+            .navigation
+            .path_replay
+            .set_directions_for_test(vec![2]);
         if input["stop_first"].as_bool().unwrap() {
             assert!(super::process::hover_stop_moving(&mut entity));
         }
@@ -116,7 +120,7 @@ fn mark_all_occupation_bits_matches_original_head_and_raw_plane_controls() {
         let actual = serde_json::json!({
             "head": unslot(hover.head), "destination": unslot(hover.destination),
             "location": [location.x, location.y, location.z],
-            "occupation_enabled": entity.foot_occupation_enabled,
+            "occupation_enabled": entity.foot_occupation_enabled(),
             "path_head": entity.navigation.path_replay.remaining_directions().first().map_or(-1, |&word| i32::from(word)),
             "raw_cells": raw_cells,
         });
@@ -325,22 +329,26 @@ fn power_off_matches_original_execution() {
         let mut locomotor = super::super::locomotor::LocomotorState::for_test_kind(
             crate::rules::locomotor_type::LocomotorKind::Hover,
         );
-        locomotor.powered = row["powered"].as_bool().unwrap();
-        locomotor.runtime_payload =
+        locomotor.set_powered_for_test(row["powered"].as_bool().unwrap());
+        locomotor.set_runtime_payload_for_test(
             super::super::locomotion::piggyback::LocomotorRuntimePayload::Hover(HoverRuntime {
                 destination: slot(&row["destination"]),
                 head: slot(&row["head"]),
                 shove_turning: row["shove"][0].as_bool().unwrap(),
                 shove_steps: int(&row["shove"][1]),
                 ..HoverRuntime::default()
-            });
+            }),
+        );
         entity.locomotor = Some(locomotor);
         entity.position.exact_z_leptons = Some(int(&row["height"]));
         entity.mission.set_current_for_test(
             crate::sim::mission::MissionId::from_raw(int(&row["mission"])),
             0,
         );
-        entity.navigation.path_replay.directions = vec![int(&row["path_head"]) as u8];
+        entity
+            .navigation
+            .path_replay
+            .set_directions_for_test(vec![int(&row["path_head"]) as u8]);
         let mut sim = Simulation::new();
         sim.substrate.entities.insert(entity);
         let seed = row["seed"].as_u64().unwrap();
@@ -359,7 +367,7 @@ fn power_off_matches_original_execution() {
         };
         let actual = serde_json::json!({
             "shove": [hover.shove_turning, hover.shove_steps],
-            "powered": locomotor.powered,
+            "powered": locomotor.is_powered(),
             "destination": unslot(hover.destination),
             "head": unslot(hover.head),
             "path_head": entity

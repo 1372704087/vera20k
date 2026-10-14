@@ -114,7 +114,9 @@ impl Simulation {
             .entities
             .get_mut(id)
             .expect("marked Foot exists");
-        std::mem::replace(&mut entity.lifecycle.cell_marked, marked)
+        let was_marked = entity.lifecycle.cell_marked();
+        entity.lifecycle.set_cell_marked(marked);
+        was_marked
     }
 
     /// The object's Mark(2) virtual dispatch reached by Object radio 0xD
@@ -174,10 +176,10 @@ impl Simulation {
         let Some(entity) = self.substrate.entities.get_mut(id) else {
             return false;
         };
-        if entity.lifecycle.in_limbo() || !entity.lifecycle.cell_marked {
+        if entity.lifecycle.in_limbo() || !entity.lifecycle.cell_marked() {
             return false;
         }
-        entity.lifecycle.cell_marked = false;
+        entity.lifecycle.set_cell_marked(false);
         self.techno_mark_after_object(id, rules, frame_effects);
         self.foot_pick_up(id, rules, registry);
         true
@@ -232,10 +234,10 @@ impl Simulation {
         let Some(entity) = self.substrate.entities.get_mut(id) else {
             return false;
         };
-        if entity.lifecycle.in_limbo() || entity.lifecycle.cell_marked {
+        if entity.lifecycle.in_limbo() || entity.lifecycle.cell_marked() {
             return false;
         }
-        entity.lifecycle.cell_marked = true;
+        entity.lifecycle.set_cell_marked(true);
         self.techno_mark_after_object(id, rules, frame_effects);
         self.foot_place_down(id, rules, registry, receive);
         #[cfg(test)]
@@ -263,7 +265,7 @@ impl Simulation {
         let (sub_cell, insertion) = {
             let entity = self.substrate.entities.get(id).expect("placed Foot");
             (
-                entity.sub_cell,
+                entity.sub_cell(),
                 CellListInsertion::from_category(entity.category()),
             )
         };
@@ -312,7 +314,7 @@ impl Simulation {
         let Some(entity) = self.substrate.entities.get(id) else {
             return false;
         };
-        if !entity.foot_occupation_enabled || entity.category() == EntityCategory::Infantry {
+        if !entity.foot_occupation_enabled() || entity.category() == EntityCategory::Infantry {
             return false;
         }
         let coord = ground_pose::position_world_coord(&entity.position);

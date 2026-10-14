@@ -688,13 +688,13 @@ mod tests {
         let mut sref = GameEntity::test_default(1, "SREF", "Americans", 5, 5);
         sref.set_category_for_test(EntityCategory::Unit);
         sref.lifecycle.set_in_limbo_for_test(false);
-        sref.lifecycle.cell_marked = true;
+        sref.lifecycle.set_cell_marked(true);
         entities.insert(sref);
 
         let mut enemy = GameEntity::test_default(2, "HTNK", "Russians", 6, 5);
         enemy.set_category_for_test(EntityCategory::Unit);
         enemy.lifecycle.set_in_limbo_for_test(false);
-        enemy.lifecycle.cell_marked = true;
+        enemy.lifecycle.set_cell_marked(true);
         entities.insert(enemy);
 
         // Snapshot the thread-local test interner only after `test_default`

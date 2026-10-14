@@ -56,10 +56,18 @@ mod retained_cell_hash_tests {
                     .suspended_attack_target
                     .set_for_test(Some(TargetKind::Cell(3, 4))),
                 2 => entity.set_archive_target(Some(TargetKind::Cell(5, 6))),
-                3 => entity.navigation.nav_com = Some(NavTargetRef::cell(7, 8)),
-                4 => entity.navigation.nav_com_aux = Some(NavTargetRef::cell(9, 10)),
-                5 => entity.navigation.suspended_nav_com = Some(NavTargetRef::cell(11, 12)),
-                6 => entity.navigation.nav_queue.push(NavTargetRef::cell(13, 14)),
+                3 => entity
+                    .navigation
+                    .set_nav_com(Some(NavTargetRef::cell(7, 8))),
+                4 => entity
+                    .navigation
+                    .set_nav_com_aux(Some(NavTargetRef::cell(9, 10))),
+                5 => entity
+                    .navigation
+                    .set_suspended_nav_com(Some(NavTargetRef::cell(11, 12))),
+                6 => entity
+                    .navigation
+                    .push_nav_queue_for_test(NavTargetRef::cell(13, 14)),
                 _ => unreachable!(),
             }
             sim.substrate.entities.insert(entity.clone());
@@ -178,7 +186,7 @@ mod locomotor_field_hash_tests {
             assert!(locomotor.begin_piggyback(LocomotorKind::Drive, 0));
         }
         if let Some(mutate) = mutate {
-            match locomotor.piggyback.as_mut() {
+            match locomotor.piggyback_mut() {
                 Some(stash) => mutate(stash.suspended_mut_for_test()),
                 None => mutate(&mut locomotor),
             }
@@ -196,13 +204,15 @@ mod locomotor_field_hash_tests {
     fn every_active_and_stashed_locomotor_field_changes_current_hash() {
         type Mutation = (&'static str, fn(&mut LocomotorState));
         let mutations: [Mutation; 6] = [
-            ("kind", |l| l.kind = LocomotorKind::Walk),
-            ("powered", |l| l.powered = false),
-            ("layer", |l| l.layer = MovementLayer::Bridge),
-            ("balloon_hover", |l| l.balloon_hover = true),
-            ("speed_type", |l| l.speed_type = SpeedType::Wheel),
+            ("kind", |l| l.set_kind_for_test(LocomotorKind::Walk)),
+            ("powered", |l| l.set_powered_for_test(false)),
+            ("layer", |l| l.set_layer(MovementLayer::Bridge)),
+            ("balloon_hover", |l| l.set_balloon_hover_for_test(true)),
+            ("speed_type", |l| {
+                l.set_speed_type_for_test(SpeedType::Wheel)
+            }),
             ("movement_zone", |l| {
-                l.movement_zone = MovementZone::Amphibious
+                l.set_movement_zone_for_test(MovementZone::Amphibious)
             }),
         ];
         assert_ne!(hash_with(false, None), hash_with(true, None));
@@ -717,13 +727,13 @@ impl Simulation {
                         .flatten()
                         .any(keeps_dummy)
                             || [
-                                entity.navigation.nav_com,
-                                entity.navigation.nav_com_aux,
-                                entity.navigation.suspended_nav_com,
+                                entity.navigation.nav_com(),
+                                entity.navigation.nav_com_aux(),
+                                entity.navigation.suspended_nav_com(),
                             ]
                             .into_iter()
                             .flatten()
-                            .chain(entity.navigation.nav_queue.iter().copied())
+                            .chain(entity.navigation.nav_queue().iter().copied())
                             .any(|target| match target {
                                 NavTargetRef::Cell { rx, ry } => {
                                     keeps_dummy(TargetKind::Cell(rx, ry))
@@ -1604,7 +1614,7 @@ fn hash_entity(entity: &GameEntity, frame: u32, hasher: &mut StateHasher) {
     // Keep this order fixed: it is part of the lockstep hash contract.
     entity.lifecycle.object_alive().hash(hasher);
     entity.lifecycle.in_limbo().hash(hasher);
-    entity.lifecycle.cell_marked.hash(hasher);
+    entity.lifecycle.cell_marked().hash(hasher);
     entity.death.is_dying().hash(hasher);
     entity.removal_facts.dirty_rect_eligible().hash(hasher);
     entity.kill_record.is_recorded().hash(hasher);
@@ -1612,7 +1622,7 @@ fn hash_entity(entity: &GameEntity, frame: u32, hasher: &mut StateHasher) {
     // TechnoClass+0x3D5 is mutable admission state, not a derived
     // position query: ordinary movement is promote-only while
     // teleport and Set_Clipped_LocalSize own exact demotions.
-    entity.in_playfield.hash(hasher);
+    entity.in_playfield().hash(hasher);
     entity.move_sound.is_active().hash(hasher);
     entity.crash.is_crashing().hash(hasher);
     entity.crash.seen().hash(hasher);
@@ -1758,10 +1768,10 @@ fn hash_entity(entity: &GameEntity, frame: u32, hasher: &mut StateHasher) {
         // the fold from the expanded struct would alter every prior
         // projection, including constructor-default Foot states.
         let path = &entity.navigation.path_runtime;
-        path.movement_timer.hash(hasher);
-        path.blocked_timer.hash(hasher);
-        path.path_blocked.hash(hasher);
-        path.retries_left.hash(hasher);
+        path.movement_timer().hash(hasher);
+        path.blocked_timer().hash(hasher);
+        path.path_blocked().hash(hasher);
+        path.retries_left().hash(hasher);
         if path.scold_latch_raw() != 0 {
             0x68a_u32.hash(hasher);
             path.scold_latch_raw().hash(hasher);
@@ -1784,11 +1794,11 @@ fn hash_entity(entity: &GameEntity, frame: u32, hasher: &mut StateHasher) {
     }
     entity.navigation.neighbor_state.hash(hasher);
     entity.navigation.path_replay.hash(hasher);
-    entity.navigation.nav_com_aux.hash(hasher);
-    entity.navigation.nav_com.hash(hasher);
-    entity.navigation.suspended_nav_com.hash(hasher);
-    entity.navigation.nav_queue.hash(hasher);
-    entity.navigation.pending_destination_setter.hash(hasher);
+    entity.navigation.nav_com_aux().hash(hasher);
+    entity.navigation.nav_com().hash(hasher);
+    entity.navigation.suspended_nav_com().hash(hasher);
+    entity.navigation.nav_queue().hash(hasher);
+    entity.navigation.pending_destination_setter().hash(hasher);
 
     entity.foot_speed.applied_fraction().hash(hasher);
     if entity.flight_attitude != Default::default() {
@@ -1796,7 +1806,7 @@ fn hash_entity(entity: &GameEntity, frame: u32, hasher: &mut StateHasher) {
         entity.flight_attitude.hash(hasher);
     }
     entity.foot_speed.crate_multiplier().hash(hasher);
-    entity.foot_occupation_enabled.hash(hasher);
+    entity.foot_occupation_enabled().hash(hasher);
     entity.lift.swap_active().hash(hasher);
     // The Magnetron's links and drop (Techno+2AC/+2B0/+427/+428) and
     // the warp or drop credit house (Techno+42C) are clear outside a
@@ -1849,7 +1859,7 @@ fn hash_entity(entity: &GameEntity, frame: u32, hasher: &mut StateHasher) {
         0u8.hash(hasher);
     }
 
-    entity.on_bridge.hash(hasher);
+    entity.on_bridge().hash(hasher);
     entity
         .runtime_bridge_transition
         .pending_mismatch()
@@ -2223,15 +2233,18 @@ fn hash_entity(entity: &GameEntity, frame: u32, hasher: &mut StateHasher) {
 }
 
 /// One locomotor object, field for field, and the object its piggyback slot
-/// suspends through the same fold. The destructuring names every field, and
-/// `deny(unused_variables)` makes a named but unfolded field a compile error;
-/// `locomotor_field_hash_tests` checks that each one reaches the hash.
+/// suspends through the same fold. [`LocomotorHashFields`] names every field
+/// (its builder destructures the object), and `deny(unused_variables)` makes a
+/// named but unfolded field a compile error; `locomotor_field_hash_tests`
+/// checks that each one reaches the hash.
+///
+/// [`LocomotorHashFields`]: crate::sim::movement::locomotor::LocomotorHashFields
 #[deny(unused_variables)]
 fn hash_locomotor(
     loco: &crate::sim::movement::locomotor::LocomotorState,
     hasher: &mut impl Hasher,
 ) {
-    let crate::sim::movement::locomotor::LocomotorState {
+    let crate::sim::movement::locomotor::LocomotorHashFields {
         kind,
         powered,
         piggyback,
@@ -2240,17 +2253,17 @@ fn hash_locomotor(
         balloon_hover,
         speed_type,
         movement_zone,
-    } = loco;
+    } = loco.hash_fields();
     // The installed class is the kind of the bottom object, which this
     // fold reaches through the stash.
-    (*kind as u8).hash(hasher);
+    (kind as u8).hash(hasher);
     powered.hash(hasher);
-    (*layer as u8).hash(hasher);
+    (layer as u8).hash(hasher);
     balloon_hover.hash(hasher);
     speed_type.hash(hasher);
     movement_zone.hash(hasher);
     hash_locomotor_payload(runtime_payload, hasher);
-    match piggyback.as_deref() {
+    match piggyback {
         Some(stashed) => {
             1u8.hash(hasher);
             hash_locomotor(stashed, hasher);
@@ -2569,7 +2582,9 @@ mod lifecycle_hash_tests {
                 .set_in_limbo_for_test(!entity.lifecycle.in_limbo());
         });
         assert_entity_mutation_changes_hash(|entity| {
-            entity.lifecycle.cell_marked = !entity.lifecycle.cell_marked;
+            entity
+                .lifecycle
+                .set_cell_marked(!entity.lifecycle.cell_marked());
         });
         assert_entity_mutation_changes_hash(|entity| {
             entity.death.set_dying_for_test(!entity.death.is_dying());
@@ -2590,7 +2605,7 @@ mod lifecycle_hash_tests {
                 .set_occupier_for_test(!entity.removal_facts.occupier());
         });
         assert_entity_mutation_changes_hash(|entity| {
-            entity.in_playfield = !entity.in_playfield;
+            entity.set_in_playfield(!entity.in_playfield());
         });
         assert_entity_mutation_changes_hash(|entity| {
             entity.passive_scan.timer_mut_for_test().arm(7, 12);
@@ -2901,7 +2916,7 @@ mod track_authority_hash_tests {
         } else {
             LocomotorKind::Drive
         });
-        let family = TrackFamily::from_kind(loco.kind).unwrap();
+        let family = TrackFamily::from_kind(loco.active_kind()).unwrap();
         loco.ensure_installed_track_state();
         loco.store_track_progress(family, track);
         loco.store_track_head(family, head_to);
@@ -3082,7 +3097,10 @@ mod state_hash_field_tests {
         let mut entity_a = GameEntity::test_default(1, "AMCV", "Americans", 10, 10);
         entity_a.locomotor = Some(LocomotorState::for_test_kind(LocomotorKind::Drive));
         let mut entity_b = entity_a.clone();
-        entity_b.navigation.path_replay.directions = vec![2, 2, 2, 2, 2];
+        entity_b
+            .navigation
+            .path_replay
+            .set_directions_for_test(vec![2, 2, 2, 2, 2]);
         let loco = entity_b.locomotor.as_mut().unwrap();
         loco.ensure_installed_track_state();
         loco.store_track_destination(TrackFamily::Drive, Some(DriveCoord::cell(45, 40, 0)));
@@ -4052,10 +4070,10 @@ mod infantry_hash_tests {
         sim.substrate.entities.insert(actor);
         let before = sim.state_hash();
         let mut retained = FootPathRuntime::at_frame(0);
-        retained.movement_timer = CdTimer::from_raw(-1, -7);
-        retained.blocked_timer = CdTimer::from_raw(i32::MAX - 2, 31);
-        retained.path_blocked = true;
-        retained.retries_left = u32::MAX;
+        retained.set_movement_timer_for_test(CdTimer::from_raw(-1, -7));
+        retained.set_blocked_timer_for_test(CdTimer::from_raw(i32::MAX - 2, 31));
+        retained.set_path_blocked(true);
+        retained.set_retries_left(u32::MAX);
         sim.substrate
             .entities
             .get_mut(1)
@@ -4663,11 +4681,11 @@ mod bridge161_hash_projection_tests {
                         .as_mut()
                         .unwrap();
                     let object = if stashed {
-                        loco.piggyback.as_mut().unwrap().suspended_mut_for_test()
+                        loco.piggyback_mut().unwrap().suspended_mut_for_test()
                     } else {
                         loco
                     };
-                    mutate(&mut object.runtime_payload, field);
+                    mutate(object.runtime_payload_mut(), field);
                     assert_ne!(
                         before.state_hash(),
                         after.state_hash(),

@@ -208,7 +208,7 @@ fn fixture(row: &Value) -> Scene {
     {
         let e = s.sim.substrate.entities.get_mut(s.miner).unwrap();
         e.health.set_for_test(int(&before["health"]));
-        e.navigation.nav_com = raw_nav;
+        e.navigation.set_nav_com(raw_nav);
         e.set_archive_target(archive);
         e.mission.apply_test_fixture(MissionTestFixture {
             current: MissionId::from_raw(int(&before["miner_mission"])),
@@ -337,7 +337,7 @@ fn compare(s: &Scene, native: &Value, context: &str) {
         "miner_mission":e.mission.current().raw(),"miner_queued":e.mission.queued().raw(),
         "miner_status":e.mission.handler_state(),
         "dispatch_timer":[e.mission.dispatch_timer().start_frame(),e.mission.dispatch_timer().delay()],
-        "nav_queue_count":e.navigation.nav_queue.len(), "miner_nav":nav_name(s,e.navigation.nav_com),
+        "nav_queue_count":e.navigation.nav_queue().len(), "miner_nav":nav_name(s,e.navigation.nav_com()),
         "archive":nav_name(s,archive), "pending_entry":pending,
         "target":e.attack_target.target().map_or(Value::Null, |t| match t { TargetKind::Entity(id)=>s.name(id), TargetKind::Cell(rx,ry)=>json!([rx,ry]) }),
         "health":e.health.current(),"strength":s.sim.object_type(e.type_ref(),&s.rules).unwrap().strength,

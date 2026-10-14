@@ -70,7 +70,7 @@ fn first_process_publishes_raw_head_and_matching_progress_for_drive_and_ship() {
         entity.position.exact_z_leptons = Some(initial.z);
         entity.body_facing.snap(0x4000, 0);
         entity.lifecycle.set_in_limbo_for_test(false);
-        entity.lifecycle.cell_marked = true;
+        entity.lifecycle.set_cell_marked(true);
         let rules =
             crate::rules::ruleset::RuleSet::from_ini(&crate::rules::ini_parser::IniFile::from_str(
                 "[VehicleTypes]\n0=MTNK\n[MTNK]\nSpeed=0\n",
@@ -202,14 +202,11 @@ fn destination_change_preserves_the_committed_head() {
 
 #[test]
 fn chained_queue_consumption_preserves_the_native_replay_reference() {
-    let mut queue = crate::sim::components::FootPathQueue {
-        directions: vec![2, 3, 4],
-        cursor: 2,
-        reference_cell: Some((10, 9)),
-    };
+    let mut queue =
+        crate::sim::components::FootPathQueue::for_test(vec![2, 3, 4], 2, Some((10, 9)));
     crate::sim::movement::path_markers::consume_path_replay(&mut queue, 1);
-    assert_eq!(queue.cursor, 3);
-    assert_eq!(queue.reference_cell, Some((10, 9)));
+    assert_eq!(queue.cursor(), 3);
+    assert_eq!(queue.reference_cell(), Some((10, 9)));
 }
 
 #[test]
@@ -307,7 +304,7 @@ fn production_process_admission_uses_valid_selector_independently_of_head() {
                 for nonnull_head in [false, true] {
                     let mut entity = GameEntity::test_default(1, "MTNK", "Americans", 8, 8);
                     entity.lifecycle.set_in_limbo_for_test(false);
-                    entity.lifecycle.cell_marked = true;
+                    entity.lifecycle.set_cell_marked(true);
                     entity.locomotor = Some(LocomotorState::for_test_kind(kind));
                     entity.mover_facts.set_drive_accelerates_for_test(false);
                     entity.foot_speed.set_speed_fraction(SimFixed::lit("0.25"));

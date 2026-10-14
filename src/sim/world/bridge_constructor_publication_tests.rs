@@ -410,8 +410,8 @@ fn constructor_side_admission_matches_original_foot_receiver() {
         actor.position.sub_y = SimFixed::from_num(y % 256);
         actor.position.z = (z / 104) as u8;
         actor.position.exact_z_leptons = Some(z);
-        actor.on_bridge = native["on_bridge"].as_bool().unwrap();
-        actor.in_playfield = native["in_playfield"].as_bool().unwrap();
+        actor.set_on_bridge(native["on_bridge"].as_bool().unwrap());
+        actor.set_in_playfield(native["in_playfield"].as_bool().unwrap());
         sim.substrate.entities.insert(actor);
         sim.mission_assign_exact(
             id,

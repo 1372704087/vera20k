@@ -920,7 +920,7 @@ pub(crate) fn process_boarding_passenger(
     {
         let passenger = sim.substrate.entities.get(pax_id).unwrap();
         let matches_destination = crate::sim::movement::nav_targets_same_receiver(
-            passenger.navigation.nav_com,
+            passenger.navigation.nav_com(),
             crate::sim::components::NavTargetRef::object(transport_id),
         );
         let entering =
@@ -1105,7 +1105,7 @@ pub(crate) fn process_boarding_passenger(
         if let Some(pax) = sim.substrate.entities.get_mut(pax_id)
             && !(building_arm && pax.category() == EntityCategory::Infantry)
         {
-            pax.on_bridge = false;
+            pax.set_on_bridge(false);
         }
         //4733A0 repeats the head's virtual Limbo before its unconditional
         //prepend, after the class PerCellProcess admission prefix above.
@@ -1805,7 +1805,10 @@ ConditionYellow=50%
         // Unlimbo commits idle before this supplied already-entering state.
         // This component fixture starts after that lifecycle, not before it.
         let ge = sim.substrate.entities.get_mut(stable_id).unwrap();
-        ge.navigation.nav_com = Some(crate::sim::components::NavTargetRef::object(transport_id));
+        ge.navigation
+            .set_nav_com(Some(crate::sim::components::NavTargetRef::object(
+                transport_id,
+            )));
         ge.mission.set_current_for_test(
             crate::sim::mission::MissionId::from_known(if capture {
                 crate::sim::mission::MissionType::Capture
@@ -1940,7 +1943,9 @@ ConditionYellow=50%
         );
         sim.foot_set_location_marked(rider, arrival, Some(rules), None, FrameEffects::default());
         let entity = sim.substrate.entities.get_mut(rider).unwrap();
-        entity.navigation.nav_com = Some(crate::sim::components::NavTargetRef::object(hull));
+        entity
+            .navigation
+            .set_nav_com(Some(crate::sim::components::NavTargetRef::object(hull)));
         entity
             .mission
             .set_current_for_test(MissionId::from_known(MissionType::Enter), 0);
@@ -2509,7 +2514,7 @@ ConditionYellow=50%
         let passenger = sim.substrate.entities.get(pax).unwrap();
         assert!(passenger.lifecycle.object_alive());
         assert!(passenger.lifecycle.in_limbo());
-        assert!(!passenger.lifecycle.cell_marked);
+        assert!(!passenger.lifecycle.cell_marked());
         assert!(!passenger.in_logic_vector.is_member());
         assert!(
             sim.live_object_order_snapshot().contains(&bldg),
@@ -2578,7 +2583,7 @@ ConditionYellow=50%
             Some(transport)
         );
         assert!(passenger_entity.lifecycle.in_limbo());
-        assert!(!passenger_entity.lifecycle.cell_marked);
+        assert!(!passenger_entity.lifecycle.cell_marked());
         assert!(passenger_entity.in_logic_vector.is_member());
         assert_eq!(
             sim.live_object_order_snapshot(),
@@ -2615,11 +2620,11 @@ ConditionYellow=50%
                 spawn_entering_infantry(&mut sim, &rules, "E1", "Americans", transport, 10, 10);
             let entity = sim.substrate.entities.get_mut(rider).unwrap();
             entity.set_category_for_test(category);
-            entity.on_bridge = true;
+            entity.set_on_bridge(true);
             tick_entry_arrival(&mut sim, &rules);
             let entity = sim.substrate.entities.get(rider).unwrap();
             assert_eq!(entity.passenger_role.inside_transport_id(), Some(transport));
-            entity.on_bridge
+            entity.on_bridge()
         };
         assert!(!board(EntityCategory::Infantry));
         assert!(!board(EntityCategory::Unit));
@@ -2629,12 +2634,16 @@ ConditionYellow=50%
         let building = spawn_garrison_building(&mut sim, &rules, "CAGAS01", "Neutral", 10, 10);
         let occupant =
             spawn_entering_infantry(&mut sim, &rules, "E1", "Americans", building, 10, 10);
-        sim.substrate.entities.get_mut(occupant).unwrap().on_bridge = true;
+        sim.substrate
+            .entities
+            .get_mut(occupant)
+            .unwrap()
+            .set_on_bridge(true);
         tick_entry_arrival(&mut sim, &rules);
         let occupant = sim.substrate.entities.get(occupant).unwrap();
         assert!(occupant.passenger_role.is_inside_transport());
         assert!(
-            occupant.on_bridge,
+            occupant.on_bridge(),
             "the infantry building arm keeps OnBridge"
         );
     }
@@ -3171,7 +3180,7 @@ ConditionYellow=50%
         let unloaded = sim.substrate.entities.get(pax).unwrap();
         assert!(unloaded.lifecycle.object_alive());
         assert!(!unloaded.lifecycle.in_limbo());
-        assert!(unloaded.lifecycle.cell_marked);
+        assert!(unloaded.lifecycle.cell_marked());
         assert!(unloaded.in_logic_vector.is_member());
 
         // Assert StructureAbandoned was emitted with the PRE-revert owner (Americans).
@@ -3438,7 +3447,7 @@ ConditionYellow=50%
                 blocker.set_category_for_test(EntityCategory::Infantry);
                 blocker.set_owner_for_test(owner_id);
                 blocker.set_type_ref_for_test(sim.interner.intern("E1"));
-                blocker.sub_cell = Some(subcell);
+                blocker.set_sub_cell(Some(subcell));
                 (blocker.position.sub_x, blocker.position.sub_y) =
                     lepton::subcell_lepton_offset(Some(subcell));
                 sim.substrate.entities.insert(blocker);

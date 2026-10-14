@@ -57,7 +57,7 @@ impl Simulation {
             .filter(|entity| {
                 entity.lifecycle.object_alive()
                     && !entity.lifecycle.in_limbo()
-                    && entity.lifecycle.cell_marked
+                    && entity.lifecycle.cell_marked()
                     && !entity.death.is_dying()
                     && entity.health.current() > 0
             })

@@ -131,7 +131,7 @@ fn wallet_survives_prepared_load_and_active_cancellation() {
         false,
     );
     producer.lifecycle.set_in_limbo_for_test(false);
-    producer.in_playfield = true;
+    producer.set_in_playfield(true);
     producer.finish_building_construction_for_test();
     producer.building_art.set_actually_placed_for_test(true);
     saved.substrate.entities.insert(producer);
@@ -316,7 +316,7 @@ fn factory_restore_preserves_supported_held_states_and_constructor_graphs() {
                     .entities
                     .get_mut(parent)
                     .unwrap()
-                    .in_playfield = true;
+                    .set_in_playfield(true);
             }
             "absent-house" => {
                 saved.houses.remove(&owner);
@@ -363,7 +363,7 @@ fn factory_restore_preserves_supported_held_states_and_constructor_graphs() {
                     entity.health.current(),
                     entity.death.is_dying(),
                     entity.lifecycle,
-                    entity.in_playfield,
+                    entity.in_playfield(),
                     entity.techno_ctor_random_word(),
                     entity.spawn_owner_id,
                     entity.spawn_manager.as_ref().map(|manager| {
@@ -413,7 +413,7 @@ fn factory_restore_preserves_supported_held_states_and_constructor_graphs() {
                     entity.health.current(),
                     entity.death.is_dying(),
                     entity.lifecycle,
-                    entity.in_playfield,
+                    entity.in_playfield(),
                     entity.techno_ctor_random_word(),
                     entity.spawn_owner_id,
                     entity.spawn_manager.as_ref().map(|manager| manager
@@ -532,7 +532,7 @@ fn factory_restore_rejects_inconsistent_roots() {
                 .set_in_limbo_for_test(false),
             "marked-root" => {
                 let entity = saved.substrate.entities.get_mut(parent).unwrap();
-                entity.lifecycle.cell_marked = true;
+                entity.lifecycle.set_cell_marked(true);
             }
             "logic-root" => saved.set_logic_order_for_test(vec![parent]),
             "missing-entity" => {

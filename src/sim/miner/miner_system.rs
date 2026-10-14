@@ -211,7 +211,11 @@ mod gsi_04_03b_tests {
         sim.substrate.entities.get_mut(2).unwrap().position.sub_x = SimFixed::from_num(0);
         assert_eq!(return_exceeds_too_far_threshold(&sim, 1, 2, 1), Some(false));
 
-        sim.substrate.entities.get_mut(1).unwrap().on_bridge = true;
+        sim.substrate
+            .entities
+            .get_mut(1)
+            .unwrap()
+            .set_on_bridge(true);
         assert_eq!(
             return_exceeds_too_far_threshold(&sim, 1, 2, 1),
             Some(true),
@@ -219,7 +223,7 @@ mod gsi_04_03b_tests {
         );
 
         let miner = sim.substrate.entities.get_mut(1).unwrap();
-        miner.on_bridge = false;
+        miner.set_on_bridge(false);
         miner.locomotor = Some(LocomotorState::for_test_kind(LocomotorKind::Fly));
         sim.set_object_height_unmarked(1, 300);
         assert_eq!(
@@ -669,7 +673,7 @@ fn harvest_looking(
     }
     snap.miner.harvesting = false;
     let teleport_with_nav = sim.substrate.entities.get(id).is_some_and(|entity| {
-        entity.navigation.nav_com.is_some()
+        entity.navigation.nav_com().is_some()
             && entity
                 .locomotor
                 .as_ref()
@@ -696,7 +700,7 @@ fn harvest_looking(
         .substrate
         .entities
         .get(id)
-        .is_some_and(|entity| entity.navigation.nav_com.is_some());
+        .is_some_and(|entity| entity.navigation.nav_com().is_some());
     if !driving {
         let archive = sim
             .substrate
@@ -824,7 +828,7 @@ fn harvest_cutting(
         .substrate
         .entities
         .get(id)
-        .is_some_and(|entity| entity.navigation.nav_com.is_some());
+        .is_some_and(|entity| entity.navigation.nav_com().is_some());
     if !found && !driving {
         if let Some(entity) = sim.substrate.entities.get_mut(id) {
             entity.set_archive_target(None);
@@ -883,7 +887,7 @@ fn harvest_ore_tick(
         .substrate
         .entities
         .get(id)
-        .is_some_and(|entity| entity.navigation.nav_com.is_some())
+        .is_some_and(|entity| entity.navigation.nav_com().is_some())
     {
         return true;
     }
@@ -967,7 +971,7 @@ fn handle_return(
         .substrate
         .entities
         .get(id)
-        .is_some_and(|entity| entity.navigation.nav_com.is_some());
+        .is_some_and(|entity| entity.navigation.nav_com().is_some());
     if driving && !teleporter {
         return;
     }
@@ -1440,7 +1444,7 @@ fn scan_docking_type(
             entity
                 .locomotor
                 .as_ref()
-                .map(|loc| loc.movement_zone)
+                .map(|loc| loc.movement_zone())
                 .unwrap_or(MovementZone::Normal),
             entity.category() == EntityCategory::Aircraft,
         )
@@ -1924,7 +1928,7 @@ mod harvest_scan_dispatch_tests {
 
         let entity = sim.substrate.entities.get(MINER_ID).expect("miner");
         assert_eq!(
-            entity.navigation.nav_com,
+            entity.navigation.nav_com(),
             Some(crate::sim::components::NavTargetRef::cell(10, 14))
         );
         assert!(
@@ -1992,7 +1996,8 @@ mod harvest_scan_dispatch_tests {
         let entity = sim.substrate.entities.get(MINER_ID).expect("miner");
         assert_eq!(entity.miner_state(), Some(MinerState::WaitNoOre));
         assert_eq!(
-            entity.navigation.nav_com, None,
+            entity.navigation.nav_com(),
+            None,
             "no whole-map fallback target"
         );
         assert!(
@@ -2047,7 +2052,7 @@ mod harvest_scan_dispatch_tests {
             Some(MinerState::WaitNoOre),
             "state 4 re-runs until Guard commences; no return to the scan"
         );
-        assert_eq!(entity.navigation.nav_com, None);
+        assert_eq!(entity.navigation.nav_com(), None);
         assert!(
             crate::sim::movement::motion_query::is_moving(&entity) != Some(true),
             "not on a refinery cell: no exit drive"
@@ -2070,7 +2075,7 @@ mod harvest_scan_dispatch_tests {
         tick_miners(&mut sim, &rules, &config);
         let entity = sim.substrate.entities.get(MINER_ID).expect("miner");
         assert_eq!(entity.mission.current().known(), Some(MissionType::Guard));
-        assert_eq!(entity.navigation.nav_com, None);
+        assert_eq!(entity.navigation.nav_com(), None);
         assert!(crate::sim::movement::motion_query::is_moving(&entity) != Some(true));
         assert!(
             sim.houses[&owner].harvester_no_ore,
@@ -2130,7 +2135,7 @@ mod harvest_scan_dispatch_tests {
             "state 0 holds through the drive"
         );
         assert_eq!(
-            entity.navigation.nav_com,
+            entity.navigation.nav_com(),
             Some(crate::sim::components::NavTargetRef::cell(10, 14))
         );
         assert!(
@@ -2159,7 +2164,8 @@ mod harvest_scan_dispatch_tests {
         assert_eq!(entity.mission.queued().known(), Some(MissionType::Guard));
         assert_eq!(entity.mission.dispatch_timer().delay(), DISPATCH_NEXT_FRAME);
         assert_eq!(
-            entity.navigation.nav_com, None,
+            entity.navigation.nav_com(),
+            None,
             "the switch (and its scan) is never entered"
         );
         assert_eq!(
@@ -2259,7 +2265,7 @@ mod harvest_scan_dispatch_tests {
             crate::sim::mission::MissionId::from_known(MissionType::Harvest)
         );
         assert_eq!(
-            entity.navigation.nav_com,
+            entity.navigation.nav_com(),
             Some(crate::sim::components::NavTargetRef::cell(10, 14)),
             "the order hands the clicked cell to the class setter"
         );
@@ -2415,7 +2421,7 @@ mod harvest_scan_dispatch_tests {
         // 4.5 cells out: Assign_Destination(FNPC(NW + QueueingCell 4,1)); the
         // seed (14, 11) is free, so the search answers it.
         assert_eq!(
-            entity.navigation.nav_com,
+            entity.navigation.nav_com(),
             Some(crate::sim::components::NavTargetRef::cell(14, 11))
         );
     }

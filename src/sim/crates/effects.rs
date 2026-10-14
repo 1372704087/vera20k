@@ -172,7 +172,7 @@ pub(super) fn apply_veteran_crate(
         // `Object+0x74`: ObjectClass::Mark sets it on PUT and clears it on
         // REMOVE (`0x005F58F7`, `jumpjet_cruise` `0x0054D0FF..0x0054D12C`),
         // which is the cell-membership byte `lifecycle.cell_marked` owns.
-        if !entity.lifecycle.cell_marked {
+        if !entity.lifecycle.cell_marked() {
             continue;
         }
         if !sim

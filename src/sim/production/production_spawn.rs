@@ -1359,7 +1359,7 @@ mod tests {
         let entity = sim.substrate.entities.get(stable_id).unwrap();
         // Original Foot4D9C60 changes only caller-local query outputs;
         // initialized native bridge_clear_ground_input retains OnBridge0.
-        assert!(!entity.on_bridge);
+        assert!(!entity.on_bridge());
         assert_eq!(entity.position.exact_z_leptons, Some(312));
         assert_eq!(
             sim.substrate.raw_cell_occupation.ground_bits(8, 8) & 0x20,
@@ -1389,7 +1389,7 @@ mod tests {
             "the production API exposes no caller-forced Mark outcome"
         );
         let entity = sim.substrate.entities.get(stable_id).unwrap();
-        assert!(!entity.lifecycle.in_limbo() && entity.lifecycle.cell_marked);
+        assert!(!entity.lifecycle.in_limbo() && entity.lifecycle.cell_marked());
     }
 
     #[test]

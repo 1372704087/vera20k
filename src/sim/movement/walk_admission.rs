@@ -49,7 +49,7 @@ impl Simulation {
             .get(id)
             .ok_or("retired Walk admission owner")?;
         let physical = ground_pose::position_world_coord(&actor.position);
-        let on_bridge = actor.on_bridge;
+        let on_bridge = actor.on_bridge();
         //75B302 retains the original word for+1AC. Only the coordinate
         //vector uses &7 at75B5A7; an empty (-1) word therefore selects NW.
         let direction = actor
@@ -176,7 +176,7 @@ impl Simulation {
                     .ok_or("retired Walk gate owner")?
                     .navigation
                     .path_runtime
-                    .retries_left = super::PATH_STUCK_INIT;
+                    .set_retries_left(super::PATH_STUCK_INIT);
                 Ok(None)
             }
             4 | 5 => {
@@ -595,11 +595,11 @@ fn walk_code2_gate(
     frame: u32,
     blockage_delay: i32,
 ) -> Option<u8> {
-    if !runtime.path_blocked {
-        runtime.path_blocked = true;
+    if !runtime.path_blocked() {
+        runtime.set_path_blocked(true);
         runtime.start_blocked(frame, blockage_delay);
     }
-    if !runtime.movement_timer.expired(frame as i32) {
+    if !runtime.movement_timer().expired(frame as i32) {
         return None;
     }
     Some(runtime.code2_urgency(frame))
@@ -689,9 +689,15 @@ mod tests {
             let b = |key: &str| case[key].as_bool().unwrap();
             let frame = n("frame");
             let mut runtime = crate::sim::components::FootPathRuntime::default();
-            runtime.path_blocked = b("already_blocked");
-            runtime.blocked_timer = CdTimer::from_raw(n("grace_start"), n("grace_duration"));
-            runtime.movement_timer = CdTimer::from_raw(n("movement_start"), n("movement_duration"));
+            runtime.set_path_blocked(b("already_blocked"));
+            runtime.set_blocked_timer_for_test(CdTimer::from_raw(
+                n("grace_start"),
+                n("grace_duration"),
+            ));
+            runtime.set_movement_timer_for_test(CdTimer::from_raw(
+                n("movement_start"),
+                n("movement_duration"),
+            ));
             let urgency = super::walk_code2_gate(&mut runtime, frame as u32, n("configured_grace"));
             assert_eq!(urgency.is_some(), b("repath"), "{case}");
             if let Some(urgency) = urgency {
@@ -702,9 +708,9 @@ mod tests {
                 );
             }
             observed[urgency.map_or(0, usize::from)] += 1;
-            assert_eq!(runtime.path_blocked, b("out_blocked"), "{case}");
+            assert_eq!(runtime.path_blocked(), b("out_blocked"), "{case}");
             assert_eq!(
-                runtime.blocked_timer.remaining(frame),
+                runtime.blocked_timer().remaining(frame),
                 CdTimer::from_raw(n("out_grace_start"), n("out_grace_duration")).remaining(frame),
                 "{case}"
             );

@@ -395,7 +395,9 @@ fn damage_gates_match_original_execution() {
                 .set_for_test(Some(crate::sim::combat::TargetKind::Entity(9)));
         }
         if flag("nav", false) {
-            victim.navigation.nav_com = Some(NavTargetRef::cell(9, 9));
+            victim
+                .navigation
+                .set_nav_com(Some(NavTargetRef::cell(9, 9)));
         }
         let owner = victim.owner();
         let type_ref = victim.type_ref();

@@ -154,11 +154,15 @@ impl Simulation {
         let Some(entity) = self.substrate.entities.get_mut(id) else {
             return false;
         };
-        let Some(family) = entity.locomotor.as_ref().and_then(|loco| match loco.kind {
-            LocomotorKind::Drive => Some(TrackFamily::Drive),
-            LocomotorKind::Ship => Some(TrackFamily::Ship),
-            _ => None,
-        }) else {
+        let Some(family) = entity
+            .locomotor
+            .as_ref()
+            .and_then(|loco| match loco.active_kind() {
+                LocomotorKind::Drive => Some(TrackFamily::Drive),
+                LocomotorKind::Ship => Some(TrackFamily::Ship),
+                _ => None,
+            })
+        else {
             return false;
         };
         let loco = entity.locomotor.as_mut().unwrap();
@@ -357,7 +361,7 @@ impl Simulation {
                 // before terminal coordinates/Mark, then retire the selector.
                 self.set_track_occupation_enabled(id, true);
                 if let Some(entity) = self.substrate.entities.get_mut(id) {
-                    entity.navigation.path_runtime.path_blocked = false;
+                    entity.navigation.path_runtime.set_path_blocked(false);
                 }
                 self.track_place(
                     id,
@@ -411,7 +415,7 @@ impl Simulation {
                     let entity = self.substrate.entities.get_mut(id).unwrap();
                     super::navcom::foot_stop_moving(entity);
                     entity.navigation.path_replay.clear_live_head();
-                    entity.navigation.pending_destination_setter = false;
+                    entity.navigation.set_pending_destination_setter(false);
                     if entity.mission.current().known() == Some(MissionType::Move) {
                         let returns = self.unit_enter_idle_mode(id, rules, false, effects);
                         observe(self, id, TrackWorldEvent::Arrival);
@@ -440,7 +444,7 @@ impl Simulation {
                 self.track_raw_mark(id, false);
                 self.set_track_occupation_enabled(id, false);
                 if let Some(entity) = self.substrate.entities.get_mut(id) {
-                    entity.navigation.path_runtime.path_blocked = false;
+                    entity.navigation.path_runtime.set_path_blocked(false);
                 }
             }
             let Some((live, live_head, actual)) = self.track_state(id, family) else {
@@ -497,16 +501,17 @@ impl Simulation {
                 return Ok(TrackPass::paid(moved));
             }
             if let Some(entity) = self.substrate.entities.get_mut(id) {
-                let marked = entity.lifecycle.cell_marked;
-                entity.lifecycle.cell_marked = false;
+                let marked = entity.lifecycle.cell_marked();
+                entity.lifecycle.set_cell_marked(false);
+                let on_bridge = entity.on_bridge();
                 set_height(
                     &mut entity.position,
-                    entity.on_bridge,
+                    on_bridge,
                     0,
                     self.resolved_terrain.as_ref(),
                     self.path_grid.as_deref(),
                 );
-                entity.lifecycle.cell_marked = marked;
+                entity.lifecycle.set_cell_marked(marked);
             }
             if let Some(facing) = paid_facing
                 && let Some(entity) = self.substrate.entities.get_mut(id)
@@ -606,12 +611,12 @@ impl Simulation {
         self.substrate
             .entities
             .get(id)
-            .is_some_and(|entity| entity.foot_occupation_enabled)
+            .is_some_and(|entity| entity.foot_occupation_enabled())
     }
 
     fn set_track_occupation_enabled(&mut self, id: u64, value: bool) {
         if let Some(entity) = self.substrate.entities.get_mut(id) {
-            entity.foot_occupation_enabled = value;
+            entity.set_foot_occupation_enabled(value);
         }
     }
 
@@ -691,8 +696,8 @@ impl Simulation {
         }
         let saved_marked = if !crossing {
             self.substrate.entities.get_mut(id).map(|entity| {
-                let marked = entity.lifecycle.cell_marked;
-                entity.lifecycle.cell_marked = false;
+                let marked = entity.lifecycle.cell_marked();
+                entity.lifecycle.set_cell_marked(false);
                 marked
             })
         } else {
@@ -712,31 +717,34 @@ impl Simulation {
                 // Crossing uses actual current cell; this predicate instead
                 // uses the previous transformed cached point (or current at
                 // cursor0). The resolver also stores the entered cell's level.
+                let mut on_bridge = entity.on_bridge();
                 let update = super::movement_bridge::resolve_cell_transition_bridge_state(
                     &mut entity.position,
                     grid,
                     previous_track_cell,
                     selected_cell,
-                    entity.on_bridge,
+                    on_bridge,
                 );
                 super::movement_bridge::apply_bridge_layer_state(
                     &mut entity.locomotor,
-                    &mut entity.on_bridge,
+                    &mut on_bridge,
                     update,
                 );
+                entity.set_on_bridge(on_bridge);
             } else if let Some(entered) =
                 grid.and_then(|grid| grid.cell(selected_cell.0, selected_cell.1))
             {
                 // The terminal point skips the bridge predicate but still
                 // enters a new cell.
                 entity.position.z =
-                    super::movement_bridge::stored_level(entered.ground_level, entity.on_bridge);
+                    super::movement_bridge::stored_level(entered.ground_level, entity.on_bridge());
             }
         }
         if terminal && let Some(entity) = self.substrate.entities.get_mut(id) {
+            let on_bridge = entity.on_bridge();
             set_height(
                 &mut entity.position,
-                entity.on_bridge,
+                on_bridge,
                 0,
                 self.resolved_terrain.as_ref(),
                 self.path_grid.as_deref(),
@@ -745,7 +753,7 @@ impl Simulation {
         if let Some(marked) = saved_marked
             && let Some(entity) = self.substrate.entities.get_mut(id)
         {
-            entity.lifecycle.cell_marked = marked;
+            entity.lifecycle.set_cell_marked(marked);
         }
         if crossing {
             self.foot_mark_put_observed(
@@ -878,7 +886,7 @@ impl Simulation {
             let height = super::ground_pose::query_object_cell_height(
                 &cells,
                 position_world_coord(&entity.position),
-                entity.on_bridge,
+                entity.on_bridge(),
             );
             (height, cells.lookup(target))
         };
@@ -1005,7 +1013,7 @@ impl Simulation {
         let Some(entity) = self.substrate.entities.get(id) else {
             return Ok(false);
         };
-        let Some(target) = entity.navigation.nav_com else {
+        let Some(target) = entity.navigation.nav_com() else {
             return Ok(false);
         };
         let coord = super::navcom::nav_target_coordinate(
@@ -1072,7 +1080,7 @@ impl Simulation {
         // gaps; no whole mission tick substitutes for those calls.
         let queued_cell = entity
             .navigation
-            .nav_queue
+            .nav_queue()
             .first()
             .copied()
             .and_then(|next| {
@@ -1093,9 +1101,9 @@ impl Simulation {
                 log::debug!("Foot {id} NavQueue destination: {cause:?}");
             }
             if let Some(entity) = self.substrate.entities.get_mut(id)
-                && !entity.navigation.nav_queue.is_empty()
+                && !entity.navigation.nav_queue().is_empty()
             {
-                entity.navigation.nav_queue.remove(0);
+                entity.navigation.pop_nav_queue_front();
             }
         }
         // A consumed NavQueue or ended piggyback returns true before
@@ -1193,7 +1201,7 @@ impl Simulation {
         let Some(entity) = self.substrate.entities.get_mut(id) else {
             return saved_base_return;
         };
-        let has_destination = entity.navigation.nav_com.is_some();
+        let has_destination = entity.navigation.nav_com().is_some();
         let current = entity.mission.current().known();
         let effective = entity.mission.effective().known();
         let category = entity.category();
@@ -1291,7 +1299,7 @@ impl Simulation {
         let Some(entity) = self.substrate.entities.get(id) else {
             return false;
         };
-        if entity.navigation.nav_com.is_some() || entity.attack_target.target().is_some() {
+        if entity.navigation.nav_com().is_some() || entity.attack_target.target().is_some() {
             return false;
         }
         self.unit_enter_idle_mode(id, rules, false, effects)

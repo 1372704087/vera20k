@@ -295,15 +295,13 @@ pub(super) fn install_path_replay(
     first_destination: usize,
 ) {
     let mut from = (reference.0 as i16, reference.1 as i16);
-    queue.directions.clear();
+    queue.clear_directions();
     for &destination in path.iter().skip(first_destination) {
-        queue
-            .directions
-            .push(direction_from_step(from, destination));
+        queue.push_direction(direction_from_step(from, destination));
         from = (destination.0 as i16, destination.1 as i16);
     }
-    queue.cursor = 0;
-    queue.reference_cell = Some((reference.0 as i16, reference.1 as i16));
+    queue.set_cursor(0);
+    queue.set_reference_cell(Some((reference.0 as i16, reference.1 as i16)));
 }
 
 /// Fixture queue for a found route, written by the production install from
@@ -322,17 +320,17 @@ pub(super) fn accept_path_replay(
     endpoint: (i16, i16),
     consumed_directions: usize,
 ) {
-    queue.reference_cell = Some(endpoint);
+    queue.set_reference_cell(Some(endpoint));
     consume_path_replay(queue, consumed_directions);
 }
 
 /// Accepted chain4B1DF7/6A143A and Drive tube4B1362..136E pop the queue
 /// without rewriting Foot+558.
 pub(super) fn consume_path_replay(queue: &mut FootPathQueue, consumed_directions: usize) {
-    let cursor = usize::from(queue.cursor)
+    let cursor = usize::from(queue.cursor())
         .saturating_add(consumed_directions)
-        .min(queue.directions.len());
-    queue.cursor = cursor.min(u16::MAX as usize) as u16;
+        .min(queue.directions().len());
+    queue.set_cursor(cursor.min(u16::MAX as usize) as u16);
 }
 
 /// Walk75BD89..75BDB1 propagates a -1 head into the next word before
@@ -352,7 +350,7 @@ fn remaining_path_from_entity(
     let queue = &entity.navigation.path_replay;
     // Foot+558 and its retained direction queue are the native source.
     let reference = queue
-        .reference_cell
+        .reference_cell()
         .unwrap_or((entity.position.rx as i16, entity.position.ry as i16));
     (reference, queue.remaining_directions().to_vec())
 }
@@ -961,8 +959,14 @@ mod tests {
         for id in [1, 2] {
             let mut entity =
                 crate::sim::game_entity::GameEntity::test_default(id, "UNIT", "Americans", 4, 4);
-            entity.navigation.path_replay.reference_cell = Some((4, 4));
-            entity.navigation.path_replay.directions = vec![2, 2];
+            entity
+                .navigation
+                .path_replay
+                .set_reference_cell(Some((4, 4)));
+            entity
+                .navigation
+                .path_replay
+                .set_directions_for_test(vec![2, 2]);
             entities.insert(entity);
         }
         let snapshot = snapshot_bridge_marker_peers(&entities, None, &interner);
@@ -1001,7 +1005,7 @@ mod tests {
                 .unwrap()
                 .navigation
                 .path_replay
-                .directions = vec![6, 6, 6];
+                .set_directions_for_test(vec![6, 6, 6]);
         }
         let read = live(&entities);
         assert_eq!(read[0].as_ref().unwrap().path_directions, [2, 2]);
@@ -1014,11 +1018,13 @@ mod tests {
         //reaches -1.
         let mut peer =
             crate::sim::game_entity::GameEntity::test_default(2, "PEER", "Americans", 4, 3);
-        peer.navigation.path_replay.reference_cell = Some((5, 4));
-        peer.navigation.path_replay.directions = vec![2, 2];
-        peer.navigation.path_replay.cursor = 2;
+        peer.navigation.path_replay.set_reference_cell(Some((5, 4)));
+        peer.navigation
+            .path_replay
+            .set_directions_for_test(vec![2, 2]);
+        peer.navigation.path_replay.set_cursor(2);
         assert_eq!(remaining_path_from_entity(&peer), ((5, 4), vec![]));
-        peer.navigation.path_replay.reference_cell = None;
+        peer.navigation.path_replay.set_reference_cell(None);
         assert_eq!(remaining_path_from_entity(&peer), ((4, 3), vec![]));
     }
 
@@ -1033,7 +1039,7 @@ mod tests {
             crate::sim::movement::locomotor::LocomotorState::for_test_kind(LocomotorKind::Drive),
         );
         peer.position.z = 4;
-        peer.on_bridge = true;
+        peer.set_on_bridge(true);
         let loco = peer.locomotor.as_mut().unwrap();
         loco.ensure_installed_track_state();
         loco.store_track_head(
@@ -1047,8 +1053,10 @@ mod tests {
         track.turn_index = 1;
         track.cursor = 12;
         loco.store_track_progress(super::super::track_process::TrackFamily::Drive, track);
-        peer.navigation.path_replay.reference_cell = Some((5, 4));
-        peer.navigation.path_replay.directions = vec![2, 2];
+        peer.navigation.path_replay.set_reference_cell(Some((5, 4)));
+        peer.navigation
+            .path_replay
+            .set_directions_for_test(vec![2, 2]);
         // RawTrack 3 handoff point 22, transformed around head cell (6,3),
         // lies in probe cell (5,4).  A deck track deliberately owns no ground
         // occupation_head_to reservation, so that field cannot answer slot 40.
@@ -1108,8 +1116,10 @@ mod tests {
             .and_then(|loco| loco.hover_runtime_mut())
             .unwrap()
             .set_head(Some(crate::sim::components::DriveCoord::cell(5, 4, 104)));
-        peer.navigation.path_replay.reference_cell = Some((4, 3));
-        peer.navigation.path_replay.directions = vec![3, 2, 2];
+        peer.navigation.path_replay.set_reference_cell(Some((4, 3)));
+        peer.navigation
+            .path_replay
+            .set_directions_for_test(vec![3, 2, 2]);
         entities.insert(peer);
 
         let peers = snapshot_bridge_marker_peers(&entities, None, &interner);

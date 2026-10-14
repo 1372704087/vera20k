@@ -657,7 +657,7 @@ fn droppod_reinforcement_carrier_matches_original_constructor_cargo_and_orders()
             "{input}"
         );
         assert_eq!(
-            plane.navigation.nav_com.is_some(),
+            plane.navigation.nav_com().is_some(),
             row["plane"]["nav_present"].as_bool().unwrap(),
             "{input}"
         );
@@ -1457,7 +1457,7 @@ fn script3_real_members_match_original_outside_move_and_rng_continuation() {
         assert_eq!(entity.mission.current().raw(), int(&native["mission"]));
         assert_eq!(entity.mission.queued().raw(), int(&native["queued"]));
         assert_eq!(
-            entity.navigation.nav_com,
+            entity.navigation.nav_com(),
             Some(crate::sim::components::NavTargetRef::Cell {
                 rx: int(&native["nav_cell"][0]) as u16,
                 ry: int(&native["nav_cell"][1]) as u16,

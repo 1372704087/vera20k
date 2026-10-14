@@ -101,7 +101,7 @@ impl Simulation {
         let Some(entity) = entities.get(id) else {
             return Ok(());
         };
-        let target = entity.navigation.nav_com.filter(|target| {
+        let target = entity.navigation.nav_com().filter(|target| {
             entity.category() == EntityCategory::Unit
                 && match *target {
                     NavTargetRef::Cell { .. } => false,

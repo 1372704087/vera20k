@@ -98,7 +98,7 @@ pub(crate) fn restore_entity_after_target_expiry(
     }
 
     let saved_target = entity.suspended_attack_target.target();
-    let saved_destination = entity.navigation.suspended_nav_com;
+    let saved_destination = entity.navigation.suspended_nav_com();
     let category = entity.category();
     let restored = verb::restore_base(&mut entity.mission);
     debug_assert!(restored);
@@ -106,7 +106,7 @@ pub(crate) fn restore_entity_after_target_expiry(
     if category != EntityCategory::Structure {
         represented_assign_destination(entity, saved_destination);
         if saved_destination.is_some() {
-            entity.navigation.pending_destination_setter = true;
+            entity.navigation.set_pending_destination_setter(true);
         }
     }
     true
@@ -1011,7 +1011,9 @@ impl Simulation {
                 .get_mut(receiver)
                 .expect("preflight cannot remove receiver");
             if entity.category() != EntityCategory::Structure {
-                entity.navigation.suspended_nav_com = entity.navigation.nav_com;
+                entity
+                    .navigation
+                    .set_suspended_nav_com(entity.navigation.nav_com());
             }
             entity
                 .suspended_attack_target
@@ -1045,7 +1047,7 @@ impl Simulation {
             return Ok(false);
         }
         let saved_target = entity.suspended_attack_target.target();
-        let saved_destination = entity.navigation.suspended_nav_com;
+        let saved_destination = entity.navigation.suspended_nav_com();
         let category = entity.category();
         let request = match category {
             EntityCategory::Structure => ConcreteSetterRequest::Target {
@@ -1085,7 +1087,7 @@ impl Simulation {
                 // restored object holds its order and never moves toward it,
                 // which is exactly the state a blocked-step Override leaves it
                 // in.
-                entity.navigation.pending_destination_setter = true;
+                entity.navigation.set_pending_destination_setter(true);
             }
         }
         Ok(true)
@@ -1555,9 +1557,14 @@ mod tests {
                 actor
                     .attack_target
                     .set_for_test(prior_target.map(|_| TargetKind::Entity(2)));
-                actor.navigation.nav_com = Some(NavTargetRef::cell(12, 10));
-                actor.navigation.path_replay.directions =
-                    vec![before["path_field"].as_u64().unwrap() as u8, 2, 3];
+                actor
+                    .navigation
+                    .set_nav_com(Some(NavTargetRef::cell(12, 10)));
+                actor.navigation.path_replay.set_directions_for_test(vec![
+                    before["path_field"].as_u64().unwrap() as u8,
+                    2,
+                    3,
+                ]);
                 actor.locomotor = Some(LocomotorState::for_test_kind(
                     crate::rules::locomotor_type::LocomotorKind::Walk,
                 ));
@@ -1622,7 +1629,7 @@ mod tests {
                     "{name}"
                 );
                 assert_eq!(
-                    actor.navigation.suspended_nav_com,
+                    actor.navigation.suspended_nav_com(),
                     Some(NavTargetRef::cell(12, 10)),
                     "{name}",
                 );
@@ -1667,7 +1674,7 @@ mod tests {
                     "{name}: native retained action clock",
                 );
                 assert_eq!(
-                    actor.navigation.nav_com.is_some(),
+                    actor.navigation.nav_com().is_some(),
                     destination["nav"].as_bool().unwrap(),
                     "{name}",
                 );
@@ -1747,8 +1754,8 @@ mod tests {
         let after = sim.substrate.entities.get(1).unwrap();
         assert_eq!(after.mission, before.mission);
         assert_eq!(
-            after.navigation.suspended_nav_com,
-            before.navigation.suspended_nav_com
+            after.navigation.suspended_nav_com(),
+            before.navigation.suspended_nav_com()
         );
     }
 
@@ -1760,8 +1767,8 @@ mod tests {
             .set_for_test(crate::sim::timer::CdTimer::started(0, 17));
         unit.weapon_burst.complete_shot(4);
         unit.attack_target.set_for_test(Some(active_target));
-        unit.navigation.nav_com = Some(NavTargetRef::cell(1, 2));
-        unit.navigation.pending_destination_setter = true;
+        unit.navigation.set_nav_com(Some(NavTargetRef::cell(1, 2)));
+        unit.navigation.set_pending_destination_setter(true);
         let mut sim = sim_with(unit);
         let mut effects = RecordingConcreteMissionEffects::available();
 
@@ -1827,7 +1834,7 @@ mod tests {
                 .get(1)
                 .unwrap()
                 .navigation
-                .pending_destination_setter
+                .pending_destination_setter()
         );
     }
 
@@ -1843,7 +1850,9 @@ mod tests {
             receiver
                 .attack_target
                 .set_for_test(Some(TargetKind::Entity(7)));
-            receiver.navigation.nav_com = Some(NavTargetRef::cell(1, 2));
+            receiver
+                .navigation
+                .set_nav_com(Some(NavTargetRef::cell(1, 2)));
             let mut sim = sim_with(receiver);
             let mut effects = RecordingConcreteMissionEffects::available();
 
@@ -1881,15 +1890,15 @@ mod tests {
 
             if category == EntityCategory::Structure {
                 assert_eq!(effects.events.len(), 2);
-                assert_eq!(after.navigation.nav_com, Some(NavTargetRef::cell(1, 2)));
-                assert_eq!(after.navigation.suspended_nav_com, None);
+                assert_eq!(after.navigation.nav_com(), Some(NavTargetRef::cell(1, 2)));
+                assert_eq!(after.navigation.suspended_nav_com(), None);
             } else {
                 assert_eq!(effects.events.len(), 3);
                 assert_eq!(
-                    after.navigation.suspended_nav_com,
+                    after.navigation.suspended_nav_com(),
                     Some(NavTargetRef::cell(1, 2))
                 );
-                assert_eq!(after.navigation.nav_com, Some(NavTargetRef::cell(8, 9)));
+                assert_eq!(after.navigation.nav_com(), Some(NavTargetRef::cell(8, 9)));
                 assert!(matches!(
                     effects.events[2],
                     ConcreteEffectEvent::Destination {
@@ -1907,7 +1916,7 @@ mod tests {
         let deliberate = MissionId::from_raw(28);
         let mut unit = entity(EntityCategory::Unit, deliberate);
         unit.attack_target.set_for_test(Some(TargetKind::Entity(7)));
-        unit.navigation.nav_com = Some(NavTargetRef::cell(1, 2));
+        unit.navigation.set_nav_com(Some(NavTargetRef::cell(1, 2)));
         let before_mission = unit.mission;
         let mut sim = sim_with(unit);
         let mut effects = RecordingConcreteMissionEffects::available();
@@ -1930,11 +1939,11 @@ mod tests {
             Some(TargetKind::Entity(7))
         );
         assert_eq!(
-            after.navigation.suspended_nav_com,
+            after.navigation.suspended_nav_com(),
             Some(NavTargetRef::cell(1, 2))
         );
         assert_eq!(after.attack_target.target(), Some(TargetKind::Entity(8)));
-        assert_eq!(after.navigation.nav_com, Some(NavTargetRef::cell(8, 9)));
+        assert_eq!(after.navigation.nav_com(), Some(NavTargetRef::cell(8, 9)));
         assert!(matches!(
             effects.events.as_slice(),
             [
@@ -1956,7 +1965,9 @@ mod tests {
         aircraft
             .attack_target
             .set_for_test(Some(TargetKind::Entity(7)));
-        aircraft.navigation.nav_com = Some(NavTargetRef::cell(1, 2));
+        aircraft
+            .navigation
+            .set_nav_com(Some(NavTargetRef::cell(1, 2)));
         let before = bincode::serialize(&aircraft).expect("serialize blocked Aircraft");
         let mut sim = sim_with(aircraft);
         let mut effects = RecordingConcreteMissionEffects::available();
@@ -2022,7 +2033,8 @@ mod tests {
         });
         unit.suspended_attack_target
             .set_for_test(Some(TargetKind::Entity(7)));
-        unit.navigation.suspended_nav_com = Some(NavTargetRef::cell(8, 9));
+        unit.navigation
+            .set_suspended_nav_com(Some(NavTargetRef::cell(8, 9)));
         let mut sim = sim_with(unit);
         let mut effects = RecordingConcreteMissionEffects::available();
 
@@ -2038,7 +2050,7 @@ mod tests {
             Some(TargetKind::Entity(7))
         );
         assert_eq!(
-            entity.navigation.suspended_nav_com,
+            entity.navigation.suspended_nav_com(),
             Some(NavTargetRef::cell(8, 9))
         );
         assert!(matches!(

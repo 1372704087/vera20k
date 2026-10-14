@@ -362,7 +362,7 @@ fn retail_dustbowl_parked_rocketeer_engages_nearby_enemies() {
         "parked on Move"
     );
     assert_eq!(
-        parked.navigation.nav_com,
+        parked.navigation.nav_com(),
         Some(crate::sim::components::NavTargetRef::cell(
             parked.position.rx,
             parked.position.ry
@@ -465,7 +465,8 @@ fn a_parked_rocketeer_scans_and_fires_on_move() {
             .unwrap();
         if entity.position.rx == 56
             && runtime.phase() == 2
-            && entity.navigation.nav_com == Some(crate::sim::components::NavTargetRef::cell(56, 52))
+            && entity.navigation.nav_com()
+                == Some(crate::sim::components::NavTargetRef::cell(56, 52))
         {
             parked = true;
             break;
@@ -1257,7 +1258,7 @@ fn grounded_rocketeer() -> (super::Simulation, crate::rules::ruleset::RuleSet, u
         .locomotor
         .as_mut()
         .unwrap()
-        .layer = crate::sim::movement::locomotor::MovementLayer::Ground;
+        .set_layer(crate::sim::movement::locomotor::MovementLayer::Ground);
     (sim, rules, shooter)
 }
 
@@ -1281,7 +1282,7 @@ fn a_ground_route_order_gives_a_rocketeer_his_navcom_and_move_to() {
     .unwrap();
     let rocketeer = sim.substrate.entities.get(1).unwrap();
     assert_eq!(
-        rocketeer.navigation.nav_com,
+        rocketeer.navigation.nav_com(),
         Some(crate::sim::components::NavTargetRef::cell(60, 52))
     );
     let runtime = rocketeer
@@ -1325,7 +1326,7 @@ fn assert_rocketeer_flies_near(sim: &super::Simulation, near: (u16, u16)) {
     let destination = runtime.destination();
     let placed = ((destination.x / 256) as u16, (destination.y / 256) as u16);
     assert_eq!(
-        rocketeer.navigation.nav_com,
+        rocketeer.navigation.nav_com(),
         Some(crate::sim::components::NavTargetRef::cell(
             placed.0, placed.1
         )),
@@ -1418,7 +1419,7 @@ fn an_order_to_a_rocketeers_own_cell_is_ignored() {
         "the void setter still dispatched"
     );
     let rocketeer = sim.substrate.entities.get(1).unwrap();
-    assert_eq!(rocketeer.navigation.nav_com, None);
+    assert_eq!(rocketeer.navigation.nav_com(), None);
     assert!(
         !rocketeer
             .locomotor
@@ -1447,7 +1448,7 @@ fn an_object_order_into_a_rocketeers_own_cell_is_ignored() {
         Ok(true)
     );
     let rocketeer = sim.substrate.entities.get(1).unwrap();
-    assert_eq!(rocketeer.navigation.nav_com, None);
+    assert_eq!(rocketeer.navigation.nav_com(), None);
     assert!(
         !rocketeer
             .locomotor
@@ -1547,7 +1548,9 @@ fn a_moving_rocketeers_reorder_runs_stop_driver_first() {
             crate::sim::mission::MissionId::from_known(crate::sim::mission::MissionType::Attack),
             0,
         );
-        rocketeer.navigation.nav_com = Some(crate::sim::components::NavTargetRef::cell(60, 52));
+        rocketeer
+            .navigation
+            .set_nav_com(Some(crate::sim::components::NavTargetRef::cell(60, 52)));
         rocketeer
             .infantry
             .as_mut()
@@ -1591,7 +1594,7 @@ fn foot_admission_refuses_a_rocketeers_order_during_a_locomotor_swap() {
         "the void setter still dispatched"
     );
     let rocketeer = sim.substrate.entities.get(1).unwrap();
-    assert_eq!(rocketeer.navigation.nav_com, None);
+    assert_eq!(rocketeer.navigation.nav_com(), None);
     assert!(
         !rocketeer
             .locomotor
@@ -1708,7 +1711,7 @@ fn a_rocketeer_taken_over_in_flight_stops_over_his_cell() {
         here,
         "the re-target is the cell he is over"
     );
-    assert_eq!(rocketeer.navigation.nav_com, None);
+    assert_eq!(rocketeer.navigation.nav_com(), None);
     for _ in 0..120 {
         sim.advance_tick(&[], Some(&rules), Some(&grid), None, 67);
     }

@@ -190,7 +190,7 @@ mod tests {
         let mut entity = GameEntity::test_default(1, "BEAG", "Americans", 5, 5);
         entity.set_category_for_test(EntityCategory::Aircraft);
         let mut loco = LocomotorState::for_test_kind(kind);
-        loco.layer = MovementLayer::Air;
+        loco.set_layer(MovementLayer::Air);
         entity.locomotor = Some(loco);
         entity.position.exact_z_leptons = Some(altitude);
         entity

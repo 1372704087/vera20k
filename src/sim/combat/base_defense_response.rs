@@ -562,7 +562,7 @@ pub(crate) fn respond_to_base_attack(
                 &cells,
                 navigation,
                 current,
-                candidate.on_bridge,
+                candidate.on_bridge(),
                 in_tube,
             ) else {
                 continue;

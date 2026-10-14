@@ -3477,7 +3477,7 @@ fn stock_war_factory_initial_exit_has_no_nearest_cell_fallback() {
         (12, 11),
         "native factory scope bypasses class admission without choosing a nearby coordinate"
     );
-    assert!(produced.lifecycle.cell_marked && !produced.lifecycle.in_limbo());
+    assert!(produced.lifecycle.cell_marked() && !produced.lifecycle.in_limbo());
 }
 
 #[test]
@@ -3529,7 +3529,7 @@ fn stock_war_factory_clear_exitcoord_succeeds() {
         (12, 11),
         "stock land war factory initial spawn uses ExitCoord=512,256,0"
     );
-    assert!(produced.lifecycle.cell_marked && !produced.lifecycle.in_limbo());
+    assert!(produced.lifecycle.cell_marked() && !produced.lifecycle.in_limbo());
 }
 
 #[test]

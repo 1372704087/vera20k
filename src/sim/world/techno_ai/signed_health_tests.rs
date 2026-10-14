@@ -49,7 +49,7 @@ fn original_selfheal_tail_and_192_height_rows_retain_art_and_mark_smoke() {
             entity.position.sub_x = crate::util::fixed_math::SimFixed::from_num(x & 255);
             entity.position.sub_y = crate::util::fixed_math::SimFixed::from_num(y & 255);
             entity.position.exact_z_leptons = Some(input["z"].as_i64().unwrap() as i32);
-            entity.on_bridge = input["on_bridge"].as_bool().unwrap();
+            entity.set_on_bridge(input["on_bridge"].as_bool().unwrap());
             let mut cell = test_flat_cell(entity.position.rx, entity.position.ry);
             cell.level = input["level"].as_u64().unwrap() as u8;
             cell.slope_type = input["slope"].as_u64().unwrap() as u8;

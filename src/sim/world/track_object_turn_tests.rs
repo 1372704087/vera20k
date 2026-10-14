@@ -22,7 +22,7 @@ fn fixture() -> (Simulation, RuleSet) {
     entity.set_category_for_test(EntityCategory::Unit);
     entity.lifecycle.set_object_alive_for_test(true);
     entity.lifecycle.set_in_limbo_for_test(false);
-    entity.lifecycle.cell_marked = true;
+    entity.lifecycle.set_cell_marked(true);
     entity.set_is_voxel_for_test(false);
     entity.mover_facts.set_drive_accelerates_for_test(false);
     entity.locomotor = Some(LocomotorState::for_test_kind(LocomotorKind::Drive));
@@ -49,7 +49,10 @@ fn fixture() -> (Simulation, RuleSet) {
     sim.interner = crate::sim::intern::test_interner();
     // Drive ProcessMovement4B3673..368D stores the frame anchor and
     // duration. Active TrackProcess4B0F20 does not mutate that timer.
-    entity.navigation.path_runtime.blocked_timer = crate::sim::timer::CdTimer::started(10, 9);
+    entity
+        .navigation
+        .path_runtime
+        .set_blocked_timer_for_test(crate::sim::timer::CdTimer::started(10, 9));
     sim.substrate.entities.insert(entity);
     sim.substrate.occupancy =
         crate::sim::occupancy::OccupancyGrid::rebuild(&sim.substrate.entities);
@@ -222,7 +225,7 @@ fn ordinary_object_turn_pays_multiple_points_and_runs_prefix_and_shp_once() {
         entity
             .navigation
             .path_runtime
-            .blocked_timer
+            .blocked_timer()
             .remaining(sim.session.binary_frame as i32),
         9
     );
@@ -254,7 +257,7 @@ fn ordinary_object_turn_pays_multiple_points_and_runs_prefix_and_shp_once() {
             .unwrap()
             .navigation
             .path_runtime
-            .blocked_timer;
+            .blocked_timer();
         assert_eq!(timer, crate::sim::timer::CdTimer::started(10, 9));
         assert_eq!(timer.remaining(frame as i32), 19 - frame as i32);
     }
@@ -337,7 +340,7 @@ fn active_drive_ship_track_preserves_target_across_changed_path_and_terrain_requ
         let current = crate::sim::movement::ground_pose::position_world_coord(&entity.position);
         assert_eq!(
             crate::sim::pathfinding::terrain_speed::fresh_track_speed_fraction(
-                entity.locomotor.as_ref().unwrap().speed_type,
+                entity.locomotor.as_ref().unwrap().speed_type(),
                 (current.x, current.y),
                 (11, 10),
                 None,
@@ -395,7 +398,9 @@ fn terminal_sensor_receiver_finishes_before_shp_and_is_not_deferred_to_cell_chan
     let owner = sim.substrate.entities.get(1).unwrap().owner();
     let entity = sim.substrate.entities.get_mut(1).unwrap();
     entity.position.rx = 10;
-    entity.navigation.nav_com = Some(NavTargetRef::cell(10, 10));
+    entity
+        .navigation
+        .set_nav_com(Some(NavTargetRef::cell(10, 10)));
     let drive = entity.locomotor.as_mut().unwrap();
     assert!(drive.store_track_head(
         crate::sim::movement::track_process::TrackFamily::Drive,
@@ -422,14 +427,14 @@ fn terminal_sensor_receiver_finishes_before_shp_and_is_not_deferred_to_cell_chan
     assert_eq!(entity.sensor_deposit.unwrap().center(), (10, 10));
     assert!(!sim.fog.has_sensor_for_house(owner, 5, 10));
     assert!(sim.fog.has_sensor_for_house(owner, 10, 10));
-    assert!(entity.navigation.nav_com.is_none());
+    assert!(entity.navigation.nav_com().is_none());
     assert!(crate::sim::movement::motion_query::is_moving(&entity) != Some(true));
     assert_eq!(
         entity.body_frame_counter.get(),
         5,
         "terminal retired movement before IdleRate=0 SHP admission"
     );
-    assert!(entity.foot_occupation_enabled);
+    assert!(entity.foot_occupation_enabled());
     assert_eq!(
         sim.substrate.raw_cell_occupation.ground_bits(10, 10),
         0,
@@ -466,11 +471,7 @@ fn accepted_chain_runs_sensor_callback_and_consumes_more_paid_points_in_same_obj
     assert!(selection.entry_index > 0);
     let entity = sim.substrate.entities.get_mut(1).unwrap();
     entity.body_facing.snap(0x2000, 0);
-    entity.navigation.path_replay = FootPathQueue {
-        directions: vec![2, 3],
-        cursor: 0,
-        reference_cell: Some((10, 10)),
-    };
+    entity.navigation.path_replay = FootPathQueue::for_test(vec![2, 3], 0, Some((10, 10)));
     assert!(entity.locomotor.as_mut().unwrap().store_track_progress(
         crate::sim::movement::track_process::TrackFamily::Drive,
         TrackProgress {
@@ -502,7 +503,7 @@ fn accepted_chain_runs_sensor_callback_and_consumes_more_paid_points_in_same_obj
             .track_valid()
     );
     assert!(track.cursor > i32::from(selection.entry_index));
-    assert_eq!(entity.navigation.path_replay.cursor, 1);
+    assert_eq!(entity.navigation.path_replay.cursor(), 1);
     // Retail RawTrack[3]7E7A58 -> point37 at7E66B4=(-136,136,32).
     // TurnTrack[1]7E7B34 flags8 leaves XY unchanged in Transform4B4780.
     // With head(2688,2432), PerCell4B1CFD runs in signed cell(9,10).
@@ -516,12 +517,12 @@ fn accepted_chain_runs_sensor_callback_and_consumes_more_paid_points_in_same_obj
         entity
             .navigation
             .path_runtime
-            .blocked_timer
+            .blocked_timer()
             .remaining(sim.session.binary_frame as i32),
         9
     );
     assert_eq!(
-        entity.navigation.path_runtime.blocked_timer,
+        entity.navigation.path_runtime.blocked_timer(),
         crate::sim::timer::CdTimer::started(10, 9),
         "chain callbacks and additional paid points do not rewrite the timer"
     );
@@ -628,7 +629,9 @@ fn first_process_after_command_applies_raw_head_once_without_a_paid_point_and_af
 fn terminal_arrival_resets_owner_speed_before_next_accelerating_move() {
     let (mut sim, rules) = fixture();
     let entity = sim.substrate.entities.get_mut(1).unwrap();
-    entity.navigation.nav_com = Some(NavTargetRef::cell(10, 9));
+    entity
+        .navigation
+        .set_nav_com(Some(NavTargetRef::cell(10, 9)));
     let drive = entity.locomotor.as_mut().unwrap();
     assert!(drive.store_track_destination(
         crate::sim::movement::track_process::TrackFamily::Drive,
@@ -723,7 +726,7 @@ fn ship_fresh_claim_survives_next_object_visit_and_snapshot_rebuild() {
             .entities
             .get(1)
             .unwrap()
-            .foot_occupation_enabled
+            .foot_occupation_enabled()
     );
     sim.advance_live_object_turn(1, Some(&rules), ctx())
         .expect("fixture object turn must complete");
@@ -769,11 +772,7 @@ fn ordinary_default_passive_false_does_not_accept_a_chain() {
             residual: 0,
         }
     ));
-    entity.navigation.path_replay = FootPathQueue {
-        directions: vec![2, 3],
-        cursor: 0,
-        reference_cell: Some((10, 10)),
-    };
+    entity.navigation.path_replay = FootPathQueue::for_test(vec![2, 3], 0, Some((10, 10)));
     sim.advance_live_object_turn(1, Some(&rules), techno_ai::ObjectAiCtx::default())
         .expect("fixture object turn must complete");
     let entity = sim.substrate.entities.get(1).unwrap();
@@ -788,7 +787,7 @@ fn ordinary_default_passive_false_does_not_accept_a_chain() {
             .turn_index,
         1
     );
-    assert_eq!(entity.navigation.path_replay.cursor, 0);
+    assert_eq!(entity.navigation.path_replay.cursor(), 0);
 }
 
 #[test]
@@ -810,8 +809,10 @@ fn bridge_terminal_uses_owner_height_to_reach_ground_navcom_target() {
     grid.set_cell_for_test(10, 9, 0, true, false);
     sim.path_grid = Some(std::sync::Arc::new(grid));
     let entity = sim.substrate.entities.get_mut(1).unwrap();
-    entity.on_bridge = true;
-    entity.navigation.nav_com = Some(NavTargetRef::cell(10, 9));
+    entity.set_on_bridge(true);
+    entity
+        .navigation
+        .set_nav_com(Some(NavTargetRef::cell(10, 9)));
     entity.foot_speed.set_speed_fraction(SimFixed::from_num(1));
     let drive = entity.locomotor.as_mut().unwrap();
     let deck = DriveCoord::cell(10, 9, 416);
@@ -837,7 +838,7 @@ fn bridge_terminal_uses_owner_height_to_reach_ground_navcom_target() {
         .expect("fixture object turn must complete");
     let entity = sim.substrate.entities.get(1).unwrap();
     assert_eq!(entity.position.exact_z_leptons, Some(416));
-    assert!(entity.navigation.nav_com.is_none());
+    assert!(entity.navigation.nav_com().is_none());
     assert!(
         entity
             .locomotor
@@ -876,13 +877,15 @@ fn terminal_piggyback_end_is_synchronous_and_preserves_owner_speed() {
                     })
             ))
     );
-    entity.navigation.nav_com = Some(NavTargetRef::cell(10, 9));
+    entity
+        .navigation
+        .set_nav_com(Some(NavTargetRef::cell(10, 9)));
     entity.foot_speed.set_speed_fraction(SimFixed::from_num(1));
     sim.advance_live_object_turn(1, Some(&rules), techno_ai::ObjectAiCtx::default())
         .expect("fixture object turn must complete");
     let entity = sim.substrate.entities.get(1).unwrap();
     assert_eq!(
-        entity.locomotor.as_ref().unwrap().kind,
+        entity.locomotor.as_ref().unwrap().active_kind(),
         LocomotorKind::Teleport
     );
     assert!(
@@ -894,5 +897,5 @@ fn terminal_piggyback_end_is_synchronous_and_preserves_owner_speed() {
             .is_none()
     );
     assert_eq!(entity.foot_speed.applied_fraction(), SimFixed::from_num(1));
-    assert!(entity.navigation.nav_com.is_none());
+    assert!(entity.navigation.nav_com().is_none());
 }

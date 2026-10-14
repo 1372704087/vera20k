@@ -439,7 +439,7 @@ fn fatal_coil_bolt_releases_navigation_before_the_next_logic_reader() {
     assert!(sim.object_ai_visit_one(bullet, Some(rules), Default::default()));
     let victim = sim.substrate.entities.get(target).unwrap();
     assert!(
-        !victim.lifecycle.cell_marked,
+        !victim.lifecycle.cell_marked(),
         "fatal receiver already unmarked"
     );
     assert!(

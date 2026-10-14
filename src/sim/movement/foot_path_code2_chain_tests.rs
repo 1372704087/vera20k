@@ -45,11 +45,11 @@ fn stopped(sim: &mut Simulation, rules: &RuleSet, cell: (u16, u16), head: Option
     let tank = sim.substrate.entities.get_mut(id).unwrap();
     tank.foot_speed.set_speed_fraction(SIM_ZERO);
     tank.body_facing = FacingClass::new(0, 0);
-    tank.navigation.path_replay = FootPathQueue {
-        directions: head.into_iter().collect(),
-        cursor: 0,
-        reference_cell: Some((cell.0 as i16, cell.1 as i16)),
-    };
+    tank.navigation.path_replay = FootPathQueue::for_test(
+        head.into_iter().collect(),
+        0,
+        Some((cell.0 as i16, cell.1 as i16)),
+    );
     id
 }
 
@@ -76,8 +76,8 @@ fn set_head(sim: &mut Simulation, id: u64, head: Option<u8>) {
         .unwrap()
         .navigation
         .path_replay;
-    queue.directions = head.into_iter().collect();
-    queue.cursor = 0;
+    queue.set_directions_for_test(head.into_iter().collect());
+    queue.set_cursor(0);
 }
 
 /// A cell whose first object is no Foot jams (`0x0042989A`); an empty one
@@ -169,7 +169,11 @@ fn a_bridge_cell_lists_a_bridge_occupant_on_its_deck() {
     spawn(&mut sim, &rules, "HUT", (11, 10));
     let tank = stopped(&mut sim, &rules, (10, 10), Some(EAST));
     let set_on_bridge = |sim: &mut Simulation, on: bool| {
-        sim.substrate.entities.get_mut(tank).unwrap().on_bridge = on;
+        sim.substrate
+            .entities
+            .get_mut(tank)
+            .unwrap()
+            .set_on_bridge(on);
     };
     let set_level = |sim: &mut Simulation, cell: (u16, u16), level: u8| {
         let terrain = sim.resolved_terrain.as_mut().unwrap();
@@ -211,7 +215,7 @@ fn a_jammed_chain_detours_the_route_and_a_clear_one_runs_through() {
             .get_mut(blocker)
             .unwrap()
             .navigation
-            .nav_com = Some(NavTargetRef::cell(10, 5));
+            .set_nav_com(Some(NavTargetRef::cell(10, 5)));
         let tank = spawn(&mut sim, &rules, "TANK", (9, 10));
         let request = FootPathRequest::track(
             &sim.substrate.entities,
@@ -277,7 +281,7 @@ fn the_native_hills_controls_price_as_the_live_chain() {
         .unwrap()
         .navigation
         .path_replay
-        .directions = vec![NORTH, NORTH];
+        .set_directions_for_test(vec![NORTH, NORTH]);
     let controls = packet["costs"].as_array().unwrap();
     assert_eq!(controls.len(), 6);
     for control in controls {

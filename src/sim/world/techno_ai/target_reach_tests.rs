@@ -89,7 +89,7 @@ fn reach(
 ) -> (Option<TargetKind>, Option<NavTargetRef>) {
     target_reach_step(sim, tank, rules, None, FrameEffects::default());
     let tank = sim.substrate.entities.get(tank).unwrap();
-    (tank.attack_target.target(), tank.navigation.nav_com)
+    (tank.attack_target.target(), tank.navigation.nav_com())
 }
 
 /// A target in another zone is approached on any mission: from (8, 10) on

@@ -59,7 +59,7 @@ impl Simulation {
             .get(id)
             .expect("SetZ owner exists")
             .lifecycle
-            .cell_marked;
+            .cell_marked();
         if marked {
             self.foot_mark_remove(id, rules, registry, effects);
         }
@@ -285,7 +285,7 @@ pub(crate) fn object_ground_z_leptons(
         .and_then(|terrain| terrain.cell(entity.position.rx, entity.position.ry))
         .and_then(|cell| ground_height_leptons(cell.level, cell.slope_type, x, y).ok())
         .map(|ground| {
-            ground.wrapping_add(if entity.on_bridge {
+            ground.wrapping_add(if entity.on_bridge() {
                 BRIDGE_DECK_HEIGHT_LEPTONS
             } else {
                 0
@@ -549,7 +549,7 @@ impl Simulation {
             .substrate
             .entities
             .get(id)
-            .is_some_and(|entity| entity.lifecycle.cell_marked);
+            .is_some_and(|entity| entity.lifecycle.cell_marked());
         if marked {
             self.foot_mark_remove(id, rules, registry, effects);
         }
@@ -586,7 +586,7 @@ impl Simulation {
             .substrate
             .entities
             .get(id)
-            .is_some_and(|entity| entity.lifecycle.cell_marked);
+            .is_some_and(|entity| entity.lifecycle.cell_marked());
         if marked {
             self.unmark_entity_remove(id, context);
         }
@@ -608,9 +608,10 @@ impl Simulation {
         let Some(entity) = self.substrate.entities.get_mut(id) else {
             return;
         };
+        let on_bridge = entity.on_bridge();
         set_height(
             &mut entity.position,
-            entity.on_bridge,
+            on_bridge,
             height,
             self.resolved_terrain.as_ref(),
             None,

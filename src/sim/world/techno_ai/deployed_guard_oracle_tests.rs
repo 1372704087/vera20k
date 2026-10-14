@@ -242,7 +242,7 @@ fn supplied_fixture(row: &Value) -> (Simulation, RuleSet, u64) {
     // The companion supplies a post-constructor Location at Cell10,10;
     // transport the complete saved XYZ through the existing coordinate owner.
     ground_pose::put_location(&mut actor.position, coordinate(&before["position"]));
-    actor.on_bridge = input["bridge"] != 0;
+    actor.set_on_bridge(input["bridge"] != 0);
     actor.set_falling_down_for_test(input["falling"].as_i64().unwrap_or(0) != 0);
     actor
         .infantry
@@ -287,22 +287,24 @@ fn supplied_fixture(row: &Value) -> (Simulation, RuleSet, u64) {
     actor
         .attack_target
         .set_for_test(target(&before["target"], row));
-    actor.navigation.nav_com = target(&before["nav"], row).map(|target| match target {
-        TargetKind::Cell(x, y) => NavTargetRef::cell(x, y),
-        TargetKind::Entity(_) => unreachable!(),
-    });
+    actor
+        .navigation
+        .set_nav_com(target(&before["nav"], row).map(|target| match target {
+            TargetKind::Cell(x, y) => NavTargetRef::cell(x, y),
+            TargetKind::Entity(_) => unreachable!(),
+        }));
     let mut loco = LocomotorState::from_object_type(
         rules.object(input["type_id"].as_str().unwrap()).unwrap(),
         0,
     );
     // The supplied Walk has a retained destination with moving=0. Calling
     // MoveTo would invent a transition and overwrite that native premise.
-    loco.runtime_payload = LocomotorRuntimePayload::Walk(WalkRuntime {
+    loco.set_runtime_payload_for_test(LocomotorRuntimePayload::Walk(WalkRuntime {
         head: nonnull_coordinate(&before["head"]),
         destination: nonnull_coordinate(&before["destination"]),
         moving: before["moving"] != 0,
         animation_moving: before["motion"] != 0,
-    });
+    }));
     actor.locomotor = Some(loco);
     actor
         .foot_speed
@@ -348,7 +350,7 @@ fn assert_actor(actor: &GameEntity, expected: &Value, row: &Value, rearm: bool) 
         "mission": actor.mission.current().raw(), "suspended": actor.mission.suspended().raw(),
         "queued": actor.mission.queued().raw(), "handler_state": actor.mission.handler_state(),
         "mission_start": actor.mission.mission_start_frame(),
-        "on_bridge": u8::from(actor.on_bridge),
+        "on_bridge": u8::from(actor.on_bridge()),
         "position": [i32::from(actor.position.rx)*256+actor.position.sub_x.to_num::<i32>(), i32::from(actor.position.ry)*256+actor.position.sub_y.to_num::<i32>(), actor.position.exact_z_leptons.unwrap()],
         "moving": u8::from(loco.walk_is_moving().unwrap()), "motion": u8::from(loco.walk_animation_moving().unwrap()),
     });
@@ -374,7 +376,7 @@ fn assert_actor(actor: &GameEntity, expected: &Value, row: &Value, rearm: bool) 
         TargetKind::Cell(x, y) => NavTargetRef::cell(x, y),
         TargetKind::Entity(_) => unreachable!(),
     });
-    assert_eq!(actor.navigation.nav_com, nav, "{name}: NavCom");
+    assert_eq!(actor.navigation.nav_com(), nav, "{name}: NavCom");
     assert!(actor.archive_target().is_none(), "{name}: archive");
     assert_eq!(expected["archive"], 0);
     if rearm {

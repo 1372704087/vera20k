@@ -333,7 +333,7 @@ fn cannot_c4_building_rejects_plant_command() {
     let seal = sim.substrate.entities.get(seal).unwrap();
     assert!(
         seal.mission.effective().known() != Some(MissionType::Sabotage)
-            && seal.navigation.nav_com.is_none(),
+            && seal.navigation.nav_com().is_none(),
         "PlantC4 must be silently rejected for CanC4=no buildings"
     );
     assert!(
@@ -369,7 +369,7 @@ fn non_c4_unit_rejects_plant_command() {
     let gi = sim.substrate.entities.get(gi).unwrap();
     assert!(
         gi.mission.effective().known() != Some(MissionType::Sabotage)
-            && gi.navigation.nav_com.is_none(),
+            && gi.navigation.nav_com().is_none(),
         "PlantC4 must be silently rejected for non-C4 attackers"
     );
     assert!(

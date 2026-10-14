@@ -96,7 +96,7 @@ fn fixture(input: &Value) -> (Simulation, RuleSet) {
         infantry.set_type_ref_for_test(sim.interner.intern("E1"));
         infantry.set_category_for_test(EntityCategory::Infantry);
         infantry.set_is_voxel_for_test(false);
-        infantry.sub_cell = Some(2);
+        infantry.set_sub_cell(Some(2));
         infantry.passenger_role = crate::sim::passenger::PassengerRole::inside_for_test(1, false);
         sim.substrate.entities.insert(infantry);
         sim.substrate.next_stable_object_id = 3;
@@ -581,11 +581,11 @@ fn an_aircraft_strike_scatters_the_target_cell_away_from_the_aircraft() {
     let tank = sim.substrate.entities.get(tank).unwrap();
     assert!(
         matches!(
-            tank.navigation.nav_com,
+            tank.navigation.nav_com(),
             Some(crate::sim::components::NavTargetRef::Cell { ry: 8, .. })
         ),
         "{:?}",
-        tank.navigation.nav_com
+        tank.navigation.nav_com()
     );
     assert_eq!(
         tank.mission.queued(),

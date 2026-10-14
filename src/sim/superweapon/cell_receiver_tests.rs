@@ -170,7 +170,7 @@ fn held_infantry_survives_launch(name: &str) {
             .get(marked)
             .unwrap()
             .lifecycle
-            .cell_marked
+            .cell_marked()
     );
     assert!(
         sim.substrate
@@ -212,7 +212,7 @@ fn held_infantry_survives_launch(name: &str) {
         assert!(!object.death.is_dying());
         assert!(
             object.lifecycle.in_limbo()
-                && !object.lifecycle.cell_marked
+                && !object.lifecycle.cell_marked()
                 && !object.in_logic_vector.is_member()
         );
     }
@@ -268,7 +268,7 @@ fn animated_mutation_victim_retires(explosion: bool) {
     let object = sim.substrate.entities.get(victim).unwrap();
     assert_eq!(object.infantry_sprite_pose(), Some((-1, 0)));
     assert!(object.animation.is_none(), "Doing owns the Infantry pose");
-    assert!(object.lifecycle.cell_marked && object.in_logic_vector.is_member());
+    assert!(object.lifecycle.cell_marked() && object.in_logic_vector.is_member());
     launch_command(&mut sim, &rules, "GM", 5, 5);
     // InfDeath 9's admitted arm UnInits the victim inside its receiver
     // (`0x005185F1`); no death sequence keeps a corpse.
@@ -470,7 +470,7 @@ fn infantry_terminal_receiver_sequences_finish_through_production_frames() {
             if frame < 3 {
                 let object = sim.substrate.entities.get(victim).unwrap();
                 assert_eq!(object.infantry_sprite_pose(), Some((doing, frame)));
-                assert!(object.lifecycle.cell_marked && object.in_logic_vector.is_member());
+                assert!(object.lifecycle.cell_marked() && object.in_logic_vector.is_member());
             }
         }
         assert!(!sim.substrate.occupancy.contains_entity(5, 5, victim));
@@ -504,7 +504,7 @@ fn infantry_terminal_zero_count_death_request_retains_the_previous_action() {
     assert_eq!(*object.native_stage(), before);
     assert!(
         object.death.is_dying()
-            && object.lifecycle.cell_marked
+            && object.lifecycle.cell_marked()
             && object.in_logic_vector.is_member()
     );
 }
@@ -597,7 +597,7 @@ fn genetic_converter_command_uses_selected_bridge_membership() {
                 },
             );
             actor.position.z = 4;
-            actor.on_bridge = true;
+            actor.set_on_bridge(true);
         }
         assert!(matches!(
             sim.reveal(id),
@@ -703,7 +703,7 @@ fn iron_curtain_command_forces_authored_strength_and_attributes_retained_deaths(
         "forced C4 bypasses prior invulnerability"
     );
     assert!(
-        dead.death.is_dying() && dead.lifecycle.cell_marked && dead.in_logic_vector.is_member()
+        dead.death.is_dying() && dead.lifecycle.cell_marked() && dead.in_logic_vector.is_member()
     );
     assert_eq!(dead.infantry_sprite_pose(), Some((12, 0)));
     assert_eq!(dead.kill_record.killer(), Some(owner));
@@ -764,7 +764,7 @@ fn iron_curtain_command_selects_deck_members_and_overlapping_foundation() {
             },
         );
         actor.position.z = 4;
-        actor.on_bridge = true;
+        actor.set_on_bridge(true);
     }
     sim.reveal(deck);
     let big = sim
@@ -984,7 +984,7 @@ fn iron_curtain_command_observes_native_deck_order_after_nested_bridge_drop_in()
             },
         );
         actor.position.z = 7;
-        actor.on_bridge = true;
+        actor.set_on_bridge(true);
     }
     sim.reveal(tank);
     // Keep it alive through the nested DeathWeapon without setting IC first.
@@ -1017,7 +1017,7 @@ fn iron_curtain_command_observes_native_deck_order_after_nested_bridge_drop_in()
             },
         );
         actor.position.z = 7;
-        actor.on_bridge = true;
+        actor.set_on_bridge(true);
     }
     sim.reveal(boomer);
     assert_eq!(
@@ -1051,16 +1051,16 @@ fn iron_curtain_command_observes_native_deck_order_after_nested_bridge_drop_in()
             },
         );
         actor.position.z = 7;
-        actor.on_bridge = true;
+        actor.set_on_bridge(true);
     }
     launch_command(&mut sim, &rules, "IC", 5, 5);
     let current = sim.substrate.entities.get(boomer).unwrap();
     assert!(
-        current.death.is_dying() && !current.on_bridge,
+        current.death.is_dying() && !current.on_bridge(),
         "nested fallout relayers the retained current receiver"
     );
     let recipient = sim.substrate.entities.get(tank).unwrap();
-    assert!(!recipient.on_bridge && recipient.health.current() > 0);
+    assert!(!recipient.on_bridge() && recipient.health.current() > 0);
     assert!(
         recipient.invulnerability.is_none(),
         "native deck traversal prepends tank after boomer; current boomer then has no successor"
@@ -1073,7 +1073,7 @@ fn iron_curtain_command_observes_native_deck_order_after_nested_bridge_drop_in()
         .snapshot_layer(MovementLayer::Ground);
     assert_eq!(ground, vec![tank, boomer]);
     let twin = sim.substrate.entities.get(unmarked).unwrap();
-    assert!(twin.on_bridge && twin.lifecycle.in_limbo() && !twin.lifecycle.cell_marked);
+    assert!(twin.on_bridge() && twin.lifecycle.in_limbo() && !twin.lifecycle.cell_marked());
     assert_eq!(
         twin.position.z, 7,
         "unmarked deck coordinate is not a DropIn recipient"

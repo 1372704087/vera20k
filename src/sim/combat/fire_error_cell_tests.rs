@@ -134,7 +134,7 @@ fn original_object_cell_queries_keep_physical_aliases_and_dummy_fields() {
             entity.position.sub_x = SimFixed::from_num(x - i32::from(entity.position.rx) * 256);
             entity.position.sub_y = SimFixed::from_num(y - i32::from(entity.position.ry) * 256);
             entity.position.exact_z_leptons = Some(z);
-            entity.lifecycle.cell_marked = row.input.marked != 0;
+            entity.lifecycle.set_cell_marked(row.input.marked != 0);
         }
         let subject = FireSubject {
             world: &sim,
@@ -170,7 +170,7 @@ fn original_object_cell_queries_keep_physical_aliases_and_dummy_fields() {
             "{}",
             row.input.name
         );
-        assert_eq!(subject.firer.lifecycle.cell_marked, row.input.marked != 0);
+        assert_eq!(subject.firer.lifecycle.cell_marked(), row.input.marked != 0);
     }
 }
 

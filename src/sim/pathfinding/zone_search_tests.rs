@@ -79,7 +79,7 @@ fn gsi_04_12_cell_listed_entity(
 ) -> GameEntity {
     let mut entity = GameEntity::test_default(stable_id, type_ref, owner, rx, ry);
     entity.lifecycle.set_in_limbo_for_test(false);
-    entity.lifecycle.cell_marked = true;
+    entity.lifecycle.set_cell_marked(true);
     entity
 }
 
@@ -142,7 +142,7 @@ fn first_track_process_route(
     sim.process_ground_locomotor_for_test(id, rules, Some(grid), None)
         .expect("the first Process completes");
     let entity = sim.substrate.entities.get(id)?;
-    entity.navigation.nav_com?;
+    entity.navigation.nav_com()?;
     Some(installed_route(entity, start))
 }
 
@@ -150,7 +150,7 @@ fn first_track_process_route(
 /// Foot+5E0 words (consumed ones included); empty when none were installed.
 fn installed_route(entity: &GameEntity, start: (u16, u16)) -> Vec<(u16, u16)> {
     let queue = &entity.navigation.path_replay;
-    if queue.directions.is_empty() {
+    if queue.directions().is_empty() {
         Vec::new()
     } else {
         queue.installed_cells(start)
@@ -652,9 +652,9 @@ fn gsi_04_12_layered_production_precheck_projects_only_hierarchy_coordinates() {
         let mut locomotor = crate::sim::movement::locomotor::LocomotorState::for_test_kind(
             crate::rules::locomotor_type::LocomotorKind::Drive,
         );
-        locomotor.layer = MovementLayer::Bridge;
+        locomotor.set_layer(MovementLayer::Bridge);
         mover.locomotor = Some(locomotor);
-        mover.on_bridge = true;
+        mover.set_on_bridge(true);
         assert!(
             mover
                 .locomotor
@@ -701,7 +701,7 @@ fn gsi_04_12_layered_production_precheck_projects_only_hierarchy_coordinates() {
         "projection must not mutate the A* start coordinate"
     );
     assert!(
-        sim.substrate.entities.get(1).expect("mover").on_bridge,
+        sim.substrate.entities.get(1).expect("mover").on_bridge(),
         "the Process search starts on the bridge layer: AStar 0x00429A90 takes the start height from the Foot's OnBridge byte"
     );
     assert_eq!(
@@ -935,14 +935,14 @@ fn gsi_04_12_completed_ground_unit_clearance_rally_threads_exact_blocker_counts(
     assert_eq!((produced.position.rx, produced.position.ry), (1, 0));
     let locomotor = produced.locomotor.as_ref().expect("produced locomotor");
     assert_eq!(
-        locomotor.kind,
+        locomotor.active_kind(),
         crate::rules::locomotor_type::LocomotorKind::Drive
     );
-    assert_eq!(locomotor.movement_zone, MovementZone::Normal);
-    assert!(!produced.on_bridge);
+    assert_eq!(locomotor.movement_zone(), MovementZone::Normal);
+    assert!(!produced.on_bridge());
     let produced_id = produced.stable_id();
     assert_eq!(produced.rally_cell(), Some((5, 0)));
-    assert!(produced.navigation.nav_com.is_none());
+    assert!(produced.navigation.nav_com().is_none());
     assert!(produced.has_live_contact_with(factory));
     assert_eq!(produced.tether.partner(), Some(factory));
     assert_eq!(
@@ -1088,7 +1088,7 @@ fn gsi_04_12_interaction_order_entry_threads_exact_blocker_counts() {
 
     let engineer = sim.substrate.entities.get(engineer_id).unwrap();
     assert_eq!(
-        engineer.navigation.nav_com,
+        engineer.navigation.nav_com(),
         Some(NavTargetRef::building(target_id))
     );
     assert!(
@@ -1199,7 +1199,7 @@ fn gsi_04_12_interaction_order_entry_threads_exact_blocker_counts() {
 
     let engineer = sim.substrate.entities.get(engineer_id).unwrap();
     assert_eq!(
-        engineer.navigation.nav_com,
+        engineer.navigation.nav_com(),
         Some(NavTargetRef::building(target_id))
     );
     // Native Infantry 51C300/51C37D/51C71B admits the matching Building
@@ -1209,7 +1209,7 @@ fn gsi_04_12_interaction_order_entry_threads_exact_blocker_counts() {
     // The installed Foot+5E0 route runs from the start Cell to the building
     // Cell; its words carry no layer.
     let route = &engineer.navigation.path_replay;
-    assert_eq!(route.reference_cell, Some((1, 0)));
+    assert_eq!(route.reference_cell(), Some((1, 0)));
     assert_eq!(
         route.remaining_cells().last().copied(),
         Some((5, 0)),
@@ -1262,9 +1262,9 @@ fn gsi_04_12_attack_move_resume_threads_exact_blocker_counts() {
     let mut locomotor = crate::sim::movement::locomotor::LocomotorState::for_test_kind(
         crate::rules::locomotor_type::LocomotorKind::Drive,
     );
-    locomotor.layer = MovementLayer::Bridge;
+    locomotor.set_layer(MovementLayer::Bridge);
     mover.locomotor = Some(locomotor);
-    mover.on_bridge = true;
+    mover.set_on_bridge(true);
     assert!(
         mover
             .locomotor
@@ -1297,7 +1297,7 @@ fn gsi_04_12_attack_move_resume_threads_exact_blocker_counts() {
     let resumed = sim.substrate.entities.get(1).expect("resumed mover");
     assert_eq!(route.first().copied(), Some((1, 0)));
     assert!(
-        sim.substrate.entities.get(1).expect("mover").on_bridge,
+        sim.substrate.entities.get(1).expect("mover").on_bridge(),
         "the Process search starts on the bridge layer: AStar 0x00429A90 takes the start height from the Foot's OnBridge byte"
     );
     assert_eq!(route.last().copied(), Some((3, 0)));
@@ -1353,9 +1353,9 @@ fn gsi_04_12_drive_pending_continuation_keeps_hierarchy_context_and_raw_route() 
     let mut locomotor = crate::sim::movement::locomotor::LocomotorState::for_test_kind(
         crate::rules::locomotor_type::LocomotorKind::Drive,
     );
-    locomotor.layer = MovementLayer::Bridge;
+    locomotor.set_layer(MovementLayer::Bridge);
     mover.locomotor = Some(locomotor);
-    mover.on_bridge = true;
+    mover.set_on_bridge(true);
     assert!(
         mover
             .locomotor
@@ -1363,8 +1363,8 @@ fn gsi_04_12_drive_pending_continuation_keeps_hierarchy_context_and_raw_route() 
             .unwrap()
             .install_drive_state_for_test(Some(Default::default()))
     );
-    mover.navigation.nav_com = Some(NavTargetRef::cell(3, 0));
-    mover.navigation.pending_destination_setter = true;
+    mover.navigation.set_nav_com(Some(NavTargetRef::cell(3, 0)));
+    mover.navigation.set_pending_destination_setter(true);
     let blocker = gsi_04_12_cell_listed_entity(2, "MTNK", "Russians", 2, 0);
 
     // The pending pass on the production Simulation host, with the fixture's
@@ -1397,8 +1397,11 @@ fn gsi_04_12_drive_pending_continuation_keeps_hierarchy_context_and_raw_route() 
         .entities
         .get(1)
         .expect("continued Drive mover");
-    assert_eq!(continued.navigation.nav_com, Some(NavTargetRef::cell(3, 0)));
-    assert!(!continued.navigation.pending_destination_setter);
+    assert_eq!(
+        continued.navigation.nav_com(),
+        Some(NavTargetRef::cell(3, 0))
+    );
+    assert!(!continued.navigation.pending_destination_setter());
     assert!(
         crate::sim::movement::motion_query::is_moving(&continued) == Some(true),
         "pending Drive continuation should rebuild the hierarchy route"
@@ -1406,7 +1409,7 @@ fn gsi_04_12_drive_pending_continuation_keeps_hierarchy_context_and_raw_route() 
     let route = installed_route(continued, (1, 0));
     assert_eq!(route.first().copied(), Some((1, 0)));
     assert!(
-        continued.on_bridge,
+        continued.on_bridge(),
         "the Process search starts on the bridge layer: AStar 0x00429A90 takes the start height from the Foot's OnBridge byte"
     );
     assert_eq!(route.last().copied(), Some((3, 0)));
@@ -1462,9 +1465,9 @@ fn gsi_04_12_stock_miner_move_entry_threads_exact_world_context() {
         let mut locomotor = crate::sim::movement::locomotor::LocomotorState::for_test_kind(
             crate::rules::locomotor_type::LocomotorKind::Drive,
         );
-        locomotor.layer = MovementLayer::Bridge;
+        locomotor.set_layer(MovementLayer::Bridge);
         miner.locomotor = Some(locomotor);
-        miner.on_bridge = true;
+        miner.set_on_bridge(true);
         assert!(
             miner
                 .locomotor

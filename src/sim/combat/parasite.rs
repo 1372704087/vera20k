@@ -797,7 +797,7 @@ impl Simulation {
             .entities
             .get(owner)
             .is_some_and(|o| o.category() == EntityCategory::Unit);
-        let victim_on_bridge = victim_entity.on_bridge;
+        let victim_on_bridge = victim_entity.on_bridge();
         if self.parasite_can_place_at_victim(owner, victim, rules) {
             let victim_entity = self.substrate.entities.get(victim)?;
             let mut coords = ground_pose::position_world_coord(&victim_entity.position);
@@ -811,7 +811,10 @@ impl Simulation {
                         .wrapping_add(crate::util::lepton::BRIDGE_DECK_HEIGHT_LEPTONS);
                 }
             }
-            self.substrate.entities.get_mut(owner)?.on_bridge = victim_on_bridge;
+            self.substrate
+                .entities
+                .get_mut(owner)?
+                .set_on_bridge(victim_on_bridge);
             return Some(coords);
         }
         let frame = self.session.binary_frame;
@@ -879,7 +882,10 @@ impl Simulation {
         } else {
             false
         };
-        self.substrate.entities.get_mut(owner)?.on_bridge = on_bridge;
+        self.substrate
+            .entities
+            .get_mut(owner)?
+            .set_on_bridge(on_bridge);
         Some(coords)
     }
 
@@ -1078,7 +1084,7 @@ impl Simulation {
             (None, sub_x, sub_y)
         };
         if let Some(entity) = self.substrate.entities.get_mut(owner) {
-            entity.sub_cell = sub_cell;
+            entity.set_sub_cell(sub_cell);
         }
         let revealed = matches!(
             self.try_reveal_entity_with_context(

@@ -72,7 +72,7 @@ fn response_world(frame: u32, attacker_at: (u16, u16)) -> Simulation {
     let mut attacker =
         GameEntity::test_default(2, "ATTACKER", "Enemy", attacker_at.0, attacker_at.1);
     attacker.lifecycle.set_in_limbo_for_test(false);
-    attacker.lifecycle.cell_marked = true;
+    attacker.lifecycle.set_cell_marked(true);
     sim.substrate.entities.insert(attacker);
     sim
 }
@@ -160,8 +160,12 @@ fn native_response_uses_the_paid_foot_head_instead_of_navcom() {
                 )
             ))
     );
-    candidate.navigation.nav_com =
-        Some(crate::sim::components::NavTargetRef::Cell { rx: 7, ry: 7 });
+    candidate
+        .navigation
+        .set_nav_com(Some(crate::sim::components::NavTargetRef::Cell {
+            rx: 7,
+            ry: 7,
+        }));
     let mut entities = EntityStore::new();
     entities.insert(candidate.clone());
     let rules = RuleSet::from_ini(&IniFile::from_str(
@@ -746,7 +750,10 @@ fn retail_bridge_base_response_runs_through_the_protected_damage_receiver() {
             .get_mut(defender)
             .unwrap()
             .navigation
-            .nav_com = Some(crate::sim::components::NavTargetRef::Cell { rx: 9, ry: 5 });
+            .set_nav_com(Some(crate::sim::components::NavTargetRef::Cell {
+                rx: 9,
+                ry: 5,
+            }));
         let health = sim.substrate.entities.get(victim).unwrap().health.current();
         let warhead = sim.interner.intern("AP");
         let source_house = Some(sim.substrate.entities.get(attacker).unwrap().owner());

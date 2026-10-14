@@ -860,7 +860,7 @@ impl Simulation {
             {
                 continue;
             }
-            if entity.navigation.nav_com.is_none() {
+            if entity.navigation.nav_com().is_none() {
                 let stray = self.team_stray(team_id, rules);
                 if self.team_member_distance(entity, zone) > stray.wrapping_mul(2)
                     && mission != MissionType::AreaGuard as i32
@@ -876,7 +876,7 @@ impl Simulation {
             let Some(entity) = self.substrate.entities.get(member) else {
                 continue;
             };
-            if entity.attack_target.target().is_some() || entity.navigation.nav_com.is_some() {
+            if entity.attack_target.target().is_some() || entity.navigation.nav_com().is_some() {
                 continue;
             }
             let current = entity.mission.effective().raw();
@@ -1520,7 +1520,7 @@ impl Simulation {
             terrain,
             leader_cell,
             object.movement_zone,
-            leader.on_bridge,
+            leader.on_bridge(),
         )?;
         self.find_plain_passable_cell(
             seed,
@@ -1617,7 +1617,7 @@ impl Simulation {
                 let aimed = tarcom_names(entity, old);
                 let moving = entity
                     .navigation
-                    .nav_com
+                    .nav_com()
                     .is_some_and(|nav| nav_names(nav, old));
                 if aimed || moving {
                     self.team_member_queue_mission(member, MissionType::Guard, rules);
@@ -1816,7 +1816,7 @@ impl Simulation {
             }
             if near {
                 if entity.mission.effective() == MissionId::from_known(MissionType::Move) {
-                    let still_moving = entity.navigation.nav_com.is_some_and(|nav| {
+                    let still_moving = entity.navigation.nav_com().is_some_and(|nav| {
                         self.team_member_distance(entity, Some(nav_target(nav)))
                             > rules.general.close_enough
                             || crate::sim::movement::motion_query::is_moving(entity) == Some(true)
@@ -1850,7 +1850,7 @@ impl Simulation {
                     .substrate
                     .entities
                     .get(member)
-                    .is_some_and(|entity| entity.navigation.nav_com.is_none())
+                    .is_some_and(|entity| entity.navigation.nav_com().is_none())
                 {
                     self.team_member_set_destination(
                         member,
@@ -1866,10 +1866,10 @@ impl Simulation {
                 let balloon_hover = self
                     .object_type(entity.type_ref(), rules)
                     .is_some_and(|object| object.balloon_hover);
-                let resend = entity.navigation.nav_com.is_some_and(|nav| {
+                let resend = entity.navigation.nav_com().is_some_and(|nav| {
                     !nav_names(nav, focus)
                         && (balloon_hover || (aircraft && nav_names(nav, member_cell(entity))))
-                }) || (entity.navigation.nav_com.is_none() && balloon_hover);
+                }) || (entity.navigation.nav_com().is_none() && balloon_hover);
                 if resend {
                     self.team_member_set_destination(
                         member,
@@ -1884,7 +1884,7 @@ impl Simulation {
             let Some(entity) = self.substrate.entities.get(member) else {
                 continue;
             };
-            if let Some(nav) = entity.navigation.nav_com {
+            if let Some(nav) = entity.navigation.nav_com() {
                 let balloon_hover = self
                     .object_type(entity.type_ref(), rules)
                     .is_some_and(|object| object.balloon_hover);

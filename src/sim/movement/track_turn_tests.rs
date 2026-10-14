@@ -124,7 +124,7 @@ fn fixture(kind: LocomotorKind) -> Simulation {
     entity.set_owner_for_test(sim.intern("Americans"));
     entity.lifecycle.set_object_alive_for_test(true);
     entity.lifecycle.set_in_limbo_for_test(false);
-    entity.lifecycle.cell_marked = true;
+    entity.lifecycle.set_cell_marked(true);
     entity.locomotor = Some(LocomotorState::for_test_kind(kind));
     match kind {
         LocomotorKind::Drive => assert!(
@@ -188,8 +188,12 @@ fn track_entry_matches_all_144_native_rows_and_only_changes_rejected_residual() 
             track,
         );
         // A consumed prefix must not become the native live queue head.
-        entity.navigation.path_replay.directions = vec![8, integer(&input["queue_head"]) as u8, 6];
-        entity.navigation.path_replay.cursor = 1;
+        entity.navigation.path_replay.set_directions_for_test(vec![
+            8,
+            integer(&input["queue_head"]) as u8,
+            6,
+        ]);
+        entity.navigation.path_replay.set_cursor(1);
         let mut expected = serde_json::to_value(&*entity).unwrap();
         let field = if kind == LocomotorKind::Drive {
             "Drive"
@@ -669,12 +673,11 @@ fn ordinary_fresh_turn_and_drive_refusal_reach_entry_without_running_speed() {
                 entity.mover_facts.set_drive_accelerates_for_test(false);
                 entity.foot_speed.set_speed_fraction(SimFixed::lit("0.25"));
                 let speed_before = entity.foot_speed.clone();
-                entity.navigation.nav_com = Some(NavTargetRef::cell(10, 8));
-                entity.navigation.path_replay = FootPathQueue {
-                    directions: vec![2, 2],
-                    cursor: 0,
-                    reference_cell: Some((8, 8)),
-                };
+                entity
+                    .navigation
+                    .set_nav_com(Some(NavTargetRef::cell(10, 8)));
+                entity.navigation.path_replay =
+                    FootPathQueue::for_test(vec![2, 2], 0, Some((8, 8)));
                 set_retained(
                     entity,
                     kind,
@@ -722,7 +725,7 @@ fn ordinary_fresh_turn_and_drive_refusal_reach_entry_without_running_speed() {
                     blocker.set_owner_for_test(sim.intern("Americans"));
                     blocker.lifecycle.set_object_alive_for_test(true);
                     blocker.lifecycle.set_in_limbo_for_test(false);
-                    blocker.lifecycle.cell_marked = true;
+                    blocker.lifecycle.set_cell_marked(true);
                     sim.substrate.entities.insert(blocker);
                     sim.substrate.occupancy =
                         crate::sim::occupancy::OccupancyGrid::rebuild(&sim.substrate.entities);
@@ -849,12 +852,10 @@ fn live_rotation_returns_before_fresh_selection_with_a_queued_path_and_no_displa
             .unwrap()
             .snap(2, 100);
         entity.mover_facts.set_drive_accelerates_for_test(false);
-        entity.navigation.nav_com = Some(NavTargetRef::cell(8, 7));
-        entity.navigation.path_replay = FootPathQueue {
-            directions: vec![0, 0],
-            cursor: 0,
-            reference_cell: Some((8, 8)),
-        };
+        entity
+            .navigation
+            .set_nav_com(Some(NavTargetRef::cell(8, 7)));
+        entity.navigation.path_replay = FootPathQueue::for_test(vec![0, 0], 0, Some((8, 8)));
         let before_position = super::super::ground_pose::position_world_coord(&entity.position);
         let before_facing = serde_json::to_value(entity.body_facing).unwrap();
         let before_queue = entity.navigation.path_replay.clone();
@@ -973,12 +974,12 @@ fn actual_turn_and_arrival_crush_use_binary_frame_for_both_shield_kinds() {
                                 EntityCategory::Infantry,
                             );
                         victim.set_is_voxel_for_test(false);
-                        victim.sub_cell = Some(0);
+                        victim.set_sub_cell(Some(0));
                         victim.position = position;
                         victim.crushable_facts.set_crushable_for_test(true);
                         victim.lifecycle.set_object_alive_for_test(true);
                         victim.lifecycle.set_in_limbo_for_test(false);
-                        victim.lifecycle.cell_marked = true;
+                        victim.lifecycle.set_cell_marked(true);
                         victim.invulnerability = Some(InvulnerabilityState::new(
                             crate::sim::timer::CdTimer::started((frame - age) as i32, 30),
                             shield,

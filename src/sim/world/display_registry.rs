@@ -48,7 +48,7 @@ pub(crate) fn entity_layer(
     let raw = position_world_coord(&entity.position);
     let height = crate::sim::movement::air_movement::current_fly_height(entity, terrain);
     let mut adjusted_height = height;
-    if kind == Some(LocomotorKind::Jumpjet) && !entity.on_bridge {
+    if kind == Some(LocomotorKind::Jumpjet) && !entity.on_bridge() {
         // This map lookup precedes the high-flying gate even when +74 is false.
         let flags = terrain.map_or(0, |terrain| {
             let cell = terrain.native_cell_identity(((raw.x / 256) as i16, (raw.y / 256) as i16));
@@ -381,8 +381,10 @@ mod tests {
             entity.position.sub_x = SimFixed::from_num(128);
             entity.position.sub_y = SimFixed::from_num(128);
             entity.position.exact_z_leptons = Some(input["z"].as_i64().unwrap() as i32);
-            entity.lifecycle.cell_marked = input["marked"].as_bool().unwrap_or(true);
-            entity.on_bridge = input["on_bridge"].as_bool().unwrap_or(false);
+            entity
+                .lifecycle
+                .set_cell_marked(input["marked"].as_bool().unwrap_or(true));
+            entity.set_on_bridge(input["on_bridge"].as_bool().unwrap_or(false));
             entity.set_falling_down_for_test(input["falling"].as_bool().unwrap_or(false));
             let loco_kind = match kind {
                 "walk" => Some(LocomotorKind::Walk),
@@ -433,7 +435,7 @@ mod tests {
             // native answer is Ground, then the OnBridge one.
             assert_eq!(
                 crate::sim::occupancy::cell_list_layer_for_entity(entity, Some(&terrain)),
-                (row["layer"] == 2).then_some(if entity.on_bridge {
+                (row["layer"] == 2).then_some(if entity.on_bridge() {
                     crate::sim::movement::locomotor::MovementLayer::Bridge
                 } else {
                     crate::sim::movement::locomotor::MovementLayer::Ground

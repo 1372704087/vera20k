@@ -274,7 +274,7 @@ impl Fixture {
                 int(&command["delivered_mission"])
             );
             assert_eq!(
-                entity.navigation.nav_com,
+                entity.navigation.nav_com(),
                 Some(NavTargetRef::Building { id: building })
             );
             install_mission(entity, &route["before_arrivals"][index]["engineer"]);
@@ -632,7 +632,7 @@ impl Fixture {
             "{boundary}: Engineer limbo"
         );
         assert_eq!(
-            entity.lifecycle.cell_marked,
+            entity.lifecycle.cell_marked(),
             expected["marked"] == 1,
             "{boundary}: cell mark"
         );
@@ -663,7 +663,7 @@ impl Fixture {
         );
         if int(&expected["destination"]) == self.native_building {
             assert_eq!(
-                entity.navigation.nav_com,
+                entity.navigation.nav_com(),
                 Some(NavTargetRef::Building { id: self.building }),
                 "{boundary}: retained object NavCom"
             );
@@ -672,7 +672,7 @@ impl Fixture {
             // The shared Scatter goldens cover its cell choice; this joined
             // comparison checks the object-to-cell navigation transition.
             assert!(
-                matches!(entity.navigation.nav_com, Some(NavTargetRef::Cell { .. })),
+                matches!(entity.navigation.nav_com(), Some(NavTargetRef::Cell { .. })),
                 "{boundary}: Scatter replaces object NavCom with Cell"
             );
         }

@@ -224,7 +224,7 @@ impl Simulation {
             ));
             let level = |cell| i32::from(terrain.native_cell_ground_fields(cell).0 as i8);
             let bridge = terrain.native_cell_flags(next) & 0x100 != 0
-                && (foot.on_bridge || level(terrain.native_cell_identity(own)) - level(next) > 2);
+                && (foot.on_bridge() || level(terrain.native_cell_identity(own)) - level(next) > 2);
             list = match next {
                 NativeCellIdentity::Real(_) => {
                     let (x, y) = terrain.native_cell_coord(next);
@@ -445,8 +445,8 @@ impl Simulation {
             match path {
                 SuppliedPath::FoundUnchanged => return Ok(FindPathResult::Route),
                 SuppliedPath::Found(words) => {
-                    queue.directions = words;
-                    queue.cursor = 0;
+                    queue.set_directions_for_test(words);
+                    queue.set_cursor(0);
                     return Ok(FindPathResult::Route);
                 }
                 SuppliedPath::Failed => return Ok(FindPathResult::Failed),
@@ -696,7 +696,7 @@ impl Simulation {
             id,
             own_cell,
             actor.body_facing.current(frame),
-            actor.on_bridge,
+            actor.on_bridge(),
             request.urgency,
             unlisted,
         );
@@ -769,7 +769,7 @@ impl Simulation {
         //search that still fails measures against the redirected cell.
         let target = ((goal.x / 256) as i16, (goal.y / 256) as i16);
         if chebyshev(current, target) <= 1 {
-            if actor.on_bridge {
+            if actor.on_bridge() {
                 return Ok(());
             }
             let terrain = self
@@ -1048,7 +1048,7 @@ impl Simulation {
             terrain,
             (current.0 as u16, current.1 as u16),
             zone,
-            actor.on_bridge,
+            actor.on_bridge(),
         );
         let cells = NativeCellQuery::canonical(terrain);
         let grid = self.path_grid_snapshot();
@@ -1061,7 +1061,7 @@ impl Simulation {
                     speed_type: object.speed_type,
                     required_zone_id,
                     movement_zone: zone,
-                    bridge_aware_zone: actor.on_bridge,
+                    bridge_aware_zone: actor.on_bridge(),
                 },
                 footprint: NearbyFootprint::SINGLE,
                 allow_bridge_cells: true,
@@ -1285,7 +1285,7 @@ impl Simulation {
             .entities
             .get(id)
             .ok_or("missing Foot edge receiver")?;
-        if !actor.in_playfield {
+        if !actor.in_playfield() {
             return Ok(false);
         }
         if actor.is_mission_only() || actor.mission.effective().raw() == 4 {
@@ -1387,7 +1387,7 @@ impl Simulation {
                 current: ground_pose::position_world_coord(&actor.position),
                 destination,
                 movement_zone: object.movement_zone,
-                on_bridge: actor.on_bridge,
+                on_bridge: actor.on_bridge(),
                 in_tube: actor.low_bridge_tube_state.is_some(),
                 allow_destination_fringe,
             },
@@ -1445,7 +1445,11 @@ mod tests {
             let id = sim
                 .spawn_object("MTNK", "Americans", start.0, start.1, 0, &rules)
                 .unwrap();
-            sim.substrate.entities.get_mut(id).unwrap().in_playfield = in_playfield;
+            sim.substrate
+                .entities
+                .get_mut(id)
+                .unwrap()
+                .set_in_playfield(in_playfield);
             let mut split = sim.path_grid.as_deref().unwrap().clone();
             for y in 0..split.height() {
                 split.set_blocked(15, y, true);

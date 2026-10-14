@@ -910,7 +910,7 @@ impl Simulation {
             .entities
             .get(stable_id)
             .and_then(|e| e.locomotor.as_ref())
-            .is_some_and(|l| l.kind == crate::rules::locomotor_type::LocomotorKind::Walk);
+            .is_some_and(|l| l.active_kind() == crate::rules::locomotor_type::LocomotorKind::Walk);
         // An entry-active TubeMovement leaf runs through the ground corridor
         // in place of the Foot AI and its Process.
         let process = if tube_active_at_entry {

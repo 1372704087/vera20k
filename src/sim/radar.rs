@@ -141,7 +141,7 @@ mod tests {
             false,
         );
         e.lifecycle.set_in_limbo_for_test(false);
-        e.lifecycle.cell_marked = true;
+        e.lifecycle.set_cell_marked(true);
         sim.substrate.entities.insert(e);
     }
 

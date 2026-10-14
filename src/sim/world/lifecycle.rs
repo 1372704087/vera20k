@@ -215,7 +215,7 @@ pub struct ObjectLifecycle {
     /// clears it (`0x005F4F4E`). Independent of LogicVector membership.
     in_limbo: bool,
     /// Whether Mark/cell-list insertion currently owns cell membership.
-    pub cell_marked: bool,
+    cell_marked: bool,
 }
 
 impl Default for ObjectLifecycle {
@@ -229,6 +229,16 @@ impl Default for ObjectLifecycle {
 }
 
 impl ObjectLifecycle {
+    /// Whether Mark/cell-list insertion currently owns cell membership.
+    pub const fn cell_marked(self) -> bool {
+        self.cell_marked
+    }
+
+    /// Store whether Mark/cell-list insertion owns cell membership.
+    pub fn set_cell_marked(&mut self, marked: bool) {
+        self.cell_marked = marked;
+    }
+
     /// `ObjectClass+0x90`, IsAlive.
     pub const fn object_alive(self) -> bool {
         self.object_alive
@@ -910,7 +920,7 @@ impl Simulation {
             );
         let input_z = if let Some(input_z) = position.exact_z_leptons {
             input_z
-        } else if entity.on_bridge && i32::from(position.z as i8) == i32::from(level) + 4 {
+        } else if entity.on_bridge() && i32::from(position.z as i8) == i32::from(level) + 4 {
             // VERA input adapter: retain the ramp remainder that the existing
             // coarse bridge-level API cannot carry. Native clamp remains max.
             ground_z.wrapping_add(BRIDGE_DECK_HEIGHT_LEPTONS)
@@ -2184,7 +2194,7 @@ impl Simulation {
             return;
         };
         let cells = entity_occupancy_cells(entity);
-        let sub_cell = entity.sub_cell;
+        let sub_cell = entity.sub_cell();
         let insertion = CellListInsertion::from_category(entity.category());
         let old_layer = cell_list_layer_for_entity(entity, self.resolved_terrain.as_ref());
         let world_z = crate::sim::movement::ground_pose::object_world_z_leptons(
@@ -2224,7 +2234,7 @@ impl Simulation {
             .entities
             .get_mut(stable_id)
             .expect("member remains represented");
-        entity.on_bridge = false;
+        entity.set_on_bridge(false);
         entity.position.exact_z_leptons = Some(world_z);
         self.submit_entity_display(stable_id, rules, None);
         if foot {
@@ -2310,8 +2320,8 @@ impl Simulation {
                 entity.lifecycle.object_alive
                     && !entity.lifecycle.in_limbo
                     && entity.locomotor.as_ref().is_some_and(|locomotor| {
-                        locomotor.kind == LocomotorKind::Fly
-                            && locomotor.layer == MovementLayer::Air
+                        locomotor.active_kind() == LocomotorKind::Fly
+                            && locomotor.layer() == MovementLayer::Air
                     })
             });
         if fly {
@@ -2365,7 +2375,7 @@ impl Simulation {
                 && entity
                     .locomotor
                     .as_ref()
-                    .is_some_and(|l| l.powered && l.fly_runtime().is_some())
+                    .is_some_and(|l| l.is_powered() && l.fly_runtime().is_some())
         });
         if !admitted {
             return false;
@@ -2451,7 +2461,7 @@ impl Simulation {
                         .fly_runtime_mut()
                         .unwrap()
                         .reject_landing_cell();
-                    entity.on_bridge = false;
+                    entity.set_on_bridge(false);
                 }
                 self.foot_mark_remove(id, rules, registry, effects);
                 let height = crate::sim::movement::air_movement::current_fly_height(
@@ -2493,7 +2503,7 @@ impl Simulation {
         let mut height = air_movement::current_fly_height(entity, self.resolved_terrain.as_ref());
         //4CE696..4CE6DF: query structure even below416; bridge-normalize only
         // when not already OnBridge and high enough above a structural deck.
-        if !entity.on_bridge {
+        if !entity.on_bridge() {
             let bridge = self.resolved_terrain.as_ref().is_some_and(|terrain| {
                 let cell =
                     terrain.native_cell_identity(((xy[0] / 256) as i16, (xy[1] / 256) as i16));
@@ -3589,7 +3599,7 @@ impl Simulation {
         let category = entity.category();
         let walking_infantry = category == EntityCategory::Infantry
             && entity.locomotor.as_ref().is_some_and(|locomotor| {
-                locomotor.kind == crate::rules::locomotor_type::LocomotorKind::Walk
+                locomotor.active_kind() == crate::rules::locomotor_type::LocomotorKind::Walk
             });
         if matches!(
             category,
@@ -3804,11 +3814,11 @@ impl Simulation {
                 .is_some_and(|cargo| cargo.passengers().contains(&expired_id))
             || listener.passenger_role.boarding_transport_id() == Some(expired_id)
             || listener.passenger_role.inside_transport_id() == Some(expired_id)
-            || nav_names(listener.navigation.suspended_nav_com.as_ref())
-            || nav_names(listener.navigation.nav_com.as_ref())
+            || nav_names(listener.navigation.suspended_nav_com().as_ref())
+            || nav_names(listener.navigation.nav_com().as_ref())
             || listener
                 .navigation
-                .nav_queue
+                .nav_queue()
                 .iter()
                 .any(|target| Self::nav_ref_targets_expired(target, expired_id))
             || listener.pending_entry() == Some(expired_id)
@@ -4272,12 +4282,12 @@ impl Simulation {
         // the same cell, so the single `allow_clear` local models both.
         let clear_suspended_nav_com = listener
             .navigation
-            .suspended_nav_com
+            .suspended_nav_com()
             .as_ref()
             .is_some_and(|target| Self::nav_ref_targets_expired(target, expired_id));
         let current_nav_matches = listener
             .navigation
-            .nav_com
+            .nav_com()
             .as_ref()
             .is_some_and(|target| Self::nav_ref_targets_expired(target, expired_id));
         let retain_capture_nav = current_nav_matches
@@ -4293,7 +4303,7 @@ impl Simulation {
         let clear_nav_com = current_nav_matches && !retain_capture_nav && allow_clear;
         let prune_nav_queue = listener
             .navigation
-            .nav_queue
+            .nav_queue()
             .iter()
             .any(|target| Self::nav_ref_targets_expired(target, expired_id));
 
@@ -4364,17 +4374,16 @@ impl Simulation {
             listener.set_archive_target(None);
         }
         if clear_suspended_nav_com {
-            listener.navigation.suspended_nav_com = None;
+            listener.navigation.set_suspended_nav_com(None);
         }
         if clear_nav_com {
-            listener.navigation.nav_com_aux = None;
-            listener.navigation.nav_com = None;
+            listener.navigation.set_nav_com_aux(None);
+            listener.navigation.set_nav_com(None);
         }
         if prune_nav_queue {
             listener
                 .navigation
-                .nav_queue
-                .retain(|target| !Self::nav_ref_targets_expired(target, expired_id));
+                .retain_nav_queue(|target| !Self::nav_ref_targets_expired(target, expired_id));
         }
         if clear_dock {
             crate::sim::docking::building_dock::expire_reference(listener, expired_id);

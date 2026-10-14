@@ -32,7 +32,7 @@ fn frame(s: &mut Scene) -> Sample {
         state: miner.miner_state(),
         bales: state.cargo().len(),
         harvesting: state.harvesting(),
-        driving: miner.navigation.nav_com.is_some(),
+        driving: miner.navigation.nav_com().is_some(),
     }
 }
 
@@ -508,7 +508,7 @@ fn retail_war_miner_attacks_without_cutting_ore_and_resumes_its_idle_mission() {
             s.sim.substrate.entities.get(s.miner).map(|e| (
                 e.mission.current(),
                 e.mission.queued(),
-                e.navigation.nav_com,
+                e.navigation.nav_com(),
                 e.attack_target.target(),
             )),
             s.sim.substrate.entities.get(victim).map(|e| (

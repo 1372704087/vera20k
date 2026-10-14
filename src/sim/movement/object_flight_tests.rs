@@ -53,8 +53,8 @@ fn native_object_flight_queries_use_live_ground_bridge_and_mark() {
         entity.position.sub_x = SimFixed::from_num(x % 256);
         entity.position.sub_y = SimFixed::from_num(y % 256);
         entity.position.exact_z_leptons = Some(z);
-        entity.on_bridge = row.input.on_bridge != 0;
-        entity.lifecycle.cell_marked = row.input.marked != 0;
+        entity.set_on_bridge(row.input.on_bridge != 0);
+        entity.lifecycle.set_cell_marked(row.input.marked != 0);
         assert_eq!(
             current_fly_height(&entity, Some(&terrain)),
             row.height,
@@ -104,8 +104,8 @@ fn a_paratroopers_fall_moves_its_location_z_to_the_ground_or_deck() {
         ));
         let mut paratrooper = GameEntity::test_default(1, "E1", "Americans", 10, 10);
         paratrooper.lifecycle.set_in_limbo_for_test(false);
-        paratrooper.lifecycle.cell_marked = true;
-        paratrooper.on_bridge = on_bridge;
+        paratrooper.lifecycle.set_cell_marked(true);
+        paratrooper.set_on_bridge(on_bridge);
         sim.substrate.entities.insert(paratrooper);
         assert!(begin_parachute_descent(
             &mut sim.substrate.entities,
@@ -182,7 +182,7 @@ fn a_falling_paratrooper_is_marked_again_at_the_head_of_its_cell() {
         let mut infantry = GameEntity::test_default(id, "E1", "Americans", 10, 10);
         infantry.set_category_for_test(EntityCategory::Infantry);
         infantry.lifecycle.set_in_limbo_for_test(false);
-        infantry.lifecycle.cell_marked = false;
+        infantry.lifecycle.set_cell_marked(false);
         infantry.locomotor = Some(LocomotorState::for_test_kind(LocomotorKind::Walk));
         infantry.position.exact_z_leptons = Some(0);
         sim.substrate.entities.insert(infantry);
@@ -207,6 +207,6 @@ fn a_falling_paratrooper_is_marked_again_at_the_head_of_its_cell() {
     ));
     assert_eq!(next(&sim, 1), Some(Entity(2)));
     let paratrooper = sim.substrate.entities.get(1).unwrap();
-    assert!(paratrooper.lifecycle.cell_marked);
+    assert!(paratrooper.lifecycle.cell_marked());
     assert!(paratrooper.is_falling_down());
 }

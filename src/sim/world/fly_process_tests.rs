@@ -169,17 +169,17 @@ fn fixture(input: &serde_json::Value) -> (Simulation, RuleSet) {
             .attack_target
             .set_for_test(Some(TargetKind::Entity(TARGET)));
     }
-    entity.navigation.nav_com = match &input["nav_com"] {
+    entity.navigation.set_nav_com(match &input["nav_com"] {
         serde_json::Value::String(kind) if kind == "dock" => {
             Some(NavTargetRef::Building { id: DOCK })
         }
         serde_json::Value::Bool(true) => Some(NavTargetRef::cell(80, 64)),
         _ => None,
-    };
+    });
     if flag(input, "loaner", false) {
         entity.mark_mission_only();
     }
-    entity.in_playfield = flag(input, "in_playfield", true);
+    entity.set_in_playfield(flag(input, "in_playfield", true));
     entity
         .mission_leaf
         .set_aircraft_action_latch(flag(input, "locked", false));
@@ -417,7 +417,7 @@ fn frame_mismatch(
         "cruise": u8::from(fly.cruise_mode()),
         "mission": [entity.mission.current().raw(), entity.mission.queued().raw()],
         "locked": entity.mission_leaf.as_aircraft()?.action_latch(),
-        "in_playfield": u8::from(entity.in_playfield),
+        "in_playfield": u8::from(entity.in_playfield()),
     });
     for (key, value) in actual.as_object()? {
         if &expected[key] != value {
@@ -590,7 +590,7 @@ fn fly_map_edge_gate_matches_native_rows() {
         if flag(input, "mission_only", true) {
             entity.mark_mission_only();
         }
-        entity.in_playfield = flag(input, "in_playfield", true);
+        entity.set_in_playfield(flag(input, "in_playfield", true));
         if flag(input, "target", false) {
             entity
                 .attack_target
@@ -800,6 +800,6 @@ fn stop_command_sends_a_flying_aircraft_to_the_cell_under_it() {
         (destination.x, destination.y),
         (60 * 256 + 128, 64 * 256 + 128)
     );
-    assert_eq!(entity.navigation.nav_com, None);
+    assert_eq!(entity.navigation.nav_com(), None);
     assert_eq!(sim.scenario_rng.clone().next_u32(), before);
 }

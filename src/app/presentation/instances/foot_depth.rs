@@ -179,7 +179,7 @@ fn unit_bridge_condition_in_runtime(
     }
     let view = runtime.view();
     let factory = allow_factory
-        && entity.navigation.nav_com.is_some()
+        && entity.navigation.nav_com().is_some()
         && entity
             .radio_contacts
             .slot(0)
@@ -199,7 +199,7 @@ fn unit_bridge_condition_in_runtime(
     crate::render::foot_depth::unit_composite_split(
         FootDepthContext {
             cell: [(xy[0] / 256) as i16, (xy[1] / 256) as i16],
-            on_bridge: entity.on_bridge,
+            on_bridge: entity.on_bridge(),
             bridge_set_base: terrain.concrete_bridge_set_base(),
             ..Default::default()
         },
@@ -251,7 +251,7 @@ fn shp_z_adjust_in_runtime(
     else {
         return height_only as f32;
     };
-    let surface = ground.wrapping_add(if entity.on_bridge {
+    let surface = ground.wrapping_add(if entity.on_bridge() {
         crate::util::lepton::BRIDGE_DECK_HEIGHT_LEPTONS
     } else {
         0
@@ -345,7 +345,7 @@ fn unit_z_adjust_in_runtime(
     };
     let context = FootDepthContext {
         cell: coord,
-        on_bridge: entity.on_bridge,
+        on_bridge: entity.on_bridge(),
         facing_u16: entity.body_facing_current(view.session().binary_frame),
         world_z_leptons: world_z,
         // Drive 0x4B4870, Ship 0x6A3EA0, and the shared 0x55ABA0 inherited

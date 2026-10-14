@@ -995,7 +995,7 @@ pub(crate) fn techno_target_facts<'a>(
             rules,
             interner,
         },
-        on_bridge: target.on_bridge,
+        on_bridge: target.on_bridge(),
         cell_land_type,
         submerged: target
             .cloak

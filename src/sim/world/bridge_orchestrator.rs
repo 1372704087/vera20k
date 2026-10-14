@@ -1037,7 +1037,7 @@ mod tests {
     /// Build a Drive locomotor on the Bridge layer (mimics `high=true` spawn).
     fn drive_loco_on_bridge() -> LocomotorState {
         let mut loco = LocomotorState::for_test_kind(LocomotorKind::Drive);
-        loco.layer = MovementLayer::Bridge;
+        loco.set_layer(MovementLayer::Bridge);
         loco
     }
 
@@ -1057,9 +1057,9 @@ mod tests {
             5,
             true,
         );
-        entity.on_bridge = true;
+        entity.set_on_bridge(true);
         entity.lifecycle.set_in_limbo_for_test(false);
-        entity.lifecycle.cell_marked = true;
+        entity.lifecycle.set_cell_marked(true);
         entity.locomotor = Some(drive_loco_on_bridge());
         sim.substrate.entities.insert(entity);
         1
@@ -1078,7 +1078,7 @@ mod tests {
             .get_mut(id)
             .unwrap()
             .navigation
-            .nav_com = order;
+            .set_nav_com(order);
         sim.substrate.occupancy.add(
             5,
             5,
@@ -1097,15 +1097,16 @@ mod tests {
             .expect("deck entity remains until the landing receiver");
         assert_eq!(e.position.z, 3, "Location is retained");
         assert!(e.was_dropped_as_bomb() && e.is_falling_down());
-        assert!(!e.on_bridge, "OnBridge cleared by DropIn");
+        assert!(!e.on_bridge(), "OnBridge cleared by DropIn");
         assert_eq!(
-            e.navigation.nav_com, order,
+            e.navigation.nav_com(),
+            order,
             "DropAsBomb does not write orders"
         );
         assert_eq!(e.health.current(), 256, "DropIn never harms — no damage");
         let loco = e.locomotor.as_ref().expect("locomotor");
         assert_eq!(
-            loco.layer,
+            loco.layer(),
             MovementLayer::Bridge,
             "DropAsBomb does not write locomotor storage; live list queries use OnBridge"
         );
@@ -1140,7 +1141,7 @@ mod tests {
         drop_in_bridge_deck_entities(&mut sim, 5, 5, super::super::UninitContext::default());
 
         let e = sim.substrate.entities.get(id).unwrap();
-        assert!(!e.on_bridge);
+        assert!(!e.on_bridge());
         assert!(e.is_falling_down());
         assert_eq!(e.position.exact_z_leptons, Some(1000));
         let mut frames = 0;
@@ -1679,9 +1680,9 @@ mod tests {
             5,
             true,
         );
-        entity.on_bridge = false; // ground-layer occupant
+        entity.set_on_bridge(false); // ground-layer occupant
         let mut loco = drive_loco_on_bridge();
-        loco.layer = MovementLayer::Bridge;
+        loco.set_layer(MovementLayer::Bridge);
         entity.locomotor = Some(loco);
         sim.substrate.entities.insert(entity);
         sim.substrate.occupancy.add(
@@ -1702,8 +1703,8 @@ mod tests {
             .get(1)
             .expect("ground entity untouched");
         assert_eq!(e.health.current(), 256);
-        assert!(!e.on_bridge);
-        assert_eq!(e.locomotor.as_ref().unwrap().layer, MovementLayer::Bridge);
+        assert!(!e.on_bridge());
+        assert_eq!(e.locomotor.as_ref().unwrap().layer(), MovementLayer::Bridge);
         let cell = sim.substrate.occupancy.get(5, 5).expect("ground occupancy");
         assert_eq!(cell.count_on(MovementLayer::Ground), 1);
         assert_eq!(cell.count_on(MovementLayer::Bridge), 0);
@@ -1749,9 +1750,9 @@ mod tests {
             true,
         );
         let mut loco = drive_loco_on_bridge();
-        loco.layer = MovementLayer::Air;
+        loco.set_layer(MovementLayer::Air);
         air.locomotor = Some(loco);
-        air.on_bridge = false;
+        air.set_on_bridge(false);
         sim.substrate.entities.insert(air);
 
         // Consumed Engineers can retain positive HP after UnInit until the
@@ -1780,7 +1781,7 @@ mod tests {
         )).unwrap();
         let ground = sim.substrate.entities.get_mut(1).unwrap();
         ground.lifecycle.set_in_limbo_for_test(false);
-        ground.lifecycle.cell_marked = true;
+        ground.lifecycle.set_cell_marked(true);
         sim.substrate.occupancy.add(
             5,
             5,
@@ -1869,7 +1870,7 @@ mod tests {
         for id in 1..=3 {
             let unit = sim.substrate.entities.get_mut(id).unwrap();
             unit.lifecycle.set_in_limbo_for_test(false);
-            unit.lifecycle.cell_marked = true;
+            unit.lifecycle.set_cell_marked(true);
             sim.substrate.occupancy.add(
                 5,
                 5,

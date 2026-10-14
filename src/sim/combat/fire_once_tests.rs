@@ -125,20 +125,27 @@ fn fixture(row: &Value, rules: &RuleSet) -> (Simulation, Vec<u64>, [u64; 2], Opt
                     _ => unreachable!(),
                 }));
             actor.set_archive_target(target(&before["archive"], targets));
-            actor.navigation.nav_com = target(&before["destination"], targets).map(|value| {
-                let TargetKind::Entity(id) = value else {
-                    unreachable!()
-                };
-                NavTargetRef::object(id)
-            });
-            actor.navigation.path_runtime.movement_timer = timer(&before["movement_timer"]);
-            actor.navigation.path_replay.directions = before["path"]
-                .as_array()
-                .unwrap()
-                .iter()
-                .take_while(|value| integer(value) != -1)
-                .map(|value| u8::try_from(integer(value)).unwrap())
-                .collect();
+            actor
+                .navigation
+                .set_nav_com(target(&before["destination"], targets).map(|value| {
+                    let TargetKind::Entity(id) = value else {
+                        unreachable!()
+                    };
+                    NavTargetRef::object(id)
+                }));
+            actor
+                .navigation
+                .path_runtime
+                .set_movement_timer_for_test(timer(&before["movement_timer"]));
+            actor.navigation.path_replay.set_directions_for_test(
+                before["path"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .take_while(|value| integer(value) != -1)
+                    .map(|value| u8::try_from(integer(value)).unwrap())
+                    .collect(),
+            );
             actor
                 .mission_leaf
                 .set_foot_firing_sequence(integer(&before["firing"]) as u8);
@@ -221,7 +228,7 @@ fn assert_boundary(
             after["target"],
             "{name}: target"
         );
-        let nav = actor.navigation.nav_com.map(|nav| match nav {
+        let nav = actor.navigation.nav_com().map(|nav| match nav {
             NavTargetRef::Entity { id }
             | NavTargetRef::Object { id }
             | NavTargetRef::Building { id } => TargetKind::Entity(id),
@@ -270,12 +277,12 @@ fn assert_boundary(
             "{name}: dispatch"
         );
         assert_eq!(
-            actor.navigation.path_runtime.movement_timer,
+            actor.navigation.path_runtime.movement_timer(),
             timer(&after["movement_timer"]),
             "{name}: movement"
         );
         assert_eq!(
-            actor.navigation.nav_queue.len(),
+            actor.navigation.nav_queue().len(),
             after["nav_queue_count"].as_u64().unwrap() as usize,
             "{name}: NavQueue"
         );

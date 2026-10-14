@@ -367,7 +367,7 @@ pub(crate) fn draw_debug_panel(ctx: &egui::Context, state: &AppState) {
                                 ui.label(format!(
                                     "Path: {} steps left, blocked={}",
                                     path.len(),
-                                    entity.navigation.path_runtime.path_blocked,
+                                    entity.navigation.path_runtime.path_blocked(),
                                 ));
                                 if let Some(goal) = crate::sim::movement::movement_goal_cell(entity)
                                 {

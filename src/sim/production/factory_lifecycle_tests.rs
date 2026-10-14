@@ -696,7 +696,7 @@ pub(super) fn children(sim: &Simulation, parent: u64) -> Vec<u64> {
             .entities
             .get(id)
             .expect("held manager child remains represented");
-        assert!(child.lifecycle.in_limbo() && !child.lifecycle.cell_marked);
+        assert!(child.lifecycle.in_limbo() && !child.lifecycle.cell_marked());
         assert!(
             child.spawn_owner_id.owner() == Some(parent) || child.slave.owner() == Some(parent)
         );
@@ -935,11 +935,11 @@ fn produced_infantry_retains_its_barracks_rally_until_exit_handoff() {
     // consumes this retained Archive later (520F92 -> 51CBA0 -> 4D82B0).
     assert_eq!(entity.rally_cell(), Some((30, 30)));
     assert!(
-        entity.navigation.nav_com.is_some(),
+        entity.navigation.nav_com().is_some(),
         "the initial exit is paid first"
     );
     assert_ne!(
-        entity.navigation.nav_com,
+        entity.navigation.nav_com(),
         Some(crate::sim::components::NavTargetRef::cell(30, 30))
     );
     assert!(entity.has_live_contact_with(2));
@@ -1198,7 +1198,7 @@ fn missing_barracks_retains_completed_infantry_and_queued_successor() {
     assert_eq!(factory.progress, super::PRODUCTION_STEPS);
     assert_eq!(factory.queue.len(), 1);
     let object = sim.substrate.entities.get(held).unwrap();
-    assert!(object.lifecycle.in_limbo() && !object.lifecycle.cell_marked);
+    assert!(object.lifecycle.in_limbo() && !object.lifecycle.cell_marked());
     assert_eq!(sim.houses[&owner].economy.credits(), credits);
     assert_eq!(sim.substrate.next_stable_object_id, allocated);
     assert_eq!(
@@ -1733,7 +1733,7 @@ fn occupied_barracks_radio_refunds_discards_and_promotes_one_gi() {
         "exactly one FIFO successor constructs"
     );
     let successor_entity = sim.substrate.entities.get(successor).unwrap();
-    assert!(successor_entity.lifecycle.in_limbo() && !successor_entity.lifecycle.cell_marked);
+    assert!(successor_entity.lifecycle.in_limbo() && !successor_entity.lifecycle.cell_marked());
     assert!(!successor_entity.in_logic_vector.is_member());
     let first_entity = sim.substrate.entities.get(first).unwrap();
     assert_eq!(first_entity.radio_contacts, first_contacts);

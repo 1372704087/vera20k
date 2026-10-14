@@ -59,18 +59,15 @@ fn mover(sim: &mut Simulation, kind: LocomotorKind) -> GameEntity {
         LocomotorKind::Walk => {
             entity.set_category_for_test(EntityCategory::Infantry);
             entity.set_is_voxel_for_test(false);
-            entity.sub_cell = Some(0);
+            entity.set_sub_cell(Some(0));
             // Walk follows its Foot+5E0 route toward its destination.
             entity
                 .locomotor
                 .as_mut()
                 .unwrap()
                 .set_walk_destination(Some(DriveCoord::cell(3, 1, 0)));
-            entity.navigation.path_replay = crate::sim::components::FootPathQueue {
-                directions: vec![0, 0],
-                cursor: 0,
-                reference_cell: Some((3, 3)),
-            };
+            entity.navigation.path_replay =
+                crate::sim::components::FootPathQueue::for_test(vec![0, 0], 0, Some((3, 3)));
         }
         _ => unreachable!(),
     }
@@ -142,7 +139,7 @@ fn seed_track(entity: &mut GameEntity, kind: LocomotorKind, cursor: i32, head: D
 }
 
 fn track(entity: &GameEntity) -> crate::sim::components::TrackProgress {
-    match entity.locomotor.as_ref().unwrap().kind {
+    match entity.locomotor.as_ref().unwrap().active_kind() {
         LocomotorKind::Drive => entity
             .locomotor
             .as_ref()
@@ -166,17 +163,17 @@ fn insert(sim: &mut Simulation, mut entity: GameEntity) {
     // must agree. Forced terminal relinking intentionally respects this flag.
     entity.lifecycle.set_object_alive_for_test(true);
     entity.lifecycle.set_in_limbo_for_test(false);
-    entity.lifecycle.cell_marked = true;
+    entity.lifecycle.set_cell_marked(true);
     sim.substrate.occupancy.add(
         entity.position.rx,
         entity.position.ry,
         1,
-        if entity.on_bridge {
+        if entity.on_bridge() {
             MovementLayer::Bridge
         } else {
             MovementLayer::Ground
         },
-        entity.sub_cell,
+        entity.sub_cell(),
         crate::sim::occupancy::CellListInsertion::from_category(entity.category()),
     );
     sim.substrate.entities.insert(entity);
@@ -302,7 +299,7 @@ fn residual_bridge_crossing_preserves_z_and_projects_the_layer_from_on_bridge() 
         }
         let mut sim = Simulation::with_seed(3);
         let mut entity = mover(&mut sim, LocomotorKind::Drive);
-        entity.on_bridge = leaving;
+        entity.set_on_bridge(leaving);
         entity.position.z = 4;
         entity.position.sub_y = SimFixed::from_num(7);
         let start_layer = if leaving {
@@ -315,7 +312,7 @@ fn residual_bridge_crossing_preserves_z_and_projects_the_layer_from_on_bridge() 
         } else {
             MovementLayer::Bridge
         };
-        entity.locomotor.as_mut().unwrap().layer = start_layer;
+        entity.locomotor.as_mut().unwrap().set_layer(start_layer);
         set_track_budget(&mut entity, 7); // strict paid gate >7
         // This route continues beyond the first retained segment. Native
         // owner NavCom must survive that terminal; a route without it admits
@@ -347,9 +344,9 @@ fn residual_bridge_crossing_preserves_z_and_projects_the_layer_from_on_bridge() 
         // eleven-lepton negative delta truncates to -10 rather than -11.
         assert_eq!(entity.position.sub_y.to_num::<i32>(), 253);
         assert_eq!(entity.position.exact_z_leptons, Some(731));
-        assert_eq!(entity.on_bridge, !leaving);
+        assert_eq!(entity.on_bridge(), !leaving);
         assert_eq!(
-            entity.locomotor.as_ref().unwrap().layer,
+            entity.locomotor.as_ref().unwrap().layer(),
             end_layer,
             "the layer is the OnBridge projection written at the crossing"
         );
@@ -371,7 +368,7 @@ fn residual_bridge_crossing_preserves_z_and_projects_the_layer_from_on_bridge() 
             relinked_generation,
             "no duplicate cell entry at paid point"
         );
-        assert_eq!(entity.locomotor.as_ref().unwrap().layer, end_layer);
+        assert_eq!(entity.locomotor.as_ref().unwrap().layer(), end_layer);
         set_track_budget(sim.substrate.entities.get_mut(1).unwrap(), 7);
         tick(&mut sim, &terrain, &grid, 2);
         let entity = sim.substrate.entities.get(1).unwrap();
@@ -441,7 +438,7 @@ fn moving_ramp_snapshot_continues_residual_bridge_crossing_through_paid_points()
         sim.session.binary_frame = 1;
         let entity = sim.substrate.entities.get(1).unwrap();
         assert_eq!((entity.position.rx, entity.position.ry), (3, 2), "{kind:?}");
-        assert!(entity.on_bridge, "{kind:?}");
+        assert!(entity.on_bridge(), "{kind:?}");
         assert_eq!(entity.position.exact_z_leptons, prior_paid_z, "{kind:?}");
         assert_ne!(
             entity.position.exact_z_leptons,
@@ -514,7 +511,7 @@ fn moving_ramp_snapshot_continues_residual_bridge_crossing_through_paid_points()
                     entity.position.sub_y,
                     entity.position.z,
                     entity.position.exact_z_leptons,
-                    entity.on_bridge,
+                    entity.on_bridge(),
                     entity.navigation.path_replay.clone(),
                 )
             };
@@ -523,7 +520,7 @@ fn moving_ramp_snapshot_continues_residual_bridge_crossing_through_paid_points()
                 pose(original),
                 "paid continuation {kind:?}, frame {frame}"
             );
-            assert!(loaded.on_bridge);
+            assert!(loaded.on_bridge());
             assert_eq!(track(loaded).cursor, 11 + frame as i32);
             assert_ne!(
                 loaded.position.exact_z_leptons, prior_paid_z,
@@ -558,7 +555,7 @@ fn drive_ship_crossing_stores_the_entered_cell_level() {
         tick(&mut sim, &terrain, &grid, 0);
         let entity = sim.substrate.entities.get(1).unwrap();
         assert_eq!((entity.position.rx, entity.position.ry), (3, 2), "{kind:?}");
-        assert!(!entity.on_bridge, "{kind:?}");
+        assert!(!entity.on_bridge(), "{kind:?}");
         assert_eq!(entity.position.z, 5, "{kind:?}");
     }
 }
@@ -591,10 +588,10 @@ fn walking_bridge_entry_commits_new_surface_and_object_list_plane() {
     walk_tick(&mut sim, &terrain, &grid, 1);
     let entity = sim.substrate.entities.get(1).unwrap();
     assert_eq!((entity.position.rx, entity.position.ry), (3, 2));
-    assert!(entity.on_bridge);
+    assert!(entity.on_bridge());
     // Walk's layer is the OnBridge projection its next Find_Path starts from.
     assert_eq!(
-        entity.locomotor.as_ref().unwrap().layer,
+        entity.locomotor.as_ref().unwrap().layer(),
         MovementLayer::Bridge
     );
     let xy = ground_pose::position_world_xy(&entity.position);
@@ -1126,8 +1123,8 @@ fn admitted_tick_chain_uses_remaining_queue_and_retains_old_head_z() {
                 _ => unreachable!(),
             };
             if stored == Some(expected) {
-                assert_eq!(queue.cursor, 3);
-                assert_eq!(queue.reference_cell, Some((4, 1)));
+                assert_eq!(queue.cursor(), 3);
+                assert_eq!(queue.reference_cell(), Some((4, 1)));
                 assert_eq!(
                     super::track_head::committed_track_head(entity),
                     Some(expected)
@@ -1288,7 +1285,7 @@ fn two_marked_units() -> Simulation {
     for id in [1, 2] {
         let mut entity = GameEntity::test_default(id, "ACTOR", "Americans", 4, 4);
         entity.lifecycle.set_in_limbo_for_test(false);
-        entity.lifecycle.cell_marked = false;
+        entity.lifecycle.set_cell_marked(false);
         entity.locomotor = Some(LocomotorState::for_test_kind(LocomotorKind::Drive));
         entity.position.exact_z_leptons = Some(0);
         sim.substrate.entities.insert(entity);
@@ -1318,7 +1315,7 @@ fn set_height_on_a_marked_object_re_marks_it_at_the_head_of_its_cell() {
     );
     assert_eq!(next_in_cell(&sim, 1), Some(Entity(2)));
     let entity = sim.substrate.entities.get(1).unwrap();
-    assert!(entity.lifecycle.cell_marked);
+    assert!(entity.lifecycle.cell_marked());
     assert_eq!(entity.position.exact_z_leptons, Some(30));
 }
 
@@ -1349,7 +1346,7 @@ fn set_height_on_an_unmarked_object_writes_z_without_marking_it() {
         crate::sim::world::FrameEffects::default(),
     );
     let entity = sim.substrate.entities.get(1).unwrap();
-    assert!(!entity.lifecycle.cell_marked);
+    assert!(!entity.lifecycle.cell_marked());
     assert_eq!(entity.position.exact_z_leptons, Some(60));
     assert!(!sim.substrate.occupancy.contains_entity(4, 4, 1));
 }

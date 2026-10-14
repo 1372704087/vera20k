@@ -261,7 +261,7 @@ fn participates_in_power_accounting(entity: &GameEntity) -> bool {
     entity.category() == EntityCategory::Structure
         && !entity.death.is_dying()
         && !entity.lifecycle.in_limbo()
-        && entity.lifecycle.cell_marked
+        && entity.lifecycle.cell_marked()
 }
 
 /// Recalculate power totals for a single owner from their buildings.
@@ -469,7 +469,7 @@ fn radar_provider_available(
         };
         if entity.owner() != owner
             || entity.lifecycle.in_limbo()
-            || !entity.lifecycle.cell_marked
+            || !entity.lifecycle.cell_marked()
             || entity.death.is_dying()
             || !entity.building_online()
             || entity.mission.current().known() == Some(crate::sim::mission::MissionType::Selling)
@@ -608,7 +608,9 @@ mod tests {
             entity
                 .lifecycle
                 .set_in_limbo_for_test(row["limbo"].as_bool().unwrap());
-            entity.lifecycle.cell_marked = row["marked"].as_bool().unwrap();
+            entity
+                .lifecycle
+                .set_cell_marked(row["marked"].as_bool().unwrap());
             let mut entities = EntityStore::default();
             entities.insert(entity);
             let mut states = BTreeMap::from([(owner, PowerState::default())]);
@@ -709,7 +711,7 @@ mod tests {
         );
         e.health = Health::new(hp);
         e.lifecycle.set_in_limbo_for_test(false);
-        e.lifecycle.cell_marked = true;
+        e.lifecycle.set_cell_marked(true);
         e
     }
 
@@ -839,7 +841,9 @@ BuildSpeed=0.02
             let input = &row["input"];
             let mut store = EntityStore::new();
             let mut plant = make_building(1, "GAPOWR", "Allies", 600);
-            plant.lifecycle.cell_marked = input["marked"].as_bool().unwrap();
+            plant
+                .lifecycle
+                .set_cell_marked(input["marked"].as_bool().unwrap());
             plant
                 .lifecycle
                 .set_object_alive_for_test(input["alive"].as_bool().unwrap());
@@ -879,7 +883,7 @@ BuildSpeed=0.02
                     plant
                         .lifecycle
                         .set_in_limbo_for_test(input["member"] == "limbo");
-                    plant.lifecycle.cell_marked = input["member"] == "limbo";
+                    plant.lifecycle.set_cell_marked(input["member"] == "limbo");
                     store.insert(plant);
                 }
                 "empty" | "null" => {}
@@ -915,7 +919,7 @@ BuildSpeed=0.02
         store.insert(plant);
         tick_power_states(&mut states, &mut store, &rules, &interner, 0);
         assert_eq!(states[&owner].total_output, 200);
-        store.get_mut(1).unwrap().lifecycle.cell_marked = false;
+        store.get_mut(1).unwrap().lifecycle.set_cell_marked(false);
         tick_power_states(&mut states, &mut store, &rules, &interner, 0);
         assert_eq!(states[&owner].total_output, 0);
         assert_eq!(states[&owner].theoretical_total_power, 0);

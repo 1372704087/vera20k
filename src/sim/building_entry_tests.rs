@@ -536,7 +536,10 @@ fn the_nearest_own_reactor_with_room_takes_the_foot() {
         entity.mission.queued(),
         MissionId::from_known(MissionType::Enter)
     );
-    assert_eq!(entity.navigation.nav_com, Some(NavTargetRef::object(room)));
+    assert_eq!(
+        entity.navigation.nav_com(),
+        Some(NavTargetRef::object(room))
+    );
     assert_eq!(entity.passenger_role.boarding_transport_id(), Some(room));
 }
 
@@ -564,7 +567,7 @@ fn of_equidistant_absorbers_the_later_built_takes_the_foot() {
         assert!(seek(&mut sim, &rules, foot));
 
         assert_eq!(
-            entity(&sim, foot).navigation.nav_com,
+            entity(&sim, foot).navigation.nav_com(),
             Some(NavTargetRef::object(reactors[1]))
         );
     }
@@ -590,7 +593,7 @@ fn a_transport_sent_to_an_absorber_keeps_its_cargo() {
         MissionId::from_known(MissionType::Enter)
     );
     assert_eq!(
-        entity.navigation.nav_com,
+        entity.navigation.nav_com(),
         Some(NavTargetRef::object(absorber))
     );
     assert!(entity.passenger_role.cargo().is_some());
@@ -666,7 +669,7 @@ fn no_taker_clears_the_latch() {
     let entity = sim.substrate.entities.get(tank).unwrap();
     assert!(!entity.building_entry.seeking());
     assert_eq!(entity.mission, mission);
-    assert_eq!(entity.navigation.nav_com, None);
+    assert_eq!(entity.navigation.nav_com(), None);
     assert!(entity.passenger_role.is_none());
 }
 
@@ -840,7 +843,7 @@ fn a_bio_reactor_unload_command_reveals_its_passenger() {
     for passenger_id in passengers {
         let passenger = entity(&sim, passenger_id);
         assert!(passenger.lifecycle.object_alive());
-        assert!(passenger.lifecycle.cell_marked);
+        assert!(passenger.lifecycle.cell_marked());
         assert!(passenger.in_logic_vector.is_member());
         assert!(!passenger.building_entry.should_enter_absorber());
         assert!(passenger.house_tracking_latches().is_counted());
@@ -1012,7 +1015,7 @@ fn a_blocked_bio_reactor_restores_and_retries_its_cargo_head() {
             .is_empty()
     );
     assert!(!entity(&sim, passenger).lifecycle.in_limbo());
-    assert!(entity(&sim, passenger).lifecycle.cell_marked);
+    assert!(entity(&sim, passenger).lifecycle.cell_marked());
     assert_eq!(sim.scenario_rng.logical_state(), successful_state);
     assert!(sim.power_states[&owner].power_recheck_for_test());
     assert_eq!(
@@ -1078,7 +1081,7 @@ fn a_bio_reactor_unlimbo_failure_keeps_the_placement_draw_and_restores_cargo() {
         .get_mut(passenger)
         .unwrap()
         .lifecycle
-        .cell_marked = true;
+        .set_cell_marked(true);
     sim.power_states.insert(
         owner,
         crate::sim::power_system::PowerState::settled_for_test(),
@@ -1483,7 +1486,7 @@ fn absorbed_infantry_tracking_is_restored_after_building_death_and_sale() {
 
         let released = entity(&sim, passenger);
         assert!(!released.lifecycle.in_limbo());
-        assert!(released.lifecycle.cell_marked);
+        assert!(released.lifecycle.cell_marked());
         assert!(released.house_tracking_latches().is_counted());
         assert!(!released.house_tracking_latches().is_absorbed());
         assert_eq!(sim.houses[&owner].tracking.infantry(), 1);
@@ -1659,7 +1662,7 @@ fn the_nearest_own_bunker_with_room_takes_an_occupier() {
         MissionId::from_known(MissionType::Capture)
     );
     assert!(matches!(
-        foot.navigation.nav_com,
+        foot.navigation.nav_com(),
         Some(NavTargetRef::Object { id } | NavTargetRef::Building { id }) if id == near
     ));
     assert!(!entity(&sim, tank).building_entry.seeking());
@@ -2029,7 +2032,7 @@ fn the_nearest_free_own_tank_bunker_takes_the_tank() {
         MissionId::from_known(MissionType::Enter)
     );
     assert_eq!(foot.bunker.link(), BunkerLink::Approaching(free));
-    assert!(foot.navigation.nav_com.is_some());
+    assert!(foot.navigation.nav_com().is_some());
     assert_eq!(
         install_state(&sim, free),
         (BunkerState::ArriveWait, Some(tank))
@@ -2071,7 +2074,7 @@ fn a_refused_foot_or_a_held_tank_bunker_gets_no_order() {
 
     let foot = entity(&sim, tank);
     assert_eq!(foot.mission, mission);
-    assert_eq!(foot.navigation.nav_com, None);
+    assert_eq!(foot.navigation.nav_com(), None);
     assert_eq!(foot.bunker.link(), BunkerLink::None);
 }
 
@@ -2327,7 +2330,7 @@ fn nearest_occupiable_production_matches_native_controls() {
             .get_mut(foot)
             .unwrap()
             .navigation
-            .nav_com = nav.map(NavTargetRef::object);
+            .set_nav_com(nav.map(NavTargetRef::object));
         set_should_enter_nearest_occupiable_for_test(
             sim.substrate.entities.get_mut(foot).unwrap(),
             row["latch"] == true,
@@ -2349,7 +2352,7 @@ fn nearest_occupiable_production_matches_native_controls() {
             .find(|event| event[0] == "assign_destination")
             .map(|event| buildings[event[1].as_u64().unwrap() as usize]);
         assert_eq!(
-            actor.navigation.nav_com,
+            actor.navigation.nav_com(),
             requested.or(nav).map(NavTargetRef::object),
             "row {number}: destination"
         );
@@ -2393,7 +2396,7 @@ fn script64_enters_a_neutral_civilian_building_outside_the_own_house_list() {
     assert!(sim.team_script_vm.team(team).unwrap().advance_pending());
     assert_eq!(sim.team_script_vm.team_for_member(occupier), None);
     assert_eq!(
-        entity(&sim, occupier).navigation.nav_com,
+        entity(&sim, occupier).navigation.nav_com(),
         Some(NavTargetRef::object(civilian))
     );
     assert!(
@@ -2459,7 +2462,7 @@ fn guard_and_area_guard_retry_script64_without_a_scenario_draw() {
         );
 
         assert_eq!(
-            entity(&sim, occupier).navigation.nav_com,
+            entity(&sim, occupier).navigation.nav_com(),
             Some(NavTargetRef::object(building))
         );
         assert_eq!(
@@ -2524,7 +2527,7 @@ fn retail_all01_script64_conscript_admits_a_map_civilian_garrison() {
 
     assert!(whole_map_garrison_seek(&mut sim, &rules, conscript));
     assert_eq!(
-        entity(&sim, conscript).navigation.nav_com,
+        entity(&sim, conscript).navigation.nav_com(),
         Some(NavTargetRef::object(building))
     );
 }

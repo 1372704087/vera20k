@@ -1636,7 +1636,7 @@ fn a_released_captive_resumes_its_attack_move() {
     ));
     let captive = sim.substrate.entities.get(gi).unwrap();
     assert!(captive.mega_mission.is_attack_move());
-    assert_eq!(captive.navigation.nav_com, None);
+    assert_eq!(captive.navigation.nav_com(), None);
     assert_eq!(
         captive.mission.effective().known(),
         Some(MissionType::Guard)
@@ -1659,7 +1659,7 @@ fn a_released_captive_resumes_its_attack_move() {
     assert_eq!(owner(&sim, gi), "Americans");
     let freed = sim.substrate.entities.get(gi).unwrap();
     assert!(freed.mega_mission.is_attack_move());
-    assert_eq!(freed.navigation.nav_com, Some(NavTargetRef::cell(30, 30)));
+    assert_eq!(freed.navigation.nav_com(), Some(NavTargetRef::cell(30, 30)));
     assert_eq!(freed.mission.effective().known(), Some(MissionType::Move));
 }
 

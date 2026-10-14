@@ -226,7 +226,7 @@ fn compare_infantry(s: &SlaveScene, id: u64, expected: &Value, context: &str) {
         expected["coord"],
         "{context}: coordinate"
     );
-    let nav = match entity.navigation.nav_com {
+    let nav = match entity.navigation.nav_com() {
         Some(NavTargetRef::Cell { rx, ry }) => json!([rx, ry]),
         None => Value::Null,
         Some(other) => panic!("{context}: NavCom {other:?}"),
@@ -598,7 +598,7 @@ fn the_computers_low_credit_sale_matches_the_original_admission() {
             false,
         );
         building.lifecycle.set_in_limbo_for_test(false);
-        building.in_playfield = true;
+        building.set_in_playfield(true);
         building
             .ai_sell_repair
             .set_was_attacked_by_enemy_for_test(input["attacked"] == true);

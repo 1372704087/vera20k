@@ -130,14 +130,16 @@ fn deployment_refuses_destination(actor: &GameEntity) -> bool {
 
 pub(super) fn track_destination(entity: &GameEntity) -> Option<DriveCoord> {
     let loco = entity.locomotor.as_ref()?;
-    loco.track_destination(super::track_process::TrackFamily::from_kind(loco.kind)?)
+    loco.track_destination(super::track_process::TrackFamily::from_kind(
+        loco.active_kind(),
+    )?)
 }
 
 /// `if (head != Null) { head = Null; +63 = 0; }` as every arm here writes it.
 /// Raw occupation marks are untouched, as in native.
 pub(super) fn clear_track_head(entity: &mut GameEntity) {
     if let Some(loco) = entity.locomotor.as_mut()
-        && let Some(family) = super::track_process::TrackFamily::from_kind(loco.kind)
+        && let Some(family) = super::track_process::TrackFamily::from_kind(loco.active_kind())
         && loco.track_head(family).is_some()
     {
         loco.store_track_head(family, None);
@@ -264,7 +266,7 @@ impl Simulation {
             .ok_or("retired Drive/Ship path owner")?
             .navigation
             .path_runtime
-            .retries_left = FOUND_ROUTE_RETRIES;
+            .set_retries_left(FOUND_ROUTE_RETRIES);
         Ok(FootPathOutcome::Resume)
     }
 
@@ -329,8 +331,8 @@ impl Simulation {
             .entities
             .get_mut(id)
             .ok_or("retired Drive/Ship path owner")?;
-        if actor.navigation.path_runtime.retries_left > 0 {
-            actor.navigation.path_runtime.retries_left -= 1;
+        if actor.navigation.path_runtime.retries_left() > 0 {
+            actor.navigation.path_runtime.decrement_retries_left();
             return self.finish_track_path_tail(id, rules, registry, frame_effects);
         }
         //4B2DDE..4B2E30: the exhausted ladder.
@@ -414,7 +416,7 @@ impl Simulation {
         clear_track_head(actor);
         //4B2F07: selector (+58) = -1. +61 has no reader in the program.
         if let Some(loco) = actor.locomotor.as_mut()
-            && let Some(family) = super::track_process::TrackFamily::from_kind(loco.kind)
+            && let Some(family) = super::track_process::TrackFamily::from_kind(loco.active_kind())
             && let Some(mut progress) = loco.track_progress(family)
         {
             progress.turn_index = -1;
@@ -455,7 +457,7 @@ impl Simulation {
             .ok_or("retired Drive/Ship path owner")?;
         let location = ground_pose::position_world_coord(&actor.position);
         let cells = NativeCellQuery::canonical(terrain);
-        let height = ground_pose::query_object_cell_height(&cells, location, actor.on_bridge);
+        let height = ground_pose::query_object_cell_height(&cells, location, actor.on_bridge());
         let native_cell = terrain.native_cell_identity((cell.0 as i16, cell.1 as i16));
         let code = self.foot_can_enter(
             id,
@@ -576,7 +578,7 @@ impl Simulation {
             return false;
         };
         clear_track_head(actor);
-        if actor.navigation.nav_queue.is_empty() {
+        if actor.navigation.nav_queue().is_empty() {
             self.set_unit_null_destination(id, Some(rules), None, frame_effects);
             return false;
         }
@@ -597,7 +599,7 @@ impl Simulation {
         let Some(actor) = self.substrate.entities.get_mut(id) else {
             return;
         };
-        if actor.navigation.nav_queue.is_empty() {
+        if actor.navigation.nav_queue().is_empty() {
             self.set_unit_null_destination(id, rules, None, frame_effects);
         } else {
             super::navcom::foot_stop_moving(actor);
@@ -671,12 +673,12 @@ impl Simulation {
         let Some(actor) = self.substrate.entities.get_mut(id) else {
             return;
         };
-        if !actor.navigation.pending_destination_setter {
+        if !actor.navigation.pending_destination_setter() {
             return;
         }
-        actor.navigation.pending_destination_setter = false;
+        actor.navigation.set_pending_destination_setter(false);
         // A NavCom cleared after the restore (a Stop) leaves nothing owed.
-        let Some(requested) = actor.navigation.nav_com else {
+        let Some(requested) = actor.navigation.nav_com() else {
             return;
         };
         if !self.destination_setter_available(id, requested, rules, registry) {
@@ -810,7 +812,7 @@ impl Simulation {
         {
             return false;
         }
-        if super::navcom::nav_targets_same_receiver(actor.navigation.nav_com, requested)
+        if super::navcom::nav_targets_same_receiver(actor.navigation.nav_com(), requested)
             && !actor.setter_force_reassign.raised
         {
             return true;
@@ -937,7 +939,7 @@ impl Simulation {
             if (clear_queue || destination.is_none())
                 && let Some(unit) = self.substrate.entities.get_mut(id)
             {
-                unit.navigation.nav_queue.clear();
+                unit.navigation.clear_nav_queue();
             }
             let held_by_other = self.substrate.entities.get(depot).is_some_and(|building| {
                 !building.radio_contacts.is_empty() && building.radio_contacts.slot(0) != Some(id)
@@ -979,7 +981,7 @@ impl Simulation {
                 }
             }
         } else if clear_queue && let Some(unit) = self.substrate.entities.get_mut(id) {
-            unit.navigation.nav_queue.clear();
+            unit.navigation.clear_nav_queue();
         }
         let Some(requested) = destination else {
             if teleporter {
@@ -1303,7 +1305,7 @@ impl Simulation {
         let Some(actor) = self.substrate.entities.get(id) else {
             return false;
         };
-        if actor.navigation.nav_com.is_none() && !actor.setter_force_reassign.raised {
+        if actor.navigation.nav_com().is_none() && !actor.setter_force_reassign.raised {
             return false;
         }
         let teleporter = teleporter_unit(self, actor, rules);
@@ -1339,10 +1341,10 @@ impl Simulation {
             .expect("same setter actor");
         super::movement_commands::clear_destination_path_head(actor);
         if factory_contact && !current_enter {
-            actor.navigation.nav_queue.clear();
+            actor.navigation.clear_nav_queue();
             return false;
         }
-        actor.navigation.nav_queue.clear();
+        actor.navigation.clear_nav_queue();
         self.unit_destination_power_on(id, rules);
         self.foot_null_destination(id, rules, registry, frame_effects);
         true
@@ -1369,7 +1371,7 @@ impl Simulation {
             return false;
         };
         let (Some(nav_com), Some(target)) =
-            (actor.navigation.nav_com, actor.attack_target.target())
+            (actor.navigation.nav_com(), actor.attack_target.target())
         else {
             return false;
         };

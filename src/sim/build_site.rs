@@ -255,7 +255,7 @@ pub(crate) fn flush_for_placement(
             crate::sim::components::NavTargetRef::cell(object.position.rx, object.position.ry);
         if object
             .navigation
-            .nav_com
+            .nav_com()
             .is_some_and(|nav_com| nav_com != own_cell)
         {
             continue;

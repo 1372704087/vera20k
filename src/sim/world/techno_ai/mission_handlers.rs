@@ -91,7 +91,7 @@ pub(crate) fn dispatch_foot_mission(
         // `FootClass::Mission_Move @ 0x004D4200` keeps its cadence while the
         // NavCom is set (`0x004D4203`) or the locomotor's `Is_Moving` holds
         // (`0x004D422A`); the order itself is not an input.
-        let moving = entity.navigation.nav_com.is_some()
+        let moving = entity.navigation.nav_com().is_some()
             || crate::sim::movement::motion_query::is_moving(entity) == Some(true);
         MissionHandlerInput {
             category,
@@ -106,7 +106,7 @@ pub(crate) fn dispatch_foot_mission(
             // motion" test above: the idle-mode selector branches on exactly
             // that one field.
             #[cfg(test)]
-            has_destination: entity.navigation.nav_com.is_some(),
+            has_destination: entity.navigation.nav_com().is_some(),
             #[cfg(test)]
             effective_mission: entity.mission.effective().known(),
             // Infantry Mission_Attack51F4D3 and Guard shim521320 read
@@ -901,7 +901,7 @@ fn infantry_automatic_guard_delay(
         || !object.deployer
         || !object.deploy_fire
         || object.undeploy_delay > -1
-        || actor.navigation.nav_com.is_some()
+        || actor.navigation.nav_com().is_some()
     {
         return -1;
     }
@@ -1009,7 +1009,7 @@ impl Simulation {
             entity.category(),
             entity.mission.current().known(),
             entity.attack_target.target().is_some(),
-            entity.navigation.nav_com.is_some(),
+            entity.navigation.nav_com().is_some(),
             entity.mission.effective().known(),
         );
         match selection {
@@ -1599,7 +1599,7 @@ fn evaluate_foot_rescue(
         return MissionHandlerEvaluation::cadence(1);
     };
     let state = actor.mission.handler_state();
-    if state == 1 && actor.navigation.nav_com.is_none() {
+    if state == 1 && actor.navigation.nav_com().is_none() {
         sim.substrate
             .entities
             .get_mut(id)
@@ -1788,7 +1788,8 @@ pub(super) fn evaluate_foot_area_guard(
         leash = rules.general.guard_mode_stray;
     }
     let may_return = sim.substrate.entities.get(id).is_some_and(|entity| {
-        entity.navigation.nav_com.is_none() && entity.mission_leaf.foot_firing_sequence_latch() == 0
+        entity.navigation.nav_com().is_none()
+            && entity.mission_leaf.foot_firing_sequence_latch() == 0
     });
     if let Some(post) = archive
         && may_return

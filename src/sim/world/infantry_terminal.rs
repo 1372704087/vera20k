@@ -396,7 +396,7 @@ impl Simulation {
                 self.resolved_terrain.as_ref(),
             ),
         };
-        let on_bridge = entity.on_bridge;
+        let on_bridge = entity.on_bridge();
         self.object_raw_receiver_at(id, location, false);
         let (rx, ry) = ((x / 256) as u16, (y / 256) as u16);
         let building = self

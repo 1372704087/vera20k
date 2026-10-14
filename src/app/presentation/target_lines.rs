@@ -389,13 +389,13 @@ fn selected_action_line_for_entity(
         });
     }
 
-    let _nav_com = entity.navigation.nav_com?;
+    let _nav_com = entity.navigation.nav_com()?;
     let nav_target = entity
         .navigation
-        .nav_queue
+        .nav_queue()
         .last()
         .copied()
-        .or(entity.navigation.nav_com)?;
+        .or(entity.navigation.nav_com())?;
     use crate::sim::movement::ground_pose::{
         object_location, query_ground_height, target_get_coords,
     };
@@ -620,7 +620,8 @@ mod tests {
         unit.selection.set_selected_for_test(true);
         sim.session.game_mode_nonzero = true;
         sim.session.current_house = Some(unit.owner());
-        unit.navigation.nav_com = Some(NavTargetRef::cell(25, 25));
+        unit.navigation
+            .set_nav_com(Some(NavTargetRef::cell(25, 25)));
         unit.attack_target.set_for_test(Some(TargetKind::Entity(2)));
         let mut target = GameEntity::test_default(2, "HTNK", "Soviet", 14, 10);
         target.set_owner_for_test(sim.interner.intern("Soviet"));

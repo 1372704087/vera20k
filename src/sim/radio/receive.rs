@@ -459,8 +459,8 @@ fn building_docking(
         && pad_dock
         && sim.substrate.entities.get(from).is_some_and(|foot| {
             foot.category() != EntityCategory::Structure
-                && foot.navigation.nav_com.is_some()
-                && foot.navigation.nav_com
+                && foot.navigation.nav_com().is_some()
+                && foot.navigation.nav_com()
                     != crate::sim::movement::building_dock_cell(
                         &sim.substrate.entities,
                         building_id,
@@ -1095,7 +1095,7 @@ fn aircraft_need_to_move(
     if !crate::sim::movement::motion_query::is_moving(entity).unwrap_or(false) {
         return RadioResponse::Roger;
     }
-    let Some(nav_com) = entity.navigation.nav_com else {
+    let Some(nav_com) = entity.navigation.nav_com() else {
         return RadioResponse::Roger;
     };
     let airport_bound = rules
@@ -1138,7 +1138,7 @@ fn foot_receive(
                 .substrate
                 .entities
                 .get(foot)
-                .is_some_and(|entity| entity.navigation.nav_com.is_some())
+                .is_some_and(|entity| entity.navigation.nav_com().is_some())
             {
                 RadioResponse::Negatory
             } else {
@@ -1238,7 +1238,7 @@ fn foot_run_away(
         return;
     };
     // 0x004D902D..0x004D904F: In_Radio_Contact and NavCom == Contact(0).
-    let aimed_at_contact = match (entity.navigation.nav_com, entity.radio_contacts.slot(0)) {
+    let aimed_at_contact = match (entity.navigation.nav_com(), entity.radio_contacts.slot(0)) {
         (
             Some(
                 NavTargetRef::Entity { id }
@@ -1281,7 +1281,7 @@ fn foot_run_away(
     }
     // 0x004D90A5..0x004D90C6.
     if sim.substrate.entities.get(foot).is_some_and(|entity| {
-        !entity.turret_rotation_latch.is_set() && entity.navigation.nav_com.is_none()
+        !entity.turret_rotation_latch.is_set() && entity.navigation.nav_com().is_none()
     }) && let Err(cause) = sim.scatter(
         foot,
         None,
@@ -1301,7 +1301,7 @@ fn foot_need_to_move(sim: &Simulation, foot: u64) -> RadioResponse {
     let Some(entity) = sim.substrate.entities.get(foot) else {
         return RadioResponse::None;
     };
-    if entity.navigation.nav_com.is_some()
+    if entity.navigation.nav_com().is_some()
         && crate::sim::movement::motion_query::is_moving(entity).unwrap_or(false)
     {
         RadioResponse::Negatory
@@ -1637,7 +1637,7 @@ fn radio_receive(
                 .and_then(|id| sim.substrate.entities.get(id))
                 .map(|entity| {
                     (
-                        entity.lifecycle.cell_marked,
+                        entity.lifecycle.cell_marked(),
                         sim.substrate.occupancy.contains_entity(
                             entity.position.rx,
                             entity.position.ry,
@@ -1920,7 +1920,7 @@ mod tests {
         let building = sim.substrate.entities.get_mut(2).unwrap();
         building.set_type_ref_for_test(type_ref);
         building.lifecycle.set_in_limbo_for_test(false);
-        building.lifecycle.cell_marked = true;
+        building.lifecycle.set_cell_marked(true);
         let owner = sim.intern("Americans");
         let type_ref = sim.intern("E1");
         let mut infantry = GameEntity::new_at_frame_zero_for_test(
@@ -1938,7 +1938,7 @@ mod tests {
             false,
         );
         infantry.lifecycle.set_in_limbo_for_test(false);
-        infantry.lifecycle.cell_marked = true;
+        infantry.lifecycle.set_cell_marked(true);
         infantry.radio_contacts.set_capacity(3);
         sim.substrate.entities.insert(infantry);
         assert_eq!(hello(&mut sim, 1, 2), RadioResponse::Roger);

@@ -227,7 +227,7 @@ impl Simulation {
                 .substrate
                 .entities
                 .get(id)
-                .and_then(|aircraft| aircraft.navigation.nav_com);
+                .and_then(|aircraft| aircraft.navigation.nav_com());
             if !services {
                 archive(self, Some(dock));
             } else if nav_com.is_some() {

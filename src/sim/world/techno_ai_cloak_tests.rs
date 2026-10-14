@@ -985,9 +985,15 @@ fn a_sensing_house_keeps_both_target_and_destination_across_a_dive() {
         entity
             .attack_target
             .set_for_test(Some(TargetKind::Entity(cloaker)));
-        entity.navigation.nav_com = Some(NavTargetRef::object(cloaker));
-        entity.navigation.nav_com_aux = Some(NavTargetRef::object(cloaker));
-        entity.navigation.suspended_nav_com = Some(NavTargetRef::object(cloaker));
+        entity
+            .navigation
+            .set_nav_com(Some(NavTargetRef::object(cloaker)));
+        entity
+            .navigation
+            .set_nav_com_aux(Some(NavTargetRef::object(cloaker)));
+        entity
+            .navigation
+            .set_suspended_nav_com(Some(NavTargetRef::object(cloaker)));
     }
     let american = sim.substrate.entities.get(sensing).unwrap().owner();
     sim.fog.increment_sensor_at(american, cell.0, cell.1);
@@ -1006,17 +1012,18 @@ fn a_sensing_house_keeps_both_target_and_destination_across_a_dive() {
         "the sensing house keeps its Target (+0x2B4)"
     );
     assert_eq!(
-        sensing_after.navigation.nav_com,
+        sensing_after.navigation.nav_com(),
         Some(NavTargetRef::object(cloaker)),
         "and keeps its destination (+0x5A4) — it must not stop closing"
     );
     assert_eq!(
-        sensing_after.navigation.nav_com_aux,
+        sensing_after.navigation.nav_com_aux(),
         Some(NavTargetRef::object(cloaker)),
         "the +0x5A0 half of the pair is behind the same allowClear"
     );
     assert_eq!(
-        sensing_after.navigation.suspended_nav_com, None,
+        sensing_after.navigation.suspended_nav_com(),
+        None,
         "+0x5A8 is cleared above the guard, so it goes even for a sensing house"
     );
 
@@ -1026,11 +1033,12 @@ fn a_sensing_house_keeps_both_target_and_destination_across_a_dive() {
         "a blind house loses the Target"
     );
     assert_eq!(
-        blind_after.navigation.nav_com, None,
+        blind_after.navigation.nav_com(),
+        None,
         "and loses the destination with it"
     );
-    assert_eq!(blind_after.navigation.nav_com_aux, None);
-    assert_eq!(blind_after.navigation.suspended_nav_com, None);
+    assert_eq!(blind_after.navigation.nav_com_aux(), None);
+    assert_eq!(blind_after.navigation.suspended_nav_com(), None);
 }
 
 #[test]

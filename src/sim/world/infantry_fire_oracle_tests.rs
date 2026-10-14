@@ -117,7 +117,7 @@ fn firing_fixture(case: &Value, rules: &RuleSet) -> SuppliedFootFixture {
     target.position.sub_x = SimFixed::from_num(position[0] % 256);
     target.position.sub_y = SimFixed::from_num(position[1] % 256);
     target.position.exact_z_leptons = Some(position[2]);
-    target.on_bridge = before["on_bridge"] != 0;
+    target.set_on_bridge(before["on_bridge"] != 0);
     target.health = Health::new(signed(&before["health"]));
     target.lifecycle.set_in_limbo_for_test(before["limbo"] != 0);
     target
@@ -144,7 +144,7 @@ fn firing_fixture(case: &Value, rules: &RuleSet) -> SuppliedFootFixture {
         if !pose["supplied_xyz"].is_null() {
             set_recorded_position(actor, &pose["supplied_xyz"]);
         }
-        actor.on_bridge = pose["supplied_on_bridge"] != 0;
+        actor.set_on_bridge(pose["supplied_on_bridge"] != 0);
         let cell = &pose["cell_after"];
         let x = signed(&cell["cell"][0]) as i16;
         let y = signed(&cell["cell"][1]) as i16;
@@ -181,7 +181,7 @@ fn assert_source(fixture: &SuppliedFootFixture, expected: &Value, name: &str) {
         "{name}: physical source XYZ"
     );
     assert_eq!(
-        actor.on_bridge,
+        actor.on_bridge(),
         expected["on_bridge"] != 0,
         "{name}: source layer"
     );
@@ -255,7 +255,7 @@ fn assert_source(fixture: &SuppliedFootFixture, expected: &Value, name: &str) {
         "{name}: archive"
     );
     assert_eq!(
-        actor.navigation.nav_com,
+        actor.navigation.nav_com(),
         fixture.nav(&expected["nav"]),
         "{name}: NavCom"
     );
@@ -483,11 +483,13 @@ fn emission_fixture(case: &Value, rules: &RuleSet) -> SuppliedFootFixture {
         let id = fixture.id(&pose["actor"]).unwrap();
         let actor = fixture.sim.substrate.entities.get_mut(id).unwrap();
         set_recorded_position(actor, &pose["position"]);
-        actor.on_bridge = case["input"][if id == fixture.actor {
-            "source_on_bridge"
-        } else {
-            "target_on_bridge"
-        }] != 0;
+        actor.set_on_bridge(
+            case["input"][if id == fixture.actor {
+                "source_on_bridge"
+            } else {
+                "target_on_bridge"
+            }] != 0,
+        );
         let cell = &pose["cell_after"];
         let (x, y) = (
             signed(&cell["cell"][0]) as u16,
@@ -616,7 +618,7 @@ fn assert_target(fixture: &SuppliedFootFixture, expected: &Value, name: &str) {
         "{name}: synchronous MTNK retaliation target"
     );
     assert_eq!(
-        target.on_bridge,
+        target.on_bridge(),
         expected["on_bridge"] != 0,
         "{name}: target layer"
     );

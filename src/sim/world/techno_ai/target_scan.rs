@@ -442,7 +442,7 @@ fn parked_on_move(
     obj: &crate::rules::object_type::ObjectType,
     is_foot: bool,
 ) -> Option<bool> {
-    let on_own_cell = entity.navigation.nav_com
+    let on_own_cell = entity.navigation.nav_com()
         == Some(crate::sim::components::NavTargetRef::cell(
             entity.position.rx,
             entity.position.ry,
@@ -1259,11 +1259,11 @@ mod tests {
                 "building" => EntityCategory::Structure,
                 _ => EntityCategory::Infantry,
             });
-            entity.navigation.nav_com = match &input["nav_com"] {
+            entity.navigation.set_nav_com(match &input["nav_com"] {
                 Value::Null if input.get("nav_com").is_some() => None,
                 Value::String(other) if other == "other" => Some(NavTargetRef::cell(11, 10)),
                 _ => Some(NavTargetRef::cell(10, 10)),
-            };
+            });
             sim.substrate.entities.insert(entity);
             let mission = match input["mission"].as_str().unwrap_or("move") {
                 "attack" => MissionType::Attack,

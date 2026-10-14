@@ -847,7 +847,8 @@ fn a_missile_that_lost_its_target_retreats_for_good() {
     assert_eq!(entity.mission.queued(), MissionId::NONE);
     assert_eq!(entity.mission.handler_state(), 0, "the Commence zeroes it");
     assert_eq!(
-        entity.navigation.nav_com, None,
+        entity.navigation.nav_com(),
+        None,
         "idle mode drops the edge cell"
     );
     assert_eq!(entity.mission.dispatch_timer().delay(), 1);
@@ -855,7 +856,10 @@ fn a_missile_that_lost_its_target_retreats_for_good() {
     sim.session.binary_frame += 1;
     crate::sim::aircraft::dispatch_mission(&mut sim, missile, &rules, Default::default());
     let entity = sim.substrate.entities.get(missile).unwrap();
-    assert_eq!(entity.navigation.nav_com, Some(NavTargetRef::cell(rx, ry)));
+    assert_eq!(
+        entity.navigation.nav_com(),
+        Some(NavTargetRef::cell(rx, ry))
+    );
     assert_eq!(entity.mission.dispatch_timer().delay(), 3);
     assert_eq!(
         sim.scenario_rng.logical_state(),
@@ -2737,7 +2741,7 @@ CurleyShuffle=yes
                 .substrate
                 .entities
                 .get(hornet)
-                .and_then(|h| h.navigation.nav_com);
+                .and_then(|h| h.navigation.nav_com());
             let seen = navs.entry(hornet).or_default();
             if seen.last().is_none_or(|&(_, last)| last != nav) {
                 seen.push((frame, nav));

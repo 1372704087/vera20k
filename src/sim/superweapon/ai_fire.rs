@@ -468,7 +468,7 @@ fn genetic_mutator_target(
         centres,
         GENETIC_MUTATOR_SPREAD_BAND,
         |infantry| {
-            if infantry.on_bridge {
+            if infantry.on_bridge() {
                 MovementLayer::Bridge
             } else {
                 MovementLayer::Ground

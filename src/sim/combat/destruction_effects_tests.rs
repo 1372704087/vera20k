@@ -851,7 +851,7 @@ fn a_heavy_ship_dying_on_water_sinks_without_its_explosion() {
             assert!(retained.in_logic_vector.is_member());
             assert!(!sim.substrate.pending_delete.contains_object(&ship));
             assert!(
-                !retained.lifecycle.cell_marked,
+                !retained.lifecycle.cell_marked(),
                 "native737F7A still unmarks the hull"
             );
             let owner = retained.owner();
@@ -922,7 +922,7 @@ fn a_heavy_ship_dying_on_water_sinks_without_its_explosion() {
                 u64::from(sim.houses[&owner].stats.units_lost()),
                 repeat["losses"]
             );
-            assert!(!retained.lifecycle.cell_marked);
+            assert!(!retained.lifecycle.cell_marked());
             assert!(retained.in_logic_vector.is_member());
             for (stream, rng) in [
                 ("main", sim.main_rng.native_state_hex()),

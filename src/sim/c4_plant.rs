@@ -213,7 +213,7 @@ impl Simulation {
         {
             return Ok(false);
         }
-        let heading_for = match infantry.navigation.nav_com {
+        let heading_for = match infantry.navigation.nav_com() {
             Some(
                 NavTargetRef::Entity { id }
                 | NavTargetRef::Object { id }

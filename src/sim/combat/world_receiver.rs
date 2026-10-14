@@ -436,7 +436,7 @@ fn area_record_dispatches(world: &Simulation, rules: &RuleSet, event: &EntityDam
                         .object(world.interner.resolve(target.type_ref()))
                         .is_some_and(|object| object.invisible_in_game))
                 && target.health.current() > 0
-                && target.lifecycle.cell_marked
+                && target.lifecycle.cell_marked()
                 && !target.lifecycle.in_limbo()
         })
 }

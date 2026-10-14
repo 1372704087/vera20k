@@ -70,6 +70,7 @@ mod move_sound;
 mod object_sound;
 mod turret_rotate_sound;
 pub(crate) use move_sound::MoveSoundState;
+pub(crate) use turret_rotate_sound::TurretRotateLatch;
 #[cfg(test)]
 mod main_sound_identity_tests;
 #[cfg(test)]

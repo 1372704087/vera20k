@@ -166,7 +166,7 @@ fn unit_checks_active_locomotor_and_body_rotation_not_stashed_slot_or_turret() {
     actor.locomotor = Some(LocomotorState::for_test_kind(LocomotorKind::Teleport));
     assert!(!unit_scatter_admitted(&actor, flags, &rules, 100));
     assert!(crate::sim::movement::locomotor_owner::begin_drive_for_teleporter(&mut actor, 100));
-    actor.turret_rotation_latch = true;
+    actor.turret_rotation_latch.set_for_test(true);
     actor.navigation.nav_com = Some(NavTargetRef::cell(8, 8));
     assert!(
         actor
@@ -831,7 +831,9 @@ fn unit_source_arm_matches_original_execution() {
                 .attack_target
                 .set_for_test(Some(TargetKind::Cell(5, 5)));
         }
-        actor.turret_rotation_latch = flag("turret_latch");
+        actor
+            .turret_rotation_latch
+            .set_for_test(flag("turret_latch"));
         if flag("unload_active") {
             let mut miner = crate::sim::miner::Miner::new(
                 crate::sim::miner::MinerKind::War,

@@ -729,7 +729,7 @@ fn signed_rot_reaches_spawn_combat_turn_and_snapshot_restore() {
             );
         }
         assert_eq!(
-            serde_json::json!(entity.turret_rotation_latch),
+            serde_json::json!(entity.turret_rotation_latch.is_set()),
             expected["rotating"]
         );
         // Match the load-time RNG initialization before comparing whole state.

@@ -667,7 +667,7 @@ pub(crate) fn build_shp_instances(
                     type_str,
                     entity.body_facing_current(sim.session.binary_frame),
                     entity.barrel_elevation().current(sim.session.binary_frame),
-                    entity.turret_anim_frame,
+                    entity.turret_anim_frame.frame(),
                     entity.voxel_recoil(),
                     turret_offset,
                     sx,

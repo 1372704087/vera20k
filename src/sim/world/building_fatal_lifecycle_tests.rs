@@ -401,7 +401,9 @@ impl Fixture {
                     int(&attacker["rearm_timer"][0]),
                     int(&attacker["rearm_timer"][2]),
                 ));
-            actor.last_fire_frame = i64::from(int(&attacker["last_fire_frame"]));
+            actor
+                .last_fire_frame
+                .set_for_test(i64::from(int(&attacker["last_fire_frame"])));
         }
         sim.native_unique_ids = Some(NativeUniqueIdCursor::test_at_current_value(int(
             &prior["unique_id_cursor"],
@@ -735,7 +737,7 @@ impl Fixture {
             "{boundary}: rearm timer"
         );
         assert_eq!(
-            attacker.last_fire_frame,
+            attacker.last_fire_frame.frame(),
             i64::from(int(&expected["last_fire_frame"])),
             "{boundary}: firing timestamp"
         );

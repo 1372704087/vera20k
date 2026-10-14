@@ -404,7 +404,7 @@ impl Fixture {
         );
         if let Some(counter) = native["turret_counter"].as_i64() {
             assert_eq!(
-                i64::from(entity.turret_anim_frame),
+                i64::from(entity.turret_anim_frame.frame()),
                 counter,
                 "{at} {name} +0x148"
             );

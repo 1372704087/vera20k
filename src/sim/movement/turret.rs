@@ -204,7 +204,7 @@ pub(crate) fn facing_update(
         .target()
         .and_then(|attack| facing_toward_target(entity, &attack, entities));
     if let Some(tgt) = target_facing
-        && !entity.turret_rotation_latch
+        && !entity.turret_rotation_latch.is_set()
     {
         if has_turret {
             if !current_weapon_is_omni_fire(entity, entities, rules, interner) {
@@ -246,7 +246,7 @@ pub(crate) fn facing_update(
             let dwell = rules.map_or(NATIVE_IDLE_TURRET_DWELL_FALLBACK, |r| {
                 i64::from(r.general.guard_area_targeting_delay)
             }) + NATIVE_IDLE_TURRET_DWELL_BIAS;
-            let dwell_elapsed = i64::from(binary_frame) - entity.last_fire_frame >= dwell;
+            let dwell_elapsed = i64::from(binary_frame) - entity.last_fire_frame.frame() >= dwell;
             // `+0x2E4` — a tank riding a Battle Bunker holds its aim forever.
             let bunkered = entity.bunker_link.installed_in().is_some();
             if dwell_elapsed && !bunkered {

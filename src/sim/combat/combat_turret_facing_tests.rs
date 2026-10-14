@@ -501,7 +501,7 @@ fn removed_attacker_holds_its_turret_through_the_dwell() {
         sim.session.binary_frame = 100;
         let unit = sim.substrate.entities.get_mut(1).unwrap();
         unit.attack_target.set_for_test(Some(TargetKind::Entity(2)));
-        unit.last_fire_frame = 100 - since_last_shot;
+        unit.last_fire_frame.set_for_test(100 - since_last_shot);
 
         let result = run_combat_direct(&mut sim, &rules);
 
@@ -1259,8 +1259,12 @@ fn gsi_08_14_idle_turret_dwell_is_measured_from_the_units_own_last_shot() {
     );
 
     // Stamp a shot on this frame and the same idle unit holds instead.
-    sim.substrate.entities.get_mut(1).unwrap().last_fire_frame =
-        i64::from(sim.session.binary_frame);
+    sim.substrate
+        .entities
+        .get_mut(1)
+        .unwrap()
+        .last_fire_frame
+        .set_for_test(i64::from(sim.session.binary_frame));
     let just_fired = run_combat_direct(&mut sim, &rules);
     assert_eq!(
         just_fired
@@ -1385,7 +1389,7 @@ fn gsi_08_14_rotation_latch_suppresses_the_aim_while_the_arc_runs() {
     sim.advance_tick(&[], Some(&rules), None, None, 67);
     let attacker = sim.substrate.entities.get(1).unwrap();
     assert!(
-        attacker.turret_rotation_latch,
+        attacker.turret_rotation_latch.is_set(),
         "an arc in progress must arm +0x6AF"
     );
     let committed = attacker.barrel_facing.as_ref().unwrap().destination();
@@ -1694,7 +1698,7 @@ fn gsi_08_04_rotation_latch_refuses_the_shot_until_the_arc_finishes() {
             facing_from_5_5_to_5_9().wrapping_add(offset),
             5,
         ));
-        attacker.turret_rotation_latch = latch;
+        attacker.turret_rotation_latch.set_for_test(latch);
         !run_combat_direct(&mut sim, &rules)
             .consequences
             .fire_events()
@@ -1740,7 +1744,7 @@ fn gsi_08_04_rotation_latch_refuses_the_shot_until_the_arc_finishes() {
             facing_from_5_5_to_5_9().wrapping_add(0x4000),
             5,
         ));
-        attacker.turret_rotation_latch = latch;
+        attacker.turret_rotation_latch.set_for_test(latch);
         !run_combat_direct(&mut sim, &rules)
             .consequences
             .fire_events()
@@ -1990,8 +1994,9 @@ fn turret_cadence_matches_the_original() {
         let hull_init = int("hull_init") as u16;
         unit.body_facing = FacingClass::new(hull_init, rot);
         unit.barrel_facing = Some(FacingClass::new(int("turret_init") as u16, rot));
-        unit.last_fire_frame = int("last_fire");
-        unit.turret_rotation_latch = int("latch_init") != 0;
+        unit.last_fire_frame.set_for_test(int("last_fire"));
+        unit.turret_rotation_latch
+            .set_for_test(int("latch_init") != 0);
         let mut target = GameEntity::test_default(2, "GAPILE", "Soviet", 0, 0);
         if !input["target_coord"].is_null() {
             place(&mut target, coord(&input["target_coord"]));
@@ -2025,8 +2030,12 @@ fn turret_cadence_matches_the_original() {
                             .set_for_test(None);
                     }
                     "last_fire" => {
-                        sim.substrate.entities.get_mut(1).unwrap().last_fire_frame =
-                            value.as_i64().unwrap();
+                        sim.substrate
+                            .entities
+                            .get_mut(1)
+                            .unwrap()
+                            .last_fire_frame
+                            .set_for_test(value.as_i64().unwrap());
                     }
                     "hull_set" => {
                         let unit = sim.substrate.entities.get_mut(1).unwrap();
@@ -2056,7 +2065,7 @@ fn turret_cadence_matches_the_original() {
             let actual = (
                 barrel.current(frame),
                 barrel.destination(),
-                unit.turret_rotation_latch,
+                unit.turret_rotation_latch.is_set(),
             );
             let turret = native["turret"].as_array().unwrap();
             let expected = (

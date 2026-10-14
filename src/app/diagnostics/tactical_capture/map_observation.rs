@@ -1692,7 +1692,7 @@ fn prism_observation(entity: &crate::sim::game_entity::GameEntity, frame: i32) -
 fn fire_observation(entity: &crate::sim::game_entity::GameEntity, frame: i32) -> Value {
     // Existing immutable counters and timer queries only. In particular this
     // neither completes a firing sequence nor draws GetROF's Scenario RNG.
-    json!({"last_fire_frame": entity.last_fire_frame,
+    json!({"last_fire_frame": entity.last_fire_frame.frame(),
         "body_counter": entity.body_frame_counter,
         "stage_value": entity.native_stage().value(),
         "rearm": {"start_frame": entity.rearm_timer.start_frame(),
@@ -3113,7 +3113,7 @@ impl TacticalCaptureSession {
                     "voxel_gun": {
                         "facing": entity.body_facing_current(sim.session.binary_frame),
                         "elevation": entity.barrel_elevation().current(sim.session.binary_frame),
-                        "hva_counter": entity.turret_anim_frame,
+                        "hva_counter": entity.turret_anim_frame.frame(),
                         "recoil": entity.voxel_recoil().0,
                         "recoil_active": entity.voxel_recoil().1
                     }}))
@@ -3951,7 +3951,7 @@ mod tests {
         sim.session.binary_frame = 17;
         sim.bomb_attach(planter, Some(carrier), &rules);
         let entity = sim.substrate.entities.get_mut(planter).unwrap();
-        entity.last_fire_frame = 16;
+        entity.last_fire_frame.set_for_test(16);
         entity.body_frame_counter = u32::MAX;
         entity.rearm_timer.set_for_test(CdTimer::from_raw(16, 50));
         let hash = sim.state_hash();

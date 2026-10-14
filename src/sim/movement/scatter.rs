@@ -486,7 +486,7 @@ impl Simulation {
             || crate::sim::mission::control::current_control(rules, &unit.mission)
                 .is_some_and(|entry| entry.paralyzed)
             || unit.miner.as_ref().is_some_and(|miner| miner.unload_active)
-            || (unit.navigation.nav_com.is_some() && unit.turret_rotation_latch)
+            || (unit.navigation.nav_com.is_some() && unit.turret_rotation_latch.is_set())
         {
             return Ok(());
         }

@@ -2137,7 +2137,7 @@ fn hash_entity(entity: &GameEntity, frame: u32, hasher: &mut StateHasher) {
     // playback request until idle, even if no source exists. No other
     // folded field reproduces that history. The armed default folds
     // nothing, so a building that never turned keeps its prior hash stream.
-    if !entity.turret_rotate_latch {
+    if !entity.turret_rotate_latch.is_armed() {
         b"turret-rotate-latch-v1".hash(hasher);
     }
     // Techno+4F8 retains a future ordinary voice suppression which

@@ -553,8 +553,8 @@ impl OrderSource {
             },
             OrderSource::AttackMove => Command::AttackMove {
                 entity_id,
-                target_rx: target.0,
-                target_ry: target.1,
+                target: None,
+                destination: Some(crate::sim::combat::TargetKind::Cell(target.0, target.1)),
             },
         }
     }

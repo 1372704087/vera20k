@@ -27,14 +27,14 @@ impl Simulation {
     ///
     /// Then `Assign_Target_Command` (vt+0x4A4, `0x004C73AA`) answers the
     /// mission to queue ([`Self::foot_assign_target_command`]). `target` and
-    /// `destination` are the event's tokens it stores for an attack-move;
-    /// no other mission reads them, and those callers pass `None`.
+    /// `destination` are the event's tokens, which it stores for an
+    /// attack-move; no other mission reads them.
     pub(crate) fn begin_megamission_retask(
         &mut self,
         id: u64,
         mission: MissionType,
         target: Option<crate::sim::combat::TargetKind>,
-        destination: Option<(u16, u16)>,
+        destination: Option<crate::sim::combat::TargetKind>,
         rules: Option<&crate::rules::ruleset::RuleSet>,
         frame_effects: FrameEffects<'_>,
     ) -> MissionType {
@@ -165,7 +165,7 @@ impl Simulation {
         id: u64,
         mission: MissionType,
         target: Option<crate::sim::combat::TargetKind>,
-        destination: Option<(u16, u16)>,
+        destination: Option<crate::sim::combat::TargetKind>,
         rules: Option<&crate::rules::ruleset::RuleSet>,
         frame_effects: FrameEffects<'_>,
     ) {

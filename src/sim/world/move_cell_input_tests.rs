@@ -339,7 +339,13 @@ fn an_object_click_keeps_an_object_its_zone_reaches() {
         Some(TargetKind::Entity(gi))
     );
     assert_eq!(click(tank, tank, MoveAction::NoMove, false), None);
-    assert_eq!(click(gi, tank, MoveAction::None, false), None);
+    // The class tails turn a player's controllable 0 into NoMove (Infantry
+    // `0x0051F05E..0x0051F08B`, Unit `0x007403EB..0x00740414`).
+    assert_eq!(click(gi, tank, MoveAction::None, false), near_tank);
+    assert_eq!(
+        click(tank, gi, MoveAction::None, false),
+        click(tank, gi, MoveAction::NoMove, false)
+    );
 }
 
 /// An object across the river: the retail GI's zone cannot reach its Cell,
@@ -366,6 +372,7 @@ fn an_object_across_the_river_sends_the_mover_to_its_own_bank() {
         Some(TargetKind::Entity(far))
     );
     assert_eq!(click(harrier, MoveAction::NoMove), None);
+    assert_eq!(click(harrier, MoveAction::None), None, "no Aircraft tail");
 }
 
 /// NoMove's own shroud test (`0x004D77BD..0x004D77EA`): over an object whose

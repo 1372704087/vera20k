@@ -852,8 +852,6 @@ mod item83_click_route_tests {
                     false,
                     1,
                     9,
-                    20,
-                    20,
                 ))
             },
         );

@@ -103,8 +103,8 @@ mod tests {
                 },
                 2 => Command::AttackMove {
                     entity_id: id,
-                    target_rx: 8,
-                    target_ry: 4,
+                    target: None,
+                    destination: Some(crate::sim::combat::TargetKind::Cell(8, 4)),
                 },
                 _ => Command::Guard {
                     entity_id: id,

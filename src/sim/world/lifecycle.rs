@@ -3585,7 +3585,7 @@ impl Simulation {
             || listener.locomotor_target == Some(expired_id)
             || listener.locomotor_source == Some(expired_id)
             || listener.manipulated_by == Some(expired_id)
-            || listener.mega_mission.targets(expired_id)
+            || listener.mega_mission.references(expired_id)
     }
 
     /// Each RNG stream's cursor, which every draw moves.
@@ -4088,8 +4088,9 @@ impl Simulation {
             .as_ref()
             .is_some_and(|pending| pending.source_entity_id == Some(expired_id));
         // `0x004D9AC9..0x004D9B43`, on either control: an attack-move's
-        // MegaTarget becomes a MegaDestination at its GetCoords cell.
-        let expire_mega_target = listener.mega_mission.targets(expired_id);
+        // MegaTarget becomes a MegaDestination at its GetCoords cell, and its
+        // MegaDestination is dropped.
+        let expire_mega_pointer = listener.mega_mission.references(expired_id);
         if !(clear_suspended_target
             || clear_damage_smoke
             || clear_archive_target
@@ -4101,7 +4102,7 @@ impl Simulation {
             || clear_refinery
             || clear_passenger_role
             || clear_c4_source
-            || expire_mega_target)
+            || expire_mega_pointer)
         {
             return;
         }
@@ -4148,7 +4149,7 @@ impl Simulation {
         if clear_c4_source && let Some(pending) = listener.pending_c4_detonation.as_mut() {
             pending.source_entity_id = None;
         }
-        if expire_mega_target {
+        if expire_mega_pointer {
             listener
                 .mega_mission
                 .pointer_expired(expired_id, expired_get_coords_cell);

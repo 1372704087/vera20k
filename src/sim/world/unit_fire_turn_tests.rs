@@ -209,8 +209,9 @@ fn attack_move_acquires_before_its_foot_fire_slot() {
                 dispatch_timer: MissionDispatchTimer::from_raw(10, 1000),
             });
         actor.passive_scan_timer.reset(10);
-        actor.mega_mission =
-            crate::sim::mission::mega_mission::MegaMission::attack_move(Some((24, 16)));
+        actor.mega_mission = crate::sim::mission::mega_mission::MegaMission::attack_move(Some(
+            crate::sim::combat::TargetKind::Cell(24, 16),
+        ));
         sim.advance_live_object_turn(first, Some(&rules), techno_ai::ObjectAiCtx::default())
             .unwrap();
         assert_eq!(sim.fire_events.len(), 1);

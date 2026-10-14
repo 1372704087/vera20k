@@ -734,11 +734,12 @@ impl Simulation {
                 entity_id,
                 target_rx,
                 target_ry,
-            } => self.apply_move_command(
+            } => self.apply_megamission_command(
                 command_owner,
                 *entity_id,
-                combat::TargetKind::Cell(*target_rx, *target_ry),
                 MissionType::Move,
+                None,
+                Some(combat::TargetKind::Cell(*target_rx, *target_ry)),
                 rules,
                 overlay_registry,
                 frame_effects,
@@ -746,11 +747,12 @@ impl Simulation {
             Command::MoveToObject {
                 entity_id,
                 target_id,
-            } => self.apply_move_command(
+            } => self.apply_megamission_command(
                 command_owner,
                 *entity_id,
-                combat::TargetKind::Entity(*target_id),
                 MissionType::Move,
+                None,
+                Some(combat::TargetKind::Entity(*target_id)),
                 rules,
                 overlay_registry,
                 frame_effects,
@@ -1019,13 +1021,14 @@ impl Simulation {
             }
             Command::AttackMove {
                 entity_id,
-                target_rx,
-                target_ry,
-            } => self.apply_move_command(
+                target,
+                destination,
+            } => self.apply_megamission_command(
                 command_owner,
                 *entity_id,
-                combat::TargetKind::Cell(*target_rx, *target_ry),
                 MissionType::AttackMove,
+                *target,
+                *destination,
                 rules,
                 overlay_registry,
                 frame_effects,
@@ -2305,21 +2308,45 @@ impl Simulation {
         )
     }
 
-    /// A MEGAMISSION order with a destination: Move to a cell or an object,
-    /// or an attack-move (mission 29) to a cell, which `Assign_Target_Command`
-    /// turns into a Move after storing the cell as the MegaDestination
+    /// TargetClass `0x006E6E20`: what an event token resolves to. An object
+    /// no longer present resolves to NULL; a Cell always resolves.
+    pub(crate) fn resolve_event_token(
+        &self,
+        token: Option<combat::TargetKind>,
+    ) -> Option<combat::TargetKind> {
+        token.filter(|token| match *token {
+            combat::TargetKind::Entity(id) => self.substrate.entities.contains(id),
+            combat::TargetKind::Cell(..) => true,
+        })
+    }
+
+    /// A MEGAMISSION order through its generic arm: Move to a cell or an
+    /// object, or an attack-move (mission 29) with the click's target or
+    /// destination, which `Assign_Target_Command` stores as MegaTarget or
+    /// MegaDestination and turns into Attack or Move
     /// ([`Simulation::foot_assign_target_command`]). The event then runs the
-    /// same arm for both: Assign_Target(null) at `0x004C7467` and the class
-    /// destination setter at `0x004C747C`.
+    /// same arm for every mission: Assign_Target(target) at `0x004C7467`, the
+    /// class destination setter at `0x004C747C`, and an open-topped
+    /// transport's riders take a non-null target (`0x004C7482..0x004C749D`).
     ///
     /// The event has no queued form: a Shift-click still builds an ordinary
     /// MegaMission (walk_first_path.json `gi_reissue`).
-    fn apply_move_command(
+    ///
+    /// RESIDUAL: before Assign_Target_Command, the event flashes its object
+    /// (the destination, else the target) for 7 frames when the local
+    /// player is allied with the ordering object (`0x004C7385..0x004C739F`,
+    /// vt+0x148). Whether it runs depends on the viewer, so it cannot write
+    /// the simulation's flash countdown
+    /// ([`crate::sim::game_entity::GameEntity::flash_building`]); nothing
+    /// presents it. Trigger: every order on an object. Effect: the
+    /// clicked object does not blink. Risk: presentation only.
+    fn apply_megamission_command(
         &mut self,
         command_owner: &str,
         entity_id: u64,
-        destination: combat::TargetKind,
         mission: MissionType,
+        target: Option<combat::TargetKind>,
+        destination: Option<combat::TargetKind>,
         rules: Option<&RuleSet>,
         overlay_registry: Option<&crate::rules::overlay_types::OverlayTypeRegistry>,
         frame_effects: FrameEffects<'_>,
@@ -2339,36 +2366,42 @@ impl Simulation {
         if !self.order_actor_admits(entity_id) {
             return false;
         }
-        // TargetClass6E6E20 resolves an absent object to NULL. A present but
-        // dead/limboed object rejects the entire event before retask writes,
-        // as for Area Guard's post.
-        let destination = match destination {
-            combat::TargetKind::Entity(id) if !self.substrate.entities.contains(id) => None,
-            combat::TargetKind::Entity(id) if !self.order_object_token_admits(id) => {
+        // A present but dead/limboed object rejects the entire event before
+        // retask writes (target `0x004C7225..0x004C725D`, destination
+        // `0x004C7263..0x004C7299`), as for Area Guard's post.
+        for token in [target, destination] {
+            if let Some(combat::TargetKind::Entity(id)) = self.resolve_event_token(token)
+                && !self.order_object_token_admits(id)
+            {
                 return false;
             }
-            destination => Some(destination),
-        };
+        }
         // Queue the mission Assign_Target_Command answers, which reads the
-        // event destination only for mission 29, a cell here. The
-        // destination/radio owners handle any existing dock contact.
-        let mega_destination = match destination {
-            Some(combat::TargetKind::Cell(rx, ry)) => Some((rx, ry)),
-            _ => None,
-        };
+        // event tokens only for mission 29. The destination/radio owners
+        // handle any existing dock contact.
         self.queue_megamission(
             entity_id,
             mission,
-            None,
-            mega_destination,
+            target,
+            destination,
             rules,
             frame_effects,
+        );
+        // The setters take what the tokens resolve to.
+        let (target, destination) = (
+            self.resolve_event_token(target),
+            self.resolve_event_token(destination),
         );
         // Event MegaMission4C7467 calls Assign_Target before the
         // destination setter. Its changed-null path6FCF5B also
         // resets retained burst state; dropping Target alone cannot.
-        let _ =
-            self.assign_target_represented(entity_id, None, rules, overlay_registry, frame_effects);
+        let _ = self.assign_target_represented(
+            entity_id,
+            target,
+            rules,
+            overlay_registry,
+            frame_effects,
+        );
         // Event4C746F pushes 1; 4C747C calls virtual+480 with the
         // destination, the class setter whatever the locomotor:
         // Unit741970, Infantry51AA40 or Aircraft41AA80. Each owns its
@@ -2377,20 +2410,31 @@ impl Simulation {
         // result is no input refusal. Native: track_destination.json Unit
         // rows, replayed by command_move_destinations_match_native_unit_setter;
         // original delayed 6E0 MTNK: walk_first_path.json.
-        self.assign_destination_represented(
-            entity_id,
-            destination.map(Into::into),
-            rules,
-            overlay_registry,
-            frame_effects,
-        )
-        .map_or_else(
-            |cause| {
-                log::warn!("Move destination {entity_id}: {cause}");
-                false
-            },
-            |()| true,
-        )
+        let assigned = self
+            .assign_destination_represented(
+                entity_id,
+                destination.map(Into::into),
+                rules,
+                overlay_registry,
+                frame_effects,
+            )
+            .map_or_else(
+                |cause| {
+                    log::warn!("Move destination {entity_id}: {cause}");
+                    false
+                },
+                |()| true,
+            );
+        if let (Some(target), Some(rules)) = (target, rules) {
+            self.open_topped_passengers_take_target(
+                entity_id,
+                Some(target),
+                rules,
+                overlay_registry,
+                frame_effects,
+            );
+        }
+        assigned
     }
 
     /// Event4C73B9 queues AreaGuard, clears suspended references, then the
@@ -2417,13 +2461,9 @@ impl Simulation {
         if !self.order_actor_admits(entity_id) {
             return false;
         }
-        // TargetClass6E6E20 resolves an absent object to NULL. A present but
-        // dead/limboed object rejects the entire event before retask writes;
-        // friendship is not an event-admission test.
-        let target = target.filter(|target| match *target {
-            combat::TargetKind::Entity(id) => self.substrate.entities.contains(id),
-            combat::TargetKind::Cell(..) => true,
-        });
+        // A present but dead/limboed object rejects the entire event before
+        // retask writes; friendship is not an event-admission test.
+        let target = self.resolve_event_token(target);
         if let Some(combat::TargetKind::Entity(id)) = target
             && !self.order_object_token_admits(id)
         {
@@ -2627,8 +2667,9 @@ mod tests {
         let entity = sim.substrate.entities.get_mut(1).unwrap();
         entity.navigation.nav_queue = vec![crate::sim::components::NavTargetRef::cell(25, 20)];
         entity.navigation.path_runtime.start_movement(40, 30);
-        entity.mega_mission =
-            crate::sim::mission::mega_mission::MegaMission::attack_move(Some((12, 12)));
+        entity.mega_mission = crate::sim::mission::mega_mission::MegaMission::attack_move(Some(
+            crate::sim::combat::TargetKind::Cell(12, 12),
+        ));
         assert!(entity.navigation.nav_com.is_none());
         assert!(sim.apply_command("Americans", &Command::Stop { entity_id: 1 }, Some(&rules)));
         let entity = sim.substrate.entities.get(1).unwrap();
@@ -2667,8 +2708,8 @@ mod tests {
             (
                 Command::AttackMove {
                     entity_id: 1,
-                    target_rx: 25,
-                    target_ry: 20,
+                    target: None,
+                    destination: Some(crate::sim::combat::TargetKind::Cell(25, 20)),
                 },
                 false,
             ),
@@ -3043,8 +3084,9 @@ mod tests {
             actor.suspended_attack_target = Some(combat::TargetKind::Entity(2));
             actor.navigation.suspended_nav_com = Some(NavTargetRef::cell(12, 12));
             actor.set_archive_target(Some(combat::TargetKind::Cell(5, 5)));
-            actor.mega_mission =
-                crate::sim::mission::mega_mission::MegaMission::attack_move(Some((12, 12)));
+            actor.mega_mission = crate::sim::mission::mega_mission::MegaMission::attack_move(Some(
+                crate::sim::combat::TargetKind::Cell(12, 12),
+            ));
 
             assert!(sim.apply_command(
                 "Americans",
@@ -3088,8 +3130,9 @@ mod tests {
         spawn_rule_backed_unit(&mut sim, 1, "AMCV", &rules);
         let actor = sim.substrate.entities.get_mut(1).unwrap();
         actor.lifecycle.in_limbo = true;
-        actor.mega_mission =
-            crate::sim::mission::mega_mission::MegaMission::attack_move(Some((12, 12)));
+        actor.mega_mission = crate::sim::mission::mega_mission::MegaMission::attack_move(Some(
+            crate::sim::combat::TargetKind::Cell(12, 12),
+        ));
 
         assert!(!sim.order_actor_admits(1));
         assert!(!sim.apply_command(
@@ -3217,6 +3260,85 @@ mod tests {
             actor.mission.queued(),
             MissionId::from_known(MissionType::Move)
         );
+    }
+
+    /// An attack-move click on an enemy hands an open-topped transport's
+    /// riders the event target (`0x004C7482..0x004C749D`) after its own
+    /// setters; an attack-move to a Cell has no target to hand them.
+    #[test]
+    fn an_attack_move_target_reaches_open_topped_riders() {
+        let rules = RuleSet::from_ini(&IniFile::from_str(
+            "[InfantryTypes]\n0=E1\n\
+             [VehicleTypes]\n0=BFRT\n\
+             [AircraftTypes]\n\
+             [BuildingTypes]\n\
+             [E1]\nStrength=125\nPrimary=M60\n\
+             [BFRT]\nStrength=1000\nSpeed=4\n\
+             Locomotor={4A582741-9839-11d1-B709-00A024DDAFD1}\n\
+             OpenTopped=yes\nPassengers=5\nPrimary=M60\n\
+             [M60]\nDamage=15\nRange=4\n",
+        ))
+        .expect("open-topped rules");
+        let mut sim = Simulation::new();
+        spawn_rule_backed_unit(&mut sim, 1, "BFRT", &rules);
+        for (id, owner, rx) in [(2, "Soviet", 24), (3, "Americans", 20)] {
+            let mut infantry = GameEntity::new_at_frame_zero_for_test(
+                id,
+                rx,
+                20,
+                0,
+                0,
+                sim.interner.intern(owner),
+                Health { current: 125 },
+                sim.interner.intern("E1"),
+                EntityCategory::Infantry,
+                0,
+                0,
+                false,
+            );
+            infantry.lifecycle.in_limbo = false;
+            sim.substrate.entities.insert(infantry);
+        }
+        let fortress = rules.object("BFRT").unwrap();
+        let mut cargo = crate::sim::passenger::PassengerCargo::new(
+            fortress.passengers.max(0) as u32,
+            fortress.size_limit,
+        );
+        assert!(cargo.board(3, rules.object("E1").unwrap().size));
+        sim.substrate.entities.get_mut(1).unwrap().passenger_role =
+            crate::sim::passenger::PassengerRole::Transport { cargo };
+        let grid = crate::sim::pathfinding::PathGrid::new(64, 64);
+        sim.install_fixture_path_grid(Some(&grid));
+        let rider_target = |sim: &Simulation| {
+            sim.substrate
+                .entities
+                .get(3)
+                .unwrap()
+                .attack_target
+                .as_ref()
+                .map(|attack| attack.target)
+        };
+
+        assert!(sim.apply_command(
+            "Americans",
+            &Command::AttackMove {
+                entity_id: 1,
+                target: None,
+                destination: Some(combat::TargetKind::Cell(25, 20)),
+            },
+            Some(&rules),
+        ));
+        assert_eq!(rider_target(&sim), None);
+        assert!(sim.apply_command(
+            "Americans",
+            &Command::AttackMove {
+                entity_id: 1,
+                target: Some(combat::TargetKind::Entity(2)),
+                destination: None,
+            },
+            Some(&rules),
+        ));
+        assert_eq!(rider_target(&sim), Some(combat::TargetKind::Entity(2)));
     }
 
     /// An in-limbo actor — inside a transport, a tank bunker or a garrison —

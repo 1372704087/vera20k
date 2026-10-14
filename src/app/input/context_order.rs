@@ -397,11 +397,6 @@ fn unit_repair_branch_orders(
             }
             UnitRepairAction::Repair => {
                 output.consumed = true;
-                let target_entity = sim.entities().get(target.stable_id).unwrap();
-                let goal = nearest_reachable_goal(
-                    sim.path_grid(),
-                    (target_entity.position.rx, target_entity.position.ry),
-                );
                 // Repair29 replaced Ctrl+Alt's base action before the mission
                 // producer; it sends Attack1, not the legacy Guard adapter.
                 let attack_modifier = if modifier == OrderModifier::GuardArea {
@@ -415,8 +410,6 @@ fn unit_repair_branch_orders(
                     entity_can_attack_move(sim, Some(rules), id),
                     id,
                     target.stable_id,
-                    goal.0,
-                    goal.1,
                 );
                 match payload {
                     Command::Attack {
@@ -840,43 +833,13 @@ fn selection_can_attack_move(
         .all(|&sid| entity_can_attack_move(sim, rules, sid))
 }
 
-/// How far the passable-cell fallback searches when the clicked cell is blocked.
-const GOAL_FALLBACK_RADIUS: u16 = 12;
-
-/// Resolve a clicked cell to the cell a mover can actually stand on.
-///
-/// Retail resolves the click to a cell and then walks outward for a passable one
-/// rather than refusing the order, so an unwalkable goal — water, a cliff, a
-/// building's own footprint — becomes the nearest cell that works.
-fn nearest_reachable_goal(
-    path_grid: Option<&crate::sim::pathfinding::PathGrid>,
-    goal: (u16, u16),
-) -> (u16, u16) {
-    let Some(grid) = path_grid else {
-        return goal;
-    };
-    if crate::app::match_runtime::sim_tick::is_any_layer_walkable(grid, goal.0, goal.1) {
-        return goal;
-    }
-    crate::app::match_runtime::sim_tick::nearest_walkable_cell_layered(
-        grid,
-        goal,
-        GOAL_FALLBACK_RADIUS,
-    )
-    .unwrap_or(goal)
-}
-
 /// The order one receiver commits for a Move click's destination.
 /// ClickedMission (`0x006FFBE0`) promotes Move to attack-move (mission 29)
 /// while the attack-move chord or toggle is on (`0x00731BF0`) and the
-/// receiver can attack-move (vt+0x4C0). The promotion is per object: a unit
-/// whose type refuses it keeps the plain Move it committed, even when the
-/// rest of the group attack-moves.
-///
-/// RESIDUAL (attack-move over an object): MegaDestination keeps the object
-/// natively (`0x004DF12A..0x004DF186`), but VERA's MegaMission holds only a
-/// Cell, so an attack-move whose destination is the object takes the object's
-/// Cell, moved to a walkable one ([`nearest_reachable_goal`]).
+/// receiver can attack-move (vt+0x4C0), and the event keeps the click's
+/// destination, a Cell or the object (`0x006FFDA5..0x006FFDE6`). The
+/// promotion is per object: a unit whose type refuses it keeps the plain Move
+/// it committed, even when the rest of the group attack-moves.
 fn move_click_command(
     sim: &crate::sim::world::Simulation,
     rules: &crate::rules::ruleset::RuleSet,
@@ -887,52 +850,37 @@ fn move_click_command(
     let attack_move =
         order_mode == OrderMode::AttackMove && entity_can_attack_move(sim, Some(rules), entity_id);
     match destination {
-        TargetKind::Cell(target_rx, target_ry) if attack_move => Command::AttackMove {
+        _ if attack_move => Command::AttackMove {
             entity_id,
-            target_rx,
-            target_ry,
+            target: None,
+            destination: Some(destination),
         },
         TargetKind::Cell(target_rx, target_ry) => Command::Move {
             entity_id,
             target_rx,
             target_ry,
         },
-        TargetKind::Entity(target_id) => match sim.entities().get(target_id) {
-            Some(target) if attack_move => {
-                let (target_rx, target_ry) = nearest_reachable_goal(
-                    sim.path_grid(),
-                    (target.position.rx, target.position.ry),
-                );
-                Command::AttackMove {
-                    entity_id,
-                    target_rx,
-                    target_ry,
-                }
-            }
-            _ => Command::MoveToObject {
-                entity_id,
-                target_id,
-            },
+        TargetKind::Entity(target_id) => Command::MoveToObject {
+            entity_id,
+            target_id,
         },
     }
 }
 
 /// The command one selected unit commits for a tactical click on an object.
 ///
-/// Retail resolves the object action, commits the mission, and only then
-/// promotes it: a committed **Attack** is promoted to attack-move exactly as
-/// readily as a committed **Move** is, and the promotion is gated per object on
-/// that object's own type predicate. So a chorded click on an enemy tank sends
-/// the selection walking toward it in fighting order rather than charging it,
-/// while a member whose type refuses attack-move still commits the plain attack.
+/// ClickedMission (`0x006FFBE0`) promotes the committed **Attack** to
+/// attack-move as readily as a committed Move, gated per object on its own
+/// type predicate, and the event keeps the clicked object as its target
+/// (`0x004D76B1..0x004D76C1`). `Assign_Target_Command` stores it as MegaTarget
+/// and answers Attack, so the unit attacks it as an attack-mover; a member
+/// whose type refuses attack-move commits the plain attack.
 pub(crate) fn object_click_payload(
     order_mode: OrderMode,
     modifier: OrderModifier,
     can_attack_move: bool,
     attacker_id: u64,
     target_id: u64,
-    target_rx: u16,
-    target_ry: u16,
 ) -> Command {
     if modifier == OrderModifier::ForceFire {
         return Command::ForceAttack {
@@ -949,14 +897,85 @@ pub(crate) fn object_click_payload(
     match order_mode {
         OrderMode::AttackMove if can_attack_move => Command::AttackMove {
             entity_id: attacker_id,
-            target_rx,
-            target_ry,
+            target: Some(TargetKind::Entity(target_id)),
+            destination: None,
         },
         _ => Command::Attack {
             attacker_id,
             target_id,
         },
     }
+}
+
+/// The order one receiver commits for a click on another house's object
+/// ([`object_click_payload`]). What_Action decides Attack before
+/// ClickedMission promotes it to attack-move, so a shot its ILLEGAL test
+/// refuses ([`click_attack_refused`]) leaves no Attack to promote. An armed
+/// receiver's What_Action then answers 0 for the object
+/// (`0x0070056C..0x007005E6`), which the class tails may turn into NoMove: a
+/// click that moves the receiver near the object, as an attack-move under
+/// the chord ([`Simulation::object_move_click`], [`move_click_command`]).
+///
+/// RESIDUAL: an unarmed receiver's refused click orders nothing. Its
+/// What_Action leaves the attack rungs at `0x00700472` and answers Select or
+/// 0 on target tests at `0x0070059D..0x007005E6` that are not traced, so
+/// whether its tail moves it is unknown. Trigger: an unforced click on an
+/// enemy with only unarmed units selected. Risk: low.
+///
+/// [`Simulation::object_move_click`]: crate::sim::world::Simulation::object_move_click
+fn object_attack_click_command(
+    sim: &crate::sim::world::Simulation,
+    rules: &crate::rules::ruleset::RuleSet,
+    overlay_registry: &crate::rules::overlay_types::OverlayTypeRegistry,
+    issuing_house: InternedId,
+    order_mode: OrderMode,
+    modifier: OrderModifier,
+    force_move_key: bool,
+    attacker_id: u64,
+    target_id: u64,
+) -> Option<Command> {
+    let payload = object_click_payload(
+        order_mode,
+        modifier,
+        entity_can_attack_move(sim, Some(rules), attacker_id),
+        attacker_id,
+        target_id,
+    );
+    let attack = matches!(
+        payload,
+        Command::Attack { .. }
+            | Command::AttackMove {
+                target: Some(_),
+                ..
+            }
+    );
+    if !attack || !click_attack_refused(sim, rules, overlay_registry, attacker_id, target_id) {
+        return Some(payload);
+    }
+    let armed = sim.entities().get(attacker_id).is_some_and(|actor| {
+        rules
+            .object(sim.interner.resolve(actor.type_ref()))
+            .is_some_and(|object| crate::sim::combat::combat_weapon::is_armed(actor, object))
+    });
+    if !armed {
+        return None;
+    }
+    let destination = crate::app::input::commands::object_move_destination(
+        sim,
+        rules,
+        issuing_house,
+        attacker_id,
+        target_id,
+        crate::sim::world::MoveAction::None,
+        force_move_key,
+    )?;
+    Some(move_click_command(
+        sim,
+        rules,
+        order_mode,
+        attacker_id,
+        destination,
+    ))
 }
 
 /// What a left release does when every selected object is berserk.
@@ -1842,8 +1861,19 @@ pub(crate) fn try_queue_context_order_at_screen_point(
             };
 
             for stable_id in selected_units {
+                // NoIvanBomb needs the Attack action, which a shot ILLEGAL to
+                // the Ivan never reaches: a bombed target is ILLEGAL first
+                // (`0x006FCBAD`), and that click takes the class tail in
+                // `object_attack_click_command` instead.
                 if let Some(target_id) = attack_target
                     && ivan_cannot_bomb(sim, &resources.rules, stable_id, target_id)
+                    && !click_attack_refused(
+                        sim,
+                        &resources.rules,
+                        &resources.overlay_registry,
+                        stable_id,
+                        target_id,
+                    )
                 {
                     continue;
                 }
@@ -1860,26 +1890,20 @@ pub(crate) fn try_queue_context_order_at_screen_point(
                         consumed_attack_action = true;
                         continue;
                     }
-                    // Retail promotes the *committed* mission and keeps the
-                    // object as the destination, so the attack-move goal is the
-                    // object's own cell — routed through the same passable-cell
-                    // fallback the Move payload uses, since a building's own
-                    // cell is never walkable.
-                    let (goal_rx, goal_ry) = sim
-                        .entities()
-                        .get(target_id)
-                        .map_or((target_rx, target_ry), |e| (e.position.rx, e.position.ry));
-                    let (goal_rx, goal_ry) =
-                        nearest_reachable_goal(sim.path_grid(), (goal_rx, goal_ry));
-                    object_click_payload(
+                    let Some(payload) = object_attack_click_command(
+                        sim,
+                        &resources.rules,
+                        &resources.overlay_registry,
+                        owner_id,
                         order_mode,
                         modifier,
-                        entity_can_attack_move(sim, Some(&resources.rules), stable_id),
+                        force_move_key,
                         stable_id,
                         target_id,
-                        goal_rx,
-                        goal_ry,
-                    )
+                    ) else {
+                        continue;
+                    };
+                    payload
                 } else if force_fire && !cell_is_shrouded {
                     // Unarmed Cell-click fall-through resolves the original
                     // clicked Cell before committing its Move event.
@@ -1948,20 +1972,6 @@ pub(crate) fn try_queue_context_order_at_screen_point(
                         }
                     }
                 };
-                if let Command::Attack {
-                    attacker_id,
-                    target_id,
-                } = payload
-                    && click_attack_refused(
-                        sim,
-                        &resources.rules,
-                        &resources.overlay_registry,
-                        attacker_id,
-                        target_id,
-                    )
-                {
-                    continue;
-                }
                 queued.push(CommandEnvelope::new(owner_id, execute_tick, payload));
             }
             if !queued.is_empty() {
@@ -2307,7 +2317,9 @@ fn object_attack_order(attacker_id: u64, target_id: u64, friendly: bool) -> Comm
 /// a bomb (`+0x38`) or is `Bombable=no`), which
 /// `FootClass::ClickedAction_Object` (0x004D74E0) ignores. An unforced click
 /// on a bombed target never gets that far: its GetFireError is ILLEGAL
-/// (`0x006FCBAD`), which [`click_attack_refused`] answers.
+/// (`0x006FCBAD`), which [`click_attack_refused`] answers, so the Ivan's
+/// What_Action answers 0 and its class tail decides
+/// ([`object_attack_click_command`]).
 fn ivan_cannot_bomb(
     sim: &crate::sim::world::Simulation,
     rules: &crate::rules::ruleset::RuleSet,
@@ -2330,8 +2342,9 @@ fn ivan_cannot_bomb(
 
 /// `TechnoClass::What_Action_OnObject @ 0x00700548`: an unforced click on
 /// an object stays Attack only while the object's GetFireError for it
-/// ([`Simulation::selected_weapon_fire_error`]) is not ILLEGAL. Otherwise the action
-/// is None or Select (`0x0070056C`), and the object takes no order.
+/// ([`Simulation::selected_weapon_fire_error`]) is not ILLEGAL. Otherwise the
+/// action is None or Select (`0x0070056C`); [`object_attack_click_command`]
+/// asks the class tails what a 0 becomes.
 ///
 /// The Infiltrate arm (`0x007004A0..0x00700531`) keeps Attack despite
 /// ILLEGAL for an `Infiltrate=` infantryman over a building its flags admit;
@@ -2503,7 +2516,8 @@ mod tests {
     /// orders Attack only to the objects whose GetFireError for the target is
     /// not ILLEGAL. Out of range is RANGE (T61, the last test), not ILLEGAL.
     /// A Crazy Ivan's bombed target is ILLEGAL at any distance (T55,
-    /// `0x006FCBAD`, comes first).
+    /// `0x006FCBAD`, comes first). ClickedMission promotes only an Attack
+    /// that passed, so the test refuses an attack-move click too.
     #[test]
     fn an_unforced_click_refuses_only_an_illegal_shot() {
         let rules =
@@ -2545,6 +2559,25 @@ mod tests {
         assert!(!refused(&sim, tank, near));
         assert!(!refused(&sim, tank, far), "out of range");
         assert!(!refused(&sim, ivan, near));
+        let americans = sim.interner.get("Americans").unwrap();
+        assert_eq!(
+            object_attack_click_command(
+                &sim,
+                &rules,
+                &overlays,
+                americans,
+                OrderMode::AttackMove,
+                OrderModifier::Normal,
+                false,
+                tank,
+                near,
+            ),
+            Some(Command::AttackMove {
+                entity_id: tank,
+                target: Some(TargetKind::Entity(near)),
+                destination: None,
+            })
+        );
 
         sim.bomb_attach(ivan, Some(near), &rules);
         sim.bomb_attach(ivan, Some(far), &rules);
@@ -2552,6 +2585,71 @@ mod tests {
         assert!(
             refused(&sim, ivan, far),
             "the bomb gate precedes the range test"
+        );
+    }
+
+    /// A shot ILLEGAL to an armed receiver leaves its What_Action 0
+    /// (`0x0070056C..0x007005E6`), which a player's Infantry or Unit it may
+    /// control turns into NoMove (`0x0051F05E..0x0051F08B`,
+    /// `0x007403EB..0x00740414`): the click moves it near the object, as an
+    /// attack-move under the chord. A retail Crazy Ivan's bombed target is
+    /// ILLEGAL to him (`0x006FCBAD`).
+    #[test]
+    fn a_refused_shot_moves_the_receiver_near_the_object() {
+        let Some(retail) = crate::rules::retail_ini_fixture::retail_battle_rules() else {
+            return;
+        };
+        let (mut sim, rules, _) = Simulation::walk_cell_input_test_scene_with(retail.rules, false);
+        let owner = sim.interner.get("Local").unwrap();
+        let ivan = sim.spawn_object("IVAN", "Local", 6, 4, 0, &rules).unwrap();
+        let tank = sim.spawn_object("MTNK", "Enemy", 6, 6, 0, &rules).unwrap();
+        sim.resolve_type_handles(&rules);
+        sim.fog = crate::sim::vision::FogState::new(16, 16);
+        sim.fog
+            .reveal_cells_for_owner(owner, (0..16).flat_map(|y| (0..16).map(move |x| (x, y))));
+        sim.bomb_attach(ivan, Some(tank), &rules);
+        let overlays = crate::rules::overlay_types::OverlayTypeRegistry::empty();
+        assert!(click_attack_refused(&sim, &rules, &overlays, ivan, tank));
+        let click = |order_mode| {
+            object_attack_click_command(
+                &sim,
+                &rules,
+                &overlays,
+                owner,
+                order_mode,
+                OrderModifier::Normal,
+                false,
+                ivan,
+                tank,
+            )
+        };
+        let near = crate::app::input::commands::object_move_destination(
+            &sim,
+            &rules,
+            owner,
+            ivan,
+            tank,
+            crate::sim::world::MoveAction::NoMove,
+            false,
+        );
+        let Some(TargetKind::Cell(target_rx, target_ry)) = near else {
+            panic!("NoMove searches near the tank: {near:?}");
+        };
+        assert_eq!(
+            click(OrderMode::Move),
+            Some(Command::Move {
+                entity_id: ivan,
+                target_rx,
+                target_ry,
+            })
+        );
+        assert_eq!(
+            click(OrderMode::AttackMove),
+            Some(Command::AttackMove {
+                entity_id: ivan,
+                target: None,
+                destination: near,
+            })
         );
     }
 
@@ -2668,8 +2766,8 @@ mod tests {
         assert_eq!(
             order_voice_key(&Command::AttackMove {
                 entity_id: 1,
-                target_rx: 0,
-                target_ry: 0,
+                target: None,
+                destination: Some(crate::sim::combat::TargetKind::Cell(0, 0)),
             }),
             Some("VoiceMove")
         );
@@ -3004,38 +3102,23 @@ mod tests {
         assert!(!selection_can_attack_move(&sim, Some(&rules), &[]));
     }
 
-    /// A chorded click on an enemy *object* attack-moves, because retail
-    /// promotes a committed Attack mission just as it promotes a committed Move.
-    /// The promotion is per object: a member whose type refuses attack-move
-    /// still commits the plain attack.
+    /// A chorded click on an enemy *object* attack-moves with the object as its
+    /// target, because ClickedMission promotes a committed Attack just as it
+    /// promotes a committed Move (`0x006FFC09..0x006FFC1E`). The promotion is
+    /// per object: a member whose type refuses attack-move still commits the
+    /// plain attack.
     #[test]
     fn chorded_click_on_an_enemy_object_attack_moves() {
         assert_eq!(
-            object_click_payload(
-                OrderMode::AttackMove,
-                OrderModifier::Normal,
-                true,
-                1,
-                2,
-                9,
-                11
-            ),
+            object_click_payload(OrderMode::AttackMove, OrderModifier::Normal, true, 1, 2),
             Command::AttackMove {
                 entity_id: 1,
-                target_rx: 9,
-                target_ry: 11,
+                target: Some(TargetKind::Entity(2)),
+                destination: None,
             }
         );
         assert_eq!(
-            object_click_payload(
-                OrderMode::AttackMove,
-                OrderModifier::Normal,
-                false,
-                1,
-                2,
-                9,
-                11
-            ),
+            object_click_payload(OrderMode::AttackMove, OrderModifier::Normal, false, 1, 2),
             Command::Attack {
                 attacker_id: 1,
                 target_id: 2,
@@ -3043,35 +3126,78 @@ mod tests {
         );
         // Plain click, force fire and guard area are untouched by the promotion.
         assert_eq!(
-            object_click_payload(OrderMode::Move, OrderModifier::Normal, true, 1, 2, 9, 11),
+            object_click_payload(OrderMode::Move, OrderModifier::Normal, true, 1, 2),
             Command::Attack {
                 attacker_id: 1,
                 target_id: 2,
             }
         );
         assert_eq!(
-            object_click_payload(
-                OrderMode::AttackMove,
-                OrderModifier::ForceFire,
-                true,
-                1,
-                2,
-                9,
-                11
-            ),
+            object_click_payload(OrderMode::AttackMove, OrderModifier::ForceFire, true, 1, 2),
             Command::ForceAttack {
                 attacker_id: 1,
                 target_id: 2,
             }
         );
         assert_eq!(
-            object_click_payload(OrderMode::Move, OrderModifier::GuardArea, true, 1, 2, 9, 11),
+            object_click_payload(OrderMode::Move, OrderModifier::GuardArea, true, 1, 2),
             Command::Guard {
                 entity_id: 1,
                 target: Some(TargetKind::Entity(2)),
             }
         );
     }
+
+    /// The attack-move promotion keeps a Move click's destination token
+    /// (`0x006FFDA5..0x006FFDE6`), so an object stays the destination; a
+    /// receiver whose type refuses attack-move commits the plain Move.
+    #[test]
+    fn attack_move_keeps_the_move_click_destination() {
+        let rules =
+            crate::rules::ruleset::RuleSet::from_ini(&crate::rules::ini_parser::IniFile::from_str(
+                "[InfantryTypes]\n0=E1\n[VehicleTypes]\n0=AMCV\n\
+                 [E1]\nStrength=125\nPrimary=M60\n\
+                 [AMCV]\nStrength=1000\n",
+            ))
+            .unwrap();
+        let mut sim = Simulation::new();
+        sim.resolve_type_handles(&rules);
+        let gi = sim
+            .spawn_object("E1", "Americans", 5, 5, 0, &rules)
+            .unwrap();
+        let mcv = sim
+            .spawn_object("AMCV", "Americans", 9, 5, 0, &rules)
+            .unwrap();
+        let command =
+            |id, mode, destination| move_click_command(&sim, &rules, mode, id, destination);
+
+        for destination in [TargetKind::Entity(mcv), TargetKind::Cell(12, 5)] {
+            assert_eq!(
+                command(gi, OrderMode::AttackMove, destination),
+                Command::AttackMove {
+                    entity_id: gi,
+                    target: None,
+                    destination: Some(destination),
+                }
+            );
+        }
+        assert_eq!(
+            command(mcv, OrderMode::AttackMove, TargetKind::Entity(gi)),
+            Command::MoveToObject {
+                entity_id: mcv,
+                target_id: gi,
+            }
+        );
+        assert_eq!(
+            command(gi, OrderMode::Move, TargetKind::Cell(12, 5)),
+            Command::Move {
+                entity_id: gi,
+                target_rx: 12,
+                target_ry: 5,
+            }
+        );
+    }
+
     /// A click on the selected object itself is its self action only while it
     /// is the one selected object and the local player's
     /// (`TechnoClass::What_Action_OnObject`, `0x007000B9..0x007000DF`); a click

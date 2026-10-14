@@ -104,6 +104,41 @@ fn repair_click(sim: &Simulation, rules: &RuleSet, ifv: u64, tank: u64) -> Comma
     dispatch.commands.into_iter().next().unwrap()
 }
 
+/// Under the attack-move chord, ClickedMission promotes the repair click's
+/// Attack too (`0x006FFC09..0x006FFC1E`) and keeps the friend as the event
+/// target, which `Assign_Target_Command` stores as MegaTarget.
+#[test]
+fn retail_repair_click_under_the_attack_move_chord_keeps_the_friend_as_target() {
+    let Some(retail) = crate::rules::retail_ini_fixture::retail_battle_rules() else {
+        return;
+    };
+    let rules = &retail.rules;
+    let (sim, ifv, tank) = repair_ifv(rules);
+    let owner = sim.entities().get(ifv).unwrap().owner();
+    let dispatch = unit_repair_branch_orders(
+        &sim,
+        rules,
+        &[ifv],
+        &[ifv],
+        &HoverTargetKindWithId {
+            kind: HoverTargetKind::FriendlyUnit,
+            stable_id: tank,
+        },
+        owner,
+        OrderModifier::Normal,
+        OrderMode::AttackMove,
+        false,
+    );
+    assert_eq!(
+        dispatch.commands,
+        [Command::AttackMove {
+            entity_id: ifv,
+            target: Some(TargetKind::Entity(tank)),
+            destination: None,
+        }]
+    );
+}
+
 #[test]
 fn retail_engineer_ifv_offers_normal_repair_cursor_on_damaged_friend() {
     let Some(retail) = crate::rules::retail_ini_fixture::retail_battle_rules() else {

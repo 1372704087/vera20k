@@ -3162,9 +3162,10 @@ mod tests {
     }
 
     /// A Move onto an object hands the object to the class setter as its
-    /// NavCom. An absent object resolves to NULL (TargetClass6E6E20): the Move
-    /// still queues and the setter takes NULL. A dead one rejects the whole
-    /// event, as an Area Guard post does.
+    /// NavCom, which Foot PointerExpired (`0x004D9A0F..0x004D9ABD`) drops when
+    /// the object expires. An absent object resolves to NULL
+    /// (TargetClass6E6E20): the Move still queues and the setter takes NULL. A
+    /// dead one rejects the whole event, as an Area Guard post does.
     #[test]
     fn a_move_onto_an_object_makes_it_the_destination() {
         let rules = amcv_move_rules();
@@ -3194,7 +3195,13 @@ mod tests {
             actor.mission.queued(),
             MissionId::from_known(MissionType::Move)
         );
+        sim.detach_all_pointer_expired(2, &rules, None, crate::sim::world::FrameEffects::default());
+        assert_eq!(
+            sim.substrate.entities.get(1).unwrap().navigation.nav_com,
+            None
+        );
 
+        assert!(move_onto(&mut sim, 2));
         sim.substrate.entities.get_mut(2).unwrap().health.current = 0;
         assert!(!move_onto(&mut sim, 2));
         assert_eq!(

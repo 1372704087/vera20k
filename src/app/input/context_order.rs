@@ -1121,6 +1121,16 @@ pub(crate) fn try_queue_context_order_at_screen_point(
                 }
             }
         }
+        let hover = hover_target_at_point(
+            sim,
+            world_x,
+            world_y,
+            &owner,
+            state.match_state.sandbox_full_visibility,
+            Some(&resources.rules),
+            &state.match_state.match_presentation.height_map,
+            crate::app::match_runtime::sim_tick::tactical_bridge_cells(sim),
+        );
         // The chord test fails — and the order resolves normally — unless every
         // selected object can accept an attack-move order. The walk covers the
         // whole selection, so a selected building or aircraft kills the chord.
@@ -1129,16 +1139,29 @@ pub(crate) fn try_queue_context_order_at_screen_point(
         {
             modifier = OrderModifier::Normal;
         }
+        // Techno What_Action answers Self for the lone selected object clicking
+        // itself (`0x007000B9..0x007000E8`) before Alt's force-move rung
+        // (`0x007001E9..0x00700217`), so Alt leaves that click a plain one.
+        if modifier == OrderModifier::ForceMove
+            && hover
+                .as_ref()
+                .is_some_and(|target| current_objects == [target.stable_id])
+        {
+            modifier = OrderModifier::Normal;
+        }
         let shift_click: bool = modifier == OrderModifier::Shift;
         let force_fire: bool = modifier == OrderModifier::ForceFire;
         let force_move: bool = modifier == OrderModifier::ForceMove;
-        // Force fire, force move and guard area each replace the object's own
-        // context action outright, so the capability branches below (miner
-        // return, garrison, C4, engineer capture, depot, bunker, self-click
-        // deploy) are skipped for them. The attack-move chord does not: it
-        // cancels both its modifiers before the action resolves and only
-        // promotes the *committed* mission afterwards, so a chorded click on a
-        // capturable building still captures.
+        // Force fire, force move and guard area skip the capability branches
+        // below (miner return, garrison, C4, engineer capture, depot, bunker,
+        // self-click deploy). RESIDUAL (#605): native class What_Action does
+        // not always let the key replace them. Infantry `0x0051E3B0` reads
+        // Shift and Ctrl but not Alt, and its Engineer rungs over a capturable
+        // Building (`0x0051E49E..0x0051E5E5`) answer without the base action,
+        // so Alt does not change them natively. The attack-move chord does not
+        // skip them: it cancels both its modifiers before the action resolves
+        // and only promotes the *committed* mission afterwards, so a chorded
+        // click on a capturable building still captures.
         let context_actions_enabled: bool = matches!(
             modifier,
             OrderModifier::Normal | OrderModifier::Shift | OrderModifier::AttackMove
@@ -1159,16 +1182,6 @@ pub(crate) fn try_queue_context_order_at_screen_point(
             _ => order_mode,
         };
 
-        let hover = hover_target_at_point(
-            sim,
-            world_x,
-            world_y,
-            &owner,
-            state.match_state.sandbox_full_visibility,
-            Some(&resources.rules),
-            &state.match_state.match_presentation.height_map,
-            crate::app::match_runtime::sim_tick::tactical_bridge_cells(sim),
-        );
         if selected_ids.is_empty() {
             return match berserk_selection_click(
                 sim,
@@ -1770,11 +1783,16 @@ pub(crate) fn try_queue_context_order_at_screen_point(
                 };
             }
 
-            // Alt force-move over an object: What_Action answers Move, so
-            // nothing under the cursor is treated as a target, and the object
-            // receiver 4D74E0 orders the object or a Cell near it
-            // ([`Simulation::object_move_click`]). An enemy the player cannot
-            // see is no object to click: the Cell under it takes the click.
+            // Alt over an object: Techno's force-move rung answers Move for a
+            // player's controllable receiver (`0x007001E9..0x00700217`), so
+            // nothing under the cursor is a target, and the object receiver
+            // 4D74E0 orders the object or a Cell near it
+            // ([`Simulation::object_move_click`]). Rungs that answer first
+            // (Self, handled above) or rewrite it are not asked here (#605):
+            // the class rungs noted above, and Foot's shroud rung
+            // (`0x004DDF45..0x004DDF82`), which only GameMode 0 reaches. An
+            // enemy the player cannot see is no object to click, as for the
+            // cursor: the Cell under it takes the click.
             let force_move_target = hover
                 .as_ref()
                 .filter(|target| force_move && target.kind != HoverTargetKind::HiddenEnemy)
@@ -3199,7 +3217,7 @@ mod tests {
     /// Cell near the object. A non-player House orders neither: its Cell
     /// What_Action answers 0, and 4D74E0 asks IsControllable (`0x004D77FF`).
     #[test]
-    fn retail_deployment_refuses_move_clicks_through_the_class_what_action() {
+    fn retail_deployment_answers_move_clicks_through_the_class_what_action() {
         use crate::app::input::commands::{object_move_destination, ordinary_cell_move_goal};
         use crate::sim::world::MoveAction;
         let Some(battle) = crate::rules::retail_ini_fixture::retail_battle_rules() else {

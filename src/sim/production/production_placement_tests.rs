@@ -178,6 +178,7 @@ fn gap_operational_actual_placement_waits_for_build_up_and_next_building_turn() 
             .get(id)
             .unwrap()
             .building_last_operational
+            .is_operational()
     );
     assert!(!sim.fog.is_cell_gap_covered(viewer, 12, 10));
     set_ticks_until_completion(&mut sim, id, 1);

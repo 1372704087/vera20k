@@ -3400,7 +3400,11 @@ mod deploy_key_tests {
             ),
             [Command::DeployMcv { entity_id: heli }]
         );
-        sim.entities_mut().get_mut(heli).unwrap().deactivated = true;
+        sim.entities_mut()
+            .get_mut(heli)
+            .unwrap()
+            .deactivated
+            .set_for_test(true);
         assert!(
             deploy_key_commands(&sim, Some(&rules), &[heli], sim.session.current_house).is_empty()
         );

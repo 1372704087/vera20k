@@ -193,14 +193,6 @@ impl BunkerLink {
 
 pub(crate) use crate::sim::gate_runtime::BuildingGateRuntime;
 
-/// Parent-owned `BuildingLightClass` runtime. It exists only for a successfully
-/// placed `HasSpotlight=yes` building and is removed with that parent.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
-pub struct BuildingLightRuntime {
-    pub behavior: u8,
-    pub target_id: Option<u64>,
-}
-
 /// Accepted Psychedelic-warhead state owned by TechnoClass.
 ///
 /// `active` mirrors the byte at native `Techno+0x298`; `timer` mirrors the
@@ -481,12 +473,12 @@ pub struct GameEntity {
     /// selected-unit effects and parasite reselect. The app keeps input order and
     /// pending commands separately, then reconciles that ledger after the frame.
     pub selected: bool,
-    /// TechnoClass+1C8: offline for want of a powering building (a Robot
-    /// Tank). Deactivate (`0x0070FC90`) raises it and Reactivate
-    /// (`0x0070FBE0`) clears it, both in `sim::powered_unit`; selection,
-    /// orders, fire, the select voice and the voxel draw read it.
+    /// Offline for want of a powering building (`TechnoClass+0x1C8`), a
+    /// [`Deactivation`] that `sim::powered_unit` owns.
+    ///
+    /// [`Deactivation`]: crate::sim::powered_unit::Deactivation
     #[serde(default)]
-    pub(crate) deactivated: bool,
+    pub(crate) deactivated: crate::sim::powered_unit::Deactivation,
     /// A building's repair byte (`BuildingClass+0x6E8`), a [`RepairByte`]
     /// that `production::production_repair` owns.
     ///
@@ -768,30 +760,38 @@ pub struct GameEntity {
     /// the Grand_Opening guard. `sim::building_art` owns it.
     #[serde(default)]
     pub(crate) building_art: crate::sim::building_art::BuildingArt,
-    /// Building+6C8: last4555D0 result, sampled for every Building by43FB20.
+    /// The last operational sample (`BuildingClass+0x6C8`), a
+    /// [`LastOperational`] that `world::gap_generator` owns.
+    ///
+    /// [`LastOperational`]: crate::sim::world::LastOperational
     #[serde(default)]
-    pub building_last_operational: bool,
-    /// Building+662: this `PowersUnit=` building counts among its house's
-    /// powered centers (House+2D8). The operational edge (`0x004549B0`) and
-    /// Removed_From_Game (`0x0050267D`) own it, in `sim::powered_unit`.
+    pub(crate) building_last_operational: crate::sim::world::LastOperational,
+    /// A `PowersUnit=` building's share in its house's powered centers
+    /// (`BuildingClass+0x662`), a [`PoweredCenter`] that `sim::powered_unit`
+    /// owns.
+    ///
+    /// [`PoweredCenter`]: crate::sim::powered_unit::PoweredCenter
     #[serde(default)]
-    pub(crate) building_powered_center: bool,
-    /// Building HasEngineer: starts false, changed-owner transfer sets true.
-    /// Authored NeedsEngineer initialization consumes it; never infer from owner.
+    pub(crate) building_powered_center: crate::sim::powered_unit::PoweredCenter,
+    /// HasEngineer (`BuildingClass+0x6CC`), a [`HasEngineer`] that
+    /// `sim::building_art` owns.
+    ///
+    /// [`HasEngineer`]: crate::sim::building_art::HasEngineer
     #[serde(default)]
-    pub building_has_engineer: bool,
-    /// Persisted type fact needed to recreate the owned light on later Unlimbo.
+    pub(crate) building_has_engineer: crate::sim::building_art::HasEngineer,
+    /// The `HasSpotlight=` fact and the owned BuildingLight, a
+    /// [`BuildingLight`] that `world::lifecycle` owns.
+    ///
+    /// [`BuildingLight`]: crate::sim::world::BuildingLight
     #[serde(default)]
-    pub spotlight_capable: bool,
+    pub(crate) building_light: crate::sim::world::BuildingLight,
+    /// The damage-fire transition cache and its eight AnimClass slots
+    /// (`BuildingClass+0x5E8`, `+0x5C8..+0x5E4`), a [`DamageFires`] that
+    /// `sim::anim_class` owns.
+    ///
+    /// [`DamageFires`]: crate::sim::anim_class::DamageFires
     #[serde(default)]
-    pub building_light: Option<BuildingLightRuntime>,
-    /// Native BuildingClass damage-fire transition cache. Distinct from the
-    /// generic damaged-art state above.
-    #[serde(default)]
-    pub damage_fire_state_active: bool,
-    /// Eight fixed AnimClass ownership slots at Building+0x5C8..+0x5E4.
-    #[serde(default)]
-    pub damage_fire_anim_ids: [Option<crate::sim::anim_class::AnimId>; 8],
+    pub(crate) damage_fires: crate::sim::anim_class::DamageFires,
     /// Persistent bridge layer flag — authoritative source for "is this entity on a bridge?"
     /// Mirrors original engine's FootClass+0x8C. Survives repath operations that reset
     /// locomotor.layer. Set during spawn, updated at cell-crossing bridge transitions.
@@ -1637,7 +1637,7 @@ impl GameEntity {
             gap_generator: crate::sim::vision::GapGeneratorRuntime::default(),
             is_voxel,
             selected: false,
-            deactivated: false,
+            deactivated: Default::default(),
             repairing: Default::default(),
             in_logic_vector: false,
             lifecycle: ObjectLifecycle::default(),
@@ -1685,13 +1685,11 @@ impl GameEntity {
             building_sale: None,
             ai_placement_timer: crate::sim::timer::CdTimer::default(),
             building_art: Default::default(),
-            building_last_operational: false,
-            building_powered_center: false,
-            building_has_engineer: false,
-            spotlight_capable: false,
-            building_light: None,
-            damage_fire_state_active: false,
-            damage_fire_anim_ids: [None; 8],
+            building_last_operational: Default::default(),
+            building_powered_center: Default::default(),
+            building_has_engineer: Default::default(),
+            building_light: Default::default(),
+            damage_fires: Default::default(),
             on_bridge: false,
             runtime_bridge_transition: Default::default(),
             animation: None,

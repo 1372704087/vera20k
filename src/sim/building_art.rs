@@ -26,6 +26,7 @@ mod power;
 mod storage;
 #[path = "building_art_super.rs"]
 mod super_anim;
+pub(crate) use admission::HasEngineer;
 pub(crate) use storage::BuildingStorage;
 
 /// A Building's animation art, owned by this module: its 21 AnimClass slots
@@ -695,7 +696,7 @@ impl Simulation {
                 .building_slot = Some((owner, slot));
         }
         for entity in self.substrate.entities.values() {
-            for (slot, id) in entity.damage_fire_anim_ids.iter().enumerate() {
+            for (slot, id) in entity.damage_fires.anim_ids().iter().enumerate() {
                 if let Some(id) = id {
                     self.substrate
                         .anims

@@ -37,6 +37,7 @@ mod unit_unlimbo_tests;
 pub(crate) use sinking::SinkingState;
 pub mod edge_cell;
 mod gap_generator;
+pub(crate) use gap_generator::LastOperational;
 mod house_base;
 mod house_defeat;
 pub(crate) use house_defeat::HouseBlowupSubset;
@@ -148,8 +149,8 @@ mod team_script_vm_tests;
 pub(crate) use crash::CrashLatch;
 pub(crate) use display_registry::entity_layer;
 pub(crate) use lifecycle::{
-    ConcealOutcome, LifecycleOutput, ObjectLifecycle, PlacementEvidence, RevealOutcome,
-    RevealPosition, RevealRequest, UninitContext,
+    BuildingLight, ConcealOutcome, LifecycleOutput, ObjectLifecycle, PlacementEvidence,
+    RevealOutcome, RevealPosition, RevealRequest, UninitContext,
 };
 #[cfg(test)]
 pub(crate) use lifecycle::{LifecycleTestEvent, RevealFailure};

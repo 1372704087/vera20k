@@ -249,7 +249,7 @@ impl Simulation {
             || actor.is_warped_out()
             || actor.is_warping_in()
             || actor.slave.owner().is_some()
-            || actor.deactivated
+            || actor.deactivated.is_offline()
         {
             return false;
         }
@@ -273,7 +273,7 @@ impl Simulation {
         let Some(actor) = self.substrate.entities.get(id) else {
             return false;
         };
-        !actor.deactivated
+        !actor.deactivated.is_offline()
             && self.house_is_human_player(actor.owner())
             && self
                 .object_type(actor.type_ref(), rules)

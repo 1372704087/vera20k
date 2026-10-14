@@ -52,7 +52,9 @@ fn offline_sparks_match_original_execution() {
         );
         entity.position.exact_z_leptons = Some(location[2]);
         entity.set_native_unique_id_for_test(int(&row["id"]));
-        entity.deactivated = row["deactivated"].as_bool().unwrap();
+        entity
+            .deactivated
+            .set_for_test(row["deactivated"].as_bool().unwrap());
         let mut sim = Simulation::new();
         sim.substrate.entities.insert(entity);
         sim.session.binary_frame = row["frame"].as_u64().unwrap() as u32;
@@ -201,7 +203,12 @@ fn run_until(
 }
 
 fn offline(sim: &Simulation, id: u64) -> bool {
-    sim.substrate.entities.get(id).unwrap().deactivated
+    sim.substrate
+        .entities
+        .get(id)
+        .unwrap()
+        .deactivated
+        .is_offline()
 }
 
 fn sounds(events: &[SimSoundEvent], name: &str) -> usize {
@@ -455,6 +462,7 @@ fn a_captured_center_counts_for_its_captor_only_at_its_next_edge() {
             .get(center)
             .unwrap()
             .building_last_operational
+            .is_operational()
     };
     destroy(&mut sim, &rules, plant);
     assert!(run_until(
@@ -618,7 +626,7 @@ fn losing_robot_power_drops_water_hover_and_keeps_land_hover_alive() {
                 .entities
                 .get(water_tank)
                 .expect("powered water hover remains alive");
-            assert!(!tank.deactivated && !tank.was_dropped_as_bomb());
+            assert!(!tank.deactivated.is_offline() && !tank.was_dropped_as_bomb());
             assert!(tank.health.current() > 0);
             false
         });
@@ -683,7 +691,7 @@ fn losing_robot_power_drops_water_hover_and_keeps_land_hover_alive() {
             .entities
             .get(land_tank)
             .expect("land hover stays represented");
-        assert!(land_tank.deactivated && land_tank.health.current() > 0);
+        assert!(land_tank.deactivated.is_offline() && land_tank.health.current() > 0);
         assert!(!land_tank.was_dropped_as_bomb() && !land_tank.is_falling_down());
         assert_eq!(
             crate::sim::movement::air_movement::current_fly_height(
@@ -724,13 +732,19 @@ fn robot_tank_state_is_saved_and_hashed() {
             EntityCategory::Structure,
         ));
     let mut seen = vec![sim.state_hash()];
-    sim.substrate.entities.get_mut(tank).unwrap().deactivated = true;
+    sim.substrate
+        .entities
+        .get_mut(tank)
+        .unwrap()
+        .deactivated
+        .set_for_test(true);
     seen.push(sim.state_hash());
     sim.substrate
         .entities
         .get_mut(center)
         .unwrap()
-        .building_powered_center = true;
+        .building_powered_center
+        .set_for_test(true);
     seen.push(sim.state_hash());
     assert_eq!(sim.houses.get_mut(&house).unwrap().gain_powered_center(), 1);
     seen.push(sim.state_hash());
@@ -740,7 +754,15 @@ fn robot_tank_state_is_saved_and_hashed() {
     let bytes = GameSnapshot::save(&sim, 0, 0, "robot tanks", 0);
     let mut restored = GameSnapshot::load(&bytes).unwrap().sim;
     restored.restore_after_snapshot_load().unwrap();
-    assert!(restored.substrate.entities.get(tank).unwrap().deactivated);
+    assert!(
+        restored
+            .substrate
+            .entities
+            .get(tank)
+            .unwrap()
+            .deactivated
+            .is_offline()
+    );
     assert!(
         restored
             .substrate
@@ -748,6 +770,7 @@ fn robot_tank_state_is_saved_and_hashed() {
             .get(center)
             .unwrap()
             .building_powered_center
+            .is_counted()
     );
     assert!(restored.has_powered_center(house));
     assert_eq!(restored.state_hash(), sim.state_hash());

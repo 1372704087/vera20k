@@ -23,6 +23,58 @@ use super::display_layers::DisplayLayer;
 use super::substrate::{DeferredDeleteTicket, ObjectKind};
 use super::{FrameEffects, Simulation};
 
+/// A building's `HasSpotlight=` fact and its owned `BuildingLightClass`.
+/// Construction copies the fact so a later Unlimbo can recreate the light
+/// without a RuleSet ([`Self::stamp`]). `BuildingClass::Unlimbo @
+/// 0x00441187` constructs the light after placement succeeds and
+/// `BuildingClass::Limbo` destroys it before the remaining building-count and
+/// base-node teardown; the light exists only for a placed `HasSpotlight=yes`
+/// building.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub(crate) struct BuildingLight {
+    spotlight_capable: bool,
+    light: Option<BuildingLightRuntime>,
+}
+
+/// The parent-owned `BuildingLightClass` runtime.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+pub(crate) struct BuildingLightRuntime {
+    behavior: u8,
+    target_id: Option<u64>,
+}
+
+impl BuildingLight {
+    /// Construction's copy of the type's `HasSpotlight=`.
+    pub(crate) fn stamp(&mut self, has_spotlight: bool) {
+        self.spotlight_capable = has_spotlight;
+    }
+
+    /// The type has `HasSpotlight=yes`.
+    pub(crate) const fn spotlight_capable(self) -> bool {
+        self.spotlight_capable
+    }
+
+    /// The owned light, while the building is placed.
+    pub(crate) const fn light(self) -> Option<BuildingLightRuntime> {
+        self.light
+    }
+
+    /// Unlimbo's construction (`0x00441187`): behavior 1, no target.
+    fn construct_light(&mut self) {
+        if self.spotlight_capable && self.light.is_none() {
+            self.light = Some(BuildingLightRuntime {
+                behavior: 1,
+                target_id: None,
+            });
+        }
+    }
+
+    /// `BuildingClass::Limbo` destroys the light.
+    fn destroy_light(&mut self) {
+        self.light = None;
+    }
+}
+
 /// Independent ObjectClass lifecycle facts.
 ///
 /// These bytes deliberately do not derive from health, store presence, cell
@@ -927,15 +979,10 @@ impl Simulation {
                 return RevealOutcome::Failed(RevealFailure::MarkFailed);
             }
             if let Some(entity) = self.substrate.entities.get_mut(stable_id)
-                && entity.spotlight_capable
                 && entity.category() == crate::map::entities::EntityCategory::Structure
-                && entity.building_light.is_none()
             {
                 // `BuildingClass::Unlimbo @ 0x00441187` constructs after placement succeeds.
-                entity.building_light = Some(crate::sim::game_entity::BuildingLightRuntime {
-                    behavior: 1,
-                    target_id: None,
-                });
+                entity.building_light.construct_light();
             }
         }
         // Techno6F6CB1 calls Object Unlimbo, and its failed return6F6CB8
@@ -2862,7 +2909,7 @@ impl Simulation {
             entity.lifecycle.in_limbo = true;
             // `BuildingClass::Limbo` destroys its owned BuildingLight before
             // the remaining building-count/base-node teardown.
-            entity.building_light = None;
+            entity.building_light.destroy_light();
         }
         #[cfg(test)]
         self.trace_lifecycle_for_test(LifecycleTestEvent::ConcealLimboSet);

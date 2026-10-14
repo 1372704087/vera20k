@@ -856,7 +856,7 @@ fn retail_damage_scatter_tail_admits_by_rank_ability_and_ownership() {
             actor.mission.current(),
             MissionId::from_known(MissionType::Guard)
         );
-        actor.set_veterancy_rank(rank);
+        actor.veterancy.set_rank(rank);
         if nav {
             actor.navigation.nav_com = Some(NavTargetRef::cell(14, 10));
         }
@@ -983,7 +983,7 @@ fn retail_damage_scatter_tail_follows_the_retaliation_answer() {
                     .entities
                     .get_mut(ids[0])
                     .unwrap()
-                    .set_veterancy_rank(rank)
+                    .veterancy.set_rank(rank)
             },
         );
         let tanya = sim.substrate.entities.get(ids[0]).unwrap();
@@ -9027,7 +9027,7 @@ fn gsi_04_07_damage_periodic_radiation_enters_direct_receiver_once() {
         .entities
         .get_mut(tank)
         .unwrap()
-        .set_veterancy_rank(100);
+        .veterancy.set_rank(100);
     sim.radiation.apply_detonation(
         crate::sim::radiation::RadDetonation {
             rx: 5,
@@ -10778,7 +10778,7 @@ fn gsi_08_12_a_grizzly_promotes_through_the_damage_path() {
             &mut scenario_rng,
         );
         store.remove(victim_id);
-        ranks.push(store.get(1).expect("killer").veterancy());
+        ranks.push(store.get(1).expect("killer").veterancy.rank());
     }
 
     assert_eq!(ranks, vec![0, 0, 100, 100, 200], "ranks after kills 1..5");
@@ -10806,7 +10806,7 @@ fn gsi_08_05_elite_rof_and_firepower_abilities_reach_the_fire_path() {
         let mut store = EntityStore::new();
         let mut firer = make_entity_owned(1, "MTNK", 5, 5, 300, "Soviet");
         if elite {
-            crate::sim::combat::veterancy::set_elite(&mut firer);
+            firer.veterancy.set_elite();
         }
         store.insert(firer);
         let _ = test_intern("HTNK");
@@ -10861,7 +10861,7 @@ fn gsi_08_05_a_heal_skips_the_firepower_rank_stage() {
         let mut store = EntityStore::new();
         let mut firer = make_entity_owned(1, "MTNK", 5, 5, 300, "Soviet");
         if elite {
-            crate::sim::combat::veterancy::set_elite(&mut firer);
+            firer.veterancy.set_elite();
         }
         store.insert(firer);
         let _ = test_intern("HTNK");
@@ -11113,8 +11113,8 @@ fn gsi_08_12_a_dont_score_victim_pays_no_experience() {
     }
 
     let killer = store.get(1).expect("killer");
-    assert_eq!(killer.veterancy(), 0, "five DontScore kills earn nothing");
-    assert_eq!(killer.veterancy_raw.bits(), 0);
+    assert_eq!(killer.veterancy.rank(), 0, "five DontScore kills earn nothing");
+    assert_eq!(killer.veterancy.raw().bits(), 0);
 }
 
 /// A garrison's kill promotes an occupant, never the building. A BuildingType
@@ -11180,7 +11180,7 @@ fn gsi_08_12_a_garrison_kill_pays_the_occupant_next_in_line() {
     );
 
     assert_eq!(store.get(2).map_or(0, |victim| victim.health.current), 0);
-    let raw = |id: u64| store.get(id).unwrap().veterancy_raw.bits();
+    let raw = |id: u64| store.get(id).unwrap().veterancy.raw().bits();
     assert_eq!(raw(10), 0, "the building never ranks");
     assert_eq!(raw(shooter), 0, "the shooter is not the one paid");
     assert_ne!(raw(next), 0, "the occupant next in line is");
@@ -11296,7 +11296,7 @@ fn gsi_08_12_a_base_defence_kill_pays_nobody() {
         &mut SimRng::new(1),
     );
     assert_eq!(store.get(2).map_or(0, |victim| victim.health.current), 0);
-    assert_eq!(store.get(1).unwrap().veterancy_raw.bits(), 0);
+    assert_eq!(store.get(1).unwrap().veterancy.raw().bits(), 0);
 }
 
 /// The shot leaves the BARREL, not the hull centre.

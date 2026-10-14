@@ -50,7 +50,7 @@ const REPEATED_GREEN_ADD: u16 = 12;
 const PRONE_THRESHOLD: u16 = 50;
 
 pub fn is_fear_application_blocked(obj: &ObjectType, entity: &GameEntity) -> bool {
-    obj.fearless || has_weapon_ability(rank_from_u16(entity.veterancy()), obj, Ability::Fearless)
+    obj.fearless || has_weapon_ability(rank_from_u16(entity.veterancy.rank()), obj, Ability::Fearless)
 }
 
 pub fn can_decay_fear(obj: &ObjectType) -> bool {
@@ -1043,14 +1043,14 @@ mod tests {
         let rules = rules_for("VeteranAbilities=FEARLESS\n");
         let obj = rules.object("E1").unwrap();
         let mut e = infantry(90);
-        e.set_veterancy_rank(100);
+        e.veterancy.set_rank(100);
         apply_fear_from_damage(obj, &mut e, 1, true, 0.25, 0.5);
         assert_eq!(e.infantry.unwrap().fear_level, 0);
 
         let rules = rules_for("EliteAbilities=FEARLESS\n");
         let obj = rules.object("E1").unwrap();
         let mut e = infantry(90);
-        e.set_veterancy_rank(200);
+        e.veterancy.set_rank(200);
         apply_panic_force(obj, &mut e);
         assert_eq!(e.infantry.unwrap().fear_level, 0);
     }

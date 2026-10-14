@@ -208,7 +208,7 @@ fn original_direct_fireat_keeps_argument_speed_separate_from_live_tarcom_aim() {
     actor
         .body_facing
         .snap(0xc000, duel.sim.session.binary_frame);
-    super::veterancy::set_veteran(actor);
+    actor.veterancy.set_veteran();
     let row = attack_aim_row(
         &corpus,
         "fireat_cases",

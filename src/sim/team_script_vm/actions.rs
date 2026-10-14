@@ -399,7 +399,7 @@ impl Simulation {
                         .unwrap_or_default();
                     for member in members {
                         if let Some(entity) = self.substrate.entities.get_mut(member) {
-                            entity.elite_flash_frames = action.argument;
+                            entity.flashing.start(action.argument);
                         }
                     }
                     if let Some(team) = self.team_script_vm.teams.get_mut(&team_id) {
@@ -2059,7 +2059,7 @@ impl Simulation {
                     .is_some_and(|object| {
                         crate::sim::combat::combat_weapon::primary_for_tier(
                             object,
-                            entity.veterancy(),
+                            entity.veterancy.rank(),
                         )
                         .is_some()
                             && member_ammo(entity, object) <= 0

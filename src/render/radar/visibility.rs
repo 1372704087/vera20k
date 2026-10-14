@@ -352,7 +352,7 @@ pub(super) fn build_radar_object_update(
     let cloak_state = entity.cloak.as_ref().map_or(0, |cloak| cloak.state);
     let veteran_radar_invisible = object.is_some_and(|object| {
         has_weapon_ability(
-            rank_of(entity.veterancy_raw),
+            rank_of(entity.veterancy.raw()),
             object,
             Ability::RadarInvisible,
         )

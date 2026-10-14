@@ -350,7 +350,7 @@ fn retail_dustbowl_battle_fortress_riders_fire_from_its_ports() {
     // The experience (`+0x150`), not yet a rank: Tanya's 1000 over the
     // Fortress's 2000 at `VeteranRatio=3` is a sixth of a rank.
     let experience =
-        |id: u64| f32::from_bits(sim.substrate.entities.get(id).unwrap().veterancy_raw.bits());
+        |id: u64| f32::from_bits(sim.substrate.entities.get(id).unwrap().veterancy.raw().bits());
     assert!(experience(bfrt) > 0.0, "the kill pays the Fortress");
     for &id in &gis {
         assert_eq!(experience(id), 0.0, "not the rider");

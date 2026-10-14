@@ -2668,7 +2668,7 @@ pub(crate) fn estimated_damage_on(
         rules.country_armor_mult_for_type(sim.interner.resolve(house.house_type_id()), attacker_obj)
     });
     let rank_firepower = super::veterancy::has_weapon_ability(
-        super::veterancy::rank_from_u16(attacker.veterancy()),
+        super::veterancy::rank_from_u16(attacker.veterancy.rank()),
         attacker_obj,
         Ability::Firepower,
     )
@@ -2676,7 +2676,7 @@ pub(crate) fn estimated_damage_on(
     let rank_armor = target_obj
         .is_some_and(|object| {
             super::veterancy::has_weapon_ability(
-                super::veterancy::rank_from_u16(target.veterancy()),
+                super::veterancy::rank_from_u16(target.veterancy.rank()),
                 object,
                 Ability::Stronger,
             )

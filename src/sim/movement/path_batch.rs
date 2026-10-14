@@ -421,7 +421,7 @@ impl Simulation {
             allow_zone_hierarchy: snap.allow_zone_hierarchy,
             threat_coefficient: self.foot_path_threat_coefficient(request.entity_id).bits(),
             owner: actor.owner(),
-            veterancy: actor.veterancy(),
+            veterancy: actor.veterancy.rank(),
             in_playfield: actor.in_playfield,
             mission: actor.mission.current(),
             nav_com: actor.navigation.nav_com,

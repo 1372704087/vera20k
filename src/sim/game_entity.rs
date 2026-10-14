@@ -316,20 +316,6 @@ impl std::hash::Hash for PendingBuildingFire {
     }
 }
 
-/// Unified entity struct — replaces all hecs ECS components.
-///
-/// Every game object (unit, infantry, building, aircraft) is one `GameEntity`.
-/// `TechnoClass`'s rank cache starts at `-1` so an object's first sample after
-/// spawn caches its rank without announcing a promotion.
-fn veterancy_rank_cache_default() -> i8 {
-    -1
-}
-
-/// A rookie accumulator, for snapshots written before the field existed.
-fn veterancy_raw_default() -> crate::util::native_x87::NativeF32Bits {
-    crate::util::native_x87::NativeF32Bits::POSITIVE_ZERO
-}
-
 /// Constructor state captured while a generated-map Techno still owns the
 /// launch-time Scenario cursor. Projection validates all identity fields
 /// before installing the already-consumed word.
@@ -374,7 +360,11 @@ pub struct TechnoDiscoveryHistory {
     pub discovered_by_other_house: bool,
 }
 
-/// Core fields are always present; optional subsystems use `Option<T>`.
+/// Every game object (unit, infantry, building, aircraft) is one `GameEntity`.
+/// Core fields are always present; optional subsystems use `Option<T>`. A
+/// mechanism's own state is a record its module defines and alone writes
+/// (for example `building_art`, `veterancy`); other code reads it through
+/// getters and changes it through that module's functions.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct GameEntity {
     // --- Always present (every entity has these) ---
@@ -496,31 +486,15 @@ pub struct GameEntity {
     /// Immutable non-null `UndeploysInto` fact used by successful Unlimbo fallback.
     #[serde(default)]
     pub base_plan_has_undeploy_target: bool,
-    /// The running accumulator every rank is sampled from
-    /// ([`Self::veterancy`]).
-    ///
-    /// gamemd-derived: the `VeterancyClass` float on `TechnoClass`, fed by
-    /// `Record_The_Kill @ 0x00702D40` through `VeterancyClass::Add @
-    /// 0x0074FF50`. Carried as its `f32` bit pattern so sim state holds no
-    /// float and hashing, snapshots and replay stay integer-exact.
-    #[serde(default = "veterancy_raw_default")]
-    pub veterancy_raw: crate::util::native_x87::NativeF32Bits,
-    /// Last rank announced, for crossing detection.
-    ///
-    /// gamemd-derived: `TechnoClass+0x13C`, initialised to `-1` by the
-    /// constructor so the first sample after spawn caches without announcing.
-    /// Holds the native `GetVeterancyLevel @ 0x00750030` code: `-1`
-    /// uninitialised, `0` ELITE, `1` veteran, `2` rookie.
-    #[serde(default = "veterancy_rank_cache_default")]
-    pub veterancy_rank_cache: i8,
-    /// Signed native flash dword `TechnoClass+0xF0`, seeded with
-    /// `[AudioVisual] EliteFlashTimer=` at `0x006FA0DC` on the elite crossing,
-    /// the script50 operand at6E9D0A, or a building's C4 plant
-    /// ([`Self::flash_building`]). Preserve all bits of each writer.
-    /// The shared late TechnoAI countdown owns updates; presentation reads
-    /// the native phase bit from this same counter. No separate flash clock.
+    /// The object's veterancy: the running accumulator every rank is sampled
+    /// from, and the rank last announced. `combat::veterancy` owns it.
     #[serde(default)]
-    pub elite_flash_frames: i32,
+    pub(crate) veterancy: crate::sim::combat::veterancy::Veterancy,
+    /// The flash countdown (`TechnoClass+0xF0`) the elite promotion, a
+    /// building's Flash and team script action 50 seed. `sim::flashing` owns
+    /// it.
+    #[serde(default)]
+    pub(crate) flashing: crate::sim::flashing::Flashing,
     /// Mutable Techno instance armor multiplier (`Techno+0x158`). Native
     /// construction seeds this double to 1.0; the Armor crate
     /// (`crates::effects`) is its only writer, exactly once per object.
@@ -1492,7 +1466,7 @@ impl GameEntity {
         let Some(object) = rules.object(type_id) else {
             return;
         };
-        let camera = crate::sim::combat::combat_weapon::primary_for_tier(object, self.veterancy())
+        let camera = crate::sim::combat::combat_weapon::primary_for_tier(object, self.veterancy.rank())
             .and_then(|id| rules.weapon(id))
             .is_some_and(|weapon| weapon.camera);
         if !object.selectable || !object.landable || camera {
@@ -1607,33 +1581,6 @@ impl GameEntity {
             .set(unlimbo_barrel_target(fire_angle), frame);
     }
 
-    /// Veterancy level sampled from [`Self::veterancy_raw`]: 0 = rookie,
-    /// 100 = veteran, 200 = elite. The damage multiplier, the armour divisor,
-    /// elite weapon selection and the chevron read it.
-    pub fn veterancy(&self) -> u16 {
-        crate::sim::combat::veterancy::rank_u16(self.veterancy_raw)
-    }
-
-    /// Seed the accumulator at a rank's threshold (`SetVeteran @ 0x00750090`
-    /// writes 1.0f, `SetElite @ 0x007500B0` 2.0f; a rookie is 0.0f).
-    /// Map percentages use `set_veterancy_from_percent` instead.
-    pub fn set_veterancy_rank(&mut self, rank_u16: u16) {
-        self.veterancy_raw = crate::sim::combat::veterancy::raw_for_rank(rank_u16);
-    }
-
-    /// Countdown4CC770, called by TechnoAI6FAC4D after promotion and Stage.
-    /// DEC executes for every nonzero signed dword, including negative
-    /// values; native zero is idle. +F4 is a derived parity cache for drawing,
-    /// not an independent gameplay timer. Executed signed controls are in
-    /// tools/spatial_oracle/team_creation (elite_flash rows).
-    pub(crate) fn tick_elite_flash(&mut self) -> bool {
-        if self.elite_flash_frames == 0 {
-            return false;
-        }
-        self.elite_flash_frames = self.elite_flash_frames.wrapping_sub(1);
-        true
-    }
-
     /// `BuildingClass::Flash` (vt+0x148, `0x00456E00`) for `frames`. Its
     /// Techno body (`0x006F9DD0`) starts the flash countdown (`+0xF0`) unless
     /// the object is disguised to the player: a building's IsDisguisedTo
@@ -1647,15 +1594,8 @@ impl GameEntity {
             .as_ref()
             .is_some_and(|disguise| disguise.is_disguised())
         {
-            self.elite_flash_frames = frames;
+            self.flashing.start(frames);
         }
-    }
-
-    /// Apply the native `SetFromPercent @ 0x007500E0` to the single raw
-    /// accumulator. Like the explicit rank setters, it leaves the cached
-    /// rank alone until the next Techno AI sample.
-    pub(crate) fn set_veterancy_from_percent(&mut self, percent: i32) {
-        self.veterancy_raw = crate::sim::combat::veterancy::raw_from_percent(percent);
     }
 
     /// The class constructor's one rate write on `+0x388` (`Set_ROT @
@@ -1784,9 +1724,8 @@ impl GameEntity {
             base_plan_type_index: -1,
             base_plan_is_defense: false,
             base_plan_has_undeploy_target: false,
-            veterancy_raw: crate::sim::combat::veterancy::raw_for_rank(veterancy),
-            veterancy_rank_cache: veterancy_rank_cache_default(),
-            elite_flash_frames: 0,
+            veterancy: crate::sim::combat::veterancy::Veterancy::new(veterancy),
+            flashing: Default::default(),
             armor_multiplier: NativeF64Bits::ONE,
             firepower_multiplier: NativeF64Bits::ONE,
             vision_range,
@@ -2379,7 +2318,7 @@ mod tests {
         assert_eq!(e.body_facing_current(0), 0);
         assert_eq!(e.health.current, 100);
         assert_eq!(e.category, EntityCategory::Unit);
-        assert_eq!(e.veterancy(), 0);
+        assert_eq!(e.veterancy.rank(), 0);
         assert_eq!(e.vision_range, 5);
         assert!(e.is_voxel);
         assert!(!e.selected);

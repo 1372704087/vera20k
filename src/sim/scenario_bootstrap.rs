@@ -2007,7 +2007,7 @@ fn seed_starting_extra_units_with_overlay_registry(
             // gate. Seeding the raw accumulator too is what keeps the unit
             // elite through its first kill instead of demoting it.
             if initial_veteran && let Some(entity) = sim.entities_mut().get_mut(stable_id) {
-                crate::sim::combat::veterancy::set_elite(entity);
+                entity.veterancy.set_elite();
             }
             let mission = if slot.is_human {
                 MissionType::Guard

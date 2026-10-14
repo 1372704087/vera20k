@@ -1773,7 +1773,7 @@ mod tests {
                 continue;
             }
             let mut unit = GameEntity::test_default(1, "HTNK", "Russians", 10, 10);
-            unit.elite_flash_frames = int(&row["flash"]);
+            unit.flashing.start(int(&row["flash"]));
             unit.deactivated = row["deactivated"].as_bool().unwrap();
             unit.invulnerability = Some(
                 crate::sim::superweapon::invulnerability::InvulnerabilityState::with_tint(

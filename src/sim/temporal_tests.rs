@@ -269,11 +269,11 @@ fn place(sim: &mut Simulation, id: u64, coord: [i32; 3]) {
 
 fn set_elite(sim: &mut Simulation, id: u64) {
     let entity = sim.substrate.entities.get_mut(id).unwrap();
-    entity.veterancy_raw = crate::util::native_x87::NativeF32Bits::from_bits(2.0f32.to_bits());
+    entity.veterancy.set_raw_for_test(crate::util::native_x87::NativeF32Bits::from_bits(2.0f32.to_bits()));
 }
 
 fn veterancy(sim: &Simulation, id: u64) -> f32 {
-    f32::from_bits(entity(sim, id).veterancy_raw.bits())
+    f32::from_bits(entity(sim, id).veterancy.raw().bits())
 }
 
 fn put_on_attack(sim: &mut Simulation, id: u64) {
@@ -595,8 +595,7 @@ fn native_update_corpus() {
                     add[3].as_i64().unwrap() as i32,
                 );
                 for _ in 0..2 {
-                    crate::sim::combat::veterancy::award_kill(
-                        &mut expected,
+                    expected.veterancy.award_kill(
                         owner_cost,
                         target_cost,
                         true,
@@ -607,7 +606,7 @@ fn native_update_corpus() {
             }
             assert_eq!(
                 veterancy(&sim, attackers[0]),
-                f32::from_bits(expected.veterancy_raw.bits()),
+                f32::from_bits(expected.veterancy.raw().bits()),
                 "{name}: VeterancyStruct::Add"
             );
             let kills = house_stats(&sim, "Russians");
@@ -692,8 +691,7 @@ fn erase_awards_price_each_cost_by_its_house() {
     // (legionnaire cost, tank cost): Russian and American Houses, then both
     // American.
     for (owner_cost, target_cost) in [(750, 450), (1500, 450)] {
-        crate::sim::combat::veterancy::award_kill(
-            &mut expected,
+        expected.veterancy.award_kill(
             owner_cost,
             target_cost,
             true,
@@ -710,7 +708,7 @@ fn erase_awards_price_each_cost_by_its_house() {
     assert!(erased(&sim, tank));
     assert_eq!(
         veterancy(&sim, cleg),
-        f32::from_bits(expected.veterancy_raw.bits())
+        f32::from_bits(expected.veterancy.raw().bits())
     );
     let russians = sim.interner.get("Russians").unwrap();
     assert_eq!(sim.houses[&russians].economy.score(), 450);
@@ -1194,8 +1192,7 @@ fn a_chrono_legionnaire_erases_a_tank() {
     let cleg = spawn(&mut sim, &rules, "CLEG", "Russians", 10, 10);
     let mut experienced = entity(&sim, cleg).clone();
     for _ in 0..2 {
-        crate::sim::combat::veterancy::award_kill(
-            &mut experienced,
+        experienced.veterancy.award_kill(
             1500,
             900,
             true,
@@ -1239,7 +1236,7 @@ fn a_chrono_legionnaire_erases_a_tank() {
     assert_eq!(house_stats(&sim, "Americans").units_lost(), 1);
     assert_eq!(
         veterancy(&sim, cleg),
-        f32::from_bits(experienced.veterancy_raw.bits()),
+        f32::from_bits(experienced.veterancy.raw().bits()),
         "experience twice"
     );
     assert!(!entity(&sim, cleg).temporal.is_warping_someone());

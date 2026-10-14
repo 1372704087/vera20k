@@ -240,7 +240,7 @@ impl Simulation {
             //70E1A0. The existing GetWeapon owner resolves the live tier.
             let actor = self.substrate.entities.get(id).expect("same Unload actor");
             let slot = if object.spray_attack { 0 } else { 1 };
-            let area_fire = combat_weapon::weapon_for_index(object, actor.veterancy(), slot)
+            let area_fire = combat_weapon::weapon_for_index(object, actor.veterancy.rank(), slot)
                 .and_then(|(weapon, _)| rules.weapon(weapon))
                 .is_some_and(|weapon| weapon.area_fire);
             if area_fire {

@@ -3154,9 +3154,9 @@ impl TacticalCaptureSession {
                     "cell": [entity.position.rx, entity.position.ry],
                     "physical_leptons": [coord.x, coord.y, coord.z], "on_bridge": entity.on_bridge,
                     "health": entity.health.current, "active": entity.is_active(),
-                    "veterancy_raw_bits": entity.veterancy_raw.bits(),
-                    "veterancy_rank_cache": entity.veterancy_rank_cache,
-                    "elite_flash_frames": entity.elite_flash_frames,
+                    "veterancy_raw_bits": entity.veterancy.raw().bits(),
+                    "veterancy_rank_cache": entity.veterancy.rank_cache(),
+                    "elite_flash_frames": entity.flashing.frames(),
                     "object_alive": entity.is_object_alive(),
                     "in_limbo": entity.lifecycle.in_limbo, "dying": entity.dying,
                     // Techno +0x1C8, the offline latch (`sim::powered_unit`).
@@ -3222,7 +3222,7 @@ impl TacticalCaptureSession {
                                 &sim.houses, entity, Some(object)).bits(),
                             "current_speed": crate::sim::movement::owner_current_speed(
                                 entity, Some(object), rules.general.veteran_speed, &sim.houses),
-                            "veterancy": entity.veterancy(),
+                            "veterancy": entity.veterancy.rank(),
                             "current_weapon": crate::sim::combat::combat_weapon::current_weapon(
                                 entity, object, sim.entities(), rules, &sim.interner)
                                 .map(|weapon| weapon.id.as_str()),

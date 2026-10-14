@@ -16,6 +16,7 @@
 
 use crate::rules::locomotor_type::LocomotorKind;
 use crate::rules::object_type::{Ability, ObjectType};
+use crate::sim::flashing::Flashing;
 use crate::sim::game_entity::GameEntity;
 use crate::util::fixed_math::SimFixed;
 use crate::util::native_x87::NativeF32Bits;
@@ -46,6 +47,108 @@ pub const LEVEL_VETERAN: i8 = 1;
 pub const LEVEL_ROOKIE: i8 = 2;
 /// The constructor's "never sampled" cache value.
 pub const LEVEL_UNSAMPLED: i8 = -1;
+
+/// An object's veterancy, owned by this module: the running `VeterancyClass`
+/// float and the rank last sampled from it.
+#[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize)]
+pub(crate) struct Veterancy {
+    /// The `VeterancyClass` float on `TechnoClass` (`+0x150`), fed by
+    /// `Record_The_Kill @ 0x00702D40` through `VeterancyClass::Add @
+    /// 0x0074FF50`. Carried as its `f32` bit pattern so sim state holds no
+    /// float and hashing, snapshots and replay stay integer-exact.
+    raw: NativeF32Bits,
+    /// Last rank announced, for crossing detection: `TechnoClass+0x13C`,
+    /// initialised to `-1` by the constructor so the first sample after
+    /// spawn caches without announcing. Holds the native `GetVeterancyLevel @
+    /// 0x00750030` code: `-1` uninitialised, `0` ELITE, `1` veteran, `2`
+    /// rookie.
+    rank_cache: i8,
+}
+
+impl Default for Veterancy {
+    fn default() -> Self {
+        Self::new(RANK_ROOKIE_U16)
+    }
+}
+
+impl Veterancy {
+    /// A new object's veterancy at an explicit rank, never sampled.
+    pub(crate) fn new(rank_u16: u16) -> Self {
+        Self {
+            raw: raw_for_rank(rank_u16),
+            rank_cache: LEVEL_UNSAMPLED,
+        }
+    }
+
+    /// The accumulator.
+    pub(crate) fn raw(&self) -> NativeF32Bits {
+        self.raw
+    }
+
+    /// `TechnoClass+0x13C`.
+    pub(crate) fn rank_cache(&self) -> i8 {
+        self.rank_cache
+    }
+
+    /// Veterancy level sampled from the accumulator: 0 = rookie, 100 =
+    /// veteran, 200 = elite. The damage multiplier, the armour divisor, elite
+    /// weapon selection and the chevron read it.
+    pub(crate) fn rank(&self) -> u16 {
+        rank_u16(self.raw)
+    }
+
+    /// Seed the accumulator at a rank's threshold (`SetVeteran @ 0x00750090`
+    /// writes 1.0f, `SetElite @ 0x007500B0` 2.0f; a rookie is 0.0f). Map
+    /// percentages use `set_from_percent` instead.
+    pub(crate) fn set_rank(&mut self, rank_u16: u16) {
+        self.raw = raw_for_rank(rank_u16);
+    }
+
+    /// Apply the native `SetFromPercent @ 0x007500E0` to the accumulator.
+    /// Like the explicit rank setters, it leaves the cached rank alone until
+    /// the next Techno AI sample.
+    pub(crate) fn set_from_percent(&mut self, percent: i32) {
+        self.raw = raw_from_percent(percent);
+    }
+
+    /// The `VeterancyClass` copy a deploy or undeploy makes from the object
+    /// it replaces (`+0x150`). The rank cache (`+0x13C`) stays this object's
+    /// own.
+    pub(crate) fn inherit(&mut self, raw: NativeF32Bits) {
+        self.raw = raw;
+    }
+
+    /// `VeterancyStruct::SetElite(1) @ 0x007500B0`: store 2.0f. The rank
+    /// cache is deliberately left alone — native does not touch `+0x13C`
+    /// here, so the next `AI_Update` sample announces the crossing (or, for a
+    /// never-sampled object, caches silently).
+    pub(crate) fn set_elite(&mut self) {
+        self.raw = NativeF32Bits::from_bits(ELITE_THRESHOLD_BITS);
+    }
+
+    /// `VeterancyStruct::SetVeteran(1) @ 0x00750090`: store 1.0f.
+    pub(crate) fn set_veteran(&mut self) {
+        self.raw = NativeF32Bits::from_bits(VETERAN_THRESHOLD_BITS);
+    }
+
+    /// `VeterancyStruct::SetRookie @ 0x00750080`: store 0.0f (its byte
+    /// argument is unused, `0x00750080..0x00750088`).
+    pub(crate) fn set_rookie(&mut self) {
+        self.raw = NativeF32Bits::POSITIVE_ZERO;
+    }
+}
+
+/// Fixture setup for tests outside this module.
+#[cfg(test)]
+impl Veterancy {
+    pub(crate) fn set_raw_for_test(&mut self, raw: NativeF32Bits) {
+        self.raw = raw;
+    }
+
+    pub(crate) fn set_rank_cache_for_test(&mut self, rank_cache: i8) {
+        self.rank_cache = rank_cache;
+    }
+}
 
 /// Sample the rank from a raw accumulator.
 ///
@@ -125,23 +228,6 @@ pub(crate) fn raw_from_percent(percent: i32) -> NativeF32Bits {
         .expect("every signed i32 percentage fits in a finite single")
 }
 
-/// `VeterancyStruct::SetElite(1) @ 0x007500B0`: store 2.0f. The rank cache is
-/// deliberately left alone — native does not touch `+0x13C` here, so the next `AI_Update` sample announces the crossing
-/// (or, for a never-sampled object, caches silently).
-pub fn set_elite(entity: &mut GameEntity) {
-    entity.veterancy_raw = NativeF32Bits::from_bits(ELITE_THRESHOLD_BITS);
-}
-
-/// `VeterancyStruct::SetVeteran(1) @ 0x00750090`: store 1.0f.
-pub fn set_veteran(entity: &mut GameEntity) {
-    entity.veterancy_raw = NativeF32Bits::from_bits(VETERAN_THRESHOLD_BITS);
-}
-
-/// `VeterancyStruct::SetRookie @ 0x00750080`: store 0.0f (its byte argument
-/// is unused, `0x00750080..0x00750088`).
-pub fn set_rookie(entity: &mut GameEntity) {
-    entity.veterancy_raw = NativeF32Bits::POSITIVE_ZERO;
-}
 
 /// `VeterancyStruct::IsVeteran @ 0x0074FF90` (`1.0 <= v < 2.0`), `IsRookie @
 /// 0x0074FFC0` (`0.0 <= v < 1.0`) and the negative test at `0x0074FFF0`
@@ -322,7 +408,7 @@ pub fn entity_mover_speed_leptons_per_second(
     mover_speed_leptons_per_second(
         raw_type_speed,
         entity.locomotor.as_ref().map(|loco| loco.kind),
-        rank_of(entity.veterancy_raw),
+        rank_of(entity.veterancy.raw()),
         object,
         veteran_speed,
         house_bonus,
@@ -369,23 +455,29 @@ pub enum Promotion {
 /// seeded for EVERY house's elite (`0x006FA0D0` is reached from the
 /// non-human branch too); only the sound and EVA are gated, and that gate
 /// belongs to the app layer, which knows the local player.
-pub fn sample_promotion(entity: &mut GameEntity, elite_flash_timer: i32) -> Option<Promotion> {
-    let prev = entity.veterancy_rank_cache;
-    let curr = veterancy_level(entity.veterancy_raw);
-    if prev == curr {
-        return None;
-    }
-    entity.veterancy_rank_cache = curr;
-    if prev == LEVEL_UNSAMPLED {
-        return None;
-    }
-    match curr {
-        LEVEL_ELITE => {
-            entity.elite_flash_frames = elite_flash_timer;
-            Some(Promotion::Elite)
+impl Veterancy {
+    pub(crate) fn sample_promotion(
+        &mut self,
+        flashing: &mut Flashing,
+        elite_flash_timer: i32,
+    ) -> Option<Promotion> {
+        let prev = self.rank_cache;
+        let curr = veterancy_level(self.raw);
+        if prev == curr {
+            return None;
         }
-        LEVEL_VETERAN => Some(Promotion::Veteran),
-        _ => None,
+        self.rank_cache = curr;
+        if prev == LEVEL_UNSAMPLED {
+            return None;
+        }
+        match curr {
+            LEVEL_ELITE => {
+                flashing.start(elite_flash_timer);
+                Some(Promotion::Elite)
+            }
+            LEVEL_VETERAN => Some(Promotion::Veteran),
+            _ => None,
+        }
     }
 }
 
@@ -417,7 +509,7 @@ pub fn self_heal_eligible(
     interval_frames: i32,
 ) -> bool {
     if !object.self_healing {
-        let rank = rank_of(entity.veterancy_raw);
+        let rank = rank_of(entity.veterancy.raw());
         if !has_weapon_ability(rank, object, Ability::SelfHeal) {
             return false;
         }
@@ -521,24 +613,26 @@ pub fn accumulate(
 /// and the victim's own rank multiplier. Which object is the recipient is
 /// decided by the caller (`record_kill::award_kill_experience`), which walks the
 /// native redirection chain.
-pub fn award_kill(
-    recipient: &mut GameEntity,
-    recipient_cost: i32,
-    points: i32,
-    trainable: bool,
-    veteran_ratio: f64,
-    veteran_cap: f64,
-) {
-    if !trainable || points <= 0 || recipient_cost <= 0 {
-        return;
+impl Veterancy {
+    pub(crate) fn award_kill(
+        &mut self,
+        recipient_cost: i32,
+        points: i32,
+        trainable: bool,
+        veteran_ratio: f64,
+        veteran_cap: f64,
+    ) {
+        if !trainable || points <= 0 || recipient_cost <= 0 {
+            return;
+        }
+        self.raw = accumulate(
+            self.raw,
+            recipient_cost,
+            points,
+            veteran_ratio,
+            veteran_cap,
+        );
     }
-    recipient.veterancy_raw = accumulate(
-        recipient.veterancy_raw,
-        recipient_cost,
-        points,
-        veteran_ratio,
-        veteran_cap,
-    );
 }
 
 #[cfg(test)]
@@ -823,20 +917,20 @@ mod tests {
     #[test]
     fn gsi_08_12_promotion_is_announced_once_per_crossing() {
         let mut e = entity(0, 300, 300);
-        assert_eq!(e.veterancy_rank_cache, LEVEL_UNSAMPLED);
-        assert_eq!(sample_promotion(&mut e, 150), None);
-        assert_eq!(e.veterancy_rank_cache, LEVEL_ROOKIE);
-        assert_eq!(sample_promotion(&mut e, 150), None);
+        assert_eq!(e.veterancy.rank_cache(), LEVEL_UNSAMPLED);
+        assert_eq!(e.veterancy.sample_promotion(&mut e.flashing, 150), None);
+        assert_eq!(e.veterancy.rank_cache(), LEVEL_ROOKIE);
+        assert_eq!(e.veterancy.sample_promotion(&mut e.flashing, 150), None);
 
-        set_veteran(&mut e);
-        assert_eq!(sample_promotion(&mut e, 150), Some(Promotion::Veteran));
-        assert_eq!(e.elite_flash_frames, 0);
-        assert_eq!(sample_promotion(&mut e, 150), None);
+        e.veterancy.set_veteran();
+        assert_eq!(e.veterancy.sample_promotion(&mut e.flashing, 150), Some(Promotion::Veteran));
+        assert_eq!(e.flashing.frames(), 0);
+        assert_eq!(e.veterancy.sample_promotion(&mut e.flashing, 150), None);
 
-        set_elite(&mut e);
-        assert_eq!(sample_promotion(&mut e, 150), Some(Promotion::Elite));
-        assert_eq!(e.elite_flash_frames, 150);
-        assert_eq!(e.veterancy_rank_cache, LEVEL_ELITE);
+        e.veterancy.set_elite();
+        assert_eq!(e.veterancy.sample_promotion(&mut e.flashing, 150), Some(Promotion::Elite));
+        assert_eq!(e.flashing.frames(), 150);
+        assert_eq!(e.veterancy.rank_cache(), LEVEL_ELITE);
     }
 
     /// A never-sampled object placed already elite (InitialVeteran, a map
@@ -845,13 +939,13 @@ mod tests {
     #[test]
     fn gsi_08_12_first_sample_is_silent_and_direct_elite_announces_elite() {
         let mut placed = entity(200, 300, 300);
-        assert_eq!(sample_promotion(&mut placed, 150), None);
-        assert_eq!(placed.elite_flash_frames, 0);
+        assert_eq!(placed.veterancy.sample_promotion(&mut placed.flashing, 150), None);
+        assert_eq!(placed.flashing.frames(), 0);
 
         let mut rookie = entity(0, 300, 300);
-        sample_promotion(&mut rookie, 150);
-        set_elite(&mut rookie);
-        assert_eq!(sample_promotion(&mut rookie, 150), Some(Promotion::Elite));
+        rookie.veterancy.sample_promotion(&mut rookie.flashing, 150);
+        rookie.veterancy.set_elite();
+        assert_eq!(rookie.veterancy.sample_promotion(&mut rookie.flashing, 150), Some(Promotion::Elite));
     }
 
     /// `FUN_0070BE80`: SelfHealing bypasses the rank gate; SELF_HEAL needs a

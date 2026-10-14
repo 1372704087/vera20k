@@ -205,7 +205,7 @@ pub(crate) fn fly_speed_facts(
                     || crate::sim::combat::combat_weapon::aircraft_strafes(
                         rules,
                         object,
-                        entity.veterancy(),
+                        entity.veterancy.rank(),
                     )
             });
     FlySpeedFacts {

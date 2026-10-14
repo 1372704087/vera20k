@@ -2643,7 +2643,7 @@ mod tests {
         ] {
             let obj = rules.object(kind).unwrap();
             let mut entity = GameEntity::test_default(1, kind, "Americans", 5, 5);
-            entity.set_veterancy_rank(veterancy);
+            entity.veterancy.set_rank(veterancy);
             entity.set_gunner_selection_for_test(slot, -1);
             let entities = EntityStore::new();
             let interner = test_interner();

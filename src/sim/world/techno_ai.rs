@@ -952,7 +952,7 @@ fn veterancy_promotion_step(sim: &mut Simulation, id: u64, rules: &RuleSet) {
         return;
     };
     let Some(promotion) =
-        crate::sim::combat::veterancy::sample_promotion(entity, rules.general.elite_flash_timer)
+        entity.veterancy.sample_promotion(&mut entity.flashing, rules.general.elite_flash_timer)
     else {
         return;
     };
@@ -1892,7 +1892,7 @@ fn elite_flash_step(sim: &mut Simulation, id: u64) {
     if ai_alive(sim, id)
         && let Some(entity) = sim.substrate.entities.get_mut(id)
     {
-        entity.tick_elite_flash();
+        entity.flashing.tick();
     }
 }
 

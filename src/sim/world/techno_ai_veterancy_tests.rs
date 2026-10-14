@@ -55,7 +55,7 @@ fn spawned_vehicle(type_id: &str) -> (Simulation, RuleSet, u64) {
 fn gsi_08_12_promotion_step_announces_each_crossing_once() {
     let (mut sim, rules, id) = spawned_grizzly();
     assert_eq!(
-        sim.substrate.entities.get(id).unwrap().veterancy_rank_cache,
+        sim.substrate.entities.get(id).unwrap().veterancy.rank_cache(),
         LEVEL_UNSAMPLED
     );
     veterancy_promotion_step(&mut sim, id, &rules);
@@ -64,7 +64,7 @@ fn gsi_08_12_promotion_step_announces_each_crossing_once() {
         "the first sample caches silently"
     );
     assert_eq!(
-        sim.substrate.entities.get(id).unwrap().veterancy_rank_cache,
+        sim.substrate.entities.get(id).unwrap().veterancy.rank_cache(),
         LEVEL_ROOKIE
     );
 
@@ -81,7 +81,7 @@ fn gsi_08_12_promotion_step_announces_each_crossing_once() {
         }] if *o == owner && sim.interner.resolve(*sound) == "UpgradeVeteran"
     ));
     assert_eq!(
-        sim.substrate.entities.get(id).unwrap().elite_flash_frames,
+        sim.substrate.entities.get(id).unwrap().flashing.frames(),
         0
     );
     veterancy_promotion_step(&mut sim, id, &rules);
@@ -98,17 +98,17 @@ fn gsi_08_12_promotion_step_announces_each_crossing_once() {
         }) if sim.interner.resolve(*sound) == "UpgradeElite"
     ));
     let entity = sim.substrate.entities.get(id).unwrap();
-    assert_eq!(entity.veterancy_rank_cache, LEVEL_ELITE);
-    assert_eq!(entity.elite_flash_frames, 150);
+    assert_eq!(entity.veterancy.rank_cache(), LEVEL_ELITE);
+    assert_eq!(entity.flashing.frames(), 150);
     veterancy_promotion_step(&mut sim, id, &rules);
     assert_eq!(
-        sim.substrate.entities.get(id).unwrap().elite_flash_frames,
+        sim.substrate.entities.get(id).unwrap().flashing.frames(),
         150
     );
     //Techno6FAC4D runs the countdown in the later shared AI slot.
     elite_flash_step(&mut sim, id);
     assert_eq!(
-        sim.substrate.entities.get(id).unwrap().elite_flash_frames,
+        sim.substrate.entities.get(id).unwrap().flashing.frames(),
         149
     );
 }

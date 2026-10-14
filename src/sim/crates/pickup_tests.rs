@@ -426,7 +426,7 @@ fn veteran_crate_promotes_trainable_technos_within_the_radius() {
     ));
 
     let raw =
-        |id: u64| f32::from_bits(sim.substrate.entities.get(id).unwrap().veterancy_raw.bits());
+        |id: u64| f32::from_bits(sim.substrate.entities.get(id).unwrap().veterancy.raw().bits());
     assert_eq!(raw(actor), 1.0, "the actor on the crate is a veteran");
     assert_eq!(raw(civilian), 0.0, "not Trainable=");
     assert_eq!(raw(distant), 0.0, "outside CrateRadius");

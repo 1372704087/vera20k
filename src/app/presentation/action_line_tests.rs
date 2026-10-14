@@ -292,8 +292,8 @@ fn drawing_fixture(
         .snap(input["target_facing"].as_u64().unwrap() as u16, frame);
     match speed["rank"].as_f64().unwrap() {
         0. => {}
-        1. => veterancy::set_veteran(&mut target),
-        2. => veterancy::set_elite(&mut target),
+        1. => target.veterancy.set_veteran(),
+        2. => target.veterancy.set_elite(),
         other => panic!("unsupported prepared rank {other}"),
     }
     assert!(

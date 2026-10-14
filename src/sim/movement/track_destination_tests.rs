@@ -459,8 +459,8 @@ fn repeated_move_orders_sample_live_native_speed() {
             let entity = sim.substrate.entities.get_mut(1).unwrap();
             match step["rank"].as_u64().unwrap() {
                 0 => {}
-                1 => veterancy::set_veteran(entity),
-                2 => veterancy::set_elite(entity),
+                1 => entity.veterancy.set_veteran(),
+                2 => entity.veterancy.set_elite(),
                 rank => panic!("unexpected native rank {rank}"),
             }
             entity.setter_force_reassign = step["forced"] == true;
@@ -493,7 +493,7 @@ fn repeated_move_orders_sample_live_native_speed() {
             let path = &entity.navigation.path_runtime;
             assert_eq!(
                 json!({
-                    "rank_bits": format!("{:08x}", entity.veterancy_raw.bits()),
+                    "rank_bits": format!("{:08x}", entity.veterancy.raw().bits()),
                     "destination": [destination.x, destination.y, destination.z],
                     "head": [head.x, head.y, head.z],
                     "nav": nav,

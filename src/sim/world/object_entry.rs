@@ -501,10 +501,10 @@ impl<T: Copy> InternedCache<T> {
 
 impl<'a> EntryMover<'a> {
     fn new(live: &EntryReadContext<'a>, id: u64, e: &'a GameEntity, obj: &'a ObjectType) -> Self {
-        let weapon0 = combat_weapon::weapon_for_index(obj, e.veterancy(), 0)
+        let weapon0 = combat_weapon::weapon_for_index(obj, e.veterancy.rank(), 0)
             .and_then(|(name, _)| live.rules.weapon(name));
         let crusher =
-            obj.crusher || has_weapon_ability(rank_from_u16(e.veterancy()), obj, Ability::Crusher);
+            obj.crusher || has_weapon_ability(rank_from_u16(e.veterancy.rank()), obj, Ability::Crusher);
         Self {
             id,
             e,
@@ -818,7 +818,7 @@ fn classify_foot_entry<'a>(
                     &combat_weapon::attacker_facts(e, obj),
                     Some(&combat_weapon::TargetFacts::Terrain),
                 );
-                let weapon = combat_weapon::weapon_for_index(obj, e.veterancy(), selected)
+                let weapon = combat_weapon::weapon_for_index(obj, e.veterancy.rank(), selected)
                     .and_then(|(name, _)| live.rules.weapon(name));
                 if !weapon
                     .and_then(|w| w.warhead.as_deref())

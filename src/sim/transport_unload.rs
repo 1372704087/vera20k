@@ -32,7 +32,6 @@ use crate::sim::passenger::{
 use crate::sim::pathfinding::passability::LandType;
 use crate::sim::world::{FrameEffects, SimSoundEvent, Simulation};
 use crate::util::direction_tables::CELL_DELTAS;
-use crate::util::fixed_math::SIM_ZERO;
 use crate::util::lepton::CELL_CENTER_LEPTON;
 
 /// `DAT_008458D0`: `[4, 5, 6, 7, 0, 1, 2, 3]` — the octant the transport
@@ -652,17 +651,15 @@ pub(crate) fn unit_mission_unload(
     }
 }
 
-/// Whether the aircraft is on the ground: `GetHeight() == 0` (vtable `+0x1C8`,
-/// `0x004151F0`) and the flight-altitude float `+0x2E8 == 0.0` (`0x00415200`).
+/// Whether the aircraft is on the ground: `GetHeight() == 0` (vtable `+0x1C8`
+/// at `0x004151FF`) and the Fly approach pitch `+0x2E8 == 0.0` (`fld` at
+/// `0x0041520D`, compared through `0x0041521E`).
 fn aircraft_landed(
     entity: &GameEntity,
     terrain: Option<&crate::map::resolved_terrain::ResolvedTerrainGrid>,
 ) -> bool {
     crate::sim::movement::air_movement::current_fly_height(entity, terrain) == 0
-        && entity
-            .locomotor
-            .as_ref()
-            .is_none_or(|loco| loco.altitude == SIM_ZERO)
+        && entity.flight_attitude.is_level()
 }
 
 /// The Aircraft Unload slot `0x004151E0`, for a `Passengers > 0` aircraft;

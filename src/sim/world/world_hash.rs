@@ -154,7 +154,6 @@ mod locomotor_field_hash_tests {
     use crate::rules::locomotor_type::{LocomotorKind, MovementZone, SpeedType};
     use crate::sim::game_entity::GameEntity;
     use crate::sim::movement::locomotor::{LocomotorState, MovementLayer};
-    use crate::util::fixed_math::SimFixed;
 
     /// A Teleport unit, optionally on a Drive leg, with `mutate` applied to the
     /// active object or, on the leg, to the suspended Teleport.
@@ -184,11 +183,10 @@ mod locomotor_field_hash_tests {
     #[test]
     fn every_active_and_stashed_locomotor_field_changes_current_hash() {
         type Mutation = (&'static str, fn(&mut LocomotorState));
-        let mutations: [Mutation; 7] = [
+        let mutations: [Mutation; 6] = [
             ("kind", |l| l.kind = LocomotorKind::Walk),
             ("powered", |l| l.powered = false),
             ("layer", |l| l.layer = MovementLayer::Bridge),
-            ("altitude", |l| l.altitude = SimFixed::from_num(5)),
             ("balloon_hover", |l| l.balloon_hover = true),
             ("speed_type", |l| l.speed_type = SpeedType::Wheel),
             ("movement_zone", |l| {
@@ -2104,7 +2102,6 @@ fn hash_locomotor(
         piggyback,
         runtime_payload,
         layer,
-        altitude,
         balloon_hover,
         speed_type,
         movement_zone,
@@ -2114,8 +2111,6 @@ fn hash_locomotor(
     (*kind as u8).hash(hasher);
     powered.hash(hasher);
     (*layer as u8).hash(hasher);
-    // SimFixed has no Hash; fold the raw bits.
-    altitude.to_bits().hash(hasher);
     balloon_hover.hash(hasher);
     speed_type.hash(hasher);
     movement_zone.hash(hasher);

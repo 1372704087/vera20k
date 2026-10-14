@@ -218,13 +218,12 @@ mod gsi_04_03b_tests {
 
         let miner = sim.substrate.entities.get_mut(1).unwrap();
         miner.on_bridge = false;
-        let mut locomotor = LocomotorState::for_test_kind(LocomotorKind::Fly);
-        locomotor.altitude = SimFixed::from_num(300);
-        miner.locomotor = Some(locomotor);
+        miner.locomotor = Some(LocomotorState::for_test_kind(LocomotorKind::Fly));
+        sim.set_object_height_unmarked(1, 300);
         assert_eq!(
             return_exceeds_too_far_threshold(&sim, 1, 2, 1),
             Some(true),
-            "locomotor altitude contributes to raw object-coordinate Z"
+            "the object's height contributes to its coordinate Z"
         );
     }
 

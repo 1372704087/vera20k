@@ -19,7 +19,7 @@ use crate::sim::game_entity::GameEntity;
 use crate::sim::intern::InternedId;
 use crate::sim::movement::locomotor::{LocomotorState, MovementLayer};
 use crate::sim::movement::track_process::TrackFamily;
-use crate::util::fixed_math::{SIM_ZERO, SimFixed};
+use crate::util::fixed_math::SimFixed;
 
 /// UnitClass vehicle-occupation bit in both CellClass occupation planes.
 pub(crate) const VEHICLE_OCCUPATION_BIT: u8 = 0x20;
@@ -57,8 +57,12 @@ pub(crate) fn air_spatial_bucket_index(rx: u16, ry: u16, map_width: u16, map_hei
 /// Whether the object belongs to the independent airborne spatial index.
 /// Native producers are the Fly/Jumpjet/rocket air-entry and movement paths;
 /// underground objects are deliberately not inferred to be airborne merely
-/// because they are absent from both CellClass object lists.
-pub(crate) fn air_spatial_tracks_entity(entity: &GameEntity) -> bool {
+/// because they are absent from both CellClass object lists. An Aircraft's
+/// Fly counts while GetHeight is above zero.
+pub(crate) fn air_spatial_tracks_entity(
+    entity: &GameEntity,
+    terrain: Option<&crate::map::resolved_terrain::ResolvedTerrainGrid>,
+) -> bool {
     use crate::rules::locomotor_type::LocomotorKind;
 
     let Some(locomotor) = entity.locomotor.as_ref() else {
@@ -67,7 +71,7 @@ pub(crate) fn air_spatial_tracks_entity(entity: &GameEntity) -> bool {
     locomotor.layer == MovementLayer::Air
         || (entity.category == EntityCategory::Aircraft
             && locomotor.kind == LocomotorKind::Fly
-            && locomotor.altitude > SIM_ZERO)
+            && crate::sim::movement::air_movement::current_fly_height(entity, terrain) > 0)
 }
 
 /// Exact bucket-copy order used by `FUN_00412B40` for the airborne phase of
@@ -2170,7 +2174,7 @@ mod tests {
             ),
         );
         infantry.locomotor.as_mut().unwrap().layer = MovementLayer::Air;
-        infantry.locomotor.as_mut().unwrap().altitude = SimFixed::from_num(400);
+        infantry.position.exact_z_leptons = Some(400);
         entities.insert(infantry);
         let building = GameEntity::test_default_of_category(
             2,

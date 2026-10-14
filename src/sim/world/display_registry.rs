@@ -247,6 +247,13 @@ impl Simulation {
         })
     }
 
+    /// Resubmit `id`'s display from its current state, as a native
+    /// resubmission site does.
+    #[cfg(test)]
+    pub(crate) fn resubmit_entity_display_for_test(&mut self, id: u64) {
+        self.submit_entity_display(id, None, None);
+    }
+
     /// Jumpjet54AECB/54AED1 captures the live query before Process.54B16F
     /// checks alive, then54B17F compares the new answer with that capture,
     /// not Object+94. Fly has different explicit resubmission sites and must
@@ -433,25 +440,6 @@ mod tests {
                 }),
                 "{name}: cell list"
             );
-            if kind == "fly" {
-                // Both consumers dispatch Fly4CFCF0. A stale compatibility
-                // cache must not put an airborne object on the ground list
-                // (or remove a landed one), independently of display retention.
-                for cached_height in [-1000, 1000] {
-                    entity.locomotor.as_mut().unwrap().altitude = SimFixed::from_num(cached_height);
-                    assert_eq!(
-                        crate::sim::occupancy::cell_list_layer_for_entity(entity, Some(&terrain))
-                            .is_some(),
-                        row["layer"] == 2,
-                        "{name}, cached height {cached_height}",
-                    );
-                    assert_eq!(
-                        entity_layer(entity, Some(&terrain), Some((&rules, &sim.interner))),
-                        DisplayLayer::from_index(row["layer"].as_u64().unwrap() as u8).unwrap(),
-                        "{name}, cached height {cached_height}",
-                    );
-                }
-            }
         }
     }
 

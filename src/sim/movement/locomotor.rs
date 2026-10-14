@@ -3,8 +3,8 @@
 //! Foot's NavCom and path queue live in `NavigationState`. Mechanism payloads
 //! own native controller state, including each locomotor's destination; shared
 //! fields retain movement and presentation adapters.
-//! Current world Z is authoritative in Object coordinates. `altitude` is its
-//! bounded cache, while Fly's integer target lives in its own payload.
+//! Current world Z is authoritative in Object coordinates, and GetHeight
+//! reads it; Fly's integer target height lives in its own payload.
 
 use crate::rules::locomotor_type::{LocomotorKind, MovementZone, SpeedType};
 use crate::rules::object_type::ObjectType;
@@ -12,7 +12,6 @@ use crate::sim::movement::locomotion::piggyback::{
     self, LocomotorRuntimePayload, StashedLocomotor,
 };
 use crate::sim::movement::slope_transition::SlopeTransitionState;
-use crate::util::fixed_math::{SIM_ZERO, SimFixed};
 
 /// Which spatial layer the unit currently occupies.
 ///
@@ -84,9 +83,6 @@ pub struct LocomotorState {
     /// cached on the active object. `Bridge` is the Ground layer with the
     /// Foot's OnBridge set.
     pub layer: MovementLayer,
-    /// Bounded altitude cache for movement/presentation adapters. Fly's exact
-    /// current height comes from Object Z and terrain; its target is in FlyRuntime.
-    pub altitude: SimFixed,
     /// Stay airborne after reaching destination (BalloonHover=yes).
     pub balloon_hover: bool,
     /// Which terrain type this unit traverses (from rules.ini SpeedType=).
@@ -152,7 +148,6 @@ impl LocomotorState {
             piggyback: None,
             runtime_payload: LocomotorRuntimePayload::for_kind(kind, binary_frame),
             layer,
-            altitude: SIM_ZERO,
             balloon_hover,
             speed_type,
             movement_zone,
@@ -284,11 +279,11 @@ impl LocomotorState {
         }
     }
 
+    /// The test flight phase at the object's GetHeight `height`.
     #[cfg(test)]
-    pub(crate) fn air_phase(&self) -> AirMovePhase {
-        self.fly_runtime().map_or(AirMovePhase::Landed, |state| {
-            state.mission_phase(self.altitude.to_num::<i32>())
-        })
+    pub(crate) fn air_phase(&self, height: i32) -> AirMovePhase {
+        self.fly_runtime()
+            .map_or(AirMovePhase::Landed, |state| state.mission_phase(height))
     }
 
     /// Whether a piggybacked locomotor is currently displacing the installed one.

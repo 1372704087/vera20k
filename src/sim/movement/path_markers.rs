@@ -1178,10 +1178,10 @@ mod tests {
         let mut peer =
             crate::sim::game_entity::GameEntity::test_default(2, "HOVER", "Americans", 5, 4);
         peer.type_ref = hover_type;
-        let mut locomotor =
-            crate::sim::movement::locomotor::LocomotorState::for_test_kind(LocomotorKind::Hover);
-        locomotor.altitude = crate::util::fixed_math::SimFixed::from_num(120);
-        peer.locomotor = Some(locomotor);
+        peer.locomotor = Some(
+            crate::sim::movement::locomotor::LocomotorState::for_test_kind(LocomotorKind::Hover),
+        );
+        peer.position.exact_z_leptons = Some(120);
         entities.insert(peer);
 
         let mut occupancy = OccupancyGrid::new();
@@ -1204,13 +1204,7 @@ mod tests {
             "120-lepton idle hover height exceeds the 104-lepton tolerance"
         );
 
-        entities
-            .get_mut(2)
-            .unwrap()
-            .locomotor
-            .as_mut()
-            .unwrap()
-            .altitude = crate::util::fixed_math::SimFixed::from_num(104);
+        entities.get_mut(2).unwrap().position.exact_z_leptons = Some(104);
         let inclusive_boundary = snapshot_bridge_marker_peers(&entities, None, &interner);
         assert_eq!(
             find_nearby_bridge_peer_suffix(&inclusive_boundary, &occupancy, &grid, (5, 4), 0, None),

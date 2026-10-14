@@ -36,7 +36,6 @@ use crate::sim::movement::jumpjet_movement::jumpjet_flight::{
 use crate::sim::movement::locomotor::MovementLayer;
 use crate::sim::occupancy::RawCellKey;
 use crate::sim::world::FrameEffects;
-use crate::util::fixed_math::SimFixed;
 use crate::util::lepton::{
     GROUND_LEVEL_HEIGHT_LEPTONS, ground_height_leptons, lepton_to_cell_packed,
 };
@@ -145,16 +144,7 @@ impl JumpjetFlightHost for CruiseHost<'_> {
         );
     }
     fn height_above_ground(&self) -> i32 {
-        let location = self.location();
-        location[2].wrapping_sub(
-            ground_surface_z_at(
-                [location[0], location[1]],
-                self.on_bridge(),
-                self.terrain(),
-                None,
-            )
-            .unwrap_or(0),
-        )
+        crate::sim::movement::air_movement::current_fly_height(self.owner(), self.terrain())
     }
     fn on_bridge(&self) -> bool {
         self.owner().on_bridge
@@ -729,9 +719,7 @@ impl Simulation {
             let state = jumpjet_flight::process(runtime, &mut host);
             let ended_cruise =
                 entry_state == STATE_TRANSLATE && matches!(state, STATE_HOLD | STATE_DESCEND);
-            let height = host.height_above_ground();
             let entity = host.sim.substrate.entities.get_mut(stable_id).unwrap();
-            entity.locomotor.as_mut().unwrap().altitude = SimFixed::from_num(height.max(0));
             if host.crash_latched
                 && entity.category == EntityCategory::Infantry
                 && let Some(rules) = rules
@@ -768,6 +756,7 @@ mod tests {
     use crate::sim::movement::ground_pose::position_world_coord;
     use crate::sim::movement::jumpjet_movement::jumpjet_flight::STATE_ASCEND;
     use crate::sim::movement::locomotor::LocomotorState;
+    use crate::util::fixed_math::SimFixed;
     use serde_json::Value;
 
     fn native_row(name: &str) -> Value {
@@ -845,10 +834,9 @@ mod tests {
                 .with_moving_for_test(true)
                 .with_flight_for_test(flight);
         }
-        locomotor.altitude = SimFixed::from_num(500);
-
         entity.locomotor = Some(locomotor);
         sim.substrate.entities.insert(entity);
+        sim.set_object_height_unmarked(1, 500);
         sim
     }
 
@@ -882,17 +870,15 @@ mod tests {
             let entity = sim.substrate.entities.get_mut(1).expect("jumpjet");
             let locomotor = entity.locomotor.as_mut().expect("locomotor");
             locomotor.balloon_hover = balloon_hover;
-            locomotor.altitude = SimFixed::from_num(if state == jumpjet_flight::STATE_GROUND {
-                0
-            } else {
-                500
-            });
             let runtime = locomotor.jumpjet_runtime_mut().expect("runtime");
             *runtime = runtime
                 .clone()
                 .with_phase_for_test(state)
                 .with_moving_for_test(false)
                 .with_destination_for_test(JumpjetRuntime::NULL);
+        }
+        if state == jumpjet_flight::STATE_GROUND {
+            sim.set_object_height_unmarked(1, 0);
         }
         for frame in 0..frames {
             sim.session.binary_frame = 1001 + frame;
@@ -919,7 +905,6 @@ mod tests {
             entity.foot_occupation_enabled = true;
             entity.position.exact_z_leptons = Some(0);
             let locomotor = entity.locomotor.as_mut().expect("locomotor");
-            locomotor.altitude = SimFixed::from_num(0);
             let runtime = locomotor.jumpjet_runtime_mut().expect("runtime");
             *runtime = runtime
                 .clone()
@@ -959,7 +944,13 @@ mod tests {
         let sim = idle_for(jumpjet_flight::STATE_GROUND, false, 400);
         let entity = sim.substrate.entities.get(1).expect("jumpjet");
         let locomotor = entity.locomotor.as_ref().expect("locomotor");
-        assert_eq!(locomotor.altitude, SimFixed::from_num(0));
+        assert_eq!(
+            crate::sim::movement::air_movement::current_fly_height(
+                entity,
+                sim.resolved_terrain.as_ref()
+            ),
+            0
+        );
         assert_eq!(
             locomotor.jumpjet_runtime().map(|runtime| runtime.phase()),
             Some(jumpjet_flight::STATE_GROUND)

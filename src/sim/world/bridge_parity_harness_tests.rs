@@ -350,7 +350,12 @@ const MIN_DISTINCT_DECK_CELLS: usize = 6;
 // only: a control binary (main with a hash that skips only that fold)
 // gives this value in the same test, with every tripwire above green.
 // Control removed. Previous: 0x5D16_9C8A_E6B9_8915.
-const BRIDGE_HARNESS_FINAL_HASH: u64 = 0x13A7_184B_5F5F_A088;
+// Snapshot350 drops the locomotor's altitude copy (#692), which every
+// locomotor's fold hashed. Hash composition only: a control binary (main
+// with a hash that skips only that fold) gives this value in the same
+// test, with every tripwire above green.
+// Control removed. Previous: 0x13A7_184B_5F5F_A088.
+const BRIDGE_HARNESS_FINAL_HASH: u64 = 0x7762_A172_3DBE_DA89;
 
 fn bridge_ini() -> IniFile {
     // One armed ground vehicle and one distant infantryman on a second house, so

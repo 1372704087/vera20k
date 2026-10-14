@@ -1012,7 +1012,9 @@ use crate::sim::world::Simulation;
 // code-2 ladder.
 // 350 -> 351: a Building's animation art fields move into one record
 // (`BuildingArt`), which changes the entity's field order.
-const SNAPSHOT_VERSION: u32 = 351;
+// 351 -> 352: the locomotor's altitude mirror is gone (#692); an object's
+// height is its Location Z. Version 351 records carry it.
+const SNAPSHOT_VERSION: u32 = 352;
 
 const SNAPSHOT_PRODUCT_MAGIC: [u8; 8] = *b"VERA20K\0";
 const SNAPSHOT_ENVELOPE_VERSION: u32 = 1;
@@ -4402,7 +4404,8 @@ mod tests {
         // 348 -> 349: no move-order adapter (`MovementTarget`).
         // 349 -> 350: the request each waiting Foot repeats.
         // 350 -> 351: the Building's animation art in one record.
-        assert_eq!(super::SNAPSHOT_VERSION, 351);
+        // 351 -> 352: no locomotor altitude copy; height is the Location Z.
+        assert_eq!(super::SNAPSHOT_VERSION, 352);
     }
 
     #[test]

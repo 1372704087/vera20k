@@ -100,8 +100,6 @@ fn fixture(row: &serde_json::Value) -> (Simulation, RuleSet) {
     entity.on_bridge = flag("on_bridge");
     entity.health.current = integer("health", 100);
     let loco = entity.locomotor.as_mut().unwrap();
-    // A deliberately stale cache must not override the physical coordinate.
-    loco.altitude = SimFixed::from_num(123);
     if flag("landing") {
         loco.begin_fly_landing();
     }
@@ -151,8 +149,11 @@ fn healthy_native_height_vectors_reach_production_coordinates() {
             row["input"]
         );
         assert_eq!(
-            entity.locomotor.as_ref().unwrap().altitude,
-            SimFixed::saturating_from_num(expected_height),
+            crate::sim::movement::air_movement::current_fly_height(
+                entity,
+                sim.resolved_terrain.as_ref()
+            ),
+            expected_height,
             "{}",
             row["input"]
         );

@@ -312,13 +312,13 @@ fn gsi_13_06_body_counter_uses_absolute_precommit_binary_frame_phase() {
     let speed = Gsi1306Speed::new();
     for kind in [LocomotorKind::Drive, LocomotorKind::Ship] {
         let mut entity = gsi_13_06_active_shp_unit("DRON", kind);
-        tick_unit_body_frame_counter(&mut entity, speed.rules(), cadence, false, false, 3);
+        tick_unit_body_frame_counter(&mut entity, speed.rules(), cadence, false, false, None, 3);
         assert_eq!(entity.body_frame_counter, 0);
-        tick_unit_body_frame_counter(&mut entity, speed.rules(), cadence, false, false, 4);
+        tick_unit_body_frame_counter(&mut entity, speed.rules(), cadence, false, false, None, 4);
         assert_eq!(entity.body_frame_counter, 1);
-        tick_unit_body_frame_counter(&mut entity, speed.rules(), cadence, false, false, 5);
+        tick_unit_body_frame_counter(&mut entity, speed.rules(), cadence, false, false, None, 5);
         assert_eq!(entity.body_frame_counter, 1);
-        tick_unit_body_frame_counter(&mut entity, speed.rules(), cadence, false, false, 8);
+        tick_unit_body_frame_counter(&mut entity, speed.rules(), cadence, false, false, None, 8);
         assert_eq!(entity.body_frame_counter, 2);
     }
 }
@@ -337,6 +337,7 @@ fn gsi_13_06_body_counter_wraps_and_survives_moving_idle_transitions() {
         },
         false,
         false,
+        None,
         4,
     );
     assert_eq!(entity.body_frame_counter, 0, "native dword wraps");
@@ -366,6 +367,7 @@ fn gsi_13_06_body_counter_wraps_and_survives_moving_idle_transitions() {
         },
         false,
         false,
+        None,
         8,
     );
     assert_eq!(
@@ -414,7 +416,7 @@ fn gsi_13_06_counter_suppressions_hold_the_persistent_value() {
 
     for (name, mut entity) in variants {
         entity.body_frame_counter = 17;
-        tick_unit_body_frame_counter(&mut entity, speed.rules(), cadence, false, false, 1);
+        tick_unit_body_frame_counter(&mut entity, speed.rules(), cadence, false, false, None, 1);
         assert_eq!(entity.body_frame_counter, 17, "{name}");
     }
 }
@@ -444,6 +446,7 @@ fn gsi_13_06_draw_and_cadence_use_distinct_movement_predicates() {
             },
             false,
             false,
+            None,
             4,
         );
         assert_eq!(entity.body_frame_counter, 0, "IdleRate=0 holds the counter");
@@ -478,6 +481,7 @@ fn gsi_13_06_positive_fraction_below_get_current_speed_threshold_is_idle() {
             },
             false,
             false,
+            None,
             1,
         );
         assert_eq!(entity.body_frame_counter, 0, "{name} remains idle");
@@ -1661,22 +1665,27 @@ fn unit_body_counter_matches_original_foot_cadence() {
         "tools/spatial_oracle/unit_simple_deploy.json",
     ))
     .unwrap();
+    use crate::sim::movement::locomotor::MovementLayer;
+
     let speed = Gsi1306Speed::new();
     for row in corpus["body_cadence"].as_array().unwrap() {
         let input = &row["input"];
         let flag = |key: &str| input[key].as_bool().unwrap_or(false);
         let integer =
             |key: &str, fallback: i32| input[key].as_i64().map_or(fallback, |value| value as i32);
-        for voxel in [false, true] {
+        // The DeployToLand gate asks GetHeight (`0x004DA9CD`), which reads no
+        // layer, so each row holds on the Ground layer too.
+        for (voxel, layer) in [false, true].into_iter().flat_map(|voxel| {
+            [MovementLayer::Air, MovementLayer::Ground].map(|layer| (voxel, layer))
+        }) {
             let mut entity = gsi_13_06_active_shp_unit("DRON", LocomotorKind::Drive);
             entity.is_voxel = voxel;
             entity.body_frame_counter = input["counter"].as_u64().unwrap_or(0) as u32;
             entity
                 .foot_speed
                 .set_speed_fraction(SimFixed::from_num(i32::from(flag("moving"))));
-            let loco = entity.locomotor.as_mut().unwrap();
-            loco.altitude = SimFixed::from_num(integer("height", 0));
-            loco.layer = crate::sim::movement::locomotor::MovementLayer::Air;
+            entity.position.exact_z_leptons = Some(integer("height", 0));
+            entity.locomotor.as_mut().unwrap().layer = layer;
             if let Some(flags) = input["flags"].as_array() {
                 entity.set_unit_simple_deploy_for_test(
                     flags[0].as_u64().unwrap() != 0,
@@ -1710,12 +1719,13 @@ fn unit_body_counter_matches_original_foot_cadence() {
                 },
                 flag("hover_attack"),
                 flag("deploy_to_land"),
+                None,
                 integer("frame", 0) as u32,
             );
             assert_eq!(
                 u64::from(entity.body_frame_counter),
                 row["counter"].as_u64().unwrap(),
-                "{input}, voxel={voxel}"
+                "{input}, voxel={voxel}, {layer:?}"
             );
         }
     }

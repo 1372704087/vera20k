@@ -741,57 +741,42 @@ fn move_order_cancels_a_running_unload() {
     assert_ne!(fx.mission(bfrt), MissionId::from_known(MissionType::Unload));
 }
 
-/// The Aircraft Unload slot ejects only once `GetHeight() == 0 && altitude ==
-/// 0.0`; an airborne Nighthawk holds its cargo.
+/// The Aircraft Unload slot ejects only once `GetHeight() == 0` and the
+/// approach pitch `+0x2E8 == 0.0` (`0x004151FF`, `0x0041520D`): an airborne
+/// Nighthawk holds its cargo, and so does a grounded one still pitched.
 #[test]
 fn nighthawk_unloads_only_when_landed() {
     let mut fx = Fixture::new(|_, _| false);
     let shad = fx.spawn("SHAD", 20, 20, 0);
     let pax = fx.board(shad, 2);
-    {
-        let loco = fx
-            .sim
-            .substrate
-            .entities
-            .get_mut(shad)
-            .expect("aircraft")
-            .locomotor
-            .as_mut()
-            .expect("locomotor");
-        loco.altitude = SimFixed::from_num(600);
-    }
+    fx.sim.set_object_height_unmarked(shad, 600);
     assert!(fx.apply(Command::UnloadPassengers { transport_id: shad }));
     assert_eq!(fx.mission(shad), MissionId::from_known(MissionType::Unload));
     for _ in 0..30 {
-        {
-            let loco = fx
-                .sim
-                .substrate
-                .entities
-                .get_mut(shad)
-                .expect("aircraft")
-                .locomotor
-                .as_mut()
-                .expect("locomotor");
-            loco.altitude = SimFixed::from_num(600);
-        }
+        fx.sim.set_object_height_unmarked(shad, 600);
         crate::sim::aircraft::dispatch_mission(&mut fx.sim, shad, &fx.rules, Default::default());
         fx.sim.session.binary_frame += 1;
     }
     assert_eq!(fx.cargo_ids(shad).len(), 2, "airborne: nothing leaves");
 
-    {
-        let loco = fx
-            .sim
+    fx.sim.set_object_height_unmarked(shad, 0);
+    let pitch = |fx: &mut Fixture, angle: SimFixed| {
+        fx.sim
             .substrate
             .entities
             .get_mut(shad)
             .expect("aircraft")
-            .locomotor
-            .as_mut()
-            .expect("locomotor");
-        loco.altitude = SIM_ZERO;
+            .flight_attitude
+            .approach(0, 1, angle);
+    };
+    pitch(&mut fx, SimFixed::from_num(1));
+    for _ in 0..30 {
+        crate::sim::aircraft::dispatch_mission(&mut fx.sim, shad, &fx.rules, Default::default());
+        fx.sim.session.binary_frame += 1;
     }
+    assert_eq!(fx.cargo_ids(shad).len(), 2, "pitched: nothing leaves");
+
+    pitch(&mut fx, SIM_ZERO);
     let mut frames = Vec::new();
     for _ in 0..80 {
         crate::sim::aircraft::dispatch_mission(&mut fx.sim, shad, &fx.rules, Default::default());
@@ -828,18 +813,7 @@ fn nighthawk_ejects_five_passengers_to_scanned_neighbours() {
     let mut fx = Fixture::new(|_, _| false);
     let shad = fx.spawn("SHAD", 20, 20, 0);
     let pax = fx.board(shad, 5);
-    {
-        let loco = fx
-            .sim
-            .substrate
-            .entities
-            .get_mut(shad)
-            .expect("aircraft")
-            .locomotor
-            .as_mut()
-            .expect("locomotor");
-        loco.altitude = SIM_ZERO;
-    }
+    fx.sim.set_object_height_unmarked(shad, 0);
     assert!(fx.apply(Command::UnloadPassengers { transport_id: shad }));
 
     // (id, reveal frame, mission, destination) captured the tick each surfaces.
@@ -1092,16 +1066,7 @@ fn vehicle_passenger_off_the_playfield_exit_lands_on_raised_in_playfield_ground(
 }
 
 fn set_altitude(fx: &mut Fixture, id: u64, altitude: i32) {
-    let loco = fx
-        .sim
-        .substrate
-        .entities
-        .get_mut(id)
-        .expect("aircraft")
-        .locomotor
-        .as_mut()
-        .expect("locomotor");
-    loco.altitude = SimFixed::from_num(altitude);
+    fx.sim.set_object_height_unmarked(id, altitude);
 }
 
 fn handler_state(fx: &Fixture, id: u64) -> u32 {
@@ -1264,26 +1229,23 @@ fn jumpjet_transport_ordered_to_unload_in_flight_lands_first() {
         target_ry: 20,
     }));
     let altitude = |fx: &Fixture| {
-        fx.sim
-            .substrate
-            .entities
-            .get(hind)
-            .and_then(|e| e.locomotor.as_ref())
-            .map(|loco| loco.altitude)
-            .expect("locomotor")
+        crate::sim::movement::air_movement::current_fly_height(
+            fx.sim.substrate.entities.get(hind).expect("aircraft"),
+            fx.sim.resolved_terrain.as_ref(),
+        )
     };
     for _ in 0..150 {
         fx.tick();
     }
     let ordered_at = fx.cell(hind);
-    assert!(altitude(&fx) > SIM_ZERO, "in flight");
+    assert!(altitude(&fx) > 0, "in flight");
     assert!(fx.apply(Command::UnloadPassengers { transport_id: hind }));
     let mut landed_reveals = 0;
     for _ in 0..600 {
         fx.tick();
         let out = pax.iter().filter(|&&id| fx.revealed(id)).count();
         if out > landed_reveals {
-            assert_eq!(altitude(&fx), SIM_ZERO, "a passenger left in the air");
+            assert_eq!(altitude(&fx), 0, "a passenger left in the air");
             landed_reveals = out;
         }
         if out == pax.len() {

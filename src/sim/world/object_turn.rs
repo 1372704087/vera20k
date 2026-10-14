@@ -971,6 +971,7 @@ impl Simulation {
                     cadence,
                     hover_attack,
                     deploy_to_land,
+                    sim.resolved_terrain.as_ref(),
                     sim.session.binary_frame,
                 );
             }

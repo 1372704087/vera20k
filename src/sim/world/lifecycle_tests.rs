@@ -886,7 +886,7 @@ fn a_revealed_building_takes_the_floor_at_its_location_as_its_z() {
 /// UnitType's Unlimbo coordinate adjustment (virtual +0x6C, `0x00747EB0`)
 /// clamps the input Z to the floor whatever the locomotor, so a Hover, Fly,
 /// Jumpjet, Rocket or Teleport unit starts on the floor as a Drive one does,
-/// and the altitude mirror takes the committed GetHeight, whatever it held.
+/// at GetHeight 0.
 /// Ground=52 is the original-code result ramp_1_sub_128_128 in
 /// tools/ramp_height_vectors.json.
 #[test]
@@ -907,9 +907,8 @@ fn every_unit_locomotor_takes_the_floor_clamp_at_unlimbo() {
             .unwrap()
             .slope_type = 1;
         insert_entity(&mut sim, 1, EntityCategory::Unit);
-        let mut locomotor = LocomotorState::for_test_kind(kind);
-        locomotor.altitude = SimFixed::from_num(500);
-        sim.substrate.entities.get_mut(1).unwrap().locomotor = Some(locomotor);
+        sim.substrate.entities.get_mut(1).unwrap().locomotor =
+            Some(LocomotorState::for_test_kind(kind));
         assert!(matches!(
             sim.try_reveal_entity(1, common_raw_request(2, 2, 0, 128, 128)),
             RevealOutcome::Revealed { .. }
@@ -917,8 +916,11 @@ fn every_unit_locomotor_takes_the_floor_clamp_at_unlimbo() {
         let unit = sim.substrate.entities.get(1).unwrap();
         assert_eq!(unit.position.exact_z_leptons, Some(52), "{kind:?}");
         assert_eq!(
-            unit.locomotor.as_ref().unwrap().altitude,
-            SimFixed::from_num(0),
+            crate::sim::movement::air_movement::current_fly_height(
+                unit,
+                sim.resolved_terrain.as_ref()
+            ),
+            0,
             "{kind:?}"
         );
     }
@@ -1295,11 +1297,12 @@ fn techno_playfield_ctor_unlimbo_and_movement_hysteresis() {
     );
 }
 
-fn install_fly_aircraft(sim: &mut Simulation, stable_id: u64, altitude: SimFixed) {
+/// A Fly aircraft in limbo holding `target_height`. A Reveal without rules
+/// commits no exact Z, so a caller lifts it afterwards through SetHeight.
+fn install_fly_aircraft(sim: &mut Simulation, stable_id: u64, target_height: SimFixed) {
     insert_entity(sim, stable_id, EntityCategory::Aircraft);
     let mut locomotor = LocomotorState::for_test_kind(LocomotorKind::Fly);
-    locomotor.altitude = altitude;
-    locomotor.set_fly_target_height(altitude.to_num::<i32>());
+    locomotor.set_fly_target_height(target_height.to_num::<i32>());
     // Process steps the height of a moving Fly only (`0x004CDA0B`); a null
     // destination keeps Horizontal_Step and the landing drift out of it.
     locomotor.fly_runtime_mut().unwrap().retain_destination(
@@ -1791,6 +1794,8 @@ fn gsi_04_12_object_raw_occupation_airborne_and_non_fly_aircraft_are_excluded() 
     install_common_raw_terrain(&mut sim, 8, 8, 0, None);
     install_fly_aircraft(&mut sim, 1, SimFixed::from_num(1));
     let _ = sim.try_reveal_entity(1, common_raw_request(3, 4, 0, 128, 128));
+    // SetHeight's Mark pair re-lists it at height 1, in the air.
+    sim.set_object_height(1, 1, None, None, crate::sim::world::FrameEffects::default());
 
     insert_entity(&mut sim, 2, EntityCategory::Aircraft);
     sim.substrate.entities.get_mut(2).unwrap().locomotor =
@@ -1878,7 +1883,12 @@ fn gsi_04_12_object_raw_occupation_production_fly_tick_unmarks_takeoff_and_marks
     );
 
     let aircraft = sim.substrate.entities.get(1).unwrap();
-    assert!(aircraft.locomotor.as_ref().unwrap().altitude > SimFixed::from_num(0));
+    assert!(
+        crate::sim::movement::air_movement::current_fly_height(
+            aircraft,
+            sim.resolved_terrain.as_ref()
+        ) > 0
+    );
     assert!(
         aircraft.lifecycle.cell_marked,
         "the post-process Mark transaction completed"
@@ -1896,11 +1906,9 @@ fn gsi_04_12_object_raw_occupation_production_fly_tick_unmarks_takeoff_and_marks
             .as_mut()
             .unwrap();
         locomotor.begin_fly_landing();
-        locomotor.altitude = SimFixed::from_num(1);
         locomotor.set_fly_target_height(0);
     }
     // Supply the matching physical state for this independent landing visit.
-    // Changing cached controller height cannot move an exact Object coordinate.
     sim.substrate
         .entities
         .get_mut(1)
@@ -1916,8 +1924,11 @@ fn gsi_04_12_object_raw_occupation_production_fly_tick_unmarks_takeoff_and_marks
 
     let aircraft = sim.substrate.entities.get(1).unwrap();
     assert_eq!(
-        aircraft.locomotor.as_ref().unwrap().altitude,
-        SimFixed::from_num(0)
+        crate::sim::movement::air_movement::current_fly_height(
+            aircraft,
+            sim.resolved_terrain.as_ref()
+        ),
+        0
     );
     assert!(aircraft.lifecycle.cell_marked);
     assert_eq!(
@@ -1957,12 +1968,10 @@ fn gsi_05_05_fly_takeoff_commits_absolute_z_after_remove_process() {
     );
 
     let aircraft = sim.substrate.entities.get(1).unwrap();
-    let altitude = aircraft
-        .locomotor
-        .as_ref()
-        .unwrap()
-        .altitude
-        .to_num::<i32>();
+    let altitude = crate::sim::movement::air_movement::current_fly_height(
+        aircraft,
+        sim.resolved_terrain.as_ref(),
+    );
     assert!(altitude > 0);
     assert_eq!(aircraft.position.exact_z_leptons, Some(208 + altitude));
     assert!(!sim.substrate.occupancy.contains_entity(3, 4, 1));
@@ -1977,6 +1986,8 @@ fn gsi_05_05_fly_landing_on_bridge_uses_absolute_z_for_deck_put() {
     install_fly_aircraft(&mut sim, 1, SimFixed::from_num(1));
     sim.substrate.entities.get_mut(1).unwrap().on_bridge = true;
     let _ = sim.try_reveal_entity(1, common_raw_request(3, 4, 0, 128, 128));
+    // SetHeight's Mark pair re-lists it one lepton above the deck, in the air.
+    sim.set_object_height(1, 1, None, None, crate::sim::world::FrameEffects::default());
     assert_eq!(sim.substrate.raw_cell_occupation.ground_bits(3, 4), 0);
     assert_eq!(sim.substrate.raw_cell_occupation.deck_bits(3, 4), 0);
 
@@ -2001,8 +2012,11 @@ fn gsi_05_05_fly_landing_on_bridge_uses_absolute_z_for_deck_put() {
 
     let aircraft = sim.substrate.entities.get(1).unwrap();
     assert_eq!(
-        aircraft.locomotor.as_ref().unwrap().altitude,
-        SimFixed::from_num(0)
+        crate::sim::movement::air_movement::current_fly_height(
+            aircraft,
+            sim.resolved_terrain.as_ref()
+        ),
+        0
     );
     assert_eq!(aircraft.position.exact_z_leptons, Some(416));
     assert_eq!(
@@ -2104,13 +2118,25 @@ fn gsi_04_07_damage_air_spatial_entry_crossing_and_exit_keep_vector_order() {
     sim.session.map_height = 40;
     install_common_raw_terrain(&mut sim, 40, 40, 0, None);
     // Foot Unlimbo4D72B2 adds ConsideredAircraft only above the native
-    // high-flight threshold (208 leptons). The altitude cache uses leptons,
-    // whereas the Reveal request below uses coarse levels: four levels = 416.
+    // high-flight threshold (208 leptons); a Reveal without rules commits no
+    // exact Z, so the fixture lifts both aircraft and adds them in Unlimbo's
+    // order (`unlimbo_adds_a_high_flying_considered_aircraft_to_the_air_tracker`
+    // covers that admission).
     install_fly_aircraft(&mut sim, 20, SimFixed::from_num(416));
     install_fly_aircraft(&mut sim, 10, SimFixed::from_num(416));
 
     let _ = sim.try_reveal_entity(20, common_raw_request(2, 4, 4, 128, 128));
     let _ = sim.try_reveal_entity(10, common_raw_request(3, 4, 4, 128, 128));
+    for id in [20, 10] {
+        sim.set_object_height(
+            id,
+            416,
+            None,
+            None,
+            crate::sim::world::FrameEffects::default(),
+        );
+        sim.aircraft_tracker_add(id);
+    }
     let first = sim.substrate.entities.get(20).unwrap();
     let second = sim.substrate.entities.get(10).unwrap();
     assert!(first.air_spatial_bucket().is_some());
@@ -6196,6 +6222,15 @@ fn gsi_05_04_high_flying_source_and_target_become_explicit_null() {
         sim.try_reveal_entity(target_id, request(13, 15, PlacementEvidence::MarkSucceeded)),
         RevealOutcome::Revealed { .. }
     ));
+    // A Reveal without rules commits no exact Z; SetHeight puts the aircraft
+    // at 208, the high-flight threshold.
+    sim.set_object_height(
+        target_id,
+        208,
+        None,
+        None,
+        crate::sim::world::FrameEffects::default(),
+    );
     let projectile_id = sim.allocate_stable_id();
     let mut spawn = gsi_05_04_guided_projectile(
         target_id,
@@ -8312,7 +8347,7 @@ fn production_air_wrapper_keeps_fly_exact_producer_and_reads_live_dummy() {
 }
 
 #[test]
-fn production_air_wrapper_retains_native_jumpjet_result_even_when_height_cache_clamps() {
+fn production_air_wrapper_retains_native_jumpjet_result_below_the_ground() {
     fn fixture() -> Simulation {
         let mut sim = Simulation::new();
         install_common_raw_terrain(&mut sim, 8, 8, 2, None);
@@ -8321,7 +8356,6 @@ fn production_air_wrapper_retains_native_jumpjet_result_even_when_height_cache_c
         e.position.exact_z_leptons = Some(-37);
         let mut loco = LocomotorState::for_test_kind(LocomotorKind::Jumpjet);
         loco.balloon_hover = true;
-        loco.altitude = SimFixed::from_num(500);
         let runtime = loco.jumpjet_runtime_mut().unwrap();
         *runtime = runtime
             .clone()
@@ -8347,18 +8381,6 @@ fn production_air_wrapper_retains_native_jumpjet_result_even_when_height_cache_c
         expected,
         Some(-37),
         "stationary native hold retains raw owner Z"
-    );
-    assert_eq!(
-        direct
-            .substrate
-            .entities
-            .get(1)
-            .unwrap()
-            .locomotor
-            .as_ref()
-            .unwrap()
-            .altitude,
-        SimFixed::from_num(0)
     );
     let mut wrapped = fixture();
     wrapped.tick_air_movement_with_cell_lists_one(
@@ -8413,7 +8435,6 @@ fn fly_cross_level_move_lands_on_destination_surface_after_restore() {
         entity.position.exact_z_leptons = Some(origin_z);
         entity.body_facing.snap(0x0000, 0);
         let loco = entity.locomotor.as_mut().unwrap();
-        loco.altitude = SimFixed::from_num(600);
         loco.set_fly_target_height(600);
 
         let fly = loco.fly_runtime_mut().unwrap();
@@ -8439,7 +8460,10 @@ fn fly_cross_level_move_lands_on_destination_surface_after_restore() {
         assert!((moved_z - origin_z).abs() <= 21);
         assert_ne!(moved_z, origin_z);
         assert_eq!(
-            entity.locomotor.as_ref().unwrap().altitude.to_num::<i32>(),
+            crate::sim::movement::air_movement::current_fly_height(
+                entity,
+                sim.resolved_terrain.as_ref()
+            ),
             moved_z - destination_ground,
         );
         // Stopped over its destination's cell, as the arrival leaves it, the
@@ -8474,7 +8498,11 @@ fn fly_cross_level_move_lands_on_destination_surface_after_restore() {
             }
             assert_eq!(restored.state_hash(), sim.state_hash());
             let entity = sim.substrate.entities.get(1).unwrap();
-            if entity.locomotor.as_ref().unwrap().air_phase() == AirMovePhase::Landed {
+            let height = crate::sim::movement::air_movement::current_fly_height(
+                entity,
+                sim.resolved_terrain.as_ref(),
+            );
+            if entity.locomotor.as_ref().unwrap().air_phase(height) == AirMovePhase::Landed {
                 assert_eq!(entity.position.exact_z_leptons, Some(destination_ground));
                 assert_eq!(
                     sim.foot_navigation_coordinate(1).unwrap().z,

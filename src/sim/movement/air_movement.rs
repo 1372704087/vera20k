@@ -283,13 +283,10 @@ pub struct AirMovementTickStats {
 
 /// `ObjectClass::GetHeight @ 0x005F5F40`, shared by every object vtable
 /// (`+0x1C8`): the Location's Z less the ground under it and, on a bridge, the
-/// deck. An exact coordinate is the Location's Z. An object without one keeps
-/// its height apart from its ground ([`object_world_z_leptons`]), so its
-/// height is that part ([`object_altitude_leptons`]): an Air-layer
-/// locomotor's or an active Hover's altitude.
+/// deck. An exact coordinate is the Location's Z. An object without one
+/// stands on its ground ([`object_world_z_leptons`]), so its height is 0.
 ///
 /// [`object_world_z_leptons`]: super::ground_pose::object_world_z_leptons
-/// [`object_altitude_leptons`]: super::ground_pose::object_altitude_leptons
 pub(crate) fn current_fly_height(
     entity: &crate::sim::game_entity::GameEntity,
     terrain: Option<&crate::map::resolved_terrain::ResolvedTerrainGrid>,
@@ -303,7 +300,7 @@ fn queried_flight_height(
     cells: Option<&crate::map::resolved_terrain::NativeCellQuery<'_>>,
 ) -> i32 {
     let Some(z) = entity.position.exact_z_leptons else {
-        return super::ground_pose::object_altitude_leptons(entity);
+        return 0;
     };
     let ground = cells
         .and_then(|cells| {
@@ -481,7 +478,6 @@ pub(crate) fn update_fly_height(
         });
     entity.position.exact_z_leptons = Some(output.world_z);
     entity.on_bridge = output.on_bridge;
-    super::ground_pose::mirror_height(entity, output.height);
     output
 }
 
@@ -532,7 +528,10 @@ pub(crate) mod tests {
 
         // Should trigger ascending.
         let loco = e.locomotor.as_ref().expect("has loco");
-        assert_eq!(loco.air_phase(), AirMovePhase::Ascending);
+        assert_eq!(
+            loco.air_phase(current_fly_height(e, sim.resolved_terrain.as_ref())),
+            AirMovePhase::Ascending
+        );
     }
 
     /// A vehicle Jumpjet's order takes its own `Move_To`: Foot's NavCom, then
@@ -591,7 +590,10 @@ pub(crate) mod tests {
             }
         );
         assert_eq!(
-            e.locomotor.as_ref().unwrap().air_phase(),
+            e.locomotor
+                .as_ref()
+                .unwrap()
+                .air_phase(current_fly_height(e, sim.resolved_terrain.as_ref())),
             AirMovePhase::Landed
         );
     }

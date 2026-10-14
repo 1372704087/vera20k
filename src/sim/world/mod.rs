@@ -3948,6 +3948,7 @@ impl Simulation {
                     entity,
                     &reveal_config,
                     height_grid.as_deref(),
+                    self.resolved_terrain.as_ref(),
                     sight_ability,
                     &self.interner,
                 );
@@ -6068,6 +6069,7 @@ impl Simulation {
             &self.house_alliances,
             config,
             height_grid.as_deref(),
+            self.resolved_terrain.as_ref(),
             &self.interner,
             rules,
         );

@@ -336,8 +336,8 @@ fn evaluate_ready(
                         // the ground height at its cell, minus the bridge deck
                         // when on a bridge — so ground and bridge both read 0,
                         // airborne reads positive, only below-ground reads
-                        // negative. `LocomotorState::altitude` is exactly that
-                        // quantity, so the producer is a one-liner.
+                        // negative. GetHeight's port, `current_fly_height`, is
+                        // exactly that quantity, so the producer is a one-liner.
                         //
                         // It is not wired up because turning it on stalls
                         // vehicles. Supplying it makes this branch's

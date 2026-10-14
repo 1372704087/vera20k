@@ -620,7 +620,12 @@ const FINAL_STREAM_STATES: (u64, u64, u64) = (
 // only: a control binary (main with a hash that skips only that fold)
 // gives this value in the same test, with every tripwire above green.
 // Control removed. Previous: 0x6F38_B6BF_3787_953B.
-const GLOBAL_HARNESS_FINAL_HASH: u64 = 0xE527_F567_DC13_C55E;
+// Snapshot350 drops the locomotor's altitude copy (#692), which every
+// locomotor's fold hashed. Hash composition only: a control binary (main
+// with a hash that skips only that fold) gives this value in the same
+// test, with every tripwire above green.
+// Control removed. Previous: 0xE527_F567_DC13_C55E.
+const GLOBAL_HARNESS_FINAL_HASH: u64 = 0x0B64_C58D_B313_2AB4;
 
 fn harness_ini() -> IniFile {
     // Multi-faction vehicles + infantry + buildings (war factory, refinery) plus a

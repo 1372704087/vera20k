@@ -26,7 +26,10 @@ fn pose(sim: &super::Simulation, id: u64) -> Pose {
         sequence: entity
             .infantry_sprite_pose()
             .and_then(|(doing, _)| crate::rules::infantry_sequence::action_kind(doing)),
-        altitude: locomotor.altitude.to_num(),
+        altitude: crate::sim::movement::air_movement::current_fly_height(
+            entity,
+            sim.resolved_terrain.as_ref(),
+        ),
     }
 }
 
@@ -889,7 +892,6 @@ fn rocketeer_crash_fixture(
             .foot_speed
             .set_speed_fraction_native_bits(input["fraction"].as_f64().unwrap_or(0.0).to_bits());
         let loco = entity.locomotor.as_mut().unwrap();
-        loco.altitude = SimFixed::from_num(height);
         let runtime = loco.jumpjet_runtime_mut().unwrap();
         let mut flight = runtime.flight();
         flight.facing.snap(0x4000, 1000);

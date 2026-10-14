@@ -529,7 +529,6 @@ mod tests {
     use crate::sim::game_entity::GameEntity;
     use crate::sim::passenger::PassengerCargo;
     use crate::sim::world::RevealOutcome;
-    use crate::util::fixed_math::SimFixed;
     use crate::util::lepton;
 
     fn drop_test_rules() -> RuleSet {
@@ -1022,9 +1021,7 @@ mod tests {
         let plane_z = 2 * 104 + 1500;
         let plane = sim.substrate.entities.get_mut(aircraft_id).unwrap();
         plane.position.exact_z_leptons = Some(plane_z);
-        let mut locomotor = LocomotorState::for_test_kind(LocomotorKind::Fly);
-        locomotor.altitude = SimFixed::from_num(1500);
-        plane.locomotor = Some(locomotor);
+        plane.locomotor = Some(LocomotorState::for_test_kind(LocomotorKind::Fly));
 
         drop_payload(
             &mut sim,
@@ -1127,9 +1124,7 @@ mod tests {
         insert_loaded_paradrop_pair(&mut sim, plane, passenger);
         let plane_entity = sim.substrate.entities.get_mut(plane).unwrap();
         plane_entity.position.exact_z_leptons = Some(1500);
-        let mut locomotor = LocomotorState::for_test_kind(LocomotorKind::Fly);
-        locomotor.altitude = SimFixed::from_num(1500);
-        plane_entity.locomotor = Some(locomotor);
+        plane_entity.locomotor = Some(LocomotorState::for_test_kind(LocomotorKind::Fly));
         let effects = crate::sim::world::FrameEffects::default();
 
         drop_payload(&mut sim, plane, &rules, None, effects);

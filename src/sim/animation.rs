@@ -259,6 +259,7 @@ pub(crate) fn tick_unit_body_frame_counter(
     cadence: ShpVehicleCadence,
     hover_attack: bool,
     deploy_to_land: bool,
+    terrain: Option<&crate::map::resolved_terrain::ResolvedTerrainGrid>,
     binary_frame: u32,
 ) {
     if entity.category != crate::map::entities::EntityCategory::Unit
@@ -285,8 +286,9 @@ pub(crate) fn tick_unit_body_frame_counter(
         moving || (entity.attack_target.is_some() && hover_attack && !entity.is_fully_deployed());
     let due = (walking && (binary_frame as i32) % cadence.walk_rate == 0)
         || (cadence.idle_rate != 0 && !moving && (binary_frame as i32) % cadence.idle_rate == 0)
+        // GetHeight (vt+0x1C8) at `0x004DA9CD`.
         || (deploy_to_land
-            && crate::sim::movement::ground_pose::object_altitude_leptons(entity) > 0);
+            && crate::sim::movement::air_movement::current_fly_height(entity, terrain) > 0);
     if due {
         entity.body_frame_counter = entity.body_frame_counter.wrapping_add(1);
     }

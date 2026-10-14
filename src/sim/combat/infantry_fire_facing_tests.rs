@@ -218,7 +218,6 @@ fn rocketeer_pair() -> (EntityStore, RuleSet) {
         rules.object("JJ").unwrap(),
         0,
     );
-    locomotor.altitude = SimFixed::from_num(500);
     let runtime = locomotor.jumpjet_runtime_mut().unwrap();
     *runtime = runtime
         .clone()

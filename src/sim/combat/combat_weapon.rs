@@ -239,7 +239,7 @@ impl ParasiteVictimFacts {
             ) && !target.lifecycle.in_limbo
                 && target.lifecycle.object_alive
                 && target.health.current != 0
-                && target.parasite_eating_me.is_none()
+                && target.parasite.eater().is_none()
                 && target_obj.parasiteable
                 && target.bunker_link.installed_in().is_none(),
             on_water_set,
@@ -965,7 +965,7 @@ pub(crate) fn attacker_facts(entity: &GameEntity, obj: &ObjectType) -> AttackerF
         deploy_fire_active,
         is_occupied_building: is_occupied(entity, obj),
         // `TechnoClass+0x1CC DrainTarget`, the live drain link (GSI-09.01).
-        drain_target_active: entity.drain_target.is_some(),
+        drain_target_active: entity.drain.target().is_some(),
         // `MissionClass::GetCurrentMission @ 0x005B3040`: current, else queued.
         mission_is_unload: entity.mission.effective().known() == Some(MissionType::Unload),
         is_overpowered_building: false,

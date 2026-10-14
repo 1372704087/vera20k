@@ -201,7 +201,7 @@ impl Simulation {
         //death-frame counter +6D8, neither represented; see the residual) and
         //vt+380, FootClass::IsParalyzed 0x4DE770 (the Foot+6A0 timer a
         //parasite arms), return with the out byte clear.
-        if actor.is_paralyzed(self.session.binary_frame) {
+        if actor.parasite.is_paralyzed(self.session.binary_frame) {
             return Ok(false);
         }
         let head = if head.is_some() {

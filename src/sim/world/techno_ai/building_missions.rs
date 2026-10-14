@@ -1118,7 +1118,7 @@ fn prism_supporter(
                 .pending_building_fire
                 .map_or(0, |pending| pending.remaining_ticks)
                 == 0
-            && candidate.draining_me.is_none()
+            && candidate.drain.draining_me().is_none()
             && candidate.mission.effective() != attack
             && candidate_id != id;
         if !admitted {

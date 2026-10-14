@@ -3825,10 +3825,11 @@ mod tests {
                 sim.entities_mut()
                     .get_mut(engineer)
                     .unwrap()
-                    .paralysis_timer = CdTimer::from_raw(
-                    gates["paralysis_start"].as_i64().unwrap() as i32,
-                    gates["paralysis_duration"].as_i64().unwrap() as i32,
-                );
+                    .parasite
+                    .set_paralysis_for_test(CdTimer::from_raw(
+                        gates["paralysis_start"].as_i64().unwrap() as i32,
+                        gates["paralysis_duration"].as_i64().unwrap() as i32,
+                    ));
             }
             if gates["warp_out"] == true {
                 sim.entities_mut().get_mut(engineer).unwrap().temporal =

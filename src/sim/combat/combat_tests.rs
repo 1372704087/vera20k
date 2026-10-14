@@ -3040,7 +3040,8 @@ fn gsi_04_07_should_retaliate_world_refusals() {
             .entities
             .get_mut(GATE_VICTIM)
             .unwrap()
-            .drain_target = Some(9);
+            .drain
+            .set_target_for_test(Some(9));
         assert_eq!(
             should_retaliate(&sim, &rules, GATE_VICTIM, GATE_SOURCE),
             human,

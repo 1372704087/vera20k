@@ -3573,7 +3573,7 @@ impl Simulation {
             || listener.spawn_manager.is_some()
             || listener.capture_manager.is_some()
             || listener.temporal.has_link()
-            || listener.parasite_eating_me.is_some()
+            || listener.parasite.eater().is_some()
             || listener.locomotor_target == Some(expired_id)
             || listener.locomotor_source == Some(expired_id)
             || listener.manipulated_by == Some(expired_id)

@@ -167,7 +167,7 @@ impl Arena {
             .substrate
             .entities
             .get(victim)
-            .and_then(|v| v.parasite_eating_me)
+            .and_then(|v| v.parasite.eater)
     }
 
     fn in_limbo(&self, id: u64) -> bool {
@@ -240,7 +240,7 @@ impl Arena {
             sim.substrate
                 .entities
                 .get(victim)
-                .is_some_and(|v| v.parasite_eating_me == Some(owner))
+                .is_some_and(|v| v.parasite.eater == Some(owner))
         });
     }
 }
@@ -253,9 +253,9 @@ fn constructor_allocates_a_parasite_only_for_weapon_zero_parasite_types() {
     let drone = arena.spawn(&rules, "DRON", "Russians", (6, 5));
     let tank = arena.spawn(&rules, "MTNK", "Americans", (7, 5));
     let entities = &arena.sim.substrate.entities;
-    assert!(entities.get(dog).unwrap().parasite.is_some());
-    assert!(entities.get(drone).unwrap().parasite.is_some());
-    assert!(entities.get(tank).unwrap().parasite.is_none());
+    assert!(entities.get(dog).unwrap().parasite.class.is_some());
+    assert!(entities.get(drone).unwrap().parasite.class.is_some());
+    assert!(entities.get(tank).unwrap().parasite.class.is_none());
 }
 
 #[test]
@@ -297,11 +297,11 @@ fn dog_bite_kills_the_infantry_and_releases_the_dog_where_it_stood() {
         "PointerExpired unlimboes the dog at the victim's cell"
     );
     assert!(
-        dog_entity.parasite.as_deref().unwrap().victim().is_none(),
+        dog_entity.parasite.class().unwrap().victim().is_none(),
         "the ParasiteClass forgets its victim"
     );
     assert!(
-        !dog_entity.is_paralyzed(arena.frame()),
+        !dog_entity.parasite.is_paralyzed(arena.frame()),
         "PointerExpired release does not paralyze"
     );
     // ObjectClass::ReceiveDamage's exact-zero Destroy (0x005F57AF) runs
@@ -579,14 +579,14 @@ fn a_sonic_hit_ejects_the_drone_alive_beside_its_host_and_drops_the_shooter_targ
         0x4000,
         "north host: released facing east"
     );
-    assert_eq!(released.paralysis_timer.remaining(frame as i32), 3 * 60);
+    assert_eq!(released.parasite.paralysis.remaining(frame as i32), 3 * 60);
     // ExitUnit 0x0062A771: Set_ArchiveTarget(NULL).
     assert_eq!(released.archive_target(), None);
     let (rx, ry) = arena.cell(drone);
     assert!(rx.abs_diff(11) <= 1 && ry.abs_diff(10) <= 1 && (rx, ry) != (11, 10));
     assert_eq!(arena.eater_of(tank), None);
     let host = arena.sim.substrate.entities.get(tank).unwrap();
-    assert!(!host.is_paralyzed(frame));
+    assert!(!host.parasite.is_paralyzed(frame));
     assert!(
         arena
             .sim
@@ -684,7 +684,7 @@ fn a_teleport_warp_ejects_the_drone_before_the_host_relocates() {
     assert_eq!(arena.eater_of(tank), None);
     let released = arena.sim.substrate.entities.get(drone).unwrap();
     assert!(!released.lifecycle.in_limbo && released.lifecycle.object_alive);
-    assert!(released.is_paralyzed(arena.frame()));
+    assert!(released.parasite.is_paralyzed(arena.frame()));
     let (rx, ry) = arena.cell(drone);
     assert!(rx.abs_diff(11) <= 1 && ry.abs_diff(10) <= 1);
 }
@@ -730,8 +730,8 @@ fn a_host_lost_in_flight_returns_the_drone_to_its_launch_cell() {
     let returned = arena.sim.substrate.entities.get(drone).unwrap();
     assert_eq!(arena.cell(drone), (10, 10));
     assert_eq!(returned.body_facing.destination(), 0);
-    assert!(!returned.is_paralyzed(arena.frame()));
-    assert!(returned.parasite.as_deref().unwrap().victim().is_none());
+    assert!(!returned.parasite.is_paralyzed(arena.frame()));
+    assert!(returned.parasite.class().unwrap().victim().is_none());
     // The refusal (0x0062AA96..0x0062AAC9) never calls Set_ArchiveTarget.
     assert_eq!(returned.archive_target(), anchor);
 }
@@ -845,9 +845,9 @@ fn a_load_keeps_the_infection_and_restarts_both_parasite_timers() {
             arena.sim.substrate.entities.get(id).unwrap(),
             copy.sim.substrate.entities.get(id).unwrap(),
         );
-        assert_eq!(left.parasite_eating_me, right.parasite_eating_me);
-        assert_eq!(left.parasite_launch_lock, right.parasite_launch_lock);
-        assert_eq!(left.paralysis_timer, right.paralysis_timer);
+        assert_eq!(left.parasite.eater, right.parasite.eater);
+        assert_eq!(left.parasite.launch_lock, right.parasite.launch_lock);
+        assert_eq!(left.parasite.paralysis, right.parasite.paralysis);
         assert_eq!(left.lifecycle.in_limbo, right.lifecycle.in_limbo);
     }
 
@@ -907,6 +907,7 @@ fn the_reselect_memo_stays_out_of_the_peer_hash() {
             .entities
             .get(dog)
             .unwrap()
+            .parasite
             .limbo_reselect;
         (memo, arena.sim.state_hash())
     };

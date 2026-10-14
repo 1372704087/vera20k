@@ -250,10 +250,10 @@ impl Simulation {
             .substrate
             .entities
             .get(target)
-            .and_then(|entity| entity.parasite_eating_me)
+            .and_then(|entity| entity.parasite.eater())
             .filter(|&eater| {
                 self.substrate.entities.get(eater).is_some_and(|eater| {
-                    eater.parasite.is_some()
+                    eater.parasite.class().is_some()
                         && self
                             .object_type(eater.type_ref(), rules)
                             .is_some_and(|object| object.naval)

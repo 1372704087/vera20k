@@ -240,8 +240,8 @@ impl<'a> FireSubject<'a> {
             ammo: firer.aircraft_ammo.as_ref().map_or(-1, |ammo| ammo.current),
             cloak_state: firer.cloak.as_ref().map_or(0, |cloak| cloak.state),
             current_weapon: combat_weapon::attacker_facts(firer, obj).current_weapon_number,
-            draining_me: firer.draining_me.is_some(),
-            drain_target: link(firer.drain_target),
+            draining_me: firer.drain.draining_me().is_some(),
+            drain_target: link(firer.drain.target()),
             locomotor_target: link(firer.locomotor_target),
             temporal: firer
                 .temporal
@@ -252,7 +252,7 @@ impl<'a> FireSubject<'a> {
                 firer.owner(),
             )
             .is_some_and(|house| house.is_human),
-            paralyzed: firer.is_paralyzed(frame),
+            paralyzed: firer.parasite.is_paralyzed(frame),
             spawns: firer.spawn_manager.as_ref().map(|manager| SpawnCounts {
                 not_regenerating: manager.count_alive_spawns() as i32,
                 launched_missiles: manager.count_launched_missiles(
@@ -352,12 +352,12 @@ impl<'a> FireSubject<'a> {
                             entity.invulnerability.as_ref(),
                             frame,
                         ),
-                        draining_me: entity.draining_me.is_some(),
+                        draining_me: entity.drain.draining_me().is_some(),
                         warped_out: entity.is_warped_out(),
                         chrono_warp_latch: entity.chrono_warp_latch(),
                         bunkered: entity.bunker_link.installed_in().is_some(),
                         health: entity.health,
-                        parasite_lock_until: entity.parasite_launch_lock as i32,
+                        parasite_lock_until: entity.parasite.launch_lock() as i32,
                         deploying: entity.unit_deploying(),
                         ..TargetFacts::default()
                     },

@@ -756,7 +756,7 @@ pub(crate) fn unit_can_enter_radio(
         })
         .is_some()
         || passenger.mind_control.is_mind_controlled()
-        || passenger.parasite_eating_me.is_some()
+        || passenger.parasite.eater().is_some()
         || passenger
             .capture_manager
             .as_ref()
@@ -1491,7 +1491,7 @@ fn techno_repair_tick(
     };
     entity.health.current = entity.health.current.wrapping_add(heal);
     entity.estimated_health.add_repair(heal);
-    let eater = entity.parasite_eating_me;
+    let eater = entity.parasite.eater();
     if let Some(eater) = eater {
         sim.parasite_force_release(
             eater,
@@ -1788,7 +1788,7 @@ fn bunker_admits(sim: &Simulation, bld: u64, unit: u64) -> bool {
     };
     // CanEnterBunker 0x0070FBAF..0x0070FBC3, called from this receiver at
     // 0x0043C512: a unit infected on its way in is refused at the door.
-    if unit.parasite_eating_me.is_some() {
+    if unit.parasite.eater().is_some() {
         return false;
     }
     let unit_owner = unit.owner();
@@ -2762,7 +2762,7 @@ mod tests {
                 passenger.mind_control = MindControlLink::controlled_by_for_test(99);
             }
             if input["parasite"].as_bool().unwrap_or(false) {
-                passenger.parasite_eating_me = Some(99);
+                passenger.parasite.set_eater_for_test(Some(99));
             }
             if input["controlling"].as_bool().unwrap_or(false)
                 || input["empty_controller"].as_bool().unwrap_or(false)

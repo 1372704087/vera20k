@@ -7266,8 +7266,12 @@ fn a_paralyzed_or_warping_in_teleport_infantryman_refuses_a_move_order() {
     let mut sim: Simulation = Simulation::new();
     let id = spawn(&mut sim);
     let frame = sim.session.binary_frame as i32;
-    sim.substrate.entities.get_mut(id).unwrap().paralysis_timer =
-        crate::sim::timer::CdTimer::started(frame, 100);
+    sim.substrate
+        .entities
+        .get_mut(id)
+        .unwrap()
+        .parasite
+        .set_paralysis_for_test(crate::sim::timer::CdTimer::started(frame, 100));
     tick(&mut sim, &[order(id, 8)]);
     tick(&mut sim, &[]);
     let entity = sim.substrate.entities.get(id).unwrap();

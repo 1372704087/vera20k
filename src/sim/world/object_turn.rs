@@ -417,7 +417,7 @@ impl Simulation {
                     .substrate
                     .entities
                     .get(stable_id)
-                    .and_then(|entity| entity.parasite_eating_me)
+                    .and_then(|entity| entity.parasite.eater())
             {
                 sim.parasite_exit_unit(eater, rules, ctx.effects);
             }

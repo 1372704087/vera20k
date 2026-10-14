@@ -509,7 +509,7 @@ impl Simulation {
             .get(&actor.owner())
             .is_none_or(|h| h.is_controlled_by_human(self.session.game_mode_nonzero));
         let may_approach = object.can_approach_target
-            && actor.drain_target.is_none()
+            && actor.drain.target().is_none()
             && actor.bunker_link.installed_in().is_none()
             && !actor.passenger_role.in_open_transport();
         if !can_fire

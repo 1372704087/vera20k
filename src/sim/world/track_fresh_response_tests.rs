@@ -425,10 +425,11 @@ fn fresh_arm_rows_match_the_original_responses() {
         runtime.retries_left = input["retries"].as_u64().unwrap_or(10) as u32;
         // FootClass ParalysisTimer (+6A0).
         if let Some(paralysis) = input["paralysis"].as_array() {
-            e.paralysis_timer = crate::sim::timer::CdTimer::started(
-                paralysis[0].as_i64().unwrap() as i32,
-                paralysis[1].as_i64().unwrap() as i32,
-            );
+            e.parasite
+                .set_paralysis_for_test(crate::sim::timer::CdTimer::started(
+                    paralysis[0].as_i64().unwrap() as i32,
+                    paralysis[1].as_i64().unwrap() as i32,
+                ));
         }
         // A retained selector with the valid byte clear.
         if let Some(selector) = input["selector"].as_i64() {

@@ -17,8 +17,8 @@
 //! Ghidra plates on those addresses carry the evidence; retail data:
 //! `[ParasiteDog]`, `[Parasite]`, `[BadTeeth]`, `[DroneJump]`.
 //!
-//! The owner entity holds [`ParasiteState`]; the victim holds only the
-//! back-link `GameEntity::parasite_eating_me`.
+//! Each Foot's parasite fields are one [`FootParasite`]: the owner holds its
+//! [`ParasiteState`], the victim the back-link to its eater.
 //!
 //! Forced releases ported: Sonic hits, third-party damage suppression and
 //! heals (FootClass::ReceiveDamage `0x004D7330`), repair-depot steps (Radio
@@ -78,7 +78,7 @@ pub(crate) const CHRONO_WARP_SUPPRESSION_FRAMES: i32 = 500;
 /// Retained ParasiteClass instance fields. The owner (`+0x24`) is the entity
 /// storing this value.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
-pub struct ParasiteState {
+pub(crate) struct ParasiteState {
     /// `+0x28` Victim (FootClass).
     victim: Option<u64>,
     /// `+0x2C` suppression timer. Armed by third-party damage and forced
@@ -91,7 +91,7 @@ pub struct ParasiteState {
 impl ParasiteState {
     /// `ParasiteClass(owner) @ 0x006292B0`: both timers start at the current
     /// frame with zero duration (already expired); no victim.
-    pub(crate) fn constructed(frame: u32) -> Self {
+    fn constructed(frame: u32) -> Self {
         Self {
             victim: None,
             suppression: CdTimer::started(frame as i32, 0),
@@ -109,15 +109,110 @@ impl ParasiteState {
         &self.suppression
     }
 
-    pub(crate) fn suppress(&mut self, frame: u32, duration: i32) {
+    fn suppress(&mut self, frame: u32, duration: i32) {
         self.suppression = CdTimer::started(frame as i32, duration);
     }
 
     /// ParasiteClass::Load `0x006295DB..0x006295F3`: both timers restart at
     /// the load frame with zero duration.
-    pub(crate) fn restart_timers_after_load(&mut self, frame: u32) {
+    fn restart_timers_after_load(&mut self, frame: u32) {
         self.suppression = CdTimer::started(frame as i32, 0);
         self.damage = CdTimer::started(frame as i32, 0);
+    }
+}
+
+/// A Foot's parasite fields: the ParasiteClass it owns as a parasite, the
+/// eater attached to it as a victim, the launch lock, its paralysis and the
+/// reselect memo.
+#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
+pub(crate) struct FootParasite {
+    /// Foot+69C `ParasiteImUsing`: this owner's ParasiteClass, allocated by
+    /// `TechnoClass::Init_Managers @ 0x006F4145` for a weapon-0 Parasite
+    /// warhead (attack dog, Terror Drone). Hashed and persisted (v193).
+    class: Option<Box<ParasiteState>>,
+    /// Foot+694 `ParasiteEatingMe`: the owner whose parasite is attached to
+    /// this victim (AttachTo `0x0062AB2B`). Hashed and persisted (v193).
+    eater: Option<u64>,
+    /// Foot+698: frame before which parasite shots at this Foot are refused
+    /// (`TechnoClass::Fire @ 0x006FF81F`, GetFireError `0x006FCAE1`).
+    launch_lock: u32,
+    /// Foot+6A0 ParalysisTimer. FootClass ctor `0x004D33FC` starts it at the
+    /// construction frame with zero duration; ParasiteClass arms it (bites,
+    /// release) and clears it, as does FootClass::IronCurtain `0x004DEAE0`.
+    paralysis: CdTimer,
+    /// Techno+432 ReselectIfLimboed memo (`TechnoClass::Fire @ 0x006FF79C`),
+    /// consumed by a successful parasite release. Process-local like
+    /// `selected`: written only for the local player's selection, so it is
+    /// saved but never folded into the peer hash.
+    limbo_reselect: bool,
+}
+
+impl FootParasite {
+    /// The FootClass constructor's fields: paralysis started at
+    /// `construction_frame` with zero duration (`0x004D33FC`).
+    pub(crate) fn new(construction_frame: u32) -> Self {
+        Self {
+            paralysis: CdTimer::started(construction_frame as i32, 0),
+            ..Self::default()
+        }
+    }
+
+    /// This owner's ParasiteClass, when it has one.
+    pub(crate) fn class(&self) -> Option<&ParasiteState> {
+        self.class.as_deref()
+    }
+
+    /// The owner whose parasite is attached to this victim.
+    pub(crate) fn eater(&self) -> Option<u64> {
+        self.eater
+    }
+
+    /// The frame before which parasite shots at this Foot are refused.
+    pub(crate) fn launch_lock(&self) -> u32 {
+        self.launch_lock
+    }
+
+    /// The ParalysisTimer.
+    pub(crate) fn paralysis(&self) -> &CdTimer {
+        &self.paralysis
+    }
+
+    /// `FootClass::IsParalyzed @ 0x004DE770`: the Foot+6A0 ParalysisTimer
+    /// has time left. Readers: GetFireError `0x006FC623`/`0x006FCCD5`,
+    /// CloakingTick `0x006FB775`, ShouldUncloak `0x006FBCC0`, and the
+    /// locomotor movement setters.
+    pub(crate) fn is_paralyzed(&self, frame: u32) -> bool {
+        self.paralysis.remaining(frame as i32) != 0
+    }
+
+    /// `TechnoClass::Init_Managers @ 0x006F4145`: allocate this owner's
+    /// ParasiteClass ([`type_allocates_parasite`]).
+    pub(crate) fn allocate_class(&mut self, frame: u32) {
+        self.class = Some(Box::new(ParasiteState::constructed(frame)));
+    }
+
+    /// ParalysisTimer = {Frame, 0}: a release's victim reset
+    /// (`0x0062A862`) and FootClass::IronCurtain `0x004DEAE0`.
+    pub(crate) fn end_paralysis(&mut self, frame: u32) {
+        self.paralysis = CdTimer::started(frame as i32, 0);
+    }
+
+    /// ParasiteClass::Load `0x006295DB..0x006295F3` for this owner's class.
+    pub(crate) fn restart_timers_after_load(&mut self, frame: u32) {
+        if let Some(class) = self.class.as_deref_mut() {
+            class.restart_timers_after_load(frame);
+        }
+    }
+}
+
+#[cfg(test)]
+impl FootParasite {
+    pub(crate) fn set_eater_for_test(&mut self, eater: Option<u64>) {
+        self.eater = eater;
+    }
+
+    pub(crate) fn set_paralysis_for_test(&mut self, paralysis: CdTimer) {
+        self.paralysis = paralysis;
     }
 }
 
@@ -235,7 +330,7 @@ impl Simulation {
             .substrate
             .entities
             .get_mut(owner)
-            .and_then(|o| o.parasite.as_deref_mut())
+            .and_then(|o| o.parasite.class.as_deref_mut())
         else {
             return;
         };
@@ -258,12 +353,13 @@ impl Simulation {
             .entities
             .get_mut(victim)
             .unwrap()
-            .parasite_eating_me = Some(owner);
+            .parasite
+            .eater = Some(owner);
         if let Some(state) = self
             .substrate
             .entities
             .get_mut(owner)
-            .and_then(|o| o.parasite.as_deref_mut())
+            .and_then(|o| o.parasite.class.as_deref_mut())
         {
             state.victim = Some(victim);
         }
@@ -344,10 +440,10 @@ impl Simulation {
     fn parasite_reselect(&mut self, owner: u64) {
         let current = self.session.current_house;
         if let Some(entity) = self.substrate.entities.get_mut(owner)
-            && entity.limbo_reselect
+            && entity.parasite.limbo_reselect
             && current.is_some_and(|house| house == entity.owner())
         {
-            entity.limbo_reselect = false;
+            entity.parasite.limbo_reselect = false;
             entity.selected = true;
         }
     }
@@ -366,14 +462,14 @@ impl Simulation {
             .substrate
             .entities
             .get(victim)
-            .and_then(|v| v.parasite_eating_me)
+            .and_then(|v| v.parasite.eater)
         else {
             return;
         };
         let Some(owner_entity) = self.substrate.entities.get(owner) else {
             return;
         };
-        let Some(state) = owner_entity.parasite.as_deref() else {
+        let Some(state) = owner_entity.parasite.class() else {
             return;
         };
         let Some(victim) = state.victim else {
@@ -405,13 +501,14 @@ impl Simulation {
             .get_mut(owner)
             .unwrap()
             .parasite
+            .class
             .as_deref_mut()
             .unwrap()
             .damage = CdTimer::started(frame as i32, rof);
         let Some(victim_entity) = self.substrate.entities.get_mut(victim) else {
             return;
         };
-        victim_entity.paralysis_timer = CdTimer::started(frame as i32, paralyzes);
+        victim_entity.parasite.paralysis = CdTimer::started(frame as i32, paralyzes);
         let infantry = victim_entity.category == EntityCategory::Infantry;
         let location = ground_pose::position_world_coord(&victim_entity.position);
         let raw = victim_entity.body_facing_current(frame);
@@ -491,7 +588,7 @@ impl Simulation {
         let Some(owner_entity) = self.substrate.entities.get(owner) else {
             return;
         };
-        let Some(victim) = owner_entity.parasite.as_deref().and_then(|s| s.victim) else {
+        let Some(victim) = owner_entity.parasite.class().and_then(|s| s.victim) else {
             return;
         };
         let Some(owner_object) = self.object_type(owner_entity.type_ref(), rules) else {
@@ -500,7 +597,7 @@ impl Simulation {
         let naval = owner_object.naval;
         let suppressed = owner_entity
             .parasite
-            .as_deref()
+            .class()
             .is_some_and(|s| s.suppression.remaining(frame as i32) != 0);
         let (speed_type, movement_zone) = (owner_object.speed_type, owner_object.movement_zone);
         let rof =
@@ -563,7 +660,7 @@ impl Simulation {
             self.parasite_rejoin_team(owner, rules, effects);
             self.parasite_released_owner_orders(owner, true, rules, effects);
             if let Some(entity) = self.substrate.entities.get_mut(owner) {
-                entity.paralysis_timer = CdTimer::started(frame as i32, rof.wrapping_mul(3));
+                entity.parasite.paralysis = CdTimer::started(frame as i32, rof.wrapping_mul(3));
             }
         } else {
             self.substrate
@@ -584,16 +681,16 @@ impl Simulation {
     /// Foot+694 = 0, Parasite.Victim = 0 (`0x0062A862..0x0062A88F`).
     fn detach_parasite_victim(&mut self, owner: u64, victim: u64, frame: u32) {
         if let Some(entity) = self.substrate.entities.get_mut(victim) {
-            entity.paralysis_timer = CdTimer::started(frame as i32, 0);
-            if entity.parasite_eating_me == Some(owner) {
-                entity.parasite_eating_me = None;
+            entity.parasite.end_paralysis(frame);
+            if entity.parasite.eater == Some(owner) {
+                entity.parasite.eater = None;
             }
         }
         if let Some(state) = self
             .substrate
             .entities
             .get_mut(owner)
-            .and_then(|o| o.parasite.as_deref_mut())
+            .and_then(|o| o.parasite.class.as_deref_mut())
         {
             state.victim = None;
         }
@@ -614,7 +711,7 @@ impl Simulation {
             .substrate
             .entities
             .get(owner)
-            .and_then(|o| o.parasite.as_deref())
+            .and_then(|o| o.parasite.class())
         else {
             return;
         };
@@ -637,7 +734,7 @@ impl Simulation {
         });
         if suppressed && !owner_protected {
             if let Some(entity) = self.substrate.entities.get_mut(victim) {
-                entity.parasite_eating_me = None;
+                entity.parasite.eater = None;
             }
             self.clear_parasite_victim(owner);
             self.uninit_with_context(
@@ -680,7 +777,7 @@ impl Simulation {
             .substrate
             .entities
             .get_mut(owner)
-            .and_then(|o| o.parasite.as_deref_mut())
+            .and_then(|o| o.parasite.class.as_deref_mut())
         {
             state.victim = None;
         }
@@ -1049,6 +1146,7 @@ impl Simulation {
                 .entities
                 .get_mut(firer)
                 .unwrap()
+                .parasite
                 .limbo_reselect = true;
         }
         // 0x006FF7A3..0x006FF7E9: a RejoinTeamIfLimboed= Foot jumping an
@@ -1075,7 +1173,7 @@ impl Simulation {
                 EntityCategory::Unit | EntityCategory::Infantry | EntityCategory::Aircraft
             )
         {
-            target.parasite_launch_lock = frame.wrapping_add(LAUNCH_LOCK_FRAMES);
+            target.parasite.launch_lock = frame.wrapping_add(LAUNCH_LOCK_FRAMES);
         }
         // 0x006FF825..0x006FF86C: the firer's Limbo detached the bullet's
         // Owner, so the bullet is Limboed, re-Constructed (`0x004664C0`) with
@@ -1111,7 +1209,7 @@ impl Simulation {
             .substrate
             .entities
             .get(listener)
-            .and_then(|l| l.parasite_eating_me)
+            .and_then(|l| l.parasite.eater)
         else {
             return;
         };
@@ -1128,14 +1226,15 @@ impl Simulation {
                 .entities
                 .get_mut(listener)
                 .unwrap()
-                .parasite_eating_me = None;
+                .parasite
+                .eater = None;
         }
         // 0x004D99AA..0x004D99C6: forward to a live eater's ParasiteClass.
         if let Some(eater) = self
             .substrate
             .entities
             .get(listener)
-            .and_then(|l| l.parasite_eating_me)
+            .and_then(|l| l.parasite.eater)
             && eater_health(self, eater) > 0
         {
             self.parasite_pointer_expired(eater, expired, rules, effects);
@@ -1144,7 +1243,7 @@ impl Simulation {
         if expired == listener
             && let Some(entity) = self.substrate.entities.get_mut(listener)
         {
-            entity.parasite_eating_me = None;
+            entity.parasite.eater = None;
         }
     }
 
@@ -1167,7 +1266,7 @@ impl Simulation {
             .substrate
             .entities
             .get(victim)
-            .and_then(|v| v.parasite_eating_me)
+            .and_then(|v| v.parasite.eater)
         else {
             return;
         };
@@ -1193,7 +1292,7 @@ impl Simulation {
                 .substrate
                 .entities
                 .get_mut(eater)
-                .and_then(|e| e.parasite.as_deref_mut())
+                .and_then(|e| e.parasite.class.as_deref_mut())
         {
             state.suppress(frame, raw_damage.wrapping_mul(2).wrapping_sub(threshold));
         }
@@ -1216,7 +1315,7 @@ impl Simulation {
             .substrate
             .entities
             .get_mut(eater)
-            .and_then(|e| e.parasite.as_deref_mut())
+            .and_then(|e| e.parasite.class.as_deref_mut())
         {
             state.suppress(frame, suppression);
         }

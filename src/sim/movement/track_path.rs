@@ -606,30 +606,39 @@ impl Simulation {
     }
 
     /// The one completion of a class-setter call Rust deferred (the
-    /// `pending_arrival_clear` flag), at the object's next Process entry or,
-    /// after a track end, before the same-call continuation's gates
-    /// (`track_continuation`), where natively the setter already ran. Its
-    /// producers:
-    /// - a mission restore represents `Assign_Destination(saved, 1)`
-    ///   (`FootClass::Restore_Mission`, call at 0x004D8F99) by NavCom alone
-    ///   (`mission::authority`);
-    /// - Enter_Idle_Mode's NavQueue arm for a receiver whose setter is not
-    ///   represented.
+    /// `pending_destination_setter` flag): a mission restore's
+    /// `Assign_Destination(saved, 1)` (`FootClass::Restore_Mission`, call at
+    /// `0x004D8F99`), which `mission::authority` represents by NavCom alone
+    /// where the setter cannot run. It runs at the object's next Process entry
+    /// or, after a track end, before the same-call continuation's gates
+    /// (`track_continuation`), where natively the setter already ran.
     ///
     /// It makes the call through the class setters
     /// ([`Self::assign_destination_represented`]) when one takes it
     /// ([`Self::destination_setter_available`]); otherwise the receiver keeps
     /// the represented NavCom. NavCom is cleared first, so the Unit setter's
-    /// unchanged-NavCom return cannot swallow the call (the restore's NavCom
-    /// natively is the override's order, not the saved one).
+    /// unchanged-NavCom return cannot swallow the call: the NavCom the native
+    /// call sees is the override's (Override_Mission saved NavCom at
+    /// `0x004D8F5B` and set its own at `0x004D8F6D`), not the saved one.
     ///
-    /// Residual: native Restore (0x004D8F99) runs this setter inside the
-    /// restore; VERA runs it at the object's next Process entry. Trigger: the
-    /// entity-local target-expiry Restore (`restore_entity_after_target_expiry`,
-    /// an AoE cell target expiring under a suspended mission) or a receiver
-    /// without a represented setter. Effect: the setter's timers, NavQueue
-    /// clear and Move_To land up to one frame later. Frequency: cell-target
-    /// expiry under a suspended mission. Risk: timing only.
+    /// Residual: native Restore runs this setter inside the restore; VERA runs
+    /// it at the object's next Process entry, without the override's NavCom.
+    /// Trigger: an AoE cell target expiring under a suspended mission
+    /// (`restore_entity_after_target_expiry`, whose broadcast holds only the
+    /// entity store), or a Restore made without rules. Effects:
+    /// - the setter's timers, NavQueue clear, Move_To and admission effects
+    ///   (the deployment refusal's NavCom clear, the UnitRepair radio arm, the
+    ///   Teleporter arm's locomotor swap) land up to one frame late, inside the
+    ///   Process host chosen before the call;
+    /// - an override NavCom equal to the saved one takes the whole setter,
+    ///   where native's unchanged-NavCom return (`0x00741A80`) writes nothing;
+    /// - a setter that refuses before the Foot tail leaves NavCom and
+    ///   NavComAux empty, where native keeps the override's.
+    ///
+    /// Frequency: rare. Risk: timing, plus the rare same-NavCom and refusal
+    /// cases. The Teleporter swap needs a `Teleporter=` Unit holding a cell
+    /// target; a text search of retail `rulesmd.ini` finds only the unarmed
+    /// CMIN among Units.
     pub(crate) fn complete_pending_order(
         &mut self,
         id: u64,
@@ -643,10 +652,10 @@ impl Simulation {
         let Some(actor) = self.substrate.entities.get_mut(id) else {
             return;
         };
-        if !actor.navigation.pending_arrival_clear {
+        if !actor.navigation.pending_destination_setter {
             return;
         }
-        actor.navigation.pending_arrival_clear = false;
+        actor.navigation.pending_destination_setter = false;
         // A NavCom cleared after the restore (a Stop) leaves nothing owed.
         let Some(requested) = actor.navigation.nav_com else {
             return;

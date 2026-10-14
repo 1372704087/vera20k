@@ -341,14 +341,14 @@ pub(crate) fn set_destination_internal_coord(
 pub(super) fn publish_nav_com(entity: &mut GameEntity, target: NavTargetRef) {
     entity.navigation.nav_com_aux = None;
     entity.navigation.nav_com = Some(target);
-    entity.navigation.pending_arrival_clear = false;
+    entity.navigation.pending_destination_setter = false;
 }
 
 /// Foot4D94C7/4D9510 NULL reference publication, before locomotor Stop.
 pub(super) fn publish_null_nav_com(entity: &mut GameEntity) {
     entity.navigation.nav_com_aux = None;
     entity.navigation.nav_com = None;
-    entity.navigation.pending_arrival_clear = false;
+    entity.navigation.pending_destination_setter = false;
 }
 
 /// FootClass::Stop_Moving-equivalent owner clear (`0x004DF0D0`): zeroes only
@@ -428,8 +428,8 @@ fn drive_stop_moving(entity: &mut GameEntity) {
     // OPEN Process-host timing: native Stop4AFE00 clamps only class target
     // and clears destination. The owner zero belongs to the admitted Process
     // rest tail4B0828, which also tests queue emptiness. Several ordinary
-    // arrival returns skip that tail. Preserve the existing adapter timing
-    // here until that continuation is wired; this is not Stop parity.
+    // arrival returns skip that tail. Zero it here, as before, until that
+    // tail is ported; this is not Stop parity.
     if loco.track_head(TrackFamily::Drive).is_none()
         && entity.foot_speed.applied_fraction() > SIM_ZERO
     {

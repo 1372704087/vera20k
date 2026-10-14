@@ -182,6 +182,16 @@ fn every_bunker_selector_restores_before_first_point_midcurve_and_paid_sentinel(
                 );
             }
             let entity = sim.substrate.entities.get(1).unwrap();
+            // Only the track end's same-Process continuation requests a route:
+            // mid-track the Foot+5E0 queue stays empty.
+            assert!(
+                crate::sim::movement::track_head::committed_track_head(entity).is_none()
+                    || entity
+                        .navigation
+                        .path_replay
+                        .remaining_directions()
+                        .is_empty()
+            );
             assert!(stats.moved_steps <= 1, "Speed=1 cannot pay two points");
             if frame == 0 {
                 assert_eq!(

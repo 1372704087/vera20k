@@ -6641,20 +6641,29 @@ fn test_stop_command_clears_move_and_attack_intent() {
     if let Some(e) = sim.substrate.entities.get_mut(1) {
         // A Drive tank moving to a NavCom: the Unit setter (0x00741970)
         // writes nothing without one (0x00741A80).
-        e.locomotor = Some(
-            crate::sim::movement::locomotor::LocomotorState::for_test_kind(
-                crate::rules::locomotor_type::LocomotorKind::Drive,
-            ),
+        let mut locomotor = crate::sim::movement::locomotor::LocomotorState::for_test_kind(
+            crate::rules::locomotor_type::LocomotorKind::Drive,
         );
+        assert!(locomotor.install_drive_state_for_test(
+            Some(
+                crate::sim::movement::DriveLocomotionRuntime::default().with_destination_for_test(
+                    Some(crate::sim::components::DriveCoord::cell(9, 4, 0))
+                )
+            )
+        ));
+        e.locomotor = Some(locomotor);
         e.navigation.nav_com = Some(crate::sim::components::NavTargetRef::cell(9, 4));
         e.attack_target = Some(AttackTarget::new(1));
+        assert_eq!(crate::sim::movement::motion_query::is_moving(e), Some(true));
     }
 
-    let cmd = cmd_envelope(&sim, "Americans", 1, Command::Stop { entity_id: 1 });
-    let _ = sim.advance_tick(&[cmd], None, None, None, 33);
-    assert!(
-        crate::sim::movement::motion_query::is_moving(sim.substrate.entities.get(1).unwrap())
-            != Some(true),
+    // The command alone, without a rules-less Process after it.
+    assert!(sim.apply_command("Americans", &Command::Stop { entity_id: 1 }, None));
+    let e = sim.substrate.entities.get(1).unwrap();
+    assert_eq!(e.navigation.nav_com, None, "Stop clears NavCom");
+    assert_eq!(
+        crate::sim::movement::motion_query::is_moving(e),
+        Some(false),
         "Stop leaves the Drive still"
     );
     assert!(
@@ -7098,7 +7107,8 @@ fn test_move_command_rejects_non_owned_entity() {
         sim.substrate
             .entities
             .get(1)
-            .is_some_and(|e| crate::sim::movement::motion_query::is_moving(&e) != Some(true))
+            .is_some_and(|e| e.navigation.nav_com.is_none()),
+        "another house's Move is refused"
     );
 }
 

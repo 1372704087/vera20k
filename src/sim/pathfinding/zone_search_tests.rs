@@ -1384,7 +1384,7 @@ fn gsi_04_12_drive_pending_continuation_keeps_hierarchy_context_and_raw_route() 
             .install_drive_state_for_test(Some(Default::default()))
     );
     mover.navigation.nav_com = Some(NavTargetRef::cell(3, 0));
-    mover.navigation.pending_arrival_clear = true;
+    mover.navigation.pending_destination_setter = true;
     let blocker = gsi_04_12_cell_listed_entity(2, "MTNK", "Russians", 2, 0);
 
     // The pending pass on the production Simulation host, with the fixture's
@@ -1418,7 +1418,7 @@ fn gsi_04_12_drive_pending_continuation_keeps_hierarchy_context_and_raw_route() 
         .get(1)
         .expect("continued Drive mover");
     assert_eq!(continued.navigation.nav_com, Some(NavTargetRef::cell(3, 0)));
-    assert!(!continued.navigation.pending_arrival_clear);
+    assert!(!continued.navigation.pending_destination_setter);
     assert!(
         crate::sim::movement::motion_query::is_moving(&continued) == Some(true),
         "pending Drive continuation should rebuild the hierarchy route"

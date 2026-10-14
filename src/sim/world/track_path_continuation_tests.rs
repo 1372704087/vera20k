@@ -418,7 +418,7 @@ fn deferred_restore_completes_toward_navcom_over_a_stale_destination() {
     order(&mut sim, &rules, id, (13, 10));
     let e = sim.substrate.entities.get_mut(id).unwrap();
     e.navigation.nav_com = Some(NavTargetRef::cell(10, 13));
-    e.navigation.pending_arrival_clear = true;
+    e.navigation.pending_destination_setter = true;
     sim.session.binary_frame = 101;
     sim.complete_pending_order(
         id,
@@ -437,7 +437,7 @@ fn deferred_restore_completes_toward_navcom_over_a_stale_destination() {
         .unwrap();
     assert_eq!((destination.x / 256, destination.y / 256), (10, 13));
     assert_eq!(crate::sim::movement::movement_goal_cell(e), Some((10, 13)));
-    assert!(!e.navigation.pending_arrival_clear);
+    assert!(!e.navigation.pending_destination_setter);
     // Foot 0x4D96C2..0x4D9707: the completed setter's accept tail.
     let timer = e.navigation.path_runtime.movement_timer;
     assert_eq!((timer.start_frame(), timer.duration()), (101, 0));
@@ -512,7 +512,7 @@ fn ordered_attack_null_destination_stops_a_moving_tank_after_its_track() {
             Some(true),
             "nothing re-armed the old destination"
         );
-        assert!(!e.navigation.pending_arrival_clear);
+        assert!(!e.navigation.pending_destination_setter);
         assert_eq!(
             (e.position.rx, e.position.ry),
             ((head.x / 256) as u16, (head.y / 256) as u16),
@@ -1352,6 +1352,39 @@ fn owner_change_mid_track_stops_the_tank_at_its_track_end() {
     );
 }
 
+/// The outer Process gates (`0x004B08D1..0x004B09A6`): a Drive standing with
+/// no path word and a NavCom outside its cell re-enters its Move_To with
+/// NavCom's coordinate, then takes the tail; in Guard it takes the tail
+/// alone. This, not the track end, re-aims a tank whose +34 a Stop cleared
+/// while NavCom stayed (the refinery dock's `vt+0x500`, `0x0073DF1C`): a
+/// short track end owes no setter
+/// (`terminal_retires_the_head_before_callback_and_keeps_a_new_order`).
+#[test]
+fn a_still_drive_is_reaimed_at_its_navcom_by_the_outer_process_unless_guarding() {
+    for (mission, reaimed) in [(2, Some((14, 10))), (5, None)] {
+        let (mut sim, rules, registry, id) = unit(&json!({"family": "drive", "mission": mission}));
+        let e = sim.substrate.entities.get_mut(id).unwrap();
+        e.navigation.path_replay = FootPathQueue::default();
+        e.navigation.nav_com = Some(NavTargetRef::cell(14, 10));
+        visit(&mut sim, &rules, &registry, id, 101);
+        let e = sim.substrate.entities.get(id).unwrap();
+        let destination = e
+            .locomotor
+            .as_ref()
+            .and_then(|l| l.selected_drive_runtime())
+            .and_then(|r| r.retained())
+            .and_then(|r| r.destination())
+            .map(|d| (d.x / 256, d.y / 256));
+        assert_eq!(destination, reaimed, "mission {mission}");
+        assert_eq!(e.navigation.nav_com, Some(NavTargetRef::cell(14, 10)));
+        assert!(!e.navigation.pending_destination_setter);
+        assert!(
+            crate::sim::movement::track_head::committed_track_head(e).is_none(),
+            "the tail follows: no Process_Movement in this visit"
+        );
+    }
+}
+
 /// Retaliation archives the order and Approach moves +34 to a firing cell;
 /// target expiry restores the archived NavCom and synchronously calls its
 /// class destination setter (Restore_Mission4D8F99). Drive4AFD99 publishes
@@ -1387,7 +1420,7 @@ fn restore_mid_track_heads_for_the_restored_order_at_the_track_end() {
     let e = sim.substrate.entities.get(id).unwrap();
     assert_eq!(e.navigation.nav_com, Some(NavTargetRef::cell(20, 10)));
     assert!(
-        !e.navigation.pending_arrival_clear,
+        !e.navigation.pending_destination_setter,
         "the setter ran; none is owed"
     );
     let drive = e
@@ -1414,7 +1447,7 @@ fn restore_mid_track_heads_for_the_restored_order_at_the_track_end() {
         .destination()
         .unwrap();
     assert_eq!((destination.x / 256, destination.y / 256), (20, 10));
-    assert!(!e.navigation.pending_arrival_clear);
+    assert!(!e.navigation.pending_destination_setter);
     assert!(
         crate::sim::movement::movement_goal_cell(e) == Some((20, 10)) && route_installed(e),
         "frame {ended}: the Process that ended the track requested the restored route"
@@ -1530,7 +1563,7 @@ fn queued_waypoint_arrival_returns_before_the_continuation() {
             continue;
         }
         assert_eq!((e.position.rx, e.position.ry), (12, 10));
-        assert!(!e.navigation.pending_arrival_clear, "the setter ran");
+        assert!(!e.navigation.pending_destination_setter, "the setter ran");
         let destination = e
             .locomotor
             .as_ref()
@@ -1546,7 +1579,7 @@ fn queued_waypoint_arrival_returns_before_the_continuation() {
         );
         visit(&mut sim, &rules, &registry, id, frame + 1);
         let e = sim.substrate.entities.get(id).unwrap();
-        assert!(!e.navigation.pending_arrival_clear);
+        assert!(!e.navigation.pending_destination_setter);
         assert!(
             crate::sim::movement::movement_goal_cell(e) == Some((14, 10)) && route_installed(e),
             "the next Process requested the waypoint route"
@@ -1658,11 +1691,11 @@ fn owed_restore_setter_moves_walk_and_hover_objects_to_the_saved_order() {
             e,
             Some(NavTargetRef::cell(14, 12)),
         );
-        e.navigation.pending_arrival_clear = true;
+        e.navigation.pending_destination_setter = true;
         e.navigation.nav_queue = vec![NavTargetRef::cell(16, 12)];
         sim.advance_tick(&[], Some(&rules), None, Some(&registry), 67);
         let e = sim.substrate.entities.get(id).unwrap();
-        assert!(!e.navigation.pending_arrival_clear, "{kind}");
+        assert!(!e.navigation.pending_destination_setter, "{kind}");
         // Unit 0x741970 clears NavQueue for clear_queue = 1; Infantry
         // 0x0051AA40 and the Foot tail 0x004D94B0 never read NavQueue.
         assert_eq!(
@@ -1710,7 +1743,7 @@ fn idle_mode_queue_head_runs_the_hover_unit_setter_in_the_same_call() {
     let e = sim.substrate.entities.get(id).unwrap();
     assert_eq!(e.navigation.nav_com, Some(NavTargetRef::cell(14, 12)));
     assert_eq!(e.navigation.nav_queue, vec![NavTargetRef::cell(16, 12)]);
-    assert!(!e.navigation.pending_arrival_clear);
+    assert!(!e.navigation.pending_destination_setter);
     assert!(
         e.locomotor
             .as_ref()

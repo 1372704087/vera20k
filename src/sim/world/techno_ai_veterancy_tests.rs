@@ -113,10 +113,8 @@ fn gsi_08_12_promotion_step_announces_each_crossing_once() {
     );
 }
 
-/// Issue the ordinary player `Command::Move` and read the mover's live
-/// GetCurrentSpeed (`0x004DB1A0`) at full Foot+578. Native keeps no order
-/// speed: Drive queries the getter each Process.
-fn ordered_mover_speed(sim: &mut Simulation, rules: &RuleSet, id: u64) -> i32 {
+/// Issue the ordinary player `Command::Move`.
+fn order_move(sim: &mut Simulation, rules: &RuleSet, id: u64) {
     let grid = crate::sim::pathfinding::PathGrid::new(64, 64);
     sim.install_fixture_path_grid(Some(&grid));
     let (rx, ry) = {
@@ -133,10 +131,10 @@ fn ordered_mover_speed(sim: &mut Simulation, rules: &RuleSet, id: u64) -> i32 {
         Some(rules),
     );
     assert!(issued, "the ordinary move command must issue");
-    full_speed(sim, rules, id)
 }
 
-/// The live getter at full Foot+578.
+/// The mover's live GetCurrentSpeed (`0x004DB1A0`) at full Foot+578. Native
+/// keeps no order speed: Drive queries the getter each Process.
 fn full_speed(sim: &mut Simulation, rules: &RuleSet, id: u64) -> i32 {
     sim.substrate
         .entities
@@ -147,23 +145,18 @@ fn full_speed(sim: &mut Simulation, rules: &RuleSet, id: u64) -> i32 {
     sim.current_speed_for_test(id, rules)
 }
 
-/// An ordered mover's live speed carries `FASTER`. Each rank starts without
-/// a NavCom: Unit741970 returns without any write for a repeated destination
-/// unless forced. That separate case is replayed by
-/// `repeated_move_orders_sample_live_native_speed`.
-///
-/// gamemd asks the getter for the speed on every frame a ground mover steps
-/// (vtable slot `+0x538` from `DriveLocomotionClass::Process_Drive_Track
-/// @ 0x004B1274`), so an ordered move by a `FASTER` holder is 20% faster at
-/// stock `VeteranSpeed=1.2`. Stock Grizzly `Speed=7` → per-frame 17 →
-/// `ftol(17 * 1.2)` = 20; stock Rhino-shaped control `Speed=6` → 15, unchanged
-/// because its ability list omits `FASTER`.
+/// A mover's live speed carries `FASTER`. gamemd asks the getter for the
+/// speed on every frame a ground mover steps (vtable slot `+0x538` from
+/// `DriveLocomotionClass::Process_Drive_Track @ 0x004B1274`), so a `FASTER`
+/// holder moves 20% faster at stock `VeteranSpeed=1.2`. Stock Grizzly
+/// `Speed=7` → per-frame 17 → `ftol(17 * 1.2)` = 20; stock Rhino-shaped
+/// control `Speed=6` → 15, unchanged because its ability list omits `FASTER`.
 /// Native getter and retained order/prefix evidence: track_speed_native.json.
 #[test]
-fn gsi_08_12_faster_reaches_the_ordered_movers_speed() {
+fn gsi_08_12_faster_reaches_the_movers_speed() {
     let (mut sim, rules, id) = spawned_grizzly();
     assert_eq!(
-        ordered_mover_speed(&mut sim, &rules, id),
+        full_speed(&mut sim, &rules, id),
         17,
         "a rookie Grizzly moves at its plain Speed=7"
     );
@@ -171,15 +164,15 @@ fn gsi_08_12_faster_reaches_the_ordered_movers_speed() {
     let (mut sim, rules, id) = spawned_grizzly();
     veterancy::set_veteran(sim.substrate.entities.get_mut(id).unwrap());
     assert_eq!(
-        ordered_mover_speed(&mut sim, &rules, id),
+        full_speed(&mut sim, &rules, id),
         20,
-        "the veteran list carries FASTER, so the ordered move takes ftol(17 * 1.2) = 20"
+        "the veteran list carries FASTER, so the mover takes ftol(17 * 1.2) = 20"
     );
 
     let (mut sim, rules, id) = spawned_grizzly();
     veterancy::set_elite(sim.substrate.entities.get_mut(id).unwrap());
     assert_eq!(
-        ordered_mover_speed(&mut sim, &rules, id),
+        full_speed(&mut sim, &rules, id),
         20,
         "HasWeaponAbility @ 0x0070D0D0: elite inherits the veteran list"
     );
@@ -188,18 +181,20 @@ fn gsi_08_12_faster_reaches_the_ordered_movers_speed() {
     let (mut sim, rules, control_id) = spawned_vehicle("HTNK");
     veterancy::set_elite(sim.substrate.entities.get_mut(control_id).unwrap());
     assert_eq!(
-        ordered_mover_speed(&mut sim, &rules, control_id),
+        full_speed(&mut sim, &rules, control_id),
         15,
         "no FASTER token means no multiply, whatever the rank"
     );
 }
 
 /// A promotion mid-move speeds the mover up on its next query, with no new
-/// order: Drive and Ship read the live getter every Process.
+/// order: the order caches no speed, and Drive and Ship read the live getter
+/// every Process.
 #[test]
 fn gsi_08_12_promotion_mid_move_reaches_the_live_speed() {
     let (mut sim, rules, id) = spawned_grizzly();
-    assert_eq!(ordered_mover_speed(&mut sim, &rules, id), 17);
+    order_move(&mut sim, &rules, id);
+    assert_eq!(full_speed(&mut sim, &rules, id), 17);
 
     // Silent first sample, then the veteran crossing while the path is live.
     veterancy_promotion_step(&mut sim, id, &rules);

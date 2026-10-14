@@ -247,7 +247,14 @@ fn test_drive_arrival_clears_navcom_same_tick() {
     let mut e = GameEntity::test_default(1, "HTNK", "Americans", 0, 0);
     e.locomotor = Some(LocomotorState::for_test_kind(LocomotorKind::Drive));
     e.drive_accelerates = false;
-    e.foot_speed.set_speed_fraction(SIM_ONE);
+    // One live speed lepton plus residual7 pays the terminal point: the
+    // rules-less type speed (10 leptons a frame) at Foot+578 0.15.
+    let one_lepton = SimFixed::lit("0.15");
+    e.foot_speed.set_speed_fraction(one_lepton);
+    assert_eq!(
+        crate::sim::movement::owner_current_speed(&e, None, 1.0, &Default::default()),
+        1
+    );
     e.navigation.nav_com = Some(NavTargetRef::cell(0, 0));
     assert!(
         e.locomotor
@@ -260,7 +267,7 @@ fn test_drive_arrival_clears_navcom_same_tick() {
                     )))
                     .with_head_to_for_test(Some(crate::sim::components::DriveCoord::cell(0, 0, 0)))
                     .with_track_valid_for_test(true)
-                    .with_target_speed_fraction_for_test(SIM_ONE)
+                    .with_target_speed_fraction_for_test(one_lepton)
                     .with_track_for_test(crate::sim::components::TrackProgress {
                         turn_index: 0,
                         cursor: drive_track::raw_track_points(1).len() as i32,
@@ -279,7 +286,7 @@ fn test_drive_arrival_clears_navcom_same_tick() {
     let entity = entities.get(1).expect("entity exists");
     assert!(crate::sim::movement::motion_query::is_moving(&entity) != Some(true));
     assert_eq!(entity.navigation.nav_com, None);
-    assert!(!entity.navigation.pending_arrival_clear);
+    assert!(!entity.navigation.pending_destination_setter);
     let drive = entity
         .locomotor
         .as_ref()
@@ -985,6 +992,16 @@ fn forced_track_object_turn_relinks_each_committed_cell() {
         sim.process_ground_locomotor_for_test(1, Some(&rules), None, None)
             .unwrap();
         let entity = sim.substrate.entities.get(1).unwrap();
+        // Only the track end's same-Process continuation requests a route:
+        // mid-track the Foot+5E0 queue stays empty.
+        assert!(
+            committed_track_head(entity).is_none()
+                || entity
+                    .navigation
+                    .path_replay
+                    .remaining_directions()
+                    .is_empty()
+        );
         let current_cell = (entity.position.rx, entity.position.ry);
         assert!(
             sim.substrate

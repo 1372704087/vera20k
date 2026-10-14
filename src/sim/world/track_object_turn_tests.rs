@@ -532,8 +532,7 @@ fn first_process_after_command_applies_raw_head_once_without_a_paid_point_and_af
     for kind in [LocomotorKind::Drive, LocomotorKind::Ship] {
         for reload in [false, true] {
             let (mut sim, _) = fixture();
-            // TrackProcess queries the live type speed; a zero speed on the
-            // command's path adapter alone does not stop this getter.
+            // TrackProcess queries the live type speed: Speed=0 pays nothing.
             let rules = RuleSet::from_ini(&IniFile::from_str(
                 "[VehicleTypes]\n0=MTNK\n[MTNK]\nStrength=500\nSpeed=0\nSensorsSight=1\nWalkRate=1\nIdleRate=0\n",
             ))

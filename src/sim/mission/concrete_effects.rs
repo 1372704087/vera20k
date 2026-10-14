@@ -467,9 +467,8 @@ impl ConcreteMissionEffects for RepresentedConcreteMissionEffects<'_> {
 impl Simulation {
     /// Whether vt+0x480 with `requested` would run the receiver's class
     /// setter, not the dispatcher's NavCom-only fallback, with every input
-    /// its preflight checks available. Callers that owe the call ask this
-    /// before they mutate: the deferred Restore setter and Enter_Idle_Mode's
-    /// NavQueue arm.
+    /// its preflight checks available. The deferred setter's completion
+    /// (`complete_pending_order`) asks it before it mutates.
     pub(crate) fn destination_setter_available(
         &self,
         receiver: u64,
@@ -641,7 +640,7 @@ pub(crate) fn represented_assign_destination(
 ) {
     entity.navigation.nav_com_aux = None;
     entity.navigation.nav_com = requested;
-    entity.navigation.pending_arrival_clear = false;
+    entity.navigation.pending_destination_setter = false;
 }
 
 #[cfg(test)]
@@ -795,7 +794,7 @@ impl ConcreteMissionEffects for RecordingConcreteMissionEffects {
         });
         entity.navigation.nav_com_aux = None;
         entity.navigation.nav_com = requested;
-        entity.navigation.pending_arrival_clear = false;
+        entity.navigation.pending_destination_setter = false;
         false
     }
 }
@@ -896,7 +895,7 @@ mod tests {
         assert_eq!(infantry.navigation.nav_queue, [queued[1]]);
     }
 
-    /// A Restore the AoE pointer expiry deferred (`pending_arrival_clear`)
+    /// A Restore the AoE pointer expiry deferred (`pending_destination_setter`)
     /// completes through the Aircraft setter (`0x0041AA80`) like Restore's
     /// own call (`0x004D8F99`): NavCom keeps the saved order and the Fly
     /// heads for it.
@@ -913,12 +912,12 @@ mod tests {
         let saved = NavTargetRef::cell(20, 10);
         let aircraft = sim.substrate.entities.get_mut(id).unwrap();
         aircraft.navigation.nav_com = Some(saved);
-        aircraft.navigation.pending_arrival_clear = true;
+        aircraft.navigation.pending_destination_setter = true;
 
         sim.complete_pending_order(id, Some(&rules), None, FrameEffects::default());
 
         let aircraft = sim.substrate.entities.get(id).unwrap();
-        assert!(!aircraft.navigation.pending_arrival_clear);
+        assert!(!aircraft.navigation.pending_destination_setter);
         assert_eq!(aircraft.navigation.nav_com, Some(saved));
         let fly = aircraft
             .locomotor

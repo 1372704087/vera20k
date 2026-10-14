@@ -1076,7 +1076,7 @@ fn a_deferred_restore_keeps_a_cleg_object_navcom() {
     let target = NavTargetRef::object(object);
     let cleg = sim.substrate.entities.get_mut(id).unwrap();
     cleg.navigation.nav_com = Some(target);
-    cleg.navigation.pending_arrival_clear = true;
+    cleg.navigation.pending_destination_setter = true;
     sim.complete_pending_order(
         id,
         Some(&rules),
@@ -1085,7 +1085,7 @@ fn a_deferred_restore_keeps_a_cleg_object_navcom() {
     );
     let cleg = sim.substrate.entities.get(id).unwrap();
     assert_eq!(cleg.navigation.nav_com, Some(target));
-    assert!(!cleg.navigation.pending_arrival_clear);
+    assert!(!cleg.navigation.pending_destination_setter);
     assert!(
         cleg.locomotor
             .as_ref()

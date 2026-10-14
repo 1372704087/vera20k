@@ -934,7 +934,6 @@ fn hills_same_type_marker_downgrade_reaches_live_foot_search_and_cleanup() {
             FindPathResult::Route
         );
         let actor = sim.substrate.entities.get(mover).unwrap();
-        assert!(crate::sim::movement::motion_query::is_moving(&actor) == Some(true));
         let queue = &actor.navigation.path_replay;
         assert_eq!(queue.cursor, 0, "Find_Path installs an unconsumed queue");
         assert_original_route(

@@ -77,13 +77,17 @@ fn mover(sim: &mut Simulation, kind: LocomotorKind) -> GameEntity {
     entity
 }
 
-/// A rules-less Drive/Ship mover pays `budget` leptons a Process: its type
-/// speed falls back to `Speed=4` (10 leptons a frame), and Foot+578 scales it
-/// (`foot_speed::owner_current_speed_from_fraction`); the track prefix keeps
-/// the class target fraction it is given.
+/// A rules-less Drive/Ship mover pays `budget` leptons a Process: Foot+578
+/// scales its type speed (the `Speed=4` fallback, 10 leptons a frame), as the
+/// live getter confirms, and the track prefix keeps the class target fraction
+/// it is given.
 fn set_track_budget(entity: &mut GameEntity, budget: i32) {
     let fraction = (SimFixed::from_num(budget) + SimFixed::lit("0.5")) / SimFixed::from_num(10);
     entity.foot_speed.set_speed_fraction(fraction);
+    assert_eq!(
+        crate::sim::movement::owner_current_speed(entity, None, 1.0, &Default::default()),
+        budget
+    );
     let loco = entity.locomotor.as_mut().unwrap();
     let family =
         crate::sim::movement::track_process::TrackFamily::from_kind(loco.active_kind()).unwrap();

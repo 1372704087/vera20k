@@ -71,7 +71,7 @@ pub(crate) fn restore_entity_after_target_expiry(
     if category != EntityCategory::Structure {
         represented_assign_destination(entity, saved_destination);
         if saved_destination.is_some() {
-            entity.navigation.pending_arrival_clear = true;
+            entity.navigation.pending_destination_setter = true;
         }
     }
     true
@@ -1049,7 +1049,7 @@ impl Simulation {
                 // restored object holds its order and never moves toward it,
                 // which is exactly the state a blocked-step Override leaves it
                 // in.
-                entity.navigation.pending_arrival_clear = true;
+                entity.navigation.pending_destination_setter = true;
             }
         }
         Ok(true)
@@ -1717,7 +1717,7 @@ mod tests {
         unit.weapon_burst.complete_shot(4);
         unit.attack_target = Some(active_target);
         unit.navigation.nav_com = Some(NavTargetRef::cell(1, 2));
-        unit.navigation.pending_arrival_clear = true;
+        unit.navigation.pending_destination_setter = true;
         let mut sim = sim_with(unit);
         let mut effects = RecordingConcreteMissionEffects::available();
 
@@ -1783,7 +1783,7 @@ mod tests {
                 .get(1)
                 .unwrap()
                 .navigation
-                .pending_arrival_clear
+                .pending_destination_setter
         );
     }
 

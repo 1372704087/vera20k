@@ -409,7 +409,7 @@ impl Simulation {
                     let entity = self.substrate.entities.get_mut(id).unwrap();
                     super::navcom::foot_stop_moving(entity);
                     entity.navigation.path_replay.clear_live_head();
-                    entity.navigation.pending_arrival_clear = false;
+                    entity.navigation.pending_destination_setter = false;
                     if entity.mission.current().known() == Some(MissionType::Move) {
                         let returns = self.unit_enter_idle_mode(id, rules, false, effects);
                         observe(self, id, TrackWorldEvent::Arrival);
@@ -1101,41 +1101,19 @@ impl Simulation {
                     None
                 }
             });
-        // 4D838E..83CA: vt+0x480(queue[0], 0), then the queue shift. A
-        // receiver whose setter is not represented takes NavCom and its
-        // locomotor's Move_To here and owes the setter to its next Process
-        // entry (`complete_pending_order`).
-        let setter_now = queued_cell.is_some_and(|(rx, ry)| {
-            rules.is_some_and(|rules| {
-                let target = crate::sim::components::NavTargetRef::cell(rx, ry);
-                self.destination_setter_available(id, target, rules, registry)
-            })
-        });
-        let entity = self
-            .substrate
-            .entities
-            .get_mut(id)
-            .expect("same idle-mode actor");
-        if let Some(next) = queued_cell.filter(|_| !setter_now) {
-            super::navcom::set_destination_internal_cell(
-                entity,
-                next,
-                self.resolved_terrain.as_ref(),
-                self.session.binary_frame,
-            );
-            entity.navigation.nav_queue.remove(0);
-            entity.navigation.pending_arrival_clear = true;
-        }
-        if let Some((rx, ry)) = queued_cell.filter(|_| setter_now) {
+        // 4D838E..83CA: vt+0x480(queue[0], 0) through the one dispatcher,
+        // which keeps its own NavCom fallback for a receiver no class setter
+        // represents, then the queue shift.
+        if let Some((rx, ry)) = queued_cell {
             let target = crate::sim::components::NavTargetRef::cell(rx, ry);
-            self.assign_destination_keeping_queue(id, Some(target), rules, registry, effects)
-                .expect("checked NavQueue destination setter");
-            let entity = self
-                .substrate
-                .entities
-                .get_mut(id)
-                .expect("same idle-mode actor");
-            if !entity.navigation.nav_queue.is_empty() {
+            if let Err(cause) =
+                self.assign_destination_keeping_queue(id, Some(target), rules, registry, effects)
+            {
+                log::debug!("Foot {id} NavQueue destination: {cause:?}");
+            }
+            if let Some(entity) = self.substrate.entities.get_mut(id)
+                && !entity.navigation.nav_queue.is_empty()
+            {
                 entity.navigation.nav_queue.remove(0);
             }
         }

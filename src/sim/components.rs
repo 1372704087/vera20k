@@ -151,10 +151,12 @@ pub struct NavigationState {
     pub suspended_nav_com: Option<NavTargetRef>,
     #[serde(default)]
     pub nav_queue: Vec<NavTargetRef>,
-    /// Drive path execution reached the destination cell, but the owner
-    /// no-active-track arrival clear has not run yet.
+    /// A class-setter call (vt+0x480) that Rust deferred and still owes: a
+    /// mission restore's `Assign_Destination(saved, 1)` (`0x004D8F99`) made
+    /// where only NavCom could be written. `Simulation::complete_pending_order`
+    /// makes it at the object's next Process entry.
     #[serde(default)]
-    pub pending_arrival_clear: bool,
+    pub pending_destination_setter: bool,
     /// FootClass+530, constructor positive-zero. FootUnlimbo4D72EA..4D72F4
     /// copies TechnoType+2F0 only after successful Techno placement, neighbor
     /// publication and the optional AirTracker tail. It outlives routes and
@@ -184,7 +186,7 @@ impl NavigationState {
             nav_com: None,
             suspended_nav_com: None,
             nav_queue: Vec::new(),
-            pending_arrival_clear: false,
+            pending_destination_setter: false,
             threat_avoidance_coefficient: default_threat_avoidance_coefficient(),
         }
     }

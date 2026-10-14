@@ -650,7 +650,7 @@ fn production_stock_miners_use_drive_command_for_adjacent_ore() {
         assert!(reached_harvest, "{type_id} must reach Harvest");
         let entity = sim.substrate.entities.get(entity_id).expect("miner");
         assert_eq!(entity.navigation.nav_com, None);
-        assert!(!entity.navigation.pending_arrival_clear);
+        assert!(!entity.navigation.pending_destination_setter);
         if type_id == "CMIN" {
             let locomotor = entity.locomotor.as_ref().expect("CMIN locomotor");
             assert_eq!(
@@ -1193,7 +1193,7 @@ fn production_cmin_outbound_drive_keeps_teleport_primary() {
             assert_eq!(locomotor.effective_kind(), LocomotorKind::Teleport);
             assert_eq!(locomotor.piggyback, None);
             assert_eq!(entity.navigation.nav_com, None);
-            assert!(!entity.navigation.pending_arrival_clear);
+            assert!(!entity.navigation.pending_destination_setter);
             assert!(
                 entity
                     .locomotor
@@ -1402,7 +1402,7 @@ fn production_cmin_arrival_clears_navcom_same_tick_and_releases_drive() {
         {
             arrived = true;
             assert_eq!(entity.navigation.nav_com, None);
-            assert!(!entity.navigation.pending_arrival_clear);
+            assert!(!entity.navigation.pending_destination_setter);
             let locomotor = entity.locomotor.as_ref().expect("CMIN locomotor");
             assert_eq!(
                 locomotor.kind,
@@ -1445,7 +1445,7 @@ fn production_cmin_arrival_clears_navcom_same_tick_and_releases_drive() {
         if entity.miner_state().expect("miner") == MinerState::Harvest {
             reached_harvest = true;
             assert_eq!(entity.navigation.nav_com, None);
-            assert!(!entity.navigation.pending_arrival_clear);
+            assert!(!entity.navigation.pending_destination_setter);
             assert!(
                 entity
                     .locomotor

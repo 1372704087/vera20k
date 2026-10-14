@@ -1012,7 +1012,7 @@ fn terminal_retires_the_head_before_callback_and_keeps_a_new_order() {
                 .is_empty(),
             !retarget
         );
-        assert!(!entity.navigation.pending_arrival_clear);
+        assert!(!entity.navigation.pending_destination_setter);
     }
 }
 

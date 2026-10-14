@@ -1480,7 +1480,7 @@ fn a_missile_shot_down_in_flight_explodes_where_it_is() {
     let entity = sim.substrate.entities.get_mut(missile).expect("missile");
     assert!(!entity.lifecycle.in_limbo());
     entity.health.set_for_test(0);
-    entity.crashing = true;
+    entity.crash.set_crashing_for_test(true);
     let target_health = sim.substrate.entities.get(target).unwrap().health.current();
 
     sim.advance_tick(&[], Some(&rules), Some(&grid), None, 67);
@@ -1839,7 +1839,7 @@ fn a_dead_carriers_airborne_hornet_crashes() {
         .entities
         .get(hornet)
         .expect("a crashing Hornet stays represented until its impact");
-    assert!(hornet.crashing && hornet.lifecycle.object_alive());
+    assert!(hornet.crash.is_crashing() && hornet.lifecycle.object_alive());
     assert_eq!(hornet.health.current(), 0);
     assert_eq!(hornet.spawn_owner_id, None);
     assert!(

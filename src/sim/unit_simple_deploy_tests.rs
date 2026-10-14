@@ -352,7 +352,7 @@ fn synchronized_deploy_obeys_native_event9_actor_guards() {
             "zero_health_crashing" => {
                 let entity = sim.substrate.entities.get_mut(id).unwrap();
                 entity.health.set_for_test(0);
-                entity.crashing = true;
+                entity.crash.set_crashing_for_test(true);
             }
             "dying" => sim.substrate.entities.get_mut(id).unwrap().dying = true,
             _ => unreachable!(),

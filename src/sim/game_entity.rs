@@ -1023,19 +1023,10 @@ pub struct GameEntity {
     /// writes these; the process-local audio handle is not simulation state.
     #[serde(default)]
     pub(crate) move_sound: crate::sim::world::MoveSoundState,
-    /// `FootClass+0x425`, the crash latch: set by `FootClass::Crash @
-    /// 0x004DEBB0` (`0x004DEC7F`, `Simulation::foot_crash` in
-    /// `sim::world::crash`) and by a Magnetron dropping an airborne object
-    /// (`0x0070FF25`, `sim::locomotor_lift`); cleared by the constructor
-    /// (`0x006F2FF9`) and a Jumpjet Descend touchdown (`0x0054CA12`). A
-    /// crashing object is alive (Object+90) with Health 0 (a dropped one keeps
-    /// its Health) and falls under its locomotor until the impact.
+    /// The crash latch (`FootClass+0x425`/`+0x426`), a [`CrashLatch`] that
+    /// `world::crash` owns.
     #[serde(default)]
-    pub crashing: bool,
-    /// `FootClass+0x426`, the latch as the previous `FootClass::AI` saw it: the
-    /// rising edge plays the crash voice and sound (`0x004DACDD..0x004DADC2`).
-    #[serde(default)]
-    pub crashing_seen: bool,
+    pub(crate) crash: crate::sim::world::CrashLatch,
     /// Techno+3CD/+3CE retained sinking lifetime and prior Foot AI sound edge.
     /// `world::sinking` owns mutations; this is independent of crash +425/+426.
     #[serde(default)]
@@ -1826,8 +1817,7 @@ impl GameEntity {
             dying: false,
             infantry_terminal: None,
             move_sound: crate::sim::world::MoveSoundState::default(),
-            crashing: false,
-            crashing_seen: false,
+            crash: crate::sim::world::CrashLatch::default(),
             sinking: crate::sim::world::SinkingState::default(),
             passenger_role: PassengerRole::None,
             display_type_override: None,
@@ -2109,7 +2099,7 @@ impl GameEntity {
     /// as dead here unless the object is crashing, and a wreck keeps IsAlive
     /// until its impact. A death sequence (`dying`) runs through its own path.
     pub fn is_ai_alive(&self) -> bool {
-        self.is_active() && (self.health.current() > 0 || self.crashing)
+        self.is_active() && (self.health.current() > 0 || self.crash.is_crashing())
     }
 
     /// Infantry522510's Doing27..30 deployment predicate. Undeploy31 already

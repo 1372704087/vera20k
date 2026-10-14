@@ -1095,7 +1095,7 @@ pub(super) fn emit_admitted_fire(
             .substrate
             .entities
             .get(snap.stable_id)
-            .is_some_and(|firer| firer.crashing)
+            .is_some_and(|firer| firer.crash.is_crashing())
     {
         let burst = world
             .substrate

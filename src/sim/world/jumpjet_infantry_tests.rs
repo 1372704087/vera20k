@@ -662,7 +662,7 @@ fn retail_dustbowl_shot_down_rocketeer_falls_and_leaves_no_body() {
         frames.push(Fall {
             pose: entity.map(|_| pose(sim, rocketeer)),
             health: entity.map_or(0, |entity| entity.health.current()),
-            crashing: entity.is_some_and(|entity| entity.crashing),
+            crashing: entity.is_some_and(|entity| entity.crash.is_crashing()),
             rearm: entity.map(|entity| entity.rearm_timer),
             anims,
             crash_sounds,
@@ -1051,7 +1051,7 @@ fn a_shot_down_rocketeer_falls_like_the_native_crash() {
         }
         let entity = entity.expect("a crashing Rocketeer stays");
         let crash = output["kills"][0].as_array().unwrap().last().unwrap()["after"].clone();
-        assert!(entity.crashing && !entity.dying, "{name}");
+        assert!(entity.crash.is_crashing() && !entity.dying, "{name}");
         assert_eq!(entity.health.current(), 0, "{name}");
         assert_eq!(
             i64::from(entity.mission_leaf.as_infantry().unwrap().doing()),

@@ -140,7 +140,9 @@ fn fixture(input: &serde_json::Value) -> (Simulation, RuleSet) {
     let entity = sim.substrate.entities.get_mut(1).unwrap();
     entity.position.exact_z_leptons = Some(xyz[2]);
     entity.health.set_for_test(int(input, "health", 0) as i32);
-    entity.crashing = int(input, "crashing", 1) != 0;
+    entity
+        .crash
+        .set_crashing_for_test(int(input, "crashing", 1) != 0);
     let mut facing = FacingClass::new(
         int(input, "facing", 0x4000) as u16,
         int(input, "rot", 5) as i32,
@@ -216,7 +218,7 @@ fn crash_matches_native_rows() {
         );
         // The oracle's fixture pre-sets the latch only for rows that call
         // Crash on an already-crashing object; a refused Crash writes nothing.
-        assert_eq!(entity.crashing, returned, "{name}");
+        assert_eq!(entity.crash.is_crashing(), returned, "{name}");
         let draws = row["draws"].as_array().unwrap().len();
         if draws == 0 {
             assert!(entity.rocking.is_none(), "{name}");
@@ -598,7 +600,7 @@ fn a_shot_down_aircraft_falls_and_detonates_through_advance_tick() {
         .entities
         .get(1)
         .expect("a crashing aircraft stays represented");
-    assert!(entity.crashing && entity.lifecycle.object_alive() && !entity.dying);
+    assert!(entity.crash.is_crashing() && entity.lifecycle.object_alive() && !entity.dying);
     assert_eq!(entity.health.current(), 0);
     assert_eq!(entity.killed_by, Some(soviets));
     assert!(
@@ -681,7 +683,7 @@ fn a_crash_saved_in_mid_fall_lands_like_the_original() {
         &[AreaDamageReceiver::Entity(hit)],
         crate::sim::world::FrameEffects::default(),
     );
-    assert!(sim.substrate.entities.get(1).unwrap().crashing);
+    assert!(sim.substrate.entities.get(1).unwrap().crash.is_crashing());
     let grid = crate::sim::pathfinding::PathGrid::test_all_passable(70, 70);
     let tick = |sim: &mut Simulation| {
         sim.advance_tick(&[], Some(&rules), Some(&grid), None, 67);
@@ -689,7 +691,7 @@ fn a_crash_saved_in_mid_fall_lands_like_the_original() {
     for _ in 0..10 {
         tick(&mut sim);
     }
-    assert!(sim.substrate.entities.get(1).unwrap().crashing_seen);
+    assert!(sim.substrate.entities.get(1).unwrap().crash.seen());
 
     sim.scenario_rng = SimRng::new(0);
     let bytes = GameSnapshot::save(&sim, 0, 0, "crash in mid-fall", 0);
@@ -986,7 +988,7 @@ fn fall_to_the_impact(sim: &mut Simulation, rules: &RuleSet) -> JumpjetFall {
             .count();
         match sim.substrate.entities.get(1) {
             Some(entity) if entity.lifecycle.object_alive() => {
-                assert!(entity.crashing && entity.health.current() == 0);
+                assert!(entity.crash.is_crashing() && entity.health.current() == 0);
                 fall.heights
                     .push(entity.position.exact_z_leptons.expect("exact Z"));
             }
@@ -1049,7 +1051,7 @@ fn a_shot_down_jumpjet_crashes_through_the_production_receiver() {
         .entities
         .get(1)
         .expect("a crashing unit stays");
-    assert!(entity.crashing && entity.lifecycle.object_alive() && !entity.dying);
+    assert!(entity.crash.is_crashing() && entity.lifecycle.object_alive() && !entity.dying);
     assert_eq!(entity.health.current(), 0);
     assert!(
         entity
@@ -1281,7 +1283,7 @@ fn a_jumpjet_shot_down_touching_down_still_crashes() {
     }
     shoot_down(&mut sim, &rules, shooter);
     let entity = sim.substrate.entities.get(1).unwrap();
-    assert!(entity.crashing);
+    assert!(entity.crash.is_crashing());
     let runtime = entity
         .locomotor
         .as_ref()
@@ -1588,14 +1590,14 @@ fn retail_dustbowl_flak_shoots_a_harrier_down() {
         };
         let height = current_fly_height(entity, sim.resolved_terrain.as_ref());
         lifted |= height > 0;
-        if !entity.crashing && frame % 15 == 0 {
+        if !entity.crash.is_crashing() && frame % 15 == 0 {
             println!(
                 "frame {frame}: height {height}, health {}, mission {:?}",
                 entity.health.current(),
                 entity.mission.current().known()
             );
         }
-        if entity.crashing {
+        if entity.crash.is_crashing() {
             if crash_frame.is_none() {
                 crash_frame = Some(frame);
                 assert!(height > 0, "shot down in the air");
@@ -1898,7 +1900,7 @@ fn retail_dustbowl_flak_shoots_down_a_nighthawk_and_a_kirov() {
                     .collect();
                 continue;
             };
-            if !entity.crashing {
+            if !entity.crash.is_crashing() {
                 continue;
             }
             let height = current_fly_height(entity, sim.resolved_terrain.as_ref());

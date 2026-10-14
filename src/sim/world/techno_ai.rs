@@ -2423,7 +2423,7 @@ mod tests {
         let mut sim = Simulation::new();
         let mut e = entity_of(1, EntityCategory::Unit);
         e.health.set_for_test(0);
-        e.crashing = true;
+        e.crash.set_crashing_for_test(true);
         sim.substrate.entities.insert(e);
         assert_eq!(
             unit_techno_bracket(
@@ -2655,7 +2655,7 @@ mod tests {
         let timer = {
             let wreck = sim.substrate.entities.get_mut(1).expect("tank present");
             wreck.health.set_for_test(0);
-            wreck.crashing = true;
+            wreck.crash.set_crashing_for_test(true);
             wreck.mission.dispatch_timer()
         };
         let mut acquired = false;
@@ -2715,7 +2715,7 @@ mod tests {
         {
             let wreck = sim.substrate.entities.get_mut(1).expect("disc present");
             wreck.health.set_for_test(0);
-            wreck.crashing = true;
+            wreck.crash.set_crashing_for_test(true);
         }
         let mut shots = 0;
         let mut rearm_start = None;

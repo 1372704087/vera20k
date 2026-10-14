@@ -93,7 +93,9 @@ fn scene(input: &Value, before: &Value, rules: &RuleSet) -> (Simulation, u64) {
         before["countdown"].as_i64().unwrap() as i32,
     );
     actor.set_falling_down_for_test(input["falling"].as_u64().unwrap_or(0) != 0);
-    actor.crashing = input["crashing"].as_u64().unwrap_or(0) != 0;
+    actor
+        .crash
+        .set_crashing_for_test(input["crashing"].as_u64().unwrap_or(0) != 0);
     sim.substrate.entities.insert(actor);
     assert_eq!(actor_state(&sim, id), expected_state(before));
     assert_rng(&sim, before, "supplied seeded entry");

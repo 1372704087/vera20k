@@ -2490,7 +2490,7 @@ mod tests {
         entity.in_playfield = true;
         assert!(static_selection_gate(&entity, "ORCA", None, true));
         entity.health.set_for_test(0);
-        entity.crashing = true;
+        entity.crash.set_crashing_for_test(true);
         assert!(!static_selection_gate(&entity, "ORCA", None, true));
     }
 }

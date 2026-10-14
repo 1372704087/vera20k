@@ -3978,7 +3978,7 @@ impl Simulation {
                 .substrate
                 .entities
                 .get(id)
-                .is_none_or(|entity| entity.passive_scan_timer.remaining(now) <= 10)
+                .is_none_or(|entity| entity.passive_scan.timer().remaining(now) <= 10)
         {
             return false;
         }
@@ -3987,8 +3987,8 @@ impl Simulation {
             .entities
             .get_mut(id)
             .expect("queried passive timer owner remains present")
-            .passive_scan_timer
-            .arm(now, delay);
+            .passive_scan
+            .arm_timer(now, delay);
         true
     }
 

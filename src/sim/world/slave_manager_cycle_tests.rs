@@ -1008,8 +1008,8 @@ fn an_attacker_of_a_packing_refinery_takes_the_slave_miner() {
     attacker
         .attack_target
         .set_for_test(Some(TargetKind::Entity(refinery)));
-    attacker.passive_scan_timer.arm(frame, 100);
-    let scan_timer = attacker.passive_scan_timer;
+    attacker.passive_scan.timer_mut_for_test().arm(frame, 100);
+    let scan_timer = attacker.passive_scan.timer();
     sim.substrate
         .entities
         .get_mut(refinery)
@@ -1063,6 +1063,6 @@ fn an_attacker_of_a_packing_refinery_takes_the_slave_miner() {
     let delay = expected.next_range_u32_inclusive(4, 8);
     let mut rearmed = scan_timer;
     rearmed.arm(frame, delay);
-    assert_eq!(attacker.passive_scan_timer, rearmed);
+    assert_eq!(attacker.passive_scan.timer(), rearmed);
     assert_eq!(sim.scenario_rng.logical_state(), expected.logical_state());
 }

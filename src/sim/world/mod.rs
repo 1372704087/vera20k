@@ -95,6 +95,7 @@ mod trigger_camera;
 #[cfg(test)]
 mod trigger_camera_tests;
 pub(crate) use techno_ai::ObjectAiCtx;
+pub(crate) use techno_ai::PassiveScan;
 pub(crate) use techno_ai::direct_greatest_threat;
 #[cfg(test)]
 pub(crate) use techno_ai::dispatch_foot_mission;

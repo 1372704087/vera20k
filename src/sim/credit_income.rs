@@ -906,7 +906,7 @@ mod tests {
             disc.attack_target.target().is_none(),
             "Assign_Target(NULL) at 0x006FDF97 leaves no Target on the same tick (tick {linked_at})"
         );
-        assert!(!disc.passively_acquired_target);
+        assert!(!disc.passive_scan.acquired());
         assert_eq!(
             sim.substrate
                 .entities

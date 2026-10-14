@@ -1072,7 +1072,9 @@ fn repair_pointer_expiry_uses_descending_infantry_registry_and_preserves_paid_he
         let e = sim.substrate.entities.get_mut(id).unwrap();
         e.attack_target
             .set_for_test(Some(crate::sim::combat::TargetKind::Entity(hut)));
-        e.passive_scan_timer.arm(sim.session.binary_frame, 30);
+        e.passive_scan
+            .timer_mut_for_test()
+            .arm(sim.session.binary_frame, 30);
         e.navigation.nav_com_aux = Some(NavTargetRef::Cell { rx: 19, ry: 19 });
         e.navigation
             .nav_queue
@@ -1106,7 +1108,7 @@ fn repair_pointer_expiry_uses_descending_infantry_registry_and_preserves_paid_he
     assert_eq!(sim.scenario_rng.state(), expected.state());
     for id in [a, b, c] {
         let e = sim.substrate.entities.get(id).unwrap();
-        assert_eq!(e.passive_scan_timer.duration, delays[&id]);
+        assert_eq!(e.passive_scan.timer().duration, delays[&id]);
         assert!(e.attack_target.target().is_none());
         assert_eq!(e.navigation.nav_com, None);
         assert_eq!(e.navigation.nav_com_aux, None, "native clears the pair");

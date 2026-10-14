@@ -118,10 +118,12 @@ impl Replay {
         if int(&before["saved_mission"]) == 29 {
             entity.mega_mission = crate::sim::mission::mega_mission::MegaMission::attack_move(None);
         }
-        entity.passive_scan_timer = MissionTimer {
-            start_frame: int(&before["targeting_words"][0]) as u32,
-            duration: int(&before["targeting_words"][2]) as u32,
-        };
+        entity
+            .passive_scan
+            .set_passive_scan_timer_for_test(MissionTimer {
+                start_frame: int(&before["targeting_words"][0]) as u32,
+                duration: int(&before["targeting_words"][2]) as u32,
+            });
         if input["target"] == true {
             scene
                 .sim
@@ -211,8 +213,8 @@ impl Replay {
         );
         assert_eq!(
             json!([
-                e.passive_scan_timer.start_frame as i32,
-                e.passive_scan_timer.duration as i32
+                e.passive_scan.timer().start_frame as i32,
+                e.passive_scan.timer().duration as i32
             ]),
             json!([native["targeting_words"][0], native["targeting_words"][2]]),
             "{context}: passive timer"

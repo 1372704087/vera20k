@@ -1829,7 +1829,7 @@ pub(super) fn evaluate_foot_area_guard(
         .substrate
         .entities
         .get(id)
-        .is_some_and(|entity| entity.passive_scan_timer.due(sim.session.binary_frame));
+        .is_some_and(|entity| entity.passive_scan.timer().due(sim.session.binary_frame));
     if needs_target && can_acquire_target(sim, id, rules) && timer_due {
         let point = archive
             .and_then(|post| {

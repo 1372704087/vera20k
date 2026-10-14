@@ -1403,8 +1403,8 @@ fn cancelled_constructor_building_runs_shared_destructor_without_uninit() {
             );
             assert_eq!(
                 [
-                    i64::from(actor.passive_scan_timer.start_frame),
-                    i64::from(actor.passive_scan_timer.duration)
+                    i64::from(actor.passive_scan.timer().start_frame),
+                    i64::from(actor.passive_scan.timer().duration)
                 ],
                 [
                     after["observer"]["passive_scan_timer"][0].as_i64().unwrap(),

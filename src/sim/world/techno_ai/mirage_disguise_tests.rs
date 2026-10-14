@@ -277,10 +277,12 @@ fn whole_unit_fixture(
                     signed(&foot["dispatch"][1]),
                 ),
             });
-            entity.passive_scan_timer = MissionTimer::armed(
-                signed(&foot["targeting_timer"][0]) as u32,
-                signed(&foot["targeting_timer"][2]) as u32,
-            );
+            entity
+                .passive_scan
+                .set_passive_scan_timer_for_test(MissionTimer::armed(
+                    signed(&foot["targeting_timer"][0]) as u32,
+                    signed(&foot["targeting_timer"][2]) as u32,
+                ));
             entity.on_bridge = foot["on_bridge"] != 0;
             entity.body_facing.snap(
                 signed(&foot["body_facing_words"][0]) as u16,

@@ -29,12 +29,121 @@ use crate::sim::combat::fire_error::FireError;
 use crate::sim::combat::fire_error_world::FireSubject;
 use crate::sim::combat::{ScanMission, TargetKind, combat_weapon};
 use crate::sim::mission::MissionType;
+use crate::sim::mission::timer::MissionTimer;
 use crate::sim::world::Simulation;
 
 /// Committed mission id of Area Guard (`+0xAC == 0xB`, `0x0070983A`).
 const AREA_GUARD_MISSION: i32 = 0xB;
 
 /// What `Retaliate_And_Scan` asks of its object, in the order it asks.
+/// Frames the passive target-scan timer is armed for at object construction:
+/// the Techno constructor anchors it at the current frame (`0x006F2C33`) and
+/// writes 45 as its duration (`0x006F2C39`), so a freshly built object waits
+/// that long before its first passive scan.
+const PASSIVE_SCAN_CONSTRUCTION_DELAY_FRAMES: u32 = 45;
+
+/// The passive target scan's state on the object.
+/// - The targeting timer (`TechnoClass+0x180` start, `+0x188` duration):
+///   expiry opens the passive scan gate. The constructor arms it for 45
+///   frames ([`Self::new`]); the scanner re-arms it to the `[General]`
+///   targeting delay plus a 0..=2 jitter, and a live target's pointer expiry
+///   re-arms it short (`RandomRanged(4, 8)`, `0x00707A0D`), both through
+///   [`Self::arm_timer`].
+/// - The last scan frame (`+0x4FC`): the constructor stamps the frame
+///   (`0x006F3106`) and the scanner stamps it on entry
+///   ([`Self::stamp_scan`]). Only the hash reads it.
+/// - The acquisition mark (`+0x50C`): the passive block's scan changed the
+///   target (`0x006FA6EE`, [`Self::mark_acquired`]; the teleport clone
+///   `0x007094C8` is unported). Every Assign_Target clears it first
+///   (`0x006FCDC4`) and the off-mission clear drops it with the target
+///   (`0x006FA5F0`), both through [`Self::clear_acquired`]. Read by the
+///   scan's drop step (`0x007098C3`), the off-mission clear and the Unit
+///   approach's OmniCrusher arm (`0x0074162D`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub(crate) struct PassiveScan {
+    timer: MissionTimer,
+    last_scan_frame: u32,
+    acquired: bool,
+}
+
+impl Default for PassiveScan {
+    fn default() -> Self {
+        Self::new(0)
+    }
+}
+
+impl PassiveScan {
+    /// The constructor's state at `frame`.
+    pub(crate) fn new(frame: u32) -> Self {
+        Self {
+            timer: MissionTimer::armed(frame, PASSIVE_SCAN_CONSTRUCTION_DELAY_FRAMES),
+            last_scan_frame: frame,
+            acquired: false,
+        }
+    }
+
+    /// The targeting timer.
+    pub(crate) const fn timer(self) -> MissionTimer {
+        self.timer
+    }
+
+    /// The frame of the last scan.
+    pub(crate) const fn last_scan_frame(self) -> u32 {
+        self.last_scan_frame
+    }
+
+    /// The current target came from the passive scan.
+    pub(crate) const fn acquired(self) -> bool {
+        self.acquired
+    }
+
+    /// Arm the targeting timer: the scanner's re-arm and the pointer
+    /// expiry's short re-arm.
+    pub(crate) fn arm_timer(&mut self, start: u32, duration: u32) {
+        self.timer.arm(start, duration);
+    }
+
+    /// The scanner's entry stamp.
+    fn stamp_scan(&mut self, frame: u32) {
+        self.last_scan_frame = frame;
+    }
+
+    /// The passive block changed the target (`0x006FA6EE`).
+    fn mark_acquired(&mut self) {
+        self.acquired = true;
+    }
+
+    /// Assign_Target's first statement (`0x006FCDC4`) and the off-mission
+    /// clear (`0x006FA5F0`).
+    pub(crate) fn clear_acquired(&mut self) {
+        self.acquired = false;
+    }
+
+    /// Install a fixture's timer.
+    #[cfg(test)]
+    pub(crate) fn set_passive_scan_timer_for_test(&mut self, timer: MissionTimer) {
+        self.timer = timer;
+    }
+
+    /// A fixture's handle on the timer.
+    #[cfg(test)]
+    pub(crate) fn timer_mut_for_test(&mut self) -> &mut MissionTimer {
+        &mut self.timer
+    }
+
+    /// Install a fixture's last scan frame.
+    #[cfg(test)]
+    pub(crate) fn set_last_target_scan_frame_for_test(&mut self, frame: u32) {
+        self.last_scan_frame = frame;
+    }
+
+    /// Install a fixture's acquisition mark.
+    #[cfg(test)]
+    pub(crate) fn set_passively_acquired_target_for_test(&mut self, acquired: bool) {
+        self.acquired = acquired;
+    }
+}
+
 pub(super) trait ScanHost {
     /// A weapon GetWeapon (vt+0x3F8) returned.
     type Weapon: Copy;
@@ -185,7 +294,7 @@ pub(super) fn passive_acquire_step(
     let Some(entity) = sim.substrate.entities.get(id) else {
         return;
     };
-    if !entity.passive_scan_timer.due(now) {
+    if !entity.passive_scan.timer().due(now) {
         return;
     }
     if entity.mega_mission.is_attack_move() {
@@ -230,14 +339,14 @@ pub(crate) fn passive_target_acquire(
     let Some(entity) = sim.substrate.entities.get_mut(id) else {
         return false;
     };
-    entity.last_target_scan_frame = now;
+    entity.passive_scan.stamp_scan(now);
     let before = entity.attack_target.target();
     let held = scan(sim, id, rules, ScanMission::Guard, ctx, None);
     if let Some(entity) = sim.substrate.entities.get_mut(id)
         && held
         && entity.attack_target.target() != before
     {
-        entity.passively_acquired_target = true;
+        entity.passive_scan.mark_acquired();
     }
     held
 }
@@ -585,7 +694,7 @@ impl<'r> ScanHost for WorldScan<'_, 'r> {
 
     fn set_last_scan_frame(&mut self, frame: i32) {
         if let Some(entity) = self.sim.substrate.entities.get_mut(self.id) {
-            entity.last_target_scan_frame = frame as u32;
+            entity.passive_scan.stamp_scan(frame as u32);
         }
     }
 
@@ -608,7 +717,7 @@ impl<'r> ScanHost for WorldScan<'_, 'r> {
 
     fn arm_targeting_timer(&mut self, start: i32, duration: i32) {
         if let Some(entity) = self.sim.substrate.entities.get_mut(self.id) {
-            entity.passive_scan_timer.arm(start as u32, duration as u32);
+            entity.passive_scan.arm_timer(start as u32, duration as u32);
         }
     }
 
@@ -617,7 +726,7 @@ impl<'r> ScanHost for WorldScan<'_, 'r> {
     }
 
     fn passively_acquired(&self) -> bool {
-        self.entity().passively_acquired_target
+        self.entity().passive_scan.acquired()
     }
 
     fn select_weapon(&mut self, target: Option<TargetKind>) -> i32 {

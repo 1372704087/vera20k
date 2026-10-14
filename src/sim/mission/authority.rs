@@ -1510,7 +1510,9 @@ mod tests {
                 actor
                     .mission_leaf
                     .set_foot_firing_sequence(before["firing_latch"].as_u64().unwrap() as u8);
-                actor.passively_acquired_target = before["passive"].as_u64().unwrap() != 0;
+                actor.passive_scan.set_passively_acquired_target_for_test(
+                    before["passive"].as_u64().unwrap() != 0,
+                );
                 let prior_target =
                     (before["target"] == "new_target").then_some(TargetKind::Entity(2));
                 actor
@@ -1600,7 +1602,7 @@ mod tests {
                     "{name}",
                 );
                 assert_eq!(
-                    actor.passively_acquired_target,
+                    actor.passive_scan.acquired(),
                     after["passive"].as_u64().unwrap() != 0,
                     "{name}",
                 );

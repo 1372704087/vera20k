@@ -141,7 +141,9 @@ fn native_base_response_dispatch_matches_14_represented_original_tails() {
                 0,
                 category != EntityCategory::Infantry,
             );
-            actor.passively_acquired_target = true;
+            actor
+                .passive_scan
+                .set_passively_acquired_target_for_test(true);
             if category == EntityCategory::Infantry {
                 actor.mission_leaf.set_infantry_doing_verified(-1).unwrap();
             }
@@ -221,7 +223,7 @@ fn native_base_response_dispatch_matches_14_represented_original_tails() {
                 "{name}:{label}"
             );
             assert_eq!(
-                actor.passively_acquired_target,
+                actor.passive_scan.acquired(),
                 state["passive"] != 0,
                 "{name}:{label}"
             );

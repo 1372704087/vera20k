@@ -260,10 +260,12 @@ fn supplied_fixture(row: &Value) -> (Simulation, RuleSet, u64) {
         signed(&before["stage"][2]),
         signed(&before["stage"][3]),
     ));
-    actor.passive_scan_timer = MissionTimer::armed(
-        signed(&before["reload"][0]) as u32,
-        signed(&before["reload"][1]) as u32,
-    );
+    actor
+        .passive_scan
+        .set_passive_scan_timer_for_test(MissionTimer::armed(
+            signed(&before["reload"][0]) as u32,
+            signed(&before["reload"][1]) as u32,
+        ));
     actor.rearm_timer.set_for_test(CdTimer::from_raw(
         signed(&before["rearm"][0]),
         signed(&before["rearm"][1]),
@@ -338,7 +340,7 @@ fn assert_actor(actor: &GameEntity, expected: &Value, row: &Value, rearm: bool) 
         "prone": u8::from(actor.infantry.as_ref().unwrap().is_prone),
         "crush": actor.native_crush_immunity(), "frame": stage.value(), "changed": raw["changed"],
         "stage": [stage.timer().start_frame(), stage.timer().duration(), stage.rate(), signed(&raw["increment"])],
-        "reload": [actor.passive_scan_timer.start_frame as i32, actor.passive_scan_timer.duration as i32],
+        "reload": [actor.passive_scan.timer().start_frame as i32, actor.passive_scan.timer().duration as i32],
         "mission": actor.mission.current().raw(), "suspended": actor.mission.suspended().raw(),
         "queued": actor.mission.queued().raw(), "handler_state": actor.mission.handler_state(),
         "mission_start": actor.mission.mission_start_frame(),

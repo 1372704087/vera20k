@@ -140,6 +140,11 @@ impl Simulation {
     ///   the other field keeps its value. With neither it runs
     ///   Clear_All_TarCom and answers 29 (`0x004DF12A..0x004DF186`).
     ///
+    /// A token decides by its tag (`0x004DF0F7..0x004DF108`), and the field
+    /// takes what it resolves to (TargetClass `0x006E6E20`,
+    /// [`Simulation::resolve_event_token`]): an object deleted before the
+    /// event runs still answers Move or Attack, with a NULL field.
+    ///
     /// A Building's slot (`0x0070F000`) answers the event mission and stores
     /// nothing.
     pub(crate) fn foot_assign_target_command(
@@ -167,6 +172,8 @@ impl Simulation {
                 MissionType::Move
             };
         }
+        let resolved_target = self.resolve_event_token(target);
+        let resolved_destination = self.resolve_event_token(destination);
         let Some(entity) = self.substrate.entities.get_mut(id) else {
             return mission;
         };
@@ -174,11 +181,11 @@ impl Simulation {
         mega.have_attack_move_target = false;
         mega.attack_move = true;
         if destination.is_some() {
-            mega.destination = destination;
+            mega.destination = resolved_destination;
             return MissionType::Move;
         }
         if target.is_some() {
-            mega.target = target;
+            mega.target = resolved_target;
             return MissionType::Attack;
         }
         self.foot_clear_all_tarcom(id);

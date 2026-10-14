@@ -7647,6 +7647,26 @@ fn an_attack_move_click_on_an_enemy_attacks_it_as_the_mega_target() {
         Some(crate::sim::combat::TargetKind::Entity(2))
     );
     assert_eq!(attacker.navigation.nav_com, None);
+
+    // A destination deleted before the event runs still answers Move, with a
+    // NULL MegaDestination; the MegaTarget keeps its value
+    // (`0x004DF0F7..0x004DF146`).
+    assert!(sim.apply_command(
+        "Americans",
+        &Command::AttackMove {
+            entity_id: 1,
+            target: None,
+            destination: Some(crate::sim::combat::TargetKind::Entity(99)),
+        },
+        Some(&rules),
+    ));
+    let attacker = sim.substrate.entities.get(1).unwrap();
+    assert_eq!(
+        attacker.mission.queued(),
+        MissionId::from_known(MissionType::Move)
+    );
+    assert_eq!(attacker.mega_mission.destination(), None);
+    assert!(attacker.mega_mission.targets(2));
 }
 
 /// An attack-move click over an object sends it as the event destination,
@@ -7714,6 +7734,25 @@ fn an_attack_move_click_over_an_object_keeps_it_the_mega_destination() {
         None,
         "the refused event stores nothing"
     );
+
+    // A target deleted before the event runs still answers Attack, with a
+    // NULL MegaTarget (`0x004DF0F7..0x004DF164`).
+    assert!(sim.apply_command(
+        "Americans",
+        &Command::AttackMove {
+            entity_id: 1,
+            target: Some(crate::sim::combat::TargetKind::Entity(99)),
+            destination: None,
+        },
+        Some(&rules),
+    ));
+    let attacker = sim.substrate.entities.get(1).unwrap();
+    assert_eq!(
+        attacker.mission.queued(),
+        MissionId::from_known(MissionType::Attack)
+    );
+    assert!(attacker.mega_mission.is_attack_move());
+    assert!(attacker.attack_target.is_none());
 }
 
 /// An infantryman's attack-move through `advance_tick`: the scan on its

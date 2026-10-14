@@ -298,13 +298,17 @@ impl Simulation {
     /// (`0x006FFC23..0x006FFCA9`).
     ///
     /// `action` is the receiver's What_Action over the object before the class
-    /// deployer rungs. Those turn Move into NoMove, as each wrapper's re-ask
-    /// (`0x007388A1`, `0x0051F1A1`) answers, for a player's Deployer in
-    /// Doing27..30 (Infantry `0x0051EB81..0x0051EBD7`) and a player's deployed
-    /// (6E0) IsSimpleDeployer (Unit `0x0074037A..0x007403AD`).
+    /// rungs, which each wrapper's re-ask (`0x007388A1`, `0x0051F1A1`) also
+    /// answers:
+    /// - the deployer rungs turn Move into NoMove for a player's Deployer in
+    ///   Doing27..30 (Infantry `0x0051EB81..0x0051EBD7`) and a player's
+    ///   deployed (6E0) IsSimpleDeployer (Unit `0x0074037A..0x007403AD`);
+    /// - the tails turn 0 into NoMove for a player's Unit or Infantry it
+    ///   may control (vt+0xA0; Unit `0x007403EB..0x00740414`, Infantry
+    ///   `0x0051F05E..0x0051F08B`).
     ///
     /// No order (`None`) for:
-    /// - action 0 (`0x004D7521..0x004D7527`);
+    /// - action 0 that no tail turned (`0x004D7521..0x004D7527`);
     /// - an Aircraft's NoMove (`0x00417C12`) and a Unit's NoMove over itself
     ///   (`0x007388D5..0x007388E8`);
     /// - a berserk receiver (`0x007388EB`, `0x0051F1D8`, `0x004D74EC`);
@@ -350,6 +354,11 @@ impl Simulation {
             }
             (EntityCategory::Unit, MoveAction::Move)
                 if human && object.is_simple_deployer && entity.is_fully_deployed() =>
+            {
+                MoveAction::NoMove
+            }
+            (EntityCategory::Unit | EntityCategory::Infantry, MoveAction::None)
+                if human && self.techno_player_controllable(id, rules) =>
             {
                 MoveAction::NoMove
             }

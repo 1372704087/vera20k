@@ -2308,6 +2308,18 @@ impl Simulation {
         )
     }
 
+    /// TargetClass `0x006E6E20`: what an event token resolves to. An object
+    /// no longer present resolves to NULL; a Cell always resolves.
+    pub(crate) fn resolve_event_token(
+        &self,
+        token: Option<combat::TargetKind>,
+    ) -> Option<combat::TargetKind> {
+        token.filter(|token| match *token {
+            combat::TargetKind::Entity(id) => self.substrate.entities.contains(id),
+            combat::TargetKind::Cell(..) => true,
+        })
+    }
+
     /// A MEGAMISSION order through its generic arm: Move to a cell or an
     /// object, or an attack-move (mission 29) with the click's target or
     /// destination, which `Assign_Target_Command` stores as MegaTarget or
@@ -2319,6 +2331,15 @@ impl Simulation {
     ///
     /// The event has no queued form: a Shift-click still builds an ordinary
     /// MegaMission (walk_first_path.json `gi_reissue`).
+    ///
+    /// RESIDUAL: before Assign_Target_Command, the event flashes its object
+    /// (the destination, else the target) for 7 frames when the local
+    /// player is allied with the ordering object (`0x004C7385..0x004C739F`,
+    /// vt+0x148). Whether it runs depends on the viewer, so it cannot write
+    /// the simulation's flash countdown
+    /// ([`crate::sim::game_entity::GameEntity::flash_building`]); nothing
+    /// presents it. Trigger: every order on an object. Effect: the
+    /// clicked object does not blink. Risk: presentation only.
     fn apply_megamission_command(
         &mut self,
         command_owner: &str,
@@ -2345,20 +2366,16 @@ impl Simulation {
         if !self.order_actor_admits(entity_id) {
             return false;
         }
-        // TargetClass6E6E20 resolves an absent object to NULL. A present but
-        // dead/limboed object rejects the entire event before retask writes
-        // (target `0x004C7225..0x004C725D`, destination
+        // A present but dead/limboed object rejects the entire event before
+        // retask writes (target `0x004C7225..0x004C725D`, destination
         // `0x004C7263..0x004C7299`), as for Area Guard's post.
-        let token = |token: Option<combat::TargetKind>| match token {
-            Some(combat::TargetKind::Entity(id)) if !self.substrate.entities.contains(id) => {
-                Some(None)
+        for token in [target, destination] {
+            if let Some(combat::TargetKind::Entity(id)) = self.resolve_event_token(token)
+                && !self.order_object_token_admits(id)
+            {
+                return false;
             }
-            Some(combat::TargetKind::Entity(id)) if !self.order_object_token_admits(id) => None,
-            token => Some(token),
-        };
-        let (Some(target), Some(destination)) = (token(target), token(destination)) else {
-            return false;
-        };
+        }
         // Queue the mission Assign_Target_Command answers, which reads the
         // event tokens only for mission 29. The destination/radio owners
         // handle any existing dock contact.
@@ -2369,6 +2386,11 @@ impl Simulation {
             destination,
             rules,
             frame_effects,
+        );
+        // The setters take what the tokens resolve to.
+        let (target, destination) = (
+            self.resolve_event_token(target),
+            self.resolve_event_token(destination),
         );
         // Event MegaMission4C7467 calls Assign_Target before the
         // destination setter. Its changed-null path6FCF5B also
@@ -2439,13 +2461,9 @@ impl Simulation {
         if !self.order_actor_admits(entity_id) {
             return false;
         }
-        // TargetClass6E6E20 resolves an absent object to NULL. A present but
-        // dead/limboed object rejects the entire event before retask writes;
-        // friendship is not an event-admission test.
-        let target = target.filter(|target| match *target {
-            combat::TargetKind::Entity(id) => self.substrate.entities.contains(id),
-            combat::TargetKind::Cell(..) => true,
-        });
+        // A present but dead/limboed object rejects the entire event before
+        // retask writes; friendship is not an event-admission test.
+        let target = self.resolve_event_token(target);
         if let Some(combat::TargetKind::Entity(id)) = target
             && !self.order_object_token_admits(id)
         {
@@ -3242,6 +3260,85 @@ mod tests {
             actor.mission.queued(),
             MissionId::from_known(MissionType::Move)
         );
+    }
+
+    /// An attack-move click on an enemy hands an open-topped transport's
+    /// riders the event target (`0x004C7482..0x004C749D`) after its own
+    /// setters; an attack-move to a Cell has no target to hand them.
+    #[test]
+    fn an_attack_move_target_reaches_open_topped_riders() {
+        let rules = RuleSet::from_ini(&IniFile::from_str(
+            "[InfantryTypes]\n0=E1\n\
+             [VehicleTypes]\n0=BFRT\n\
+             [AircraftTypes]\n\
+             [BuildingTypes]\n\
+             [E1]\nStrength=125\nPrimary=M60\n\
+             [BFRT]\nStrength=1000\nSpeed=4\n\
+             Locomotor={4A582741-9839-11d1-B709-00A024DDAFD1}\n\
+             OpenTopped=yes\nPassengers=5\nPrimary=M60\n\
+             [M60]\nDamage=15\nRange=4\n",
+        ))
+        .expect("open-topped rules");
+        let mut sim = Simulation::new();
+        spawn_rule_backed_unit(&mut sim, 1, "BFRT", &rules);
+        for (id, owner, rx) in [(2, "Soviet", 24), (3, "Americans", 20)] {
+            let mut infantry = GameEntity::new_at_frame_zero_for_test(
+                id,
+                rx,
+                20,
+                0,
+                0,
+                sim.interner.intern(owner),
+                Health { current: 125 },
+                sim.interner.intern("E1"),
+                EntityCategory::Infantry,
+                0,
+                0,
+                false,
+            );
+            infantry.lifecycle.in_limbo = false;
+            sim.substrate.entities.insert(infantry);
+        }
+        let fortress = rules.object("BFRT").unwrap();
+        let mut cargo = crate::sim::passenger::PassengerCargo::new(
+            fortress.passengers.max(0) as u32,
+            fortress.size_limit,
+        );
+        assert!(cargo.board(3, rules.object("E1").unwrap().size));
+        sim.substrate.entities.get_mut(1).unwrap().passenger_role =
+            crate::sim::passenger::PassengerRole::Transport { cargo };
+        let grid = crate::sim::pathfinding::PathGrid::new(64, 64);
+        sim.install_fixture_path_grid(Some(&grid));
+        let rider_target = |sim: &Simulation| {
+            sim.substrate
+                .entities
+                .get(3)
+                .unwrap()
+                .attack_target
+                .as_ref()
+                .map(|attack| attack.target)
+        };
+
+        assert!(sim.apply_command(
+            "Americans",
+            &Command::AttackMove {
+                entity_id: 1,
+                target: None,
+                destination: Some(combat::TargetKind::Cell(25, 20)),
+            },
+            Some(&rules),
+        ));
+        assert_eq!(rider_target(&sim), None);
+        assert!(sim.apply_command(
+            "Americans",
+            &Command::AttackMove {
+                entity_id: 1,
+                target: Some(combat::TargetKind::Entity(2)),
+                destination: None,
+            },
+            Some(&rules),
+        ));
+        assert_eq!(rider_target(&sim), Some(combat::TargetKind::Entity(2)));
     }
 
     /// An in-limbo actor — inside a transport, a tank bunker or a garrison —

@@ -19,9 +19,9 @@
 //! - `convert_target` (`0x004DF280`): no retail caller, so no port;
 //! - `saved_coordinate` (GetAttackMoveCoords `0x004DF1F0`, vt+0x4B8): only
 //!   the radar's attack-move lines call it (`0x0063BC53`, `0x0063C4A2`);
-//! - setup events holding a token a decoded event never carries: a missing
-//!   object (tag 52, index 999), an unsupported tag (1), an invalid tag
-//!   (255), or an event mission outside the mission table (-128, 127).
+//! - setup events holding a token a decoded event never carries: an
+//!   unsupported tag (1), an invalid tag (255), or an event mission outside
+//!   the mission table (-128, 127).
 
 use super::MegaMission;
 use crate::map::entities::EntityCategory;
@@ -49,6 +49,8 @@ const CELL_A: (u16, u16) = (10, 12);
 const CELL_B: (u16, u16) = (20, 22);
 /// The object an expiring DESTINATION_A stands for.
 const DESTINATION_OBJECT: u64 = 5;
+/// An object no fixture holds.
+const DELETED_OBJECT: u64 = 999;
 
 /// A cell token's Cell.
 fn cell(token: i64) -> Option<(u16, u16)> {
@@ -373,24 +375,22 @@ fn mega_mission_bodies_match_the_original_rows() {
                         None => continue,
                     },
                 };
-                // Present tags whose token resolves: a cell (tag 11, the
-                // map's configured cell) or the indexed object 101.
+                // The tags a decoded event carries: a cell (tag 11, the map's
+                // configured cell), the indexed object 101, or index 999,
+                // which no object holds: one deleted before the event ran.
                 let token = |tag: &str, id: &str| match (int(&event[tag]), int(&event[id])) {
                     (0, _) => Some(None),
-                    (11, _) => Some(Some(DESTINATION_B)),
-                    (52, 101) => Some(Some(TARGET_B)),
+                    (11, _) => Some(Some(TargetKind::Cell(CELL_B.0, CELL_B.1))),
+                    (52, 101) => Some(Some(TargetKind::Entity(3))),
+                    (52, 999) => Some(Some(TargetKind::Entity(DELETED_OBJECT))),
                     _ => None,
                 };
-                let (Some(target_token), Some(destination_token)) = (
+                let (Some(event_target), Some(event_destination)) = (
                     token("event_target_tag", "event_target_id"),
                     token("event_destination_tag", "event_destination_id"),
                 ) else {
                     continue;
                 };
-                let Some(event_destination) = destination(destination_token.unwrap_or(0)) else {
-                    continue;
-                };
-                let event_target = target(target_token.unwrap_or(0)).unwrap();
                 // Setup never reads the saved mission, which the corpus seeds 5.
                 let unread = Some(int(&input["state"]["saved_mission"]));
                 let owner_type = format!(
@@ -424,7 +424,7 @@ fn mega_mission_bodies_match_the_original_rows() {
         ("idle_resume", 112),
         ("is_attack_move", 4),
         ("resume", 48),
-        ("setup", 62),
+        ("setup", 104),
     ]
     .map(|(entry, count)| (entry.to_owned(), count));
     assert_eq!(compared, std::collections::BTreeMap::from(expected));

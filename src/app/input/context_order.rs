@@ -907,17 +907,30 @@ pub(crate) fn object_click_payload(
     }
 }
 
-/// The order one receiver commits for an unforced click on an enemy object
-/// ([`object_click_payload`]), or `None` when What_Action's ILLEGAL test
-/// ([`click_attack_refused`]) leaves it without the Attack action. What_Action
-/// decides before ClickedMission promotes Attack, so the test refuses the
-/// attack-move too.
+/// The order one receiver commits for a click on another house's object
+/// ([`object_click_payload`]). What_Action decides Attack before
+/// ClickedMission promotes it to attack-move, so a shot its ILLEGAL test
+/// refuses ([`click_attack_refused`]) leaves no Attack to promote. An armed
+/// receiver's What_Action then answers 0 for the object
+/// (`0x0070056C..0x007005E6`), which the class tails may turn into NoMove: a
+/// click that moves the receiver near the object, as an attack-move under
+/// the chord ([`Simulation::object_move_click`], [`move_click_command`]).
+///
+/// RESIDUAL: an unarmed receiver's refused click orders nothing. Its
+/// What_Action leaves the attack rungs at `0x00700472` and answers Select or
+/// 0 on target tests at `0x0070059D..0x007005E6` that are not traced, so
+/// whether its tail moves it is unknown. Trigger: an unforced click on an
+/// enemy with only unarmed units selected. Risk: low.
+///
+/// [`Simulation::object_move_click`]: crate::sim::world::Simulation::object_move_click
 fn object_attack_click_command(
     sim: &crate::sim::world::Simulation,
     rules: &crate::rules::ruleset::RuleSet,
     overlay_registry: &crate::rules::overlay_types::OverlayTypeRegistry,
+    issuing_house: InternedId,
     order_mode: OrderMode,
     modifier: OrderModifier,
+    force_move_key: bool,
     attacker_id: u64,
     target_id: u64,
 ) -> Option<Command> {
@@ -928,18 +941,41 @@ fn object_attack_click_command(
         attacker_id,
         target_id,
     );
-    if matches!(
+    let attack = matches!(
         payload,
         Command::Attack { .. }
             | Command::AttackMove {
                 target: Some(_),
                 ..
             }
-    ) && click_attack_refused(sim, rules, overlay_registry, attacker_id, target_id)
-    {
+    );
+    if !attack || !click_attack_refused(sim, rules, overlay_registry, attacker_id, target_id) {
+        return Some(payload);
+    }
+    let armed = sim.entities().get(attacker_id).is_some_and(|actor| {
+        rules
+            .object(sim.interner.resolve(actor.type_ref()))
+            .is_some_and(|object| crate::sim::combat::combat_weapon::is_armed(actor, object))
+    });
+    if !armed {
         return None;
     }
-    Some(payload)
+    let destination = crate::app::input::commands::object_move_destination(
+        sim,
+        rules,
+        issuing_house,
+        attacker_id,
+        target_id,
+        crate::sim::world::MoveAction::None,
+        force_move_key,
+    )?;
+    Some(move_click_command(
+        sim,
+        rules,
+        order_mode,
+        attacker_id,
+        destination,
+    ))
 }
 
 /// What a left release does when every selected object is berserk.
@@ -1825,8 +1861,19 @@ pub(crate) fn try_queue_context_order_at_screen_point(
             };
 
             for stable_id in selected_units {
+                // NoIvanBomb needs the Attack action, which a shot ILLEGAL to
+                // the Ivan never reaches: a bombed target is ILLEGAL first
+                // (`0x006FCBAD`), and that click takes the class tail in
+                // `object_attack_click_command` instead.
                 if let Some(target_id) = attack_target
                     && ivan_cannot_bomb(sim, &resources.rules, stable_id, target_id)
+                    && !click_attack_refused(
+                        sim,
+                        &resources.rules,
+                        &resources.overlay_registry,
+                        stable_id,
+                        target_id,
+                    )
                 {
                     continue;
                 }
@@ -1847,8 +1894,10 @@ pub(crate) fn try_queue_context_order_at_screen_point(
                         sim,
                         &resources.rules,
                         &resources.overlay_registry,
+                        owner_id,
                         order_mode,
                         modifier,
+                        force_move_key,
                         stable_id,
                         target_id,
                     ) else {
@@ -2268,7 +2317,9 @@ fn object_attack_order(attacker_id: u64, target_id: u64, friendly: bool) -> Comm
 /// a bomb (`+0x38`) or is `Bombable=no`), which
 /// `FootClass::ClickedAction_Object` (0x004D74E0) ignores. An unforced click
 /// on a bombed target never gets that far: its GetFireError is ILLEGAL
-/// (`0x006FCBAD`), which [`click_attack_refused`] answers.
+/// (`0x006FCBAD`), which [`click_attack_refused`] answers, so the Ivan's
+/// What_Action answers 0 and its class tail decides
+/// ([`object_attack_click_command`]).
 fn ivan_cannot_bomb(
     sim: &crate::sim::world::Simulation,
     rules: &crate::rules::ruleset::RuleSet,
@@ -2291,8 +2342,9 @@ fn ivan_cannot_bomb(
 
 /// `TechnoClass::What_Action_OnObject @ 0x00700548`: an unforced click on
 /// an object stays Attack only while the object's GetFireError for it
-/// ([`Simulation::selected_weapon_fire_error`]) is not ILLEGAL. Otherwise the action
-/// is None or Select (`0x0070056C`), and the object takes no order.
+/// ([`Simulation::selected_weapon_fire_error`]) is not ILLEGAL. Otherwise the
+/// action is None or Select (`0x0070056C`); [`object_attack_click_command`]
+/// asks the class tails what a 0 becomes.
 ///
 /// The Infiltrate arm (`0x007004A0..0x00700531`) keeps Attack despite
 /// ILLEGAL for an `Infiltrate=` infantryman over a building its flags admit;
@@ -2507,20 +2559,19 @@ mod tests {
         assert!(!refused(&sim, tank, near));
         assert!(!refused(&sim, tank, far), "out of range");
         assert!(!refused(&sim, ivan, near));
-        let attack_move = |sim: &Simulation, actor: u64, target: u64| {
+        let americans = sim.interner.get("Americans").unwrap();
+        assert_eq!(
             object_attack_click_command(
-                sim,
+                &sim,
                 &rules,
                 &overlays,
+                americans,
                 OrderMode::AttackMove,
                 OrderModifier::Normal,
-                actor,
-                target,
-            )
-        };
-        assert_eq!(attack_move(&sim, gi, near), None);
-        assert_eq!(
-            attack_move(&sim, tank, near),
+                false,
+                tank,
+                near,
+            ),
             Some(Command::AttackMove {
                 entity_id: tank,
                 target: Some(TargetKind::Entity(near)),
@@ -2534,6 +2585,71 @@ mod tests {
         assert!(
             refused(&sim, ivan, far),
             "the bomb gate precedes the range test"
+        );
+    }
+
+    /// A shot ILLEGAL to an armed receiver leaves its What_Action 0
+    /// (`0x0070056C..0x007005E6`), which a player's Infantry or Unit it may
+    /// control turns into NoMove (`0x0051F05E..0x0051F08B`,
+    /// `0x007403EB..0x00740414`): the click moves it near the object, as an
+    /// attack-move under the chord. A retail Crazy Ivan's bombed target is
+    /// ILLEGAL to him (`0x006FCBAD`).
+    #[test]
+    fn a_refused_shot_moves_the_receiver_near_the_object() {
+        let Some(retail) = crate::rules::retail_ini_fixture::retail_battle_rules() else {
+            return;
+        };
+        let (mut sim, rules, _) = Simulation::walk_cell_input_test_scene_with(retail.rules, false);
+        let owner = sim.interner.get("Local").unwrap();
+        let ivan = sim.spawn_object("IVAN", "Local", 6, 4, 0, &rules).unwrap();
+        let tank = sim.spawn_object("MTNK", "Enemy", 6, 6, 0, &rules).unwrap();
+        sim.resolve_type_handles(&rules);
+        sim.fog = crate::sim::vision::FogState::new(16, 16);
+        sim.fog
+            .reveal_cells_for_owner(owner, (0..16).flat_map(|y| (0..16).map(move |x| (x, y))));
+        sim.bomb_attach(ivan, Some(tank), &rules);
+        let overlays = crate::rules::overlay_types::OverlayTypeRegistry::empty();
+        assert!(click_attack_refused(&sim, &rules, &overlays, ivan, tank));
+        let click = |order_mode| {
+            object_attack_click_command(
+                &sim,
+                &rules,
+                &overlays,
+                owner,
+                order_mode,
+                OrderModifier::Normal,
+                false,
+                ivan,
+                tank,
+            )
+        };
+        let near = crate::app::input::commands::object_move_destination(
+            &sim,
+            &rules,
+            owner,
+            ivan,
+            tank,
+            crate::sim::world::MoveAction::NoMove,
+            false,
+        );
+        let Some(TargetKind::Cell(target_rx, target_ry)) = near else {
+            panic!("NoMove searches near the tank: {near:?}");
+        };
+        assert_eq!(
+            click(OrderMode::Move),
+            Some(Command::Move {
+                entity_id: ivan,
+                target_rx,
+                target_ry,
+            })
+        );
+        assert_eq!(
+            click(OrderMode::AttackMove),
+            Some(Command::AttackMove {
+                entity_id: ivan,
+                target: None,
+                destination: near,
+            })
         );
     }
 

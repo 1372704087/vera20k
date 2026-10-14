@@ -451,7 +451,7 @@ fn compare(row: &Value) {
             let record = of("record_kill").expect("a killed passenger records its kill");
             let credited = (record[2] == "attacker").then(|| sim.interner.intern("Foreign"));
             assert_eq!(
-                sim.substrate.entities.get(id).unwrap().killed_by,
+                sim.substrate.entities.get(id).unwrap().kill_record.killer(),
                 credited,
                 "{context}: kill credit"
             );

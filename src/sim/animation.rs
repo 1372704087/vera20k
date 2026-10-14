@@ -246,6 +246,36 @@ fn resolve_shp_frame_parts(
     start.wrapping_add(direction).wrapping_add(within)
 }
 
+/// `FootClass+0x538`, the persistent body-animation counter. Unit SHP and
+/// voxel drawing reduce it against the selected model's frame count. It
+/// advances on absolute binary-frame cadence in `FootClass::AI`
+/// (`0x004DA886..0x004DAA01`, [`tick_unit_body_frame_counter`]) and never
+/// resets on a visual transition or deployment. It is a native dword, so the
+/// increment wraps.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(transparent)]
+pub(crate) struct BodyFrameCounter {
+    value: u32,
+}
+
+impl BodyFrameCounter {
+    /// The counter.
+    pub(crate) const fn get(self) -> u32 {
+        self.value
+    }
+
+    /// `FootClass::AI`'s increment.
+    fn advance(&mut self) {
+        self.value = self.value.wrapping_add(1);
+    }
+
+    /// Install a fixture's counter.
+    #[cfg(test)]
+    pub(crate) fn set_for_test(&mut self, value: u32) {
+        self.value = value;
+    }
+}
+
 /// Advance the persistent Unit body counter at FootClass's post-Process
 /// point for the current absolute binary frame.
 ///
@@ -290,7 +320,7 @@ pub(crate) fn tick_unit_body_frame_counter(
         || (deploy_to_land
             && crate::sim::movement::air_movement::current_fly_height(entity, terrain) > 0);
     if due {
-        entity.body_frame_counter = entity.body_frame_counter.wrapping_add(1);
+        entity.body_frame_counter.advance();
     }
 }
 

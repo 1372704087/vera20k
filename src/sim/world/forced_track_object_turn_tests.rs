@@ -242,7 +242,7 @@ fn forced_object_turn_queries_live_speed_and_advances_shp_once() {
         .unwrap()
         .track()
         .cursor;
-    let before_body = entity.body_frame_counter;
+    let before_body = entity.body_frame_counter.get();
     let outcome = tick(&mut sim, &rules(6), 1);
     let entity = sim.substrate.entities.get(1).unwrap();
     assert!(
@@ -257,5 +257,5 @@ fn forced_object_turn_queries_live_speed_and_advances_shp_once() {
             > before + 1
     );
     assert!(outcome.moved_steps > 1);
-    assert_eq!(entity.body_frame_counter, before_body + 1);
+    assert_eq!(entity.body_frame_counter.get(), before_body + 1);
 }

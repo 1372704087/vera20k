@@ -1103,7 +1103,13 @@ fn a_flying_aircraft_starts_its_move_sound_on_its_speed() {
             .current_speed = speed;
         entity.locomotor = Some(locomotor);
         sim.substrate.entities.insert(entity);
-        let unchanged = sim.substrate.entities.get(1).unwrap().body_frame_counter;
+        let unchanged = sim
+            .substrate
+            .entities
+            .get(1)
+            .unwrap()
+            .body_frame_counter
+            .get();
         sim.tick_move_sound_after_process(1, unchanged, Some(&rules));
         sim.substrate
             .entities
@@ -1131,7 +1137,13 @@ fn idle_squid_body_counter_starts_move_sound() {
     entity.lifecycle.set_in_limbo_for_test(false);
     entity.locomotor = Some(LocomotorState::for_test_kind(LocomotorKind::Ship));
     sim.substrate.entities.insert(entity);
-    let before = sim.substrate.entities.get(1).unwrap().body_frame_counter;
+    let before = sim
+        .substrate
+        .entities
+        .get(1)
+        .unwrap()
+        .body_frame_counter
+        .get();
     crate::sim::animation::tick_unit_body_frame_counter(
         sim.substrate.entities.get_mut(1).unwrap(),
         None,
@@ -1144,7 +1156,15 @@ fn idle_squid_body_counter_starts_move_sound() {
         None,
         4,
     );
-    assert_eq!(sim.substrate.entities.get(1).unwrap().body_frame_counter, 1);
+    assert_eq!(
+        sim.substrate
+            .entities
+            .get(1)
+            .unwrap()
+            .body_frame_counter
+            .get(),
+        1
+    );
     sim.tick_move_sound_after_process(1, before, Some(&rules));
     assert!(
         sim.substrate
@@ -1192,8 +1212,10 @@ fn move_sound_test_sim() -> Simulation {
 
 fn trigger_move_sound_tail(sim: &mut Simulation, rules: &RuleSet) {
     let entity = sim.substrate.entities.get_mut(1).expect("test Foot exists");
-    let before = entity.body_frame_counter;
-    entity.body_frame_counter = before.wrapping_add(1);
+    let before = entity.body_frame_counter.get();
+    entity
+        .body_frame_counter
+        .set_for_test(before.wrapping_add(1));
     sim.tick_move_sound_after_process(1, before, Some(rules));
 }
 
@@ -1242,7 +1264,7 @@ fn move_sound_start_consumes_exactly_one_main_draw() {
     // A fresh start after stop chooses again and therefore draws once again.
     let entity = sim.substrate.entities.get_mut(1).unwrap();
     entity.set_falling_down_for_test(true);
-    let before = entity.body_frame_counter;
+    let before = entity.body_frame_counter.get();
     sim.tick_move_sound_after_process(1, before, Some(&configured_rules));
     sim.substrate
         .entities
@@ -2107,7 +2129,9 @@ fn gsi_04_07_damage_fatal_transport_lifecycle_brackets_nested_death_weapon() {
     );
     let nested_fatal = fatal.substrate.entities.get(31).unwrap();
     assert_eq!(
-        fatal.interner.resolve(nested_fatal.killed_by.unwrap()),
+        fatal
+            .interner
+            .resolve(nested_fatal.kill_record.killer().unwrap()),
         "Soviet"
     );
     // Only the surviving listener (30) pings. The nested-fatal building (31)
@@ -4192,7 +4216,10 @@ fn defeated_house_is_flagged_has_lost_and_its_stragglers_die() {
         0,
         "Blowup_All killed the straggler"
     );
-    assert!(straggler.killed_by.is_none(), "no house is credited");
+    assert!(
+        straggler.kill_record.killer().is_none(),
+        "no house is credited"
+    );
     assert_eq!(sim.houses[&survivor].stats.units_killed(), 0);
 }
 

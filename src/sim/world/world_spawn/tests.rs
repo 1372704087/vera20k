@@ -1655,7 +1655,7 @@ fn techno_constructor_routes_preserve_components_and_authored_overrides() {
                     assert!(entity.infantry_sprite_pose().is_some());
                     assert!(
                         entity.crushable_facts.crushable()
-                            && entity.occupier
+                            && entity.removal_facts.occupier()
                             && entity.mover_facts.immune_to_radiation()
                     );
                     if route == 2 {

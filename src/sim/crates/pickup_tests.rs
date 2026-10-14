@@ -464,8 +464,14 @@ fn armor_and_firepower_crates_multiply_once_and_announce() {
         actor,
         crate::sim::world::FrameEffects::default()
     ));
-    let armor =
-        |sim: &Simulation, id: u64| sim.substrate.entities.get(id).unwrap().armor_multiplier;
+    let armor = |sim: &Simulation, id: u64| {
+        sim.substrate
+            .entities
+            .get(id)
+            .unwrap()
+            .crate_multipliers
+            .armor()
+    };
     assert_eq!(armor(&sim, actor).bits(), 1.5_f64.to_bits());
     assert_eq!(armor(&sim, distant), NativeF64Bits::ONE);
     assert_eq!(eva_events(&sim), vec![(owner, "EVA_UnitArmorUpgraded")]);
@@ -506,14 +512,16 @@ fn armor_and_firepower_crates_multiply_once_and_announce() {
         .entities
         .get(actor)
         .unwrap()
-        .firepower_multiplier;
+        .crate_multipliers
+        .firepower();
     assert_eq!(firepower.bits(), 2.0_f64.to_bits());
     assert_eq!(
         sim.substrate
             .entities
             .get(distant)
             .unwrap()
-            .firepower_multiplier,
+            .crate_multipliers
+            .firepower(),
         NativeF64Bits::ONE
     );
     assert!(eva_events(&sim).contains(&(owner, "EVA_UnitFirePowerUpgraded")));

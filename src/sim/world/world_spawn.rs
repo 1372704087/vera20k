@@ -1513,7 +1513,7 @@ impl Simulation {
         ge.lifecycle.reset_constructed();
         ge.lifecycle.cell_marked = false;
         ge.in_logic_vector = false;
-        ge.destruction_recorded = false;
+        ge.kill_record.reset_constructed();
 
         self.substrate.entities.insert(ge);
         // The class constructors and InitFromType call Add_Tracking.

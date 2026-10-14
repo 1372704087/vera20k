@@ -695,7 +695,7 @@ fn unit_animation_frames(
             .copied()
             .unwrap_or(1)
             .max(1);
-        ((entity.body_frame_counter as i32) % frames as i32) as u32
+        ((entity.body_frame_counter.get() as i32) % frames as i32) as u32
     };
     let turret = if body != 0 || entity.turret_anim_frame.frame() == 0 {
         body

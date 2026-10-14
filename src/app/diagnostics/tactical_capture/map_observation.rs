@@ -3952,7 +3952,7 @@ mod tests {
         sim.bomb_attach(planter, Some(carrier), &rules);
         let entity = sim.substrate.entities.get_mut(planter).unwrap();
         entity.last_fire_frame.set_for_test(16);
-        entity.body_frame_counter = u32::MAX;
+        entity.body_frame_counter.set_for_test(u32::MAX);
         entity.rearm_timer.set_for_test(CdTimer::from_raw(16, 50));
         let hash = sim.state_hash();
         let rng = sim.rng_state();

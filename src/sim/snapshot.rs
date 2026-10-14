@@ -5772,7 +5772,8 @@ mod tests {
             .entities
             .get_mut(1)
             .expect("Terror Drone")
-            .body_frame_counter = u32::MAX;
+            .body_frame_counter
+            .set_for_test(u32::MAX);
         let populated_counter_hash = sim.state_hash();
         assert_ne!(populated_counter_hash, zero_counter_hash);
 
@@ -5804,7 +5805,8 @@ mod tests {
                 .entities
                 .get(1)
                 .expect("restored Terror Drone")
-                .body_frame_counter,
+                .body_frame_counter
+                .get(),
             u32::MAX
         );
         let restored_ship = restored
@@ -6342,8 +6344,9 @@ mod tests {
             7,
         );
         aircraft = aircraft.with_air_spatial_membership_for_test(Some(143), 91);
-        aircraft.armor_multiplier =
-            crate::util::native_x87::NativeF64Bits::from_bits(1.5_f64.to_bits());
+        aircraft.crate_multipliers.set_armor_multiplier_for_test(
+            crate::util::native_x87::NativeF64Bits::from_bits(1.5_f64.to_bits()),
+        );
         aircraft.berserk.active = true;
         aircraft.berserk.timer = -17;
         aircraft
@@ -6435,14 +6438,17 @@ mod tests {
             .entities
             .get_mut(entity_id)
             .unwrap()
-            .armor_multiplier = crate::util::native_x87::NativeF64Bits::ONE;
+            .crate_multipliers
+            .set_armor_multiplier_for_test(crate::util::native_x87::NativeF64Bits::ONE);
         assert_ne!(sim.state_hash(), expected_hash, "instance armor is hashed");
         sim.substrate
             .entities
             .get_mut(entity_id)
             .unwrap()
-            .armor_multiplier =
-            crate::util::native_x87::NativeF64Bits::from_bits(1.5_f64.to_bits());
+            .crate_multipliers
+            .set_armor_multiplier_for_test(crate::util::native_x87::NativeF64Bits::from_bits(
+                1.5_f64.to_bits(),
+            ));
         sim.substrate
             .entities
             .get_mut(entity_id)
@@ -6548,7 +6554,7 @@ mod tests {
         let entity = restored.substrate.entities.get(entity_id).unwrap();
         assert_eq!(entity.air_spatial_bucket(), Some(143));
         assert_eq!(entity.air_spatial_enter_order(), 91);
-        assert_eq!(entity.armor_multiplier.bits(), 1.5_f64.to_bits());
+        assert_eq!(entity.crate_multipliers.armor().bits(), 1.5_f64.to_bits());
         assert!(entity.berserk.active);
         assert_eq!(entity.berserk.timer, -17);
         assert!(entity.ai_sell_repair.was_attacked_by_enemy());
@@ -8541,8 +8547,8 @@ mod tests {
         entity.lifecycle.cell_marked = false;
         entity.in_logic_vector = false;
         entity.death.set_dying_for_test(true);
-        entity.dirty_rect_eligible = true;
-        entity.destruction_recorded = true;
+        entity.removal_facts.set_dirty_rect_eligible_for_test(true);
+        entity.kill_record.set_destruction_recorded_for_test(true);
         sim.substrate.entities.insert(entity);
         for id in [7, 3, 7] {
             sim.substrate.pending_delete.queue_object(id);
@@ -8561,8 +8567,8 @@ mod tests {
         assert!(!restored_entity.lifecycle.cell_marked);
         assert!(!restored_entity.in_logic_vector);
         assert!(restored_entity.death.is_dying());
-        assert!(restored_entity.dirty_rect_eligible);
-        assert!(restored_entity.destruction_recorded);
+        assert!(restored_entity.removal_facts.dirty_rect_eligible());
+        assert!(restored_entity.kill_record.is_recorded());
         assert_eq!(
             restored.substrate.pending_delete.object_ids(),
             vec![7, 3, 7]
@@ -8622,16 +8628,16 @@ mod tests {
         let default_hash = sim.state_hash();
 
         let entity = sim.substrate.entities.get_mut(1).expect("fixture entity");
-        entity.dirty_rect_eligible = true;
-        entity.destruction_recorded = true;
+        entity.removal_facts.set_dirty_rect_eligible_for_test(true);
+        entity.kill_record.set_destruction_recorded_for_test(true);
         let changed_hash = sim.state_hash();
         assert_ne!(default_hash, changed_hash);
 
         let bytes = GameSnapshot::save(&sim, 0, 0, "test_map", 0);
         let restored = GameSnapshot::load(&bytes).expect("load should succeed").sim;
         let restored_entity = restored.substrate.entities.get(1).expect("entity restored");
-        assert!(restored_entity.dirty_rect_eligible);
-        assert!(restored_entity.destruction_recorded);
+        assert!(restored_entity.removal_facts.dirty_rect_eligible());
+        assert!(restored_entity.kill_record.is_recorded());
         assert_eq!(restored.state_hash(), changed_hash);
     }
 

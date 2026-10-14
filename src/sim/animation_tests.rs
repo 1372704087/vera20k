@@ -313,13 +313,13 @@ fn gsi_13_06_body_counter_uses_absolute_precommit_binary_frame_phase() {
     for kind in [LocomotorKind::Drive, LocomotorKind::Ship] {
         let mut entity = gsi_13_06_active_shp_unit("DRON", kind);
         tick_unit_body_frame_counter(&mut entity, speed.rules(), cadence, false, false, None, 3);
-        assert_eq!(entity.body_frame_counter, 0);
+        assert_eq!(entity.body_frame_counter.get(), 0);
         tick_unit_body_frame_counter(&mut entity, speed.rules(), cadence, false, false, None, 4);
-        assert_eq!(entity.body_frame_counter, 1);
+        assert_eq!(entity.body_frame_counter.get(), 1);
         tick_unit_body_frame_counter(&mut entity, speed.rules(), cadence, false, false, None, 5);
-        assert_eq!(entity.body_frame_counter, 1);
+        assert_eq!(entity.body_frame_counter.get(), 1);
         tick_unit_body_frame_counter(&mut entity, speed.rules(), cadence, false, false, None, 8);
-        assert_eq!(entity.body_frame_counter, 2);
+        assert_eq!(entity.body_frame_counter.get(), 2);
     }
 }
 
@@ -327,7 +327,7 @@ fn gsi_13_06_body_counter_uses_absolute_precommit_binary_frame_phase() {
 fn gsi_13_06_body_counter_wraps_and_survives_moving_idle_transitions() {
     let speed = Gsi1306Speed::new();
     let mut entity = gsi_13_06_active_shp_unit("DRON", LocomotorKind::Drive);
-    entity.body_frame_counter = u32::MAX;
+    entity.body_frame_counter.set_for_test(u32::MAX);
     tick_unit_body_frame_counter(
         &mut entity,
         speed.rules(),
@@ -340,9 +340,9 @@ fn gsi_13_06_body_counter_wraps_and_survives_moving_idle_transitions() {
         None,
         4,
     );
-    assert_eq!(entity.body_frame_counter, 0, "native dword wraps");
+    assert_eq!(entity.body_frame_counter.get(), 0, "native dword wraps");
 
-    entity.body_frame_counter = 9;
+    entity.body_frame_counter.set_for_test(9);
     if let Some(drive) = entity
         .locomotor
         .as_mut()
@@ -371,7 +371,8 @@ fn gsi_13_06_body_counter_wraps_and_survives_moving_idle_transitions() {
         8,
     );
     assert_eq!(
-        entity.body_frame_counter, 10,
+        entity.body_frame_counter.get(),
+        10,
         "switching to idle changes only the absolute divisor"
     );
 }
@@ -415,9 +416,9 @@ fn gsi_13_06_counter_suppressions_hold_the_persistent_value() {
     variants.push(("locomotor swap", swapped));
 
     for (name, mut entity) in variants {
-        entity.body_frame_counter = 17;
+        entity.body_frame_counter.set_for_test(17);
         tick_unit_body_frame_counter(&mut entity, speed.rules(), cadence, false, false, None, 1);
-        assert_eq!(entity.body_frame_counter, 17, "{name}");
+        assert_eq!(entity.body_frame_counter.get(), 17, "{name}");
     }
 }
 
@@ -449,7 +450,11 @@ fn gsi_13_06_draw_and_cadence_use_distinct_movement_predicates() {
             None,
             4,
         );
-        assert_eq!(entity.body_frame_counter, 0, "IdleRate=0 holds the counter");
+        assert_eq!(
+            entity.body_frame_counter.get(),
+            0,
+            "IdleRate=0 holds the counter"
+        );
     }
 }
 
@@ -484,7 +489,7 @@ fn gsi_13_06_positive_fraction_below_get_current_speed_threshold_is_idle() {
             None,
             1,
         );
-        assert_eq!(entity.body_frame_counter, 0, "{name} remains idle");
+        assert_eq!(entity.body_frame_counter.get(), 0, "{name} remains idle");
 
         entity.foot_speed.set_speed_fraction(SimFixed::from_num(1));
         assert!(
@@ -1504,7 +1509,7 @@ fn mirage_voxel_unit_shp_layout_does_not_create_a_second_stand_walk_clock() {
     for sequence in [SequenceKind::Stand, SequenceKind::Walk] {
         let actor = sim.substrate.entities.get_mut(id).unwrap();
         assert!(actor.is_voxel());
-        actor.body_frame_counter = 17;
+        actor.body_frame_counter.set_for_test(17);
         actor.animation = Some(Animation {
             sequence,
             frame_index: 3,
@@ -1533,7 +1538,8 @@ fn mirage_voxel_unit_shp_layout_does_not_create_a_second_stand_walk_clock() {
                 (sequence, 3, 2)
             );
             assert_eq!(
-                actor.body_frame_counter, 17,
+                actor.body_frame_counter.get(),
+                17,
                 "only the reached Foot AI owns this counter"
             );
         }
@@ -1691,7 +1697,9 @@ fn unit_body_counter_matches_original_foot_cadence() {
         }) {
             let mut entity = gsi_13_06_active_shp_unit("DRON", LocomotorKind::Drive);
             entity.set_is_voxel_for_test(voxel);
-            entity.body_frame_counter = input["counter"].as_u64().unwrap_or(0) as u32;
+            entity
+                .body_frame_counter
+                .set_for_test(input["counter"].as_u64().unwrap_or(0) as u32);
             entity
                 .foot_speed
                 .set_speed_fraction(SimFixed::from_num(i32::from(flag("moving"))));
@@ -1736,7 +1744,7 @@ fn unit_body_counter_matches_original_foot_cadence() {
                 integer("frame", 0) as u32,
             );
             assert_eq!(
-                u64::from(entity.body_frame_counter),
+                u64::from(entity.body_frame_counter.get()),
                 row["counter"].as_u64().unwrap(),
                 "{input}, voxel={voxel}, {layer:?}"
             );

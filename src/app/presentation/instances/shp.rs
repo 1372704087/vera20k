@@ -1441,7 +1441,7 @@ pub(crate) fn resolve_object_shp_frame(
         return animation::resolve_shp_vehicle_body_frame(
             set,
             facing,
-            entity.body_frame_counter,
+            entity.body_frame_counter.get(),
             // The draw asks the locomotor's Is_Moving (vt+0x10 at `0x0073C696`).
             crate::sim::movement::motion_query::is_moving(entity) == Some(true),
             entity

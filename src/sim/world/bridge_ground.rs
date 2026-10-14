@@ -230,11 +230,18 @@ mod tests {
             1,
             "only TerrorBomb's first GI kill is credited"
         );
-        assert!(sim.substrate.entities.get(gi).unwrap().destruction_recorded);
+        assert!(
+            sim.substrate
+                .entities
+                .get(gi)
+                .unwrap()
+                .kill_record
+                .is_recorded()
+        );
         assert!(!sim.live_object_order_snapshot().contains(&gi));
         let head = sim.substrate.entities.get(terror).unwrap();
         assert!(head.death.infantry_terminal().is_some());
-        assert!(head.destruction_recorded);
+        assert!(head.kill_record.is_recorded());
         assert!(sim.live_object_order_snapshot().contains(&terror));
         // Drive its actual Die2 clock through terminal visits and confirm
         // UnInit does not count either fatal callback again. This test does
@@ -260,7 +267,7 @@ mod tests {
         let head = sim.substrate.entities.get(terror).unwrap();
         assert!(head.death.infantry_terminal().is_none());
         assert!(!head.lifecycle.object_alive());
-        assert!(head.destruction_recorded);
+        assert!(head.kill_record.is_recorded());
         assert!(!sim.live_object_order_snapshot().contains(&terror));
         assert_eq!(sim.houses[&owner].stats.units_lost(), 2);
         assert_eq!(sim.houses[&owner].stats.units_killed(), 1);

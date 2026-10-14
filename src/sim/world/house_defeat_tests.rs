@@ -627,7 +627,10 @@ fn native_blowup_all_corpus() {
                 "{name}: obj{n} dies"
             );
             if hit {
-                assert!(entity.killed_by.is_none(), "{name}: no kill credit");
+                assert!(
+                    entity.kill_record.killer().is_none(),
+                    "{name}: no kill credit"
+                );
             }
         }
         for (target, _) in &warpers {

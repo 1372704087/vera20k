@@ -604,7 +604,7 @@ fn a_shot_down_aircraft_falls_and_detonates_through_advance_tick() {
         entity.crash.is_crashing() && entity.lifecycle.object_alive() && !entity.death.is_dying()
     );
     assert_eq!(entity.health.current(), 0);
-    assert_eq!(entity.killed_by, Some(soviets));
+    assert_eq!(entity.kill_record.killer(), Some(soviets));
     assert!(
         entity
             .rocking
@@ -1615,7 +1615,7 @@ fn retail_dustbowl_flak_shoots_a_harrier_down() {
                 crash_frame = Some(frame);
                 assert!(height > 0, "shot down in the air");
                 assert_eq!(entity.health.current(), 0);
-                assert_eq!(entity.killed_by, Some(russians));
+                assert_eq!(entity.kill_record.killer(), Some(russians));
             }
             let rocking = entity.rocking.as_ref().expect("a crash spins");
             spun |= rocking.angle_sideways != SimFixed::ZERO;
@@ -1927,7 +1927,7 @@ fn retail_dustbowl_flak_shoots_down_a_nighthawk_and_a_kirov() {
                 wreck.crash_frame = Some(frame);
                 assert!(height > 0, "{id} shot down in the air");
                 assert_eq!(entity.health.current(), 0);
-                assert_eq!(entity.killed_by, Some(russians));
+                assert_eq!(entity.kill_record.killer(), Some(russians));
                 if id == nighthawk {
                     riders_killed_by_crash = Some(sim.houses[&russians].stats.units_killed());
                     assert!(

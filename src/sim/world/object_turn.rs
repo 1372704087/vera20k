@@ -896,7 +896,7 @@ impl Simulation {
             .substrate
             .entities
             .get(stable_id)
-            .map(|entity| entity.body_frame_counter)
+            .map(|entity| entity.body_frame_counter.get())
         else {
             return Ok(outcome);
         };

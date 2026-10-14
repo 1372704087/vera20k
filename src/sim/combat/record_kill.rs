@@ -319,6 +319,72 @@ impl crate::sim::world::Simulation {
     }
 }
 
+/// The object's kill bookkeeping:
+/// - the house credited with destroying it, which the credit step
+///   ([`record_kill_credit`]) captures. gamemd's kill-record step receives the
+///   actual killer at the moment of destruction; infantry linger in the logic
+///   vector through a death animation, so this keeps the callback's
+///   attribution. It does not defer or suppress the native score callback,
+///   and saves do not keep it.
+/// - a VERA guard that keeps UnInit's uncredited-loss fallback
+///   (`Simulation::record_destruction_once`) from booking a loss a routed
+///   RecordTheKill callback already booked. Native callbacks themselves may
+///   record again; it does not stand in for native-alive or dying.
+///
+/// The credit step sets both. The fallback sets the guard
+/// ([`Self::mark_fallback_recorded`]); the receiver's next exact-zero callback
+/// and a PostMortem restore clear both ([`Self::clear`]); the construction
+/// boundary clears the guard ([`Self::reset_constructed`]).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub(crate) struct KillRecord {
+    #[serde(skip)]
+    killed_by: Option<InternedId>,
+    #[serde(default)]
+    destruction_recorded: bool,
+}
+
+impl KillRecord {
+    /// The house credited with the kill.
+    pub(crate) const fn killer(self) -> Option<InternedId> {
+        self.killed_by
+    }
+
+    /// The object's loss is booked.
+    pub(crate) const fn is_recorded(self) -> bool {
+        self.destruction_recorded
+    }
+
+    /// UnInit's fallback booked the loss.
+    pub(crate) fn mark_fallback_recorded(&mut self) {
+        self.destruction_recorded = true;
+    }
+
+    /// Drop the credit and the guard: a retained hull's next exact-zero
+    /// callback must capture its own credit
+    /// (`Simulation::begin_receiver_kill_record`), and a PostMortem restore
+    /// keeps no killer.
+    pub(crate) fn clear(&mut self) {
+        *self = Self::default();
+    }
+
+    /// The construction boundary's fact: no loss booked.
+    pub(crate) fn reset_constructed(&mut self) {
+        self.destruction_recorded = false;
+    }
+
+    /// Install a fixture's killer.
+    #[cfg(test)]
+    pub(crate) fn set_killed_by_for_test(&mut self, killer: Option<InternedId>) {
+        self.killed_by = killer;
+    }
+
+    /// Install a fixture's guard.
+    #[cfg(test)]
+    pub(crate) fn set_destruction_recorded_for_test(&mut self, recorded: bool) {
+        self.destruction_recorded = recorded;
+    }
+}
+
 /// The immediate House-accounting half of RecordKill70300F..7031DC.
 /// MatchStatistics owns all mutations; retained fatal attribution is an
 /// observation, never a second deferred score authority. A Temporal erase
@@ -342,13 +408,13 @@ fn record_kill_credit(
     count_killer: bool,
     callback: KillCallback,
 ) {
-    victim.killed_by = killer_owner;
+    victim.kill_record.killed_by = killer_owner;
     if callback == KillCallback::Terminal
         || victim.health.current() == 0
         || killer_owner.is_some()
         || victim.crash.is_crashing()
     {
-        victim.destruction_recorded = true;
+        victim.kill_record.destruction_recorded = true;
     }
     // Score is added before the Building Insignificant branch703045.
     if let Some(killer) = killer_owner

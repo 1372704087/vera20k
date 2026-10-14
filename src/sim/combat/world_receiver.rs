@@ -958,8 +958,7 @@ pub(crate) fn commit_entities(
             // shared RecordTheKill receiver before the PostMortem Destroy hook. Native retains no killer on the
             // restored object: a fresh null-source timer expiry must stay
             // uncredited, while a later sourced lethal hit captures anew.
-            target.killed_by = None;
-            target.destruction_recorded = false;
+            target.kill_record.clear();
             let replace = target
                 .pending_c4_detonation
                 .is_none_or(|pending| duration_frames < pending.timer.remaining(current_frame));

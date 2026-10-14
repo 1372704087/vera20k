@@ -206,7 +206,11 @@ fn retail_siege_chopper_draws_schd_only_after_deployment_completes() {
         .spawn_object_limbo_at_height("SCHP", "Americans", 10, 10, 0, 0, rules)
         .expect("retail Siege Chopper builds");
     assert!(sim.entities().get(id).unwrap().is_voxel());
-    sim.entities_mut().get_mut(id).unwrap().body_frame_counter = 1;
+    sim.entities_mut()
+        .get_mut(id)
+        .unwrap()
+        .body_frame_counter
+        .set_for_test(1);
     let frame_counts = std::collections::BTreeMap::from([
         (("SCHP".to_string(), VxlLayer::Body, 0), 2),
         (("SCHD".to_string(), VxlLayer::Body, 0), 1),
@@ -265,7 +269,9 @@ fn unit_hva_frames_match_native_selected_model_remainders() {
     let rows = native["draw_frames"].as_array().unwrap();
     assert_eq!(rows.len(), 56);
     for row in rows {
-        entity.body_frame_counter = row["body_counter"].as_i64().unwrap() as u32;
+        entity
+            .body_frame_counter
+            .set_for_test(row["body_counter"].as_i64().unwrap() as u32);
         entity
             .turret_anim_frame
             .set_for_test(row["turret_counter"].as_i64().unwrap() as i32);

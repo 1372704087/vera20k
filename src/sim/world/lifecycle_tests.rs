@@ -2724,7 +2724,8 @@ fn lifecycle_authority_conceal_dirty_eligibility_emits_dirty_before_drawn_clear(
         .entities
         .get_mut(1)
         .unwrap()
-        .dirty_rect_eligible = true;
+        .removal_facts
+        .set_dirty_rect_eligible_for_test(true);
     let _ = sim.reveal(1);
     sim.lifecycle_outputs.clear();
 
@@ -2754,7 +2755,7 @@ fn lifecycle_authority_conceal_deselects_unmarks_unregisters_then_sets_limbo() {
     let _ = sim.reveal(1);
     let entity = sim.substrate.entities.get_mut(1).unwrap();
     entity.selected = true;
-    entity.dirty_rect_eligible = true;
+    entity.removal_facts.set_dirty_rect_eligible_for_test(true);
     sim.lifecycle_test_events.clear();
 
     let _ = sim.object_conceal(1);
@@ -2916,7 +2917,8 @@ fn lifecycle_authority_conceal_outputs_match_release_order() {
         .entities
         .get_mut(1)
         .unwrap()
-        .dirty_rect_eligible = true;
+        .removal_facts
+        .set_dirty_rect_eligible_for_test(true);
     let _ = sim.reveal(1);
     sim.lifecycle_outputs.clear();
 
@@ -3621,7 +3623,7 @@ fn occupier_capture_retains_live_non_selling_nav_target() {
     .unwrap();
 
     let listener = sim.substrate.entities.get_mut(1).unwrap();
-    listener.occupier = true;
+    listener.removal_facts.set_occupier_for_test(true);
     listener.navigation.suspended_nav_com = Some(NavTargetRef::Building { id: 2 });
     listener.navigation.nav_com_aux = Some(NavTargetRef::Building { id: 2 });
     listener.navigation.nav_com = Some(NavTargetRef::Building { id: 2 });
@@ -3662,7 +3664,7 @@ fn selling_target_disables_occupier_capture_nav_retention() {
     .unwrap();
 
     let listener = sim.substrate.entities.get_mut(1).unwrap();
-    listener.occupier = true;
+    listener.removal_facts.set_occupier_for_test(true);
     listener.navigation.nav_com_aux = Some(NavTargetRef::Building { id: 2 });
     listener.navigation.nav_com = Some(NavTargetRef::Building { id: 2 });
 
@@ -4132,7 +4134,14 @@ fn gsi_05_03_duplicate_uninit_repeats_direct_expiry_and_queue_but_finalizes_once
     let tracking = &sim.houses.get(&owner).unwrap().tracking;
     assert_eq!(tracking.active_for_test().0, 0);
     assert_eq!(tracking.units_for_test(), 1);
-    assert!(sim.substrate.entities.get(1).unwrap().destruction_recorded);
+    assert!(
+        sim.substrate
+            .entities
+            .get(1)
+            .unwrap()
+            .kill_record
+            .is_recorded()
+    );
     assert_eq!(sim.substrate.pending_delete.object_ids(), vec![1, 1]);
     let direct = repeated_events
         .iter()
@@ -4225,7 +4234,14 @@ fn lifecycle_authority_uninit_records_once_and_the_drain_removes_the_tracking() 
     sim.uninit(1);
     sim.uninit(1);
     assert_eq!(sim.houses.get(&owner).unwrap().tracking.units_for_test(), 1);
-    assert!(sim.substrate.entities.get(1).unwrap().destruction_recorded);
+    assert!(
+        sim.substrate
+            .entities
+            .get(1)
+            .unwrap()
+            .kill_record
+            .is_recorded()
+    );
     sim.flush_pending_delete();
     assert_eq!(sim.houses.get(&owner).unwrap().tracking.units_for_test(), 0);
 }
@@ -4728,7 +4744,9 @@ fn dont_score_victims_book_no_kill_no_loss_and_no_points() {
     victim.health.set_for_test(0);
     victim.tracking_facts.set_dont_score_for_test(true);
     // Retained attribution does not bypass the victim's DontScore gate.
-    victim.killed_by = Some(killer_owner);
+    victim
+        .kill_record
+        .set_killed_by_for_test(Some(killer_owner));
 
     sim.uninit(1);
 
@@ -4798,7 +4816,7 @@ fn lifecycle_authority_animated_death_stays_represented_until_uninit() {
         (1, 1)
     );
     let entity = sim.substrate.entities.get(1).unwrap();
-    assert!(!entity.destruction_recorded);
+    assert!(!entity.kill_record.is_recorded());
     assert!(entity.lifecycle.object_alive());
     assert!(!entity.lifecycle.in_limbo());
     assert!(entity.lifecycle.cell_marked);

@@ -193,7 +193,7 @@ fn post_ai_object_alive_gate_precedes_drive_ship_process_slope_sampling() {
                     _ => unreachable!(),
                 };
                 assert_eq!(track.cursor, 0, "{kind:?}");
-                assert_eq!(entity.body_frame_counter, 0, "{kind:?}");
+                assert_eq!(entity.body_frame_counter.get(), 0, "{kind:?}");
             }
         }
     }
@@ -226,7 +226,7 @@ fn ordinary_object_turn_pays_multiple_points_and_runs_prefix_and_shp_once() {
             .remaining(sim.session.binary_frame as i32),
         9
     );
-    assert_eq!(entity.body_frame_counter, 1);
+    assert_eq!(entity.body_frame_counter.get(), 1);
     assert_eq!(
         entity
             .locomotor
@@ -415,7 +415,7 @@ fn terminal_sensor_receiver_finishes_before_shp_and_is_not_deferred_to_cell_chan
             progress
         ));
     };
-    entity.body_frame_counter = 5;
+    entity.body_frame_counter.set_for_test(5);
     sim.advance_live_object_turn(1, Some(&rules), techno_ai::ObjectAiCtx::default())
         .expect("fixture object turn must complete");
     let entity = sim.substrate.entities.get(1).unwrap();
@@ -425,7 +425,8 @@ fn terminal_sensor_receiver_finishes_before_shp_and_is_not_deferred_to_cell_chan
     assert!(entity.navigation.nav_com.is_none());
     assert!(crate::sim::movement::motion_query::is_moving(&entity) != Some(true));
     assert_eq!(
-        entity.body_frame_counter, 5,
+        entity.body_frame_counter.get(),
+        5,
         "terminal retired movement before IdleRate=0 SHP admission"
     );
     assert!(entity.foot_occupation_enabled);

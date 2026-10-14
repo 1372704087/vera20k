@@ -11,7 +11,7 @@ use serde_json::Value;
 use super::*;
 use crate::map::resolved_terrain::test_flat_ground_grid;
 use crate::rules::ini_parser::IniFile;
-use crate::sim::combat::AttackTarget;
+use crate::sim::combat::TargetKind;
 use crate::sim::combat::receiver_fixture::with_building_fire_stub;
 use crate::sim::command::{Command, CommandEnvelope};
 use crate::sim::game_entity::GameEntity;
@@ -54,7 +54,7 @@ fn rows<'a>(golden: &'a Value, set: &str) -> &'a [Value] {
 /// cannot passive-acquire, so a cadence row's target comes only from its
 /// events, as in the oracle; `SHED` is the unarmed enemy they aim at.
 fn rules(guard_aa_rate: &str, rof: u32) -> RuleSet {
-    RuleSet::from_ini(&IniFile::from_str(&format!(
+    RuleSet::from_ini(&crate::sim::arena_fixture::clear_ground_ini(&format!(
         "[Guard]\nRate=.030\nAARate={guard_aa_rate}\n\
          [Sticky]\nRate=.016\nAARate=.016\n\
          [Attack]\nRate=.016\nAARate=.016\n\
@@ -101,6 +101,7 @@ pub(super) fn fixture(
 ) -> (Simulation, u64, u64) {
     let mut sim = Simulation::new();
     sim.install_resolved_terrain_for_new_map(test_flat_ground_grid(16));
+    crate::sim::arena_fixture::supply_native_map(&mut sim);
     let building = sim.spawn_object(kind, "Americans", 5, 5, 0, rules).unwrap();
     let target = sim
         .spawn_object("SHED", "Russians", target_cell.0, target_cell.1, 0, rules)
@@ -141,7 +142,12 @@ fn set_mission(sim: &mut Simulation, id: u64, mission: MissionId, status: u32) {
 }
 
 pub(super) fn aim_at(sim: &mut Simulation, id: u64, target: u64) {
-    sim.substrate.entities.get_mut(id).unwrap().attack_target = Some(AttackTarget::new(target));
+    sim.substrate
+        .entities
+        .get_mut(id)
+        .unwrap()
+        .attack_target
+        .set_for_test(Some(TargetKind::Entity(target)));
 }
 
 fn ready_latch(sim: &Simulation, id: u64) -> u8 {
@@ -216,7 +222,7 @@ fn assert_state(sim: &Simulation, id: u64, target: u64, row: &Value) {
         "{name} +0x6DD"
     );
     assert_eq!(
-        entity.attack_target.as_ref().map(|attack| attack.target),
+        entity.attack_target.target(),
         row["target"].as_str().map(|_| TargetKind::Entity(target)),
         "{name} target"
     );
@@ -397,7 +403,7 @@ fn mission_attack_matches_the_original() {
         );
         assert_eq!(delayed[1], 0, "{name}");
         assert_eq!(
-            i64::from(entity.turret_anim_frame),
+            i64::from(entity.turret_anim_frame.frame()),
             row["turret_count"].as_i64().unwrap(),
             "{name} +0x148"
         );
@@ -459,8 +465,7 @@ fn set_target_matches_the_original() {
                 .get(building)
                 .unwrap()
                 .attack_target
-                .as_ref()
-                .map(|attack| attack.target),
+                .target(),
             row["target"].as_str().map(|_| TargetKind::Entity(target)),
             "{name}"
         );
@@ -581,6 +586,7 @@ fn the_update_tail_drops_a_target_out_of_range() {
             .get(building)
             .unwrap()
             .attack_target
+            .target()
             .is_none()
     );
 
@@ -593,6 +599,7 @@ fn the_update_tail_drops_a_target_out_of_range() {
             .get(building)
             .unwrap()
             .attack_target
+            .target()
             .is_some()
     );
 }
@@ -631,6 +638,7 @@ fn building_dispatch_cadence_matches_the_original() {
         let rules = rules(".016", input["rof"].as_u64().unwrap() as u32);
         let mut sim = Simulation::new();
         sim.install_resolved_terrain_for_new_map(test_flat_ground_grid(16));
+        crate::sim::arena_fixture::supply_native_map(&mut sim);
         let building = sim
             .spawn_object("DEF", "Americans", 5, 5, 0, &rules)
             .unwrap();
@@ -728,7 +736,7 @@ fn building_dispatch_cadence_matches_the_original() {
             if !matches!(events.get(&(k + 1)), Some(Event::Order)) {
                 assert_eq!(entity.mission.queued(), MissionId::NONE, "{at} queue");
                 assert_eq!(
-                    entity.attack_target.is_some(),
+                    entity.attack_target.target().is_some(),
                     frame["target"].is_string(),
                     "{at} target"
                 );
@@ -1027,7 +1035,7 @@ fn retail_defence_guards_attacks_and_returns(
         let entity = scenario.sim().substrate.entities.get(defence).unwrap();
         (
             entity.mission.current().known(),
-            entity.attack_target.as_ref().map(|attack| attack.target),
+            entity.attack_target.target(),
         )
     };
     {
@@ -1118,7 +1126,7 @@ fn retail_defence_guards_attacks_and_returns(
             .substrate
             .entities
             .get(grunt)
-            .is_none_or(|entity| entity.health.current == 0)
+            .is_none_or(|entity| entity.health.current() == 0)
     });
     assert!(killed.is_some(), "{kind} kills the {infantry}");
     for _ in 0..3 {
@@ -1300,7 +1308,7 @@ fn retail_dustbowl_prism_towers_forward_their_charge() {
             .get(mcv)
             .unwrap()
             .health
-            .current;
+            .current();
         let binary_frame = scenario.sim().session.binary_frame as i32;
         let output = retail_frame(&mut scenario, Vec::new());
         let after = [master, near, far].map(|id| fire(&scenario, id));
@@ -1319,11 +1327,11 @@ fn retail_dustbowl_prism_towers_forward_their_charge() {
                 (Some(DelayedFire::SupportBeam { .. }), None) => {
                     let entity = scenario.sim().substrate.entities.get(id).unwrap();
                     assert_eq!(
-                        entity.rearm_timer,
+                        entity.rearm_timer.timer(),
                         crate::sim::timer::CdTimer::started(binary_frame, 45),
                         "the downtime starts on the beam's frame"
                     );
-                    assert_eq!(entity.prism_support_count, 0);
+                    assert_eq!(entity.prism_support_count.count(), 0);
                     beams.push((frame, id));
                 }
                 _ => {}
@@ -1349,11 +1357,12 @@ fn retail_dustbowl_prism_towers_forward_their_charge() {
                 .get(mcv)
                 .unwrap()
                 .health
-                .current;
+                .current();
             shot = Some((frame, health - after));
             let entity = scenario.sim().substrate.entities.get(master).unwrap();
             assert_eq!(
-                entity.prism_support_count, 0,
+                entity.prism_support_count.count(),
+                0,
                 "the bonus restarts the count"
             );
             break;

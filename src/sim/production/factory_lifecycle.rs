@@ -205,7 +205,8 @@ pub(super) fn start_active_production(
     // A factory-held object is still in limbo and has no cell authority. Zero
     // is only inert storage here; the result-bearing Unlimbo later installs the
     // selected delivery/placement coordinate on this same stable identity.
-    let stable_id = sim.construct_object_limbo_at_height(&type_name, &owner, 0, 0, 0, 0, rules)?;
+    let stable_id =
+        sim.construct_object_limbo_at_height(&type_name, &owner, 0, 0, 0, 0, rules, effects)?;
     let linked = sim
         .production
         .factories
@@ -885,7 +886,7 @@ pub(crate) fn validate_restored_factory_state(
             // holding one object and no queue, and counts no completion.
             FactoryHolder::Building(building) => {
                 let held_by_owner = sim.substrate.entities.get(building).is_some_and(|entity| {
-                    entity.category == EntityCategory::Structure && entity.owner() == owner
+                    entity.category() == EntityCategory::Structure && entity.owner() == owner
                 });
                 if !held_by_owner {
                     return Err(fail(
@@ -954,19 +955,22 @@ pub(crate) fn validate_restored_factory_state(
             ));
         }
         let expected_category = EntityCategory::from(object.category);
-        if entity.category != expected_category {
+        if entity.category() != expected_category {
             return Err(fail(
                 owner,
                 "constructed identity has the wrong concrete category",
             ));
         }
-        if entity.spawn_owner_id.is_some() || entity.slave.owner().is_some() {
+        if entity.spawn_owner_id.owner().is_some() || entity.slave.owner().is_some() {
             return Err(fail(owner, "factory root is itself a manager child"));
         }
         // Factory admission validates retained identity and membership, without
         // inferring health or death flags. Terminal-state admission separately
         // validates the object's lifecycle handoff.
-        if !entity.lifecycle.in_limbo || entity.lifecycle.cell_marked || entity.in_logic_vector {
+        if !entity.lifecycle.in_limbo()
+            || entity.lifecycle.cell_marked
+            || entity.in_logic_vector.is_member()
+        {
             return Err(fail(
                 owner,
                 "factory object is already admitted to the world",

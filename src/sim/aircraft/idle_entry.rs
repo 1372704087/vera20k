@@ -387,7 +387,7 @@ pub(crate) fn enter_idle_mode_for(
         ammo: entity
             .aircraft_ammo
             .as_ref()
-            .map_or(-1, |ammo| ammo.current),
+            .map_or(-1, |ammo| ammo.current()),
         type_ammo: object.ammo,
         docks: !object.dock.is_empty(),
         airport_bound: object.airport_bound,
@@ -489,7 +489,7 @@ impl IdleHost for WorldIdle<'_> {
 
     fn target(&mut self) -> bool {
         crate::sim::combat::target_present(
-            self.entity().attack_target.as_ref(),
+            self.entity().attack_target.target(),
             &self.sim.substrate.entities,
         )
     }

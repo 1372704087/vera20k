@@ -44,7 +44,7 @@ fn unit_refusals_match_native_and_leave_orders_and_rng_untouched() {
         let frame = input["frame"].as_u64().unwrap_or(100) as u32;
         let now = frame.wrapping_add(input["elapsed"].as_u64().unwrap_or(0) as u32);
         let mut actor = GameEntity::test_default(1, "MTNK", "Allies", 5, 5);
-        actor.category = EntityCategory::Unit;
+        actor.set_category_for_test(EntityCategory::Unit);
         actor
             .mission
             .apply_test_fixture(crate::sim::mission::state::MissionTestFixture {
@@ -118,7 +118,7 @@ fn unit_flags_override_mission_scatter_and_nav_com() {
     ))
     .unwrap();
     let mut actor = GameEntity::test_default(1, "MTNK", "Allies", 5, 5);
-    actor.category = EntityCategory::Unit;
+    actor.set_category_for_test(EntityCategory::Unit);
     actor.locomotor = Some(LocomotorState::for_test_kind(LocomotorKind::Drive));
     let guard = with_mission(&actor, MissionType::Guard);
     let hunt = with_mission(&actor, MissionType::Hunt);
@@ -161,12 +161,12 @@ fn unit_checks_active_locomotor_and_body_rotation_not_stashed_slot_or_turret() {
     let rules = no_rules();
     let flags = ScatterFlags::new(true, true);
     let mut actor = GameEntity::test_default(1, "CMIN", "Allies", 5, 5);
-    actor.category = EntityCategory::Unit;
+    actor.set_category_for_test(EntityCategory::Unit);
     let mut actor = with_mission(&actor, MissionType::Move);
     actor.locomotor = Some(LocomotorState::for_test_kind(LocomotorKind::Teleport));
     assert!(!unit_scatter_admitted(&actor, flags, &rules, 100));
     assert!(crate::sim::movement::locomotor_owner::begin_drive_for_teleporter(&mut actor, 100));
-    actor.turret_rotation_latch = true;
+    actor.turret_rotation_latch.set_for_test(true);
     actor.navigation.nav_com = Some(NavTargetRef::cell(8, 8));
     assert!(
         actor
@@ -208,7 +208,7 @@ fn scatter_requests_keep_call_order_and_ask_each_object_once() {
 #[test]
 fn unit_receiver_does_not_read_its_own_motion() {
     let mut actor = GameEntity::test_default(1, "MTNK", "Allies", 5, 5);
-    actor.category = EntityCategory::Unit;
+    actor.set_category_for_test(EntityCategory::Unit);
     let mut actor = with_mission(&actor, MissionType::Move);
     actor.locomotor = Some(LocomotorState::for_test_kind(LocomotorKind::Drive));
     let head = DriveCoord::cell(6, 5, 0);
@@ -372,7 +372,7 @@ fn cell_scatter_dispatch_matches_original_execution() {
                 0,
                 0,
                 owner,
-                crate::sim::components::Health { current: 100 },
+                crate::sim::combat::Health::new(100),
                 kind,
                 EntityCategory::Unit,
                 0,
@@ -447,7 +447,7 @@ fn unforced_walk_reads_house_iq_ability_elite_and_player_scatter() {
     let stock = rules(false);
     let mut entities = EntityStore::new();
     let mut man = GameEntity::test_default(2, "E1", "Soviet", 5, 5);
-    man.category = EntityCategory::Infantry;
+    man.set_category_for_test(EntityCategory::Infantry);
     let owner = man.owner();
     entities.insert(man);
     let mut houses = BTreeMap::new();
@@ -473,7 +473,7 @@ fn unforced_walk_reads_house_iq_ability_elite_and_player_scatter() {
     entities.get_mut(2).unwrap().veterancy.set_rank_for_test(0);
     assert_eq!(walk(&entities, &houses, &rules(true), &[2]), vec![2]);
     let mut elite = GameEntity::test_default(3, "E1", "Soviet", 5, 5);
-    elite.category = EntityCategory::Infantry;
+    elite.set_category_for_test(EntityCategory::Infantry);
     elite.veterancy.set_rank_for_test(200);
     entities.insert(elite);
     assert_eq!(walk(&entities, &houses, &stock, &[3, 2]), vec![3, 2]);
@@ -603,7 +603,7 @@ fn unit_null_arm_matches_original_execution() {
                 .unwrap()
         } else {
             let mut actor = GameEntity::test_default(1, "MTNK", "Allies", 10, 10);
-            actor.category = EntityCategory::Unit;
+            actor.set_category_for_test(EntityCategory::Unit);
             actor.locomotor = Some(LocomotorState::for_test_kind(LocomotorKind::Drive));
             sim.substrate
                 .entities
@@ -696,10 +696,12 @@ fn receive_damage_scatter_gates_match_original_execution() {
             actor.locomotor = Some(locomotor);
         }
         if flag("tether") {
-            actor.dock_entered_with = Some(9);
+            actor.tether.set_for_test(Some(9));
         }
         if flag("target") {
-            actor.attack_target = Some(crate::sim::combat::AttackTarget::new(9));
+            actor
+                .attack_target
+                .set_for_test(Some(crate::sim::combat::TargetKind::Entity(9)));
         }
         if flag("nav") {
             actor.navigation.nav_com = Some(NavTargetRef::cell(9, 9));
@@ -775,7 +777,7 @@ fn receive_damage_scatter_gates_match_original_execution() {
 #[test]
 fn unit_source_arm_matches_original_execution() {
     use crate::rules::ini_parser::IniFile;
-    use crate::sim::combat::AttackTarget;
+    use crate::sim::combat::TargetKind;
     use crate::sim::movement::fresh_oracle_seam::{self, FreshCallRecord};
     let rows: serde_json::Value = serde_json::from_str(crate::test_fixture::text(
         "tools/spatial_oracle/unit_source_scatter.json",
@@ -825,9 +827,13 @@ fn unit_source_arm_matches_original_execution() {
             actor.navigation.nav_com = Some(NavTargetRef::cell(8, 8));
         }
         if flag("target") {
-            actor.attack_target = Some(AttackTarget::for_cell(5, 5));
+            actor
+                .attack_target
+                .set_for_test(Some(TargetKind::Cell(5, 5)));
         }
-        actor.turret_rotation_latch = flag("turret_latch");
+        actor
+            .turret_rotation_latch
+            .set_for_test(flag("turret_latch"));
         if flag("unload_active") {
             let mut miner = crate::sim::miner::Miner::new(
                 crate::sim::miner::MinerKind::War,

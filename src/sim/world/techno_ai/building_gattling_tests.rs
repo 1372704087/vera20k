@@ -69,7 +69,7 @@ fn rules(delay: i64, rate_down: i64, reports: bool) -> RuleSet {
             }
         }
     }
-    RuleSet::from_ini(&IniFile::from_str(&format!(
+    RuleSet::from_ini(&crate::sim::arena_fixture::clear_ground_ini(&format!(
         "[General]\nGuardAreaTargetingDelay={delay}\n\
          [Guard]\nRate=.030\nAARate=.016\n\
          [Sticky]\nRate=.016\nAARate=.016\n\
@@ -135,8 +135,12 @@ fn prepare(sim: &mut Simulation, id: u64, input: &Value) {
     if state["veterancy"].as_f64().unwrap_or(0.0) >= 2.0 {
         entity.veterancy.set_rank_for_test(RANK_ELITE_U16);
     }
-    entity.last_fire_frame = int("last_fire_frame", -100);
-    entity.turret_anim_frame = int("turret_count", 0) as i32;
+    entity
+        .last_fire_frame
+        .set_for_test(int("last_fire_frame", -100));
+    entity
+        .turret_anim_frame
+        .set_for_test(int("turret_count", 0) as i32);
 }
 
 /// A sound the Gattling calls start, stop or release, by report name.
@@ -255,7 +259,7 @@ fn assert_gattling(sim: &Simulation, id: u64, row: &Value, stage_before: i32) {
         "{name} +0xC4"
     );
     assert_eq!(
-        i64::from(entity.turret_anim_frame),
+        i64::from(entity.turret_anim_frame.frame()),
         native["turret_count"].as_i64().unwrap(),
         "{name} +0x148"
     );
@@ -340,7 +344,7 @@ fn gattling_attack_matches_the_original() {
             "{name} queue"
         );
         assert_eq!(
-            entity.attack_target.is_some(),
+            entity.attack_target.target().is_some(),
             row["target"].is_string(),
             "{name} target"
         );
@@ -444,7 +448,7 @@ fn a_retarget_after_the_visit_keeps_the_visits_shot() {
     );
     let entity = sim.substrate.entities.get(building).unwrap();
     assert_eq!(
-        entity.attack_target.as_ref().map(|attack| attack.target),
+        entity.attack_target.target(),
         Some(TargetKind::Entity(other))
     );
 }
@@ -561,9 +565,11 @@ fn gattling_idle_decay_matches_the_original() {
         prepare(&mut sim, building, input);
         let since = input["since"].as_i64().unwrap();
         let entity = sim.substrate.entities.get_mut(building).unwrap();
-        entity.last_fire_frame = i64::from(FRAME) - since;
+        entity
+            .last_fire_frame
+            .set_for_test(i64::from(FRAME) - since);
         if input["dead"] == true {
-            entity.health.current = 0;
+            entity.health.set_for_test(0);
         }
         let dead = row["ended"].as_u64().unwrap() == 0x0044_0573;
         assert_eq!(dead, input["dead"] == true, "{name}");
@@ -620,6 +626,7 @@ fn gattling_cadence_matches_the_original() {
         let rules = row_rules(input);
         let mut sim = Simulation::new();
         sim.install_resolved_terrain_for_new_map(test_flat_ground_grid(16));
+        crate::sim::arena_fixture::supply_native_map(&mut sim);
         let building = sim
             .spawn_object("GAT", "Americans", 5, 5, 0, &rules)
             .unwrap();
@@ -711,7 +718,7 @@ fn gattling_cadence_matches_the_original() {
             let native = &frame["gattling"];
             let lff = native["last_fire_frame"].as_i64().unwrap();
             assert_eq!(
-                entity.last_fire_frame,
+                entity.last_fire_frame.frame(),
                 if lff == -100 {
                     -100
                 } else {
@@ -838,7 +845,7 @@ fn retail_dustbowl_gattling_cannon_spins_up_and_winds_down() {
         let entity = scenario.sim().substrate.entities.get(cannon).unwrap();
         (
             entity.mission.current().known(),
-            entity.attack_target.is_some(),
+            entity.attack_target.target().is_some(),
             entity.gattling.stage(),
             entity.gattling.value(),
         )

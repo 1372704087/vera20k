@@ -117,7 +117,7 @@ impl MapScheduledCommand {
                     let mut matches = sim.entities().iter_sorted().filter(|(_, entity)| {
                         entity.is_active()
                             && entity.is_alive()
-                            && !entity.lifecycle.in_limbo
+                            && !entity.lifecycle.in_limbo()
                             && sim.interner.resolve(entity.type_ref()) == selector.type_id
                             && sim.interner.resolve(entity.owner()) == selector.owner
                             && selector
@@ -263,7 +263,7 @@ mod tests {
     use super::*;
     use crate::map::entities::EntityCategory;
     use crate::rules::ini_parser::IniFile;
-    use crate::sim::components::Health;
+    use crate::sim::combat::Health;
     use crate::sim::game_entity::GameEntity;
 
     fn rules() -> RuleSet {
@@ -292,14 +292,14 @@ mod tests {
             0,
             0,
             owner,
-            Health { current: 400 },
+            Health::new(400),
             type_ref,
             EntityCategory::Unit,
             0,
             4,
             true,
         );
-        entity.lifecycle.in_limbo = false;
+        entity.lifecycle.set_in_limbo_for_test(false);
         sim.entities_mut().insert(entity);
     }
 
@@ -406,15 +406,31 @@ mod tests {
             narrowed.resolve(&sim, &rules).is_err(),
             "cell is current, not initial"
         );
-        sim.entities_mut().get_mut(28).unwrap().health.current = 0;
+        sim.entities_mut()
+            .get_mut(28)
+            .unwrap()
+            .health
+            .set_for_test(0);
         assert_eq!(
             command.resolve(&sim, &rules).unwrap().0,
             Command::Stop { entity_id: 17 }
         );
-        sim.entities_mut().get_mut(17).unwrap().lifecycle.in_limbo = true;
+        sim.entities_mut()
+            .get_mut(17)
+            .unwrap()
+            .lifecycle
+            .set_in_limbo_for_test(true);
         assert!(command.resolve(&sim, &rules).is_err());
-        sim.entities_mut().get_mut(17).unwrap().lifecycle.in_limbo = false;
-        sim.entities_mut().get_mut(17).unwrap().dying = true;
+        sim.entities_mut()
+            .get_mut(17)
+            .unwrap()
+            .lifecycle
+            .set_in_limbo_for_test(false);
+        sim.entities_mut()
+            .get_mut(17)
+            .unwrap()
+            .death
+            .set_dying_for_test(true);
         assert!(command.resolve(&sim, &rules).is_err());
     }
 

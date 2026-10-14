@@ -366,7 +366,8 @@ fn team_fixture(
     buildings: [(&str, u16, u16); 2],
     script: &str,
 ) -> (Simulation, RuleSet, u64, [u64; 2], [u64; 2]) {
-    let rules = RuleSet::from_ini(&IniFile::from_str(rules)).expect("minimal rules");
+    let rules = RuleSet::from_ini(&crate::sim::arena_fixture::clear_ground_ini(rules))
+        .expect("minimal rules");
     let comparison = zero_ai_trigger_comparison();
     let aimd = IniFile::from_str(&format!(
         "[TeamTypes]\n0=TT\n[TT]\nScript=S\nTaskForce=F\n\
@@ -434,7 +435,7 @@ fn a_computer_team_attacks_the_bigger_power_plant() {
         if members.iter().all(|&member| {
             sim.entities()
                 .get(member)
-                .and_then(|entity| entity.attack_target.as_ref())
+                .and_then(|entity| entity.attack_target.target())
                 .is_some()
         }) {
             break;
@@ -445,7 +446,7 @@ fn a_computer_team_attacks_the_bigger_power_plant() {
     for member in members {
         let entity = sim.entities().get(member).expect("member");
         assert_eq!(
-            entity.attack_target.as_ref().map(|attack| attack.target),
+            entity.attack_target.target(),
             Some(crate::sim::combat::TargetKind::Entity(bigger)),
             "member {member} attacks the 200-power plant"
         );
@@ -609,10 +610,10 @@ fn a_computer_engineer_team_attacks_the_enemy_factory() {
             if let Some(attack) = sim
                 .entities()
                 .get(member)
-                .and_then(|entity| entity.attack_target.as_ref())
-                && !targets.contains(&attack.target)
+                .and_then(|entity| entity.attack_target.target())
+                && !targets.contains(&attack)
             {
-                targets.push(attack.target);
+                targets.push(attack);
             }
         }
     }
@@ -650,6 +651,21 @@ fn super_team_fixture(script: &str) -> (Simulation, RuleSet, u64, [u64; 2], [u64
         [("PLANTA", 18, 8), ("PLANTB", 18, 13)],
         script,
     );
+    // House construction retains every stock entry, including the ungranted
+    // ChronoWarp that Fire_SW reaches via PostClick. Clicking never constructs.
+    for owner in sim.session.house_order.clone() {
+        for name in &rules.super_weapon_order {
+            let id = sim.interner.intern(name);
+            sim.super_weapons.entry(owner).or_default().insert(
+                id,
+                crate::sim::superweapon::SuperWeaponInstance::new(
+                    id,
+                    owner,
+                    sim.session.binary_frame as i32,
+                ),
+            );
+        }
+    }
     for (building, rx, ry) in [("IRON", 4, 4), ("CHRONO", 4, 8)] {
         sim.spawn_object_at_height(building, "Computer", rx, ry, 0, 0, &rules)
             .expect("building spawns");
@@ -660,10 +676,9 @@ fn super_team_fixture(script: &str) -> (Simulation, RuleSet, u64, [u64; 2], [u64
     for name in ["IronCurtainSpecial", "ChronoSphereSpecial"] {
         let id = sim.interner.intern(name);
         let mut instance = crate::sim::superweapon::SuperWeaponInstance::new(id, owner, 0);
-        instance.activate(
-            rules.super_weapon(name).unwrap().recharge_time_frames,
-            sim.session.binary_frame,
-        );
+        instance.is_active = true;
+        instance.charge_start_tick = sim.session.binary_frame as i32;
+        instance.charge_duration = rules.super_weapon(name).unwrap().recharge_time_frames;
         instance.is_ready = true;
         sim.super_weapons
             .entry(owner)

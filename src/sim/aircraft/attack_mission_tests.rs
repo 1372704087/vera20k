@@ -339,7 +339,7 @@ fn original_state10_rows() {
             let name = &input["name"];
             // The prefix: the latch clears, pending ammo is consumed.
             let mut ammo = AircraftAmmo::new(10);
-            ammo.current = get("ammo").as_i64().unwrap() as i32;
+            ammo.set_current_for_test(get("ammo").as_i64().unwrap() as i32);
             if get("pending").as_i64().unwrap() != 0 {
                 ammo.begin_release();
             }
@@ -355,7 +355,7 @@ fn original_state10_rows() {
             house.is_human = get("house_1ec").as_i64().unwrap() != 0;
             house.player_control = get("house_1ed").as_i64().unwrap() != 0;
             let facts = ExitFacts {
-                ammo: ammo.current,
+                ammo: ammo.current(),
                 target: get("target").as_bool().unwrap(),
                 leaves_map: get("flag_3d4").as_i64().unwrap() != 0,
                 human: house.is_controlled_by_human(get("game_mode").as_i64().unwrap() != 0),
@@ -390,7 +390,7 @@ fn original_state10_rows() {
             let input_ammo = get("ammo").as_i64().unwrap();
             let row_input_ammo = row["input"]["ammo"].as_i64().unwrap();
             assert_eq!(
-                i64::from(ammo.current) - input_ammo,
+                i64::from(ammo.current()) - input_ammo,
                 row["ammo"].as_i64().unwrap() - row_input_ammo,
                 "{name}"
             );
@@ -438,7 +438,7 @@ fn state9_delay_matches_the_original_division() {
 #[test]
 fn an_empty_fighter_lets_go_heads_for_its_edge_and_idles() {
     use crate::map::entities::EntityCategory;
-    use crate::sim::combat::AttackTarget;
+    use crate::sim::combat::TargetKind;
     use crate::sim::components::NavTargetRef;
     use crate::sim::game_entity::GameEntity;
     use crate::sim::mission::leaf::MissionLeafState;
@@ -477,8 +477,8 @@ fn an_empty_fighter_lets_go_heads_for_its_edge_and_idles() {
                 EntityCategory::Structure,
             );
             // Construction stamps the type's `Foundation=2x2`.
-            pad.foundation = "2x2".to_string();
-            pad.lifecycle.in_limbo = false;
+            pad.type_facts.set_foundation_for_test("2x2".to_string());
+            pad.lifecycle.set_in_limbo_for_test(false);
             sim.substrate.entities.insert(pad);
         }
         // After `test_default` interned the names.
@@ -495,7 +495,7 @@ fn an_empty_fighter_lets_go_heads_for_its_edge_and_idles() {
             sim.append_house_base_building_for_test(2);
             sim.update_house_tracking(2, crate::sim::house_tracking::HouseTracking::add_tracking);
         }
-        plane.category = EntityCategory::Aircraft;
+        plane.set_category_for_test(EntityCategory::Aircraft);
         // The RadioClass constructor's one contact slot (`0x0065A764`).
         plane.radio_contacts.set_capacity(1);
         plane.mission_leaf = MissionLeafState::aircraft_raw_for_test(1, 1, false);
@@ -512,8 +512,14 @@ fn an_empty_fighter_lets_go_heads_for_its_edge_and_idles() {
                 dispatch_timer: crate::sim::mission::MissionDispatchTimer::at_frame(0),
             });
         plane.aircraft_ammo = Some(AircraftAmmo::new(1));
-        plane.aircraft_ammo.as_mut().unwrap().current = 0;
-        plane.attack_target = Some(AttackTarget::for_cell(45, 40));
+        plane
+            .aircraft_ammo
+            .as_mut()
+            .unwrap()
+            .set_current_for_test(0);
+        plane
+            .attack_target
+            .set_for_test(Some(TargetKind::Cell(45, 40)));
         plane.locomotor = Some(LocomotorState::from_object_type(
             rules.object(plane_type).unwrap(),
             0,
@@ -542,7 +548,10 @@ fn an_empty_fighter_lets_go_heads_for_its_edge_and_idles() {
 
     let (sim, edge) = exit("ORCA", true, false);
     let plane = sim.substrate.entities.get(1).unwrap();
-    assert!(plane.attack_target.is_none(), "a human house lets go");
+    assert!(
+        plane.attack_target.target().is_none(),
+        "a human house lets go"
+    );
     assert_eq!(
         plane.navigation.nav_com,
         Some(NavTargetRef::cell(edge.0, edge.1))
@@ -557,7 +566,7 @@ fn an_empty_fighter_lets_go_heads_for_its_edge_and_idles() {
     let (sim, _) = exit("ORCA", false, false);
     let plane = sim.substrate.entities.get(1).unwrap();
     assert!(
-        plane.attack_target.is_some(),
+        plane.attack_target.target().is_some(),
         "a computer house keeps its target"
     );
     assert_eq!(

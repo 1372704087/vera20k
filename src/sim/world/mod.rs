@@ -30,21 +30,24 @@ pub(crate) mod entry_test_fixture;
 mod object_entry;
 mod sinking;
 mod sound_boundary;
+mod time_warp;
 pub(crate) use sound_boundary::{FrameEffects, SoundBoundary};
 #[cfg(test)]
 mod unit_unlimbo_tests;
 pub(crate) use sinking::SinkingState;
 pub mod edge_cell;
 mod gap_generator;
+pub(crate) use gap_generator::LastOperational;
 mod house_base;
 mod house_defeat;
+pub(crate) use house_defeat::HouseBlowupSubset;
 mod ion_blast;
 pub(crate) use house_base::HouseBaseState;
 mod infantry_terminal;
 mod jumpjet_cruise;
 #[cfg(test)]
 pub(crate) use infantry_terminal::InfantryDeathSequence;
-pub(crate) use infantry_terminal::{InfantryDeathPostlude, InfantryTerminal};
+pub(crate) use infantry_terminal::{InfantryDeathPostlude, InfantryTerminal, TerminalLifetime};
 mod aircraft_attack;
 mod aircraft_enter;
 mod aircraft_fire_location;
@@ -67,6 +70,7 @@ mod move_sound;
 mod object_sound;
 mod turret_rotate_sound;
 pub(crate) use move_sound::MoveSoundState;
+pub(crate) use turret_rotate_sound::TurretRotateLatch;
 #[cfg(test)]
 mod main_sound_identity_tests;
 #[cfg(test)]
@@ -90,7 +94,10 @@ mod techno_ai;
 mod trigger_camera;
 #[cfg(test)]
 mod trigger_camera_tests;
+pub(crate) use techno_ai::DamageSpark;
 pub(crate) use techno_ai::ObjectAiCtx;
+pub(crate) use techno_ai::PassiveScan;
+pub(crate) use techno_ai::PrismSupport;
 pub(crate) use techno_ai::direct_greatest_threat;
 #[cfg(test)]
 pub(crate) use techno_ai::dispatch_foot_mission;
@@ -143,21 +150,25 @@ pub(crate) use lifecycle_tests::common_raw_terrain_cell as common_raw_test_terra
 #[cfg(test)]
 mod team_script_vm_tests;
 
+pub(crate) use crash::CrashLatch;
 pub(crate) use display_registry::entity_layer;
 pub(crate) use lifecycle::{
-    ConcealOutcome, LifecycleOutput, PlacementEvidence, RevealOutcome, RevealPosition,
-    RevealRequest, UninitContext,
+    BuildingLight, ConcealOutcome, LifecycleOutput, ObjectLifecycle, PlacementEvidence,
+    RemovalFacts, RevealOutcome, RevealPosition, RevealRequest, TechnoDiscoveryHistory,
+    UninitContext,
 };
 #[cfg(test)]
 pub(crate) use lifecycle::{LifecycleTestEvent, RevealFailure};
 pub(crate) use load_object_lifecycle::{LoadObjectLifecycle, OverlayConstructionReceipt};
-pub(crate) use logic_vector::LogicVector;
+pub(crate) use logic_vector::{LogicMembership, LogicVector};
 pub(crate) use object_entry::FootEntryReceiver;
 #[cfg(test)]
 pub(crate) use substrate::DeferredDeleteQueue;
 pub use substrate::EnterOrderCounter;
 pub(crate) use substrate::{DeferredDeleteTicket, ObjectSubstrate};
-pub(crate) use world_spawn::{GeneratedTechnoInitError, GeneratedTechnoInitTable};
+pub(crate) use world_spawn::{
+    CrushableFacts, GeneratedTechnoInitError, GeneratedTechnoInitTable, MoverFacts, TypeFacts,
+};
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
@@ -536,7 +547,11 @@ pub enum SimSoundEvent {
     VocAtCoord {
         sound_id: String,
         coordinate: DriveCoord,
+        flags: u32,
     },
+    /// VocClass750F40 detaches independent coordinate requests whose flags
+    /// overlap and whose full signed XYZ equals the supplied coordinate.
+    VocStopAtCoord { coordinate: DriveCoord, flags: u32 },
     /// `TechnoClass::AI_Update @ 0x006FA054..0x006FA145` crossed a rank.
     ///
     /// Native plays `[AudioVisual] UpgradeVeteranSound=`/`UpgradeEliteSound=`
@@ -1206,6 +1221,15 @@ pub struct Simulation {
     /// retain the current handle and rebuilt terrain is rebound to it.
     #[serde(skip, default)]
     pub(crate) shared_cell_dummy: SharedCellDummy,
+    /// Shared Map+11C/+120 traversal for synchronous RevealZone578850/578710.
+    /// Nested discovery actions overwrite this same cursor; never restore an
+    /// outer cursor. Every exposed traversal resets before consuming it, and
+    /// no action stack survives a save, so this private scratch is not saved
+    /// or hashed. Terrain/query/input clones do not share its mutable state.
+    #[serde(skip)]
+    native_local_cell_cursor: Option<crate::map::resolved_terrain::NativeLocalCellCursor>,
+    #[serde(skip)]
+    native_allocated_cell_cursor: Option<crate::map::resolved_terrain::NativeAllocatedCellCursor>,
     /// Serialized value authority for allocated real CellClass bridge bits.
     /// The derived terrain grid is skipped; load installs its pristine map
     /// template and then writes these saved values directly back onto real
@@ -1302,8 +1326,6 @@ pub struct Simulation {
     /// saves no blast.
     #[serde(skip)]
     ion_blasts: Vec<ion_blast::IonBlast>,
-    /// Whether superweapon grants have been initialized from map-placed buildings.
-    pub(crate) super_weapons_initialized: bool,
     /// Per-cell terrain speed modifier config (slope climb/descend).
     /// Built from [General] rules at map load.
     #[serde(skip)]
@@ -1843,7 +1865,7 @@ impl Simulation {
                     let passenger_ids = entity
                         .passenger_role
                         .cargo()
-                        .map(|cargo| cargo.passengers.clone())
+                        .map(|cargo| cargo.passengers().to_vec())
                         .unwrap_or_default();
                     if !object.can_be_occupied || passenger_ids.is_empty() {
                         return None;
@@ -1895,7 +1917,7 @@ impl Simulation {
                 // Unit's receiver retains a `Crashable=` type its Crash(0)
                 // latched (`0x00738475`) and any other type's sinking hull
                 // (`0x00738493`); their own AI terminal calls UnInit. A
-                // Magnetron's drop latches `crashing` too, and keeps nothing.
+                // Magnetron's drop raises the crash latch too, and keeps nothing.
                 if self
                     .substrate
                     .entities
@@ -1905,7 +1927,7 @@ impl Simulation {
                             .object_type(entity.type_ref(), rules)
                             .is_some_and(|object| object.crashable)
                         {
-                            entity.crashing
+                            entity.crash.is_crashing()
                         } else {
                             entity.sinking.is_active()
                         }
@@ -2362,9 +2384,9 @@ impl Simulation {
                                     && self.substrate.entities.get(target_id).is_some_and(
                                         |entity| {
                                             entity.is_alive()
-                                                && !entity.dying
-                                                && !entity.lifecycle.in_limbo
-                                                && entity.lifecycle.object_alive
+                                                && !entity.death.is_dying()
+                                                && !entity.lifecycle.in_limbo()
+                                                && entity.lifecycle.object_alive()
                                         },
                                     );
                             if !eligible {
@@ -2694,7 +2716,7 @@ impl Simulation {
         overlay_registry: Option<&crate::rules::overlay_types::OverlayTypeRegistry>,
         frame_effects: FrameEffects<'_>,
     ) {
-        let Some(health) = self.substrate.entities.get(id).map(|e| e.health.current) else {
+        let Some(health) = self.substrate.entities.get(id).map(|e| e.health.current()) else {
             return;
         };
         let warhead = self.interner.intern(&rules.bridge_warheads.c4_name);
@@ -3339,6 +3361,8 @@ impl Simulation {
             structure_navigation_cells: BTreeSet::new(),
             resolved_terrain: None,
             shared_cell_dummy: SharedCellDummy::fresh(),
+            native_local_cell_cursor: None,
+            native_allocated_cell_cursor: None,
             real_cell_bridge_flags_0x1180: RealCellBridgeFlags0x1180::default(),
             dynamic_terrain_cells: BTreeMap::new(),
             bridge_state: None,
@@ -3362,7 +3386,6 @@ impl Simulation {
             lightning_storm: Default::default(),
             psychic_dominator: Default::default(),
             ion_blasts: Vec::new(),
-            super_weapons_initialized: false,
             terrain_speed_config: terrain_speed::TerrainSpeedConfig::default(),
             debug_event_logging: false,
             input_delay_ticks: 2,
@@ -3666,14 +3689,14 @@ impl Simulation {
     ) -> Option<crate::sim::house_state::HouseOutcomeState> {
         self.houses
             .get(&owner)?
-            .outcome_state
+            .outcome()
             .filter(|outcome| outcome.exit_ready)
     }
 
     fn natural_outcome_exit_ready(&self) -> bool {
-        self.houses
-            .iter()
-            .any(|(&owner, house)| house.is_human && self.ready_outcome_for_owner(owner).is_some())
+        self.session
+            .current_house
+            .is_some_and(|owner| self.ready_outcome_for_owner(owner).is_some())
     }
 
     fn termination_frame_requested(&self) -> bool {
@@ -3687,11 +3710,12 @@ impl Simulation {
     /// or out (`0x0055B389`, `0x0055B392`), else with
     /// `DominatorAmbientChangeRate=` while the Psychic Dominator is active
     /// (`PsyDom::Active`, `0x0055B3A4`), else with `AmbientChangeRate=`. The
-    /// chrono screen's test (`0x0055B39B`), in the nuke's arm, is not
-    /// modelled: map trigger action 127 sets it (`0x0053B460`), and VERA does
-    /// not port that action.
+    /// chrono screen's test (`0x0055B39B`) shares the nuke arm. Original
+    /// controls: superweapon_oracle.json/ambient_step, chrono=1.
     pub(crate) fn tick_scenario_lighting_transition(&mut self, rules: &RuleSet) {
-        let interval_frames = if self.session.lighting.nuke_flash_running() {
+        let interval_frames = if self.session.lighting.nuke_flash_running()
+            || self.session.chrono_screen().active()
+        {
             self.session.lighting.nuke_change_rate()
         } else if crate::sim::superweapon::psychic_dominator::active(self) {
             self.session.lighting.dominator_change_rate
@@ -3916,11 +3940,11 @@ impl Simulation {
                 );
                 let reveal = !entity.in_playfield
                     && member
-                    && entity.lifecycle.object_alive
-                    && !entity.lifecycle.in_limbo
-                    && !entity.dying
-                    && entity.health.current > 0
-                    && entity.category != EntityCategory::Structure
+                    && entity.lifecycle.object_alive()
+                    && !entity.lifecycle.in_limbo()
+                    && !entity.death.is_dying()
+                    && entity.health.current() > 0
+                    && entity.category() != EntityCategory::Structure
                     && self
                         .houses
                         .get(&entity.owner())
@@ -4075,16 +4099,11 @@ impl Simulation {
     /// reconciles every existing entity, so existing and future entities
     /// always agree with the toggle. Enabling preserves logs an entity
     /// already accumulated; disabling drops them all.
+    #[cfg(any(feature = "dev-overlays", test))]
     pub(crate) fn set_debug_event_logging(&mut self, enabled: bool) {
         self.debug_event_logging = enabled;
         for entity in self.substrate.entities.values_mut() {
-            if enabled {
-                if entity.debug_log.is_none() {
-                    entity.debug_log = Some(crate::sim::debug_event_log::DebugEventLog::new());
-                }
-            } else {
-                entity.debug_log = None;
-            }
+            entity.set_debug_logging(enabled);
         }
     }
 
@@ -4256,7 +4275,7 @@ impl Simulation {
                 self.substrate
                     .entities
                     .get(id)
-                    .is_some_and(|entity| entity.in_logic_vector)
+                    .is_some_and(|entity| entity.in_logic_vector.is_member())
                     || self
                         .substrate
                         .anims
@@ -4289,7 +4308,7 @@ impl Simulation {
             .substrate
             .entities
             .values()
-            .filter(|e| e.in_logic_vector)
+            .filter(|e| e.in_logic_vector.is_member())
             .count();
         let flagged_anims = self
             .substrate
@@ -4351,9 +4370,9 @@ impl Simulation {
     #[cfg(debug_assertions)]
     pub(crate) fn debug_assert_lifecycle_consistent(&self) {
         for entity in self.substrate.entities.values() {
-            if !entity.lifecycle.object_alive {
+            if !entity.lifecycle.object_alive() {
                 debug_assert!(
-                    entity.lifecycle.in_limbo,
+                    entity.lifecycle.in_limbo(),
                     "dead entity {} must have completed Conceal before alive clear",
                     entity.stable_id()
                 );
@@ -4363,12 +4382,12 @@ impl Simulation {
                     entity.stable_id()
                 );
                 debug_assert!(
-                    !entity.in_logic_vector,
+                    !entity.in_logic_vector.is_member(),
                     "dead entity {} must leave LogicVector before alive clear",
                     entity.stable_id()
                 );
                 debug_assert!(
-                    entity.destruction_recorded,
+                    entity.kill_record.is_recorded(),
                     "dead entity {} must record its destruction exactly once before alive clear",
                     entity.stable_id()
                 );
@@ -4385,7 +4404,7 @@ impl Simulation {
             }
             // A marked Foot sits where its Mark put it: the Mark owner's own
             // list decision, which the Ground answer makes rules-independent.
-            let listed = if entity.category == EntityCategory::Structure {
+            let listed = if entity.category() == EntityCategory::Structure {
                 if crate::sim::occupancy::cell_list_layer_for_entity(
                     entity,
                     self.resolved_terrain.as_ref(),
@@ -4536,7 +4555,7 @@ impl Simulation {
     #[cfg(test)]
     pub(crate) fn set_logic_order_for_test(&mut self, order: Vec<u64>) {
         for entity in self.substrate.entities.values_mut() {
-            entity.in_logic_vector = false;
+            entity.in_logic_vector.mark(false);
         }
         for anim in self.substrate.anims.values_mut() {
             anim.in_logic_vector = false;
@@ -4558,7 +4577,7 @@ impl Simulation {
         }
         for &id in &order {
             if let Some(e) = self.substrate.entities.get_mut(id) {
-                e.in_logic_vector = true;
+                e.in_logic_vector.mark(true);
             } else if let Some(anim) = self.substrate.anims.get_mut(id) {
                 anim.in_logic_vector = true;
             } else if let Some(debris) = self.substrate.voxel_anims.get_mut(id) {
@@ -4612,13 +4631,21 @@ impl Simulation {
         stable_id: u64,
         update: fn(
             &mut crate::sim::house_tracking::HouseTracking,
-            &crate::sim::game_entity::GameEntity,
+            &mut crate::sim::game_entity::GameEntity,
         ),
     ) {
-        let Some(entity) = self.substrate.entities.get(stable_id) else {
+        let Some(owner) = self
+            .substrate
+            .entities
+            .get(stable_id)
+            .map(crate::sim::game_entity::GameEntity::owner)
+        else {
             return;
         };
-        if let Some(house) = self.houses.get_mut(&entity.owner()) {
+        if let (Some(entity), Some(house)) = (
+            self.substrate.entities.get_mut(stable_id),
+            self.houses.get_mut(&owner),
+        ) {
             update(&mut house.tracking, entity);
         }
     }
@@ -4696,7 +4723,7 @@ impl Simulation {
         rules: &RuleSet,
     ) -> Option<(InternedId, i32, i32)> {
         let entity = self.substrate.entities.get(stable_id)?;
-        if entity.category != EntityCategory::Structure {
+        if entity.category() != EntityCategory::Structure {
             return None;
         }
         let object = self.object_type(entity.type_ref(), rules)?;
@@ -4738,7 +4765,7 @@ impl Simulation {
             return;
         };
         let owner = entity.owner();
-        let structure = entity.category == EntityCategory::Structure;
+        let structure = entity.category() == EntityCategory::Structure;
         if let Some(house) = self.houses.get_mut(&owner) {
             let factors = house.cost_factors();
             house.tracking.removed_from_game(entity, &factors);
@@ -4757,6 +4784,14 @@ impl Simulation {
                 .entry(owner)
                 .or_default()
                 .invalidate(radar);
+        }
+    }
+
+    /// Inline native House+1FC writers request the existing House tail;
+    /// power/radar dirty bytes remain with their distinct PowerState owner.
+    pub(crate) fn request_house_tech_tree_recheck(&mut self, owner: InternedId) {
+        if let Some(house) = self.houses.get_mut(&owner) {
+            house.request_tech_recheck();
         }
     }
 
@@ -4781,6 +4816,7 @@ impl Simulation {
             return;
         }
         let state = self.power_states.entry(owner).or_default();
+        let was_low_power = state.is_low_power;
         let assessed = power_system::assess_house_power(
             state,
             &self.substrate.entities,
@@ -4791,6 +4827,11 @@ impl Simulation {
         );
         if assessed {
             production::refresh_factory_rates_for_house(self, rules, owner);
+            // Power508DD5 compares the old/current ratio;508DDB invokes the
+            // shared hold/revoke before the radar tail, only on that edge.
+            if self.power_states[&owner].is_low_power != was_low_power {
+                crate::sim::superweapon::update_owned_supers(self, rules, owner);
+            }
         }
         // 0x004F84FB: once the current house is defeated no House rechecks
         // radar, so the radar its defeat switched on stays on.
@@ -4822,10 +4863,10 @@ impl Simulation {
     /// gamemd-derived: `BuildingClass::Unlimbo @ 0x004411B6..0x00441223`.
     pub(crate) fn append_live_build_const(&mut self, stable_id: u64) {
         let Some(owner) = self.substrate.entities.get(stable_id).and_then(|entity| {
-            (entity.category == EntityCategory::Structure
-                && entity.build_const_eligible
-                && entity.lifecycle.object_alive
-                && !entity.lifecycle.in_limbo
+            (entity.category() == EntityCategory::Structure
+                && entity.type_facts.build_const_eligible()
+                && entity.lifecycle.object_alive()
+                && !entity.lifecycle.in_limbo()
                 && entity.lifecycle.cell_marked)
                 .then_some(entity.owner())
         }) else {
@@ -4855,7 +4896,7 @@ impl Simulation {
             .substrate
             .entities
             .get(stable_id)
-            .map(|entity| (entity.owner(), entity.build_const_eligible))
+            .map(|entity| (entity.owner(), entity.type_facts.build_const_eligible()))
         else {
             return;
         };
@@ -4877,6 +4918,40 @@ impl Simulation {
     #[cfg(test)]
     pub(crate) fn change_owner(&mut self, stable_id: u64, new_owner: InternedId) {
         self.change_owner_impl(stable_id, new_owner, None, None, FrameEffects::default());
+    }
+
+    /// Original House502D30: first matching registration, not owner-name order.
+    /// Country identity remains RuleSet-owned; duplicate-Country Houses are valid.
+    pub(crate) fn house_by_country_index(
+        &self,
+        country: crate::rules::ruleset::CountryIdx,
+        rules: &RuleSet,
+    ) -> Option<InternedId> {
+        self.session.house_order.iter().copied().find(|owner| {
+            self.houses
+                .get(owner)
+                .and_then(|house| house.country)
+                .and_then(|id| rules.country_index(self.interner.resolve(id)))
+                == Some(country)
+        })
+    }
+
+    /// Original House510F60 -> Scenario510ED0, otherwise502D30. Only the
+    /// literal Player@A..H selectors4507..4514 use the start-slot mapping.
+    pub(crate) fn house_by_trigger_selector(
+        &self,
+        selector: i32,
+        rules: &RuleSet,
+    ) -> Option<InternedId> {
+        if (4507..=4514).contains(&selector) {
+            self.session
+                .start_slot_houses
+                .get(&((selector - 4507) as u32))
+                .copied()
+        } else {
+            let country = u16::try_from(selector).ok()?;
+            self.house_by_country_index(crate::rules::ruleset::CountryIdx(country), rules)
+        }
     }
 
     pub(crate) fn change_owner_with_rules(
@@ -4902,9 +4977,9 @@ impl Simulation {
             self.substrate.entities.get(stable_id).map(|entity| {
                 (
                     entity.owner(),
-                    entity.category,
+                    entity.category(),
                     entity.spawn_manager.is_some(),
-                    entity.build_const_eligible,
+                    entity.type_facts.build_const_eligible(),
                 )
             })
         else {
@@ -5032,7 +5107,7 @@ impl Simulation {
             .substrate
             .entities
             .get(stable_id)
-            .is_some_and(|entity| !entity.lifecycle.in_limbo);
+            .is_some_and(|entity| !entity.lifecycle.in_limbo());
         if on_map {
             self.house_removed_from_game(stable_id, rules, effects);
         }
@@ -5042,10 +5117,9 @@ impl Simulation {
         if let Some(rules) = rules {
             self.record_the_kill(
                 stable_id,
-                None,
-                None,
+                crate::sim::combat::KillSource::Techno(None),
                 crate::sim::combat::KillCallback::OwnerChange,
-                rules,
+                UninitContext::new(Some(rules), registry).with_effects(effects),
             );
             let cost = self
                 .substrate
@@ -5063,13 +5137,13 @@ impl Simulation {
         );
         //7015E6 receives the NEW House before the object owner changes.
         //Call the one native Add_Tracking owner with that explicit receiver.
-        if let Some(entity) = self.substrate.entities.get(stable_id)
+        if let Some(entity) = self.substrate.entities.get_mut(stable_id)
             && let Some(house) = self.houses.get_mut(&new_owner)
         {
             house.tracking.add_tracking(entity);
             //701607..70164D: DontScore suppresses this captured-object
             //count, not the preceding old-House price addition.
-            if !entity.dont_score {
+            if !entity.tracking_facts.dont_score() {
                 house.stats.record_kill(category);
             }
         }
@@ -5107,8 +5181,8 @@ impl Simulation {
         if category == EntityCategory::Structure
             && let Some(entity) = self.substrate.entities.get_mut(stable_id)
         {
-            entity.has_been_captured = true;
-            entity.repairing = false;
+            entity.has_been_captured.mark();
+            entity.repairing.stop_on_capture();
         }
         // `0x00448C6E..0x00448C94`, after the owner swap: the old house
         // records the building it lost (House+54E0), and the new house
@@ -5165,7 +5239,9 @@ impl Simulation {
         // Techno701735..701751 writes the owner then recomputes only +41A.
         // A former current-house object's +41B history survives the transfer.
         if let Some(entity) = self.substrate.entities.get_mut(stable_id) {
-            entity.discovery.owned_by_current_house = self.session.current_house == Some(new_owner);
+            entity
+                .discovery
+                .classify_owner(self.session.current_house == Some(new_owner));
         }
         // Techno701757..70178E: Added_To_Game on the new house (not in limbo).
         if on_map {
@@ -5209,23 +5285,10 @@ impl Simulation {
         if let Some(rules) = rules {
             self.reapply_building_gap_after_owner_change(stable_id, rules);
         }
-        // `0x0044936E`, `0x00449379`: both houses' `+0x1FC` asks their next
-        // House update for the Super revoke and grant passes
-        // (`0x004F92F6`, `0x004F92FD`); VERA refreshes at the event, as for
-        // a death or a sale.
-        // ChangeOwner448260 invalidates the old/new Houses at44936E/449379.
+        //44936E/449379: both houses' retained1FC asks their next House tail.
         if category == EntityCategory::Structure {
-            for owner in [old_owner, new_owner] {
-                if let Some(house) = self.houses.get_mut(&owner) {
-                    house.request_tech_recheck();
-                }
-            }
-        }
-        if category == EntityCategory::Structure
-            && let Some(rules) = rules
-        {
-            crate::sim::superweapon::refresh_super_weapons_for_owner(self, rules, old_owner);
-            crate::sim::superweapon::refresh_super_weapons_for_owner(self, rules, new_owner);
+            self.request_house_tech_tree_recheck(old_owner);
+            self.request_house_tech_tree_recheck(new_owner);
         }
     }
 
@@ -5316,13 +5379,13 @@ impl Simulation {
         let Some(entity) = self.substrate.entities.get(stable_id) else {
             return;
         };
-        let category = entity.category;
+        let category = entity.category();
         let current = entity.mission.current().known();
         let object = self.object_type(entity.type_ref(), rules);
         let factory_unloading = category == EntityCategory::Structure
             && current == Some(MissionType::Unload)
             && object.is_some_and(|object| object.weapons_factory);
-        let in_limbo = entity.lifecycle.in_limbo;
+        let in_limbo = entity.lifecycle.in_limbo();
         let now = self.session.binary_frame;
         let rescue = self.substrate.entities.get(stable_id).is_some_and(|e| {
             e.mission.current().known() == Some(MissionType::Rescue)
@@ -5438,7 +5501,7 @@ impl Simulation {
     /// heavy load-arg dependency) so save/load membership is unit-testable.
     pub(crate) fn rebuild_logic_membership(&mut self) {
         for entity in self.substrate.entities.values_mut() {
-            entity.in_logic_vector = false;
+            entity.in_logic_vector.mark(false);
         }
         for anim in self.substrate.anims.values_mut() {
             anim.in_logic_vector = false;
@@ -5460,7 +5523,7 @@ impl Simulation {
         }
         for &id in &self.substrate.logic.snapshot() {
             if let Some(entity) = self.substrate.entities.get_mut(id) {
-                entity.in_logic_vector = true;
+                entity.in_logic_vector.mark(true);
             } else if let Some(anim) = self.substrate.anims.get_mut(id) {
                 anim.in_logic_vector = true;
             } else if let Some(debris) = self.substrate.voxel_anims.get_mut(id) {
@@ -5847,7 +5910,7 @@ impl Simulation {
             // weapon ability (`HasWeaponAbility(0x11)`). No stock type grants
             // the ability through `VeteranAbilities=`/`EliteAbilities=`, so only
             // the flag is modelled here.
-            if !e.regular_crusher || !e.is_active() {
+            if !e.mover_facts.regular_crusher() || !e.is_active() {
                 continue;
             }
             let (rx, ry) = (e.position.rx, e.position.ry);
@@ -5943,7 +6006,7 @@ impl Simulation {
                 let Some(entity) = self.substrate.entities.get(stable_id) else {
                     continue;
                 };
-                let coarse_candidate = !entity.lifecycle.in_limbo
+                let coarse_candidate = !entity.lifecycle.in_limbo()
                     && entity.lifecycle.cell_marked
                     && entity.mission.current() != selling
                     && entity.mission.queued() != selling
@@ -6142,7 +6205,7 @@ impl Simulation {
             .substrate
             .entities
             .get(stable_id)
-            .filter(|e| e.category == EntityCategory::Structure && !e.dying)
+            .filter(|e| e.category() == EntityCategory::Structure && !e.death.is_dying())
             .map(|e| (e.owner(), e.type_ref()))
         else {
             return;
@@ -6190,7 +6253,7 @@ impl Simulation {
                     != Some(crate::sim::mission::MissionType::Selling)
                 || entity.ai_frozen()
                 || !entity.is_ai_alive()
-                || entity.lifecycle.in_limbo
+                || entity.lifecycle.in_limbo()
             {
                 return;
             }
@@ -6726,11 +6789,6 @@ impl Simulation {
         self.refresh_fog(&vision_config, rules);
 
         if let Some(rules) = rules {
-            // --- Phase 4.5: Superweapons ---
-            // DEPENDS ON: power state (suspend/resume gating).
-            // PRODUCES: AnimClass bolts and explosions, damage to entities, sound_events.
-            crate::sim::superweapon::tick_superweapon_instances(self, rules);
-
             // --- Phase 5: Combat + Turret rotation ---
             // DEPENDS ON: vision/fog (targeting uses fog state), power (cloaking).
             // Buildings, Units and Infantry fired in their own live slots.
@@ -6883,6 +6941,10 @@ impl Simulation {
             effects,
         );
         spawned_entities |= std::mem::take(&mut self.mission_spawned_entities);
+        bridge_state_changed |= self
+            .trigger_effects
+            .iter()
+            .any(|effect| matches!(effect, TriggerEffect::BridgeStateChanged));
         self.frame_overlay_updates = self.finalize_frame_overlays_and_navigation(
             rules,
             overlay_registry,

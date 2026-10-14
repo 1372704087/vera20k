@@ -826,7 +826,7 @@ mod retail_construction_tests {
         sim: &Simulation,
         entity: &crate::sim::game_entity::GameEntity,
     ) -> bool {
-        match entity.attack_target.as_ref().map(|attack| attack.target) {
+        match entity.attack_target.target() {
             Some(crate::sim::combat::TargetKind::Entity(id)) => sim
                 .entities()
                 .get(id)
@@ -871,14 +871,14 @@ mod retail_construction_tests {
                     .entities()
                     .values()
                     .filter(|entity| {
-                        entity.owner() == owner && entity.category != EntityCategory::Structure
+                        entity.owner() == owner && entity.category() != EntityCategory::Structure
                     })
                     .count();
                 let buildings = sim
                     .entities()
                     .values()
                     .filter(|entity| {
-                        entity.owner() == owner && entity.category == EntityCategory::Structure
+                        entity.owner() == owner && entity.category() == EntityCategory::Structure
                     })
                     .count();
                 eprintln!(
@@ -1056,10 +1056,10 @@ mod retail_construction_tests {
             };
             aims_at_another_house(sim, entity)
                 && matches!(
-                    entity.attack_target.as_ref().map(|attack| attack.target),
+                    entity.attack_target.target(),
                     Some(crate::sim::combat::TargetKind::Entity(target))
                         if sim.entities().get(target).is_some_and(|target| {
-                            target.category == EntityCategory::Structure
+                            target.category() == EntityCategory::Structure
                         })
                 )
         };
@@ -1289,7 +1289,7 @@ mod retail_construction_tests {
                                 sim.interner.resolve(entity.type_ref()),
                                 entity.position.rx,
                                 entity.position.ry,
-                                entity.health.current,
+                                entity.health.current(),
                                 entity.mission.effective().raw(),
                                 match sim.team_script_vm.team_for_member(id) {
                                     Some((member_team, _)) if member_team == team_id => "in",
@@ -1899,7 +1899,7 @@ mod retail_construction_tests {
             sim.entities()
                 .values()
                 .filter(|entity| {
-                    !entity.dying
+                    !entity.death.is_dying()
                         && entity.owner() == owner
                         && sim.interner.resolve(entity.type_ref()) == "NACNST"
                 })
@@ -1941,7 +1941,11 @@ mod retail_construction_tests {
             if on_9.is_none() && line.is_some_and(|line| line.cursor() == 1) {
                 on_9 = Some((frame, line.map(|line| line.member_count())));
             }
-            if let Some(entity) = sim.entities().get(mcv).filter(|entity| !entity.dying) {
+            if let Some(entity) = sim
+                .entities()
+                .get(mcv)
+                .filter(|entity| !entity.death.is_dying())
+            {
                 let order = (
                     entity.mission.current().known(),
                     entity.mission.queued().known(),
@@ -1999,7 +2003,7 @@ mod retail_construction_tests {
             sim.entities()
                 .values()
                 .filter(|entity| {
-                    !entity.dying
+                    !entity.death.is_dying()
                         && entity.owner() == owner
                         && sim.interner.resolve(entity.type_ref()) == "NACNST"
                 })
@@ -2178,7 +2182,7 @@ mod retail_construction_tests {
                 target_id: rhino,
             },
         ));
-        let full = sim.entities().get(rhino).unwrap().health.current;
+        let full = sim.entities().get(rhino).unwrap().health.current();
         let move_mission = MissionId::from_known(MissionType::Move);
         let (mut hit, mut charged, mut moved, mut died) = (None, None, None, None);
         let (mut gi_cell, mut crushed) = (None, false);
@@ -2186,7 +2190,7 @@ mod retail_construction_tests {
             let output = tick_with_due_commands(&mut scenario);
             let sim = scenario.sim();
             let entity = sim.entities().get(rhino).expect("the Rhino lives");
-            if hit.is_none() && entity.health.current < full {
+            if hit.is_none() && entity.health.current() < full {
                 assert!(
                     sim.team_script_vm.team_for_member(rhino).is_none(),
                     "the Rhino joined a team before the hit"
@@ -2209,7 +2213,7 @@ mod retail_construction_tests {
             match sim
                 .entities()
                 .get(gi)
-                .filter(|gi| !gi.dying && gi.health.current > 0)
+                .filter(|gi| !gi.death.is_dying() && gi.health.current() > 0)
             {
                 Some(gi) => gi_cell = Some((gi.position.rx, gi.position.ry)),
                 None => {
@@ -2295,7 +2299,7 @@ mod retail_construction_tests {
             match sim
                 .entities()
                 .get(gi)
-                .filter(|gi| !gi.dying && gi.health.current > 0)
+                .filter(|gi| !gi.death.is_dying() && gi.health.current() > 0)
             {
                 Some(gi) => gi_cell = Some((gi.position.rx, gi.position.ry)),
                 None => {
@@ -2341,8 +2345,8 @@ mod retail_construction_tests {
                 .values()
                 .find(|entity| {
                     entity.owner() == soviet
-                        && !entity.dying
-                        && !entity.lifecycle.in_limbo
+                        && !entity.death.is_dying()
+                        && !entity.lifecycle.in_limbo()
                         && sim.interner.resolve(entity.type_ref()) == "NAPOWR"
                 })
                 .map(|entity| entity.stable_id());
@@ -2507,7 +2511,7 @@ mod retail_construction_tests {
                 _ => None,
             }));
             if let Some(entity) = scenario.sim().entities().get(spy) {
-                hurt |= entity.health.current < 100;
+                hurt |= entity.health.current() < 100;
                 if capturing.is_none()
                     && entity.mission.current().known() == Some(MissionType::Capture)
                 {
@@ -2624,7 +2628,7 @@ mod retail_construction_tests {
             if sim
                 .entities()
                 .get(reactor)
-                .is_none_or(|reactor| reactor.dying)
+                .is_none_or(|reactor| reactor.death.is_dying())
             {
                 died = Some(frame);
                 break;
@@ -2641,7 +2645,7 @@ mod retail_construction_tests {
                 .sim()
                 .entities()
                 .get(tanya)
-                .is_some_and(|tanya| !tanya.dying),
+                .is_some_and(|tanya| !tanya.death.is_dying()),
             "Tanya died"
         );
     }
@@ -2669,7 +2673,7 @@ mod retail_construction_tests {
                 .values()
                 .find(|entity| {
                     entity.owner() == soviet
-                        && !entity.dying
+                        && !entity.death.is_dying()
                         && sim.interner.resolve(entity.type_ref()) == "HARV"
                         && entity.radio_contacts.is_empty()
                         && entity.mission.current() == harvest
@@ -2689,7 +2693,7 @@ mod retail_construction_tests {
         let strength = rules.object("HARV").expect("retail HARV").strength;
         let at = {
             let entity = sim.substrate.entities.get_mut(miner).unwrap();
-            entity.health.current = strength / 2;
+            entity.health.set_for_test(strength / 2);
             (i32::from(entity.position.rx), i32::from(entity.position.ry))
         };
         let america = house_of(sim, "Americans");
@@ -2723,7 +2727,7 @@ mod retail_construction_tests {
             {
                 entered = Some(frame);
             }
-            if entered.is_some() && entity.dock_entered_with.is_some() {
+            if entered.is_some() && entity.tether.partner().is_some() {
                 docked = Some(frame);
                 break;
             }
@@ -2757,8 +2761,8 @@ mod retail_construction_tests {
             sim.entities()
                 .values()
                 .filter(|entity| {
-                    !entity.dying
-                        && (limbo || !entity.lifecycle.in_limbo)
+                    !entity.death.is_dying()
+                        && (limbo || !entity.lifecycle.in_limbo())
                         && entity.owner() == soviet
                         && sim.interner.resolve(entity.type_ref()) == name
                 })
@@ -2829,7 +2833,7 @@ mod retail_construction_tests {
             }
             for entity in sim.entities().values() {
                 if entity.owner() == soviet
-                    && entity.category == EntityCategory::Structure
+                    && entity.category() == EntityCategory::Structure
                     && entity.mission.current() == selling
                 {
                     sold.entry(entity.stable_id()).or_insert_with(|| {

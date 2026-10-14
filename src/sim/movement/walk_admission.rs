@@ -12,6 +12,7 @@
 use super::foot_path::{FindPathResult, coord_cell};
 use super::ground_pose;
 use super::infantry_entry::InfantryEntryArgs;
+use super::locomotor::MovementLayer;
 use super::movement_tick::{FootPathRequest, WalkAdmissionRequest};
 use super::track_fresh::BlockingObject;
 use crate::map::cell_index::NativeCellIdentity;
@@ -186,7 +187,8 @@ impl Simulation {
                     .as_ref()
                     .unwrap()
                     .native_cell_coord(native);
-                let blocker = self.find_blocking_object((at.0 as u16, at.1 as u16));
+                let blocker =
+                    self.find_blocking_object((at.0 as u16, at.1 as u16), MovementLayer::Ground);
                 if request.allows_retry() {
                     return self.walk_retry_admission(request);
                 }
@@ -549,7 +551,7 @@ impl Simulation {
             .entities
             .get(id)
             .ok_or("retired Walk failed-path receiver")?;
-        if actor.category == EntityCategory::Infantry
+        if actor.category() == EntityCategory::Infantry
             && rules
                 .object(self.interner.resolve(actor.type_ref()))
                 .is_some_and(|object| object.jumpjet)
@@ -570,7 +572,7 @@ impl Simulation {
             .entities
             .get(id)
             .ok_or("retired Walk short-path receiver")?;
-        if actor.category == EntityCategory::Infantry
+        if actor.category() == EntityCategory::Infantry
             && actor.navigation.path_replay.remaining_directions().len() < 4
             && rules
                 .object(self.interner.resolve(actor.type_ref()))
@@ -606,7 +608,7 @@ fn walk_code2_gate(
 /// Whether the Walk owner's vt+0x548 changes `actor`; see
 /// [`Simulation::walk_owner_clear_doing`].
 pub(super) fn walk_doing_to_clear(actor: &crate::sim::game_entity::GameEntity) -> bool {
-    actor.category == EntityCategory::Infantry
+    actor.category() == EntityCategory::Infantry
         && actor
             .mission_leaf
             .as_infantry()
@@ -649,7 +651,7 @@ mod tests {
         sim.production.terrain_object_cells.insert(tree, 900);
         mark_terrain_raw_occupation(&mut sim.substrate.raw_cell_occupation, tree, 5);
         assert!(matches!(
-            sim.find_blocking_object(tree),
+            sim.find_blocking_object(tree, crate::sim::movement::locomotor::MovementLayer::Ground,),
             Some(super::BlockingObject::Terrain)
         ));
         let mission = sim.substrate.entities.get(id).unwrap().mission.current();

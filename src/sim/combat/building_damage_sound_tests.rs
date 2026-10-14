@@ -214,7 +214,7 @@ fn replay_building_history(corpus: &Value, rules: &RuleSet, history: &Value, typ
     world.resolve_type_handles(rules);
     let target = world.substrate.entities.get_mut(target_id).unwrap();
     assert_eq!(
-        target.health.current,
+        target.health.current(),
         history["building_constructor"]["health"].as_i64().unwrap() as i32
     );
     assert_eq!(
@@ -243,7 +243,7 @@ fn replay_building_history(corpus: &Value, rules: &RuleSet, history: &Value, typ
         world.session.binary_frame = row["before"]["frame"].as_u64().unwrap() as u32;
         let target = world.entities().get(target_id).unwrap();
         assert_eq!(
-            target.health.current,
+            target.health.current(),
             row["before"]["building"]["health"].as_i64().unwrap() as i32,
             "{label}: naturally retained health"
         );
@@ -296,17 +296,19 @@ fn replay_building_history(corpus: &Value, rules: &RuleSet, history: &Value, typ
         );
         // Snapshot the existing health owner only to observe its return value.
         // The actual world transaction below owns the live entity and effects.
-        let mut local_entities = world.substrate.entities.clone();
+        let mut local_world = Simulation::new();
+        local_world.substrate.entities = world.substrate.entities.clone();
+        local_world.interner = world.interner.clone();
+        local_world.house_alliances = world.house_alliances.clone();
+        local_world.session.binary_frame = world.session.binary_frame;
         let state = receiver_health::commit_receiver_health(
             &event,
-            &mut local_entities,
+            &mut local_world,
             rules,
-            &world.interner,
-            &world.house_alliances,
-            Some(source_owner),
-            Some(source_owner),
+            None,
             Some(resolved),
-            world.session.binary_frame,
+            crate::sim::world::FrameEffects::default(),
+            false,
         )
         .unwrap()
         .state;
@@ -349,7 +351,7 @@ fn replay_building_history(corpus: &Value, rules: &RuleSet, history: &Value, typ
         );
         let target = world.entities().get(target_id).unwrap();
         assert_eq!(
-            target.health.current,
+            target.health.current(),
             row["after_receiver"]["building"]["health"]
                 .as_i64()
                 .unwrap() as i32,
@@ -368,7 +370,8 @@ fn replay_building_history(corpus: &Value, rules: &RuleSet, history: &Value, typ
                 SimSoundEvent::VocAtCoord {
                     sound_id,
                     coordinate,
-                } => Some((sound_id.as_str(), *coordinate)),
+                    flags,
+                } => Some((sound_id.as_str(), *coordinate, *flags)),
                 _ => None,
             })
             .collect();
@@ -380,6 +383,7 @@ fn replay_building_history(corpus: &Value, rules: &RuleSet, history: &Value, typ
                 (
                     sound_name(corpus, call["register_ecx"].as_i64().unwrap() as i32).unwrap(),
                     coordinate(&call["coordinate"]),
+                    call["args"][0].as_u64().unwrap() as u32,
                 )
             })
             .collect();

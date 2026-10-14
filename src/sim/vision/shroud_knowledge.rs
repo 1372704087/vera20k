@@ -141,6 +141,53 @@ impl Hash for SightAdmission {
     }
 }
 
+/// The object's sight facts: the fog-of-war sight range in cells, which the
+/// constructor takes from its caller ([`Self::new`]), and the exact
+/// `Type+0x5E8 == 0` predicate `InfantryClass::Unlimbo` tests
+/// (`0x0051E0EF`). The fog range clamps and truncates the raw `Sight=`
+/// integer and cannot answer that query, so construction resolves it once
+/// ([`Self::stamp_zero`]); snapshots keep it for rules-less re-entry,
+/// independently of client discovery history.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub(crate) struct SightFacts {
+    range: u16,
+    zero: bool,
+}
+
+impl SightFacts {
+    /// The constructor's range; the zero fact waits for construction.
+    pub(crate) const fn new(range: u16) -> Self {
+        Self { range, zero: false }
+    }
+
+    /// The fog sight range in cells.
+    pub(crate) const fn range(self) -> u16 {
+        self.range
+    }
+
+    /// The type's `Sight=` is exactly 0.
+    pub(crate) const fn is_zero(self) -> bool {
+        self.zero
+    }
+
+    /// Construction's resolution of `Sight= == 0`.
+    pub(crate) fn stamp_zero(&mut self, zero: bool) {
+        self.zero = zero;
+    }
+
+    /// Install a fixture's range.
+    #[cfg(test)]
+    pub(crate) fn set_vision_range_for_test(&mut self, range: u16) {
+        self.range = range;
+    }
+
+    /// Install a fixture's zero fact.
+    #[cfg(test)]
+    pub(crate) fn set_sight_is_zero_for_test(&mut self, zero: bool) {
+        self.zero = zero;
+    }
+}
+
 /// Native Foot65C/664 countdown, one logical native client per viewer. The
 /// constructor initial value is retained so an unseen/nonallied viewer never
 /// borrows another viewer's timer history. Admission release does not reset it.

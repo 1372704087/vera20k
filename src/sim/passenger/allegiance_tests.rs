@@ -112,9 +112,9 @@ fn fixture(input: &Value) -> (Simulation, RuleSet, u64, Vec<InternedId>) {
     let id = sim.allocate_stable_id();
     let mut building =
         GameEntity::test_default_of_category(id, "B", "", 10, 11, EntityCategory::Structure);
-    building.type_ref = sim.interner.intern("B");
-    building.owner = houses[input["current_owner"].as_u64().unwrap() as usize];
-    building.health.current = 100;
+    building.set_type_ref_for_test(sim.interner.intern("B"));
+    building.set_owner_for_test(houses[input["current_owner"].as_u64().unwrap() as usize]);
+    building.health.set_for_test(100);
     building.building_art.set_actually_placed_for_test(true);
     building.mission_leaf =
         crate::sim::mission::leaf::MissionLeafState::for_entity_category(EntityCategory::Structure);
@@ -130,13 +130,10 @@ fn fixture(input: &Value) -> (Simulation, RuleSet, u64, Vec<InternedId>) {
             11,
             EntityCategory::Infantry,
         );
-        passenger.type_ref = sim.interner.intern("E1");
-        passenger.owner = houses[owner.as_u64().unwrap() as usize];
-        passenger.passenger_role = PassengerRole::Inside {
-            transport_id: id,
-            open_topped: false,
-        };
-        passenger.lifecycle.in_limbo = true;
+        passenger.set_type_ref_for_test(sim.interner.intern("E1"));
+        passenger.set_owner_for_test(houses[owner.as_u64().unwrap() as usize]);
+        passenger.passenger_role = PassengerRole::inside_for_test(id, false);
+        passenger.lifecycle.set_in_limbo_for_test(true);
         passenger.locomotor = Some(
             crate::sim::movement::locomotor::LocomotorState::for_test_kind(
                 crate::rules::locomotor_type::LocomotorKind::Walk,
@@ -145,13 +142,18 @@ fn fixture(input: &Value) -> (Simulation, RuleSet, u64, Vec<InternedId>) {
         cargo.add_occupant(passenger_id, 1);
         sim.substrate.entities.insert(passenger);
     }
-    building.passenger_role = PassengerRole::Transport { cargo };
+    building.passenger_role = PassengerRole::transport(cargo);
     sim.substrate.entities.insert(building);
     assert!(matches!(
         sim.reveal_entity_with_rules(id, &rules),
         crate::sim::world::RevealOutcome::Revealed { .. }
     ));
-    sim.substrate.entities.get_mut(id).unwrap().health.current = integer(&input["current_hp"]);
+    sim.substrate
+        .entities
+        .get_mut(id)
+        .unwrap()
+        .health
+        .set_for_test(integer(&input["current_hp"]));
     sim.set_building_anim_slot(id, 3, false, false, 0, &rules)
         .unwrap();
     sim.sound_events.clear();
@@ -310,7 +312,7 @@ fn building_ai_caller_admission_matches_native_unwarped_gates() {
             .get_mut(id)
             .unwrap()
             .lifecycle
-            .object_alive = input["alive"].as_bool().unwrap();
+            .set_object_alive_for_test(input["alive"].as_bool().unwrap());
         rules.general.condition_red = -1.0; // no ejection or death dependency
         let old_owner = sim.substrate.entities.get(id).unwrap().owner();
         sim.object_ai_visit_one(id, Some(&rules), ObjectAiCtx::default());
@@ -344,7 +346,7 @@ fn zero_capacity_map_garrison_abandons_without_allocated_cargo() {
     use crate::rules::sound_ini::SoundRegistry;
     use std::sync::Arc;
 
-    let root = IniFile::from_str(
+    let root = crate::sim::arena_fixture::clear_ground_ini(
         "[Countries]\n0=Player\n1=Town\n[Player]\n[Town]\n\
          [BuildingTypes]\n0=B\n[Sides]\nAllied=Player\nCivilian=Town\n\
          [B]\nStrength=100\nTechLevel=-1\nCanBeOccupied=yes\nMaxNumberOccupants=10\n\

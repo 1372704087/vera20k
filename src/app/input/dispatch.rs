@@ -10,6 +10,9 @@
 use std::collections::{HashSet, VecDeque};
 
 use winit::event::{ElementState, MouseButton};
+// Only the dev chord matches on bare `KeyCode`; the retail path below keeps
+// fully-qualified `winit::keyboard::KeyCode`.
+#[cfg(feature = "dev-overlays")]
 use winit::keyboard::KeyCode;
 
 use crate::app::AppState;
@@ -832,8 +835,8 @@ mod item83_click_route_tests {
     use crate::app::input::entity_pick::compute_type_select_click_mutation;
     use crate::app::types::OrderMode;
     use crate::map::entities::EntityCategory;
+    use crate::sim::combat::Health;
     use crate::sim::command::Command;
-    use crate::sim::components::Health;
     use crate::sim::entity_store::EntityStore;
     use crate::sim::game_entity::GameEntity;
     use crate::sim::intern::StringInterner;
@@ -935,15 +938,15 @@ mod item83_click_route_tests {
                 0,
                 0,
                 owner,
-                Health { current: 100 },
+                Health::new(100),
                 type_ref,
                 EntityCategory::Unit,
                 0,
                 5,
                 true,
             );
-            entity.lifecycle.object_alive = true;
-            entity.lifecycle.in_limbo = false;
+            entity.lifecycle.set_object_alive_for_test(true);
+            entity.lifecycle.set_in_limbo_for_test(false);
             entities.insert(entity);
         }
 
@@ -1390,6 +1393,7 @@ pub(crate) fn report_black_cell_causes(state: &mut AppState) {
     }
 }
 
+#[cfg(feature = "dev-overlays")]
 pub(crate) fn toggle_unit_inspector(state: &mut AppState) {
     state.diag.debug_unit_inspector = !state.diag.debug_unit_inspector;
     if let Some(sim) = state
@@ -1417,6 +1421,7 @@ pub(crate) fn toggle_unit_inspector(state: &mut AppState) {
 /// SpeedType override to None when the overlay turns off, so reopening
 /// the overlay defaults back to "auto from selected unit". Called by both
 /// the F9/P hotkey and the dev overlay checkbox.
+#[cfg(feature = "dev-overlays")]
 pub(crate) fn toggle_pathgrid_overlay(state: &mut AppState) {
     state.diag.debug_show_pathgrid = !state.diag.debug_show_pathgrid;
     if !state.diag.debug_show_pathgrid {
@@ -1436,6 +1441,7 @@ pub(crate) fn toggle_pathgrid_overlay(state: &mut AppState) {
 ///
 /// On resume, local frame admission is re-anchored so elapsed modal time
 /// cannot cause a catch-up frame.
+#[cfg(feature = "dev-overlays")]
 pub(crate) fn toggle_debug_pause(state: &mut AppState) {
     state.match_state.debug_pause = !state.match_state.paused();
     if !state.match_state.paused() {
@@ -1574,11 +1580,15 @@ pub(crate) fn handle_hotkey_pressed(
             | HotkeyFallback::ArrowDown,
         ) => {}
         HotkeyResolution::Unhandled => {
+            #[cfg(feature = "dev-overlays")]
             if KeyModifiers::from_modifiers_state(state.match_state.input.hotkey_modifiers)
                 .dev_chord()
             {
                 handle_dev_hotkey_pressed(state, physical_code);
             }
+            // Builds without `dev-overlays` (release) carry no dev chord.
+            #[cfg(not(feature = "dev-overlays"))]
+            let _ = physical_code;
         }
     }
     crate::app::presentation::sidebar_render::refresh_sidebar_projection(state);
@@ -1815,6 +1825,10 @@ fn handle_options_hotkey(state: &mut AppState) {
 }
 
 /// Dev/debug hotkeys require Ctrl+Shift, a chord stock binds to no command.
+///
+/// Gated on `dev-overlays`: every arm here is a diagnostic, a sandbox cheat or
+/// a developer shortcut, and none of them is reachable from the retail UI path.
+#[cfg(feature = "dev-overlays")]
 fn handle_dev_hotkey_pressed(state: &mut AppState, code: winit::keyboard::KeyCode) {
     match code {
         // The hotkey-help overlay is VERA-only and used to sit on bare F1, which
@@ -1972,6 +1986,7 @@ pub(crate) struct KeyModifiers {
 }
 
 impl KeyModifiers {
+    #[cfg(feature = "dev-overlays")]
     fn from_modifiers_state(modifiers: winit::keyboard::ModifiersState) -> Self {
         Self {
             shift: modifiers.shift_key(),
@@ -2003,6 +2018,7 @@ impl KeyModifiers {
 
     /// The VERA-internal dev chord. Stock binds nothing to Ctrl+Shift, so it
     /// collides with no retail hotkey.
+    #[cfg(any(feature = "dev-overlays", test))]
     pub(crate) fn dev_chord(self) -> bool {
         self.ctrl && self.shift && !self.alt
     }
@@ -2040,7 +2056,7 @@ pub(crate) fn selected_stable_ids_in_order(
     let mut ordered = Vec::new();
     for &id in selection_order {
         if let Some(entity) = sim.entities().get(id)
-            && (selection_order_pending || entity.selected)
+            && (selection_order_pending || entity.selection.is_selected())
         {
             ordered.push(id);
         }
@@ -2064,7 +2080,7 @@ fn admit_missing_selected_ids(
     let mut members: HashSet<_> = ordered.iter().copied().collect();
     let mut ordered = VecDeque::from(ordered);
     for entity in sim.entities().values() {
-        if entity.selected && members.insert(entity.stable_id()) {
+        if entity.selection.is_selected() && members.insert(entity.stable_id()) {
             insert_selected_id(&mut ordered, entity.stable_id(), sim, rules);
         }
     }
@@ -2076,7 +2092,7 @@ fn selection_membership_committed(sim: &crate::sim::world::Simulation, ordered: 
     let mut committed_count = 0;
     sim.entities()
         .values()
-        .filter(|entity| entity.selected)
+        .filter(|entity| entity.selection.is_selected())
         .all(|entity| {
             committed_count += 1;
             members.contains(&entity.stable_id())
@@ -2138,7 +2154,7 @@ pub(crate) fn selection_order_for_world(
                 .filter(|id| {
                     sim.entities()
                         .get(*id)
-                        .is_some_and(|entity| entity.lifecycle.object_alive)
+                        .is_some_and(|entity| entity.lifecycle.object_alive())
                 })
                 .collect(),
             true,
@@ -2155,7 +2171,7 @@ pub(crate) fn selection_order_for_world(
         .filter(|id| {
             sim.entities()
                 .get(*id)
-                .is_some_and(|entity| entity.selected)
+                .is_some_and(|entity| entity.selection.is_selected())
         })
         .collect();
     let reconciled = admit_missing_selected_ids(reconciled, sim, rules);
@@ -2344,7 +2360,7 @@ mod item83_selection_order_tests {
     use crate::map::entities::EntityCategory;
     use crate::rules::ini_parser::IniFile;
     use crate::rules::ruleset::RuleSet;
-    use crate::sim::components::Health;
+    use crate::sim::combat::Health;
     use crate::sim::game_entity::GameEntity;
     use crate::sim::world::Simulation;
     use std::collections::VecDeque;
@@ -2372,9 +2388,9 @@ mod item83_selection_order_tests {
             (50, "PLAIN", true),
         ] {
             let mut entity = GameEntity::test_default(id, type_name, "Americans", 10, 20);
-            entity.type_ref = sim.interner.intern(type_name);
-            entity.owner = sim.interner.intern("Americans");
-            entity.selected = selected;
+            entity.set_type_ref_for_test(sim.interner.intern(type_name));
+            entity.set_owner_for_test(sim.interner.intern("Americans"));
+            entity.selection.set_selected_for_test(selected);
             sim.entities_mut().insert(entity);
         }
         (sim, rules)
@@ -2432,7 +2448,7 @@ mod item83_selection_order_tests {
                     0,
                     0,
                     owner,
-                    Health { current: 100 },
+                    Health::new(100),
                     type_ref,
                     EntityCategory::Infantry,
                     0,
@@ -2719,7 +2735,8 @@ fn queue_deploy_undeploy_for_selected(state: &mut AppState) {
     }
     let owner: String = preferred_local_owner(state).unwrap_or_else(|| "Americans".to_string());
     // Collect commands first to avoid borrow conflict with schedule_command.
-    let commands = deploy_key_commands(sim, state.rules(), &selected_ids);
+    let local_owner = sim.interner.get(&owner);
+    let commands = deploy_key_commands(sim, state.rules(), &selected_ids, local_owner);
     for cmd in commands {
         schedule_command(state, &owner, cmd);
     }
@@ -2749,16 +2766,17 @@ fn deploy_key_commands(
     sim: &crate::sim::world::Simulation,
     rules: Option<&crate::rules::ruleset::RuleSet>,
     selection: &[u64],
+    local_owner: Option<crate::sim::intern::InternedId>,
 ) -> Vec<Command> {
     let first = selection.first().and_then(|&id| sim.entities().get(id));
     if let Some(building) = first.filter(|entity| {
-        entity.category == EntityCategory::Structure
+        entity.category() == EntityCategory::Structure
             && entity
                 .passenger_role
                 .cargo()
                 .is_some_and(|cargo| !cargo.is_empty())
     }) {
-        return deploy_key_command(sim, rules, building.stable_id())
+        return deploy_key_command(sim, rules, building.stable_id(), local_owner)
             .into_iter()
             .collect();
     }
@@ -2788,7 +2806,7 @@ fn deploy_key_commands(
                 .is_some_and(|entity| !entity.berserk.active)
                 && !(mixed && deployed(id) == Some(true))
         })
-        .filter_map(|id| deploy_key_command(sim, rules, id))
+        .filter_map(|id| deploy_key_command(sim, rules, id, local_owner))
         .collect()
 }
 
@@ -2803,7 +2821,7 @@ fn deployer_is_deployed(
 ) -> Option<bool> {
     let entity = sim.entities().get(id)?;
     let object = rules?.object(sim.interner.resolve(entity.type_ref()))?;
-    match entity.category {
+    match entity.category() {
         EntityCategory::Infantry if object.deployer => Some(entity.infantry_deploy_doing()),
         EntityCategory::Unit if object.is_simple_deployer => Some(
             entity
@@ -2821,35 +2839,28 @@ fn deploy_key_command(
     sim: &crate::sim::world::Simulation,
     rules: Option<&crate::rules::ruleset::RuleSet>,
     entity_id: u64,
+    local_owner: Option<crate::sim::intern::InternedId>,
 ) -> Option<Command> {
     let entity = sim.entities().get(entity_id)?;
     let obj = rules.and_then(|rules| rules.object(sim.interner.resolve(entity.type_ref())));
-    match entity.category {
+    match entity.category() {
         EntityCategory::Structure => {
-            // Garrisoned building → evacuate occupants.
-            if obj.is_some_and(|object| object.can_be_occupied)
-                && entity
-                    .passenger_role
-                    .cargo()
-                    .is_some_and(|cargo| !cargo.is_empty())
-            {
-                Some(Command::UnloadPassengers {
-                    transport_id: entity_id,
-                })
-            } else {
+            // Absorbers and garrisons share unload admission; otherwise a
+            // construction yard may take its undeploy action.
+            super::transport_orders::unload_command(entity, obj, local_owner).or_else(|| {
                 rules
                     .is_some_and(|rules| {
                         sim.should_show_undeploy_building_command(entity_id, rules)
                     })
                     .then_some(Command::UndeployBuilding { entity_id })
-            }
+            })
         }
         EntityCategory::Infantry => obj
             .is_some_and(|object| object.deploy_fire)
             .then_some(Command::ToggleInfantryDeploy { entity_id }),
         _ => {
             // A loaded transport (including aircraft) keeps the unload action.
-            super::transport_orders::transport_unload_command(entity, obj).or_else(|| {
+            super::transport_orders::unload_command(entity, obj, local_owner).or_else(|| {
                 let object = obj?;
                 let deployable = if super::context_order::is_simple_deploy_unit(entity, object) {
                     rules.is_some_and(|rules| sim.can_simple_deploy(entity_id, rules))
@@ -3166,7 +3177,7 @@ fn jump_camera_to_base(state: &mut AppState) {
             let rules = state.rules();
             // First pass: look for a ConYard (structure with UndeploysInto=).
             let conyard = sim.entities().values().find(|e| {
-                e.category == EntityCategory::Structure
+                e.category() == EntityCategory::Structure
                     && owner_name
                         .is_none_or(|o| sim.interner.resolve(e.owner()).eq_ignore_ascii_case(o))
                     && rules
@@ -3184,7 +3195,7 @@ fn jump_camera_to_base(state: &mut AppState) {
             }
             // Second pass: look for an MCV (unit with DeploysInto=).
             let mcv = sim.entities().values().find(|e| {
-                e.category != EntityCategory::Structure
+                e.category() != EntityCategory::Structure
                     && owner_name
                         .is_none_or(|o| sim.interner.resolve(e.owner()).eq_ignore_ascii_case(o))
                     && rules
@@ -3277,26 +3288,32 @@ mod deploy_key_tests {
         sim.entities_mut()
             .get_mut(transport)
             .unwrap()
-            .passenger_role = PassengerRole::Transport { cargo };
+            .passenger_role = PassengerRole::transport(cargo);
 
         assert_eq!(
-            deploy_key_command(&sim, Some(&rules), heli),
+            deploy_key_command(&sim, Some(&rules), heli, sim.session.current_house),
             Some(Command::DeployMcv { entity_id: heli })
         );
         assert_eq!(
-            deploy_key_command(&sim, Some(&rules), transport),
+            deploy_key_command(&sim, Some(&rules), transport, sim.session.current_house),
             Some(Command::UnloadPassengers {
                 transport_id: transport
             })
         );
         assert_eq!(
-            deploy_key_command(&sim, Some(&rules), infantry),
+            deploy_key_command(&sim, Some(&rules), infantry, sim.session.current_house),
             Some(Command::ToggleInfantryDeploy {
                 entity_id: infantry
             })
         );
-        assert_eq!(deploy_key_command(&sim, Some(&rules), aircraft), None);
-        assert_eq!(deploy_key_command(&sim, Some(&rules), plain), None);
+        assert_eq!(
+            deploy_key_command(&sim, Some(&rules), aircraft, sim.session.current_house),
+            None
+        );
+        assert_eq!(
+            deploy_key_command(&sim, Some(&rules), plain, sim.session.current_house),
+            None
+        );
         sim.entities_mut()
             .get_mut(heli)
             .unwrap()
@@ -3307,7 +3324,34 @@ mod deploy_key_tests {
                 target: crate::sim::components::DriveCoord::cell(10, 10, 0),
             },
         );
-        assert_eq!(deploy_key_command(&sim, Some(&rules), heli), None);
+        assert_eq!(
+            deploy_key_command(&sim, Some(&rules), heli, sim.session.current_house),
+            None
+        );
+    }
+
+    #[test]
+    fn the_deploy_key_issues_unload_for_a_loaded_bio_reactor() {
+        let rules = RuleSet::from_ini(&IniFile::from_str(
+            "[BuildingTypes]\n0=YAPOWR\n[YAPOWR]\nStrength=1000\n\
+             InfantryAbsorb=yes\nPassengers=5\n",
+        ))
+        .expect("Bio Reactor deploy-key rules");
+        let mut sim = player_sim();
+        let reactor = sim
+            .spawn_object("YAPOWR", "Americans", 10, 10, 0, &rules)
+            .expect("Bio Reactor builds");
+        let mut cargo = PassengerCargo::new(5, 0);
+        cargo.board(99, 1);
+        sim.entities_mut().get_mut(reactor).unwrap().passenger_role =
+            PassengerRole::transport(cargo);
+
+        assert_eq!(
+            deploy_key_commands(&sim, Some(&rules), &[reactor], sim.session.current_house),
+            [Command::UnloadPassengers {
+                transport_id: reactor
+            }]
+        );
     }
 
     /// `Selection::IssueDeployCommand`'s issue walk skips a berserk object
@@ -3323,11 +3367,13 @@ mod deploy_key_tests {
             .spawn_object_limbo_at_height("HELI", "Americans", 10, 10, 0, 0, &rules)
             .expect("the deploy key fixture builds");
         assert_eq!(
-            deploy_key_commands(&sim, Some(&rules), &[heli]),
+            deploy_key_commands(&sim, Some(&rules), &[heli], sim.session.current_house),
             [Command::DeployMcv { entity_id: heli }]
         );
         sim.entities_mut().get_mut(heli).unwrap().berserk.active = true;
-        assert!(deploy_key_commands(&sim, Some(&rules), &[heli]).is_empty());
+        assert!(
+            deploy_key_commands(&sim, Some(&rules), &[heli], sim.session.current_house).is_empty()
+        );
     }
 
     /// The issue walk admits an object the player may control (vt+0xA0) or
@@ -3346,11 +3392,22 @@ mod deploy_key_tests {
         };
         let (heli, theirs) = (spawn("Americans"), spawn("Russians"));
         assert_eq!(
-            deploy_key_commands(&sim, Some(&rules), &[heli, theirs]),
+            deploy_key_commands(
+                &sim,
+                Some(&rules),
+                &[heli, theirs],
+                sim.session.current_house
+            ),
             [Command::DeployMcv { entity_id: heli }]
         );
-        sim.entities_mut().get_mut(heli).unwrap().deactivated = true;
-        assert!(deploy_key_commands(&sim, Some(&rules), &[heli]).is_empty());
+        sim.entities_mut()
+            .get_mut(heli)
+            .unwrap()
+            .deactivated
+            .set_for_test(true);
+        assert!(
+            deploy_key_commands(&sim, Some(&rules), &[heli], sim.session.current_house).is_empty()
+        );
     }
 
     /// The first walk (`0x00730B8C..0x00730C0E`) counts deployed and
@@ -3376,7 +3433,9 @@ mod deploy_key_tests {
             .unwrap();
         sim.entities_mut().get_mut(gassed).unwrap().berserk.active = true;
         let toggle = |entity_id| Command::ToggleInfantryDeploy { entity_id };
-        let commands = |selection: &[u64]| deploy_key_commands(&sim, Some(&rules), selection);
+        let commands = |selection: &[u64]| {
+            deploy_key_commands(&sim, Some(&rules), selection, sim.session.current_house)
+        };
         assert_eq!(commands(&[deployed]), [toggle(deployed)]);
         assert_eq!(commands(&[deployed, standing]), [toggle(standing)]);
         // The gassed man counts as undeployed but is not ordered.
@@ -3404,7 +3463,7 @@ mod deploy_key_tests {
                 .unwrap()
                 .set_unit_simple_deploy_for_test(deployed, begin, reverse);
             assert_eq!(
-                deploy_key_command(&sim, Some(rules), id),
+                deploy_key_command(&sim, Some(rules), id, sim.session.current_house),
                 Some(Command::DeployMcv { entity_id: id }),
             );
         }

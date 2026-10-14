@@ -52,15 +52,15 @@ pub(super) fn snapshot_mover(
 ) -> Option<MoverSnapshot> {
     let e = entities.get(entity_id)?;
     Some(MoverSnapshot {
-        category: e.category,
+        category: e.category(),
         speed_type: e.locomotor.as_ref().map(|l| l.speed_type),
         movement_zone: e
             .locomotor
             .as_ref()
             .map(|l| l.movement_zone)
             .unwrap_or(MovementZone::Normal),
-        omni_crusher: e.omni_crusher,
-        regular_crusher: e.regular_crusher,
+        omni_crusher: e.mover_facts.omni_crusher(),
+        regular_crusher: e.mover_facts.regular_crusher(),
         on_bridge: e.on_bridge,
         locomotor: e.locomotor.clone(),
         allow_zone_hierarchy: playfield_bounds.is_none() || e.in_playfield,
@@ -207,12 +207,6 @@ impl FootPathRequest {
         &self.visit.snap
     }
 
-    /// Whether this is the Walk admission retry's recursive Process(0)
-    /// request (75B714/75BAB9/75BC02), which may not retry again.
-    pub(super) fn is_retry_recursion(&self) -> bool {
-        !self.visit.walk_retry_allowed
-    }
-
     /// Find_Path's core search (`Simulation::foot_core_search`) calls this
     /// between its Mark0/Mark1, or before Mark0 for a batched path search
     /// whose `foot_entry` emulates the lift (`foot_path::MoverLift`). The
@@ -310,7 +304,7 @@ struct MovementPassEffects {
 fn native_track_route(
     entity: &crate::sim::game_entity::GameEntity,
 ) -> Option<super::track_process::TrackFamily> {
-    if entity.category != EntityCategory::Unit {
+    if entity.category() != EntityCategory::Unit {
         return None;
     }
     match entity.locomotor.as_ref()?.kind {
@@ -501,11 +495,12 @@ fn advance_ordinary_mover(
             resolved_terrain,
         ) {
             let terrain = resolved_terrain.expect("tube admission resolved terrain");
+            let category = entity.category();
             if tube_movement::begin_path_tube_step(
                 &mut entity.foot_occupation_enabled,
                 &mut entity.navigation.path_replay,
                 entity_id,
-                entity.category,
+                category,
                 &mut entity.position,
                 &mut entity.locomotor,
                 &mut entity.low_bridge_tube_state,
@@ -541,7 +536,7 @@ fn advance_ordinary_mover(
     // Steering / rotation: rotate in place, then move. ROT=0 means an
     // instant turn.
     if snap.category != EntityCategory::Infantry {
-        match movement_step::handle_vehicle_rotation(&mut entity.body_facing, None, native_frame) {
+        match movement_step::handle_vehicle_rotation(&entity.body_facing, native_frame) {
             movement_step::RotationResult::StillRotating => return,
             movement_step::RotationResult::ReadyToMove => {}
         }
@@ -1208,7 +1203,7 @@ mod pass_cache_tests {
         assert_eq!(again, before);
 
         // Death sequence: the object stays on the grid.
-        entities.get_mut(7).unwrap().dying = true;
+        entities.get_mut(7).unwrap().death.set_dying_for_test(true);
         let after = cache
             .blocker_plane(&mut entities, &grid, None, None, &interner, None)
             .clone();
@@ -1302,7 +1297,8 @@ Foundation=2x2
                     let mut entity =
                         GameEntity::test_default(id, kind, "Americans", cell.0, cell.1);
                     if building {
-                        entity.category = crate::map::entities::EntityCategory::Structure;
+                        entity
+                            .set_category_for_test(crate::map::entities::EntityCategory::Structure);
                     }
                     entity.lifecycle.cell_marked = true;
                     entities.insert(entity);
@@ -1311,7 +1307,7 @@ Foundation=2x2
                     if let Some(entity) = entities.get_mut(id) {
                         match edit {
                             3 => (entity.position.rx, entity.position.ry) = cell,
-                            4 => entity.dying = !entity.dying,
+                            4 => entity.death.set_dying_for_test(!entity.death.is_dying()),
                             _ => entity.lifecycle.cell_marked = !entity.lifecycle.cell_marked,
                         }
                     }

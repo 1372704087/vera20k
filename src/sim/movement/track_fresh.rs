@@ -201,7 +201,7 @@ impl Simulation {
         //death-frame counter +6D8, neither represented; see the residual) and
         //vt+380, FootClass::IsParalyzed 0x4DE770 (the Foot+6A0 timer a
         //parasite arms), return with the out byte clear.
-        if actor.is_paralyzed(self.session.binary_frame) {
+        if actor.parasite.is_paralyzed(self.session.binary_frame) {
             return Ok(false);
         }
         let head = if head.is_some() {
@@ -240,7 +240,7 @@ impl Simulation {
         };
         if !self.substrate.entities.get(object).is_some_and(|nav| {
             matches!(
-                nav.category,
+                nav.category(),
                 EntityCategory::Unit | EntityCategory::Infantry
             )
         }) {
@@ -285,12 +285,11 @@ impl Simulation {
         }
         let destination = track_destination(actor).ok_or("no-queue arm without destination")?;
         // A batched request waits for the next frame's batch as if the timer
-        // still ran (`path_batch`, a proposed deviation). A retry recursion
-        // (0x4B397F, 0x4B4480, 0x4B4552) runs at once: its timer was just
-        // expired, and native searches there with the retry spent.
-        if call.args == ProcessMovementArgs::OUTER
-            && self.defer_path_search(id, super::path_batch::WaitingRequest::NoQueue)
-        {
+        // still ran (`path_batch`, a proposed deviation). So does a
+        // recursion's (the retries at 0x4B397F, 0x4B4480 and the 0x4B4541
+        // tail, the second stage's re-entries at 0x4B41B3 and 0x4B420B),
+        // unless it is the Foot's first request in a frame the batch answered.
+        if self.defer_path_search(id, super::path_batch::WaitingRequest::NoQueue) {
             return Ok(false);
         }
         let request = self.track_path_request(call, destination, 0)?;
@@ -720,7 +719,7 @@ impl Simulation {
                 .entities
                 .get(id)
                 .map_or((false, false), |actor| {
-                    (actor.lifecycle.in_limbo, actor.lifecycle.object_alive)
+                    (actor.lifecycle.in_limbo(), actor.lifecycle.object_alive())
                 });
             if !in_limbo {
                 if !alive {
@@ -900,14 +899,14 @@ impl Simulation {
             .entities
             .get_mut(id)
             .ok_or("retired Drive/Ship finalize owner")?;
-        if picked && !actor.lifecycle.in_limbo {
+        if picked && !actor.lifecycle.in_limbo() {
             //4B46FC..4B4705: Apply_Track_Occupation_Mode(head, 1).
             self.track_apply_occupation(id, call.family, true);
             return Ok(false);
         }
         //4B4716..4B473C: a false answer or a limbo owner: a live owner drops
         //the head again.
-        if actor.lifecycle.object_alive {
+        if actor.lifecycle.object_alive() {
             clear_track_head(actor);
         }
         self.track_finalize_stop(id)
@@ -1039,7 +1038,7 @@ impl Simulation {
                 self.substrate
                     .entities
                     .get(id)
-                    .is_some_and(|entity| entity.category == EntityCategory::Unit)
+                    .is_some_and(|entity| entity.category() == EntityCategory::Unit)
             })
     }
 
@@ -1292,7 +1291,7 @@ impl Simulation {
             return;
         }
         let key = (cell.0 as u16, cell.1 as u16);
-        match self.find_blocking_object(key) {
+        match self.find_blocking_object(key, MovementLayer::Ground) {
             Some(BlockingObject::Entity(blocker)) => {
                 let (Some(actor), Some(target)) = (
                     self.substrate.entities.get(id),
@@ -1345,9 +1344,15 @@ impl Simulation {
 
     /// `CellClass::Find_Blocking_Object 0x47C5A0` with the zero point: the
     /// first Aircraft of the ground list, else `Find_Nearest_Object`
-    /// (0x47C3D0), else the first terrain object. Callers: the track
-    /// admission (`0x004B3BE9`) and `Coordinate_Attack` (`0x006EB56F`).
-    pub(crate) fn find_blocking_object(&self, cell: (u16, u16)) -> Option<BlockingObject> {
+    /// (0x47C3D0), else the first terrain object. Track admission4B3BE9 and
+    /// CoordinateAttack6EB56F use ground; Script1 at6EC9F7 selects the
+    /// bridge list from Cell140 bit100, as Script59 at6ECAC7 also does.
+    /// This is their shared native owner.
+    pub(crate) fn find_blocking_object(
+        &self,
+        cell: (u16, u16),
+        layer: MovementLayer,
+    ) -> Option<BlockingObject> {
         let list = self.substrate.occupancy.get(cell.0, cell.1);
         if let Some(aircraft) = list
             .into_iter()
@@ -1356,12 +1361,12 @@ impl Simulation {
                 self.substrate
                     .entities
                     .get(entry.entity_id)
-                    .is_some_and(|entity| entity.category == EntityCategory::Aircraft)
+                    .is_some_and(|entity| entity.category() == EntityCategory::Aircraft)
             })
         {
             return Some(BlockingObject::Entity(aircraft.entity_id));
         }
-        let nearest = self.nearest_cell_object(cell, MovementLayer::Ground, None);
+        let nearest = self.nearest_cell_object(cell, layer, None);
         if let Some(object) = nearest {
             return Some(BlockingObject::Entity(object));
         }

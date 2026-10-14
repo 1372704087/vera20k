@@ -9,7 +9,8 @@
 //!
 //! The class overrides (`UnitClass` `0x00739EC0`, `InfantryClass`
 //! `0x00519630`) run their own work, then `FootClass` `0x004D85D0`, which
-//! ends in the Techno tail `0x006F5090`. Fly has no caller.
+//! ends in the Techno tail `0x006F5090`. An ordinary Fly arrival caller
+//! has not been established; parachute landing is a separate Object caller.
 
 use super::ground_pose::position_world_coord;
 use super::locomotor::MovementLayer;
@@ -21,7 +22,7 @@ use crate::sim::lifecycle_request::{LifecycleRequest, UninitReason};
 use crate::sim::mission::authority::LiveReadyInputProvider;
 use crate::sim::mission::{MissionId, MissionType};
 use crate::sim::radio::{self, RadioMessage, RadioPayload};
-use crate::sim::world::{FrameAdvanceError, FrameEffects, Simulation};
+use crate::sim::world::{FrameAdvanceError, FrameEffects, Simulation, UninitContext};
 
 /// The reason a `Per_Cell_Process` call passes.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -48,7 +49,7 @@ impl Simulation {
             .substrate
             .entities
             .get(id)
-            .map(|entity| entity.category)
+            .map(|entity| entity.category())
         {
             Some(EntityCategory::Unit) => {
                 self.unit_per_cell_process(id, reason, rules, registry, effects);
@@ -84,7 +85,7 @@ impl Simulation {
             }
             let contact = unit.radio_contacts.slot(0)?;
             let building = self.substrate.entities.get(contact)?;
-            if building.category != EntityCategory::Structure { return None; }
+            if building.category() != EntityCategory::Structure { return None; }
             let at = super::ground_pose::object_get_coords(unit, self.resolved_terrain.as_ref());
             let cell = ((at.x /256) as u16, (at.y /256) as u16);
             let dock = super::building_dock_cell(&self.substrate.entities, contact, Some(id),
@@ -123,7 +124,7 @@ impl Simulation {
         let Some(entity) = self.substrate.entities.get(id) else {
             return false;
         };
-        if entity.dock_entered_with.is_none()
+        if entity.tether.partner().is_none()
             || entity.mission.effective()
                 != crate::sim::mission::MissionId::from_known(MissionType::Enter)
         {
@@ -241,8 +242,8 @@ impl Simulation {
             };
             let coord = position_world_coord(&crusher.position);
             let capability = super::bump_crush::CrushCapability::new(
-                crusher.regular_crusher,
-                crusher.omni_crusher,
+                crusher.mover_facts.regular_crusher(),
+                crusher.mover_facts.omni_crusher(),
             );
             let kills = super::bump_crush::select_crush_victims(
                 &[victim],
@@ -267,16 +268,14 @@ impl Simulation {
                         &mut self.sound_events,
                     );
                 }
-                let owner = self.substrate.entities.get(id).map(|entity| entity.owner());
                 if let Some(entity) = self.substrate.entities.get_mut(victim) {
-                    entity.health.current = 0;
+                    entity.health.set(0);
                 }
                 self.record_the_kill(
                     victim,
-                    Some(id),
-                    owner,
+                    crate::sim::combat::KillSource::Techno(Some(id)),
                     crate::sim::combat::KillCallback::Terminal,
-                    rules,
+                    UninitContext::new(Some(rules), registry).with_effects(effects),
                 );
                 self.apply_lifecycle_request_with_rules(
                     LifecycleRequest::Uninit {
@@ -315,7 +314,7 @@ impl Simulation {
         let Some(unit) = self.substrate.entities.get(id) else {
             return;
         };
-        if unit.dock_entered_with.is_none() {
+        if unit.tether.partner().is_none() {
             return;
         }
         let nav_com = unit.navigation.nav_com;
@@ -365,7 +364,7 @@ impl Simulation {
         if !at_destination
             && contact
                 .and_then(|contact| self.substrate.entities.get(contact))
-                .filter(|contact| contact.category == EntityCategory::Structure)
+                .filter(|contact| contact.category() == EntityCategory::Structure)
                 .and_then(|contact| self.object_type(contact.type_ref(), rules))
                 .is_some_and(|object| object.weapons_factory)
             && self.substrate.occupancy.first_building_on_layer(
@@ -430,7 +429,7 @@ impl Simulation {
         }
         let producer = contact
             .and_then(|contact| self.substrate.entities.get(contact))
-            .filter(|contact| contact.category == EntityCategory::Structure);
+            .filter(|contact| contact.category() == EntityCategory::Structure);
         let human = self
             .houses
             .get(&unit.owner())
@@ -530,7 +529,7 @@ impl Simulation {
                     .get(target_transport_id)
                     .is_some_and(|target| {
                         matches!(
-                            target.category,
+                            target.category(),
                             EntityCategory::Unit | EntityCategory::Aircraft
                         )
                     })
@@ -593,7 +592,7 @@ impl Simulation {
                     .substrate
                     .entities
                     .get(id)
-                    .is_some_and(|entity| entity.dock_entered_with.is_some())
+                    .is_some_and(|entity| entity.tether.partner().is_some())
             {
                 radio::transmit_to_contact(
                     self,
@@ -621,7 +620,8 @@ impl Simulation {
     ///
     /// RESIDUAL: the building's attached Tag is told it was entered
     /// (`TagClass::Raise_Event(1, ...)`, `0x00519710..0x00519725`) before
-    /// the infantryman goes in; VERA attaches no Tags to objects. Trigger: a
+    /// the infantryman goes in; this garrison ingress does not raise event 1 yet.
+    /// Trigger: a
     /// map building with a Tag garrisoned this way. Effect: its "entered by"
     /// trigger does not spring. A building a house builds has no Tag.
     fn infantry_per_cell_occupy(
@@ -653,7 +653,7 @@ impl Simulation {
             self.substrate
                 .entities
                 .get(building)
-                .is_some_and(|entity| entity.category == EntityCategory::Structure)
+                .is_some_and(|entity| entity.category() == EntityCategory::Structure)
         }) else {
             return Ok(false);
         };
@@ -680,7 +680,7 @@ impl Simulation {
         self.substrate
             .entities
             .get(id)
-            .is_some_and(|entity| entity.lifecycle.object_alive)
+            .is_some_and(|entity| entity.lifecycle.object_alive())
     }
 
     /// `FootClass::Per_Cell_Process @ 0x004D85D0` for reason 2, ending in the
@@ -692,13 +692,16 @@ impl Simulation {
     /// (`0x004D882F..0x004D896E`) and the Techno tail's Temporal release
     /// (`0x006F50A3..0x006F50B4`) and playfield promote (`0x006F511A`).
     ///
-    /// RESIDUAL: the cell tag events (`0x004D8978..0x004D8D99`), the
+    /// Cell-attached 1/59 run in their original `0x004D8978..0x004D8A14`
+    /// slot, followed by Map line 25/26 at `0x004D8A70..0x004D8B66`.
+    /// Ordinary Fly ingress remains unproven.
+    /// RESIDUAL: MCV 53/54 and Map zone 24 (`0x004D8A14..0x004D8D99`), the
     /// `+0x83` / `0x00586360` step (`0x004D8DA7..0x004D8DF5`), the
     /// planning-waypoint upkeep (`0x004D8DFF..0x004D8F1D`) and the Techno
     /// tail's `+0x420` call, tag event 0x22, `+0x198` call and cell
-    /// `0x00486920` are not ported. Trigger: every arrival. Effect: cell-tag
+    /// `0x00486920` are not ported. Trigger: every arrival. Effect: zone
     /// triggers and planning waypoints do not fire from movement. Risk: maps
-    /// with cell triggers.
+    /// with those trigger families.
     pub(super) fn foot_per_cell_process(
         &mut self,
         id: u64,
@@ -725,6 +728,10 @@ impl Simulation {
             );
             self.per_cell_range_stop(id, rules, registry, effects);
         }
+        self.dispatch_foot_cell_tag_events(
+            id,
+            crate::sim::world::UninitContext::new(rules, registry).with_effects(effects),
+        );
         // Foot4D8D31..4D8D53: a Foot whose structural deck disappeared
         // takes the same DropAsBomb as BlowUpBridge's deck traversal.
         let deck_gone = self.substrate.entities.get(id).is_some_and(|entity| {
@@ -765,7 +772,7 @@ impl Simulation {
             .substrate
             .entities
             .get(id)
-            .map(|entity| entity.category)
+            .map(|entity| entity.category())
         else {
             return;
         };

@@ -81,7 +81,7 @@ impl Simulation {
             ammo: entity
                 .aircraft_ammo
                 .as_ref()
-                .map_or(-1, |ammo| ammo.current),
+                .map_or(-1, |ammo| ammo.current()),
             type_ammo: object.map_or(0, |object| object.ammo),
             human: self.owner_is_human(entity.owner()),
         }
@@ -117,7 +117,7 @@ impl Simulation {
                 continue;
             };
             let unit = self.substrate.entities.get(unit_id).expect("listed unit");
-            if unit.lifecycle.in_limbo {
+            if unit.lifecycle.in_limbo() {
                 continue;
             }
             let owner = unit.owner();
@@ -265,14 +265,14 @@ impl GuardHost for WorldGuard<'_> {
             .substrate
             .entities
             .get(contact)
-            .filter(|building| building.category == EntityCategory::Structure)
+            .filter(|building| building.category() == EntityCategory::Structure)
             .and_then(|building| self.sim.object_type(building.type_ref(), self.rules))
             .is_some_and(|object| object.unit_reload)
     }
 
     fn target(&mut self) -> bool {
         crate::sim::combat::target_present(
-            self.entity().attack_target.as_ref(),
+            self.entity().attack_target.target(),
             &self.sim.substrate.entities,
         )
     }

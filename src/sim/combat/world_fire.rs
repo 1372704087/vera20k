@@ -135,7 +135,7 @@ fn admit_attacker_fire<'r>(
     let target_data: Option<(u16, u16, SimFixed, SimFixed, i32, InternedId)> = match snap.target {
         TargetKind::Entity(target_id) => world.substrate.entities.get(target_id).map(|t| {
             let (trx, try_, tsx, tsy) = target_coords(t);
-            (trx, try_, tsx, tsy, t.health.current, t.type_ref())
+            (trx, try_, tsx, tsy, t.health.current(), t.type_ref())
         }),
         TargetKind::Cell(rx, ry) => {
             let (trx, try_, tsx, tsy) = cell_center_coords(rx, ry);
@@ -426,12 +426,9 @@ fn admit_attacker_fire<'r>(
             //52093C/520946: shared FootStop4DF0D0 then the concrete+500
             // receiver. That receiver owns any DoAction/Walk Stop callback.
             crate::sim::movement::foot_stop_moving(actor);
-            if let Err(cause) = world.run_find_path_failed_receiver(
-                snap.stable_id,
-                rules,
-                overlay_registry,
-                effects,
-            ) {
+            if let Err(cause) =
+                world.foot_stop_driver(snap.stable_id, rules, overlay_registry, effects)
+            {
                 log::debug!("infantry {} firing Stop_Driver: {cause}", snap.stable_id);
             }
         }
@@ -449,7 +446,7 @@ fn admit_attacker_fire<'r>(
         // even when a frame-zero action can shoot in this same call.
         // Both actor and target are live reads after the synchronous callbacks.
         // Native5209BB/5209D2 reloads Target for SelectWeapon/GetFireError.
-        let target = actor.attack_target.as_ref().map(|attack| attack.target);
+        let target = actor.attack_target.target();
         (weapon_index, selected) = combat_weapon::select_weapon_against(
             rules,
             actor,
@@ -489,11 +486,8 @@ fn admit_attacker_fire<'r>(
     let firing_snapshot;
     let snap = if infantry_fire {
         let actor = world.substrate.entities.get(snap.stable_id)?;
-        firing_snapshot = build_attacker_snapshot(
-            actor,
-            actor.attack_target.as_ref()?.target,
-            snap.garrison.clone(),
-        );
+        firing_snapshot =
+            build_attacker_snapshot(actor, actor.attack_target.target()?, snap.garrison.clone());
         &firing_snapshot
     } else {
         snap
@@ -531,7 +525,7 @@ fn admit_attacker_fire<'r>(
 /// `0x007365BB`), so a crashing Unit's wreck still reaches it at Health 0.
 fn unit_reaches_fire_update(world: &Simulation, id: u64) -> bool {
     world.substrate.entities.get(id).is_some_and(|entity| {
-        entity.category == EntityCategory::Unit && entity.is_ai_alive() && !entity.is_warped_out()
+        entity.category() == EntityCategory::Unit && entity.is_ai_alive() && !entity.is_warped_out()
     })
 }
 
@@ -539,7 +533,7 @@ fn unit_reaches_fire_update(world: &Simulation, id: u64) -> bool {
 /// an Infantry's fire and an Aircraft's attack mission do not run for a
 /// Health-0 wreck. Units use their own live-slot IsAlive guard above.
 fn attacker_reaches_fire(entity: &crate::sim::game_entity::GameEntity) -> bool {
-    entity.is_alive() && !entity.dying
+    entity.is_alive() && !entity.death.is_dying()
 }
 
 /// `Fire_At_Target`'s ILLEGAL arm (Unit `0x00736E7E`, Infantry `0x00520721`):
@@ -565,7 +559,7 @@ fn heal_weapon_drops_target(
         .substrate
         .entities
         .get(id)
-        .filter(|target| target.category == class)
+        .filter(|target| target.category() == class)
     else {
         return true;
     };
@@ -830,7 +824,9 @@ fn fireat_damage(
         house_firepower: firer
             .and_then(|firer| world.houses.get(&firer.owner()))
             .map_or(NativeF64Bits::ONE, |house| house.firepower_bias()),
-        unit_firepower: firer.map_or(NativeF64Bits::ONE, |firer| firer.firepower_multiplier),
+        unit_firepower: firer.map_or(NativeF64Bits::ONE, |firer| {
+            firer.crate_multipliers.firepower()
+        }),
         rank_firepower: self::veterancy::has_weapon_ability(
             self::veterancy::rank_from_u16(snap.veterancy),
             obj,
@@ -842,7 +838,7 @@ fn fireat_damage(
         occupied: is_garrison.then(|| f32_bits(multipliers.occupy_damage_multiplier)),
         // `+0x2E4` on a non-building: a unit installed in a Tank Bunker.
         bunkered: firer
-            .filter(|firer| firer.category != EntityCategory::Structure)
+            .filter(|firer| firer.category() != EntityCategory::Structure)
             .and_then(|firer| firer.bunker_link.installed_in())
             .map(|_| f32_bits(multipliers.bunker_damage_multiplier)),
         open_topped: firer
@@ -889,9 +885,9 @@ fn reveal_on_fire(world: &mut Simulation, rules: &RuleSet, firer_id: u64, target
     let owned = firer.owner() == house;
     let discovered = world.session.game_mode_nonzero
         || (world.session.current_house == Some(house)
-            && firer.discovery.discovered_by_current_house);
+            && firer.discovery.discovered_by_current_house());
     if owned || discovered {
-        if owned && firer.category == EntityCategory::Aircraft {
+        if owned && firer.category() == EntityCategory::Aircraft {
             return;
         }
         // `0x006FF692..0x006FF6B4`: IsShrouded, else `0x005865E0`, which is
@@ -1095,7 +1091,7 @@ pub(super) fn emit_admitted_fire(
             .substrate
             .entities
             .get(snap.stable_id)
-            .is_some_and(|firer| firer.crashing)
+            .is_some_and(|firer| firer.crash.is_crashing())
     {
         let burst = world
             .substrate
@@ -1155,7 +1151,7 @@ pub(super) fn emit_admitted_fire(
         .substrate
         .entities
         .get(snap.stable_id)
-        .map_or(0, |entity| entity.prism_support_count);
+        .map_or(0, |entity| entity.prism_support_count.count());
     let warhead = selected.warhead;
     let base_damage = fireat_damage(world, rules, snap, obj, weapon, is_garrison);
     let ProjectileDelivery {
@@ -1344,7 +1340,7 @@ pub(super) fn emit_admitted_fire(
                 TargetKind::Entity(id) => world.substrate.entities.get(id),
                 TargetKind::Cell(_, _) => None,
             })
-            .filter(|target| target.category == EntityCategory::Structure)
+            .filter(|target| target.category() == EntityCategory::Structure)
             .and_then(|target| rules.object(world.interner.resolve(target.type_ref())))
             .map(|target_type| {
                 rules
@@ -1435,7 +1431,7 @@ pub(super) fn emit_admitted_fire(
         .substrate
         .entities
         .get(snap.stable_id)
-        .map_or(0, |firer| firer.techno_ctor_random_word);
+        .map_or(0, |firer| firer.techno_ctor_random_word());
     let report_sound_id = per_shot_report(weapon, obj.is_gattling, sequence)
         .map(|report| world.interner.intern(report));
     let in_open_transport = world
@@ -1490,10 +1486,7 @@ pub(super) fn emit_admitted_fire(
             .get_mut(snap.stable_id)
             .and_then(|building| building.passenger_role.cargo_mut())
     {
-        let count = cargo.count() as u8;
-        if count > 0 {
-            cargo.garrison_fire_index = (cargo.garrison_fire_index + 1) % count;
-        }
+        cargo.advance_garrison_fire_index();
     }
     // Techno6FF0B7..6FF15B: only a successfully launched shot arms recoil.
     // Stock recoil buildings have their own Turret=yes. Building4527D0's
@@ -1545,7 +1538,7 @@ pub(super) fn emit_admitted_fire(
         };
         entity.rearm_after_fire(binary_frame as i32, rearm);
         entity.weapon_burst.complete_shot(weapon.burst.max(1));
-        entity.last_fire_frame = i64::from(binary_frame);
+        entity.last_fire_frame.record(binary_frame);
     }
     // `0x006FF394..0x006FF43F`, after GetROF: the muzzle anim, appended to the
     // Logic vector behind this shot's bullet.
@@ -1647,7 +1640,7 @@ fn shot_target(
 ) -> Option<TargetKind> {
     match building_shot {
         Some(shot) => Some(shot.target()),
-        None => entity.attack_target.as_ref().map(|attack| attack.target),
+        None => entity.attack_target.target(),
     }
 }
 
@@ -1660,8 +1653,7 @@ fn fireat_tarcom(world: &Simulation, snap: &AttackerSnapshot) -> Option<TargetKi
         .substrate
         .entities
         .get(snap.stable_id)
-        .and_then(|firer| firer.attack_target.as_ref())
-        .map(|attack| attack.target)
+        .and_then(|firer| firer.attack_target.target())
 }
 
 /// `TechnoClass::FireAt 0x006FE582..0x006FE622`, right after the bullet is
@@ -1686,7 +1678,7 @@ fn fireat_estimate_debit(
         return;
     };
     let foot = matches!(
-        firer.category,
+        firer.category(),
         EntityCategory::Unit | EntityCategory::Infantry | EntityCategory::Aircraft
     );
     let marked = foot
@@ -1829,6 +1821,49 @@ impl FireCommitBoundary {
     }
 }
 
+/// The frame of the object's own last shot, `TechnoClass+0x120`. The
+/// constructor seeds `-100` (`0x006F2B9C`), so a freshly built object is
+/// already past the idle-turret dwell on frame 0, and the single other writer
+/// in the image is `TechnoClass::Fire_At @ 0x006FF743`, which stores
+/// `g_CurrentFrameCounter` ([`Self::record`]). `UnitClass::Facing_Update`
+/// gates the idle turret return on `frame - this >= GuardAreaTargetingDelay +
+/// 5`, so the dwell is measured from the unit's own last shot, NOT from
+/// target loss. BuildingClass::Update starts a Gattling building's idle decay
+/// once `frame - this > GuardAreaTargetingDelay + 5` (`0x0043FEE9`).
+///
+/// Not folded into `world_hash`: its two consumers' results are, so a
+/// divergence surfaces one tick later through `barrel_facing` or `gattling`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(transparent)]
+pub(crate) struct LastFireFrame {
+    frame: i64,
+}
+
+impl Default for LastFireFrame {
+    /// The constructor's `-100` (`0x006F2B9C`).
+    fn default() -> Self {
+        Self { frame: -100 }
+    }
+}
+
+impl LastFireFrame {
+    /// The frame of the last shot.
+    pub(crate) const fn frame(self) -> i64 {
+        self.frame
+    }
+
+    /// `Fire_At @ 0x006FF743`: a shot at `frame`.
+    fn record(&mut self, frame: u32) {
+        self.frame = i64::from(frame);
+    }
+
+    /// Install a fixture's frame.
+    #[cfg(test)]
+    pub(crate) fn set_for_test(&mut self, frame: i64) {
+        self.frame = frame;
+    }
+}
+
 fn deduct_fire_ammo(world: &mut Simulation, firers: &[u64]) {
     for &id in firers {
         if let Some(ammo) = world
@@ -1836,9 +1871,8 @@ fn deduct_fire_ammo(world: &mut Simulation, firers: &[u64]) {
             .entities
             .get_mut(id)
             .and_then(|entity| entity.aircraft_ammo.as_mut())
-            && ammo.current > 0
         {
-            ammo.current -= 1;
+            ammo.decrease();
         }
     }
 }
@@ -1877,9 +1911,8 @@ fn infantry_fire_tail(
     };
     let Some(target) = actor
         .attack_target
-        .as_ref()
-        .filter(|attack| target_present(Some(attack), &world.substrate.entities))
-        .map(|attack| attack.target)
+        .target()
+        .filter(|&target| target_present(Some(target), &world.substrate.entities))
     else {
         return;
     };
@@ -1931,7 +1964,7 @@ pub(crate) fn visit_fire(
                     .filter(|obj| combat_weapon::is_occupied(actor, obj))
                     .and_then(|_| actor.passenger_role.cargo())
                     .map(|cargo| GarrisonSnapshot {
-                        fire_index: cargo.garrison_fire_index,
+                        fire_index: cargo.garrison_fire_index(),
                         occupant_count: cargo.count() as u8,
                     });
                 AttackerSnapshot {
@@ -1987,7 +2020,7 @@ pub(crate) fn visit_fire(
         }
         FireVisit::InfantryTarget(id) => {
             let actor = world.substrate.entities.get(id);
-            let target = actor.and_then(|actor| actor.attack_target.as_ref().map(|a| a.target));
+            let target = actor.and_then(|actor| actor.attack_target.target());
             if let (Some(actor), Some(target)) = (actor, target) {
                 let snap = build_attacker_snapshot(actor, target, None);
                 let reach = resolve_attacker_fire(
@@ -2190,7 +2223,7 @@ pub(crate) fn tick_combat(
         // Buildings, Units and Infantry already fired in their live Logic slots.
         // Component fixtures below invoke that same slot without a world pass.
         if matches!(
-            entity.category,
+            entity.category(),
             EntityCategory::Structure | EntityCategory::Unit | EntityCategory::Infantry
         ) {
             continue;
@@ -2205,7 +2238,7 @@ pub(crate) fn tick_combat(
         // Every Infantry already fired at its own51BF59 slot. This also
         // excludes newly born actors that never received an AI visit; the
         // legacy batch cannot grant them an extra end-of-frame firing turn.
-        if entity.category == EntityCategory::Infantry || !attacker_reaches_fire(entity) {
+        if entity.category() == EntityCategory::Infantry || !attacker_reaches_fire(entity) {
             continue;
         }
         // An aircraft fires only in the Mission_Attack strike visit its
@@ -2213,7 +2246,7 @@ pub(crate) fn tick_combat(
         // opens with its own prefix: AircraftClass::AI has no fire slot of
         // its own, and its other missions fire nothing.
         let requested = fire_requests.aircraft.contains(&id);
-        if entity.category == EntityCategory::Aircraft && !requested {
+        if entity.category() == EntityCategory::Aircraft && !requested {
             continue;
         }
         let Some(attack_target) = shot_target(entity, None) else {
@@ -2240,10 +2273,10 @@ pub(crate) fn tick_combat(
             (!fire_suppressed.contains(&id)
                 && world.substrate.entities.get(id).is_some_and(|actor| {
                     matches!(
-                        actor.category,
+                        actor.category(),
                         EntityCategory::Unit | EntityCategory::Infantry
                     ) && actor.is_ai_alive()
-                        && !actor.lifecycle.in_limbo
+                        && !actor.lifecycle.in_limbo()
                 }))
             .then_some(Visit::Foot(id))
         }));
@@ -2264,7 +2297,7 @@ pub(crate) fn tick_combat(
             #[cfg(test)]
             Visit::Foot(id) => {
                 let actor = world.substrate.entities.get_mut(id).unwrap();
-                let visit = if actor.category == EntityCategory::Unit {
+                let visit = if actor.category() == EntityCategory::Unit {
                     FireVisit::UnitTarget(id)
                 } else {
                     if actor.mission_leaf.as_infantry().is_none() {
@@ -2388,10 +2421,10 @@ pub(crate) fn tick_combat(
                 // Buildings never take radiation damage; corpses, limbo
                 // (transported) and objects in the air are exempt.
                 // FootClass::AI asks vt+0x54, IsInAir (`0x004DA588`).
-                if entity.category == EntityCategory::Structure
-                    || entity.dying
+                if entity.category() == EntityCategory::Structure
+                    || entity.death.is_dying()
                     || !entity.is_alive()
-                    || entity.immune_to_radiation
+                    || entity.mover_facts.immune_to_radiation()
                     || entity.passenger_role.is_inside_transport()
                     || crate::sim::movement::air_movement::is_high_flying(
                         entity,
@@ -2457,7 +2490,7 @@ pub(crate) fn tick_combat(
     effects.append(late_death);
     under_attack_events.append(&mut late_pings);
 
-    // Phase 5: remove AttackTarget from finished attackers.
+    // Phase 5: clear finished attackers' targets.
     remove_attack.sort_unstable();
     remove_attack.dedup();
     for &attacker_id in &remove_attack {
@@ -2530,8 +2563,8 @@ mod reveal_on_fire_tests {
         }
         for (id, owner, rx) in [(1, "Soviet", 10), (2, "Americans", 12)] {
             let mut entity = GameEntity::test_default(id, "MTNK", owner, rx, 10);
-            entity.owner = sim.interner.intern(owner);
-            entity.type_ref = sim.interner.intern("MTNK");
+            entity.set_owner_for_test(sim.interner.intern(owner));
+            entity.set_type_ref_for_test(sim.interner.intern("MTNK"));
             sim.substrate.entities.insert(entity);
         }
         (sim, rules)
@@ -2691,7 +2724,7 @@ pub(crate) fn estimated_damage_on(
                 .houses
                 .get(&attacker.owner())
                 .map_or(NativeF64Bits::ONE, |house| house.firepower_bias()),
-            unit_firepower: attacker.firepower_multiplier,
+            unit_firepower: attacker.crate_multipliers.firepower(),
             rank_firepower,
             occupied: None,
             bunkered: None,
@@ -2699,7 +2732,7 @@ pub(crate) fn estimated_damage_on(
         },
         divisors: damage::DefenceDivisors {
             house_type_armor: NativeF32Bits::from_bits(house_type_armor.to_bits()),
-            unit_armor: attacker.armor_multiplier,
+            unit_armor: attacker.crate_multipliers.armor(),
             rank_armor,
         },
         warhead: warhead.map(|warhead| damage::estimate::EstimateWarhead {

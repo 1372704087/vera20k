@@ -155,13 +155,15 @@ fn crew_scene(input: &Value) -> (SlaveScene, Vec<u64>) {
     let owner = sim.substrate.entities.get(refinery).unwrap().owner();
     sim.houses.get_mut(&owner).unwrap().side_index = input["side"].as_u64().unwrap() as u8;
     let building = sim.substrate.entities.get_mut(refinery).unwrap();
-    building.has_been_captured = input["captured"] == true;
-    building.selected = input["selected"] == true;
+    building
+        .has_been_captured
+        .set_for_test(input["captured"] == true);
+    building
+        .selection
+        .set_selected_for_test(input["selected"] == true);
     let mut passengers = Vec::new();
     if let Some(names) = input["passengers"].as_array() {
-        building.passenger_role = PassengerRole::Transport {
-            cargo: PassengerCargo::new(5, 0),
-        };
+        building.passenger_role = PassengerRole::transport(PassengerCargo::new(5, 0));
         for name in names {
             let id = sim
                 .construct_object_limbo_at_height(
@@ -172,12 +174,11 @@ fn crew_scene(input: &Value) -> (SlaveScene, Vec<u64>) {
                     0,
                     0,
                     rules,
+                    crate::sim::world::FrameEffects::default(),
                 )
                 .expect("absorbed infantry");
-            sim.substrate.entities.get_mut(id).unwrap().passenger_role = PassengerRole::Inside {
-                transport_id: refinery,
-                open_topped: false,
-            };
+            sim.substrate.entities.get_mut(id).unwrap().passenger_role =
+                PassengerRole::inside_for_test(refinery, false);
             passengers.push(id);
         }
         // AddPassenger prepends: the list's head is the first passenger.
@@ -215,7 +216,7 @@ fn compare_infantry(s: &SlaveScene, id: u64, expected: &Value, context: &str) {
         "{context}: owner"
     );
     assert_eq!(
-        u64::from(entity.lifecycle.in_limbo),
+        u64::from(entity.lifecycle.in_limbo()),
         expected["limbo"].as_u64().unwrap(),
         "{context}: limbo"
     );
@@ -589,19 +590,21 @@ fn the_computers_low_credit_sale_matches_the_original_admission() {
             0,
             0,
             owner,
-            crate::sim::components::Health {
-                current: int("health"),
-            },
+            crate::sim::combat::Health::new(int("health")),
             kind,
             crate::map::entities::EntityCategory::Structure,
             0,
             5,
             false,
         );
-        building.lifecycle.in_limbo = false;
+        building.lifecycle.set_in_limbo_for_test(false);
         building.in_playfield = true;
-        building.was_attacked_by_enemy = input["attacked"] == true;
-        building.ai_sellable = input["ai_sellable"] == true;
+        building
+            .ai_sell_repair
+            .set_was_attacked_by_enemy_for_test(input["attacked"] == true);
+        building
+            .ai_sell_repair
+            .set_ai_sellable_for_test(input["ai_sellable"] == true);
         if input["mission"] == "construction" || input["queued"] == "construction" {
             building.install_building_up(
                 crate::sim::components::BuildingUp::completing_in_ticks(

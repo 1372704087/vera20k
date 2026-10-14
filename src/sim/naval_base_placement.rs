@@ -145,10 +145,10 @@ fn first_yard_distance_accepts(
     let Some(yard) = sim.substrate.entities.get(yard_id) else {
         return false;
     };
-    if yard.category != EntityCategory::Structure
-        || !yard.build_const_eligible
-        || !yard.lifecycle.object_alive
-        || yard.lifecycle.in_limbo
+    if yard.category() != EntityCategory::Structure
+        || !yard.type_facts.build_const_eligible()
+        || !yard.lifecycle.object_alive()
+        || yard.lifecycle.in_limbo()
         || !yard.lifecycle.cell_marked
     {
         return false;
@@ -190,7 +190,7 @@ mod tests {
     use crate::rules::ini_parser::IniFile;
     use crate::rules::terrain_rules::{LandType, SpeedCostProfile, TerrainClass};
     use crate::sim::cell_rect::PlayfieldBounds;
-    use crate::sim::components::Health;
+    use crate::sim::combat::Health;
     use crate::sim::game_entity::GameEntity;
 
     fn water_cell(rx: u16, ry: u16) -> ResolvedTerrainCell {
@@ -270,7 +270,7 @@ mod tests {
     }
 
     fn naval_integration_rules() -> RuleSet {
-        RuleSet::from_ini_with_fixed_art_for_test(&IniFile::from_str(
+        RuleSet::from_ini_with_fixed_art_for_test(&crate::sim::arena_fixture::clear_ground_ini(
             "[General]\nShipyard=GAYARD\nAINavalYardAdjacency=0\n\
              [AI]\nBuildConst=gacnst\n\
              [Countries]\n0=Americans\n[Sides]\nAllied=Americans\n[Americans]\nSide=Allied\n\
@@ -569,16 +569,17 @@ mod tests {
             0,
             0,
             owner,
-            Health { current: 1000 },
+            Health::new(1000),
             type_ref,
             EntityCategory::Structure,
             0,
             5,
             false,
         );
-        yard.foundation = foundation.to_string();
-        yard.build_const_eligible = true;
-        yard.lifecycle.in_limbo = false;
+        yard.type_facts
+            .set_foundation_for_test(foundation.to_string());
+        yard.type_facts.set_build_const_eligible_for_test(true);
+        yard.lifecycle.set_in_limbo_for_test(false);
         yard.lifecycle.cell_marked = true;
         sim.substrate.entities.insert(yard);
     }
@@ -666,6 +667,13 @@ mod tests {
         sim.playfield_bounds = Some(broad_bounds());
         sim.playfield_size_height = Some(24);
         sim.resolved_terrain = Some(water_terrain(24, 24));
+        // The land construction yard has a legal 1x1 clear foundation; its
+        // adjacent naval candidate remains water for the zero-distance test.
+        *sim.resolved_terrain
+            .as_mut()
+            .unwrap()
+            .cell_mut(10, 10)
+            .unwrap() = crate::map::resolved_terrain::test_clear_cell(10, 10);
         let owner = sim.interner.intern("AIHouse");
         let country = sim.interner.intern("Americans");
         sim.houses.insert(
@@ -676,7 +684,13 @@ mod tests {
             .spawn_object("GACNST", "AIHouse", 10, 10, 0, &rules)
             .expect("parsed BuildConst Construction Yard reveals");
         assert_eq!(sim.houses[&owner].build_const_order, [yard]);
-        assert!(sim.entities().get(yard).unwrap().build_const_eligible);
+        assert!(
+            sim.entities()
+                .get(yard)
+                .unwrap()
+                .type_facts
+                .build_const_eligible()
+        );
 
         sim.houses.get_mut(&owner).unwrap().base_center = Some((11, 10));
         let path = PathGrid::from_resolved_terrain(sim.resolved_terrain.as_ref().unwrap());

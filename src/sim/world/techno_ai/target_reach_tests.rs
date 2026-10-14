@@ -6,14 +6,16 @@
 use super::{FrameEffects, RuleSet, Simulation, target_reach_step};
 use crate::map::resolved_terrain::zone_class;
 use crate::rules::ini_parser::IniFile;
-use crate::sim::combat::{AttackTarget, TargetKind};
+use crate::sim::combat::TargetKind;
 use crate::sim::components::NavTargetRef;
 use crate::sim::mission::{MissionId, MissionType};
 
 /// A tank with a 4-cell gun: 896 leptons of Approach reach (`0x004D56F2`),
 /// and a plain building.
 fn rules() -> RuleSet {
-    RuleSet::from_ini(&IniFile::from_str(
+    // This synthetic scene needs native buildable Clear ground and the
+    // explicitly intended one-cell HUT foundation in the fixed ART reader.
+    let ini = crate::sim::arena_fixture::clear_ground_ini(
         "[VehicleTypes]\n0=TANK\n[BuildingTypes]\n0=HUT\n\
          [TANK]\nStrength=300\nArmor=heavy\nSpeed=6\nSight=10\nPrimary=TankGun\n\
          Locomotor={4A582741-9839-11D1-B709-00A024DDAFD1}\n\
@@ -21,8 +23,9 @@ fn rules() -> RuleSet {
          [TankGun]\nDamage=10\nROF=20\nRange=4\nProjectile=InvisibleAll\nWarhead=HITWH\n\
          [InvisibleAll]\nInviso=yes\nAA=yes\nAG=yes\n\
          [HITWH]\nVerses=100%,100%,100%,100%,100%,100%,100%,100%,100%,100%,100%\n",
-    ))
-    .expect("reach rules")
+    );
+    RuleSet::from_ini_with_fixed_art_for_test(&ini, &IniFile::from_str("[HUT]\nFoundation=1x1\n"))
+        .expect("reach rules")
 }
 
 /// The flat arena, cut at x = 12..=13 by impassable cells when `split`, with
@@ -60,7 +63,12 @@ fn hold(
     sim.mission_assign_exact(tank, MissionId::from_known(mission), now)
         .unwrap();
     let _ = sim.mission_commence_exact(tank, now);
-    sim.substrate.entities.get_mut(tank).unwrap().attack_target = Some(AttackTarget::new(target));
+    sim.substrate
+        .entities
+        .get_mut(tank)
+        .unwrap()
+        .attack_target
+        .set_for_test(Some(TargetKind::Entity(target)));
     (sim, tank, TargetKind::Entity(target))
 }
 
@@ -81,10 +89,7 @@ fn reach(
 ) -> (Option<TargetKind>, Option<NavTargetRef>) {
     target_reach_step(sim, tank, rules, None, FrameEffects::default());
     let tank = sim.substrate.entities.get(tank).unwrap();
-    (
-        tank.attack_target.as_ref().map(|attack| attack.target),
-        tank.navigation.nav_com,
-    )
+    (tank.attack_target.target(), tank.navigation.nav_com)
 }
 
 /// A target in another zone is approached on any mission: from (8, 10) on

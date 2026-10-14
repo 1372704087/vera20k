@@ -166,15 +166,15 @@ fn a_hunting_computer_aircraft_strikes_storage_in_multiplayer_only() {
                 break;
             };
             hunted |= entity.mission.current() == MissionId::from_known(MissionType::Hunt);
-            if let Some(attack) = entity.attack_target.as_ref()
-                && !targets.contains(&attack.target)
+            if let Some(attack) = entity.attack_target.target()
+                && !targets.contains(&attack)
             {
-                targets.push(attack.target);
+                targets.push(attack);
             }
             fired |= entity
                 .aircraft_ammo
                 .as_ref()
-                .is_some_and(|ammo| ammo.current == 0);
+                .is_some_and(|ammo| ammo.current() == 0);
             if fired {
                 break;
             }

@@ -67,7 +67,7 @@ pub(crate) fn receive_radio(
     rules: Option<&RuleSet>,
     effects: FrameEffects<'_>,
 ) -> RadioResponse {
-    let Some(category) = sim.substrate.entities.get(target_sid).map(|t| t.category) else {
+    let Some(category) = sim.substrate.entities.get(target_sid).map(|t| t.category()) else {
         return RadioResponse::None;
     };
     match category {
@@ -283,7 +283,7 @@ fn building_can_load(
     // Size= and SizeLimit= are native doubles that VERA reads as integers
     // (equal on every retail value).
     if absorbs {
-        let class_refused = match unit.category {
+        let class_refused = match unit.category() {
             EntityCategory::Unit => !building_type.unit_absorb,
             EntityCategory::Infantry => !building_type.infantry_absorb,
             _ => false,
@@ -312,7 +312,7 @@ fn building_can_load(
     }
     if building_type.unit_repair {
         if !matches!(
-            unit.category,
+            unit.category(),
             EntityCategory::Unit | EntityCategory::Aircraft
         ) {
             return RadioResponse::Negatory;
@@ -332,13 +332,13 @@ fn building_can_load(
     }
     // 0x0043C620: a Helipad takes an Aircraft and nothing else.
     if building_type.helipad {
-        return if unit.category == EntityCategory::Aircraft {
+        return if unit.category() == EntityCategory::Aircraft {
             RadioResponse::Roger
         } else {
             RadioResponse::Negatory
         };
     }
-    if unit.category == EntityCategory::Unit
+    if unit.category() == EntityCategory::Unit
         && (building_type.dock_unload && unit_type.harvester
             || building_type.weeder && unit_type.weeder)
     {
@@ -458,7 +458,7 @@ fn building_docking(
     let pad_force = contacted
         && pad_dock
         && sim.substrate.entities.get(from).is_some_and(|foot| {
-            foot.category != EntityCategory::Structure
+            foot.category() != EntityCategory::Structure
                 && foot.navigation.nav_com.is_some()
                 && foot.navigation.nav_com
                     != crate::sim::movement::building_dock_cell(
@@ -756,7 +756,7 @@ pub(crate) fn unit_can_enter_radio(
         })
         .is_some()
         || passenger.mind_control.is_mind_controlled()
-        || passenger.parasite_eating_me.is_some()
+        || passenger.parasite.eater().is_some()
         || passenger
             .capture_manager
             .as_ref()
@@ -767,7 +767,7 @@ pub(crate) fn unit_can_enter_radio(
     let occupied = transport
         .passenger_role
         .cargo()
-        .map_or(0, |cargo| cargo.total_size);
+        .map_or(0, |cargo| cargo.total_size());
     if i64::from(occupied) + i64::from(passenger_type.size) > i64::from(transport_type.passengers)
         || passenger_type.size > transport_type.size_limit
     {
@@ -803,7 +803,7 @@ fn unit_prepare_to_dock(
     let Some(entity) = sim.substrate.entities.get_mut(unit) else {
         return RadioResponse::Roger;
     };
-    if !entity.turret_rotation_latch && entity.body_facing_current(frame) != DOCK_FACING {
+    if !entity.turret_rotation_latch.is_set() && entity.body_facing_current(frame) != DOCK_FACING {
         crate::sim::movement::drive_do_turn(entity, DOCK_FACING, frame);
         return RadioResponse::Roger;
     }
@@ -813,13 +813,13 @@ fn unit_prepare_to_dock(
     let dock = entity
         .radio_contacts
         .slot(0)
-        .filter(|_| entity.dock_entered_with.is_some())
+        .filter(|_| entity.tether.partner().is_some())
         .filter(|_| entity.mission.effective() == MissionId::from_known(MissionType::Enter));
     let dock = dock.filter(|&dock| {
         sim.substrate
             .entities
             .get(dock)
-            .is_some_and(|contact| contact.category == EntityCategory::Structure)
+            .is_some_and(|contact| contact.category() == EntityCategory::Structure)
     });
     if let Some(dock) = dock {
         transmit(
@@ -944,7 +944,7 @@ fn aircraft_receive(
     let ammo = entity
         .aircraft_ammo
         .as_ref()
-        .map_or(-1, |ammo| ammo.current);
+        .map_or(-1, |ammo| ammo.current());
     let object = rules.and_then(|rules| sim.object_type(entity.type_ref(), rules));
     let type_ammo = object.map_or(-1, |object| object.ammo);
     let transport = AircraftHold {
@@ -955,7 +955,7 @@ fn aircraft_receive(
             .cargo()
             .map_or(0, |cargo| cargo.count() as i32),
     };
-    let target = entity.attack_target.is_some();
+    let target = entity.attack_target.target().is_some();
     match msg {
         // 0x00419109: half its type's Ammo or more and a Target, it does not
         // need the round; otherwise Techno takes it (`0x006F4C9C`).
@@ -1045,7 +1045,7 @@ fn aircraft_move_here(
             .substrate
             .entities
             .get(id)
-            .filter(|entity| entity.category == EntityCategory::Structure)
+            .filter(|entity| entity.category() == EntityCategory::Structure)
             .map(|_| id),
         NavTargetRef::Cell { .. } => None,
     });
@@ -1280,20 +1280,16 @@ fn foot_run_away(
         );
     }
     // 0x004D90A5..0x004D90C6.
-    if sim
-        .substrate
-        .entities
-        .get(foot)
-        .is_some_and(|entity| !entity.turret_rotation_latch && entity.navigation.nav_com.is_none())
-        && let Err(cause) = sim.scatter(
-            foot,
-            None,
-            ScatterFlags::new(true, true),
-            rules,
-            None,
-            effects,
-        )
-    {
+    if sim.substrate.entities.get(foot).is_some_and(|entity| {
+        !entity.turret_rotation_latch.is_set() && entity.navigation.nav_com.is_none()
+    }) && let Err(cause) = sim.scatter(
+        foot,
+        None,
+        ScatterFlags::new(true, true),
+        rules,
+        None,
+        effects,
+    ) {
         log::debug!("RUN_AWAY foot {foot} did not scatter: {cause}");
     }
 }
@@ -1440,10 +1436,10 @@ fn techno_reload(sim: &mut Simulation, techno: u64, rules: Option<&RuleSet>) -> 
     else {
         return RadioResponse::None;
     };
-    if ammo.current == type_ammo {
+    if ammo.current() == type_ammo {
         return RadioResponse::Negatory;
     }
-    ammo.current = ammo.current.wrapping_add(1);
+    ammo.reload_round();
     RadioResponse::Roger
 }
 
@@ -1473,7 +1469,7 @@ fn techno_repair_tick(
     // InfantryType5247A0/524790 overrides cost0 and Rules+16D8 IRepairStep.
     // That Hospital-family dependency is outside the selected Unit service
     // chain; do not give it the inherited Unit/default getters.
-    if entity.category == EntityCategory::Infantry {
+    if entity.category() == EntityCategory::Infantry {
         return RadioResponse::None;
     }
     let strength = object.strength;
@@ -1489,9 +1485,9 @@ fn techno_repair_tick(
     let Some(entity) = sim.substrate.entities.get_mut(techno) else {
         return RadioResponse::None;
     };
-    entity.health.current = entity.health.current.wrapping_add(heal);
+    entity.health.heal(heal);
     entity.estimated_health.add_repair(heal);
-    let eater = entity.parasite_eating_me;
+    let eater = entity.parasite.eater();
     if let Some(eater) = eater {
         sim.parasite_force_release(
             eater,
@@ -1507,7 +1503,7 @@ fn techno_repair_tick(
         return RadioResponse::None;
     };
     if entity.health.is_full(strength) {
-        entity.health.current = strength;
+        entity.health.set(strength);
         entity.estimated_health.reset(strength);
         RadioResponse::RepairComplete
     } else {
@@ -1539,7 +1535,7 @@ fn techno_over_out(
             sim.substrate
                 .entities
                 .get(id)
-                .is_some_and(|e| e.dock_entered_with.is_some())
+                .is_some_and(|e| e.tether.partner().is_some())
         };
         if tethered(techno) && tethered(from) {
             transmit(
@@ -1573,15 +1569,15 @@ fn techno_tether(
     let Some(entity) = sim.substrate.entities.get(techno) else {
         return RadioResponse::None;
     };
-    let airport_bound = entity.category == EntityCategory::Aircraft
+    let airport_bound = entity.category() == EntityCategory::Aircraft
         && rules
             .and_then(|rules| sim.object_type(entity.type_ref(), rules))
             .is_some_and(|object| object.airport_bound);
-    if airport_bound || entity.dock_entered_with.is_some() {
+    if airport_bound || entity.tether.partner().is_some() {
         return radio_receive(sim, techno, sender, RadioMessage::Tether);
     }
     if let Some(entity) = sim.substrate.entities.get_mut(techno) {
-        entity.dock_entered_with = Some(from);
+        entity.tether.attach(from);
     }
     transmit(
         sim,
@@ -1606,10 +1602,10 @@ fn techno_untether(
     let Some(entity) = sim.substrate.entities.get_mut(techno) else {
         return RadioResponse::None;
     };
-    if entity.dock_entered_with.is_none() {
+    if entity.tether.partner().is_none() {
         return radio_receive(sim, techno, sender, RadioMessage::Untether);
     }
-    entity.dock_entered_with = None;
+    entity.tether.release();
     if let Some(from) = sender {
         transmit(
             sim,
@@ -1706,7 +1702,7 @@ fn radio_hello(sim: &mut Simulation, receiver: u64, sender: Option<u64>) -> Radi
     ) else {
         return RadioResponse::None;
     };
-    if this.health.current == 0 {
+    if this.health.current() == 0 {
         return RadioResponse::None;
     }
     let ally = |asker, other| {
@@ -1788,14 +1784,14 @@ fn bunker_admits(sim: &Simulation, bld: u64, unit: u64) -> bool {
     };
     // CanEnterBunker 0x0070FBAF..0x0070FBC3, called from this receiver at
     // 0x0043C512: a unit infected on its way in is refused at the door.
-    if unit.parasite_eating_me.is_some() {
+    if unit.parasite.eater().is_some() {
         return false;
     }
     let unit_owner = unit.owner();
     let Some(b) = sim.substrate.entities.get(bld) else {
         return false;
     };
-    if b.dying || b.health.current == 0 {
+    if b.death.is_dying() || b.health.current() == 0 {
         return false;
     }
     if b.owner() != unit_owner {
@@ -1811,7 +1807,7 @@ fn bunker_admits(sim: &Simulation, bld: u64, unit: u64) -> bool {
 mod tests {
     use super::dock_pad_cell;
     use crate::map::entities::EntityCategory;
-    use crate::sim::components::Health;
+    use crate::sim::combat::Health;
     use crate::sim::game_entity::GameEntity;
     use crate::sim::radio::{
         RadioMessage, RadioPayload, RadioResponse, RadioTestEvent, broadcast_break,
@@ -1829,7 +1825,7 @@ mod tests {
             0,
             0,
             owner_id,
-            Health { current: 900 },
+            Health::new(900),
             type_id,
             EntityCategory::Structure,
             0,
@@ -1850,7 +1846,7 @@ mod tests {
             0,
             0,
             owner_id,
-            Health { current: 200 },
+            Health::new(200),
             type_id,
             EntityCategory::Unit,
             0,
@@ -1871,7 +1867,7 @@ mod tests {
             0,
             0,
             owner_id,
-            Health { current: 1000 },
+            Health::new(1000),
             type_id,
             EntityCategory::Structure,
             0,
@@ -1918,8 +1914,8 @@ mod tests {
         spawn_refinery(&mut sim, 2, "Americans", 3);
         let type_ref = sim.intern("GAPILE");
         let building = sim.substrate.entities.get_mut(2).unwrap();
-        building.type_ref = type_ref;
-        building.lifecycle.in_limbo = false;
+        building.set_type_ref_for_test(type_ref);
+        building.lifecycle.set_in_limbo_for_test(false);
         building.lifecycle.cell_marked = true;
         let owner = sim.intern("Americans");
         let type_ref = sim.intern("E1");
@@ -1930,14 +1926,14 @@ mod tests {
             0,
             128,
             owner,
-            Health { current: 125 },
+            Health::new(125),
             type_ref,
             EntityCategory::Infantry,
             0,
             5,
             false,
         );
-        infantry.lifecycle.in_limbo = false;
+        infantry.lifecycle.set_in_limbo_for_test(false);
         infantry.lifecycle.cell_marked = true;
         infantry.radio_contacts.set_capacity(3);
         sim.substrate.entities.insert(infantry);
@@ -1986,7 +1982,7 @@ mod tests {
         for id in [1, 2] {
             let entity = sim.substrate.entities.get(id).unwrap();
             assert!(entity.radio_contacts.is_empty());
-            assert_eq!(entity.dock_entered_with, None);
+            assert_eq!(entity.tether.partner(), None);
         }
         crate::sim::radio::take_transmit_log();
         clear_test_trace();
@@ -2033,7 +2029,7 @@ mod tests {
             let entity = sim.substrate.entities.get(id).unwrap();
             assert_eq!(entity.radio_contacts.len(), 1);
             assert!(entity.has_live_contact_with(peer));
-            assert_eq!(entity.dock_entered_with, Some(peer));
+            assert_eq!(entity.tether.partner(), Some(peer));
         }
         assert_eq!(sim.rng_state(), rng);
     }
@@ -2087,7 +2083,7 @@ mod tests {
         );
         for id in [1, 2] {
             let entity = sim.substrate.entities.get(id).unwrap();
-            assert_eq!(entity.dock_entered_with, None);
+            assert_eq!(entity.tether.partner(), None);
             assert_eq!(entity.radio_contacts.slot(0), None);
             assert_eq!(entity.radio_contacts.slot(1), None);
             assert_eq!(entity.radio_contacts.slot(2), Some(99));
@@ -2117,7 +2113,7 @@ mod tests {
         assert_eq!(log.len(), 5);
         for id in [1, 2] {
             let entity = sim.substrate.entities.get(id).unwrap();
-            assert_eq!(entity.dock_entered_with, None);
+            assert_eq!(entity.tether.partner(), None);
             assert!(entity.radio_contacts.is_empty());
         }
     }
@@ -2313,7 +2309,7 @@ mod tests {
             crate::sim::world::FrameEffects::default(),
         );
         assert_eq!(
-            sim.substrate.entities.get(1).unwrap().dock_entered_with,
+            sim.substrate.entities.get(1).unwrap().tether.partner(),
             Some(2)
         );
 
@@ -2327,7 +2323,7 @@ mod tests {
             crate::sim::world::FrameEffects::default(),
         );
         assert_eq!(
-            sim.substrate.entities.get(1).unwrap().dock_entered_with,
+            sim.substrate.entities.get(1).unwrap().tether.partner(),
             None
         );
         assert!(
@@ -2367,12 +2363,16 @@ mod tests {
         .unwrap();
         let mut sim = Simulation::new();
         spawn_refinery(&mut sim, 2, "Americans", 1);
-        sim.substrate.entities.get_mut(2).unwrap().type_ref = sim.interner.intern("GAAIRC");
+        sim.substrate
+            .entities
+            .get_mut(2)
+            .unwrap()
+            .set_type_ref_for_test(sim.interner.intern("GAAIRC"));
         spawn_miner(&mut sim, 1, "Americans");
         {
             let plane = sim.substrate.entities.get_mut(1).unwrap();
-            plane.category = EntityCategory::Aircraft;
-            plane.type_ref = sim.interner.intern("ORCA");
+            plane.set_category_for_test(EntityCategory::Aircraft);
+            plane.set_type_ref_for_test(sim.interner.intern("ORCA"));
         }
         for (id, partner) in [(1, 2), (2, 1)] {
             sim.substrate
@@ -2392,11 +2392,11 @@ mod tests {
         );
 
         assert_eq!(
-            sim.substrate.entities.get(1).unwrap().dock_entered_with,
+            sim.substrate.entities.get(1).unwrap().tether.partner(),
             None
         );
         assert_eq!(
-            sim.substrate.entities.get(2).unwrap().dock_entered_with,
+            sim.substrate.entities.get(2).unwrap().tether.partner(),
             Some(1)
         );
     }
@@ -2514,7 +2514,7 @@ mod tests {
             ]
         );
         assert_eq!(
-            sim.substrate.entities.get(1).unwrap().dock_entered_with,
+            sim.substrate.entities.get(1).unwrap().tether.partner(),
             None
         );
         assert!(
@@ -2565,7 +2565,7 @@ mod tests {
             .expect("common receiver clear boundary");
         assert!(effect_index < common_index);
         assert_eq!(
-            sim.substrate.entities.get(1).unwrap().dock_entered_with,
+            sim.substrate.entities.get(1).unwrap().tether.partner(),
             None
         );
         assert!(
@@ -2588,7 +2588,11 @@ mod tests {
             let mut sim = Simulation::new();
             spawn_miner(&mut sim, 1, "Americans");
             spawn_miner(&mut sim, 2, "Americans");
-            sim.substrate.entities.get_mut(2).unwrap().category = category;
+            sim.substrate
+                .entities
+                .get_mut(2)
+                .unwrap()
+                .set_category_for_test(category);
             sim.substrate
                 .entities
                 .get_mut(1)
@@ -2723,7 +2727,7 @@ mod tests {
                 128,
                 128,
                 own,
-                Health { current: 100 },
+                Health::new(100),
                 carrier_type,
                 EntityCategory::Unit,
                 0,
@@ -2734,7 +2738,7 @@ mod tests {
             for (index, entry) in input["cargo_sizes"].as_array().unwrap().iter().enumerate() {
                 cargo.board_forced(10 + index as u64, entry.as_u64().unwrap() as u32);
             }
-            carrier.passenger_role = PassengerRole::Transport { cargo };
+            carrier.passenger_role = PassengerRole::transport(cargo);
             if input["warped"].as_bool().unwrap_or(false) {
                 carrier.temporal = crate::sim::temporal::TemporalState::warped_by_for_test(99);
             }
@@ -2751,7 +2755,7 @@ mod tests {
                 } else {
                     own
                 },
-                Health { current: 100 },
+                Health::new(100),
                 passenger_type,
                 EntityCategory::Infantry,
                 0,
@@ -2762,7 +2766,7 @@ mod tests {
                 passenger.mind_control = MindControlLink::controlled_by_for_test(99);
             }
             if input["parasite"].as_bool().unwrap_or(false) {
-                passenger.parasite_eating_me = Some(99);
+                passenger.parasite.set_eater_for_test(Some(99));
             }
             if input["controlling"].as_bool().unwrap_or(false)
                 || input["empty_controller"].as_bool().unwrap_or(false)

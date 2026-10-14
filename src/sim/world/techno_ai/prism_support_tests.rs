@@ -28,7 +28,7 @@ use crate::map::resolved_terrain::test_flat_ground_grid;
 use crate::rules::ini_parser::IniFile;
 use crate::rules::native_processing::{RulesLayerKind, RulesLayerStack};
 use crate::rules::ruleset::PrismSupportRules;
-use crate::sim::combat::AttackTarget;
+use crate::sim::combat::TargetKind;
 use crate::sim::combat::receiver_fixture::with_building_fire_stub;
 use crate::sim::mission::MissionDispatchTimer;
 use crate::sim::mission::state::MissionTestFixture;
@@ -83,7 +83,7 @@ fn rules(support_range: i32, elite_range: Option<i32>) -> RuleSet {
         "Image=TWRART\nStrength=600\nArmor=steel\nFoundation=1x1\nPowered=yes\nPower=-75\n\
          Primary=PrismShot\nSecondary=PrismSupport\n{elite_key}"
     );
-    let rules_ini = IniFile::from_str(&format!(
+    let rules_ini = crate::sim::arena_fixture::clear_ground_ini(&format!(
         "[General]\nPrismType=TWR\nPrismSupportModifier=150%\nPrismSupportMax=8\n\
          PrismSupportDelay=45\n\
          [Guard]\nRate=.030\nAARate=.016\n\
@@ -166,6 +166,7 @@ impl Fixture {
         );
         let mut sim = Simulation::new();
         sim.install_resolved_terrain_for_new_map(test_flat_ground_grid(48));
+        crate::sim::arena_fixture::supply_native_map(&mut sim);
         let owner = sim.interner.intern("Americans");
         sim.houses.insert(
             owner,
@@ -222,7 +223,9 @@ impl Fixture {
                 dispatch_timer: MissionDispatchTimer::from_raw(FRAME, 0),
             });
             entity.mission_leaf.set_building_ready_latch(1);
-            entity.rearm_timer = CdTimer::started(FRAME - 100, 0);
+            entity
+                .rearm_timer
+                .set_for_test(CdTimer::started(FRAME - 100, 0));
         }
         let mut fixture = Self {
             sim,
@@ -268,10 +271,10 @@ impl Fixture {
         let target = self.target;
         let entity = self.sim.substrate.entities.get_mut(id).unwrap();
         if state["alive"] == false {
-            entity.lifecycle.object_alive = false;
+            entity.lifecycle.set_object_alive_for_test(false);
         }
         if let Some(health) = state["health"].as_u64() {
-            entity.health.current = health as i32;
+            entity.health.set_for_test(health as i32);
         }
         if state["mission"].is_string() || state["queued"].is_string() {
             entity.mission.apply_test_fixture(MissionTestFixture {
@@ -286,19 +289,23 @@ impl Fixture {
             });
         }
         if let Some(aimed) = state["target"].as_bool() {
-            entity.attack_target = aimed.then(|| AttackTarget::new(target));
+            entity
+                .attack_target
+                .set_for_test(aimed.then(|| TargetKind::Entity(target)));
         }
         if let Some(rearm) = state["rearm"].as_array() {
             let start = rearm[0]
                 .as_i64()
                 .map_or(PAUSED_START_FRAME, |relative| FRAME + relative as i32);
-            entity.rearm_timer = CdTimer::started(start, rearm[1].as_i64().unwrap() as i32);
+            entity
+                .rearm_timer
+                .set_for_test(CdTimer::started(start, rearm[1].as_i64().unwrap() as i32));
         }
         if state["drained"] == true {
-            entity.draining_me = Some(u64::MAX);
+            entity.drain.set_draining_me_for_test(Some(u64::MAX));
         }
         if let Some(count) = state["count"].as_i64() {
-            entity.prism_support_count = count as i32;
+            entity.prism_support_count.set_for_test(count as i32);
         }
         if let Some(veterancy) = state["veterancy"].as_f64() {
             entity
@@ -360,7 +367,7 @@ impl Fixture {
         let name = self.name(id);
         let (mode, countdown) = delayed_fire(entity);
         assert_eq!(
-            i64::from(entity.prism_support_count),
+            i64::from(entity.prism_support_count.count()),
             native["count"].as_i64().unwrap(),
             "{at} {name} count"
         );
@@ -389,7 +396,7 @@ impl Fixture {
             );
         }
         assert_eq!(
-            entity.attack_target.as_ref().map(|attack| attack.target),
+            entity.attack_target.target(),
             native["target"]
                 .as_str()
                 .map(|_| TargetKind::Entity(self.target)),
@@ -397,7 +404,7 @@ impl Fixture {
         );
         if let Some(counter) = native["turret_counter"].as_i64() {
             assert_eq!(
-                i64::from(entity.turret_anim_frame),
+                i64::from(entity.turret_anim_frame.frame()),
                 counter,
                 "{at} {name} +0x148"
             );
@@ -658,7 +665,9 @@ fn prism_support_bonus_matches_the_original() {
             Some(8) => fixture.move_target(OUT_OF_RANGE),
             Some(3) => {
                 let entity = fixture.sim.substrate.entities.get_mut(master).unwrap();
-                entity.rearm_timer = CdTimer::started(FRAME, ROF);
+                entity
+                    .rearm_timer
+                    .set_for_test(CdTimer::started(FRAME, ROF));
             }
             Some(6) => fixture.unpower(),
             Some(other) => panic!("{name}: GetFireError {other}"),
@@ -702,8 +711,7 @@ fn prism_support_bonus_matches_the_original() {
                         .substrate
                         .entities
                         .get(master)
-                        .and_then(|entity| entity.attack_target.as_ref())
-                        .map(|attack| attack.target),
+                        .and_then(|entity| entity.attack_target.target()),
                     "{name} target"
                 );
                 assert_eq!(
@@ -717,7 +725,7 @@ fn prism_support_bonus_matches_the_original() {
         let entity = fixture.sim.substrate.entities.get(master).unwrap();
         let native = &row["master"];
         assert_eq!(
-            i64::from(entity.prism_support_count),
+            i64::from(entity.prism_support_count.count()),
             native["count"].as_i64().unwrap(),
             "{name} count"
         );
@@ -816,7 +824,9 @@ fn apply_event(fixture: &mut Fixture, action: &str, building: u64) {
         // TarCom written as the passive scan or a detach writes it.
         "acquire" | "lose" => {
             let entity = fixture.sim.substrate.entities.get_mut(building).unwrap();
-            entity.attack_target = (action == "acquire").then(|| AttackTarget::new(target));
+            entity
+                .attack_target
+                .set_for_test((action == "acquire").then(|| TargetKind::Entity(target)));
         }
         // The IDLE event's BuildingClass::SetTarget(0).
         "stop" => {

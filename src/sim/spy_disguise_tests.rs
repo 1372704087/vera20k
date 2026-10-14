@@ -75,7 +75,7 @@ MakesDisguise=yes
 
 fn rules() -> RuleSet {
     RuleSet::from_ini_with_fixed_art_for_test(
-        &IniFile::from_str(RULES),
+        &crate::sim::arena_fixture::clear_ground_ini(RULES),
         &IniFile::from_str("[PLANT]\nFoundation=2x2\n"),
     )
     .unwrap()
@@ -162,7 +162,10 @@ fn a_spy_takes_the_look_of_the_infantryman_its_makeup_kit_hits() {
         (worn.type_id(), worn.house(), worn.creation_frame()),
         (Some(id(&sim, "E1")), Some(id(&sim, "Americans")), frame)
     );
-    assert_eq!(sim.substrate.entities.get(gi).unwrap().health.current, 125);
+    assert_eq!(
+        sim.substrate.entities.get(gi).unwrap().health.current(),
+        125
+    );
     let spy = sim.substrate.entities.get(spy).unwrap();
     let seen_by = |house: &str| {
         object_disguised_to(

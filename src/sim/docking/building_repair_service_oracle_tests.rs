@@ -67,7 +67,10 @@ const REGISTRIES: &str = "[VehicleTypes]\n0=MTNK\n1=HTNK\n\
 
 fn stock_rules(golden: &Value, case: &Value) -> RuleSet {
     let layers = golden["inputs"]["layers"].as_array().unwrap();
-    let mut stack = RulesLayerStack::new(IniFile::from_str(&format!(
+    // The native controls supply already-admitted actors on clear ground.
+    // Their selected-key packet excludes LandType reads; this synthetic
+    // construction prior does not certify retail map/Unlimbo admission.
+    let mut stack = RulesLayerStack::new(crate::sim::arena_fixture::clear_ground_ini(&format!(
         "{REGISTRIES}{}\n",
         sections_text(&layers[0]["selected"]),
     )));
@@ -204,7 +207,7 @@ impl Scene {
         json!({
             "frame": self.sim.session.binary_frame,
             "unit_coordinate": [at.x,at.y,at.z],
-            "health": unit.health.current,
+            "health": unit.health.current(),
             "estimate": unit.estimated_health.get(),
             "balance": house.economy.credits(),
             "spent": house.economy.spent_credits(),
@@ -216,8 +219,8 @@ impl Scene {
             "pending_entry": self.name(unit.pending_entry()),
             "unit_contacts": (0..unit.radio_contacts.capacity()).map(|n| self.name(unit.radio_contacts.slot(n))).collect::<Vec<_>>(),
             "building_contacts": (0..building.radio_contacts.capacity()).map(|n| self.name(building.radio_contacts.slot(n))).collect::<Vec<_>>(),
-            "unit_tether": u8::from(unit.dock_entered_with.is_some()),
-            "building_tether": u8::from(building.dock_entered_with.is_some()),
+            "unit_tether": u8::from(unit.tether.partner().is_some()),
+            "building_tether": u8::from(building.tether.partner().is_some()),
             "building_mission": building.mission.current().raw(),
             "building_queued": building.mission.queued().raw(),
             "status": building.mission.handler_state(),
@@ -329,13 +332,6 @@ fn scene(golden: &Value, row: &Value) -> Scene {
             }
         }
     }
-    if let Some(cell) = row["raw_current_cell"].as_array() {
-        terrain
-            .cell_mut(int(&cell[0]) as u16, int(&cell[1]) as u16)
-            .unwrap()
-            .bridge_facts
-            .raw_flags = row["raw_current_flags"].as_u64().unwrap() as u32;
-    }
     let path = PathGrid::from_resolved_terrain(&terrain);
     sim.zone_grid = Some(
         crate::sim::pathfinding::zone_map::ZoneGrid::build_with_native_map_context(
@@ -394,6 +390,17 @@ fn scene(golden: &Value, row: &Value) -> Scene {
         )
         .expect("native auxiliary target has an admitted supplied cell")
     });
+    if let Some(cell) = row["raw_current_cell"].as_array() {
+        // The original destination controls supply already-admitted actors
+        // and then this raw current-cell prior. In high_bridge_current_cell,
+        // bit100 at8,10 lies inside the depot's6,9 3x3 foundation and must not
+        // be misused as an input to a new Building CanPlaceAt transaction.
+        let mut terrain = sim.resolved_terrain.take().unwrap();
+        let identity = terrain.native_cell_identity((int(&cell[0]) as i16, int(&cell[1]) as i16));
+        terrain
+            .write_native_cell_flags(identity, row["raw_current_flags"].as_u64().unwrap() as u32);
+        sim.install_resolved_terrain_for_new_map(terrain);
+    }
     if case["spatial_startup"] == true {
         // The native waiter scene has admitted fields but only the depot
         // is CellPUT-marked. Remove constructor-added tank/placeholder lists
@@ -459,7 +466,9 @@ fn scene(golden: &Value, row: &Value) -> Scene {
                 entity.radio_contacts.insert(target);
             }
         }
-        entity.dock_entered_with = (int(&before[tether]) != 0).then_some(peer);
+        entity
+            .tether
+            .set_for_test((int(&before[tether]) != 0).then_some(peer));
     }
     {
         let unit = sim.substrate.entities.get_mut(tank).unwrap();
@@ -492,7 +501,7 @@ fn scene(golden: &Value, row: &Value) -> Scene {
                 int(&foot["nav_queue_count"]) as usize
             );
         }
-        unit.health.current = int(&before["health"]);
+        unit.health.set_for_test(int(&before["health"]));
         unit.estimated_health = EstimatedHealth::from_raw(int(&before["estimate"]));
         let at = &before["unit_coordinate"];
         unit.position.rx = (int(&at[0]) / 256) as u16;
@@ -604,14 +613,16 @@ fn native_pending_entry_and_radio_lifecycle_use_shared_command_owners() {
         }
         {
             let contact = scene.sim.substrate.entities.get_mut(scene.depot).unwrap();
-            contact.lifecycle.object_alive = case["contact_alive"] != false;
+            contact
+                .lifecycle
+                .set_object_alive_for_test(case["contact_alive"] != false);
             if let Some(health) = case["contact_health"].as_u64() {
-                contact.health.current = health as i32;
+                contact.health.set_for_test(health as i32);
             }
             if case["contact_is_unit"] == true {
                 // Explicit native original-Unit-vtable RTTI prestate. The
                 // shared gate must reject it before reading Building flags.
-                contact.category = crate::map::entities::EntityCategory::Unit;
+                contact.set_category_for_test(crate::map::entities::EntityCategory::Unit);
             }
         }
         if case["two_contacts"] == true {
@@ -965,7 +976,7 @@ fn native_unit_destination_power_tail_uses_raw_cell_and_shared_setters() {
                 "refinery" => scene.depot,
                 other => panic!("unrepresented current-list fixture {other}"),
             };
-            let category = scene.sim.substrate.entities.get(id).unwrap().category;
+            let category = scene.sim.substrate.entities.get(id).unwrap().category();
             scene.sim.substrate.occupancy.add(
                 x,
                 y,

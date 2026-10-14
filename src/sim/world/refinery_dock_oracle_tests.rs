@@ -350,12 +350,14 @@ fn dress(mut s: Scene, input: &Value) -> Scene {
     // Refinery state.
     {
         let building = s.sim.substrate.entities.get_mut(refinery).unwrap();
-        building.health.current = input["refinery_health"].as_i64().unwrap_or(900) as i32;
+        building
+            .health
+            .set_for_test(input["refinery_health"].as_i64().unwrap_or(900) as i32);
         if input["online"] == false {
             building.temporal = crate::sim::temporal::TemporalState::warped_by_for_test(other);
         }
         if input["refinery_tether"] == true {
-            building.dock_entered_with = Some(miner);
+            building.tether.set_for_test(Some(miner));
         }
         // A live animation in the slot (the oracle's nonzero pointer); no
         // stock refinery art defines these, so the handles are placeholders.
@@ -386,9 +388,11 @@ fn dress(mut s: Scene, input: &Value) -> Scene {
             entity.mission_leaf.set_unit_tracker_byte_18(1);
         }
         if input["miner_tether"] == true {
-            entity.dock_entered_with = Some(refinery);
+            entity.tether.set_for_test(Some(refinery));
         }
-        entity.turret_rotation_latch = input["turret_latch"] == true;
+        entity
+            .turret_rotation_latch
+            .set_for_test(input["turret_latch"] == true);
         let raw = input["facing"].as_u64().unwrap_or(0xC000) as u16;
         let mut body = FacingClass::new(raw, 5);
         body.set(raw, frame);
@@ -542,12 +546,12 @@ fn compare_state(s: &Scene, row: &Value, context: &str) {
         "{context}: other contact"
     );
     assert_eq!(
-        u64::from(miner.dock_entered_with.is_some()),
+        u64::from(miner.tether.partner().is_some()),
         expected["miner_tether"].as_u64().unwrap(),
         "{context}: miner tether"
     );
     assert_eq!(
-        u64::from(refinery.dock_entered_with.is_some()),
+        u64::from(refinery.tether.partner().is_some()),
         expected["refinery_tether"].as_u64().unwrap(),
         "{context}: refinery tether"
     );

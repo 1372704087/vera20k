@@ -179,10 +179,10 @@ impl Simulation {
             .substrate
             .entities
             .get(id)
-            .is_some_and(|entity| received && !entity.lifecycle.in_limbo);
+            .is_some_and(|entity| received && !entity.lifecycle.in_limbo());
         if !survives {
             if let Some(entity) = self.substrate.entities.get_mut(id)
-                && entity.lifecycle.object_alive
+                && entity.lifecycle.object_alive()
                 && let Some(loco) = entity.locomotor.as_mut()
             {
                 loco.store_track_head(family, None);
@@ -266,7 +266,9 @@ impl Simulation {
 
     pub(super) fn track_survives(&self, id: u64) -> bool {
         self.substrate.entities.get(id).is_some_and(|entity| {
-            entity.lifecycle.object_alive && !entity.lifecycle.in_limbo && !entity.is_falling_down()
+            entity.lifecycle.object_alive()
+                && !entity.lifecycle.in_limbo()
+                && !entity.is_falling_down()
         })
     }
 
@@ -425,7 +427,7 @@ impl Simulation {
                     .substrate
                     .entities
                     .get(id)
-                    .is_some_and(|e| e.lifecycle.object_alive)
+                    .is_some_and(|e| e.lifecycle.object_alive())
                 {
                     return Ok(TrackPass::paid(moved));
                 }
@@ -490,7 +492,7 @@ impl Simulation {
                 .substrate
                 .entities
                 .get(id)
-                .is_some_and(|entity| entity.lifecycle.object_alive)
+                .is_some_and(|entity| entity.lifecycle.object_alive())
             {
                 return Ok(TrackPass::paid(moved));
             }
@@ -834,27 +836,6 @@ impl Simulation {
         }
     }
 
-    /// FootLimbo4DB260 calls active ILocomotion+9C(mode0) before TechnoLimbo.
-    /// Drive4B48D0 / Ship6A3F00 forward the live head to Apply0; instance
-    /// retirement must not erase that descriptor/head before this receiver.
-    pub(crate) fn release_track_occupation_before_foot_limbo(&mut self, id: u64) {
-        let family = self.substrate.entities.get(id).and_then(|entity| {
-            // Foot4DB266..26E skips Apply0 when already in limbo. A second
-            // conceal must not destructively clear a newer owner's raw claim.
-            if entity.lifecycle.in_limbo {
-                return None;
-            }
-            match entity.locomotor.as_ref()?.kind {
-                crate::rules::locomotor_type::LocomotorKind::Drive => Some(TrackFamily::Drive),
-                crate::rules::locomotor_type::LocomotorKind::Ship => Some(TrackFamily::Ship),
-                _ => None,
-            }
-        });
-        if let Some(family) = family {
-            self.track_apply_occupation(id, family, false);
-        }
-    }
-
     fn track_try_chain(
         &mut self,
         id: u64,
@@ -1000,8 +981,8 @@ impl Simulation {
         let Some(entity) = self.substrate.entities.get_mut(id) else {
             return Ok(true);
         };
-        if !(picked && !entity.lifecycle.in_limbo) {
-            if entity.lifecycle.object_alive {
+        if !(picked && !entity.lifecycle.in_limbo()) {
+            if entity.lifecycle.object_alive() {
                 set_head(entity, family, None);
                 set_track_valid(entity, family, false);
             }
@@ -1126,7 +1107,7 @@ impl Simulation {
         // SlaveOwner, not Team (+5D4). The same-cell comparison calls
         // virtual+48 on both owners and truncates signed leptons /256.
         let archived = self.substrate.entities.get(id).and_then(|entity| {
-            if entity.category != EntityCategory::Infantry || entity.slave.owner().is_some() {
+            if entity.category() != EntityCategory::Infantry || entity.slave.owner().is_some() {
                 return None;
             }
             let target = entity.archive_target()?;
@@ -1215,7 +1196,7 @@ impl Simulation {
         let has_destination = entity.navigation.nav_com.is_some();
         let current = entity.mission.current().known();
         let effective = entity.mission.effective().known();
-        let category = entity.category;
+        let category = entity.category();
         let unit_type =
             rules.and_then(|rules| rules.object(self.interner.resolve(entity.type_ref())));
         let miner = unit_type.is_some_and(|object| object.harvester || object.weeder);
@@ -1310,7 +1291,7 @@ impl Simulation {
         let Some(entity) = self.substrate.entities.get(id) else {
             return false;
         };
-        if entity.navigation.nav_com.is_some() || entity.attack_target.is_some() {
+        if entity.navigation.nav_com.is_some() || entity.attack_target.target().is_some() {
             return false;
         }
         self.unit_enter_idle_mode(id, rules, false, effects)

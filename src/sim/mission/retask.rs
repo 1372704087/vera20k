@@ -41,9 +41,9 @@ impl Simulation {
         let Some(entity) = self.substrate.entities.get(id) else {
             return mission;
         };
-        let tethered = entity.dock_entered_with.is_some();
+        let tethered = entity.tether.partner().is_some();
         let foot = matches!(
-            entity.category,
+            entity.category(),
             crate::map::entities::EntityCategory::Unit
                 | crate::map::entities::EntityCategory::Infantry
                 | crate::map::entities::EntityCategory::Aircraft
@@ -55,7 +55,7 @@ impl Simulation {
                 .and_then(|contact| self.substrate.entities.get(contact))
                 .filter(|contact| {
                     contact.is_object_alive()
-                        && contact.category == crate::map::entities::EntityCategory::Structure
+                        && contact.category() == crate::map::entities::EntityCategory::Structure
                 })
                 .zip(rules)
                 .and_then(|(contact, rules)| self.object_type(contact.type_ref(), rules))
@@ -65,7 +65,8 @@ impl Simulation {
         }
         if let Some(entity) = self.substrate.entities.get_mut(id) {
             if break_tether {
-                entity.dock_entered_with = None;
+                // `0x004C7342`.
+                entity.tether.release();
             }
             entity.set_pending_entry(None);
         }
@@ -173,7 +174,7 @@ impl Simulation {
         self.queue_order_mission(id, queued);
         if let Some(entity) = self.substrate.entities.get_mut(id) {
             entity.suspended_attack_target = None;
-            if entity.category != crate::map::entities::EntityCategory::Structure {
+            if entity.category() != crate::map::entities::EntityCategory::Structure {
                 entity.navigation.suspended_nav_com = None;
             }
         }
@@ -190,7 +191,7 @@ impl Simulation {
         if mission != MissionType::AreaGuard
             && let Some(entity) = self.substrate.entities.get_mut(id)
             && matches!(
-                entity.category,
+                entity.category(),
                 crate::map::entities::EntityCategory::Unit
                     | crate::map::entities::EntityCategory::Infantry
                     | crate::map::entities::EntityCategory::Aircraft
@@ -217,7 +218,7 @@ impl Simulation {
     /// order marker (`sim::slave_manager`).
     pub fn commit_stop_miner_guard(&mut self, id: u64) {
         let is_stoppable_miner = self.substrate.entities.get(id).is_some_and(|entity| {
-            entity.category == crate::map::entities::EntityCategory::Unit
+            entity.category() == crate::map::entities::EntityCategory::Unit
                 && entity.is_harvester()
                 && matches!(
                     entity.mission.current().known(),

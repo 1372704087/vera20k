@@ -161,7 +161,7 @@ pub(crate) fn attack_action(
     };
     let human = sim.house_is_human_player(actor.owner());
     let armed = crate::sim::combat::combat_weapon::is_armed(actor, kind);
-    let infiltrator = actor.category == EntityCategory::Infantry && kind.infiltrate;
+    let infiltrator = actor.category() == EntityCategory::Infantry && kind.infiltrate;
     let admitted = match target {
         TargetKind::Entity(_) => human && (armed || infiltrator),
         TargetKind::Cell(..) => human,
@@ -183,9 +183,9 @@ pub(crate) fn attack_action(
     } else if let TargetKind::Entity(target_id) = *target
         && let Some(object) = sim.entities().get(target_id)
         && !(armed && human && object.owner() != actor.owner())
-        && !(actor.is_mission_only() && actor.discovery.owned_by_current_house)
+        && !(actor.is_mission_only() && actor.discovery.owned_by_current_house())
         && sim.object_is_selectable(target_id, Some(rules))
-        && !object.selected
+        && !object.selection.is_selected()
         && !object.is_warped_out()
     {
         AttackAction::Select
@@ -196,7 +196,7 @@ pub(crate) fn attack_action(
     // SimpleDeployer repeats SelectWeapon(NULL), then range. This returns
     // Action2, unlike the Techno control/range Action0 branch above.
     if action == AttackAction::Attack
-        && actor.category == EntityCategory::Unit
+        && actor.category() == EntityCategory::Unit
         && kind.is_simple_deployer
         && actor.is_fully_deployed()
         && (!kind.deploy_fire
@@ -234,7 +234,7 @@ pub(crate) fn attack_action(
     {
         action = AttackAction::NoMove;
     }
-    if actor.category == EntityCategory::Structure {
+    if actor.category() == EntityCategory::Structure {
         // Building447366..4473C7 /4476F3..447749 inspect GetWeapon(0),
         // irrespective of SelectWeapon. These are class post-processing of
         // Attack, not a replacement range owner.
@@ -534,7 +534,7 @@ fn attack_branch_orders(
         let is_structure = sim
             .entities()
             .get(id)
-            .is_some_and(|entity| entity.category == EntityCategory::Structure);
+            .is_some_and(|entity| entity.category() == EntityCategory::Structure);
         if !(force_fire || is_structure) {
             continue;
         }
@@ -1127,7 +1127,7 @@ fn left_release(
                 && sim
                     .entities()
                     .get(id)
-                    .is_some_and(|object| !object.selected)
+                    .is_some_and(|object| !object.selection.is_selected())
         }),
     };
     if selects {
@@ -1170,7 +1170,7 @@ fn berserk_selection_click(
     .and_then(|id| Some((id, sim.entities().get(id)?))) else {
         return LeftRelease::Dispatch;
     };
-    let action_zero = match best.category {
+    let action_zero = match best.category() {
         EntityCategory::Aircraft => true,
         EntityCategory::Unit => hover.is_none(),
         EntityCategory::Infantry => {
@@ -1277,7 +1277,7 @@ pub(crate) fn try_queue_context_order_at_screen_point(
             let Some(entity) = sim.entities().get(sid) else {
                 continue;
             };
-            if entity.category != EntityCategory::Structure {
+            if entity.category() != EntityCategory::Structure {
                 selected_units.push(sid);
                 if entity.miner.is_some() {
                     selected_miner_ids.push(sid);
@@ -1454,7 +1454,7 @@ pub(crate) fn try_queue_context_order_at_screen_point(
         let structure_selected = selected_ids.iter().any(|&id| {
             sim.entities()
                 .get(id)
-                .is_some_and(|entity| entity.category == EntityCategory::Structure)
+                .is_some_and(|entity| entity.category() == EntityCategory::Structure)
         });
 
         let only_miners_selected = mobile_count > 0 && selected_miner_ids.len() == mobile_count;
@@ -1796,7 +1796,7 @@ pub(crate) fn try_queue_context_order_at_screen_point(
                         .copied()
                         .filter(|&sid| {
                             sim.entities().get(sid).is_some_and(|e| {
-                                e.category == EntityCategory::Infantry
+                                e.category() == EntityCategory::Infantry
                                     && Some(&resources.rules)
                                         .and_then(|r| r.object(sim.interner.resolve(e.type_ref())))
                                         .is_some_and(|o| o.c4)
@@ -1840,11 +1840,11 @@ pub(crate) fn try_queue_context_order_at_screen_point(
                         .copied()
                         .filter(|&sid| {
                             sim.entities().get(sid).is_some_and(|e| {
-                                e.category == EntityCategory::Unit
+                                e.category() == EntityCategory::Unit
                                     && resources
                                         .rules
                                         .object(sim.interner.resolve(e.type_ref()))
-                                        .is_some_and(|obj| e.health.current < obj.strength)
+                                        .is_some_and(|obj| e.health.current() < obj.strength)
                                     && !e.is_deployed()
                             })
                         })
@@ -2145,7 +2145,7 @@ pub(super) fn is_simple_deploy_unit(
     entity: &crate::sim::game_entity::GameEntity,
     object: &crate::rules::object_type::ObjectType,
 ) -> bool {
-    entity.category == EntityCategory::Unit && object.is_simple_deployer
+    entity.category() == EntityCategory::Unit && object.is_simple_deployer
 }
 
 /// The command a click on the one selected object issues when it clicks
@@ -2178,17 +2178,13 @@ fn self_click_command(
         .get(target.stable_id)
         .filter(|entity| entity.owner() == local_owner)?;
     let obj = rules.object(sim.interner.resolve(entity.type_ref()));
-    if entity.category == EntityCategory::Structure {
-        // A garrisoned building unloads its occupants, a tank bunker ejects
-        // its unit, and a building that undeploys (a Construction Yard)
-        // packs up.
-        return if obj.is_some_and(|o| o.can_be_occupied)
-            && entity.passenger_role.cargo().is_some_and(|c| !c.is_empty())
-        {
-            Some(Command::UnloadPassengers {
-                transport_id: target.stable_id,
-            })
-        } else if entity.bunker_occupant.is_some() {
+    if let Some(command) = super::transport_orders::unload_command(entity, obj, Some(local_owner)) {
+        return Some(command);
+    }
+    if entity.category() == EntityCategory::Structure {
+        // A tank bunker ejects its unit, and a building that undeploys
+        // (a Construction Yard) packs up.
+        return if entity.bunker_occupant.is_some() {
             Some(Command::EjectBunker {
                 bunker_id: target.stable_id,
             })
@@ -2200,13 +2196,10 @@ fn self_click_command(
             None
         };
     }
-    if entity.category == EntityCategory::Infantry && obj.is_some_and(|o| o.deploy_fire) {
+    if entity.category() == EntityCategory::Infantry && obj.is_some_and(|o| o.deploy_fire) {
         return Some(Command::ToggleInfantryDeploy {
             entity_id: target.stable_id,
         });
-    }
-    if let Some(cmd) = super::transport_orders::transport_unload_command(entity, obj) {
-        return Some(cmd);
     }
     if obj.is_some_and(|object| is_simple_deploy_unit(entity, object)) {
         return sim
@@ -2235,7 +2228,7 @@ fn transport_entry_orders(
     let garrison = sim
         .entities()
         .get(transport_id)
-        .filter(|target| target.category == EntityCategory::Structure)
+        .filter(|target| target.category() == EntityCategory::Structure)
         .and_then(|target| rules.object(sim.interner.resolve(target.type_ref())))
         .is_some_and(|object| object.can_be_occupied);
     selected
@@ -2278,7 +2271,7 @@ fn engineer_capture_orders(
         let Some(actor) = sim.entities().get(id) else {
             return true;
         };
-        if actor.category != EntityCategory::Infantry
+        if actor.category() != EntityCategory::Infantry
             || !rules
                 .object(sim.interner.resolve(actor.type_ref()))
                 .is_some_and(|o| o.engineer)
@@ -2371,7 +2364,7 @@ fn disarm_bomb_engineers(
         .filter(|&id| {
             id != target
                 && sim.entities().get(id).is_some_and(|e| {
-                    e.category == EntityCategory::Infantry
+                    e.category() == EntityCategory::Infantry
                         && rules
                             .object(sim.interner.resolve(e.type_ref()))
                             .is_some_and(|o| o.engineer)
@@ -2619,7 +2612,7 @@ fn selected_rally_producer_ids(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::sim::components::Health;
+    use crate::sim::combat::Health;
     use crate::sim::game_entity::GameEntity;
     use crate::sim::world::Simulation;
 
@@ -2672,7 +2665,11 @@ mod tests {
         assert_eq!(click(&[tank, gi], None, (3, 5)), Dispatch);
         assert_eq!(click(&[gi, tank], None, (6, 5)), Nothing);
         // 0 over an object already selected does nothing (`0x004ABE0B`).
-        sim.entities_mut().get_mut(friend).unwrap().selected = true;
+        sim.entities_mut()
+            .get_mut(friend)
+            .unwrap()
+            .selection
+            .set_selected_for_test(true);
         assert_eq!(
             berserk_selection_click(&sim, &rules, &[orca], Some(&over_friend), (3, 5), owner),
             Nothing
@@ -3105,7 +3102,11 @@ mod tests {
         );
         assert_eq!(click(&sim, mcv), None);
 
-        sim.entities_mut().get_mut(enemy).unwrap().selected = true;
+        sim.entities_mut()
+            .get_mut(enemy)
+            .unwrap()
+            .selection
+            .set_selected_for_test(true);
         assert_eq!(action(&sim, mcv), AttackAction::NoMove);
         assert_eq!(
             cursor(&sim, mcv),
@@ -3132,11 +3133,15 @@ mod tests {
                 target_ry,
             })
         );
-        sim.entities_mut().get_mut(enemy).unwrap().selected = false;
+        sim.entities_mut()
+            .get_mut(enemy)
+            .unwrap()
+            .selection
+            .set_selected_for_test(false);
 
         let loaner = sim.entities_mut().get_mut(mcv).unwrap();
         loaner.mark_mission_only();
-        loaner.discovery.owned_by_current_house = true;
+        loaner.discovery.set_owned_by_current_house_for_test(true);
         assert_eq!(action(&sim, mcv), AttackAction::NoMove);
 
         assert_eq!(
@@ -3232,7 +3237,7 @@ mod tests {
                     0,
                     0,
                     house,
-                    Health { current: 300 },
+                    Health::new(300),
                     kind,
                     category,
                     0,
@@ -3504,7 +3509,7 @@ mod tests {
                 0,
                 0,
                 owner,
-                Health { current: 300 },
+                Health::new(300),
                 type_ref,
                 category,
                 0,
@@ -3795,6 +3800,49 @@ mod tests {
         assert_eq!(click(&[mcv, gi], mcv), None, "a group click selects");
         assert_eq!(click(&[gi], other_gi), None, "not the selected object");
         assert_eq!(click(&[enemy_mcv], enemy_mcv), None, "not the player's");
+    }
+
+    #[test]
+    fn a_loaded_bio_reactor_self_click_and_hover_cursor_offer_unload() {
+        let rules =
+            crate::rules::ruleset::RuleSet::from_ini(&crate::rules::ini_parser::IniFile::from_str(
+                "[BuildingTypes]\n0=YAPOWR\n[YAPOWR]\nStrength=1000\n\
+                 InfantryAbsorb=yes\nPassengers=5\n",
+            ))
+            .expect("Bio Reactor input rules");
+        let mut sim = Simulation::new();
+        sim.resolve_type_handles(&rules);
+        let owner = sim.interner.intern("Americans");
+        sim.session.current_house = Some(owner);
+        let reactor = sim
+            .spawn_object_limbo_at_height("YAPOWR", "Americans", 10, 10, 0, 0, &rules)
+            .expect("Bio Reactor builds");
+        let mut cargo = crate::sim::passenger::PassengerCargo::new(5, 0);
+        cargo.board(99, 1);
+        sim.entities_mut().get_mut(reactor).unwrap().passenger_role =
+            crate::sim::passenger::PassengerRole::transport(cargo);
+        let hover = HoverTargetKindWithId {
+            kind: HoverTargetKind::FriendlyStructure,
+            stable_id: reactor,
+        };
+
+        let command = self_click_command(&sim, &rules, owner, &[reactor], Some(&hover));
+        let cursor = crate::app::input::cursor::capability_cursor_for_hover(
+            &sim,
+            &[reactor],
+            Some(reactor),
+            &hover,
+            Some(&rules),
+            None,
+        );
+
+        assert_eq!(
+            command,
+            Some(Command::UnloadPassengers {
+                transport_id: reactor
+            })
+        );
+        assert_eq!(cursor, crate::app::types::CursorFeedbackKind::Deploy);
     }
 
     /// Retail SCHP has IsSimpleDeployer without DeploysInto/Deployer. Native
@@ -4102,7 +4150,7 @@ mod tests {
         HoverTargetKindWithId,
     ) {
         let rules = crate::rules::ruleset::RuleSet::from_ini(
-            &crate::rules::ini_parser::IniFile::from_str(&format!(
+            &crate::sim::arena_fixture::clear_ground_ini(&format!(
                 "[InfantryTypes]\n0=ENGINEER\n[VehicleTypes]\n0=TRUCK\n[BuildingTypes]\n0=CABHUT\n\
                  [TRUCK]\nStrength=100\nSpeed=4\n\
                  [ENGINEER]\nStrength=75\nEngineer=yes\n{}\n\
@@ -4131,6 +4179,7 @@ mod tests {
         }
         sim.install_resolved_terrain_for_new_map(terrain);
         sim.bridge_state = Some(crate::sim::bridge_state::BridgeRuntimeState::default());
+        crate::sim::arena_fixture::supply_native_map(&mut sim);
         let owner = if relation == "self" {
             "Americans"
         } else {
@@ -4142,7 +4191,11 @@ mod tests {
         let hut = sim
             .spawn_object("CABHUT", owner, 10, 10, 0, &rules)
             .unwrap();
-        sim.entities_mut().get_mut(hut).unwrap().health.current = 150;
+        sim.entities_mut()
+            .get_mut(hut)
+            .unwrap()
+            .health
+            .set_for_test(150);
         if relation == "allied" {
             sim.house_alliances
                 .entry("AMERICANS".into())
@@ -4412,10 +4465,11 @@ mod tests {
                 sim.entities_mut()
                     .get_mut(engineer)
                     .unwrap()
-                    .paralysis_timer = CdTimer::from_raw(
-                    gates["paralysis_start"].as_i64().unwrap() as i32,
-                    gates["paralysis_duration"].as_i64().unwrap() as i32,
-                );
+                    .parasite
+                    .set_paralysis_for_test(CdTimer::from_raw(
+                        gates["paralysis_start"].as_i64().unwrap() as i32,
+                        gates["paralysis_duration"].as_i64().unwrap() as i32,
+                    ));
             }
             if gates["warp_out"] == true {
                 sim.entities_mut().get_mut(engineer).unwrap().temporal =
@@ -4449,7 +4503,7 @@ mod tests {
                             .get_mut(child)
                             .unwrap()
                             .lifecycle
-                            .in_limbo = native_slot["limbo"] == true;
+                            .set_in_limbo_for_test(native_slot["limbo"] == true);
                         Some(child)
                     } else {
                         None

@@ -329,8 +329,8 @@ fn foundation_center_xy(location: [i32; 2], foundation: &str) -> [i32; 2] {
 /// from the foundation its type stamped on it at construction.
 pub(crate) fn object_center_xy(entity: &crate::sim::game_entity::GameEntity) -> [i32; 2] {
     let location = position_world_xy(&entity.position);
-    if entity.category == crate::map::entities::EntityCategory::Structure {
-        foundation_center_xy(location, &entity.foundation)
+    if entity.category() == crate::map::entities::EntityCategory::Structure {
+        foundation_center_xy(location, entity.type_facts.foundation())
     } else {
         location
     }
@@ -415,10 +415,13 @@ impl Simulation {
                 .substrate
                 .entities
                 .get(target)
-                .filter(|entity| entity.category == crate::map::entities::EntityCategory::Structure)
+                .filter(|entity| {
+                    entity.category() == crate::map::entities::EntityCategory::Structure
+                })
                 .map(|building| {
-                    let (width, height) =
-                        crate::rules::foundation::foundation_dimensions(&building.foundation);
+                    let (width, height) = crate::rules::foundation::foundation_dimensions(
+                        building.type_facts.foundation(),
+                    );
                     (i32::from(width), i32::from(height))
                 }),
             crate::sim::combat::TargetKind::Cell(..) => None,

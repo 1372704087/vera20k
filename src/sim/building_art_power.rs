@@ -209,10 +209,10 @@ mod tests {
             2,
             crate::map::entities::EntityCategory::Structure,
         );
-        entity.type_ref = sim.interner.intern("B");
-        entity.owner = sim.interner.intern("A");
-        entity.health.current = current;
-        entity.lifecycle.in_limbo = false;
+        entity.set_type_ref_for_test(sim.interner.intern("B"));
+        entity.set_owner_for_test(sim.interner.intern("A"));
+        entity.health.set_for_test(current);
+        entity.lifecycle.set_in_limbo_for_test(false);
         sim.substrate.entities.insert(entity);
         (sim, id)
     }
@@ -489,7 +489,9 @@ mod tests {
             sim.substrate.anims.get_mut(old3).unwrap().runtime.paused = false;
             let entity = sim.substrate.entities.get_mut(id).unwrap();
             entity.building_art.actually_placed = true;
-            entity.building_last_operational = i["old"].as_bool().unwrap();
+            entity
+                .building_last_operational
+                .set_for_test(i["old"].as_bool().unwrap());
             let owner = entity.owner();
             let state = sim.power_states.entry(owner).or_default();
             state.total_output = i["output"].as_i64().unwrap() as i32;
@@ -507,7 +509,7 @@ mod tests {
             );
             let entity = sim.entities().get(id).unwrap();
             assert_eq!(
-                entity.building_last_operational,
+                entity.building_last_operational.is_operational(),
                 o["operational"].as_bool().unwrap(),
                 "sample row {index}"
             );

@@ -127,7 +127,7 @@ fn occupied_range_leptons(
 ) -> Option<i64> {
     // Only a building overrides vt+0x400; every other class answers false
     // (`0x0041BFB0`) without a type lookup.
-    if attacker.category != EntityCategory::Structure {
+    if attacker.category() != EntityCategory::Structure {
         return None;
     }
     let obj = rules.object(interner.resolve(attacker.type_ref()))?;
@@ -402,7 +402,7 @@ fn compute_range_target(
     // Rules+F54 cells before open-topped, MinimumRange and the arcing split.
     // Both SHL and ADD operate on signed dword bits, including overflow.
     // Steam executable controls: tools/spatial_oracle/walk_cell_range_bunker.json.
-    if attacker.category != EntityCategory::Structure
+    if attacker.category() != EntityCategory::Structure
         && attacker.bunker_link.installed_in().is_some()
     {
         initial_range_lep = i64::from(
@@ -505,7 +505,7 @@ fn compute_range_target(
     // 6F7525..6F7554, after target coordinates and MinimumRange.
     if let RangeTarget::Abstract(TargetKind::Entity(id)) = target
         && let Some(entity) = entities.get(*id)
-        && entity.category == EntityCategory::Structure
+        && entity.category() == EntityCategory::Structure
         && let Some(object) = rules.object(interner.resolve(entity.type_ref()))
     {
         let (width, height) = foundation_dimensions(&object.foundation);
@@ -1011,7 +1011,7 @@ mod tests {
     fn ground_entity_at_level(level: u8) -> GameEntity {
         let mut e = GameEntity::test_default(1, "MTNK", "Test", 10, 10);
         e.position.z = level;
-        e.category = EntityCategory::Unit;
+        e.set_category_for_test(EntityCategory::Unit);
         e.lifecycle.cell_marked = true;
         e
     }
@@ -1019,7 +1019,7 @@ mod tests {
     /// An aircraft `altitude_lep` above level-0 flat ground.
     fn aircraft_at_altitude(altitude_lep: i64) -> GameEntity {
         let mut e = GameEntity::test_default(2, "ORCA", "Test", 10, 10);
-        e.category = EntityCategory::Aircraft;
+        e.set_category_for_test(EntityCategory::Aircraft);
         e.lifecycle.cell_marked = true;
         e.position.exact_z_leptons = Some(altitude_lep as i32);
         let mut loco = LocomotorState::for_test_kind(LocomotorKind::Fly);
@@ -1140,7 +1140,7 @@ mod tests {
     #[test]
     fn flight_predicates_are_not_scoped_to_the_aircraft_category() {
         let cruising = jumpjet_unit_at_altitude(KIROV_JUMPJET_HEIGHT_LEPTONS);
-        assert_eq!(cruising.category, EntityCategory::Unit);
+        assert_eq!(cruising.category(), EntityCategory::Unit);
         assert!(is_high_flying(&cruising, None, None));
         assert!(!is_low_flying(&cruising, None, None));
 
@@ -1288,21 +1288,22 @@ mod tests {
             );
             let mut actor =
                 GameEntity::test_default(1, "ATKR", "Test", (x / 256) as u16, (y / 256) as u16);
-            actor.category = if let Some(building) = input.get("building") {
+            let category = if let Some(building) = input.get("building") {
                 actor
-                    .foundation
-                    .clone_from(&rules.object("ATKR").unwrap().foundation);
+                    .type_facts
+                    .set_foundation_for_test(rules.object("ATKR").unwrap().foundation.clone());
                 let mut cargo = crate::sim::passenger::PassengerCargo::new(5, 0);
                 for id in 2..2 + building["occupants"].as_u64().unwrap_or(1) {
                     assert!(cargo.board(id, 1));
                 }
-                actor.passenger_role = crate::sim::passenger::PassengerRole::Transport { cargo };
+                actor.passenger_role = crate::sim::passenger::PassengerRole::transport(cargo);
                 EntityCategory::Structure
             } else if input["unit"] == true {
                 EntityCategory::Unit
             } else {
                 EntityCategory::Infantry
             };
+            actor.set_category_for_test(category);
             if input["bunkered"] == true {
                 actor.bunker_link = crate::sim::game_entity::BunkerLink::Installed(3);
             }
@@ -1320,10 +1321,8 @@ mod tests {
                 );
             }
             if input["open_topped"] == true {
-                actor.passenger_role = crate::sim::passenger::PassengerRole::Inside {
-                    transport_id: 2,
-                    open_topped: true,
-                };
+                actor.passenger_role =
+                    crate::sim::passenger::PassengerRole::inside_for_test(2, true);
             }
             let mut weapon = rules.weapon("GUN").unwrap().clone();
             weapon.range_leptons = input["range"].as_i64().unwrap_or(768) as i32;
@@ -1365,7 +1364,7 @@ mod tests {
                     (at(0) / 256) as u16,
                     (at(1) / 256) as u16,
                 );
-                target.category = EntityCategory::Infantry;
+                target.set_category_for_test(EntityCategory::Infantry);
                 target.position.sub_x = SimFixed::from_num(at(0) % 256);
                 target.position.sub_y = SimFixed::from_num(at(1) % 256);
                 target.position.exact_z_leptons = Some(at(2));
@@ -1535,7 +1534,7 @@ mod tests {
     fn ground_attacker(rx: u16, ry: u16, level: u8, type_ref: &str) -> GameEntity {
         let mut e = GameEntity::test_default(100, type_ref, "Attackers", rx, ry);
         e.position.z = level;
-        e.category = EntityCategory::Unit;
+        e.set_category_for_test(EntityCategory::Unit);
         e.lifecycle.cell_marked = true;
         e
     }
@@ -1543,7 +1542,7 @@ mod tests {
     fn ground_target(rx: u16, ry: u16, level: u8, type_ref: &str) -> GameEntity {
         let mut e = GameEntity::test_default(200, type_ref, "Defenders", rx, ry);
         e.position.z = level;
-        e.category = EntityCategory::Unit;
+        e.set_category_for_test(EntityCategory::Unit);
         e.lifecycle.cell_marked = true;
         e
     }
@@ -1551,7 +1550,7 @@ mod tests {
     fn building_target(rx: u16, ry: u16, type_ref: &str) -> GameEntity {
         let mut e = GameEntity::test_default(300, type_ref, "Defenders", rx, ry);
         e.position.z = 0;
-        e.category = EntityCategory::Structure;
+        e.set_category_for_test(EntityCategory::Structure);
         e.lifecycle.cell_marked = true;
         e
     }
@@ -1564,11 +1563,11 @@ mod tests {
         type_ref: &str,
     ) -> GameEntity {
         let mut e = aircraft_at_altitude(altitude_lep);
-        e.stable_id = 200;
+        e.set_stable_id_for_test(200);
         e.position.rx = rx;
         e.position.ry = ry;
         e.position.z = level;
-        e.type_ref = crate::sim::intern::test_intern(type_ref);
+        e.set_type_ref_for_test(crate::sim::intern::test_intern(type_ref));
         e
     }
 
@@ -1579,7 +1578,7 @@ mod tests {
     /// listed under `[VehicleTypes]`, so it is a `UnitClass` that flies.
     fn jumpjet_unit_at_altitude(altitude_lep: i64) -> GameEntity {
         let mut e = aircraft_at_altitude(altitude_lep);
-        e.category = EntityCategory::Unit;
+        e.set_category_for_test(EntityCategory::Unit);
         e
     }
 
@@ -1956,7 +1955,7 @@ mod tests {
         let attacker = ground_attacker(6, 1, 0, "ATKR");
         let mut target = building_target(0, 0, "BLDG");
         // Construction stamps the type's `Foundation=4x2`.
-        target.foundation = "4x2".to_string();
+        target.type_facts.set_foundation_for_test("4x2".to_string());
         let mut entities = EntityStore::new();
         entities.insert(target);
         let interner = test_interner();
@@ -2105,10 +2104,10 @@ mod tests {
 
     fn kirov_at(rx: u16, ry: u16, altitude_lep: i64) -> GameEntity {
         let mut e = jumpjet_unit_at_altitude(altitude_lep);
-        e.stable_id = 100;
+        e.set_stable_id_for_test(100);
         e.position.rx = rx;
         e.position.ry = ry;
-        e.type_ref = crate::sim::intern::test_intern("ZEP");
+        e.set_type_ref_for_test(crate::sim::intern::test_intern("ZEP"));
         e
     }
 

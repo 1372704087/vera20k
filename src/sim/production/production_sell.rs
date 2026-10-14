@@ -174,7 +174,7 @@ pub(crate) fn sell_back(
 ) -> bool {
     let Some((owner, buildup, firestorm_wall, selling, c4)) =
         sim.substrate.entities.get(id).and_then(|entity| {
-            if entity.category != EntityCategory::Structure {
+            if entity.category() != EntityCategory::Structure {
                 return None;
             }
             let type_id = sim.interner.resolve(entity.type_ref());
@@ -272,8 +272,8 @@ pub fn can_sell_building(sim: &Simulation, rules: &RuleSet, id: u64) -> bool {
             entity.mission.effective().known(),
             Some(MissionType::Selling | MissionType::Construction)
         );
-    entity.category == EntityCategory::Structure
-        && entity.draining_me.is_none()
+    entity.category() == EntityCategory::Structure
+        && entity.drain.draining_me().is_none()
         && !object.unsellable
         && (buildup_sale || object.firestorm_wall)
 }
@@ -424,7 +424,7 @@ pub(crate) fn sell_stage_one(
         .substrate
         .entities
         .get(id)
-        .is_none_or(|building| building.dock_entered_with.is_some())
+        .is_none_or(|building| building.tether.partner().is_some())
     {
         return false;
     }
@@ -568,7 +568,6 @@ pub(crate) fn sell_complete(
         id,
         UninitContext::new(Some(rules), registry).with_effects(frame_effects),
     );
-    crate::sim::superweapon::refresh_super_weapons_for_owner(sim, rules, owner);
     false
 }
 
@@ -634,7 +633,6 @@ mod tests {
     use super::*;
     use crate::rules::ini_parser::IniFile;
     use crate::sim::game_entity::GameEntity;
-    use crate::sim::passenger::PassengerRole;
     use crate::sim::passenger::garrison_eject::tests::{
         garrison_map, garrison_rules, insert_player_owned_garrison,
     };
@@ -659,7 +657,12 @@ mod tests {
             let rules = battle_bunker_rules_with_strength(strength);
             let mut sim = Simulation::new();
             insert_garrisoned_battle_bunker(&mut sim, &rules, 10, 11);
-            sim.substrate.entities.get_mut(10).unwrap().health.current = actual;
+            sim.substrate
+                .entities
+                .get_mut(10)
+                .unwrap()
+                .health
+                .set_for_test(actual);
             let before = credits_for_owner(&sim, "Americans");
             assert!(sell_building_now_for_test(&mut sim, &rules, 10));
             assert_eq!(credits_for_owner(&sim, "Americans") - before, 200);
@@ -706,8 +709,8 @@ mod tests {
             .entities
             .get(passenger_id)
             .expect("passenger should survive sell eject");
-        assert!(matches!(passenger.passenger_role, PassengerRole::None));
-        assert!(!passenger.dying);
+        assert!(passenger.passenger_role.is_none());
+        assert!(!passenger.death.is_dying());
         assert!(
             passenger.position.rx < 10
                 || passenger.position.rx > 11
@@ -751,8 +754,8 @@ mod tests {
             10,
             EntityCategory::Structure,
         );
-        entity.owner = sim.interner.intern(owner);
-        entity.type_ref = sim.interner.intern(type_id);
+        entity.set_owner_for_test(sim.interner.intern(owner));
+        entity.set_type_ref_for_test(sim.interner.intern(type_id));
         sim.substrate.entities.insert(entity);
     }
 

@@ -1596,7 +1596,7 @@ mod tests {
     fn house_power_rate_rewrite_matches_native_statuses_clamps_and_armed_timer() {
         use crate::map::entities::EntityCategory;
         use crate::rules::ini_parser::IniFile;
-        use crate::sim::components::Health;
+        use crate::sim::combat::Health;
         use crate::sim::game_entity::GameEntity;
         use crate::sim::house_state::HouseState;
         use crate::sim::power_system::PowerState;
@@ -1639,24 +1639,23 @@ mod tests {
                 0,
                 0,
                 owner,
-                Health { current: 500 },
+                Health::new(500),
                 producer_type,
                 EntityCategory::Structure,
                 0,
                 5,
                 false,
             );
-            producer.lifecycle.in_limbo = false;
+            producer.lifecycle.set_in_limbo_for_test(false);
             producer.tracking_facts = crate::sim::house_tracking::TrackingFacts::of(
                 EntityCategory::Structure,
                 rules.object("PRODUCER"),
                 Some(&rules),
             );
             sim.substrate.entities.insert(producer);
-            sim.update_house_tracking(
-                1,
-                crate::sim::house_tracking::HouseTracking::increment_factory_count,
-            );
+            sim.update_house_tracking(1, |tracking, entity| {
+                tracking.increment_factory_count(entity)
+            });
             let mut power = PowerState::default();
             power.total_output = input["power_output"].as_i64().unwrap() as i32;
             power.total_drain = input["power_drain"].as_i64().unwrap() as i32;

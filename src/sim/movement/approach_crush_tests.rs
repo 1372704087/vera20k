@@ -4,7 +4,7 @@
 
 use super::ApproachCrush;
 use crate::rules::ruleset::RuleSet;
-use crate::sim::combat::{AttackTarget, TargetKind};
+use crate::sim::combat::TargetKind;
 use crate::sim::components::NavTargetRef;
 use crate::sim::mission::{MissionId, MissionType};
 use crate::sim::world::Simulation;
@@ -82,9 +82,12 @@ fn spawn(sim: &mut Simulation, rules: &RuleSet, kind: &str, owner: &str, cell: (
 }
 
 fn target(sim: &mut Simulation, actor: u64, target: u64) {
-    sim.substrate.entities.get_mut(actor).unwrap().attack_target = Some(AttackTarget {
-        target: TargetKind::Entity(target),
-    });
+    sim.substrate
+        .entities
+        .get_mut(actor)
+        .unwrap()
+        .attack_target
+        .set_for_test(Some(TargetKind::Entity(target)));
 }
 
 fn start_mission(sim: &mut Simulation, actor: u64, mission: MissionType) {
@@ -161,7 +164,8 @@ fn battle_fortress_heads_for_infantry_it_targets() {
             .entities
             .get_mut(fortress)
             .unwrap()
-            .passively_acquired_target = passive;
+            .passive_scan
+            .set_passively_acquired_target_for_test(passive);
         sim.unit_approach_head(fortress, &rules) == Some(NavTargetRef::object(victim))
     };
     assert!(head("Americans", ("E1", "Russians"), false));

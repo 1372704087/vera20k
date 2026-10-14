@@ -99,7 +99,7 @@ fn saved_current_house_drives_app_fog_and_command_owner_after_load() {
 #[test]
 fn current_house_excludes_selection_and_debug_override_but_sandbox_keeps_both() {
     use crate::map::entities::EntityCategory;
-    use crate::sim::components::Health;
+    use crate::sim::combat::Health;
     use crate::sim::game_entity::GameEntity;
 
     let roster = HouseRoster::default();
@@ -122,14 +122,14 @@ fn current_house_excludes_selection_and_debug_override_but_sandbox_keeps_both() 
         0,
         0,
         selected,
-        Health { current: 100 },
+        Health::new(100),
         type_ref,
         EntityCategory::Unit,
         0,
         5,
         false,
     );
-    entity.selected = true;
+    entity.selection.set_selected_for_test(true);
     sim.substrate.entities.insert(entity);
     assert_eq!(
         preferred_local_owner_for_sim(&sim, None, &roster, Some("SandboxHouse")).as_deref(),

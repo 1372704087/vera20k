@@ -173,7 +173,16 @@ fn scene(input: &Value) -> Scene {
     let (x, y) = input.get("cell").map_or((15, 15), cell);
     let on_bridge = input["on_bridge"] == true;
     let transport = sim
-        .construct_object_limbo_at_height("APC", "Americans", x, y, 0, 0, &rules)
+        .construct_object_limbo_at_height(
+            "APC",
+            "Americans",
+            x,
+            y,
+            0,
+            0,
+            &rules,
+            crate::sim::world::FrameEffects::default(),
+        )
         .expect("transport");
     let sub = input.get("sub").map_or((128, 128), |sub| {
         (
@@ -216,9 +225,7 @@ fn scene(input: &Value) -> Scene {
             unit.set_gunner_selection_for_test(0, -1);
         }
         if unit.passenger_role.cargo().is_none() {
-            unit.passenger_role = PassengerRole::Transport {
-                cargo: PassengerCargo::new(5, 0),
-            };
+            unit.passenger_role = PassengerRole::transport(PassengerCargo::new(5, 0));
         }
     }
     let attacker = sim
@@ -247,10 +254,8 @@ fn scene(input: &Value) -> Scene {
             sim.techno_limbo_with_rules(id, &rules, None),
             crate::sim::world::ConcealOutcome::Concealed
         );
-        sim.substrate.entities.get_mut(id).unwrap().passenger_role = PassengerRole::Inside {
-            transport_id: transport,
-            open_topped: input["open_topped"] == true,
-        };
+        sim.substrate.entities.get_mut(id).unwrap().passenger_role =
+            PassengerRole::inside_for_test(transport, input["open_topped"] == true);
         assert!(
             sim.substrate
                 .entities
@@ -285,7 +290,16 @@ fn scene(input: &Value) -> Scene {
         };
         let spot = spec["spot"].as_u64().unwrap() as u8;
         let id = sim
-            .construct_object_limbo_at_height("E1", owner, x, y, 0, 0, &rules)
+            .construct_object_limbo_at_height(
+                "E1",
+                owner,
+                x,
+                y,
+                0,
+                0,
+                &rules,
+                crate::sim::world::FrameEffects::default(),
+            )
             .expect("occupant");
         sim.substrate.entities.get_mut(id).unwrap().sub_cell = Some(spot);
         let (dx, dy) = SPOT_OFFSETS[usize::from(spot)];
@@ -388,8 +402,8 @@ fn compare(row: &Value) {
         .passenger_role
         .cargo()
         .unwrap()
-        .passengers
-        .clone();
+        .passengers()
+        .to_vec();
     let head = cargo.first().map_or(Value::Null, |id| {
         passengers.iter().position(|p| p == id).into()
     });
@@ -437,7 +451,7 @@ fn compare(row: &Value) {
             let record = of("record_kill").expect("a killed passenger records its kill");
             let credited = (record[2] == "attacker").then(|| sim.interner.intern("Foreign"));
             assert_eq!(
-                sim.substrate.entities.get(id).unwrap().killed_by,
+                sim.substrate.entities.get(id).unwrap().kill_record.killer(),
                 credited,
                 "{context}: kill credit"
             );
@@ -445,14 +459,11 @@ fn compare(row: &Value) {
         }
         let entity = sim.substrate.entities.get(id).unwrap();
         assert_eq!(
-            u64::from(entity.lifecycle.in_limbo),
+            u64::from(entity.lifecycle.in_limbo()),
             expected["limbo"].as_u64().unwrap(),
             "{context}: limbo"
         );
-        let aboard = matches!(
-            entity.passenger_role,
-            PassengerRole::Inside { transport_id, .. } if transport_id == transport
-        );
+        let aboard = entity.passenger_role.inside_transport_id() == Some(transport);
         assert_eq!(
             aboard,
             expected["transporter"] == "transport",
@@ -509,13 +520,13 @@ fn compare(row: &Value) {
         };
         assert_eq!(nav, expected["nav"], "{context}: NavCom");
         assert_eq!(
-            entity.selected,
+            entity.selection.is_selected(),
             of("select").is_some(),
             "{context}: selected"
         );
         if input["open_topped"] == true {
             assert_eq!(
-                entity.attack_target.is_none(),
+                entity.attack_target.target().is_none(),
                 of("assign_target").is_some(),
                 "{context}: target"
             );

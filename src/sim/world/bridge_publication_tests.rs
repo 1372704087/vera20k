@@ -78,7 +78,16 @@ fn bridge_damage_exact_height_runs_body_and_detaches_only_after_collapse() {
     let rules = rules();
     let mut sim = world(&rules, 9);
     let attacker = sim
-        .construct_object_limbo_at_height("MTNK", "Americans", 7, 7, 0, 0, &rules)
+        .construct_object_limbo_at_height(
+            "MTNK",
+            "Americans",
+            7,
+            7,
+            0,
+            0,
+            &rules,
+            crate::sim::world::FrameEffects::default(),
+        )
         .unwrap();
     // The admitted scene supplies this pose after the held constructor.
     crate::sim::movement::ground_pose::put_location(
@@ -94,7 +103,8 @@ fn bridge_damage_exact_height_runs_body_and_detaches_only_after_collapse() {
         .entities
         .get_mut(attacker)
         .unwrap()
-        .attack_target = Some(crate::sim::combat::AttackTarget::for_cell(4, 4));
+        .attack_target
+        .set_for_test(Some(crate::sim::combat::TargetKind::Cell(4, 4)));
     let mut hit = event(&mut sim, (4, 4));
     let before = sim.scenario_rng.logical_state();
     // Native strict lower bound: level0 +208 refuses, +209 enters.
@@ -130,6 +140,7 @@ fn bridge_damage_exact_height_runs_body_and_detaches_only_after_collapse() {
             .get(attacker)
             .unwrap()
             .attack_target
+            .target()
             .is_some()
     );
 
@@ -140,6 +151,7 @@ fn bridge_damage_exact_height_runs_body_and_detaches_only_after_collapse() {
             .get(attacker)
             .unwrap()
             .attack_target
+            .target()
             .is_none()
     );
     assert_eq!(
@@ -165,6 +177,7 @@ fn bridge_damage_exact_height_runs_body_and_detaches_only_after_collapse() {
             .get(attacker)
             .unwrap()
             .attack_target
+            .target()
             .is_none()
     );
 }
@@ -310,7 +323,16 @@ fn bridge_publication_production_nonanchor_collapse_keeps_other_overlay_and_runs
         assert!(before.cell(coord.0, coord.1).unwrap().bridge_walkable);
     }
     let tank = sim
-        .construct_object_limbo_at_height("MTNK", "Americans", 3, 4, 0, 0, &rules)
+        .construct_object_limbo_at_height(
+            "MTNK",
+            "Americans",
+            3,
+            4,
+            0,
+            0,
+            &rules,
+            crate::sim::world::FrameEffects::default(),
+        )
         .unwrap();
     // Ground fallout selects the scene's supplied Cell member, not ctor zero.
     crate::sim::movement::ground_pose::put_location(
@@ -334,7 +356,7 @@ fn bridge_publication_production_nonanchor_collapse_keeps_other_overlay_and_runs
         sim.substrate
             .entities
             .get(tank)
-            .is_none_or(|unit| unit.health.current == 0)
+            .is_none_or(|unit| unit.health.current() == 0)
     );
     let grid = sim.overlay_grid.as_ref().unwrap();
     assert_eq!(

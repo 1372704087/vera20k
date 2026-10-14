@@ -8,7 +8,8 @@ use crate::map::entities::EntityCategory;
 use crate::rules::ini_parser::IniFile;
 use crate::rules::locomotor_type::LocomotorKind;
 use crate::rules::ruleset::RuleSet;
-use crate::sim::components::{DriveCoord, FootPathQueue, Health};
+use crate::sim::combat::Health;
+use crate::sim::components::{DriveCoord, FootPathQueue};
 use crate::sim::game_entity::GameEntity;
 use crate::sim::movement::{DriveLocomotionRuntime, ShipLocomotionRuntime};
 use crate::sim::occupancy::OccupancyGrid;
@@ -44,7 +45,7 @@ fn fixture(kind: LocomotorKind) -> Simulation {
         0,
         0,
         owner,
-        Health { current: 100 },
+        Health::new(100),
         type_ref,
         if kind == LocomotorKind::Walk {
             EntityCategory::Infantry
@@ -57,11 +58,11 @@ fn fixture(kind: LocomotorKind) -> Simulation {
     );
     entity.position.sub_x = SimFixed::from_num(128);
     entity.position.sub_y = SimFixed::from_num(128);
-    entity.lifecycle.object_alive = true;
-    entity.lifecycle.in_limbo = false;
+    entity.lifecycle.set_object_alive_for_test(true);
+    entity.lifecycle.set_in_limbo_for_test(false);
     entity.lifecycle.cell_marked = true;
     entity.locomotor = Some(LocomotorState::for_test_kind(kind));
-    entity.drive_accelerates = false;
+    entity.mover_facts.set_drive_accelerates_for_test(false);
     match kind {
         LocomotorKind::Drive => assert!(
             entity

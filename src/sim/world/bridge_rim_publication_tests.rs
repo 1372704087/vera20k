@@ -219,7 +219,16 @@ fn bridge_rim_middle_section_fallout_and_restored_navigation() {
     let mut sim = stock_world(&rules, &input);
     let pristine = sim.resolved_terrain.as_ref().unwrap().clone();
     let victim = sim
-        .construct_object_limbo_at_height("MTNK", "Americans", 111, 142, 0, 0, &rules)
+        .construct_object_limbo_at_height(
+            "MTNK",
+            "Americans",
+            111,
+            142,
+            0,
+            0,
+            &rules,
+            crate::sim::world::FrameEffects::default(),
+        )
         .unwrap();
     // Supply the intended ground victim before the existing Reveal clamps Z.
     crate::sim::movement::ground_pose::put_location(
@@ -257,7 +266,7 @@ fn bridge_rim_middle_section_fallout_and_restored_navigation() {
             .substrate
             .entities
             .get(victim)
-            .is_some_and(|unit| unit.health.current > 0);
+            .is_some_and(|unit| unit.health.current() > 0);
         assert_eq!(
             alive,
             index < 3,

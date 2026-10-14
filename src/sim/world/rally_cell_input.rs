@@ -144,9 +144,9 @@ mod tests {
     fn prepared_rally_cell_reaches_archive_and_stop_without_input_mutation() {
         use crate::map::entities::EntityCategory;
         use crate::rules::ini_parser::IniFile;
+        use crate::sim::combat::Health;
         use crate::sim::combat::TargetKind;
         use crate::sim::command::Command;
-        use crate::sim::components::Health;
         use crate::sim::game_entity::GameEntity;
         use crate::util::fixed_math::SimFixed;
         let corpus: Value = serde_json::from_str(crate::test_fixture::text(
@@ -175,14 +175,14 @@ mod tests {
                 0,
                 0,
                 owner,
-                Health { current: 1000 },
+                Health::new(1000),
                 type_ref,
                 EntityCategory::Structure,
                 0,
                 5,
                 false,
             );
-            actor.lifecycle.in_limbo = false;
+            actor.lifecycle.set_in_limbo_for_test(false);
             actor.position.sub_x = SimFixed::from_num(64);
             actor.position.sub_y = SimFixed::from_num(64);
             actor.set_archive_target(Some(TargetKind::Cell(6, 5)));

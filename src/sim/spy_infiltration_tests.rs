@@ -298,7 +298,7 @@ const ARENA_ART: &str = "[PLANT]\nFoundation=2x2\n[DEPOT]\nFoundation=2x2\n\
 
 fn arena_rules() -> RuleSet {
     RuleSet::from_ini_with_fixed_art_for_test(
-        &IniFile::from_str(ARENA_RULES),
+        &crate::sim::arena_fixture::clear_ground_ini(ARENA_RULES),
         &IniFile::from_str(ARENA_ART),
     )
     .unwrap()
@@ -424,7 +424,7 @@ fn a_spy_sent_into_an_enemy_power_plant_blacks_it_out() {
         run_until(&mut sim, &rules, &grid, 300, &mut events, |sim| {
             sim.entities()
                 .get(spy)
-                .is_none_or(|spy| !spy.lifecycle.object_alive)
+                .is_none_or(|spy| !spy.lifecycle.object_alive())
         }),
         "the spy never went in"
     );
@@ -492,7 +492,7 @@ fn a_computer_spy_attacking_a_power_plant_goes_in() {
                 return true;
             };
             captured |= spy.mission.current() == MissionId::from_known(MissionType::Capture);
-            !spy.lifecycle.object_alive
+            !spy.lifecycle.object_alive()
         }),
         "the spy never went in"
     );

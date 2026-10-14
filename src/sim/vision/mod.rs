@@ -11,6 +11,7 @@
 mod cell_reveal;
 mod gap_source;
 mod map_reveal;
+pub(crate) use map_reveal::MapTransition;
 mod shroud_knowledge;
 pub use cell_reveal::SHROUD_EDGE_LUT;
 #[cfg(test)]
@@ -21,7 +22,7 @@ use cell_reveal::{DummyVisibility, MapCellEdgeCache};
 pub(crate) use gap_source::GapGeneratorRuntime;
 use shroud_knowledge::ShroudKnowledge;
 pub(crate) use shroud_knowledge::SightAdmission;
-pub(crate) use shroud_knowledge::SightRefreshTimers;
+pub(crate) use shroud_knowledge::{SightFacts, SightRefreshTimers};
 
 use std::collections::BTreeMap;
 
@@ -1727,8 +1728,8 @@ pub fn recompute_owner_visibility_in_place(
     let admitted: Vec<_> = entities
         .values()
         .filter(|entity| {
-            !entity.dying
-                && !entity.lifecycle.in_limbo
+            !entity.death.is_dying()
+                && !entity.lifecycle.in_limbo()
                 && (!config.require_playfield_membership || entity.in_playfield)
                 && !entity.passenger_role.is_inside_transport()
         })
@@ -2080,7 +2081,7 @@ fn entity_sight_geometry(
     // Elevation raises sight MULTIPLICATIVELY, off the object's world Z in
     // leptons, not additively off its terrain level:
     //   sight = trunc(Sight * (1 + 0.10 * trunc(Z_leptons / LeptonsPerSightIncrease)))
-    let base_range: i32 = entity.vision_range as i32;
+    let base_range: i32 = entity.sight.range() as i32;
     let elev_steps: i32 = if config.leptons_per_sight_increase > 0 {
         height_leptons / config.leptons_per_sight_increase
     } else {
@@ -2198,7 +2199,7 @@ fn resolve_bounds(entities: &EntityStore, path_grid: Option<&PathGrid>) -> (u16,
     let mut max_y = 0u16;
     let mut found = false;
     for entity in entities.values() {
-        if entity.lifecycle.in_limbo {
+        if entity.lifecycle.in_limbo() {
             continue;
         }
         found = true;

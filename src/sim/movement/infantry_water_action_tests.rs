@@ -82,8 +82,10 @@ fn physical_rules() -> RuleSet {
     )
     .unwrap();
     let (mut rules, _, fixed_art, _) = owner
-        .load_scenario(crate::rules::process_owner::NativeScenarioRulesPrefix::NonCampaign(
-            Some(&sections_ini(&history[2]["inputs"]))),
+        .load_scenario(
+            crate::rules::process_owner::NativeScenarioRulesPrefix::NonCampaign(Some(
+                &sections_ini(&history[2]["inputs"]),
+            )),
             &sections_ini(&history[3]["inputs"]),
         )
         .unwrap()
@@ -138,7 +140,10 @@ fn supplied_rules(input: &Value) -> RuleSet {
     let mut owner =
         NativeRulesProcessOwner::from_cold_start_sources(root, None, art, sounds).unwrap();
     let (mut rules, _, fixed_art, _) = owner
-        .load_scenario(crate::rules::process_owner::NativeScenarioRulesPrefix::NonCampaign(None), &IniFile::from_str(""))
+        .load_scenario(
+            crate::rules::process_owner::NativeScenarioRulesPrefix::NonCampaign(None),
+            &IniFile::from_str(""),
+        )
         .unwrap()
         .into_parts();
     rules.install_art_data(crate::rules::art_data::ArtRegistry::from_ini(&fixed_art));
@@ -180,7 +185,16 @@ fn fixture(row: &Value, rules: &RuleSet, type_name: &str) -> (Simulation, u64) {
     terrain_cell.base_yr_cell_land_type = terrain_cell.yr_cell_land_type;
     sim.install_resolved_terrain_for_new_map(ResolvedTerrainGrid::from_cells(width, height, cells));
     let id = sim
-        .construct_object_limbo_at_height(type_name, "Americans", cell.0, cell.1, 0, 0, rules)
+        .construct_object_limbo_at_height(
+            type_name,
+            "Americans",
+            cell.0,
+            cell.1,
+            0,
+            0,
+            rules,
+            crate::sim::world::FrameEffects::default(),
+        )
         .expect("water action constructor");
     let actor = sim.substrate.entities.get_mut(id).unwrap();
     assert_eq!(actor.mission_leaf.as_infantry().unwrap().water_state(), 2);
@@ -198,10 +212,12 @@ fn fixture(row: &Value, rules: &RuleSet, type_name: &str) -> (Simulation, u64) {
         },
     );
     actor.on_bridge = input["bridge"].as_bool().unwrap_or(false);
-    actor.health.current = row["before"]["health"]
+    actor.health.set_for_test(
+        row["before"]["health"]
         .as_i64()
         .or_else(|| input["health"].as_i64())
-        .unwrap_or(100) as i32;
+            .unwrap_or(100) as i32,
+    );
     actor
         .mission_leaf
         .set_infantry_doing_verified(input["current"].as_i64().unwrap_or(-1) as i32)
@@ -479,7 +495,7 @@ fn native_physical_ghost_tanya_wet_death_uses_raw_doing_and_stage() {
             sim.substrate
                 .entities
                 .get(id)
-                .is_none_or(|actor| !actor.lifecycle.object_alive)
+                .is_none_or(|actor| !actor.lifecycle.object_alive())
         );
         count += 1;
     }
@@ -544,7 +560,8 @@ fn physical_wet_death_advances_in_logic_and_uninitializes_without_animation() {
                 "{name}: wet death retained"
             );
             assert_eq!(
-                actor.health.current, 0,
+                actor.health.current(),
+                0,
                 "{name}: retained native death Health0"
             );
             assert!(

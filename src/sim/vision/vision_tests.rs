@@ -2,7 +2,7 @@
 
 use super::*;
 use crate::map::entities::EntityCategory;
-use crate::sim::components::Health;
+use crate::sim::combat::Health;
 use crate::sim::entity_store::EntityStore;
 use crate::sim::game_entity::GameEntity;
 use crate::sim::intern;
@@ -15,14 +15,14 @@ fn spawn_with_vision(store: &mut EntityStore, id: u64, owner: &str, rx: u16, ry:
         0,
         0,
         intern::test_intern(owner),
-        Health { current: 100 },
+        Health::new(100),
         intern::test_intern("E1"),
         EntityCategory::Infantry,
         0,
         range,
         false,
     );
-    entity.lifecycle.in_limbo = false;
+    entity.lifecycle.set_in_limbo_for_test(false);
     store.insert(entity);
 }
 
@@ -322,14 +322,14 @@ fn gsi_08_12_veteran_sight_multiplies_only_for_sight_ability_holders() {
             0,
             0,
             intern::test_intern("Americans"),
-            Health { current: 100 },
+            Health::new(100),
             intern::test_intern(type_id),
             EntityCategory::Infantry,
             100, // veteran
             5,   // vision_range
             false,
         );
-        entity.lifecycle.in_limbo = false;
+        entity.lifecycle.set_in_limbo_for_test(false);
         store.insert(entity);
         let config = VisionConfig {
             require_playfield_membership: false,
@@ -379,14 +379,14 @@ fn elevation_grants_no_sight_bonus_at_any_reachable_terrain_level() {
         8,
         0,
         intern::test_intern("Americans"),
-        Health { current: 100 },
+        Health::new(100),
         intern::test_intern("E1"),
         EntityCategory::Infantry,
         0,
         5,
         false,
     );
-    entity.lifecycle.in_limbo = false;
+    entity.lifecycle.set_in_limbo_for_test(false);
     store.insert(entity);
     let config = VisionConfig {
         require_playfield_membership: false,
@@ -422,14 +422,14 @@ fn test_elevation_sight_bonus_z0_gives_no_bonus() {
         0,
         0,
         intern::test_intern("Americans"),
-        Health { current: 100 },
+        Health::new(100),
         intern::test_intern("E1"),
         EntityCategory::Infantry,
         0,
         5,
         false,
     );
-    entity.lifecycle.in_limbo = false;
+    entity.lifecycle.set_in_limbo_for_test(false);
     store.insert(entity);
     let config = VisionConfig {
         require_playfield_membership: false,
@@ -461,14 +461,14 @@ fn test_elevation_sight_bonus_disabled_when_zero() {
         16,
         0,
         intern::test_intern("Americans"),
-        Health { current: 100 },
+        Health::new(100),
         intern::test_intern("E1"),
         EntityCategory::Infantry,
         0,
         5,
         false,
     );
-    entity.lifecycle.in_limbo = false;
+    entity.lifecycle.set_in_limbo_for_test(false);
     store.insert(entity);
     // leptons_per_sight_increase=0 → elevation bonus disabled.
     let config = VisionConfig {
@@ -1527,9 +1527,9 @@ fn an_aircrafts_altitude_moves_its_revealed_disc() {
 
     let mut store = EntityStore::new();
     let mut entity = GameEntity::test_default(1, "BEAG", "Americans", 30, 30);
-    entity.category = EntityCategory::Aircraft;
-    entity.lifecycle.in_limbo = false;
-    entity.vision_range = 1;
+    entity.set_category_for_test(EntityCategory::Aircraft);
+    entity.lifecycle.set_in_limbo_for_test(false);
+    entity.sight.set_vision_range_for_test(1);
     entity.position.exact_z_leptons = Some(1500);
     let mut loco = LocomotorState::for_test_kind(LocomotorKind::Fly);
     loco.layer = MovementLayer::Air;
@@ -1573,8 +1573,8 @@ fn a_jumpjet_below_its_floor_sees_from_its_location_z() {
     );
     let mut store = EntityStore::new();
     let mut entity = GameEntity::test_default(1, "JUMPJET", "Americans", 30, 30);
-    entity.lifecycle.in_limbo = false;
-    entity.vision_range = 1;
+    entity.lifecycle.set_in_limbo_for_test(false);
+    entity.sight.set_vision_range_for_test(1);
     entity.position.z = 4;
     entity.position.exact_z_leptons = Some(208);
     let mut loco = LocomotorState::for_test_kind(LocomotorKind::Jumpjet);

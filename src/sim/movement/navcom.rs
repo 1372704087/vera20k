@@ -265,7 +265,7 @@ pub(crate) fn nav_target_coordinate(
     let entity = entities
         .get(id)
         .ok_or_else(|| format!("NavCom coordinate target {id} disappeared"))?;
-    if entity.category == crate::map::entities::EntityCategory::Structure {
+    if entity.category() == crate::map::entities::EntityCategory::Structure {
         let (rules, interner) =
             rules.ok_or_else(|| format!("Building {id} navigation requires type data"))?;
         let object = rules
@@ -365,7 +365,8 @@ fn drive_set_destination(
 ) -> bool {
     // Drive4AFD40 checks owner+270/+271 before any destination or map read.
     // Track MoveTo refusal leaves Foot's accepted NavCom/timer writes intact.
-    // EMP/Unit+6D8 and Foot+6A0 producers remain separate unported gates.
+    // EMP/Unit+6D8 remains a separate unported gate; Foot+6A0 paralysis
+    // (FootParasite::is_paralyzed) is not read here yet.
     // Original whole-call comparisons: tools/spatial_oracle/track_destination.
     if super::locomotor_owner::owner_is_warping(entity) {
         return false;
@@ -396,8 +397,8 @@ pub(super) fn track_move_to(
 }
 
 /// ILocomotion +0x48 Stop_Moving of the active Drive, Ship or Hover
-/// instance, the only call of Foot's failed-path receiver 0x4D55C0 (Unit
-/// +0x500). It clears the locomotor destination; NavCom and the committed
+/// instance, as FootStopDriver4D55C0/Unit+500 dispatches from FindPath,
+/// FireAt and first-Limbo. It clears the locomotor destination; NavCom and the committed
 /// head are untouched.
 pub(crate) fn track_stop_moving(entity: &mut GameEntity) -> bool {
     if is_drive_locomotor(entity) {
@@ -554,9 +555,10 @@ impl crate::sim::world::Simulation {
             return;
         };
         let attack = MissionId::from_known(MissionType::Attack);
-        let attacking_aircraft = entity.category == crate::map::entities::EntityCategory::Aircraft
+        let attacking_aircraft = entity.category()
+            == crate::map::entities::EntityCategory::Aircraft
             && (entity.mission.current() == attack || entity.mission.queued() == attack)
-            && entity.attack_target.is_some();
+            && entity.attack_target.target().is_some();
         if !attacking_aircraft {
             self.locomotor_stop_moving(id, rules, registry, frame_effects)
                 .unwrap_or_else(|cause| panic!("Foot null destination {id}: {cause}"));

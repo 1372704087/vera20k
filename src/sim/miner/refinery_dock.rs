@@ -89,7 +89,7 @@ pub(crate) fn mission_unload(
     // (raw 0x3F80..=0x407F); otherwise turn (unless the turret is mid-swing).
     let raw = entity.body_facing_current(now);
     if (((u32::from(raw) >> 7) + 1) & 0x1FE) != 0x80 {
-        if !entity.turret_rotation_latch
+        if !entity.turret_rotation_latch.is_set()
             && let Some(entity) = sim.substrate.entities.get_mut(id)
         {
             crate::sim::movement::drive_do_turn(entity, UNLOAD_FACING, now);
@@ -276,7 +276,7 @@ pub(crate) fn per_cell_release_dock_contact(
                 .radio_contacts
                 .slot(0)
                 .and_then(|contact| sim.substrate.entities.get(contact))
-                .filter(|contact| contact.category == EntityCategory::Structure)
+                .filter(|contact| contact.category() == EntityCategory::Structure)
                 .and_then(|contact| sim.object_type(contact.type_ref(), rules))
                 .is_some_and(|building| {
                     if weeder {

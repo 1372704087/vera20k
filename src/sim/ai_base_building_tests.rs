@@ -39,7 +39,7 @@ fn rules(advanced_prerequisite: &str) -> RuleSet {
          [WALL]\nWall=yes\n[GUARDED]\nStrength=500\nProtectWithWall=yes\n"
     );
     RuleSet::from_ini_with_fixed_art_for_test(
-        &IniFile::from_str(&text),
+        &crate::sim::arena_fixture::clear_ground_ini(&text),
         &IniFile::from_str("[GUARDED]\nFoundation=2x2\n"),
     )
     .unwrap()
@@ -442,7 +442,16 @@ fn exit_fixture() -> (Simulation, RuleSet, InternedId, u64, u64) {
             .reserve(sim.resolved_terrain.as_ref(), x, y, 0);
     }
     let product = sim
-        .construct_object_limbo_at_height("PLAIN", "AIHouse", 0, 0, 0, 0, &rules)
+        .construct_object_limbo_at_height(
+            "PLAIN",
+            "AIHouse",
+            0,
+            0,
+            0,
+            0,
+            &rules,
+            crate::sim::world::FrameEffects::default(),
+        )
         .unwrap();
     (sim, rules, owner, yard, product)
 }
@@ -475,7 +484,7 @@ fn a_computer_yard_places_its_building_on_the_node_cell() {
 
     assert_eq!(exit, BuildingExit::Placed);
     let building = sim.substrate.entities.get(product).unwrap();
-    assert!(!building.lifecycle.in_limbo);
+    assert!(!building.lifecycle.in_limbo());
     assert_eq!((building.position.rx, building.position.ry), (16, 16));
     assert!(building.building_up(), "the placed building builds up");
     let house = &sim.houses[&owner];
@@ -575,7 +584,7 @@ fn a_unit_of_the_house_on_the_site_makes_the_yard_try_later() {
                 .get(product)
                 .unwrap()
                 .lifecycle
-                .in_limbo
+                .in_limbo()
         );
         assert_eq!(node_state(&sim, owner), [((16, 16), count)]);
     }
@@ -620,7 +629,7 @@ fn an_enemy_on_the_site_fails_the_exit_and_the_node_forgets_its_cell() {
             .get(product)
             .unwrap()
             .lifecycle
-            .in_limbo
+            .in_limbo()
     );
     assert_eq!(node_state(&sim, owner), [((0, 0), 0)]);
 }
@@ -646,7 +655,7 @@ fn a_human_yard_places_nothing() {
             .get(product)
             .unwrap()
             .lifecycle
-            .in_limbo
+            .in_limbo()
     );
     assert_eq!(node_state(&sim, owner), [((16, 16), 0)]);
 }

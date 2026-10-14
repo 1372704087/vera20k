@@ -82,8 +82,8 @@ fn slave_master_admission_reaches_head_selection_in_the_same_object_turn() {
                 15,
                 EntityCategory::Structure,
             );
-            b.owner = sim.intern("Americans");
-            b.type_ref = sim.intern("CABHUT");
+            b.set_owner_for_test(sim.intern("Americans"));
+            b.set_type_ref_for_test(sim.intern("CABHUT"));
             sim.substrate.entities.insert(b);
             sim.substrate.occupancy.add(
                 16,
@@ -278,7 +278,7 @@ fn command_repair_fixture(with_aircraft: bool, with_team: bool) {
                 e.locomotor.as_ref().unwrap().step_head(),
                 e.navigation.nav_com,
                 e.mission.current(),
-                e.lifecycle.object_alive
+                e.lifecycle.object_alive()
             ));
             if e.position.rx == 16 && e.locomotor.as_ref().unwrap().step_head().is_some() {
                 assert!(!changed, "crossing alone must not emit PerCell repair");
@@ -371,7 +371,7 @@ fn command_repair_fixture(with_aircraft: bool, with_team: bool) {
             sim.substrate
                 .entities
                 .get(id)
-                .is_none_or(|e| !e.lifecycle.object_alive)
+                .is_none_or(|e| !e.lifecycle.object_alive())
         );
         assert!(!sim.substrate.occupancy.contains_entity(17, 15, id));
     }
@@ -851,7 +851,7 @@ fn bridge_repair_preserves_unrelated_foundation_before_next_reader() {
             .get(engineer)
             .unwrap()
             .lifecycle
-            .object_alive,
+            .object_alive(),
         "Uninit before frame-tail drain"
     );
     assert!(sim.substrate.occupancy.contains_entity(13, 13, unrelated));
@@ -892,7 +892,7 @@ fn consecutive_engineers_cancel_the_successors_hut_target_before_its_next_turn()
     }
     repair_frame(&mut sim, &rules, &registry);
     let successor = sim.substrate.entities.get(b).unwrap();
-    assert!(successor.lifecycle.object_alive);
+    assert!(successor.lifecycle.object_alive());
     assert_eq!(successor.navigation.nav_com, None);
     assert_eq!(successor.locomotor.as_ref().unwrap().step_head(), None);
     assert_eq!(repair_sounds(&sim), [true]);
@@ -910,7 +910,7 @@ fn nonconsecutive_engineer_finishes_its_head_without_repeating_cancelled_repair(
     assert!(sim.substrate.entities.get(a).is_none());
     assert!(sim.substrate.entities.get(separator).is_some());
     let successor = sim.substrate.entities.get(b).unwrap();
-    assert!(successor.lifecycle.object_alive);
+    assert!(successor.lifecycle.object_alive());
     assert_eq!(successor.navigation.nav_com, None);
     assert_eq!(successor.locomotor.as_ref().unwrap().step_head(), None);
     assert_eq!(repair_sounds(&sim), [true]);
@@ -976,7 +976,7 @@ fn later_repair_scatters_stationary_hut_occupant_and_processes_it_synchronously(
             .get(last)
             .unwrap()
             .lifecycle
-            .object_alive
+            .object_alive()
     );
 }
 
@@ -991,7 +991,16 @@ fn hut_repair_scatters_a_jumpjet_occupant_through_its_air_destination_owner() {
     // seam. This corridor does not establish an ordinary infantry Unlimbo
     // inside a marked Building (Cell481180 correctly refuses that request).
     let rocketeer = sim
-        .construct_object_limbo_at_height("JUMPJET", "Americans", 16, 15, 0, 0, &rules)
+        .construct_object_limbo_at_height(
+            "JUMPJET",
+            "Americans",
+            16,
+            15,
+            0,
+            0,
+            &rules,
+            crate::sim::world::FrameEffects::default(),
+        )
         .unwrap();
     crate::sim::movement::ground_pose::put_location(
         &mut sim.substrate.entities.get_mut(rocketeer).unwrap().position,
@@ -1026,7 +1035,7 @@ fn hut_repair_scatters_a_jumpjet_occupant_through_its_air_destination_owner() {
         sim.substrate
             .entities
             .get(engineer)
-            .is_none_or(|e| !e.lifecycle.object_alive)
+            .is_none_or(|e| !e.lifecycle.object_alive())
     );
     let e = sim.substrate.entities.get(rocketeer).unwrap();
     // SetDestination(cell,1) reached Jumpjet MoveTo 0x54B1C0: the request is
@@ -1061,8 +1070,11 @@ fn repair_pointer_expiry_uses_descending_infantry_registry_and_preserves_paid_he
     for id in [c, b, a] {
         delays.insert(id, expected.next_range_u32_inclusive(4, 8));
         let e = sim.substrate.entities.get_mut(id).unwrap();
-        e.attack_target = Some(crate::sim::combat::AttackTarget::new(hut));
-        e.passive_scan_timer.arm(sim.session.binary_frame, 30);
+        e.attack_target
+            .set_for_test(Some(crate::sim::combat::TargetKind::Entity(hut)));
+        e.passive_scan
+            .timer_mut_for_test()
+            .arm(sim.session.binary_frame, 30);
         e.navigation.nav_com_aux = Some(NavTargetRef::Cell { rx: 19, ry: 19 });
         e.navigation
             .nav_queue
@@ -1079,7 +1091,7 @@ fn repair_pointer_expiry_uses_descending_infantry_registry_and_preserves_paid_he
         .get_mut(c)
         .unwrap()
         .lifecycle
-        .in_limbo = true;
+        .set_in_limbo_for_test(true);
     // The hut itself is not an Infantry receiver even if it holds the pointer.
     sim.substrate
         .entities
@@ -1096,8 +1108,8 @@ fn repair_pointer_expiry_uses_descending_infantry_registry_and_preserves_paid_he
     assert_eq!(sim.scenario_rng.state(), expected.state());
     for id in [a, b, c] {
         let e = sim.substrate.entities.get(id).unwrap();
-        assert_eq!(e.passive_scan_timer.duration, delays[&id]);
-        assert!(e.attack_target.is_none());
+        assert_eq!(e.passive_scan.timer().duration, delays[&id]);
+        assert!(e.attack_target.target().is_none());
         assert_eq!(e.navigation.nav_com, None);
         assert_eq!(e.navigation.nav_com_aux, None, "native clears the pair");
         assert_eq!(
@@ -1129,7 +1141,7 @@ fn repair_pointer_expiry_keeps_sensor_and_occupier_exceptions_and_current_nav_ga
             sim.fog.increment_sensor_at(owner, 16, 15);
         }
         let e = sim.substrate.entities.get_mut(id).unwrap();
-        e.occupier = exception == 1;
+        e.removal_facts.set_occupier_for_test(exception == 1);
         if exception == 2 {
             e.navigation.nav_com = Some(NavTargetRef::Cell { rx: 16, ry: 15 });
         }
@@ -1419,7 +1431,11 @@ fn repair_receiver_failure_stops_runtime_before_consumption_or_frame_commit() {
     // has written its three overlays. This exercises failure delivery, not a
     // claim that missing retail type data is a native admitted state.
     let missing = sim.intern("MISSING_REPAIR_RECEIVER_TYPE");
-    sim.substrate.entities.get_mut(victim).unwrap().type_ref = missing;
+    sim.substrate
+        .entities
+        .get_mut(victim)
+        .unwrap()
+        .set_type_ref_for_test(missing);
     let frame = (sim.session.tick, sim.session.binary_frame);
     let later_counter = sim
         .substrate
@@ -1458,7 +1474,7 @@ fn repair_receiver_failure_stops_runtime_before_consumption_or_frame_commit() {
     let sim = &runtime.simulation;
     assert_eq!((sim.session.tick, sim.session.binary_frame), frame);
     let e = sim.substrate.entities.get(engineer).unwrap();
-    assert!(e.lifecycle.object_alive && !e.lifecycle.in_limbo && !e.dying);
+    assert!(e.lifecycle.object_alive() && !e.lifecycle.in_limbo() && !e.death.is_dying());
     assert_eq!(
         e.navigation.nav_com, original_nav,
         "post-repair expiry was not reached"
@@ -1520,8 +1536,8 @@ fn hut_queries_pending_uninit_and_active_tube_exit_before_other_gates() {
         z: 0,
     };
     let e = sim.substrate.entities.get_mut(id).unwrap();
-    e.lifecycle.object_alive = false;
-    e.lifecycle.in_limbo = true;
+    e.lifecycle.set_object_alive_for_test(false);
+    e.lifecycle.set_in_limbo_for_test(true);
     e.locomotor.as_mut().unwrap().set_step_head(Some(head));
     assert!(
         !sim.scatter_building_infantry(
@@ -1972,7 +1988,8 @@ fn failed_jumpjet_stop_stock_fatal_receiver_precedes_cache_retirement() {
             }
         }
         let e = sim.substrate.entities.get_mut(id).unwrap();
-        e.health.current = i32::try_from(row["input"]["health"].as_i64().unwrap()).unwrap();
+        e.health
+            .set_for_test(i32::try_from(row["input"]["health"].as_i64().unwrap()).unwrap());
         *e.locomotor.as_mut().unwrap().jumpjet_runtime_mut().unwrap() = JumpjetRuntime::default()
             .with_destination_for_test(DriveCoord {
                 x: 2752,
@@ -1990,7 +2007,7 @@ fn failed_jumpjet_stop_stock_fatal_receiver_precedes_cache_retirement() {
         let e = sim.substrate.entities.get(id).unwrap();
         let state = e.locomotor.as_ref().unwrap().jumpjet_runtime().unwrap();
         assert_eq!(
-            i64::from(e.health.current),
+            i64::from(e.health.current()),
             row["output"]["health"].as_i64().unwrap()
         );
         assert_eq!(
@@ -2005,7 +2022,7 @@ fn failed_jumpjet_stop_stock_fatal_receiver_precedes_cache_retirement() {
         assert_eq!(json!(state.phase()), row["output"]["state"]["phase"]);
         if row["input"]["health"] == 100 {
             assert!(
-                e.dying || !e.is_alive(),
+                e.death.is_dying() || !e.is_alive(),
                 "fatal receiver/lifecycle completed before Stop returns"
             );
             assert_eq!(row["output"]["damage_trace"][1]["health"], 0);
@@ -2015,7 +2032,10 @@ fn failed_jumpjet_stop_stock_fatal_receiver_precedes_cache_retirement() {
                 "native HP0 precedes callback and cache clear"
             );
         } else {
-            assert!(!e.dying, "nonpositive-health Stop never dispatches damage");
+            assert!(
+                !e.death.is_dying(),
+                "nonpositive-health Stop never dispatches damage"
+            );
             assert!(row["output"]["damage_trace"].as_array().unwrap().is_empty());
         }
     }

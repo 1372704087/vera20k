@@ -117,7 +117,16 @@ fn threat(sim: &Simulation, owner: &str, cell: (i16, i16)) -> i32 {
 fn admitted_unlimbo_publishes_once_and_refusals_preserve_native_uninitialized_domain() {
     let (mut sim, rules, registry) = fixture(7);
     let id = sim
-        .construct_object_limbo_at_height("MTNK", "Americans", 13, 15, 0, 0, &rules)
+        .construct_object_limbo_at_height(
+            "MTNK",
+            "Americans",
+            13,
+            15,
+            0,
+            0,
+            &rules,
+            crate::sim::world::FrameEffects::default(),
+        )
         .unwrap();
     assert_eq!(
         sim.substrate
@@ -380,14 +389,23 @@ fn diplomacy_rebuild_preserves_native_foot_and_building_filter_asymmetry() {
 fn required_read_of_dead_unlimbo_uninitialized_contribution_faults_explicitly() {
     let (mut sim, rules, _) = fixture(7);
     let id = sim
-        .construct_object_limbo_at_height("MTNK", "Americans", 13, 15, 0, 0, &rules)
+        .construct_object_limbo_at_height(
+            "MTNK",
+            "Americans",
+            13,
+            15,
+            0,
+            0,
+            &rules,
+            crate::sim::world::FrameEffects::default(),
+        )
         .unwrap();
     sim.substrate
         .entities
         .get_mut(id)
         .unwrap()
         .lifecycle
-        .object_alive = false;
+        .set_object_alive_for_test(false);
     assert_eq!(
         sim.reveal_constructed_object_at_height(
             id,
@@ -505,7 +523,16 @@ fn snapshot_fixup_retains_map_and_initialized_contribution_without_rebuild() {
 fn retained_grid_and_initialized_zero_both_affect_simulation_hash() {
     let (mut sim, rules, _) = fixture(7);
     let id = sim
-        .construct_object_limbo_at_height("MTNK", "Americans", 13, 15, 0, 0, &rules)
+        .construct_object_limbo_at_height(
+            "MTNK",
+            "Americans",
+            13,
+            15,
+            0,
+            0,
+            &rules,
+            crate::sim::world::FrameEffects::default(),
+        )
         .unwrap();
     let initial = sim.state_hash();
     sim.substrate
@@ -536,7 +563,16 @@ fn foot_coefficient_is_copied_only_after_admitted_unlimbo() {
     use crate::util::native_x87::NativeF64Bits;
     let (mut sim, rules, _) = fixture(7);
     let id = sim
-        .construct_object_limbo_at_height("MTNK", "Americans", 13, 15, 0, 0, &rules)
+        .construct_object_limbo_at_height(
+            "MTNK",
+            "Americans",
+            13,
+            15,
+            0,
+            0,
+            &rules,
+            crate::sim::world::FrameEffects::default(),
+        )
         .unwrap();
     assert_eq!(
         sim.substrate

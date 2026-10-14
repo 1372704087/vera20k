@@ -47,7 +47,7 @@ pub(super) fn apply(
                     // see bridge_health_alias.py and the report's open residual.
                     let event = EntityDamageEvent::direct_receiver(
                         stable_id,
-                        entity.health.current,
+                        entity.health.current(),
                         0,
                         RAD_NO_ATTACKER,
                         None,
@@ -108,7 +108,16 @@ mod tests {
 
     fn place(sim: &mut Simulation, rules: &RuleSet, name: &str, x: u16) -> u64 {
         let id = sim
-            .construct_object_limbo_at_height(name, "Americans", x, 4, 0, 0, rules)
+            .construct_object_limbo_at_height(
+                name,
+                "Americans",
+                x,
+                4,
+                0,
+                0,
+                rules,
+                crate::sim::world::FrameEffects::default(),
+            )
             .unwrap();
         // Supply the fallout scene's pose after the constructor's zero Location.
         crate::sim::movement::ground_pose::put_location(
@@ -221,11 +230,18 @@ mod tests {
             1,
             "only TerrorBomb's first GI kill is credited"
         );
-        assert!(sim.substrate.entities.get(gi).unwrap().destruction_recorded);
+        assert!(
+            sim.substrate
+                .entities
+                .get(gi)
+                .unwrap()
+                .kill_record
+                .is_recorded()
+        );
         assert!(!sim.live_object_order_snapshot().contains(&gi));
         let head = sim.substrate.entities.get(terror).unwrap();
-        assert!(head.infantry_terminal.is_some());
-        assert!(head.destruction_recorded);
+        assert!(head.death.infantry_terminal().is_some());
+        assert!(head.kill_record.is_recorded());
         assert!(sim.live_object_order_snapshot().contains(&terror));
         // Drive its actual Die2 clock through terminal visits and confirm
         // UnInit does not count either fatal callback again. This test does
@@ -236,7 +252,8 @@ mod tests {
                 .entities
                 .get(terror)
                 .unwrap()
-                .infantry_terminal
+                .death
+                .infantry_terminal()
                 .is_none()
             {
                 break;
@@ -248,9 +265,9 @@ mod tests {
             );
         }
         let head = sim.substrate.entities.get(terror).unwrap();
-        assert!(head.infantry_terminal.is_none());
-        assert!(!head.lifecycle.object_alive);
-        assert!(head.destruction_recorded);
+        assert!(head.death.infantry_terminal().is_none());
+        assert!(!head.lifecycle.object_alive());
+        assert!(head.kill_record.is_recorded());
         assert!(!sim.live_object_order_snapshot().contains(&terror));
         assert_eq!(sim.houses[&owner].stats.units_lost(), 2);
         assert_eq!(sim.houses[&owner].stats.units_killed(), 1);
@@ -282,7 +299,10 @@ mod tests {
         // Two original deaths leave the heavy tank alive. The captured
         // successor's repeated DeathWeapon kills it; its unlinked NextObject
         // cannot pass it a later direct C4 receiver.
-        assert_eq!(sim.substrate.entities.get(tank).unwrap().health.current, 0);
+        assert_eq!(
+            sim.substrate.entities.get(tank).unwrap().health.current(),
+            0
+        );
     }
 
     #[test]
@@ -296,7 +316,7 @@ mod tests {
             .get_mut(building)
             .unwrap()
             .health
-            .current = 0;
+            .set_for_test(0);
         apply(
             &mut sim,
             &rules,
@@ -316,7 +336,7 @@ mod tests {
                 .get(building)
                 .unwrap()
                 .lifecycle
-                .object_alive
+                .object_alive()
         );
         assert!(sim.substrate.pending_delete.is_empty());
     }
@@ -368,8 +388,8 @@ mod tests {
         let object = sim.substrate.entities.get(gi).unwrap();
         assert_eq!(object.mission_leaf.as_infantry().unwrap().doing(), 11);
         assert_eq!(object.native_stage().value(), 0);
-        assert!(object.infantry_terminal.is_none());
-        assert!(!object.lifecycle.object_alive);
+        assert!(object.death.infantry_terminal().is_none());
+        assert!(!object.lifecycle.object_alive());
         assert!(!sim.live_object_order_snapshot().contains(&gi));
         assert_eq!(sim.substrate.pending_delete, pending);
     }
@@ -411,7 +431,7 @@ mod tests {
             crate::sim::world::FrameEffects::default(),
         );
         assert_eq!(
-            sim.substrate.entities.get(bunker).unwrap().health.current,
+            sim.substrate.entities.get(bunker).unwrap().health.current(),
             0
         );
     }
@@ -506,10 +526,16 @@ mod tests {
             4,
             crate::sim::world::FrameEffects::default(),
         );
-        assert_eq!(sim.substrate.entities.get(head).unwrap().health.current, 0);
-        assert_eq!(sim.substrate.entities.get(next).unwrap().health.current, 0);
         assert_eq!(
-            sim.substrate.entities.get(tail).unwrap().health.current,
+            sim.substrate.entities.get(head).unwrap().health.current(),
+            0
+        );
+        assert_eq!(
+            sim.substrate.entities.get(next).unwrap().health.current(),
+            0
+        );
+        assert_eq!(
+            sim.substrate.entities.get(tail).unwrap().health.current(),
             100
         );
         assert_eq!(
@@ -545,7 +571,16 @@ mod tests {
             Some(crate::map::resolved_terrain::ResolvedTerrainGrid::from_cells(8, 8, cells));
         let mut create = |name, x, marked| {
             let id = sim
-                .construct_object_limbo_at_height(name, "Americans", x, 4, 0, 0, &rules)
+                .construct_object_limbo_at_height(
+                    name,
+                    "Americans",
+                    x,
+                    4,
+                    0,
+                    0,
+                    &rules,
+                    crate::sim::world::FrameEffects::default(),
+                )
                 .unwrap();
             // The unmarked contrast has this same pose without Cell membership.
             crate::sim::movement::ground_pose::put_location(
@@ -583,12 +618,20 @@ mod tests {
         );
         for id in [older, newer, building] {
             assert_eq!(
-                sim.substrate.entities.get(id).unwrap().health.current,
+                sim.substrate.entities.get(id).unwrap().health.current(),
                 0,
                 "receiver {id}"
             );
         }
-        assert!(sim.substrate.entities.get(unmarked).unwrap().health.current > 0);
+        assert!(
+            sim.substrate
+                .entities
+                .get(unmarked)
+                .unwrap()
+                .health
+                .current()
+                > 0
+        );
         let order: Vec<_> = sim
             .lifecycle_test_events_for_test()
             .iter()

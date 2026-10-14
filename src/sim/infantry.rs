@@ -74,7 +74,9 @@ pub fn apply_fear_from_damage(
     condition_red_ratio: f64,
     condition_yellow_ratio: f64,
 ) {
-    if damage_landed == 0 || entity.health.current == 0 || is_fear_application_blocked(obj, entity)
+    if damage_landed == 0
+        || entity.health.current() == 0
+        || is_fear_application_blocked(obj, entity)
     {
         return;
     }
@@ -143,7 +145,7 @@ impl crate::sim::world::Simulation {
         let Some(actor) = self.substrate.entities.get(id) else {
             return Ok(false);
         };
-        if actor.category != crate::map::entities::EntityCategory::Infantry {
+        if actor.category() != crate::map::entities::EntityCategory::Infantry {
             return Ok(false);
         }
         let infantry = actor
@@ -444,7 +446,7 @@ impl crate::sim::world::Simulation {
         // Guard/Hunt/AreaGuard dispatch the class virtual. Non-Infantry
         // receivers inherit the false stub; they never resolve an Infantry
         // type or touch its idle timer (Unit vtable+0x478 is 0x0041C040).
-        if actor.category != crate::map::entities::EntityCategory::Infantry {
+        if actor.category() != crate::map::entities::EntityCategory::Infantry {
             return Ok(false);
         }
         let object = self
@@ -503,7 +505,7 @@ pub(crate) fn tick_idle_actions(
         let Some(entity) = entities.get_mut(id) else {
             continue;
         };
-        if (entity.lifecycle.in_limbo && !entity.passenger_role.in_open_transport())
+        if (entity.lifecycle.in_limbo() && !entity.passenger_role.in_open_transport())
             || !entity.is_active()
             || entity.ai_frozen()
         {
@@ -556,7 +558,7 @@ mod tests {
     use crate::rules::ini_parser::IniFile;
     use crate::rules::object_type::ObjectCategory;
     use crate::rules::ruleset::RuleSet;
-    use crate::sim::components::Health;
+    use crate::sim::combat::Health;
     use crate::sim::game_entity::{GameEntity, InfantryRuntime};
     use crate::sim::intern::test_intern;
 
@@ -585,7 +587,7 @@ mod tests {
             0,
             0,
             test_intern("Test"),
-            Health { current: hp },
+            Health::new(hp),
             test_intern("E1"),
             EntityCategory::Infantry,
             0,
@@ -596,7 +598,7 @@ mod tests {
         // Supply the standing post-Unlimbo boundary this leaf fixture skips:
         // Techno 0x006F6E2A..0x006F6E4F enters idle and commences Guard.
         // The constructor itself correctly leaves the committed selector at NONE.
-        e.lifecycle.in_limbo = false;
+        e.lifecycle.set_in_limbo_for_test(false);
         e.mission.apply_test_fixture(MissionTestFixture {
             current: MissionId::from_known(MissionType::Guard),
             suspended: MissionId::NONE,
@@ -775,14 +777,14 @@ mod tests {
             0,
             0,
             owner,
-            Health { current: 100 },
+            Health::new(100),
             sim.interner.intern("E1"),
             EntityCategory::Infantry,
             0,
             5,
             false,
         );
-        actor.lifecycle.in_limbo = false;
+        actor.lifecycle.set_in_limbo_for_test(false);
         actor.set_falling_down_for_test(input["object_is_falling_down"].as_bool().unwrap_or(false));
         actor
             .mission_leaf
@@ -1099,7 +1101,7 @@ mod tests {
     /// Native stack auxiliary words and unobserved FC/increment are excluded.
     #[test]
     fn native_e1_idle_receiver_matches_timer_action_facing_and_full_rng() {
-        use crate::sim::combat::AttackTarget;
+        use crate::sim::combat::TargetKind;
         use crate::sim::components::{DriveCoord, NavTargetRef};
         use crate::sim::mission::MissionTimer;
         use crate::sim::movement::locomotor::LocomotorState;
@@ -1154,14 +1156,14 @@ mod tests {
                 4,
                 0,
                 owner,
-                Health { current: 100 },
+                Health::new(100),
                 sim.interner.intern("E1"),
                 EntityCategory::Infantry,
                 0,
                 0,
                 false,
             );
-            actor.lifecycle.in_limbo = false;
+            actor.lifecycle.set_in_limbo_for_test(false);
             actor.position.sub_x = SimFixed::from_num(signed(&before["position"][0]) % 256);
             actor.position.sub_y = SimFixed::from_num(signed(&before["position"][1]) % 256);
             actor.position.exact_z_leptons = Some(signed(&before["position"][2]));
@@ -1205,12 +1207,14 @@ mod tests {
                 .body_facing
                 .snap(signed(&before["primary_facing_words"][0]) as u16, 1);
             if before["target"] != "0x0" {
-                actor.attack_target = Some(AttackTarget::new(2));
+                actor
+                    .attack_target
+                    .set_for_test(Some(TargetKind::Entity(2)));
             }
             if before["nav"] != "0x0" {
                 actor.navigation.nav_com = Some(NavTargetRef::cell(12, 10));
             }
-            let target_before = actor.attack_target.as_ref().map(|target| target.target);
+            let target_before = actor.attack_target.target();
             let nav_before = actor.navigation.nav_com;
             sim.substrate.entities.insert(actor);
             let (admitted, draws) = trace_draws(|| {
@@ -1258,7 +1262,7 @@ mod tests {
                 "{name} facing"
             );
             assert_eq!(
-                actor.attack_target.as_ref().map(|target| target.target),
+                actor.attack_target.target(),
                 target_before,
                 "{name} target untouched"
             );

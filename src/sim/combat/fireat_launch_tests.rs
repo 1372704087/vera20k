@@ -124,8 +124,7 @@ fn assert_read_only_native_aim(duel: &Duel, source_id: u64, row: &serde_json::Va
         .get(source_id)
         .unwrap()
         .attack_target
-        .as_ref()
-        .map(|target| target.target);
+        .target();
     let actual = super::aim_coord::led_target_coordinate(&duel.sim, &duel.rules, source_id, tarcom);
     assert_eq!(actual, attack_aim_coord(&row["aim"]), "{}", row["name"]);
     assert_eq!(duel.sim.state_hash(), hash, "{}: query state", row["name"]);
@@ -348,7 +347,8 @@ fn target_uninit_clears_tarcom_before_aim_query_and_physical_removal() {
             .entities
             .get(source)
             .unwrap()
-            .passive_scan_timer;
+            .passive_scan
+            .timer();
         // MissionTimer owns the native +180 start/+188 duration. The
         // intervening +184 DWORD is not a represented cadence input.
         assert_eq!(u64::from(timer.start_frame), native[0].as_u64().unwrap());
@@ -361,7 +361,8 @@ fn target_uninit_clears_tarcom_before_aim_query_and_physical_removal() {
         .entities
         .get_mut(source)
         .unwrap()
-        .passive_scan_timer
+        .passive_scan
+        .timer_mut_for_test()
         .arm(
             before_timer[0].as_u64().unwrap() as u32,
             before_timer[2].as_u64().unwrap() as u32,
@@ -408,6 +409,7 @@ fn target_uninit_clears_tarcom_before_aim_query_and_physical_removal() {
             .get(source)
             .unwrap()
             .attack_target
+            .target()
             .is_none(),
         "PointerExpired clears the live reference first"
     );
@@ -483,7 +485,7 @@ fn grand_cannon_recoil_follows_successful_launch_ai_and_snapshot() {
         fog: None,
         firer: actor,
         obj: duel.rules.object("GTGCAN").unwrap(),
-        target: actor.attack_target.as_ref().map(|a| a.target),
+        target: actor.attack_target.target(),
         weapon_index: 0,
     }
     .fire_error(true);
@@ -492,7 +494,7 @@ fn grand_cannon_recoil_follows_successful_launch_ai_and_snapshot() {
         "retail cannon launch: error={fire_error:?}, mission={:?}, target={:?}, last_fire={}, actually_placed={}, body={:?}, facing={:?}",
         actor.mission,
         actor.attack_target,
-        actor.last_fire_frame,
+        actor.last_fire_frame.frame(),
         actor.building_art.actually_placed(),
         actor.building_body_state(),
         actor.body_facing
@@ -659,7 +661,7 @@ impl Duel {
             .substrate
             .entities
             .get(id)
-            .map_or(0, |entity| entity.health.current)
+            .map_or(0, |entity| entity.health.current())
     }
 
     fn location(&self, id: u64) -> ProjectileCoord {
@@ -681,13 +683,13 @@ impl Duel {
         format!(
             "{id}: location={:?}, health={}, mission={:?}, target={:?}, nav={:?}, moving={:?}, fraction={:?}, last_fire={}",
             self.location(id),
-            actor.health.current,
+            actor.health.current(),
             actor.mission,
             actor.attack_target,
             actor.navigation.nav_com,
             crate::sim::movement::motion_query::is_moving(actor),
             actor.foot_speed.applied_fraction(),
-            actor.last_fire_frame,
+            actor.last_fire_frame.frame(),
         )
     }
 

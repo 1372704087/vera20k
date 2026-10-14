@@ -281,7 +281,7 @@ fn receive_damage_scatter_admitted(
     interner: &StringInterner,
 ) -> Result<bool, String> {
     if !matches!(
-        entity.category,
+        entity.category(),
         EntityCategory::Infantry | EntityCategory::Unit | EntityCategory::Aircraft
     ) {
         return Ok(false);
@@ -289,17 +289,17 @@ fn receive_damage_scatter_admitted(
     let refused = retaliation == DamageRetaliation::Refused;
     if refused
         && (!mission_permits_scatter(entity, rules)
-            || entity.dock_entered_with.is_some()
+            || entity.tether.partner().is_some()
             || super::motion_query::is_moving(entity)
                 .ok_or("damage Scatter requires an active locomotor Is_Moving")?)
     {
         return Ok(false);
     }
-    if entity.attack_target.is_some() || entity.navigation.nav_com.is_some() {
+    if entity.attack_target.target().is_some() || entity.navigation.nav_com.is_some() {
         return Ok(false);
     }
     if refused {
-        if entity.category == EntityCategory::Aircraft {
+        if entity.category() == EntityCategory::Aircraft {
             return Ok(false);
         }
         if !human {
@@ -381,7 +381,7 @@ impl Simulation {
             return Ok(false);
         };
         let source = source.filter(|coord| *coord != super::foot_coordinate::NULL_COORD);
-        match (entity.category, source) {
+        match (entity.category(), source) {
             (EntityCategory::Unit, None) => {
                 self.unit_scatter_null(id, flags, rules, frame_effects);
                 Ok(false)
@@ -486,11 +486,11 @@ impl Simulation {
             || crate::sim::mission::control::current_control(rules, &unit.mission)
                 .is_some_and(|entry| entry.paralyzed)
             || unit.miner.as_ref().is_some_and(|miner| miner.unload_active)
-            || (unit.navigation.nav_com.is_some() && unit.turret_rotation_latch)
+            || (unit.navigation.nav_com.is_some() && unit.turret_rotation_latch.is_set())
         {
             return Ok(());
         }
-        if crate::sim::combat::target_present(unit.attack_target.as_ref(), &self.substrate.entities)
+        if crate::sim::combat::target_present(unit.attack_target.target(), &self.substrate.entities)
             && !flags.forced
             && self.scenario_rng.next_range_u32_inclusive(1, 4) != 1
         {

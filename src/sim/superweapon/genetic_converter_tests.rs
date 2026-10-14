@@ -48,7 +48,7 @@ Verses=100%,100%,100%,0%,0%,0%,0%,0%,0%,0%,0%\n";
 /// [`RULES`] with `extra` merged over it, and RING1 and GENDEATH (retail's
 /// `MakeInfantry=0`) bound.
 fn rules(extra: &str) -> RuleSet {
-    let mut ini = IniFile::from_str(RULES);
+    let mut ini = crate::sim::arena_fixture::clear_ground_ini(RULES);
     ini.merge(&IniFile::from_str(extra));
     let mut rules = RuleSet::from_ini(&ini).expect("genetic mutator fixture rules");
     let mut art = crate::rules::art_data::ArtRegistry::from_ini(&IniFile::from_str(
@@ -347,7 +347,7 @@ fn a_walk_damages_only_the_infantry_of_the_block() {
     assert_eq!(damaged, vec![infantry]);
     for id in [tank, building] {
         let object = sim.substrate.entities.get(id).unwrap();
-        assert!(!object.dying && object.health.current > 0);
+        assert!(!object.death.is_dying() && object.health.current() > 0);
     }
 }
 
@@ -389,7 +389,16 @@ fn the_mutation_arm_matches_native() {
             terrain.cells[index].speed_costs.foot = Some((foot * 100.0) as u8);
         }
         let victim = sim
-            .construct_object_limbo_at_height("E1", "Americans", cell.0, cell.1, 0, level, &rules)
+            .construct_object_limbo_at_height(
+                "E1",
+                "Americans",
+                cell.0,
+                cell.1,
+                0,
+                level,
+                &rules,
+                crate::sim::world::FrameEffects::default(),
+            )
             .unwrap();
         {
             let entity = sim.substrate.entities.get_mut(victim).unwrap();
@@ -465,7 +474,7 @@ fn the_mutation_arm_matches_native() {
         let entity = sim.substrate.entities.get(victim);
         if row["mutated"] == true {
             assert!(
-                entity.is_none_or(|entity| !entity.lifecycle.object_alive),
+                entity.is_none_or(|entity| !entity.lifecycle.object_alive()),
                 "{row}"
             );
             let [anim] = mutants[..] else {
@@ -484,9 +493,9 @@ fn the_mutation_arm_matches_native() {
         } else {
             assert_eq!(row["action"], serde_json::json!([12, 1, 0]));
             let entity = entity.expect("the dying infantryman stays");
-            assert!(entity.lifecycle.object_alive, "{row}");
+            assert!(entity.lifecycle.object_alive(), "{row}");
             assert_eq!(
-                entity.infantry_terminal,
+                entity.death.infantry_terminal(),
                 Some(InfantryTerminal::Sequence(InfantryDeathSequence::Die2)),
                 "{row}"
             );
@@ -652,7 +661,7 @@ fn the_make_infantry_end_matches_native() {
             );
             assert_eq!(infantry.owner(), houses[int(&create[2]) as usize], "{row}");
             if ends {
-                assert!(!infantry.lifecycle.in_limbo, "{row}");
+                assert!(!infantry.lifecycle.in_limbo(), "{row}");
                 let lifted = events(row, "mark").count() == 2;
                 assert_eq!(infantry.on_bridge, lifted, "{row}");
                 let hunt = events(row, "queue").next().is_some();
@@ -663,7 +672,7 @@ fn the_make_infantry_end_matches_native() {
                 );
             } else {
                 // The refused object stays in limbo, as natively.
-                assert!(infantry.lifecycle.in_limbo, "{row}");
+                assert!(infantry.lifecycle.in_limbo(), "{row}");
             }
         }
         let owner = row["anim_owner"].as_u64().map(|n| houses[n as usize]);
@@ -698,9 +707,9 @@ fn a_dog_dies_with_die1_instead_of_mutating() {
         crate::sim::world::FrameEffects::default()
     ));
     let dog = sim.substrate.entities.get(dog).unwrap();
-    assert!(dog.dying && dog.lifecycle.object_alive);
+    assert!(dog.death.is_dying() && dog.lifecycle.object_alive());
     assert_eq!(
-        dog.infantry_terminal,
+        dog.death.infantry_terminal(),
         Some(InfantryTerminal::Sequence(InfantryDeathSequence::Die1))
     );
     assert!(anims_of(&sim, "GENDEATH").is_empty());
@@ -728,7 +737,7 @@ fn brutes(sim: &Simulation) -> Vec<(u64, InternedId, (u16, u16))> {
         .entities
         .values()
         .filter(|entity| {
-            sim.interner.resolve(entity.type_ref()) == "BRUTE" && !entity.lifecycle.in_limbo
+            sim.interner.resolve(entity.type_ref()) == "BRUTE" && !entity.lifecycle.in_limbo()
         })
         .map(|entity| {
             (
@@ -787,7 +796,7 @@ fn retail_mutator_turns_conscripts_into_the_players_brutes() {
             sim.substrate
                 .entities
                 .get(id)
-                .is_none_or(|entity| !entity.lifecycle.object_alive)
+                .is_none_or(|entity| !entity.lifecycle.object_alive())
         );
     }
     let mutants = anims_of(&sim, "GENDEATH");
@@ -799,7 +808,7 @@ fn retail_mutator_turns_conscripts_into_the_players_brutes() {
     );
     let dog = sim.substrate.entities.get(dog).unwrap();
     assert_eq!(
-        dog.infantry_terminal,
+        dog.death.infantry_terminal(),
         Some(InfantryTerminal::Sequence(InfantryDeathSequence::Die1))
     );
 
@@ -898,13 +907,13 @@ fn an_infantryman_above_the_ground_is_not_mutated() {
     ));
 
     let entity = sim.substrate.entities.get(raised).unwrap();
-    assert!(entity.lifecycle.object_alive && !entity.dying);
-    assert_eq!(entity.health.current, 125);
+    assert!(entity.lifecycle.object_alive() && !entity.death.is_dying());
+    assert_eq!(entity.health.current(), 125);
     assert!(
         sim.substrate
             .entities
             .get(grounded)
-            .is_none_or(|entity| !entity.lifecycle.object_alive)
+            .is_none_or(|entity| !entity.lifecycle.object_alive())
     );
     assert_eq!(anims_of(&sim, "GENDEATH").len(), 1);
 }
@@ -999,14 +1008,14 @@ fn a_fourth_infantryman_at_a_full_cells_centre_mutates() {
         .substrate
         .entities
         .get(fourth)
-        .and_then(|entity| entity.infantry_terminal);
+        .and_then(|entity| entity.death.infantry_terminal());
     assert_eq!(anims_of(&sim, "GENDEATH").len(), 4, "fourth: {terminal:?}");
     for &id in three.iter().chain([&fourth]) {
         assert!(
             sim.substrate
                 .entities
                 .get(id)
-                .is_none_or(|entity| !entity.lifecycle.object_alive),
+                .is_none_or(|entity| !entity.lifecycle.object_alive()),
             "{id} mutated and is gone"
         );
     }

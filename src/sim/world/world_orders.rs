@@ -112,7 +112,7 @@ impl Simulation {
     ) -> Option<UnitRepairAction> {
         let actor = self.substrate.entities.get(actor_id)?;
         let actor_type = self.object_type(actor.type_ref(), rules)?;
-        if actor.category != EntityCategory::Unit
+        if actor.category() != EntityCategory::Unit
             || actor.owner() != issuing_house
             || !self.house_is_human_player(actor.owner())
             || combat::combat_weapon::weapon_damage_value(
@@ -137,7 +137,7 @@ impl Simulation {
         // Target vt+80: Unit746400, Building457620 ->465D40, and
         // Aircraft41B910 -> Object's grounded predicate. Every GameEntity is
         // a Techno (vt+7C); Infantry's vt+80 answers false.
-        let vehicle = match target.category {
+        let vehicle = match target.category() {
             EntityCategory::Unit => !target_type.non_vehicle,
             EntityCategory::Structure => target_type.is_1x1_with_undeploy(),
             EntityCategory::Aircraft => {
@@ -160,10 +160,10 @@ impl Simulation {
         };
         if !vehicle || target_id == actor_id {
             //73FE2F..73FE43 preserves the base action for a Building.
-            return (target.category != EntityCategory::Structure)
+            return (target.category() != EntityCategory::Structure)
                 .then_some(UnitRepairAction::Select);
         }
-        if target.category == EntityCategory::Aircraft {
+        if target.category() == EntityCategory::Aircraft {
             //73FDE1..73FE06: a grounded aircraft on a building is excluded.
             let coord = crate::sim::movement::ground_pose::position_world_coord(&target.position);
             let cell = self.resolved_terrain.as_ref().and_then(|terrain| {
@@ -222,7 +222,7 @@ impl Simulation {
         let Some(object) = self.object_type(actor.type_ref(), rules) else {
             return false;
         };
-        if actor.category == EntityCategory::Structure {
+        if actor.category() == EntityCategory::Structure {
             // Steam gamemd 3e81a617: Building44F5C0, complete original control
             // vectors in procedural_drawing_oracle/factory_destination.py --control.
             // EMP+504 still has no runtime producer; this is its ctor-zero subset.
@@ -245,11 +245,11 @@ impl Simulation {
             return false;
         }
         if object.spawned
-            || actor.is_paralyzed(self.session.binary_frame)
+            || actor.parasite.is_paralyzed(self.session.binary_frame)
             || actor.is_warped_out()
             || actor.is_warping_in()
             || actor.slave.owner().is_some()
-            || actor.deactivated
+            || actor.deactivated.is_offline()
         {
             return false;
         }
@@ -273,7 +273,7 @@ impl Simulation {
         let Some(actor) = self.substrate.entities.get(id) else {
             return false;
         };
-        !actor.deactivated
+        !actor.deactivated.is_offline()
             && self.house_is_human_player(actor.owner())
             && self
                 .object_type(actor.type_ref(), rules)
@@ -292,14 +292,14 @@ impl Simulation {
         rules: &RuleSet,
     ) -> Option<EngineerBuildingAction> {
         let actor = self.substrate.entities.get(actor_id)?;
-        if actor.category != EntityCategory::Infantry
+        if actor.category() != EntityCategory::Infantry
             || !self.object_type(actor.type_ref(), rules)?.engineer
             || !self.house_is_human_player(actor.owner())
         {
             return None;
         }
         let target = self.substrate.entities.get(target_id)?;
-        if target.category != EntityCategory::Structure {
+        if target.category() != EntityCategory::Structure {
             return None;
         }
         let object = self.object_type(target.type_ref(), rules)?;
@@ -397,8 +397,8 @@ impl Simulation {
         ) else {
             return false;
         };
-        if actor.category != EntityCategory::Infantry
-            || target.category != EntityCategory::Structure
+        if actor.category() != EntityCategory::Infantry
+            || target.category() != EntityCategory::Structure
             || !self.house_is_human_player(actor.owner())
         {
             return false;
@@ -436,9 +436,9 @@ impl Simulation {
         };
         let actor = self.substrate.entities.get(actor_id)?;
         let building = self.substrate.entities.get(building_id)?;
-        if actor.category != EntityCategory::Infantry
+        if actor.category() != EntityCategory::Infantry
             || actor.navigation.nav_com.is_some()
-            || building.category != EntityCategory::Structure
+            || building.category() != EntityCategory::Structure
         {
             return None;
         }
@@ -568,7 +568,7 @@ impl Simulation {
         //has no UndeploysInto. One-cell building conversion remains a separate mechanism; ordinary
         //Engineer entry below shares this admitted ground-building identity.
         if let Some(target) = nav_object.and_then(|id| self.substrate.entities.get(id))
-            && target.category == EntityCategory::Structure
+            && target.category() == EntityCategory::Structure
             && self
                 .object_type(target.type_ref(), rules)
                 .is_some_and(|object| object.is_1x1_with_undeploy())
@@ -584,8 +584,8 @@ impl Simulation {
             return InfantryPerCellBuildingAdmission::NoMatchingGroundBuilding;
         };
         if nav_object == Some(building_id)
-            || infantry.attack_target.as_ref().is_some_and(|attack| {
-                matches!(attack.target, crate::sim::combat::TargetKind::Entity(id) if id == building_id)
+            || infantry.attack_target.target().is_some_and(|attack| {
+                matches!(attack, crate::sim::combat::TargetKind::Entity(id) if id == building_id)
             })
         {
             InfantryPerCellBuildingAdmission::GroundBuilding(building_id)
@@ -608,7 +608,7 @@ impl Simulation {
         let Some(engineer) = self.substrate.entities.get(engineer_id) else {
             return Ok(BuildingEntryResult::default());
         };
-        if engineer.category != EntityCategory::Infantry {
+        if engineer.category() != EntityCategory::Infantry {
             return Ok(BuildingEntryResult::default());
         }
         let InfantryPerCellBuildingAdmission::GroundBuilding(building_id) =
@@ -616,9 +616,14 @@ impl Simulation {
         else {
             return Ok(BuildingEntryResult::default());
         };
-        //519B3E's optional hut Tag event1 precedes this type gate. The live
-        //Tag receiver remains a separate required chain; ordinary Hills has
-        //no attached hut/Engineer Tag.519B58 tests Engineer before hut type.
+        //519B3E..519B53 raises the BUILDING attachment with this Infantry
+        //as actor, before the Engineer type gate. Synchronous actions may
+        //change either object; reload the Infantry after returning.
+        let context = super::UninitContext::new(Some(rules), registry).with_effects(frame_effects);
+        self.dispatch_object_tag_event(building_id, 1, Some(engineer_id), None, context);
+        let Some(engineer) = self.substrate.entities.get(engineer_id) else {
+            return Ok(BuildingEntryResult::default());
+        };
         let Some(infantry_type) = self.object_type(engineer.type_ref(), rules) else {
             return Ok(BuildingEntryResult::default());
         };
@@ -653,7 +658,7 @@ impl Simulation {
                         .houses
                         .get(&building.owner())
                         .is_some_and(|house| house.multiplay_passive));
-            let full = building.health.current == object.strength;
+            let full = building.health.current() == object.strength;
             let refused_capture = building.mission.current().known() == Some(MissionType::Selling)
                 || building.is_warped_out();
             let capturable = object.capturable;
@@ -685,11 +690,20 @@ impl Simulation {
                 //519DA1's MultiEngineer damage/C4Warhead branch remains a
                 //separate required numeric/damage chain; stock ordinary single
                 //Engineer admission (session option false) reaches this arm.
-                //Attached Building/Engineer Tag events and transfer likewise
-                //remain the trigger mechanism's synchronous residual.
-                if let Some(old_house) = self.houses.get_mut(&building.owner()) {
-                    old_house.notify_building_capture(); //519F4F, Trigger event3 latch
+                //519F44 re-reads the Building Tag and raises Entered again;
+                //do not deduplicate the earlier519B53 call.519F4F then reads
+                //the current owner, followed by optional519F6C Tag transfer.
+                self.dispatch_object_tag_event(building_id, 1, Some(engineer_id), None, context);
+                if let Some(old_owner) = self
+                    .substrate
+                    .entities
+                    .get(building_id)
+                    .map(|building| building.owner())
+                    && let Some(old_house) = self.houses.get_mut(&old_owner)
+                {
+                    old_house.notify_building_capture();
                 }
+                self.transfer_engineer_tag_to_building(engineer_id, building_id);
                 self.announce_engineer_capture(building_id, owner, rules);
                 self.change_owner_with_rules(building_id, owner, rules, registry, frame_effects);
                 if let Some(building) = self.substrate.entities.get_mut(building_id) {
@@ -700,6 +714,7 @@ impl Simulation {
             }
             //519EAACapturable=false consumes too.519FF0 repair and519F9A
             //capture join Tag event48 then virtualUnInit, with no Foot tail.
+            self.dispatch_object_tag_event(engineer_id, 48, Some(engineer_id), None, context);
             self.uninit_with_context(
                 engineer_id,
                 super::UninitContext::new(Some(rules), registry).with_effects(frame_effects),
@@ -732,7 +747,8 @@ impl Simulation {
         //Clearing NavCom does not stop a retained Walk head/destination.
         self.expire_infantry_bridge_hut_targets(building_id, rules, registry, frame_effects);
         changed |= self.scatter_building_infantry(building_id, rules, registry, frame_effects)?;
-        // Attached Tag6E53A0 remains a separate synchronous receiver boundary.
+        //51A025 consumption raises own Tag48 before virtual UnInit.
+        self.dispatch_object_tag_event(engineer_id, 48, Some(engineer_id), None, context);
         self.uninit_with_context(
             engineer_id,
             super::UninitContext::new(Some(rules), registry).with_effects(frame_effects),
@@ -754,14 +770,8 @@ impl Simulation {
     /// destination (vt+0x480(NULL, 1)) and scatters from the building's
     /// GetCoords (vt+0x174(coord, 1, 1); `0x0051A03E..0x0051A061`).
     ///
-    /// RESIDUAL: no Tag event is raised (`TagClass::Raise_Event`,
-    /// `0x006E53A0`). The receiver gives the building's Tag event 1 ("entered
-    /// by", `0x00519B3E..0x00519B53`) before its Engineer test, and an
-    /// `Agent=` spy's own Tag event 0x30 after the infiltration
-    /// (`0x0051A010..0x0051A025`); the live Tag dispatcher
-    /// (`sim::trigger_runtime`) has no producer in Per_Cell_Process. Trigger:
-    /// a map Tag on the building or on the spy. Effect: its trigger does not
-    /// spring. A building or spy a house builds has no Tag.
+    /// The common caller raises the Building's Entered1 before this gate.
+    /// Consumption raises the spy's own48 synchronously before UnInit.
     fn infantry_per_cell_infiltrator_entry(
         &mut self,
         infantry_id: u64,
@@ -784,6 +794,13 @@ impl Simulation {
             {
                 self.infiltrate_building(building_id, owner, rules);
             }
+            self.dispatch_object_tag_event(
+                infantry_id,
+                48,
+                Some(infantry_id),
+                None,
+                super::UninitContext::new(Some(rules), registry).with_effects(frame_effects),
+            );
             self.uninit_with_context(
                 infantry_id,
                 super::UninitContext::new(Some(rules), registry).with_effects(frame_effects),
@@ -878,7 +895,7 @@ impl Simulation {
                 let object = rules.object(self.interner.resolve(building.type_ref()))?;
                 Some((
                     pending,
-                    building.health.current,
+                    building.health.current(),
                     object.bridge_repair_hut,
                     (building.position.rx, building.position.ry),
                 ))

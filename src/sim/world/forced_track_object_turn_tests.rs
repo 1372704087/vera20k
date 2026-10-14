@@ -36,14 +36,14 @@ fn fixture(selector: i32) -> Simulation {
     let y = head.y + i32::from(dy);
     let mut entity =
         GameEntity::test_default(1, "MTNK", "Americans", (x / 256) as u16, (y / 256) as u16);
-    entity.owner = sim.intern("Americans");
-    entity.type_ref = sim.intern("MTNK");
+    entity.set_owner_for_test(sim.intern("Americans"));
+    entity.set_type_ref_for_test(sim.intern("MTNK"));
     entity.position.sub_x = SimFixed::from_num(x % 256);
     entity.position.sub_y = SimFixed::from_num(y % 256);
     entity.position.exact_z_leptons = Some(0);
     entity.body_facing.snap(u16::from(facing) << 8, 0);
-    entity.drive_accelerates = false;
-    entity.is_voxel = false;
+    entity.mover_facts.set_drive_accelerates_for_test(false);
+    entity.set_is_voxel_for_test(false);
     entity.locomotor = Some(LocomotorState::for_test_kind(LocomotorKind::Drive));
     assert!(
         entity
@@ -242,7 +242,7 @@ fn forced_object_turn_queries_live_speed_and_advances_shp_once() {
         .unwrap()
         .track()
         .cursor;
-    let before_body = entity.body_frame_counter;
+    let before_body = entity.body_frame_counter.get();
     let outcome = tick(&mut sim, &rules(6), 1);
     let entity = sim.substrate.entities.get(1).unwrap();
     assert!(
@@ -257,5 +257,5 @@ fn forced_object_turn_queries_live_speed_and_advances_shp_once() {
             > before + 1
     );
     assert!(outcome.moved_steps > 1);
-    assert_eq!(entity.body_frame_counter, before_body + 1);
+    assert_eq!(entity.body_frame_counter.get(), before_body + 1);
 }

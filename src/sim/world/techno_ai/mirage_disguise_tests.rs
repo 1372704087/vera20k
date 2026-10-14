@@ -16,7 +16,7 @@ fn mirage(destination: Option<DriveCoord>) -> (Simulation, RuleSet) {
     let mut sim = Simulation::new();
     sim.resolved_terrain = Some(crate::map::resolved_terrain::test_flat_ground_grid(16));
     let mut entity = GameEntity::test_default(1, "MGTK", "Americans", 5, 5);
-    entity.category = EntityCategory::Unit;
+    entity.set_category_for_test(EntityCategory::Unit);
     entity.locomotor = Some(LocomotorState::for_test_kind(LocomotorKind::Drive));
     assert!(
         entity
@@ -127,7 +127,7 @@ fn whole_unit_fixture(
     use super::mission_handlers::foot_mission_oracle_tests::{
         SuppliedFootFixture, install_recorded_cell_coordinates, oracle, signed, xyz,
     };
-    use crate::sim::components::Health;
+    use crate::sim::combat::Health;
     use crate::sim::game_entity::InfantryRuntime;
     use crate::sim::mission::state::MissionTestFixture;
     use crate::sim::mission::{MissionDispatchTimer, MissionId, MissionTimer};
@@ -182,7 +182,7 @@ fn whole_unit_fixture(
             json!([position.x, position.y, position.z]),
             actors[role]["xyz"]
         );
-        assert_eq!(json!(entity.health.current), actors[role]["health"]);
+        assert_eq!(json!(entity.health.current()), actors[role]["health"]);
         if actors[role]["limbo"] != 0 {
             assert_eq!(
                 role, "candidate",
@@ -242,9 +242,7 @@ fn whole_unit_fixture(
                 0
             },
             owner,
-            Health {
-                current: signed(&before["health"]),
-            },
+            Health::new(signed(&before["health"])),
             type_ref,
             category,
             0,
@@ -255,8 +253,10 @@ fn whole_unit_fixture(
         entity.position.sub_x = SimFixed::from_num(x % 256);
         entity.position.sub_y = SimFixed::from_num(y % 256);
         entity.position.exact_z_leptons = Some(z);
-        entity.lifecycle.in_limbo = before["limbo"] != 0;
-        entity.lifecycle.object_alive = before["alive"] != 0;
+        entity.lifecycle.set_in_limbo_for_test(before["limbo"] != 0);
+        entity
+            .lifecycle
+            .set_object_alive_for_test(before["alive"] != 0);
         entity.lifecycle.cell_marked = before["limbo"] == 0;
         entity.in_playfield = before["limbo"] == 0;
         entity.locomotor = Some(LocomotorState::from_object_type(object, frame));
@@ -277,10 +277,12 @@ fn whole_unit_fixture(
                     signed(&foot["dispatch"][1]),
                 ),
             });
-            entity.passive_scan_timer = MissionTimer::armed(
-                signed(&foot["targeting_timer"][0]) as u32,
-                signed(&foot["targeting_timer"][2]) as u32,
-            );
+            entity
+                .passive_scan
+                .set_passive_scan_timer_for_test(MissionTimer::armed(
+                    signed(&foot["targeting_timer"][0]) as u32,
+                    signed(&foot["targeting_timer"][2]) as u32,
+                ));
             entity.on_bridge = foot["on_bridge"] != 0;
             entity.body_facing.snap(
                 signed(&foot["body_facing_words"][0]) as u16,
@@ -345,17 +347,17 @@ fn whole_unit_fixture(
         let id = pointers[roles[role].as_str().unwrap()];
         let entity = fixture.sim.substrate.entities.get(id).unwrap();
         assert_eq!(
-            entity.lifecycle.object_alive,
+            entity.lifecycle.object_alive(),
             before["alive"] != 0,
             "{role}: alive"
         );
         assert_eq!(
-            entity.lifecycle.in_limbo,
+            entity.lifecycle.in_limbo(),
             before["limbo"] != 0,
             "{role}: Limbo"
         );
         assert_eq!(
-            entity.in_logic_vector,
+            entity.in_logic_vector.is_member(),
             before["logic_registered"] != 0,
             "{role}: Logic registration"
         );
@@ -401,17 +403,17 @@ fn assert_whole_unit_state(
     );
     let actor = fixture.sim.substrate.entities.get(fixture.actor).unwrap();
     assert_eq!(
-        json!(actor.health.current),
+        json!(actor.health.current()),
         row[boundary]["health"],
         "{name}: HP"
     );
     assert_eq!(
-        actor.lifecycle.object_alive,
+        actor.lifecycle.object_alive(),
         row[boundary]["alive"] != 0,
         "{name}: alive"
     );
     assert_eq!(
-        actor.lifecycle.in_limbo,
+        actor.lifecycle.in_limbo(),
         row[boundary]["limbo"] != 0,
         "{name}: Limbo"
     );

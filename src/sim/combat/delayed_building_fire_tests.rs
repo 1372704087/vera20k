@@ -94,7 +94,7 @@ fn gsi_05_10_tesla_arms_without_emission_and_fires_on_visit_28() {
     let first = combat_visit(&mut sim, &rules, &mut main_rng, 1);
     assert!(first.consequences.fire_events().is_empty());
     assert_eq!(
-        sim.substrate.entities.get(target).unwrap().health.current,
+        sim.substrate.entities.get(target).unwrap().health.current(),
         100
     );
     assert_eq!(
@@ -117,7 +117,7 @@ fn gsi_05_10_tesla_arms_without_emission_and_fires_on_visit_28() {
         );
     }
     assert_eq!(
-        sim.substrate.entities.get(target).unwrap().health.current,
+        sim.substrate.entities.get(target).unwrap().health.current(),
         100
     );
 
@@ -128,7 +128,7 @@ fn gsi_05_10_tesla_arms_without_emission_and_fires_on_visit_28() {
         WeaponSlot::Primary
     );
     assert_eq!(
-        sim.substrate.entities.get(target).unwrap().health.current,
+        sim.substrate.entities.get(target).unwrap().health.current(),
         90
     );
     assert!(
@@ -177,7 +177,9 @@ fn gsi_05_10_expiry_reads_live_target_but_keeps_saved_weapon_slot() {
     );
 
     let building = sim.substrate.entities.get_mut(tower).unwrap();
-    building.attack_target.as_mut().unwrap().target = TargetKind::Entity(ground);
+    building
+        .attack_target
+        .set_for_test(Some(TargetKind::Entity(ground)));
     building
         .pending_building_fire
         .as_mut()
@@ -190,9 +192,12 @@ fn gsi_05_10_expiry_reads_live_target_but_keeps_saved_weapon_slot() {
         expiry.consequences.fire_events()[0].weapon_slot,
         WeaponSlot::Secondary
     );
-    assert_eq!(sim.substrate.entities.get(air).unwrap().health.current, 100);
     assert_eq!(
-        sim.substrate.entities.get(ground).unwrap().health.current,
+        sim.substrate.entities.get(air).unwrap().health.current(),
+        100
+    );
+    assert_eq!(
+        sim.substrate.entities.get(ground).unwrap().health.current(),
         70
     );
 }
@@ -213,7 +218,9 @@ fn gsi_05_10_expiry_error_clears_without_retarget_or_shot() {
     let _ = combat_visit(&mut sim, &rules, &mut main_rng, 1);
 
     let building = sim.substrate.entities.get_mut(tower).unwrap();
-    building.attack_target.as_mut().unwrap().target = TargetKind::Entity(99_999);
+    building
+        .attack_target
+        .set_for_test(Some(TargetKind::Entity(99_999)));
     building
         .pending_building_fire
         .as_mut()
@@ -225,7 +232,7 @@ fn gsi_05_10_expiry_error_clears_without_retarget_or_shot() {
     let building = sim.substrate.entities.get(tower).unwrap();
     assert!(building.pending_building_fire.is_none());
     assert_eq!(
-        building.attack_target.as_ref().unwrap().target,
+        building.attack_target.target().unwrap(),
         TargetKind::Entity(99_999),
         "expiry must neither reacquire the nearby alternative nor drop the live target field"
     );
@@ -235,7 +242,7 @@ fn gsi_05_10_expiry_error_clears_without_retarget_or_shot() {
             .get(alternative)
             .unwrap()
             .health
-            .current,
+            .current(),
         100
     );
 }

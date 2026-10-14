@@ -10,7 +10,7 @@ use crate::rules::ini_parser::IniFile;
 use crate::rules::ruleset::RuleSet;
 use crate::sim::combat::damage::DamageState;
 use crate::sim::combat::world_receiver::{ReceiverRun, commit_entities};
-use crate::sim::combat::{AttackTarget, EntityDamageEvent, TargetKind};
+use crate::sim::combat::{EntityDamageEvent, TargetKind};
 use crate::sim::game_entity::GameEntity;
 use crate::sim::house_state::HouseState;
 use crate::sim::mission::state::MissionTestFixture;
@@ -66,7 +66,7 @@ fn rules(input: &Value) -> RuleSet {
     };
     let yes = |set: bool| if set { "yes" } else { "no" };
     RuleSet::from_ini_with_fixed_art_for_test(
-        &IniFile::from_str(&format!(
+        &crate::sim::arena_fixture::clear_ground_ini(&format!(
             "[General]\nGuardAreaTargetingDelay=36\n[CombatDamage]\nPlayerReturnFire={}\n\
          [BuildingTypes]\n0=DEF\n\
          [VehicleTypes]\n0=TANK\n\
@@ -95,9 +95,9 @@ fn rules(input: &Value) -> RuleSet {
 fn enemy(sim: &mut Simulation, kind: &str, category: EntityCategory, cell: (u16, u16)) -> u64 {
     let id = sim.allocate_stable_id();
     let mut entity = GameEntity::test_default(id, kind, "Russians", cell.0, cell.1);
-    entity.owner = sim.intern("Russians");
-    entity.type_ref = sim.intern(kind);
-    entity.category = category;
+    entity.set_owner_for_test(sim.intern("Russians"));
+    entity.set_type_ref_for_test(sim.intern(kind));
+    entity.set_category_for_test(category);
     sim.substrate.entities.insert(entity);
     id
 }
@@ -116,6 +116,7 @@ fn mission(name: &str) -> MissionId {
 fn fixture(rules: &RuleSet, input: &Value) -> (Simulation, u64, Option<u64>) {
     let mut sim = Simulation::new();
     sim.install_resolved_terrain_for_new_map(test_flat_ground_grid(24));
+    crate::sim::arena_fixture::supply_native_map(&mut sim);
     for (house, human) in [
         ("Americans", input["human"].as_bool().unwrap_or(false)),
         ("Russians", false),
@@ -165,7 +166,9 @@ fn fixture(rules: &RuleSet, input: &Value) -> (Simulation, u64, Option<u64>) {
         dispatch_timer: MissionDispatchTimer::from_raw(FRAME as i32, 0),
     });
     if input["target"].as_bool().unwrap_or(false) {
-        entity.attack_target = source.map(AttackTarget::new);
+        entity
+            .attack_target
+            .set_for_test(source.map(TargetKind::Entity));
     }
     let facing = &mut entity.body_facing;
     if let Some(desired) = input["initial_desired"].as_u64() {
@@ -244,7 +247,7 @@ fn the_block_matches_the_original() {
             "{name} ping"
         );
         assert_eq!(
-            after.attack_target.as_ref().map(|attack| attack.target),
+            after.attack_target.target(),
             row["target"]
                 .as_str()
                 .map(|_| TargetKind::Entity(source.unwrap())),
@@ -306,7 +309,7 @@ fn the_block_matches_the_original() {
 /// turretless `Insignificant=` one, and the enemy `GUN` that hits them (a
 /// building, which the bare test map can place).
 fn production_rules(extra: &str) -> RuleSet {
-    RuleSet::from_ini_with_fixed_art_for_test(&IniFile::from_str(&format!(
+    RuleSet::from_ini_with_fixed_art_for_test(&crate::sim::arena_fixture::clear_ground_ini(&format!(
         "[General]\nGuardAreaTargetingDelay=36\n[BuildingTypes]\n0=DEF\n1=SHACK\n2=GUN\n3=MINER\n\
          [DEF]\nStrength=1000\nArmor=concrete\nPrimary=Gun\nTurret=yes\nROT=10\n\
          [SHACK]\nStrength=1000\nArmor=concrete\nPrimary=Gun\nROT=10\n\
@@ -331,6 +334,7 @@ fn production_fixture(
 ) -> (Simulation, u64, u64) {
     let mut sim = Simulation::new();
     sim.install_resolved_terrain_for_new_map(test_flat_ground_grid(24));
+    crate::sim::arena_fixture::supply_native_map(&mut sim);
     for (house, human) in [("Americans", human), ("Russians", false)] {
         let id = sim.interner.intern(house);
         sim.houses
@@ -383,8 +387,8 @@ fn a_human_defence_hit_from_out_of_range_turns_its_turret_once() {
         "one Scenario draw"
     );
     let entity = sim.substrate.entities.get(building).unwrap();
-    assert_eq!(entity.health.current, 990);
-    assert!(entity.attack_target.is_none());
+    assert_eq!(entity.health.current(), 990);
+    assert!(entity.attack_target.target().is_none());
     let turret = entity.body_facing;
     assert_eq!(turret.destination(), 0xD500);
     assert_eq!(turret.timer_duration(), 4);
@@ -454,7 +458,7 @@ fn a_returned_hit_takes_the_source_without_a_draw() {
         assert_eq!(sim.scenario_rng.logical_state(), rng, "human {human}");
         let entity = sim.substrate.entities.get(building).unwrap();
         assert_eq!(
-            entity.attack_target.as_ref().map(|attack| attack.target),
+            entity.attack_target.target(),
             Some(TargetKind::Entity(source)),
             "human {human}"
         );
@@ -488,7 +492,12 @@ fn a_hit_without_a_source_does_nothing() {
     assert!(pings.is_empty());
     assert_eq!(sim.scenario_rng.logical_state(), rng);
     assert_eq!(
-        sim.substrate.entities.get(building).unwrap().health.current,
+        sim.substrate
+            .entities
+            .get(building)
+            .unwrap()
+            .health
+            .current(),
         990
     );
 }
@@ -506,10 +515,11 @@ fn a_computer_defence_drops_its_out_of_range_target_when_hit_by_it() {
         .entities
         .get_mut(building)
         .unwrap()
-        .attack_target = Some(AttackTarget::new(source));
+        .attack_target
+        .set_for_test(Some(TargetKind::Entity(source)));
     assert_eq!(hit(&mut sim, &rules, building, source), 1);
     let entity = sim.substrate.entities.get(building).unwrap();
-    assert!(entity.attack_target.is_none());
+    assert!(entity.attack_target.target().is_none());
     assert_eq!(
         entity.suspended_attack_target,
         Some(TargetKind::Entity(source)),

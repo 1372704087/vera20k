@@ -527,11 +527,14 @@ fn low_dropped_bombs_use_class_water_splashes_without_debris() {
             }
             if kind == "ROCKET" && height > 0 {
                 let entity = sim.substrate.entities.get(id).unwrap();
-                assert!(entity.crashing, "common Crashable tail follows splash");
-                assert!(entity.lifecycle.object_alive);
-                assert_eq!(entity.health.current, 0);
-                assert!(entity.infantry_terminal.is_none());
-                assert!(!entity.dying);
+                assert!(
+                    entity.crash.is_crashing(),
+                    "common Crashable tail follows splash"
+                );
+                assert!(entity.lifecycle.object_alive());
+                assert_eq!(entity.health.current(), 0);
+                assert!(entity.death.infantry_terminal().is_none());
+                assert!(!entity.death.is_dying());
                 assert!(!sim.substrate.pending_delete.contains_object(&id));
                 continue;
             }
@@ -541,14 +544,14 @@ fn low_dropped_bombs_use_class_water_splashes_without_debris() {
                     .get(id)
                     .unwrap()
                     .lifecycle
-                    .object_alive
+                    .object_alive()
             );
             assert!(sim.substrate.pending_delete.contains_object(&id));
         } else if kind == "SHIP" {
             assert!(played.is_empty(), "ship sinking precedes water splash");
             let ship = sim.substrate.entities.get(id).unwrap();
             assert!(ship.sinking.is_active());
-            assert_eq!(ship.health.current, 1);
+            assert_eq!(ship.health.current(), 1);
         } else {
             assert!(
                 played.len() >= 2,
@@ -740,7 +743,7 @@ fn a_killed_building_draws_its_death_anims_before_its_survivors() {
         let logic = sim.logic_order();
         for survivor in sim.substrate.entities.values().filter(|entity| {
             !before.contains(&entity.stable_id())
-                && entity.category == crate::map::entities::EntityCategory::Infantry
+                && entity.category() == crate::map::entities::EntityCategory::Infantry
         }) {
             let survivor_slot = logic
                 .iter()
@@ -761,7 +764,7 @@ fn a_killed_building_draws_its_death_anims_before_its_survivors() {
             .keys_sorted()
             .into_iter()
             .filter(|id| !before.contains(id))
-            .map(|id| sim.substrate.entities.get(id).unwrap().health.current)
+            .map(|id| sim.substrate.entities.get(id).unwrap().health.current())
             .collect();
         assert_eq!(crew, healths, "seed {seed}");
         survivors += crew.len();
@@ -839,12 +842,13 @@ fn a_heavy_ship_dying_on_water_sinks_without_its_explosion() {
             // suffix. Native executions: naval_occupants, water-neighbor rows.
             let retained = sim.substrate.entities.get(ship).expect("retained hull");
             assert_eq!(
-                retained.health.current, 1,
+                retained.health.current(),
+                1,
                 "a sinking hull retains native Health 1 until its terminal AI visit"
             );
-            assert!(retained.lifecycle.object_alive);
-            assert!(!retained.lifecycle.in_limbo);
-            assert!(retained.in_logic_vector);
+            assert!(retained.lifecycle.object_alive());
+            assert!(!retained.lifecycle.in_limbo());
+            assert!(retained.in_logic_vector.is_member());
             assert!(!sim.substrate.pending_delete.contains_object(&ship));
             assert!(
                 !retained.lifecycle.cell_marked,
@@ -876,7 +880,10 @@ fn a_heavy_ship_dying_on_water_sinks_without_its_explosion() {
             }
             let input = &repeat["input"];
             let retained = sim.substrate.entities.get(ship).unwrap();
-            assert_eq!(i64::from(retained.health.current), input["initial_health"]);
+            assert_eq!(
+                i64::from(retained.health.current()),
+                input["initial_health"]
+            );
             assert_eq!(
                 u64::from(retained.sinking.is_active()),
                 input["initial_sinking"]
@@ -905,15 +912,18 @@ fn a_heavy_ship_dying_on_water_sinks_without_its_explosion() {
                 crate::sim::world::FrameEffects::default(),
             );
             let retained = sim.substrate.entities.get(ship).unwrap();
-            assert_eq!(i64::from(retained.health.current), repeat["health"]);
-            assert_eq!(u64::from(retained.lifecycle.object_alive), repeat["alive"]);
+            assert_eq!(i64::from(retained.health.current()), repeat["health"]);
+            assert_eq!(
+                u64::from(retained.lifecycle.object_alive()),
+                repeat["alive"]
+            );
             assert_eq!(u64::from(retained.sinking.is_active()), repeat["sinking"]);
             assert_eq!(
                 u64::from(sim.houses[&owner].stats.units_lost()),
                 repeat["losses"]
             );
             assert!(!retained.lifecycle.cell_marked);
-            assert!(retained.in_logic_vector);
+            assert!(retained.in_logic_vector.is_member());
             for (stream, rng) in [
                 ("main", sim.main_rng.native_state_hex()),
                 ("scenario", sim.scenario_rng.native_state_hex()),
@@ -937,7 +947,14 @@ fn a_heavy_ship_dying_on_water_sinks_without_its_explosion() {
             ));
             assert_eq!(sim.houses[&owner].stats.units_lost(), 3);
             assert!(sim.substrate.pending_delete.contains_object(&ship));
-            assert!(!sim.substrate.entities.get(ship).unwrap().in_logic_vector);
+            assert!(
+                !sim.substrate
+                    .entities
+                    .get(ship)
+                    .unwrap()
+                    .in_logic_vector
+                    .is_member()
+            );
         } else {
             assert_eq!(
                 played,

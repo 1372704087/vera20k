@@ -79,6 +79,35 @@ use crate::util::direction_tables::CELL_DELTAS;
 #[path = "spawn_manager_oracle_tests.rs"]
 mod oracle_tests;
 
+/// A spawned child's SpawnOwner, `TechnoClass+0x2D4`: the object whose
+/// spawn manager holds the child. The manager's launch sets it
+/// (`0x006B7947`); `TechnoClass::PointerExpired` drops it when that owner
+/// expires, whatever the control (`0x007077EE..0x007077FD`,
+/// [`Self::forget`]). Kill credit and the "do not self-RTB" gate read it.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(transparent)]
+pub(crate) struct SpawnOwner {
+    owner: Option<u64>,
+}
+
+impl SpawnOwner {
+    /// The owner's stable id.
+    pub(crate) const fn owner(self) -> Option<u64> {
+        self.owner
+    }
+
+    /// PointerExpired's drop of an expiring owner.
+    pub(crate) fn forget(&mut self) {
+        self.owner = None;
+    }
+
+    /// Install a fixture's owner.
+    #[cfg(test)]
+    pub(crate) fn set_for_test(&mut self, owner: Option<u64>) {
+        self.owner = owner;
+    }
+}
+
 /// Frames the manager waits before its very first AI pass
 /// (`UpdateTimer.Duration = 0x14` at construction).
 const FIRST_UPDATE_DELAY_FRAMES: i32 = 20;
@@ -217,7 +246,7 @@ impl SpawnManagerState {
                 SpawnSlotState::InFlight => slot
                     .spawn
                     .and_then(|id| entities.get(id))
-                    .filter(|child| !child.lifecycle.in_limbo)
+                    .filter(|child| !child.lifecycle.in_limbo())
                     .and_then(|child| rules.object(interner.resolve(child.type_ref())))
                     .is_some_and(|kind| kind.missile_spawn),
                 _ => false,
@@ -1033,7 +1062,7 @@ impl SpawnHost for WorldSpawn<'_, '_> {
             .substrate
             .entities
             .get(self.owner_id)
-            .map_or(0, |owner| owner.health.current)
+            .map_or(0, |owner| owner.health.current())
     }
 
     fn owner_is_alive(&self) -> bool {
@@ -1041,7 +1070,7 @@ impl SpawnHost for WorldSpawn<'_, '_> {
             .substrate
             .entities
             .get(self.owner_id)
-            .is_some_and(|owner| owner.lifecycle.object_alive && !owner.dying)
+            .is_some_and(|owner| owner.lifecycle.object_alive() && !owner.death.is_dying())
     }
 
     fn owner_cell(&self) -> (i32, i32) {
@@ -1085,7 +1114,7 @@ impl SpawnHost for WorldSpawn<'_, '_> {
             .entities
             .get(child)
             .and_then(|c| c.aircraft_ammo.as_ref())
-            .map(|a| a.current)
+            .map(|a| a.current())
             // Real Aircraft retain their signed count, including -1. This
             // fallback applies only to incomplete/non-Aircraft data.
             .unwrap_or(i32::MAX)
@@ -1101,7 +1130,7 @@ impl SpawnHost for WorldSpawn<'_, '_> {
             .substrate
             .entities
             .get(child)
-            .map_or(0, |child| child.health.current)
+            .map_or(0, |child| child.health.current())
     }
 
     fn child_tracked(&self, child: u64) -> bool {
@@ -1248,7 +1277,7 @@ impl SpawnHost for WorldSpawn<'_, '_> {
             .substrate
             .entities
             .get(child)
-            .is_none_or(|child| child.lifecycle.in_limbo);
+            .is_none_or(|child| child.lifecycle.in_limbo());
         if let (false, Some(rules)) = (in_limbo, self.context.rules()) {
             self.sim
                 .techno_limbo_with_context(child, self.context.requiring_rules(rules));
@@ -1260,10 +1289,10 @@ impl SpawnHost for WorldSpawn<'_, '_> {
             return;
         };
         if let Some(child) = self.sim.substrate.entities.get_mut(child) {
-            child.health.current = strength;
+            child.health.set(strength);
             child.estimated_health.reset(strength);
             if let Some(ammo) = child.aircraft_ammo.as_mut() {
-                ammo.current = ammo.max;
+                ammo.refill();
             }
         }
     }
@@ -1276,13 +1305,21 @@ impl SpawnHost for WorldSpawn<'_, '_> {
         let (rx, ry, z) = (owner.position.rx, owner.position.ry, owner.position.z);
         let facing = owner.body_facing_byte(self.sim.session.binary_frame);
         let type_name = self.sim.interner.resolve(spawn_type).to_string();
-        self.sim
-            .construct_object_limbo_at_height(&type_name, &house, rx, ry, facing, z, rules)
+        self.sim.construct_object_limbo_at_height(
+            &type_name,
+            &house,
+            rx,
+            ry,
+            facing,
+            z,
+            rules,
+            self.context.effects(),
+        )
     }
 
     fn adopt(&mut self, child: u64) {
         if let Some(entity) = self.sim.substrate.entities.get_mut(child) {
-            entity.spawn_owner_id = Some(self.owner_id);
+            entity.spawn_owner_id.owner = Some(self.owner_id);
         }
     }
 

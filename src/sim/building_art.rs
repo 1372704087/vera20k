@@ -6,7 +6,7 @@
 use crate::rules::art_data::BuildingAnimConfig;
 use crate::rules::object_type::ObjectType;
 use crate::rules::ruleset::RuleSet;
-use crate::sim::components::Health;
+use crate::sim::combat::Health;
 use crate::sim::game_entity::GameEntity;
 use crate::sim::world::FrameEffects;
 use crate::sim::world::Simulation;
@@ -26,6 +26,7 @@ mod power;
 mod storage;
 #[path = "building_art_super.rs"]
 mod super_anim;
+pub(crate) use admission::HasEngineer;
 pub(crate) use storage::BuildingStorage;
 
 /// A Building's animation art, owned by this module: its 21 AnimClass slots
@@ -199,7 +200,7 @@ impl Simulation {
         let Some(entity) = self.substrate.entities.get(id) else {
             return;
         };
-        if entity.category != crate::map::entities::EntityCategory::Structure {
+        if entity.category() != crate::map::entities::EntityCategory::Structure {
             return;
         }
         let slots = entity.building_art.anim_slots;
@@ -236,7 +237,7 @@ impl Simulation {
         let Some(entity) = self.substrate.entities.get(id) else {
             return;
         };
-        if entity.category != crate::map::entities::EntityCategory::Structure
+        if entity.category() != crate::map::entities::EntityCategory::Structure
             || (entity.building_art.actually_placed && !captured)
         {
             return;
@@ -257,7 +258,7 @@ impl Simulation {
         let garrisoned = entity
             .passenger_role
             .cargo()
-            .is_some_and(|cargo| !cargo.passengers.is_empty());
+            .is_some_and(|cargo| !cargo.passengers().is_empty());
         // 0x00446382..0x004463B4: the built type's InfantryGainSelfHeal and
         // UnitsGainSelfHeal join the owner's house on every reached opening
         // (a capture counts), with the +0x6E4 test done by the entry guard
@@ -636,7 +637,7 @@ impl Simulation {
         let garrisoned = entity
             .passenger_role
             .cargo()
-            .is_some_and(|cargo| !cargo.passengers.is_empty());
+            .is_some_and(|cargo| !cargo.passengers().is_empty());
         let delayed_fire = self.building_anim_delayed_fire(owner, rules);
         self.clear_building_anim_reference(expired);
         let next = match slot {
@@ -695,7 +696,7 @@ impl Simulation {
                 .building_slot = Some((owner, slot));
         }
         for entity in self.substrate.entities.values() {
-            for (slot, id) in entity.damage_fire_anim_ids.iter().enumerate() {
+            for (slot, id) in entity.damage_fires.anim_ids().iter().enumerate() {
                 if let Some(id) = id {
                     self.substrate
                         .anims
@@ -722,7 +723,7 @@ pub(crate) fn occupied_body_frame(
     yellow: f64,
     red: f64,
 ) -> u16 {
-    let health = Health { current };
+    let health = Health::new(current);
     let mut frame = if occupants > 0 { 2 } else { 0 };
     if health.compare_ratio(strength, red) != Greater
         || (tech_level > 0 && health.compare_ratio(strength, yellow) != Greater)
@@ -779,7 +780,7 @@ pub(crate) fn body_frame(
     if let Some(occupants) = input.occupants {
         return i32::from(occupied_body_frame(
             u32::from(occupants > 0),
-            health.current,
+            health.current(),
             strength,
             input.tech_level,
             yellow,
@@ -835,7 +836,7 @@ pub(crate) fn receiver_body_frame(
                 entity
                     .passenger_role
                     .cargo()
-                    .map_or(0, |cargo| cargo.passengers.len() as i32),
+                    .map_or(0, |cargo| cargo.passengers().len() as i32),
             ),
             tech_level: object.tech_level,
             selling: false,
@@ -924,8 +925,8 @@ mod body_tests {
                 buildup: [i.buildup_start, i.buildup_count],
                 ordinary: i.frame_pairs,
             };
-            let before = body_frame(input, Health { current: i.before }, i.strength, yellow, red);
-            let after = body_frame(input, Health { current: i.after }, i.strength, yellow, red);
+            let before = body_frame(input, Health::new(i.before), i.strength, yellow, red);
+            let after = body_frame(input, Health::new(i.after), i.strength, yellow, red);
             assert_eq!(
                 (before as u32, after as u32),
                 (row.output.before_frame, row.output.after_frame),
@@ -934,7 +935,7 @@ mod body_tests {
             let changed = before != after;
             assert_eq!(u8::from(changed), row.output.dirty, "native row {index}");
             let retained = if changed {
-                requested_damage_state(Health { current: i.after }, i.strength, yellow)
+                requested_damage_state(Health::new(i.after), i.strength, yellow)
             } else {
                 i.old_flag != 0
             };
@@ -975,9 +976,9 @@ pub(crate) fn slot_test_fixture() -> (Simulation, RuleSet, u64) {
         2,
         crate::map::entities::EntityCategory::Structure,
     );
-    entity.type_ref = sim.interner.intern("B");
-    entity.owner = sim.interner.intern("A");
-    entity.health.current = 100;
+    entity.set_type_ref_for_test(sim.interner.intern("B"));
+    entity.set_owner_for_test(sim.interner.intern("A"));
+    entity.health.set_for_test(100);
     sim.substrate.entities.insert(entity);
     sim.scenario_rng = crate::sim::rng::SimRng::new(0);
     (sim, rules, id)
@@ -1044,9 +1045,9 @@ mod slot_tests {
                     60,
                     crate::map::entities::EntityCategory::Structure,
                 );
-                building.type_ref = sim.interner.intern(name);
-                building.owner = sim.interner.intern("A");
-                building.health.current = if damaged { 40 } else { 100 };
+                building.set_type_ref_for_test(sim.interner.intern(name));
+                building.set_owner_for_test(sim.interner.intern("A"));
+                building.health.set_for_test(if damaged { 40 } else { 100 });
                 sim.substrate.entities.insert(building);
                 let slot = row["slot"]["slot"].as_u64().unwrap() as u8;
                 let anim_id = sim
@@ -1114,7 +1115,7 @@ mod slot_tests {
         // This synthetic owner has never been marked; enter through the real
         // coordinate commit and verify its already retained slot moves in place.
         let entity = sim.entities_mut().get_mut(id).unwrap();
-        entity.lifecycle.in_limbo = true;
+        entity.lifecycle.set_in_limbo_for_test(true);
         entity.lifecycle.cell_marked = false;
         let outcome = sim.try_reveal_entity_with_context(
             id,
@@ -1381,8 +1382,8 @@ mod slot_tests {
         sim.uninit_with_rules(id, &rules);
 
         let building = sim.entities().get(id).expect("deferred Building");
-        assert!(!building.lifecycle.object_alive);
-        assert!(building.lifecycle.in_limbo);
+        assert!(!building.lifecycle.object_alive());
+        assert!(building.lifecycle.in_limbo());
         assert_eq!(building.building_art.anim_slots[3], Some(anim_id));
         let anim = sim.anim(anim_id).expect("slot survives Building UnInit");
         assert_eq!(anim.owner_entity, None);
@@ -1427,7 +1428,11 @@ mod slot_tests {
             crate::sim::world::FrameEffects::default(),
         );
         let old = sim.entities().get(id).unwrap().building_art.anim_slots[3].unwrap();
-        sim.entities_mut().get_mut(id).unwrap().health.current = 25;
+        sim.entities_mut()
+            .get_mut(id)
+            .unwrap()
+            .health
+            .set_for_test(25);
         sim.grand_opening(
             id,
             false,

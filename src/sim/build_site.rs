@@ -11,8 +11,9 @@
 //! cell-entry query (`BuildingTypeClass::CanPlaceAt`, TerrainType
 //! `0x0071C554`).
 //!
-//! In-game constants: the scenario-init / forced-placement bracket byte
-//! `0xA8E7AC` is clear, so nothing bypasses the test (`0x0047C632`); the byte
+//! The shared scenario-init / forced-placement bracket `0xA8E7AC` admits
+//! immediately when nonzero (`0x0047C632`); ordinary gameplay keeps it clear.
+//! The byte
 //! at `0xA8E9A0` is set once a game runs, so the object tests are live; the
 //! editor byte `0xA8ED6B` is clear, so the cell must lie in the playfield
 //! (`Is_Cell_In_Playfield(cell, 1)`, `0x0047C878`) and an overlay the type
@@ -112,6 +113,12 @@ pub(crate) fn is_clear_to_build(
     ty: Option<&ObjectType>,
     house: Option<InternedId>,
 ) -> bool {
+    // Original47C632 returns true while the shared A8E7AC bracket is raised.
+    // Building440580 still enters449440; the bypass belongs to this cell
+    // decision, not to a caller-specific skipping of Building's admission.
+    if sim.object_placement_scope_active() {
+        return true;
+    }
     let Some(terrain) = sim.resolved_terrain.as_ref() else {
         return false;
     };
@@ -240,7 +247,7 @@ pub(crate) fn flush_for_placement(
             sim.interner.resolve(object.owner()),
             sim.interner.resolve(house),
         );
-        if object.category == EntityCategory::Structure || !allied {
+        if object.category() == EntityCategory::Structure || !allied {
             return Flush::Blocked;
         }
         scattered = true;
@@ -284,7 +291,7 @@ fn objects_admit(
         NativeCellIdentity::Dummy => Vec::new(),
     };
     let category = |member: &CellObjectMember| match *member {
-        CellObjectMember::Entity(id) => sim.substrate.entities.get(id).map(|e| e.category),
+        CellObjectMember::Entity(id) => sim.substrate.entities.get(id).map(|e| e.category()),
         CellObjectMember::Terrain(_) => None,
     };
     let is_terrain = |member: &CellObjectMember| matches!(member, CellObjectMember::Terrain(_));
@@ -323,7 +330,7 @@ fn objects_admit(
             None => occupation_clear(),
             Some(CellObjectMember::Entity(id)) => {
                 sim.substrate.entities.get(id).is_some_and(|e| {
-                    e.category == EntityCategory::Structure
+                    e.category() == EntityCategory::Structure
                         && sim
                             .object_type(e.type_ref(), rules)
                             .is_some_and(|blocker| blocker.laser_fence)

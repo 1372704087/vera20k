@@ -181,8 +181,8 @@ fn infantry_target_admission(
         }
     };
     let attack_target_is = |id| {
-        mover.attack_target.as_ref().is_some_and(
-            |a| matches!(a.target, crate::sim::combat::TargetKind::Entity(target) if target == id),
+        mover.attack_target.target().is_some_and(
+            |a| matches!(a, crate::sim::combat::TargetKind::Entity(target) if target == id),
         )
     };
     if cell_target_is(blocker_cell) || attack_target_is(blocker.stable_id()) {
@@ -260,7 +260,7 @@ impl Simulation {
             .substrate
             .entities
             .get(id)
-            .is_none_or(|e| e.category != EntityCategory::Infantry)
+            .is_none_or(|e| e.category() != EntityCategory::Infantry)
         {
             return Err("Infantry entry requires a live Infantry receiver".into());
         }
@@ -283,12 +283,12 @@ impl Simulation {
         rules: &RuleSet,
         registry: Option<&crate::rules::overlay_types::OverlayTypeRegistry>,
     ) -> Result<u8, String> {
-        if self
-            .substrate
-            .entities
-            .get(id)
-            .is_none_or(|e| !matches!(e.category, EntityCategory::Infantry | EntityCategory::Unit))
-        {
+        if self.substrate.entities.get(id).is_none_or(|e| {
+            !matches!(
+                e.category(),
+                EntityCategory::Infantry | EntityCategory::Unit
+            )
+        }) {
             return Err("Foot entry requires a live Infantry or Unit receiver".into());
         }
         // An installed oracle seam answers before the receiver's type is
@@ -345,7 +345,7 @@ impl Simulation {
             return 0;
         };
         if self.session.game_mode_nonzero
-            || !e.discovery.owned_by_current_house
+            || !e.discovery.owned_by_current_house()
             || e.is_mission_only()
         {
             return 0;
@@ -393,7 +393,7 @@ impl Simulation {
             .entities
             .get(id)
             .ok_or("Can_Enter_Cell of a retired mover")?;
-        if mover.category == EntityCategory::Aircraft {
+        if mover.category() == EntityCategory::Aircraft {
             return Ok(self.aircraft_can_enter(id, cell));
         }
         let terrain = self
@@ -446,10 +446,10 @@ fn classify_entry(
         .rules
         .object(live.sim.interner.resolve(e.type_ref()))
         .ok_or("repair admission missing ObjectType")?;
-    if e.category == EntityCategory::Structure {
+    if e.category() == EntityCategory::Structure {
         return building_impassable(live, e, obj, cell).map(|hard| if hard { 7 } else { 0 });
     }
-    if e.category == EntityCategory::Aircraft {
+    if e.category() == EntityCategory::Aircraft {
         return aircraft_entry(live, e, cell);
     }
     classify_foot_entry(live, &EntryMover::new(live, id, e, obj), cell, args)
@@ -615,7 +615,12 @@ impl Simulation {
             .substrate
             .entities
             .get(id)
-            .filter(|e| matches!(e.category, EntityCategory::Infantry | EntityCategory::Unit))
+            .filter(|e| {
+                matches!(
+                    e.category(),
+                    EntityCategory::Infantry | EntityCategory::Unit
+                )
+            })
             .ok_or("Foot entry requires a live Infantry or Unit receiver")?;
         let obj = rules
             .object(self.interner.resolve(e.type_ref()))
@@ -640,7 +645,7 @@ fn classify_foot_entry<'a>(
         crusher,
         ..
     } = mover;
-    let infantry = e.category == EntityCategory::Infantry;
+    let infantry = e.category() == EntityCategory::Infantry;
     let (mut bits, mut owner) = raw(live, cell, MovementLayer::Ground);
     let initial_level = live.level(cell);
     let mut vehicle_occupied = bits & 0x20 != 0;
@@ -898,7 +903,7 @@ fn classify_foot_entry<'a>(
                     }
                     return Ok(
                         if layer == MovementLayer::Ground
-                            && e.dock_entered_with.is_none()
+                            && e.tether.partner().is_none()
                             && !row_nonzero(live, cell, obj.speed_type)?
                         {
                             7
@@ -909,13 +914,13 @@ fn classify_foot_entry<'a>(
                 }
             }
         }
-        if b.category == EntityCategory::Structure {
+        if b.category() == EntityCategory::Structure {
             if !infantry {
                 //73F57C..5A2: a contacted Building whose458A00 result is
                 //false is skipped before the ordinary Building branches.
                 if matches!(crate::sim::pathfinding::cell_entry::decide_live_vehicle_building_entry(
                     crate::sim::pathfinding::cell_entry::LiveVehicleBuildingEntry {
-                        mover_category:e.category,
+                        mover_category:e.category(),
                         branch:crate::sim::pathfinding::cell_entry::VehicleBuildingEntryBranch::RadioContact { mover_has_contact:e.has_live_contact_with(blocker_id) },
                         checked_building_id:blocker_id,candidate_building_id:first_building(),
                         candidate_x:p.0 as u16,building_origin_x:b.position.rx,
@@ -977,7 +982,7 @@ fn classify_foot_entry<'a>(
                 if (bt.unit_repair||bt.bunker)&&first_building()==Some(blocker_id)
                     && matches!(crate::sim::pathfinding::cell_entry::decide_live_vehicle_building_entry(
                         crate::sim::pathfinding::cell_entry::LiveVehicleBuildingEntry {
-                            mover_category:e.category,branch:crate::sim::pathfinding::cell_entry::VehicleBuildingEntryBranch::UnitRepairOrBunker,
+                            mover_category:e.category(),branch:crate::sim::pathfinding::cell_entry::VehicleBuildingEntryBranch::UnitRepairOrBunker,
                             checked_building_id:blocker_id,candidate_building_id:first_building(),
                             candidate_x:p.0 as u16,building_origin_x:b.position.rx,
                             number_impassable_rows:bt.number_impassable_rows,is_unit_repair:bt.unit_repair,is_bunker:bt.bunker,
@@ -1005,7 +1010,7 @@ fn classify_foot_entry<'a>(
         //producers; there is no extra gate in this admission arm.
         if !infantry
             && mission == Some(MissionType::Enter)
-            && b.category == EntityCategory::Unit
+            && b.category() == EntityCategory::Unit
             && object_target_is(e, b)
         {
             return Ok(0);
@@ -1036,11 +1041,11 @@ fn classify_foot_entry<'a>(
             } {
                 return Ok(7);
             }
-            if b.category == EntityCategory::Structure && bt.bridge_repair_hut {
+            if b.category() == EntityCategory::Structure && bt.bridge_repair_hut {
                 return Ok(7);
             }
             if infantry {
-                if b.category == EntityCategory::Infantry {
+                if b.category() == EntityCategory::Infantry {
                     if infantry_disguised_to(live, b, e.owner())? {
                         //51C61F is an assignment, not a boolean soft latch.
                         entry_result = 6;
@@ -1060,7 +1065,7 @@ fn classify_foot_entry<'a>(
                 if head_on(e, b, live.sim.session.binary_frame) {
                     return Ok(7);
                 }
-                if (b.foot_occupation_enabled && b.category != EntityCategory::Infantry)
+                if (b.foot_occupation_enabled && b.category() != EntityCategory::Infantry)
                     || crate::sim::movement::drive_track::occupant_slot_a4_answers_true(b)
                 {
                     entry_result = entry_result.max(2);
@@ -1069,7 +1074,7 @@ fn classify_foot_entry<'a>(
                 entry_result = entry_result.max(6);
             }
         } else {
-            match b.category {
+            match b.category() {
                 EntityCategory::Aircraft | EntityCategory::Structure => return Ok(7),
                 EntityCategory::Unit => {
                     if is_moving(b) != Some(true) && b.navigation.nav_com.is_none() {
@@ -1089,7 +1094,7 @@ fn classify_foot_entry<'a>(
         }
     }
     if layer == MovementLayer::Ground
-        && (!infantry || e.dock_entered_with.is_none())
+        && (!infantry || e.tether.partner().is_none())
         && !row_nonzero(live, cell, obj.speed_type)?
     {
         return Ok(7);
@@ -1133,7 +1138,7 @@ fn classify_foot_entry<'a>(
                     .into_iter()
                     .flat_map(|list| list.iter_layer(MovementLayer::Ground))
                     .filter_map(|member| live.sim.substrate.entities.get(member.entity_id))
-                    .find(|unit| unit.category == EntityCategory::Unit)
+                    .find(|unit| unit.category() == EntityCategory::Unit)
                     .is_some_and(|unit| {
                         crate::sim::pathfinding::cell_entry::unit_tail_is_crushable_by(
                             unit,
@@ -1436,9 +1441,9 @@ mod tests {
             ),
         ] {
             let mut e = GameEntity::test_default(id, name, "Americans", cell.0, cell.1);
-            e.owner = sim.intern("Americans");
-            e.type_ref = sim.intern(name);
-            e.category = category;
+            e.set_owner_for_test(sim.intern("Americans"));
+            e.set_type_ref_for_test(sim.intern(name));
+            e.set_category_for_test(category);
             sim.substrate.entities.insert(e);
         }
         sim.substrate.occupancy.add(
@@ -1463,9 +1468,9 @@ mod tests {
         // controls both return7 for this otherwise-clear unusable rim.
         let (mut sim, rules, _) = crate::sim::world::entry_test_fixture::fixture();
         let mut mover = GameEntity::test_default(90, "ENGINEER", "Americans", 15, 15);
-        mover.owner = sim.intern("Americans");
-        mover.type_ref = sim.intern("ENGINEER");
-        mover.category = EntityCategory::Infantry;
+        mover.set_owner_for_test(sim.intern("Americans"));
+        mover.set_type_ref_for_test(sim.intern("ENGINEER"));
+        mover.set_category_for_test(EntityCategory::Infantry);
         mover.in_playfield = true;
         sim.substrate.entities.insert(mover);
         sim.playfield_bounds = Some(
@@ -1495,9 +1500,9 @@ mod tests {
     fn nested_escape_priority_restores_the_callers_cell_admission() {
         let (mut sim, rules, _) = crate::sim::world::entry_test_fixture::fixture();
         let mut mover = GameEntity::test_default(90, "ENGINEER", "Americans", 15, 15);
-        mover.owner = sim.intern("Americans");
-        mover.type_ref = sim.intern("ENGINEER");
-        mover.category = EntityCategory::Infantry;
+        mover.set_owner_for_test(sim.intern("Americans"));
+        mover.set_type_ref_for_test(sim.intern("ENGINEER"));
+        mover.set_category_for_test(EntityCategory::Infantry);
         mover.in_playfield = true;
         sim.substrate.entities.insert(mover);
         sim.playfield_bounds = Some(
@@ -1643,8 +1648,8 @@ mod tests {
             15,
             EntityCategory::Structure,
         );
-        b.owner = sim.intern("Americans");
-        b.type_ref = sim.intern("BUILDING");
+        b.set_owner_for_test(sim.intern("Americans"));
+        b.set_type_ref_for_test(sim.intern("BUILDING"));
         sim.substrate.entities.insert(b);
         sim.substrate.occupancy.add(
             16,
@@ -1683,8 +1688,8 @@ mod tests {
             EntityCategory::Structure,
         );
         assert!(rules.object("HIDDEN").unwrap().invisible_in_game);
-        b.owner = sim.intern("Americans");
-        b.type_ref = sim.intern("HIDDEN");
+        b.set_owner_for_test(sim.intern("Americans"));
+        b.set_type_ref_for_test(sim.intern("HIDDEN"));
         sim.substrate.entities.insert(b);
         sim.substrate.occupancy.remove(16, 15, 91);
         for id in [92, 91] {
@@ -1734,12 +1739,12 @@ mod tests {
             ),
         ] {
             let mut entity = GameEntity::test_default(id, name, owner, p.0, p.1);
-            entity.owner = sim.intern(owner);
-            entity.type_ref = sim.intern(name);
-            entity.category = category;
+            entity.set_owner_for_test(sim.intern(owner));
+            entity.set_type_ref_for_test(sim.intern(name));
+            entity.set_category_for_test(category);
             if category == EntityCategory::Structure {
                 // Construction stamps the type's `Foundation=2x2`.
-                entity.foundation = "2x2".to_string();
+                entity.type_facts.set_foundation_for_test("2x2".to_string());
             }
             entity.position.sub_x = crate::util::fixed_math::SimFixed::from_num(128);
             entity.position.sub_y = crate::util::fixed_math::SimFixed::from_num(128);
@@ -1852,10 +1857,12 @@ mod tests {
             .unwrap()
             .navigation
             .nav_com = None;
-        sim.substrate.entities.get_mut(70).unwrap().attack_target =
-            Some(crate::sim::combat::AttackTarget {
-                target: crate::sim::combat::TargetKind::Entity(71),
-            });
+        sim.substrate
+            .entities
+            .get_mut(70)
+            .unwrap()
+            .attack_target
+            .set_for_test(Some(crate::sim::combat::TargetKind::Entity(71)));
         // Raw blocker lookup stamps(60,60), then first Building+48 stamps
         //(62,62). Attack-target identity is deliberately evaluated last.
         for (id, p) in [(72, (60, 60)), (71, (61, 61))] {
@@ -1967,9 +1974,8 @@ mod tests {
             .entities
             .get_mut(infantry)
             .unwrap()
-            .attack_target = Some(crate::sim::combat::AttackTarget {
-            target: crate::sim::combat::TargetKind::Entity(hut),
-        });
+            .attack_target
+            .set_for_test(Some(crate::sim::combat::TargetKind::Entity(hut)));
         sim.resolved_terrain
             .as_ref()
             .unwrap()
@@ -2043,8 +2049,8 @@ mod tests {
             15,
             EntityCategory::Structure,
         );
-        later.owner = sim.intern("Americans");
-        later.type_ref = sim.intern("CABHUT");
+        later.set_owner_for_test(sim.intern("Americans"));
+        later.set_type_ref_for_test(sim.intern("CABHUT"));
         sim.substrate.entities.insert(later);
         sim.substrate.occupancy.add(
             16,

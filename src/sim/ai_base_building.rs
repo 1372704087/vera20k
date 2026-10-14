@@ -655,7 +655,6 @@ fn place_building(
         return false;
     }
     sim.mission_spawned_entities = true;
-    crate::sim::superweapon::refresh_super_weapons_for_owner(sim, rules, owner);
     sim.slave_manager_hand_off(product, rules, effects);
     // The choice clear at `0x0044531F` compares the product with the choice
     // the exit cleared at its start; nothing in between sets it.
@@ -853,7 +852,7 @@ pub(crate) fn node_building(
     let building = sim.substrate.entities.get(id)?;
     ((building.position.rx, building.position.ry) == (rx, ry)
         && building.owner() == owner
-        && building.base_plan_type_index == node.type_or_control)
+        && building.type_facts.base_plan_type_index() == node.type_or_control)
         .then_some(id)
 }
 

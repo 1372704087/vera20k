@@ -27,8 +27,8 @@ use crate::sim::combat::greatest_threat::{
     HOUSE_SELECTS_OWN_COEFFICIENTS, ThreatCoefficients, ThreatReference, calculate_threat_score,
 };
 use crate::sim::combat::threat_range::ScanMission;
-use crate::sim::combat::{AttackTarget, TargetKind};
-use crate::sim::components::{DriveCoord, Health, NavTargetRef};
+use crate::sim::combat::{Health, TargetKind};
+use crate::sim::components::{DriveCoord, NavTargetRef};
 use crate::sim::game_entity::{GameEntity, InfantryRuntime};
 use crate::sim::house_state::HouseState;
 use crate::sim::mission::state::MissionTestFixture;
@@ -613,9 +613,7 @@ impl SuppliedFootFixture {
                 4,
                 0x80,
                 if hostile { enemy } else { friendly },
-                Health {
-                    current: object.strength,
-                },
+                Health::new(object.strength),
                 sim.interner.intern(type_name),
                 if infantry {
                     EntityCategory::Infantry
@@ -629,13 +627,15 @@ impl SuppliedFootFixture {
             entity.position.sub_x = SimFixed::from_num(placed[0] % 256);
             entity.position.sub_y = SimFixed::from_num(placed[1] % 256);
             entity.position.exact_z_leptons = Some(placed[2]);
-            entity.lifecycle.in_limbo = if pointer == &setup["candidate"] {
-                input["candidate_live"] != true
-            } else if let Some(extra) = extra {
-                input["greatest_threat"]["extra_live"][extra["label"].as_str().unwrap()] != true
-            } else {
-                false
-            };
+            entity
+                .lifecycle
+                .set_in_limbo_for_test(if pointer == &setup["candidate"] {
+                    input["candidate_live"] != true
+                } else if let Some(extra) = extra {
+                    input["greatest_threat"]["extra_live"][extra["label"].as_str().unwrap()] != true
+                } else {
+                    false
+                });
             if let Some(control) =
                 row["inactive_candidate_readback"]
                     .as_array()
@@ -648,8 +648,12 @@ impl SuppliedFootFixture {
                 // Preserve both explicitly supplied lifecycle bytes. Native
                 //6F7D98 rejects InLimbo; the earlier scratch observation of
                 //a limbo-only hit came from prototype_restore, not this row.
-                entity.lifecycle.in_limbo = control["limbo"] != 0;
-                entity.lifecycle.object_alive = control["alive"] != 0;
+                entity
+                    .lifecycle
+                    .set_in_limbo_for_test(control["limbo"] != 0);
+                entity
+                    .lifecycle
+                    .set_object_alive_for_test(control["alive"] != 0);
             }
             if let Some(control) = supplied_lifecycle {
                 assert_eq!(
@@ -660,8 +664,12 @@ impl SuppliedFootFixture {
                 // These receipts occur after prototype_restore and the row's
                 // explicit controls. Do not infer extra-candidate liveness
                 // from the earlier scan arrays or outside-row scratch writes.
-                entity.lifecycle.in_limbo = control["limbo"] != 0;
-                entity.lifecycle.object_alive = control["alive"] != 0;
+                entity
+                    .lifecycle
+                    .set_in_limbo_for_test(control["limbo"] != 0);
+                entity
+                    .lifecycle
+                    .set_object_alive_for_test(control["alive"] != 0);
             }
             entity.lifecycle.cell_marked = true;
             entity.in_playfield = true;
@@ -686,8 +694,7 @@ impl SuppliedFootFixture {
                 });
                 let target = |pointer: &Value| supplied_target(&pointers, &cells, pointer);
                 entity.set_archive_target(target(&before["archive"]));
-                entity.attack_target =
-                    target(&before["target"]).map(|target| AttackTarget { target });
+                entity.attack_target.set_for_test(target(&before["target"]));
                 // The oracle writes raw NavCom without Move_To. A supplied
                 // nonnull NavCom therefore does not arm Walk's moving byte.
                 entity.navigation.nav_com = target(&before["nav"]).map(NavTargetRef::from);
@@ -743,10 +750,12 @@ impl SuppliedFootFixture {
                         );
                     }
                 }
-                entity.passive_scan_timer = MissionTimer::armed(
-                    signed(&before["targeting_timer"][0]) as u32,
-                    signed(&before["targeting_timer"][2]) as u32,
-                );
+                entity
+                    .passive_scan
+                    .set_passive_scan_timer_for_test(MissionTimer::armed(
+                        signed(&before["targeting_timer"][0]) as u32,
+                        signed(&before["targeting_timer"][2]) as u32,
+                    ));
                 if before["scan"] != 0 {
                     entity.mark_stopped_cannot_fire();
                 }
@@ -804,10 +813,12 @@ impl SuppliedFootFixture {
                     signed(&before["dispatch"][1]),
                 ),
             });
-            archive.passive_scan_timer = MissionTimer::armed(
-                signed(&before["targeting_timer"][0]) as u32,
-                signed(&before["targeting_timer"][2]) as u32,
-            );
+            archive
+                .passive_scan
+                .set_passive_scan_timer_for_test(MissionTimer::armed(
+                    signed(&before["targeting_timer"][0]) as u32,
+                    signed(&before["targeting_timer"][2]) as u32,
+                ));
             archive.on_bridge = before["on_bridge"] != 0;
             assert_eq!(before["nav"], "0x0");
             assert_eq!(before["target"], "0x0");
@@ -832,7 +843,7 @@ impl SuppliedFootFixture {
             .collect();
         for &id in &logic {
             let (rx, ry) = placed_cells[&id];
-            let sub_cell = (sim.substrate.entities.get(id).unwrap().category
+            let sub_cell = (sim.substrate.entities.get(id).unwrap().category()
                 == EntityCategory::Infantry)
                 .then_some(2);
             sim.substrate.occupancy.add(
@@ -1044,7 +1055,7 @@ fn original_concrete_greatest_threat_matches_winner_latch_and_three_rng_streams(
             "{name}: archive"
         );
         assert_eq!(
-            actor.attack_target.as_ref().map(|target| target.target),
+            actor.attack_target.target(),
             fixture.id(&row["after"]["target"]).map(TargetKind::Entity),
             "{name}: TarCom is not assigned by Greatest_Threat"
         );
@@ -1083,8 +1094,8 @@ fn original_concrete_greatest_threat_matches_winner_latch_and_three_rng_streams(
         }
         assert_eq!(
             [
-                actor.passive_scan_timer.start_frame as i32,
-                actor.passive_scan_timer.duration as i32
+                actor.passive_scan.timer().start_frame as i32,
+                actor.passive_scan.timer().duration as i32
             ],
             [
                 signed(&row["after"]["targeting_timer"][0]),
@@ -1406,7 +1417,7 @@ pub(in crate::sim::world::techno_ai) fn assert_foot_projection(
         "{name}: archive"
     );
     assert_eq!(
-        actor.attack_target.as_ref().map(|target| target.target),
+        actor.attack_target.target(),
         fixture.target(&expected["target"]),
         "{name}: TarCom"
     );
@@ -1433,8 +1444,8 @@ pub(in crate::sim::world::techno_ai) fn assert_foot_projection(
     );
     assert_eq!(
         [
-            actor.passive_scan_timer.start_frame as i32,
-            actor.passive_scan_timer.duration as i32
+            actor.passive_scan.timer().start_frame as i32,
+            actor.passive_scan.timer().duration as i32
         ],
         [
             signed(&expected["targeting_timer"][0]),
@@ -2231,7 +2242,7 @@ fn dying_infantry_visits_shared_native_clock() {
         .entities
         .get_mut(fixture.actor)
         .unwrap();
-    actor.health.current = 0;
+    actor.health.set_for_test(0);
     actor.install_native_stage_fixture(native_clock_fixture(&frame["before"]));
     fixture.sim.object_ai_visit_one(
         fixture.actor,

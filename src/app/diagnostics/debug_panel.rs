@@ -262,7 +262,7 @@ pub(crate) fn draw_debug_panel(ctx: &egui::Context, state: &AppState) {
                 let mut found: Vec<String> = Vec::new();
                 for entity in sim.entities().values() {
                     if entity.position.rx == cursor_rx && entity.position.ry == cursor_ry {
-                        let cat_str = match entity.category {
+                        let cat_str = match entity.category() {
                             EntityCategory::Unit => "Unit",
                             EntityCategory::Infantry => "Inf",
                             EntityCategory::Structure => "Bld",
@@ -273,7 +273,7 @@ pub(crate) fn draw_debug_panel(ctx: &egui::Context, state: &AppState) {
                             sim.interner.resolve(entity.type_ref()),
                             cat_str,
                             sim.interner.resolve(entity.owner()),
-                            entity.health.current,
+                            entity.health.current(),
                             state
                                 .rules()
                                 .and_then(
@@ -295,7 +295,7 @@ pub(crate) fn draw_debug_panel(ctx: &egui::Context, state: &AppState) {
                 // Show building footprint info for structures near cursor.
                 if let Some(rules) = state.rules() {
                     for entity in sim.entities().values() {
-                        if entity.category != EntityCategory::Structure {
+                        if entity.category() != EntityCategory::Structure {
                             continue;
                         }
                         let foundation = rules
@@ -339,7 +339,7 @@ pub(crate) fn draw_debug_panel(ctx: &egui::Context, state: &AppState) {
                 let selected: Vec<u64> = sim
                     .entities()
                     .values()
-                    .filter(|e| e.selected)
+                    .filter(|e| e.selection.is_selected())
                     .map(|e| e.stable_id())
                     .collect();
                 if selected.is_empty() {
@@ -410,7 +410,11 @@ pub(crate) fn draw_debug_panel(ctx: &egui::Context, state: &AppState) {
                 .as_ref()
                 .map(|rt| &rt.simulation)
             {
-                for entity in sim.entities().values().filter(|e| e.selected) {
+                for entity in sim
+                    .entities()
+                    .values()
+                    .filter(|e| e.selection.is_selected())
+                {
                     let Some(ref miner) = entity.miner else {
                         continue;
                     };
@@ -508,7 +512,11 @@ pub(crate) fn draw_event_history_panel(ctx: &egui::Context, state: &AppState) {
         .show(ctx, |ui| {
             apply_light_text(ui);
 
-            let selected: Vec<_> = sim.entities().values().filter(|e| e.selected).collect();
+            let selected: Vec<_> = sim
+                .entities()
+                .values()
+                .filter(|e| e.selection.is_selected())
+                .collect();
             if selected.is_empty() {
                 ui.label(
                     egui::RichText::new("Select a unit to inspect")
@@ -519,7 +527,7 @@ pub(crate) fn draw_event_history_panel(ctx: &egui::Context, state: &AppState) {
             }
 
             for entity in &selected {
-                if let Some(ref log) = entity.debug_log {
+                if let Some(ref log) = entity.debug_log() {
                     ui.label(
                         egui::RichText::new(format!(
                             "{} (id={})",
@@ -531,7 +539,7 @@ pub(crate) fn draw_event_history_panel(ctx: &egui::Context, state: &AppState) {
                     );
                     ui.separator();
 
-                    if log.events.is_empty() {
+                    if log.events().is_empty() {
                         ui.label(
                             egui::RichText::new("(no events recorded)")
                                 .color(egui::Color32::from_rgb(140, 140, 140)),
@@ -540,7 +548,7 @@ pub(crate) fn draw_event_history_panel(ctx: &egui::Context, state: &AppState) {
                         egui::ScrollArea::vertical()
                             .max_height(400.0)
                             .show(ui, |ui| {
-                                let events: Vec<_> = log.events.iter().rev().take(30).collect();
+                                let events: Vec<_> = log.events().iter().rev().take(30).collect();
                                 for event in events {
                                     let (color, text) = format_debug_event_light(event);
                                     ui.colored_label(color, text);

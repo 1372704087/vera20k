@@ -28,8 +28,8 @@ use crate::map::entities::EntityCategory;
 use crate::rules::ini_parser::IniFile;
 use crate::rules::locomotor_type::LocomotorKind;
 use crate::rules::ruleset::RuleSet;
-use crate::sim::combat::{AttackTarget, TargetKind};
-use crate::sim::components::{Health, NavTargetRef};
+use crate::sim::combat::{Health, TargetKind};
+use crate::sim::components::NavTargetRef;
 use crate::sim::game_entity::GameEntity;
 use crate::sim::mission::state::MissionTestFixture;
 use crate::sim::mission::{MissionDispatchTimer, MissionId, MissionType};
@@ -152,7 +152,7 @@ fn fixture(row: &Value, owner_type: &str, unread_mission: Option<i64>) -> Option
         0,
         0,
         owner,
-        Health { current: 100 },
+        Health::new(100),
         type_ref,
         category,
         0,
@@ -178,8 +178,9 @@ fn fixture(row: &Value, owner_type: &str, unread_mission: Option<i64>) -> Option
         assert!(locomotor.install_drive_state_for_test(Some(Default::default())));
     }
     entity.locomotor = Some(locomotor);
-    entity.attack_target =
-        target(int(&state["current_target"]))?.map(|target| AttackTarget { target });
+    entity
+        .attack_target
+        .set_for_test(target(int(&state["current_target"]))?);
     entity.mega_mission = mega_mission(state, unread_mission)?;
     sim.substrate.entities.insert(entity);
     let target_type = sim.interner.intern("U00");
@@ -193,7 +194,7 @@ fn fixture(row: &Value, owner_type: &str, unread_mission: Option<i64>) -> Option
                 0,
                 0,
                 enemy,
-                Health { current: 100 },
+                Health::new(100),
                 target_type,
                 EntityCategory::Unit,
                 0,
@@ -264,7 +265,7 @@ fn compare_after(sim: &Simulation, row: &Value, unread_mission: Option<i64>, con
                 let target = target(int(&event["args"][0]))
                     .unwrap_or_else(|| panic!("{context}: target token"));
                 assert_eq!(
-                    entity.attack_target.as_ref().map(|attack| attack.target),
+                    entity.attack_target.target(),
                     target,
                     "{context}: Assign_Target"
                 );

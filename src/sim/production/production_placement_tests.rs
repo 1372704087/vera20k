@@ -18,9 +18,9 @@ use crate::rules::ini_parser::IniFile;
 use crate::rules::overlay_types::OverlayTypeRegistry;
 use crate::rules::ruleset::RuleSet;
 use crate::rules::terrain_rules::{LandType, SpeedCostProfile, TerrainClass};
-use crate::sim::combat::AttackTarget;
+use crate::sim::combat::{Health, TargetKind};
 use crate::sim::command::{Command, CommandEnvelope};
-use crate::sim::components::{BuildingUp, Health};
+use crate::sim::components::BuildingUp;
 use crate::sim::game_entity::GameEntity;
 use crate::sim::mission::MissionType;
 use crate::sim::overlay_grid::{OverlayGrid, recalc_overlay_passability};
@@ -121,13 +121,13 @@ fn ready_and_place(
         .entities
         .values()
         .find(|entity| {
-            entity.owner == owner_id
-                && entity.type_ref == type_ref
+            entity.owner() == owner_id
+                && entity.type_ref() == type_ref
                 && entity.position.rx == rx
                 && entity.position.ry == ry
-                && entity.category == EntityCategory::Structure
+                && entity.category() == EntityCategory::Structure
         })
-        .map(|entity| entity.stable_id)
+        .map(|entity| entity.stable_id())
         .expect("placed building should exist")
 }
 
@@ -178,6 +178,7 @@ fn gap_operational_actual_placement_waits_for_build_up_and_next_building_turn() 
             .get(id)
             .unwrap()
             .building_last_operational
+            .is_operational()
     );
     assert!(!sim.fog.is_cell_gap_covered(viewer, 12, 10));
     set_ticks_until_completion(&mut sim, id, 1);
@@ -215,17 +216,17 @@ fn unit_ids(sim: &Simulation, owner: &str, type_id: &str) -> Vec<u64> {
         .entities
         .values()
         .filter(|entity| {
-            entity.category == EntityCategory::Unit
+            entity.category() == EntityCategory::Unit
                 && sim
                     .interner
-                    .resolve(entity.owner)
+                    .resolve(entity.owner())
                     .eq_ignore_ascii_case(owner)
                 && sim
                     .interner
-                    .resolve(entity.type_ref)
+                    .resolve(entity.type_ref())
                     .eq_ignore_ascii_case(type_id)
         })
-        .map(|entity| entity.stable_id)
+        .map(|entity| entity.stable_id())
         .collect()
 }
 
@@ -706,7 +707,14 @@ fn an_unfinished_building_is_refused_until_its_factory_completes() {
         super::lifecycle_tests::held_id(&sim, americans, ProductionCategory::Building),
         held
     );
-    assert!(sim.substrate.entities.get(held).unwrap().lifecycle.in_limbo);
+    assert!(
+        sim.substrate
+            .entities
+            .get(held)
+            .unwrap()
+            .lifecycle
+            .in_limbo()
+    );
 
     assert!(
         sim.production
@@ -724,7 +732,7 @@ fn an_unfinished_building_is_refused_until_its_factory_completes() {
     assert!(place(&mut sim));
     let placed = sim.substrate.entities.get(held).unwrap();
     assert_eq!((placed.position.rx, placed.position.ry), (12, 10));
-    assert!(!placed.lifecycle.in_limbo);
+    assert!(!placed.lifecycle.in_limbo());
 }
 
 /// `Main_Tick` steps the factories (`LogicClass::PerTickUpdate` at
@@ -779,7 +787,7 @@ fn a_place_executing_in_the_completion_frame_is_admitted() {
     assert!(tick.spawned_entities);
     let placed = sim.substrate.entities.get(held).unwrap();
     assert_eq!((placed.position.rx, placed.position.ry), (12, 10));
-    assert!(!placed.lifecycle.in_limbo);
+    assert!(!placed.lifecycle.in_limbo());
     assert!(ready_buildings_for_owner(&sim, &rules, "Americans").is_empty());
 }
 
@@ -832,15 +840,15 @@ fn place_ready_building_spawns_and_consumes_ready_item() {
         .values()
         .filter(|e| {
             sim.interner
-                .resolve(e.owner)
+                .resolve(e.owner())
                 .eq_ignore_ascii_case("Americans")
                 && sim
                     .interner
-                    .resolve(e.type_ref)
+                    .resolve(e.type_ref())
                     .eq_ignore_ascii_case("GACNST")
                 && e.position.rx == 20
                 && e.position.ry == 20
-                && e.category == crate::map::entities::EntityCategory::Structure
+                && e.category() == crate::map::entities::EntityCategory::Structure
         })
         .count();
     assert_eq!(structures, 1);
@@ -850,7 +858,7 @@ fn place_ready_building_spawns_and_consumes_ready_item() {
         .get(held_id)
         .expect("same held identity placed");
     assert_eq!((placed.position.rx, placed.position.ry), (20, 20));
-    assert!(!placed.lifecycle.in_limbo);
+    assert!(!placed.lifecycle.in_limbo());
     let successor = super::lifecycle_tests::held_id(&sim, americans, ProductionCategory::Building);
     assert!(successor > held_id);
     assert_eq!(
@@ -858,7 +866,7 @@ fn place_ready_building_spawns_and_consumes_ready_item() {
             .entities
             .get(successor)
             .unwrap()
-            .techno_ctor_random_word,
+            .techno_ctor_random_word(),
         successor_word
     );
     assert!(
@@ -867,7 +875,7 @@ fn place_ready_building_spawns_and_consumes_ready_item() {
             .get(successor)
             .unwrap()
             .lifecycle
-            .in_limbo
+            .in_limbo()
     );
     assert_eq!(
         sim.production
@@ -912,8 +920,8 @@ fn placed_gapowr_completion(human: bool) -> (u32, Option<u32>) {
         .substrate
         .entities
         .values()
-        .find(|entity| entity.type_ref == gapowr)
-        .map(|entity| entity.stable_id)
+        .find(|entity| entity.type_ref() == gapowr)
+        .map(|entity| entity.stable_id())
         .expect("the command places GAPOWR");
 
     let mut completed = None;
@@ -986,8 +994,8 @@ fn stock_gapowr_placement_restores_power_and_radar_during_buildup() {
         .entities
         .values()
         .find(|entity| {
-            entity.owner == americans
-                && entity.type_ref == gapowr
+            entity.owner() == americans
+                && entity.type_ref() == gapowr
                 && entity.position.rx == 12
                 && entity.position.ry == 10
         })
@@ -1004,7 +1012,7 @@ fn stock_gapowr_placement_restores_power_and_radar_during_buildup() {
     sim.advance_tick(&[], Some(&rules), Some(&grid), None, 67);
     assert!(
         sim.substrate.entities.values().any(|entity| {
-            entity.owner == americans && entity.type_ref == gapowr && entity.building_up()
+            entity.owner() == americans && entity.type_ref() == gapowr && entity.building_up()
         }),
         "GAPOWR must still be in its visible buildup during reassessment"
     );
@@ -1072,7 +1080,7 @@ fn place_ready_building_accepts_clear_mixed_height_footprint() {
 
     assert!(sim.substrate.entities.values().any(|e| {
         sim.interner
-            .resolve(e.type_ref)
+            .resolve(e.type_ref())
             .eq_ignore_ascii_case("GAPOWR")
             && e.position.rx == 12
             && e.position.ry == 10
@@ -1210,7 +1218,7 @@ fn stock_4x3_refinery_free_unit_is_refused_its_footprint_and_placed_by_the_nearb
             !sim.substrate.occupancy.contains_entity(
                 PRIMARY_CELL.0,
                 PRIMARY_CELL.1,
-                miner.stable_id
+                miner.stable_id()
             ),
             "frame {frame}: a refused primary must leave no occupancy residue"
         );
@@ -1223,7 +1231,7 @@ fn stock_4x3_refinery_free_unit_is_refused_its_footprint_and_placed_by_the_nearb
         assert!(
             sim.substrate
                 .occupancy
-                .contains_entity(cell.0, cell.1, miner.stable_id),
+                .contains_entity(cell.0, cell.1, miner.stable_id()),
             "frame {frame}: the committed fallback cell must be marked"
         );
         assert_eq!(
@@ -1330,7 +1338,7 @@ fn refinery_whose_primary_cell_clears_its_footprint_keeps_the_primary_cell_and_f
     assert!(
         sim.substrate
             .occupancy
-            .contains_entity(20, 21, free_unit.stable_id)
+            .contains_entity(20, 21, free_unit.stable_id())
     );
 }
 
@@ -1371,7 +1379,7 @@ fn occupied_primary_bay_uses_one_fallback_without_overlap() {
     assert!(
         !sim.substrate
             .occupancy
-            .contains_entity(22, 22, miner.stable_id),
+            .contains_entity(22, 22, miner.stable_id()),
         "failed primary Reveal must not mark the miner into occupancy"
     );
 }
@@ -1430,7 +1438,7 @@ fn live_occupant_on_a_candidate_cell_drops_that_cell_from_the_fallback_pool() {
             !sim.substrate.occupancy.contains_entity(
                 OCCUPIED_CANDIDATE.0,
                 OCCUPIED_CANDIDATE.1,
-                miner.stable_id
+                miner.stable_id()
             ),
             "frame {frame}: the rejected candidate must hold no occupancy residue"
         );
@@ -1482,7 +1490,7 @@ fn free_unit_total_placement_failure_refunds_once_and_leaves_no_entity() {
     assert!(
         !sim.substrate.entities.values().any(|entity| sim
             .interner
-            .resolve(entity.type_ref)
+            .resolve(entity.type_ref())
             .eq_ignore_ascii_case("CMIN")),
         "same-tick pending-delete drain must leave no living or limbo CMIN"
     );
@@ -1748,7 +1756,7 @@ fn placement_command_rejects_marked_ground_mobiles_until_they_are_unmarked() {
                 .get_mut(blocker_id)
                 .unwrap()
                 .health
-                .current = 0;
+                .set_for_test(0);
             sim.begin_infantry_death_sequence(
                 blocker_id,
                 crate::sim::world::InfantryDeathSequence::Die1,
@@ -1854,7 +1862,7 @@ fn placement_command_rejects_marked_ground_mobiles_until_they_are_unmarked() {
         assert!(tick.spawned_entities);
         assert!(ready_buildings_for_owner(&sim, &rules, "Americans").is_empty());
         assert!(sim.substrate.entities.values().any(|entity| {
-            entity.type_ref == gapowr
+            entity.type_ref() == gapowr
                 && entity.position.rx == 12
                 && entity.position.ry == 10
                 && entity.building_up()
@@ -2192,7 +2200,7 @@ fn gsi_04_07_command_places_authoritative_owned_wall_without_entity() {
     assert_eq!(cell.overlay_data, 0);
     assert_eq!(cell.wall_owner, Some(owner));
     assert!(!sim.substrate.entities.values().any(|entity| {
-        entity.type_ref == type_id && (entity.position.rx, entity.position.ry) == (12, 10)
+        entity.type_ref() == type_id && (entity.position.rx, entity.position.ry) == (12, 10)
     }));
     assert_eq!(tick.state_hash, sim.state_hash());
     assert!(!sim.substrate.entities.contains(held));
@@ -2203,7 +2211,7 @@ fn gsi_04_07_command_places_authoritative_owned_wall_without_entity() {
             .entities
             .get(successor)
             .unwrap()
-            .techno_ctor_random_word,
+            .techno_ctor_random_word(),
         successor_word
     );
     assert_eq!(sim.scenario_rng.logical_state(), expected.logical_state());
@@ -2325,7 +2333,7 @@ fn gsi_04_07_regular_wall_autofill_is_cardinal_ordered_bounded_and_consumes_once
             .entities
             .get(successor)
             .unwrap()
-            .techno_ctor_random_word,
+            .techno_ctor_random_word(),
         successor_word
     );
     assert_eq!(
@@ -2582,7 +2590,8 @@ fn gsi_04_07_wall_placement_publishes_connectivity_neighbor_auto_destruction() {
         .entities
         .get_mut(1)
         .expect("construction yard listener")
-        .attack_target = Some(AttackTarget::for_cell(13, 10));
+        .attack_target
+        .set_for_test(Some(TargetKind::Cell(13, 10)));
     sim.tactical_dirty_cells.clear();
     sim.radar_terrain_dirty_cells.clear();
     sim.radar_terrain_dirty_generation = 0;
@@ -2624,6 +2633,7 @@ fn gsi_04_07_wall_placement_publishes_connectivity_neighbor_auto_destruction() {
             .get(1)
             .expect("construction yard listener")
             .attack_target
+            .target()
             .is_none(),
         "cleanup removal must broadcast CellClass pointer expiry before returning"
     );
@@ -3467,7 +3477,7 @@ fn stock_war_factory_initial_exit_has_no_nearest_cell_fallback() {
         (12, 11),
         "native factory scope bypasses class admission without choosing a nearby coordinate"
     );
-    assert!(produced.lifecycle.cell_marked && !produced.lifecycle.in_limbo);
+    assert!(produced.lifecycle.cell_marked && !produced.lifecycle.in_limbo());
 }
 
 #[test]
@@ -3519,7 +3529,7 @@ fn stock_war_factory_clear_exitcoord_succeeds() {
         (12, 11),
         "stock land war factory initial spawn uses ExitCoord=512,256,0"
     );
-    assert!(produced.lifecycle.cell_marked && !produced.lifecycle.in_limbo);
+    assert!(produced.lifecycle.cell_marked && !produced.lifecycle.in_limbo());
 }
 
 #[test]
@@ -3570,12 +3580,12 @@ fn a_sale_refunds_regardless_of_health_and_clears_peer_contacts() {
             .set_credits_for_test(1000);
         spawn_structure(&mut sim, &rules, 1, "Americans", "GAPOWR", 20, 20);
         if let Some(ge) = sim.substrate.entities.get_mut(1) {
-            ge.health = Health { current: health };
+            ge.health = Health::new(health);
             ge.mark_live_contact_with(99);
         }
         let mut peer = GameEntity::test_default(99, "MTNK", "Americans", 22, 20);
-        peer.owner = owner;
-        peer.type_ref = sim.interner.intern("MTNK");
+        peer.set_owner_for_test(owner);
+        peer.set_type_ref_for_test(sim.interner.intern("MTNK"));
         peer.mark_live_contact_with(1);
         sim.substrate.entities.insert(peer);
 
@@ -3797,7 +3807,7 @@ fn sell_player_built_garrisoned_building_demolishes_and_ejects_alive() {
         .get_mut(30)
         .unwrap()
         .lifecycle
-        .in_limbo = true;
+        .set_in_limbo_for_test(true);
     assert!(matches!(
         sim.reveal_entity_with_rules(30, &rules),
         crate::sim::world::RevealOutcome::Revealed { .. }
@@ -3813,17 +3823,12 @@ fn sell_player_built_garrisoned_building_demolishes_and_ejects_alive() {
     let amer_id = sim.interner.intern("Americans");
     let e1_id = sim.interner.intern("E1");
     if let Some(t) = sim.substrate.entities.get_mut(30) {
-        t.passenger_role = PassengerRole::Transport {
-            cargo: PassengerCargo::new(5, 1),
-        };
+        t.passenger_role = PassengerRole::transport(PassengerCargo::new(5, 1));
     }
     let mut pax = crate::sim::game_entity::GameEntity::test_default(31, "E1", "Americans", 39, 40);
-    pax.owner = amer_id;
-    pax.type_ref = e1_id;
-    pax.passenger_role = PassengerRole::Inside {
-        transport_id: 30,
-        open_topped: false,
-    };
+    pax.set_owner_for_test(amer_id);
+    pax.set_type_ref_for_test(e1_id);
+    pax.passenger_role = PassengerRole::inside_for_test(30, false);
     sim.substrate.entities.insert(pax);
     if let Some(t) = sim.substrate.entities.get_mut(30)
         && let Some(c) = t.passenger_role.cargo_mut()
@@ -3843,12 +3848,9 @@ fn sell_player_built_garrisoned_building_demolishes_and_ejects_alive() {
     );
     // Occupant placed on the map alive.
     let pax = sim.substrate.entities.get(31).expect("occupant exists");
-    assert!(!pax.dying, "occupant should not be dying");
-    assert!(pax.health.current > 0, "occupant should be alive");
-    assert!(
-        matches!(pax.passenger_role, PassengerRole::None),
-        "occupant role should be None"
-    );
+    assert!(!pax.death.is_dying(), "occupant should not be dying");
+    assert!(pax.health.current() > 0, "occupant should be alive");
+    assert!(pax.passenger_role.is_none(), "occupant role should be None");
 }
 
 #[test]
@@ -4002,7 +4004,7 @@ fn a_placed_slave_refinery_waits_out_its_build_up_in_the_deployed_state() {
                 .get(slave)
                 .unwrap()
                 .lifecycle
-                .in_limbo
+                .in_limbo()
         );
     }
 }
@@ -4112,10 +4114,10 @@ fn stock_infantry_fallback_unit_ready_uses_producer_getcoords() {
     assert_eq!([position.x, position.y, position.z], [3712, 3968, 0]);
     assert_eq!((product.position.rx, product.position.ry), (14, 15));
     assert_eq!(product.radio_contacts.slot(0), Some(producer));
-    assert_eq!(product.dock_entered_with, Some(producer));
+    assert_eq!(product.tether.partner(), Some(producer));
     let producer_entity = sim.substrate.entities.get(producer).unwrap();
     assert_eq!(producer_entity.radio_contacts.slot(0), Some(held));
-    assert_eq!(producer_entity.dock_entered_with, Some(held));
+    assert_eq!(producer_entity.tether.partner(), Some(held));
     let notifications: Vec<_> = sim.sound_events[event_start..]
         .iter()
         .filter_map(|event| match event {
@@ -4208,7 +4210,7 @@ fn successful_placement_requests_building_slam_once() {
 #[test]
 fn an_airfield_puts_each_aircraft_it_builds_on_its_own_pad() {
     use crate::sim::movement::ground_pose;
-    let mut rules = RuleSet::from_ini(&IniFile::from_str(
+    let mut rules = RuleSet::from_ini(&crate::sim::arena_fixture::clear_ground_ini(
         "[Countries]\n0=Americans\n[InfantryTypes]\n[VehicleTypes]\n[AircraftTypes]\n0=ORCA\n\
          [BuildingTypes]\n0=GAAIRC\n\
          [ORCA]\nCost=1200\nStrength=150\nSpeed=14\nTechLevel=1\nOwner=Americans\nAmmo=1\n\
@@ -4270,7 +4272,7 @@ fn an_airfield_puts_each_aircraft_it_builds_on_its_own_pad() {
             &mut sim, &rules, None
         ));
         let plane = sim.substrate.entities.get(built).unwrap();
-        assert!(!plane.lifecycle.in_limbo, "slot {slot}: placed");
+        assert!(!plane.lifecycle.in_limbo(), "slot {slot}: placed");
         let at = ground_pose::position_world_coord(&plane.position);
         assert_eq!(
             [at.x, at.y],
@@ -4278,7 +4280,7 @@ fn an_airfield_puts_each_aircraft_it_builds_on_its_own_pad() {
             "slot {slot}: on its pad"
         );
         assert_eq!(plane.radio_contacts.slot(0), Some(airfield));
-        assert_eq!(plane.dock_entered_with, None, "TETHER");
+        assert_eq!(plane.tether.partner(), None, "TETHER");
         assert_eq!(
             plane.aircraft_ammo.as_ref().and_then(|ammo| ammo.dock()),
             Some(airfield),

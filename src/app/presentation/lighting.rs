@@ -47,7 +47,7 @@ pub(crate) fn body_extra_light(
     terrain: Option<&ResolvedTerrainGrid>,
 ) -> i32 {
     use crate::map::entities::EntityCategory;
-    match entity.category {
+    match entity.category() {
         EntityCategory::Unit => rules.general.extra_unit_light,
         EntityCategory::Infantry => rules.general.extra_infantry_light,
         EntityCategory::Aircraft => aircraft_extra_light(
@@ -216,7 +216,7 @@ fn techno_effect_light_at(
     let intensity = light.brightness();
     let flashed = if !entity.flashing.flashed() {
         intensity
-    } else if entity.category == crate::map::entities::EntityCategory::Structure {
+    } else if entity.category() == crate::map::entities::EntityCategory::Structure {
         if intensity <= 1500 {
             intensity.wrapping_add(500)
         } else {
@@ -244,7 +244,7 @@ pub(crate) fn deactivated_unit_light(
     tint: [f32; 3],
     light: crate::render::palette_light::PaletteLight,
 ) -> ([f32; 3], crate::render::palette_light::PaletteLight) {
-    if entity.deactivated {
+    if entity.deactivated.is_offline() {
         with_intensity(tint, light, light.brightness() / 2)
     } else {
         (tint, light)

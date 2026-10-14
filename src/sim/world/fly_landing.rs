@@ -15,8 +15,8 @@ impl Simulation {
     /// `TechnoClass::Limbo`. Mark(REMOVE) itself never touches the tracker.
     pub(super) fn release_foot_air_tracker_before_limbo(&mut self, id: u64) {
         if self.substrate.entities.get(id).is_some_and(|entity| {
-            entity.category != EntityCategory::Structure
-                && !entity.lifecycle.in_limbo
+            entity.category() != EntityCategory::Structure
+                && !entity.lifecycle.in_limbo()
                 && entity.air_tracker_cell() != (0, 0)
         }) {
             self.aircraft_tracker_remove(id);
@@ -88,7 +88,7 @@ impl Simulation {
         let object = rules.and_then(|r| r.object(self.interner.resolve(entity.type_ref())));
         let dropship = object.is_some_and(|o| o.is_dropship);
         let carryall =
-            entity.category == EntityCategory::Aircraft && object.is_some_and(|o| o.carryall);
+            entity.category() == EntityCategory::Aircraft && object.is_some_and(|o| o.carryall);
         let airport_bound = entity
             .locomotor
             .as_ref()
@@ -188,7 +188,7 @@ impl Simulation {
                 .substrate
                 .entities
                 .get(id)
-                .is_some_and(|e| e.health.current > 0)
+                .is_some_and(|e| e.health.current() > 0)
                 && let Some(sound) = sound
             {
                 let sound_id = self.interner.intern(&sound);
@@ -405,9 +405,9 @@ impl Simulation {
         }
         !self.substrate.entities.values().any(|other| {
             other.stable_id() != id
-                && other.category == EntityCategory::Aircraft
-                && other.lifecycle.object_alive
-                && !other.lifecycle.in_limbo
+                && other.category() == EntityCategory::Aircraft
+                && other.lifecycle.object_alive()
+                && !other.lifecycle.in_limbo()
                 && match (object, other.navigation.nav_com) {
                     (None, Some(NavTargetRef::Cell { rx, ry })) => {
                         self.resolved_terrain.as_ref().map_or(
@@ -627,14 +627,15 @@ mod tests {
         insert_entity(&mut sim, id, EntityCategory::Aircraft);
         let before = &row["before"];
         let e = sim.substrate.entities.get_mut(id).unwrap();
-        e.lifecycle.object_alive = true;
-        e.lifecycle.in_limbo = false;
+        e.lifecycle.set_object_alive_for_test(true);
+        e.lifecycle.set_in_limbo_for_test(false);
         e.position.rx = 64;
         e.position.ry = 64;
         e.position.sub_x = SimFixed::from_num(128);
         e.position.sub_y = SimFixed::from_num(128);
         e.position.exact_z_leptons = Some(input["registration_z"].as_i64().unwrap_or(900) as i32);
-        e.health.current = input["health"].as_i64().unwrap_or(100) as i32;
+        e.health
+            .set_for_test(input["health"].as_i64().unwrap_or(100) as i32);
         e.on_bridge = input["on_bridge"].as_bool().unwrap_or(false);
         e.locomotor = Some(LocomotorState::from_object_type(
             rules.object("TEST").unwrap(),
@@ -670,8 +671,8 @@ mod tests {
                 },
             );
             let e = sim.substrate.entities.get_mut(id).unwrap();
-            e.lifecycle.object_alive = true;
-            e.lifecycle.in_limbo = false;
+            e.lifecycle.set_object_alive_for_test(true);
+            e.lifecycle.set_in_limbo_for_test(false);
             e.position.rx = 64;
             e.position.ry = 64;
             e.position.sub_x = SimFixed::from_num(128);
@@ -807,7 +808,8 @@ mod tests {
             let (mut sim, _) = fixture(&supplied);
             sim.session.game_mode_nonzero = input["game_mode"].as_u64().unwrap_or(0) != 0;
             let e = sim.substrate.entities.get_mut(1).unwrap();
-            e.discovery.owned_by_current_house = input["owned"].as_bool().unwrap_or(true);
+            e.discovery
+                .set_owned_by_current_house_for_test(input["owned"].as_bool().unwrap_or(true));
             if input["mission_only"].as_bool().unwrap_or(false) {
                 e.mark_mission_only();
             }
@@ -900,7 +902,7 @@ mod tests {
                     0,
                     0,
                     owner,
-                    crate::sim::components::Health { current: 100 },
+                    crate::sim::combat::Health::new(100),
                     type_ref,
                     if occupant.is_some() {
                         EntityCategory::Unit
@@ -911,8 +913,12 @@ mod tests {
                     5,
                     true,
                 );
-                other.lifecycle.object_alive = input["alive"].as_bool().unwrap_or(true);
-                other.lifecycle.in_limbo = input["limbo"].as_bool().unwrap_or(false);
+                other
+                    .lifecycle
+                    .set_object_alive_for_test(input["alive"].as_bool().unwrap_or(true));
+                other
+                    .lifecycle
+                    .set_in_limbo_for_test(input["limbo"].as_bool().unwrap_or(false));
                 other.position.sub_x = SimFixed::from_num(128);
                 other.position.sub_y = SimFixed::from_num(128);
                 other.position.exact_z_leptons = Some(0);

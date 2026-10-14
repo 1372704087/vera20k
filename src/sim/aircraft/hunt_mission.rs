@@ -117,12 +117,12 @@ impl Simulation {
         ctx: ObjectAiCtx<'_>,
     ) -> i32 {
         let entity = self.substrate.entities.get(id).expect("aircraft dispatch");
-        debug_assert_eq!(entity.category, EntityCategory::Aircraft);
+        debug_assert_eq!(entity.category(), EntityCategory::Aircraft);
         let facts = HuntFacts {
             ammo: entity
                 .aircraft_ammo
                 .as_ref()
-                .map_or(-1, |ammo| ammo.current),
+                .map_or(-1, |ammo| ammo.current()),
             team: self.team_script_vm.team_for_member(id).is_some(),
             game_mode: self.session.game_mode_nonzero,
         };
@@ -151,7 +151,7 @@ impl HuntHost for WorldHunt<'_> {
     fn target(&mut self) -> bool {
         let entity = self.sim.substrate.entities.get(self.id).unwrap();
         crate::sim::combat::target_present(
-            entity.attack_target.as_ref(),
+            entity.attack_target.target(),
             &self.sim.substrate.entities,
         )
     }

@@ -220,7 +220,7 @@ pub(crate) fn current_cursor_feedback_kind(state: &AppState) -> Option<CursorFee
             &selected,
             ActionDistanceTarget::CellCentre(hover_rx, hover_ry),
             state.rules(),
-        );
+    );
         return Some(empty_cell_feedback(
             state,
             sim,
@@ -374,17 +374,17 @@ fn empty_cell_cursor(
         viewer.is_some_and(|viewer| sim.clicked_cell_is_shrouded(viewer, cell) == Ok(true));
     let has_ore = !shrouded
         && match (sim.overlay_grid.as_ref(), registry, rules) {
-            (Some(grid), Some(registry), Some(rules)) if !rules.tiberium_types.is_empty() => {
-                crate::sim::tiberium::tiberium_cell_view(
-                    grid,
-                    registry,
-                    &rules.tiberium_types,
+        (Some(grid), Some(registry), Some(rules)) if !rules.tiberium_types.is_empty() => {
+            crate::sim::tiberium::tiberium_cell_view(
+                grid,
+                registry,
+                &rules.tiberium_types,
                     cell,
-                )
-                .is_some()
-            }
-            _ => false,
-        };
+            )
+            .is_some()
+        }
+        _ => false,
+    };
     if has_ore
         && best_id.is_some_and(|id| sim.entities().get(id).is_some_and(|e| e.miner.is_some()))
     {
@@ -421,8 +421,8 @@ fn what_action_on_cell(
     if sim
         .entities()
         .get(id)
-        .is_none_or(|entity| entity.category == crate::map::entities::EntityCategory::Structure)
-    {
+        .is_none_or(|entity| entity.category() == crate::map::entities::EntityCategory::Structure)
+            {
         return MoveAction::Move;
     }
     let query = CellActionQuery {
@@ -510,15 +510,12 @@ pub(super) fn capability_cursor_for_hover(
         }
         // 1b. Garrisoned building self-hover — show deploy cursor to unload occupants.
         if let Some(entity) = entity
-            && entity.category == EntityCategory::Structure
+            && entity.category() == EntityCategory::Structure
         {
-            if let Some(obj) = obj
-                && obj.can_be_occupied
+            if super::transport_orders::unload_command(entity, obj, sim.session.current_house)
+                .is_some()
             {
-                let has_occupants = entity.passenger_role.cargo().is_some_and(|c| !c.is_empty());
-                if has_occupants {
-                    return CursorFeedbackKind::Deploy;
-                }
+                return CursorFeedbackKind::Deploy;
             }
             // Own occupied tank bunker self-hover → eject (deploy cursor).
             if entity.bunker_occupant.is_some() {
@@ -554,7 +551,7 @@ pub(super) fn capability_cursor_for_hover(
         // the base action (0x0051E462..0x0051E49B): an Engineer of the
         // local player over any object carrying a bomb that player sees
         // (`+0x38`, `+0x68`) — own, allied or enemy — offers DisarmBomb.
-        if sel_entity.category == EntityCategory::Infantry
+        if sel_entity.category() == EntityCategory::Infantry
             && sel_obj.engineer
             && hovered_entity.is_some_and(|e| e.bomb.is_some())
             && sim.bomb_seen_by(hover.stable_id, sel_entity.owner())
@@ -617,7 +614,7 @@ pub(super) fn capability_cursor_for_hover(
             return CursorFeedbackKind::Demolish;
         }
 
-        let is_infantry = sel_entity.category == EntityCategory::Infantry;
+        let is_infantry = sel_entity.category() == EntityCategory::Infantry;
 
         // 5. Infantry boarding a friendly transport (Passengers > 0).
         if is_infantry
@@ -700,8 +697,8 @@ pub(super) fn capability_cursor_for_hover(
         // Service depot — a damaged own vehicle over an own UnitRepair
         // building shows the enter/dock cursor (the click issues
         // RepairAtDepot; see `input::context_order`).
-        if sel_entity.category == EntityCategory::Unit
-            && sel_entity.health.current < sel_obj.strength
+        if sel_entity.category() == EntityCategory::Unit
+            && sel_entity.health.current() < sel_obj.strength
             && matches!(hover.kind, HoverTargetKind::FriendlyStructure)
             && hovered_obj.is_some_and(|o| o.unit_repair)
         {
@@ -847,7 +844,7 @@ fn forced_bomb_feedback(
     let best = best_id.and_then(|id| sim.entities().get(id))?;
     let best_obj = rules.object(sim.interner.resolve(best.type_ref()))?;
     let target = sim.entities().get(hover.stable_id)?;
-    if best.category == EntityCategory::Infantry
+    if best.category() == EntityCategory::Infantry
         && best_obj.engineer
         && target.bomb.is_some()
         && sim.bomb_seen_by(hover.stable_id, best.owner())
@@ -992,7 +989,7 @@ pub(crate) fn select_best_for_action(
             0
         } else if !obj.is_some_and(|obj| is_armed(entity, obj)) {
             2
-        } else if entity.category == EntityCategory::Structure {
+        } else if entity.category() == EntityCategory::Structure {
             3
         } else if obj.zip(rules).is_some_and(|(obj, rules)| {
             weapon_damage_value(entity, obj, sim.entities(), rules, &sim.interner) > 0
@@ -1258,6 +1255,205 @@ pub(crate) fn super_weapon_cursor_id(action: &str) -> Option<CursorId> {
     }
 }
 
+/// Apply the player's chosen cursor-confinement state to the window.
+///
+/// `cursor_confined` clips the OS pointer to the window rectangle ('s
+/// edge-scroll lock), so it cannot leave the game while the player scrolls the
+/// map. The OS drops the clip on focus loss (alt-tab), so callers re-apply this
+/// on every focus regain. A platform that cannot confine (some Wayland setups)
+/// logs and leaves the cursor free rather than failing the frame.
+pub(crate) fn apply_cursor_confinement(state: &AppState) {
+    apply_cursor_confinement_impl(state, true);
+}
+
+/// Force the OS arrow invisible, in addition to `set_cursor_visible(false)`.
+///
+/// `set_cursor_visible(false)` asks winit to hide the cursor, but winit restores
+/// the window's *class* cursor on every `WM_SETCURSOR` — most visibly when the
+/// pointer slams the `ClipCursor` edge, where Windows re-asserts the arrow for a
+/// frame and it flickers on top of the game's own software cursor. Calling
+/// `SetCursor(NULL)` every frame (what gamemd's `WWMouse` does with
+/// `ShowCursor(FALSE)`) keeps the OS arrow gone whenever VERA has decided the
+/// game should own the pointer. No-op off Windows.
+pub(crate) fn suppress_os_cursor(state: &AppState) {
+    #[cfg(target_os = "windows")]
+    {
+        use windows_sys::Win32::UI::WindowsAndMessaging::SetCursor;
+        // NULL handle = no cursor for this window. Safe: it only changes the
+        // current thread's cursor image, never the clip or pointer position.
+        unsafe {
+            SetCursor(std::ptr::null_mut());
+        }
+    }
+    let _ = state;
+}
+
+/// Keep the player's cursor-lock choice alive every frame clips
+/// continuously). `ClipCursor` is a *system-wide* setting the OS drops on
+/// focus loss or the Windows key, so a one-shot apply silently stops working
+/// mid-session. While the window is focused we re-assert the clip each frame;
+/// while it is in the background we leave the pointer alone so we never trap
+/// it inside another application. Silent (no per-frame log spam).
+pub(crate) fn reassert_cursor_confinement(state: &AppState) {
+    if !state.platform.cursor_confined {
+        // Choice is "free": make sure the pointer is released (idempotent).
+        release_cursor_confinement(state);
+        return;
+    }
+    if !state.platform.window_active {
+        // Backgrounded: don't fight other apps; Focused(false) already released.
+        return;
+    }
+    apply_cursor_confinement_impl(state, false);
+    // Re-assert the OS-arrow suppression every frame, not just in the render
+    // pass: the pointer now rides the exact client edge to keep edge-scroll
+    // alive, so we must kill the border arrow at the earliest point each frame.
+    suppress_os_cursor(state);
+}
+
+fn apply_cursor_confinement_impl(state: &AppState, verbose: bool) {
+    // Windows: clip to the client rectangle with the Win32 ClipCursor API
+    // (what the clipping approach actually does). winit's CursorGrabMode::Confined derives
+    // the clip rect from the *outer* window rect, which is wrong for frameless
+    // windows and pins the pointer in place — so we call ClipCursor directly on
+    // the client rect, which is reliable.
+    #[cfg(target_os = "windows")]
+    {
+        use raw_window_handle::{HasWindowHandle, RawWindowHandle};
+        use std::ffi::c_void;
+        use windows_sys::Win32::Foundation::{POINT, RECT};
+        use windows_sys::Win32::Graphics::Gdi::ClientToScreen;
+        use windows_sys::Win32::UI::WindowsAndMessaging::{ClipCursor, GetClientRect};
+        let handle = match state.platform.window.window_handle() {
+            Ok(h) => h,
+            Err(err) => {
+                if verbose {
+                    log::warn!("cursor confinement: no window handle ({err})");
+                }
+                return;
+            }
+        };
+        let RawWindowHandle::Win32(w) = handle.as_raw() else {
+            return;
+        };
+        let hwnd = w.hwnd.get() as *mut c_void;
+        let mut rect: RECT = RECT { left: 0, top: 0, right: 0, bottom: 0 };
+        unsafe {
+            // Clip the *client* area, not the whole window: GetWindowRect would
+            // include the title bar and the resize border, so the pointer could
+            // still wander onto them. GetClientRect gives the drawable region in
+            // window-local coords; ClientToScreen maps its corners into screen
+            // space for ClipCursor. Both are in the same DPI-aware physical
+            // pixels, so the rect matches what ClipCursor expects.
+            GetClientRect(hwnd, &mut rect);
+            let mut tl = POINT { x: rect.left, y: rect.top };
+            let mut br = POINT { x: rect.right, y: rect.bottom };
+            ClientToScreen(hwnd, &mut tl);
+            ClientToScreen(hwnd, &mut br);
+            // Clip to the *exact* client rectangle — do NOT inset. The game's
+            // edge-scroll trigger is a one-pixel at-edge band (camera.rs
+            // `edge_scroll_intent`: `x<=0 || x>=view_w-1 || y<=0 || y>=view_h-1`),
+            // so the pointer must be able to reach the outer pixel
+            // (x=0 / x=view_w-1). Insetting even 1px pins the pointer at
+            // [1, view_w-2] and silently kills edge scrolling on all four sides.
+            // The border-arrow flicker that an exact clip can cause is handled by
+            // `SetCursor(NULL)` every frame (see `suppress_os_cursor`, called from
+            // both `reassert` and the render pass), not by shrinking the rect. The
+            // validity check below still guards tiny windows from an inverted rect.
+            let clip = RECT {
+                left: tl.x,
+                top: tl.y,
+                right: br.x,
+                bottom: br.y,
+            };
+            // A not-yet-laid-out window reports a zero/empty client; clipping to
+            // it would pin the pointer in place ("mouse won't move"), so defer
+            // until the window has real geometry. The per-frame reassert picks it
+            // up automatically once the window is sized.
+            if clip.right <= clip.left || clip.bottom <= clip.top {
+                if verbose {
+                    log::info!(
+                        "cursor confinement: client rect not ready ({},{},{},{}), deferring",
+                        clip.left, clip.top, clip.right, clip.bottom
+                    );
+                }
+                return;
+            }
+            if verbose {
+                log::info!(
+                    "cursor confinement: clipping to client ({},{},{},{}) confined={}",
+                    clip.left, clip.top, clip.right, clip.bottom,
+                    state.platform.cursor_confined
+                );
+            }
+            let ok = if state.platform.cursor_confined {
+                ClipCursor(&clip)
+            } else {
+                ClipCursor(std::ptr::null())
+            };
+            if ok == 0 && verbose {
+                log::warn!("cursor confinement: ClipCursor failed");
+            }
+        }
+    }
+    // Other platforms: use winit's Confined grab. On X11/macOS this confines the
+    // pointer to the window; on pure Wayland cursor confinement is unsupported
+    // and set_cursor_grab returns an error, which we log and tolerate so the
+    // frame is never blocked.
+    #[cfg(not(target_os = "windows"))]
+    {
+        use winit::window::CursorGrabMode;
+        let mode = if state.platform.cursor_confined {
+            CursorGrabMode::Confined
+        } else {
+            CursorGrabMode::None
+        };
+        if let Err(err) = state.platform.window.set_cursor_grab(mode) {
+            if verbose {
+                log::warn!("cursor confinement unavailable on this platform: {err:#}");
+            }
+        }
+    }
+}
+
+/// Drop the OS cursor clip entirely. Called on focus loss so alt-tab releases
+/// the pointer instead of leaving it trapped over the game window (
+/// behaviour). Presentation-only.
+pub(crate) fn release_cursor_confinement(state: &AppState) {
+    #[cfg(target_os = "windows")]
+    {
+        use windows_sys::Win32::UI::WindowsAndMessaging::ClipCursor;
+        unsafe {
+            ClipCursor(std::ptr::null());
+        }
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        // Best-effort: releasing an already-free grab can error on some
+        // compositors (pure Wayland), which we tolerate so the per-frame
+        // re-assert path never spams the log.
+        let _ = state
+            .platform
+            .window
+            .set_cursor_grab(winit::window::CursorGrabMode::None);
+    }
+}
+
+/// Flip the window cursor lock  and re-apply it immediately.
+/// Bound to the runtime cursor-lock hotkey; never part of the sim or replay.
+pub(crate) fn toggle_cursor_confinement(state: &mut AppState) {
+    state.platform.cursor_confined = !state.platform.cursor_confined;
+    apply_cursor_confinement(state);
+    log::info!(
+        "cursor confinement {}",
+        if state.platform.cursor_confined {
+            "enabled"
+        } else {
+            "disabled"
+        }
+    );
+}
+
 #[cfg(test)]
 mod tests {
     use super::{
@@ -1325,7 +1521,7 @@ mod tests {
 
         // 4. Mark the SEAL as selected (mirrors clicking it in-game).
         if let Some(e) = sim.entities_mut().get_mut(seal_id) {
-            e.selected = true;
+            e.selection.set_selected_for_test(true);
         }
 
         // 5. Construct the hover descriptor the runtime would build when
@@ -1382,7 +1578,7 @@ mod tests {
             .expect("Refinery spawned");
 
         if let Some(e) = sim.entities_mut().get_mut(miner_id) {
-            e.selected = true;
+            e.selection.set_selected_for_test(true);
         }
 
         let hover = HoverTargetKindWithId {
@@ -1563,7 +1759,7 @@ mod tests {
     fn stationary_attack_fixture_with_overrides(extra: &str) -> (Simulation, RuleSet, u64) {
         // Keep overrides in the same physical body. Appending a second
         // [TANK] is not a rules layer and does not replace its first body.
-        let rules = RuleSet::from_ini(&IniFile::from_str(
+        let rules = RuleSet::from_ini(&crate::sim::arena_fixture::clear_ground_ini(
             &(r#"
 [InfantryTypes]
 0=GI
@@ -1629,18 +1825,9 @@ Verses=100%,100%,100%,100%,100%,100%,100%,100%,100%,100%,100%
             .unwrap();
         sim.session.game_mode_nonzero = true;
         sim.session.current_house = Some(sim.entities().get(tank).unwrap().owner());
-        // Later test objects use ordinary constructor placement. Flat pixels
-        // alone are insufficient: test_flat_cell has no SpeedType costs and
-        // Foot's native admission therefore rejects those later spawns.
-        sim.install_resolved_terrain_for_new_map(crate::map::resolved_terrain::test_grid(
-            32,
-            32,
-            |rx, ry| crate::map::resolved_terrain::ResolvedTerrainCell {
-                speed_costs: crate::map::resolved_terrain::TEST_OPEN_SPEED_COSTS,
-                base_speed_costs: crate::map::resolved_terrain::TEST_OPEN_SPEED_COSTS,
-                ..crate::map::resolved_terrain::test_clear_cell(rx, ry)
-            },
-        ));
+        // Later objects use ordinary Unlimbo: supply clear rules, playfield,
+        // terrain and navigation through the shared component-arena owner.
+        crate::sim::arena_fixture::flat_ground(&mut sim, &rules);
         (sim, rules, tank)
     }
 
@@ -1665,8 +1852,11 @@ Verses=100%,100%,100%,100%,100%,100%,100%,100%,100%,100%,100%
                 sim.entities_mut().get_mut(actor).unwrap().bunker_link = BunkerLink::Installed(99);
             }
             // Active rearm never belongs to WhatAction's control/range gate.
-            sim.entities_mut().get_mut(actor).unwrap().rearm_timer =
-                crate::sim::timer::CdTimer::started(0, 999);
+            sim.entities_mut()
+                .get_mut(actor)
+                .unwrap()
+                .rearm_timer
+                .set_for_test(crate::sim::timer::CdTimer::started(0, 999));
             let x = if case["in_range"].as_bool().unwrap() {
                 4
             } else {
@@ -1948,18 +2138,17 @@ Verses=100%,100%,100%,100%,100%,100%,100%,100%,100%,100%,100%
                     .unwrap()
                     .board(gi, 1)
             );
-            sim.entities_mut().get_mut(gi).unwrap().passenger_role = PassengerRole::Inside {
-                transport_id: house,
-                open_topped: false,
-            };
+            sim.entities_mut().get_mut(gi).unwrap().passenger_role =
+                PassengerRole::inside_for_test(house, false);
             let occupant = sim.entities().get(gi).unwrap();
-            assert!(occupant.lifecycle.in_limbo);
+            assert!(occupant.lifecycle.in_limbo());
             assert!(!occupant.lifecycle.cell_marked);
-            assert!(!occupant.in_logic_vector);
+            assert!(!occupant.in_logic_vector.is_member());
             assert!(!sim.live_object_order_snapshot().contains(&gi));
-            assert!(matches!(occupant.passenger_role, PassengerRole::Inside {
-                transport_id, open_topped: false
-            } if transport_id == house));
+            assert_eq!(
+                occupant.passenger_role.inside_transport(),
+                Some((house, false))
+            );
             let target = if cell_route {
                 TargetKind::Cell(4, 10)
             } else {
@@ -1997,14 +2186,14 @@ Verses=100%,100%,100%,100%,100%,100%,100%,100%,100%,100%,100%
                     actor.building_body_state(),
                     actor.queued_building_body_state(),
                     actor.passenger_role.cargo(),
-                    actor.rearm_timer,
-                    actor.passive_scan_timer,
-                    actor.passively_acquired_target,
+                    actor.rearm_timer.timer(),
+                    actor.passive_scan.timer(),
+                    actor.passive_scan.acquired(),
                     actor.ai_frozen(),
-                    actor.lifecycle.object_alive,
-                    actor.lifecycle.in_limbo,
-                    actor.in_logic_vector,
-                    actor.health.current,
+                    actor.lifecycle.object_alive(),
+                    actor.lifecycle.in_limbo(),
+                    actor.in_logic_vector.is_member(),
+                    actor.health.current(),
                     sim.building_operational_state(house, &rules),
                 )
             };
@@ -2397,7 +2586,7 @@ Verses=100%,100%,100%,100%,100%,100%,100%,100%,100%,100%,100%
     /// row35. The complete query and caller goldens live in spatial_oracle.
     #[test]
     fn engineer_hut_cursor_uses_native_repair_rows_for_all_relations() {
-        let rules = RuleSet::from_ini(&IniFile::from_str(
+        let rules = RuleSet::from_ini(&crate::sim::arena_fixture::clear_ground_ini(
             "[InfantryTypes]\n0=ENGINEER\n[BuildingTypes]\n0=CABHUT\n\
              [ENGINEER]\nStrength=75\nEngineer=yes\nC4=yes\n\
              [CABHUT]\nStrength=200\nFoundation=1x1\nBridgeRepairHut=yes\nCanC4=yes\nRepairable=yes\nCapturable=yes\n",
@@ -2422,6 +2611,7 @@ Verses=100%,100%,100%,100%,100%,100%,100%,100%,100%,100%,100%
                 }
                 sim.install_resolved_terrain_for_new_map(terrain);
                 sim.bridge_state = Some(crate::sim::bridge_state::BridgeRuntimeState::default());
+                crate::sim::arena_fixture::supply_native_map(&mut sim);
                 let owner = if relation == "self" {
                     "Americans"
                 } else {
@@ -2435,7 +2625,11 @@ Verses=100%,100%,100%,100%,100%,100%,100%,100%,100%,100%,100%
                     .unwrap();
                 // A damaged friendly hut and a capturable hostile hut must
                 // still terminate this branch instead of taking those fallbacks.
-                sim.entities_mut().get_mut(hut).unwrap().health.current = 150;
+                sim.entities_mut()
+                    .get_mut(hut)
+                    .unwrap()
+                    .health
+                    .set_for_test(150);
                 if relation == "allied" {
                     sim.house_alliances
                         .entry("AMERICANS".into())

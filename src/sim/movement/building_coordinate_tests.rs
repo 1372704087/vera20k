@@ -152,9 +152,11 @@ fn building_navigation_capture_command_preserves_the_native_dock_coordinate() {
         6,
         EntityCategory::Structure,
     );
-    building.foundation = rules.object("BUILDING").unwrap().foundation.clone();
+    building
+        .type_facts
+        .set_foundation_for_test(rules.object("BUILDING").unwrap().foundation.clone());
     building.radio_contacts = contacts(input);
-    building.lifecycle.in_limbo = false;
+    building.lifecycle.set_in_limbo_for_test(false);
     position(&mut building, coord(&input["current"]));
     let mut engineer = GameEntity::new_at_frame_zero_for_test(
         1,
@@ -163,14 +165,14 @@ fn building_navigation_capture_command_preserves_the_native_dock_coordinate() {
         0,
         0,
         test_intern("Americans"),
-        crate::sim::components::Health { current: 100 },
+        crate::sim::combat::Health::new(100),
         test_intern("ENGI"),
         EntityCategory::Infantry,
         0,
         5,
         true,
     );
-    engineer.lifecycle.in_limbo = false;
+    engineer.lifecycle.set_in_limbo_for_test(false);
     engineer.locomotor = Some(
         crate::sim::movement::locomotor::LocomotorState::from_object_type(
             rules.object("ENGI").unwrap(),
@@ -228,7 +230,9 @@ fn building_navcom_reads_live_type_requester_and_radio_slots_after_restore() {
             6,
             EntityCategory::Structure,
         );
-        building.foundation = rules.object("BUILDING").unwrap().foundation.clone();
+        building
+            .type_facts
+            .set_foundation_for_test(rules.object("BUILDING").unwrap().foundation.clone());
         building.radio_contacts = contacts(input);
         position(&mut building, current);
         sim.substrate.entities.insert(building);

@@ -69,7 +69,7 @@ pub(crate) fn handler_state(entity: &GameEntity) -> u8 {
 /// Mission_Attack's state while Attack is the current mission (`+0xAC`) of
 /// aircraft `entity`.
 pub(crate) fn attack_state(entity: &GameEntity) -> Option<u8> {
-    (entity.category == EntityCategory::Aircraft
+    (entity.category() == EntityCategory::Aircraft
         && entity.mission.current() == MissionId::from_known(MissionType::Attack))
     .then(|| handler_state(entity))
 }
@@ -117,8 +117,8 @@ pub(crate) fn dispatch_mission(
     let Some(entity) = sim.substrate.entities.get(id) else {
         return false;
     };
-    if entity.dying
-        || entity.category != EntityCategory::Aircraft
+    if entity.death.is_dying()
+        || entity.category() != EntityCategory::Aircraft
         || !entity.mission.dispatch_timer().due(now)
     {
         return false;

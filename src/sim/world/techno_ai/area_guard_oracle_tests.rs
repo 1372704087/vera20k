@@ -103,7 +103,7 @@ fn fixture(row: &Value, state: &Value, rules: &RuleSet) -> SuppliedFootFixture {
     f.sim.session.binary_frame = state["frame"].as_u64().unwrap() as u32;
     f.sim.session.tick = state["frame"].as_u64().unwrap();
     f.sim.session.game_mode_nonzero = state["game_mode"] != 0;
-    let friendly = f.sim.substrate.entities.get(f.actor).unwrap().owner;
+    let friendly = f.sim.substrate.entities.get(f.actor).unwrap().owner();
     let enemy = f
         .sim
         .substrate
@@ -113,7 +113,7 @@ fn fixture(row: &Value, state: &Value, rules: &RuleSet) -> SuppliedFootFixture {
                 .unwrap(),
         )
         .unwrap()
-        .owner;
+        .owner();
     f.sim.session.current_house = Some(friendly);
     f.sim.session.house_order = vec![friendly, enemy];
     for (name, _) in roles {
@@ -132,8 +132,10 @@ fn fixture(row: &Value, state: &Value, rules: &RuleSet) -> SuppliedFootFixture {
         // original Unlimbo observations; these histories do not relocate them.
         let coord = crate::sim::movement::ground_pose::position_world_coord(&actor.position);
         assert_eq!([coord.x, coord.y, coord.z], xyz(&before["position"]));
-        actor.lifecycle.in_limbo = before["limbo"] != 0;
-        actor.lifecycle.object_alive = before["alive"] != 0;
+        actor.lifecycle.set_in_limbo_for_test(before["limbo"] != 0);
+        actor
+            .lifecycle
+            .set_object_alive_for_test(before["alive"] != 0);
         actor.mission.apply_test_fixture(MissionTestFixture {
             current: MissionId::from_raw(signed(&before["mission"])),
             suspended: MissionId::from_raw(signed(&before["suspended_mission"])),
@@ -148,7 +150,7 @@ fn fixture(row: &Value, state: &Value, rules: &RuleSet) -> SuppliedFootFixture {
             ),
         });
         actor.set_archive_target(archive);
-        actor.attack_target = target.map(|target| AttackTarget { target });
+        actor.attack_target.set_for_test(target);
         actor.suspended_attack_target = suspended_target;
         actor.navigation.suspended_nav_com = suspended_nav;
         actor.navigation.nav_com = nav;
@@ -178,10 +180,12 @@ fn fixture(row: &Value, state: &Value, rules: &RuleSet) -> SuppliedFootFixture {
         path.retries_left = signed(&before["navigation"]["retry"]) as u32;
         assert_eq!(before["loco_head"], json!([0, 0, 0]));
         assert_eq!(before["navigation"]["destination"], json!([0, 0, 0]));
-        actor.passive_scan_timer = MissionTimer::armed(
-            signed(&before["targeting_timer"][0]) as u32,
-            signed(&before["targeting_timer"][2]) as u32,
-        );
+        actor
+            .passive_scan
+            .set_passive_scan_timer_for_test(MissionTimer::armed(
+                signed(&before["targeting_timer"][0]) as u32,
+                signed(&before["targeting_timer"][2]) as u32,
+            ));
         assert_eq!(before["scan"], 0);
         actor.on_bridge = before["on_bridge"] != 0;
         actor
@@ -394,7 +398,7 @@ fn area_guard_events_commence_and_in_range_dispatch_match_original_histories() {
             assert_state(&mut f, row, &boundary["before"]);
             if label.starts_with("delivered_original_") {
                 let command = delivered_command(&f, row, boundary);
-                let owner = f.sim.substrate.entities.get(1).unwrap().owner;
+                let owner = f.sim.substrate.entities.get(1).unwrap().owner();
                 let owner = f.sim.interner.resolve(owner).to_owned();
                 assert!(
                     f.sim.apply_command(&owner, &command, Some(&rules)),
@@ -460,7 +464,7 @@ fn area_guard_snapshot_retains_pending_order_post_and_retask_references() {
         .unwrap();
     let mut f = fixture(row, &boundary["before"], &rules);
     let command = delivered_command(&f, row, boundary);
-    let owner = f.sim.substrate.entities.get(1).unwrap().owner;
+    let owner = f.sim.substrate.entities.get(1).unwrap().owner();
     f.sim
         .queue_command(crate::sim::command::CommandEnvelope::new(
             owner,

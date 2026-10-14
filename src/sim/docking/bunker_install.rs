@@ -234,8 +234,11 @@ fn footprint_clear_of_others(sim: &Simulation, building_id: u64, unit_id: u64) -
     !sim.substrate.entities.iter_sorted().any(|(id, e)| {
         id != unit_id
             && id != building_id
-            && e.in_logic_vector
-            && matches!(e.category, EntityCategory::Unit | EntityCategory::Infantry)
+            && e.in_logic_vector.is_member()
+            && matches!(
+                e.category(),
+                EntityCategory::Unit | EntityCategory::Infantry
+            )
             && footprint
                 .iter()
                 .any(|&(cx, cy)| cx == e.position.rx && cy == e.position.ry)
@@ -274,8 +277,11 @@ fn shove_footprint_blockers(
         .filter(|(id, e)| {
             *id != unit_id
                 && *id != building_id
-                && e.in_logic_vector
-                && matches!(e.category, EntityCategory::Unit | EntityCategory::Infantry)
+                && e.in_logic_vector.is_member()
+                && matches!(
+                    e.category(),
+                    EntityCategory::Unit | EntityCategory::Infantry
+                )
                 && footprint
                     .iter()
                     .any(|&(cx, cy)| cx == e.position.rx && cy == e.position.ry)
@@ -347,7 +353,7 @@ fn start_install_force_track(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::sim::components::Health;
+    use crate::sim::combat::Health;
     use crate::sim::game_entity::GameEntity;
     use crate::sim::movement::locomotor::MovementLayer;
     use crate::sim::world::RevealOutcome;
@@ -381,7 +387,7 @@ mod tests {
             0,
             0,
             owner_id,
-            Health { current: 1000 },
+            Health::new(1000),
             type_id,
             EntityCategory::Structure,
             0,
@@ -402,7 +408,7 @@ mod tests {
             0,
             0,
             owner_id,
-            Health { current: 400 },
+            Health::new(400),
             type_id,
             EntityCategory::Unit,
             0,
@@ -478,7 +484,9 @@ mod tests {
             spawn_bunker(&mut sim, 2);
             spawn_tank_on(&mut sim, 1, 10, 10);
             let building = sim.substrate.entities.get_mut(2).unwrap();
-            building.foundation = rules.object("NATBNK").unwrap().foundation.clone();
+            building
+                .type_facts
+                .set_foundation_for_test(rules.object("NATBNK").unwrap().foundation.clone());
             put_location(&mut building.position, coord(&input["building_location"]));
             let unit = sim.substrate.entities.get_mut(1).unwrap();
             put_location(&mut unit.position, coord(&input["unit_location"]));
@@ -563,8 +571,12 @@ mod tests {
         let mut sim = Simulation::new();
         spawn_bunker(&mut sim, 2);
         spawn_tank_on(&mut sim, 1, 10, 10);
-        sim.substrate.entities.get_mut(2).unwrap().foundation =
-            retail.rules.object("NATBNK").unwrap().foundation.clone();
+        sim.substrate
+            .entities
+            .get_mut(2)
+            .unwrap()
+            .type_facts
+            .set_foundation_for_test(retail.rules.object("NATBNK").unwrap().foundation.clone());
         assert!(matches!(sim.reveal(1), RevealOutcome::Revealed { .. }));
         let building = sim.substrate.entities.get(2).unwrap();
         // Steam459164 calls Building447AC0 even when both raw cells match.
@@ -753,12 +765,17 @@ mod tests {
             BunkerLink::Installed(2)
         );
         assert!(
-            sim.substrate.entities.get(1).unwrap().in_logic_vector,
+            sim.substrate
+                .entities
+                .get(1)
+                .unwrap()
+                .in_logic_vector
+                .is_member(),
             "installed unit remains in LogicVector"
         );
         let installed = sim.substrate.entities.get(1).unwrap();
-        assert!(installed.lifecycle.object_alive);
-        assert!(!installed.lifecycle.in_limbo);
+        assert!(installed.lifecycle.object_alive());
+        assert!(!installed.lifecycle.in_limbo());
         assert!(installed.lifecycle.cell_marked);
         assert_eq!(
             sim.bunker_wall_events.iter().filter(|e| e.up).count(),

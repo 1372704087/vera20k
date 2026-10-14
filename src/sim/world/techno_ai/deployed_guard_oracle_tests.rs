@@ -17,8 +17,8 @@ use super::dispatch_foot_mission;
 use crate::rules::art_data::ArtRegistry;
 use crate::rules::ini_parser::IniFile;
 use crate::rules::ruleset::RuleSet;
+use crate::sim::combat::TargetKind;
 use crate::sim::combat::receiver_fixture::trace_fire_visits;
-use crate::sim::combat::{AttackTarget, TargetKind};
 use crate::sim::components::{DriveCoord, NavTargetRef};
 use crate::sim::game_entity::GameEntity;
 use crate::sim::house_state::HouseState;
@@ -201,6 +201,7 @@ fn supplied_fixture(row: &Value) -> (Simulation, RuleSet, u64) {
             0,
             0,
             &rules,
+            crate::sim::world::FrameEffects::default(),
         )
         .unwrap();
     let mut terrain = crate::map::resolved_terrain::test_grid(32, 32, |x, y| {
@@ -235,9 +236,9 @@ fn supplied_fixture(row: &Value) -> (Simulation, RuleSet, u64) {
                 .unwrap();
     }
     let actor = sim.substrate.entities.get_mut(id).unwrap();
-    actor.health.current = 100;
-    actor.lifecycle.in_limbo = false;
-    actor.lifecycle.object_alive = true;
+    actor.health.set_for_test(100);
+    actor.lifecycle.set_in_limbo_for_test(false);
+    actor.lifecycle.set_object_alive_for_test(true);
     // The companion supplies a post-constructor Location at Cell10,10;
     // transport the complete saved XYZ through the existing coordinate owner.
     ground_pose::put_location(&mut actor.position, coordinate(&before["position"]));
@@ -259,11 +260,16 @@ fn supplied_fixture(row: &Value) -> (Simulation, RuleSet, u64) {
         signed(&before["stage"][2]),
         signed(&before["stage"][3]),
     ));
-    actor.passive_scan_timer = MissionTimer::armed(
-        signed(&before["reload"][0]) as u32,
-        signed(&before["reload"][1]) as u32,
-    );
-    actor.rearm_timer = CdTimer::from_raw(signed(&before["rearm"][0]), signed(&before["rearm"][1]));
+    actor
+        .passive_scan
+        .set_passive_scan_timer_for_test(MissionTimer::armed(
+            signed(&before["reload"][0]) as u32,
+            signed(&before["reload"][1]) as u32,
+        ));
+    actor.rearm_timer.set_for_test(CdTimer::from_raw(
+        signed(&before["rearm"][0]),
+        signed(&before["rearm"][1]),
+    ));
     actor.mission.apply_test_fixture(MissionTestFixture {
         current: MissionId::from_raw(signed(&before["mission"])),
         suspended: MissionId::from_raw(signed(&before["suspended"])),
@@ -274,7 +280,9 @@ fn supplied_fixture(row: &Value) -> (Simulation, RuleSet, u64) {
         ai_counter: 0,
         dispatch_timer: MissionDispatchTimer::at_frame(0),
     });
-    actor.attack_target = target(&before["target"], row).map(|target| AttackTarget { target });
+    actor
+        .attack_target
+        .set_for_test(target(&before["target"], row));
     actor.navigation.nav_com = target(&before["nav"], row).map(|target| match target {
         TargetKind::Cell(x, y) => NavTargetRef::cell(x, y),
         TargetKind::Entity(_) => unreachable!(),
@@ -297,11 +305,11 @@ fn supplied_fixture(row: &Value) -> (Simulation, RuleSet, u64) {
         .set_speed_fraction_native_bits(input["speed_fraction"].as_f64().unwrap().to_bits());
     if input["target"] == true && input["target_kind"] == "entity" {
         let mut supplied_target = actor.clone();
-        supplied_target.stable_id = 2;
+        supplied_target.set_stable_id_for_test(2);
         let mut target_coord = ground_pose::position_world_coord(&actor.position);
         target_coord.x = target_coord.x.wrapping_add(signed(&input["delta"]));
         ground_pose::put_location(&mut supplied_target.position, target_coord);
-        supplied_target.attack_target = None;
+        supplied_target.attack_target.set_for_test(None);
         supplied_target.mission_leaf = MissionLeafState::infantry_raw_for_test(0, 0);
         sim.substrate.entities.insert(supplied_target);
     }
@@ -332,7 +340,7 @@ fn assert_actor(actor: &GameEntity, expected: &Value, row: &Value, rearm: bool) 
         "prone": u8::from(actor.infantry.as_ref().unwrap().is_prone),
         "crush": actor.native_crush_immunity(), "frame": stage.value(), "changed": raw["changed"],
         "stage": [stage.timer().start_frame(), stage.timer().duration(), stage.rate(), signed(&raw["increment"])],
-        "reload": [actor.passive_scan_timer.start_frame as i32, actor.passive_scan_timer.duration as i32],
+        "reload": [actor.passive_scan.timer().start_frame as i32, actor.passive_scan.timer().duration as i32],
         "mission": actor.mission.current().raw(), "suspended": actor.mission.suspended().raw(),
         "queued": actor.mission.queued().raw(), "handler_state": actor.mission.handler_state(),
         "mission_start": actor.mission.mission_start_frame(),
@@ -354,7 +362,7 @@ fn assert_actor(actor: &GameEntity, expected: &Value, row: &Value, rearm: bool) 
         "{name}: retained destination"
     );
     assert_eq!(
-        actor.attack_target.as_ref().map(|a| a.target),
+        actor.attack_target.target(),
         target(&expected["target"], row),
         "{name}: TarCom"
     );

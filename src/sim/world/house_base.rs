@@ -339,7 +339,7 @@ impl Simulation {
     pub(crate) fn house_return_cell(&mut self, actor_id: u64) -> Option<(u16, u16)> {
         let actor = self.substrate.entities.get(actor_id)?;
         if !matches!(
-            actor.category,
+            actor.category(),
             EntityCategory::Unit | EntityCategory::Infantry
         ) {
             return None;
@@ -456,7 +456,7 @@ impl Simulation {
                 let Some(entity) = self.substrate.entities.get(id) else {
                     continue;
                 };
-                if entity.lifecycle.in_limbo || entity.health.current <= 0 {
+                if entity.lifecycle.in_limbo() || entity.health.current() <= 0 {
                     continue;
                 }
                 let Some(object) = self.object_type(entity.type_ref(), rules) else {
@@ -573,7 +573,7 @@ impl Simulation {
         let Some(entity) = self.substrate.entities.get(id) else {
             return;
         };
-        if entity.category != EntityCategory::Structure {
+        if entity.category() != EntityCategory::Structure {
             return;
         }
         let Some(object) = self.object_type(entity.type_ref(), rules) else {
@@ -594,7 +594,7 @@ impl Simulation {
             .substrate
             .entities
             .get(id)
-            .filter(|entity| entity.category == EntityCategory::Structure)
+            .filter(|entity| entity.category() == EntityCategory::Structure)
             .map(|entity| entity.owner())
         else {
             return;
@@ -666,7 +666,7 @@ impl Simulation {
             .substrate
             .entities
             .get(id)
-            .is_some_and(|entity| entity.category == EntityCategory::Structure)
+            .is_some_and(|entity| entity.category() == EntityCategory::Structure)
         {
             return;
         }
@@ -689,7 +689,7 @@ impl Simulation {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::sim::components::Health;
+    use crate::sim::combat::Health;
     use crate::sim::game_entity::GameEntity;
 
     /// The oracle's supplied physical MapClass: Size8x8, LocalSize0,0,8,8,
@@ -710,6 +710,7 @@ mod tests {
         sim.session.map_width = 17;
         sim.session.map_height = 17;
         sim.session.binary_frame = 100;
+        crate::sim::arena_fixture::supply_native_map(&mut sim);
         sim
     }
 
@@ -728,7 +729,7 @@ mod tests {
     }
 
     fn ordinary_rules() -> RuleSet {
-        RuleSet::from_ini(&crate::rules::ini_parser::IniFile::from_str(
+        RuleSet::from_ini(&crate::sim::arena_fixture::clear_ground_ini(
             "[Countries]\n0=Americans\n1=Russians\n\
              [BuildingTypes]\n0=FIRST\n1=SECOND\n\
              [FIRST]\nCost=2000\nStrength=1000\nFoundation=1x1\n\
@@ -849,7 +850,7 @@ mod tests {
             0,
             0,
             owner,
-            Health { current: 100 },
+            Health::new(100),
             type_ref,
             category,
             0,
@@ -1005,7 +1006,11 @@ mod tests {
                     sim.substrate.entities.remove(id);
                 }
                 _ => {
-                    sim.substrate.entities.get_mut(id).unwrap().category = EntityCategory::Structure
+                    sim.substrate
+                        .entities
+                        .get_mut(id)
+                        .unwrap()
+                        .set_category_for_test(EntityCategory::Structure);
                 }
             }
             let before = sim.rng_state();
@@ -1122,14 +1127,14 @@ mod tests {
                     0,
                     0,
                     owner,
-                    Health { current: health },
+                    Health::new(health),
                     type_ref,
                     EntityCategory::Structure,
                     0,
                     0,
                     false,
                 );
-                entity.lifecycle.in_limbo = limbo;
+                entity.lifecycle.set_in_limbo_for_test(limbo);
                 entity.position.sub_x = SimFixed::from_num(xyz[0] % 256);
                 entity.position.sub_y = SimFixed::from_num(xyz[1] % 256);
                 entity.position.exact_z_leptons = Some(xyz[2]);
@@ -1287,7 +1292,7 @@ mod tests {
                 .unwrap();
             let entity = sim.substrate.entities.get_mut(id).unwrap();
             if index == 1 {
-                entity.lifecycle.object_alive = false;
+                entity.lifecycle.set_object_alive_for_test(false);
             } else if index == 2 {
                 entity.structure_upgrade_link =
                     Some(crate::sim::game_entity::StructureUpgradeLink {
@@ -1370,9 +1375,19 @@ mod tests {
         house.base_plan_center = (3, 4);
         // Native load constructs the Scenario RNG with seed0. This test pins
         // geometry/list persistence, not a different RNG restore contract.
+        // The native-map fixture also supplies navigation; publish and restore
+        // that owner through the production map seam, which finishes the
+        // deliberately pending post-deserialization hierarchy.
+        let terrain = sim.resolved_terrain.as_ref().unwrap().clone();
+        sim.overlay_grid = Some(crate::sim::overlay_grid::OverlayGrid::new(
+            terrain.width(),
+            terrain.height(),
+        ));
+        let overlays = crate::rules::overlay_types::OverlayTypeRegistry::empty();
+        sim.restore_map_authority_after_snapshot_load(&rules, &overlays, None)
+            .expect("publish fixture map authority");
         sim.scenario_rng = crate::sim::rng::SimRng::new(0);
         let before = sim.state_hash();
-        let terrain = sim.resolved_terrain.as_ref().unwrap().clone();
         let bytes = crate::sim::snapshot::GameSnapshot::save(&sim, 0, 0, "house-base-geometry", 0);
         let mut restored = crate::sim::snapshot::GameSnapshot::load(&bytes)
             .unwrap()
@@ -1384,7 +1399,16 @@ mod tests {
             crate::sim::pathfinding::terrain_speed::TerrainSpeedConfig::default(),
             &rules,
         );
-        assert_eq!(restored.state_hash(), before);
+        restored
+            .restore_map_authority_after_snapshot_load(&rules, &overlays, None)
+            .expect("restore fixture map authority and navigation");
+        assert_eq!(
+            restored.state_hash(),
+            before,
+            "saved owners {:?}; restored owners {:?}",
+            sim.hash_owner_diagnostics_for_test(),
+            restored.hash_owner_diagnostics_for_test(),
+        );
         assert_eq!(geometry(&restored, owner), (Some((14, 14)), 1028));
         assert_eq!(restored.houses[&owner].alternate_base_center, (1, 1));
         assert_eq!(restored.houses[&owner].base_plan_center, (3, 4));
@@ -1450,10 +1474,9 @@ mod tests {
     #[test]
     fn factory_plant_discount_follows_unlimbo_capture_and_expiry() {
         use crate::map::resolved_terrain::test_flat_ground_grid;
-        use crate::rules::ini_parser::IniFile;
         use crate::sim::house_state::HouseState;
 
-        let rules = RuleSet::from_ini(&IniFile::from_str(
+        let rules = RuleSet::from_ini(&crate::sim::arena_fixture::clear_ground_ini(
             "[Countries]\n0=Americans\n1=Russians\n\
              [Russians]\nCostUnitsMult=.5\n\
              [BuildingTypes]\n0=NAINDP\n[VehicleTypes]\n0=HTNK\n\
@@ -1464,6 +1487,7 @@ mod tests {
         .unwrap();
         let mut sim = Simulation::new();
         sim.install_resolved_terrain_for_new_map(test_flat_ground_grid(32));
+        crate::sim::arena_fixture::supply_native_map(&mut sim);
         let [allies, soviets] = ["Americans", "Russians"].map(|name| sim.interner.intern(name));
         for house in [allies, soviets] {
             let mut state = HouseState::new(house, 0, None, false, 0, 10);

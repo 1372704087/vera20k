@@ -10,7 +10,7 @@ use super::*;
 use crate::map::entities::EntityCategory;
 use crate::rules::ini_parser::IniFile;
 use crate::rules::overlay_types::OverlayTypeRegistry;
-use crate::sim::components::Health;
+use crate::sim::combat::Health;
 use crate::sim::crates::CrateSlot;
 use crate::sim::game_entity::GameEntity;
 use crate::sim::house_state::HouseState;
@@ -48,7 +48,7 @@ fn place_actor(
         0,
         0,
         owner,
-        Health { current: 100 },
+        Health::new(100),
         type_id,
         category,
         0,
@@ -464,8 +464,14 @@ fn armor_and_firepower_crates_multiply_once_and_announce() {
         actor,
         crate::sim::world::FrameEffects::default()
     ));
-    let armor =
-        |sim: &Simulation, id: u64| sim.substrate.entities.get(id).unwrap().armor_multiplier;
+    let armor = |sim: &Simulation, id: u64| {
+        sim.substrate
+            .entities
+            .get(id)
+            .unwrap()
+            .crate_multipliers
+            .armor()
+    };
     assert_eq!(armor(&sim, actor).bits(), 1.5_f64.to_bits());
     assert_eq!(armor(&sim, distant), NativeF64Bits::ONE);
     assert_eq!(eva_events(&sim), vec![(owner, "EVA_UnitArmorUpgraded")]);
@@ -506,14 +512,16 @@ fn armor_and_firepower_crates_multiply_once_and_announce() {
         .entities
         .get(actor)
         .unwrap()
-        .firepower_multiplier;
+        .crate_multipliers
+        .firepower();
     assert_eq!(firepower.bits(), 2.0_f64.to_bits());
     assert_eq!(
         sim.substrate
             .entities
             .get(distant)
             .unwrap()
-            .firepower_multiplier,
+            .crate_multipliers
+            .firepower(),
         NativeF64Bits::ONE
     );
     assert!(eva_events(&sim).contains(&(owner, "EVA_UnitFirePowerUpgraded")));
@@ -691,7 +699,7 @@ fn unit_crate_places_a_goodie_vehicle_and_returns_false() {
         })
         .expect("the free tank");
     assert_eq!((free.position.rx, free.position.ry), (21, 22));
-    assert!(free.lifecycle.cell_marked && !free.lifecycle.in_limbo);
+    assert!(free.lifecycle.cell_marked && !free.lifecycle.in_limbo());
     assert_eq!(free.owner(), owner);
     assert_eq!(overlay_at(&sim, (21, 22)), None);
     assert_eq!(
@@ -741,7 +749,7 @@ fn unit_crate_under_its_picker_lands_the_goodie_on_the_first_ring_at_any_level()
         1,
         "the first ring, two levels up: {cell:?}"
     );
-    assert!(free.lifecycle.cell_marked && !free.lifecycle.in_limbo);
+    assert!(free.lifecycle.cell_marked && !free.lifecycle.in_limbo());
     assert_eq!(free.owner(), owner);
 }
 
@@ -792,7 +800,12 @@ fn heal_base_crate_restores_the_owners_buildings() {
         .spawn_object("YARD", "Russians", 8, 20, 0, &rules)
         .unwrap();
     for id in [own, theirs] {
-        sim.substrate.entities.get_mut(id).unwrap().health.current = 400;
+        sim.substrate
+            .entities
+            .get_mut(id)
+            .unwrap()
+            .health
+            .set_for_test(400);
     }
     place_registered_crate(&mut sim, &registry, (21, 22), POWERUP_HEAL_BASE as u8);
 
@@ -806,11 +819,11 @@ fn heal_base_crate_restores_the_owners_buildings() {
     ));
 
     assert_eq!(
-        sim.substrate.entities.get(own).unwrap().health.current,
+        sim.substrate.entities.get(own).unwrap().health.current(),
         1000
     );
     assert_eq!(
-        sim.substrate.entities.get(theirs).unwrap().health.current,
+        sim.substrate.entities.get(theirs).unwrap().health.current(),
         400
     );
     // `[CrateRules]` retains the upper-cased name at its data boundary.

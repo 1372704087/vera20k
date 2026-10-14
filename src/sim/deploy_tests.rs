@@ -8,9 +8,8 @@ use crate::map::resolved_terrain::{ResolvedTerrainCell, ResolvedTerrainGrid};
 use crate::rules::ini_parser::IniFile;
 use crate::rules::ruleset::RuleSet;
 use crate::sim::base_plan::{BasePlanNode, pack_base_plan_cell};
-use crate::sim::combat::{AttackTarget, TargetKind};
+use crate::sim::combat::{Health, TargetKind};
 use crate::sim::command::Command;
-use crate::sim::components::Health;
 use crate::sim::game_entity::GameEntity;
 use crate::sim::house_state::HouseAiActivationLatches;
 use crate::sim::world::{SimSoundEvent, Simulation};
@@ -143,7 +142,7 @@ fn spawn_infantry(sim: &mut Simulation, type_str: &str, owner: &str, rx: u16, ry
         0,
         0,
         owner_id,
-        Health { current: 125 },
+        Health::new(125),
         type_id,
         EntityCategory::Infantry,
         0,
@@ -152,7 +151,7 @@ fn spawn_infantry(sim: &mut Simulation, type_str: &str, owner: &str, rx: u16, ry
     );
     // A directly-inserted GameEntity keeps the constructed `in_limbo` byte;
     // production spawns clear it through Reveal, and order admission reads it.
-    e.lifecycle.in_limbo = false;
+    e.lifecycle.set_in_limbo_for_test(false);
     sim.substrate.entities.insert(e);
     id
 }
@@ -236,7 +235,7 @@ fn deploy_mcv_uses_gamemd_large_foundation_origin_offset() {
         sim.substrate
             .entities
             .values()
-            .any(|e| { e.type_ref == gacnst_id && e.position.rx == 19 && e.position.ry == 21 })
+            .any(|e| { e.type_ref() == gacnst_id && e.position.rx == 19 && e.position.ry == 21 })
     );
 }
 
@@ -280,8 +279,8 @@ fn deploy_then_undeploy_returns_the_mcv_to_its_original_cell() {
         .substrate
         .entities
         .values()
-        .find(|e| e.type_ref == gacnst_id)
-        .map(|e| e.stable_id)
+        .find(|e| e.type_ref() == gacnst_id)
+        .map(|e| e.stable_id())
         .expect("ConYard should exist after deploy");
 
     assert!(
@@ -302,7 +301,7 @@ fn deploy_then_undeploy_returns_the_mcv_to_its_original_cell() {
         .substrate
         .entities
         .values()
-        .find(|e| e.type_ref == amcv_id)
+        .find(|e| e.type_ref() == amcv_id)
         .map(|e| (e.position.rx, e.position.ry))
         .expect("MCV should exist again after undeploy");
     assert_eq!(
@@ -344,7 +343,7 @@ fn a_computer_mcv_deploys_into_a_yard_that_follows_the_native_deploy_route() {
             crate::sim::world::FrameEffects::default()
         ));
         let yard = deployed_type(&sim, "GACNST");
-        let id = yard.stable_id;
+        let id = yard.stable_id();
         assert!(
             !yard.building_art.actually_placed(),
             "{name}: opened at deploy"
@@ -409,7 +408,7 @@ fn deploy_mcv_accepts_mixed_height_clear_foundation() {
         sim.substrate
             .entities
             .values()
-            .any(|e| { e.type_ref == gacnst_id && e.position.rx == 19 && e.position.ry == 21 }),
+            .any(|e| { e.type_ref() == gacnst_id && e.position.rx == 19 && e.position.ry == 21 }),
         "Construction Yard should spawn at gamemd's deploy foundation origin"
     );
 }
@@ -457,7 +456,7 @@ fn deploy_mcv_rejects_structure_in_rightmost_foundation_column() {
             !sim.substrate
                 .entities
                 .values()
-                .any(|e| e.type_ref == gacnst_id),
+                .any(|e| e.type_ref() == gacnst_id),
             "blocked deploy must not spawn a Construction Yard"
         );
     }
@@ -494,7 +493,7 @@ fn deploy_mcv_waits_for_target_building_deploy_facing() {
             .substrate
             .entities
             .values()
-            .any(|e| e.type_ref == yard)),
+            .any(|e| e.type_ref() == yard)),
         "facing gate must run before ConYard creation"
     );
     assert_eq!(sim.houses[&owner].ai_activation, SPLIT_AI_ACTIVATION);
@@ -671,7 +670,7 @@ fn deployed_type<'a>(sim: &'a Simulation, type_name: &str) -> &'a GameEntity {
     sim.substrate
         .entities
         .values()
-        .find(|entity| entity.type_ref == type_id && !entity.dying)
+        .find(|entity| entity.type_ref() == type_id && !entity.death.is_dying())
         .expect("deployed target exists")
 }
 
@@ -698,7 +697,10 @@ fn base_plan_recalc_deploy_generates_and_anchors_nonhuman_conyard() {
     let yard = deployed_type(&sim, "GACNST");
     assert_eq!((yard.position.rx, yard.position.ry), (19, 21));
     assert!(yard.building_up());
-    assert!(yard.ai_repairable, "a computer's yard is AI-repairable");
+    assert!(
+        yard.ai_sell_repair.ai_repairable(),
+        "a computer's yard is AI-repairable"
+    );
     let owner = sim.interner.get("Americans").unwrap();
     let house = &sim.houses[&owner];
     assert_eq!(house.base_center, Some((19, 21)));
@@ -735,7 +737,12 @@ fn a_damaged_computer_yard_starts_its_repair_as_its_build_up_completes() {
     let mcv = sim
         .spawn_object("AMCV", "Americans", 20, 22, 128, &rules)
         .expect("spawn MCV");
-    sim.substrate.entities.get_mut(mcv).unwrap().health.current = 225;
+    sim.substrate
+        .entities
+        .get_mut(mcv)
+        .unwrap()
+        .health
+        .set_for_test(225);
     let deployed_at = sim.session.binary_frame;
     assert!(sim.deploy_mcv(
         mcv,
@@ -744,7 +751,7 @@ fn a_damaged_computer_yard_starts_its_repair_as_its_build_up_completes() {
         crate::sim::world::FrameEffects::default()
     ));
     sim.flush_pending_delete();
-    let yard = deployed_type(&sim, "GACNST").stable_id;
+    let yard = deployed_type(&sim, "GACNST").stable_id();
     let mut frames = Vec::new();
     for _ in 0..7 {
         let frame = sim.session.binary_frame - deployed_at;
@@ -754,7 +761,7 @@ fn a_damaged_computer_yard_starts_its_repair_as_its_build_up_completes() {
         frames.push((
             frame,
             entity.building_up(),
-            entity.repairing,
+            entity.repairing.is_on(),
             house.repair_start_latch,
         ));
     }
@@ -797,7 +804,10 @@ fn base_plan_recalc_deploy_skips_human_campaign_and_non_conyard_targets() {
         assert!(deployed_type(&sim, "GACNST").building_up());
         // UnitClass::Deploy marks a computer's building AI-repairable in a
         // campaign too (`0x007397E4..0x007397F4`); Unlimbo does not there.
-        assert_eq!(deployed_type(&sim, "GACNST").ai_repairable, !is_human);
+        assert_eq!(
+            deployed_type(&sim, "GACNST").ai_sell_repair.ai_repairable(),
+            !is_human
+        );
         let house = &sim.houses[&owner];
         assert_eq!(house.base_center, None);
         assert_eq!(house.base_plan_center, (0, 0));
@@ -829,7 +839,7 @@ fn base_plan_recalc_deploy_skips_human_campaign_and_non_conyard_targets() {
         crate::sim::world::FrameEffects::default()
     ));
     assert!(deployed_type(&sim, "YAREFN").building_up());
-    assert!(deployed_type(&sim, "YAREFN").ai_repairable);
+    assert!(deployed_type(&sim, "YAREFN").ai_sell_repair.ai_repairable());
     assert_eq!(sim.houses[&owner].base_center, None);
     assert_eq!(sim.houses[&owner].base_plan_center, (0, 0));
     assert!(sim.houses[&owner].base_plan.nodes.is_empty());
@@ -915,7 +925,7 @@ fn base_plan_recalc_deploy_countryless_empty_plan_fails_before_removal() {
         crate::sim::world::FrameEffects::default()
     ));
 
-    assert!(!sim.substrate.entities.get(mcv).unwrap().dying);
+    assert!(!sim.substrate.entities.get(mcv).unwrap().death.is_dying());
     let house = &sim.houses[&owner];
     assert_eq!(house.base_center, None);
     assert_eq!(house.base_plan_center, (0, 0));
@@ -946,7 +956,7 @@ fn base_plan_recalc_deploy_failures_preserve_source_rng_plan_and_centers() {
         let rng_before = sim.scenario_rng.state();
 
         assert!(!sim.deploy_mcv(mcv, rules, None, crate::sim::world::FrameEffects::default()));
-        assert!(!sim.substrate.entities.get(mcv).unwrap().dying);
+        assert!(!sim.substrate.entities.get(mcv).unwrap().death.is_dying());
         let house = &sim.houses[&owner];
         assert_eq!(house.base_center, None);
         assert_eq!(house.base_plan_center, (0, 0));
@@ -1210,7 +1220,9 @@ pub(crate) fn native_deploy_fixture(row: &serde_json::Value) -> (Simulation, Rul
     )
     .unwrap();
     let actor = sim.substrate.entities.get_mut(id).unwrap();
-    actor.health.current = input["health"].as_i64().unwrap_or(100) as i32;
+    actor
+        .health
+        .set_for_test(input["health"].as_i64().unwrap_or(100) as i32);
     actor.position.sub_x = SimFixed::from_num(128);
     actor.position.sub_y = SimFixed::from_num(128);
     actor.position.exact_z_leptons = Some(0);
@@ -1247,10 +1259,12 @@ pub(crate) fn native_deploy_fixture(row: &serde_json::Value) -> (Simulation, Rul
         before["stage"][2].as_i64().unwrap() as i32,
         before["stage"][3].as_i64().unwrap() as i32,
     ));
-    actor.passive_scan_timer = crate::sim::mission::MissionTimer::armed(
-        before["reload"][0].as_i64().unwrap() as u32,
-        before["reload"][1].as_i64().unwrap() as u32,
-    );
+    actor
+        .passive_scan
+        .set_passive_scan_timer_for_test(crate::sim::mission::MissionTimer::armed(
+            before["reload"][0].as_i64().unwrap() as u32,
+            before["reload"][1].as_i64().unwrap() as u32,
+        ));
     let mut loco = crate::sim::movement::locomotor::LocomotorState::from_object_type(
         rules
             .object(input["type_id"].as_str().unwrap_or("E1"))
@@ -1274,7 +1288,9 @@ pub(crate) fn native_deploy_fixture(row: &serde_json::Value) -> (Simulation, Rul
         actor.navigation.nav_com = Some(crate::sim::components::NavTargetRef::cell(11, 10));
     }
     if before["target"].as_i64().unwrap_or(0) != 0 {
-        actor.attack_target = Some(AttackTarget::for_cell(10, 10));
+        actor
+            .attack_target
+            .set_for_test(Some(TargetKind::Cell(10, 10)));
     }
     if input["archive"].is_array() {
         let post = spawn_infantry(&mut sim, "E1", "Americans", 0, 0);
@@ -1351,8 +1367,8 @@ pub(crate) fn assert_native_deploy_state(sim: &Simulation, id: u64, row: &serde_
     );
     assert_eq!(
         serde_json::json!([
-            actor.passive_scan_timer.start_frame as i32,
-            actor.passive_scan_timer.duration as i32
+            actor.passive_scan.timer().start_frame as i32,
+            actor.passive_scan.timer().duration as i32
         ]),
         expected["reload"],
         "{name}: passive targeting timer180/188",
@@ -1431,7 +1447,7 @@ pub(crate) fn assert_native_deploy_state(sim: &Simulation, id: u64, row: &serde_
             expected["archive"] != 0,
             "{name}: archive identity retained"
         );
-        let target = actor.attack_target.as_ref().map(|target| target.target);
+        let target = actor.attack_target.target();
         assert_eq!(
             target,
             (expected["target"] != 0).then_some(TargetKind::Cell(10, 10)),

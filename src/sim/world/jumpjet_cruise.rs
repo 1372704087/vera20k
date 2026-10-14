@@ -104,7 +104,7 @@ impl JumpjetFlightHost for CruiseHost<'_> {
         self.trig
     }
     fn owner_kind(&self) -> FlightOwnerKind {
-        FlightOwnerKind::of(self.owner().category)
+        FlightOwnerKind::of(self.owner().category())
     }
     fn is_object_alive(&self) -> bool {
         self.owner().is_object_alive()
@@ -224,7 +224,7 @@ impl JumpjetFlightHost for CruiseHost<'_> {
         self.owner().locomotor.as_ref().unwrap().balloon_hover
     }
     fn has_target(&self) -> bool {
-        self.owner().attack_target.is_some()
+        self.owner().attack_target.target().is_some()
     }
     fn piggyback_active(&self) -> bool {
         self.owner().foot_locomotor_swap_active
@@ -380,7 +380,7 @@ impl JumpjetFlightHost for CruiseHost<'_> {
             .radio_contacts
             .slot(0)
             .and_then(|contact| self.sim.substrate.entities.get(contact))
-            .filter(|contact| contact.category == EntityCategory::Structure)
+            .filter(|contact| contact.category() == EntityCategory::Structure)
             .and_then(|contact| rules.object(self.sim.interner.resolve(contact.type_ref())))
             .is_some_and(|contact| {
                 contact.weapons_factory
@@ -462,13 +462,13 @@ impl JumpjetFlightHost for CruiseHost<'_> {
         let owner = self.sim.substrate.entities.get_mut(id).unwrap();
         owner.lift_may_end = true;
         owner.being_manipulated = false;
-        owner.crashing = false;
+        owner.crash.lower();
         if deploy_to_land {
             owner.set_landing_for_deploy(false);
         }
     }
     fn crashing(&self) -> bool {
-        self.owner().crashing
+        self.owner().crash.is_crashing()
     }
     fn in_bounds(&self, cell: (i16, i16)) -> bool {
         self.sim.map_size_diamond().is_some_and(|(width, height)| {
@@ -721,7 +721,7 @@ impl Simulation {
                 entry_state == STATE_TRANSLATE && matches!(state, STATE_HOLD | STATE_DESCEND);
             let entity = host.sim.substrate.entities.get_mut(stable_id).unwrap();
             if host.crash_latched
-                && entity.category == EntityCategory::Infantry
+                && entity.category() == EntityCategory::Infantry
                 && let Some(rules) = rules
                 && let Err(cause) = host.sim.infantry_do_action(
                     stable_id,
@@ -800,7 +800,7 @@ mod tests {
             cell.slope_type = 1;
         }
         let mut entity = GameEntity::test_default(1, "JUMPJETUNIT", "Americans", 10, 10);
-        entity.category = EntityCategory::Unit;
+        entity.set_category_for_test(EntityCategory::Unit);
         entity.body_facing.snap(u16::from(body_facing) << 8, 0);
         entity.position.sub_x = SimFixed::from_num(128);
         entity.position.sub_y = SimFixed::from_num(128);
@@ -1554,7 +1554,7 @@ mod tests {
                 "frame {frame}"
             );
             let Some(crate::sim::combat::TargetKind::Entity(target)) =
-                entity.attack_target.as_ref().map(|attack| attack.target)
+                entity.attack_target.target()
             else {
                 continue;
             };
@@ -1632,7 +1632,7 @@ mod tests {
             )
         };
         let sim = &scenario.runtime.simulation;
-        let strength = sim.substrate.entities.get(tank).unwrap().health.current;
+        let strength = sim.substrate.entities.get(tank).unwrap().health.current();
         let mut orders = vec![CommandEnvelope::new(
             sim.interner.get("Americans").expect("house"),
             sim.session.tick + 1,
@@ -1650,7 +1650,7 @@ mod tests {
                 damaged = true;
                 break;
             };
-            damaged |= target.health.current < strength;
+            damaged |= target.health.current() < strength;
             let entity = sim.substrate.entities.get(disc).expect("Disc lives");
             if frame > 0 {
                 assert_eq!(

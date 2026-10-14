@@ -7,6 +7,29 @@ use crate::rules::ruleset::RuleSet;
 use crate::sim::world::FrameEffects;
 use crate::sim::{intern::InternedId, power_system, vision};
 
+/// The building's last operational sample, `BuildingClass+0x6C8`: the
+/// `0x004555D0` result `BuildingClass::Update @ 0x0043FB20` takes for every
+/// building and stores after its edge dispatcher returns (`0x0043FBEF`). A
+/// change of sample runs the operational edges.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(transparent)]
+pub(crate) struct LastOperational {
+    operational: bool,
+}
+
+impl LastOperational {
+    /// The last sample was operational.
+    pub(crate) const fn is_operational(self) -> bool {
+        self.operational
+    }
+
+    /// Install a fixture's sample.
+    #[cfg(test)]
+    pub(crate) fn set_for_test(&mut self, operational: bool) {
+        self.operational = operational;
+    }
+}
+
 impl Simulation {
     fn gap_viewers(&self) -> Vec<InternedId> {
         self.houses
@@ -22,7 +45,7 @@ impl Simulation {
     /// this adapter's established domain; do not infer them from visual state.
     pub(crate) fn building_operational_state(&self, id: u64, rules: &RuleSet) -> Option<bool> {
         let entity = self.substrate.entities.get(id)?;
-        if entity.category != EntityCategory::Structure {
+        if entity.category() != EntityCategory::Structure {
             return None;
         }
         let object = rules.object(self.interner.resolve(entity.type_ref()))?;
@@ -34,13 +57,13 @@ impl Simulation {
             online: entity.building_online(),
             tesla_chargers: 0,
             emp_remaining: 0,
-            health: entity.health.current,
+            health: entity.health.current(),
             powered: object.powered,
             power_drain: power_system::native_building_power_drain(object.power),
             powered_special: object.powered_special,
             owner_outage: self.building_power_outage(id),
             needs_engineer: object.needs_engineer,
-            has_engineer: entity.building_has_engineer,
+            has_engineer: entity.building_has_engineer.is_set(),
             effective_mission: entity.mission.effective().raw(),
         };
         Some(power_system::is_operational_for_output(&facts, || {
@@ -63,7 +86,7 @@ impl Simulation {
 
     pub(super) fn gap_operational_state(&self, id: u64, rules: &RuleSet) -> Option<(bool, i32)> {
         let entity = self.substrate.entities.get(id)?;
-        if !entity.lifecycle.object_alive || entity.lifecycle.in_limbo {
+        if !entity.lifecycle.object_alive() || entity.lifecycle.in_limbo() {
             return None;
         }
         let object = rules.object(self.interner.resolve(entity.type_ref()))?;
@@ -91,7 +114,7 @@ impl Simulation {
             .substrate
             .entities
             .get(id)
-            .is_none_or(|entity| !entity.lifecycle.object_alive || entity.lifecycle.in_limbo)
+            .is_none_or(|entity| !entity.lifecycle.object_alive() || entity.lifecycle.in_limbo())
         {
             return;
         }
@@ -104,6 +127,7 @@ impl Simulation {
             .get(id)
             .unwrap()
             .building_last_operational
+            .is_operational()
             == operational
         {
             return;
@@ -131,7 +155,8 @@ impl Simulation {
             .entities
             .get_mut(id)
             .unwrap()
-            .building_last_operational = operational;
+            .building_last_operational
+            .operational = operational;
     }
 
     fn set_building_gap_for_viewer(
@@ -220,7 +245,7 @@ impl Simulation {
         let Some(entity) = self.substrate.entities.get(id) else {
             return;
         };
-        if entity.category != EntityCategory::Structure {
+        if entity.category() != EntityCategory::Structure {
             return;
         }
         self.fog.alliances = self.house_alliances.clone();

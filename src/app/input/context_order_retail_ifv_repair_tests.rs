@@ -6,7 +6,7 @@ use crate::app::input::cursor::{capability_cursor_for_hover, cursor_id_for_feedb
 use crate::app::types::{CursorFeedbackKind, CursorId};
 use crate::rules::ruleset::RuleSet;
 use crate::sim::house_state::HouseState;
-use crate::sim::passenger::{PassengerRole, tick_passenger_system};
+use crate::sim::passenger::tick_passenger_system;
 use crate::sim::world::UnitRepairAction;
 use crate::sim::world::{FrameEffects, Simulation};
 
@@ -39,20 +39,31 @@ fn boarded_ifv(rules: &RuleSet, passenger_type: &str) -> (Simulation, u64, u64) 
     tick_passenger_system(&mut sim, rules, None, FrameEffects::default());
     let grid = sim.path_grid_snapshot().unwrap();
     for _ in 0..240 {
-        if matches!(
-            sim.entities().get(engineer).unwrap().passenger_role,
-            PassengerRole::Inside { .. }
-        ) {
+        if sim
+            .entities()
+            .get(engineer)
+            .unwrap()
+            .passenger_role
+            .is_inside_transport()
+        {
             break;
         }
         sim.advance_tick(&[], Some(rules), Some(&grid), None, 67);
     }
     assert!(
-        matches!(sim.entities().get(engineer).unwrap().passenger_role,
-        PassengerRole::Inside { transport_id, .. } if transport_id == ifv)
+        sim.entities()
+            .get(engineer)
+            .unwrap()
+            .passenger_role
+            .inside_transport_id()
+            == Some(ifv)
     );
     let tank = sim.spawn_object("MTNK", OWNER, 17, 16, 64, rules).unwrap();
-    sim.entities_mut().get_mut(tank).unwrap().health.current = 100;
+    sim.entities_mut()
+        .get_mut(tank)
+        .unwrap()
+        .health
+        .set_for_test(100);
     (sim, ifv, tank)
 }
 
@@ -218,12 +229,7 @@ fn retail_berserk_engineer_ifv_keeps_cursor_but_refuses_click() {
     // already published before the actor became berserk is still received.
     assert!(sim.apply_command(OWNER, &already_sent, Some(rules)));
     assert_eq!(
-        sim.entities()
-            .get(ifv)
-            .unwrap()
-            .attack_target
-            .as_ref()
-            .map(|attack| attack.target),
+        sim.entities().get(ifv).unwrap().attack_target.target(),
         Some(TargetKind::Entity(tank))
     );
 }
@@ -240,23 +246,18 @@ fn retail_engineer_ifv_plain_repair_click_reaches_attack_mission_and_heals() {
     let command = repair_click(&sim, rules, ifv, tank);
     assert!(sim.apply_command(OWNER, &command, Some(rules)));
     assert_eq!(
-        sim.entities()
-            .get(ifv)
-            .unwrap()
-            .attack_target
-            .as_ref()
-            .map(|attack| attack.target),
+        sim.entities().get(ifv).unwrap().attack_target.target(),
         Some(TargetKind::Entity(tank))
     );
     let grid = sim.path_grid_snapshot().unwrap();
-    let before = sim.entities().get(tank).unwrap().health.current;
+    let before = sim.entities().get(tank).unwrap().health.current();
     for _ in 0..120 {
         sim.advance_tick(&[], Some(rules), Some(&grid), None, 67);
-        if sim.entities().get(tank).unwrap().health.current > before {
+        if sim.entities().get(tank).unwrap().health.current() > before {
             break;
         }
     }
-    let after = sim.entities().get(tank).unwrap().health.current;
+    let after = sim.entities().get(tank).unwrap().health.current();
     assert!(
         after > before && after <= rules.object("MTNK").unwrap().strength,
         "the ordinary selected repair weapon must raise target health"
@@ -271,14 +272,18 @@ fn retail_far_repair_click_drives_into_range_and_heals_without_ctrl() {
     let rules = &retail.rules;
     let (mut sim, ifv, _) = repair_ifv(rules);
     let far = sim.spawn_object("MTNK", OWNER, 25, 16, 64, rules).unwrap();
-    sim.entities_mut().get_mut(far).unwrap().health.current = 100;
+    sim.entities_mut()
+        .get_mut(far)
+        .unwrap()
+        .health
+        .set_for_test(100);
     let start = sim.entities().get(ifv).unwrap().position;
     let command = repair_click(&sim, rules, ifv, far);
     assert!(sim.apply_command(OWNER, &command, Some(rules)));
     let grid = sim.path_grid_snapshot().unwrap();
     for _ in 0..900 {
         sim.advance_tick(&[], Some(rules), Some(&grid), None, 67);
-        if sim.entities().get(far).unwrap().health.current > 100 {
+        if sim.entities().get(far).unwrap().health.current() > 100 {
             break;
         }
     }
@@ -289,7 +294,7 @@ fn retail_far_repair_click_drives_into_range_and_heals_without_ctrl() {
         "the ordered repair must approach a distant ally"
     );
     assert!(
-        sim.entities().get(far).unwrap().health.current > 100,
+        sim.entities().get(far).unwrap().health.current() > 100,
         "a normal repair click must reach its damaged target and fire"
     );
 }
@@ -359,8 +364,11 @@ fn retail_repair_click_preserves_native_modifier_and_target_controls() {
     );
     let wrong_owner = sim.interner.get("Russians").unwrap();
     assert_eq!(sim.unit_repair_action(ifv, tank, wrong_owner, rules), None);
-    sim.entities_mut().get_mut(tank).unwrap().health.current =
-        rules.object("MTNK").unwrap().strength;
+    sim.entities_mut()
+        .get_mut(tank)
+        .unwrap()
+        .health
+        .set_for_test(rules.object("MTNK").unwrap().strength);
     assert!(
         unit_repair_branch_orders(
             &sim,
@@ -376,11 +384,19 @@ fn retail_repair_click_preserves_native_modifier_and_target_controls() {
         .commands
         .is_empty()
     );
-    sim.entities_mut().get_mut(tank).unwrap().health.current = 100;
+    sim.entities_mut()
+        .get_mut(tank)
+        .unwrap()
+        .health
+        .set_for_test(100);
     let enemy = sim
         .spawn_object("MTNK", "Russians", 23, 16, 64, rules)
         .unwrap();
-    sim.entities_mut().get_mut(enemy).unwrap().health.current = 100;
+    sim.entities_mut()
+        .get_mut(enemy)
+        .unwrap()
+        .health
+        .set_for_test(100);
     assert_eq!(
         sim.unit_repair_action(ifv, enemy, owner, rules),
         Some(UnitRepairAction::Move)
@@ -447,16 +463,14 @@ fn issued_repair_attack_is_not_readmitted_when_health_or_cargo_changes() {
     let rules = &retail.rules;
     let (mut sim, ifv, tank) = repair_ifv(rules);
     let command = repair_click(&sim, rules, ifv, tank);
-    sim.entities_mut().get_mut(tank).unwrap().health.current =
-        rules.object("MTNK").unwrap().strength;
+    sim.entities_mut()
+        .get_mut(tank)
+        .unwrap()
+        .health
+        .set_for_test(rules.object("MTNK").unwrap().strength);
     assert!(sim.apply_command(OWNER, &command, Some(rules)));
     assert_eq!(
-        sim.entities()
-            .get(ifv)
-            .unwrap()
-            .attack_target
-            .as_ref()
-            .map(|a| a.target),
+        sim.entities().get(ifv).unwrap().attack_target.target(),
         Some(TargetKind::Entity(tank)),
         "the event still commits its original target"
     );
@@ -478,6 +492,7 @@ fn issued_repair_attack_is_not_readmitted_when_health_or_cargo_changes() {
                 16,
                 15,
                 0,
+                None,
                 FrameEffects::default(),
             )
         },
@@ -487,12 +502,7 @@ fn issued_repair_attack_is_not_readmitted_when_health_or_cargo_changes() {
     assert_eq!(sim.entities().get(ifv).unwrap().current_weapon_number(), 0);
     assert!(sim.apply_command(OWNER, &command, Some(rules)));
     assert_eq!(
-        sim.entities()
-            .get(ifv)
-            .unwrap()
-            .attack_target
-            .as_ref()
-            .map(|a| a.target),
+        sim.entities().get(ifv).unwrap().attack_target.target(),
         Some(TargetKind::Entity(tank)),
         "cargo changes do not replace the issued event"
     );
@@ -501,7 +511,7 @@ fn issued_repair_attack_is_not_readmitted_when_health_or_cargo_changes() {
 #[test]
 fn unit_repair_vehicle_class_matches_fire_error_including_undeploy_building() {
     let rules = RuleSet::from_ini_with_fixed_art_for_test(
-        &crate::rules::ini_parser::IniFile::from_str(
+        &crate::sim::arena_fixture::clear_ground_ini(
             "[VehicleTypes]\n0=REPAIRER\n1=TANK\n2=ORGANIC\n\
              [BuildingTypes]\n0=DEPLOYED\n1=ORDINARY\n\
              [REPAIRER]\nStrength=100\nPrimary=Fix\nSpeed=5\n\
@@ -540,7 +550,11 @@ fn unit_repair_vehicle_class_matches_fire_error_including_undeploy_building() {
         let target = sim
             .spawn_object(kind, OWNER, cell.0, cell.1, 64, &rules)
             .unwrap();
-        sim.entities_mut().get_mut(target).unwrap().health.current = 50;
+        sim.entities_mut()
+            .get_mut(target)
+            .unwrap()
+            .health
+            .set_for_test(50);
         targets.push(target);
     }
     assert_eq!(

@@ -161,12 +161,12 @@ pub(crate) fn blocker_plane_source(
     rules: Option<&crate::rules::ruleset::RuleSet>,
     retained_foot: bool,
 ) -> Option<BlockerPlaneSource> {
-    if retained_foot && entity.category != EntityCategory::Structure {
+    if retained_foot && entity.category() != EntityCategory::Structure {
         return None;
     }
     // Dying corpses are off the occupancy grid: don't let them inflate the
     // A* dynamic-blocker neighbor costs.
-    if entity.dying || !entity.lifecycle.cell_marked {
+    if entity.death.is_dying() || !entity.lifecycle.cell_marked {
         return None;
     }
     if entity.passenger_role.is_inside_transport()
@@ -175,7 +175,7 @@ pub(crate) fn blocker_plane_source(
         return None;
     }
     let pos = (entity.position.rx, entity.position.ry);
-    if entity.category == EntityCategory::Structure {
+    if entity.category() == EntityCategory::Structure {
         let size = rules
             .and_then(|r| r.object(interner.resolve(entity.type_ref())))
             .map(|obj| crate::rules::foundation::foundation_dimensions(&obj.foundation))
@@ -534,7 +534,10 @@ impl CrushCapability {
     /// latch). `MovementZone=CrusherAll` is a separate wall-arm route
     /// (`0x0073F465`) that `cell_entry` keys on the zone, not on this flag.
     pub const fn of(entity: &GameEntity) -> Self {
-        Self::new(entity.regular_crusher, entity.omni_crusher)
+        Self::new(
+            entity.mover_facts.regular_crusher(),
+            entity.mover_facts.omni_crusher(),
+        )
     }
 
     /// The key of the wall arm's crusher route: `Crusher=` alone
@@ -602,10 +605,10 @@ impl CrushTarget {
     /// Read the crush inputs off a live entity at a known sim frame.
     pub fn from_entity(entity: &GameEntity, current_frame: u32) -> Self {
         Self {
-            category: entity.category,
-            crushable: entity.crushable,
+            category: entity.category(),
+            crushable: entity.crushable_facts.crushable(),
             deploy_crush_immune: deploy_crush_immune(entity),
-            omni_crush_resistant: entity.omni_crush_resistant,
+            omni_crush_resistant: entity.mover_facts.omni_crush_resistant(),
             iron_curtained: crate::sim::superweapon::invulnerability::is_invulnerable(
                 entity.invulnerability.as_ref(),
                 current_frame,
@@ -617,10 +620,10 @@ impl CrushTarget {
     /// legality only. See [`IRON_CURTAIN_UNAVAILABLE`].
     fn from_entity_without_frame(entity: &GameEntity) -> Self {
         Self {
-            category: entity.category,
-            crushable: entity.crushable,
+            category: entity.category(),
+            crushable: entity.crushable_facts.crushable(),
             deploy_crush_immune: deploy_crush_immune(entity),
-            omni_crush_resistant: entity.omni_crush_resistant,
+            omni_crush_resistant: entity.mover_facts.omni_crush_resistant(),
             iron_curtained: IRON_CURTAIN_UNAVAILABLE,
         }
     }
@@ -1071,19 +1074,19 @@ mod tests {
 
     fn infantry(id: u64, rx: u16, ry: u16, sub: u8) -> GameEntity {
         let mut e = GameEntity::test_default(id, "E1", "Allies", rx, ry);
-        e.category = EntityCategory::Infantry;
+        e.set_category_for_test(EntityCategory::Infantry);
         e.mission_leaf = crate::sim::mission::leaf::MissionLeafState::for_entity_category(
             EntityCategory::Infantry,
         );
         e.sub_cell = Some(sub);
-        e.crushable = true;
+        e.crushable_facts.set_crushable_for_test(true);
         e
     }
 
     fn vehicle(id: u64, rx: u16, ry: u16) -> GameEntity {
         let mut e = GameEntity::test_default(id, "MTNK", "Allies", rx, ry);
-        e.category = EntityCategory::Unit;
-        e.crushable = false;
+        e.set_category_for_test(EntityCategory::Unit);
+        e.crushable_facts.set_crushable_for_test(false);
         e
     }
 
@@ -1096,7 +1099,7 @@ mod tests {
             ry,
             EntityCategory::Structure,
         );
-        e.crushable = false;
+        e.crushable_facts.set_crushable_for_test(false);
         e
     }
 
@@ -1105,7 +1108,7 @@ mod tests {
         let mut entities = EntityStore::new();
         let mut blocker = vehicle(1, 2, 2);
         blocker.on_bridge = true;
-        blocker.lifecycle.in_limbo = false;
+        blocker.lifecycle.set_in_limbo_for_test(false);
         blocker.lifecycle.cell_marked = true;
         entities.insert(blocker);
         let interner = crate::sim::intern::StringInterner::new();
@@ -1175,7 +1178,7 @@ mod tests {
     fn blocker_neighbor_counts_building_uses_expanded_foundation_rectangle_once() {
         let mut entities = EntityStore::new();
         let mut building = structure(1, 2, 2);
-        building.lifecycle.in_limbo = false;
+        building.lifecycle.set_in_limbo_for_test(false);
         building.lifecycle.cell_marked = true;
         entities.insert(building);
         let interner = crate::sim::intern::StringInterner::new();
@@ -1311,7 +1314,7 @@ mod tests {
     fn gsi_04_15_detached_tube_mover_is_absent_from_the_blocker_plane() {
         let mut entities = EntityStore::new();
         let mut mover = GameEntity::test_default(7, "MTNK", "Americans", 2, 2);
-        mover.lifecycle.in_limbo = false;
+        mover.lifecycle.set_in_limbo_for_test(false);
         mover.lifecycle.cell_marked = false;
         entities.insert(mover);
         let interner = crate::sim::intern::test_interner();
@@ -1463,11 +1466,11 @@ mod tests {
     fn full_cell_crush_kills_centered_enemy() {
         let mut entities = EntityStore::new();
         let mut crusher = vehicle(1, 5, 5);
-        crusher.regular_crusher = true;
+        crusher.mover_facts.set_regular_crusher_for_test(true);
         entities.insert(crusher);
         let mut victim = GameEntity::test_default(2, "E1", "Soviet", 5, 5);
-        victim.category = EntityCategory::Infantry;
-        victim.crushable = true;
+        victim.set_category_for_test(EntityCategory::Infantry);
+        victim.crushable_facts.set_crushable_for_test(true);
         entities.insert(victim);
         let interner = crate::sim::intern::test_interner();
 
@@ -1489,10 +1492,10 @@ mod tests {
     fn full_cell_crush_skips_allied_victim() {
         let mut entities = EntityStore::new();
         let mut crusher = vehicle(1, 5, 5);
-        crusher.regular_crusher = true;
+        crusher.mover_facts.set_regular_crusher_for_test(true);
         entities.insert(crusher);
         let mut victim = infantry(2, 5, 5, 2);
-        victim.crushable = true;
+        victim.crushable_facts.set_crushable_for_test(true);
         entities.insert(victim);
         let interner = crate::sim::intern::test_interner();
 
@@ -1517,11 +1520,11 @@ mod tests {
         // suppressed squad in one pass.
         let mut entities = EntityStore::new();
         let mut crusher = vehicle(1, 5, 5);
-        crusher.regular_crusher = true;
+        crusher.mover_facts.set_regular_crusher_for_test(true);
         entities.insert(crusher);
         let mut victim = GameEntity::test_default(2, "E1", "Soviet", 5, 5);
-        victim.category = EntityCategory::Infantry;
-        victim.crushable = true;
+        victim.set_category_for_test(EntityCategory::Infantry);
+        victim.crushable_facts.set_crushable_for_test(true);
         victim.infantry = Some(InfantryRuntime {
             is_prone: true,
             ..InfantryRuntime::new()
@@ -1550,18 +1553,16 @@ mod tests {
         // under a tank, a deployed Guardian GI does not.
         let mut entities = EntityStore::new();
         let mut crusher = vehicle(1, 5, 5);
-        crusher.regular_crusher = true;
+        crusher.mover_facts.set_regular_crusher_for_test(true);
         entities.insert(crusher);
         let mut gi = GameEntity::test_default(2, "E1", "Soviet", 5, 5);
-        gi.category = EntityCategory::Infantry;
-        gi.crushable = true;
-        gi.deployed_crushable = true;
+        gi.set_category_for_test(EntityCategory::Infantry);
+        gi.crushable_facts.set_crushable_for_test(true);
         gi.set_infantry_deploy_crush_immunity(0);
         entities.insert(gi);
         let mut ggi = GameEntity::test_default(3, "GGI", "Soviet", 5, 5);
-        ggi.category = EntityCategory::Infantry;
-        ggi.crushable = true;
-        ggi.deployed_crushable = false;
+        ggi.set_category_for_test(EntityCategory::Infantry);
+        ggi.crushable_facts.set_crushable_for_test(true);
         ggi.set_infantry_deploy_crush_immunity(1);
         entities.insert(ggi);
         let interner = crate::sim::intern::test_interner();
@@ -1584,11 +1585,11 @@ mod tests {
     fn iron_curtained_infantry_is_not_crushed_at_the_kill_site() {
         let mut entities = EntityStore::new();
         let mut crusher = vehicle(1, 5, 5);
-        crusher.regular_crusher = true;
+        crusher.mover_facts.set_regular_crusher_for_test(true);
         entities.insert(crusher);
         let mut victim = GameEntity::test_default(2, "E1", "Soviet", 5, 5);
-        victim.category = EntityCategory::Infantry;
-        victim.crushable = true;
+        victim.set_category_for_test(EntityCategory::Infantry);
+        victim.crushable_facts.set_crushable_for_test(true);
         victim.invulnerability = Some(
             crate::sim::superweapon::invulnerability::InvulnerabilityState::new(
                 crate::sim::timer::CdTimer::started(10, 750),
@@ -1706,7 +1707,7 @@ mod tests {
     fn test_collect_crush_victims_non_crushable() {
         let mut store = EntityStore::new();
         let mut inf = infantry(1, 5, 5, 2);
-        inf.crushable = false;
+        inf.crushable_facts.set_crushable_for_test(false);
         store.insert(inf);
 
         let grid = make_occ(&[(5, 5, 1, MovementLayer::Ground, Some(2))]);
@@ -1728,7 +1729,6 @@ mod tests {
         let mut store = EntityStore::new();
         let mut inf = infantry(1, 5, 5, 2);
         inf.set_infantry_deploy_crush_immunity(1);
-        inf.deployed_crushable = false;
         store.insert(inf);
 
         let grid = make_occ(&[(5, 5, 1, MovementLayer::Ground, Some(2))]);
@@ -1750,7 +1750,6 @@ mod tests {
         let mut store = EntityStore::new();
         let mut inf = infantry(1, 5, 5, 2);
         inf.set_infantry_deploy_crush_immunity(0);
-        inf.deployed_crushable = true;
         store.insert(inf);
 
         let grid = make_occ(&[(5, 5, 1, MovementLayer::Ground, Some(2))]);
@@ -2085,7 +2084,7 @@ mod tests {
         ry: u16,
     ) -> GameEntity {
         let mut victim = infantry(1, rx, ry, 2);
-        victim.type_ref = interner.intern("E1");
+        victim.set_type_ref_for_test(interner.intern("E1"));
         victim
     }
 

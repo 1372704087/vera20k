@@ -72,6 +72,15 @@ pub struct EntityStore {
     /// Uninit retains an entry; remove compacts it. Class/category is immutable
     /// while stored, like indexed identity (replace through remove/insert).
     infantry_registry: Vec<u64>,
+    /// Derived TechnoClass registration index from monotonic constructor IDs.
+    /// Production construction stores each parent before manager children;
+    /// see construction33/55,world_spawn::store_with_constructor_managers,
+    /// authored_health::unlimbo and reinforcement construction. Stable ID is
+    /// authoritative, this cache is rebuilt on restore and never serialized.
+    /// UnInit keeps a row; physical remove compacts the registry independently
+    /// of the dense storage's empty slots and compaction schedule.
+    /// RMG PreconsumedGenerated registration parity is not established here.
+    techno_registry: Vec<u64>,
     /// Which entities may have changed since each reader last took its log
     /// ([`Self::take_touched`]). Every route to a `&mut GameEntity` goes
     /// through the store, so an entity missing from a log has not changed.
@@ -140,6 +149,7 @@ impl Clone for EntityStore {
             entities: self.entities.clone(),
             slot_of: self.slot_of.clone(),
             infantry_registry: self.infantry_registry.clone(),
+            techno_registry: self.techno_registry.clone(),
             touched: TouchLogs::everything(),
         }
     }
@@ -164,6 +174,7 @@ impl EntityStore {
             entities: Vec::new(),
             slot_of: HashMap::default(),
             infantry_registry: Vec::new(),
+            techno_registry: Vec::new(),
             touched: TouchLogs::everything(),
         }
     }
@@ -173,7 +184,7 @@ impl EntityStore {
     pub fn insert(&mut self, entity: GameEntity) -> u64 {
         let id = entity.stable_id();
         self.touched.note(id, self.len());
-        let infantry = entity.category == crate::map::entities::EntityCategory::Infantry;
+        let infantry = entity.category() == crate::map::entities::EntityCategory::Infantry;
         let entity = Some(Box::new(entity));
         if let Some(&slot) = self.slot_of.get(&id) {
             self.entities[slot as usize] = entity;
@@ -193,6 +204,9 @@ impl EntityStore {
                 self.reindex_from(slot);
             }
         }
+        if let Err(index) = self.techno_registry.binary_search(&id) {
+            self.techno_registry.insert(index, id);
+        }
         self.remove_infantry_index(id);
         if infantry {
             let index = self
@@ -209,6 +223,9 @@ impl EntityStore {
         let removed = self.entities[slot].take().map(|entity| *entity);
         self.touched.note(stable_id, self.len());
         self.remove_infantry_index(stable_id);
+        if let Ok(index) = self.techno_registry.binary_search(&stable_id) {
+            self.techno_registry.remove(index);
+        }
         // Compact once a quarter of the slots are empty, so a walk skips few
         // and compaction's cost spreads over many removals.
         let empty = self.ids.len() - self.slot_of.len();
@@ -258,20 +275,17 @@ impl EntityStore {
         let stored = self.len();
         self.touched.note(stable_id, stored);
         for entity in self.entities.iter_mut().filter_map(Option::as_deref_mut) {
-            if entity.has_live_contact_with(stable_id)
-                || entity.dock_entered_with == Some(stable_id)
+            if entity.has_live_contact_with(stable_id) || entity.tether.partner() == Some(stable_id)
             {
                 self.touched.note(entity.stable_id(), stored);
             }
             entity.clear_live_contact_with(stable_id);
-            // Drop a dangling dock-entered link pointing at the departing entity
-            // (the BREAK cascade a limbo'd dock partner would otherwise miss).
-            if entity.dock_entered_with == Some(stable_id) {
-                entity.dock_entered_with = None;
-            }
+            // Drop a dangling tether to the departing entity (the BREAK
+            // cascade a limbo'd dock partner would otherwise miss).
+            entity.tether.forget(stable_id);
             if entity.stable_id() == stable_id {
                 entity.radio_contacts.clear_all();
-                entity.dock_entered_with = None;
+                entity.tether.release();
             }
         }
     }
@@ -351,6 +365,15 @@ impl EntityStore {
         .collect()
     }
 
+    /// Action14's full Techno array, independent of Logic and Display order.
+    /// Read length/slot afresh after callbacks; append/removal is visible.
+    pub(crate) fn techno_registry_at(&self, index: usize) -> Option<u64> {
+        self.techno_registry.get(index).copied()
+    }
+    pub(crate) fn techno_registry_len(&self) -> usize {
+        self.techno_registry.len()
+    }
+
     /// Native InfantryClass array index. Read afresh after a callback: removing
     /// a row shifts successors left, while a newly constructed row is visible.
     /// This is distinct from the live Logic vector and includes dead/limbo rows.
@@ -411,7 +434,9 @@ impl EntityStore {
     pub(crate) fn rebuild_infantry_registry(&mut self) {
         let infantry: Vec<u64> = self
             .stored()
-            .filter(|(_, entity)| entity.category == crate::map::entities::EntityCategory::Infantry)
+            .filter(|(_, entity)| {
+                entity.category() == crate::map::entities::EntityCategory::Infantry
+            })
             .map(|(id, _)| id)
             .collect();
         // Storage iterates in ascending stable_id order, so the infantry
@@ -488,6 +513,7 @@ impl<'de> serde::Deserialize<'de> for EntityStore {
             store.entities.push(Some(entity));
         }
         store.rebuild_infantry_registry();
+        store.techno_registry = store.ids.clone();
         Ok(store)
     }
 }
@@ -615,6 +641,11 @@ mod tests {
                     store.keys_sorted(),
                     model.keys().copied().collect::<Vec<_>>()
                 );
+                assert_eq!(
+                    store.techno_registry,
+                    model.keys().copied().collect::<Vec<_>>(),
+                    "native registration rows must not follow dense empty slots"
+                );
                 let stored: Vec<(u64, u16)> = store
                     .iter_sorted()
                     .rev()
@@ -652,6 +683,7 @@ mod tests {
         assert_eq!(saved, bincode::serialize(&map).unwrap());
         let restored: EntityStore = bincode::deserialize(&saved).unwrap();
         assert_eq!(restored.keys_sorted(), [2, 4, 7]);
+        assert_eq!(restored.techno_registry, [2, 4, 7]);
         assert_eq!(bincode::serialize(&restored).unwrap(), saved);
     }
 
@@ -661,17 +693,25 @@ mod tests {
         let mut store = EntityStore::new();
         for id in [1, 2, 3] {
             let mut e = make_entity(id);
-            e.category = EntityCategory::Infantry;
+            e.set_category_for_test(EntityCategory::Infantry);
             store.insert(e);
         }
-        store.get_mut(1).unwrap().lifecycle.object_alive = false;
-        store.get_mut(1).unwrap().lifecycle.in_limbo = true;
+        store
+            .get_mut(1)
+            .unwrap()
+            .lifecycle
+            .set_object_alive_for_test(false);
+        store
+            .get_mut(1)
+            .unwrap()
+            .lifecycle
+            .set_in_limbo_for_test(true);
         assert_eq!(store.infantry_registry_at(0), Some(1));
         store.remove(1);
         // A caller that just visited index0 next reads index1, skipping2.
         assert_eq!(store.infantry_registry_at(1), Some(3));
         let mut appended = make_entity(4);
-        appended.category = EntityCategory::Infantry;
+        appended.set_category_for_test(EntityCategory::Infantry);
         store.insert(appended);
         assert_eq!(store.infantry_registry_at(2), Some(4));
         // Replacement through the store updates category membership too.
@@ -696,7 +736,7 @@ mod tests {
         assert!(!store.contains(3));
 
         let e = store.get(1).expect("entity 1 should exist");
-        assert_eq!(e.stable_id, 1);
+        assert_eq!(e.stable_id(), 1);
     }
 
     #[test]
@@ -705,10 +745,10 @@ mod tests {
         store.insert(make_entity(1));
 
         let e = store.get_mut(1).expect("entity 1 should exist");
-        e.health.current = 50;
+        e.health.set_for_test(50);
 
         let e = store.get(1).expect("entity 1 should exist");
-        assert_eq!(e.health.current, 50);
+        assert_eq!(e.health.current(), 50);
     }
 
     #[test]
@@ -719,7 +759,7 @@ mod tests {
 
         let removed = store.remove(1);
         assert!(removed.is_some());
-        assert_eq!(removed.expect("should be Some").stable_id, 1);
+        assert_eq!(removed.expect("should be Some").stable_id(), 1);
         assert_eq!(store.len(), 1);
         assert!(!store.contains(1));
         assert!(store.contains(2));
@@ -827,7 +867,7 @@ mod tests {
         store.insert(make_entity(1));
         store.insert(make_entity(2));
 
-        let ids: Vec<u64> = store.values_sorted().map(|e| e.stable_id).collect();
+        let ids: Vec<u64> = store.values_sorted().map(|e| e.stable_id()).collect();
         assert_eq!(ids, vec![1, 2, 3]);
     }
 
@@ -874,14 +914,16 @@ mod tests {
         let keys = store.keys_sorted();
         for &id in &keys {
             if let Some(entity) = store.get_mut(id) {
-                entity.health.current = entity.health.current.saturating_sub(10);
+                entity
+                    .health
+                    .set_for_test(entity.health.current().saturating_sub(10));
             }
         }
 
         // Verify all were mutated.
         for &id in &[1u64, 2, 3] {
             let e = store.get(id).expect("should exist");
-            assert_eq!(e.health.current, 90);
+            assert_eq!(e.health.current(), 90);
         }
     }
 

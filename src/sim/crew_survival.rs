@@ -111,11 +111,10 @@
 //!   hijacker arm is unreachable.
 //! - The crewman takes the vehicle's tag (`0x006E57C0`/`0x005F5B50`): VERA
 //!   has no per-object tags.
-//! - Absorbed-passenger bookkeeping: the House `+0x2F4` counter and the
-//!   passenger `+0x438`/`+0x439` flags, and a refused passenger's kill credit
-//!   to a Techno C4AppliedBy (vt+0xE0) before its UnInit. A UnitAbsorb
-//!   passenger (no stock building) leaves without its Scatter in Phase A and
-//!   with it in a sale; VERA scatters neither.
+//! - A refused passenger's kill credit to a Techno C4AppliedBy (vt+0xE0)
+//!   before its UnInit. A UnitAbsorb passenger (no stock building) leaves
+//!   without its Scatter in Phase A and with it in a sale; VERA scatters
+//!   neither.
 //! - The Nominal survivor flag (Infantry `+0x6D9`, set from the crew type's
 //!   `+0xC9E`; a sale sets it at `0x0044A747`; read by
 //!   `HouseClass::Added_To_Game @ 0x00502C3C`) is not represented.
@@ -146,6 +145,35 @@ use crate::util::native_x87::{MaskedX87Chop53 as X87, MaskedX87Ordering, NativeF
 /// PlaceInfantryInCell takes its centre row draw.
 const SURVIVOR_REQUEST_X: i32 = 0x80;
 const SURVIVOR_REQUEST_Y: i32 = 0xA4;
+
+/// A building's HasBeenCaptured byte, `BuildingClass+0x6E3`. The
+/// BuildingClass constructor clears it (`0x0043B96C`) and every
+/// `BuildingClass::ChangeOwner` sets it (`0x00448723`, [`Self::mark`]). The
+/// survivor count, the survivor roll and the building crew pick read it.
+/// Hashed and persisted (v194).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(transparent)]
+pub(crate) struct HasBeenCaptured {
+    set: bool,
+}
+
+impl HasBeenCaptured {
+    /// The building has changed owner.
+    pub(crate) const fn is_set(self) -> bool {
+        self.set
+    }
+
+    /// `BuildingClass::ChangeOwner`'s write (`0x00448723`).
+    pub(crate) fn mark(&mut self) {
+        self.set = true;
+    }
+
+    /// Install a fixture's byte.
+    #[cfg(test)]
+    pub(crate) fn set_for_test(&mut self, set: bool) {
+        self.set = set;
+    }
+}
 
 /// The building's foundation cells in `vt+0x108(0)` list order (the order
 /// Phase B walks), from its origin cell.
@@ -259,7 +287,7 @@ impl Simulation {
         if !object.crewed {
             return None;
         }
-        let captured = entity.has_been_captured;
+        let captured = entity.has_been_captured.is_set();
         let armed = crate::sim::combat::combat_weapon::is_armed(entity, object);
         let yard = object.factory == Some(FactoryType::BuildingType);
         let side = self.houses.get(&entity.owner())?.side_index;
@@ -300,7 +328,7 @@ impl Simulation {
         if divisor == 0 {
             return 0;
         }
-        let divisor = if entity.has_been_captured {
+        let divisor = if entity.has_been_captured.is_set() {
             divisor.wrapping_add(divisor)
         } else {
             divisor
@@ -342,7 +370,7 @@ impl Simulation {
         };
         let owner = entity.owner();
         let origin = (entity.position.rx, entity.position.ry);
-        let captured = entity.has_been_captured;
+        let captured = entity.has_been_captured.is_set();
         let cells = foundation_cells(origin.0, origin.1, &object.foundation);
         // C4AppliedBy (+0x540); the pointer-expiry broadcast clears it when
         // the planter leaves play.
@@ -398,7 +426,7 @@ impl Simulation {
     ) -> bool {
         let unlimbo = self.survivor_unlimbo(cell);
         let (_, _, z) = unlimbo.cell_level();
-        let Some(id) = self.construct_crew_limbo(rules, crew, owner, cell, z) else {
+        let Some(id) = self.construct_crew_limbo(rules, crew, owner, cell, z, effects) else {
             return false;
         };
         //443141 raises A8E7AC after the constructor and before the caller's
@@ -520,7 +548,7 @@ impl Simulation {
             .substrate
             .entities
             .get(passenger)
-            .map(|entity| entity.category == EntityCategory::Infantry)
+            .map(|entity| entity.category() == EntityCategory::Infantry)
         else {
             return;
         };
@@ -593,6 +621,13 @@ impl Simulation {
                 );
                 return;
             }
+            // SpawnSurvivors `0x00442F6D..0x00442FA1` and Mission_Selling
+            // `0x0044A510..0x0044A548` both restore the absorbed infantry's
+            // House+0x2F4 contribution and clear +0x439 only after Unlimbo
+            // succeeds. This is the same HouseTracking owner used by a normal
+            // Bio Reactor unload; no Unload-only sound/latch/mission effects
+            // belong to these ejection paths.
+            sim.restore_absorbed_infantry_tracking(passenger);
             if infantry {
                 sim.scatter_crew(rules, registry, passenger, effects);
             }
@@ -696,7 +731,7 @@ impl Simulation {
         };
         self.queue_crew_mission(id, mission);
         if selected_by_player && let Some(entity) = self.substrate.entities.get_mut(id) {
-            entity.selected = true;
+            entity.selection.select();
         }
     }
 
@@ -779,7 +814,7 @@ impl Simulation {
         if entity.passenger_role.inside_transport_id() == Some(unit_id) {
             entity.passenger_role.clear_carrier_relation();
         }
-        let infantry = entity.category == EntityCategory::Infantry;
+        let infantry = entity.category() == EntityCategory::Infantry;
         let passenger_owner = entity.owner();
         let Some(unit) = self.substrate.entities.get(unit_id) else {
             return;
@@ -908,7 +943,7 @@ impl Simulation {
             if dying.selected_by_player
                 && let Some(entity) = sim.substrate.entities.get_mut(passenger)
             {
-                entity.selected = true;
+                entity.selection.select();
             }
         });
     }
@@ -926,7 +961,7 @@ impl Simulation {
         effects: FrameEffects<'_>,
     ) -> Option<u64> {
         let (rx, ry, z) = unlimbo.cell_level();
-        let id = self.construct_crew_limbo(rules, crew, owner, (rx, ry), z)?;
+        let id = self.construct_crew_limbo(rules, crew, owner, (rx, ry), z, effects)?;
         if !self.unlimbo_crew(rules, id, unlimbo, None, registry, effects) {
             self.discard_constructed_limbo(id, Some(rules), effects);
             return None;
@@ -943,9 +978,19 @@ impl Simulation {
         owner: InternedId,
         cell: (u16, u16),
         z: u8,
+        effects: FrameEffects<'_>,
     ) -> Option<u64> {
         let owner_name = self.interner.resolve(owner).to_string();
-        self.construct_object_limbo_at_height(crew, &owner_name, cell.0, cell.1, 0, z, rules)
+        self.construct_object_limbo_at_height(
+            crew,
+            &owner_name,
+            cell.0,
+            cell.1,
+            0,
+            z,
+            rules,
+            effects,
+        )
     }
 
     /// Unlimbo a Foot in limbo as `unlimbo` says; an infantryman takes the
@@ -967,7 +1012,7 @@ impl Simulation {
             .substrate
             .entities
             .get(id)
-            .is_some_and(|entity| entity.category == EntityCategory::Infantry);
+            .is_some_and(|entity| entity.category() == EntityCategory::Infantry);
         let (rx, ry, z) = unlimbo.cell_level();
         let requested_z = match unlimbo {
             CrewUnlimbo::Place { raw_z, .. } | CrewUnlimbo::Exact { raw_z, .. } => raw_z,
@@ -1132,7 +1177,8 @@ impl Simulation {
             if is_engineer(&crew) {
                 engineer_picked = true;
             }
-            let Some(id) = self.construct_crew_limbo(rules, &crew, owner, cells[0], 0) else {
+            let Some(id) = self.construct_crew_limbo(rules, &crew, owner, cells[0], 0, effects)
+            else {
                 continue;
             };
             //44A65E..44A74E: the cell pick, ordinary caller placement and
@@ -1167,7 +1213,7 @@ impl Simulation {
 
     fn set_crew_health(&mut self, id: u64, health: i32) {
         if let Some(entity) = self.substrate.entities.get_mut(id) {
-            entity.health.current = health;
+            entity.health.set(health);
         }
     }
 

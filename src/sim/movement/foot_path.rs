@@ -205,7 +205,7 @@ impl Simulation {
                 .entities
                 .get(id)
                 .ok_or("a cell list names a retired object")?;
-            if !foot.category.is_foot() {
+            if !foot.category().is_foot() {
                 return Ok(true);
             }
             let direction = if foot.foot_speed.applied_fraction() == SIM_ZERO {
@@ -286,7 +286,7 @@ fn query_foot_zone(
         .ok_or_else(|| "Foot precheck requires native zone topology".into())
 }
 
-pub(super) fn coord_cell(coord: DriveCoord) -> (i16, i16) {
+pub(crate) fn coord_cell(coord: DriveCoord) -> (i16, i16) {
     (
         crate::util::lepton::lepton_to_cell_packed(coord.x),
         crate::util::lepton::lepton_to_cell_packed(coord.y),
@@ -398,15 +398,13 @@ impl Simulation {
     ) -> Result<FootPathOutcome, String> {
         // A batched request waits for the next frame's batch as if the +640
         // timer still ran (`path_batch`, a proposed deviation): 75AF4B..75AF66
-        // calls the owner's vt+0x548 and returns. The admission retry's
-        // recursion runs at once: its +640 was just expired, and native
-        // searches there with the retry spent.
-        if !request.is_retry_recursion()
-            && self.defer_path_search(
-                request.entity_id,
-                super::path_batch::WaitingRequest::NoQueue,
-            )
-        {
+        // calls the owner's vt+0x548 and returns. So does the admission
+        // retry's recursion, whose +640 the retry just expired, unless it is
+        // the Foot's first request in a frame the batch answered.
+        if self.defer_path_search(
+            request.entity_id,
+            super::path_batch::WaitingRequest::NoQueue,
+        ) {
             self.walk_owner_clear_doing(request.entity_id)?;
             return Ok(FootPathOutcome::Returned);
         }
@@ -501,19 +499,20 @@ impl Simulation {
                     .navigation
                     .path_runtime
                     .start_movement(frame, rules.general.path_delay_ticks());
-                self.run_find_path_failed_receiver(id, rules, registry, frame_effects)?;
+                self.foot_stop_driver(id, rules, registry, frame_effects)?;
                 self.finish_find_path_failure(id, goal, rules, registry, frame_effects)?;
                 Ok(FindPathResult::Failed)
             }
         }
     }
 
-    /// `+0x500` at 0x4D4044, whose return value Find_Path ignores. Infantry
+    /// Shared virtual `+0x500` receiver, called by FindPath4D4044,
+    /// Infantry FireAt and first-Limbo4DB2FB. Infantry
     /// 0x0051DAF0 performs Do_Action and the current-cell answer before Foot
     /// 0x4D55C0; the Unit's and the Aircraft's slot IS 0x4D55C0, which only
     /// calls the active locomotor's Stop_Moving (+0x48,
     /// [`Self::locomotor_stop_moving`]).
-    pub(crate) fn run_find_path_failed_receiver(
+    pub(crate) fn foot_stop_driver(
         &mut self,
         id: u64,
         rules: &RuleSet,
@@ -524,8 +523,8 @@ impl Simulation {
             .substrate
             .entities
             .get(id)
-            .ok_or("retired failed-path receiver")?;
-        match actor.category {
+            .ok_or("retired Foot Stop_Driver receiver")?;
+        match actor.category() {
             EntityCategory::Infantry => {
                 self.infantry_stop_driver(id, rules, registry, frame_effects)
             }
@@ -533,7 +532,7 @@ impl Simulation {
                 self.locomotor_stop_moving(id, Some(rules), registry, frame_effects)
             }
             EntityCategory::Structure => {
-                Err("Find_Path +0x500 receiver for this class is not represented".into())
+                Err("Foot +0x500 receiver for this class is not represented".into())
             }
         }
     }
@@ -584,8 +583,8 @@ impl Simulation {
                 let core_null = false;
                 if core_null {
                     Err(super::movement_path::MovePathFailure::Search(
-                        crate::sim::pathfinding::zone_search::PathSearchFailure::CellSearchExhausted,
-                    ))
+                crate::sim::pathfinding::zone_search::PathSearchFailure::CellSearchExhausted,
+            ))
                 } else {
                     self.foot_core_search(
                         request,

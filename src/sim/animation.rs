@@ -246,6 +246,36 @@ fn resolve_shp_frame_parts(
     start.wrapping_add(direction).wrapping_add(within)
 }
 
+/// `FootClass+0x538`, the persistent body-animation counter. Unit SHP and
+/// voxel drawing reduce it against the selected model's frame count. It
+/// advances on absolute binary-frame cadence in `FootClass::AI`
+/// (`0x004DA886..0x004DAA01`, [`tick_unit_body_frame_counter`]) and never
+/// resets on a visual transition or deployment. It is a native dword, so the
+/// increment wraps.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(transparent)]
+pub(crate) struct BodyFrameCounter {
+    value: u32,
+}
+
+impl BodyFrameCounter {
+    /// The counter.
+    pub(crate) const fn get(self) -> u32 {
+        self.value
+    }
+
+    /// `FootClass::AI`'s increment.
+    fn advance(&mut self) {
+        self.value = self.value.wrapping_add(1);
+    }
+
+    /// Install a fixture's counter.
+    #[cfg(test)]
+    pub(crate) fn set_for_test(&mut self, value: u32) {
+        self.value = value;
+    }
+}
+
 /// Advance the persistent Unit body counter at FootClass's post-Process
 /// point for the current absolute binary frame.
 ///
@@ -262,10 +292,10 @@ pub(crate) fn tick_unit_body_frame_counter(
     terrain: Option<&crate::map::resolved_terrain::ResolvedTerrainGrid>,
     binary_frame: u32,
 ) {
-    if entity.category != crate::map::entities::EntityCategory::Unit
-        || entity.dying
-        || !entity.lifecycle.object_alive
-        || entity.lifecycle.in_limbo
+    if entity.category() != crate::map::entities::EntityCategory::Unit
+        || entity.death.is_dying()
+        || !entity.lifecycle.object_alive()
+        || entity.lifecycle.in_limbo()
         || entity.is_falling_down()
     {
         return;
@@ -282,15 +312,15 @@ pub(crate) fn tick_unit_body_frame_counter(
     // HoverAttack is Type+390, not TurretSpins. Native deploy6E0 only
     // excludes that hover-attack walk arm; it does not suppress IdleRate.
     let moving = crate::sim::movement::motion_query::is_moving_now(entity, rules, binary_frame);
-    let walking =
-        moving || (entity.attack_target.is_some() && hover_attack && !entity.is_fully_deployed());
+    let walking = moving
+        || (entity.attack_target.target().is_some() && hover_attack && !entity.is_fully_deployed());
     let due = (walking && (binary_frame as i32) % cadence.walk_rate == 0)
         || (cadence.idle_rate != 0 && !moving && (binary_frame as i32) % cadence.idle_rate == 0)
         // GetHeight (vt+0x1C8) at `0x004DA9CD`.
         || (deploy_to_land
             && crate::sim::movement::air_movement::current_fly_height(entity, terrain) > 0);
     if due {
-        entity.body_frame_counter = entity.body_frame_counter.wrapping_add(1);
+        entity.body_frame_counter.advance();
     }
 }
 
@@ -400,12 +430,12 @@ fn tick_animations_impl(
         let Some(entity) = entities.get(id) else {
             continue;
         };
-        if entity.dying && !tick_dying {
+        if entity.death.is_dying() && !tick_dying {
             continue;
         }
         // The stage steps in TechnoClass::AI_Update (`0x006FAC4D`), which a
         // warped object never reaches (`GameEntity::ai_frozen`): its pose holds.
-        if !entity.dying && entity.ai_frozen() {
+        if !entity.death.is_dying() && entity.ai_frozen() {
             continue;
         }
         // Its Doing's sequence, which its actions restart and whose stage
@@ -416,7 +446,7 @@ fn tick_animations_impl(
         }
         if entity.animation.is_none() {
             // Dying entity with no animation → ready for despawn.
-            if entity.dying {
+            if entity.death.is_dying() {
                 dying_finished.push(id);
             }
             continue;
@@ -425,13 +455,14 @@ fn tick_animations_impl(
             .get_mut(id)
             .expect("an animated entity was just read");
         let type_ref = entity.type_ref();
+        let category = entity.category();
         let anim = entity
             .animation
             .as_mut()
             .expect("an animated entity was just read");
 
         // Dying entities: only advance the death animation, skip all transitions.
-        if entity.dying {
+        if entity.death.is_dying() {
             if anim.finished {
                 dying_finished.push(id);
                 continue;
@@ -469,7 +500,7 @@ fn tick_animations_impl(
         // UnitClass SHP Stand/Walk images are selected from Foot's persistent
         // body counter at draw time. Do not advance a second relative clock or
         // reset cadence when the generic visual sequence changes.
-        if entity.category == crate::map::entities::EntityCategory::Unit
+        if category == crate::map::entities::EntityCategory::Unit
             && set.shp_vehicle_cadence().is_some()
             && matches!(anim.sequence, SequenceKind::Stand | SequenceKind::Walk)
         {
@@ -550,7 +581,7 @@ pub(crate) fn tick_dying_animation(
     game_options: &crate::sim::game_options::GameOptions,
     _binary_frame: u32,
 ) -> bool {
-    debug_assert!(entity.dying);
+    debug_assert!(entity.death.is_dying());
     let Some(anim) = entity.animation.as_mut() else {
         return true;
     };
@@ -605,7 +636,7 @@ pub fn tick_voxel_animations(entities: &mut crate::sim::entity_store::EntityStor
     let advancing: Vec<u64> = entities
         .values()
         .filter(|entity| {
-            entity.category != crate::map::entities::EntityCategory::Unit
+            entity.category() != crate::map::entities::EntityCategory::Unit
                 && entity.voxel_animation.as_ref().is_some_and(|anim| {
                     anim.playing && anim.frame_count > 1 && anim.frame_delay != 0
                 })

@@ -92,7 +92,8 @@ fn rules_for(row: &Value) -> RuleSet {
     for (index, sw) in supers.iter().enumerate() {
         ini += &format!("[SW{index}]\nType={:?}\n", KINDS[int(&sw["kind"]) as usize]);
     }
-    let mut rules = RuleSet::from_ini(&IniFile::from_str(&ini)).expect("fixture rules");
+    let mut rules = RuleSet::from_ini(&crate::sim::arena_fixture::clear_ground_ini(&ini))
+        .expect("fixture rules");
     for (index, sw) in supers.iter().enumerate() {
         let name = format!("SW{index}");
         rules
@@ -159,10 +160,12 @@ fn replay(row: &Value, plant: bool) -> Replay {
             .spawn_object_at_height(&format!("M{index}"), OWNER, rx, 11, 0, 0, &rules)
             .expect("member spawns");
         let entity = sim.substrate.entities.get_mut(id).unwrap();
-        entity.lifecycle.object_alive = flag(&member["live"]);
+        entity
+            .lifecycle
+            .set_object_alive_for_test(flag(&member["live"]));
         // What_Am_I (vt+0x2C) is all the leader test asks of an aircraft.
         if flag(&member["aircraft"]) {
-            entity.category = crate::map::entities::EntityCategory::Aircraft;
+            entity.set_category_for_test(crate::map::entities::EntityCategory::Aircraft);
         }
         members.push(id);
     }

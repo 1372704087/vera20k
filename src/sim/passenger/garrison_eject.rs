@@ -110,7 +110,7 @@ fn uninit_garrison_passenger_without_exit(
     context: UninitContext<'_>,
 ) {
     if let Some(pax) = sim.substrate.entities.get_mut(passenger_id) {
-        pax.health.current = 0;
+        pax.health.set(0);
         pax.passenger_role.clear_carrier_relation();
     }
     sim.uninit_with_context(passenger_id, context);
@@ -134,9 +134,9 @@ fn sellbuilding_direct_scatter_handoff(
     let Some(pax) = sim.substrate.entities.get(passenger_id) else {
         return;
     };
-    if pax.category != EntityCategory::Infantry
+    if pax.category() != EntityCategory::Infantry
         || !pax.is_alive()
-        || pax.dying
+        || pax.death.is_dying()
         || pax.passenger_role.is_inside_transport()
         || pax.locomotor.is_none()
     {
@@ -608,8 +608,8 @@ pub(crate) mod tests {
             EntityCategory::Infantry,
         );
         pax.sub_cell = sub_cell;
-        pax.owner = sim.interner.intern(owner);
-        pax.type_ref = sim.interner.intern("E1");
+        pax.set_owner_for_test(sim.interner.intern(owner));
+        pax.set_type_ref_for_test(sim.interner.intern("E1"));
         pax.passenger_role.set_inside_transport(transport_id, false);
         sim.substrate.entities.insert(pax);
         stable_id
@@ -689,12 +689,13 @@ pub(crate) mod tests {
             10,
             EntityCategory::Structure,
         );
-        building.foundation = "2x2".to_string();
-        building.owner = americans;
-        building.type_ref = sim.interner.intern(type_id);
-        building.passenger_role = PassengerRole::Transport {
-            cargo: crate::sim::passenger::PassengerCargo::new(5, 1),
-        };
+        building
+            .type_facts
+            .set_foundation_for_test("2x2".to_string());
+        building.set_owner_for_test(americans);
+        building.set_type_ref_for_test(sim.interner.intern(type_id));
+        building.passenger_role =
+            PassengerRole::transport(crate::sim::passenger::PassengerCargo::new(5, 1));
         if let Some(cargo) = building.passenger_role.cargo_mut() {
             assert!(cargo.board(passenger_id, 1));
         }
@@ -818,7 +819,8 @@ pub(crate) mod tests {
             .get(building_id)
             .expect("helper should not remove building");
         assert_eq!(
-            building.owner, americans,
+            building.owner(),
+            americans,
             "SellBuilding-style helper must not ChangeOwner"
         );
         assert!(
@@ -834,8 +836,8 @@ pub(crate) mod tests {
             .entities
             .get(passenger_id)
             .expect("passenger should remain");
-        assert!(matches!(passenger.passenger_role, PassengerRole::None));
-        assert!(!passenger.dying);
+        assert!(passenger.passenger_role.is_none());
+        assert!(!passenger.death.is_dying());
     }
 
     #[test]
@@ -891,14 +893,15 @@ pub(crate) mod tests {
                 "destroyed garrison should not place passengers inside the foundation"
             );
             assert_eq!(
-                pax.owner, owner,
+                pax.owner(),
+                owner,
                 "destruction keeps death-time building owner"
             );
-            assert!(matches!(pax.passenger_role, PassengerRole::None));
-            assert!(!pax.dying);
-            assert!(!pax.lifecycle.in_limbo);
+            assert!(pax.passenger_role.is_none());
+            assert!(!pax.death.is_dying());
+            assert!(!pax.lifecycle.in_limbo());
             assert!(pax.lifecycle.cell_marked);
-            assert!(pax.in_logic_vector);
+            assert!(pax.in_logic_vector.is_member());
         }
 
         let occupancy_ids: Vec<u64> = sim
@@ -951,9 +954,9 @@ pub(crate) mod tests {
             .entities
             .get(passenger_id)
             .expect("detached occupant must survive the building UnInit");
-        assert!(passenger.lifecycle.object_alive);
+        assert!(passenger.lifecycle.object_alive());
         assert!(passenger.is_alive());
-        assert!(!passenger.lifecycle.in_limbo);
+        assert!(!passenger.lifecycle.in_limbo());
     }
 
     #[test]
@@ -991,8 +994,8 @@ pub(crate) mod tests {
             .get(passenger_id)
             .expect("player-sell no-exit passenger should remain");
         assert_eq!((passenger.position.rx, passenger.position.ry), (11, 11));
-        assert!(!passenger.dying);
-        assert!(matches!(passenger.passenger_role, PassengerRole::None));
+        assert!(!passenger.death.is_dying());
+        assert!(passenger.passenger_role.is_none());
         assert_eq!(sim.scenario_rng.state(), rng_before);
 
         let cargo = sim
@@ -1076,11 +1079,11 @@ pub(crate) mod tests {
             .entities
             .get(passenger_id)
             .expect("UnInit keeps the no-exit occupant resolvable until the drain");
-        assert_eq!(passenger.health.current, 0);
-        assert!(passenger.dying);
-        assert!(matches!(passenger.passenger_role, PassengerRole::None));
-        assert!(!passenger.lifecycle.object_alive);
-        assert!(passenger.lifecycle.in_limbo);
+        assert_eq!(passenger.health.current(), 0);
+        assert!(passenger.death.is_dying());
+        assert!(passenger.passenger_role.is_none());
+        assert!(!passenger.lifecycle.object_alive());
+        assert!(passenger.lifecycle.in_limbo());
         assert!(sim.substrate.pending_delete.contains_object(&passenger_id));
 
         sim.flush_pending_delete();

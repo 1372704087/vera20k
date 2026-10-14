@@ -110,18 +110,15 @@ fn fixture(input: &Value) -> (Simulation, RuleSet, u64) {
             2,
             EntityCategory::Infantry,
         );
-        occupant.type_ref = sim.interner.intern("E1");
-        occupant.owner = sim.interner.intern("A");
-        occupant.passenger_role = PassengerRole::Inside {
-            transport_id: id,
-            open_topped: false,
-        };
+        occupant.set_type_ref_for_test(sim.interner.intern("E1"));
+        occupant.set_owner_for_test(sim.interner.intern("A"));
+        occupant.passenger_role = PassengerRole::inside_for_test(id, false);
         sim.substrate.entities.insert(occupant);
         assert!(cargo.board(occupant_id, 1));
     }
     let building = sim.substrate.entities.get_mut(id).unwrap();
-    building.passenger_role = PassengerRole::Transport { cargo };
-    building.health.current = integer(&input["current_hp"]);
+    building.passenger_role = PassengerRole::transport(cargo);
+    building.health.set_for_test(integer(&input["current_hp"]));
     building.building_art.damage_state_active = input["retained_damage_state"].as_bool().unwrap();
     (sim, rules, id)
 }

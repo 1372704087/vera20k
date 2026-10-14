@@ -6,7 +6,7 @@ use crate::app::input::entity_pick::{
 };
 use crate::map::entities::EntityCategory;
 use crate::map::houses::HouseAllianceMap;
-use crate::sim::components::Health;
+use crate::sim::combat::Health;
 use crate::sim::entity_store::EntityStore;
 use crate::sim::game_entity::GameEntity;
 use crate::sim::intern::test_intern;
@@ -25,16 +25,16 @@ fn spawn_mobile(store: &mut EntityStore, sid: u64, rx: u16, ry: u16, owner: &str
         0,
         0,
         test_intern(owner),
-        Health { current: 100 },
+        Health::new(100),
         test_intern("E1"),
         EntityCategory::Unit,
         0,
         5,
         false,
     );
-    entity.selected = selected;
+    entity.selection.set_selected_for_test(selected);
     // Revealed onto the map — the picker refuses limbo objects.
-    entity.lifecycle.in_limbo = false;
+    entity.lifecycle.set_in_limbo_for_test(false);
     store.insert(entity);
 }
 
@@ -44,14 +44,14 @@ fn screen_of(store: &EntityStore, sid: u64) -> (f32, f32) {
 }
 
 fn encounter_order(store: &EntityStore) -> Vec<u64> {
-    store.values().map(|entity| entity.stable_id).collect()
+    store.values().map(|entity| entity.stable_id()).collect()
 }
 
 fn selected_order(store: &EntityStore) -> Vec<u64> {
     store
         .values()
-        .filter(|entity| entity.selected)
-        .map(|entity| entity.stable_id)
+        .filter(|entity| entity.selection.is_selected())
+        .map(|entity| entity.stable_id())
         .collect()
 }
 
@@ -173,14 +173,14 @@ fn test_box_additive_adds_only_and_excludes_structures() {
         0,
         0,
         test_intern("Americans"),
-        Health { current: 100 },
+        Health::new(100),
         test_intern("GAPOWR"),
         EntityCategory::Structure,
         0,
         5,
         false,
     );
-    building.lifecycle.in_limbo = false;
+    building.lifecycle.set_in_limbo_for_test(false);
     store.insert(building);
 
     // The box covers all four: the units span (0,315)..(120,375) and the
@@ -291,14 +291,14 @@ fn spawn_structure(
         0,
         0,
         test_intern(owner),
-        Health { current: 100 },
+        Health::new(100),
         test_intern(type_id),
         EntityCategory::Structure,
         0,
         5,
         false,
     );
-    building.lifecycle.in_limbo = false;
+    building.lifecycle.set_in_limbo_for_test(false);
     store.insert(building);
 }
 
@@ -336,7 +336,11 @@ fn test_box_skips_a_miner_docked_on_a_refinery() {
     // The miner sits on the refinery's own cell while it unloads. The native
     // gate is the dock flag AND a building in that cell, so both halves hold.
     spawn_structure(&mut store, 3, 11, 10, "GAREFN", "Americans");
-    store.get_mut(2).expect("miner").dock_entered_with = Some(3);
+    store
+        .get_mut(2)
+        .expect("miner")
+        .tether
+        .set_for_test(Some(3));
 
     let snapshot = box_over_two(&store, 1, 2).expect("snapshot");
     assert_eq!(snapshot.select, vec![1]);
@@ -352,7 +356,11 @@ fn test_box_keeps_a_vehicle_that_drove_clear_of_its_factory() {
     // so it stays band-selectable. Without that half every freshly built
     // vehicle would drop out of a box for the whole exit sequence.
     spawn_structure(&mut store, 3, 11, 11, "GAWEAP", "Americans");
-    store.get_mut(2).expect("vehicle").dock_entered_with = Some(3);
+    store
+        .get_mut(2)
+        .expect("vehicle")
+        .tether
+        .set_for_test(Some(3));
 
     let snapshot = box_over_two(&store, 1, 2).expect("snapshot");
     assert_eq!(snapshot.select, vec![1, 2]);
@@ -432,14 +440,14 @@ fn test_box_selection_excludes_selectable_no_types() {
         0,
         0,
         test_intern("Americans"),
-        Health { current: 100 },
+        Health::new(100),
         test_intern("PDPLANE"),
         EntityCategory::Aircraft,
         0,
         5,
         true,
     );
-    plane.lifecycle.in_limbo = false;
+    plane.lifecycle.set_in_limbo_for_test(false);
     store.insert(plane);
 
     let ini = crate::rules::ini_parser::IniFile::from_str(
@@ -528,14 +536,14 @@ fn test_click_selection_allows_visible_allied_units_for_local_owner() {
         0,
         0,
         test_intern("British"),
-        Health { current: 100 },
+        Health::new(100),
         test_intern("E1"),
         EntityCategory::Unit,
         0,
         5,
         false,
     );
-    entity.lifecycle.in_limbo = false;
+    entity.lifecycle.set_in_limbo_for_test(false);
     store.insert(entity);
     let (cx, cy) = screen_of(&store, 7);
 
@@ -576,14 +584,14 @@ fn test_pick_enemy_target_ignores_hidden_entities() {
         0,
         0,
         soviet_id,
-        Health { current: 100 },
+        Health::new(100),
         e1_id,
         EntityCategory::Unit,
         0,
         5,
         false,
     );
-    hidden.lifecycle.in_limbo = false;
+    hidden.lifecycle.set_in_limbo_for_test(false);
     sim.entities_mut().insert(hidden);
     let (hx, hy) =
         crate::render::locomotor_visual::screen_position(sim.entities().get(2).expect("hidden"));
@@ -603,14 +611,14 @@ fn test_pick_enemy_target_ignores_hidden_entities() {
         0,
         0,
         soviet_id,
-        Health { current: 100 },
+        Health::new(100),
         e1_id,
         EntityCategory::Unit,
         0,
         5,
         false,
     );
-    visible.lifecycle.in_limbo = false;
+    visible.lifecycle.set_in_limbo_for_test(false);
     sim.entities_mut().insert(visible);
     let (vx, vy) =
         crate::render::locomotor_visual::screen_position(sim.entities().get(3).expect("visible"));
@@ -643,14 +651,14 @@ fn test_hover_target_distinguishes_friendly_and_enemy_categories() {
         0,
         0,
         americans_id,
-        Health { current: 100 },
+        Health::new(100),
         gapowr_id,
         EntityCategory::Structure,
         0,
         5,
         false,
     );
-    friendly.lifecycle.in_limbo = false;
+    friendly.lifecycle.set_in_limbo_for_test(false);
     sim.entities_mut().insert(friendly);
     let (friendly_sx, friendly_sy) =
         crate::render::locomotor_visual::screen_position(sim.entities().get(10).expect("friendly"));
@@ -662,14 +670,14 @@ fn test_hover_target_distinguishes_friendly_and_enemy_categories() {
         0,
         0,
         soviet_id,
-        Health { current: 100 },
+        Health::new(100),
         e1_id,
         EntityCategory::Unit,
         0,
         5,
         false,
     );
-    enemy.lifecycle.in_limbo = false;
+    enemy.lifecycle.set_in_limbo_for_test(false);
     sim.entities_mut().insert(enemy);
     let (enemy_sx, enemy_sy) =
         crate::render::locomotor_visual::screen_position(sim.entities().get(11).expect("enemy"));

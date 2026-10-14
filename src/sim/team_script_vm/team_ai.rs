@@ -58,9 +58,9 @@ const RELAXED_STRAY_ACTIONS: [i32; 2] = [0x35, 0x36];
 /// active (`+0x90`), with Health (`+0x6C`), out of limbo (`+0x81`;
 /// the shared ScenarioInit/placement scope admits limbo members).
 pub(super) fn member_is_live(entity: &GameEntity, placement_scope_active: bool) -> bool {
-    entity.lifecycle.object_alive
-        && entity.health.current != 0
-        && (placement_scope_active || !entity.lifecycle.in_limbo)
+    entity.lifecycle.object_alive()
+        && entity.health.current() != 0
+        && (placement_scope_active || !entity.lifecycle.in_limbo())
 }
 
 /// A live member that has joined up (`+0x689`) or is an aircraft, which
@@ -71,7 +71,7 @@ pub(super) fn member_is_live_joined(
     placement_scope_active: bool,
 ) -> bool {
     member_is_live(entity, placement_scope_active)
-        && (initiated || entity.category == EntityCategory::Aircraft)
+        && (initiated || entity.category() == EntityCategory::Aircraft)
 }
 
 /// A member as `Calc_Center` weighs it.
@@ -495,7 +495,7 @@ impl Simulation {
             let Some(entity) = self.substrate.entities.get(member.id) else {
                 continue;
             };
-            if !entity.lifecycle.object_alive {
+            if !entity.lifecycle.object_alive() {
                 continue;
             }
             self.team_member_join_up(team_id, member.id, rules, registry, frame_effects);
@@ -509,7 +509,7 @@ impl Simulation {
             let stray = self.team_stray(team_id, rules);
             let mission = entity.mission.effective().known();
             let area_guarding_target =
-                mission == Some(MissionType::AreaGuard) && entity.attack_target.is_some();
+                mission == Some(MissionType::AreaGuard) && entity.attack_target.target().is_some();
             if self.team_member_distance(entity, zone) > stray && !area_guarding_target {
                 if entity.navigation.nav_com.is_some() {
                     continue;
@@ -611,7 +611,7 @@ impl Simulation {
                     )
                 })
                 .is_some();
-            if head.category == EntityCategory::Aircraft
+            if head.category() == EntityCategory::Aircraft
                 || !armed
                 || team.focus == Some(TeamTarget::Object(source))
             {
@@ -775,7 +775,7 @@ mod tests {
             .get_mut(hornet)
             .expect("aircraft")
             .discovery
-            .owned_by_current_house = true;
+            .set_owned_by_current_house_for_test(true);
         sim.fog = crate::sim::vision::FogState::new(33, 33);
         let centre = TeamTarget::Cell { x: 12, y: 12 };
         assert!(sim.team_member_refuses_cell(hornet, centre, &rules, Some(&registry)));

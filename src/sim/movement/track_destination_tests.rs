@@ -51,7 +51,7 @@ fn shared_null_destination_matches_original_gate_and_timer_boundaries() {
         let mut e = actor(input);
         let aircraft = input["entry"] == "aircraft";
         if aircraft {
-            e.category = crate::map::entities::EntityCategory::Aircraft;
+            e.set_category_for_test(crate::map::entities::EntityCategory::Aircraft);
         }
         let current = input["mission"].as_i64().unwrap() as i32;
         e.mission.apply_test_fixture(MissionTestFixture {
@@ -64,18 +64,16 @@ fn shared_null_destination_matches_original_gate_and_timer_boundaries() {
             ai_counter: 0,
             dispatch_timer: MissionDispatchTimer::at_frame(0),
         });
-        e.attack_target =
-            (input["target"] == true).then(|| crate::sim::combat::AttackTarget::for_cell(11, 10));
+        e.attack_target.set_for_test(
+            (input["target"] == true).then(|| crate::sim::combat::TargetKind::Cell(11, 10)),
+        );
         e.navigation.nav_com = (input["nav"] != false).then(|| NavTargetRef::cell(11, 10));
         e.foot_locomotor_swap_active = input["swap"] == true;
         if input["bunker"] == true {
             e.bunker_link = crate::sim::game_entity::BunkerLink::Installed(2);
         }
         if input["open_transport"] == true {
-            e.passenger_role = crate::sim::passenger::PassengerRole::Inside {
-                transport_id: 2,
-                open_topped: true,
-            };
+            e.passenger_role = crate::sim::passenger::PassengerRole::inside_for_test(2, true);
         }
         sim.substrate.entities.insert(e);
         if aircraft {
@@ -170,7 +168,7 @@ fn terrain(bridge: bool) -> ResolvedTerrainGrid {
 
 fn actor(input: &Value) -> GameEntity {
     let mut e = GameEntity::test_default(1, "MOVER", "Americans", 10, 10);
-    e.category = crate::map::entities::EntityCategory::Unit;
+    e.set_category_for_test(crate::map::entities::EntityCategory::Unit);
     e.position.sub_x = SimFixed::from_num(128);
     e.position.sub_y = SimFixed::from_num(128);
     let kind = if input["family"] == "drive" {
@@ -255,7 +253,7 @@ fn destination_fixture(
     crate::rules::ruleset::RuleSet,
 ) {
     let mut entity = actor(input);
-    entity.lifecycle.in_limbo = false;
+    entity.lifecycle.set_in_limbo_for_test(false);
     let mut sim = crate::sim::world::Simulation::new();
     sim.interner = crate::sim::intern::test_interner();
     sim.session.binary_frame = 100;
@@ -435,7 +433,7 @@ fn repeated_move_orders_sample_live_native_speed() {
             TrackFamily::Ship
         };
         let entity = sim.substrate.entities.get_mut(1).unwrap();
-        entity.drive_accelerates = false;
+        entity.mover_facts.set_drive_accelerates_for_test(false);
         entity.foot_speed.set_speed_fraction(SIM_ONE);
         let loco = entity.locomotor.as_mut().unwrap();
         let mut progress = loco.track_progress(family).unwrap();
@@ -855,7 +853,7 @@ fn destination_receipt_actor(
     before: &Value,
 ) -> GameEntity {
     use crate::map::entities::EntityCategory;
-    use crate::sim::components::Health;
+    use crate::sim::combat::Health;
     use crate::sim::mission::state::MissionTestFixture;
     use crate::sim::mission::{MissionDispatchTimer, MissionId};
 
@@ -877,9 +875,7 @@ fn destination_receipt_actor(
         level,
         0,
         owner,
-        Health {
-            current: object.strength,
-        },
+        Health::new(object.strength),
         sim.interner.intern(family),
         if family == "E1" {
             EntityCategory::Infantry
@@ -890,7 +886,7 @@ fn destination_receipt_actor(
         0,
         family != "E1",
     );
-    actor.lifecycle.in_limbo = false;
+    actor.lifecycle.set_in_limbo_for_test(false);
     actor.position.sub_x = SimFixed::from_num(xyz.x % 256);
     actor.position.sub_y = SimFixed::from_num(xyz.y % 256);
     actor.position.exact_z_leptons = Some(xyz.z);

@@ -86,19 +86,16 @@ fn fixture(row: &serde_json::Value) -> (Simulation, RuleSet) {
     if flag("loaded") {
         assert_eq!(sim.allocate_stable_id(), 2);
         insert_entity(&mut sim, 2, EntityCategory::Infantry);
-        sim.substrate.entities.get_mut(2).unwrap().passenger_role = PassengerRole::Inside {
-            transport_id: 1,
-            open_topped: false,
-        };
+        sim.substrate.entities.get_mut(2).unwrap().passenger_role =
+            PassengerRole::inside_for_test(1, false);
         let mut cargo = PassengerCargo::new(1, 0);
         cargo.board_forced(2, 1);
-        sim.substrate.entities.get_mut(1).unwrap().passenger_role =
-            PassengerRole::Transport { cargo };
+        sim.substrate.entities.get_mut(1).unwrap().passenger_role = PassengerRole::transport(cargo);
     }
     let entity = sim.substrate.entities.get_mut(1).unwrap();
     entity.position.exact_z_leptons = Some(integer("z", 0));
     entity.on_bridge = flag("on_bridge");
-    entity.health.current = integer("health", 100);
+    entity.health.set_for_test(integer("health", 100));
     let loco = entity.locomotor.as_mut().unwrap();
     if flag("landing") {
         loco.begin_fly_landing();
@@ -353,7 +350,11 @@ fn landing_base_fixture(row: &serde_json::Value) -> (Simulation, RuleSet) {
             "helipad" => "HELIPAD",
             _ => "PLAIN",
         });
-        sim.substrate.entities.get_mut(id).unwrap().type_ref = type_ref;
+        sim.substrate
+            .entities
+            .get_mut(id)
+            .unwrap()
+            .set_type_ref_for_test(type_ref);
     }
     for id in holes {
         slots.remove(id);
@@ -503,7 +504,7 @@ fn destination_vectors() -> Vec<serde_json::Value> {
 }
 
 fn destination_fixture(row: &serde_json::Value) -> (Simulation, RuleSet) {
-    use crate::sim::combat::AttackTarget;
+    use crate::sim::combat::TargetKind;
     use crate::sim::docking::aircraft_dock::AircraftAmmo;
     let input = &row["input"];
     let height_row = serde_json::json!({"input": {
@@ -527,10 +528,12 @@ fn destination_fixture(row: &serde_json::Value) -> (Simulation, RuleSet) {
     entity.position.rx = 40;
     entity.position.ry = 64;
     entity.aircraft_ammo = Some(AircraftAmmo::new(input["ammo"].as_i64().unwrap_or(2) as i32));
-    entity.attack_target = input["target"]
-        .as_bool()
-        .unwrap_or(false)
-        .then(|| AttackTarget::new(2));
+    entity.attack_target.set_for_test(
+        input["target"]
+            .as_bool()
+            .unwrap_or(false)
+            .then(|| TargetKind::Entity(2)),
+    );
     entity
         .mission_leaf
         .set_aircraft_action_latch(input["ready"].as_bool().unwrap_or(false));
@@ -1042,9 +1045,9 @@ fn fly_phase_outer_health_power_and_life_gates_precede_nonlandable_override() {
         let (mut sim, rules) = takeoff_fixture(&row);
         let entity = sim.substrate.entities.get_mut(1).unwrap();
         match gate {
-            "health" => entity.health.current = 0,
+            "health" => entity.health.set_for_test(0),
             "power" => entity.locomotor.as_mut().unwrap().powered = false,
-            "life" => entity.lifecycle.object_alive = false,
+            "life" => entity.lifecycle.set_object_alive_for_test(false),
             _ => unreachable!(),
         }
         let before = sim.state_hash();

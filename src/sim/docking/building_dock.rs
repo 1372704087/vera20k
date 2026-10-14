@@ -1568,8 +1568,9 @@ mod tests {
     use super::*;
     use crate::map::entities::EntityCategory;
     use crate::rules::ini_parser::IniFile;
+    use crate::sim::combat::Health;
     use crate::sim::command::Command;
-    use crate::sim::components::{Health, NavTargetRef};
+    use crate::sim::components::NavTargetRef;
     use crate::sim::game_entity::GameEntity;
     use crate::sim::movement::locomotor::MovementLayer;
     use crate::sim::occupancy::CellListInsertion;
@@ -1635,7 +1636,7 @@ mod tests {
             .get_mut(1)
             .unwrap()
             .lifecycle
-            .in_limbo = true;
+            .set_in_limbo_for_test(true);
         (sim, rules)
     }
 
@@ -1657,7 +1658,12 @@ mod tests {
             ry,
             object.strength,
         );
-        sim.substrate.entities.get_mut(id).unwrap().foundation = object.foundation.clone();
+        sim.substrate
+            .entities
+            .get_mut(id)
+            .unwrap()
+            .type_facts
+            .set_foundation_for_test(object.foundation.clone());
         let (width, height) = crate::rules::foundation::foundation_dimensions(&object.foundation);
         for y in ry..ry + height {
             for x in rx..rx + width {
@@ -1866,12 +1872,12 @@ mod tests {
         let (mut sim, rules) = setup(1);
         let owner = sim.substrate.entities.get(1).unwrap().owner();
         let unit = sim.substrate.entities.get_mut(1).unwrap();
-        unit.health.current = 300;
+        unit.health.set_for_test(300);
         unit.estimated_health.reset(-20);
         let rng = sim.scenario_rng.state();
         assert_eq!(repair_request(&mut sim, &rules, 1), RadioResponse::Negatory);
         let unit = sim.substrate.entities.get(1).unwrap();
-        assert_eq!(unit.health.current, 300);
+        assert_eq!(unit.health.current(), 300);
         assert_eq!(unit.estimated_health.get(), -20);
         assert_eq!(sim.houses[&owner].economy.credits(), 10_000);
         assert_eq!(sim.houses[&owner].economy.spent_credits(), 0);
@@ -1891,7 +1897,7 @@ mod tests {
             crate::sim::world::FrameEffects::default()
         ));
         assert_eq!(repair_request(&mut sim, &rules, 1), RadioResponse::Negatory);
-        assert_eq!(sim.substrate.entities.get(1).unwrap().health.current, 100);
+        assert_eq!(sim.substrate.entities.get(1).unwrap().health.current(), 100);
         assert_eq!(sim.houses[&owner].economy.credits(), 10_000);
         assert_eq!(sim.houses[&owner].economy.spent_credits(), 0);
     }
@@ -1922,7 +1928,7 @@ mod tests {
             );
         }
         let unit = sim.substrate.entities.get(1).unwrap();
-        assert_eq!(unit.health.current, 100);
+        assert_eq!(unit.health.current(), 100);
         assert_eq!(unit.estimated_health.get(), estimate);
         assert_eq!(sim.houses[&owner].economy.credits(), 1);
         assert_eq!(sim.houses[&owner].economy.spent_credits(), 0);
@@ -2051,14 +2057,14 @@ mod tests {
             0,
             0,
             owner_id,
-            Health { current: hp },
+            Health::new(hp),
             type_id,
             category,
             0,
             5,
             category == EntityCategory::Unit,
         );
-        ge.lifecycle.in_limbo = false;
+        ge.lifecycle.set_in_limbo_for_test(false);
         if category == EntityCategory::Unit {
             // A live Drive mover: the depot's class setter and the Process
             // corridor need its locomotor.
@@ -2093,7 +2099,12 @@ mod tests {
             DEPOT_RY,
             1000,
         );
-        sim.substrate.entities.get_mut(DEPOT).unwrap().foundation = "3x3".to_string();
+        sim.substrate
+            .entities
+            .get_mut(DEPOT)
+            .unwrap()
+            .type_facts
+            .set_foundation_for_test("3x3".to_string());
         for y in DEPOT_RY..DEPOT_RY + 3 {
             for x in DEPOT_RX..DEPOT_RX + 3 {
                 sim.substrate.occupancy.add(
@@ -2157,7 +2168,7 @@ mod tests {
 
         assert_eq!(response, RadioResponse::Roger);
         let tank = sim.substrate.entities.get(1).unwrap();
-        assert_eq!(tank.health.current, 108);
+        assert_eq!(tank.health.current(), 108);
         let house = sim.houses.get(&owner).unwrap();
         assert_eq!(house.economy.credits(), 9_998);
         assert_eq!(house.economy.spent_credits(), 2);
@@ -2300,7 +2311,12 @@ mod tests {
         ] {
             let (mut sim, _) = setup(1);
             let rules = depot_rules_with_strength(strength);
-            sim.substrate.entities.get_mut(1).unwrap().health.current = hp;
+            sim.substrate
+                .entities
+                .get_mut(1)
+                .unwrap()
+                .health
+                .set_for_test(hp);
             let response = radio::transmit(
                 &mut sim,
                 DEPOT,
@@ -2323,12 +2339,12 @@ mod tests {
         let (mut sim, _) = setup(1);
         let rules = depot_rules_with_strength(i32::MAX);
         let unit = sim.substrate.entities.get_mut(1).unwrap();
-        unit.health.current = i32::MAX - 1;
+        unit.health.set_for_test(i32::MAX - 1);
         unit.estimated_health =
             crate::sim::estimated_health::EstimatedHealth::from_raw(i32::MAX - 2);
         assert_eq!(repair_request(&mut sim, &rules, 1), RadioResponse::Roger);
         let unit = sim.substrate.entities.get(1).unwrap();
-        assert_eq!(unit.health.current, i32::MIN + 6);
+        assert_eq!(unit.health.current(), i32::MIN + 6);
         assert_eq!(unit.estimated_health.get(), i32::MIN + 5);
     }
 
@@ -2343,18 +2359,18 @@ mod tests {
             .reset(-20);
         assert_eq!(repair_request(&mut sim, &rules, 1), RadioResponse::Roger);
         let unit = sim.substrate.entities.get(1).unwrap();
-        assert_eq!(unit.health.current, 108);
+        assert_eq!(unit.health.current(), 108);
         assert_eq!(unit.estimated_health.get(), -12);
 
         let unit = sim.substrate.entities.get_mut(1).unwrap();
-        unit.health.current = 299;
+        unit.health.set_for_test(299);
         unit.estimated_health.reset(-20);
         assert_eq!(
             repair_request(&mut sim, &rules, 1),
             RadioResponse::RepairComplete
         );
         let unit = sim.substrate.entities.get(1).unwrap();
-        assert_eq!(unit.health.current, 300);
+        assert_eq!(unit.health.current(), 300);
         assert_eq!(unit.estimated_health.get(), 300);
         sim.substrate
             .entities
@@ -2451,7 +2467,7 @@ mod tests {
                 .substrate
                 .entities
                 .get(id)
-                .is_some_and(|e| e.category == EntityCategory::Unit)
+                .is_some_and(|e| e.category() == EntityCategory::Unit)
             {
                 sim.process_ground_locomotor_one(
                     id,
@@ -2476,7 +2492,7 @@ mod tests {
                 sim.substrate
                     .entities
                     .get(id)
-                    .is_some_and(|e| e.category == EntityCategory::Unit)
+                    .is_some_and(|e| e.category() == EntityCategory::Unit)
             })
             .collect();
         for id in units {
@@ -2763,7 +2779,7 @@ mod tests {
         }
         assert!(reached_pad && released);
         let e = sim.substrate.entities.get(1).unwrap();
-        assert_eq!(e.health.current, 300);
+        assert_eq!(e.health.current(), 300);
         assert!(!linked(&sim, 1));
         assert!(
             e.locomotor.as_ref().unwrap().powered,
@@ -2855,7 +2871,12 @@ mod tests {
         assert!(linked(&sim, 1));
         let nav = sim.substrate.entities.get(1).unwrap().navigation.nav_com;
         assert!(nav.is_some());
-        sim.substrate.entities.get_mut(1).unwrap().health.current = 300;
+        sim.substrate
+            .entities
+            .get_mut(1)
+            .unwrap()
+            .health
+            .set_for_test(300);
         let due = {
             let timer = sim
                 .substrate
@@ -2942,7 +2963,7 @@ mod tests {
                 sim.substrate
                     .entities
                     .get(id)
-                    .is_some_and(|e| e.category == EntityCategory::Unit)
+                    .is_some_and(|e| e.category() == EntityCategory::Unit)
             })
             .collect();
         let cfg = miner_cfg();
@@ -3091,7 +3112,7 @@ mod tests {
         assert!(released, "miner never released");
         assert!(writes >= 1, "at least the first HELLO dispatch");
         let e = sim.substrate.entities.get(MINER).unwrap();
-        assert_eq!(e.health.current, 600);
+        assert_eq!(e.health.current(), 600);
         assert!(e.miner.is_some(), "miner component survives the depot stay");
         assert!(!linked(&sim, MINER));
         assert_eq!(e.mission.queued().known(), Some(MissionType::Move));
@@ -3283,7 +3304,7 @@ mod tests {
             assert!(sim.register_live_object(id));
         }
         sim.advance_tick(&[], Some(&rules), None, None, 66);
-        assert_eq!(sim.substrate.entities.get(1).unwrap().health.current, 108);
+        assert_eq!(sim.substrate.entities.get(1).unwrap().health.current(), 108);
         assert_eq!(sim.houses[&owner].economy.credits(), 0);
         assert_eq!(sim.houses[&owner].economy.spent_credits(), 2);
         let factory = sim.production.factories.test_first_mut().unwrap();

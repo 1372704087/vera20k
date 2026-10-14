@@ -2,7 +2,7 @@ use crate::map::entities::EntityCategory;
 use crate::rules::foundation::FOUNDATION_TABLE;
 use crate::rules::ini_parser::IniFile;
 use crate::rules::ruleset::RuleSet;
-use crate::sim::combat::{AttackTarget, TargetKind};
+use crate::sim::combat::TargetKind;
 use crate::sim::docking::aircraft_dock::AircraftAmmo;
 use crate::sim::game_entity::GameEntity;
 use crate::sim::intern::test_interner;
@@ -51,7 +51,7 @@ fn fixture(row: &Value) -> (Simulation, RuleSet) {
         entity.position.exact_z_leptons = Some(xyz[2].as_i64().unwrap() as i32);
     };
     let mut source = GameEntity::test_default(1, "ORCA", "Americans", 10, 10);
-    source.category = EntityCategory::Aircraft;
+    source.set_category_for_test(EntityCategory::Aircraft);
     source
         .veterancy
         .set_rank_for_test((case["veterancy"].as_u64().unwrap_or(0) * 100) as u16);
@@ -86,7 +86,9 @@ fn fixture(row: &Value) -> (Simulation, RuleSet) {
                 },
             );
             if building {
-                target.foundation = foundation.name.to_owned();
+                target
+                    .type_facts
+                    .set_foundation_for_test(foundation.name.to_owned());
                 assert_eq!(
                     serde_json::json!([foundation.width, foundation.height]),
                     row["foundation_dimensions"]
@@ -97,10 +99,10 @@ fn fixture(row: &Value) -> (Simulation, RuleSet) {
             TargetKind::Entity(2)
         }
     };
-    source.attack_target = Some(match target {
-        TargetKind::Entity(id) => AttackTarget::new(id),
-        TargetKind::Cell(x, y) => AttackTarget::for_cell(x, y),
-    });
+    source.attack_target.set_for_test(Some(match target {
+        TargetKind::Entity(id) => TargetKind::Entity(id),
+        TargetKind::Cell(x, y) => TargetKind::Cell(x, y),
+    }));
     sim.substrate.entities.insert(source);
     sim.interner = test_interner();
     sim.substrate.next_stable_object_id = 3;
@@ -119,7 +121,7 @@ fn assert_native_in_range_result(sim: &Simulation, row: &Value) {
         !aircraft.aircraft_ammo.as_ref().unwrap().release_pending(),
         "the range branch only authorizes the next mission state"
     );
-    assert_eq!(aircraft.aircraft_ammo.as_ref().unwrap().current, 2);
+    assert_eq!(aircraft.aircraft_ammo.as_ref().unwrap().current(), 2);
     assert!(
         crate::sim::movement::motion_query::is_moving(&aircraft) != Some(true),
         "{row}"
@@ -134,7 +136,7 @@ fn selected_strafe_range_branch_matches_native_and_dispatches_when_in_range() {
     for row in rows {
         let (mut sim, rules) = fixture(&row);
         let aircraft = sim.substrate.entities.get(1).unwrap();
-        let target = aircraft.attack_target.as_ref().unwrap().target;
+        let target = aircraft.attack_target.target().unwrap();
         let distance =
             crate::sim::combat::object_distance_to(aircraft, &target, &sim.substrate.entities)
                 .unwrap();

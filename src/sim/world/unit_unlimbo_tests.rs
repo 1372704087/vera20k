@@ -158,15 +158,18 @@ fn assert_actor(sim: &Simulation, id: u64, native: &Value, name: &str) {
         "{name}: Location"
     );
     for (label, actual) in [
-        ("alive", u8::from(actor.lifecycle.object_alive)),
-        ("limbo", u8::from(actor.lifecycle.in_limbo)),
+        ("alive", u8::from(actor.lifecycle.object_alive())),
+        ("limbo", u8::from(actor.lifecycle.in_limbo())),
         ("marked", u8::from(actor.lifecycle.cell_marked)),
-        ("logic_registered", u8::from(actor.in_logic_vector)),
+        (
+            "logic_registered",
+            u8::from(actor.in_logic_vector.is_member()),
+        ),
     ] {
         assert_eq!(json!(actual), native[label], "{name}: {label}");
     }
     assert_eq!(
-        json!(actor.health.current),
+        json!(actor.health.current()),
         native["health"],
         "{name}: Health"
     );
@@ -181,7 +184,7 @@ fn assert_actor(sim: &Simulation, id: u64, native: &Value, name: &str) {
         "{name}: QueueMission"
     );
     assert_eq!(
-        json!(actor.techno_ctor_random_word),
+        json!(actor.techno_ctor_random_word()),
         native["random_phase_raw_u16"],
         "{name}: retained constructor phase"
     );
@@ -332,16 +335,16 @@ fn assert_radio_pair(sim: &Simulation, ids: (u64, u64), native: &Value, name: &s
             "{name}: {role} Contacts"
         );
         assert_eq!(
-            endpoint.dock_entered_with,
+            endpoint.tether.partner(),
             (expected["tether"] == 1).then_some(peer),
             "{name}: {role} tether owner"
         );
         for (label, actual) in [
-            ("alive", i32::from(endpoint.lifecycle.object_alive)),
-            ("limbo", i32::from(endpoint.lifecycle.in_limbo)),
+            ("alive", i32::from(endpoint.lifecycle.object_alive())),
+            ("limbo", i32::from(endpoint.lifecycle.in_limbo())),
             ("marked", i32::from(endpoint.lifecycle.cell_marked)),
             ("in_playfield", i32::from(endpoint.in_playfield)),
-            ("health", endpoint.health.current),
+            ("health", endpoint.health.current()),
             ("mission", endpoint.mission.current().raw()),
             ("queued", endpoint.mission.queued().raw()),
         ] {
@@ -509,7 +512,16 @@ fn retail_unit_unlimbo_matches_original_admission_and_caller_pose() {
         let name = input["name"].as_str().unwrap();
         let mut sim = retail_world(&rules, &terrain_rules);
         let id = sim
-            .construct_object_limbo_at_height("MTNK", "Americans", 0, 0, 0, 0, &rules)
+            .construct_object_limbo_at_height(
+                "MTNK",
+                "Americans",
+                0,
+                0,
+                0,
+                0,
+                &rules,
+                crate::sim::world::FrameEffects::default(),
+            )
             .unwrap();
         assert_actor(&sim, id, &row["before"]["actor"], name);
         assert_stage(&sim, id, &row["stage_before"], name);
@@ -643,12 +655,21 @@ fn retail_authored_unit_high_matches_original_pose_scope_and_lists() {
             // call starts at seed0 and spends that original constructor draw;
             // compare its retained phase and final complete RNG below, without
             // adopting a post-constructor cursor or fitting a Rust answer.
-            sim.substrate.entities.values().next().unwrap().stable_id
+            sim.substrate.entities.values().next().unwrap().stable_id()
         } else {
             refused += 1;
             assert_eq!(input["scope"], 0);
             let id = sim
-                .construct_object_limbo_at_height("MTNK", "Americans", 0, 0, 0, 0, &rules)
+                .construct_object_limbo_at_height(
+                    "MTNK",
+                    "Americans",
+                    0,
+                    0,
+                    0,
+                    0,
+                    &rules,
+                    crate::sim::world::FrameEffects::default(),
+                )
                 .unwrap();
             assert_actor(&sim, id, &row["before"], name);
             assert_rng(&sim, &row["rng"], "before_hex", name);
@@ -724,7 +745,16 @@ fn exact_unit_placement_input_z_matches_existing_original_ramp_controls() {
         assert_eq!(case["missing"], false, "{name}: supplied real cell");
         let mut sim = retail_world(&rules, &terrain_rules);
         let id = sim
-            .construct_object_limbo_at_height("MTNK", "Americans", 0, 0, 0, 0, &rules)
+            .construct_object_limbo_at_height(
+                "MTNK",
+                "Americans",
+                0,
+                0,
+                0,
+                0,
+                &rules,
+                crate::sim::world::FrameEffects::default(),
+            )
             .unwrap();
         let on_bridge = case["on_bridge"].as_bool().unwrap();
         {
@@ -877,7 +907,16 @@ fn retail_reused_unit_unlimbo_matches_original_stage_and_rng_tail() {
         assert_eq!(flags(&rules), json!([u8::from(small), u8::from(large)]));
         let mut sim = retail_world(&base_rules, &terrain_rules);
         let id = sim
-            .construct_object_limbo_at_height("MTNK", "Americans", 0, 0, 0, 0, &base_rules)
+            .construct_object_limbo_at_height(
+                "MTNK",
+                "Americans",
+                0,
+                0,
+                0,
+                0,
+                &base_rules,
+                crate::sim::world::FrameEffects::default(),
+            )
             .unwrap();
         let initial = &row["initial_placement"];
         assert_stage(&sim, id, &initial["stage_before"], name);
@@ -1048,7 +1087,16 @@ fn retail_land_factory_delivery_matches_original_unit_unlimbo_suffix() {
         // The existing Rust constructor spends the same two Scenario draws;
         // no fixture RNG draw or alternate RNG implementation is needed.
         let producer_id = sim
-            .construct_object_limbo_at_height("GAWEAP", "Americans", 0, 0, 0, 0, &rules)
+            .construct_object_limbo_at_height(
+                "GAWEAP",
+                "Americans",
+                0,
+                0,
+                0,
+                0,
+                &rules,
+                crate::sim::world::FrameEffects::default(),
+            )
             .unwrap();
         let producer_coord = coord(&input["producer_xyz"]);
         {
@@ -1218,7 +1266,7 @@ fn retail_land_factory_delivery_matches_original_unit_unlimbo_suffix() {
             "{name}: Radio HELLO contact"
         );
         assert_eq!(
-            actor.dock_entered_with,
+            actor.tether.partner(),
             Some(producer_id),
             "{name}: Radio TETHER receiver"
         );
@@ -1310,10 +1358,28 @@ fn retail_factory_exit_radio_matches_original_reciprocal_cleanup() {
         // Original constructor order supplies Scenario cursor2, while Main
         // and MapGen stay at their full original seed0 buffers.
         let unit = sim
-            .construct_object_limbo_at_height("MTNK", "Americans", 0, 0, 0, 0, &rules)
+            .construct_object_limbo_at_height(
+                "MTNK",
+                "Americans",
+                0,
+                0,
+                0,
+                0,
+                &rules,
+                crate::sim::world::FrameEffects::default(),
+            )
             .unwrap();
         let producer = sim
-            .construct_object_limbo_at_height("GAWEAP", "Americans", 0, 0, 0, 0, &rules)
+            .construct_object_limbo_at_height(
+                "GAWEAP",
+                "Americans",
+                0,
+                0,
+                0,
+                0,
+                &rules,
+                crate::sim::world::FrameEffects::default(),
+            )
             .unwrap();
         let ids = (unit, producer);
         {
@@ -1322,7 +1388,9 @@ fn retail_factory_exit_radio_matches_original_reciprocal_cleanup() {
                 &mut endpoint.position,
                 coord(&before["producer"]["position"]),
             );
-            endpoint.health.current = int(&before["producer"]["health"]);
+            endpoint
+                .health
+                .set_for_test(int(&before["producer"]["health"]));
             let mission = &before["producer"];
             endpoint.mission.apply_test_fixture(MissionTestFixture {
                 current: MissionId::from_raw(int(&mission["mission"])),
@@ -1438,9 +1506,9 @@ fn unit_entry_scope_and_actual_game_mode_match_independent_original_controls() {
         sim.houses
             .insert(owner, HouseState::new(owner, 0, None, false, 0, 10));
         let mut actor = GameEntity::test_default(90, "MOVER", "Americans", 10, 10);
-        actor.type_ref = sim.interner.intern("MOVER");
-        actor.owner = owner;
-        actor.category = crate::map::entities::EntityCategory::Unit;
+        actor.set_type_ref_for_test(sim.interner.intern("MOVER"));
+        actor.set_owner_for_test(owner);
+        actor.set_category_for_test(crate::map::entities::EntityCategory::Unit);
         actor.in_playfield = input["fixture"]["in_playfield"].as_bool().unwrap();
         actor.locomotor = Some(LocomotorState::for_test_kind(LocomotorKind::Drive));
         sim.substrate.entities.insert(actor);

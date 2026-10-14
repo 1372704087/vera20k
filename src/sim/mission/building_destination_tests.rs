@@ -5,9 +5,10 @@
 use crate::map::entities::EntityCategory;
 use crate::rules::ini_parser::IniFile;
 use crate::rules::ruleset::RuleSet;
+use crate::sim::combat::Health;
 use crate::sim::combat::TargetKind;
 use crate::sim::command::Command;
-use crate::sim::components::{Health, NavTargetRef};
+use crate::sim::components::NavTargetRef;
 use crate::sim::game_entity::GameEntity;
 use crate::sim::mission::MissionId;
 use crate::sim::world::Simulation;
@@ -73,16 +74,22 @@ fn fixture(input: &Value, shape: u8) -> Simulation {
         0,
         0,
         owner,
-        Health { current: 1000 },
+        Health::new(1000),
         type_ref,
         EntityCategory::Structure,
         0,
         5,
         false,
     );
-    actor.lifecycle.in_limbo = input["limbo"].as_bool().unwrap_or(false);
-    actor.lifecycle.object_alive = input["alive"].as_bool().unwrap_or(true);
-    actor.dock_entered_with = input["tethered"].as_bool().unwrap_or(false).then_some(4);
+    actor
+        .lifecycle
+        .set_in_limbo_for_test(input["limbo"].as_bool().unwrap_or(false));
+    actor
+        .lifecycle
+        .set_object_alive_for_test(input["alive"].as_bool().unwrap_or(true));
+    actor
+        .tether
+        .set_for_test(input["tethered"].as_bool().unwrap_or(false).then_some(4));
     actor.set_archive_target(target("old", shape).map(TargetKind::from));
     // These Foot-only fields catch the removed represented-NavCom fallback.
     // The native Building body never touches them, regardless of admission.

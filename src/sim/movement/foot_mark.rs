@@ -133,7 +133,7 @@ impl Simulation {
         self.substrate
             .entities
             .get(id)
-            .is_some_and(|entity| entity.category != EntityCategory::Structure)
+            .is_some_and(|entity| entity.category() != EntityCategory::Structure)
     }
 
     /// Techno Mark6F4A81..97 after an accepted Object Mark: read the live
@@ -149,7 +149,7 @@ impl Simulation {
             .substrate
             .entities
             .get(id)
-            .is_some_and(|entity| entity.dock_entered_with.is_some())
+            .is_some_and(|entity| entity.tether.partner().is_some())
         {
             crate::sim::radio::transmit_to_contact(
                 self,
@@ -174,7 +174,7 @@ impl Simulation {
         let Some(entity) = self.substrate.entities.get_mut(id) else {
             return false;
         };
-        if entity.lifecycle.in_limbo || !entity.lifecycle.cell_marked {
+        if entity.lifecycle.in_limbo() || !entity.lifecycle.cell_marked {
             return false;
         }
         entity.lifecycle.cell_marked = false;
@@ -232,7 +232,7 @@ impl Simulation {
         let Some(entity) = self.substrate.entities.get_mut(id) else {
             return false;
         };
-        if entity.lifecycle.in_limbo || entity.lifecycle.cell_marked {
+        if entity.lifecycle.in_limbo() || entity.lifecycle.cell_marked {
             return false;
         }
         entity.lifecycle.cell_marked = true;
@@ -264,7 +264,7 @@ impl Simulation {
             let entity = self.substrate.entities.get(id).expect("placed Foot");
             (
                 entity.sub_cell,
-                CellListInsertion::from_category(entity.category),
+                CellListInsertion::from_category(entity.category()),
             )
         };
         self.substrate
@@ -312,7 +312,7 @@ impl Simulation {
         let Some(entity) = self.substrate.entities.get(id) else {
             return false;
         };
-        if !entity.foot_occupation_enabled || entity.category == EntityCategory::Infantry {
+        if !entity.foot_occupation_enabled || entity.category() == EntityCategory::Infantry {
             return false;
         }
         let coord = ground_pose::position_world_coord(&entity.position);
@@ -329,7 +329,7 @@ impl Simulation {
         let Some(entity) = self.substrate.entities.get(id) else {
             return false;
         };
-        match entity.category {
+        match entity.category() {
             EntityCategory::Unit => {
                 self.track_raw_mark_at(id, coord, put);
             }

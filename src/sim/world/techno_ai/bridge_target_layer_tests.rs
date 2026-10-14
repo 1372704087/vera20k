@@ -5,7 +5,7 @@ use super::*;
 use crate::map::resolved_terrain::{ResolvedTerrainGrid, test_flat_cell};
 use crate::rules::art_data::ArtRegistry;
 use crate::rules::retail_ini_fixture::retail_rules_and_art;
-use crate::sim::components::Health;
+use crate::sim::combat::Health;
 use crate::sim::game_entity::GameEntity;
 use crate::sim::house_state::HouseState;
 use crate::sim::mission::{MissionId, MissionTimer};
@@ -110,24 +110,24 @@ fn supplied_world(rules: &RuleSet, case: &Value) -> Simulation {
             6,
             0,
             owner,
-            Health {
-                current: obj.strength,
-            },
+            Health::new(obj.strength),
             sim.intern("FV"),
             EntityCategory::Unit,
             0,
             6,
             true,
         );
-        entity.lifecycle.in_limbo = false;
+        entity.lifecycle.set_in_limbo_for_test(false);
         entity.lifecycle.cell_marked = true;
         entity.in_playfield = true;
         entity.locomotor = Some(LocomotorState::from_object_type(obj, 0));
-        entity.passive_scan_timer = MissionTimer {
-            start_frame: 0,
-            duration: 0,
-        };
-        entity.last_target_scan_frame = 0;
+        entity
+            .passive_scan
+            .set_passive_scan_timer_for_test(MissionTimer {
+                start_frame: 0,
+                duration: 0,
+            });
+        entity.passive_scan.set_last_target_scan_frame_for_test(0);
         entity.position.exact_z_leptons = Some(624);
         sim.substrate.entities.insert(entity);
         sim.mission_assign_exact(id, MissionId::from_known(MissionType::Guard), 0)
@@ -220,26 +220,33 @@ fn supply_step(sim: &mut Simulation, rules: &RuleSet, input: &Value) {
     }
     let source = sim.substrate.entities.get_mut(1).unwrap();
     if let Some(timer) = input["rearm"].as_array() {
-        source.rearm_timer = CdTimer::from_raw(
+        source.rearm_timer.set_for_test(CdTimer::from_raw(
             timer[0].as_i64().unwrap() as i32,
             timer[1].as_i64().unwrap() as i32,
-        );
+        ));
     }
     if let Some(timer) = input["timer"].as_array() {
-        source.passive_scan_timer = MissionTimer {
-            start_frame: timer[0].as_i64().unwrap() as u32,
-            duration: timer[2].as_i64().unwrap() as u32,
-        };
+        source
+            .passive_scan
+            .set_passive_scan_timer_for_test(MissionTimer {
+                start_frame: timer[0].as_i64().unwrap() as u32,
+                duration: timer[2].as_i64().unwrap() as u32,
+            });
     }
     if let Some(health) = input["health"].as_i64() {
-        sim.substrate.entities.get_mut(2).unwrap().health.current = health as i32;
+        sim.substrate
+            .entities
+            .get_mut(2)
+            .unwrap()
+            .health
+            .set_for_test(health as i32);
     }
 }
 
 fn assert_state(sim: &Simulation, state: &Value, label: &str) {
     use crate::sim::combat::TargetKind;
     let source = sim.substrate.entities.get(1).unwrap();
-    let name = match source.attack_target.as_ref().map(|a| a.target) {
+    let name = match source.attack_target.target() {
         None => "null",
         Some(TargetKind::Entity(1)) => "source",
         Some(TargetKind::Entity(2)) => "target",
@@ -248,22 +255,22 @@ fn assert_state(sim: &Simulation, state: &Value, label: &str) {
     };
     assert_eq!(json!(name), state["target"], "{label}: target");
     assert_eq!(
-        json!(u8::from(source.passively_acquired_target)),
+        json!(u8::from(source.passive_scan.acquired())),
         state["passive"],
         "{label}: passive"
     );
     assert_eq!(
-        json!(source.last_target_scan_frame as i32),
+        json!(source.passive_scan.last_scan_frame() as i32),
         state["last_scan"],
         "{label}: last_scan"
     );
     assert_eq!(
-        json!(source.passive_scan_timer.start_frame as i32),
+        json!(source.passive_scan.timer().start_frame as i32),
         state["timer"][0],
         "{label}: timer anchor"
     );
     assert_eq!(
-        json!(source.passive_scan_timer.duration as i32),
+        json!(source.passive_scan.timer().duration as i32),
         state["timer"][2],
         "{label}: timer duration"
     );
@@ -386,8 +393,11 @@ fn move_retail_fv(
         .entities
         .get_mut(id)
         .unwrap()
-        .passive_scan_timer =
-        MissionTimer::armed(runtime.simulation.session.binary_frame, 1_000_000);
+        .passive_scan
+        .set_passive_scan_timer_for_test(MissionTimer::armed(
+            runtime.simulation.session.binary_frame,
+            1_000_000,
+        ));
     let command = CommandEnvelope::new(
         owner,
         runtime.simulation.session.tick + 1,
@@ -485,18 +495,21 @@ fn assert_retail_target_state_restored(live: &Simulation, restored: &Simulation,
         if let (Some(before), Some(after)) = (before, after) {
             assert_eq!(json!(before.position), json!(after.position));
             assert_eq!(before.on_bridge, after.on_bridge);
-            assert_eq!(before.passive_scan_timer, after.passive_scan_timer);
-            assert_eq!(before.rearm_timer, after.rearm_timer);
+            assert_eq!(before.passive_scan.timer(), after.passive_scan.timer());
+            assert_eq!(before.rearm_timer.timer(), after.rearm_timer.timer());
             assert_eq!(json!(before.attack_target), json!(after.attack_target));
             assert_eq!(
-                before.passively_acquired_target,
-                after.passively_acquired_target
+                before.passive_scan.acquired(),
+                after.passive_scan.acquired()
             );
             assert_eq!(before.estimated_health, after.estimated_health);
-            assert_eq!(before.health.current, after.health.current);
-            assert_eq!(before.lifecycle.object_alive, after.lifecycle.object_alive);
-            assert_eq!(before.lifecycle.in_limbo, after.lifecycle.in_limbo);
-            assert_eq!(before.dying, after.dying);
+            assert_eq!(before.health.current(), after.health.current());
+            assert_eq!(
+                before.lifecycle.object_alive(),
+                after.lifecycle.object_alive()
+            );
+            assert_eq!(before.lifecycle.in_limbo(), after.lifecycle.in_limbo());
+            assert_eq!(before.death.is_dying(), after.death.is_dying());
         }
     }
     for xy in [(64, 69), (66, 69)] {
@@ -586,11 +599,14 @@ pub(super) fn retail_hills_collapsed_scene(
             .entities
             .get_mut(source)
             .unwrap();
-        entity.passive_scan_timer.clear();
+        entity.passive_scan.timer_mut_for_test().clear();
         // Native composed deck-to-ground rearm boundary: ready weapons
         // reject earlier in T58; the busy deck source reaches Evaluate's G27.
         // The reverse direction rejects in InRange before G27.
-        entity.rearm_timer = CdTimer::started(runtime.simulation.session.binary_frame as i32, 10);
+        entity.rearm_timer.set_for_test(CdTimer::started(
+            runtime.simulation.session.binary_frame as i32,
+            10,
+        ));
         passive_acquire_step(
             &mut runtime.simulation,
             source,
@@ -608,6 +624,7 @@ pub(super) fn retail_hills_collapsed_scene(
                 .get(source)
                 .unwrap()
                 .attack_target
+                .target()
                 .is_none()
         );
         assert!(
@@ -617,7 +634,8 @@ pub(super) fn retail_hills_collapsed_scene(
                 .entities
                 .get(source)
                 .unwrap()
-                .passively_acquired_target
+                .passive_scan
+                .acquired()
         );
     }
     let bytes = GameSnapshot::save_validated(
@@ -686,6 +704,7 @@ pub(super) fn retail_hills_collapsed_scene(
                 .get(source)
                 .unwrap()
                 .attack_target
+                .target()
                 .is_none()
         );
         std::mem::swap(&mut runtime.simulation, &mut first);

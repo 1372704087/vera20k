@@ -66,7 +66,9 @@ fn take_trace() -> Vec<Boundary> {
 fn release_fixture() -> Simulation {
     let mut sim = super::tests::installed_sim();
     let building = sim.substrate.entities.get_mut(2).unwrap();
-    building.foundation = "2x3".to_owned();
+    building
+        .type_facts
+        .set_foundation_for_test("2x3".to_owned());
     building.position.sub_x = SimFixed::from_num(64);
     building.position.sub_y = SimFixed::from_num(192);
     building.position.exact_z_leptons = Some(731);
@@ -160,7 +162,7 @@ fn sell_release_uses_building_center_preserves_pose_and_orders_links_after_speed
         (0x47, 0, 971)
     );
     assert!(drive.track().reversed);
-    assert!(!unit.lifecycle.in_limbo && unit.in_logic_vector);
+    assert!(!unit.lifecycle.in_limbo() && unit.in_logic_vector.is_member());
     assert!(!unit.radio_contacts.contains(2));
     assert!(
         !sim.substrate
@@ -245,10 +247,13 @@ fn force_limbo_early_return_does_not_skip_caller_speed_links_or_break() {
         .get_mut(1)
         .unwrap()
         .lifecycle
-        .in_limbo = true;
+        .set_in_limbo_for_test(true);
     release_sell_destroy(&mut sim, 2, crate::sim::world::FrameEffects::default());
     let unit = sim.substrate.entities.get(1).unwrap();
-    assert!(unit.lifecycle.in_limbo, "release must not resurrect/reveal");
+    assert!(
+        unit.lifecycle.in_limbo(),
+        "release must not resurrect/reveal"
+    );
     assert_eq!(unit.foot_speed.applied_fraction(), SIM_ONE);
     assert_eq!(unit.bunker_link, BunkerLink::None);
     assert!(!unit.radio_contacts.contains(2));
@@ -334,7 +339,11 @@ fn empty_slot_zero_does_not_scan_later_contacts() {
 fn nonunit_link_does_not_release_or_reset_bunker() {
     for normal in [false, true] {
         let mut sim = release_fixture();
-        sim.substrate.entities.get_mut(1).unwrap().category = EntityCategory::Infantry;
+        sim.substrate
+            .entities
+            .get_mut(1)
+            .unwrap()
+            .set_category_for_test(EntityCategory::Infantry);
         if normal {
             release_normal(
                 &mut sim,

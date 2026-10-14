@@ -172,7 +172,7 @@ fn rules() -> RuleSet {
 /// The fixture's rules over an edited copy of [`RULES`].
 fn rules_from(text: &str, art_text: &str) -> RuleSet {
     let mut rules = RuleSet::from_ini_with_fixed_art_for_test(
-        &IniFile::from_str(text),
+        &crate::sim::arena_fixture::clear_ground_ini(text),
         &IniFile::from_str(art_text),
     )
     .expect("temporal rules");
@@ -186,6 +186,7 @@ fn rules_from(text: &str, art_text: &str) -> RuleSet {
 /// Americans (human), Russians and Allies2 (computer).
 fn sim(seed: u64) -> Simulation {
     let mut sim = Simulation::with_seed(seed);
+    crate::sim::arena_fixture::supply_native_map(&mut sim);
     for (name, side, human) in [
         ("Americans", 0, true),
         ("Russians", 1, false),
@@ -224,7 +225,7 @@ fn erased(sim: &Simulation, id: u64) -> bool {
     sim.substrate
         .entities
         .get(id)
-        .is_none_or(|entity| !entity.lifecycle.object_alive)
+        .is_none_or(|entity| !entity.lifecycle.object_alive())
 }
 
 /// Link the attackers onto `target` in chain order (the first is the head),
@@ -442,10 +443,7 @@ fn native_update_corpus() {
             }
             if attacker.open_topped == 1 {
                 sim.substrate.entities.get_mut(id).unwrap().passenger_role =
-                    crate::sim::passenger::PassengerRole::Inside {
-                        transport_id: transport,
-                        open_topped: true,
-                    };
+                    crate::sim::passenger::PassengerRole::inside_for_test(transport, true);
             }
             if let Some(coords) = attacker.coords {
                 place(&mut sim, id, coords);
@@ -755,7 +753,7 @@ fn retarget_and_counter_warp_release() {
     assert_eq!(head_of(&sim, other_tank), Some(red));
     assert_eq!(link(&sim, red).warp_remaining, 4000, "a fresh start");
     assert_eq!(
-        entity(&sim, tank).health.current,
+        entity(&sim, tank).health.current(),
         400,
         "nothing was lost or healed"
     );
@@ -1093,8 +1091,12 @@ fn a_warped_object_is_frozen_and_immune() {
     let tank = spawn(&mut sim, &rules, "HTNK", "Americans", 12, 10);
     let cleg = spawn(&mut sim, &rules, "CLEG", "Russians", 10, 10);
     let gi = spawn(&mut sim, &rules, "E1", "Russians", 12, 12);
-    sim.substrate.entities.get_mut(tank).unwrap().attack_target =
-        Some(crate::sim::combat::AttackTarget::new(gi));
+    sim.substrate
+        .entities
+        .get_mut(tank)
+        .unwrap()
+        .attack_target
+        .set_for_test(Some(crate::sim::combat::TargetKind::Entity(gi)));
     sim.temporal_initiate_warp(
         cleg,
         Some(tank),
@@ -1114,7 +1116,10 @@ fn a_warped_object_is_frozen_and_immune() {
         "frozen"
     );
     assert_eq!(link(&sim, cleg).warp_remaining, 3992, "one step");
-    assert!(entity(&sim, tank).attack_target.is_none(), "TarCom dropped");
+    assert!(
+        entity(&sim, tank).attack_target.target().is_none(),
+        "TarCom dropped"
+    );
     let sparkles: Vec<AnimWorldCoord> = sim
         .substrate
         .anims
@@ -1168,14 +1173,14 @@ fn a_warped_object_is_frozen_and_immune() {
         &[hit(false)],
         crate::sim::world::FrameEffects::default(),
     );
-    assert_eq!(entity(&sim, tank).health.current, 400, "immune");
+    assert_eq!(entity(&sim, tank).health.current(), 400, "immune");
     sim.commit_noncombat_aoe_hits(
         &rules,
         None,
         &[hit(true)],
         crate::sim::world::FrameEffects::default(),
     );
-    assert_eq!(entity(&sim, tank).health.current, 300, "ignoreDefenses");
+    assert_eq!(entity(&sim, tank).health.current(), 300, "ignoreDefenses");
 }
 
 /// Through the production fire path: a Chrono Legionnaire ordered to attack a
@@ -1220,7 +1225,7 @@ fn a_chrono_legionnaire_erases_a_tank() {
         sim.advance_tick(&commands, Some(&rules), Some(&grid), None, 33);
         if started.is_none() && head_of(&sim, tank) == Some(cleg) {
             started = Some(frame);
-            assert_eq!(entity(&sim, tank).health.current, 400, "no damage");
+            assert_eq!(entity(&sim, tank).health.current(), 400, "no damage");
         }
         if erased(&sim, tank) {
             erased_after = Some(frame);
@@ -1245,9 +1250,13 @@ fn a_chrono_legionnaire_erases_a_tank() {
     );
     assert!(!entity(&sim, cleg).temporal.is_warping_someone());
     assert!(
-        !sim.substrate.entities.values().any(|entity| entity.category
-            == crate::map::entities::EntityCategory::Infantry
-            && entity.owner() == sim.interner.get("Americans").unwrap()),
+        !sim.substrate
+            .entities
+            .values()
+            .any(
+                |entity| entity.category() == crate::map::entities::EntityCategory::Infantry
+                    && entity.owner() == sim.interner.get("Americans").unwrap()
+            ),
         "no survivors"
     );
 }
@@ -1336,12 +1345,12 @@ fn only_temporal_fire_reaches_a_warped_target() {
         sim.advance_tick(&commands, Some(&rules), Some(&grid), None, 33);
     }
     assert_eq!(head_of(&sim, tank), Some(cleg), "still warped");
-    assert_eq!(entity(&sim, tank).health.current, 400);
+    assert_eq!(entity(&sim, tank).health.current(), 400);
     assert!(
         entity(&sim, gi)
             .attack_target
-            .as_ref()
-            .is_none_or(|attack| attack.target != crate::sim::combat::TargetKind::Entity(tank)),
+            .target()
+            .is_none_or(|attack| attack != crate::sim::combat::TargetKind::Entity(tank)),
         "the illegal target is dropped"
     );
 }
@@ -1397,7 +1406,7 @@ fn moving_releases_the_target() {
     }
     assert_eq!(head_of(&sim, tank), None, "released on the move");
     assert!(!erased(&sim, tank));
-    assert_eq!(entity(&sim, tank).health.current, 400);
+    assert_eq!(entity(&sim, tank).health.current(), 400);
 }
 
 /// A snapshot taken mid-warp restores the chain and the head.
@@ -1423,6 +1432,17 @@ fn a_warp_in_progress_survives_a_snapshot() {
         crate::sim::world::FrameEffects::default(),
     );
     sim.temporal_update_head(a, &rules, None, crate::sim::world::FrameEffects::default());
+    // This fixture now supplies native navigation. Load retains its base rows
+    // but reconstructs the hierarchy only at the map-authority restore seam.
+    // Provide the empty overlay owner that the production seam requires.
+    let terrain = sim.resolved_terrain.as_ref().unwrap().clone();
+    sim.overlay_grid = Some(crate::sim::overlay_grid::OverlayGrid::new(
+        terrain.width(),
+        terrain.height(),
+    ));
+    let overlays = crate::rules::overlay_types::OverlayTypeRegistry::empty();
+    sim.restore_map_authority_after_snapshot_load(&rules, &overlays, None)
+        .expect("publish fixture map authority");
     // A load restarts the Scenario stream from Seed0; put the source there too.
     sim.scenario_rng = crate::sim::rng::SimRng::new(0);
     let saved_hash = sim.state_hash();
@@ -1430,16 +1450,26 @@ fn a_warp_in_progress_survives_a_snapshot() {
     let mut restored = crate::sim::snapshot::GameSnapshot::load(&bytes)
         .expect("snapshot")
         .sim;
-    assert_eq!(
-        restored.state_hash(),
-        saved_hash,
-        "the load restores the hash"
-    );
+    restored.retain_process_state_for_load(crate::sim::world::SnapshotProcessState::Live(&sim));
     restored
         .restore_after_snapshot_load()
         .expect("temporal links resolve");
+    restored.rebuild_caches_after_load(
+        terrain,
+        crate::sim::pathfinding::terrain_speed::TerrainSpeedConfig::default(),
+        &rules,
+    );
+    restored
+        .restore_map_authority_after_snapshot_load(&rules, &overlays, None)
+        .expect("restore fixture map authority and navigation");
     let hash = restored.state_hash();
-    assert_eq!(hash, saved_hash, "and the relink keeps it");
+    assert_eq!(
+        hash,
+        saved_hash,
+        "the admitted load restores the hash; saved owners {:?}; restored owners {:?}",
+        sim.hash_owner_diagnostics_for_test(),
+        restored.hash_owner_diagnostics_for_test(),
+    );
     assert_eq!(
         restored.substrate.entities.get(tank).unwrap().temporal,
         entity(&sim, tank).temporal
@@ -1468,7 +1498,8 @@ fn a_warp_in_progress_survives_a_snapshot() {
 fn a_warped_object_runs_none_of_its_ai_phases() {
     // Stand is presentation; native idle admission reads Doing. Supply the
     // real Ready record, then start it through Do_Action before testing freeze.
-    let ini = IniFile::from_str(&RULES.replace("[E1]\n", "[E1]\nImage=GI\n"));
+    let ini =
+        crate::sim::arena_fixture::clear_ground_ini(&RULES.replace("[E1]\n", "[E1]\nImage=GI\n"));
     let art = IniFile::from_str(&format!(
         "{ART}\n{}",
         crate::rules::retail_ini_fixture::GI_ART_EXCERPT
@@ -1488,8 +1519,8 @@ fn a_warped_object_runs_none_of_its_ai_phases() {
     let cleg2 = spawn(&mut sim, &rules, "CLEG", "Russians", 10, 12);
     {
         let building = sim.substrate.entities.get_mut(plant).unwrap();
-        building.health.current = 300;
-        building.repairing = true;
+        building.health.set_for_test(300);
+        building.repairing.set_for_test(true);
     }
     let americans = sim.interner.get("Americans").unwrap();
     sim.houses
@@ -1552,7 +1583,7 @@ fn a_warped_object_runs_none_of_its_ai_phases() {
     sim.session.binary_frame = sim.session.binary_frame.next_multiple_of(14);
     let ctx = crate::sim::world::ObjectAiCtx::default();
     sim.object_ai_visit_one(plant, Some(&rules), ctx);
-    assert_eq!(entity(&sim, plant).health.current, 300, "no repair");
+    assert_eq!(entity(&sim, plant).health.current(), 300, "no repair");
     assert_eq!(
         sim.houses[&sim.interner.get("Americans").unwrap()]
             .economy
@@ -1563,7 +1594,7 @@ fn a_warped_object_runs_none_of_its_ai_phases() {
     // Released, the building repairs again.
     sim.temporal_let_go(cleg2);
     sim.object_ai_visit_one(plant, Some(&rules), ctx);
-    assert!(entity(&sim, plant).health.current > 300);
+    assert!(entity(&sim, plant).health.current() > 300);
 }
 
 /// Evaluate_Candidate probes GetFireError first (`0x006F7CE8`), whose
@@ -1574,6 +1605,10 @@ fn a_warped_object_runs_none_of_its_ai_phases() {
 fn only_a_temporal_scanner_acquires_a_warped_enemy() {
     let rules = rules();
     let mut sim = sim(22);
+    // GreatestThreat6F9393 checks every ring cell against native Map Size.
+    // The component actors at10..13 belong to this Size20 arena, not the
+    // helper's Size64 diamond (which excludes their x+y<64 coordinates).
+    crate::sim::arena_fixture::flat_ground(&mut sim, &rules);
     let tank = spawn(&mut sim, &rules, "HTNK", "Russians", 12, 10);
     let cleg = spawn(&mut sim, &rules, "CLEG", "Americans", 12, 13);
     let gi = spawn(&mut sim, &rules, "E1", "Americans", 10, 10);
@@ -1654,7 +1689,7 @@ fn stop_retains_the_legionnaires_victim_until_attack_dispatch() {
         None,
         crate::sim::world::FrameEffects::default(),
     ));
-    assert!(entity(&sim, cleg).attack_target.is_none());
+    assert!(entity(&sim, cleg).attack_target.target().is_none());
     assert_eq!(
         entity(&sim, cleg).mission.current().known(),
         Some(MissionType::Attack)
@@ -1846,7 +1881,7 @@ fn a_warped_building_cannot_be_captured() {
         .get_mut(plant)
         .unwrap()
         .health
-        .current = 100;
+        .set_for_test(100);
     let americans = sim.interner.get("Americans").unwrap();
     let russians = sim.interner.get("Russians").unwrap();
     // Isolate the terminal Walk/PerCell2 boundary using the real command's
@@ -1955,9 +1990,9 @@ fn a_warped_transport_admits_no_one() {
     for carrier in [fortress, reactor] {
         let entity = sim.substrate.entities.get_mut(carrier).unwrap();
         if entity.passenger_role.cargo().is_none() {
-            entity.passenger_role = crate::sim::passenger::PassengerRole::Transport {
-                cargo: crate::sim::passenger::PassengerCargo::new(5, 0),
-            };
+            entity.passenger_role = crate::sim::passenger::PassengerRole::transport(
+                crate::sim::passenger::PassengerCargo::new(5, 0),
+            );
         }
     }
     let admits = |sim: &Simulation, carrier: u64| {
@@ -2144,7 +2179,12 @@ fn native_initiate_warp_corpus() {
                 .link = Some(TemporalLink::default());
             chain(&mut sim, other, &[target], 555);
         }
-        sim.substrate.entities.get_mut(target).unwrap().selected = true;
+        sim.substrate
+            .entities
+            .get_mut(target)
+            .unwrap()
+            .selection
+            .set_selected_for_test(true);
         if flag("gattling") {
             // Spun up with its loop playing, so one decay tick shows.
             sim.substrate.entities.get_mut(target).unwrap().gattling =
@@ -2223,7 +2263,7 @@ fn native_initiate_warp_corpus() {
         );
         if input["player"].as_bool() != Some(false) {
             assert_eq!(
-                !entity(&sim, target).selected,
+                !entity(&sim, target).selection.is_selected(),
                 native("deselect"),
                 "{name}: Deselect"
             );
@@ -2258,6 +2298,21 @@ fn native_initiate_warp_corpus() {
 /// A flat 32x32 clear map with its playfield, zones and path grid.
 fn arena(seed: u64, rules: &RuleSet) -> (Simulation, crate::sim::pathfinding::PathGrid) {
     let mut sim = sim(seed);
+    // Native Houses construct all stock Supers before object placement; these
+    // synthetic arenas do not run the production scenario bootstrap.
+    for owner in sim.session.house_order.clone() {
+        for name in &rules.super_weapon_order {
+            let id = sim.interner.intern(name);
+            sim.super_weapons.entry(owner).or_default().insert(
+                id,
+                crate::sim::superweapon::SuperWeaponInstance::new(
+                    id,
+                    owner,
+                    sim.session.binary_frame as i32,
+                ),
+            );
+        }
+    }
     let grid = crate::sim::arena_fixture::flat_arena(&mut sim, rules);
     (sim, grid)
 }
@@ -2274,7 +2329,7 @@ fn a_landing_aircraft_is_not_warped() {
     let cleg = spawn(&mut sim, &rules, "CLEG", "Russians", 10, 10);
     for (height, warped) in [(100, false), (0, true)] {
         let entity = sim.substrate.entities.get_mut(plane).unwrap();
-        entity.category = EntityCategory::Aircraft;
+        entity.set_category_for_test(EntityCategory::Aircraft);
         entity.locomotor = Some(
             crate::sim::movement::locomotor::LocomotorState::for_test_kind(
                 crate::rules::locomotor_type::LocomotorKind::Fly,

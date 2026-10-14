@@ -32,9 +32,11 @@ fn original_selfheal_tail_and_192_height_rows_retain_art_and_mark_smoke() {
         assert_eq!(sim.allocate_stable_id(), 1);
         let mut entity =
             GameEntity::test_default_of_category(1, "SIGNED", "A", 2, 2, EntityCategory::Structure);
-        entity.type_ref = sim.interner.intern("SIGNED");
-        entity.owner = sim.interner.intern("A");
-        entity.health.current = input["current"].as_i64().unwrap() as i32;
+        entity.set_type_ref_for_test(sim.interner.intern("SIGNED"));
+        entity.set_owner_for_test(sim.interner.intern("A"));
+        entity
+            .health
+            .set_for_test(input["current"].as_i64().unwrap() as i32);
         entity
             .building_art
             .set_damage_state_active_for_test(input["old_flag"].as_u64().unwrap_or(1) == 1);
@@ -70,12 +72,13 @@ fn original_selfheal_tail_and_192_height_rows_retain_art_and_mark_smoke() {
             .entities
             .get_mut(1)
             .unwrap()
-            .damage_smoke_system_id = Some(smoke_id);
+            .damage_smoke_system_id
+            .set_for_test(Some(smoke_id));
         let before_rng = sim.scenario_rng.logical_state();
         self_heal_step(&mut sim, 1, &rules);
         let entity = sim.substrate.entities.get(1).unwrap();
         assert_eq!(
-            entity.health.current,
+            entity.health.current(),
             row["output"]["actual"].as_i64().unwrap() as i32,
             "{row}"
         );
@@ -84,7 +87,7 @@ fn original_selfheal_tail_and_192_height_rows_retain_art_and_mark_smoke() {
             row["output"]["retained_flag"] == 1,
             "{row}"
         );
-        assert_eq!(entity.damage_smoke_system_id, Some(smoke_id));
+        assert_eq!(entity.damage_smoke_system_id.system(), Some(smoke_id));
         assert_eq!(
             sim.particle_systems().get(smoke_id).unwrap().done_spawning,
             row["output"]["smoke_done"] == 1,
@@ -119,16 +122,18 @@ fn fixture(row: &serde_json::Value) -> (Simulation, RuleSet) {
     );
     let mut sim = Simulation::new();
     let mut entity = GameEntity::test_default(1, "SIGNED", "Americans", 2, 2);
-    entity.type_ref = sim.interner.intern("SIGNED");
-    entity.owner = sim.interner.intern("Americans");
-    entity.health.current = input["current"].as_i64().unwrap() as i32;
+    entity.set_type_ref_for_test(sim.interner.intern("SIGNED"));
+    entity.set_owner_for_test(sim.interner.intern("Americans"));
+    entity
+        .health
+        .set_for_test(input["current"].as_i64().unwrap() as i32);
     entity.estimated_health = crate::sim::estimated_health::EstimatedHealth::from_raw(-987654321);
-    entity.category = if input["kind"] == "building" {
+    entity.set_category_for_test(if input["kind"] == "building" {
         EntityCategory::Structure
     } else {
         EntityCategory::Unit
-    };
-    entity.lifecycle.in_limbo = false;
+    });
+    entity.lifecycle.set_in_limbo_for_test(false);
     sim.substrate.entities.insert(entity);
     sim.session.binary_frame = input["frame"].as_u64().unwrap() as u32;
     sim.set_logic_order_for_test(vec![1]);
@@ -157,7 +162,7 @@ fn production_self_heal_matches_original_signed_cadence_and_increment() {
         self_heal_step(&mut sim, 1, &rules);
         let entity = sim.substrate.entities.get(1).unwrap();
         assert_eq!(
-            entity.health.current,
+            entity.health.current(),
             row["output"]["actual"].as_i64().unwrap() as i32,
             "{row}"
         );
@@ -179,7 +184,7 @@ fn production_self_heal_matches_original_signed_cadence_and_increment() {
             "native IDIV fault cannot become no-heal: {row}"
         );
         assert_eq!(
-            sim.substrate.entities.get(1).unwrap().health.current,
+            sim.substrate.entities.get(1).unwrap().health.current(),
             row["input"]["current"].as_i64().unwrap() as i32
         );
     }
@@ -204,7 +209,7 @@ fn whole_object_ai_keeps_wrapping_self_heal_and_signed_frame_period() {
         let (mut sim, rules) = fixture(row);
         sim.object_ai_stage(Some(&rules));
         assert_eq!(
-            sim.substrate.entities.get(1).unwrap().health.current,
+            sim.substrate.entities.get(1).unwrap().health.current(),
             row["output"]["actual"].as_i64().unwrap() as i32,
             "{row}"
         );
@@ -227,20 +232,20 @@ fn building_damage_fire_runs_before_yellow_crossing_selfheal() {
         2,
         crate::map::entities::EntityCategory::Structure,
     );
-    building.type_ref = sim.interner.intern("B");
-    building.owner = sim.interner.intern("A");
-    building.health.current = 50;
+    building.set_type_ref_for_test(sim.interner.intern("B"));
+    building.set_owner_for_test(sim.interner.intern("A"));
+    building.health.set_for_test(50);
     sim.substrate.entities.insert(building);
     sim.reveal(id);
     sim.session.binary_frame = 900;
     sim.object_ai_stage(Some(&rules));
     let building = sim.entities().get(id).unwrap();
-    assert_eq!(building.health.current, 51);
+    assert_eq!(building.health.current(), 51);
     assert!(
-        building.damage_fire_state_active,
+        building.damage_fires.is_active(),
         "43FC39 precedes6FA756 INC"
     );
     sim.session.binary_frame = 901;
     sim.object_ai_stage(Some(&rules));
-    assert!(!sim.entities().get(id).unwrap().damage_fire_state_active);
+    assert!(!sim.entities().get(id).unwrap().damage_fires.is_active());
 }

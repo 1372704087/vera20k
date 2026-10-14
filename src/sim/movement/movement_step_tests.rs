@@ -55,13 +55,14 @@ fn test_body_rotation_matches_native_frame_duration() {
     // count at which it completes (ReadyToMove with the exact target reached).
     fn frames_to_turn(from: u8, to: u8, rot: i32) -> u32 {
         let target = u16::from(to) << 8;
-        let mut body_facing = crate::sim::movement::FacingClass::new(u16::from(from) << 8, rot);
-        let mut desired = Some(target);
+        let mut entity = GameEntity::test_default(1, "MTNK", "Americans", 10, 10);
+        entity.body_facing = crate::sim::movement::FacingClass::new(u16::from(from) << 8, rot);
+        crate::sim::movement::drive_do_turn(&mut entity, target, 0);
         for frame in 0..1000u32 {
-            match handle_vehicle_rotation(&mut body_facing, desired.take(), frame) {
+            match handle_vehicle_rotation(&entity.body_facing, frame) {
                 RotationResult::ReadyToMove => {
                     assert_eq!(
-                        body_facing.current(frame),
+                        entity.body_facing.current(frame),
                         target,
                         "rotation must land exactly on the target"
                     );
@@ -101,10 +102,10 @@ fn test_body_rotation_matches_native_frame_duration() {
 fn native_track_fixture(kind: LocomotorKind, budget: i32) -> (Simulation, TrackInvocation, i32) {
     let mut sim = Simulation::new();
     let mut entity = GameEntity::test_default(1, "MTNK", "Americans", 10, 10);
-    entity.category = EntityCategory::Unit;
+    entity.set_category_for_test(EntityCategory::Unit);
     entity.locomotor = Some(LocomotorState::for_test_kind(kind));
-    entity.lifecycle.object_alive = true;
-    entity.lifecycle.in_limbo = false;
+    entity.lifecycle.set_object_alive_for_test(true);
+    entity.lifecycle.set_in_limbo_for_test(false);
     entity.lifecycle.cell_marked = true;
     let head = DriveCoord::cell(10, 9, 0);
     let track = TrackProgress {

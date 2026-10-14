@@ -106,7 +106,7 @@ pub(crate) fn hover_move_to(
     terrain: Option<&ResolvedTerrainGrid>,
     frame: u32,
 ) -> bool {
-    let paralyzed = entity.is_paralyzed(frame);
+    let paralyzed = entity.parasite.is_paralyzed(frame);
     let airborne = hover_is_powered(entity, terrain);
     let Some(hover) = runtime_mut(entity) else {
         return false;
@@ -186,7 +186,7 @@ impl Simulation {
         self.substrate
             .entities
             .get(id)
-            .is_some_and(|e| e.lifecycle.object_alive)
+            .is_some_and(|e| e.lifecycle.object_alive())
     }
 
     fn hover_is_moving(&self, id: u64) -> bool {
@@ -278,6 +278,30 @@ impl Simulation {
         if let Some(head) = self.hover_mut(id).and_then(|hover| hover.head.take()) {
             self.track_raw_mark_at(id, head, false);
         }
+    }
+
+    /// Hover ILocomotion+9C, `Mark_All_Occupation_Bits` at5171C0: mode0
+    /// asks the existing Head_To projection (514D10), then linked Foot+F4.
+    /// Mode1 does nothing; neither mode changes the retained head. Foot Limbo
+    /// calls this after Stop_Driver (4DB324), and Chrono Warp shares the slot.
+    /// Steam gamemd3e81a617..08600 executable controls:
+    /// tools/spatial_oracle/locomotor_force_track.hover_mark_all.{json,meta.json}.
+    /// Ledger: no RNG draws, timer writes or detaches in this body/Unit744210.
+    pub(crate) fn hover_mark_all_occupation_bits(&mut self, id: u64, put: bool) {
+        if put {
+            return;
+        }
+        let Some(entity) = self.substrate.entities.get(id) else {
+            return;
+        };
+        if runtime(entity).is_none() {
+            return;
+        }
+        let coord = super::super::foot_coordinate::head_or_current(
+            super::super::foot_coordinate::stored_head(entity),
+            super::super::foot_coordinate::current_coordinate(entity),
+        );
+        self.object_raw_receiver_at(id, coord, false);
     }
 
     /// The Foot's current speed (vt+0x538, GetCurrentSpeed 0x004DB1A0).
@@ -1061,7 +1085,7 @@ impl Simulation {
         let Some(entity) = self.substrate.entities.get(id) else {
             return Ok(7);
         };
-        if entity.is_paralyzed(frame) {
+        if entity.parasite.is_paralyzed(frame) {
             return Ok(7);
         }
         let Some(hover) = runtime(entity) else {
@@ -1123,7 +1147,7 @@ impl Simulation {
                 .substrate
                 .entities
                 .get(id)
-                .is_some_and(|entity| entity.lifecycle.in_limbo);
+                .is_some_and(|entity| entity.lifecycle.in_limbo());
             if !in_limbo {
                 if self.track_survives(id) {
                     self.hover_drop_track(id, rules, effects);

@@ -32,7 +32,7 @@ pub(super) fn publish_fresh_track_target(
     };
     let speed_type = loco.speed_type;
     let below_yellow = crate::sim::pathfinding::terrain_speed::is_at_or_below_condition_yellow(
-        entity.health.current,
+        entity.health.current(),
         strength,
         rules.general.condition_yellow,
     );
@@ -155,8 +155,8 @@ pub(super) fn advance(
     let selector = loco.track_progress(family).map_or(-1, |p| p.turn_index);
     let retained_target = loco.track_target_fraction(family);
     let prefix = super::drive_locomotion::TrackSpeedPrefix {
-        accelerates: entity.drive_accelerates,
-        unit_passive: entity.category == crate::map::entities::EntityCategory::Unit
+        accelerates: entity.mover_facts.drive_accelerates(),
+        unit_passive: entity.category() == crate::map::entities::EntityCategory::Unit
             && object.is_some_and(|object| object.passive),
         selector,
         raw_type_speed: object.map_or(0, |o| {
@@ -225,7 +225,7 @@ mod tests {
         let object = rules.object("MTNK").unwrap();
         for kind in [LocomotorKind::Drive, LocomotorKind::Ship] {
             let mut mover = entity(kind, 0, SIM_ONE);
-            mover.drive_accelerates = false;
+            mover.mover_facts.set_drive_accelerates_for_test(false);
             assert_eq!(
                 advance(
                     &mut mover,
@@ -262,7 +262,7 @@ mod tests {
         .unwrap();
         for kind in [LocomotorKind::Drive, LocomotorKind::Ship] {
             let mut mover = entity(kind, 0, SIM_ONE);
-            mover.drive_accelerates = false;
+            mover.mover_facts.set_drive_accelerates_for_test(false);
             assert_eq!(
                 advance(
                     &mut mover,
@@ -314,7 +314,9 @@ mod tests {
             )))
             .unwrap();
             let mut entity = entity(kind, selector, fixed(&input["target_bits"]));
-            entity.drive_accelerates = accelerates;
+            entity
+                .mover_facts
+                .set_drive_accelerates_for_test(accelerates);
             entity
                 .foot_speed
                 .set_speed_fraction(fixed(&input["applied_bits"]));

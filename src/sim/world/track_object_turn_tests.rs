@@ -19,12 +19,12 @@ fn fixture() -> (Simulation, RuleSet) {
     sim.fog.height = 32;
     sim.session.binary_frame = 10;
     let mut entity = GameEntity::test_default(1, "MTNK", "Americans", 10, 10);
-    entity.category = EntityCategory::Unit;
-    entity.lifecycle.object_alive = true;
-    entity.lifecycle.in_limbo = false;
+    entity.set_category_for_test(EntityCategory::Unit);
+    entity.lifecycle.set_object_alive_for_test(true);
+    entity.lifecycle.set_in_limbo_for_test(false);
     entity.lifecycle.cell_marked = true;
-    entity.is_voxel = false;
-    entity.drive_accelerates = false;
+    entity.set_is_voxel_for_test(false);
+    entity.mover_facts.set_drive_accelerates_for_test(false);
     entity.locomotor = Some(LocomotorState::for_test_kind(LocomotorKind::Drive));
     assert!(
         entity
@@ -84,7 +84,7 @@ fn object_turn_resets_foot_idle_latch_only_on_native_live_continuation() {
         let (mut sim, _) = fixture();
         let actor = sim.substrate.entities.get_mut(1).unwrap();
         actor.locomotor = None;
-        actor.lifecycle.object_alive = alive;
+        actor.lifecycle.set_object_alive_for_test(alive);
         actor.mission_leaf.set_foot_idle_entry_latch(1);
         let rng = sim.rng_state();
         sim.advance_live_object_turn(1, None, techno_ai::ObjectAiCtx::default())
@@ -157,14 +157,14 @@ fn post_ai_object_alive_gate_precedes_drive_ship_process_slope_sampling() {
             }
             slope_transition::snap_after_successful_unlimbo(entity, 2, 9);
             let old_slope = *slope_transition::state_for_entity(entity).unwrap();
-            entity.lifecycle.object_alive = object_alive;
-            assert!(entity.health.current > 0 && !entity.dying);
+            entity.lifecycle.set_object_alive_for_test(object_alive);
+            assert!(entity.health.current() > 0 && !entity.death.is_dying());
 
             let outcome = sim
                 .advance_live_object_turn(1, Some(&rules), techno_ai::ObjectAiCtx::default())
                 .expect("object turn");
             let entity = sim.substrate.entities.get(1).unwrap();
-            assert_eq!(entity.lifecycle.object_alive, object_alive);
+            assert_eq!(entity.lifecycle.object_alive(), object_alive);
             let slope = slope_transition::state_for_entity(entity).unwrap();
             if object_alive {
                 assert_eq!(slope.hash_fields(), (2, 5, 10, 3), "{kind:?}");
@@ -193,7 +193,7 @@ fn post_ai_object_alive_gate_precedes_drive_ship_process_slope_sampling() {
                     _ => unreachable!(),
                 };
                 assert_eq!(track.cursor, 0, "{kind:?}");
-                assert_eq!(entity.body_frame_counter, 0, "{kind:?}");
+                assert_eq!(entity.body_frame_counter.get(), 0, "{kind:?}");
             }
         }
     }
@@ -226,7 +226,7 @@ fn ordinary_object_turn_pays_multiple_points_and_runs_prefix_and_shp_once() {
             .remaining(sim.session.binary_frame as i32),
         9
     );
-    assert_eq!(entity.body_frame_counter, 1);
+    assert_eq!(entity.body_frame_counter.get(), 1);
     assert_eq!(
         entity
             .locomotor
@@ -415,7 +415,7 @@ fn terminal_sensor_receiver_finishes_before_shp_and_is_not_deferred_to_cell_chan
             progress
         ));
     };
-    entity.body_frame_counter = 5;
+    entity.body_frame_counter.set_for_test(5);
     sim.advance_live_object_turn(1, Some(&rules), techno_ai::ObjectAiCtx::default())
         .expect("fixture object turn must complete");
     let entity = sim.substrate.entities.get(1).unwrap();
@@ -425,7 +425,8 @@ fn terminal_sensor_receiver_finishes_before_shp_and_is_not_deferred_to_cell_chan
     assert!(entity.navigation.nav_com.is_none());
     assert!(crate::sim::movement::motion_query::is_moving(&entity) != Some(true));
     assert_eq!(
-        entity.body_frame_counter, 5,
+        entity.body_frame_counter.get(),
+        5,
         "terminal retired movement before IdleRate=0 SHP admission"
     );
     assert!(entity.foot_occupation_enabled);
@@ -665,7 +666,7 @@ fn terminal_arrival_resets_owner_speed_before_next_accelerating_move() {
         crate::sim::world::FrameEffects::default(),
     ));
     let entity = sim.substrate.entities.get_mut(1).unwrap();
-    entity.drive_accelerates = true;
+    entity.mover_facts.set_drive_accelerates_for_test(true);
     // The first Process after the order requests the route from the grid.
     sim.install_fixture_path_grid(Some(&grid));
     sim.advance_live_object_turn(1, Some(&rules), techno_ai::ObjectAiCtx::default())

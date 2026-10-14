@@ -11,7 +11,7 @@ use super::Simulation;
 use crate::map::entities::EntityCategory;
 use crate::rules::ini_parser::IniFile;
 use crate::rules::ruleset::RuleSet;
-use crate::sim::components::Health;
+use crate::sim::combat::Health;
 use crate::sim::estimated_health::EstimatedHealth;
 use crate::sim::game_entity::GameEntity;
 use crate::sim::house_eva::{self, EVA_LOW_POWER};
@@ -73,7 +73,7 @@ fn building(sim: &mut Simulation, id: u64, owner: InternedId, kind: &str, health
         0,
         0,
         owner,
-        Health { current: health },
+        Health::new(health),
         type_ref,
         EntityCategory::Structure,
         0,
@@ -81,8 +81,8 @@ fn building(sim: &mut Simulation, id: u64, owner: InternedId, kind: &str, health
         false,
     );
     entity.estimated_health = EstimatedHealth::from_raw(health);
-    entity.lifecycle.object_alive = true;
-    entity.lifecycle.in_limbo = false;
+    entity.lifecycle.set_object_alive_for_test(true);
+    entity.lifecycle.set_in_limbo_for_test(false);
     entity.lifecycle.cell_marked = true;
     entity.in_playfield = true;
     entity.building_art.set_actually_placed_for_test(true);
@@ -151,10 +151,9 @@ fn fixture(radar: bool) -> (Simulation, RuleSet, InternedId) {
         rules.object("FACTORY"),
         Some(&rules),
     );
-    sim.update_house_tracking(
-        PRODUCER,
-        crate::sim::house_tracking::HouseTracking::increment_factory_count,
-    );
+    sim.update_house_tracking(PRODUCER, |tracking, entity| {
+        tracking.increment_factory_count(entity)
+    });
     (sim, rules, owner)
 }
 
@@ -211,7 +210,7 @@ fn assert_power(sim: &Simulation, owner: InternedId, native: &Value, boundary: &
 fn assert_joined(sim: &Simulation, rules: &RuleSet, owner: InternedId, native: &Value) {
     let boundary = format!("{}@{}", native["phase"], native["frame"]);
     let plant = sim.substrate.entities.get(PLANT).unwrap();
-    assert_eq!(plant.health.current, int(&native["health"]), "{boundary}");
+    assert_eq!(plant.health.current(), int(&native["health"]), "{boundary}");
     assert_eq!(
         plant.building_power_health_sample(),
         Some(int(&native["sampled_health"])),
@@ -326,7 +325,12 @@ fn settled_repair_native_health_sample_factory_cadence_radar_and_later_advice() 
             .unwrap()
             .economy
             .set_spent_for_test(int(&pending["spent"]));
-        sim.substrate.entities.get_mut(PLANT).unwrap().repairing = true;
+        sim.substrate
+            .entities
+            .get_mut(PLANT)
+            .unwrap()
+            .repairing
+            .set_for_test(true);
         assert_joined(&sim, &rules, owner, prior);
         assert_rng(&sim, &row["receipt"]["rng_before"], "joined prior");
         compared += 1;
@@ -472,7 +476,9 @@ fn native_local_radar_projection_uses_represented_provider_predicates_and_house_
             input["queued"].as_i64().unwrap_or(-1) as i32,
         );
         provider.lifecycle.cell_marked = flag(input, "marked", true);
-        provider.lifecycle.in_limbo = flag(input, "limbo", false);
+        provider
+            .lifecycle
+            .set_in_limbo_for_test(flag(input, "limbo", false));
         let power = input["power"].as_array();
         let mut state = PowerState::default();
         state.total_output = power.map_or(101, |v| int(&v[0]));

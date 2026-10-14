@@ -26,7 +26,7 @@ impl Simulation {
                 .get(id)
                 .expect("aircraft dispatch")
                 .attack_target
-                .as_ref(),
+                .target(),
             &self.substrate.entities,
         );
         (if present { 1 } else { 10 }, 1)
@@ -45,12 +45,12 @@ impl Simulation {
         let entity = self.substrate.entities.get(id).expect("aircraft dispatch");
         let target = entity
             .attack_target
-            .as_ref()
-            .filter(|attack| {
-                crate::sim::combat::target_present(Some(attack), &self.substrate.entities)
+            .target()
+            .filter(|&target| {
+                crate::sim::combat::target_present(Some(target), &self.substrate.entities)
             })
-            .map(|a| NavTargetRef::from(a.target));
-        let ammo = entity.aircraft_ammo.as_ref().map_or(-1, |a| a.current);
+            .map(NavTargetRef::from);
+        let ammo = entity.aircraft_ammo.as_ref().map_or(-1, |a| a.current());
         let state = if target.is_some() && ammo != 0 {
             let destination = self.aircraft_find_fire_location(id, target, rules);
             self.assign_aircraft_destination(id, destination, rules, effects);
@@ -101,20 +101,15 @@ impl Simulation {
             .entities
             .get(id)
             .expect("aircraft approach owner");
-        let Some(target) = entity
-            .attack_target
-            .as_ref()
-            .filter(|attack| {
-                crate::sim::combat::target_present(Some(attack), &self.substrate.entities)
-            })
-            .map(|a| a.target)
-        else {
+        let Some(target) = entity.attack_target.target().filter(|&target| {
+            crate::sim::combat::target_present(Some(target), &self.substrate.entities)
+        }) else {
             return 10;
         };
         if entity
             .aircraft_ammo
             .as_ref()
-            .is_some_and(|a| a.current == 0)
+            .is_some_and(|a| a.current() == 0)
         {
             return 10;
         }
@@ -205,9 +200,9 @@ impl Simulation {
     /// phase runs the strike visit, else the aircraft leaves for state 10.
     pub(crate) fn aircraft_strikes(&self, id: u64, state: u8) -> bool {
         let entity = self.substrate.entities.get(id).expect("aircraft dispatch");
-        let attack = entity.attack_target.as_ref();
+        let attack = entity.attack_target.target();
         let target = crate::sim::combat::target_present(attack, &self.substrate.entities);
-        let ammo = entity.aircraft_ammo.as_ref().map_or(-1, |a| a.current);
+        let ammo = entity.aircraft_ammo.as_ref().map_or(-1, |a| a.current());
         attack.is_some() && !attack_mission::strike_leaves(state, target, ammo)
     }
 
@@ -221,9 +216,9 @@ impl Simulation {
     ) -> (u8, i32) {
         let entity = self.substrate.entities.get(id).expect("aircraft dispatch");
         let facts = attack_mission::ExitFacts {
-            ammo: entity.aircraft_ammo.as_ref().map_or(-1, |a| a.current),
+            ammo: entity.aircraft_ammo.as_ref().map_or(-1, |a| a.current()),
             target: crate::sim::combat::target_present(
-                entity.attack_target.as_ref(),
+                entity.attack_target.target(),
                 &self.substrate.entities,
             ),
             leaves_map: entity.is_mission_only(),

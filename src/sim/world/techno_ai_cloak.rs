@@ -26,7 +26,7 @@ fn stock_cloak_tick_facts(
     rules: &RuleSet,
 ) -> Option<crate::sim::cloak_disguise::CloakTickFacts> {
     let entity = sim.substrate.entities.get(id)?;
-    if entity.category != EntityCategory::Unit || entity.cloak.is_none() {
+    if entity.category() != EntityCategory::Unit || entity.cloak.is_none() {
         return None;
     }
     let object = rules.object(sim.interner.resolve(entity.type_ref()))?;
@@ -34,7 +34,7 @@ fn stock_cloak_tick_facts(
     if !object.cloakable && !rank_cloak {
         return None;
     }
-    let holds_target = entity.attack_target.is_some();
+    let holds_target = entity.attack_target.target().is_some();
     // vt+0x1D4 / vt+0x1D8 (`0x0070C5B0` / `0x0070C5C0`, reading
     // `TechnoClass+0x270`/`+0x271`): a Chrono teleport or a Temporal warp.
     let chrono_active = entity.is_warped_out() || entity.is_warping_in();
@@ -87,7 +87,7 @@ fn stock_cloak_tick_facts(
     // vt+0x380 is FootClass::IsParalyzed `0x004DE770` (Foot+6A0), armed by
     // ParasiteClass: a released owner for 3x its ROF, and bitten victims.
     let emp_active = false;
-    let paralyzed = entity.is_paralyzed(sim.session.binary_frame);
+    let paralyzed = entity.parasite.is_paralyzed(sim.session.binary_frame);
     let state_zero_head_allows =
         is_cloakable && !emp_active && !paralyzed && !chrono_active || rank_cloak;
 
@@ -98,17 +98,16 @@ fn stock_cloak_tick_facts(
         sim.substrate
             .entities
             .get(contact_id)
-            .filter(|contact| contact.category == EntityCategory::Structure)
+            .filter(|contact| contact.category() == EntityCategory::Structure)
             .and_then(|contact| rules.object(sim.interner.resolve(contact.type_ref())))
             .is_some_and(|contact_type| contact_type.weapons_factory)
     });
     let current_frame = sim.session.binary_frame as i32;
     let cloak_state = entity.cloak.as_ref().map_or(0, |cloak| cloak.state);
     let cloak_progress = entity.cloak.as_ref().map_or(0, |cloak| cloak.depth);
-    let delay_expired = entity
-        .cloak
-        .as_ref()
-        .is_some_and(|cloak| cloak.recloak_delay_expired(current_frame, entity.rearm_timer));
+    let delay_expired = entity.cloak.as_ref().is_some_and(|cloak| {
+        cloak.recloak_delay_expired(current_frame, entity.rearm_timer.timer())
+    });
 
     // `CellClass::IsVisibleToHouse @ 0x004870B0` is the CloakedByHouses bit,
     // NOT cell visibility — see `FogState::is_cloaked_by_house`. It is only
@@ -225,9 +224,9 @@ fn stock_cloak_tick_facts(
         rules.general.cloak_delay_frames,
         rules.general.cloaking_stages,
         object.invisible
-            || (entity.category == EntityCategory::Structure && object.invisible_in_game),
-        entity.discovery.owned_by_current_house,
-        entity.category == EntityCategory::Structure,
+            || (entity.category() == EntityCategory::Structure && object.invisible_in_game),
+        entity.discovery.owned_by_current_house(),
+        entity.category() == EntityCategory::Structure,
     ))
 }
 
@@ -266,8 +265,8 @@ fn sensor_targeters_in_native_dispatch_order(sim: &Simulation, cloaker_id: u64) 
         .filter_map(|(targeter_id, targeter)| {
             let targets_cloaker = targeter
                 .attack_target
-                .as_ref()
-                .is_some_and(|target| target.target == TargetKind::Entity(cloaker_id));
+                .target()
+                .is_some_and(|target| target == TargetKind::Entity(cloaker_id));
             let admitted = targeter.owner() == cloaker_owner
                 || sim
                     .fog
@@ -526,7 +525,7 @@ pub(crate) fn emit_configured_cloak_sound(sim: &mut Simulation, id: u64, rules: 
 }
 
 fn health_strictly_above_condition_red(
-    health: crate::sim::components::Health,
+    health: crate::sim::combat::Health,
     strength: i32,
     condition_red: f64,
 ) -> bool {
@@ -538,7 +537,7 @@ fn health_strictly_above_condition_red(
 #[test]
 fn original_health_ratio_corpus_populates_cloak_tick_facts() {
     use crate::rules::ini_parser::IniFile;
-    use crate::sim::components::Health;
+    use crate::sim::combat::Health;
     use crate::sim::game_entity::GameEntity;
     for row in crate::sim::health_ratio_fixture::rows() {
         let mut rules = RuleSet::from_ini(&IniFile::from_str(&format!(
@@ -557,9 +556,7 @@ fn original_health_ratio_corpus_populates_cloak_tick_facts() {
             0,
             0,
             owner,
-            Health {
-                current: row.input.current,
-            },
+            Health::new(row.input.current),
             type_ref,
             EntityCategory::Unit,
             0,
@@ -587,12 +584,13 @@ pub(super) fn tick_stock_cloak_producer(
     registry: Option<&crate::rules::overlay_types::OverlayTypeRegistry>,
     effects: FrameEffects<'_>,
 ) {
-    let Some((category, type_ref, veterancy)) = sim
-        .substrate
-        .entities
-        .get(id)
-        .map(|entity| (entity.category, entity.type_ref(), entity.veterancy.rank()))
-    else {
+    let Some((category, type_ref, veterancy)) = sim.substrate.entities.get(id).map(|entity| {
+        (
+            entity.category(),
+            entity.type_ref(),
+            entity.veterancy.rank(),
+        )
+    }) else {
         return;
     };
     if category != EntityCategory::Unit {

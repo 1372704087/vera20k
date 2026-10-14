@@ -1745,9 +1745,10 @@ fn hash_entity(entity: &GameEntity, frame: u32, hasher: &mut StateHasher) {
         entity.repairing.is_on().hash(hasher);
         entity.ai_sell_repair.ai_repairable().hash(hasher);
     }
-    if entity.ai_placement_timer != crate::sim::timer::CdTimer::default() {
+    let ai_placement_timer = entity.ai_placement_timer.timer();
+    if ai_placement_timer != crate::sim::timer::CdTimer::default() {
         b"ai-placement-timer-v1".hash(hasher);
-        entity.ai_placement_timer.hash(hasher);
+        ai_placement_timer.hash(hasher);
     }
     b"base-defense-response-v1".hash(hasher);
     entity.base_defense_response.hash(hasher);

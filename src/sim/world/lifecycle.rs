@@ -3599,8 +3599,8 @@ impl Simulation {
     ///
     /// gamemd-derived: active YR `ObjectClass` construction/destruction at
     /// `0x005F3900` / `0x005F3B80` maintains the listener roster in object
-    /// construction order.
-    fn removal_listener_order(&self) -> Vec<(u64, ObjectKind)> {
+    /// construction order. Of the entities, it lists `entities` (ascending).
+    fn removal_listener_order(&self, entities: Vec<u64>) -> Vec<(u64, ObjectKind)> {
         let mut listeners = Vec::with_capacity(
             self.substrate.entities.len()
                 + self.substrate.anims.len()
@@ -3613,10 +3613,9 @@ impl Simulation {
                     .map_or(0, |grid| grid.object_count()),
         );
         listeners.extend(
-            self.substrate
-                .entities
-                .iter_sorted()
-                .map(|(stable_id, _)| (stable_id, ObjectKind::Entity)),
+            entities
+                .into_iter()
+                .map(|stable_id| (stable_id, ObjectKind::Entity)),
         );
         listeners.extend(
             self.substrate
@@ -4337,7 +4336,7 @@ impl Simulation {
                 location: [location.x, location.y, location.z],
                 pending: self.substrate.pending_delete.object_ids(),
                 generic_objects: self
-                    .removal_listener_order()
+                    .removal_listener_order(self.substrate.entities.keys_sorted())
                     .into_iter()
                     .map(|(id, _)| id)
                     .collect(),
@@ -4356,7 +4355,23 @@ impl Simulation {
         // one shared dummy at `0x00ABDC50`. Later `BulletClass::AI @ 0x004666E0`
         // dispatches that live pointer and observes its most recent coord stamp.
 
-        for (listener_id, kind) in self.removal_listener_order() {
+        // Most entity listeners hold nothing this expiry changes, and the
+        // game passes over them (below). The ones that do are found up front
+        // on worker threads: the check only reads its listener. Production
+        // builds list only those. Test builds list every listener and check
+        // at each one's turn that no left-out listener has come to hold the
+        // expired object.
+        let acting = self.substrate.entities.par_select(|listener_id, listener| {
+            Self::entity_expiry_listener_acts(listener, listener_id, expired_id)
+        });
+        #[cfg(test)]
+        let acting_before: std::collections::BTreeSet<u64> = acting.iter().copied().collect();
+        let listeners = self.removal_listener_order(if cfg!(test) {
+            self.substrate.entities.keys_sorted()
+        } else {
+            acting
+        });
+        for (listener_id, kind) in listeners {
             // A callback may have removed a later listener; an ID never
             // moves to another store. An entity listener is read once, for
             // its presence and for whether it holds anything this expiry
@@ -4392,6 +4407,12 @@ impl Simulation {
             if !present {
                 continue;
             }
+            #[cfg(test)]
+            assert!(
+                !entity_acts || acting_before.contains(&listener_id),
+                "listener {listener_id} came to hold {expired_id} during its expiry broadcast; \
+                 production builds leave it out"
+            );
 
             #[cfg(test)]
             if control == PointerExpiryControl::Uninit {

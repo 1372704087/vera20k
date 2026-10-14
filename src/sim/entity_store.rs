@@ -337,6 +337,20 @@ impl EntityStore {
         self.stored().map(|(id, _)| id).collect()
     }
 
+    /// The ids of the stored entities `keep` selects, in ascending stable_id
+    /// order. `keep` runs on worker threads ([`crate::sim::parallel`]), so it
+    /// only reads.
+    pub(crate) fn par_select(&self, keep: impl Fn(u64, &GameEntity) -> bool + Sync) -> Vec<u64> {
+        crate::sim::parallel::select_indices(self.ids.len(), |slot| {
+            self.entities[slot]
+                .as_deref()
+                .is_some_and(|entity| keep(self.ids[slot], entity))
+        })
+        .into_iter()
+        .map(|slot| self.ids[slot])
+        .collect()
+    }
+
     /// Native InfantryClass array index. Read afresh after a callback: removing
     /// a row shifts successors left, while a newly constructed row is visible.
     /// This is distinct from the live Logic vector and includes dead/limbo rows.

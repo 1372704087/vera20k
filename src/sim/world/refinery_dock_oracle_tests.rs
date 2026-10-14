@@ -415,25 +415,27 @@ fn dress(mut s: Scene, input: &Value) -> Scene {
             1,
         ));
         if let Some(miner_state) = entity.miner.as_mut() {
-            miner_state.unload_active = input["unloading"] == true;
+            miner_state.set_unload_active_for_test(input["unloading"] == true);
             if let Some(storage) = input["storage"].as_array() {
                 let ore = storage[0].as_f64().unwrap() as usize;
                 let gems = storage[1].as_f64().unwrap() as usize;
-                miner_state.cargo = std::iter::repeat_n(
-                    CargoBale {
-                        resource_type: ResourceType::Ore,
-                        value: 25,
-                    },
-                    ore,
-                )
-                .chain(std::iter::repeat_n(
-                    CargoBale {
-                        resource_type: ResourceType::Gem,
-                        value: 50,
-                    },
-                    gems,
-                ))
-                .collect();
+                miner_state.set_cargo_for_test(
+                    std::iter::repeat_n(
+                        CargoBale {
+                            resource_type: ResourceType::Ore,
+                            value: 25,
+                        },
+                        ore,
+                    )
+                    .chain(std::iter::repeat_n(
+                        CargoBale {
+                            resource_type: ResourceType::Gem,
+                            value: 50,
+                        },
+                        gems,
+                    ))
+                    .collect(),
+                );
             }
         }
     }
@@ -575,7 +577,7 @@ fn compare_unload(s: &Scene, row: &Value, context: &str) {
         );
     }
     assert_eq!(
-        u64::from(state.unload_active),
+        u64::from(state.unload_active()),
         expected["unloading"].as_u64().unwrap(),
         "{context}: +0x6D1"
     );
@@ -585,12 +587,12 @@ fn compare_unload(s: &Scene, row: &Value, context: &str) {
         "{context}: stage value"
     );
     let ore = state
-        .cargo
+        .cargo()
         .iter()
         .filter(|b| b.resource_type == ResourceType::Ore)
         .count() as f64;
     let gems = state
-        .cargo
+        .cargo()
         .iter()
         .filter(|b| b.resource_type == ResourceType::Gem)
         .count() as f64;
@@ -808,13 +810,13 @@ fn mission_harvest_states_two_and_three_match_the_original_dispatch() {
         {
             let entity = s.sim.substrate.entities.get_mut(s.miner).unwrap();
             let miner = entity.miner.as_mut().unwrap();
-            miner.cargo = vec![
+            miner.set_cargo_for_test(vec![
                 CargoBale {
                     resource_type: ResourceType::Ore,
                     value: 25,
                 };
-                usize::from(miner.capacity_bales)
-            ];
+                usize::from(miner.capacity_bales())
+            ]);
             entity
                 .mission
                 .set_handler_state(match input["status"].as_u64() {
@@ -933,7 +935,7 @@ fn per_cell_release_matches_the_original_track_end_arm() {
             .unwrap()
             .miner
             .as_ref()
-            .is_some_and(|miner| miner.unload_active)
+            .is_some_and(|miner| miner.unload_active())
         {
             s.sim
                 .mission_host_promote(s.miner, s.sim.session.binary_frame, &s.rules);
@@ -948,7 +950,7 @@ fn per_cell_release_matches_the_original_track_end_arm() {
         compare_state(&s, row, &context);
         let miner = s.sim.substrate.entities.get(s.miner).unwrap();
         assert_eq!(
-            u64::from(miner.miner.as_ref().is_some_and(|m| m.unload_active)),
+            u64::from(miner.miner.as_ref().is_some_and(|m| m.unload_active())),
             row["state"]["unloading"].as_u64().unwrap(),
             "{context}: unload latch"
         );

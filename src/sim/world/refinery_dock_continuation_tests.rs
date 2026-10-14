@@ -315,11 +315,11 @@ fn compare(s: &Scene, native: &Value, context: &str) {
         || json!([0.0, 0.0, 0.0, 0.0]),
         |m| {
             json!([
-                m.cargo
+                m.cargo()
                     .iter()
                     .filter(|b| b.resource_type == crate::sim::miner::ResourceType::Ore)
                     .count() as f64,
-                m.cargo
+                m.cargo()
                     .iter()
                     .filter(|b| b.resource_type == crate::sim::miner::ResourceType::Gem)
                     .count() as f64,
@@ -348,8 +348,8 @@ fn compare(s: &Scene, native: &Value, context: &str) {
         "stage":[stage.value(),stage.timer().start_frame(),stage.timer().duration(),stage.rate()],
         "stage_changed":stage_raw["changed"],"stage_step":stage_raw["increment"],
         "facing":{"desired":e.body_facing.destination(),"start":e.body_facing.start_word(),"timer_start":e.body_facing.timer_start_frame().map_or(-1,|n|n as i32),"duration":e.body_facing.timer_duration()},
-        "unloading":u8::from(e.miner.as_ref().is_some_and(|m|m.unload_active)),
-        "harvesting":u8::from(e.miner.as_ref().is_some_and(|m|m.harvesting)),
+        "unloading":u8::from(e.miner.as_ref().is_some_and(|m|m.unload_active())),
+        "harvesting":u8::from(e.miner.as_ref().is_some_and(|m|m.harvesting())),
         "storage":storage,"balance":house.economy.credits(),"score":house.economy.score(),
         "scenario_rng":{"disabled":view.disabled,"index_a":view.index_a,"index_b":view.index_b,"state":view.words}
     });

@@ -248,7 +248,7 @@ pub(crate) fn facing_update(
             }) + NATIVE_IDLE_TURRET_DWELL_BIAS;
             let dwell_elapsed = i64::from(binary_frame) - entity.last_fire_frame.frame() >= dwell;
             // `+0x2E4` — a tank riding a Battle Bunker holds its aim forever.
-            let bunkered = entity.bunker_link.installed_in().is_some();
+            let bunkered = entity.bunker.link().installed_in().is_some();
             if dwell_elapsed && !bunkered {
                 out.turret_destination = Some(match nav_destination_facing(entity, entities) {
                     Some(nav) => nav,

@@ -290,12 +290,12 @@ pub(super) fn resolve_receive_damage(
     // 701900 jumps to701BF6 when ignoreDefenses is set, before either linked
     // bunker branch. BlowUpBridge's forced C4 receiver must bypass both arms.
     let bunker_blocked = !receiver_flags.ignore_defenses
-        && if target_is_building && target.bunker_occupant.is_some() {
+        && if target_is_building && target.bunker.occupant().is_some() {
             // Linked Building branch is intentionally the inverse of the installed
             // non-Building branch in TechnoClass::ReceiveDamage.
             warhead.penetrates_bunker
         } else {
-            target.bunker_link.installed_in().is_some() && !warhead.penetrates_bunker
+            target.bunker.link().installed_in().is_some() && !warhead.penetrates_bunker
         };
     let active_invulnerability = target.invulnerability.as_ref().filter(|_| {
         crate::sim::superweapon::invulnerability::is_invulnerable(

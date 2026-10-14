@@ -71,8 +71,8 @@ fn gsi_04_05_map_recruitment_bytes_reach_persistent_techno_state() {
         .get(1)
         .expect("map unit spawned")
         .base_defense_response;
-    assert!(!response.recruitable_a);
-    assert!(response.recruitable_b);
+    assert!(!response.recruitable_a());
+    assert!(response.recruitable_b());
 }
 
 fn game_speed_command_sim() -> (Simulation, crate::sim::intern::InternedId) {

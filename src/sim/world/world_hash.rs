@@ -1748,7 +1748,7 @@ fn hash_entity(entity: &GameEntity, frame: u32, hasher: &mut StateHasher) {
     entity.sight.range().hash(hasher);
     entity.sight.is_zero().hash(hasher);
     entity.sight_refresh_timers.hash(hasher);
-    if entity.gap_generator != crate::sim::vision::GapGeneratorRuntime::default() {
+    if entity.gap_generator != crate::sim::world::GapGeneratorRuntime::default() {
         b"gap-operational-v144".hash(hasher);
         entity.gap_generator.hash(hasher);
     }
@@ -1940,9 +1940,9 @@ fn hash_entity(entity: &GameEntity, frame: u32, hasher: &mut StateHasher) {
         }
         None => false.hash(hasher),
     }
-    entity.bunker_occupant.hash(hasher);
+    entity.bunker.occupant().hash(hasher);
     // Reciprocal link + install machine are authoritative lifecycle state.
-    entity.bunker_link.hash(hasher);
+    entity.bunker.link().hash(hasher);
     entity.bunker_runtime.hash(hasher);
     if let Some(gate) = entity.building_gate {
         1u8.hash(hasher);
@@ -1963,8 +1963,8 @@ fn hash_entity(entity: &GameEntity, frame: u32, hasher: &mut StateHasher) {
 
     if let Some(infantry) = entity.infantry {
         1u8.hash(hasher);
-        infantry.fear_level.hash(hasher);
-        infantry.is_prone.hash(hasher);
+        infantry.fear_level().hash(hasher);
+        infantry.is_prone().hash(hasher);
         // The idle-fidget countdown gates a scenario-RNG draw, so a
         // divergence here becomes a divergence of every later draw.
         // Folded in every schema variant rather than behind a gate: the
@@ -1973,11 +1973,11 @@ fn hash_entity(entity: &GameEntity, frame: u32, hasher: &mut StateHasher) {
         // tick, so their legacy probes already move with the draws this
         // timer schedules. Gating it would hide the field without
         // buying those probes back.
-        infantry.idle_action_timer.hash(hasher);
+        infantry.idle_action_timer().hash(hasher);
         // Infantry+6DC is written only by the failed-path receiver
         // 0x51DAF0; the tagged extension keeps every established
         // stream unchanged until a receiver actually stores 1.
-        if infantry.cell_entry_blocked {
+        if infantry.cell_entry_blocked() {
             0x36DC_u32.hash(hasher);
         }
     } else {
@@ -1989,9 +1989,9 @@ fn hash_entity(entity: &GameEntity, frame: u32, hasher: &mut StateHasher) {
         // The FSM cursor retired from this block at the substate-
         // authority flip: it is MissionCom.handler_state, folded by
         // `hash_mission_com` (and the pre-v29 reconstruction).
-        (miner.kind as u8).hash(hasher);
-        (miner.cargo.len() as u16).hash(hasher);
-        for bale in &miner.cargo {
+        (miner.kind() as u8).hash(hasher);
+        (miner.cargo().len() as u16).hash(hasher);
+        for bale in miner.cargo() {
             (bale.resource_type as u8).hash(hasher);
             bale.value.hash(hasher);
         }
@@ -2000,7 +2000,7 @@ fn hash_entity(entity: &GameEntity, frame: u32, hasher: &mut StateHasher) {
             // home_refinery: None.
             None::<u64>.hash(hasher);
         }
-        miner.reserved_refinery.hash(hasher);
+        miner.reserved_refinery().hash(hasher);
         let native_ore_field = true;
         if !native_ore_field {
             // The retired target_ore_cell (None) and harvest_timer
@@ -2010,8 +2010,8 @@ fn hash_entity(entity: &GameEntity, frame: u32, hasher: &mut StateHasher) {
         }
         if native_ore_field {
             // Unit+0x6D1/+0x6D2; the shared Stage is folded above.
-            miner.unload_active.hash(hasher);
-            miner.harvesting.hash(hasher);
+            miner.unload_active().hash(hasher);
+            miner.harvesting().hash(hasher);
         }
         if retired_dock_fold {
             // dock_queued false, dock_phase Approach (discriminant 0),
@@ -3420,9 +3420,13 @@ mod state_hash_field_tests {
 
         let mut changed = Simulation::new();
         let mut entity = entity;
-        entity.base_defense_response.recruitable_b = false;
+        entity
+            .base_defense_response
+            .set_recruitable_b_for_test(false);
         entity.set_archive_target(Some(crate::sim::combat::TargetKind::Entity(7)));
-        entity.base_defense_response.cooldown = crate::sim::timer::CdTimer::started(12, 225);
+        entity
+            .base_defense_response
+            .set_cooldown_for_test(crate::sim::timer::CdTimer::started(12, 225));
         changed.substrate.entities.insert(entity);
         assert_ne!(baseline_hash, changed.state_hash());
     }
@@ -3911,7 +3915,8 @@ mod infantry_hash_tests {
     use crate::map::entities::EntityCategory;
     use crate::sim::animation::{Animation, SequenceKind};
     use crate::sim::combat::Health;
-    use crate::sim::game_entity::{GameEntity, InfantryRuntime};
+    use crate::sim::game_entity::GameEntity;
+    use crate::sim::infantry::InfantryRuntime;
 
     fn hash_entity(sim: &mut Simulation, category: EntityCategory) -> GameEntity {
         GameEntity::new_at_frame_zero_for_test(
@@ -3984,10 +3989,11 @@ mod infantry_hash_tests {
         let mut sim_b = Simulation::new();
         let mut a = hash_entity(&mut sim_a, EntityCategory::Infantry);
         let b = hash_entity(&mut sim_b, EntityCategory::Infantry);
-        a.infantry = Some(InfantryRuntime {
-            fear_level: 10,
-            is_prone: false,
-            ..InfantryRuntime::new()
+        a.infantry = Some({
+            let mut runtime = InfantryRuntime::new();
+            runtime.set_fear_level_for_test(10);
+            runtime.set_is_prone_for_test(false);
+            runtime
         });
         sim_a.substrate.entities.insert(a);
         sim_b.substrate.entities.insert(b);
@@ -3997,10 +4003,11 @@ mod infantry_hash_tests {
         let mut sim_b = Simulation::new();
         let mut a = hash_entity(&mut sim_a, EntityCategory::Infantry);
         let b = hash_entity(&mut sim_b, EntityCategory::Infantry);
-        a.infantry = Some(InfantryRuntime {
-            fear_level: 0,
-            is_prone: true,
-            ..InfantryRuntime::new()
+        a.infantry = Some({
+            let mut runtime = InfantryRuntime::new();
+            runtime.set_fear_level_for_test(0);
+            runtime.set_is_prone_for_test(true);
+            runtime
         });
         sim_a.substrate.entities.insert(a);
         sim_b.substrate.entities.insert(b);
@@ -4013,9 +4020,10 @@ mod infantry_hash_tests {
         let mut sim_b = Simulation::new();
         let mut a = hash_entity(&mut sim_a, EntityCategory::Infantry);
         let b = hash_entity(&mut sim_b, EntityCategory::Infantry);
-        a.infantry = Some(InfantryRuntime {
-            cell_entry_blocked: true,
-            ..InfantryRuntime::new()
+        a.infantry = Some({
+            let mut runtime = InfantryRuntime::new();
+            runtime.set_cell_entry_blocked_for_test(true);
+            runtime
         });
         sim_a.substrate.entities.insert(a);
         sim_b.substrate.entities.insert(b);

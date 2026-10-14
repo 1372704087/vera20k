@@ -152,7 +152,7 @@ impl Simulation {
         let prone = actor
             .infantry
             .as_ref()
-            .is_some_and(|infantry| infantry.is_prone);
+            .is_some_and(|infantry| infantry.is_prone());
         let on_bridge = actor.on_bridge;
         let coord = ground_pose::position_world_coord(&actor.position);
         //0x51DB68..0x51DB7A: the 16-bit facing (+388) becomes an octant through
@@ -197,7 +197,7 @@ impl Simulation {
                     .infantry
                     .as_mut()
                     .ok_or("failed-path receiver requires Infantry runtime state")?
-                    .cell_entry_blocked = answer.is_nonzero();
+                    .record_cell_entry(answer.is_nonzero());
             }
             Err(cause) => log::debug!("infantry {id} Stop_Driver Can_Enter_Cell: {cause}"),
         }

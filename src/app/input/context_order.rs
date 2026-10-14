@@ -1875,7 +1875,7 @@ pub(crate) fn try_queue_context_order_at_screen_point(
                         return None;
                     }
                     let building = sim.entities().get(target.stable_id)?;
-                    (building.bunker_runtime.is_some() && building.bunker_occupant.is_none())
+                    (building.bunker_runtime.is_some() && building.bunker.occupant().is_none())
                         .then_some(target.stable_id)
                 });
                 if let Some(bunker_id) = bunker_target {
@@ -2184,7 +2184,7 @@ fn self_click_command(
     if entity.category() == EntityCategory::Structure {
         // A tank bunker ejects its unit, and a building that undeploys
         // (a Construction Yard) packs up.
-        return if entity.bunker_occupant.is_some() {
+        return if entity.bunker.occupant().is_some() {
             Some(Command::EjectBunker {
                 bunker_id: target.stable_id,
             })
@@ -4462,8 +4462,13 @@ mod tests {
             if gates["bunker"] == true {
                 // Typed existing owner state: positive native pointer control,
                 // not an assertion of ordinary Infantry bunker installation.
-                sim.entities_mut().get_mut(engineer).unwrap().bunker_link =
-                    crate::sim::game_entity::BunkerLink::Installed(hover.stable_id);
+                sim.entities_mut()
+                    .get_mut(engineer)
+                    .unwrap()
+                    .bunker
+                    .set_bunker_link_for_test(
+                        crate::sim::docking::bunker_link::BunkerLink::Installed(hover.stable_id),
+                    );
             }
             if gates["paralysis_start"].is_number() {
                 sim.entities_mut()
@@ -4693,7 +4698,7 @@ mod stationary_attack_dispatch_tests {
     use crate::map::resolved_terrain::ResolvedTerrainGrid;
     use crate::rules::overlay_types::OverlayTypeRegistry;
     use crate::rules::{ini_parser::IniFile, ruleset::RuleSet};
-    use crate::sim::game_entity::BunkerLink;
+    use crate::sim::docking::bunker_link::BunkerLink;
     use crate::sim::world::Simulation;
 
     #[test]
@@ -4741,7 +4746,11 @@ Verses=100%,100%,100%,100%,100%,100%,100%,100%,100%,100%,100%
             .unwrap();
         sim.session.game_mode_nonzero = true;
         sim.session.current_house = Some(sim.entities().get(stationary).unwrap().owner());
-        sim.entities_mut().get_mut(stationary).unwrap().bunker_link = BunkerLink::Installed(99);
+        sim.entities_mut()
+            .get_mut(stationary)
+            .unwrap()
+            .bunker
+            .set_bunker_link_for_test(BunkerLink::Installed(99));
         sim.install_resolved_terrain_for_new_map(ResolvedTerrainGrid::from_cells(
             32,
             32,

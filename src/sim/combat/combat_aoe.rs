@@ -3112,8 +3112,12 @@ mod tests {
         target.set_type_ref_for_test(e1);
         target.set_category_for_test(EntityCategory::Infantry);
         target.health.set_for_test(20);
-        target.infantry = Some(crate::sim::game_entity::InfantryRuntime::new());
-        target.infantry.as_mut().unwrap().is_prone = true;
+        target.infantry = Some(crate::sim::infantry::InfantryRuntime::new());
+        target
+            .infantry
+            .as_mut()
+            .unwrap()
+            .set_is_prone_for_test(true);
         entities.insert(target);
 
         let mut easy_prone = GameEntity::test_default(3, "E1", "EasyHouse", 5, 5);
@@ -3121,8 +3125,12 @@ mod tests {
         easy_prone.set_type_ref_for_test(e1);
         easy_prone.set_category_for_test(EntityCategory::Infantry);
         easy_prone.health.set_for_test(100);
-        easy_prone.infantry = Some(crate::sim::game_entity::InfantryRuntime::new());
-        easy_prone.infantry.as_mut().unwrap().is_prone = true;
+        easy_prone.infantry = Some(crate::sim::infantry::InfantryRuntime::new());
+        easy_prone
+            .infantry
+            .as_mut()
+            .unwrap()
+            .set_is_prone_for_test(true);
         entities.insert(easy_prone);
 
         let mut easy_standing = GameEntity::test_default(4, "E1", "EasyHouse", 5, 5);
@@ -3130,7 +3138,7 @@ mod tests {
         easy_standing.set_type_ref_for_test(e1);
         easy_standing.set_category_for_test(EntityCategory::Infantry);
         easy_standing.health.set_for_test(100);
-        easy_standing.infantry = Some(crate::sim::game_entity::InfantryRuntime::new());
+        easy_standing.infantry = Some(crate::sim::infantry::InfantryRuntime::new());
         entities.insert(easy_standing);
 
         let mut occupancy = OccupancyGrid::new();
@@ -3330,7 +3338,7 @@ mod tests {
                 .as_ref()
                 .and_then(|case| case["on_bridge"].as_bool())
                 .unwrap_or(false);
-            victim.infantry = Some(crate::sim::game_entity::InfantryRuntime::new());
+            victim.infantry = Some(crate::sim::infantry::InfantryRuntime::new());
             if nav {
                 victim.navigation.nav_com = Some(crate::sim::components::NavTargetRef::cell(8, 8));
             }
@@ -3361,7 +3369,11 @@ mod tests {
                 use crate::sim::components::{DriveCoord, FootPathQueue};
                 use crate::sim::timer::CdTimer;
                 victim.body_facing.snap(0x4000, 0);
-                victim.infantry.as_mut().unwrap().cell_entry_blocked = true;
+                victim
+                    .infantry
+                    .as_mut()
+                    .unwrap()
+                    .set_cell_entry_blocked_for_test(true);
                 victim.navigation.nav_com_aux =
                     Some(crate::sim::components::NavTargetRef::cell(1, 1));
                 victim.navigation.path_replay = FootPathQueue {
@@ -3394,7 +3406,9 @@ mod tests {
                     .lift
                     .set_swap_active_for_test(case["swap_active"] == true);
                 if case["bunker"] == true {
-                    victim.bunker_link = crate::sim::game_entity::BunkerLink::Installed(1);
+                    victim.bunker.set_bunker_link_for_test(
+                        crate::sim::docking::bunker_link::BunkerLink::Installed(1),
+                    );
                 }
                 // BeingWarpedOut (`+0x270`) through a Temporal chain's
                 // head, WarpingIn (`+0x271`) through the teleport's warp-in.
@@ -3554,7 +3568,7 @@ mod tests {
                     .infantry
                     .as_ref()
                     .expect("Infantry runtime")
-                    .fear_level,
+                    .fear_level(),
                 destination: victim
                     .locomotor
                     .as_ref()
@@ -3589,7 +3603,7 @@ mod tests {
                         "movement_timer": [path.movement_timer.start_frame(), path.movement_timer.duration()],
                         "blocked_timer": [path.blocked_timer.start_frame(), path.blocked_timer.duration()],
                         "retries": path.retries_left,
-                        "entry_blocked": u8::from(victim.infantry.as_ref().unwrap().cell_entry_blocked),
+                        "entry_blocked": u8::from(victim.infantry.as_ref().unwrap().cell_entry_blocked()),
                     })
                 },
             }

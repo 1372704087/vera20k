@@ -504,8 +504,8 @@ impl Simulation {
                     // separately from this exact caller coordinate.
                     crate::sim::movement::ground_pose::put_location(&mut ge.position, requested);
                 }
-                ge.base_defense_response.recruitable_a = map_ent.recruitable_a;
-                ge.base_defense_response.recruitable_b = map_ent.recruitable_b;
+                ge.base_defense_response
+                    .author_recruitable(map_ent.recruitable_a, map_ent.recruitable_b);
 
                 sim.install_techno_components(
                     &mut ge,

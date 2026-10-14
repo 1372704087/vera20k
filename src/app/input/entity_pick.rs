@@ -1108,7 +1108,7 @@ pub(crate) fn selection_dynamic_prefix(
     if entity.slave.owner().is_some() || entity.deactivated.is_offline() {
         return false;
     }
-    if entity.bunker_link.installed_in().is_some() {
+    if entity.bunker.link().installed_in().is_some() {
         return false;
     }
     if entity.tether.partner().is_some()
@@ -1957,7 +1957,7 @@ mod tests {
     #[test]
     fn native_bunker_install_head_allows_tank_click_and_force_attack() {
         use crate::sim::command::Command;
-        use crate::sim::game_entity::BunkerLink;
+        use crate::sim::docking::bunker_link::BunkerLink;
         use crate::sim::world::Simulation;
         use crate::util::fixed_math::SimFixed;
 
@@ -2013,8 +2013,16 @@ mod tests {
             EntityCategory::Unit,
             &serde_json::json!([4352, 2816, 312]),
         );
-        sim.entities_mut().get_mut(1).unwrap().bunker_link = BunkerLink::Installed(2);
-        sim.entities_mut().get_mut(2).unwrap().bunker_occupant = Some(1);
+        sim.entities_mut()
+            .get_mut(1)
+            .unwrap()
+            .bunker
+            .set_bunker_link_for_test(BunkerLink::Installed(2));
+        sim.entities_mut()
+            .get_mut(2)
+            .unwrap()
+            .bunker
+            .set_bunker_occupant_for_test(Some(1));
         let heights = std::collections::BTreeMap::new();
         let pick = |sim: &Simulation, point: (f32, f32)| {
             pick_entity_at_point(
@@ -2077,12 +2085,12 @@ mod tests {
             Some(&retail.rules)
         ));
         let tank = sim.entities().get(1).unwrap();
-        assert_eq!(tank.bunker_link.installed_in(), Some(2));
+        assert_eq!(tank.bunker.link().installed_in(), Some(2));
         assert_eq!(
             tank.attack_target.target(),
             Some(crate::sim::combat::TargetKind::Entity(3))
         );
-        assert_eq!(sim.entities().get(2).unwrap().bunker_occupant, Some(1));
+        assert_eq!(sim.entities().get(2).unwrap().bunker.occupant(), Some(1));
     }
 
     #[test]

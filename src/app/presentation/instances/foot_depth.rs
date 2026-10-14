@@ -107,6 +107,7 @@ fn draw_type<'a>(
     if unloading_body && actual.is_some_and(|o| o.harvester) {
         entity
             .display_type_override
+            .image()
             .and_then(|id| runtime.resources.rules.object(view.interner().resolve(id)))
             .or(actual)
     } else {

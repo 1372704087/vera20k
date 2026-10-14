@@ -476,8 +476,8 @@ impl Simulation {
                 bunker.radio_contacts.slot(0).is_none()
                     && bunker
                         .bunker_runtime
-                        .is_none_or(|runtime| runtime.installing_unit.is_none())
-                    && bunker.bunker_occupant.is_none()
+                        .is_none_or(|runtime| runtime.installing_unit().is_none())
+                    && bunker.bunker.occupant().is_none()
             })
         });
         let Some(best) = best else {

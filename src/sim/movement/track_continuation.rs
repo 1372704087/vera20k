@@ -78,7 +78,7 @@ impl Simulation {
             && entity
                 .miner
                 .as_ref()
-                .is_some_and(|miner| miner.unload_active)
+                .is_some_and(|miner| miner.unload_active())
         {
             return Ok(false);
         }

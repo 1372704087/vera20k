@@ -194,7 +194,7 @@ impl SightFacts {
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub(crate) struct SightRefreshTimers {
     initial: crate::sim::timer::CdTimer,
-    pub(crate) by_viewer: std::collections::BTreeMap<InternedId, crate::sim::timer::CdTimer>,
+    by_viewer: std::collections::BTreeMap<InternedId, crate::sim::timer::CdTimer>,
 }
 impl SightRefreshTimers {
     pub(crate) fn at_construction(frame: u32) -> Self {
@@ -211,6 +211,12 @@ impl SightRefreshTimers {
             viewer,
             crate::sim::timer::CdTimer::started(frame as i32, 15),
         );
+    }
+
+    /// The viewer has its own countdown.
+    #[cfg(test)]
+    pub(crate) fn has_timer_for_test(&self, viewer: InternedId) -> bool {
+        self.by_viewer.contains_key(&viewer)
     }
 }
 

@@ -1229,13 +1229,20 @@ pub(crate) fn native_deploy_fixture(row: &serde_json::Value) -> (Simulation, Rul
     if input["position"].is_array() {
         supplied_world_position(&mut actor.position, &input["position"]);
     }
-    actor.infantry.as_mut().unwrap().is_prone = before["prone"] != 0;
+    actor
+        .infantry
+        .as_mut()
+        .unwrap()
+        .set_is_prone_for_test(before["prone"] != 0);
     if before["idle_timer"].is_array() {
-        actor.infantry.as_mut().unwrap().idle_action_timer =
-            crate::sim::mission::MissionTimer::armed(
+        actor
+            .infantry
+            .as_mut()
+            .unwrap()
+            .set_idle_action_timer_for_test(crate::sim::mission::MissionTimer::armed(
                 before["idle_timer"][0].as_i64().unwrap() as u32,
                 before["idle_timer"][1].as_i64().unwrap() as u32,
-            );
+            ));
     }
     actor.set_falling_down_for_test(input["falling"].as_i64().unwrap_or(0) != 0);
     actor
@@ -1332,13 +1339,13 @@ pub(crate) fn assert_native_deploy_state(sim: &Simulation, id: u64, row: &serde_
         "{name}: crush2A4"
     );
     assert_eq!(
-        actor.infantry.as_ref().unwrap().is_prone,
+        actor.infantry.as_ref().unwrap().is_prone(),
         expected["prone"] != 0,
         "{name}: prone6DB"
     );
     let stage = actor.native_stage();
     if expected["idle_timer"].is_array() {
-        let timer = actor.infantry.as_ref().unwrap().idle_action_timer;
+        let timer = actor.infantry.as_ref().unwrap().idle_action_timer();
         assert_eq!(
             serde_json::json!([timer.start_frame as i32, timer.duration as i32]),
             expected["idle_timer"],

@@ -567,7 +567,7 @@ fn tibtre_spawned_ore_grows_is_harvested_and_reaches_refinery_credits() {
             .miner
             .as_ref()
             .unwrap()
-            .cargo
+            .cargo()
             .is_empty()
         {
             break;
@@ -582,7 +582,7 @@ fn tibtre_spawned_ore_grows_is_harvested_and_reaches_refinery_credits() {
             .miner
             .as_ref()
             .unwrap()
-            .cargo
+            .cargo()
             .is_empty(),
         "miner cuts the tree's ore through Mission_Harvest"
     );

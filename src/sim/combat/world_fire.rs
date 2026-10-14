@@ -223,7 +223,7 @@ fn admit_attacker_fire<'r>(
         let prone = entity
             .infantry
             .as_ref()
-            .is_some_and(|infantry| infantry.is_prone);
+            .is_some_and(|infantry| infantry.is_prone());
         //5206DE skips the first GetFireError.5209AF asks the second only
         // at exact equality, including signed/out-of-range retained stages.
         if entity.native_stage().value() != infantry_fire_frame(obj, sequences, weapon_index, prone)
@@ -400,7 +400,7 @@ fn admit_attacker_fire<'r>(
                 actor
                     .infantry
                     .as_ref()
-                    .is_some_and(|infantry| infantry.is_prone),
+                    .is_some_and(|infantry| infantry.is_prone()),
                 actor.infantry_deploy_doing(),
             )
         };
@@ -436,7 +436,7 @@ fn admit_attacker_fire<'r>(
         let prone = actor
             .infantry
             .as_ref()
-            .is_some_and(|infantry| infantry.is_prone);
+            .is_some_and(|infantry| infantry.is_prone());
         if actor.native_stage().value() != infantry_fire_frame(obj, sequences, weapon_index, prone)
         {
             return None;
@@ -839,7 +839,7 @@ fn fireat_damage(
         // `+0x2E4` on a non-building: a unit installed in a Tank Bunker.
         bunkered: firer
             .filter(|firer| firer.category() != EntityCategory::Structure)
-            .and_then(|firer| firer.bunker_link.installed_in())
+            .and_then(|firer| firer.bunker.link().installed_in())
             .map(|_| f32_bits(multipliers.bunker_damage_multiplier)),
         open_topped: firer
             .filter(|firer| firer.passenger_role.in_open_transport())
@@ -989,8 +989,8 @@ pub(crate) fn snapshot_get_rof(
             bunkered: snap.category != EntityCategory::Structure
                 && firer.is_some_and(|firer| {
                     matches!(
-                        firer.bunker_link,
-                        crate::sim::game_entity::BunkerLink::Installed(_)
+                        firer.bunker.link(),
+                        crate::sim::docking::bunker_link::BunkerLink::Installed(_)
                     )
                 }),
             occupy_rof_multiplier: rules.garrison_rules.occupy_rof_multiplier,

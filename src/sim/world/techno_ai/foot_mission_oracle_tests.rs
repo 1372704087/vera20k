@@ -29,8 +29,9 @@ use crate::sim::combat::greatest_threat::{
 use crate::sim::combat::threat_range::ScanMission;
 use crate::sim::combat::{Health, TargetKind};
 use crate::sim::components::{DriveCoord, NavTargetRef};
-use crate::sim::game_entity::{GameEntity, InfantryRuntime};
+use crate::sim::game_entity::GameEntity;
 use crate::sim::house_state::HouseState;
+use crate::sim::infantry::InfantryRuntime;
 use crate::sim::mission::state::MissionTestFixture;
 use crate::sim::mission::{MissionDispatchTimer, MissionId, MissionTimer};
 use crate::sim::movement::locomotor::{LocomotorState, MovementLayer};
@@ -784,11 +785,19 @@ impl SuppliedFootFixture {
                     if let Some(words) = before["primary_facing_words"].as_array() {
                         entity.body_facing.snap(signed(&words[0]) as u16, 1);
                     }
-                    entity.infantry.as_mut().unwrap().is_prone = before["prone_6db"] == 1;
-                    entity.infantry.as_mut().unwrap().idle_action_timer = MissionTimer::armed(
-                        signed(&before["idle_timer"][0]) as u32,
-                        signed(&before["idle_timer"][2]) as u32,
-                    );
+                    entity
+                        .infantry
+                        .as_mut()
+                        .unwrap()
+                        .set_is_prone_for_test(before["prone_6db"] == 1);
+                    entity
+                        .infantry
+                        .as_mut()
+                        .unwrap()
+                        .set_idle_action_timer_for_test(MissionTimer::armed(
+                            signed(&before["idle_timer"][0]) as u32,
+                            signed(&before["idle_timer"][2]) as u32,
+                        ));
                 }
             }
             sim.substrate.entities.insert(entity);
@@ -1082,7 +1091,7 @@ fn original_concrete_greatest_threat_matches_winner_latch_and_three_rng_streams(
                 signed(&row["after"]["doing"]),
                 "{name}: Doing"
             );
-            let timer = actor.infantry.unwrap().idle_action_timer;
+            let timer = actor.infantry.unwrap().idle_action_timer();
             assert_eq!(
                 [timer.start_frame as i32, timer.duration as i32],
                 [
@@ -1471,7 +1480,7 @@ pub(in crate::sim::world::techno_ai) fn assert_foot_projection(
     );
     if let Some(leaf) = actor.mission_leaf.as_infantry() {
         assert_eq!(leaf.doing(), signed(&expected["doing"]), "{name}: Doing");
-        let timer = actor.infantry.as_ref().unwrap().idle_action_timer;
+        let timer = actor.infantry.as_ref().unwrap().idle_action_timer();
         assert_eq!(
             [timer.start_frame as i32, timer.duration as i32],
             [

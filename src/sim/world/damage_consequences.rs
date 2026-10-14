@@ -134,7 +134,7 @@ impl DamageConsequences {
                 .substrate
                 .entities
                 .get(dead_id)
-                .and_then(|building| building.bunker_occupant)
+                .and_then(|building| building.bunker.occupant())
                 .is_some()
             {
                 crate::sim::docking::bunker_link::release_sell_destroy(

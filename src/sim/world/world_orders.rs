@@ -240,7 +240,8 @@ impl Simulation {
             }
             return crate::sim::production::undeploy_target(rules, &object.id).is_some();
         }
-        if !self.house_is_human_player(actor.owner()) || actor.bunker_link.installed_in().is_some()
+        if !self.house_is_human_player(actor.owner())
+            || actor.bunker.link().installed_in().is_some()
         {
             return false;
         }

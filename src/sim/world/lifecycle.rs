@@ -3143,7 +3143,7 @@ impl Simulation {
             }
             entity.mission_leaf.reset_infantry_water_state();
             if let Some(infantry) = entity.infantry.as_mut() {
-                infantry.is_prone = false;
+                infantry.stand_up();
             }
             entity
                 .mission_leaf
@@ -3821,7 +3821,7 @@ impl Simulation {
             || listener
                 .miner
                 .as_ref()
-                .is_some_and(|miner| miner.reserved_refinery == Some(expired_id))
+                .is_some_and(|miner| miner.reserved_refinery() == Some(expired_id))
             || listener
                 .pending_c4_detonation
                 .pending()
@@ -4311,7 +4311,7 @@ impl Simulation {
         let clear_refinery = listener
             .miner
             .as_ref()
-            .is_some_and(|miner| miner.reserved_refinery == Some(expired_id));
+            .is_some_and(|miner| miner.reserved_refinery() == Some(expired_id));
 
         // Steam gamemd3e81a617, TechnoPointerExpired7078B2..7078DB:
         // Transporter+11C survives a live hull's ordinary Limbo announcement,
@@ -4383,7 +4383,7 @@ impl Simulation {
             ammo.set_dock(None);
         }
         if clear_refinery && let Some(miner) = listener.miner.as_mut() {
-            miner.reserved_refinery = None;
+            miner.forget_refinery();
         }
         if clear_passenger_role {
             listener.passenger_role.clear_carrier_relation();

@@ -30,8 +30,115 @@
 use crate::rules::object_type::{Ability, ObjectType};
 use crate::sim::combat::veterancy::has_weapon_ability;
 use crate::sim::game_entity::GameEntity;
+use crate::sim::mission::timer::MissionTimer;
 use crate::sim::world::FrameEffects;
 use crate::util::fixed_math::{SIM_ZERO, SimFixed};
+
+/// An infantryman's fear, stance, idle timer and failed-path answer.
+/// - Fear: this module's fear receiver raises and decays it.
+/// - Prone (`+0x6DB`): `InfantryClass::Do_Action` lies down on Down and
+///   stands up on Up or Deploy ([`Self::lie_down`], [`Self::stand_up`]); Limbo
+///   stands a boarding man up.
+/// - The idle timer: this module's idle receiver re-arms it.
+/// - The failed-path answer (`+0x6DC`, [`Self::record_cell_entry`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct InfantryRuntime {
+    fear_level: u16,
+    is_prone: bool,
+    /// Countdown to this man's next idle fidget.
+    ///
+    /// Re-armed to a fresh random wait every time the idle action fires, and
+    /// only then — the same one-shot timer gamemd keeps on the infantry object.
+    /// Its default is the unarmed sentinel, which reads as already due, so a
+    /// freshly built infantryman is eligible on his first idle turn.
+    #[serde(default)]
+    idle_action_timer: MissionTimer,
+    /// Infantry+6DC. `InfantryClass` failed-path receiver `0x0051DAF0`
+    /// (Infantry vtable +0x500, called from `FootClass::Find_Path` failure
+    /// `0x004D4044` and `Do_Action` `0x0051D6F0` at zero health) writes the
+    /// current-cell `Can_Enter_Cell` answer here: 1 when the answer is nonzero
+    /// (`0x51DBBE`), otherwise the zero answer byte (`0x51DBAC`). Readers:
+    /// Infantry Mission_Move restart `0x00520FF1` and save/load `0x00521D0F`.
+    #[serde(default)]
+    cell_entry_blocked: bool,
+}
+
+impl Default for InfantryRuntime {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl InfantryRuntime {
+    /// The fear level.
+    pub fn fear_level(&self) -> u16 {
+        self.fear_level
+    }
+
+    /// The man is prone (`+0x6DB`).
+    pub fn is_prone(&self) -> bool {
+        self.is_prone
+    }
+
+    /// The idle fidget timer.
+    pub fn idle_action_timer(&self) -> MissionTimer {
+        self.idle_action_timer
+    }
+
+    /// `+0x6DC`, the failed-path receiver's Can_Enter_Cell answer.
+    pub fn cell_entry_blocked(&self) -> bool {
+        self.cell_entry_blocked
+    }
+
+    /// Do_Action's Down.
+    pub(crate) fn lie_down(&mut self) {
+        self.is_prone = true;
+    }
+
+    /// Do_Action's Up or Deploy, and Limbo's reset of a boarding man.
+    pub(crate) fn stand_up(&mut self) {
+        self.is_prone = false;
+    }
+
+    /// The failed-path receiver's write (`0x0051DAF0`): set for a nonzero
+    /// Can_Enter_Cell answer (`0x0051DBBE`), clear for zero (`0x0051DBAC`).
+    pub(crate) fn record_cell_entry(&mut self, blocked: bool) {
+        self.cell_entry_blocked = blocked;
+    }
+
+    /// Install a fixture's fear.
+    #[cfg(test)]
+    pub(crate) fn set_fear_level_for_test(&mut self, fear: u16) {
+        self.fear_level = fear;
+    }
+
+    /// Install a fixture's stance.
+    #[cfg(test)]
+    pub(crate) fn set_is_prone_for_test(&mut self, prone: bool) {
+        self.is_prone = prone;
+    }
+
+    /// Install a fixture's idle timer.
+    #[cfg(test)]
+    pub(crate) fn set_idle_action_timer_for_test(&mut self, timer: MissionTimer) {
+        self.idle_action_timer = timer;
+    }
+
+    /// Install a fixture's failed-path answer.
+    #[cfg(test)]
+    pub(crate) fn set_cell_entry_blocked_for_test(&mut self, blocked: bool) {
+        self.cell_entry_blocked = blocked;
+    }
+
+    pub fn new() -> Self {
+        Self {
+            fear_level: 0,
+            is_prone: false,
+            idle_action_timer: MissionTimer::default(),
+            cell_entry_blocked: false,
+        }
+    }
+}
 
 const MAX_FEAR: u16 = 300;
 const FIRST_HIT_FEAR: u16 = 100;
@@ -559,7 +666,8 @@ mod tests {
     use crate::rules::object_type::ObjectCategory;
     use crate::rules::ruleset::RuleSet;
     use crate::sim::combat::Health;
-    use crate::sim::game_entity::{GameEntity, InfantryRuntime};
+    use crate::sim::game_entity::GameEntity;
+    use crate::sim::infantry::InfantryRuntime;
     use crate::sim::intern::test_intern;
 
     fn rules_for(section: &str) -> RuleSet {

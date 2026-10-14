@@ -58,6 +58,29 @@ use crate::sim::world::Simulation;
 
 use super::ResourceType;
 
+/// The type whose model a harvester shows while its unload latch
+/// (Unit+0x6D1) is set: the type's `UnloadingClass=`, which raising the latch
+/// installs and dropping it clears. Only the latch's two writers here touch
+/// it; the unit drawers read it in place of the object's own type.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(transparent)]
+pub(crate) struct UnloadImage {
+    image: Option<crate::sim::intern::InternedId>,
+}
+
+impl UnloadImage {
+    /// The unloading type, while the latch is set.
+    pub(crate) const fn image(self) -> Option<crate::sim::intern::InternedId> {
+        self.image
+    }
+
+    /// Install a fixture's image.
+    #[cfg(test)]
+    pub(crate) fn set_for_test(&mut self, image: Option<crate::sim::intern::InternedId>) {
+        self.image = image;
+    }
+}
+
 /// The body facing the Unload window centres on (`0x0073DF8A`).
 const UNLOAD_FACING: u16 = crate::sim::radio::receive::DOCK_FACING;
 
@@ -313,7 +336,7 @@ fn set_unload_latch(sim: &mut Simulation, rules: &RuleSet, id: u64, active: bool
     if let Some(miner) = entity.miner.as_mut() {
         miner.unload_active = true;
     }
-    entity.display_type_override = image;
+    entity.display_type_override.image = image;
 }
 
 /// Drop Unit+0x6D1: the ordinary image returns. The StageClass keeps
@@ -328,7 +351,7 @@ pub(crate) fn clear_unload_latch(sim: &mut Simulation, id: u64) -> bool {
     };
     let was_set = miner.unload_active;
     miner.unload_active = false;
-    entity.display_type_override = None;
+    entity.display_type_override.image = None;
     was_set
 }
 

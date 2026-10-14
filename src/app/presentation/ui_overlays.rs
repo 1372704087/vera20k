@@ -1258,11 +1258,11 @@ pub(crate) fn build_cargo_pip_instances(state: &AppState, sw: f32, sh: f32) -> V
 
         // Proportion filled pips between gem and ore based on cargo contents.
         let gem_bales: u32 = miner
-            .cargo
+            .cargo()
             .iter()
             .filter(|b| b.resource_type == crate::sim::miner::ResourceType::Gem)
             .count() as u32;
-        let total_bales: u32 = miner.cargo.len() as u32;
+        let total_bales: u32 = miner.cargo().len() as u32;
         let gem_pips: u32 = if total_bales > 0 {
             (gem_bales * filled).div_ceil(total_bales) // round up
         } else {

@@ -969,7 +969,7 @@ fn infantry_limbo_stops_walk_animation_and_resets_water_state() {
     assert_infantry_pose(&sim, id, 3, SequenceKind::Walk, 0);
     let actor = sim.substrate.entities.get_mut(id).unwrap();
     actor.mission_leaf.install_infantry_water_state_fixture(1);
-    actor.infantry.as_mut().unwrap().is_prone = true;
+    actor.infantry.as_mut().unwrap().set_is_prone_for_test(true);
     let _ = sim.techno_limbo(id);
     let actor = sim.substrate.entities.get(id).unwrap();
     assert_eq!(
@@ -979,7 +979,7 @@ fn infantry_limbo_stops_walk_animation_and_resets_water_state() {
     let leaf = actor.mission_leaf.as_infantry().unwrap();
     assert_eq!(leaf.water_state(), 2);
     assert_eq!(leaf.doing(), 0);
-    assert!(!actor.infantry.as_ref().unwrap().is_prone);
+    assert!(!actor.infantry.as_ref().unwrap().is_prone());
 }
 
 #[test]
@@ -1152,7 +1152,7 @@ fn infantry_prone_state_drives_prone_crawl_and_fireprone_actions() {
         .infantry
         .as_mut()
         .unwrap()
-        .is_prone = true;
+        .set_is_prone_for_test(true);
     assert!(
         sim.infantry_do_action(
             id,
@@ -1189,7 +1189,7 @@ fn infantry_prone_state_drives_prone_crawl_and_fireprone_actions() {
             .infantry
             .as_ref()
             .unwrap()
-            .is_prone
+            .is_prone()
     );
 }
 
@@ -1214,7 +1214,7 @@ fn infantry_down_and_up_remain_uninterruptible_until_sequence_completion() {
             .infantry
             .as_ref()
             .unwrap()
-            .is_prone
+            .is_prone()
     );
     assert!(
         !sim.infantry_do_action(
@@ -1259,7 +1259,7 @@ fn infantry_down_and_up_remain_uninterruptible_until_sequence_completion() {
             .infantry
             .as_ref()
             .unwrap()
-            .is_prone
+            .is_prone()
     );
     assert!(
         !sim.infantry_do_action(

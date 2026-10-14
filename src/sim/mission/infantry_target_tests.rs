@@ -167,7 +167,11 @@ fn compare_original_infantry_target_rows(consumer: TargetConsumer) {
         actor
             .mission_leaf
             .set_foot_firing_sequence(before["firing_latch"].as_u64().unwrap() as u8);
-        actor.infantry.as_mut().unwrap().is_prone = before["prone"].as_u64().unwrap() != 0;
+        actor
+            .infantry
+            .as_mut()
+            .unwrap()
+            .set_is_prone_for_test(before["prone"].as_u64().unwrap() != 0);
         actor.set_falling_down_for_test(input["falling"].as_u64().unwrap() != 0);
         actor
             .passive_scan
@@ -357,7 +361,7 @@ fn compare_original_infantry_target_rows(consumer: TargetConsumer) {
             "{name}",
         );
         assert_eq!(
-            actor.infantry.as_ref().unwrap().is_prone,
+            actor.infantry.as_ref().unwrap().is_prone(),
             after["prone"].as_u64().unwrap() != 0,
             "{name}",
         );

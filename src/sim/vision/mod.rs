@@ -9,7 +9,6 @@
 //! visibility grid so each cell lookup is O(1) instead of iterating all owners.
 
 mod cell_reveal;
-mod gap_source;
 mod map_reveal;
 pub(crate) use map_reveal::MapTransition;
 mod shroud_knowledge;
@@ -19,7 +18,6 @@ pub(crate) use cell_reveal::tests::{
     assert_native_cell_history, discovery_corpus, native_map_cell_fixture,
 };
 use cell_reveal::{DummyVisibility, MapCellEdgeCache};
-pub(crate) use gap_source::GapGeneratorRuntime;
 use shroud_knowledge::ShroudKnowledge;
 pub(crate) use shroud_knowledge::SightAdmission;
 pub(crate) use shroud_knowledge::{SightFacts, SightRefreshTimers};

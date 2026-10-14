@@ -383,7 +383,7 @@ fn arm_chrono_warp(
         return;
     }
     let category = entity.category();
-    if let Some(bunker) = entity.bunker_link.installed_in()
+    if let Some(bunker) = entity.bunker.link().installed_in()
         && sim
             .substrate
             .entities

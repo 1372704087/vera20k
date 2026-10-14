@@ -168,19 +168,19 @@ impl Simulation {
         }
         let metadata = team.team_type_id.and_then(|id| vm.team_type_ini.get(&id));
         let autocreate = metadata.is_some_and(|metadata| metadata.autocreate);
-        if !entity.base_defense_response.recruitable_a && !autocreate {
+        if !entity.base_defense_response.recruitable_a() && !autocreate {
             return None;
         }
         let unloading = script_action_at(vm.scripts.get(&team.script_id), team.cursor)
             .is_some_and(|action| action.action_id == 8);
-        if !entity.base_defense_response.recruitable_b && autocreate && !(unloading || aircraft) {
+        if !entity.base_defense_response.recruitable_b() && autocreate && !(unloading || aircraft) {
             return None;
         }
         // `0x006EA79B..0x006EA7A4`: one seeking a building's entry.
         if entity.building_entry.seeking() {
             return None;
         }
-        if entity.drain.target().is_some() || entity.bunker_link.installed_in().is_some() {
+        if entity.drain.target().is_some() || entity.bunker.link().installed_in().is_some() {
             return None;
         }
         if let Some(current) = current_team.and_then(|id| vm.teams.get(&id))
@@ -282,7 +282,9 @@ impl Simulation {
             team.just_altered = true;
         }
         if let Some(entity) = self.substrate.entities.get_mut(entity_id) {
-            entity.base_defense_response.recruitable_b = recruitable;
+            entity
+                .base_defense_response
+                .set_team_recruitable(recruitable);
         }
         true
     }

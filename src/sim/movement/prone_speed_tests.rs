@@ -54,7 +54,11 @@ fn prone_mover() -> GameEntity {
     );
     entity.position.sub_x = SimFixed::from_num(128);
     entity.position.sub_y = SimFixed::from_num(128);
-    entity.infantry.as_mut().expect("infantry runtime").is_prone = true;
+    entity
+        .infantry
+        .as_mut()
+        .expect("infantry runtime")
+        .set_is_prone_for_test(true);
     entity.locomotor = Some(LocomotorState::for_test_kind(LocomotorKind::Walk));
     // Isolate the prone budget on an already accepted straight head. Fresh
     // center placement consumes Scenario RNG and chooses a functional subcell.

@@ -186,7 +186,7 @@ fn assert_source(fixture: &SuppliedFootFixture, expected: &Value, name: &str) {
         "{name}: source layer"
     );
     assert_eq!(
-        actor.infantry.as_ref().unwrap().is_prone,
+        actor.infantry.as_ref().unwrap().is_prone(),
         expected["prone_6db"] != 0,
         "{name}: prone"
     );

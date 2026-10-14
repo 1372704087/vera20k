@@ -403,7 +403,7 @@ fn compute_range_target(
     // Both SHL and ADD operate on signed dword bits, including overflow.
     // Steam executable controls: tools/spatial_oracle/walk_cell_range_bunker.json.
     if attacker.category() != EntityCategory::Structure
-        && attacker.bunker_link.installed_in().is_some()
+        && attacker.bunker.link().installed_in().is_some()
     {
         initial_range_lep = i64::from(
             (initial_range_lep as i32).wrapping_add(
@@ -1305,7 +1305,9 @@ mod tests {
             };
             actor.set_category_for_test(category);
             if input["bunkered"] == true {
-                actor.bunker_link = crate::sim::game_entity::BunkerLink::Installed(3);
+                actor.bunker.set_bunker_link_for_test(
+                    crate::sim::docking::bunker_link::BunkerLink::Installed(3),
+                );
             }
             actor.position.sub_x = SimFixed::from_num(x % 256);
             actor.position.sub_y = SimFixed::from_num(y % 256);

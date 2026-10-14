@@ -817,7 +817,7 @@ fn sourceless_infantry_hit_takes_the_refused_scatter_arm_and_the_fear_ladder() {
         let victim = entities.get(2).unwrap();
         assert_eq!(victim.health.current(), 90);
         assert_eq!(
-            victim.infantry.as_ref().unwrap().fear_level,
+            victim.infantry.as_ref().unwrap().fear_level(),
             12,
             "human={human}"
         );
@@ -1167,7 +1167,7 @@ fn retail_gassed_infantry_scatters_and_fears() {
             "gas does no damage"
         );
         (
-            victim.infantry.as_ref().map(|man| man.fear_level),
+            victim.infantry.as_ref().map(|man| man.fear_level()),
             victim.navigation.nav_com.is_some(),
             victim.mission.queued().known(),
             pings.iter().any(|ping| ping.miner),
@@ -1546,7 +1546,7 @@ fn make_infantry_entity(id: u64, type_ref: &str, rx: u16, ry: u16, hp: i32) -> G
         crate::sim::mission::leaf::MissionLeafState::for_entity_category(EntityCategory::Infantry);
     e.set_is_voxel_for_test(false);
     e.animation = None;
-    e.infantry = Some(crate::sim::game_entity::InfantryRuntime::new());
+    e.infantry = Some(crate::sim::infantry::InfantryRuntime::new());
     e
 }
 
@@ -2213,7 +2213,13 @@ fn combat_damage_landed_applies_infantry_fear() {
     );
 
     assert_eq!(
-        store.get(2).unwrap().infantry.as_ref().unwrap().fear_level,
+        store
+            .get(2)
+            .unwrap()
+            .infantry
+            .as_ref()
+            .unwrap()
+            .fear_level(),
         100
     );
 }
@@ -2257,7 +2263,7 @@ fn ic_target_takes_zero_damage() {
             .unwrap()
             .infantry
             .as_ref()
-            .is_some_and(|inf| inf.fear_level == 0),
+            .is_some_and(|inf| inf.fear_level() == 0),
         "invulnerable targets should not gain fear because no damage lands"
     );
 }
@@ -6310,7 +6316,11 @@ fn prone_infantry_uses_prone_fire_sequence_and_frame() {
     let rules = infantry_fire_frame_rules();
     let mut store = EntityStore::new();
     let mut attacker = make_infantry_entity(1, "E1", 5, 5, 125);
-    attacker.infantry.as_mut().unwrap().is_prone = true;
+    attacker
+        .infantry
+        .as_mut()
+        .unwrap()
+        .set_is_prone_for_test(true);
     attacker
         .mission_leaf
         .set_infantry_doing_verified(2)
@@ -6336,7 +6346,7 @@ fn prone_infantry_uses_prone_fire_sequence_and_frame() {
     assert_eq!(attacker.mission_leaf.foot_firing_sequence_latch(), 1);
     assert_eq!(attacker.mission_leaf.as_infantry().unwrap().doing(), 8);
     assert_eq!(attacker.infantry_sprite_pose(), Some((8, 0)));
-    assert!(attacker.infantry.as_ref().unwrap().is_prone);
+    assert!(attacker.infantry.as_ref().unwrap().is_prone());
     assert_eq!(store.get(2).unwrap().health.current(), 125);
 
     set_infantry_stage(&mut store, 1, 2);
@@ -6369,7 +6379,7 @@ fn prone_infantry_uses_prone_fire_sequence_and_frame() {
     let attacker = store.get(1).unwrap();
     assert_eq!(attacker.mission_leaf.foot_firing_sequence_latch(), 0);
     assert_eq!(attacker.infantry_sprite_pose(), Some((8, 3)));
-    assert!(attacker.infantry.as_ref().unwrap().is_prone);
+    assert!(attacker.infantry.as_ref().unwrap().is_prone());
     let ev = &result.consequences.fire_events()[0];
     assert_eq!(interner.resolve(ev.weapon_id), "M60");
     assert_eq!(ev.weapon_slot, WeaponSlot::Primary);
@@ -6409,7 +6419,7 @@ fn deployed_gi_uses_deployed_fire_visual_with_deploy_fire_weapon() {
     assert_eq!(attacker.mission_leaf.foot_firing_sequence_latch(), 1);
     assert_eq!(attacker.mission_leaf.as_infantry().unwrap().doing(), 29);
     assert_eq!(attacker.infantry_sprite_pose(), Some((29, 0)));
-    assert!(!attacker.infantry.as_ref().unwrap().is_prone);
+    assert!(!attacker.infantry.as_ref().unwrap().is_prone());
     assert_eq!(store.get(2).unwrap().health.current(), 300);
 
     // This supplied GI has SecondaryFire=4 and a standing secondary record.
@@ -6608,7 +6618,11 @@ fn test_prone_infantry_takes_scaled_direct_damage() {
     let mut store = EntityStore::new();
     store.insert(make_entity(1, "MTNK", 5, 5, 300));
     let mut target = make_infantry_entity(2, "E2", 8, 5, 125);
-    target.infantry.as_mut().unwrap().is_prone = true;
+    target
+        .infantry
+        .as_mut()
+        .unwrap()
+        .set_is_prone_for_test(true);
     store.insert(target);
 
     let mut interner = test_interner();
@@ -6654,7 +6668,11 @@ fn test_prone_infantry_takes_scaled_aoe_damage() {
     let mut store = EntityStore::new();
     store.insert(make_entity(1, "MTNK", 5, 5, 300));
     let mut target = make_infantry_entity(2, "E2", 8, 5, 125);
-    target.infantry.as_mut().unwrap().is_prone = true;
+    target
+        .infantry
+        .as_mut()
+        .unwrap()
+        .set_is_prone_for_test(true);
     store.insert(target);
 
     let mut interner = test_interner();
@@ -10996,7 +11014,9 @@ fn gsi_08_05_a_bunkered_vehicle_takes_the_bunker_damage_multiplier() {
         let mut store = EntityStore::new();
         let mut firer = make_entity_owned(1, "HTNK", 5, 5, 300, "Soviet");
         if bunkered {
-            firer.bunker_link = crate::sim::game_entity::BunkerLink::Installed(99);
+            firer.bunker.set_bunker_link_for_test(
+                crate::sim::docking::bunker_link::BunkerLink::Installed(99),
+            );
         }
         store.insert(firer);
         let _ = test_intern("MTNK");

@@ -505,23 +505,7 @@ fn shift_walk_cell_input_uses_ordinary_resolver_and_move_record() {
         ordinary_move(&sim, owner, actor, ordinary.cell)
     );
 
-    // Attack-move resolves the Cell as an ordinary click does. Only a Move
-    // over an object keeps the queue-flag adapter.
-    let attack_move = super::commands::ordinary_cell_move_goal(
-        &sim,
-        &rules,
-        None,
-        owner,
-        actor,
-        clicked,
-        MoveClick::AttackMoveCell,
-        false,
-    )
-    .unwrap();
-    assert_eq!(
-        (attack_move.cell, attack_move.queue),
-        (ordinary.cell, false)
-    );
+    // Only a Move over an object keeps the queue-flag adapter.
     let object = super::commands::ordinary_cell_move_goal(
         &sim,
         &rules,

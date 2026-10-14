@@ -861,11 +861,8 @@ pub(crate) struct CellMoveGoal {
 /// What a Move click is over.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum MoveClick {
-    /// An ordinary Move click on a Cell.
+    /// A Move or attack-move click on a Cell.
     Cell,
-    /// An attack-move click on a Cell: the Ctrl+Shift chord, whose Shift
-    /// What_Action clears.
-    AttackMoveCell,
     /// A Move over an object, toward the object's own Cell: force-move onto
     /// it, or a healer's Move over an enemy.
     Object,

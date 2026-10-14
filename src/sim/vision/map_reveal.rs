@@ -152,7 +152,6 @@ impl FogState {
                 state.gap_counter = 0;
                 state.open = !reset;
                 // Both original bulk stores preserve Cell140 pending20.
-                vis.store_whole_map_cell(index, !reset);
                 vis.publish_knowledge(index);
             }
         }

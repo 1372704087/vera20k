@@ -337,33 +337,60 @@ fn empty_cell_feedback(
     cell: (u16, u16),
     modifier: crate::app::input::context_order::OrderModifier,
 ) -> CursorFeedbackKind {
+    empty_cell_cursor(
+        sim,
+        state.rules(),
+        state.overlay_registry(),
+        viewer,
+        best_id,
+        cell,
+        modifier,
+        state.match_state.input.queued_order_mode,
+    )
+}
+
+fn empty_cell_cursor(
+    sim: &crate::sim::world::Simulation,
+    rules: Option<&crate::rules::ruleset::RuleSet>,
+    registry: Option<&crate::rules::overlay_types::OverlayTypeRegistry>,
+    viewer: Option<crate::sim::intern::InternedId>,
+    best_id: Option<u64>,
+    cell: (u16, u16),
+    modifier: crate::app::input::context_order::OrderModifier,
+    order_mode: crate::app::presentation::render::OrderMode,
+) -> CursorFeedbackKind {
     use crate::sim::world::CellMoveAction;
-    match what_action_on_cell(sim, viewer, best_id, cell, modifier, state.rules()) {
+    match what_action_on_cell(sim, viewer, best_id, cell, modifier, rules) {
         CellMoveAction::None => return CursorFeedbackKind::Default,
         CellMoveAction::NoMove => return CursorFeedbackKind::Invalid,
         CellMoveAction::Move => {}
     }
 
     // Ore/gem harvest hangs off the cell action: UnitClass only substitutes the
-    // harvest action when the base action came back Move, and it tests the one
+    // harvest action when the base action came back Move over a Cell the
+    // viewer has mapped (`0x007405DB..0x007405E6`), and it tests the one
     // resolved object's harvester flags, not the whole selection.
-    let has_ore = match (
-        sim.overlay_grid.as_ref(),
-        state.overlay_registry(),
-        state.rules(),
-    ) {
-        (Some(grid), Some(registry), Some(rules)) if !rules.tiberium_types.is_empty() => {
-            crate::sim::tiberium::tiberium_cell_view(grid, registry, &rules.tiberium_types, cell)
+    let shrouded =
+        viewer.is_some_and(|viewer| sim.clicked_cell_is_shrouded(viewer, cell) == Ok(true));
+    let has_ore = !shrouded
+        && match (sim.overlay_grid.as_ref(), registry, rules) {
+            (Some(grid), Some(registry), Some(rules)) if !rules.tiberium_types.is_empty() => {
+                crate::sim::tiberium::tiberium_cell_view(
+                    grid,
+                    registry,
+                    &rules.tiberium_types,
+                    cell,
+                )
                 .is_some()
-        }
-        _ => false,
-    };
+            }
+            _ => false,
+        };
     if has_ore
         && best_id.is_some_and(|id| sim.entities().get(id).is_some_and(|e| e.miner.is_some()))
     {
         return CursorFeedbackKind::Harvest;
     }
-    match state.match_state.input.queued_order_mode {
+    match order_mode {
         crate::app::presentation::render::OrderMode::Move => CursorFeedbackKind::Move,
         crate::app::presentation::render::OrderMode::AttackMove => CursorFeedbackKind::AttackMove,
     }
@@ -2231,6 +2258,56 @@ Verses=100%,100%,100%,100%,100%,100%,100%,100%,100%,100%,100%
             .unwrap()
             .unwrap();
         assert!(goal.0 < 8, "{goal:?}");
+    }
+
+    /// The Unit harvest arms run only over a Cell the viewer has mapped
+    /// (`0x007405DB..0x007405E6`): a retail War Miner shows Harvest over ore
+    /// it can see and Move over ore under shroud.
+    #[test]
+    fn a_miner_shows_harvest_only_over_mapped_ore() {
+        use crate::app::input::context_order::OrderModifier;
+        use crate::app::presentation::render::OrderMode;
+        let Some(battle) = crate::rules::retail_ini_fixture::retail_battle_rules() else {
+            return;
+        };
+        let registry = crate::rules::overlay_types::OverlayTypeRegistry::from_ini(
+            &battle.processed_rules,
+            Some(&battle.fixed_art),
+        );
+        let (mut sim, rules, _) = Simulation::walk_cell_input_test_scene_with(battle.rules, false);
+        let owner = sim.interner.get("Local").unwrap();
+        let miner = sim.spawn_object("HARV", "Local", 6, 4, 0, &rules).unwrap();
+        sim.resolve_type_handles(&rules);
+        assert!(sim.entities().get(miner).unwrap().miner.is_some());
+        let ore = registry.id_for_name("TIB01").unwrap();
+        let (seen, hidden) = ((11, 5), (12, 5));
+        let grid = sim
+            .overlay_grid
+            .get_or_insert_with(|| crate::sim::overlay_grid::OverlayGrid::new(16, 16));
+        for (x, y) in [seen, hidden] {
+            grid.place_overlay(x, y, ore, 6);
+        }
+        sim.fog = crate::sim::vision::FogState::new(16, 16);
+        sim.fog.reveal_cells_for_owner(
+            owner,
+            (0..16)
+                .flat_map(|y| (0..16).map(move |x| (x, y)))
+                .filter(|&cell| cell != hidden),
+        );
+        let cursor = |cell| {
+            empty_cell_cursor(
+                &sim,
+                Some(&rules),
+                Some(&registry),
+                Some(owner),
+                Some(miner),
+                cell,
+                OrderModifier::Normal,
+                OrderMode::Move,
+            )
+        };
+        assert_eq!(cursor(seen), CursorFeedbackKind::Harvest);
+        assert_eq!(cursor(hidden), CursorFeedbackKind::Move);
     }
 
     /// `Is_Armed` reads the current weapon slot, slot 0 without `TurretCount=`,

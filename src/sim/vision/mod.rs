@@ -54,14 +54,14 @@ const FLAG_HOSTILE_GAP_PRESENT: u8 = 0x40;
 // Effective viewer sight is never re-exported as a local allied source.
 const FLAG_EFFECTIVE_GAP_SIGHT: u8 = 0x80;
 
-/// CellClass `+0x12C` ground bits as VERA's sight cache sets them: ground
-/// visible (`0x08`) and ground open (`0x10`). Both are set together on the
-/// first sight mark, on any cell still visible when sight is cleared and by
-/// `MapClass::Reveal`, and cleared only by `MapClass::Reset_Shroud`.
-/// `ShroudKnowledge::open` models the same native bits through the native
-/// writers and can disagree, since the gap writers move it alone (#1117); the
-/// shroud and aircraft readers ([`FogState::is_ground_unshrouded`],
-/// [`FogState::is_ground_open`]) read this projection.
+/// CellClass `+0x12C` ground bits as VERA's sight cache and the cell writers
+/// keep them: ground visible (`0x08`) and ground open (`0x10`). Sight sets
+/// both; `0x004A9CA0` sets or clears both with `ShroudKnowledge::open`;
+/// `0x004AA050` sets `0x08`, and `0x10` where its frame is open. The gap,
+/// sweep and whole-map writers move `ShroudKnowledge::open` alone (#1117),
+/// so `MapClass::IsShrouded` reads that copy ([`cell_ground_mapped`]); the
+/// edge frames and the aircraft fire-location query
+/// ([`FogState::is_ground_open`]) read this one.
 const GROUND_VISIBLE: u8 = 0x08;
 const GROUND_OPEN: u8 = 0x10;
 
@@ -1029,9 +1029,9 @@ impl FogState {
         self.view_generation
     }
 
-    /// Native586360 tests Cell+12C bit8, which persists independently of the
-    /// current sight flag. Gameplay reads the viewer authority directly;
-    /// building a presentation cache cannot change destination admission.
+    /// The ground-visible bit (`Cell+0x12C & 0x08`) as [`GROUND_VISIBLE`]
+    /// holds it, for checking what the cell writers stored.
+    #[cfg(test)]
     pub(crate) fn is_ground_unshrouded(&self, owner: InternedId, rx: u16, ry: u16) -> bool {
         self.by_owner.get(&owner).is_some_and(|view| {
             view.index(rx, ry)
@@ -2090,8 +2090,13 @@ pub(crate) fn point_is_shrouded(
 }
 
 /// `viewer` has mapped `cell`'s ground, the `Cell+0x12C & 0x08` that
-/// `MapClass::IsShrouded @ 0x00586360` tests, including the canonical Dummy's
-/// retained record: the `open` of every [`coordinate_is_shrouded`] reader.
+/// `MapClass::IsShrouded @ 0x00586360` tests: [`ShroudKnowledge::open`] as
+/// published to [`FogState::is_cell_revealed`], the copy every native writer
+/// of that bit reaches (the gap `0x006FB170`/`0x006FB470`, sweep
+/// `0x00578100` and whole-map `0x00577D90`/`0x00577AB0` writers move it
+/// alone). The canonical Dummy answers its retained record, which only the
+/// cell writers touch. [`point_is_shrouded`] and the Foot click queries use
+/// it; the Fire_At reveal (`world_fire.rs`) still answers its own (#1117).
 pub(crate) fn cell_ground_mapped(
     fog: &FogState,
     terrain: &crate::map::resolved_terrain::ResolvedTerrainGrid,
@@ -2101,7 +2106,7 @@ pub(crate) fn cell_ground_mapped(
     match cell {
         crate::map::cell_index::NativeCellIdentity::Real(index) => {
             let cell = &terrain.cells()[index];
-            fog.is_ground_unshrouded(viewer, cell.rx, cell.ry)
+            fog.is_cell_revealed(viewer, cell.rx, cell.ry)
         }
         crate::map::cell_index::NativeCellIdentity::Dummy => fog.is_dummy_ground_unshrouded(viewer),
     }

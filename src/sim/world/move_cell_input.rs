@@ -62,14 +62,20 @@ pub(crate) struct CellActionQuery {
 }
 
 impl Simulation {
-    /// Whether the receiver's class What_Action over an object refuses a Move
-    /// onto it for its deployment state; a Cell click asks
-    /// [`Self::cell_move_action`] instead. Over an object only the Deployer
-    /// arms run: Infantry `0x0051E3B0` for a player's Deployer in Doing27..30
-    /// (`0x0051EB81..0x0051EBD7`), Unit `0x0073FD50` for a player's deployed
-    /// (6E0) IsSimpleDeployer (`0x0074037A..0x007403AD`). Each class's
-    /// Berserk refusal (`0x0051F1D8`, `0x007388EB`) is
-    /// [`Self::click_order_receivers`].
+    /// VERA's refusal of a Move over an object for the receiver's deployment
+    /// state; a Cell click asks [`Self::cell_move_action`] instead. The class
+    /// What_Action over an object turns Move into NoMove for a player's
+    /// Deployer in Doing27..30 (Infantry `0x0051E3B0`,
+    /// `0x0051EB81..0x0051EBD7`) and a player's deployed (6E0)
+    /// IsSimpleDeployer (Unit `0x0073FD50`, `0x0074037A..0x007403AD`).
+    ///
+    /// RESIDUAL (object click chain): native refuses neither. The object
+    /// ClickedAction refuses only some actions on the receiver itself (Unit
+    /// `0x00738890` NoMove at `0x007388D5`, Infantry `0x0051F190` none of
+    /// these) and hands NoMove to Foot `0x004D74E0`, which is unported, so a
+    /// deployed Siege Chopper or a deploying GI moved over an object gets an
+    /// order natively and none here. Each class's Berserk refusal
+    /// (`0x0051F1D8`, `0x007388EB`) is [`Self::click_order_receivers`].
     pub(crate) fn object_move_click_refused(&self, id: u64, rules: &RuleSet) -> bool {
         let Some(entity) = self.substrate.entities.get(id) else {
             return false;
@@ -192,12 +198,7 @@ impl Simulation {
             CellMoveAction::NoMove
         };
         if action != CellMoveAction::None
-            && crate::sim::vision::point_is_shrouded(
-                &self.fog,
-                &cells,
-                viewer,
-                clicked_coordinate(&cells, clicked)?,
-            )
+            && clicked_cell_shrouded(&self.fog, &cells, viewer, clicked)?
         {
             action = if object.move_to_shroud && in_playfield {
                 CellMoveAction::Move
@@ -223,6 +224,27 @@ impl Simulation {
             _ => {}
         }
         Ok(action)
+    }
+
+    /// `MapClass::IsShrouded @ 0x00586360` for `viewer` at a clicked Cell's
+    /// coordinate, as Foot What_Action's shroud rung asks it and as the Unit
+    /// harvest arms' gate does (`0x007405C1..0x007405E6`), which the app
+    /// still answers for the cursor and the click.
+    pub(crate) fn clicked_cell_is_shrouded(
+        &self,
+        viewer: InternedId,
+        cell: (u16, u16),
+    ) -> Result<bool, String> {
+        let terrain = self
+            .resolved_terrain
+            .as_ref()
+            .ok_or("IsShrouded needs map cells")?;
+        clicked_cell_shrouded(
+            &self.fog,
+            &NativeCellQuery::isolated(terrain),
+            viewer,
+            (cell.0 as i16, cell.1 as i16),
+        )
     }
 
     /// The Cell a Foot's Move click resolves, before event encoding. The
@@ -313,7 +335,7 @@ impl Simulation {
             &FootCellClick {
                 clicked: (clicked.0 as i16, clicked.1 as i16),
                 action: action.native(),
-                current: ground_pose::position_world_coord(&entity.position),
+                current: self.foot_current_coordinate(id)?,
                 coordinate,
                 marked: entity.lifecycle.cell_marked,
                 on_bridge: entity.on_bridge,
@@ -341,6 +363,8 @@ impl Simulation {
 struct FootCellClick {
     clicked: (i16, i16),
     action: u32,
+    /// The mover's own coordinate (Object+9C, altitude included), which
+    /// IsInAir (`0x005F6B90`) measures against the ground.
     current: DriveCoord,
     coordinate: DriveCoord,
     marked: bool,
@@ -356,6 +380,23 @@ struct FootCellClick {
     speed_type: SpeedType,
 }
 
+fn clicked_cell_shrouded(
+    fog: &crate::sim::vision::FogState,
+    cells: &NativeCellQuery<'_>,
+    viewer: InternedId,
+    clicked: (i16, i16),
+) -> Result<bool, String> {
+    Ok(crate::sim::vision::point_is_shrouded(
+        fog,
+        cells,
+        viewer,
+        clicked_coordinate(cells, clicked)?,
+    ))
+}
+
+/// A clicked Cell's centre on its ground, raised to a bridge deck: the
+/// coordinate What_Action and 4DE1D0 build before IsShrouded (`0x0074056E..
+/// 0x007405CD`, `0x004DE1FD..0x004DE25D`).
 fn clicked_coordinate(
     cells: &NativeCellQuery<'_>,
     clicked: (i16, i16),

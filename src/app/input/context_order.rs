@@ -1263,8 +1263,11 @@ pub(crate) fn try_queue_context_order_at_screen_point(
             .flatten();
         let clicked_friendly_refinery = clicked_friendly_refinery_id.is_some();
 
-        // Check if the clicked cell holds tiberium (ore/gems).
+        // Check if the clicked cell holds tiberium (ore/gems). The Unit
+        // harvest arms run only over a Cell the viewer has mapped
+        // (`0x007405DB..0x007405E6`); over shroud a miner moves.
         let clicked_ore = cell_context_enabled
+            && sim.clicked_cell_is_shrouded(owner_id, (target_rx, target_ry)) != Ok(true)
             && match (
                 sim.overlay_grid.as_ref(),
                 Some(&resources.overlay_registry),
@@ -1880,13 +1883,7 @@ pub(crate) fn try_queue_context_order_at_screen_point(
                                 owner_id,
                                 stable_id,
                                 (target_rx, target_ry),
-                                if cell_click == MoveClick::Cell
-                                    && order_mode == OrderMode::AttackMove
-                                {
-                                    MoveClick::AttackMoveCell
-                                } else {
-                                    cell_click
-                                },
+                                cell_click,
                                 queue_mode,
                             ) else {
                                 continue;
@@ -3197,14 +3194,14 @@ mod tests {
         );
     }
 
-    /// A deploying or deployed receiver takes no Move click, whatever its
-    /// locomotor, so no Event clears its target. Retail SCHP is a JumpJet
-    /// IsSimpleDeployer Unit: over an open Cell, Unit7404B0 makes Move action0
-    /// while 6E0, 6E1 or 6E2 is set (740709..740727); over an object,
-    /// Unit73FD50 refuses only a deployed (6E0) IsSimpleDeployer
-    /// (74037A..7403AD). A retail E1 Deployer in Doing28 is refused both ways
-    /// (Cell: NoMove 51F8ED..51F94E, then 51F25D..51F285; object:
-    /// 51EB81..51EBD7). A non-player House refuses only Cell clicks.
+    /// A deploying or deployed receiver takes no Move click on a Cell,
+    /// whatever its locomotor, so no Event clears its target. Retail SCHP is a
+    /// JumpJet IsSimpleDeployer Unit: over an open Cell, Unit7404B0 makes Move
+    /// action0 while 6E0, 6E1 or 6E2 is set (740709..740727). A retail E1
+    /// Deployer in Doing28 answers NoMove (51F8ED..51F94E), which its Cell
+    /// click refuses (51F25D..51F285). A non-player House refuses only Cell
+    /// clicks. Over an object VERA still refuses a deployed SCHP and the
+    /// Doing28 E1 ([`Simulation::object_move_click_refused`]'s residual).
     #[test]
     fn retail_deployment_refuses_move_clicks_through_the_class_what_action() {
         use crate::app::input::commands::{MoveClick, ordinary_cell_move_goal};
@@ -3227,19 +3224,14 @@ mod tests {
         sim.session.game_mode_nonzero = true;
         sim.session.current_house = Some(owner);
         let goals = |sim: &Simulation, id| {
-            [
-                MoveClick::Cell,
-                MoveClick::AttackMoveCell,
-                MoveClick::Object,
-            ]
-            .map(|click| {
+            [MoveClick::Cell, MoveClick::Object].map(|click| {
                 ordinary_cell_move_goal(sim, rules, None, owner, id, (14, 10), click, false)
                     .map(|goal| goal.cell)
             })
         };
         let moves = Some((14, 10));
-        assert_eq!(goals(&sim, chopper), [moves; 3]);
-        assert_eq!(goals(&sim, gi), [moves; 3]);
+        assert_eq!(goals(&sim, chopper), [moves; 2]);
+        assert_eq!(goals(&sim, gi), [moves; 2]);
         for (deployed, begin, reverse, over_object) in [
             (false, true, false, moves),
             (true, false, false, None),
@@ -3251,7 +3243,7 @@ mod tests {
                 .set_unit_simple_deploy_for_test(deployed, begin, reverse);
             assert_eq!(
                 goals(&sim, chopper),
-                [None, None, over_object],
+                [None, over_object],
                 "6E0={deployed} 6E1={begin} 6E2={reverse}"
             );
         }
@@ -3262,7 +3254,7 @@ mod tests {
             .mission_leaf
             .set_infantry_doing_verified(28)
             .unwrap();
-        assert_eq!(goals(&sim, gi), [None; 3]);
+        assert_eq!(goals(&sim, gi), [None; 2]);
         sim.entities_mut()
             .get_mut(gi)
             .unwrap()
@@ -3270,7 +3262,7 @@ mod tests {
             .set_infantry_doing_verified(0)
             .unwrap();
         sim.session.current_house = None;
-        assert_eq!(goals(&sim, gi), [None, None, moves]);
+        assert_eq!(goals(&sim, gi), [None, moves]);
     }
 
     /// The click side of the bomb actions: an Engineer's DisarmBomb and a

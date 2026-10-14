@@ -331,7 +331,14 @@ fn unit(owner: &str, type_id: &str, cx: u16, cy: u16, cat: EntityCategory) -> Ma
 // Infantry Approach: the GI's Attack now walks him to a cell in M60 range of
 // the tank (pinned in the loop) instead of the tank's own cell, so his NavCom
 // and path change. Replay, retasking and all three RNG gates remain unchanged.
-const SLICE6_BASELINE_HASH: u64 = 0xC4B5_83A9_D807_77FD;
+// 2026-10-14: hash composition and coverage only. state_hash folds
+// through the pinned StateHasher instead of std's DefaultHasher (a
+// temporary control folding the finished replay through DefaultHasher
+// still gave the previous 0xC4B5_83A9_D807_77FD), fog grids and entities fold
+// as per-House and per-entity digests, cell grids and footprint lists
+// fold as packed byte records, and the edge cache also covers
+// uninitialized cells: code that writes no simulation state.
+const SLICE6_BASELINE_HASH: u64 = 0xA729_2F39_E67E_51D9;
 
 #[test]
 fn replay_hash_stable_through_slice6() {

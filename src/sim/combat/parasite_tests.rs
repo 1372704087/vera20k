@@ -297,7 +297,7 @@ fn dog_bite_kills_the_infantry_and_releases_the_dog_where_it_stood() {
         "PointerExpired unlimboes the dog at the victim's cell"
     );
     assert!(
-        dog_entity.parasite.class().unwrap().victim().is_none(),
+        dog_entity.parasite.class().unwrap().victim.is_none(),
         "the ParasiteClass forgets its victim"
     );
     assert!(
@@ -731,7 +731,7 @@ fn a_host_lost_in_flight_returns_the_drone_to_its_launch_cell() {
     assert_eq!(arena.cell(drone), (10, 10));
     assert_eq!(returned.body_facing.destination(), 0);
     assert!(!returned.parasite.is_paralyzed(arena.frame()));
-    assert!(returned.parasite.class().unwrap().victim().is_none());
+    assert!(returned.parasite.class().unwrap().victim.is_none());
     // The refusal (0x0062AA96..0x0062AAC9) never calls Set_ArchiveTarget.
     assert_eq!(returned.archive_target(), anchor);
 }

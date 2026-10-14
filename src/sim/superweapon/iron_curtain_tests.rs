@@ -120,7 +120,7 @@ fn curtain(sim: &Simulation, id: u64) -> Option<(i32, i32, InvulnKind)> {
 
 /// The paralysis timer's (start, duration) on `id`.
 fn paralysis(sim: &Simulation, id: u64) -> (i32, i32) {
-    let timer = &sim.substrate.entities.get(id).unwrap().parasite.paralysis();
+    let timer = sim.substrate.entities.get(id).unwrap().parasite.paralysis();
     (timer.start_frame(), timer.duration())
 }
 

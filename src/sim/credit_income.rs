@@ -1,5 +1,7 @@
 //! Per-object money producers/consumers that live in the object AI loop:
 //! oil-derrick `ProduceCash` and the Floating Disc money drain (GSI-09.01).
+//! This module owns, and alone writes, each object's [`ProduceCash`] timer
+//! and [`Drain`] links.
 //!
 //! Both mechanisms move credits through the house's wallet
 //! ([`Economy`](crate::sim::economy::Economy)), whose money primitives these
@@ -23,7 +25,7 @@ use crate::sim::timer::CdTimer;
 use crate::sim::world::Simulation;
 
 /// `BuildingClass+0x6D0`/`+0x6D8` ProduceCash timer (oil derricks).
-#[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
 pub(crate) struct ProduceCash {
     /// Seeded to the constructor's dead state (`start = construction frame`,
     /// `duration = 0`, `BuildingClass::Constructor @ 0x0043B92B..0x0043B937`);
@@ -49,19 +51,21 @@ impl ProduceCash {
         self.timer
     }
 
+    /// Start the timer at `frame` with `delay` (`ProduceCashDelay`).
     fn arm(&mut self, frame: u32, delay: i32) {
         self.timer = CdTimer::started(frame as i32, delay);
     }
 }
 
 /// The Floating Disc drain link pair, `TechnoClass+0x1CC`/`+0x1D0`.
-#[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
 pub(crate) struct Drain {
     /// `TechnoClass+0x1CC DrainTarget`: the building this object is draining
     /// (Floating Disc). Set by `Fire_At`'s `DrainWeapon` arm
     /// ([`install_drain_link`]), cleared by `UnitClass::AI`'s cell recheck,
-    /// the ally check in `AI_Update`, and pointer expiry. Hashed (v135) and
-    /// persisted.
+    /// the ally check in `AI_Update`, pointer expiry and the death arm of
+    /// `TechnoClass::ReceiveDamage` (`0x007020B1`, `0x00702102`). Hashed
+    /// (v135) and persisted.
     target: Option<u64>,
     /// `TechnoClass+0x1D0 DrainingMe`: the object draining this one, the
     /// reciprocal of `target`. The victim's `AI_Update` reads it for the money

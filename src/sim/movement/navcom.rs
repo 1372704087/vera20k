@@ -365,7 +365,8 @@ fn drive_set_destination(
 ) -> bool {
     // Drive4AFD40 checks owner+270/+271 before any destination or map read.
     // Track MoveTo refusal leaves Foot's accepted NavCom/timer writes intact.
-    // EMP/Unit+6D8 and Foot+6A0 producers remain separate unported gates.
+    // EMP/Unit+6D8 remains a separate unported gate; Foot+6A0 paralysis
+    // (FootParasite::is_paralyzed) is not read here yet.
     // Original whole-call comparisons: tools/spatial_oracle/track_destination.
     if super::locomotor_owner::owner_is_warping(entity) {
         return false;

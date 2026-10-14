@@ -925,12 +925,11 @@ fn open_transport_weapon(in_open_transport: bool, obj: &ObjectType) -> Option<i3
 
 /// Read the attacker facts from live entity state.
 ///
+/// `drain_target_active` reads the live drain link (`TechnoClass+0x1CC`,
+/// [`Drain`](crate::sim::credit_income::Drain)).
+///
 /// RESIDUAL (GSI-08.02, row 122) — inputs whose native state VERA does not
 /// yet represent are pinned at their constructor value:
-/// - `drain_target_active` = false (`TechnoClass+0x1CC`, written by the
-///   drain link @ `0x0070FD70`). Trigger: a Floating Disc already draining
-///   one building being ordered onto a second Drainable one; effect: the
-///   drain beam is selected again instead of the laser; frequency: rare.
 /// - `is_overpowered_building` = false (`BuildingClass+0x661`, writer
 ///   `BuildingClass::Update 0x0044015B`). This is a DEFERRAL, not an
 ///   approximation: false is the genuine constructor state, so VERA behaves as

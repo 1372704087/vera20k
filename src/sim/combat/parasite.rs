@@ -39,15 +39,16 @@
 //!   `0x0073F530`, `0x0051C259`). VERA places the owner. Trigger: a launch cell
 //!   taken during the jump, or a NearbyLocation cell only the victim can use.
 //!   Frequency: rare. Owner: the CanEnterCell consolidation (Drive/Ship port).
-//! - Paralysis in the movers: Drive/Ship Set_Destination and Process_Movement
-//!   (`0x004AFD5E`, `0x004B2759`, `0x0069F46E`, `0x006A1DA9`), Fly
-//!   `0x004CCD00`/`0x004CF96E`, Hover `0x00514DB9`/`0x00514FD2`, Teleport
-//!   `0x00718120`, `0x005B0099`, `0x00728B10`, and the player-control virtual
-//!   +0xA0 (`0x00700C90`) refuse a paralyzed Foot. Trigger: a successful
+//! - Paralysis in some movers: Drive Set_Destination `0x004AFD5E`, Ship
+//!   `0x0069F46E`/`0x006A1DA9`, Fly `0x004CCD00`/`0x004CF96E`, Mech Move_To
+//!   `0x005B0099` and Tunnel Move_To `0x00728B10` refuse a paralyzed Foot;
+//!   VERA's ports of those do not read [`FootParasite::is_paralyzed`] yet
+//!   (Drive Process_Movement `0x004B2759`, Hover, Teleport and the
+//!   player-control virtual +0xA0 `0x00700C90` do). Trigger: a successful
 //!   release paralyzes the owner for 3x ROF (a drone knocked off a Chrono
-//!   Miner's warp: 180 frames). Effect: VERA's released drone moves and takes
-//!   orders at once. Frequency: rare. Risk: movement timing only. Owner: the
-//!   Drive/Ship Process path port, which holds those locomotors.
+//!   Miner's warp: 180 frames). Effect: such a released owner can be given a
+//!   new destination at once. Frequency: rare. Risk: movement timing only.
+//!   Owner: those locomotors' ports.
 //! - Grinder (UnitClass::PerCellProcess `0x0073A13E..0x0073A181`): credits the
 //!   eater's refund, then suppression 50 + ExitUnit. VERA has no grinding.
 //! - Sonic weapons may target an allied infected Foot (What_Action_OnObject
@@ -77,7 +78,7 @@ pub(crate) const CHRONO_WARP_SUPPRESSION_FRAMES: i32 = 500;
 
 /// Retained ParasiteClass instance fields. The owner (`+0x24`) is the entity
 /// storing this value.
-#[derive(Debug, Clone, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, Hash, serde::Serialize, serde::Deserialize)]
 pub(crate) struct ParasiteState {
     /// `+0x28` Victim (FootClass).
     victim: Option<u64>,
@@ -97,11 +98,6 @@ impl ParasiteState {
             suppression: CdTimer::started(frame as i32, 0),
             damage: CdTimer::started(frame as i32, 0),
         }
-    }
-
-    #[cfg(test)]
-    pub(crate) fn victim(&self) -> Option<u64> {
-        self.victim
     }
 
     #[cfg(test)]
@@ -139,6 +135,8 @@ pub(crate) struct FootParasite {
     /// Foot+6A0 ParalysisTimer. FootClass ctor `0x004D33FC` starts it at the
     /// construction frame with zero duration; ParasiteClass arms it (bites,
     /// release) and clears it, as does FootClass::IronCurtain `0x004DEAE0`.
+    /// The Squid grapple's writes (`ParasiteClass::UpdateSquidGrapple`,
+    /// `0x0062987A`, `0x0062989E`, `0x00629CFF`) are unported with it.
     paralysis: CdTimer,
     /// Techno+432 ReselectIfLimboed memo (`TechnoClass::Fire @ 0x006FF79C`),
     /// consumed by a successful parasite release. Process-local like
@@ -173,12 +171,12 @@ impl FootParasite {
     }
 
     /// The ParalysisTimer.
-    pub(crate) fn paralysis(&self) -> &CdTimer {
-        &self.paralysis
+    pub(crate) fn paralysis(&self) -> CdTimer {
+        self.paralysis
     }
 
-    /// `FootClass::IsParalyzed @ 0x004DE770`: the Foot+6A0 ParalysisTimer
-    /// has time left. Readers: GetFireError `0x006FC623`/`0x006FCCD5`,
+    /// `FootClass::IsParalyzed @ 0x004DE770` (vtable +0x380): the Foot+6A0
+    /// ParalysisTimer    /// has time left. Readers: GetFireError `0x006FC623`/`0x006FCCD5`,
     /// CloakingTick `0x006FB775`, ShouldUncloak `0x006FBCC0`, and the
     /// locomotor movement setters.
     pub(crate) fn is_paralyzed(&self, frame: u32) -> bool {
@@ -191,6 +189,10 @@ impl FootParasite {
         self.class = Some(Box::new(ParasiteState::constructed(frame)));
     }
 
+    fn class_mut(&mut self) -> Option<&mut ParasiteState> {
+        self.class.as_deref_mut()
+    }
+
     /// ParalysisTimer = {Frame, 0}: a release's victim reset
     /// (`0x0062A862`) and FootClass::IronCurtain `0x004DEAE0`.
     pub(crate) fn end_paralysis(&mut self, frame: u32) {
@@ -199,7 +201,7 @@ impl FootParasite {
 
     /// ParasiteClass::Load `0x006295DB..0x006295F3` for this owner's class.
     pub(crate) fn restart_timers_after_load(&mut self, frame: u32) {
-        if let Some(class) = self.class.as_deref_mut() {
+        if let Some(class) = self.class_mut() {
             class.restart_timers_after_load(frame);
         }
     }
@@ -330,7 +332,7 @@ impl Simulation {
             .substrate
             .entities
             .get_mut(owner)
-            .and_then(|o| o.parasite.class.as_deref_mut())
+            .and_then(|o| o.parasite.class_mut())
         else {
             return;
         };
@@ -359,7 +361,7 @@ impl Simulation {
             .substrate
             .entities
             .get_mut(owner)
-            .and_then(|o| o.parasite.class.as_deref_mut())
+            .and_then(|o| o.parasite.class_mut())
         {
             state.victim = Some(victim);
         }
@@ -501,8 +503,7 @@ impl Simulation {
             .get_mut(owner)
             .unwrap()
             .parasite
-            .class
-            .as_deref_mut()
+            .class_mut()
             .unwrap()
             .damage = CdTimer::started(frame as i32, rof);
         let Some(victim_entity) = self.substrate.entities.get_mut(victim) else {
@@ -690,7 +691,7 @@ impl Simulation {
             .substrate
             .entities
             .get_mut(owner)
-            .and_then(|o| o.parasite.class.as_deref_mut())
+            .and_then(|o| o.parasite.class_mut())
         {
             state.victim = None;
         }
@@ -777,7 +778,7 @@ impl Simulation {
             .substrate
             .entities
             .get_mut(owner)
-            .and_then(|o| o.parasite.class.as_deref_mut())
+            .and_then(|o| o.parasite.class_mut())
         {
             state.victim = None;
         }
@@ -1292,7 +1293,7 @@ impl Simulation {
                 .substrate
                 .entities
                 .get_mut(eater)
-                .and_then(|e| e.parasite.class.as_deref_mut())
+                .and_then(|e| e.parasite.class_mut())
         {
             state.suppress(frame, raw_damage.wrapping_mul(2).wrapping_sub(threshold));
         }
@@ -1315,7 +1316,7 @@ impl Simulation {
             .substrate
             .entities
             .get_mut(eater)
-            .and_then(|e| e.parasite.class.as_deref_mut())
+            .and_then(|e| e.parasite.class_mut())
         {
             state.suppress(frame, suppression);
         }

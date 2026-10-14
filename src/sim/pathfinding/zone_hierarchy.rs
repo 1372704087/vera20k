@@ -7,7 +7,8 @@
 //! - Part of sim/ - depends on sim/zone_map, pathfinding passability, and rules movement zones.
 //! - sim/ NEVER depends on render/, ui/, audio/, net/.
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::sync::{Mutex, MutexGuard, PoisonError};
 
 use super::passability;
 use super::stamped_table::StampedTable;
@@ -407,6 +408,7 @@ impl ZoneLevelGraph {
 #[derive(Debug, Clone)]
 pub(crate) struct ZoneHierarchy {
     levels: [ZoneLevelGraph; ZONE_PRECHECK_LEVELS],
+    memo: PrecheckMemo,
 }
 
 impl ZoneHierarchy {
@@ -459,6 +461,7 @@ impl ZoneHierarchy {
     ) -> Self {
         Self {
             levels: [level0, level1, level2],
+            memo: PrecheckMemo::default(),
         }
     }
 
@@ -466,7 +469,10 @@ impl ZoneHierarchy {
         self.levels.get(level)
     }
 
+    /// Every change to the levels comes through here, so it drops the
+    /// precheck answers given for the old levels.
     pub(crate) fn levels_mut(&mut self) -> &mut [ZoneLevelGraph; ZONE_PRECHECK_LEVELS] {
+        self.memo.clear();
         &mut self.levels
     }
 
@@ -524,6 +530,10 @@ impl ZonePrecheckExclusions {
         ZoneEdgeKey::new(a, b)
             .and_then(|key| self.lookup.get(level).map(|set| set.contains(&key)))
             .unwrap_or(false)
+    }
+
+    fn is_empty(&self) -> bool {
+        self.lookup.iter().all(BTreeSet::is_empty)
     }
 }
 
@@ -680,10 +690,97 @@ fn precheck_edge_cost(cost: NativeF32Bits, base: i32, threat: i32, flag: u8) -> 
     X87Chop53::store_f32(total).expect("bounded hierarchy cost")
 }
 
+#[derive(Clone, Debug, PartialEq)]
 struct PrecheckLevelResult {
     path: Vec<ZoneId>,
     #[cfg(test)]
     pops: Vec<(usize, ZoneId, u32, u32)>,
+}
+
+/// Level searches already answered for one hierarchy's levels.
+///
+/// Without exclusions or an active threat, a level search reads only the
+/// levels, its start and goal zones and the movement zone: the parent
+/// corridor it is confined to is the parent level's answer for the start's
+/// and goal's own parents. Path searches keep asking for the same corridors,
+/// and the top level, which no corridor confines, searches much of its graph
+/// each time. The answers are exact, so the memo changes no result;
+/// [`ZoneHierarchy::levels_mut`] clears it.
+#[derive(Default)]
+struct PrecheckMemo(
+    Mutex<[HashMap<PrecheckKey, Option<PrecheckLevelResult>>; ZONE_PRECHECK_LEVELS]>,
+);
+
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+struct PrecheckKey {
+    movement_zone: MovementZone,
+    start: ZoneId,
+    goal: ZoneId,
+}
+
+/// Answers kept per level before that level starts over. Bounds memory on
+/// maps whose movers spread over many base-level zones; the coarse levels'
+/// few, expensive answers outlive a base-level reset, and a dropped answer is
+/// only searched again.
+const PRECHECK_MEMO_ANSWERS: usize = 1 << 16;
+
+impl PrecheckMemo {
+    fn answers(
+        &self,
+    ) -> MutexGuard<'_, [HashMap<PrecheckKey, Option<PrecheckLevelResult>>; ZONE_PRECHECK_LEVELS]>
+    {
+        self.0.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    /// The memoized answer for `key` at `level`, else `search`'s, kept for
+    /// next time. No lock is held while `search` runs.
+    fn answer(
+        &self,
+        level: usize,
+        key: PrecheckKey,
+        search: impl FnOnce() -> Result<Option<PrecheckLevelResult>, String>,
+    ) -> Result<Option<PrecheckLevelResult>, String> {
+        let kept = self.answers()[level].get(&key).cloned();
+        if let Some(answer) = kept {
+            // Every test that prechecks also checks the memo against a new
+            // search, including after production hierarchy repairs.
+            #[cfg(test)]
+            assert_eq!(answer, search()?, "a kept precheck answer went stale");
+            return Ok(answer);
+        }
+        let answer = search()?;
+        let mut answers = self.answers();
+        let level_answers = &mut answers[level];
+        if level_answers.len() >= PRECHECK_MEMO_ANSWERS {
+            level_answers.clear();
+        }
+        level_answers.insert(key, answer.clone());
+        Ok(answer)
+    }
+
+    fn clear(&mut self) {
+        for answers in self.0.get_mut().unwrap_or_else(PoisonError::into_inner) {
+            answers.clear();
+        }
+    }
+
+    #[cfg(test)]
+    fn len(&self) -> usize {
+        self.answers().iter().map(HashMap::len).sum()
+    }
+}
+
+/// A copy answers its own searches.
+impl Clone for PrecheckMemo {
+    fn clone(&self) -> Self {
+        Self::default()
+    }
+}
+
+impl std::fmt::Debug for PrecheckMemo {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("PrecheckMemo")
+    }
 }
 
 /// Original42C290: retained House threat is estimated before best-cost,
@@ -717,6 +814,8 @@ pub(crate) fn zone_precheck_flat(
         return Ok(ZonePrecheckOutcome::Failed);
     };
 
+    // Exclusions and threat costs are inputs the memo key does not hold.
+    let memo = (exclusions.is_empty() && active_threat.is_none()).then_some(&hierarchy.memo);
     let mut result = ZonePrecheckResult::new();
     for level in (0..ZONE_PRECHECK_LEVELS).rev() {
         let parent_marked = if level < TOP_LEVEL {
@@ -724,17 +823,31 @@ pub(crate) fn zone_precheck_flat(
         } else {
             None
         };
-        let Some(selected) = search_precheck_level(
-            hierarchy.level(level).expect("fixed hierarchy level"),
-            level,
-            start_zones[level],
-            goal_zones[level],
-            movement_zone,
-            parent_marked,
-            exclusions,
-            active_threat.zip(threat.as_ref().map(|context| context.padded_lookup)),
-        )?
-        else {
+        let search = || {
+            search_precheck_level(
+                hierarchy.level(level).expect("fixed hierarchy level"),
+                level,
+                start_zones[level],
+                goal_zones[level],
+                movement_zone,
+                parent_marked,
+                exclusions,
+                active_threat.zip(threat.as_ref().map(|context| context.padded_lookup)),
+            )
+        };
+        let selected = match memo {
+            Some(memo) => memo.answer(
+                level,
+                PrecheckKey {
+                    movement_zone,
+                    start: start_zones[level],
+                    goal: goal_zones[level],
+                },
+                search,
+            )?,
+            None => search()?,
+        };
+        let Some(selected) = selected else {
             return Ok(ZonePrecheckOutcome::Failed);
         };
         result.marked[level] = selected.path.iter().copied().collect();
@@ -1058,9 +1171,10 @@ mod tests {
     #[test]
     fn zone_precheck_parent_gate_prunes_off_corridor_child_edges() {
         let mut hierarchy = fixture_hierarchy();
-        hierarchy.levels[0].set_record(ZoneRecord::new(7, 99, 0));
-        hierarchy.levels[0].push_edge(2, ZoneEdgeRecord::new(7, 0));
-        hierarchy.levels[0].push_edge(7, ZoneEdgeRecord::new(6, 0));
+        let level0 = &mut hierarchy.levels_mut()[0];
+        level0.set_record(ZoneRecord::new(7, 99, 0));
+        level0.push_edge(2, ZoneEdgeRecord::new(7, 0));
+        level0.push_edge(7, ZoneEdgeRecord::new(6, 0));
 
         let ZonePrecheckOutcome::Passed(result) = zone_precheck_flat(
             &hierarchy,
@@ -1083,9 +1197,9 @@ mod tests {
     #[test]
     fn zone_precheck_parent_gate_allows_type_1_exception() {
         let mut hierarchy = fixture_hierarchy();
-        hierarchy.levels[0].set_record(ZoneRecord::new(7, 99, 1));
-        hierarchy.levels[0].push_edge(2, ZoneEdgeRecord::new(7, 0));
-        hierarchy.levels[0].push_edge(7, ZoneEdgeRecord::new(6, 0));
+        hierarchy.levels_mut()[0].set_record(ZoneRecord::new(7, 99, 1));
+        hierarchy.levels_mut()[0].push_edge(2, ZoneEdgeRecord::new(7, 0));
+        hierarchy.levels_mut()[0].push_edge(7, ZoneEdgeRecord::new(6, 0));
 
         let ZonePrecheckOutcome::Passed(result) = zone_precheck_flat(
             &hierarchy,
@@ -1176,8 +1290,8 @@ mod tests {
     #[test]
     fn zone_precheck_manual_exclusion_skips_only_matching_edge() {
         let mut hierarchy = fixture_hierarchy();
-        hierarchy.levels[0].push_edge(3, ZoneEdgeRecord::new(5, 0));
-        hierarchy.levels[0].push_edge(5, ZoneEdgeRecord::new(3, 0));
+        hierarchy.levels_mut()[0].push_edge(3, ZoneEdgeRecord::new(5, 0));
+        hierarchy.levels_mut()[0].push_edge(5, ZoneEdgeRecord::new(3, 0));
         let mut exclusions = ZonePrecheckExclusions::default();
         assert!(exclusions.insert(0, 3, 4));
 
@@ -1192,8 +1306,8 @@ mod tests {
     #[test]
     fn zone_precheck_manual_exclusion_does_not_ban_endpoint_zone() {
         let mut hierarchy = fixture_hierarchy();
-        hierarchy.levels[0].push_edge(3, ZoneEdgeRecord::new(5, 0));
-        hierarchy.levels[0].push_edge(5, ZoneEdgeRecord::new(3, 0));
+        hierarchy.levels_mut()[0].push_edge(3, ZoneEdgeRecord::new(5, 0));
+        hierarchy.levels_mut()[0].push_edge(5, ZoneEdgeRecord::new(3, 0));
         let mut exclusions = ZonePrecheckExclusions::default();
         assert!(exclusions.insert(0, 4, 5));
 
@@ -1218,8 +1332,8 @@ mod tests {
     #[test]
     fn zone_precheck_manual_exclusion_is_undirected() {
         let mut hierarchy = fixture_hierarchy();
-        hierarchy.levels[0].push_edge(3, ZoneEdgeRecord::new(5, 0));
-        hierarchy.levels[0].push_edge(5, ZoneEdgeRecord::new(3, 0));
+        hierarchy.levels_mut()[0].push_edge(3, ZoneEdgeRecord::new(5, 0));
+        hierarchy.levels_mut()[0].push_edge(5, ZoneEdgeRecord::new(3, 0));
         let mut exclusions = ZonePrecheckExclusions::default();
         assert!(exclusions.insert(0, 4, 3));
 
@@ -1261,5 +1375,77 @@ mod tests {
     fn zone_precheck_bridge_edges_are_zero_flagged_fixture_contract() {
         let edge = ZoneEdgeRecord::new(2, 0);
         assert_eq!(edge.flag, 0);
+    }
+
+    /// Every start/goal pair, for movement zones the fixture's type-0 zones
+    /// admit (Normal, Crusher) and refuse (Water), asked twice: each answer
+    /// equals a fresh copy's, and the second round finds every answer kept.
+    #[test]
+    fn memoized_prechecks_match_fresh_searches() {
+        let hierarchy = fixture_hierarchy();
+        let mut kept_after_first_round = 0;
+        let (mut passed, mut failed) = (0, 0);
+        for round in 0..2 {
+            for start in 1..=6 {
+                for goal in 1..=6 {
+                    for movement_zone in [
+                        MovementZone::Normal,
+                        MovementZone::Crusher,
+                        MovementZone::Water,
+                    ] {
+                        let precheck = |hierarchy: &ZoneHierarchy| {
+                            zone_precheck_flat(
+                                hierarchy,
+                                start,
+                                goal,
+                                movement_zone,
+                                &ZonePrecheckExclusions::default(),
+                                None,
+                            )
+                            .unwrap()
+                        };
+                        let answer = precheck(&hierarchy);
+                        assert_eq!(answer, precheck(&hierarchy.clone()));
+                        match answer {
+                            ZonePrecheckOutcome::Passed(_) => passed += 1,
+                            ZonePrecheckOutcome::Failed => failed += 1,
+                        }
+                    }
+                }
+            }
+            let kept = hierarchy.memo.len();
+            if round == 0 {
+                kept_after_first_round = kept;
+            } else {
+                assert_eq!(kept, kept_after_first_round);
+            }
+        }
+        assert!(kept_after_first_round > 0 && passed > 0 && failed > 0);
+    }
+
+    /// A level change drops the answers given for the old levels: a new
+    /// base-level shortcut is taken at once.
+    #[test]
+    fn changing_a_level_clears_the_memo() {
+        let mut hierarchy = fixture_hierarchy();
+        let route = |hierarchy: &ZoneHierarchy| {
+            let ZonePrecheckOutcome::Passed(result) = zone_precheck_flat(
+                hierarchy,
+                1,
+                6,
+                MovementZone::Normal,
+                &ZonePrecheckExclusions::default(),
+                None,
+            )
+            .unwrap() else {
+                panic!("precheck should pass");
+            };
+            result.paths[0].clone()
+        };
+        assert_eq!(route(&hierarchy), vec![1, 2, 3, 4, 5, 6]);
+        let level0 = &mut hierarchy.levels_mut()[0];
+        level0.push_edge(2, ZoneEdgeRecord::new(5, 0));
+        level0.push_edge(5, ZoneEdgeRecord::new(2, 0));
+        assert_eq!(route(&hierarchy), vec![1, 2, 5, 6]);
     }
 }

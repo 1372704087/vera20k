@@ -1361,6 +1361,66 @@ mod tests {
         }
         assert_eq!(find_path_search_zone(MovementZone::Invalid), None);
     }
+
+    /// `AStar @ 0x0042CAD6` takes the zone hierarchy only for a mover in the
+    /// playfield (Techno+0x3D5), which the Foot search snapshots with its
+    /// request. With the zones split between start and goal, a mover outside
+    /// the playfield still finds the flat route; one inside it is refused at
+    /// the hierarchy.
+    #[test]
+    fn foot_search_takes_the_zone_hierarchy_only_inside_the_playfield() {
+        for in_playfield in [false, true] {
+            let (mut sim, rules, registry) =
+                crate::sim::world::entry_test_fixture::fixture_with_rules(
+                    "[VehicleTypes]\n0=MTNK\n[MTNK]\nStrength=400\nSpeed=6\nSpeedType=Track\nMovementZone=Normal\nLocomotor={4A582741-9839-11D1-B709-00A024DDAFD1}\n",
+                );
+            let (start, goal_cell) = ((13, 15), (17, 15));
+            let id = sim
+                .spawn_object("MTNK", "Americans", start.0, start.1, 0, &rules)
+                .unwrap();
+            sim.substrate.entities.get_mut(id).unwrap().in_playfield = in_playfield;
+            let mut split = sim.path_grid.as_deref().unwrap().clone();
+            for y in 0..split.height() {
+                split.set_blocked(15, y, true);
+            }
+            let zones = ZoneGrid::following_path_grid(&split);
+            assert!(!zones.can_reach(
+                MovementZone::Normal,
+                start,
+                MovementLayer::Ground,
+                goal_cell,
+                MovementLayer::Ground,
+            ));
+            sim.zone_grid = Some(zones);
+            let goal = cell_centre((goal_cell.0 as i16, goal_cell.1 as i16));
+            let request =
+                FootPathRequest::track(&sim.substrate.entities, id, goal, 0, sim.playfield_bounds)
+                    .unwrap();
+            let found = sim
+                .search_foot_path(
+                    &request,
+                    goal,
+                    &rules,
+                    Some(&registry),
+                    FrameEffects::default(),
+                )
+                .unwrap();
+            let route = sim
+                .substrate
+                .entities
+                .get(id)
+                .unwrap()
+                .navigation
+                .path_replay
+                .route_cells();
+            assert_eq!(found.is_ok(), !in_playfield, "in_playfield={in_playfield}");
+            assert_eq!(
+                route.last() == Some(&goal_cell),
+                !in_playfield,
+                "in_playfield={in_playfield}: {route:?}"
+            );
+        }
+    }
 }
 
 #[cfg(test)]

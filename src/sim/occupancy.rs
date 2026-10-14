@@ -676,6 +676,7 @@ impl VehicleOccupationPlane {
             .fold(0, |bits, mark| bits | mark)
     }
 
+    #[cfg(test)]
     fn bits_ignoring(&self, entity_id: u64) -> u8 {
         self.owners
             .iter()
@@ -696,6 +697,7 @@ struct CellVehicleOccupation {
 }
 
 impl CellVehicleOccupation {
+    #[cfg(test)]
     fn plane(&self, layer: MovementLayer) -> Option<&VehicleOccupationPlane> {
         match layer {
             MovementLayer::Ground => Some(&self.ground),
@@ -993,19 +995,6 @@ impl CellOccupationGrid {
         entity_id: u64,
     ) -> bool {
         self.vehicle_bits_ignoring(rx, ry, layer, entity_id) & VEHICLE_OCCUPATION_BIT != 0
-    }
-
-    pub(crate) fn occupied_cells_ignoring(
-        &self,
-        layer: MovementLayer,
-        entity_id: u64,
-    ) -> impl Iterator<Item = (u16, u16)> + '_ {
-        self.cells.iter().filter_map(move |(&(rx, ry), cell)| {
-            let occupied = cell
-                .plane(layer)
-                .is_some_and(|plane| plane.bits_ignoring(entity_id) & VEHICLE_OCCUPATION_BIT != 0);
-            occupied.then_some((rx, ry))
-        })
     }
 }
 

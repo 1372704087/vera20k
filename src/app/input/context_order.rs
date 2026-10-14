@@ -10,7 +10,7 @@
 //! - Part of the app layer — may depend on everything.
 
 use crate::app::AppState;
-use crate::app::input::commands::preferred_local_owner;
+use crate::app::input::commands::{MoveClick, preferred_local_owner};
 use crate::app::input::dispatch::{
     is_alt_held, is_ctrl_held, is_shift_held, selected_stable_ids_in_order,
 };
@@ -437,7 +437,7 @@ fn unit_repair_branch_orders(
                     issuing_house,
                     id,
                     (target_entity.position.rx, target_entity.position.ry),
-                    false,
+                    MoveClick::Object,
                     false,
                 ) else {
                     continue;
@@ -1321,7 +1321,7 @@ pub(crate) fn try_queue_context_order_at_screen_point(
                         owner_id,
                         stable_id,
                         (target_rx, target_ry),
-                        true,
+                        MoveClick::Cell,
                         queue_mode,
                     ) else {
                         continue;
@@ -1437,7 +1437,7 @@ pub(crate) fn try_queue_context_order_at_screen_point(
                             owner_id,
                             stable_id,
                             (target_rx, target_ry),
-                            true,
+                            MoveClick::Cell,
                             queue_mode,
                         ) else {
                             continue;
@@ -1739,7 +1739,11 @@ pub(crate) fn try_queue_context_order_at_screen_point(
             // payload below already routes through the same fallback).
             // Object action1/2 uses its own coordinate/zone receiver (4D77FB,
             //4D7816/4D78BA), not Cell-click4DE1D0. Keep that prior adapter.
-            let ordinary_cell_receiver = !(force_move && hover.is_some());
+            let cell_click = if force_move && hover.is_some() {
+                MoveClick::Object
+            } else {
+                MoveClick::Cell
+            };
             let (target_rx, target_ry) = if force_move {
                 hover
                     .as_ref()
@@ -1841,7 +1845,7 @@ pub(crate) fn try_queue_context_order_at_screen_point(
                         owner_id,
                         stable_id,
                         (target_rx, target_ry),
-                        ordinary_cell_receiver,
+                        cell_click,
                         queue_mode,
                     ) else {
                         continue;
@@ -1871,7 +1875,13 @@ pub(crate) fn try_queue_context_order_at_screen_point(
                                 owner_id,
                                 stable_id,
                                 (target_rx, target_ry),
-                                order_mode == OrderMode::Move && ordinary_cell_receiver,
+                                if cell_click == MoveClick::Cell
+                                    && order_mode == OrderMode::AttackMove
+                                {
+                                    MoveClick::AttackMoveCell
+                                } else {
+                                    cell_click
+                                },
                                 queue_mode,
                             ) else {
                                 continue;
@@ -3180,6 +3190,77 @@ mod tests {
             Some(crate::app::types::CursorId::NoDeploy),
             "native action30 must display the blocked deploy cursor"
         );
+    }
+
+    /// A deploying or deployed receiver takes no Move click, whatever its
+    /// locomotor, so no Event clears its target. Retail SCHP is a JumpJet
+    /// IsSimpleDeployer Unit: over a Cell, Unit7404B0 makes Move action0 while
+    /// 6E0, 6E1 or 6E2 is set (740709..740727); over an object, Unit73FD50
+    /// refuses only a deployed (6E0) IsSimpleDeployer (74037A..7403AD). A
+    /// retail E1 Deployer in Doing28 is refused both ways (51F8ED..51F94E,
+    /// 51EB81..51EBD7). A non-player House refuses only Cell clicks.
+    #[test]
+    fn retail_deployment_refuses_move_clicks_through_the_class_what_action() {
+        use crate::app::input::commands::{MoveClick, ordinary_cell_move_goal};
+        let Some(battle) = crate::rules::retail_ini_fixture::retail_battle_rules() else {
+            return;
+        };
+        let rules = &battle.rules;
+        let mut sim = Simulation::new();
+        let chopper = sim
+            .spawn_object("SCHP", "Americans", 10, 10, 0, rules)
+            .expect("retail Siege Chopper spawns");
+        let gi = sim
+            .spawn_object("E1", "Americans", 12, 10, 0, rules)
+            .expect("retail GI spawns");
+        let owner = sim.interner.get("Americans").unwrap();
+        sim.session.game_mode_nonzero = true;
+        sim.session.current_house = Some(owner);
+        let goals = |sim: &Simulation, id| {
+            [
+                MoveClick::Cell,
+                MoveClick::AttackMoveCell,
+                MoveClick::Object,
+            ]
+            .map(|click| {
+                ordinary_cell_move_goal(sim, rules, owner, id, (14, 10), click, false)
+                    .map(|goal| goal.cell)
+            })
+        };
+        let moves = Some((14, 10));
+        assert_eq!(goals(&sim, chopper), [moves; 3]);
+        assert_eq!(goals(&sim, gi), [moves; 3]);
+        for (deployed, begin, reverse, over_object) in [
+            (false, true, false, moves),
+            (true, false, false, None),
+            (true, false, true, None),
+        ] {
+            sim.entities_mut()
+                .get_mut(chopper)
+                .unwrap()
+                .set_unit_simple_deploy_for_test(deployed, begin, reverse);
+            assert_eq!(
+                goals(&sim, chopper),
+                [None, None, over_object],
+                "6E0={deployed} 6E1={begin} 6E2={reverse}"
+            );
+        }
+        assert!(rules.object("E1").unwrap().deployer);
+        sim.entities_mut()
+            .get_mut(gi)
+            .unwrap()
+            .mission_leaf
+            .set_infantry_doing_verified(28)
+            .unwrap();
+        assert_eq!(goals(&sim, gi), [None; 3]);
+        sim.entities_mut()
+            .get_mut(gi)
+            .unwrap()
+            .mission_leaf
+            .set_infantry_doing_verified(0)
+            .unwrap();
+        sim.session.current_house = None;
+        assert_eq!(goals(&sim, gi), [None, None, moves]);
     }
 
     /// The click side of the bomb actions: an Engineer's DisarmBomb and a

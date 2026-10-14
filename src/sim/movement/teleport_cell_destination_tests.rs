@@ -1291,8 +1291,11 @@ fn cleg_overlay_cell_requests_match_every_original_command_boundary() {
                 assert_rng(&sim, &boundary["rng_before"], &context);
                 assert_eq!(boundary["input"]["kind"], "set_destination");
                 if ordinary_command {
+                    // The event runs whatever the class answers: the setter
+                    // at 4C747C is void. Its refusal shows in the state and
+                    // 718080 below.
                     let (rx, ry) = pair(&boundary["input"]["cell"]);
-                    assert_eq!(
+                    assert!(
                         sim.apply_command_with_overlays(
                             "Americans",
                             &Command::Move {
@@ -1305,8 +1308,7 @@ fn cleg_overlay_cell_requests_match_every_original_command_boundary() {
                             Some(&registry),
                             crate::sim::world::FrameEffects::default(),
                         ),
-                        boundary["query_al"].as_u64().unwrap() != 0,
-                        "{context}: request acceptance"
+                        "{context}: the Move event runs"
                     );
                 } else {
                     execute(&mut sim, id, &boundary["input"], &rules, Some(&registry));

@@ -981,17 +981,12 @@ fn ordinary_drive_ship_command_keeps_subcell_origin_through_terminal_cleanup() {
             entity.position.sub_y = SimFixed::from_num(sub_y);
             entity.body_facing.snap(u16::from(facing) << 8, 0);
             insert(&mut sim, entity);
-            assert!(crate::sim::movement::issue_move_command(
-                &mut sim.substrate.entities,
-                &grid,
+            assert!(sim.set_unit_destination(
                 1,
-                destination,
-                SimFixed::from_num(128),
-                false,
-                None,
-                None,
-                None,
-                crate::sim::movement::DestinationTiming::new(0, 60),
+                crate::sim::components::NavTargetRef::cell(destination.0, destination.1),
+                &rules,
+                true,
+                crate::sim::world::FrameEffects::default(),
             ));
             for frame in 0..128 {
                 sim.session.binary_frame = frame;

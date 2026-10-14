@@ -905,9 +905,9 @@ impl Simulation {
         })
     }
 
-    /// The represented Unit setter's active Drive cohort used by ordinary
-    /// Cell input, decoded Move admission and internal ground-order dispatch.
-    /// Ship and the other represented families keep their own caller routes.
+    /// The represented Unit setter's active Drive cohort. A queued (Shift)
+    /// Cell click takes the ordinary Foot Cell query only for it and Walk
+    /// Infantry, the receivers the original Shift controls cover.
     pub(crate) fn drive_unit_setter_receiver(&self, id: u64) -> bool {
         self.substrate.entities.get(id).is_some_and(|actor| {
             track_unit(actor)

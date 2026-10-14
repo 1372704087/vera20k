@@ -1624,7 +1624,7 @@ pub(crate) fn nearest_walkable_cell(
     start: (u16, u16),
     max_radius: u16,
 ) -> Option<(u16, u16)> {
-    grid.nearest_walkable_any_layer(start.0, start.1, max_radius, None, None)
+    grid.nearest_walkable_any_layer(start.0, start.1, max_radius)
 }
 
 pub(crate) fn nearest_walkable_cell_layered(
@@ -1632,7 +1632,7 @@ pub(crate) fn nearest_walkable_cell_layered(
     start: (u16, u16),
     max_radius: u16,
 ) -> Option<(u16, u16)> {
-    grid.nearest_walkable_any_layer(start.0, start.1, max_radius, None, None)
+    grid.nearest_walkable_any_layer(start.0, start.1, max_radius)
 }
 
 pub(crate) fn clamp_cell_to_grid(

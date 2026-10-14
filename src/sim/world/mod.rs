@@ -36,8 +36,6 @@ mod unit_unlimbo_tests;
 pub(crate) use sinking::SinkingState;
 pub mod edge_cell;
 mod gap_generator;
-mod ground_move;
-pub(crate) use ground_move::GroundMove;
 mod house_base;
 mod house_defeat;
 mod ion_blast;

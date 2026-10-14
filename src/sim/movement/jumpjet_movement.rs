@@ -846,9 +846,11 @@ impl Simulation {
         }
     }
 
-    /// An air order to a cell. A Jumpjet Unit or Infantry takes its class
-    /// setter ([`Self::jumpjet_destination`]); other fliers continue through
-    /// their established motion adapter.
+    /// An air order to a cell. Its production caller is the Fly arm of
+    /// [`Self::complete_pending_order`]; a Jumpjet Unit or Infantry, which
+    /// takes its class setter ([`Self::jumpjet_destination`]) here, reaches it
+    /// only from tests. Other fliers continue through their established
+    /// motion adapter.
     pub(crate) fn issue_air_cell_destination(
         &mut self,
         id: u64,

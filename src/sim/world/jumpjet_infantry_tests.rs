@@ -1273,21 +1273,14 @@ fn a_ground_route_order_gives_a_rocketeer_his_navcom_and_move_to() {
     sim.path_grid = Some(std::sync::Arc::new(
         crate::sim::pathfinding::PathGrid::test_all_passable(70, 70),
     ));
-    let speed = sim.resolve_move_info(1, Some(&rules)).unwrap().speed;
-    assert!(sim.issue_ground_move(
-        super::GroundMove {
-            entity_id: 1,
-            target: (60, 52),
-            speed,
-            queue: false,
-            speed_type: None,
-            owner_blocks: false,
-            object_destination: None,
-        },
+    sim.assign_destination_represented(
+        1,
+        Some(crate::sim::components::NavTargetRef::cell(60, 52)),
         Some(&rules),
         None,
         crate::sim::world::FrameEffects::default(),
-    ));
+    )
+    .unwrap();
     let rocketeer = sim.substrate.entities.get(1).unwrap();
     assert_eq!(
         rocketeer.navigation.nav_com,
@@ -1349,8 +1342,8 @@ fn assert_rocketeer_flies_near(sim: &super::Simulation, near: (u16, u16)) {
 /// An object order takes the same Foot setter, with the order and without a
 /// route: the object is his NavCom (`0x004D9510`), and his Jumpjet's
 /// `Move_To` (`0x004D965D`) seeds its placement search with the coordinate
-/// the object gives him then (`+0x4C` at `0x004D9628`), not the one the order
-/// captured. The order used to leave the `Move_To` to his `Process`.
+/// the object gives him then (`+0x4C` at `0x004D9628`). The order used to
+/// leave the `Move_To` to his `Process`.
 #[test]
 fn an_object_order_flies_a_rocketeer_with_the_order() {
     let (mut sim, rules, shooter) = grounded_rocketeer();
@@ -1358,22 +1351,14 @@ fn an_object_order_flies_a_rocketeer_with_the_order() {
         crate::sim::pathfinding::PathGrid::test_all_passable(70, 70),
     ));
     move_shooter(&mut sim, shooter, (46, 44));
-    let speed = sim.resolve_move_info(1, Some(&rules)).unwrap().speed;
-    let object = crate::sim::components::NavTargetRef::object(shooter);
-    assert!(sim.issue_ground_move(
-        super::GroundMove {
-            entity_id: 1,
-            target: (40, 40),
-            speed,
-            queue: false,
-            speed_type: None,
-            owner_blocks: false,
-            object_destination: Some((object, crate::sim::components::DriveCoord::cell(40, 40, 0))),
-        },
+    sim.assign_destination_represented(
+        1,
+        Some(crate::sim::components::NavTargetRef::object(shooter)),
         Some(&rules),
         None,
         crate::sim::world::FrameEffects::default(),
-    ));
+    )
+    .unwrap();
     assert_rocketeer_flies_near(&sim, (46, 44));
 }
 

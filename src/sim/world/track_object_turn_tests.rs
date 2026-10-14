@@ -554,17 +554,12 @@ fn first_process_after_command_applies_raw_head_once_without_a_paid_point_and_af
             entity.movement_target = None;
             entity.locomotor = Some(LocomotorState::for_test_kind(kind));
             let grid = crate::sim::pathfinding::PathGrid::new(32, 32);
-            assert!(crate::sim::movement::issue_move_command(
-                &mut sim.substrate.entities,
-                &grid,
+            assert!(sim.set_unit_destination(
                 1,
-                (10, 9),
-                SimFixed::from_num(0),
-                false,
-                None,
-                None,
-                None,
-                crate::sim::movement::DestinationTiming::new(0, 60),
+                NavTargetRef::cell(10, 9),
+                &rules,
+                true,
+                crate::sim::world::FrameEffects::default(),
             ));
             if reload {
                 let bytes = GameSnapshot::save(&sim, 0, 0, "pending_apply", 0);
@@ -670,17 +665,12 @@ fn terminal_arrival_resets_owner_speed_before_next_accelerating_move() {
     );
     assert_eq!(sim.current_speed_for_test(1, &rules), 0);
     let grid = crate::sim::pathfinding::PathGrid::new(32, 32);
-    assert!(crate::sim::movement::issue_move_command(
-        &mut sim.substrate.entities,
-        &grid,
+    assert!(sim.set_unit_destination(
         1,
-        (10, 6),
-        SimFixed::from_num(330),
-        false,
-        None,
-        None,
-        None,
-        crate::sim::movement::DestinationTiming::new(0, 60),
+        NavTargetRef::cell(10, 6),
+        &rules,
+        true,
+        crate::sim::world::FrameEffects::default(),
     ));
     let entity = sim.substrate.entities.get_mut(1).unwrap();
     entity.drive_accelerates = true;
@@ -713,17 +703,12 @@ fn ship_fresh_claim_survives_next_object_visit_and_snapshot_rebuild() {
     };
     entity.movement_target = None;
     let grid = crate::sim::pathfinding::PathGrid::new(32, 32);
-    assert!(crate::sim::movement::issue_move_command(
-        &mut sim.substrate.entities,
-        &grid,
+    assert!(sim.set_unit_destination(
         1,
-        (10, 7),
-        SimFixed::from_num(330),
-        false,
-        None,
-        None,
-        None,
-        crate::sim::movement::DestinationTiming::new(0, 60),
+        NavTargetRef::cell(10, 7),
+        &rules,
+        true,
+        crate::sim::world::FrameEffects::default(),
     ));
     sim.install_fixture_path_grid(Some(&grid));
     let ctx = techno_ai::ObjectAiCtx::default;

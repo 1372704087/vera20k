@@ -1411,8 +1411,12 @@ fn naval_rally_destination_and_move_survive_without_path_grid() {
         "Queue_Mission(Move, 0) is not gated by PathGrid availability"
     );
     assert!(
-        produced.movement_target.is_none(),
-        "no-grid delivery has no immediate A* execution path"
+        produced
+            .navigation
+            .path_replay
+            .remaining_directions()
+            .is_empty(),
+        "the class setter searches no route; the Ship's first Process does"
     );
 }
 

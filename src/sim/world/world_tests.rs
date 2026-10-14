@@ -6599,97 +6599,22 @@ fn test_execute_tick_delay_blocks_early_execution() {
     );
 
     let _ = sim.advance_tick(std::slice::from_ref(&delayed), None, Some(&grid), None, 33);
-    assert!(
-        sim.substrate
-            .entities
-            .get(1)
-            .and_then(|e| e.movement_target.as_ref())
-            .is_none()
+    assert_eq!(
+        sim.substrate.entities.get(1).unwrap().navigation.nav_com,
+        None
     );
 
     let _ = sim.advance_tick(std::slice::from_ref(&delayed), None, Some(&grid), None, 33);
-    assert!(
-        sim.substrate
-            .entities
-            .get(1)
-            .and_then(|e| e.movement_target.as_ref())
-            .is_none()
+    assert_eq!(
+        sim.substrate.entities.get(1).unwrap().navigation.nav_com,
+        None
     );
 
     let _ = sim.advance_tick(&[delayed], None, Some(&grid), None, 33);
-    assert!(
-        sim.substrate
-            .entities
-            .get(1)
-            .and_then(|e| e.movement_target.as_ref())
-            .is_some()
-    );
-}
-
-#[test]
-fn test_move_queue_command_appends_waypoint() {
-    let mut sim: Simulation = Simulation::new();
-    sim.spawn_from_map(
-        &[MapEntity {
-            owner: "Americans".to_string(),
-            type_id: "MTNK".to_string(),
-            health: 256,
-            cell_x: 2,
-            cell_y: 2,
-            facing: 64,
-            category: EntityCategory::Unit,
-            sub_cell: 0,
-            veterancy: Some(0),
-            high: false,
-            mission: None,
-            recruitable_a: true,
-            recruitable_b: true,
-            structure_upgrades: [None, None, None],
-            structure_ai_sellable: false,
-            structure_ai_repairable: false,
-            trigger_tag: None,
-        }],
-        None,
-    );
-    let grid = PathGrid::new(32, 32);
-    let commands = vec![
-        cmd_envelope(
-            &sim,
-            "Americans",
-            1,
-            Command::Move {
-                entity_id: 1,
-                target_rx: 8,
-                target_ry: 2,
-                queue: false,
-            },
-        ),
-        cmd_envelope(
-            &sim,
-            "Americans",
-            1,
-            Command::Move {
-                entity_id: 1,
-                target_rx: 12,
-                target_ry: 2,
-                queue: true,
-            },
-        ),
-    ];
-    let _ = sim.advance_tick(&commands, None, Some(&grid), None, 33);
-
-    let ge = sim
-        .substrate
-        .entities
-        .get(1)
-        .expect("entity 1 should exist in EntityStore");
-    // This rules-less MTNK has no locomotor, so the queued order takes the
-    // command path's append arm: its search admits the order but keeps no
-    // cells and leaves the first order's goal (movement_commands RESIDUAL).
-    // The queued waypoint itself is no longer observable here.
-    assert!(
-        ge.movement_target.is_some(),
-        "movement target should be set"
+    // Rules-less, the dispatcher writes NavCom alone.
+    assert_eq!(
+        sim.substrate.entities.get(1).unwrap().navigation.nav_com,
+        Some(crate::sim::components::NavTargetRef::cell(8, 2))
     );
 }
 
@@ -6807,30 +6732,13 @@ fn gsi_04_05_stop_preserves_committed_drive_until_reserved_head_finishes() {
     sim.resolved_terrain = Some(gsi_04_10_clear_terrain(16, 16));
     assert!(sim.rebuild_dynamic_navigation(&rules));
     let grid = (*sim.path_grid_snapshot().unwrap()).clone();
-    let issued = {
-        let (entities, cell_occupation) = (
-            &mut sim.substrate.entities,
-            &mut sim.substrate.cell_occupation,
-        );
-        crate::sim::movement::issue_move_command_with_layered(
-            entities,
-            &grid,
-            1,
-            (8, 4),
-            SimFixed::from_num(128),
-            false,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            Some(cell_occupation),
-            crate::sim::movement::DestinationTiming::new(0, 60),
-        )
-    };
-    assert!(issued);
+    assert!(sim.set_unit_destination(
+        1,
+        crate::sim::components::NavTargetRef::cell(8, 4),
+        &rules,
+        true,
+        crate::sim::world::FrameEffects::default(),
+    ));
     // An accepted order only installs NavCom/route. The first production
     // Process owns selection, the retained head, and its occupation claim.
     sim.process_ground_locomotor_for_test(1, Some(&rules), Some(&grid), None)
@@ -7080,30 +6988,13 @@ fn gsi_13_06_stop_preserves_committed_ship_segment_and_speed_state() {
     sim.resolved_terrain = Some(water_terrain(16, 16));
     assert!(sim.rebuild_dynamic_navigation(&rules));
     let grid = (*sim.path_grid_snapshot().unwrap()).clone();
-    let issued = {
-        let (entities, cell_occupation) = (
-            &mut sim.substrate.entities,
-            &mut sim.substrate.cell_occupation,
-        );
-        crate::sim::movement::issue_move_command_with_layered(
-            entities,
-            &grid,
-            1,
-            (8, 4),
-            SimFixed::from_num(120),
-            false,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            Some(cell_occupation),
-            crate::sim::movement::DestinationTiming::new(0, 60),
-        )
-    };
-    assert!(issued);
+    assert!(sim.set_unit_destination(
+        1,
+        crate::sim::components::NavTargetRef::cell(8, 4),
+        &rules,
+        true,
+        crate::sim::world::FrameEffects::default(),
+    ));
     sim.process_ground_locomotor_for_test(1, Some(&rules), Some(&grid), None)
         .expect("Ship Process must commit the first segment before Stop");
     let (committed_head, committed_track) = {
@@ -8432,15 +8323,11 @@ fn test_layered_astar_can_traverse_bridge_after_unrelated_rebuild() {
         PathGrid::from_resolved_terrain_with_bridges(sim.resolved_terrain.as_ref().unwrap());
     let path_initial = crate::sim::pathfinding::find_layered_path(
         &grid_initial,
-        None,
-        None,
         (0, 0),
         MovementLayer::Ground,
         (4, 0),
         None,
         None,
-        None,
-        0,
         false,
         false,
     );
@@ -8455,15 +8342,11 @@ fn test_layered_astar_can_traverse_bridge_after_unrelated_rebuild() {
         PathGrid::from_resolved_terrain_with_bridges(sim.resolved_terrain.as_ref().unwrap());
     let path_after_rebuild = crate::sim::pathfinding::find_layered_path(
         &grid_after_rebuild,
-        None,
-        None,
         (0, 0),
         MovementLayer::Ground,
         (4, 0),
         None,
         None,
-        None,
-        0,
         false,
         false,
     );
@@ -9202,23 +9085,16 @@ fn unit_route_beside_building(
         e.radio_contacts.insert(building_id);
     }
     let grid = PathGrid::clone(&sim.path_grid_snapshot().expect("navigation built"));
-    let info = sim.resolve_move_info(tank, Some(&rules)).unwrap();
     sim.mission_assign_exact(tank, MissionId::from_known(MissionType::Move), 0)
         .unwrap();
-    assert!(sim.issue_ground_move(
-        super::ground_move::GroundMove {
-            entity_id: tank,
-            target: goal,
-            speed: info.speed,
-            queue: false,
-            speed_type: Some(info.speed_type),
-            owner_blocks: true,
-            object_destination: None,
-        },
+    sim.assign_destination_represented(
+        tank,
+        Some(crate::sim::components::NavTargetRef::cell(goal.0, goal.1)),
         Some(&rules),
         None,
         crate::sim::world::FrameEffects::default(),
-    ));
+    )
+    .unwrap();
     assert_eq!(
         sim.substrate
             .entities
@@ -9726,53 +9602,13 @@ fn repro_second_vehicle_ordered_onto_an_occupied_cell() {
     );
 }
 
-/// A Drive request made inside the movement pass prices its code-2 edges
-/// through the live receiver's chain, so no owner's block sets are built.
-#[test]
-fn drive_path_requests_inside_a_pass_build_no_owner_block_set() {
-    let Some((mut sim, rules, grid)) = stacking_world(24) else {
-        return;
-    };
-    sim.spawn_object("MTNK", "Americans", 12, 8, 64, &rules)
-        .expect("blocker spawns");
-    let mover = sim
-        .spawn_object("MTNK", "Americans", 6, 8, 64, &rules)
-        .expect("mover spawns");
-    let cmd = cmd_envelope(
-        &sim,
-        "Americans",
-        1,
-        Command::Move {
-            entity_id: mover,
-            target_rx: 12,
-            target_ry: 8,
-            queue: false,
-        },
-    );
-    let _ = sim.advance_tick(&[cmd], Some(&rules), Some(&grid), None, 100);
-    let mut moved_steps = 0;
-    for _ in 0..60 {
-        let tick = sim.advance_tick(&[], Some(&rules), Some(&grid), None, 100);
-        moved_steps += tick.movement.moved_steps;
-        assert_eq!(
-            sim.movement_pass_cache.block_index_view_builds(),
-            0,
-            "a request inside a pass built an owner's block sets"
-        );
-    }
-    assert!(
-        moved_steps > 0,
-        "the fixture must exercise a searched route"
-    );
-}
-
 /// Idle objects are handed out mutably only for their own turn, plus an
 /// infantry's frame-end animation clock: the per-frame walks read first and
 /// borrow only what they change. The tanks carry turrets, whose idle return
 /// the facing pass sets every frame. Every hand-out lands in the entity store's
 /// touch logs, whose per-object budget (`TouchLog::note`) a 20k-object world
-/// overran when each walk borrowed every entity, so the block index and the
-/// kept Ground keys rebuilt from every object each tick.
+/// overran when each walk borrowed every entity, so the blocker plane and
+/// the kept Ground keys rebuilt from every object each tick.
 #[test]
 fn idle_objects_are_handed_out_only_for_their_own_turn() {
     use crate::sim::entity_store::TouchReader;
@@ -9814,9 +9650,16 @@ fn idle_objects_are_handed_out_only_for_their_own_turn() {
     for _ in 0..3 {
         let _ = sim.advance_tick(&[], Some(&rules), Some(&grid), None, 100);
     }
-    let _ = sim.substrate.entities.take_touched(TouchReader::BlockIndex);
+    let _ = sim
+        .substrate
+        .entities
+        .take_touched(TouchReader::BlockerPlane);
     let _ = sim.advance_tick(&[], Some(&rules), Some(&grid), None, 100);
-    let Touched::Ids(ids) = sim.substrate.entities.take_touched(TouchReader::BlockIndex) else {
+    let Touched::Ids(ids) = sim
+        .substrate
+        .entities
+        .take_touched(TouchReader::BlockerPlane)
+    else {
         panic!("an idle tick overflowed the touch log");
     };
     // A log drops a repeat of its last id, so this counts the runs of

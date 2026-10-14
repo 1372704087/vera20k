@@ -14,9 +14,7 @@
 //! - Part of sim/ — depends on map/ (resolved terrain for walkability).
 //! - sim/ NEVER depends on render/, ui/, audio/, net/.
 
-use super::cell_entry::{
-    CanEnterCellContext, CanEnterLayerContext, evaluate_can_enter_cell, search_cell_cost_decision,
-};
+use super::cell_entry::{CanEnterCellContext, evaluate_can_enter_cell, search_cell_cost_decision};
 use super::terrain_cost::TerrainCostGrid;
 use super::zone_hierarchy::ZoneLevelGraph;
 use super::zone_map::ZoneId;
@@ -29,7 +27,7 @@ use crate::sim::movement::locomotor::MovementLayer;
 use crate::util::direction_tables::CELL_DELTAS;
 use std::cell::RefCell;
 use std::cmp::Reverse;
-use std::collections::{BTreeMap, BTreeSet, BinaryHeap};
+use std::collections::{BTreeSet, BinaryHeap};
 
 /// Accepted native path descriptor (`gamemd.exe 42AA90` reads the parent descriptor's
 /// height into each outgoing-height slot). The selected cell/list is stamped
@@ -164,133 +162,10 @@ pub(crate) fn code2_multiplier<E>(
     })
 }
 
-/// Code-5 (enemy unit) cost multiplier. Binary DAT_0081870c[5] = 20.0.
-const CODE5_MULT_ENEMY: i32 = 20;
-
-/// Code-6 (stationary friendly) cost multiplier. Binary DAT_0081870c[6] = 8.0.
-const CODE6_MULT_STATIONARY_ALLY: i32 = 8;
-
 /// Temporary A* marker cost multiplier for `CellClass+0x140 & 0x40000`.
 /// The original toggles this bit around one search; Rust models it as a
 /// search-scoped overlay instead of mutating persistent `PathGrid` cells.
 const SEARCH_MARKER_COST_MULTIPLIER: i32 = 4;
-
-/// Entry in the reduced fallback's soft-block map, for a search without a
-/// Foot receiver (#683). Carries the blocker's next cell (for that fallback's
-/// code-2 chain) and the code (2/5/6) that selects its cost multiplier.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct EntityBlockEntry {
-    /// For code-2 (moving friendly): the blocker's next cell in its path.
-    /// For codes 5/6: None (no chain walk — flat cost multiplier).
-    pub next_cell: Option<(u16, u16)>,
-    /// Can_Enter_Cell return code: 2 (moving friendly), 5 (enemy), 6 (stationary friendly).
-    pub cost_code: u8,
-    /// Whether the blocker is infantry.
-    ///
-    /// A* does not care, but the Drive selection gate does: infantry never
-    /// hold the cell's vehicle occupation bit -- `0x20` is written only by
-    /// `UnitClass__MarkCellOccupationBit20 @ 0x007441B0`, while
-    /// `InfantryClass__MarkCellOccupancy @ 0x005217C0` writes
-    /// `1 << GetSubCell` into the sub-cell bits of the same byte -- and a
-    /// vehicle entitled to crush them must not be refused a curve on their
-    /// account.
-    pub blocker_is_infantry: bool,
-}
-
-/// Entity soft blockers split by object-list layer.
-///
-/// gamemd.exe scans either `FirstObject` (ground) or `AltObject` (bridge)
-/// for soft blocker costs. Keeping those maps separate preserves stacked
-/// same-cell ground/bridge occupants instead of collapsing them by coordinate.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct LayeredEntityBlockMap {
-    /// `BTreeMap` (not `HashMap`) for deterministic iteration if any future
-    /// caller ever iterates these — sim convention since all pathing state
-    /// must be lockstep-reproducible.
-    ground: BTreeMap<(u16, u16), EntityBlockEntry>,
-    bridge: BTreeMap<(u16, u16), EntityBlockEntry>,
-    /// Every moving allied occupant, whether or not it raised a code. The
-    /// Drive selection lane asks these for the per-mover head-on exit of
-    /// `UnitClass::Can_Enter_Cell` (`0x0073F8D4..FA26`), which no per-owner
-    /// code can carry because it depends on the mover's own facing and
-    /// position.
-    moving_allies: BTreeMap<(MovementLayer, (u16, u16)), MovingAllyOccupant>,
-}
-
-/// A moving allied occupant as the head-on exit sees it: its body facing
-/// (`+0x388`) and its lepton coordinates at the time the owner snapshot was
-/// built. The facing is kept as state and sampled at the asking frame.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct MovingAllyOccupant {
-    pub facing: crate::sim::movement::FacingClass,
-    pub world: [i32; 3],
-}
-
-impl LayeredEntityBlockMap {
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    pub fn insert_moving_ally(
-        &mut self,
-        layer: MovementLayer,
-        cell: (u16, u16),
-        occupant: MovingAllyOccupant,
-    ) {
-        if matches!(layer, MovementLayer::Ground | MovementLayer::Bridge) {
-            self.moving_allies.insert((layer, cell), occupant);
-        }
-    }
-
-    pub fn moving_ally(
-        &self,
-        layer: MovementLayer,
-        cell: &(u16, u16),
-    ) -> Option<MovingAllyOccupant> {
-        self.moving_allies.get(&(layer, *cell)).copied()
-    }
-
-    pub fn insert(
-        &mut self,
-        layer: MovementLayer,
-        cell: (u16, u16),
-        entry: EntityBlockEntry,
-    ) -> Option<EntityBlockEntry> {
-        match layer {
-            MovementLayer::Bridge => self.bridge.insert(cell, entry),
-            MovementLayer::Ground => self.ground.insert(cell, entry),
-            MovementLayer::Air | MovementLayer::Underground => None,
-        }
-    }
-
-    pub(crate) fn remove(&mut self, layer: MovementLayer, cell: &(u16, u16)) {
-        match layer {
-            MovementLayer::Bridge => self.bridge.remove(cell),
-            MovementLayer::Ground => self.ground.remove(cell),
-            MovementLayer::Air | MovementLayer::Underground => None,
-        };
-    }
-
-    pub(crate) fn remove_moving_ally(&mut self, layer: MovementLayer, cell: &(u16, u16)) {
-        self.moving_allies.remove(&(layer, *cell));
-    }
-
-    pub fn get(&self, layer: MovementLayer, cell: &(u16, u16)) -> Option<&EntityBlockEntry> {
-        match layer {
-            MovementLayer::Bridge => self.bridge.get(cell),
-            MovementLayer::Ground => self.ground.get(cell),
-            MovementLayer::Air | MovementLayer::Underground => None,
-        }
-    }
-
-    pub fn contains_key(&self, layer: MovementLayer, cell: &(u16, u16)) -> bool {
-        self.get(layer, cell).is_some()
-    }
-
-    pub fn contains_any(&self, cell: &(u16, u16)) -> bool {
-        self.ground.contains_key(cell) || self.bridge.contains_key(cell)
-    }
-}
 
 /// Search-scoped destination-cell cost overlay for the gamemd.exe temporary
 /// `CellClass+0x140 & 0x40000` A* marker.
@@ -602,7 +477,6 @@ pub(crate) struct BridgeTraversalInput<'a> {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct BridgeTraversalResult {
     pub allowed: bool,
-    pub path_height: i16,
     pub force_bridge_list: bool,
 }
 
@@ -633,17 +507,13 @@ pub(crate) fn check_bridge_traversal(
     grid: &PathGrid,
     input: BridgeTraversalInput<'_>,
 ) -> BridgeTraversalResult {
-    let mut path_height = input.path_height;
     if input.direction == -1 {
-        if path_height == -1 && input.candidate.has_structural_bridge() {
-            path_height = input.candidate.signed_level() + 4;
-        }
         return BridgeTraversalResult {
             allowed: true,
-            path_height,
             force_bridge_list: false,
         };
     }
+    let mut path_height = input.path_height;
 
     let Some((parent, _parent_coord)) = resolve_parent_for_bridge_traversal(
         grid,
@@ -656,7 +526,6 @@ pub(crate) fn check_bridge_traversal(
         // ring, where the predecessor cell resolves off-map.
         return BridgeTraversalResult {
             allowed: true,
-            path_height,
             force_bridge_list: false,
         };
     };
@@ -666,7 +535,6 @@ pub(crate) fn check_bridge_traversal(
         if !input.candidate.has_bridgehead_transition() {
             return BridgeTraversalResult {
                 allowed: false,
-                path_height,
                 force_bridge_list: false,
             };
         }
@@ -720,29 +588,7 @@ pub(crate) fn check_bridge_traversal(
 
     BridgeTraversalResult {
         allowed,
-        path_height,
         force_bridge_list,
-    }
-}
-
-pub(crate) fn can_enter_layer_context(
-    terrain_layer: MovementLayer,
-    object_list_layer: MovementLayer,
-    candidate: &PathCell,
-    path_height: i16,
-) -> CanEnterLayerContext {
-    let occupancy_bits_layer = if path_height != -1
-        && candidate.has_structural_bridge()
-        && path_height == candidate.signed_level() + 4
-    {
-        MovementLayer::Bridge
-    } else {
-        MovementLayer::Ground
-    };
-    CanEnterLayerContext {
-        terrain_layer,
-        object_list_layer,
-        occupancy_bits_layer,
     }
 }
 
@@ -791,15 +637,6 @@ pub struct AStarOptions<'a> {
     /// Full live Foot +1AC owner. When supplied, its class is the sole terrain
     /// and object admission verdict; the reduced grid/wall adapters are unused.
     pub foot_entry: Option<&'a dyn SearchFootEntry>,
-    /// Hard-blocked cells on ground layer (stationary/enemy units). Goal exempt.
-    pub entity_blocks: Option<&'a BTreeSet<(u16, u16)>>,
-    /// Hard-blocked cells on bridge layer. Goal exempt.
-    pub bridge_blocks: Option<&'a BTreeSet<(u16, u16)>>,
-    /// The reduced fallback's soft-block map (codes 2/5/6, each code-2
-    /// blocker's next cell from `block_index::moving_next_cell`). A search
-    /// with a `foot_entry` reads none of it: the class answers the code and
-    /// the receiver walks the code-2 chain over live objects.
-    pub entity_block_map: Option<&'a LayeredEntityBlockMap>,
     /// Search-scoped temporary marker overlay equivalent to
     /// `CellClass+0x140 & 0x40000`. Destination hits multiply normal compass
     /// edge cost, but do not change walkability or persistent pathgrid state.
@@ -808,11 +645,9 @@ pub struct AStarOptions<'a> {
     /// after wrapper/zone admission. A* and both finishing passes consume
     /// the transaction before it is discarded ahead of Foot Mark1.
     pub marker_overlay: Option<&'a SearchMarkerOverlay>,
-    /// Reduced-admission searches only (movers without a Foot +1AC search
-    /// entry, e.g. the cursor's reachability query): crusher units bypass all
-    /// entity soft-block costs (codes 1-6); buildings (code 7, in the
-    /// entity_blocks set) still block. Searches through the live +1AC price
-    /// codes natively and ignore this.
+    /// Reduced-admission searches only (no Foot +1AC search entry): selects
+    /// the crusher arm of the reduced terrain entry. Searches through the live
+    /// +1AC answer it natively and ignore this.
     pub mover_is_crusher: bool,
     /// Code-2 urgency escalation (0 = look-ahead chain walk, 1 = traffic penalty,
     /// 2 = route around). Matches gamemd.exe PathfinderClass+0x3C.
@@ -1130,11 +965,6 @@ pub fn astar_search(
 
                 // Closed-list selection: uses CURRENT node's height vs neighbor ground_level
                 let mut neighbor_use_bridge = is_at_bridge_level(current.height, neighbor_cell);
-                let mut layer_context = CanEnterLayerContext::single(if neighbor_use_bridge {
-                    MovementLayer::Bridge
-                } else {
-                    MovementLayer::Ground
-                });
 
                 // Compute what height the NEW node carries forward (separate computation)
                 let neighbor_height =
@@ -1166,27 +996,7 @@ pub fn astar_search(
                         if bridge_traversal.force_bridge_list {
                             neighbor_use_bridge = true;
                         }
-                        layer_context = can_enter_layer_context(
-                            if neighbor_use_bridge {
-                                MovementLayer::Bridge
-                            } else {
-                                MovementLayer::Ground
-                            },
-                            if bridge_traversal.force_bridge_list {
-                                MovementLayer::Bridge
-                            } else {
-                                layer_context.object_list_layer
-                            },
-                            neighbor_cell,
-                            bridge_traversal.path_height,
-                        );
                     } else {
-                        let layer = if neighbor_use_bridge {
-                            MovementLayer::Bridge
-                        } else {
-                            MovementLayer::Ground
-                        };
-                        layer_context = CanEnterLayerContext::single(layer);
                         let diff = neighbor_height - current.height;
                         let lower_slope = if diff < 0 {
                             neighbor_cell.slope_type
@@ -1314,25 +1124,6 @@ pub fn astar_search(
                     continue;
                 }
 
-                // Entity blocks (layer-separated). Goal exempt.
-                if options.foot_entry.is_none() && (nx, ny) != goal {
-                    let blocks_for_layer = |layer| match layer {
-                        MovementLayer::Bridge => options.bridge_blocks,
-                        MovementLayer::Ground => options.entity_blocks,
-                        MovementLayer::Air | MovementLayer::Underground => None,
-                    };
-                    let blocked_by_selected_layers = [
-                        blocks_for_layer(layer_context.object_list_layer),
-                        blocks_for_layer(layer_context.occupancy_bits_layer),
-                    ]
-                    .into_iter()
-                    .flatten()
-                    .any(|blocks| blocks.contains(&(nx, ny)));
-                    if blocked_by_selected_layers {
-                        continue;
-                    }
-                }
-
                 // The land-type × SpeedType row, read as a **passability
                 // predicate only**: zero closes the cell, any non-zero value
                 // opens it and weighs exactly the same as any other.
@@ -1421,33 +1212,19 @@ pub fn astar_search(
                 // cost as much as four flat ones.
 
                 // The class's code-2 multiplier; the live receiver walks the
-                // chain on the list the class was asked about. The reduced
-                // fallback's entity soft-block cost (codes 2/5/6) exempts the
-                // goal and a crusher.
-                if let Some(entry) = options.foot_entry {
-                    if search_cost.effective_cost_class == Some(2) {
-                        step_cost *= code2_multiplier(options.urgency, || {
-                            entry.code2_chain_jams((nx, ny), layer_context.object_list_layer)
-                        })
-                        .map_err(PathSearchFailure::CellEntryUnavailable)?;
-                    }
-                } else if (nx, ny) != goal
-                    && !options.mover_is_crusher
-                    && let Some(map) = options.entity_block_map
-                    && let Some(entry) = map.get(layer_context.object_list_layer, &(nx, ny))
+                // chain on the list the class was asked about.
+                if let Some(entry) = options.foot_entry
+                    && search_cost.effective_cost_class == Some(2)
                 {
-                    let mult = match entry.cost_code {
-                        2 => compute_code2_multiplier(
-                            options.urgency,
-                            (nx, ny),
-                            layer_context.object_list_layer,
-                            map,
-                        ),
-                        5 => CODE5_MULT_ENEMY,
-                        6 => CODE6_MULT_STATIONARY_ALLY,
-                        _ => 1,
+                    let list = if neighbor_use_bridge {
+                        MovementLayer::Bridge
+                    } else {
+                        MovementLayer::Ground
                     };
-                    step_cost *= mult;
+                    step_cost *= code2_multiplier(options.urgency, || {
+                        entry.code2_chain_jams((nx, ny), list)
+                    })
+                    .map_err(PathSearchFailure::CellEntryUnavailable)?;
                 }
 
                 step_cost = apply_search_marker_cost(step_cost, options.marker_overlay, (nx, ny));
@@ -2047,13 +1824,8 @@ impl PathGrid {
         x: u16,
         y: u16,
         max_radius: u16,
-        entity_blocks: Option<&BTreeSet<(u16, u16)>>,
-        allow: Option<(u16, u16)>,
     ) -> Option<(u16, u16)> {
-        let check = |cx: u16, cy: u16| -> bool {
-            self.is_any_layer_walkable(cx, cy)
-                && (allow == Some((cx, cy)) || entity_blocks.is_none_or(|b| !b.contains(&(cx, cy))))
-        };
+        let check = |cx: u16, cy: u16| self.is_any_layer_walkable(cx, cy);
         if check(x, y) {
             return Some((x, y));
         }
@@ -2401,34 +2173,6 @@ fn euclidean_heuristic(ax: u16, ay: u16, bx: u16, by: u16) -> i32 {
     (sum_sq * 1_000_000).isqrt() as i32
 }
 
-/// The reduced fallback's code-2 multiplier, for a search without a Foot
-/// receiver (#683): [`code2_multiplier`] over a chain that follows the owner
-/// block map's cached next cells rather than the live objects the native
-/// chain reads. An entry without a next cell clears, where the native chain
-/// jams on a non-Foot; a self-loop jams (#972).
-fn compute_code2_multiplier(
-    urgency: u8,
-    start_cell: (u16, u16),
-    layer: MovementLayer,
-    map: &LayeredEntityBlockMap,
-) -> i32 {
-    let chain_jams = || {
-        let mut cur = start_cell;
-        for _ in 0..CODE2_CHAIN_MAX_HOPS {
-            let Some(next) = map.get(layer, &cur).and_then(|entry| entry.next_cell) else {
-                return Ok::<_, std::convert::Infallible>(false);
-            };
-            if next == cur {
-                return Ok(true);
-            }
-            cur = next;
-        }
-        Ok(true)
-    };
-    let Ok(multiplier) = code2_multiplier(urgency, chain_jams);
-    multiplier
-}
-
 fn apply_search_marker_cost(
     step_cost: i32,
     marker_overlay: Option<&SearchMarkerOverlay>,
@@ -2458,24 +2202,19 @@ pub fn find_path(grid: &PathGrid, start: (u16, u16), goal: (u16, u16)) -> Option
     Some(steps.into_iter().map(|s| (s.rx, s.ry)).collect())
 }
 
-/// A* pathfinding with optional land-row passability and entity blocking.
+/// A* pathfinding with optional land-row passability.
 ///
 /// When `costs` is `Some`, a cell whose land row is zero is closed; every
 /// non-zero row expands at the same step cost, which is what the native search
 /// does (see the provenance in `astar_search`).
-/// When `entity_blocks` is `Some`, cells in the set are treated as blocked
-/// UNLESS they are the goal cell.
 #[cfg(test)]
 pub fn find_path_with_costs(
     grid: &PathGrid,
     start: (u16, u16),
     goal: (u16, u16),
     costs: Option<&TerrainCostGrid>,
-    entity_blocks: Option<&BTreeSet<(u16, u16)>>,
     movement_zone: Option<MovementZone>,
     resolved_terrain: Option<&ResolvedTerrainGrid>,
-    entity_block_map: Option<&LayeredEntityBlockMap>,
-    urgency: u8,
     mover_is_crusher: bool,
     is_infantry: bool,
 ) -> Option<Vec<(u16, u16)>> {
@@ -2484,14 +2223,12 @@ pub fn find_path_with_costs(
         start,
         goal,
         costs,
-        entity_blocks,
         None,
         movement_zone,
         resolved_terrain,
-        entity_block_map,
         None,
         MoverSearchFacts {
-            urgency,
+            urgency: 0,
             mover_is_crusher,
             is_infantry,
             foot_entry: None,
@@ -2506,11 +2243,9 @@ pub(crate) fn find_path_with_costs_marker(
     start: (u16, u16),
     goal: (u16, u16),
     costs: Option<&TerrainCostGrid>,
-    entity_blocks: Option<&BTreeSet<(u16, u16)>>,
     hierarchy_gate: Option<HierarchyGate<'_>>,
     movement_zone: Option<MovementZone>,
     resolved_terrain: Option<&ResolvedTerrainGrid>,
-    entity_block_map: Option<&LayeredEntityBlockMap>,
     marker_overlay: Option<&SearchMarkerOverlay>,
     facts: MoverSearchFacts<'_>,
 ) -> Result<Vec<LayeredPathStep>, PathSearchFailure> {
@@ -2521,9 +2256,7 @@ pub(crate) fn find_path_with_costs_marker(
         goal,
         &AStarOptions {
             terrain_costs: costs,
-            entity_blocks,
             hierarchy_gate,
-            entity_block_map,
             marker_overlay,
             urgency: facts.urgency,
             mover_is_crusher: facts.mover_is_crusher,
@@ -2588,15 +2321,11 @@ pub fn truncate_layered_path(
 #[cfg(test)]
 pub fn find_layered_path(
     grid: &PathGrid,
-    ground_blocks: Option<&BTreeSet<(u16, u16)>>,
-    bridge_blocks: Option<&BTreeSet<(u16, u16)>>,
     start: (u16, u16),
     start_layer: MovementLayer,
     goal: (u16, u16),
     terrain_costs: Option<&TerrainCostGrid>,
     resolved_terrain: Option<&ResolvedTerrainGrid>,
-    entity_block_map: Option<&LayeredEntityBlockMap>,
-    urgency: u8,
     mover_is_crusher: bool,
     is_infantry: bool,
 ) -> Option<Vec<LayeredPathStep>> {
@@ -2606,8 +2335,6 @@ pub fn find_layered_path(
     // passes the mover's zone to `find_layered_path_marker`.
     find_layered_path_marker(
         grid,
-        ground_blocks,
-        bridge_blocks,
         start,
         start_layer,
         goal,
@@ -2615,10 +2342,9 @@ pub fn find_layered_path(
         None,
         None,
         resolved_terrain,
-        entity_block_map,
         None,
         MoverSearchFacts {
-            urgency,
+            urgency: 0,
             mover_is_crusher,
             is_infantry,
             foot_entry: None,
@@ -2629,8 +2355,6 @@ pub fn find_layered_path(
 
 pub(crate) fn find_layered_path_marker(
     grid: &PathGrid,
-    ground_blocks: Option<&BTreeSet<(u16, u16)>>,
-    bridge_blocks: Option<&BTreeSet<(u16, u16)>>,
     start: (u16, u16),
     start_layer: MovementLayer,
     goal: (u16, u16),
@@ -2638,7 +2362,6 @@ pub(crate) fn find_layered_path_marker(
     hierarchy_gate: Option<HierarchyGate<'_>>,
     movement_zone: Option<MovementZone>,
     resolved_terrain: Option<&ResolvedTerrainGrid>,
-    entity_block_map: Option<&LayeredEntityBlockMap>,
     marker_overlay: Option<&SearchMarkerOverlay>,
     facts: MoverSearchFacts<'_>,
 ) -> Result<Vec<LayeredPathStep>, PathSearchFailure> {
@@ -2659,10 +2382,7 @@ pub(crate) fn find_layered_path_marker(
             // `evaluate_shared_cell_leaf` return on land passability alone.
             movement_zone,
             resolved_terrain,
-            entity_blocks: ground_blocks,
-            bridge_blocks,
             hierarchy_gate,
-            entity_block_map,
             marker_overlay,
             urgency: facts.urgency,
             mover_is_crusher: facts.mover_is_crusher,

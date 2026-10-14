@@ -416,15 +416,13 @@ fn refused_miner_order_leaves_teleport_payload_untouched() {
         grid.set_blocked(12, 8, false);
         sim.path_grid = Some(std::sync::Arc::new(grid));
 
-        assert!(
-            !crate::sim::miner::miner_system::issue_stock_miner_drive_move(
-                &mut sim,
-                &rules,
-                1,
-                (12, 8),
-                None,
-                crate::sim::world::FrameEffects::default(),
-            )
+        crate::sim::miner::miner_system::assign_miner_cell_destination(
+            &mut sim,
+            &rules,
+            1,
+            (12, 8),
+            None,
+            crate::sim::world::FrameEffects::default(),
         );
 
         let entity = sim.substrate.entities.get(1).unwrap();

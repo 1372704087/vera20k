@@ -117,19 +117,11 @@ fn ground_walk_order_preserves_native_human_deploy_refusal() {
     actor.navigation.path_runtime.start_movement(50, 5);
     let navigation_before = serde_json::to_value(&actor.navigation).unwrap();
     let rng_before = sim.rng_state();
-    let speed = sim.resolve_move_info(id, Some(&rules)).unwrap().speed;
 
     // The native class setter is void: its incidental EAX is not acceptance.
-    let _ = sim.issue_ground_move(
-        crate::sim::world::ground_move::GroundMove {
-            entity_id: id,
-            target: (11, 10),
-            speed,
-            queue: true,
-            speed_type: Some(SpeedType::Foot),
-            owner_blocks: true,
-            object_destination: None,
-        },
+    let _ = sim.assign_destination_represented(
+        id,
+        Some(crate::sim::components::NavTargetRef::cell(11, 10)),
         Some(&rules),
         None,
         crate::sim::world::FrameEffects::default(),

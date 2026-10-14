@@ -471,6 +471,10 @@ struct EntryMover<'a> {
     /// meets.
     allies: InternedCache<bool>,
     types: InternedCache<&'a ObjectType>,
+    /// The receiver's `weapon_damage_value`, which the Infantry branches
+    /// compare with zero for each enemy blocker. The receiver is borrowed
+    /// unchanged for the mover's lifetime, so one computation serves them all.
+    damage: std::cell::OnceCell<i32>,
 }
 
 /// Facts already looked up, direct-mapped by interned index. A slot two
@@ -513,7 +517,20 @@ impl<'a> EntryMover<'a> {
             crusher,
             allies: InternedCache::new(),
             types: InternedCache::new(),
+            damage: std::cell::OnceCell::new(),
         }
+    }
+
+    fn weapon_damage(&self, live: &EntryReadContext<'_>) -> i32 {
+        *self.damage.get_or_init(|| {
+            crate::sim::combat::combat_weapon::weapon_damage_value(
+                self.e,
+                self.obj,
+                &live.sim.substrate.entities,
+                live.rules,
+                &live.sim.interner,
+            )
+        })
     }
 
     fn object_type(&self, live: &EntryReadContext<'a>, id: InternedId) -> Option<&'a ObjectType> {
@@ -1013,13 +1030,7 @@ fn classify_foot_entry<'a>(
                 continue;
             }
             if if infantry {
-                crate::sim::combat::combat_weapon::weapon_damage_value(
-                    e,
-                    obj,
-                    &live.sim.substrate.entities,
-                    live.rules,
-                    &live.sim.interner,
-                ) <= 0
+                mover.weapon_damage(live) <= 0
             } else {
                 weapon0.is_none()
             } {
@@ -1094,14 +1105,7 @@ fn classify_foot_entry<'a>(
                     entry_result = if stationary_infantry == 3 { 6 } else { 2 };
                 }
             } else {
-                if crate::sim::combat::combat_weapon::weapon_damage_value(
-                    e,
-                    obj,
-                    &live.sim.substrate.entities,
-                    live.rules,
-                    &live.sim.interner,
-                ) <= 0
-                {
+                if mover.weapon_damage(live) <= 0 {
                     return Ok(7);
                 }
                 entry_result = entry_result.max(5);

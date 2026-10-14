@@ -320,12 +320,13 @@ impl JumpjetFlightHost for CruiseHost<'_> {
         let rules = self.rules;
         let frame_effects = self.frame_effects;
         let registry = self.registry;
-        let speed = self.sim.jumpjet_order_speed(id, rules);
         runtime.with_owner_call(self.sim, id, |sim| {
-            sim.jumpjet_destination(
+            let _ = sim.assign_destination_represented(
                 id,
-                crate::sim::components::NavTargetRef::cell(cell.0 as u16, cell.1 as u16),
-                speed,
+                Some(crate::sim::components::NavTargetRef::cell(
+                    cell.0 as u16,
+                    cell.1 as u16,
+                )),
                 rules,
                 registry,
                 frame_effects,
@@ -670,11 +671,9 @@ impl Simulation {
                 return;
             }
             // Native does not read the setter's answer.
-            let speed = self.jumpjet_order_speed(id, Some(rules));
-            self.jumpjet_destination(
+            let _ = self.assign_destination_represented(
                 id,
-                crate::sim::components::NavTargetRef::from(archive),
-                speed,
+                Some(crate::sim::components::NavTargetRef::from(archive)),
                 Some(rules),
                 registry,
                 frame_effects,

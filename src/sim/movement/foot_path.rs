@@ -1132,10 +1132,11 @@ impl Simulation {
     }
 
     /// `SetDestination(GetCell(cell), 1)` from inside `Find_Path` (0x4D3CC7,
-    /// 0x4D3DF9): the class's ordinary cell setter, which installs NavCom and
-    /// the locomotor destination without a search of its own (Infantry
-    /// 0x51AA40 -> Walk 0x75ACB0; Unit 0x741970 -> Drive 0x4AFD40 / Ship
-    /// 0x69F450).
+    /// 0x4D3DF9): the class setter vt+0x480 an order reaches
+    /// ([`Simulation::assign_destination_represented`]; Infantry 0x51AA40 ->
+    /// Walk 0x75ACB0, Unit 0x741970 -> Drive 0x4AFD40 / Ship 0x69F450), which
+    /// installs NavCom and the locomotor destination without a search of its
+    /// own.
     fn redirect_find_path_destination(
         &mut self,
         id: u64,
@@ -1144,67 +1145,15 @@ impl Simulation {
         registry: Option<&OverlayTypeRegistry>,
         frame_effects: FrameEffects<'_>,
     ) -> Result<(), String> {
-        let move_info = self
-            .resolve_move_info(id, Some(rules))
-            .ok_or("Find_Path redirect requires the actor's move info")?;
-        let target = (cell.0 as u16, cell.1 as u16);
-        let requested = crate::sim::components::NavTargetRef::cell(target.0, target.1);
-        if self.infantry_setter_receiver(id, rules) {
-            // Original4D3CC7/4D3DF9 call the same class+480 as an order.
-            // Carry the already-borrowed registry through its current-cell
-            // and Stop_Driver decisions instead of composing a second tail.
-            let _ = self.assign_infantry_destination(
-                id,
-                requested,
-                move_info.speed,
-                rules,
-                registry,
-                frame_effects,
-            )?;
-            return Ok(());
-        }
-        if self.unit_setter_receiver(id, Some(rules)) {
-            // These same virtual calls reach Unit741970(target,1), including
-            // its same-NavCom guard and queue ownership. Reuse that owner;
-            // composing only its Foot/Drive tail bypassed those decisions.
-            // Native class controls: track_destination.json.
-            let _ = self.set_unit_destination(id, requested, rules, true, frame_effects);
-            return Ok(());
-        }
-        let timing = super::DestinationTiming::new(
-            self.session.binary_frame,
-            rules.general.blockage_path_delay_ticks,
-        );
-        let actor = self
-            .substrate
-            .entities
-            .get_mut(id)
-            .ok_or("retired Find_Path redirect actor")?;
-        super::movement_commands::clear_destination_path_head(actor);
-        let coord = super::navcom::target_cell_coord(
-            target.0,
-            target.1,
-            self.resolved_terrain
-                .as_ref()
-                .map(crate::map::resolved_terrain::NativeCellQuery::canonical)
-                .as_ref(),
-        );
-        if !super::prepare_walk_destination(
-            &mut self.substrate.entities,
+        let requested = crate::sim::components::NavTargetRef::cell(cell.0 as u16, cell.1 as u16);
+        self.assign_destination_represented(
             id,
-            (
-                crate::sim::components::NavTargetRef::cell(target.0, target.1),
-                coord,
-            ),
-            move_info.speed,
-            self.resolved_terrain.as_ref(),
-            timing,
-        ) {
-            return Err(
-                "Find_Path redirect destination was not accepted by the Walk setter".into(),
-            );
-        }
-        Ok(())
+            Some(requested),
+            Some(rules),
+            registry,
+            frame_effects,
+        )
+        .map_err(|cause| format!("Find_Path redirect: {cause}"))
     }
 
     /// Foot+320/4DA1D0, shared by class admission and the path-zone precheck.

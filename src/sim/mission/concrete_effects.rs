@@ -40,7 +40,7 @@ pub(crate) enum ConcreteSetterRequest {
 pub(crate) enum AuthorityUnavailable {
     #[error("exact concrete Target setter is unavailable for Mission receiver {0}")]
     TargetSetter(u64),
-    #[error("exact mode-one destination setter is unavailable for Mission receiver {0}")]
+    #[error("exact destination setter is unavailable for Mission receiver {0}")]
     DestinationSetter(u64),
 }
 
@@ -68,7 +68,7 @@ pub(crate) trait ConcreteMissionEffects: private::Sealed {
 
     /// Returns whether the receiver's class setter ran. False leaves only the
     /// represented NavCom write, with the class setter still owed.
-    fn apply_destination_mode_one(
+    fn apply_destination(
         &mut self,
         sim: &mut Simulation,
         prepared: &Self::Prepared,
@@ -115,7 +115,7 @@ impl ConcreteMissionEffects for UnavailableConcreteMissionEffects {
         unreachable!("unavailable provider cannot produce a concrete Target token")
     }
 
-    fn apply_destination_mode_one(
+    fn apply_destination(
         &mut self,
         _sim: &mut Simulation,
         _prepared: &Self::Prepared,
@@ -137,6 +137,10 @@ pub(crate) struct RepresentedConcreteMissionEffects<'r> {
     rules: Option<&'r crate::rules::ruleset::RuleSet>,
     overlay_registry: Option<&'r crate::rules::overlay_types::OverlayTypeRegistry>,
     frame_effects: FrameEffects<'r>,
+    /// vt+0x480's mode 0 (keep NavQueue) instead of 1. Only Unit741970
+    /// reads it; Infantry51AA40 and Aircraft41AA80 pass it to Foot4D94B0,
+    /// which never reads it.
+    keep_queue: bool,
 }
 
 impl<'r> RepresentedConcreteMissionEffects<'r> {
@@ -149,11 +153,20 @@ impl<'r> RepresentedConcreteMissionEffects<'r> {
             rules,
             overlay_registry,
             frame_effects,
+            keep_queue: false,
         }
     }
 
-    /// Whether the receiver's mode-one destination setter takes
-    /// `destination` without failing: the read-only half of
+    /// The same provider calling vt+0x480 with mode 0.
+    pub(crate) fn keeping_queue(self) -> Self {
+        Self {
+            keep_queue: true,
+            ..self
+        }
+    }
+
+    /// Whether the receiver's destination setter takes `destination`
+    /// without failing: the read-only half of
     /// [`ConcreteMissionEffects::preflight`].
     fn destination_available(
         &self,
@@ -215,6 +228,26 @@ impl<'r> RepresentedConcreteMissionEffects<'r> {
                 rules,
                 self.overlay_registry,
             )
+    }
+
+    /// Whether a class setter, not the NavCom-only fallback, takes a
+    /// non-null destination for `receiver`: the arms of
+    /// [`ConcreteMissionEffects::apply_destination`].
+    fn class_setter_represents(&self, sim: &Simulation, receiver: u64) -> bool {
+        use crate::map::entities::EntityCategory;
+        let Some(actor) = sim.substrate.entities.get(receiver) else {
+            return false;
+        };
+        match actor.category {
+            EntityCategory::Structure => true,
+            EntityCategory::Unit => self
+                .rules
+                .is_some_and(|rules| sim.unit_setter_receiver(receiver, Some(rules))),
+            EntityCategory::Infantry => self
+                .rules
+                .is_some_and(|rules| sim.infantry_setter_receiver(receiver, rules)),
+            EntityCategory::Aircraft => self.rules.is_some(),
+        }
     }
 }
 
@@ -330,11 +363,11 @@ impl ConcreteMissionEffects for RepresentedConcreteMissionEffects<'_> {
                 sim.infiltrator_target_building(prepared.receiver, requested, rules)
             })
         {
-            self.apply_destination_mode_one(sim, prepared, Some(NavTargetRef::object(building)));
+            self.apply_destination(sim, prepared, Some(NavTargetRef::object(building)));
         }
     }
 
-    fn apply_destination_mode_one(
+    fn apply_destination(
         &mut self,
         sim: &mut Simulation,
         prepared: &Self::Prepared,
@@ -359,29 +392,28 @@ impl ConcreteMissionEffects for RepresentedConcreteMissionEffects<'_> {
             return true;
         }
         let requested = requested.expect("nonnull destination arm");
-        if let Some(rules) = self.rules {
-            let category = sim
+        if self.class_setter_represents(sim, prepared.receiver) {
+            let rules = self.rules.expect("a represented class setter has rules");
+            match sim
                 .substrate
                 .entities
                 .get(prepared.receiver)
                 .expect("preflight guaranteed receiver")
-                .category;
-            match category {
-                crate::map::entities::EntityCategory::Unit
-                    if sim.unit_setter_receiver(prepared.receiver, Some(rules)) =>
-                {
+                .category
+            {
+                // `UnitClass::Assign_Destination @ 0x00741970`, the one
+                // setter that reads the mode.
+                crate::map::entities::EntityCategory::Unit => {
                     let _ = sim.set_unit_destination(
                         prepared.receiver,
                         requested,
                         rules,
-                        true,
+                        !self.keep_queue,
                         self.frame_effects,
                     );
-                    return true;
                 }
-                crate::map::entities::EntityCategory::Infantry
-                    if sim.infantry_setter_receiver(prepared.receiver, rules) =>
-                {
+                // `InfantryClass::Assign_Destination @ 0x0051AA40`.
+                crate::map::entities::EntityCategory::Infantry => {
                     let _ = sim
                         .set_infantry_destination(
                             prepared.receiver,
@@ -391,7 +423,6 @@ impl ConcreteMissionEffects for RepresentedConcreteMissionEffects<'_> {
                             self.frame_effects,
                         )
                         .expect("represented Infantry destination dependencies must be available");
-                    return true;
                 }
                 // `AircraftClass::Assign_Destination @ 0x0041AA80`.
                 crate::map::entities::EntityCategory::Aircraft => {
@@ -401,12 +432,12 @@ impl ConcreteMissionEffects for RepresentedConcreteMissionEffects<'_> {
                         rules,
                         self.frame_effects,
                     );
-                    return true;
                 }
-                crate::map::entities::EntityCategory::Structure
-                | crate::map::entities::EntityCategory::Unit
-                | crate::map::entities::EntityCategory::Infantry => {}
+                crate::map::entities::EntityCategory::Structure => {
+                    unreachable!("the Building setter took the destination above")
+                }
             }
+            return true;
         }
         let entity = sim
             .substrate
@@ -431,6 +462,27 @@ impl ConcreteMissionEffects for RepresentedConcreteMissionEffects<'_> {
 }
 
 impl Simulation {
+    /// Whether vt+0x480 with `requested` would run the receiver's class
+    /// setter, not the dispatcher's NavCom-only fallback, with every input
+    /// its preflight checks available. Callers that owe the call ask this
+    /// before they mutate: the deferred Restore setter and Enter_Idle_Mode's
+    /// NavQueue arm.
+    pub(crate) fn destination_setter_available(
+        &self,
+        receiver: u64,
+        requested: NavTargetRef,
+        rules: &crate::rules::ruleset::RuleSet,
+        overlay_registry: Option<&crate::rules::overlay_types::OverlayTypeRegistry>,
+    ) -> bool {
+        let effects = RepresentedConcreteMissionEffects::new(
+            Some(rules),
+            overlay_registry,
+            FrameEffects::empty(),
+        );
+        effects.class_setter_represents(self, receiver)
+            && effects.destination_available(self, receiver, Some(requested))
+    }
+
     /// `BuildingClass::Assign_Destination @ 0x00455D50` (vt+0x480).
     /// Selling returns untouched. HasRallyPoint (`0x00455DA0`) or
     /// ConstructionYard archives the requested pointer through the existing
@@ -710,7 +762,7 @@ impl ConcreteMissionEffects for RecordingConcreteMissionEffects {
         }
     }
 
-    fn apply_destination_mode_one(
+    fn apply_destination(
         &mut self,
         sim: &mut Simulation,
         prepared: &Self::Prepared,
@@ -748,6 +800,119 @@ impl ConcreteMissionEffects for RecordingConcreteMissionEffects {
 mod tests {
     use super::*;
 
+    fn retail_rules() -> Option<crate::rules::ruleset::RuleSet> {
+        let (rules_ini, art_ini) = crate::rules::retail_ini_fixture::retail_rules_and_art()?;
+        let mut rules =
+            crate::rules::ruleset::RuleSet::from_ini_with_fixed_art_for_test(&rules_ini, &art_ini)
+                .expect("retail rules parse");
+        rules.install_art_data(crate::rules::art_data::ArtRegistry::from_ini(&art_ini));
+        Some(rules)
+    }
+
+    /// vt+0x480's mode reaches only the Unit setter (`0x00741970` reads its
+    /// `clear_queue`): mode 1 clears a retail tank's NavQueue, mode 0 keeps
+    /// it.
+    #[test]
+    fn only_a_mode_one_destination_clears_a_unit_navqueue() {
+        let Some(rules) = retail_rules() else {
+            return;
+        };
+        for keep_queue in [true, false] {
+            let mut sim = Simulation::new();
+            crate::sim::arena_fixture::flat_ground(&mut sim, &rules);
+            let id = sim
+                .spawn_object("MTNK", "Americans", 10, 10, 0, &rules)
+                .expect("retail MTNK");
+            let queued = vec![NavTargetRef::cell(14, 10), NavTargetRef::cell(16, 10)];
+            sim.substrate
+                .entities
+                .get_mut(id)
+                .unwrap()
+                .navigation
+                .nav_queue = queued.clone();
+            let requested = Some(NavTargetRef::cell(12, 10));
+            let effects = FrameEffects::default();
+            let assigned = if keep_queue {
+                sim.assign_destination_keeping_queue(id, requested, Some(&rules), None, effects)
+            } else {
+                sim.assign_destination_represented(id, requested, Some(&rules), None, effects)
+            };
+            assigned.expect("the Unit setter takes the cell");
+            let unit = sim.substrate.entities.get(id).unwrap();
+            assert_eq!(unit.navigation.nav_com, requested);
+            let kept = if keep_queue { queued } else { Vec::new() };
+            assert_eq!(unit.navigation.nav_queue, kept, "keep_queue {keep_queue}");
+        }
+    }
+
+    /// A Restore the AoE pointer expiry deferred (`pending_arrival_clear`)
+    /// completes through the Aircraft setter (`0x0041AA80`) like Restore's
+    /// own call (`0x004D8F99`): NavCom keeps the saved order and the Fly
+    /// heads for it.
+    #[test]
+    fn a_deferred_aircraft_restore_completes_through_the_aircraft_setter() {
+        let Some(rules) = retail_rules() else {
+            return;
+        };
+        let mut sim = Simulation::new();
+        crate::sim::arena_fixture::flat_ground(&mut sim, &rules);
+        let id = sim
+            .spawn_object("ORCA", "Americans", 10, 10, 0, &rules)
+            .expect("retail ORCA");
+        let saved = NavTargetRef::cell(20, 10);
+        let aircraft = sim.substrate.entities.get_mut(id).unwrap();
+        aircraft.navigation.nav_com = Some(saved);
+        aircraft.navigation.pending_arrival_clear = true;
+
+        sim.complete_pending_order(id, Some(&rules), None, FrameEffects::default());
+
+        let aircraft = sim.substrate.entities.get(id).unwrap();
+        assert!(!aircraft.navigation.pending_arrival_clear);
+        assert_eq!(aircraft.navigation.nav_com, Some(saved));
+        let fly = aircraft
+            .locomotor
+            .as_ref()
+            .and_then(|locomotor| locomotor.fly_runtime())
+            .expect("Fly runtime");
+        assert!(fly.moving());
+        let destination = fly.destination();
+        assert_eq!((destination.x / 256, destination.y / 256), (20, 10));
+    }
+
+    /// FootClass::AI's pending entry calls vt+0x480 on the waiting Foot
+    /// (`0x0070D849`), so an aircraft that waited for a `UnitRepair=` depot
+    /// takes the Aircraft setter (`0x0041AA80`) toward it once the depot
+    /// answers CAN_LOAD.
+    #[test]
+    fn an_aircraft_pending_depot_entry_takes_the_aircraft_setter() {
+        let Some(rules) = retail_rules() else {
+            return;
+        };
+        let mut sim = Simulation::new();
+        crate::sim::arena_fixture::flat_ground(&mut sim, &rules);
+        let depot = sim
+            .spawn_object("GADEPT", "Americans", 20, 20, 0, &rules)
+            .expect("retail GADEPT");
+        let id = sim
+            .spawn_object("ORCA", "Americans", 10, 10, 0, &rules)
+            .expect("retail ORCA");
+        crate::sim::docking::building_dock::set_pending_entry(&mut sim, id, Some(depot));
+
+        crate::sim::docking::building_dock::try_pending_entry(
+            &mut sim,
+            &rules,
+            id,
+            FrameEffects::default(),
+        );
+
+        let aircraft = sim.substrate.entities.get(id).unwrap();
+        assert_eq!(aircraft.pending_entry(), None);
+        assert_eq!(
+            aircraft.navigation.nav_com,
+            Some(NavTargetRef::Building { id: depot })
+        );
+    }
+
     /// Every retail `[VehicleTypes]` and `[InfantryTypes]` entry, spawned
     /// through production, reaches its class setter (Unit `0x741970`,
     /// Infantry `0x51AA40`) rather than the NavCom-only fallback, except the
@@ -758,14 +923,9 @@ mod tests {
     /// without one a naval type is not refused a land cell.
     #[test]
     fn every_retail_unit_and_infantry_type_reaches_its_class_setter() {
-        let Some((rules_ini, art_ini)) = crate::rules::retail_ini_fixture::retail_rules_and_art()
-        else {
+        let Some(rules) = retail_rules() else {
             return;
         };
-        let mut rules =
-            crate::rules::ruleset::RuleSet::from_ini_with_fixed_art_for_test(&rules_ini, &art_ini)
-                .expect("retail rules parse");
-        rules.install_art_data(crate::rules::art_data::ArtRegistry::from_ini(&art_ini));
         let mut unspawned = Vec::new();
         let mut without_locomotor = Vec::new();
         let mut unrepresented = Vec::new();

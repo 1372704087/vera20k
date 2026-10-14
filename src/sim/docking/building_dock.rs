@@ -1036,11 +1036,13 @@ pub(crate) fn try_pending_entry(
             sim.session.binary_frame,
             &LiveReadyInputProvider { rules },
         );
-        sim.set_unit_destination(
+        // vt+0x480 of whichever Foot waits: an aircraft's pending entry is
+        // its own (`AircraftClass::Assign_Destination` sets it).
+        let _ = sim.assign_destination_represented(
             id,
-            crate::sim::components::NavTargetRef::Building { id: depot },
-            rules,
-            true,
+            Some(crate::sim::components::NavTargetRef::Building { id: depot }),
+            Some(rules),
+            None,
             frame_effects,
         );
         set_pending_entry(sim, id, None);
@@ -1119,16 +1121,7 @@ pub(crate) fn park_pending_entry(
         return false;
     };
     let cell = crate::sim::components::NavTargetRef::cell(x, y);
-    if sim
-        .substrate
-        .entities
-        .get(id)
-        .is_some_and(|actor| actor.category == crate::map::entities::EntityCategory::Aircraft)
-    {
-        sim.assign_aircraft_destination(id, Some(cell), rules, frame_effects);
-    } else {
-        sim.set_unit_destination(id, cell, rules, true, frame_effects);
-    }
+    let _ = sim.assign_destination_represented(id, Some(cell), Some(rules), None, frame_effects);
     let _ = sim.mission_queue_exact(
         id,
         MissionId::from_known(MissionType::Move),
@@ -1195,7 +1188,8 @@ fn idle_service_art(sim: &mut Simulation, rules: &RuleSet, depot: u64, clear_fir
     }
 }
 
-///44C397/44BE97: release through the Unit setter and Radio contact owners.
+///44C397/44BE97: release through the contact's class setter (vt+0x480) and
+/// the Radio contact owners.
 /// State1 clears ArchiveTarget unconditionally after a successful release;
 /// state2 clears it only in the AI archive arm. An unavailable exit holds the
 /// contact for a later dispatch. Foundation waiting #937 remains separate.
@@ -1249,7 +1243,13 @@ fn release_contact(
         sim.session.binary_frame,
         &LiveReadyInputProvider { rules },
     );
-    sim.set_unit_destination(unit, destination, rules, true, frame_effects);
+    let _ = sim.assign_destination_represented(
+        unit,
+        Some(destination),
+        Some(rules),
+        registry,
+        frame_effects,
+    );
     if (state1 || ai_archive.is_some())
         && let Some(contact) = sim.substrate.entities.get_mut(unit)
     {

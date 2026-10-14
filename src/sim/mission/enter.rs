@@ -112,8 +112,8 @@ pub(crate) fn mission_enter(
 /// `0x004D92ED..0x004D93E3`: with no NavCom and a waypoint queued, a
 /// piggyback that `Is_Ok_To_End` allows ends first (`0x004D9309..0x004D937C`,
 /// no `Is_Piggybacking` test), then the class setter takes `NavQueue[0]` with
-/// the flag 0 (the queue is kept) and the first entry is deleted. Only Cell
-/// waypoints are represented. Returns whether this arm ran.
+/// the flag 0 (the queue is kept) and the first entry is deleted. Returns
+/// whether this arm ran.
 fn pop_nav_queue(
     sim: &mut Simulation,
     rules: &RuleSet,
@@ -130,18 +130,15 @@ fn pop_nav_queue(
     let Some(entity) = sim.substrate.entities.get(id) else {
         return false;
     };
-    let queue = entity.navigation.nav_queue.clone();
-    if let NavTargetRef::Cell { rx, ry } = queue[0] {
-        sim.set_unit_destination(
-            id,
-            crate::sim::components::NavTargetRef::cell(rx, ry),
-            rules,
-            false,
-            effects,
-        );
-    }
-    if let Some(entity) = sim.substrate.entities.get_mut(id) {
-        entity.navigation.nav_queue = queue[1..].to_vec();
+    let first = entity.navigation.nav_queue[0];
+    // Only Units reach this arm, and their setter reads no overlay data.
+    let _ = sim.assign_destination_keeping_queue(id, Some(first), Some(rules), None, effects);
+    // The shift deletes the first entry of the queue the setter left; the
+    // UnitRepair arm's modified NULL (`0x007423CA`) may have emptied it.
+    if let Some(entity) = sim.substrate.entities.get_mut(id)
+        && !entity.navigation.nav_queue.is_empty()
+    {
+        entity.navigation.nav_queue.remove(0);
     }
     true
 }

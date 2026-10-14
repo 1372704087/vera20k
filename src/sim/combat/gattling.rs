@@ -333,8 +333,12 @@ impl crate::sim::world::Simulation {
             let obj = self.object_type(entity.type_ref(), rules)?;
             Some((
                 obj.is_gattling,
-                crate::sim::combat::combat_weapon::weapon_for_index(obj, entity.veterancy.rank(), 0)
-                    .is_some(),
+                crate::sim::combat::combat_weapon::weapon_for_index(
+                    obj,
+                    entity.veterancy.rank(),
+                    0,
+                )
+                .is_some(),
             ))
         }) else {
             return;

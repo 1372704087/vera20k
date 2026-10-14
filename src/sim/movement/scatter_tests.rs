@@ -379,7 +379,9 @@ fn cell_scatter_dispatch_matches_original_execution() {
                 5,
                 true,
             );
-            entity.veterancy.set_rank(object["rank"].as_u64().unwrap_or(0) as u16 * 100);
+            entity
+                .veterancy
+                .set_rank_for_test(object["rank"].as_u64().unwrap_or(0) as u16 * 100);
             let mut house = HouseState::new(owner, 0, None, true, 0, 10);
             house.current_iq = object["iq"].as_i64().unwrap_or(0) as i32;
             houses.insert(owner, house);
@@ -456,7 +458,11 @@ fn unforced_walk_reads_house_iq_ability_elite_and_player_scatter() {
     };
     for (iq, rank, expected) in [(1, 0, false), (2, 0, true), (1, 100, true)] {
         houses.get_mut(&owner).unwrap().current_iq = iq;
-        entities.get_mut(2).unwrap().veterancy.set_rank(rank);
+        entities
+            .get_mut(2)
+            .unwrap()
+            .veterancy
+            .set_rank_for_test(rank);
         assert_eq!(
             walk(&entities, &houses, &stock, &[2]),
             if expected { vec![2] } else { vec![] },
@@ -464,11 +470,11 @@ fn unforced_walk_reads_house_iq_ability_elite_and_player_scatter() {
         );
     }
     houses.get_mut(&owner).unwrap().current_iq = 0;
-    entities.get_mut(2).unwrap().veterancy.set_rank(0);
+    entities.get_mut(2).unwrap().veterancy.set_rank_for_test(0);
     assert_eq!(walk(&entities, &houses, &rules(true), &[2]), vec![2]);
     let mut elite = GameEntity::test_default(3, "E1", "Soviet", 5, 5);
     elite.category = EntityCategory::Infantry;
-    elite.veterancy.set_rank(200);
+    elite.veterancy.set_rank_for_test(200);
     entities.insert(elite);
     assert_eq!(walk(&entities, &houses, &stock, &[3, 2]), vec![3, 2]);
     assert!(walk(&entities, &houses, &stock, &[2]).is_empty());
@@ -681,7 +687,9 @@ fn receive_damage_scatter_gates_match_original_execution() {
         };
         let actor = GameEntity::test_default_of_category(1, type_name, "Allies", 5, 5, category);
         let mut actor = with_mission(&actor, MissionType::Guard);
-        actor.veterancy.set_rank(input["rank"].as_u64().unwrap_or(0) as u16 * 100);
+        actor
+            .veterancy
+            .set_rank_for_test(input["rank"].as_u64().unwrap_or(0) as u16 * 100);
         if !flag("null_locomotor") {
             let mut locomotor = LocomotorState::for_test_kind(LocomotorKind::Walk);
             locomotor.set_walk_destination(flag("moving").then(|| DriveCoord::cell(6, 5, 0)));

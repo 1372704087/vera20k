@@ -856,7 +856,7 @@ fn retail_damage_scatter_tail_admits_by_rank_ability_and_ownership() {
             actor.mission.current(),
             MissionId::from_known(MissionType::Guard)
         );
-        actor.veterancy.set_rank(rank);
+        actor.veterancy.set_rank_for_test(rank);
         if nav {
             actor.navigation.nav_com = Some(NavTargetRef::cell(14, 10));
         }
@@ -983,7 +983,8 @@ fn retail_damage_scatter_tail_follows_the_retaliation_answer() {
                     .entities
                     .get_mut(ids[0])
                     .unwrap()
-                    .veterancy.set_rank(rank)
+                    .veterancy
+                    .set_rank_for_test(rank)
             },
         );
         let tanya = sim.substrate.entities.get(ids[0]).unwrap();
@@ -9027,7 +9028,8 @@ fn gsi_04_07_damage_periodic_radiation_enters_direct_receiver_once() {
         .entities
         .get_mut(tank)
         .unwrap()
-        .veterancy.set_rank(100);
+        .veterancy
+        .set_rank_for_test(100);
     sim.radiation.apply_detonation(
         crate::sim::radiation::RadDetonation {
             rx: 5,
@@ -11113,7 +11115,11 @@ fn gsi_08_12_a_dont_score_victim_pays_no_experience() {
     }
 
     let killer = store.get(1).expect("killer");
-    assert_eq!(killer.veterancy.rank(), 0, "five DontScore kills earn nothing");
+    assert_eq!(
+        killer.veterancy.rank(),
+        0,
+        "five DontScore kills earn nothing"
+    );
     assert_eq!(killer.veterancy.raw().bits(), 0);
 }
 

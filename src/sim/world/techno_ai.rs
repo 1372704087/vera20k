@@ -951,8 +951,9 @@ fn veterancy_promotion_step(sim: &mut Simulation, id: u64, rules: &RuleSet) {
     let Some(entity) = sim.substrate.entities.get_mut(id) else {
         return;
     };
-    let Some(promotion) =
-        entity.veterancy.sample_promotion(&mut entity.flashing, rules.general.elite_flash_timer)
+    let Some(promotion) = entity
+        .veterancy
+        .sample_promotion(&mut entity.flashing, rules.general.elite_flash_timer)
     else {
         return;
     };

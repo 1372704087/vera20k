@@ -1240,7 +1240,11 @@ impl Simulation {
         };
         //Type+D28, or HasWeaponAbility(0x11) by rank (0x70D0D0).
         let crusher = object.crusher
-            || has_weapon_ability(rank_from_u16(actor.veterancy.rank()), object, Ability::Crusher);
+            || has_weapon_ability(
+                rank_from_u16(actor.veterancy.rank()),
+                object,
+                Ability::Crusher,
+            );
         let cells = crate::map::resolved_terrain::NativeCellQuery::canonical(terrain);
         let native = cells.lookup(cell);
         let deck = cells.flags(native) & 0x100 != 0 && {

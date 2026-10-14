@@ -52,7 +52,9 @@ fn fixture(row: &Value) -> (Simulation, RuleSet) {
     };
     let mut source = GameEntity::test_default(1, "ORCA", "Americans", 10, 10);
     source.category = EntityCategory::Aircraft;
-    source.veterancy.set_rank((case["veterancy"].as_u64().unwrap_or(0) * 100) as u16);
+    source
+        .veterancy
+        .set_rank_for_test((case["veterancy"].as_u64().unwrap_or(0) * 100) as u16);
     source.aircraft_ammo = Some(AircraftAmmo::new(2));
     source.mission.set_current_for_test(
         crate::sim::mission::MissionId::from_known(crate::sim::mission::MissionType::Attack),

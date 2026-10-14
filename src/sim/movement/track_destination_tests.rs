@@ -399,7 +399,6 @@ fn command_move_destinations_match_native_unit_setter() {
 /// the native and Rust prefixes stop at budget.
 #[test]
 fn repeated_move_orders_sample_live_native_speed() {
-    use crate::sim::combat::veterancy;
     use crate::sim::movement::track_process::TrackFamily;
     use crate::util::fixed_math::SIM_ONE;
 

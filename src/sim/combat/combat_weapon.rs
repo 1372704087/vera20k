@@ -1273,7 +1273,7 @@ mod tests {
                     5,
                     EntityCategory::Infantry,
                 );
-                inside.veterancy.set_rank(veterancy);
+                inside.veterancy.set_rank_for_test(veterancy);
                 entities.insert(inside);
                 let mut cargo = crate::sim::passenger::PassengerCargo::new(5, 0);
                 assert!(cargo.board(2, 1));
@@ -2005,7 +2005,7 @@ IsLocomotor=yes
         target: &TargetFacts,
     ) -> Option<SelectedWeapon<'a>> {
         let mut entity = GameEntity::test_default(1, attacker, "Test", 0, 0);
-        entity.veterancy.set_rank(facts.veterancy);
+        entity.veterancy.set_rank_for_test(facts.veterancy);
         resolve_selected_weapon(
             rules,
             &entity,

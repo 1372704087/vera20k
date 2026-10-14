@@ -120,7 +120,11 @@ impl Simulation {
         }
         let object = self.object_type(actor.type_ref(), rules)?;
         let crusher = object.crusher
-            || has_weapon_ability(rank_from_u16(actor.veterancy.rank()), object, Ability::Crusher);
+            || has_weapon_ability(
+                rank_from_u16(actor.veterancy.rank()),
+                object,
+                Ability::Crusher,
+            );
         // Every Approach asks this; most units crush nothing.
         if !crusher && !object.omni_crusher {
             return None;

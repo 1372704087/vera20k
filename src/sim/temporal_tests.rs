@@ -269,7 +269,11 @@ fn place(sim: &mut Simulation, id: u64, coord: [i32; 3]) {
 
 fn set_elite(sim: &mut Simulation, id: u64) {
     let entity = sim.substrate.entities.get_mut(id).unwrap();
-    entity.veterancy.set_raw_for_test(crate::util::native_x87::NativeF32Bits::from_bits(2.0f32.to_bits()));
+    entity
+        .veterancy
+        .set_raw_for_test(crate::util::native_x87::NativeF32Bits::from_bits(
+            2.0f32.to_bits(),
+        ));
 }
 
 fn veterancy(sim: &Simulation, id: u64) -> f32 {

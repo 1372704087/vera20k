@@ -97,13 +97,6 @@ impl Veterancy {
         rank_u16(self.raw)
     }
 
-    /// Seed the accumulator at a rank's threshold (`SetVeteran @ 0x00750090`
-    /// writes 1.0f, `SetElite @ 0x007500B0` 2.0f; a rookie is 0.0f). Map
-    /// percentages use `set_from_percent` instead.
-    pub(crate) fn set_rank(&mut self, rank_u16: u16) {
-        self.raw = raw_for_rank(rank_u16);
-    }
-
     /// Apply the native `SetFromPercent @ 0x007500E0` to the accumulator.
     /// Like the explicit rank setters, it leaves the cached rank alone until
     /// the next Techno AI sample.
@@ -141,6 +134,12 @@ impl Veterancy {
 /// Fixture setup for tests outside this module.
 #[cfg(test)]
 impl Veterancy {
+    /// Seed the accumulator at a rank's threshold, as `set_elite`,
+    /// `set_veteran` and `set_rookie` do.
+    pub(crate) fn set_rank_for_test(&mut self, rank_u16: u16) {
+        self.raw = raw_for_rank(rank_u16);
+    }
+
     pub(crate) fn set_raw_for_test(&mut self, raw: NativeF32Bits) {
         self.raw = raw;
     }
@@ -227,7 +226,6 @@ pub(crate) fn raw_from_percent(percent: i32) -> NativeF32Bits {
     X87Chop53::store_f32(X87Chop53::mul(X87Chop53::load_i32(percent), scale))
         .expect("every signed i32 percentage fits in a finite single")
 }
-
 
 /// `VeterancyStruct::IsVeteran @ 0x0074FF90` (`1.0 <= v < 2.0`), `IsRookie @
 /// 0x0074FFC0` (`0.0 <= v < 1.0`) and the negative test at `0x0074FFF0`
@@ -625,13 +623,7 @@ impl Veterancy {
         if !trainable || points <= 0 || recipient_cost <= 0 {
             return;
         }
-        self.raw = accumulate(
-            self.raw,
-            recipient_cost,
-            points,
-            veteran_ratio,
-            veteran_cap,
-        );
+        self.raw = accumulate(self.raw, recipient_cost, points, veteran_ratio, veteran_cap);
     }
 }
 
@@ -923,12 +915,18 @@ mod tests {
         assert_eq!(e.veterancy.sample_promotion(&mut e.flashing, 150), None);
 
         e.veterancy.set_veteran();
-        assert_eq!(e.veterancy.sample_promotion(&mut e.flashing, 150), Some(Promotion::Veteran));
+        assert_eq!(
+            e.veterancy.sample_promotion(&mut e.flashing, 150),
+            Some(Promotion::Veteran)
+        );
         assert_eq!(e.flashing.frames(), 0);
         assert_eq!(e.veterancy.sample_promotion(&mut e.flashing, 150), None);
 
         e.veterancy.set_elite();
-        assert_eq!(e.veterancy.sample_promotion(&mut e.flashing, 150), Some(Promotion::Elite));
+        assert_eq!(
+            e.veterancy.sample_promotion(&mut e.flashing, 150),
+            Some(Promotion::Elite)
+        );
         assert_eq!(e.flashing.frames(), 150);
         assert_eq!(e.veterancy.rank_cache(), LEVEL_ELITE);
     }
@@ -939,13 +937,19 @@ mod tests {
     #[test]
     fn gsi_08_12_first_sample_is_silent_and_direct_elite_announces_elite() {
         let mut placed = entity(200, 300, 300);
-        assert_eq!(placed.veterancy.sample_promotion(&mut placed.flashing, 150), None);
+        assert_eq!(
+            placed.veterancy.sample_promotion(&mut placed.flashing, 150),
+            None
+        );
         assert_eq!(placed.flashing.frames(), 0);
 
         let mut rookie = entity(0, 300, 300);
         rookie.veterancy.sample_promotion(&mut rookie.flashing, 150);
         rookie.veterancy.set_elite();
-        assert_eq!(rookie.veterancy.sample_promotion(&mut rookie.flashing, 150), Some(Promotion::Elite));
+        assert_eq!(
+            rookie.veterancy.sample_promotion(&mut rookie.flashing, 150),
+            Some(Promotion::Elite)
+        );
     }
 
     /// `FUN_0070BE80`: SelfHealing bypasses the rank gate; SELF_HEAL needs a

@@ -1466,9 +1466,10 @@ impl GameEntity {
         let Some(object) = rules.object(type_id) else {
             return;
         };
-        let camera = crate::sim::combat::combat_weapon::primary_for_tier(object, self.veterancy.rank())
-            .and_then(|id| rules.weapon(id))
-            .is_some_and(|weapon| weapon.camera);
+        let camera =
+            crate::sim::combat::combat_weapon::primary_for_tier(object, self.veterancy.rank())
+                .and_then(|id| rules.weapon(id))
+                .is_some_and(|weapon| weapon.camera);
         if !object.selectable || !object.landable || camera {
             self.mark_mission_only();
         }

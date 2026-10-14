@@ -503,7 +503,8 @@ impl Simulation {
             .as_deref()
             .is_some_and(|s| s.suppression.remaining(frame as i32) != 0);
         let (speed_type, movement_zone) = (owner_object.speed_type, owner_object.movement_zone);
-        let rof = weapon_zero(rules, owner_object, owner_entity.veterancy.rank()).map_or(0, |w| w.rof);
+        let rof =
+            weapon_zero(rules, owner_object, owner_entity.veterancy.rank()).map_or(0, |w| w.rof);
         let Some(victim_entity) = self.substrate.entities.get(victim) else {
             return;
         };

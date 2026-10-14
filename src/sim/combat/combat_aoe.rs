@@ -2769,7 +2769,7 @@ mod tests {
         veteran.owner = american;
         veteran.type_ref = mtnk;
         veteran.health.current = 300;
-        veteran.veterancy.set_rank(100);
+        veteran.veterancy.set_rank_for_test(100);
         entities.insert(veteran);
 
         let mut occupancy = OccupancyGrid::new();

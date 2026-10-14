@@ -179,7 +179,7 @@ fn drawing_fixture(
     use crate::rules::ini_parser::IniFile;
     use crate::rules::locomotor_type::LocomotorKind;
     use crate::rules::native_processing::{RulesLayerKind, RulesLayerStack};
-    use crate::sim::combat::{AttackTarget, veterancy};
+    use crate::sim::combat::AttackTarget;
     use crate::sim::movement::locomotor::LocomotorState;
     use crate::sim::movement::track_process::TrackFamily;
     use crate::util::native_x87::NativeF64Bits;

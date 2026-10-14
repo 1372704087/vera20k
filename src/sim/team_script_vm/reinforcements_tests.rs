@@ -288,13 +288,7 @@ fn script50_uses_the_existing_signed_flash_owner_and_original_countdown() {
         for step in row["steps"].as_array().unwrap() {
             let active: Vec<_> = members
                 .iter()
-                .map(|&id| {
-                    sim.substrate
-                        .entities
-                        .get_mut(id)
-                        .unwrap()
-                        .flashing.tick()
-                })
+                .map(|&id| sim.substrate.entities.get_mut(id).unwrap().flashing.tick())
                 .collect();
             assert_eq!(
                 active,
@@ -484,7 +478,8 @@ fn action7_real_members_match_original_identity_rng_placement_and_cleanup() {
             );
             assert_eq!(
                 entity
-                    .veterancy.raw()
+                    .veterancy
+                    .raw()
                     .bits()
                     .to_le_bytes()
                     .iter()

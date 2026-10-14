@@ -172,7 +172,13 @@ fn original_aim_query_reads_live_motion_rank_and_facing_without_mutation() {
             .snap(facing, duel.sim.session.binary_frame);
         assert_read_only_native_aim(&duel, source, attack_aim_row(&corpus, "aim_cases", name));
     }
-    super::veterancy::set_veteran(duel.sim.substrate.entities.get_mut(target).unwrap());
+    duel.sim
+        .substrate
+        .entities
+        .get_mut(target)
+        .unwrap()
+        .veterancy
+        .set_veteran();
     assert_read_only_native_aim(
         &duel,
         source,

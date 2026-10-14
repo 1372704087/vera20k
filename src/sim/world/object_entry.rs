@@ -503,8 +503,8 @@ impl<'a> EntryMover<'a> {
     fn new(live: &EntryReadContext<'a>, id: u64, e: &'a GameEntity, obj: &'a ObjectType) -> Self {
         let weapon0 = combat_weapon::weapon_for_index(obj, e.veterancy.rank(), 0)
             .and_then(|(name, _)| live.rules.weapon(name));
-        let crusher =
-            obj.crusher || has_weapon_ability(rank_from_u16(e.veterancy.rank()), obj, Ability::Crusher);
+        let crusher = obj.crusher
+            || has_weapon_ability(rank_from_u16(e.veterancy.rank()), obj, Ability::Crusher);
         Self {
             id,
             e,

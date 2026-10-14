@@ -419,53 +419,25 @@ pub struct GameEntity {
     /// Foot+6B6 raw occupation enable; shared by Drive/Ship and world Mark.
     /// Foot ctor4D344A initializes1; Unit7353CE invokes that base ctor.
     pub(crate) foot_occupation_enabled: bool,
-    /// Foot+6AD, constructor `0x004D3414` zero: a Magnetron lifted this
-    /// object. `TechnoClass::ImbueLocomotor @ 0x00710000` raises it
-    /// (`0x00710352`) and only Jumpjet `End_Piggyback @ 0x0054DA50` clears it
-    /// ([`crate::sim::locomotor_lift`]). Independent of MCV Unit+68C and
-    /// infantry deploy animation.
+    /// The Magnetron lift's latches and links (Foot `+0x6AD`/`+0x6AE`,
+    /// Techno `+0x2AC`/`+0x2B0`), a [`LocomotorLift`] that `locomotor_lift`
+    /// owns.
+    ///
+    /// [`LocomotorLift`]: crate::sim::locomotor_lift::LocomotorLift
     #[serde(default)]
-    pub(crate) foot_locomotor_swap_active: bool,
-    /// Foot+6AE, constructor `0x004D341A` zero: the lift may end. A release
-    /// on the ground (`0x0070FFBB`), Foot's null destination with a holder
-    /// (`0x004D9538`) and every Jumpjet touchdown (`0x0054C9FE`) raise it;
-    /// Jumpjet `Is_Ok_To_End @ 0x0054DB00` reads it and `End_Piggyback`
-    /// clears it.
+    pub(crate) lift: crate::sim::locomotor_lift::LocomotorLift,
+    /// The drop's and the Chrono Warp's kill credit (Techno `+0x427`,
+    /// `+0x428`, `+0x42C`), a [`DropCredit`] that `locomotor_lift` owns.
+    ///
+    /// [`DropCredit`]: crate::sim::locomotor_lift::DropCredit
     #[serde(default)]
-    pub(crate) lift_may_end: bool,
-    /// Techno+2AC LocomotorTarget: the object this Magnetron holds aloft
-    /// (`0x00710307`); its +2B0 names this object back.
+    pub(crate) drop_credit: crate::sim::locomotor_lift::DropCredit,
+    /// Techno+0x1F8, a [`SetterForceReassign`] that `movement::track_path`
+    /// owns.
+    ///
+    /// [`SetterForceReassign`]: crate::sim::movement::SetterForceReassign
     #[serde(default)]
-    pub(crate) locomotor_target: Option<u64>,
-    /// Techno+2B0 LocomotorSource: the Magnetron holding this object
-    /// (`0x00710318`).
-    #[serde(default)]
-    pub(crate) locomotor_source: Option<u64>,
-    /// Techno+427 IsBeingManipulated: a Magnetron let this object go in the
-    /// air (`0x0070FF32`), so its Jumpjet State 5 lands it on whatever is
-    /// below (`0x0054CC39`). Constructor `0x006F3005` zero; every Jumpjet
-    /// touchdown clears it (`0x0054CA08`).
-    #[serde(default)]
-    pub(crate) being_manipulated: bool,
-    /// Techno+428 BeingManipulatedBy: the Magnetron that dropped this object
-    /// (`0x0070FF3F`), credited with what its fall kills. Cleared by the
-    /// fall's end, `End_Piggyback` (Jumpjet and Teleport) and the Chrono
-    /// Warp's arrival; pointer expiry clears it (`0x0070783B`).
-    #[serde(default)]
-    pub(crate) manipulated_by: Option<u64>,
-    /// Techno+42C ChronoWarpedByHouse: the house a Chronosphere warp
-    /// (`0x006CCC67`) or a Magnetron drop (`0x0070FF51`) credits with this
-    /// object's death on landing; cleared with +428.
-    #[serde(default)]
-    pub(crate) warped_by_house: Option<InternedId>,
-    /// Techno+0x1F8, constructor zero (`0x006F2CE1`). The Unit setter's
-    /// Teleporter arm raises it when a Drive cannot end yet (`0x007425C6`), so
-    /// the next setter call runs for an unchanged NavCom (`0x00741A88`); every
-    /// setter call that passes that check clears it (`0x00741A9C`). Unlimbo's
-    /// own raise and clear (`0x006F6E1B`/`0x006F6E34`) bracket one call and
-    /// leave nothing behind.
-    #[serde(default)]
-    pub(crate) setter_force_reassign: bool,
+    pub(crate) setter_force_reassign: crate::sim::movement::SetterForceReassign,
     /// Techno+0x284, constructor zero (`0x006F2DDE`): the warp-in the
     /// Chronosphere's Teleport states time (`0x00719B23`). A blocked landing
     /// writes it (`[General] ChronoDelay=`, `0x00719983`) and it stays for
@@ -832,10 +804,12 @@ pub struct GameEntity {
     /// and the Jumpjet landing request survive independently of Unit6E0..6E2.
     deploy_anim: Option<crate::sim::anim_class::AnimId>,
     landing_for_deploy: bool,
-    /// Unit+0x68C: runtime Deploy continuation, not the type's DeployToFire.
-    /// Writers/readers are owned by sim::mcv_deploy (gamemd 0x007393C0).
+    /// Unit+0x68C: runtime Deploy continuation, not the type's DeployToFire;
+    /// a [`DeployContinuation`] that `mcv_deploy` owns.
+    ///
+    /// [`DeployContinuation`]: crate::sim::mcv_deploy::DeployContinuation
     #[serde(default)]
-    pub(crate) mcv_deploy_pending: bool,
+    pub(crate) mcv_deploy_pending: crate::sim::mcv_deploy::DeployContinuation,
     /// Infantry fear/prone runtime. `None` for non-infantry entities.
     #[serde(default)]
     pub infantry: Option<InfantryRuntime>,
@@ -862,8 +836,11 @@ pub struct GameEntity {
     foot_retarget_after_stop: bool,
     /// Category-specific bytes read by Mission readiness and Aircraft policy.
     pub(crate) mission_leaf: MissionLeafState,
-    /// Target identity archived by the Techno Override wrapper.
-    pub(crate) suspended_attack_target: Option<TargetKind>,
+    /// SuspendedTarCom (`TechnoClass+0x2B8`), a [`SuspendedTarget`] that
+    /// `mission::authority` owns.
+    ///
+    /// [`SuspendedTarget`]: crate::sim::mission::authority::SuspendedTarget
+    pub(crate) suspended_attack_target: crate::sim::mission::authority::SuspendedTarget,
     /// Active House/base-defence recruitment, archive and attacker-cooldown
     /// bytes. Snapshot migration defaults reproduce Techno construction.
     #[serde(default)]
@@ -1470,14 +1447,9 @@ impl GameEntity {
             foot_speed: crate::sim::components::FootSpeedState::default(),
             flight_attitude: Default::default(),
             foot_occupation_enabled: true,
-            foot_locomotor_swap_active: false,
-            lift_may_end: false,
-            locomotor_target: None,
-            locomotor_source: None,
-            being_manipulated: false,
-            manipulated_by: None,
-            warped_by_house: None,
-            setter_force_reassign: false,
+            lift: Default::default(),
+            drop_credit: Default::default(),
+            setter_force_reassign: Default::default(),
             chrono_warp_delay: 0,
             attack_target: TarCom::default(),
             pending_building_fire: Default::default(),
@@ -1559,7 +1531,7 @@ impl GameEntity {
             bunker_runtime: None,
             deploy_anim: None,
             landing_for_deploy: false,
-            mcv_deploy_pending: false,
+            mcv_deploy_pending: Default::default(),
             infantry: if category == EntityCategory::Infantry {
                 Some(InfantryRuntime::new())
             } else {
@@ -1570,7 +1542,7 @@ impl GameEntity {
             passive_scan: crate::sim::world::PassiveScan::new(construction_frame),
             foot_retarget_after_stop: false,
             mission_leaf: MissionLeafState::constructed(category, construction_frame as i32),
-            suspended_attack_target: None,
+            suspended_attack_target: Default::default(),
             base_defense_response: BaseDefenseResponseState::default(),
             damage_particle_live_until: Default::default(),
             damage_smoke_system_id: Default::default(),

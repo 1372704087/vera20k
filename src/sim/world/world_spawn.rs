@@ -1987,7 +1987,7 @@ impl Simulation {
                 .is_some_and(|yard| yard.construction_yard);
         if source.parasite.eater().is_some() || stolen_mcv {
             if let Some(entity) = self.substrate.entities.get_mut(stable_id) {
-                entity.mcv_deploy_pending = false;
+                entity.mcv_deploy_pending.clear();
             }
             return false;
         }
@@ -2091,7 +2091,8 @@ impl Simulation {
                 .entities
                 .get_mut(stable_id)
                 .unwrap()
-                .mcv_deploy_pending = false;
+                .mcv_deploy_pending
+                .clear();
             crate::sim::mcv_deploy::queue_guard(self, stable_id);
             return false;
         }
@@ -2124,7 +2125,7 @@ impl Simulation {
                 frame_effects,
             );
             if let Some(entity) = self.substrate.entities.get_mut(stable_id) {
-                entity.mcv_deploy_pending = true;
+                entity.mcv_deploy_pending.raise();
             }
             return true;
         }
@@ -2156,13 +2157,13 @@ impl Simulation {
                 // Controlled unavailable Rust prerequisite; no native
                 // constructor/placement transaction has started here.
                 if let Some(entity) = self.substrate.entities.get_mut(stable_id) {
-                    entity.mcv_deploy_pending = false;
+                    entity.mcv_deploy_pending.clear();
                 }
                 return false;
             };
             if preflight_recalc(rules, country_name, *side_index, *difficulty).is_err() {
                 if let Some(entity) = self.substrate.entities.get_mut(stable_id) {
-                    entity.mcv_deploy_pending = false;
+                    entity.mcv_deploy_pending.clear();
                 }
                 return false;
             }
@@ -2179,7 +2180,7 @@ impl Simulation {
             ))
         }) else {
             if let Some(entity) = self.substrate.entities.get_mut(stable_id) {
-                entity.mcv_deploy_pending = false;
+                entity.mcv_deploy_pending.clear();
             }
             return false;
         };
@@ -2211,7 +2212,7 @@ impl Simulation {
             self.locomotor_mark_all_occupation_bits(stable_id, true);
             self.foot_mark_put(stable_id, Some(rules), registry, frame_effects);
             if let Some(entity) = self.substrate.entities.get_mut(stable_id) {
-                entity.mcv_deploy_pending = false;
+                entity.mcv_deploy_pending.clear();
             }
             return false;
         };
@@ -2245,7 +2246,7 @@ impl Simulation {
             self.foot_mark_put(stable_id, Some(rules), registry, frame_effects);
             //739AA7 clears+68C only after both original restoration calls.
             if let Some(entity) = self.substrate.entities.get_mut(stable_id) {
-                entity.mcv_deploy_pending = false;
+                entity.mcv_deploy_pending.clear();
             }
             return false;
         }

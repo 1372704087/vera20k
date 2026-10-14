@@ -2019,7 +2019,7 @@ fn restore_object_references(
                 target_id,
             )?;
         }
-        if let Some(TargetKind::Entity(target_id)) = entity.suspended_attack_target {
+        if let Some(TargetKind::Entity(target_id)) = entity.suspended_attack_target.target() {
             require_resolved_reference(
                 entity_ids.contains(&target_id),
                 "EntityStore",
@@ -8334,11 +8334,13 @@ mod tests {
             let id = index as u64 + 1;
             let mut entity = GameEntity::test_default(id, "MTNK", "Americans", 5, 5);
             entity.mission_leaf = leaf;
-            entity.suspended_attack_target = Some(if index & 1 == 0 {
-                TargetKind::Entity(100 + id)
-            } else {
-                TargetKind::Cell(index as u16, (index + 1) as u16)
-            });
+            entity
+                .suspended_attack_target
+                .set_for_test(Some(if index & 1 == 0 {
+                    TargetKind::Entity(100 + id)
+                } else {
+                    TargetKind::Cell(index as u16, (index + 1) as u16)
+                }));
             entity.set_falling_down_for_test(index & 1 == 0);
             entity.locomotor = Some(LocomotorState::for_test_kind(LocomotorKind::Drive));
             if index == 0 {
@@ -8374,7 +8376,8 @@ mod tests {
             });
             assert_eq!(entity.mission_leaf, leaf);
             assert_eq!(
-                entity.suspended_attack_target, expected_suspended_target,
+                entity.suspended_attack_target.target(),
+                expected_suspended_target,
                 "suspended TargetKind variant and payload must round-trip"
             );
             assert_eq!(entity.is_falling_down(), index & 1 == 0);

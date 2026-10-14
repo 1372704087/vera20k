@@ -1573,7 +1573,8 @@ fn foot_admission_refuses_a_rocketeers_order_during_a_locomotor_swap() {
         .entities
         .get_mut(1)
         .unwrap()
-        .foot_locomotor_swap_active = true;
+        .lift
+        .set_swap_active_for_test(true);
     assert_eq!(
         sim.assign_infantry_destination(
             1,

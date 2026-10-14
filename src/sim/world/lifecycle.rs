@@ -3655,7 +3655,7 @@ impl Simulation {
                 matches!(
                     entity.category(),
                     EntityCategory::Unit | EntityCategory::Infantry | EntityCategory::Aircraft
-                ) && entity.foot_locomotor_swap_active
+                ) && entity.lift.swap_active()
             });
         if lifted {
             if let Some(entity) = self.substrate.entities.get_mut(stable_id) {
@@ -3795,7 +3795,7 @@ impl Simulation {
         };
         listener_id == expired_id
             || names(listener.attack_target.target())
-            || names(listener.suspended_attack_target)
+            || names(listener.suspended_attack_target.target())
             || names(listener.archive_target())
             || listener.has_live_contact_with(expired_id)
             || listener
@@ -3831,9 +3831,9 @@ impl Simulation {
             || listener.capture_manager.is_some()
             || listener.temporal.has_link()
             || listener.parasite.eater().is_some()
-            || listener.locomotor_target == Some(expired_id)
-            || listener.locomotor_source == Some(expired_id)
-            || listener.manipulated_by == Some(expired_id)
+            || listener.lift.target() == Some(expired_id)
+            || listener.lift.source() == Some(expired_id)
+            || listener.drop_credit.manipulated_by() == Some(expired_id)
             || listener.mega_mission.references(expired_id)
     }
 
@@ -4239,7 +4239,7 @@ impl Simulation {
         // same-owner exemption applies only to `+0x2B4`.
         let clear_suspended_target = allow_clear
             && matches!(
-                listener.suspended_attack_target,
+                listener.suspended_attack_target.target(),
                 Some(TargetKind::Entity(id)) if id == expired_id
             );
         // Techno707AC2..707AD7 clears eight retained effect pointers on an
@@ -4355,7 +4355,7 @@ impl Simulation {
             .get_mut(listener_id)
             .expect("expiry listener read above");
         if clear_suspended_target {
-            listener.suspended_attack_target = None;
+            listener.suspended_attack_target.clear();
         }
         if clear_damage_smoke {
             listener.damage_smoke_system_id.forget();
@@ -4925,7 +4925,7 @@ impl Simulation {
                 .substrate
                 .entities
                 .get(stable_id)
-                .is_some_and(|entity| entity.locomotor_target.is_some())
+                .is_some_and(|entity| entity.lift.target().is_some())
         {
             self.release_locomotor(
                 stable_id,

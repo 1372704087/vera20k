@@ -1039,7 +1039,7 @@ impl SpawnHost for WorldSpawn<'_, '_> {
             .substrate
             .entities
             .get(self.owner_id)
-            .is_some_and(|owner| owner.foot_locomotor_swap_active)
+            .is_some_and(|owner| owner.lift.swap_active())
     }
 
     fn owner_missile_spawn(&self) -> bool {

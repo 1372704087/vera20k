@@ -2016,7 +2016,7 @@ impl Simulation {
             return false;
         };
         if entity.category() != crate::map::entities::EntityCategory::Structure
-            && entity.foot_locomotor_swap_active
+            && entity.lift.swap_active()
         {
             return false;
         }
@@ -2986,7 +2986,9 @@ mod tests {
                 ai_counter: 0,
                 dispatch_timer: before_timer,
             });
-            actor.suspended_attack_target = Some(combat::TargetKind::Entity(2));
+            actor
+                .suspended_attack_target
+                .set_for_test(Some(combat::TargetKind::Entity(2)));
             actor.navigation.suspended_nav_com = Some(NavTargetRef::cell(12, 12));
             actor.set_archive_target(Some(combat::TargetKind::Cell(5, 5)));
             actor.mega_mission = crate::sim::mission::mega_mission::MegaMission::attack_move(Some(
@@ -3016,7 +3018,7 @@ mod tests {
                 MissionId::from_known(MissionType::Attack)
             );
             assert_eq!(actor.mission.dispatch_timer(), before_timer);
-            assert!(actor.suspended_attack_target.is_none());
+            assert!(actor.suspended_attack_target.target().is_none());
             assert!(actor.navigation.suspended_nav_com.is_none());
             assert!(actor.attack_target.target().is_none());
             assert!(

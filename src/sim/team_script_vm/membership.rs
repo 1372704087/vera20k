@@ -205,7 +205,7 @@ impl Simulation {
         if !constrained && team.slot_counts[slot] >= entries[slot].count {
             return None;
         }
-        if entity.locomotor_source.is_some() {
+        if entity.lift.source().is_some() {
             return None;
         }
         Some(slot)
@@ -348,7 +348,7 @@ impl Simulation {
             .is_some_and(|entity| {
                 entity.mission.clear_suspended();
                 entity.navigation.suspended_nav_com = None;
-                entity.suspended_attack_target = None;
+                entity.suspended_attack_target.clear();
                 entity.lifecycle.object_alive()
                     && !entity.crash.is_crashing()
                     && !entity.lifecycle.in_limbo()

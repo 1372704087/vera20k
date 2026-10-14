@@ -1473,7 +1473,8 @@ fn a_controlled_mcv_cannot_deploy_and_a_controlled_yard_cannot_repack() {
         .entities
         .get_mut(mcv)
         .unwrap()
-        .mcv_deploy_pending = true;
+        .mcv_deploy_pending
+        .set_for_test(true);
     sim.sound_events.clear();
     assert!(!sim.deploy_mcv(
         mcv,
@@ -1482,7 +1483,12 @@ fn a_controlled_mcv_cannot_deploy_and_a_controlled_yard_cannot_repack() {
         crate::sim::world::FrameEffects::default()
     ));
     assert!(
-        !sim.substrate.entities.get(mcv).unwrap().mcv_deploy_pending,
+        !sim.substrate
+            .entities
+            .get(mcv)
+            .unwrap()
+            .mcv_deploy_pending
+            .is_pending(),
         "the refusal clears the pending deploy"
     );
     assert!(

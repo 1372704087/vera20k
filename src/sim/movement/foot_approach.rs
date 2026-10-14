@@ -439,7 +439,7 @@ impl Simulation {
         };
         // 4D56A1..56B1: a Magnetron holding its target (+2AC == TarCom)
         // does not approach it.
-        if matches!(target, TargetKind::Entity(target) if actor.locomotor_target == Some(target)) {
+        if matches!(target, TargetKind::Entity(target) if actor.lift.target() == Some(target)) {
             return Ok(None);
         }
         let object = self

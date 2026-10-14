@@ -183,7 +183,8 @@ fn the_block_drops_a_target_approach_leaves_out_of_range() {
         .entities
         .get_mut(tank)
         .unwrap()
-        .locomotor_target = Some(target);
+        .lift
+        .set_target_for_test(Some(target));
 
     assert_eq!(reach(&mut sim, &rules, tank), (None, None));
 }

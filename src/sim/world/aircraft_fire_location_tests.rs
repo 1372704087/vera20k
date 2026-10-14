@@ -342,7 +342,9 @@ pub(super) fn reengagement_fixture(input: &Value) -> (Simulation, RuleSet) {
         .as_bool()
         .unwrap_or(false)
         .then(|| NavTargetRef::cell(32, 32));
-    entity.foot_locomotor_swap_active = input["swap"].as_bool().unwrap_or(false);
+    entity
+        .lift
+        .set_swap_active_for_test(input["swap"].as_bool().unwrap_or(false));
     if input["open_transport"].as_bool().unwrap_or(false) {
         entity.passenger_role = PassengerRole::inside_for_test(4, true);
     }

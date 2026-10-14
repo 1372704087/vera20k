@@ -3630,7 +3630,9 @@ fn pointer_expiry_clears_live_target_and_navigation_refs() {
     listener
         .attack_target
         .set_for_test(Some(TargetKind::Entity(2)));
-    listener.suspended_attack_target = Some(TargetKind::Entity(2));
+    listener
+        .suspended_attack_target
+        .set_for_test(Some(TargetKind::Entity(2)));
     listener.navigation.suspended_nav_com = Some(NavTargetRef::Entity { id: 2 });
     listener.navigation.nav_com_aux = Some(NavTargetRef::Object { id: 2 });
     listener.navigation.nav_com = Some(NavTargetRef::Building { id: 2 });
@@ -3643,7 +3645,7 @@ fn pointer_expiry_clears_live_target_and_navigation_refs() {
 
     let listener = sim.substrate.entities.get(1).unwrap();
     assert!(listener.attack_target.target().is_none());
-    assert!(listener.suspended_attack_target.is_none());
+    assert!(listener.suspended_attack_target.target().is_none());
     assert!(listener.navigation.suspended_nav_com.is_none());
     assert!(listener.navigation.nav_com_aux.is_none());
     assert!(listener.navigation.nav_com.is_none());
@@ -3732,7 +3734,9 @@ fn target_expiry_rearms_passive_scan_and_restores_suspended_mission() {
     listener
         .attack_target
         .set_for_test(Some(TargetKind::Entity(2)));
-    listener.suspended_attack_target = Some(TargetKind::Entity(3));
+    listener
+        .suspended_attack_target
+        .set_for_test(Some(TargetKind::Entity(3)));
     listener.navigation.suspended_nav_com = Some(NavTargetRef::Cell { rx: 7, ry: 8 });
     listener.passive_scan.timer_mut_for_test().arm(100, 20);
     listener.mission.apply_test_fixture(MissionTestFixture {
@@ -8195,7 +8199,9 @@ fn detach_sweep_restores_before_clearing_target_in_descending_id_order() {
         entity
             .attack_target
             .set_for_test(Some(TargetKind::Entity(3)));
-        entity.suspended_attack_target = Some(TargetKind::Entity(4));
+        entity
+            .suspended_attack_target
+            .set_for_test(Some(TargetKind::Entity(4)));
         entity.navigation.nav_com = None;
         entity.navigation.suspended_nav_com = Some(NavTargetRef::Cell { rx: 7, ry: 8 });
         entity.mission.apply_test_fixture(attack_fixture(
@@ -8337,7 +8343,9 @@ fn bridge_cell_success_restores_before_conditional_target_clear() {
     attacker
         .attack_target
         .set_for_test(Some(TargetKind::Cell(9, 11)));
-    attacker.suspended_attack_target = Some(TargetKind::Entity(2));
+    attacker
+        .suspended_attack_target
+        .set_for_test(Some(TargetKind::Entity(2)));
     attacker.navigation.suspended_nav_com = Some(NavTargetRef::Cell { rx: 7, ry: 8 });
     attacker.mission.apply_test_fixture(attack_fixture(
         MissionType::Attack,

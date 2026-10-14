@@ -731,7 +731,7 @@ pub(crate) fn expire_cell_target_references(
         let saved_target_commits = entities.get(listener_id).is_some_and(|entity| {
             crate::sim::mission::concrete_effects::assign_target_commits(
                 entities,
-                entity.suspended_attack_target,
+                entity.suspended_attack_target.target(),
             )
         });
         let Some(entity) = entities.get_mut(listener_id) else {
@@ -2316,7 +2316,9 @@ mod tests {
             ai_counter: 0,
             dispatch_timer: MissionDispatchTimer::at_frame(0),
         });
-        restored.suspended_attack_target = Some(TargetKind::Cell(8, 8));
+        restored
+            .suspended_attack_target
+            .set_for_test(Some(TargetKind::Cell(8, 8)));
         entities.insert(restored);
 
         let mut cleared = GameEntity::test_default(30, "MTNK", "Americans", 3, 2);
@@ -3388,7 +3390,9 @@ mod tests {
                         z: 0,
                     }));
                 }
-                victim.foot_locomotor_swap_active = case["swap_active"] == true;
+                victim
+                    .lift
+                    .set_swap_active_for_test(case["swap_active"] == true);
                 if case["bunker"] == true {
                     victim.bunker_link = crate::sim::game_entity::BunkerLink::Installed(1);
                 }

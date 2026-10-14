@@ -230,8 +230,7 @@ impl Simulation {
                 if let Some(entity) = self.substrate.entities.get_mut(id) {
                     super::teleport_movement::teleport_stop_moving(entity);
                     // `0x00719AEE`/`0x00719AF7`: the drop and warp credits go.
-                    entity.manipulated_by = None;
-                    entity.warped_by_house = None;
+                    entity.drop_credit.forget();
                     entity.set_archive_target(None);
                 }
                 self.assign_null_destination(id, Some(rules), registry, ctx.effects);
@@ -703,12 +702,12 @@ impl Simulation {
         effects: FrameEffects<'_>,
     ) {
         self.begin_warp_sinking(id, rules, effects);
-        let Some((killer, house)) = self
-            .substrate
-            .entities
-            .get(id)
-            .map(|entity| (entity.manipulated_by, entity.warped_by_house))
-        else {
+        let Some((killer, house)) = self.substrate.entities.get(id).map(|entity| {
+            (
+                entity.drop_credit.manipulated_by(),
+                entity.drop_credit.warped_by_house(),
+            )
+        }) else {
             return;
         };
         self.free_slaves(id, killer, house, rules, registry, effects);

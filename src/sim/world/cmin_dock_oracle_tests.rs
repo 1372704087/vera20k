@@ -221,8 +221,12 @@ pub(super) fn dress_cmin(s: &mut Scene, input: &Value) {
         }
     }
     entity.navigation.nav_com = nav.map(|(x, y)| NavTargetRef::cell(x, y));
-    entity.setter_force_reassign = input["force_reassign"] == true;
-    entity.foot_locomotor_swap_active = input["swap_6ad"] == true;
+    entity
+        .setter_force_reassign
+        .set_for_test(input["force_reassign"] == true);
+    entity
+        .lift
+        .set_swap_active_for_test(input["swap_6ad"] == true);
     if input["locked"] == true {
         entity
             .parasite
@@ -234,7 +238,9 @@ pub(super) fn dress_cmin(s: &mut Scene, input: &Value) {
     if input["latch_27c"] == true {
         // Techno+0x27C, which only the Chronosphere's warp writes in VERA:
         // its payload on the active Teleport.
-        entity.warped_by_house = Some(entity.owner());
+        entity
+            .drop_credit
+            .set_warped_by_house_for_test(Some(entity.owner()));
         entity
             .locomotor
             .as_mut()
@@ -273,7 +279,7 @@ fn compare_cmin(s: &Scene, state: &Value, context: &str, mission_body_executed: 
     };
     assert_eq!(nav, state["nav"], "{context}: NavCom");
     assert_eq!(
-        u64::from(entity.setter_force_reassign),
+        u64::from(entity.setter_force_reassign.is_raised()),
         state["force_reassign"].as_u64().unwrap(),
         "{context}: +0x1F8"
     );

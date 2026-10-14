@@ -754,7 +754,7 @@ impl ConcreteMissionEffects for RecordingConcreteMissionEffects {
             requested,
             mission_current: entity.mission.current(),
             suspended_mission: entity.mission.suspended(),
-            archived_target: entity.suspended_attack_target,
+            archived_target: entity.suspended_attack_target.target(),
             archived_destination: entity.navigation.suspended_nav_com,
         });
         if entity.attack_target.target() != requested {

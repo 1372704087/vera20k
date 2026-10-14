@@ -68,7 +68,7 @@ fn shared_null_destination_matches_original_gate_and_timer_boundaries() {
             (input["target"] == true).then(|| crate::sim::combat::TargetKind::Cell(11, 10)),
         );
         e.navigation.nav_com = (input["nav"] != false).then(|| NavTargetRef::cell(11, 10));
-        e.foot_locomotor_swap_active = input["swap"] == true;
+        e.lift.set_swap_active_for_test(input["swap"] == true);
         if input["bunker"] == true {
             e.bunker_link = crate::sim::game_entity::BunkerLink::Installed(2);
         }
@@ -217,7 +217,8 @@ fn actor(input: &Value) -> GameEntity {
     }
     e.navigation.nav_com_aux = Some(NavTargetRef::cell(0, 0));
     e.navigation.nav_com = (input["same_nav"] == true).then(|| NavTargetRef::cell(11, 10));
-    e.setter_force_reassign = input["force_reassign"] == true;
+    e.setter_force_reassign
+        .set_for_test(input["force_reassign"] == true);
     e.navigation.nav_queue =
         vec![NavTargetRef::cell(11, 10); input["nav_queue"].as_u64().unwrap_or(0) as usize];
     e.navigation.path_replay = FootPathQueue {
@@ -341,7 +342,10 @@ fn compare(e: &GameEntity, row: &Value) {
         ),
         ("blocked", json!(u8::from(p.path_blocked))),
         ("retries", json!(p.retries_left)),
-        ("force_reassign", json!(u8::from(e.setter_force_reassign))),
+        (
+            "force_reassign",
+            json!(u8::from(e.setter_force_reassign.is_raised())),
+        ),
     ] {
         assert_eq!(actual, row[key], "{key}: {row}");
     }
@@ -460,7 +464,9 @@ fn repeated_move_orders_sample_live_native_speed() {
                 2 => entity.veterancy.set_elite(),
                 rank => panic!("unexpected native rank {rank}"),
             }
-            entity.setter_force_reassign = step["forced"] == true;
+            entity
+                .setter_force_reassign
+                .set_for_test(step["forced"] == true);
             let retained_before =
                 serde_json::to_value((&entity.navigation, &entity.locomotor)).unwrap();
             assert!(sim.apply_command(
@@ -495,7 +501,7 @@ fn repeated_move_orders_sample_live_native_speed() {
                     "head": [head.x, head.y, head.z],
                     "nav": nav,
                     "nav_queue": entity.navigation.nav_queue.len(),
-                    "force_reassign": u8::from(entity.setter_force_reassign),
+                    "force_reassign": u8::from(entity.setter_force_reassign.is_raised()),
                     "movement_timer": [
                         path.movement_timer.start_frame(), path.movement_timer.duration(),
                     ],

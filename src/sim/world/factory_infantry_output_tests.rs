@@ -386,7 +386,9 @@ fn ground_command_fixture(
             state["deploy_bytes"][1] != 0,
             state["deploy_bytes"][2] != 0,
         );
-        actor.setter_force_reassign = state["force_reassign"] != 0;
+        actor
+            .setter_force_reassign
+            .set_for_test(state["force_reassign"] != 0);
         assert_eq!(
             state["skip_move"], 0,
             "stock MTNK has no producer for Foot+6AC"
@@ -680,7 +682,7 @@ fn assert_ground_command_fields(sim: &Simulation, id: u64, row: &Value, state: &
             "{context}: Unit deploy bytes"
         );
         assert_eq!(
-            actor.setter_force_reassign,
+            actor.setter_force_reassign.is_raised(),
             state["force_reassign"] != 0,
             "{context}: force reassign"
         );

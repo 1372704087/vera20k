@@ -184,7 +184,7 @@ fn fixture(row: &Value) -> (Simulation, RuleSet, OverlayTypeRegistry, u64, Optio
     e.navigation.suspended_nav_com = None;
     e.attack_target
         .set_for_test((input["attack_target"] == true).then_some(TargetKind::Cell(11, 10)));
-    e.suspended_attack_target = None;
+    e.suspended_attack_target.set_for_test(None);
     e.navigation.path_replay.directions = vec![2, 3, 4, 5];
     e.navigation.path_replay.cursor = 0;
     e.navigation.path_replay.reference_cell =
@@ -306,7 +306,7 @@ fn compare(sim: &Simulation, id: u64, other: Option<u64>, expected: &Value, row:
         ("suspended_nav", json!(nav(e.navigation.suspended_nav_com))),
         (
             "suspended_target",
-            json!(native_target(e.suspended_attack_target, other)),
+            json!(native_target(e.suspended_attack_target.target(), other)),
         ),
         ("mission", json!(e.mission.current().raw())),
         ("queued_mission", json!(e.mission.queued().raw())),

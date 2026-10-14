@@ -180,7 +180,7 @@ fn stock_cloak_tick_facts(
         // 7. `+0x2B0 && Foot && +0x6AD` (`0x006FBF57..0x006FBF7D`): an
         //    object a Magnetron holds aloft (`sim::locomotor_lift`). This
         //    producer serves Units only, so the Foot test holds.
-        && !(entity.locomotor_source.is_some() && entity.foot_locomotor_swap_active)
+        && !(entity.lift.source().is_some() && entity.lift.swap_active())
         // 8. `GetHeight() < 1`.
         && crate::sim::movement::air_movement::current_fly_height(
             entity,

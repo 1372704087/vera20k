@@ -144,15 +144,17 @@ fn prime(scene: &mut HeadlessScenario, input: &Value, initial: &Value, rng: &Val
         actor.attack_target.set_for_test(
             (id == primary && input["target_impact"] == true).then(|| TargetKind::Cell(115, 59)),
         );
-        actor.suspended_attack_target = (id == primary)
-            .then(|| input.get("restore_target"))
-            .flatten()
-            .map(|point| {
-                TargetKind::Cell(
-                    point[0].as_u64().unwrap() as u16,
-                    point[1].as_u64().unwrap() as u16,
-                )
-            });
+        actor.suspended_attack_target.set_for_test(
+            (id == primary)
+                .then(|| input.get("restore_target"))
+                .flatten()
+                .map(|point| {
+                    TargetKind::Cell(
+                        point[0].as_u64().unwrap() as u16,
+                        point[1].as_u64().unwrap() as u16,
+                    )
+                }),
+        );
         // Spawn installs the active Drive locomotor; its external class state
         // is lazy (locomotor_owner/AtCoord interpret None as constructor state).
         // Use the existing Stop_Moving owner to materialize that default before
@@ -254,7 +256,7 @@ fn snapshot(
         "impact_land":terrain.cell(115,59).unwrap().yr_cell_land_type,
         "target":target_name(actor.attack_target.target().as_ref()),
         "mission":actor.mission.current().raw(),"suspended":actor.mission.suspended().raw(),
-        "suspended_target":target_name(actor.suspended_attack_target.as_ref()),
+        "suspended_target":target_name(actor.suspended_attack_target.target().as_ref()),
         "nav":if actor.navigation.nav_com.is_none(){"null"}else{"unexpected nav"},
         "head":head,"xyz":[xyz.x,xyz.y,xyz.z],
         "timer":[actor.rearm_timer.start_frame(),0,actor.rearm_timer.duration()],

@@ -792,7 +792,8 @@ fn an_infected_unit_cannot_load_bunker_or_deploy() {
         .entities
         .get_mut(mcv)
         .unwrap()
-        .mcv_deploy_pending = true;
+        .mcv_deploy_pending
+        .set_for_test(true);
     assert!(!arena.sim.deploy_mcv(
         mcv,
         &rules,
@@ -807,6 +808,7 @@ fn an_infected_unit_cannot_load_bunker_or_deploy() {
             .get(mcv)
             .unwrap()
             .mcv_deploy_pending
+            .is_pending()
     );
 }
 

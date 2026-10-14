@@ -2836,7 +2836,7 @@ fn lifecycle_authority_conceal_keeps_object_alive() {
     let entity = sim.substrate.entities.get(1).unwrap();
     assert!(entity.lifecycle.object_alive());
     assert!(entity.lifecycle.in_limbo());
-    assert!(!entity.dying);
+    assert!(!entity.death.is_dying());
     assert!(!sim.substrate.pending_delete.contains_object(&1));
 }
 
@@ -2939,7 +2939,7 @@ fn lifecycle_authority_uninit_limbos_while_alive_then_clears_alive_then_queues()
     assert!(!entity.lifecycle.object_alive());
     assert!(entity.lifecycle.in_limbo());
     assert!(!entity.lifecycle.cell_marked);
-    assert!(entity.dying);
+    assert!(entity.death.is_dying());
     assert_eq!(sim.substrate.pending_delete.object_ids(), vec![1]);
     let limbo = sim
         .lifecycle_test_events
@@ -4684,7 +4684,7 @@ fn lifecycle_authority_animated_death_stays_represented_until_uninit() {
 
     let entity = sim.substrate.entities.get_mut(1).unwrap();
     entity.health.set_for_test(0);
-    entity.dying = true;
+    entity.death.set_dying_for_test(true);
     let tracking = &sim.houses.get(&owner).unwrap().tracking;
     assert_eq!(
         (tracking.units_for_test(), tracking.active_for_test().0),
@@ -6474,7 +6474,7 @@ fn wave_pointer_expiry_target_survives_dying_then_uninit_starts_decay_tail() {
         target.position.rx = 4;
         target.position.ry = 0;
         target.health.set_for_test(0);
-        target.dying = true;
+        target.death.set_dying_for_test(true);
     }
 
     let wave_id = sim.allocate_stable_id();
@@ -6528,7 +6528,7 @@ fn wave_pointer_expiry_owner_allows_dying_damage_then_uninit_nulls_later_calls()
         let owner = sim.substrate.entities.get_mut(owner_id).unwrap();
         owner.set_type_ref_for_test(sim.interner.intern("FIRER"));
         owner.health.set_for_test(0);
-        owner.dying = true;
+        owner.death.set_dying_for_test(true);
         owner
             .attack_target
             .set_for_test(Some(TargetKind::Cell(4, 5)));

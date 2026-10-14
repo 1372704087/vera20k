@@ -158,7 +158,7 @@ fn post_ai_object_alive_gate_precedes_drive_ship_process_slope_sampling() {
             slope_transition::snap_after_successful_unlimbo(entity, 2, 9);
             let old_slope = *slope_transition::state_for_entity(entity).unwrap();
             entity.lifecycle.set_object_alive_for_test(object_alive);
-            assert!(entity.health.current() > 0 && !entity.dying);
+            assert!(entity.health.current() > 0 && !entity.death.is_dying());
 
             let outcome = sim
                 .advance_live_object_turn(1, Some(&rules), techno_ai::ObjectAiCtx::default())

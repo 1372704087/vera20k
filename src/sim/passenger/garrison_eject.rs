@@ -136,7 +136,7 @@ fn sellbuilding_direct_scatter_handoff(
     };
     if pax.category() != EntityCategory::Infantry
         || !pax.is_alive()
-        || pax.dying
+        || pax.death.is_dying()
         || pax.passenger_role.is_inside_transport()
         || pax.locomotor.is_none()
     {
@@ -835,7 +835,7 @@ pub(crate) mod tests {
             .get(passenger_id)
             .expect("passenger should remain");
         assert!(passenger.passenger_role.is_none());
-        assert!(!passenger.dying);
+        assert!(!passenger.death.is_dying());
     }
 
     #[test]
@@ -896,7 +896,7 @@ pub(crate) mod tests {
                 "destruction keeps death-time building owner"
             );
             assert!(pax.passenger_role.is_none());
-            assert!(!pax.dying);
+            assert!(!pax.death.is_dying());
             assert!(!pax.lifecycle.in_limbo());
             assert!(pax.lifecycle.cell_marked);
             assert!(pax.in_logic_vector);
@@ -992,7 +992,7 @@ pub(crate) mod tests {
             .get(passenger_id)
             .expect("player-sell no-exit passenger should remain");
         assert_eq!((passenger.position.rx, passenger.position.ry), (11, 11));
-        assert!(!passenger.dying);
+        assert!(!passenger.death.is_dying());
         assert!(passenger.passenger_role.is_none());
         assert_eq!(sim.scenario_rng.state(), rng_before);
 
@@ -1078,7 +1078,7 @@ pub(crate) mod tests {
             .get(passenger_id)
             .expect("UnInit keeps the no-exit occupant resolvable until the drain");
         assert_eq!(passenger.health.current(), 0);
-        assert!(passenger.dying);
+        assert!(passenger.death.is_dying());
         assert!(passenger.passenger_role.is_none());
         assert!(!passenger.lifecycle.object_alive());
         assert!(passenger.lifecycle.in_limbo());

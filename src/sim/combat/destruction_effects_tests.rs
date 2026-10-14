@@ -533,8 +533,8 @@ fn low_dropped_bombs_use_class_water_splashes_without_debris() {
                 );
                 assert!(entity.lifecycle.object_alive());
                 assert_eq!(entity.health.current(), 0);
-                assert!(entity.infantry_terminal.is_none());
-                assert!(!entity.dying);
+                assert!(entity.death.infantry_terminal().is_none());
+                assert!(!entity.death.is_dying());
                 assert!(!sim.substrate.pending_delete.contains_object(&id));
                 continue;
             }

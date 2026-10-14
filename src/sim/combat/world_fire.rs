@@ -536,7 +536,7 @@ fn unit_reaches_fire_update(world: &Simulation, id: u64) -> bool {
 /// an Infantry's fire and an Aircraft's attack mission do not run for a
 /// Health-0 wreck. Units use their own live-slot IsAlive guard above.
 fn attacker_reaches_fire(entity: &crate::sim::game_entity::GameEntity) -> bool {
-    entity.is_alive() && !entity.dying
+    entity.is_alive() && !entity.death.is_dying()
 }
 
 /// `Fire_At_Target`'s ILLEGAL arm (Unit `0x00736E7E`, Infantry `0x00520721`):
@@ -2381,7 +2381,7 @@ pub(crate) fn tick_combat(
                 // (transported) and objects in the air are exempt.
                 // FootClass::AI asks vt+0x54, IsInAir (`0x004DA588`).
                 if entity.category() == EntityCategory::Structure
-                    || entity.dying
+                    || entity.death.is_dying()
                     || !entity.is_alive()
                     || entity.immune_to_radiation
                     || entity.passenger_role.is_inside_transport()

@@ -510,7 +510,7 @@ fn retail_war_miner_attacks_without_cutting_ore_and_resumes_its_idle_mission() {
             )),
             s.sim.substrate.entities.get(victim).map(|e| (
                 e.health.current(),
-                e.dying,
+                e.death.is_dying(),
                 e.is_object_alive(),
                 e.infantry_sprite_pose(),
             )),

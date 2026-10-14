@@ -521,10 +521,10 @@ pub fn can_enter_transport(
     };
     // These are order/UI lifecycle admission, not extra receiver0F gates.
     if !passenger.is_alive()
-        || passenger.dying
+        || passenger.death.is_dying()
         || passenger.passenger_role.is_inside_transport()
         || !transport.is_alive()
-        || transport.dying
+        || transport.death.is_dying()
     {
         return false;
     }
@@ -819,7 +819,7 @@ pub(crate) fn process_boarding_passenger(
         .substrate
         .entities
         .get(transport_id)
-        .is_some_and(|t| t.is_alive() && !t.dying);
+        .is_some_and(|t| t.is_alive() && !t.death.is_dying());
     if !transport_alive {
         if let Some(e) = sim.substrate.entities.get_mut(pax_id) {
             e.passenger_role.clear_carrier_relation();
@@ -2375,7 +2375,7 @@ ConditionYellow=50%
             .get(pax)
             .expect("occupant should still exist");
         assert!(passenger.passenger_role.is_none());
-        assert!(!passenger.dying);
+        assert!(!passenger.death.is_dying());
         assert_eq!((passenger.position.rx, passenger.position.ry), (12, 12));
 
         assert!(sim.sound_events.iter().any(|event| {
@@ -3296,7 +3296,7 @@ ConditionYellow=50%
         ] {
             let pax = sim.substrate.entities.get(pid).expect("survivor present");
             assert!(pax.is_alive(), "occupant {pid} should be alive");
-            assert!(!pax.dying, "occupant {pid} should not be dying");
+            assert!(!pax.death.is_dying(), "occupant {pid} should not be dying");
             assert!(pax.passenger_role.is_none());
             assert_eq!(
                 sim.interner.resolve(pax.owner()),

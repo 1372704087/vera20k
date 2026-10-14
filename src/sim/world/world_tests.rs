@@ -2436,7 +2436,12 @@ fn uninit_removes_all_structure_foundation_cells() {
         );
     }
     // Two-phase: still resolvable-but-Dying until the drain frees the slot.
-    assert!(sim.substrate.entities.get(10).is_some_and(|e| e.dying));
+    assert!(
+        sim.substrate
+            .entities
+            .get(10)
+            .is_some_and(|e| e.death.is_dying())
+    );
     sim.flush_pending_delete();
     assert!(sim.substrate.entities.get(10).is_none());
     sim.debug_assert_logic_membership_consistent();
@@ -2569,7 +2574,12 @@ fn despawn_entity_clears_live_radio_contacts() {
 
     // Radio contacts are cleared synchronously in uninit, before the deferred free;
     // the despawned entity stays resolvable-but-Dying until the drain.
-    assert!(sim.substrate.entities.get(1).is_some_and(|e| e.dying));
+    assert!(
+        sim.substrate
+            .entities
+            .get(1)
+            .is_some_and(|e| e.death.is_dying())
+    );
     assert!(
         sim.substrate
             .entities
@@ -3552,7 +3562,7 @@ fn guard_infantry_acquire_return_fire_and_finish_a_duel() {
                 .filter(|event| event.attacker_id == id)
                 .count();
             if let Some(target) = sim.substrate.entities.get(id)
-                && !target.dying
+                && !target.death.is_dying()
             {
                 health_history[index].push(target.health.current());
                 alive.push(index);
@@ -4092,7 +4102,8 @@ fn short_game_counts_a_dying_base_unit_until_it_is_deleted() {
         .entities
         .get_mut(1)
         .expect("AMCV inserted")
-        .dying = true;
+        .death
+        .set_dying_for_test(true);
 
     check_defeat_now(&mut sim, Some(&rules));
     assert!(!sim.houses[&owner].is_defeated, "still tracked");
@@ -5244,7 +5255,10 @@ fn test_bridge_collapse_kills_ground_unit_under_destroyed_cell() {
         .get(id)
         .expect("ground unit retained until pending deletion drains");
     assert_eq!(e.health.current(), 0, "kill_ground_occupants_at zeroed HP");
-    assert!(e.dying, "direct receiver completed death before returning");
+    assert!(
+        e.death.is_dying(),
+        "direct receiver completed death before returning"
+    );
     assert!(e.attack_target.target().is_none());
     assert!(crate::sim::movement::motion_query::is_moving(&e) != Some(true));
 }
@@ -7598,7 +7612,7 @@ fn test_attack_move_lethal_hit_expires_the_target_at_the_kill() {
         .get(2)
         .expect("animated victim remains stored through its death sequence");
     assert_eq!(victim.health.current(), 0);
-    assert!(victim.dying);
+    assert!(victim.death.is_dying());
     assert!(victim.lifecycle.object_alive());
 
     let attacker = sim.substrate.entities.get(1).expect("attacker exists");
@@ -8504,7 +8518,12 @@ fn immediate_structure_death_is_dying_then_flushed() {
 
     // The deferred-delete window: still in the store as Dying, but off logic +
     // off occupancy + enqueued for the end-of-tick drain.
-    assert!(sim.substrate.entities.get(7).is_some_and(|e| e.dying));
+    assert!(
+        sim.substrate
+            .entities
+            .get(7)
+            .is_some_and(|e| e.death.is_dying())
+    );
     assert!(!sim.live_object_order_snapshot().contains(&7));
     for cell in [(4, 5), (4, 6), (5, 5), (5, 6)] {
         assert!(
@@ -8533,8 +8552,18 @@ fn mutual_same_tick_death_both_dying_then_flushed() {
     let mut a = build();
     a.uninit(1);
     a.uninit(2);
-    assert!(a.substrate.entities.get(1).is_some_and(|e| e.dying));
-    assert!(a.substrate.entities.get(2).is_some_and(|e| e.dying));
+    assert!(
+        a.substrate
+            .entities
+            .get(1)
+            .is_some_and(|e| e.death.is_dying())
+    );
+    assert!(
+        a.substrate
+            .entities
+            .get(2)
+            .is_some_and(|e| e.death.is_dying())
+    );
     // Drain order = death (enqueue) order, deterministic.
     assert_eq!(a.substrate.pending_delete.object_ids(), vec![1, 2]);
 
@@ -8570,7 +8599,12 @@ fn animated_death_uninit_waits_for_ordinary_tail_drain() {
     sim.reveal(5);
 
     sim.uninit(5);
-    assert!(sim.substrate.entities.get(5).is_some_and(|e| e.dying));
+    assert!(
+        sim.substrate
+            .entities
+            .get(5)
+            .is_some_and(|e| e.death.is_dying())
+    );
     assert!(sim.substrate.pending_delete.contains_object(&5));
 
     sim.advance_tick(&[], None, None, None, 67);

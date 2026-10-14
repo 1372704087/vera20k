@@ -197,7 +197,7 @@ fn held_infantry_survives_launch(name: &str) {
             100,
             "{name} must use marked cell membership: {id}"
         );
-        assert!(!object.dying);
+        assert!(!object.death.is_dying());
         assert!(
             object.lifecycle.in_limbo() && !object.lifecycle.cell_marked && !object.in_logic_vector
         );
@@ -302,7 +302,7 @@ fn infantry_terminal_effect_only_cleanup_follows_recursive_deaths() {
     for id in [parent, child] {
         let entity = sim.substrate.entities.get(id).unwrap();
         assert!(entity.lifecycle.in_limbo() && !entity.in_logic_vector);
-        assert!(entity.infantry_terminal.is_none());
+        assert!(entity.death.infantry_terminal().is_none());
     }
     sim.advance_tick(&[], Some(&rules), None, None, 100);
     assert!(!sim.substrate.entities.contains(parent));
@@ -441,7 +441,7 @@ fn infantry_terminal_receiver_sequences_finish_through_production_frames() {
             .unwrap();
         launch_command(&mut sim, &rules, "IC", 5, 5);
         let object = sim.substrate.entities.get(victim).unwrap();
-        assert!(object.dying && object.infantry_terminal.is_some());
+        assert!(object.death.is_dying() && object.death.infantry_terminal().is_some());
         assert_eq!(object.infantry_sprite_pose(), Some((doing, 0)));
         assert_eq!(object.native_stage().rate(), 1);
         assert_eq!(object.native_stage().timer().start_frame(), 0);
@@ -488,7 +488,7 @@ fn infantry_terminal_zero_count_death_request_retains_the_previous_action() {
     // longer invents immediate retirement for a refused class action.
     assert_eq!(object.infantry_sprite_pose(), Some((0, before.value())));
     assert_eq!(*object.native_stage(), before);
-    assert!(object.dying && object.lifecycle.cell_marked && object.in_logic_vector);
+    assert!(object.death.is_dying() && object.lifecycle.cell_marked && object.in_logic_vector);
 }
 
 #[test]
@@ -657,7 +657,7 @@ fn iron_curtain_command_forces_authored_strength_and_attributes_retained_deaths(
         0,
         "forced C4 bypasses prior invulnerability"
     );
-    assert!(dead.dying && dead.lifecycle.cell_marked && dead.in_logic_vector);
+    assert!(dead.death.is_dying() && dead.lifecycle.cell_marked && dead.in_logic_vector);
     assert_eq!(dead.infantry_sprite_pose(), Some((12, 0)));
     assert_eq!(dead.killed_by, Some(owner));
     // The ordinary sequence still owns the object; the existing shared UnInit
@@ -840,7 +840,7 @@ fn command_uses_packed_aliases_and_stamps_missing_cells(name: &str, object_type:
         launch_command(&mut sim, &rules, name, 5, 5);
         let object = sim.substrate.entities.get(victim).unwrap();
         assert_eq!(object.health.current(), original_hp);
-        assert!(!object.dying && object.invulnerability.is_none());
+        assert!(!object.death.is_dying() && object.invulnerability.is_none());
         assert_eq!(
             sim.effective_shared_cell_dummy().snapshot().coord,
             if mapless { (6, 6) } else { (5, 5) },
@@ -964,7 +964,7 @@ fn iron_curtain_command_observes_native_deck_order_after_nested_bridge_drop_in()
     launch_command(&mut sim, &rules, "IC", 5, 5);
     let current = sim.substrate.entities.get(boomer).unwrap();
     assert!(
-        current.dying && !current.on_bridge,
+        current.death.is_dying() && !current.on_bridge,
         "nested fallout relayers the retained current receiver"
     );
     let recipient = sim.substrate.entities.get(tank).unwrap();

@@ -63,7 +63,7 @@ fn return_exceeds_too_far_threshold(
 ) -> Option<bool> {
     let miner = sim.substrate.entities.get(miner_sid)?;
     let refinery = sim.substrate.entities.get(refinery_sid)?;
-    if refinery.dying || refinery.health.current() == 0 {
+    if refinery.death.is_dying() || refinery.health.current() == 0 {
         return None;
     }
 
@@ -414,7 +414,7 @@ pub(super) fn build_miner_snapshot(sim: &Simulation, id: u64) -> Option<MinerSna
     let entity = sim.substrate.entities.get(id)?;
     // A Dying miner corpse (sold/captured this tick, awaiting the end-of-tick
     // drain) must not move, harvest, or deposit.
-    if entity.dying {
+    if entity.death.is_dying() {
         return None;
     }
     // A Slave Miner's own Mission_Harvest is HandleReturnedSlaves
@@ -497,7 +497,7 @@ pub(crate) fn unit_ai_clear_harvesting(sim: &mut Simulation, id: u64) {
     let Some(entity) = sim.substrate.entities.get_mut(id) else {
         return;
     };
-    if entity.dying
+    if entity.death.is_dying()
         || entity.category() != EntityCategory::Unit
         || native_mission_is_harvest(entity)
         || !entity.miner.as_ref().is_some_and(|miner| miner.harvesting)
@@ -984,7 +984,7 @@ fn handle_return(
             .entities
             .get(bay)
             .filter(|entity| {
-                !entity.dying
+                !entity.death.is_dying()
                     && entity.health.current() != 0
                     && entity.radio_contacts.has_free_or(id)
             })
@@ -1251,7 +1251,7 @@ fn refinery_building_in_cell(sim: &Simulation, rules: &RuleSet, cell: (u16, u16)
     occupancy.blockers(MovementLayer::Ground).find(|&sid| {
         sim.substrate.entities.get(sid).is_some_and(|entity| {
             entity.category() == EntityCategory::Structure
-                && !entity.dying
+                && !entity.death.is_dying()
                 && sim
                     .object_type(entity.type_ref(), rules)
                     .is_some_and(|obj| obj.refinery)
@@ -1476,7 +1476,7 @@ fn scan_docking_type(
         }
         // gamemd removes a dead building from the house list through
         // Limbo; VERA keeps the entity through its death animation.
-        if entity.dying || entity.health.current() == 0 {
+        if entity.death.is_dying() || entity.health.current() == 0 {
             continue;
         }
         if !wide && !entity.radio_contacts.has_free_or(requester) {
@@ -1687,7 +1687,7 @@ pub(crate) fn counts_as_purifier(
     // A Dying purifier corpse (sold/destroyed this tick) must not keep paying
     // its deposit bonus until the end-of-tick drain; a limbo'd one already
     // took the native Limbo `DEC`.
-    !e.dying
+    !e.death.is_dying()
         && !e.lifecycle.in_limbo()
         && !e.building_up()
         && e.category() == EntityCategory::Structure

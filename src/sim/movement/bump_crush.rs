@@ -166,7 +166,7 @@ pub(crate) fn blocker_plane_source(
     }
     // Dying corpses are off the occupancy grid: don't let them inflate the
     // A* dynamic-blocker neighbor costs.
-    if entity.dying || !entity.lifecycle.cell_marked {
+    if entity.death.is_dying() || !entity.lifecycle.cell_marked {
         return None;
     }
     if entity.passenger_role.is_inside_transport()

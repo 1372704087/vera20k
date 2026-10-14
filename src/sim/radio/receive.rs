@@ -1795,7 +1795,7 @@ fn bunker_admits(sim: &Simulation, bld: u64, unit: u64) -> bool {
     let Some(b) = sim.substrate.entities.get(bld) else {
         return false;
     };
-    if b.dying || b.health.current() == 0 {
+    if b.death.is_dying() || b.health.current() == 0 {
         return false;
     }
     if b.owner() != unit_owner {

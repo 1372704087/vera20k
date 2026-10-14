@@ -562,7 +562,7 @@ fn kill_tick_unit_facing_holds_target() {
         .substrate
         .entities
         .get(2)
-        .map(|t| t.health.current() == 0 || t.dying)
+        .map(|t| t.health.current() == 0 || t.death.is_dying())
         .unwrap_or(true);
     assert!(
         target_dead,
@@ -622,7 +622,7 @@ fn kill_tick_barrel_holds_target_facing() {
         sim.substrate
             .entities
             .get(2)
-            .map(|t| t.health.current() == 0 || t.dying)
+            .map(|t| t.health.current() == 0 || t.death.is_dying())
             .unwrap_or(true),
         "precondition: the target died on this tick"
     );
@@ -691,7 +691,10 @@ fn facing_apply_point_equivalence_no_kill() {
         sim.advance_tick(&[], Some(&rules), None, None, 67);
         // No deaths/retargets in this scenario — assert preconditions hold.
         assert!(
-            sim.substrate.entities.get(2).is_some_and(|t| !t.dying),
+            sim.substrate
+                .entities
+                .get(2)
+                .is_some_and(|t| !t.death.is_dying()),
             "tick {tick}: scenario must stay kill-free"
         );
         for id in [1u64, 3] {
@@ -791,7 +794,7 @@ fn co_attacker_facing_matches_killer() {
         sim.substrate
             .entities
             .get(2)
-            .map(|t| t.health.current() == 0 || t.dying)
+            .map(|t| t.health.current() == 0 || t.death.is_dying())
             .unwrap_or(true),
         "precondition: the target died on this tick"
     );

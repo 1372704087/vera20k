@@ -2412,18 +2412,18 @@ impl Simulation {
             self.substrate.logic.snapshot().into_iter().collect();
         for (object_id, entity) in self.substrate.entities.iter_sorted() {
             let infantry = entity.category() == crate::map::entities::EntityCategory::Infantry;
-            if (entity.infantry_terminal.is_some()
+            if (entity.death.infantry_terminal().is_some()
                 && (!infantry
-                    || !entity.dying
+                    || !entity.death.is_dying()
                     || !entity.lifecycle.object_alive()
                     || (!entity.lifecycle.in_limbo()
                         && !terminal_logic_members.contains(&object_id))))
-                || entity.infantry_terminal
+                || entity.death.infantry_terminal()
                     == Some(crate::sim::world::InfantryTerminal::AwaitingConsequences)
                 || (infantry
-                    && entity.dying
+                    && entity.death.is_dying()
                     && entity.lifecycle.object_alive()
-                    && entity.infantry_terminal.is_none())
+                    && entity.death.infantry_terminal().is_none())
             {
                 return Err(SnapshotRestoreError::InvalidInfantryTerminalState { object_id });
             }
@@ -4565,10 +4565,10 @@ mod tests {
             let mut sim = Simulation::new();
             let mut entity = GameEntity::test_default(1, "E1", "Americans", 5, 5);
             entity.set_category_for_test(category);
-            entity.dying = dying;
+            entity.death.set_dying_for_test(dying);
             entity.lifecycle.set_object_alive_for_test(object_alive);
             entity.lifecycle.set_in_limbo_for_test(in_limbo);
-            entity.infantry_terminal = terminal;
+            entity.death.set_infantry_terminal_for_test(terminal);
             sim.substrate.entities.insert(entity);
             let bytes = GameSnapshot::save(&sim, 0, 0, "test_map", 0);
             let mut restored = GameSnapshot::load(&bytes).unwrap().sim;
@@ -8489,7 +8489,7 @@ mod tests {
         entity.lifecycle.set_in_limbo_for_test(true);
         entity.lifecycle.cell_marked = false;
         entity.in_logic_vector = false;
-        entity.dying = true;
+        entity.death.set_dying_for_test(true);
         entity.dirty_rect_eligible = true;
         entity.destruction_recorded = true;
         sim.substrate.entities.insert(entity);
@@ -8509,7 +8509,7 @@ mod tests {
         assert!(restored_entity.lifecycle.in_limbo());
         assert!(!restored_entity.lifecycle.cell_marked);
         assert!(!restored_entity.in_logic_vector);
-        assert!(restored_entity.dying);
+        assert!(restored_entity.death.is_dying());
         assert!(restored_entity.dirty_rect_eligible);
         assert!(restored_entity.destruction_recorded);
         assert_eq!(
@@ -9072,7 +9072,12 @@ mod tests {
         sim.reveal(2);
         sim.uninit(2);
         // Two-phase: resolvable-but-Dying until the drain, off the logic order now.
-        assert!(sim.substrate.entities.get(2).is_some_and(|e| e.dying));
+        assert!(
+            sim.substrate
+                .entities
+                .get(2)
+                .is_some_and(|e| e.death.is_dying())
+        );
         assert!(sim.live_object_order_snapshot().is_empty());
         sim.flush_pending_delete();
         assert!(sim.substrate.entities.get(2).is_none());
@@ -9090,7 +9095,12 @@ mod tests {
         sim.reveal(3);
         sim.despawn_entity(3);
         // Two-phase: resolvable-but-Dying until the drain, off the logic order now.
-        assert!(sim.substrate.entities.get(3).is_some_and(|e| e.dying));
+        assert!(
+            sim.substrate
+                .entities
+                .get(3)
+                .is_some_and(|e| e.death.is_dying())
+        );
         assert!(sim.live_object_order_snapshot().is_empty());
         sim.flush_pending_delete();
         assert!(sim.substrate.entities.get(3).is_none());

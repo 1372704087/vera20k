@@ -426,7 +426,11 @@ mod tests {
             .unwrap()
             .lifecycle
             .set_in_limbo_for_test(false);
-        sim.entities_mut().get_mut(17).unwrap().dying = true;
+        sim.entities_mut()
+            .get_mut(17)
+            .unwrap()
+            .death
+            .set_dying_for_test(true);
         assert!(command.resolve(&sim, &rules).is_err());
     }
 

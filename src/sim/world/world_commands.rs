@@ -1301,7 +1301,7 @@ impl Simulation {
                         && self
                             .object_type(e.type_ref(), rules)
                             .is_some_and(|object| e.health.current() < object.strength)
-                        && !e.dying
+                        && !e.death.is_dying()
                 });
                 if !entity_ok {
                     return false;
@@ -1657,7 +1657,7 @@ impl Simulation {
                         if b.category() != crate::map::entities::EntityCategory::Structure {
                             return None;
                         }
-                        if b.dying {
+                        if b.death.is_dying() {
                             return None;
                         }
                         let obj = self.object_type(b.type_ref(), rules)?;
@@ -2220,7 +2220,7 @@ impl Simulation {
         if refinery.category() != crate::map::entities::EntityCategory::Structure {
             return false;
         }
-        if refinery.health.current() == 0 || refinery.dying || refinery.building_up() {
+        if refinery.health.current() == 0 || refinery.death.is_dying() || refinery.building_up() {
             return false;
         }
         let refinery_owner = self.interner.resolve(refinery.owner());

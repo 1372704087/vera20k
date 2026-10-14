@@ -160,7 +160,9 @@ fn spy_planes(sim: &Simulation) -> Vec<u64> {
     sim.substrate
         .entities
         .values()
-        .filter(|entity| sim.interner.resolve(entity.type_ref()) == "SPYP" && !entity.dying)
+        .filter(|entity| {
+            sim.interner.resolve(entity.type_ref()) == "SPYP" && !entity.death.is_dying()
+        })
         .map(|entity| entity.stable_id())
         .collect()
 }

@@ -670,7 +670,7 @@ fn deployed_type<'a>(sim: &'a Simulation, type_name: &str) -> &'a GameEntity {
     sim.substrate
         .entities
         .values()
-        .find(|entity| entity.type_ref() == type_id && !entity.dying)
+        .find(|entity| entity.type_ref() == type_id && !entity.death.is_dying())
         .expect("deployed target exists")
 }
 
@@ -919,7 +919,7 @@ fn base_plan_recalc_deploy_countryless_empty_plan_fails_before_removal() {
         crate::sim::world::FrameEffects::default()
     ));
 
-    assert!(!sim.substrate.entities.get(mcv).unwrap().dying);
+    assert!(!sim.substrate.entities.get(mcv).unwrap().death.is_dying());
     let house = &sim.houses[&owner];
     assert_eq!(house.base_center, None);
     assert_eq!(house.base_plan_center, (0, 0));
@@ -950,7 +950,7 @@ fn base_plan_recalc_deploy_failures_preserve_source_rng_plan_and_centers() {
         let rng_before = sim.scenario_rng.state();
 
         assert!(!sim.deploy_mcv(mcv, rules, None, crate::sim::world::FrameEffects::default()));
-        assert!(!sim.substrate.entities.get(mcv).unwrap().dying);
+        assert!(!sim.substrate.entities.get(mcv).unwrap().death.is_dying());
         let house = &sim.houses[&owner];
         assert_eq!(house.base_center, None);
         assert_eq!(house.base_plan_center, (0, 0));

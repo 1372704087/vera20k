@@ -600,7 +600,9 @@ fn a_shot_down_aircraft_falls_and_detonates_through_advance_tick() {
         .entities
         .get(1)
         .expect("a crashing aircraft stays represented");
-    assert!(entity.crash.is_crashing() && entity.lifecycle.object_alive() && !entity.dying);
+    assert!(
+        entity.crash.is_crashing() && entity.lifecycle.object_alive() && !entity.death.is_dying()
+    );
     assert_eq!(entity.health.current(), 0);
     assert_eq!(entity.killed_by, Some(soviets));
     assert!(
@@ -1046,7 +1048,9 @@ fn a_shot_down_jumpjet_crashes_through_the_production_receiver() {
         .entities
         .get(1)
         .expect("a crashing unit stays");
-    assert!(entity.crash.is_crashing() && entity.lifecycle.object_alive() && !entity.dying);
+    assert!(
+        entity.crash.is_crashing() && entity.lifecycle.object_alive() && !entity.death.is_dying()
+    );
     assert_eq!(entity.health.current(), 0);
     assert!(
         entity

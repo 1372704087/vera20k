@@ -1753,12 +1753,12 @@ mod tests {
             "unlinked retired object is not a ground receiver"
         );
         assert!(!retired.lifecycle.object_alive());
-        assert!(retired.infantry_terminal.is_none());
+        assert!(retired.death.infantry_terminal().is_none());
         assert_eq!(sim.substrate.pending_delete.object_ids(), vec![3, 1]);
 
         let g = sim.substrate.entities.get(1).expect("ground unit present");
         assert_eq!(g.health.current(), 0, "ground occupant is force-killed");
-        assert!(g.dying, "ground occupant flagged dying");
+        assert!(g.death.is_dying(), "ground occupant flagged dying");
 
         let a = sim.substrate.entities.get(2).expect("aircraft present");
         assert_eq!(
@@ -1766,7 +1766,7 @@ mod tests {
             256,
             "aircraft overflying the collapse cell must NOT be killed"
         );
-        assert!(!a.dying, "aircraft not flagged dying");
+        assert!(!a.death.is_dying(), "aircraft not flagged dying");
     }
 
     /// `CellClass::BlowUpBridge @ 0x0047DDAE` kills each ground occupant
@@ -1850,7 +1850,7 @@ mod tests {
             "each human kill publishes its type-7 request (the client's radar              array dedupes them); the AI kill is silent"
         );
         for id in 1..=3 {
-            assert!(sim.substrate.entities.get(id).unwrap().dying);
+            assert!(sim.substrate.entities.get(id).unwrap().death.is_dying());
         }
     }
 }

@@ -1043,7 +1043,7 @@ fn missile_impact_kills_through_the_shared_death_pipeline() {
         sim.substrate
             .entities
             .get(target)
-            .is_none_or(|t| t.dying || !t.lifecycle.object_alive()),
+            .is_none_or(|t| t.death.is_dying() || !t.lifecycle.object_alive()),
         "a target the missile takes to zero must actually die, not stand at 0 HP"
     );
 }
@@ -1083,7 +1083,7 @@ fn v3_attack_order_damages_the_target_through_the_spawned_rocket() {
             .substrate
             .entities
             .get(target)
-            .is_none_or(|t| t.dying || !t.lifecycle.object_alive());
+            .is_none_or(|t| t.death.is_dying() || !t.lifecycle.object_alive());
         if gone {
             destroyed = true;
             break;
@@ -1174,7 +1174,7 @@ fn a_live_spawners_own_expiry_rebuilds_its_docked_missile() {
         sim.substrate
             .entities
             .get(docked)
-            .is_none_or(|c| c.dying || !c.lifecycle.object_alive()),
+            .is_none_or(|c| c.death.is_dying() || !c.lifecycle.object_alive()),
         "the docked missile UnInits"
     );
     let frame = sim.session.binary_frame as i32;
@@ -1232,7 +1232,7 @@ fn owner_death_destroys_docked_children() {
             sim.substrate
                 .entities
                 .get(child)
-                .is_none_or(|c| c.dying || !c.lifecycle.object_alive()),
+                .is_none_or(|c| c.death.is_dying() || !c.lifecycle.object_alive()),
             "docked children die with the parent (Kill_All_Spawns)"
         );
     }
@@ -1418,7 +1418,7 @@ fn launcher_death_destroys_a_missile_already_in_flight() {
         sim.substrate
             .entities
             .get(child_id)
-            .is_none_or(|c| c.dying || !c.lifecycle.object_alive()),
+            .is_none_or(|c| c.death.is_dying() || !c.lifecycle.object_alive()),
         "an in-flight missile dies with its launcher (Kill_All_Spawns state-1 arm)"
     );
 }
@@ -1560,7 +1560,7 @@ fn ownership_change_clears_the_pool_and_rearms_without_a_regen_wait() {
             sim.substrate
                 .entities
                 .get(child)
-                .is_none_or(|c| c.dying || !c.lifecycle.object_alive()),
+                .is_none_or(|c| c.death.is_dying() || !c.lifecycle.object_alive()),
             "docked children of the previous owner are destroyed"
         );
     }

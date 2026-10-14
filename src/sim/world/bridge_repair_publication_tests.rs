@@ -1463,7 +1463,7 @@ fn repair_receiver_failure_stops_runtime_before_consumption_or_frame_commit() {
     let sim = &runtime.simulation;
     assert_eq!((sim.session.tick, sim.session.binary_frame), frame);
     let e = sim.substrate.entities.get(engineer).unwrap();
-    assert!(e.lifecycle.object_alive() && !e.lifecycle.in_limbo() && !e.dying);
+    assert!(e.lifecycle.object_alive() && !e.lifecycle.in_limbo() && !e.death.is_dying());
     assert_eq!(
         e.navigation.nav_com, original_nav,
         "post-repair expiry was not reached"
@@ -2011,7 +2011,7 @@ fn failed_jumpjet_stop_stock_fatal_receiver_precedes_cache_retirement() {
         assert_eq!(json!(state.phase()), row["output"]["state"]["phase"]);
         if row["input"]["health"] == 100 {
             assert!(
-                e.dying || !e.is_alive(),
+                e.death.is_dying() || !e.is_alive(),
                 "fatal receiver/lifecycle completed before Stop returns"
             );
             assert_eq!(row["output"]["damage_trace"][1]["health"], 0);
@@ -2021,7 +2021,10 @@ fn failed_jumpjet_stop_stock_fatal_receiver_precedes_cache_retirement() {
                 "native HP0 precedes callback and cache clear"
             );
         } else {
-            assert!(!e.dying, "nonpositive-health Stop never dispatches damage");
+            assert!(
+                !e.death.is_dying(),
+                "nonpositive-health Stop never dispatches damage"
+            );
             assert!(row["output"]["damage_trace"].as_array().unwrap().is_empty());
         }
     }

@@ -1198,7 +1198,7 @@ impl Simulation {
                 .substrate
                 .entities
                 .get(id)
-                .is_none_or(|entity| entity.dying || !entity.lifecycle.object_alive())
+                .is_none_or(|entity| entity.death.is_dying() || !entity.lifecycle.object_alive())
             {
                 return true;
             }

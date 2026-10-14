@@ -278,7 +278,12 @@ fn a_computer_spy_holding_a_dying_building_keeps_its_mission() {
         let mut sim = arena(&rules);
         let target = spawn(&mut sim, &rules, "NAPOWR", "Americans", 16, 10);
         let actor = spawn(&mut sim, &rules, "SPY", "Russians", 10, 10);
-        sim.substrate.entities.get_mut(target).unwrap().dying = true;
+        sim.substrate
+            .entities
+            .get_mut(target)
+            .unwrap()
+            .death
+            .set_dying_for_test(true);
         sim.substrate
             .entities
             .get_mut(actor)
@@ -313,7 +318,12 @@ fn a_deployed_computer_infantryman_hunting_without_a_target_undeploys() {
         if stale_target {
             // A dying Target, which the native detach has already cleared.
             let victim = spawn(&mut sim, &rules, "GI", "Americans", 14, 10);
-            sim.substrate.entities.get_mut(victim).unwrap().dying = true;
+            sim.substrate
+                .entities
+                .get_mut(victim)
+                .unwrap()
+                .death
+                .set_dying_for_test(true);
             sim.substrate
                 .entities
                 .get_mut(actor)

@@ -58,7 +58,7 @@ impl Simulation {
                 entity.lifecycle.object_alive()
                     && !entity.lifecycle.in_limbo()
                     && entity.lifecycle.cell_marked
-                    && !entity.dying
+                    && !entity.death.is_dying()
                     && entity.health.current() > 0
             })
             .map(|entity| entity.stable_id())

@@ -58,7 +58,7 @@ impl Simulation {
         let Some(entity) = self.substrate.entities.get_mut(id) else {
             return false;
         };
-        if entity.dying || !entity.lifecycle.object_alive() {
+        if entity.death.is_dying() || !entity.lifecycle.object_alive() {
             return false;
         }
         if entity.low_bridge_tube_state.is_some()

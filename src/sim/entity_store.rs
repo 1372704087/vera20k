@@ -19,35 +19,14 @@
 //! - sim/ NEVER depends on render/, ui/, audio/, net/.
 
 use std::collections::{BTreeMap, HashMap};
-use std::hash::{BuildHasherDefault, Hasher};
 
 use crate::sim::game_entity::GameEntity;
 use crate::sim::touch_log::{TouchLog, Touched};
+use crate::util::lookup_hash::LookupMap;
 
 /// Only this module can authorize a live indexed-owner write.
 /// Payload consumers can read owner identity but cannot construct this capability.
 pub(crate) struct OwnerChangeAuthority(());
-
-/// Hashes a stable id for the slot index (FxHash's multiply). The index is
-/// only looked up, never iterated, so its order cannot reach a result.
-#[derive(Default)]
-struct IdHasher(u64);
-
-impl Hasher for IdHasher {
-    fn write(&mut self, bytes: &[u8]) {
-        for &byte in bytes {
-            self.write_u64(u64::from(byte));
-        }
-    }
-
-    fn write_u64(&mut self, id: u64) {
-        self.0 = (self.0.rotate_left(5) ^ id).wrapping_mul(0x51_7c_c1_b7_27_22_0a_95);
-    }
-
-    fn finish(&self) -> u64 {
-        self.0
-    }
-}
 
 /// Container for all game entities, keyed by stable_id.
 ///
@@ -66,8 +45,9 @@ pub struct EntityStore {
     /// remove and compaction move pointers, not entities. serde writes a
     /// `Box<T>` as its `T`.
     entities: Vec<Option<Box<GameEntity>>>,
-    /// stable_id -> slot, for every slot that holds an entity.
-    slot_of: HashMap<u64, u32, BuildHasherDefault<IdHasher>>,
+    /// stable_id -> slot, for every slot that holds an entity. Only looked
+    /// up, never iterated, so its order cannot reach a result.
+    slot_of: LookupMap<u64, u32>,
     /// Derived InfantryClass registry, in monotonic construction-ID order.
     /// Uninit retains an entry; remove compacts it. Class/category is immutable
     /// while stored, like indexed identity (replace through remove/insert).

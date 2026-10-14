@@ -45,6 +45,7 @@ use crate::rules::voxel_anim_type::{VoxelAnimType, VoxelAnimTypeId};
 use crate::rules::warhead_type::WarheadType;
 use crate::rules::weapon_type::WeaponType;
 use crate::util::fixed_math::{SIM_ONE, SimFixed, sim_from_f32};
+use crate::util::lookup_hash::LookupMap;
 use crate::util::native_x87::{NativeF32Bits, NativeF64Bits};
 
 #[cfg(test)]
@@ -3588,7 +3589,7 @@ pub struct RuleSet {
     object_list: Vec<ObjectType>,
     /// Uppercase type ID → handle. Uppercase keys give O(1) case-insensitive
     /// resolution, matching the engine's case-insensitive find-or-allocate.
-    object_index: HashMap<String, TypeHandle>,
+    object_index: LookupMap<String, TypeHandle>,
     /// Per-native-registry identity authority. Unlike the broad lookup above,
     /// this retains distinct types when malformed/custom rules list the same
     /// ID in more than one category.
@@ -4090,7 +4091,7 @@ impl RuleSet {
         country_side_registry: ProjectedCountrySideRegistry,
     ) -> Result<Self, RulesError> {
         let mut object_list: Vec<ObjectType> = Vec::new();
-        let mut object_index: HashMap<String, TypeHandle> = HashMap::new();
+        let mut object_index: LookupMap<String, TypeHandle> = LookupMap::default();
         let mut object_category_index: HashMap<(ObjectCategory, String), TypeHandle> =
             HashMap::new();
         let mut type_array_indices: HashMap<(ObjectCategory, String), i32> = HashMap::new();
@@ -4736,7 +4737,13 @@ impl RuleSet {
 
     /// Resolve a type name to its handle, case-insensitively (engine parity).
     pub fn type_handle(&self, id: &str) -> Option<TypeHandle> {
-        self.object_index.get(&id.to_ascii_uppercase()).copied()
+        // The keys are uppercase, so a name without a lowercase letter is its
+        // own key and needs no uppercase copy.
+        if id.bytes().any(|byte| byte.is_ascii_lowercase()) {
+            self.object_index.get(&id.to_ascii_uppercase()).copied()
+        } else {
+            self.object_index.get(id).copied()
+        }
     }
 
     /// Dereference a handle to its object. Handles only originate from this
@@ -9299,8 +9306,8 @@ Projectile=Invisible
         // assert both the upper- and lower-cased forms resolve to the same entry.
         // Toggling case guarantees at least one form differs from the stored key,
         // so the case-fold scan path (not just exact match) is exercised.
-        fn check_ci<'a, M, V>(
-            map: &'a HashMap<String, M>,
+        fn check_ci<'a, M, V, S>(
+            map: &'a HashMap<String, M, S>,
             lookup: impl Fn(&str) -> Option<&'a V>,
             label: &str,
         ) where

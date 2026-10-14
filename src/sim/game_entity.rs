@@ -487,10 +487,11 @@ pub struct GameEntity {
     /// orders, fire, the select voice and the voxel draw read it.
     #[serde(default)]
     pub(crate) deactivated: bool,
-    /// A building's repair byte (`BuildingClass+0x6E8`), which only
-    /// `production::toggle_repair` sets; the repair step pays for each
-    /// `RepairStep=` of health while it is on.
-    pub repairing: bool,
+    /// A building's repair byte (`BuildingClass+0x6E8`), a [`RepairByte`]
+    /// that `production::production_repair` owns.
+    ///
+    /// [`RepairByte`]: crate::sim::production::RepairByte
+    pub(crate) repairing: crate::sim::production::RepairByte,
     /// LogicClass active-vector membership — mirrors gamemd ObjectClass+0x98.
     /// True iff this entity is currently in `Simulation::logic`. Not serialized:
     /// Rust snapshots rebuild it from the serialized LogicVector order. Exact
@@ -649,26 +650,13 @@ pub struct GameEntity {
     /// [`Tether`]: crate::sim::radio::Tether
     #[serde(default)]
     pub(crate) tether: crate::sim::radio::Tether,
-    /// Persistent TechnoClass hostile-hit latch (`WasAttackedByEnemy`, native
-    /// byte +0x3D1). It is independent of retaliation's transient attacker
-    /// pointer and is consumed by the building AI low-credit sell decision.
+    /// The computer's sale and repair inputs (`TechnoClass+0x3D1`,
+    /// `BuildingClass+0x6DC`, `+0x6CB`), an [`AiSellRepair`] that
+    /// `production::production_repair` owns.
+    ///
+    /// [`AiSellRepair`]: crate::sim::production::AiSellRepair
     #[serde(default)]
-    pub was_attacked_by_enemy: bool,
-    /// A building's AI sale byte (`BuildingClass+0x6DC`), which the
-    /// computer's low-credit sale requires in a campaign (`0x00450781`). The
-    /// constructor sets it (`0x0043B93D`) and Init_Managers clears it for a
-    /// type without a Buildup (`0x00442CBC`); the map's `[Structures]` reader
-    /// then writes its AI Sellable field (`0x0044FB5B`).
-    #[serde(default)]
-    pub ai_sellable: bool,
-    /// A building's AI repair byte (`BuildingClass+0x6CB`), which lets the
-    /// computer's auto-repair start repair it (`0x004506DE`). The constructor
-    /// clears it (`0x0043B91F`); the map's `[Structures]` reader writes its AI
-    /// Repairable field (`0x0044FB70`), then the building's Unlimbo sets it
-    /// outside a campaign for a house no human controls (`0x00440B7A`), and
-    /// so does an MCV deploy for a computer house (`0x007397F4`).
-    #[serde(default)]
-    pub ai_repairable: bool,
+    pub(crate) ai_sell_repair: crate::sim::production::AiSellRepair,
     /// The turret heading, `TechnoClass+0x3A0` (SecondaryFacing): a
     /// `Turret=yes` unit's and every aircraft's. A building aims its
     /// [`Self::body_facing`] instead.
@@ -1650,7 +1638,7 @@ impl GameEntity {
             is_voxel,
             selected: false,
             deactivated: false,
-            repairing: false,
+            repairing: Default::default(),
             in_logic_vector: false,
             lifecycle: ObjectLifecycle::default(),
             in_playfield: false,
@@ -1681,9 +1669,7 @@ impl GameEntity {
             charge_turret_delay: 0,
             radio_contacts: Contacts::default(),
             tether: crate::sim::radio::Tether::default(),
-            was_attacked_by_enemy: false,
-            ai_sellable: false,
-            ai_repairable: false,
+            ai_sell_repair: Default::default(),
             barrel_facing: None,
             turret_rotation_latch: false,
             last_fire_frame: NATIVE_LAST_FIRE_FRAME_INIT,
@@ -2220,12 +2206,12 @@ mod tests {
         assert_eq!(e.vision_range, 5);
         assert!(e.is_voxel);
         assert!(!e.selected);
-        assert!(!e.repairing);
+        assert!(!e.repairing.is_on());
         assert!(e.locomotor.is_none());
         assert!(e.attack_target.target().is_none());
         assert!(e.radio_contacts.is_empty());
         assert_eq!(e.rally_cell(), None);
-        assert!(!e.was_attacked_by_enemy);
+        assert!(!e.ai_sell_repair.was_attacked_by_enemy());
         assert!(e.barrel_facing.is_none());
         assert!(e.miner.is_none());
         assert!(!e.mega_mission.is_attack_move());

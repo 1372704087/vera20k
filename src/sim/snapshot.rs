@@ -1010,7 +1010,9 @@ use crate::sim::world::Simulation;
 // NavCom and the locomotor own every order. Version 348 records carry it.
 // 349 -> 350: each waiting Foot names the request it repeats, no-queue or
 // code-2 ladder.
-const SNAPSHOT_VERSION: u32 = 350;
+// 350 -> 351: a Building's animation art fields move into one record
+// (`BuildingArt`), which changes the entity's field order.
+const SNAPSHOT_VERSION: u32 = 351;
 
 const SNAPSHOT_PRODUCT_MAGIC: [u8; 8] = *b"VERA20K\0";
 const SNAPSHOT_ENVELOPE_VERSION: u32 = 1;
@@ -4399,7 +4401,8 @@ mod tests {
         // 347 -> 348: the batched re-path setting and its waiting Foots.
         // 348 -> 349: no move-order adapter (`MovementTarget`).
         // 349 -> 350: the request each waiting Foot repeats.
-        assert_eq!(super::SNAPSHOT_VERSION, 350);
+        // 350 -> 351: the Building's animation art in one record.
+        assert_eq!(super::SNAPSHOT_VERSION, 351);
     }
 
     #[test]

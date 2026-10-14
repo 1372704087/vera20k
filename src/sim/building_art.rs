@@ -1,6 +1,7 @@
-//! Building health-triggered animation state. Building+6E6 is retained state,
-//! independent of actual HP. Original451EE0/442A95/4508D7 write it before
-//! replacing occupied animation slots; selfheal never calls this owner.
+//! A Building's animation art (`BuildingArt`) and the native functions that
+//! change it. Building+6E6 is retained state, independent of actual HP.
+//! Original451EE0/442A95/4508D7 write it before replacing occupied animation
+//! slots; selfheal never calls this owner.
 
 use crate::rules::art_data::BuildingAnimConfig;
 use crate::rules::object_type::ObjectType;
@@ -78,6 +79,17 @@ impl BuildingArt {
     /// Building+6E4: OnConstructionComplete has run.
     pub(crate) fn actually_placed(&self) -> bool {
         self.actually_placed
+    }
+
+    /// Retained flag transition itself, shared by every reached caller.
+    /// Returns whether native451EE0 proceeds to its ordered occupied-slot
+    /// replacement loop.
+    fn set_damage_state(&mut self, damaged: bool) -> bool {
+        if self.damage_state_active == damaged {
+            return false;
+        }
+        self.damage_state_active = damaged;
+        true
     }
 }
 
@@ -338,7 +350,7 @@ impl Simulation {
         let Some(entity) = self.substrate.entities.get_mut(id) else {
             return;
         };
-        if !set_damage_state(entity, damaged) {
+        if !entity.building_art.set_damage_state(damaged) {
             return;
         }
         for slot in 0..21 {
@@ -829,16 +841,6 @@ pub(crate) fn receiver_body_frame(
         rules.general.condition_yellow,
         rules.general.condition_red,
     )
-}
-
-/// Retained flag transition itself, shared by every reached caller. Returns
-/// whether native451EE0 proceeds to its ordered occupied-slot replacement loop.
-pub(crate) fn set_damage_state(entity: &mut GameEntity, damaged: bool) -> bool {
-    if entity.building_art.damage_state_active == damaged {
-        return false;
-    }
-    entity.building_art.damage_state_active = damaged;
-    true
 }
 
 #[cfg(test)]

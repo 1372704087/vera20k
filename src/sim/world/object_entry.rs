@@ -18,6 +18,7 @@ use crate::rules::{
 use crate::sim::combat::combat_weapon;
 use crate::sim::combat::veterancy::{has_weapon_ability, rank_from_u16};
 use crate::sim::movement::bump_crush::{self, CrushCapability, CrushTarget};
+use crate::sim::movement::motion_query::is_moving;
 use crate::sim::{components::NavTargetRef, game_entity::GameEntity, intern::InternedId};
 use crate::sim::{movement::locomotor::MovementLayer, occupancy::CellObjectMember};
 
@@ -224,10 +225,6 @@ fn infantry_target_admission(
         return Ok(InfantryTargetAdmission::SkipCurrent);
     }
     Ok(InfantryTargetAdmission::Ordinary)
-}
-
-fn moving(e: &GameEntity) -> bool {
-    crate::sim::movement::motion_query::is_moving(e).unwrap_or(e.movement_target.is_some())
 }
 
 fn head_on(mover: &GameEntity, blocker: &GameEntity, frame: u32) -> bool {
@@ -1047,7 +1044,7 @@ fn classify_foot_entry<'a>(
             //73F865..8C0: Foot NavCom, body turn, then active IsMoving.
             if b.navigation.nav_com.is_some()
                 || b.body_facing.is_rotating(live.sim.session.binary_frame)
-                || moving(b)
+                || is_moving(b) == Some(true)
             {
                 if head_on(e, b, live.sim.session.binary_frame) {
                     return Ok(7);
@@ -1064,7 +1061,7 @@ fn classify_foot_entry<'a>(
             match b.category {
                 EntityCategory::Aircraft | EntityCategory::Structure => return Ok(7),
                 EntityCategory::Unit => {
-                    if !moving(b) && b.navigation.nav_com.is_none() {
+                    if is_moving(b) != Some(true) && b.navigation.nav_com.is_none() {
                         entry_result = entry_result.max(6);
                     } else if b.foot_occupation_enabled
                         || crate::sim::movement::drive_track::occupant_slot_a4_answers_true(b)
@@ -1073,7 +1070,7 @@ fn classify_foot_entry<'a>(
                     }
                 }
                 EntityCategory::Infantry => {
-                    if !moving(b) {
+                    if is_moving(b) != Some(true) {
                         stationary_infantry = stationary_infantry.wrapping_add(1);
                     }
                 }

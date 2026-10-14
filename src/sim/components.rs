@@ -104,8 +104,9 @@ pub(crate) use crate::sim::building_construction::BuildingUp;
 ///
 /// The scheduling adapter the class setters attach to an accepted
 /// destination (`movement_commands::prepare_destination_execution`; a Jumpjet
-/// through its order adapter). Its readers take its presence as "moving". It
-/// keeps no goal: the
+/// through its order adapter). Only the movement pass's own scheduling and
+/// the state hash still read its presence; every "is it moving" reader asks
+/// the locomotor (`movement::motion_query`). It keeps no goal: the
 /// locomotor destination and Foot's NavCom own it. No order keeps route
 /// cells either: a Foot's route is its Foot+5E0 queue
 /// (`navigation.path_replay`).

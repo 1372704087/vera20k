@@ -52,7 +52,8 @@ pub(crate) fn retain_committed_movement(e: &mut GameEntity) {
     }
 }
 
-/// Read the movement goal for diagnostics without retaining another copy.
+/// Read the movement goal for diagnostics without retaining another copy,
+/// while the active locomotor answers Is_Moving (`motion_query::is_moving`).
 /// Drive/Ship display Foot's requested Cell, including a Move_To refusal
 /// that leaves a different locomotor destination (track_destination native
 /// warp controls). Object requests use the captured locomotor coordinate;
@@ -61,7 +62,9 @@ pub(crate) fn retain_committed_movement(e: &mut GameEntity) {
 /// and nothing for an object. This projection is for presentation; it makes
 /// no simulation decision.
 pub(crate) fn movement_goal_cell(entity: &GameEntity) -> Option<(u16, u16)> {
-    entity.movement_target.as_ref()?;
+    if super::motion_query::is_moving(entity) != Some(true) {
+        return None;
+    }
     if entity.locomotor.as_ref().is_some_and(|loco| {
         matches!(
             loco.active_kind(),
@@ -218,8 +221,8 @@ pub(crate) fn clear_destination_path_head(entity: &mut GameEntity) {
 
 /// Install the empty-route scheduling adapter for a Drive/Ship Foot whose
 /// locomotor destination was set outside the ordinary setter (the outer
-/// Process NavCom reissue). Process_Movement follows +34 without it; the
-/// adapter's readers (the bunker install) see the Foot as moving.
+/// Process NavCom reissue). Process_Movement follows +34 without it; only the
+/// movement pass's own adapter gates read it.
 pub(super) fn schedule_track_process(entity: &mut GameEntity, speed: SimFixed) {
     prepare_destination_execution(entity, speed);
 }

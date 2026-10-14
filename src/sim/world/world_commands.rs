@@ -3998,6 +3998,20 @@ mod tests {
         // building's raw display-registration coordinate before installation.
         sim.substrate.entities.get_mut(2).unwrap().foundation =
             retail.rules.object("NATBNK").unwrap().foundation.clone();
+        // The install's arrival test reads its cell's building list
+        // (`0x0047C520`), so the bunker stands on its retail foundation.
+        for (rx, ry) in
+            crate::sim::occupancy::entity_occupancy_cells(sim.substrate.entities.get(2).unwrap())
+        {
+            sim.substrate.occupancy.add(
+                rx,
+                ry,
+                2,
+                crate::sim::movement::locomotor::MovementLayer::Ground,
+                None,
+                crate::sim::occupancy::CellListInsertion::AppendBuilding,
+            );
+        }
         let center = crate::sim::movement::ground_pose::object_get_coords(
             sim.substrate.entities.get(2).unwrap(),
             sim.resolved_terrain.as_ref(),

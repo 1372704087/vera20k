@@ -1215,10 +1215,11 @@ impl Simulation {
         if category == EntityCategory::Structure {
             self.temporal_building_sparkle(id, rules);
         }
-        // Frozen: TarCom drops, and a Foot's NavCom (`Set_Destination(0, 1)`),
-        // which also ends its path (`UnitClass::Set_Destination @ 0x00741970`
-        // resets the path head): VERA's path executor stops with it, as for
-        // every concrete null destination (`mission::authority`). For a
+        // Frozen: TarCom drops, and a Foot with a NavCom calls
+        // `Set_Destination(0, 1)` (Unit `0x00736321..0x0073634D`, Infantry
+        // `0x0051BBDF..0x0051BC0B`, Aircraft `0x00414CF2..0x00414D1E`; a NULL
+        // NavCom returns without the call). The setter also ends its path
+        // (`UnitClass::Set_Destination @ 0x00741970` resets the path head). For a
         // Drive/Ship Unit that setter also reaches the locomotor Stop, which
         // nulls +34 with no warp gate (Drive `0x004AFE00`, Ship `0x0069F510`;
         // none in `0x00741970` or Foot `0x004D94B0` either), so a released
@@ -1230,14 +1231,17 @@ impl Simulation {
             if entity.attack_target.is_some() {
                 crate::sim::mission::concrete_effects::represented_assign_target(entity, None);
             }
-            clears_destination = category != EntityCategory::Structure
-                && (entity.navigation.nav_com.is_some() || entity.movement_target.is_some());
+            clears_destination =
+                category != EntityCategory::Structure && entity.navigation.nav_com.is_some();
         }
         if clears_destination {
             self.assign_null_destination(id, Some(rules), registry, ctx.effects);
-            if let Some(entity) = self.substrate.entities.get_mut(id) {
-                entity.movement_target = None;
-            }
+        }
+        // VERA's scheduling adapter (#689) goes with the freeze.
+        if category != EntityCategory::Structure
+            && let Some(entity) = self.substrate.entities.get_mut(id)
+        {
+            entity.movement_target = None;
         }
         true
     }

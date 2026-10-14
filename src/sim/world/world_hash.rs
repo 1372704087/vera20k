@@ -488,9 +488,9 @@ impl Simulation {
         // IDs are folded (duplicates are intentionally preserved here).
         self.substrate.pending_delete.hash_state(hasher);
         self.load_objects.hash_state(hasher);
-        // Code-2 re-paths waiting for the next frame's batch.
-        if let Some(batch) = &self.repath_batch {
-            b"repath-batch-v1".hash(hasher);
+        // Path searches waiting for the next frame's batch.
+        if let Some(batch) = &self.path_batch {
+            b"path-batch-v2".hash(hasher);
             batch.hash(hasher);
         }
 

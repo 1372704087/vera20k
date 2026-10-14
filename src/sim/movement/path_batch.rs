@@ -1,23 +1,36 @@
-//! Batched code-2 re-path searches: a jam's re-paths search side by side.
+//! Batched path searches: a frame's waiting Find_Path requests search side
+//! by side.
 //!
-//! A Foot whose next cell holds a moving friendly (Can_Enter_Cell code 2)
-//! re-paths from its code-2 ladder (Drive/Ship 0x4B3607..0x4B3A94, Walk
-//! 0x0075B8A9..0x0075B9F9) whenever its movement timer has run out. With
-//! batching on, such a ladder registers the Foot and takes its
+//! Two requests wait. A Foot with no path queue makes a no-queue request
+//! (Walk 0x75AFC5, Drive 0x4B28A3, Ship 0x6A1EF3) whenever its movement timer
+//! has run out: its first request after a new destination and each one after
+//! a route runs out. A Foot whose next cell holds a moving friendly
+//! (Can_Enter_Cell code 2) re-paths from its code-2 ladder (Drive/Ship
+//! 0x4B3607..0x4B3A94, Walk 0x0075B8A9..0x0075B9F9) whenever that timer has
+//! run out. With batching on, either registers the Foot and takes the
 //! timer-still-running branch instead. At the start of the next frame's live
 //! object pass every registration is searched on worker threads against the
-//! world as it stands, and the Foot's ladder then runs its Find_Path with the
-//! answer.
+//! world as it stands, and the Foot's request then runs its Find_Path with
+//! the answer.
 //!
 //! Proposed sim-scale deviation from native order (update order and
-//! same-frame effects), pending side-by-side play: a blocked Foot re-paths
+//! same-frame effects), pending side-by-side play: a Foot's path search runs
 //! one frame later, from the world at the start of the pass rather than at
-//! its own turn. A Foot whose ladder is not reached that next frame (its
-//! blocker moved on) does not re-path at all and keeps its route. The batch
+//! its own turn, so a Foot starts along a new route one frame later, and its
+//! movement timer (PathDelay) is armed one frame later, which shifts its
+//! later requests too. A Foot that does not repeat its request that next
+//! frame does not search at all: a blocked Foot whose blocker moved on keeps
+//! its route; a no-queue request whose destination cleared is dropped. Two
+//! visible cases: Infantry Scatter's immediate Process (0x51D478) waits, so
+//! scattered infantry leave a frame later; a Drive/Ship Foot whose track
+//! ends with no path left loses that frame's movement where native's timer
+//! had run out. The admission retries' recursions (Walk's Process(0),
+//! Drive/Ship's Process_Movement(0, 0)) never wait: their timer was just
+//! expired. Hover's own timer-gated Find_Path is not batched. The batch
 //! draws no random numbers; later draws follow the changed movement. Each
 //! search reads only that frame-start world, so no result depends on the
 //! thread count. Simulations start without batching; real matches and
-//! sim-bench turn it on ([`Simulation::batch_repath_searches`]).
+//! sim-bench turn it on ([`Simulation::batch_path_searches`]).
 //!
 //! The batch runs Find_Path's own steps up to its redirect
 //! ([`Simulation::find_path_target_answer`]) and the core search, without
@@ -61,32 +74,52 @@ use crate::sim::pathfinding::{BlockerNeighborCounts, PathGrid};
 use crate::sim::radio::Contacts;
 use crate::sim::world::Simulation;
 
-/// The code-2 re-path searches waiting for the next frame, and this frame's
-/// answers.
+/// The path searches waiting for the next frame, and this frame's answers.
 #[derive(Debug, Default, serde::Serialize, serde::Deserialize)]
-pub(crate) struct RepathBatch {
-    /// Foots whose ladder waited this frame.
-    pending: Vec<u64>,
-    /// This frame's answers by Foot. A Foot with an entry no longer waits;
-    /// Find_Path takes out the answer it uses.
+pub(crate) struct PathBatch {
+    /// Foots whose request waited this frame, and which request each repeats.
+    pending: Vec<(u64, WaitingRequest)>,
+    /// This live object pass's answers by Foot. A Foot with an entry no
+    /// longer waits; Find_Path takes out the answer it uses. Empty outside
+    /// the pass, so a request made between passes waits whether or not the
+    /// game was saved in between.
     #[serde(skip)]
     ready: BTreeMap<u64, Option<BatchedSearch>>,
-    /// Answers Find_Path used.
+    /// Answers Find_Path used, by [`WaitingRequest`].
     #[cfg(test)]
     #[serde(skip)]
-    used: usize,
+    used: [usize; 2],
+    /// The Foots the latest pass answered.
+    #[cfg(test)]
+    #[serde(skip)]
+    answered: Vec<u64>,
 }
 
-impl std::hash::Hash for RepathBatch {
+impl std::hash::Hash for PathBatch {
     /// The registrations, which carry into the next frame; answers live
     /// within one.
     fn hash<H: std::hash::Hasher>(&self, hasher: &mut H) {
-        self.pending.hash(hasher);
+        (self.pending.len() as u64).hash(hasher);
+        for &(id, request) in &self.pending {
+            id.hash(hasher);
+            (request as u8).hash(hasher);
+        }
     }
+}
+
+/// The Find_Path request a waiting Foot repeats at its next frame's turn.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub(crate) enum WaitingRequest {
+    /// The no-queue request, `Find_Path(cell, 0, 0)` toward Walk's
+    /// destination or Drive/Ship's track destination.
+    NoQueue,
+    /// A code-2 ladder's re-path, at the ladder's urgency.
+    Code2Ladder,
 }
 
 #[derive(Debug, PartialEq)]
 struct BatchedSearch {
+    request: WaitingRequest,
     key: FootSearchKey,
     found: Result<Vec<(u16, u16)>, MovePathFailure>,
 }
@@ -136,26 +169,25 @@ pub(super) fn code2_ladder_destination(actor: &GameEntity) -> Option<DriveCoord>
 }
 
 impl Simulation {
-    /// Batch the code-2 re-path searches from now on; see the module docs.
-    pub fn batch_repath_searches(&mut self) {
-        self.repath_batch.get_or_insert_with(RepathBatch::default);
+    /// Batch the path searches from now on; see the module docs.
+    pub fn batch_path_searches(&mut self) {
+        self.path_batch.get_or_insert_with(PathBatch::default);
     }
 
-    /// Whether `id`'s code-2 ladder waits for the next frame's batch, as if
-    /// its movement timer still ran. It does, and registers, when batching
-    /// is on, the batch can search this map, and `id` has no answer this
-    /// frame.
-    pub(super) fn defer_code2_search(&mut self, id: u64) -> bool {
+    /// Whether `id`'s `request` waits for the next frame's batch, as if its
+    /// movement timer still ran. It does, and registers, when batching is
+    /// on, the batch can search this map, and `id` has no answer this frame.
+    pub(super) fn defer_path_search(&mut self, id: u64, request: WaitingRequest) -> bool {
         if self.overlay_grid.is_none() || self.resolved_terrain.is_none() {
             return false;
         }
-        let Some(batch) = self.repath_batch.as_mut() else {
+        let Some(batch) = self.path_batch.as_mut() else {
             return false;
         };
         if batch.ready.contains_key(&id) {
             return false;
         }
-        batch.pending.push(id);
+        batch.pending.push((id, request));
         true
     }
 
@@ -168,7 +200,7 @@ impl Simulation {
     ) -> Option<Result<Vec<(u16, u16)>, MovePathFailure>> {
         let id = request.entity_id;
         if !self
-            .repath_batch
+            .path_batch
             .as_ref()?
             .ready
             .get(&id)
@@ -177,35 +209,39 @@ impl Simulation {
             return None;
         }
         let key = self.foot_search_key(request, goal)?;
-        let batch = self.repath_batch.as_mut()?;
+        let batch = self.path_batch.as_mut()?;
         let slot = batch.ready.get_mut(&id)?;
         if slot.as_ref()?.key != key {
             return None;
         }
+        let answer = slot.take()?;
         #[cfg(test)]
         {
-            batch.used += 1;
+            batch.used[answer.request as usize] += 1;
         }
-        slot.take().map(|answer| answer.found)
+        Some(answer.found)
     }
 
     /// The start of the live object pass: search for the Foots registered
     /// last frame.
-    pub(crate) fn answer_batched_repaths(
+    pub(crate) fn answer_batched_path_searches(
         &mut self,
         rules: Option<&RuleSet>,
         registry: Option<&OverlayTypeRegistry>,
     ) {
-        let Some(batch) = self.repath_batch.as_mut() else {
+        let Some(batch) = self.path_batch.as_mut() else {
             return;
         };
         batch.ready.clear();
+        #[cfg(test)]
+        batch.answered.clear();
         let mut pending = std::mem::take(&mut batch.pending);
         if pending.is_empty() {
             return;
         }
-        pending.sort_unstable();
-        pending.dedup();
+        // A Foot's first registration this frame stands.
+        pending.sort_by_key(|&(id, _)| id);
+        pending.dedup_by_key(|&mut (id, _)| id);
         let answers = match (rules, self.path_grid_snapshot()) {
             (Some(rules), Some(grid))
                 if self.overlay_grid.is_some() && self.resolved_terrain.is_some() =>
@@ -215,15 +251,27 @@ impl Simulation {
             _ => Vec::new(),
         };
         let mut answers = answers.into_iter();
-        self.repath_batch.as_mut().expect("batching is on").ready = pending
+        let batch = self.path_batch.as_mut().expect("batching is on");
+        #[cfg(test)]
+        {
+            batch.answered = pending.iter().map(|&(id, _)| id).collect();
+        }
+        batch.ready = pending
             .into_iter()
-            .map(|id| (id, answers.next().flatten()))
+            .map(|(id, _)| (id, answers.next().flatten()))
             .collect();
+    }
+
+    /// The end of the live object pass: its answers expire.
+    pub(crate) fn finish_batched_path_searches(&mut self) {
+        if let Some(batch) = self.path_batch.as_mut() {
+            batch.ready.clear();
+        }
     }
 
     fn search_batch(
         &mut self,
-        pending: &[u64],
+        pending: &[(u64, WaitingRequest)],
         rules: &RuleSet,
         registry: Option<&OverlayTypeRegistry>,
         grid: &PathGrid,
@@ -250,25 +298,30 @@ impl Simulation {
         // thread, so only tests check that the searches draw nothing.
         #[cfg(test)]
         let rng = sim.rng_state();
-        let answers = crate::sim::parallel::map(pending, |&id| {
-            dummy.detached(|| sim.batched_search(id, rules, registry, grid, counts))
+        let answers = crate::sim::parallel::map(pending, |&(id, request)| {
+            dummy.detached(|| sim.batched_search(id, request, rules, registry, grid, counts))
         });
         #[cfg(test)]
         assert_eq!(rng, sim.rng_state(), "batched searches draw no RNG");
         answers
     }
 
-    /// `id`'s search as its ladder's Find_Path would run it now, without
+    /// `id`'s search as its `request`'s Find_Path would run it now, without
     /// effects; `None` when it has nothing to answer.
     fn batched_search(
         &self,
         id: u64,
+        request: WaitingRequest,
         rules: &RuleSet,
         registry: Option<&OverlayTypeRegistry>,
         grid: &PathGrid,
         counts: &BlockerNeighborCounts,
     ) -> Option<BatchedSearch> {
-        let request = self.code2_ladder_request(id)?;
+        let waiting = request;
+        let request = match waiting {
+            WaitingRequest::NoQueue => self.no_queue_request(id)?,
+            WaitingRequest::Code2Ladder => self.code2_ladder_request(id)?,
+        };
         let goal = request.destination;
         let answer = self
             .find_path_target_answer(id, goal, rules, registry)
@@ -299,9 +352,30 @@ impl Simulation {
             return None;
         }
         Some(BatchedSearch {
+            request: waiting,
             key: self.foot_search_key(&request, goal)?,
             found,
         })
+    }
+
+    /// The no-queue request `id` makes now: Walk's toward its destination,
+    /// Drive/Ship's toward its track destination, at urgency 0.
+    fn no_queue_request(&self, id: u64) -> Option<FootPathRequest> {
+        let actor = self.substrate.entities.get(id)?;
+        let destination = match actor.locomotor.as_ref()?.kind {
+            LocomotorKind::Walk => actor.locomotor.as_ref()?.walk_destination()?,
+            LocomotorKind::Drive | LocomotorKind::Ship => {
+                super::track_path::track_destination(actor)?
+            }
+            _ => return None,
+        };
+        FootPathRequest::track(
+            &self.substrate.entities,
+            id,
+            destination,
+            0,
+            self.playfield_bounds,
+        )
     }
 
     /// The request `id`'s code-2 ladder makes now, at the ladder's urgency.
@@ -358,5 +432,5 @@ impl Simulation {
 }
 
 #[cfg(test)]
-#[path = "repath_batch_tests.rs"]
+#[path = "path_batch_tests.rs"]
 mod tests;

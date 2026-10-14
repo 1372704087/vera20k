@@ -18,8 +18,8 @@
 //! `--map` also takes a loose map file; `python -m tools.scale_map` writes the
 //! flat 500x500-cell map used for 20,000-unit, 30-house runs.
 //!
-//! The simulation batches code-2 re-path searches as a real match does;
-//! `--serial-repaths` searches them in native order instead.
+//! The simulation batches its path searches as a real match does;
+//! `--serial-paths` searches them in native order instead.
 //!
 //! Build with `cargo build --release --bin sim-bench`; timings from a debug
 //! build are not meaningful.
@@ -45,7 +45,7 @@ struct Args {
     return_at: Option<u64>,
     hash_every: u64,
     csv: Option<PathBuf>,
-    serial_repaths: bool,
+    serial_paths: bool,
 }
 
 fn parse_args() -> Result<Args, String> {
@@ -63,7 +63,7 @@ fn parse_args() -> Result<Args, String> {
         return_at: None,
         hash_every: 0,
         csv: None,
-        serial_repaths: false,
+        serial_paths: false,
     };
     let mut argv = std::env::args().skip(1);
     while let Some(flag) = argv.next() {
@@ -88,7 +88,7 @@ fn parse_args() -> Result<Args, String> {
             "--return-at" => args.return_at = Some(number(value()?)?),
             "--hash-every" => args.hash_every = number(value()?)?,
             "--csv" => args.csv = Some(PathBuf::from(value()?)),
-            "--serial-repaths" => args.serial_repaths = true,
+            "--serial-paths" => args.serial_paths = true,
             other => return Err(format!("unrecognised argument {other}")),
         }
     }
@@ -216,7 +216,7 @@ fn main() -> Result<(), String> {
                 "usage: sim-bench [--ra2-dir <retail path>] [--map Death.mmx] [--seed S] \
                  [--units 20000] [--houses 8] [--ticks 300] [--types E1,E2,MTNK,HTNK] \
                  [--order-spread 30] [--return-at T] [--hash-every N] [--csv <path>] \
-                 [--serial-repaths]"
+                 [--serial-paths]"
             );
             std::process::exit(2);
         }
@@ -224,8 +224,8 @@ fn main() -> Result<(), String> {
     let load_started = Instant::now();
     let mut scenario = headless_scenario::load(&args.ra2_dir, &args.map, args.seed)?;
     let runtime = &mut scenario.runtime;
-    if !args.serial_repaths {
-        runtime.simulation.batch_repath_searches();
+    if !args.serial_paths {
+        runtime.simulation.batch_path_searches();
     }
 
     let owners: Vec<String> = (0..args.houses).map(|i| format!("Bench{i:02}")).collect();

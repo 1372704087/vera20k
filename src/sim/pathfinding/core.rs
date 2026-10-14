@@ -80,8 +80,8 @@ impl PathfindWorkspace {
 
 thread_local! {
     /// Thread-local reusable A* scratch. Safe because:
-    ///   - each thread has its own (the batched re-path searches,
-    ///     `movement::repath_batch`, run A* on scoped worker threads),
+    ///   - each thread has its own (the batched path searches,
+    ///     `movement::path_batch`, run A* on worker threads),
     ///   - A* never recursively invokes A* (no reentrancy),
     ///   - the workspace holds zero hashed sim state — pure scratch.
     /// `try_borrow_mut` panics with a clear message if either invariant is

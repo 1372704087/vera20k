@@ -1492,15 +1492,16 @@ impl Simulation {
     fn fill_base_plan_from_successful_building_unlimbo(&mut self, stable_id: u64) {
         let Some((owner, type_index, packed_cell, has_undeploy_target)) =
             self.substrate.entities.get(stable_id).and_then(|entity| {
-                (entity.category() == EntityCategory::Structure && entity.base_plan_type_index >= 0)
+                (entity.category() == EntityCategory::Structure
+                    && entity.type_facts.base_plan_type_index() >= 0)
                     .then_some((
                         entity.owner(),
-                        entity.base_plan_type_index,
+                        entity.type_facts.base_plan_type_index(),
                         crate::sim::base_plan::pack_base_plan_cell(
                             i32::from(entity.position.rx),
                             i32::from(entity.position.ry),
                         ),
-                        entity.base_plan_has_undeploy_target,
+                        entity.type_facts.base_plan_has_undeploy_target(),
                     ))
             })
         else {
@@ -1530,15 +1531,16 @@ impl Simulation {
     fn invalidate_base_plan_from_building_limbo(&mut self, stable_id: u64) {
         let Some((owner, type_index, packed_cell, is_base_defense, in_limbo)) =
             self.substrate.entities.get(stable_id).and_then(|entity| {
-                (entity.category() == EntityCategory::Structure && entity.base_plan_type_index >= 0)
+                (entity.category() == EntityCategory::Structure
+                    && entity.type_facts.base_plan_type_index() >= 0)
                     .then_some((
                         entity.owner(),
-                        entity.base_plan_type_index,
+                        entity.type_facts.base_plan_type_index(),
                         crate::sim::base_plan::pack_base_plan_cell(
                             i32::from(entity.position.rx),
                             i32::from(entity.position.ry),
                         ),
-                        entity.base_plan_is_defense,
+                        entity.type_facts.base_plan_is_defense(),
                         entity.lifecycle.in_limbo,
                     ))
             })
@@ -1566,7 +1568,7 @@ impl Simulation {
         };
         let Some((owner, anchor)) = self.substrate.entities.get(stable_id).and_then(|entity| {
             (entity.category() == EntityCategory::Structure
-                && entity.determines_waypoint_edge
+                && entity.type_facts.determines_waypoint_edge()
                 && entity.lifecycle.object_alive
                 && !entity.lifecycle.in_limbo
                 && entity.lifecycle.cell_marked)
@@ -1605,8 +1607,8 @@ impl Simulation {
             context.terrain().or(self.resolved_terrain.as_ref()),
         );
         let insertion = CellListInsertion::from_category(entity.category());
-        let foundation = entity.foundation.clone();
-        let hidden_profile = entity.building_hidden_occupancy;
+        let foundation = entity.type_facts.foundation().to_owned();
+        let hidden_profile = entity.type_facts.building_hidden_occupancy();
         let current_cell = (entity.position.rx, entity.position.ry);
         let (width, height) = crate::rules::foundation::foundation_dimensions(&foundation);
         let mut intersections = Vec::with_capacity(usize::from(width) * usize::from(height));
@@ -1826,7 +1828,7 @@ impl Simulation {
 
     fn base_reservation_writer(&self, stable_id: u64) -> Option<(InternedId, CellRect)> {
         let entity = self.substrate.entities.get(stable_id)?;
-        let spacing = entity.base_reservation_spacing?;
+        let spacing = entity.type_facts.base_reservation_spacing()?;
         (entity.category() == EntityCategory::Structure
             && entity.lifecycle.object_alive
             && !entity.lifecycle.in_limbo
@@ -1839,7 +1841,7 @@ impl Simulation {
                 building_base_reservation_rect(
                     entity.position.rx,
                     entity.position.ry,
-                    &entity.foundation,
+                    entity.type_facts.foundation(),
                     spacing,
                 ),
             )
@@ -1854,7 +1856,7 @@ impl Simulation {
         let Some(entity) = self.substrate.entities.get(stable_id) else {
             return false;
         };
-        let Some(spacing) = entity.base_reservation_spacing else {
+        let Some(spacing) = entity.type_facts.base_reservation_spacing() else {
             return false;
         };
         if entity.category() != EntityCategory::Structure
@@ -1870,11 +1872,11 @@ impl Simulation {
         let rect = building_base_reservation_rect(
             entity.position.rx,
             entity.position.ry,
-            &entity.foundation,
+            entity.type_facts.foundation(),
             spacing,
         );
         let (foundation_width, foundation_height) =
-            crate::rules::foundation::foundation_dimensions(&entity.foundation);
+            crate::rules::foundation::foundation_dimensions(entity.type_facts.foundation());
         let repair_rect = building_base_reservation_repair_rect(
             entity.position.rx,
             entity.position.ry,
@@ -1949,8 +1951,8 @@ impl Simulation {
             entity,
             context.terrain().or(self.resolved_terrain.as_ref()),
         );
-        let foundation = entity.foundation.clone();
-        let hidden_profile = entity.building_hidden_occupancy;
+        let foundation = entity.type_facts.foundation().to_owned();
+        let hidden_profile = entity.type_facts.building_hidden_occupancy();
         let current_cell = (entity.position.rx, entity.position.ry);
         if let Some(layer) = layer {
             for &(rx, ry) in &cells {
@@ -5199,9 +5201,9 @@ mod base_plan_lifecycle_tests {
         assert_eq!(sim.houses[&ai].base_plan.nodes[0].retry_count, 0);
         let entity = sim.entities().get(building).unwrap();
         assert_eq!(entity.category(), EntityCategory::Structure);
-        assert_eq!(entity.base_plan_type_index, 1);
-        assert!(!entity.base_plan_is_defense);
-        assert!(entity.base_plan_has_undeploy_target);
+        assert_eq!(entity.type_facts.base_plan_type_index(), 1);
+        assert!(!entity.type_facts.base_plan_is_defense());
+        assert!(entity.type_facts.base_plan_has_undeploy_target());
 
         let human = sim.interner.intern("Human1");
         let mut human_house = HouseState::new(human, 0, None, true, 0, 10);
@@ -5294,7 +5296,7 @@ mod base_plan_lifecycle_tests {
             5,
             false,
         );
-        upgrade.base_plan_type_index = 0;
+        upgrade.type_facts.set_base_plan_type_index_for_test(0);
         upgrade.structure_upgrade_link = Some(StructureUpgradeLink {
             parent_stable_id: 99,
             slot: 0,
@@ -5441,19 +5443,22 @@ mod base_plan_lifecycle_tests {
             !sim.entities()
                 .get(none)
                 .unwrap()
-                .base_plan_has_undeploy_target
+                .type_facts
+                .base_plan_has_undeploy_target()
         );
         assert!(
             !sim.entities()
                 .get(angle)
                 .unwrap()
-                .base_plan_has_undeploy_target
+                .type_facts
+                .base_plan_has_undeploy_target()
         );
         assert!(
             sim.entities()
                 .get(real)
                 .unwrap()
-                .base_plan_has_undeploy_target
+                .type_facts
+                .base_plan_has_undeploy_target()
         );
         let plan = &sim.houses[&owner].base_plan.nodes;
         assert!(!plan[0].filled, "none sentinel must not enable fallback");

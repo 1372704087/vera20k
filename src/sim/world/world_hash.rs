@@ -1556,17 +1556,20 @@ fn hash_entity(entity: &GameEntity, frame: u32, hasher: &mut StateHasher) {
     entity.estimated_health.get().hash(hasher);
     entity.type_ref().hash(hasher);
     (entity.category() as u8).hash(hasher);
-    entity.foundation.hash(hasher);
-    entity.building_hidden_occupancy.hash(hasher);
-    entity.base_reservation_spacing.hash(hasher);
-    entity.determines_waypoint_edge.hash(hasher);
-    if entity.build_const_eligible {
+    entity.type_facts.foundation().hash(hasher);
+    entity.type_facts.building_hidden_occupancy().hash(hasher);
+    entity.type_facts.base_reservation_spacing().hash(hasher);
+    entity.type_facts.determines_waypoint_edge().hash(hasher);
+    if entity.type_facts.build_const_eligible() {
         b"naval-build-const-entity-v1".hash(hasher);
-        entity.build_const_eligible.hash(hasher);
+        entity.type_facts.build_const_eligible().hash(hasher);
     }
-    entity.base_plan_type_index.hash(hasher);
-    entity.base_plan_is_defense.hash(hasher);
-    entity.base_plan_has_undeploy_target.hash(hasher);
+    entity.type_facts.base_plan_type_index().hash(hasher);
+    entity.type_facts.base_plan_is_defense().hash(hasher);
+    entity
+        .type_facts
+        .base_plan_has_undeploy_target()
+        .hash(hasher);
     // The rank is sampled from the raw accumulator; its fold keeps its
     // place in the stream. The accumulator itself is folded too, so
     // two objects one kill apart inside the same rank are distinct.
@@ -3143,10 +3146,11 @@ mod state_hash_field_tests {
         let mut entity_b = Simulation::new();
         let mut a = GameEntity::test_default(1, "GAPOWR", "Computer1", 10, 10);
         let mut b = a.clone();
-        a.base_plan_type_index = 2;
-        a.base_plan_is_defense = true;
-        a.base_plan_has_undeploy_target = true;
-        b.base_plan_type_index = 3;
+        a.type_facts.set_base_plan_type_index_for_test(2);
+        a.type_facts.set_base_plan_is_defense_for_test(true);
+        a.type_facts
+            .set_base_plan_has_undeploy_target_for_test(true);
+        b.type_facts.set_base_plan_type_index_for_test(3);
         entity_a.substrate.entities.insert(a);
         entity_b.substrate.entities.insert(b);
         assert_ne!(entity_a.state_hash(), entity_b.state_hash());

@@ -517,7 +517,7 @@ pub struct GameEntity {
     /// The other type facts the house counts test (`house_tracking`), copied
     /// in at construction.
     #[serde(default)]
-    pub tracking_facts: crate::sim::house_tracking::TrackingFacts,
+    pub(crate) tracking_facts: crate::sim::house_tracking::TrackingFacts,
     /// Fog-of-war sight range in cells.
     pub vision_range: u16,
     /// Exact immutable Type+5E8 == 0 predicate used by InfantryUnlimbo51E0EF.
@@ -699,8 +699,9 @@ pub struct GameEntity {
     /// Used by runtime building-entry/pathing exceptions such as contacted
     /// war factory exits and refinery dock entry. Kept per mover; a building
     /// being contacted does not globally relax passability for unrelated units.
+    /// `sim::radio` owns the slots (`RadioClass+0xE4`/`+0xE8`).
     #[serde(default)]
-    pub radio_contacts: Contacts,
+    pub(crate) radio_contacts: Contacts,
     /// Models the TechnoClass dock-entered flag (ENTER_DOCK(0x18) sets it,
     /// LEAVE_DOCK(0x19)/BREAK clears it). `Some(other_sid)` while this entity is
     /// linked-and-entered at that dock partner; `None` otherwise. The radio
@@ -839,7 +840,7 @@ pub struct GameEntity {
     /// Gattling stage, value and report latch (`TechnoClass+0x140`,
     /// `+0x144`, `+0x4B8`), owned by `combat::gattling`.
     #[serde(default)]
-    pub gattling: crate::sim::combat::gattling::GattlingState,
+    pub(crate) gattling: crate::sim::combat::gattling::GattlingState,
     /// `TechnoClass+0x148`, the voxel turret's animation counter. The
     /// constructor zeroes it (`0x006F2BE2`); the unit firing update
     /// (`0x007370D5`, `0x007370F2`, `0x0073713A`) and the building's attack
@@ -854,9 +855,10 @@ pub struct GameEntity {
     pub turret_anim_frame: i32,
     /// Optional presentation-only native recoil, owned by voxel_recoil.
     voxel_recoil: Option<Box<voxel_recoil::VoxelRecoil>>,
-    /// Techno+3B8 survives target replacement and mission changes.
+    /// Techno+3B8, the burst index, owned by `combat::burst`; it survives
+    /// target replacement and mission changes.
     #[serde(default)]
-    pub weapon_burst: crate::sim::combat::burst::WeaponBurst,
+    pub(crate) weapon_burst: crate::sim::combat::burst::WeaponBurst,
     /// Sole native Building+534/+538 body state; construction/sale use the
     /// existing private StageClass and MissionLeaf ready byte.
     building_body: Option<crate::sim::building_construction::BuildingBody>,
@@ -941,19 +943,21 @@ pub struct GameEntity {
     /// entity's current facts have changed.
     #[serde(default)]
     pub sensor_deposit: Option<crate::sim::sensor_lifecycle::SensorDeposit>,
-    /// Core disguise identity, timestamp, and reveal tuple.
+    /// Core disguise identity, timestamp, and reveal tuple, owned by
+    /// `cloak_disguise`.
     #[serde(default)]
-    pub disguise: Option<DisguiseRuntime>,
+    pub(crate) disguise: Option<DisguiseRuntime>,
     /// Active low-bridge TubeClass movement. Active YR behaviour — not to be
     /// confused with the subterranean tunnel locomotor, which is Tiberian Sun
     /// legacy and was removed as unreachable in stock YR.
     #[serde(default)]
     pub low_bridge_tube_state: Option<LowBridgeTubeMovementState>,
-    /// Controller-owned reversible mind-control manager (`TechnoClass+0x2BC`).
-    /// Capacity and ordered victim links are authoritative runtime state; they
-    /// cannot be reconstructed from the victims' back-links.
+    /// Controller-owned reversible mind-control manager (`TechnoClass+0x2BC`),
+    /// owned by `capture_manager`. Capacity and ordered victim links are
+    /// authoritative runtime state; they cannot be reconstructed from the
+    /// victims' back-links.
     #[serde(default)]
-    pub capture_manager: Option<crate::sim::capture_manager::CaptureManagerState>,
+    pub(crate) capture_manager: Option<crate::sim::capture_manager::CaptureManagerState>,
     /// Spawn-manager pool carried by a `Spawns=` parent (V3 Launcher,
     /// Dreadnought, Boomer, Aircraft Carrier, Destroyer). Mirrors the native
     /// `TechnoClass+0x2D0` manager pointer: present iff `Spawns=` resolved.
@@ -978,15 +982,15 @@ pub struct GameEntity {
     /// The victim side of mind control (`TechnoClass+0x2C0` MindControlledBy,
     /// `+0x2C8` the ring anim), written only by `capture_manager`.
     #[serde(default)]
-    pub mind_control: crate::sim::capture_manager::MindControlLink,
+    pub(crate) mind_control: crate::sim::capture_manager::MindControlLink,
     /// TemporalClass state (`TechnoClass+0x274` TemporalImUsing and `+0x278`
     /// TemporalTargetingMe), written only by `temporal`.
     #[serde(default)]
-    pub temporal: crate::sim::temporal::TemporalState,
+    pub(crate) temporal: crate::sim::temporal::TemporalState,
     /// The Crazy Ivan bomb it carries (`ObjectClass+0x38` and its
     /// `BombClass`), written only by `bomb`.
     #[serde(default)]
-    pub bomb: Option<crate::sim::bomb::Bomb>,
+    pub(crate) bomb: Option<crate::sim::bomb::Bomb>,
     /// Psychedelic/chaos runtime, separate from reversible mind control.
     #[serde(default)]
     pub berserk: BerserkState,
@@ -1130,9 +1134,10 @@ pub struct GameEntity {
     /// present only when an explicit body-rocking producer activates it.
     #[serde(default)]
     pub rocking: Option<RockingState>,
-    /// Exact native-width Mission state. All writes pass through a named legacy
-    /// compatibility adapter or the dormant exact-authority surface.
-    pub mission: MissionCom,
+    /// Exact native-width Mission state, owned by `sim::mission`: all writes
+    /// pass through a named legacy compatibility adapter or the dormant
+    /// exact-authority surface.
+    pub(crate) mission: MissionCom,
     /// Techno passive-acquisition cadence timer. Expiry opens the passive
     /// target-scan gate; the scanner re-arms it to the `[General]` targeting
     /// delay plus a 0..=2 jitter. Also re-armed short when a live target's

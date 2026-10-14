@@ -492,6 +492,11 @@ pub struct GameEntity {
     /// in at construction.
     #[serde(default)]
     pub(crate) tracking_facts: crate::sim::house_tracking::TrackingFacts,
+    /// Native infantry total-count latches (`Techno+0x438/+0x439`), owned by
+    /// `sim::house_tracking`. The constructor starts both clear; Add_Tracking
+    /// sets the once-counted latch when it adds House+0x2F4.
+    #[serde(default)]
+    house_tracking_latches: crate::sim::house_tracking::InfantryTrackingLatches,
     /// Fog-of-war sight range in cells.
     pub vision_range: u16,
     /// Exact immutable Type+5E8 == 0 predicate used by InfantryUnlimbo51E0EF.
@@ -1191,6 +1196,21 @@ mod simple_deploy;
 mod voxel_recoil;
 
 impl GameEntity {
+    /// The infantry house-total latches (`Techno+0x438/+0x439`). Only
+    /// `sim::house_tracking` can change them; the mutable borrow exists so
+    /// that owner can reach the latches stored on the object.
+    pub(crate) fn house_tracking_latches(
+        &self,
+    ) -> crate::sim::house_tracking::InfantryTrackingLatches {
+        self.house_tracking_latches
+    }
+
+    pub(crate) fn house_tracking_latches_mut(
+        &mut self,
+    ) -> &mut crate::sim::house_tracking::InfantryTrackingLatches {
+        &mut self.house_tracking_latches
+    }
+
     /// Techno+0x284, the Chronosphere warp-in's frames.
     pub(crate) fn chrono_warp_delay(&self) -> i32 {
         self.chrono_warp_delay
@@ -1668,6 +1688,7 @@ impl GameEntity {
             cached_spatial_threat: None,
             dont_score: false,
             tracking_facts: Default::default(),
+            house_tracking_latches: Default::default(),
             stable_id,
             native_unique_id,
             native_cloak_displacement: crate::util::native_x87::NativeF32Bits::POSITIVE_ZERO,

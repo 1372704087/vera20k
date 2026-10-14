@@ -952,10 +952,10 @@ fn mixed_land_and_naval_factories_bind_independent_vehicle_and_ship_slots() {
         .entities
         .values()
         .find(|entity| {
-            entity.owner == americans
+            entity.owner() == americans
                 && sim
                     .interner
-                    .resolve(entity.type_ref)
+                    .resolve(entity.type_ref())
                     .eq_ignore_ascii_case("DEST")
         })
         .expect("GAYARD delivered DEST through naval FNPC/Unlimbo");
@@ -1019,9 +1019,9 @@ fn naval_delivery_nonzero_canenter_refunds_without_trying_second_producer() {
     super::initialize_factory_primary(&mut sim, 2, &rules);
     let mut blocker =
         crate::sim::game_entity::GameEntity::test_default(50, "DEST", "Soviet", 12, 12);
-    blocker.category = crate::map::entities::EntityCategory::Unit;
-    blocker.owner = sim.interner.intern("Soviet");
-    blocker.type_ref = sim.interner.intern("DEST");
+    blocker.set_category_for_test(crate::map::entities::EntityCategory::Unit);
+    blocker.set_owner_for_test(sim.interner.intern("Soviet"));
+    blocker.set_type_ref_for_test(sim.interner.intern("DEST"));
     sim.substrate.entities.insert(blocker);
     sim.substrate.occupancy.add(
         12,
@@ -1077,9 +1077,9 @@ fn naval_delivery_nonzero_canenter_refunds_without_trying_second_producer() {
             .values()
             .filter(|entity| {
                 sim.interner
-                    .resolve(entity.type_ref)
+                    .resolve(entity.type_ref())
                     .eq_ignore_ascii_case("DEST")
-                    && entity.owner == americans
+                    && entity.owner() == americans
             })
             .count(),
         0,
@@ -1289,10 +1289,10 @@ fn naval_delivery_success_uses_producer_rally_then_move_and_recentres() {
         .entities
         .values()
         .find(|entity| {
-            entity.owner == americans
+            entity.owner() == americans
                 && sim
                     .interner
-                    .resolve(entity.type_ref)
+                    .resolve(entity.type_ref())
                     .eq_ignore_ascii_case("DEST")
         })
         .expect("naval Unit delivered");
@@ -1393,10 +1393,10 @@ fn naval_rally_destination_and_move_survive_without_path_grid() {
         .entities
         .values()
         .find(|entity| {
-            entity.owner == americans
+            entity.owner() == americans
                 && sim
                     .interner
-                    .resolve(entity.type_ref)
+                    .resolve(entity.type_ref())
                     .eq_ignore_ascii_case("DEST")
         })
         .expect("rally fast path delivers without a PathGrid");
@@ -1473,10 +1473,10 @@ fn naval_rally_destination_and_move_survive_beyond_the_path_grid() {
         .entities
         .values()
         .find(|entity| {
-            entity.owner == americans
+            entity.owner() == americans
                 && sim
                     .interner
-                    .resolve(entity.type_ref)
+                    .resolve(entity.type_ref())
                     .eq_ignore_ascii_case("DEST")
         })
         .expect("naval Unit delivers toward a rally beyond the path grid");

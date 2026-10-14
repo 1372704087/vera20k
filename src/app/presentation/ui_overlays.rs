@@ -279,7 +279,7 @@ pub(crate) fn build_building_status_instances(
     let hovered_structure_id = building_health_hover_target(state, local_owner.as_deref());
     let mut instances = Vec::new();
     for e in sim.entities().values() {
-        if e.category != EntityCategory::Structure {
+        if e.category() != EntityCategory::Structure {
             continue;
         }
         if !e.selected && hovered_structure_id != Some(e.stable_id()) {
@@ -491,7 +491,7 @@ pub(crate) fn build_occupant_pip_instances(
     let mut instances = Vec::new();
 
     for e in sim.entities().values() {
-        if e.category != EntityCategory::Structure {
+        if e.category() != EntityCategory::Structure {
             continue;
         }
         if !e.selected && hovered_structure_id != Some(e.stable_id()) {
@@ -598,7 +598,7 @@ pub(crate) fn build_occupant_pip_instances(
     for e in sim.entities().values() {
         // Techno6F5190 returns before every DrawExtras consumer while +3CD
         // is set (naval_sinking_clip.json). ObjectSelect remains permitted.
-        if e.category == EntityCategory::Structure || e.sinking.is_active() {
+        if e.category() == EntityCategory::Structure || e.sinking.is_active() {
             continue;
         }
         // Rookie draws nothing: native's rookie frame is the flagged variant,
@@ -621,7 +621,7 @@ pub(crate) fn build_occupant_pip_instances(
             continue;
         }
         let (sx, sy) = crate::render::locomotor_visual::screen_position(e);
-        let (dx, dy) = if e.category == EntityCategory::Infantry {
+        let (dx, dy) = if e.category() == EntityCategory::Infantry {
             (5.0, 2.0)
         } else {
             (10.0, 6.0)
@@ -725,7 +725,7 @@ pub(crate) fn build_bomb_clock_instances(
             continue;
         };
         let point = crate::render::locomotor_visual::screen_position(entity);
-        let point = if entity.category == EntityCategory::Structure {
+        let point = if entity.category() == EntityCategory::Structure {
             crate::render::locomotor_visual::building_art_anchor(point.0, point.1)
         } else {
             point
@@ -794,7 +794,7 @@ pub(crate) fn build_repair_wrench_instances(
     let local = preferred_local_owner_name(state).and_then(|name| sim.interner.get(&name));
     let mut instances = Vec::new();
     for entity in sim.entities().values() {
-        if entity.category != EntityCategory::Structure
+        if entity.category() != EntityCategory::Structure
             || !entity.repairing
             || entity.lifecycle.in_limbo
         {
@@ -859,7 +859,7 @@ pub(crate) fn build_unit_status_bg_instances(
     let hovered_unit_id = unit_health_hover_target(state, local_owner.as_deref());
     let mut instances = Vec::new();
     for e in sim.entities().values() {
-        if e.category == EntityCategory::Structure || e.sinking.is_active() {
+        if e.category() == EntityCategory::Structure || e.sinking.is_active() {
             continue;
         }
         if e.passenger_role.is_inside_transport() {
@@ -882,7 +882,7 @@ pub(crate) fn build_unit_status_bg_instances(
         // Already the drawn position, height lift included, so the bar tracks
         // the sprite for airborne units without repeating the lift here.
         let (sx, sy) = crate::app::presentation::instances::interpolated_screen_position_entity(e);
-        let is_infantry: bool = e.category == EntityCategory::Infantry;
+        let is_infantry: bool = e.category() == EntityCategory::Infantry;
         let (bar_size, uv_origin, uv_size) = if is_infantry {
             (
                 overlay.pipbrd_infantry_size(),
@@ -955,7 +955,7 @@ pub(crate) fn build_unit_status_fill_instances(
     let hovered_unit_id = unit_health_hover_target(state, local_owner.as_deref());
     let mut instances = Vec::new();
     for e in sim.entities().values() {
-        if e.category == EntityCategory::Structure || e.sinking.is_active() {
+        if e.category() == EntityCategory::Structure || e.sinking.is_active() {
             continue;
         }
         if e.passenger_role.is_inside_transport() {
@@ -976,7 +976,7 @@ pub(crate) fn build_unit_status_fill_instances(
         };
         let ratio = display_health_ratio(health.current, obj.strength);
 
-        let is_infantry: bool = e.category == EntityCategory::Infantry;
+        let is_infantry: bool = e.category() == EntityCategory::Infantry;
         let num_pips: u32 = if is_infantry {
             UNIT_PIPS_INFANTRY
         } else {
@@ -1113,7 +1113,7 @@ pub(crate) fn build_self_heal_pip_instances(
     let hovered_unit_id = unit_health_hover_target(state, local_owner.as_deref());
     let mut instances = Vec::new();
     for e in sim.entities().values() {
-        if e.category == EntityCategory::Structure || e.sinking.is_active() {
+        if e.category() == EntityCategory::Structure || e.sinking.is_active() {
             continue;
         }
         if e.passenger_role.is_inside_transport() {
@@ -1131,7 +1131,7 @@ pub(crate) fn build_self_heal_pip_instances(
         let (infantry, units) = sim.houses.get(&e.owner()).map_or((0, 0), |house| {
             (house.self_heal_infantry(), house.self_heal_units())
         });
-        let Some(arm) = self_heal_pip(e.category, obj.organic, infantry, units) else {
+        let Some(arm) = self_heal_pip(e.category(), obj.organic, infantry, units) else {
             continue;
         };
         let (sx, sy) = crate::app::presentation::instances::interpolated_screen_position_entity(e);
@@ -1193,7 +1193,7 @@ pub(crate) fn build_cargo_pip_instances(state: &AppState, sw: f32, sh: f32) -> V
     let pip_uv_size: [f32; 2] = overlay.tiberium_pip_uv_size();
 
     for e in sim.entities().values() {
-        if e.category == EntityCategory::Structure || e.sinking.is_active() {
+        if e.category() == EntityCategory::Structure || e.sinking.is_active() {
             continue;
         }
         if e.passenger_role.is_inside_transport() {
@@ -1354,7 +1354,7 @@ pub(crate) fn build_building_radius_ring_instances(
     let mut instances = Vec::new();
 
     for e in sim.entities().values() {
-        if e.category != EntityCategory::Structure || !e.selected {
+        if e.category() != EntityCategory::Structure || !e.selected {
             continue;
         }
         if !status_entity_visible_plain(

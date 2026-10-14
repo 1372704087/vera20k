@@ -67,7 +67,7 @@ pub(crate) fn receive_radio(
     rules: Option<&RuleSet>,
     effects: FrameEffects<'_>,
 ) -> RadioResponse {
-    let Some(category) = sim.substrate.entities.get(target_sid).map(|t| t.category) else {
+    let Some(category) = sim.substrate.entities.get(target_sid).map(|t| t.category()) else {
         return RadioResponse::None;
     };
     match category {
@@ -283,7 +283,7 @@ fn building_can_load(
     // Size= and SizeLimit= are native doubles that VERA reads as integers
     // (equal on every retail value).
     if absorbs {
-        let class_refused = match unit.category {
+        let class_refused = match unit.category() {
             EntityCategory::Unit => !building_type.unit_absorb,
             EntityCategory::Infantry => !building_type.infantry_absorb,
             _ => false,
@@ -312,7 +312,7 @@ fn building_can_load(
     }
     if building_type.unit_repair {
         if !matches!(
-            unit.category,
+            unit.category(),
             EntityCategory::Unit | EntityCategory::Aircraft
         ) {
             return RadioResponse::Negatory;
@@ -332,13 +332,13 @@ fn building_can_load(
     }
     // 0x0043C620: a Helipad takes an Aircraft and nothing else.
     if building_type.helipad {
-        return if unit.category == EntityCategory::Aircraft {
+        return if unit.category() == EntityCategory::Aircraft {
             RadioResponse::Roger
         } else {
             RadioResponse::Negatory
         };
     }
-    if unit.category == EntityCategory::Unit
+    if unit.category() == EntityCategory::Unit
         && (building_type.dock_unload && unit_type.harvester
             || building_type.weeder && unit_type.weeder)
     {
@@ -458,7 +458,7 @@ fn building_docking(
     let pad_force = contacted
         && pad_dock
         && sim.substrate.entities.get(from).is_some_and(|foot| {
-            foot.category != EntityCategory::Structure
+            foot.category() != EntityCategory::Structure
                 && foot.navigation.nav_com.is_some()
                 && foot.navigation.nav_com
                     != crate::sim::movement::building_dock_cell(
@@ -819,7 +819,7 @@ fn unit_prepare_to_dock(
         sim.substrate
             .entities
             .get(dock)
-            .is_some_and(|contact| contact.category == EntityCategory::Structure)
+            .is_some_and(|contact| contact.category() == EntityCategory::Structure)
     });
     if let Some(dock) = dock {
         transmit(
@@ -1045,7 +1045,7 @@ fn aircraft_move_here(
             .substrate
             .entities
             .get(id)
-            .filter(|entity| entity.category == EntityCategory::Structure)
+            .filter(|entity| entity.category() == EntityCategory::Structure)
             .map(|_| id),
         NavTargetRef::Cell { .. } => None,
     });
@@ -1473,7 +1473,7 @@ fn techno_repair_tick(
     // InfantryType5247A0/524790 overrides cost0 and Rules+16D8 IRepairStep.
     // That Hospital-family dependency is outside the selected Unit service
     // chain; do not give it the inherited Unit/default getters.
-    if entity.category == EntityCategory::Infantry {
+    if entity.category() == EntityCategory::Infantry {
         return RadioResponse::None;
     }
     let strength = object.strength;
@@ -1573,7 +1573,7 @@ fn techno_tether(
     let Some(entity) = sim.substrate.entities.get(techno) else {
         return RadioResponse::None;
     };
-    let airport_bound = entity.category == EntityCategory::Aircraft
+    let airport_bound = entity.category() == EntityCategory::Aircraft
         && rules
             .and_then(|rules| sim.object_type(entity.type_ref(), rules))
             .is_some_and(|object| object.airport_bound);
@@ -1918,7 +1918,7 @@ mod tests {
         spawn_refinery(&mut sim, 2, "Americans", 3);
         let type_ref = sim.intern("GAPILE");
         let building = sim.substrate.entities.get_mut(2).unwrap();
-        building.type_ref = type_ref;
+        building.set_type_ref_for_test(type_ref);
         building.lifecycle.in_limbo = false;
         building.lifecycle.cell_marked = true;
         let owner = sim.intern("Americans");
@@ -2367,12 +2367,16 @@ mod tests {
         .unwrap();
         let mut sim = Simulation::new();
         spawn_refinery(&mut sim, 2, "Americans", 1);
-        sim.substrate.entities.get_mut(2).unwrap().type_ref = sim.interner.intern("GAAIRC");
+        sim.substrate
+            .entities
+            .get_mut(2)
+            .unwrap()
+            .set_type_ref_for_test(sim.interner.intern("GAAIRC"));
         spawn_miner(&mut sim, 1, "Americans");
         {
             let plane = sim.substrate.entities.get_mut(1).unwrap();
-            plane.category = EntityCategory::Aircraft;
-            plane.type_ref = sim.interner.intern("ORCA");
+            plane.set_category_for_test(EntityCategory::Aircraft);
+            plane.set_type_ref_for_test(sim.interner.intern("ORCA"));
         }
         for (id, partner) in [(1, 2), (2, 1)] {
             sim.substrate
@@ -2588,7 +2592,11 @@ mod tests {
             let mut sim = Simulation::new();
             spawn_miner(&mut sim, 1, "Americans");
             spawn_miner(&mut sim, 2, "Americans");
-            sim.substrate.entities.get_mut(2).unwrap().category = category;
+            sim.substrate
+                .entities
+                .get_mut(2)
+                .unwrap()
+                .set_category_for_test(category);
             sim.substrate
                 .entities
                 .get_mut(1)

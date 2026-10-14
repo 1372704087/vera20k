@@ -86,7 +86,7 @@ fn put(sim: &mut Simulation, id: u64, cell: (u16, u16), upper: bool) {
             MovementLayer::Ground
         },
         None,
-        CellListInsertion::from_category(sim.substrate.entities.get(id).unwrap().category),
+        CellListInsertion::from_category(sim.substrate.entities.get(id).unwrap().category()),
     );
     sim.discover_cell_put_object(id, cell, UninitContext::default());
 }

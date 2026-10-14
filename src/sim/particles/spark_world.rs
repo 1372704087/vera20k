@@ -309,7 +309,7 @@ impl<'a> SparkCollisionWorld<'a> {
                 .entities()
                 .get(occupant.entity_id)
                 .ok_or(SparkWorldError::MissingOccupantEntity(occupant.entity_id))?;
-            if entity.category != EntityCategory::Structure {
+            if entity.category() != EntityCategory::Structure {
                 continue;
             }
 

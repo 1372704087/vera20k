@@ -350,7 +350,7 @@ fn mcv_building_slots_wait_for_completion_and_use_converted_health() {
     ));
     let destination = sim.entities().get(destination_id).unwrap();
     assert_eq!(destination.health.current, 250);
-    assert_eq!(destination.techno_ctor_random_word, constructor_word);
+    assert_eq!(destination.techno_ctor_random_word(), constructor_word);
     assert!(destination.building_up());
     assert!(!destination.building_art.actually_placed());
     assert!(

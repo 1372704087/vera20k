@@ -156,7 +156,7 @@ pub(super) fn advance(
     let retained_target = loco.track_target_fraction(family);
     let prefix = super::drive_locomotion::TrackSpeedPrefix {
         accelerates: entity.drive_accelerates,
-        unit_passive: entity.category == crate::map::entities::EntityCategory::Unit
+        unit_passive: entity.category() == crate::map::entities::EntityCategory::Unit
             && object.is_some_and(|object| object.passive),
         selector,
         raw_type_speed: object.map_or(0, |o| {

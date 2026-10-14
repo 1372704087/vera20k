@@ -103,7 +103,7 @@ pub fn toggle_repair(
     let Some(entity) = sim.substrate.entities.get_mut(id) else {
         return false;
     };
-    if entity.category != EntityCategory::Structure {
+    if entity.category() != EntityCategory::Structure {
         return false;
     }
     match control {
@@ -157,7 +157,7 @@ pub(crate) fn engineer_repair(sim: &mut Simulation, rules: &RuleSet, id: u64) ->
     };
     entity.health.current = strength;
     entity.estimated_health.reset(strength);
-    if entity.category != EntityCategory::Structure {
+    if entity.category() != EntityCategory::Structure {
         return true;
     }
     toggle_repair(sim, rules, id, RepairControl::Stop);
@@ -188,7 +188,7 @@ pub(crate) fn can_repair_building(sim: &Simulation, rules: &RuleSet, id: u64) ->
     let Some(entity) = sim.substrate.entities.get(id) else {
         return false;
     };
-    if entity.category != EntityCategory::Structure || entity.health.current == 0 {
+    if entity.category() != EntityCategory::Structure || entity.health.current == 0 {
         return false;
     }
     let Some(object) = sim.object_type(entity.type_ref(), rules) else {

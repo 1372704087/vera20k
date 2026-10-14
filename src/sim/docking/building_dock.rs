@@ -2451,7 +2451,7 @@ mod tests {
                 .substrate
                 .entities
                 .get(id)
-                .is_some_and(|e| e.category == EntityCategory::Unit)
+                .is_some_and(|e| e.category() == EntityCategory::Unit)
             {
                 sim.process_ground_locomotor_one(
                     id,
@@ -2476,7 +2476,7 @@ mod tests {
                 sim.substrate
                     .entities
                     .get(id)
-                    .is_some_and(|e| e.category == EntityCategory::Unit)
+                    .is_some_and(|e| e.category() == EntityCategory::Unit)
             })
             .collect();
         for id in units {
@@ -2942,7 +2942,7 @@ mod tests {
                 sim.substrate
                     .entities
                     .get(id)
-                    .is_some_and(|e| e.category == EntityCategory::Unit)
+                    .is_some_and(|e| e.category() == EntityCategory::Unit)
             })
             .collect();
         let cfg = miner_cfg();

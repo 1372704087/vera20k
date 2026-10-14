@@ -832,7 +832,7 @@ impl SuppliedFootFixture {
             .collect();
         for &id in &logic {
             let (rx, ry) = placed_cells[&id];
-            let sub_cell = (sim.substrate.entities.get(id).unwrap().category
+            let sub_cell = (sim.substrate.entities.get(id).unwrap().category()
                 == EntityCategory::Infantry)
                 .then_some(2);
             sim.substrate.occupancy.add(

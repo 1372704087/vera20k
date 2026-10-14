@@ -281,7 +281,7 @@ impl<'a> BounceTerrain for RecordingTerrain<'a> {
                                 .sim
                                 .entities()
                                 .get(v.entity_id)
-                                .is_some_and(|e| e.category == EntityCategory::Structure)
+                                .is_some_and(|e| e.category() == EntityCategory::Structure)
                         })
                     });
                 (i32::from(cell.rx), i32::from(cell.ry), false, has)

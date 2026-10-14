@@ -51,7 +51,7 @@ fn offline_sparks_match_original_execution() {
             [location[0], location[1]],
         );
         entity.position.exact_z_leptons = Some(location[2]);
-        entity.native_unique_id = int(&row["id"]);
+        entity.set_native_unique_id_for_test(int(&row["id"]));
         entity.deactivated = row["deactivated"].as_bool().unwrap();
         let mut sim = Simulation::new();
         sim.substrate.entities.insert(entity);

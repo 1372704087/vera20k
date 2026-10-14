@@ -265,7 +265,7 @@ pub(crate) fn nav_target_coordinate(
     let entity = entities
         .get(id)
         .ok_or_else(|| format!("NavCom coordinate target {id} disappeared"))?;
-    if entity.category == crate::map::entities::EntityCategory::Structure {
+    if entity.category() == crate::map::entities::EntityCategory::Structure {
         let (rules, interner) =
             rules.ok_or_else(|| format!("Building {id} navigation requires type data"))?;
         let object = rules
@@ -555,7 +555,8 @@ impl crate::sim::world::Simulation {
             return;
         };
         let attack = MissionId::from_known(MissionType::Attack);
-        let attacking_aircraft = entity.category == crate::map::entities::EntityCategory::Aircraft
+        let attacking_aircraft = entity.category()
+            == crate::map::entities::EntityCategory::Aircraft
             && (entity.mission.current() == attack || entity.mission.queued() == attack)
             && entity.attack_target.is_some();
         if !attacking_aircraft {

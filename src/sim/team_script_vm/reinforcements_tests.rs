@@ -446,7 +446,7 @@ fn action7_real_members_match_original_identity_rng_placement_and_cleanup() {
         for (member, native) in team.members.iter().zip(expected) {
             let entity = sim.substrate.entities.get(member.id).unwrap();
             assert_eq!(
-                entity.native_unique_id,
+                entity.native_unique_id(),
                 int(&native["native_id"]),
                 "{input}"
             );
@@ -507,8 +507,8 @@ fn action7_real_members_match_original_identity_rng_placement_and_cleanup() {
             assert_eq!(
                 format!(
                     "{:02x}{:02x}",
-                    entity.techno_ctor_random_word as u8,
-                    (entity.techno_ctor_random_word >> 8) as u8
+                    entity.techno_ctor_random_word() as u8,
+                    (entity.techno_ctor_random_word() >> 8) as u8
                 ),
                 constructed["phase"].as_str().unwrap(),
                 "{input}"
@@ -597,7 +597,7 @@ fn shared_leader_matches_original_script3_signed_ratings_and_live_joined_gates()
                     )
                     .unwrap();
                 let entity = sim.substrate.entities.get_mut(id).unwrap();
-                entity.native_unique_id = int(&state["native_id"]);
+                entity.set_native_unique_id_for_test(int(&state["native_id"]));
                 entity.lifecycle.object_alive = int(&state["alive"]) != 0;
                 entity.lifecycle.in_limbo = int(&state["limbo"]) != 0;
                 entity.health.current = int(&state["health"]);
@@ -625,7 +625,7 @@ fn shared_leader_matches_original_script3_signed_ratings_and_live_joined_gates()
         }
         .unwrap();
         assert_eq!(
-            sim.entities().get(leader).unwrap().native_unique_id,
+            sim.entities().get(leader).unwrap().native_unique_id(),
             int(&row["leader"]),
             "{input}"
         );
@@ -675,7 +675,7 @@ fn script3_real_members_match_original_outside_move_and_rng_continuation() {
         .zip(row["prior_members"].as_array().unwrap())
     {
         let entity = sim.entities().get(member.id).unwrap();
-        assert_eq!(entity.native_unique_id, int(&prior["native_id"]));
+        assert_eq!(entity.native_unique_id(), int(&prior["native_id"]));
         assert_eq!(
             sim.object_type(entity.type_ref(), &rules)
                 .unwrap()
@@ -735,7 +735,7 @@ fn script3_real_members_match_original_outside_move_and_rng_continuation() {
         .zip(row["members_after"].as_array().unwrap())
     {
         let entity = sim.entities().get(member.id).unwrap();
-        assert_eq!(entity.native_unique_id, int(&native["native_id"]));
+        assert_eq!(entity.native_unique_id(), int(&native["native_id"]));
         assert_eq!(entity.mission.current().raw(), int(&native["mission"]));
         assert_eq!(entity.mission.queued().raw(), int(&native["queued"]));
         assert_eq!(

@@ -134,7 +134,7 @@ fn sellbuilding_direct_scatter_handoff(
     let Some(pax) = sim.substrate.entities.get(passenger_id) else {
         return;
     };
-    if pax.category != EntityCategory::Infantry
+    if pax.category() != EntityCategory::Infantry
         || !pax.is_alive()
         || pax.dying
         || pax.passenger_role.is_inside_transport()
@@ -608,8 +608,8 @@ pub(crate) mod tests {
             EntityCategory::Infantry,
         );
         pax.sub_cell = sub_cell;
-        pax.owner = sim.interner.intern(owner);
-        pax.type_ref = sim.interner.intern("E1");
+        pax.set_owner_for_test(sim.interner.intern(owner));
+        pax.set_type_ref_for_test(sim.interner.intern("E1"));
         pax.passenger_role.set_inside_transport(transport_id, false);
         sim.substrate.entities.insert(pax);
         stable_id
@@ -690,8 +690,8 @@ pub(crate) mod tests {
             EntityCategory::Structure,
         );
         building.foundation = "2x2".to_string();
-        building.owner = americans;
-        building.type_ref = sim.interner.intern(type_id);
+        building.set_owner_for_test(americans);
+        building.set_type_ref_for_test(sim.interner.intern(type_id));
         building.passenger_role = PassengerRole::Transport {
             cargo: crate::sim::passenger::PassengerCargo::new(5, 1),
         };
@@ -818,7 +818,8 @@ pub(crate) mod tests {
             .get(building_id)
             .expect("helper should not remove building");
         assert_eq!(
-            building.owner, americans,
+            building.owner(),
+            americans,
             "SellBuilding-style helper must not ChangeOwner"
         );
         assert!(
@@ -891,7 +892,8 @@ pub(crate) mod tests {
                 "destroyed garrison should not place passengers inside the foundation"
             );
             assert_eq!(
-                pax.owner, owner,
+                pax.owner(),
+                owner,
                 "destruction keeps death-time building owner"
             );
             assert!(matches!(pax.passenger_role, PassengerRole::None));

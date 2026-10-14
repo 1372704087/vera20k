@@ -636,14 +636,14 @@ impl Simulation {
         }
         let aircraft_type = context
             .rules
-            .filter(|_| entity.category == EntityCategory::Aircraft)
+            .filter(|_| entity.category() == EntityCategory::Aircraft)
             .and_then(|rules| rules.object(self.interner.resolve(entity.type_ref())));
         if aircraft_type.is_some_and(|object| object.missile_spawn) {
             return position.exact_z_leptons.or(entity.position.exact_z_leptons);
         }
         let terrain = context.terrain().or(self.resolved_terrain.as_ref())?;
         let ground_z = ground_surface_z_at(xy, false, Some(terrain), None)?;
-        match entity.category {
+        match entity.category() {
             EntityCategory::Structure => return Some(ground_z),
             EntityCategory::Aircraft => {
                 let rules = context.rules?;
@@ -859,7 +859,7 @@ impl Simulation {
             }
             if let Some(entity) = self.substrate.entities.get_mut(stable_id)
                 && entity.spotlight_capable
-                && entity.category == crate::map::entities::EntityCategory::Structure
+                && entity.category() == crate::map::entities::EntityCategory::Structure
                 && entity.building_light.is_none()
             {
                 // `BuildingClass::Unlimbo @ 0x00441187` constructs after placement succeeds.
@@ -976,7 +976,7 @@ impl Simulation {
         // +198(owner) next; only afterward Infantry51E0EF clears +41B for
         // exactly Sight=0. Never move these producers before the Mark call.
         if let Some(entity) = self.substrate.entities.get(stable_id)
-            && entity.category != EntityCategory::Structure
+            && entity.category() != EntityCategory::Structure
         {
             self.discover_techno(stable_id, entity.owner(), context);
         }
@@ -993,7 +993,7 @@ impl Simulation {
                 context
                     .rules
                     .and_then(|r| r.object(self.interner.resolve(e.type_ref())))
-                    .map_or(e.category == EntityCategory::Aircraft, |o| {
+                    .map_or(e.category() == EntityCategory::Aircraft, |o| {
                         o.considered_aircraft
                     })
             })
@@ -1006,7 +1006,7 @@ impl Simulation {
         if let Some(rules) = context.rules
             && let Some(entity) = self.substrate.entities.get_mut(stable_id)
             && matches!(
-                entity.category,
+                entity.category(),
                 EntityCategory::Infantry | EntityCategory::Unit | EntityCategory::Aircraft
             )
             && let Some(object) = rules.object(self.interner.resolve(entity.type_ref()))
@@ -1022,7 +1022,7 @@ impl Simulation {
         if let Some(facing) = context.requested_facing
             && let Some(entity) = self.substrate.entities.get_mut(stable_id)
             && matches!(
-                entity.category,
+                entity.category(),
                 EntityCategory::Unit | EntityCategory::Aircraft
             )
             && let Some(barrel) = entity.barrel_facing.as_mut()
@@ -1037,7 +1037,7 @@ impl Simulation {
             .substrate
             .entities
             .get(stable_id)
-            .is_some_and(|entity| entity.category == EntityCategory::Unit)
+            .is_some_and(|entity| entity.category() == EntityCategory::Unit)
         {
             let visceroid = context
                 .rules
@@ -1078,7 +1078,7 @@ impl Simulation {
         {
             let type_id = self.interner.resolve(entity.type_ref());
             entity.retain_aircraft_unlimbo_control(rules, type_id);
-            if entity.category == EntityCategory::Aircraft
+            if entity.category() == EntityCategory::Aircraft
                 && let Some(object) = rules.object(type_id)
             {
                 let height = crate::sim::movement::air_movement::current_fly_height(
@@ -1093,7 +1093,7 @@ impl Simulation {
             }
         }
         if let Some(entity) = self.substrate.entities.get_mut(stable_id)
-            && entity.category == EntityCategory::Infantry
+            && entity.category() == EntityCategory::Infantry
             && entity.sight_is_zero
         {
             entity.discovery.discovered_by_current_house = false;
@@ -1105,7 +1105,7 @@ impl Simulation {
             .substrate
             .entities
             .get(stable_id)
-            .filter(|entity| entity.category == EntityCategory::Infantry)
+            .filter(|entity| entity.category() == EntityCategory::Infantry)
             .map(|entity| {
                 (
                     entity.owner(),
@@ -1153,7 +1153,7 @@ impl Simulation {
                     .substrate
                     .entities
                     .get(stable_id)
-                    .filter(|entity| entity.category == EntityCategory::Structure)
+                    .filter(|entity| entity.category() == EntityCategory::Structure)
                     .map(|entity| entity.owner())
             {
                 self.recalculate_house_base_geometry(owner, rules);
@@ -1205,7 +1205,7 @@ impl Simulation {
             return;
         };
         let game_mode_nonzero = self.session.game_mode_nonzero;
-        if entity.category == EntityCategory::Structure
+        if entity.category() == EntityCategory::Structure
             && game_mode_nonzero
             && self.houses.get(&entity.owner()).is_some_and(|house| {
                 !house.is_controlled_by_human(game_mode_nonzero) && !house.multiplay_passive
@@ -1229,7 +1229,7 @@ impl Simulation {
             .substrate
             .entities
             .get(id)
-            .filter(|entity| entity.category == EntityCategory::Structure)
+            .filter(|entity| entity.category() == EntityCategory::Structure)
             .map(|entity| entity.owner())
         else {
             return;
@@ -1340,7 +1340,7 @@ impl Simulation {
         let Some(entity) = self.substrate.entities.get(id) else {
             return true;
         };
-        if entity.category != EntityCategory::Structure {
+        if entity.category() != EntityCategory::Structure {
             return true;
         }
         let owner = entity.owner();
@@ -1423,7 +1423,7 @@ impl Simulation {
     fn fill_base_plan_from_successful_building_unlimbo(&mut self, stable_id: u64) {
         let Some((owner, type_index, packed_cell, has_undeploy_target)) =
             self.substrate.entities.get(stable_id).and_then(|entity| {
-                (entity.category == EntityCategory::Structure && entity.base_plan_type_index >= 0)
+                (entity.category() == EntityCategory::Structure && entity.base_plan_type_index >= 0)
                     .then_some((
                         entity.owner(),
                         entity.base_plan_type_index,
@@ -1461,7 +1461,7 @@ impl Simulation {
     fn invalidate_base_plan_from_building_limbo(&mut self, stable_id: u64) {
         let Some((owner, type_index, packed_cell, is_base_defense, in_limbo)) =
             self.substrate.entities.get(stable_id).and_then(|entity| {
-                (entity.category == EntityCategory::Structure && entity.base_plan_type_index >= 0)
+                (entity.category() == EntityCategory::Structure && entity.base_plan_type_index >= 0)
                     .then_some((
                         entity.owner(),
                         entity.base_plan_type_index,
@@ -1496,7 +1496,7 @@ impl Simulation {
             return;
         };
         let Some((owner, anchor)) = self.substrate.entities.get(stable_id).and_then(|entity| {
-            (entity.category == EntityCategory::Structure
+            (entity.category() == EntityCategory::Structure
                 && entity.determines_waypoint_edge
                 && entity.lifecycle.object_alive
                 && !entity.lifecycle.in_limbo
@@ -1518,7 +1518,7 @@ impl Simulation {
         let Some(entity) = self.substrate.entities.get_mut(stable_id) else {
             return false;
         };
-        if entity.category != EntityCategory::Structure {
+        if entity.category() != EntityCategory::Structure {
             return self.foot_mark_put(
                 stable_id,
                 context.rules,
@@ -1535,7 +1535,7 @@ impl Simulation {
             entity,
             context.terrain().or(self.resolved_terrain.as_ref()),
         );
-        let insertion = CellListInsertion::from_category(entity.category);
+        let insertion = CellListInsertion::from_category(entity.category());
         let foundation = entity.foundation.clone();
         let hidden_profile = entity.building_hidden_occupancy;
         let current_cell = (entity.position.rx, entity.position.ry);
@@ -1758,7 +1758,7 @@ impl Simulation {
     fn base_reservation_writer(&self, stable_id: u64) -> Option<(InternedId, CellRect)> {
         let entity = self.substrate.entities.get(stable_id)?;
         let spacing = entity.base_reservation_spacing?;
-        (entity.category == EntityCategory::Structure
+        (entity.category() == EntityCategory::Structure
             && entity.lifecycle.object_alive
             && !entity.lifecycle.in_limbo
             && entity.lifecycle.cell_marked
@@ -1788,7 +1788,7 @@ impl Simulation {
         let Some(spacing) = entity.base_reservation_spacing else {
             return false;
         };
-        if entity.category != EntityCategory::Structure
+        if entity.category() != EntityCategory::Structure
             || !entity.lifecycle.cell_marked
             || cell_list_layer_for_entity(
                 entity,
@@ -1863,7 +1863,7 @@ impl Simulation {
         let Some(entity) = self.substrate.entities.get_mut(stable_id) else {
             return false;
         };
-        if entity.category != EntityCategory::Structure {
+        if entity.category() != EntityCategory::Structure {
             return self.foot_mark_remove(
                 stable_id,
                 context.rules,
@@ -1942,7 +1942,7 @@ impl Simulation {
         };
         let cells = entity_occupancy_cells(entity);
         let sub_cell = entity.sub_cell;
-        let insertion = CellListInsertion::from_category(entity.category);
+        let insertion = CellListInsertion::from_category(entity.category());
         let old_layer = cell_list_layer_for_entity(entity, self.resolved_terrain.as_ref());
         let world_z = crate::sim::movement::ground_pose::object_world_z_leptons(
             entity,
@@ -1959,7 +1959,7 @@ impl Simulation {
             .get(stable_id)
             .is_some_and(|entity| {
                 matches!(
-                    entity.category,
+                    entity.category(),
                     EntityCategory::Unit | EntityCategory::Infantry | EntityCategory::Aircraft
                 )
             });
@@ -2013,7 +2013,7 @@ impl Simulation {
         // locomotor occupation release or the owner's raw Location receiver.
         if let Some(entity) = self.substrate.entities.get(stable_id)
             && matches!(
-                entity.category,
+                entity.category(),
                 EntityCategory::Unit | EntityCategory::Infantry | EntityCategory::Aircraft
             )
             && entity.locomotor.is_some()
@@ -2128,7 +2128,7 @@ impl Simulation {
             return false;
         }
         let entity = self.substrate.entities.get(id).unwrap();
-        let non_landable_level = (entity.category == EntityCategory::Aircraft)
+        let non_landable_level = (entity.category() == EntityCategory::Aircraft)
             .then(|| {
                 rules.and_then(|r| {
                     r.object(self.interner.resolve(entity.type_ref()))
@@ -2719,7 +2719,7 @@ impl Simulation {
             .substrate
             .entities
             .get(stable_id)
-            .is_some_and(|entity| entity.category == EntityCategory::Structure)
+            .is_some_and(|entity| entity.category() == EntityCategory::Structure)
         {
             crate::sim::production::detach_building_factory(
                 self,
@@ -2862,7 +2862,7 @@ impl Simulation {
             // The non-factory prerequisite path stops here: its strip
             // cancellation is decided only after this frame's Factory sweep.
             if let Some(entity) = self.substrate.entities.get(stable_id)
-                && entity.category == EntityCategory::Structure
+                && entity.category() == EntityCategory::Structure
                 && let Some(house) = self.houses.get_mut(&entity.owner())
             {
                 house.request_tech_recheck();
@@ -2883,7 +2883,7 @@ impl Simulation {
                 .entities
                 .get(stable_id)
                 .filter(|entity| {
-                    entity.category == EntityCategory::Structure && !entity.lifecycle.in_limbo
+                    entity.category() == EntityCategory::Structure && !entity.lifecycle.in_limbo
                 })
                 .map(|entity| entity.owner())
         {
@@ -2896,7 +2896,7 @@ impl Simulation {
         // (`+0x6DB`) and Doing Ready (`+0x6C4`, stored without Do_Action).
         // A boarded man leaves his transport with these.
         if let Some(entity) = self.substrate.entities.get_mut(stable_id)
-            && entity.category == EntityCategory::Infantry
+            && entity.category() == EntityCategory::Infantry
         {
             if let Some(locomotor) = entity.locomotor.as_mut() {
                 locomotor.stop_movement_animation();
@@ -2923,7 +2923,7 @@ impl Simulation {
                 .entities
                 .get(stable_id)
                 .is_some_and(|entity| {
-                    entity.category == EntityCategory::Infantry && !entity.lifecycle.in_limbo
+                    entity.category() == EntityCategory::Infantry && !entity.lifecycle.in_limbo
                 })
             && let Err(cause) =
                 self.infantry_stop_driver(stable_id, rules, context.registry(), context.effects())
@@ -2962,7 +2962,7 @@ impl Simulation {
             .entities
             .get(stable_id)
             .is_some_and(|entity| {
-                entity.category != EntityCategory::Structure && !entity.lifecycle.in_limbo
+                entity.category() != EntityCategory::Structure && !entity.lifecycle.in_limbo
             })
         {
             self.sound_events
@@ -3018,7 +3018,7 @@ impl Simulation {
             // Helipad's docks leave its house's AirportDocks.
             if let Some(rules) = context.rules()
                 && let Some(entity) = self.substrate.entities.get(stable_id)
-                && entity.category == EntityCategory::Structure
+                && entity.category() == EntityCategory::Structure
                 && entity.building_art.actually_placed()
                 && let Some(object) = self.object_type(entity.type_ref(), rules)
                 && object.helipad
@@ -3069,7 +3069,7 @@ impl Simulation {
             self.substrate.entities.get(stable_id).map(|entity| {
                 (
                     entity.owner(),
-                    entity.category,
+                    entity.category(),
                     entity.destruction_recorded,
                     // A Temporal erase leaves at full health with its kill
                     // already booked (`combat::record_kill::record_kill_credit`);
@@ -3161,7 +3161,7 @@ impl Simulation {
     /// (`TeamClass::Remove_Member @ 0x006EA870`, at `0x004D9744`) before its
     /// radio contact.
     pub(crate) fn object_destroy_callback(&mut self, stable_id: u64, context: UninitContext<'_>) {
-        let Some(category) = self.substrate.entities.get(stable_id).map(|e| e.category) else {
+        let Some(category) = self.substrate.entities.get(stable_id).map(|e| e.category()) else {
             return;
         };
         match category {
@@ -3330,7 +3330,7 @@ impl Simulation {
         let Some(entity) = self.substrate.entities.get(stable_id) else {
             return;
         };
-        let category = entity.category;
+        let category = entity.category();
         let walking_infantry = category == EntityCategory::Infantry
             && entity.locomotor.as_ref().is_some_and(|locomotor| {
                 locomotor.kind == crate::rules::locomotor_type::LocomotorKind::Walk
@@ -3397,7 +3397,7 @@ impl Simulation {
             .get(stable_id)
             .is_some_and(|entity| {
                 matches!(
-                    entity.category,
+                    entity.category(),
                     EntityCategory::Unit | EntityCategory::Infantry | EntityCategory::Aircraft
                 ) && entity.foot_locomotor_swap_active
             });
@@ -3798,7 +3798,7 @@ impl Simulation {
                 .substrate
                 .entities
                 .get(listener_id)
-                .is_some_and(|e| e.category == EntityCategory::Infantry)
+                .is_some_and(|e| e.category() == EntityCategory::Infantry)
             {
                 continue;
             }
@@ -4002,7 +4002,7 @@ impl Simulation {
         // Only Unit/Infantry/Aircraft inherit that additional Foot clear.
         // Native execution: spatial_oracle/foot_archive_expiry.{json,md}.
         let foot_receiver = matches!(
-            listener.category,
+            listener.category(),
             EntityCategory::Unit | EntityCategory::Infantry | EntityCategory::Aircraft
         );
         let clear_archive_target = (control == PointerExpiryControl::Uninit || foot_receiver)
@@ -4031,7 +4031,7 @@ impl Simulation {
             .as_ref()
             .is_some_and(|target| Self::nav_ref_targets_expired(target, expired_id));
         let retain_capture_nav = current_nav_matches
-            && listener.category == EntityCategory::Infantry
+            && listener.category() == EntityCategory::Infantry
             && listener.occupier
             && listener.mission.current().known()
                 == Some(crate::sim::mission::MissionType::Capture)
@@ -4659,7 +4659,7 @@ impl Simulation {
         // `FootClass::UnInit @ 0x004DE5DD` frees a controller's captives
         // first (a crushed or otherwise removed Yuri or Mastermind).
         let foot = matches!(
-            entity.category,
+            entity.category(),
             EntityCategory::Unit | EntityCategory::Infantry | EntityCategory::Aircraft
         );
         if foot
@@ -4812,7 +4812,7 @@ impl Simulation {
             .substrate
             .entities
             .get(stable_id)
-            .is_some_and(|entity| entity.category != EntityCategory::Structure);
+            .is_some_and(|entity| entity.category() != EntityCategory::Structure);
         // Constructor-complete Unit7357F6..735809, Infantry517DF2..517E05
         // and Aircraft4140EB..4140FE leave their Team before Remove_Tracking.
         // Their gate is the low byte of GameState[A8E9A0], independently of
@@ -4848,7 +4848,7 @@ impl Simulation {
             .substrate
             .entities
             .get(stable_id)
-            .is_some_and(|entity| entity.category == EntityCategory::Structure)
+            .is_some_and(|entity| entity.category() == EntityCategory::Structure)
         {
             // Building destructor43BD27 releases the construction SoundClass
             //(+6A0) before the delegated Techno destructor removes tracking.
@@ -4920,7 +4920,7 @@ impl Simulation {
             .substrate
             .entities
             .get(stable_id)
-            .is_some_and(|entity| entity.category != EntityCategory::Structure)
+            .is_some_and(|entity| entity.category() != EntityCategory::Structure)
         {
             self.sound_events
                 .push(super::SimSoundEvent::ObjectSoundReleased { owner: stable_id });
@@ -5133,7 +5133,7 @@ mod base_plan_lifecycle_tests {
         assert!(sim.houses[&ai].base_plan.nodes[0].filled);
         assert_eq!(sim.houses[&ai].base_plan.nodes[0].retry_count, 0);
         let entity = sim.entities().get(building).unwrap();
-        assert_eq!(entity.category, EntityCategory::Structure);
+        assert_eq!(entity.category(), EntityCategory::Structure);
         assert_eq!(entity.base_plan_type_index, 1);
         assert!(!entity.base_plan_is_defense);
         assert!(entity.base_plan_has_undeploy_target);

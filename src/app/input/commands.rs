@@ -129,7 +129,7 @@ fn own_building_id(state: &AppState, stable_id: u64) -> Option<u64> {
         .map(|rt| &rt.simulation)?;
     let owner = preferred_local_owner(state)?;
     let entity = sim.entities().get(stable_id)?;
-    (entity.category == EntityCategory::Structure
+    (entity.category() == EntityCategory::Structure
         && sim
             .interner
             .resolve(entity.owner())
@@ -697,7 +697,7 @@ fn preferred_local_owner_for_sim(
     let mut structure_counts: HashMap<String, usize> = HashMap::new();
     for entity in sim.entities().values() {
         let owner_str = sim.interner.resolve(entity.owner());
-        if entity.category == EntityCategory::Structure && is_playable_house_name(owner_str) {
+        if entity.category() == EntityCategory::Structure && is_playable_house_name(owner_str) {
             *structure_counts.entry(owner_str.to_string()).or_insert(0) += 1;
         }
     }

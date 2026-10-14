@@ -167,7 +167,7 @@ impl<'a> FireSubject<'a> {
         let firer = self.firer;
         let obj = self.obj;
         let frame = self.frame();
-        let class = match firer.category {
+        let class = match firer.category() {
             EntityCategory::Unit => FirerClass::Unit,
             EntityCategory::Infantry => FirerClass::Infantry,
             EntityCategory::Aircraft => FirerClass::Aircraft,
@@ -275,7 +275,7 @@ impl<'a> FireSubject<'a> {
             tethered: firer.dock_entered_with.is_some(),
             radio_link: match radio_link {
                 None => RadioLink::None,
-                Some(contact) if contact.category == EntityCategory::Structure => {
+                Some(contact) if contact.category() == EntityCategory::Structure => {
                     RadioLink::Building
                 }
                 Some(_) => RadioLink::Other,
@@ -331,7 +331,7 @@ impl<'a> FireSubject<'a> {
             Some(TargetKind::Entity(_)) => match (self.target_entity(), self.target_obj()) {
                 (Some(entity), Some(target_obj)) => (
                     TargetFacts {
-                        kind: match entity.category {
+                        kind: match entity.category() {
                             EntityCategory::Unit => FireTargetKind::Unit,
                             EntityCategory::Infantry => FireTargetKind::Infantry,
                             EntityCategory::Aircraft => FireTargetKind::Aircraft,
@@ -571,8 +571,8 @@ impl FireQuery for WorldQuery<'_, '_> {
         let (Some(target), Some(obj)) = (subject.target_entity(), subject.target_obj()) else {
             return 0;
         };
-        let invisible =
-            obj.invisible || target.category == EntityCategory::Structure && obj.invisible_in_game;
+        let invisible = obj.invisible
+            || target.category() == EntityCategory::Structure && obj.invisible_in_game;
         let sensed = subject.fog.is_some_and(|fog| {
             fog.has_sensor_for_house(
                 subject.firer.owner(),
@@ -814,7 +814,7 @@ impl WorldQuery<'_, '_> {
     fn direction(&self) -> u16 {
         let subject = self.subject;
         let firer = subject.firer;
-        if firer.category == EntityCategory::Structure {
+        if firer.category() == EntityCategory::Structure {
             return subject.target.map_or(0, |target| {
                 super::fire_coord::building_direction_to(
                     subject.world,

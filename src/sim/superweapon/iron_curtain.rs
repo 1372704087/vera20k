@@ -152,7 +152,7 @@ pub(crate) fn launch(
                 .entities
                 .get(id)
                 .filter(|entity| !entity.chrono_warp_latch())
-                .map(|entity| entity.category)
+                .map(|entity| entity.category())
             {
                 #[cfg(test)]
                 observe(Observed::Curtain((x, y), id));

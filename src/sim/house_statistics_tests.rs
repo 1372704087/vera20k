@@ -96,9 +96,9 @@ fn native_null_record_kill_books_each_live_callback_immediately() {
         house.economy.set_score_for_test(score);
         sim.houses.insert(owner, house);
         let mut victim = GameEntity::test_default(1, "GAPOWR", "Americans", 10, 10);
-        victim.owner = owner;
-        victim.type_ref = sim.interner.intern("GAPOWR");
-        victim.category = EntityCategory::Structure;
+        victim.set_owner_for_test(owner);
+        victim.set_type_ref_for_test(sim.interner.intern("GAPOWR"));
+        victim.set_category_for_test(EntityCategory::Structure);
         victim.health.current = i32::try_from(row["before"]["health"].as_i64().unwrap()).unwrap();
         victim.dont_score = dont_score;
         sim.substrate.entities.insert(victim);
@@ -322,9 +322,9 @@ fn native_house_statistics_survive_snapshot_and_retained_ship_terminal_record() 
         sim.session.house_order.push(owner);
         let id = sim.allocate_stable_id();
         let mut hull = GameEntity::test_default(id, "AEGIS", "Americans", 113, 59);
-        hull.type_ref = sim.interner.intern("AEGIS");
-        hull.owner = owner;
-        hull.category = crate::map::entities::EntityCategory::Unit;
+        hull.set_type_ref_for_test(sim.interner.intern("AEGIS"));
+        hull.set_owner_for_test(owner);
+        hull.set_category_for_test(crate::map::entities::EntityCategory::Unit);
         hull.health.current = 1;
         sim.substrate.entities.insert(hull);
         let bytes = GameSnapshot::save_validated(&sim, 1, 2, "native House state", 3);

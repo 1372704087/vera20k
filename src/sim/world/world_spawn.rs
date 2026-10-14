@@ -729,7 +729,7 @@ impl Simulation {
             .substrate
             .entities
             .get_mut(stable_id)
-            .filter(|entity| entity.category == EntityCategory::Structure)
+            .filter(|entity| entity.category() == EntityCategory::Structure)
         else {
             return false;
         };
@@ -1118,7 +1118,7 @@ impl Simulation {
             .substrate
             .entities
             .get(stable_id)
-            .is_some_and(|entity| entity.category == EntityCategory::Infantry);
+            .is_some_and(|entity| entity.category() == EntityCategory::Infantry);
         let requested_position = if is_infantry {
             self.infantry_unlimbo_position(requested_position, Some(rules))?
         } else {
@@ -1445,7 +1445,7 @@ impl Simulation {
             .substrate
             .entities
             .get(stable_id)
-            .is_some_and(|entity| entity.category == EntityCategory::Infantry);
+            .is_some_and(|entity| entity.category() == EntityCategory::Infantry);
         let position = if infantry {
             let Some(position) = self.infantry_unlimbo_position(position, rules) else {
                 return (
@@ -1491,7 +1491,7 @@ impl Simulation {
                 .entities
                 .get(stable_id)
                 .is_some_and(|entity| {
-                    entity.category == EntityCategory::Structure && !entity.building_up()
+                    entity.category() == EntityCategory::Structure && !entity.building_up()
                 })
             {
                 // RESIDUAL: native Begin_Mode applies a new mode at once while
@@ -1549,7 +1549,7 @@ impl Simulation {
         // Other classes' +1AC constructor receivers are separate migrations.
         // Terrain-less diagnostics retain their existing generic Mark seam.
         if !matches!(
-            entity.category,
+            entity.category(),
             EntityCategory::Unit | EntityCategory::Infantry
         ) || self.resolved_terrain.is_none()
         {
@@ -1607,7 +1607,7 @@ impl Simulation {
         let Some((category, veterancy, in_playfield, type_ref)) =
             self.substrate.entities.get(stable_id).map(|entity| {
                 (
-                    entity.category,
+                    entity.category(),
                     entity.veterancy.rank(),
                     entity.in_playfield,
                     entity.type_ref(),
@@ -1991,7 +1991,7 @@ impl Simulation {
             })
             .map(|(id, entity)| {
                 let drops = hijacker_drops
-                    && entity.category == EntityCategory::Infantry
+                    && entity.category() == EntityCategory::Infantry
                     && self
                         .object_type(entity.type_ref(), rules)
                         .is_some_and(|obj| obj.vehicle_thief);
@@ -2333,7 +2333,7 @@ impl Simulation {
         let Some(entity) = self.substrate.entities.get(stable_id) else {
             return false;
         };
-        if entity.category != EntityCategory::Structure
+        if entity.category() != EntityCategory::Structure
             || entity.building_up()
             || entity.building_down()
         {

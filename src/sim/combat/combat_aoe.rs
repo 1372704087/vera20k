@@ -900,7 +900,7 @@ fn push_airborne_aoe_damage(
     // category test belongs to THIS site, not to `is_high_flying` — the native
     // predicate itself is universal over `ObjectClass`, so a Jumpjet
     // `UnitClass` like the stock Kirov is high-flying but is not halved here.
-    let distance_leptons = if entity.category == EntityCategory::Aircraft
+    let distance_leptons = if entity.category() == EntityCategory::Aircraft
         && crate::sim::movement::air_movement::is_high_flying(
             entity,
             Some(terrain),
@@ -968,7 +968,7 @@ fn push_entity_aoe_damage(
     // coordinate. The center record alone gets a two-Level vertical allowance
     // before storing the remaining exact 3D distance. Ordinary objects use
     // their virtual +A4 coordinate, including exact subcell XY and absolute Z.
-    let target_xyz = if entity.category == EntityCategory::Structure {
+    let target_xyz = if entity.category() == EntityCategory::Structure {
         let x = i32::from(scan_rx)
             .wrapping_mul(256)
             .wrapping_add(CELL_CENTER_LEPTON.to_num::<i32>());
@@ -990,7 +990,7 @@ fn push_entity_aoe_damage(
         let z = crate::sim::movement::ground_pose::object_world_z_leptons(entity, terrain);
         [x, y, z]
     };
-    let distance_leptons = if entity.category == EntityCategory::Structure && center_cell {
+    let distance_leptons = if entity.category() == EntityCategory::Structure && center_cell {
         let height_above_cell = impact.z_leptons.wrapping_sub(target_xyz[2]);
         if height_above_cell <= BUILDING_CENTER_HEIGHT_ALLOWANCE_LEPTONS {
             0
@@ -1358,7 +1358,7 @@ mod tests {
             (5, "JUMP", EntityCategory::Infantry, 257),
         ] {
             let mut air = GameEntity::test_default(stable_id, type_id, "Soviet", 5, 5);
-            air.category = category;
+            air.set_category_for_test(category);
             air.health.current = 1000;
             // Ordinary Aircraft41B920 reaches Object5F6B90: Object+74 must
             // be marked before the physical GetHeight threshold is queried.
@@ -1660,8 +1660,8 @@ mod tests {
             let mut entities = EntityStore::new();
 
             let mut vulnerable = GameEntity::test_default(1, "TARGET", "Victim", 5, 5);
-            vulnerable.type_ref = target_ref;
-            vulnerable.owner = victim_owner;
+            vulnerable.set_type_ref_for_test(target_ref);
+            vulnerable.set_owner_for_test(victim_owner);
             vulnerable.position.sub_x = CELL_CENTER_LEPTON;
             vulnerable.position.sub_y = CELL_CENTER_LEPTON;
             vulnerable.lifecycle.in_limbo = false;
@@ -1669,8 +1669,8 @@ mod tests {
             entities.insert(vulnerable);
 
             let mut protected = GameEntity::test_default(2, "TARGET", "Victim", 5, 5);
-            protected.type_ref = target_ref;
-            protected.owner = victim_owner;
+            protected.set_type_ref_for_test(target_ref);
+            protected.set_owner_for_test(victim_owner);
             protected.position.sub_x = SimFixed::from_num(
                 CELL_CENTER_LEPTON
                     .to_num::<i32>()
@@ -1832,7 +1832,7 @@ mod tests {
 
             let make_air = |stable_id, rx, enter_order| {
                 let mut air = GameEntity::test_default(stable_id, "AIRBOMB", "Soviet", rx, 5);
-                air.category = EntityCategory::Aircraft;
+                air.set_category_for_test(EntityCategory::Aircraft);
                 air.lifecycle.in_limbo = false;
                 air.health.current = hp;
                 air.position.z = 0;
@@ -2496,16 +2496,16 @@ mod tests {
 
             let mut entities = EntityStore::new();
             let mut source = GameEntity::test_default(1, "SOURCE", "SourceHouse", 1, 1);
-            source.type_ref = source_type;
-            source.owner = source_house;
+            source.set_type_ref_for_test(source_type);
+            source.set_owner_for_test(source_house);
             entities.insert(source);
             let mut ally = GameEntity::test_default(2, "TARGET", "AllyHouse", 1, 1);
-            ally.type_ref = target_type;
-            ally.owner = ally_house;
+            ally.set_type_ref_for_test(target_type);
+            ally.set_owner_for_test(ally_house);
             entities.insert(ally);
             let mut enemy = GameEntity::test_default(3, "TARGET", "EnemyHouse", 1, 1);
-            enemy.type_ref = target_type;
-            enemy.owner = enemy_house;
+            enemy.set_type_ref_for_test(target_type);
+            enemy.set_owner_for_test(enemy_house);
             entities.insert(enemy);
             let mut occupancy = OccupancyGrid::new();
             for stable_id in [3, 2, 1] {
@@ -2540,7 +2540,7 @@ mod tests {
 
             // Prove alliance resolution reads the detonation ABI snapshot, not
             // a later live-source owner value.
-            entities.get_mut(1).unwrap().owner = enemy_house;
+            entities.get_mut(1).unwrap().set_owner_for_test(enemy_house);
             let mut alliances = HouseAllianceMap::new();
             alliances
                 .entry("SOURCEHOUSE".to_string())
@@ -2628,8 +2628,8 @@ mod tests {
             let ap = interner.intern("AP");
             let mut entities = EntityStore::new();
             let mut source = GameEntity::test_default(1, "MTNK", "SovietHouse", 1, 1);
-            source.owner = soviet;
-            source.type_ref = mtnk;
+            source.set_owner_for_test(soviet);
+            source.set_type_ref_for_test(mtnk);
             entities.insert(source);
             let mut hut = GameEntity::test_default_of_category(
                 2,
@@ -2639,8 +2639,8 @@ mod tests {
                 5,
                 EntityCategory::Structure,
             );
-            hut.owner = civilian;
-            hut.type_ref = cabhut;
+            hut.set_owner_for_test(civilian);
+            hut.set_type_ref_for_test(cabhut);
             hut.health.current = 2000;
             entities.insert(hut);
 
@@ -2757,17 +2757,17 @@ mod tests {
         let ap = interner.intern("AP");
         let mut entities = EntityStore::new();
         let mut source = GameEntity::test_default(1, "HTNK", "Russians", 1, 1);
-        source.owner = russian;
-        source.type_ref = htnk;
+        source.set_owner_for_test(russian);
+        source.set_type_ref_for_test(htnk);
         entities.insert(source);
         let mut rookie = GameEntity::test_default(2, "MTNK", "Americans", 5, 5);
-        rookie.owner = american;
-        rookie.type_ref = mtnk;
+        rookie.set_owner_for_test(american);
+        rookie.set_type_ref_for_test(mtnk);
         rookie.health.current = 300;
         entities.insert(rookie);
         let mut veteran = GameEntity::test_default(3, "MTNK", "Americans", 5, 5);
-        veteran.owner = american;
-        veteran.type_ref = mtnk;
+        veteran.set_owner_for_test(american);
+        veteran.set_type_ref_for_test(mtnk);
         veteran.health.current = 300;
         veteran.veterancy.set_rank_for_test(100);
         entities.insert(veteran);
@@ -2883,27 +2883,27 @@ mod tests {
 
         let mut entities = EntityStore::new();
         let mut source = GameEntity::test_default(1, "CAOS", "YuriHouse", 1, 1);
-        source.owner = yuri;
-        source.type_ref = caos;
+        source.set_owner_for_test(yuri);
+        source.set_type_ref_for_test(caos);
         entities.insert(source);
 
         let mut target = GameEntity::test_default(2, "TARGET", "SovietHouse", 5, 5);
-        target.owner = soviet;
-        target.type_ref = target_type;
+        target.set_owner_for_test(soviet);
+        target.set_type_ref_for_test(target_type);
         target.health.current = 1000;
         target.attack_target = Some(AttackTarget::new(1));
         entities.insert(target);
 
         let mut allied = GameEntity::test_default(3, "TARGET", "YuriHouse", 5, 5);
-        allied.owner = yuri;
-        allied.type_ref = target_type;
+        allied.set_owner_for_test(yuri);
+        allied.set_type_ref_for_test(target_type);
         allied.health.current = 1000;
         allied.attack_target = Some(AttackTarget::new(1));
         entities.insert(allied);
 
         let mut immune = GameEntity::test_default(4, "IMMUNE", "SovietHouse", 5, 5);
-        immune.owner = soviet;
-        immune.type_ref = immune_type;
+        immune.set_owner_for_test(soviet);
+        immune.set_type_ref_for_test(immune_type);
         immune.health.current = 1000;
         immune.attack_target = Some(AttackTarget::new(1));
         entities.insert(immune);
@@ -2916,8 +2916,8 @@ mod tests {
             5,
             EntityCategory::Structure,
         );
-        building.owner = soviet;
-        building.type_ref = building_type;
+        building.set_owner_for_test(soviet);
+        building.set_type_ref_for_test(building_type);
         building.health.current = 1000;
         building.attack_target = Some(AttackTarget::new(1));
         entities.insert(building);
@@ -3096,32 +3096,32 @@ mod tests {
         let grizape = interner.intern("GRIZAPE");
         let mut entities = EntityStore::new();
         let mut source = GameEntity::test_default(1, "MTNK", "SourceHouse", 1, 1);
-        source.owner = source_house;
-        source.type_ref = mtnk;
+        source.set_owner_for_test(source_house);
+        source.set_type_ref_for_test(mtnk);
         entities.insert(source);
 
         let mut target = GameEntity::test_default(2, "E1", "NormalHouse", 5, 5);
-        target.owner = normal_house;
-        target.type_ref = e1;
-        target.category = EntityCategory::Infantry;
+        target.set_owner_for_test(normal_house);
+        target.set_type_ref_for_test(e1);
+        target.set_category_for_test(EntityCategory::Infantry);
         target.health.current = 20;
         target.infantry = Some(crate::sim::game_entity::InfantryRuntime::new());
         target.infantry.as_mut().unwrap().is_prone = true;
         entities.insert(target);
 
         let mut easy_prone = GameEntity::test_default(3, "E1", "EasyHouse", 5, 5);
-        easy_prone.owner = easy_house;
-        easy_prone.type_ref = e1;
-        easy_prone.category = EntityCategory::Infantry;
+        easy_prone.set_owner_for_test(easy_house);
+        easy_prone.set_type_ref_for_test(e1);
+        easy_prone.set_category_for_test(EntityCategory::Infantry);
         easy_prone.health.current = 100;
         easy_prone.infantry = Some(crate::sim::game_entity::InfantryRuntime::new());
         easy_prone.infantry.as_mut().unwrap().is_prone = true;
         entities.insert(easy_prone);
 
         let mut easy_standing = GameEntity::test_default(4, "E1", "EasyHouse", 5, 5);
-        easy_standing.owner = easy_house;
-        easy_standing.type_ref = e1;
-        easy_standing.category = EntityCategory::Infantry;
+        easy_standing.set_owner_for_test(easy_house);
+        easy_standing.set_type_ref_for_test(e1);
+        easy_standing.set_category_for_test(EntityCategory::Infantry);
         easy_standing.health.current = 100;
         easy_standing.infantry = Some(crate::sim::game_entity::InfantryRuntime::new());
         entities.insert(easy_standing);
@@ -3300,14 +3300,14 @@ mod tests {
 
             let mut entities = EntityStore::new();
             let mut attacker = GameEntity::test_default(1, "ATTACKER", "AttackerHouse", 3, 5);
-            attacker.owner = attacker_house;
-            attacker.type_ref = attacker_type;
+            attacker.set_owner_for_test(attacker_house);
+            attacker.set_type_ref_for_test(attacker_type);
             entities.insert(attacker);
 
             let mut victim = GameEntity::test_default(2, "E1", "VictimHouse", 5, 5);
-            victim.owner = victim_house;
-            victim.type_ref = victim_type;
-            victim.category = EntityCategory::Infantry;
+            victim.set_owner_for_test(victim_house);
+            victim.set_type_ref_for_test(victim_type);
+            victim.set_category_for_test(EntityCategory::Infantry);
             victim.mission_leaf = crate::sim::mission::leaf::MissionLeafState::for_entity_category(
                 EntityCategory::Infantry,
             );
@@ -3898,7 +3898,7 @@ mod tests {
         entities.insert(building);
 
         let mut air = GameEntity::test_default(10, "AIR", "Americans", 5, 5);
-        air.category = EntityCategory::Aircraft;
+        air.set_category_for_test(EntityCategory::Aircraft);
         air.position.sub_x = CELL_CENTER_LEPTON;
         air.position.sub_y = CELL_CENTER_LEPTON;
         let mut air_locomotor = crate::sim::movement::locomotor::LocomotorState::from_object_type(

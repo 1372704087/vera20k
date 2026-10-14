@@ -236,7 +236,7 @@ fn deploy_mcv_uses_gamemd_large_foundation_origin_offset() {
         sim.substrate
             .entities
             .values()
-            .any(|e| { e.type_ref == gacnst_id && e.position.rx == 19 && e.position.ry == 21 })
+            .any(|e| { e.type_ref() == gacnst_id && e.position.rx == 19 && e.position.ry == 21 })
     );
 }
 
@@ -280,8 +280,8 @@ fn deploy_then_undeploy_returns_the_mcv_to_its_original_cell() {
         .substrate
         .entities
         .values()
-        .find(|e| e.type_ref == gacnst_id)
-        .map(|e| e.stable_id)
+        .find(|e| e.type_ref() == gacnst_id)
+        .map(|e| e.stable_id())
         .expect("ConYard should exist after deploy");
 
     assert!(
@@ -302,7 +302,7 @@ fn deploy_then_undeploy_returns_the_mcv_to_its_original_cell() {
         .substrate
         .entities
         .values()
-        .find(|e| e.type_ref == amcv_id)
+        .find(|e| e.type_ref() == amcv_id)
         .map(|e| (e.position.rx, e.position.ry))
         .expect("MCV should exist again after undeploy");
     assert_eq!(
@@ -344,7 +344,7 @@ fn a_computer_mcv_deploys_into_a_yard_that_follows_the_native_deploy_route() {
             crate::sim::world::FrameEffects::default()
         ));
         let yard = deployed_type(&sim, "GACNST");
-        let id = yard.stable_id;
+        let id = yard.stable_id();
         assert!(
             !yard.building_art.actually_placed(),
             "{name}: opened at deploy"
@@ -409,7 +409,7 @@ fn deploy_mcv_accepts_mixed_height_clear_foundation() {
         sim.substrate
             .entities
             .values()
-            .any(|e| { e.type_ref == gacnst_id && e.position.rx == 19 && e.position.ry == 21 }),
+            .any(|e| { e.type_ref() == gacnst_id && e.position.rx == 19 && e.position.ry == 21 }),
         "Construction Yard should spawn at gamemd's deploy foundation origin"
     );
 }
@@ -457,7 +457,7 @@ fn deploy_mcv_rejects_structure_in_rightmost_foundation_column() {
             !sim.substrate
                 .entities
                 .values()
-                .any(|e| e.type_ref == gacnst_id),
+                .any(|e| e.type_ref() == gacnst_id),
             "blocked deploy must not spawn a Construction Yard"
         );
     }
@@ -494,7 +494,7 @@ fn deploy_mcv_waits_for_target_building_deploy_facing() {
             .substrate
             .entities
             .values()
-            .any(|e| e.type_ref == yard)),
+            .any(|e| e.type_ref() == yard)),
         "facing gate must run before ConYard creation"
     );
     assert_eq!(sim.houses[&owner].ai_activation, SPLIT_AI_ACTIVATION);
@@ -671,7 +671,7 @@ fn deployed_type<'a>(sim: &'a Simulation, type_name: &str) -> &'a GameEntity {
     sim.substrate
         .entities
         .values()
-        .find(|entity| entity.type_ref == type_id && !entity.dying)
+        .find(|entity| entity.type_ref() == type_id && !entity.dying)
         .expect("deployed target exists")
 }
 
@@ -744,7 +744,7 @@ fn a_damaged_computer_yard_starts_its_repair_as_its_build_up_completes() {
         crate::sim::world::FrameEffects::default()
     ));
     sim.flush_pending_delete();
-    let yard = deployed_type(&sim, "GACNST").stable_id;
+    let yard = deployed_type(&sim, "GACNST").stable_id();
     let mut frames = Vec::new();
     for _ in 0..7 {
         let frame = sim.session.binary_frame - deployed_at;

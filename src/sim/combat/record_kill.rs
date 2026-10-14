@@ -150,7 +150,7 @@ fn record_the_kill(
         .get(&victim_owner)
         .map(crate::sim::house_state::HouseState::cost_factors);
     let victim_type = rules.object(interner.resolve(victim.type_ref()));
-    let insignificant_building = victim.category == EntityCategory::Structure
+    let insignificant_building = victim.category() == EntityCategory::Structure
         && victim_type.is_some_and(|object| object.insignificant);
     let victim_cost = victim_type.map_or(0, |object| rules.cost_of(object, victim_house.as_ref()));
     // `0x00702E64` asks the killer's house `HouseClass::IsAlly @ 0x004F9A90`,
@@ -254,12 +254,12 @@ fn record_kill_credit(
     }
     if !insignificant_building {
         if let Some(house) = houses.get_mut(&victim.owner()) {
-            house.stats.record_loss(victim.category);
+            house.stats.record_loss(victim.category());
         }
         if let Some(killer) = killer_owner
             && let Some(house) = houses.get_mut(&killer)
         {
-            house.stats.record_kill(victim.category);
+            house.stats.record_kill(victim.category());
         }
     }
 }

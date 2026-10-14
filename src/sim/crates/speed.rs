@@ -29,7 +29,7 @@ pub(super) fn apply_speed_crate(
         let Some(entity) = sim.substrate.entities.get_mut(id) else {
             continue;
         };
-        if entity.category == EntityCategory::Structure {
+        if entity.category() == EntityCategory::Structure {
             continue;
         }
         let position = position_world_coord(&entity.position);
@@ -40,7 +40,7 @@ pub(super) fn apply_speed_crate(
         {
             continue;
         }
-        if entity.category == EntityCategory::Aircraft {
+        if entity.category() == EntityCategory::Aircraft {
             continue;
         }
         if entity.foot_speed.accept_speed_crate(multiplier) {

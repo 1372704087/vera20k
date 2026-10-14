@@ -173,7 +173,7 @@ impl EntityStore {
     pub fn insert(&mut self, entity: GameEntity) -> u64 {
         let id = entity.stable_id();
         self.touched.note(id, self.len());
-        let infantry = entity.category == crate::map::entities::EntityCategory::Infantry;
+        let infantry = entity.category() == crate::map::entities::EntityCategory::Infantry;
         let entity = Some(Box::new(entity));
         if let Some(&slot) = self.slot_of.get(&id) {
             self.entities[slot as usize] = entity;
@@ -411,7 +411,9 @@ impl EntityStore {
     pub(crate) fn rebuild_infantry_registry(&mut self) {
         let infantry: Vec<u64> = self
             .stored()
-            .filter(|(_, entity)| entity.category == crate::map::entities::EntityCategory::Infantry)
+            .filter(|(_, entity)| {
+                entity.category() == crate::map::entities::EntityCategory::Infantry
+            })
             .map(|(id, _)| id)
             .collect();
         // Storage iterates in ascending stable_id order, so the infantry
@@ -661,7 +663,7 @@ mod tests {
         let mut store = EntityStore::new();
         for id in [1, 2, 3] {
             let mut e = make_entity(id);
-            e.category = EntityCategory::Infantry;
+            e.set_category_for_test(EntityCategory::Infantry);
             store.insert(e);
         }
         store.get_mut(1).unwrap().lifecycle.object_alive = false;
@@ -671,7 +673,7 @@ mod tests {
         // A caller that just visited index0 next reads index1, skipping2.
         assert_eq!(store.infantry_registry_at(1), Some(3));
         let mut appended = make_entity(4);
-        appended.category = EntityCategory::Infantry;
+        appended.set_category_for_test(EntityCategory::Infantry);
         store.insert(appended);
         assert_eq!(store.infantry_registry_at(2), Some(4));
         // Replacement through the store updates category membership too.
@@ -696,7 +698,7 @@ mod tests {
         assert!(!store.contains(3));
 
         let e = store.get(1).expect("entity 1 should exist");
-        assert_eq!(e.stable_id, 1);
+        assert_eq!(e.stable_id(), 1);
     }
 
     #[test]
@@ -719,7 +721,7 @@ mod tests {
 
         let removed = store.remove(1);
         assert!(removed.is_some());
-        assert_eq!(removed.expect("should be Some").stable_id, 1);
+        assert_eq!(removed.expect("should be Some").stable_id(), 1);
         assert_eq!(store.len(), 1);
         assert!(!store.contains(1));
         assert!(store.contains(2));
@@ -827,7 +829,7 @@ mod tests {
         store.insert(make_entity(1));
         store.insert(make_entity(2));
 
-        let ids: Vec<u64> = store.values_sorted().map(|e| e.stable_id).collect();
+        let ids: Vec<u64> = store.values_sorted().map(|e| e.stable_id()).collect();
         assert_eq!(ids, vec![1, 2, 3]);
     }
 

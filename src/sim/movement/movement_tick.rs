@@ -52,7 +52,7 @@ pub(super) fn snapshot_mover(
 ) -> Option<MoverSnapshot> {
     let e = entities.get(entity_id)?;
     Some(MoverSnapshot {
-        category: e.category,
+        category: e.category(),
         speed_type: e.locomotor.as_ref().map(|l| l.speed_type),
         movement_zone: e
             .locomotor
@@ -304,7 +304,7 @@ struct MovementPassEffects {
 fn native_track_route(
     entity: &crate::sim::game_entity::GameEntity,
 ) -> Option<super::track_process::TrackFamily> {
-    if entity.category != EntityCategory::Unit {
+    if entity.category() != EntityCategory::Unit {
         return None;
     }
     match entity.locomotor.as_ref()?.kind {
@@ -495,11 +495,12 @@ fn advance_ordinary_mover(
             resolved_terrain,
         ) {
             let terrain = resolved_terrain.expect("tube admission resolved terrain");
+            let category = entity.category();
             if tube_movement::begin_path_tube_step(
                 &mut entity.foot_occupation_enabled,
                 &mut entity.navigation.path_replay,
                 entity_id,
-                entity.category,
+                category,
                 &mut entity.position,
                 &mut entity.locomotor,
                 &mut entity.low_bridge_tube_state,
@@ -1296,7 +1297,8 @@ Foundation=2x2
                     let mut entity =
                         GameEntity::test_default(id, kind, "Americans", cell.0, cell.1);
                     if building {
-                        entity.category = crate::map::entities::EntityCategory::Structure;
+                        entity
+                            .set_category_for_test(crate::map::entities::EntityCategory::Structure);
                     }
                     entity.lifecycle.cell_marked = true;
                     entities.insert(entity);

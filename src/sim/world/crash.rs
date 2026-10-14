@@ -102,7 +102,7 @@ impl Simulation {
         if current_fly_height(entity, self.resolved_terrain.as_ref()) <= 0 {
             return false;
         }
-        let category = entity.category;
+        let category = entity.category();
         if entity.health.current > 0 {
             // `0x004DEC4C`: RecordKill(attacker) books the kill and the loss
             // for the killer's house (no attacker: the loss alone), then
@@ -292,7 +292,7 @@ impl Simulation {
         let Some(entity) = self.substrate.entities.get(id) else {
             return false;
         };
-        debug_assert_eq!(entity.category, EntityCategory::Unit);
+        debug_assert_eq!(entity.category(), EntityCategory::Unit);
         let (crashable, balloon_hover) = self
             .object_type(entity.type_ref(), rules)
             .map_or((false, false), |object| {
@@ -549,7 +549,7 @@ impl Simulation {
             return;
         };
         // `0x00414DAA`: an aircraft its own FootClass::AI removed never gets here.
-        if entity.category != EntityCategory::Aircraft || !entity.lifecycle.object_alive {
+        if entity.category() != EntityCategory::Aircraft || !entity.lifecycle.object_alive {
             return;
         }
         let Some(object) = self.object_type(entity.type_ref(), rules) else {

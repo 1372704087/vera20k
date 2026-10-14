@@ -120,7 +120,7 @@ mod gsi_04_03b_tests {
             10,
             EntityCategory::Structure,
         );
-        refinery.type_ref = refinery_type;
+        refinery.set_type_ref_for_test(refinery_type);
         // Construction stamps the type's `Foundation=4x3`.
         refinery.foundation = "4x3".to_string();
         sim.substrate.entities.insert(refinery);
@@ -129,7 +129,7 @@ mod gsi_04_03b_tests {
         // distance is 4.5 cells (x = 4224 vs centre 3072, dy = 0; within 5)
         // -> native keeps the narrow result.
         let mut east = GameEntity::test_default(1, "HARV", "Allies", 16, 11);
-        east.type_ref = harv_type;
+        east.set_type_ref_for_test(harv_type);
         sim.substrate.entities.insert(east);
         assert_eq!(
             return_exceeds_too_far_threshold(&sim, 1, 2, 5),
@@ -140,7 +140,7 @@ mod gsi_04_03b_tests {
         // West of the building: NW distance is sqrt(17) cells (near), centre
         // distance is sqrt(30.25) cells (beyond 5) -> native falls to wide.
         let mut west = GameEntity::test_default(3, "HARV", "Allies", 6, 11);
-        west.type_ref = harv_type;
+        west.set_type_ref_for_test(harv_type);
         sim.substrate.entities.insert(west);
         assert_eq!(
             return_exceeds_too_far_threshold(&sim, 3, 2, 5),
@@ -267,8 +267,8 @@ mod gsi_04_03b_tests {
         let type_ref = sim.interner.intern("HARV");
         for (entity_id, rx, facing) in [(1, 1, 0x40u8), (2, 3, 0xC0)] {
             let mut miner = GameEntity::test_default(entity_id, "HARV", "AMERICANS", rx, 2);
-            miner.owner = owner;
-            miner.type_ref = type_ref;
+            miner.set_owner_for_test(owner);
+            miner.set_type_ref_for_test(type_ref);
             miner.body_facing.snap(u16::from(facing) << 8, 0);
             miner.locomotor = Some(LocomotorState::for_test_kind(LocomotorKind::Drive));
             miner
@@ -498,7 +498,7 @@ pub(crate) fn unit_ai_clear_harvesting(sim: &mut Simulation, id: u64) {
         return;
     };
     if entity.dying
-        || entity.category != EntityCategory::Unit
+        || entity.category() != EntityCategory::Unit
         || native_mission_is_harvest(entity)
         || !entity.miner.as_ref().is_some_and(|miner| miner.harvesting)
     {
@@ -1248,7 +1248,7 @@ fn refinery_building_in_cell(sim: &Simulation, rules: &RuleSet, cell: (u16, u16)
     let occupancy = sim.substrate.occupancy.get(cell.0, cell.1)?;
     occupancy.blockers(MovementLayer::Ground).find(|&sid| {
         sim.substrate.entities.get(sid).is_some_and(|entity| {
-            entity.category == EntityCategory::Structure
+            entity.category() == EntityCategory::Structure
                 && !entity.dying
                 && sim
                     .object_type(entity.type_ref(), rules)
@@ -1444,7 +1444,7 @@ fn scan_docking_type(
                 .as_ref()
                 .map(|loc| loc.movement_zone)
                 .unwrap_or(MovementZone::Normal),
-            entity.category == EntityCategory::Aircraft,
+            entity.category() == EntityCategory::Aircraft,
         )
     };
     // `0x004DEE9B..0x004DEEAC`: a type of which the house tracks no
@@ -1688,7 +1688,7 @@ pub(crate) fn counts_as_purifier(
     !e.dying
         && !e.lifecycle.in_limbo
         && !e.building_up()
-        && e.category == EntityCategory::Structure
+        && e.category() == EntityCategory::Structure
         && sim
             .object_type(e.type_ref(), rules)
             .is_some_and(|obj| obj.ore_purifier)

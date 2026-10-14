@@ -145,7 +145,7 @@ fn first_yard_distance_accepts(
     let Some(yard) = sim.substrate.entities.get(yard_id) else {
         return false;
     };
-    if yard.category != EntityCategory::Structure
+    if yard.category() != EntityCategory::Structure
         || !yard.build_const_eligible
         || !yard.lifecycle.object_alive
         || yard.lifecycle.in_limbo

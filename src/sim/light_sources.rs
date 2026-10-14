@@ -83,7 +83,7 @@ impl Simulation {
         let Some(entity) = self.entities().get(id) else {
             return;
         };
-        if entity.category != crate::map::entities::EntityCategory::Structure {
+        if entity.category() != crate::map::entities::EntityCategory::Structure {
             return;
         }
         let Some(object) = rules.object(self.interner.resolve(entity.type_ref())) else {

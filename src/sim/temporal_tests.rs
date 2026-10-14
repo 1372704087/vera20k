@@ -1245,9 +1245,13 @@ fn a_chrono_legionnaire_erases_a_tank() {
     );
     assert!(!entity(&sim, cleg).temporal.is_warping_someone());
     assert!(
-        !sim.substrate.entities.values().any(|entity| entity.category
-            == crate::map::entities::EntityCategory::Infantry
-            && entity.owner() == sim.interner.get("Americans").unwrap()),
+        !sim.substrate
+            .entities
+            .values()
+            .any(
+                |entity| entity.category() == crate::map::entities::EntityCategory::Infantry
+                    && entity.owner() == sim.interner.get("Americans").unwrap()
+            ),
         "no survivors"
     );
 }
@@ -2274,7 +2278,7 @@ fn a_landing_aircraft_is_not_warped() {
     let cleg = spawn(&mut sim, &rules, "CLEG", "Russians", 10, 10);
     for (height, warped) in [(100, false), (0, true)] {
         let entity = sim.substrate.entities.get_mut(plane).unwrap();
-        entity.category = EntityCategory::Aircraft;
+        entity.set_category_for_test(EntityCategory::Aircraft);
         entity.locomotor = Some(
             crate::sim::movement::locomotor::LocomotorState::for_test_kind(
                 crate::rules::locomotor_type::LocomotorKind::Fly,

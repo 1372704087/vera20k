@@ -140,7 +140,7 @@ impl DamageConsequences {
                     .substrate
                     .entities
                     .get(dead_id)
-                    .map(|entity| (entity.owner(), entity.category))
+                    .map(|entity| (entity.owner(), entity.category()))
             })
             .collect();
 

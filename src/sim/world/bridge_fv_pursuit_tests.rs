@@ -92,7 +92,7 @@ fn paid_diagnostic(
     json!({"frame":sim.session.binary_frame,
         "stable_id":id,
         "game_speed":sim.session.game_options.game_speed,
-        "native_id":actor.native_unique_id,
+        "native_id":actor.native_unique_id(),
         "next_native_id":sim.native_unique_ids.as_ref().unwrap().current_raw(),
         "mission":mission_state(actor),
         "passive_scan":passive_scan_state(actor),
@@ -171,7 +171,7 @@ fn paid_snapshot(
     json!({
         "next_frame":sim.session.binary_frame,
         "game_speed":sim.session.game_options.game_speed,
-        "native_id":actor.native_unique_id,
+        "native_id":actor.native_unique_id(),
         "next_native_id":sim.native_unique_ids.as_ref().unwrap().current_raw(),
         "mission":mission_state(actor),
         "passive_scan":passive_scan_state(actor),

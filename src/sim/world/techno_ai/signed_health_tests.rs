@@ -32,8 +32,8 @@ fn original_selfheal_tail_and_192_height_rows_retain_art_and_mark_smoke() {
         assert_eq!(sim.allocate_stable_id(), 1);
         let mut entity =
             GameEntity::test_default_of_category(1, "SIGNED", "A", 2, 2, EntityCategory::Structure);
-        entity.type_ref = sim.interner.intern("SIGNED");
-        entity.owner = sim.interner.intern("A");
+        entity.set_type_ref_for_test(sim.interner.intern("SIGNED"));
+        entity.set_owner_for_test(sim.interner.intern("A"));
         entity.health.current = input["current"].as_i64().unwrap() as i32;
         entity
             .building_art
@@ -119,15 +119,15 @@ fn fixture(row: &serde_json::Value) -> (Simulation, RuleSet) {
     );
     let mut sim = Simulation::new();
     let mut entity = GameEntity::test_default(1, "SIGNED", "Americans", 2, 2);
-    entity.type_ref = sim.interner.intern("SIGNED");
-    entity.owner = sim.interner.intern("Americans");
+    entity.set_type_ref_for_test(sim.interner.intern("SIGNED"));
+    entity.set_owner_for_test(sim.interner.intern("Americans"));
     entity.health.current = input["current"].as_i64().unwrap() as i32;
     entity.estimated_health = crate::sim::estimated_health::EstimatedHealth::from_raw(-987654321);
-    entity.category = if input["kind"] == "building" {
+    entity.set_category_for_test(if input["kind"] == "building" {
         EntityCategory::Structure
     } else {
         EntityCategory::Unit
-    };
+    });
     entity.lifecycle.in_limbo = false;
     sim.substrate.entities.insert(entity);
     sim.session.binary_frame = input["frame"].as_u64().unwrap() as u32;
@@ -227,8 +227,8 @@ fn building_damage_fire_runs_before_yellow_crossing_selfheal() {
         2,
         crate::map::entities::EntityCategory::Structure,
     );
-    building.type_ref = sim.interner.intern("B");
-    building.owner = sim.interner.intern("A");
+    building.set_type_ref_for_test(sim.interner.intern("B"));
+    building.set_owner_for_test(sim.interner.intern("A"));
     building.health.current = 50;
     sim.substrate.entities.insert(building);
     sim.reveal(id);

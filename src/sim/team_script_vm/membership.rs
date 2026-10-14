@@ -149,7 +149,7 @@ impl Simulation {
         {
             return None;
         }
-        let aircraft = entity.category == EntityCategory::Aircraft;
+        let aircraft = entity.category() == EntityCategory::Aircraft;
         let object = self.object_type(entity.type_ref(), rules)?;
         if !entity.radio_contacts.is_empty() && !(aircraft && object.airport_bound) {
             return None;
@@ -482,7 +482,7 @@ impl Simulation {
             .substrate
             .entities
             .iter_sorted()
-            .filter(|(_, entity)| entity.category == class)
+            .filter(|(_, entity)| entity.category() == class)
             .map(|(id, entity)| RecruitCandidate {
                 id,
                 xy: position_world_xy(&entity.position),

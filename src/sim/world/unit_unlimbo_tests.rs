@@ -181,7 +181,7 @@ fn assert_actor(sim: &Simulation, id: u64, native: &Value, name: &str) {
         "{name}: QueueMission"
     );
     assert_eq!(
-        json!(actor.techno_ctor_random_word),
+        json!(actor.techno_ctor_random_word()),
         native["random_phase_raw_u16"],
         "{name}: retained constructor phase"
     );
@@ -643,7 +643,7 @@ fn retail_authored_unit_high_matches_original_pose_scope_and_lists() {
             // call starts at seed0 and spends that original constructor draw;
             // compare its retained phase and final complete RNG below, without
             // adopting a post-constructor cursor or fitting a Rust answer.
-            sim.substrate.entities.values().next().unwrap().stable_id
+            sim.substrate.entities.values().next().unwrap().stable_id()
         } else {
             refused += 1;
             assert_eq!(input["scope"], 0);
@@ -1438,9 +1438,9 @@ fn unit_entry_scope_and_actual_game_mode_match_independent_original_controls() {
         sim.houses
             .insert(owner, HouseState::new(owner, 0, None, false, 0, 10));
         let mut actor = GameEntity::test_default(90, "MOVER", "Americans", 10, 10);
-        actor.type_ref = sim.interner.intern("MOVER");
-        actor.owner = owner;
-        actor.category = crate::map::entities::EntityCategory::Unit;
+        actor.set_type_ref_for_test(sim.interner.intern("MOVER"));
+        actor.set_owner_for_test(owner);
+        actor.set_category_for_test(crate::map::entities::EntityCategory::Unit);
         actor.in_playfield = input["fixture"]["in_playfield"].as_bool().unwrap();
         actor.locomotor = Some(LocomotorState::for_test_kind(LocomotorKind::Drive));
         sim.substrate.entities.insert(actor);

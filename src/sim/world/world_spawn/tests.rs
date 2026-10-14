@@ -1564,7 +1564,7 @@ fn techno_constructor_routes_preserve_components_and_authored_overrides() {
                     authored.recruitable_a = false;
                     authored.recruitable_b = false;
                     assert_eq!(sim.spawn_from_map(&[authored], Some(&rules)), 1);
-                    sim.substrate.entities.values().next().unwrap().stable_id
+                    sim.substrate.entities.values().next().unwrap().stable_id()
                 }
                 1 => sim
                     .spawn_object_at_height(type_id, "Americans", 4, 4, 64, 0, &rules)
@@ -1732,7 +1732,7 @@ fn techno_constructor_diagnostic_path_is_simulation_owned_and_draws_once() {
             .entities
             .get(stable_id)
             .expect("diagnostic Techno stored")
-            .techno_ctor_random_word,
+            .techno_ctor_random_word(),
         expected_word
     );
     assert_eq!(sim.scenario_rng.logical_state(), expected.logical_state());
@@ -1762,7 +1762,7 @@ fn techno_constructor_runtime_fresh_paths_draw_once_after_type_resolution() {
             .entities
             .get(placed)
             .unwrap()
-            .techno_ctor_random_word,
+            .techno_ctor_random_word(),
         placed_word
     );
 
@@ -1778,7 +1778,7 @@ fn techno_constructor_runtime_fresh_paths_draw_once_after_type_resolution() {
         .spawn_object_limbo_at_height("E1", "Americans", 6, 6, 0, 0, &rules)
         .expect("limbo runtime Techno");
     let limbo_entity = sim.substrate.entities.get(limbo).unwrap();
-    assert_eq!(limbo_entity.techno_ctor_random_word, limbo_word);
+    assert_eq!(limbo_entity.techno_ctor_random_word(), limbo_word);
     assert!(limbo_entity.lifecycle.in_limbo);
     assert_eq!(sim.scenario_rng.logical_state(), expected.logical_state());
 }
@@ -1802,7 +1802,7 @@ fn techno_constructor_spawn_manager_pool_draws_parent_then_children_and_cancels_
         .entities
         .get(parent_id)
         .expect("carrier parent");
-    assert_eq!(parent.techno_ctor_random_word, words[0]);
+    assert_eq!(parent.techno_ctor_random_word(), words[0]);
     let child_ids = parent
         .spawn_manager
         .as_ref()
@@ -1814,7 +1814,7 @@ fn techno_constructor_spawn_manager_pool_draws_parent_then_children_and_cancels_
     assert_eq!(child_ids, vec![2, 3, 4]);
     for (index, child_id) in child_ids.iter().copied().enumerate() {
         let child = sim.substrate.entities.get(child_id).expect("spawn child");
-        assert_eq!(child.techno_ctor_random_word, words[index + 1]);
+        assert_eq!(child.techno_ctor_random_word(), words[index + 1]);
         assert_eq!(child.spawn_owner_id, Some(parent_id));
         assert!(child.lifecycle.in_limbo && !child.lifecycle.cell_marked);
     }
@@ -1858,12 +1858,12 @@ fn techno_constructor_slave_manager_pool_draws_parent_then_children_and_cancels_
             .entities
             .get(parent_id)
             .unwrap()
-            .techno_ctor_random_word,
+            .techno_ctor_random_word(),
         words[0]
     );
     for (index, slave_id) in slave_ids.iter().copied().enumerate() {
         let slave = sim.substrate.entities.get(slave_id).expect("slave child");
-        assert_eq!(slave.techno_ctor_random_word, words[index + 1]);
+        assert_eq!(slave.techno_ctor_random_word(), words[index + 1]);
         assert_eq!(slave.slave.owner(), Some(parent_id));
         assert!(slave.lifecycle.in_limbo && !slave.lifecycle.cell_marked);
     }
@@ -2016,7 +2016,7 @@ fn techno_constructor_unit_can_enter_rejection_discards_eager_pool_without_refun
             .entities
             .get(blocker_id)
             .unwrap()
-            .techno_ctor_random_word,
+            .techno_ctor_random_word(),
         blocker_word
     );
 
@@ -2026,10 +2026,9 @@ fn techno_constructor_unit_can_enter_rejection_discards_eager_pool_without_refun
     let blocker = sim.substrate.entities.get(blocker_id).unwrap();
     assert!(blocker.lifecycle.cell_marked && !blocker.lifecycle.in_limbo);
     assert!(
-        sim.substrate
-            .entities
-            .values()
-            .all(|entity| { !matches!(sim.interner.resolve(entity.type_ref), "CARRIER" | "HORN") })
+        sim.substrate.entities.values().all(|entity| {
+            !matches!(sim.interner.resolve(entity.type_ref()), "CARRIER" | "HORN")
+        })
     );
 }
 
@@ -2065,7 +2064,7 @@ fn techno_constructor_fixed_map_uses_native_category_order_after_prior_mark_draw
         .substrate
         .entities
         .values()
-        .map(|entity| entity.techno_ctor_random_word)
+        .map(|entity| entity.techno_ctor_random_word())
         .collect();
     assert_eq!(actual_words, expected_words);
     let outside = sim.substrate.entities.get(5).unwrap();
@@ -2103,13 +2102,16 @@ fn techno_constructor_generated_projection_installs_without_a_second_draw() {
         sim.native_unique_ids.as_ref().unwrap().current_raw(),
         native_before
     );
-    assert_eq!(sim.substrate.entities.get(1).unwrap().native_unique_id, -17);
+    assert_eq!(
+        sim.substrate.entities.get(1).unwrap().native_unique_id(),
+        -17
+    );
     assert_eq!(
         sim.substrate
             .entities
             .get(1)
             .unwrap()
-            .techno_ctor_random_word,
+            .techno_ctor_random_word(),
         0xA55A
     );
 
@@ -2252,17 +2254,17 @@ fn techno_constructor_authored_upgrades_are_distinct_attached_live_entities_with
 
     assert_eq!(sim.spawn_from_map(&[base], Some(&rules)), 3);
     let parent = sim.substrate.entities.get(1).unwrap();
-    assert_eq!(parent.techno_ctor_random_word, words[0]);
+    assert_eq!(parent.techno_ctor_random_word(), words[0]);
     assert_eq!(
-        parent.native_unique_id,
+        parent.native_unique_id(),
         native_before.wrapping_add(1) as i32
     );
     assert!(parent.lifecycle.cell_marked);
     for (stable_id, slot) in [(2, 0), (3, 1)] {
         let upgrade = sim.substrate.entities.get(stable_id).unwrap();
-        assert_eq!(upgrade.techno_ctor_random_word, words[slot + 1]);
+        assert_eq!(upgrade.techno_ctor_random_word(), words[slot + 1]);
         assert_eq!(
-            upgrade.native_unique_id,
+            upgrade.native_unique_id(),
             native_before.wrapping_add(slot as u32 + 2) as i32
         );
         assert_eq!(
@@ -2313,8 +2315,8 @@ fn techno_constructor_failed_reveal_keeps_one_draw_and_reuses_identity() {
     );
     let held = sim.substrate.entities.get(stable_id).unwrap();
     assert!(held.lifecycle.in_limbo);
-    assert_eq!(held.techno_ctor_random_word, word);
-    assert_eq!(held.native_unique_id, 1001);
+    assert_eq!(held.techno_ctor_random_word(), word);
+    assert_eq!(held.native_unique_id(), 1001);
     assert_eq!(sim.native_unique_ids.as_ref().unwrap().current_raw(), 1001);
     assert_eq!(sim.scenario_rng.logical_state(), expected.logical_state());
     assert!(sim.discard_constructed_limbo(
@@ -2370,7 +2372,7 @@ fn signed_constructor_and_authored_health_consume_original_corpus() {
             )
             .unwrap()
             .unwrap();
-        assert_eq!(entity.category, category);
+        assert_eq!(entity.category(), category);
         assert_eq!(
             entity.health.current,
             row["output"]["actual"].as_i64().unwrap() as i32,
@@ -2569,7 +2571,7 @@ fn authored_unlimbo_preserves_scenario_scope_and_applies_native_class_health() {
             )
             .unwrap()
             .unwrap();
-        assert_eq!(entity.category, category);
+        assert_eq!(entity.category(), category);
         assert_eq!(entity.health.current, 65_536);
         // ScenarioFullInit686B4F keeps A8E7AC raised through all map-object
         // readers. This terrain-less diagnostic coordinate is outside the

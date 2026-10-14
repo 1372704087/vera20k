@@ -85,7 +85,7 @@ fn gsi_08_12_promotion_step_announces_each_crossing_once() {
         .veterancy
         .set_veteran();
     veterancy_promotion_step(&mut sim, id, &rules);
-    let owner = sim.substrate.entities.get(id).unwrap().owner;
+    let owner = sim.substrate.entities.get(id).unwrap().owner();
     assert!(matches!(
         sim.sound_events.as_slice(),
         [SimSoundEvent::UnitPromoted {

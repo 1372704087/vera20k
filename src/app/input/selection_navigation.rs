@@ -182,7 +182,7 @@ fn combatant_selection(
     // offline latch +1C8) and Object138 owner.
     let combatant = |id: &u64| {
         sim.entities().get(*id).is_some_and(|entity| {
-            entity.category != EntityCategory::Structure
+            entity.category() != EntityCategory::Structure
                 && rules
                     .object(sim.interner.resolve(entity.type_ref()))
                     .is_some_and(|object| object.is_selectable_combatant)
@@ -460,7 +460,7 @@ fn category_selection(
             .filter(|id| {
                 sim.entities().get(*id).is_some_and(|entity| {
                     entity.lifecycle.object_alive
-                        && entity.category != EntityCategory::Structure
+                        && entity.category() != EntityCategory::Structure
                         && navigation_owner_controlled(sim, entity.owner())
                 })
             })

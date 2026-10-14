@@ -258,7 +258,7 @@ pub(crate) fn is_operational_for_output(
 /// House508CB0/508CB8 tests limbo(+81) and cell-marked(+74), not ObjectAlive
 /// (+90) or actual HP. Rust tombstones remain excluded until physical removal.
 fn participates_in_power_accounting(entity: &GameEntity) -> bool {
-    entity.category == EntityCategory::Structure
+    entity.category() == EntityCategory::Structure
         && !entity.dying
         && !entity.lifecycle.in_limbo
         && entity.lifecycle.cell_marked
@@ -397,7 +397,7 @@ pub fn tick_power_states(
         let buildings: Vec<u64> = entities
             .values()
             .filter(|entity| {
-                entity.owner() == owner_id && entity.category == EntityCategory::Structure
+                entity.owner() == owner_id && entity.category() == EntityCategory::Structure
             })
             .map(|entity| entity.stable_id())
             .collect();
@@ -527,7 +527,7 @@ pub fn is_building_powered(
     entity: &GameEntity,
     interner: &crate::sim::intern::StringInterner,
 ) -> bool {
-    if entity.category != EntityCategory::Structure {
+    if entity.category() != EntityCategory::Structure {
         return true;
     }
     let Some(obj) = rules.object(interner.resolve(entity.type_ref())) else {

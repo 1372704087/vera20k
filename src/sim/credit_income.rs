@@ -155,7 +155,7 @@ pub(crate) fn produce_cash_on_owner_change(
     let Some(entity) = sim.substrate.entities.get(stable_id) else {
         return;
     };
-    if entity.category != EntityCategory::Structure {
+    if entity.category() != EntityCategory::Structure {
         return;
     }
     let Some(obj) = rules.object(sim.interner.resolve(entity.type_ref())) else {
@@ -209,7 +209,7 @@ pub(crate) fn produce_cash_step(sim: &mut Simulation, stable_id: u64, rules: &Ru
     let Some(entity) = sim.substrate.entities.get(stable_id) else {
         return;
     };
-    if entity.category != EntityCategory::Structure {
+    if entity.category() != EntityCategory::Structure {
         return;
     }
     let frame = sim.session.binary_frame;
@@ -256,7 +256,7 @@ pub(crate) fn building_at_cell(sim: &Simulation, rx: u16, ry: u16) -> Option<u64
 /// `Simulation` while it applies fire emissions).
 pub(crate) fn building_at_cell_in_store(entities: &EntityStore, rx: u16, ry: u16) -> Option<u64> {
     entities.values().find_map(|entity| {
-        if entity.category != EntityCategory::Structure || entity.dying {
+        if entity.category() != EntityCategory::Structure || entity.dying {
             return None;
         }
         let (width, height) = crate::rules::foundation::foundation_dimensions(&entity.foundation);

@@ -79,10 +79,10 @@ fn actual_scorer_consumes_live_signed_strength_and_masked_zero_division() {
         let mut interner = crate::sim::intern::test_interner();
         let mut entities = EntityStore::new();
         let mut scorer = GameEntity::test_default(1, "SCORER", "Americans", 2, 2);
-        scorer.type_ref = interner.intern("SCORER");
+        scorer.set_type_ref_for_test(interner.intern("SCORER"));
         entities.insert(scorer);
         let mut candidate = GameEntity::test_default(2, "CANDIDATE", "Soviet", 2, 2);
-        candidate.type_ref = interner.intern("CANDIDATE");
+        candidate.set_type_ref_for_test(interner.intern("CANDIDATE"));
         candidate.health.current = row["current"].as_i64().unwrap() as i32;
         entities.insert(candidate);
         let result = calculate_threat_score(

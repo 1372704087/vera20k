@@ -286,7 +286,7 @@ impl Simulation {
                 .substrate
                 .entities
                 .get(member)
-                .is_some_and(|member| member.category == EntityCategory::Aircraft);
+                .is_some_and(|member| member.category() == EntityCategory::Aircraft);
             let heading = if nearby {
                 0
             } else {

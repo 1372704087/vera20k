@@ -343,7 +343,12 @@ fn unit(owner: &str, type_id: &str, cx: u16, cy: u16, cat: EntityCategory) -> Ma
 // only: a control binary (main with a hash that skips only that fold)
 // gives this value in the same test, with every tripwire above green.
 // Control removed. Previous: 0xA729_2F39_E67E_51D9.
-const SLICE6_BASELINE_HASH: u64 = 0xE3F1_10CD_1C40_81A1;
+// Snapshot350 drops the locomotor's altitude copy (#692), which every
+// locomotor's fold hashed. Hash composition only: a control binary (main
+// with a hash that skips only that fold) gives this value in the same
+// test, with every tripwire above green.
+// Control removed. Previous: 0xE3F1_10CD_1C40_81A1.
+const SLICE6_BASELINE_HASH: u64 = 0x7DBF_3798_6DCA_6E31;
 
 #[test]
 fn replay_hash_stable_through_slice6() {

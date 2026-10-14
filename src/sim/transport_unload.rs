@@ -651,8 +651,9 @@ pub(crate) fn unit_mission_unload(
     }
 }
 
-/// Whether the aircraft is on the ground: `GetHeight() == 0` (vtable `+0x1C8`,
-/// `0x004151F0`) and the flight-altitude float `+0x2E8 == 0.0` (`0x00415200`).
+/// Whether the aircraft is on the ground: `GetHeight() == 0` (vtable `+0x1C8`
+/// at `0x004151FF`) and the Fly approach pitch `+0x2E8 == 0.0` (`fld` at
+/// `0x0041520D`, compared through `0x0041521E`).
 fn aircraft_landed(
     entity: &GameEntity,
     terrain: Option<&crate::map::resolved_terrain::ResolvedTerrainGrid>,

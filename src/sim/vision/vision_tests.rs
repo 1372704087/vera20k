@@ -1548,6 +1548,66 @@ fn an_aircrafts_altitude_moves_its_revealed_disc() {
     assert!(!fog.is_cell_visible(owner, 30, 30));
 }
 
+/// A Jumpjet whose Location Z lags below its cell's floor sees from that Z:
+/// on flat ground, the stored level plus its negative GetHeight is the
+/// Location Z.
+#[test]
+fn a_jumpjet_below_its_floor_sees_from_its_location_z() {
+    use crate::map::resolved_terrain::{ResolvedTerrainGrid, test_flat_cell};
+    use crate::rules::locomotor_type::LocomotorKind;
+    use crate::sim::movement::locomotor::{LocomotorState, MovementLayer};
+
+    let (w, h) = (64u16, 64u16);
+    let terrain = ResolvedTerrainGrid::from_cells(
+        w,
+        h,
+        (0..h)
+            .flat_map(|y| {
+                (0..w).map(move |x| {
+                    let mut cell = test_flat_cell(x, y);
+                    cell.level = 4;
+                    cell
+                })
+            })
+            .collect(),
+    );
+    let mut store = EntityStore::new();
+    let mut entity = GameEntity::test_default(1, "JUMPJET", "Americans", 30, 30);
+    entity.lifecycle.in_limbo = false;
+    entity.vision_range = 1;
+    entity.position.z = 4;
+    entity.position.exact_z_leptons = Some(208);
+    let mut loco = LocomotorState::for_test_kind(LocomotorKind::Jumpjet);
+    loco.layer = MovementLayer::Air;
+    entity.locomotor = Some(loco);
+    store.insert(entity);
+
+    let mut fog = FogState::default();
+    recompute_owner_visibility_in_place(
+        &mut fog,
+        &store,
+        Some(&PathGrid::new(w, h)),
+        &Default::default(),
+        &default_config(),
+        None,
+        Some(&terrain),
+        &ti(),
+        None,
+    );
+    let owner = intern::test_intern("Americans");
+    let expected = super::collect_reveal_cells(30, 30, 1, 208, false, None, (w, h), None);
+    assert!(!expected.is_empty());
+    for ry in 0..h {
+        for rx in 0..w {
+            assert_eq!(
+                fog.is_cell_visible(owner, rx, ry),
+                expected.contains(&(rx, ry)),
+                "({rx}, {ry})"
+            );
+        }
+    }
+}
+
 /// F10: the view generation render dirty-gates on is runtime-only. A bincode
 /// round trip (the snapshot serializer) restarts it, and each prepared view
 /// bumps it once.

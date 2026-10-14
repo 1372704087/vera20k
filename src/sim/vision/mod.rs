@@ -150,8 +150,9 @@ fn iso_height_shift_cells(height_leptons: i32) -> i32 {
 
 /// Height above the map plane, in leptons, for one entity.
 ///
-/// Residual: this is not `ground_pose::object_world_z_leptons`. It ignores an
-/// exact coordinate and reads the stored level. Native See reads the object's
+/// Residual: this is not `ground_pose::object_world_z_leptons`. It reads the
+/// stored level, plus GetHeight on the Air layer, rather than the exact
+/// coordinate. Native See reads the object's
 /// coordinate Z, but VERA's sight records compare their origin every tick, so
 /// the exact Z (a Hover bob, a ramp step) would release and re-reveal the
 /// whole sight area each time and drift the hashed shroud counters. Native

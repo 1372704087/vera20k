@@ -1665,13 +1665,19 @@ fn unit_body_counter_matches_original_foot_cadence() {
         "tools/spatial_oracle/unit_simple_deploy.json",
     ))
     .unwrap();
+    use crate::sim::movement::locomotor::MovementLayer;
+
     let speed = Gsi1306Speed::new();
     for row in corpus["body_cadence"].as_array().unwrap() {
         let input = &row["input"];
         let flag = |key: &str| input[key].as_bool().unwrap_or(false);
         let integer =
             |key: &str, fallback: i32| input[key].as_i64().map_or(fallback, |value| value as i32);
-        for voxel in [false, true] {
+        // The DeployToLand gate asks GetHeight (`0x004DA9CD`), which reads no
+        // layer, so each row holds on the Ground layer too.
+        for (voxel, layer) in [false, true].into_iter().flat_map(|voxel| {
+            [MovementLayer::Air, MovementLayer::Ground].map(|layer| (voxel, layer))
+        }) {
             let mut entity = gsi_13_06_active_shp_unit("DRON", LocomotorKind::Drive);
             entity.is_voxel = voxel;
             entity.body_frame_counter = input["counter"].as_u64().unwrap_or(0) as u32;
@@ -1679,8 +1685,7 @@ fn unit_body_counter_matches_original_foot_cadence() {
                 .foot_speed
                 .set_speed_fraction(SimFixed::from_num(i32::from(flag("moving"))));
             entity.position.exact_z_leptons = Some(integer("height", 0));
-            entity.locomotor.as_mut().unwrap().layer =
-                crate::sim::movement::locomotor::MovementLayer::Air;
+            entity.locomotor.as_mut().unwrap().layer = layer;
             if let Some(flags) = input["flags"].as_array() {
                 entity.set_unit_simple_deploy_for_test(
                     flags[0].as_u64().unwrap() != 0,
@@ -1720,7 +1725,7 @@ fn unit_body_counter_matches_original_foot_cadence() {
             assert_eq!(
                 u64::from(entity.body_frame_counter),
                 row["counter"].as_u64().unwrap(),
-                "{input}, voxel={voxel}"
+                "{input}, voxel={voxel}, {layer:?}"
             );
         }
     }

@@ -61,12 +61,13 @@ fn adjust_for_z_lift_px(leptons: i32) -> f32 {
     crate::util::native_x87::adjust_for_z_standard(leptons) as f32
 }
 
-/// Total upward screen lift for an entity, in pixels.
+/// Upward screen lift of an entity's exact Location Z, in pixels.
 ///
 /// Positive lifts the entity toward the top of the screen (screen Y decreases).
 ///
-/// An exact object coordinate is total world Z and therefore replaces every
-/// decomposed height source below, including the coarse terrain level.
+/// The exact Z is total world Z, the terrain level included. An object
+/// without one has no lift here: [`screen_position`] draws it at its stored
+/// level.
 ///
 /// The height term reproduces gamemd's `AdjustForZ` exactly, quantisation
 /// included: the startup scale, the 728-lepton correction, and the `+ 0.5`
@@ -100,19 +101,16 @@ pub fn screen_position(entity: &GameEntity) -> (f32, f32) {
 }
 
 /// The whole upward lift [`screen_position`] draws `entity` with, in pixels:
-/// `AdjustForZ` of its exact Location Z, or of its stored level plus
-/// [`height_lift_px`]. A draw that cancels its lift for depth or per-pixel Z
+/// `AdjustForZ` of its exact Location Z, or of its stored level. A draw that
+/// cancels its lift for depth or per-pixel Z
 /// cancels this, as the building draw's `NormalZAdjust - AdjustForZ(Z)` seed
 /// does (`BuildingClass_DrawBody`).
 pub fn screen_lift_px(entity: &GameEntity) -> i32 {
     match entity.position.exact_z_leptons {
         Some(z) => crate::util::native_x87::adjust_for_z_standard(z),
-        None => {
-            crate::util::native_x87::adjust_for_z_standard(
-                i32::from(entity.position.z as i8)
-                    * crate::util::lepton::GROUND_LEVEL_HEIGHT_LEPTONS,
-            ) + height_lift_px(entity) as i32
-        }
+        None => crate::util::native_x87::adjust_for_z_standard(
+            i32::from(entity.position.z as i8) * crate::util::lepton::GROUND_LEVEL_HEIGHT_LEPTONS,
+        ),
     }
 }
 

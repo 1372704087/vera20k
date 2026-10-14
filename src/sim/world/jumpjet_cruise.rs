@@ -144,16 +144,7 @@ impl JumpjetFlightHost for CruiseHost<'_> {
         );
     }
     fn height_above_ground(&self) -> i32 {
-        let location = self.location();
-        location[2].wrapping_sub(
-            ground_surface_z_at(
-                [location[0], location[1]],
-                self.on_bridge(),
-                self.terrain(),
-                None,
-            )
-            .unwrap_or(0),
-        )
+        crate::sim::movement::air_movement::current_fly_height(self.owner(), self.terrain())
     }
     fn on_bridge(&self) -> bool {
         self.owner().on_bridge

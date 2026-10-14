@@ -247,10 +247,6 @@ impl Simulation {
         })
     }
 
-    /// Jumpjet54AECB/54AED1 captures the live query before Process.54B16F
-    /// checks alive, then54B17F compares the new answer with that capture,
-    /// not Object+94. Fly has different explicit resubmission sites and must
-    /// not be normalized here by a generic per-frame layer/cache comparison.
     /// Resubmit `id`'s display from its current state, as a native
     /// resubmission site does.
     #[cfg(test)]
@@ -258,6 +254,10 @@ impl Simulation {
         self.submit_entity_display(id, None, None);
     }
 
+    /// Jumpjet54AECB/54AED1 captures the live query before Process.54B16F
+    /// checks alive, then54B17F compares the new answer with that capture,
+    /// not Object+94. Fly has different explicit resubmission sites and must
+    /// not be normalized here by a generic per-frame layer/cache comparison.
     pub(super) fn complete_jumpjet_display_process(
         &mut self,
         id: u64,

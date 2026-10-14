@@ -194,6 +194,36 @@ fn updater_flags_stage_and_signed_boundaries_match_native_lifecycle() {
     }
 }
 
+/// UpdateSimpleDeployState asks GetHeight (`0x00739ADE`, `0x00739B22`),
+/// which reads no layer: the airborne rows give their native result on the
+/// Ground layer too.
+#[test]
+fn updater_reads_the_height_on_any_layer() {
+    let rows = corpus()["lifecycle"].as_array().unwrap();
+    let mut airborne = 0;
+    for (index, row) in rows.iter().enumerate() {
+        if row["input"]["height"].as_i64().unwrap_or(0) <= 0 {
+            continue;
+        }
+        airborne += 1;
+        let (mut sim, rules, id) = native_fixture(&row["input"], &row["before"]);
+        let entity = sim.substrate.entities.get_mut(id).unwrap();
+        entity.locomotor.as_mut().unwrap().layer =
+            crate::sim::movement::locomotor::MovementLayer::Ground;
+        let deploying = row["input"]["entry"].as_u64().unwrap_or(0x739ac0) != 0x739cd0;
+        sim.update_unit_simple_deploy(
+            id,
+            deploying,
+            &rules,
+            crate::sim::world::FrameEffects::default(),
+        )
+        .unwrap();
+        let context = format!("lifecycle[{index}] {} on the Ground layer", row["input"]);
+        assert_native_state(&sim, id, &row["after"], &context);
+    }
+    assert_eq!(airborne, 2);
+}
+
 #[test]
 fn mission_then_shared_stage_matches_original_frame_timelines() {
     let data = corpus();

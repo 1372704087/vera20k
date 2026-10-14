@@ -2883,7 +2883,8 @@ mod tests {
     /// control turns into NoMove (`0x0051F05E..0x0051F08B`,
     /// `0x007403EB..0x00740414`): the click moves it near the object, as an
     /// attack-move under the chord, and the cursor shows NoMove. A retail
-    /// Crazy Ivan's bombed target is ILLEGAL to him (`0x006FCBAD`).
+    /// Crazy Ivan's bombed target is ILLEGAL to him (`0x006FCBAD`), and a
+    /// retail Grizzly is ILLEGAL to an attack dog.
     #[test]
     fn a_refused_shot_moves_the_receiver_near_the_object() {
         let Some(retail) = crate::rules::retail_ini_fixture::retail_battle_rules() else {
@@ -2892,6 +2893,7 @@ mod tests {
         let (mut sim, rules, _) = Simulation::walk_cell_input_test_scene_with(retail.rules, false);
         let owner = sim.interner.get("Local").unwrap();
         let ivan = sim.spawn_object("IVAN", "Local", 6, 4, 0, &rules).unwrap();
+        let dog = sim.spawn_object("DOG", "Local", 5, 4, 0, &rules).unwrap();
         let tank = sim.spawn_object("MTNK", "Enemy", 6, 6, 0, &rules).unwrap();
         sim.resolve_type_handles(&rules);
         sim.fog = crate::sim::vision::FogState::new(16, 16);
@@ -2899,32 +2901,34 @@ mod tests {
             .reveal_cells_for_owner(owner, (0..16).flat_map(|y| (0..16).map(move |x| (x, y))));
         sim.bomb_attach(ivan, Some(tank), &rules);
         let overlays = crate::rules::overlay_types::OverlayTypeRegistry::empty();
-        assert_eq!(
-            attack_action(
-                &sim,
-                &rules,
-                ivan,
-                &TargetKind::Entity(tank),
-                false,
-                Some(&overlays)
-            ),
-            AttackAction::NoMove
-        );
-        // The cursor shows that NoMove too, not Select.
-        assert_eq!(
-            crate::app::input::cursor::capability_cursor_for_hover(
-                &sim,
-                &[ivan],
-                Some(ivan),
-                &HoverTargetKindWithId {
-                    kind: HoverTargetKind::EnemyUnit,
-                    stable_id: tank,
-                },
-                Some(&rules),
-                None,
-            ),
-            crate::app::types::CursorFeedbackKind::Invalid
-        );
+        for actor in [ivan, dog] {
+            assert_eq!(
+                attack_action(
+                    &sim,
+                    &rules,
+                    actor,
+                    &TargetKind::Entity(tank),
+                    false,
+                    Some(&overlays)
+                ),
+                AttackAction::NoMove
+            );
+            // The cursor shows that NoMove too.
+            assert_eq!(
+                crate::app::input::cursor::capability_cursor_for_hover(
+                    &sim,
+                    &[actor],
+                    Some(actor),
+                    &HoverTargetKindWithId {
+                        kind: HoverTargetKind::EnemyUnit,
+                        stable_id: tank,
+                    },
+                    Some(&rules),
+                    None,
+                ),
+                crate::app::types::CursorFeedbackKind::Invalid
+            );
+        }
         let click = |order_mode| {
             object_attack_click_command(
                 &sim,

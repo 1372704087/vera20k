@@ -55,12 +55,13 @@ const FLAG_HOSTILE_GAP_PRESENT: u8 = 0x40;
 const FLAG_EFFECTIVE_GAP_SIGHT: u8 = 0x80;
 
 /// CellClass `+0x12C` ground bits as VERA's sight cache sets them: ground
-/// visible (`0x08`) and ground open (`0x10`). Both are set together, on the
-/// first sight mark and on any cell still visible when sight is cleared, and
-/// never cleared. `ShroudKnowledge::open` models the same native bits through
-/// the native writers and can disagree (it closes under a gap generator);
-/// the aircraft readers ([`FogState::is_ground_unshrouded`],
-/// [`FogState::is_ground_open`]) still read this projection.
+/// visible (`0x08`) and ground open (`0x10`). Both are set together on the
+/// first sight mark, on any cell still visible when sight is cleared and by
+/// `MapClass::Reveal`, and cleared only by `MapClass::Reset_Shroud`.
+/// `ShroudKnowledge::open` models the same native bits through the native
+/// writers and can disagree, since the gap writers move it alone (#1117); the
+/// shroud and aircraft readers ([`FogState::is_ground_unshrouded`],
+/// [`FogState::is_ground_open`]) read this projection.
 const GROUND_VISIBLE: u8 = 0x08;
 const GROUND_OPEN: u8 = 0x10;
 
@@ -2075,9 +2076,8 @@ pub(crate) fn cell_is_shrouded(
     point_is_shrouded(fog, cells, viewer, point)
 }
 
-/// `viewer`'s map shrouds `point`: [`coordinate_is_shrouded`], a Cell being
-/// open when `viewer` has mapped its ground, including the canonical Dummy. A query
-/// error counts as unshrouded.
+/// `viewer`'s map shrouds `point`: [`coordinate_is_shrouded`] with
+/// [`cell_ground_mapped`] as its `open`. A query error counts as unshrouded.
 pub(crate) fn point_is_shrouded(
     fog: &FogState,
     cells: &crate::map::resolved_terrain::NativeCellQuery<'_>,
@@ -2085,18 +2085,26 @@ pub(crate) fn point_is_shrouded(
     point: crate::sim::components::DriveCoord,
 ) -> bool {
     let terrain = cells.terrain();
-    let open = |cell| {
-        Ok(match cell {
-            crate::map::cell_index::NativeCellIdentity::Real(index) => {
-                let cell = &terrain.cells()[index];
-                fog.is_ground_unshrouded(viewer, cell.rx, cell.ry)
-            }
-            crate::map::cell_index::NativeCellIdentity::Dummy => {
-                fog.is_dummy_ground_unshrouded(viewer)
-            }
-        })
-    };
+    let open = |cell| Ok(cell_ground_mapped(fog, terrain, viewer, cell));
     matches!(coordinate_is_shrouded(cells, point, &open), Ok(true))
+}
+
+/// `viewer` has mapped `cell`'s ground, the `Cell+0x12C & 0x08` that
+/// `MapClass::IsShrouded @ 0x00586360` tests, including the canonical Dummy's
+/// retained record: the `open` of every [`coordinate_is_shrouded`] reader.
+pub(crate) fn cell_ground_mapped(
+    fog: &FogState,
+    terrain: &crate::map::resolved_terrain::ResolvedTerrainGrid,
+    viewer: InternedId,
+    cell: crate::map::cell_index::NativeCellIdentity,
+) -> bool {
+    match cell {
+        crate::map::cell_index::NativeCellIdentity::Real(index) => {
+            let cell = &terrain.cells()[index];
+            fog.is_ground_unshrouded(viewer, cell.rx, cell.ry)
+        }
+        crate::map::cell_index::NativeCellIdentity::Dummy => fog.is_dummy_ground_unshrouded(viewer),
+    }
 }
 
 /// A flat fire-leaf reveal of `range` cells around a cell, with no height

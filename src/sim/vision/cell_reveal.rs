@@ -82,6 +82,21 @@ impl OwnerVisibility {
         }
     }
 
+    /// The ground bits (`Cell+0x12C & 0x18`) and edge-cache bits
+    /// (`Cell+0x140 & 3`) that `MapClass::Reveal @ 0x00577D90` sets
+    /// (`0x00577ECB..0x00577EE3`) and `MapClass::Reset_Shroud @ 0x00577AB0`
+    /// clears (`0x00577B3C..0x00577B66`) on each allocated cell.
+    pub(super) fn store_whole_map_cell(&mut self, index: usize, open: bool) {
+        let (_, ground, cache) = self.map_cell_parts_mut(VisibilityCell::Real(index));
+        if open {
+            *ground |= GROUND_VISIBLE | GROUND_OPEN;
+        } else {
+            *ground &= !(GROUND_VISIBLE | GROUND_OPEN);
+        }
+        cache.initialized = open;
+        cache.fog_open = open;
+    }
+
     fn map_cell_parts_mut(
         &mut self,
         key: VisibilityCell,
@@ -276,14 +291,14 @@ impl FogState {
     /// its pending conceal where native sets `0x10` instead.
     ///
     /// RESIDUAL (#1117): the two bits are read from `ground_flags`, which the
-    /// gap, conceal, fire and whole-map writers (`0x006FB170`, `0x006FB470`,
-    /// `0x00578100`, `0x004876F0`, `0x00577D90`, `0x00577AB0`) leave as they
-    /// were. A cell a hostile gap re-hid still reads explored: its reveal is
-    /// not fresh and, with its frame unchanged, sends no CellChangeNotify, and
-    /// as a neighbor it is skipped when its stale `0x10` is set. A cell those
-    /// writers opened through `open` alone reads unexplored and notifies again.
-    /// Effect: on a later whole-map reveal (a local defeat) those cells'
-    /// discovery, radar marks and stored edge frames differ from native.
+    /// gap, conceal and fire writers (`0x006FB170`, `0x006FB470`,
+    /// `0x00578100`, `0x004876F0`) leave as they were. A cell a hostile gap
+    /// re-hid still reads explored: its reveal is not fresh and, with its
+    /// frame unchanged, sends no CellChangeNotify, and as a neighbor it is
+    /// skipped when its stale `0x10` is set. A cell those writers opened
+    /// through `open` alone reads unexplored and notifies again. Effect: on a
+    /// later whole-map reveal (a local defeat) those cells' discovery, radar
+    /// marks and stored edge frames differ from native.
     ///
     /// Returns CellChangeNotify's arguments when the explored bit or the frame
     /// changed (`0x004AA264..0x004AA27C`).

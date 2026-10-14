@@ -473,13 +473,13 @@ pub struct GameEntity {
     building_power_health_sample: i32,
     /// Sale route metadata, never a second mission, ready byte or timer.
     building_sale: Option<crate::sim::building_construction::BuildingDown>,
-    /// `BuildingClass+0x550..+0x558`, the wait before the building's
-    /// computer factory tries its finished object again. The constructor
-    /// starts it with no duration (`0x0043B7A7`, `0x0043B7AD`); a placement
-    /// that must wait restarts it for `[General] PlacementDelay=`
-    /// (`0x004501CB..0x004501F7`); only `production::factory_ai` reads it.
+    /// The wait before the building's computer factory tries its finished
+    /// object again, an [`AiPlacementTimer`] that `production::factory_ai`
+    /// owns.
+    ///
+    /// [`AiPlacementTimer`]: crate::sim::production::AiPlacementTimer
     #[serde(default)]
-    pub(crate) ai_placement_timer: crate::sim::timer::CdTimer,
+    pub(crate) ai_placement_timer: crate::sim::production::AiPlacementTimer,
     /// The Building's animation art: its AnimClass slots, their replay
     /// marks, the damaged-art flag, its StorageClass art, the Stuff flag and
     /// the Grand_Opening guard. `sim::building_art` owns it.
@@ -1443,7 +1443,7 @@ impl GameEntity {
             building_body: (category == EntityCategory::Structure).then(Default::default),
             building_power_health_sample: 0,
             building_sale: None,
-            ai_placement_timer: crate::sim::timer::CdTimer::default(),
+            ai_placement_timer: Default::default(),
             building_art: Default::default(),
             building_last_operational: Default::default(),
             building_powered_center: Default::default(),

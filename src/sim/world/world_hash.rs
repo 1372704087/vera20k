@@ -1906,7 +1906,7 @@ fn hash_entity(entity: &GameEntity, frame: u32, hasher: &mut StateHasher) {
     entity.rearm_timer.start_frame().hash(hasher);
     entity.rearm_timer.duration().hash(hasher);
     entity.weapon_burst.hash(hasher);
-    entity.pending_building_fire.hash(hasher);
+    entity.pending_building_fire.pending().hash(hasher);
     if entity.prism_support_count.count() != 0 {
         b"prism-support-count-v1".hash(hasher);
         entity.prism_support_count.count().hash(hasher);
@@ -1930,11 +1930,11 @@ fn hash_entity(entity: &GameEntity, frame: u32, hasher: &mut StateHasher) {
     }
 
     entity.hash_capture_infantry_type(hasher);
-    match entity.pending_c4_detonation {
+    match entity.pending_c4_detonation.pending() {
         Some(pending) => {
             true.hash(hasher);
-            pending.timer.remaining(frame as i32).hash(hasher);
-            pending.source_entity_id.hash(hasher);
+            pending.timer().remaining(frame as i32).hash(hasher);
+            pending.source_entity_id().hash(hasher);
         }
         None => false.hash(hasher),
     }
@@ -4420,8 +4420,8 @@ mod rocking_hash_tests {
 mod c4_hash_tests {
     use super::Simulation;
     use crate::map::entities::EntityCategory;
+    use crate::sim::c4_plant::PendingC4Detonation;
     use crate::sim::combat::Health;
-    use crate::sim::components::PendingC4Detonation;
     use crate::sim::game_entity::GameEntity;
 
     #[test]
@@ -4453,10 +4453,11 @@ mod c4_hash_tests {
             .entities
             .get_mut(id)
             .unwrap()
-            .pending_c4_detonation = Some(PendingC4Detonation {
-            timer: crate::sim::timer::CdTimer::started(100, 30),
-            source_entity_id: Some(7),
-        });
+            .pending_c4_detonation
+            .set_for_test(Some(PendingC4Detonation::new(
+                crate::sim::timer::CdTimer::started(100, 30),
+                Some(7),
+            )));
         let h_with_pending = sim.state_hash();
         assert_ne!(
             h_initial, h_with_pending,

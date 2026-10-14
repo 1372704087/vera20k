@@ -1671,17 +1671,18 @@ fn retask_observation(entity: &crate::sim::game_entity::GameEntity) -> Value {
 }
 
 fn prism_observation(entity: &crate::sim::game_entity::GameEntity, frame: i32) -> Value {
-    use crate::sim::game_entity::DelayedFire;
+    use crate::sim::world::DelayedFire;
     if entity.category() != crate::map::entities::EntityCategory::Structure {
         return Value::Null;
     }
     let pending = entity
         .pending_building_fire
-        .map(|pending| match pending.fire {
+        .pending()
+        .map(|pending| match pending.fire() {
             DelayedFire::Weapon(slot) => json!({"mode": 1, "payload": {"weapon": slot},
-            "remaining": pending.remaining_ticks}),
+            "remaining": pending.remaining_ticks()}),
             DelayedFire::SupportBeam { to } => json!({"mode": 2,
-            "payload": {"to": [to.x, to.y, to.z]}, "remaining": pending.remaining_ticks}),
+            "payload": {"to": [to.x, to.y, to.z]}, "remaining": pending.remaining_ticks()}),
         });
     json!({"support_count": entity.prism_support_count, "pending": pending,
         "rearm": {"start": entity.rearm_timer.start_frame(),

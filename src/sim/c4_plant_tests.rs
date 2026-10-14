@@ -148,7 +148,7 @@ fn step_until_planted(
             .substrate
             .entities
             .get(building)
-            .is_some_and(|building| building.pending_c4_detonation.is_some())
+            .is_some_and(|building| building.pending_c4_detonation.pending().is_some())
         {
             return frame;
         }
@@ -310,6 +310,7 @@ fn a_tanya_ordered_to_sabotage_walks_in_and_plants_the_charge() {
         .get(building)
         .unwrap()
         .pending_c4_detonation
+        .pending()
         .unwrap();
     assert_eq!(pending.source_entity_id, Some(tanya));
     assert_eq!(
@@ -404,7 +405,7 @@ fn a_walking_planter_plants_and_draws_for_its_rearm_alone() {
     );
 
     let target = sim.substrate.entities.get(building).unwrap();
-    let pending = target.pending_c4_detonation.unwrap();
+    let pending = target.pending_c4_detonation.pending().unwrap();
     assert_eq!(
         (pending.timer.duration(), pending.source_entity_id),
         (26, Some(tanya))
@@ -511,7 +512,7 @@ fn a_sold_or_curtained_building_takes_no_charge() {
 
         let target = sim.substrate.entities.get(building).unwrap();
         assert!(
-            target.pending_c4_detonation.is_none(),
+            target.pending_c4_detonation.pending().is_none(),
             "curtained {curtained}"
         );
         assert_eq!(target.flashing.frames(), 0, "curtained {curtained}");
@@ -564,6 +565,7 @@ fn the_arm_plants_only_from_a_sabotage_c4_arrival_at_its_navcom() {
                 .get(building)
                 .unwrap()
                 .pending_c4_detonation
+                .pending()
                 .is_none(),
             "{case}"
         );

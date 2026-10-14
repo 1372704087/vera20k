@@ -394,11 +394,11 @@ fn mission_attack_matches_the_original() {
         );
         let delayed = &row["delayed_fire"];
         assert_eq!(
-            entity.pending_building_fire,
-            (delayed[0] == 1).then(|| PendingBuildingFire {
-                remaining_ticks: delayed[2].as_i64().unwrap() as i32,
-                fire: DelayedFire::Weapon(WeaponSlot::Primary),
-            }),
+            entity.pending_building_fire.pending(),
+            (delayed[0] == 1).then(|| PendingBuildingFire::new(
+                delayed[2].as_i64().unwrap() as i32,
+                DelayedFire::Weapon(WeaponSlot::Primary)
+            )),
             "{name} delayed fire"
         );
         assert_eq!(delayed[1], 0, "{name}");
@@ -1173,7 +1173,7 @@ fn retail_dustbowl_tesla_coil_charges_before_each_shot() {
     };
     let armed = |scenario: &crate::headless_scenario::HeadlessScenario| {
         let entity = scenario.sim().substrate.entities.get(coil).unwrap();
-        entity.pending_building_fire.is_some()
+        entity.pending_building_fire.pending().is_some()
     };
     retail_frame(&mut scenario, Vec::new());
     assert_eq!(
@@ -1232,7 +1232,7 @@ fn retail_dustbowl_tesla_coil_charges_before_each_shot() {
 #[test]
 #[ignore = "requires a retail RA2/YR install (RA2_DIR or config.toml)"]
 fn retail_dustbowl_prism_towers_forward_their_charge() {
-    use crate::sim::game_entity::DelayedFire;
+    use crate::sim::world::DelayedFire;
     let (mut scenario, master, mcv, (x, y)) =
         retail_dustbowl_defence("ATESLA", "Americans", "Russians", "SMCV", 6);
     let near = retail_spawn(&mut scenario, "ATESLA", "Americans", (x - 4, y));
@@ -1284,6 +1284,7 @@ fn retail_dustbowl_prism_towers_forward_their_charge() {
             .get(id)
             .unwrap()
             .pending_building_fire
+            .pending()
             .map(|pending| pending.fire)
     };
     let special = |scenario: &crate::headless_scenario::HeadlessScenario, id: u64| {

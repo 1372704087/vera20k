@@ -18,8 +18,11 @@ mod aircraft_guard;
 mod building_missile;
 mod building_missions;
 mod building_retaliation;
+#[cfg(test)]
+pub(crate) use building_missions::PendingBuildingFire;
 pub(crate) use building_missions::PrismSupport;
 pub(crate) use building_missions::queue_and_commence;
+pub(crate) use building_missions::{BuildingDelayedFire, DelayedFire};
 mod mission_handlers;
 mod target_scan;
 pub(crate) use mission_handlers::dispatch_foot_mission;

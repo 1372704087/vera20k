@@ -18,10 +18,9 @@
 use crate::map::entities::EntityCategory;
 use crate::sim::animation::Animation;
 use crate::sim::cloak_disguise::{CloakRuntime, DisguiseRuntime};
-use crate::sim::combat::combat_weapon::WeaponSlot;
 use crate::sim::combat::{Health, TarCom, TargetKind};
 use crate::sim::components::{
-    HarvestOverlay, NavigationState, PendingC4Detonation, Position, RockingState, VoxelAnimation,
+    HarvestOverlay, NavigationState, Position, RockingState, VoxelAnimation,
 };
 use crate::sim::debug_event_log::{DebugEventKind, DebugEventLog};
 use crate::sim::docking::aircraft_dock::AircraftAmmo;
@@ -168,47 +167,6 @@ impl BunkerLink {
 }
 
 pub(crate) use crate::sim::gate_runtime::BuildingGateRuntime;
-
-/// A building's delayed fire (`BuildingClass+0x704` mode, `+0x714`
-/// countdown, `+0x708..+0x710` payload), armed by Mission_Attack and served by
-/// ProcessDelayedFire (`0x004503F0`) when the countdown ends.
-///
-/// A shot captures no target: expiry reads the building's live
-/// `attack_target`, with the weapon Mission_Attack saved.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-pub struct PendingBuildingFire {
-    /// Signed native timer value, clamped to zero by ProcessDelayedFire after
-    /// its pre-decrement.
-    pub remaining_ticks: i32,
-    pub fire: DelayedFire,
-}
-
-/// What a delayed fire does when its countdown ends.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-pub enum DelayedFire {
-    /// Mode 1: FireAt the live target with the saved weapon (`+0x708`).
-    Weapon(WeaponSlot),
-    /// Mode 2: a Prism support beam (`0x0044ABD0`) to the master's weapon-0
-    /// FLH as it stood at recruitment (`+0x708..+0x710`, world leptons).
-    SupportBeam {
-        to: crate::sim::projectile::ProjectileCoord,
-    },
-}
-
-impl std::hash::Hash for PendingBuildingFire {
-    /// A weapon shot folds as the pre-support latch did (countdown, then the
-    /// slot); a support beam folds a third tag and its point.
-    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        self.remaining_ticks.hash(state);
-        match self.fire {
-            DelayedFire::Weapon(slot) => slot.hash(state),
-            DelayedFire::SupportBeam { to } => {
-                2isize.hash(state);
-                to.hash(state);
-            }
-        }
-    }
-}
 
 /// Constructor state captured while a generated-map Techno still owns the
 /// launch-time Scenario cursor. Projection validates all identity fields
@@ -518,9 +476,12 @@ pub struct GameEntity {
     /// The object's target (`TechnoClass+0x2B4`), a [`TarCom`] that the class
     /// target setter (`mission::concrete_effects`) writes.
     pub(crate) attack_target: TarCom,
-    /// A building's delayed fire: a delayed shot, or a Prism support beam.
+    /// A building's delayed fire: a delayed shot, or a Prism support beam. A
+    /// [`BuildingDelayedFire`] that `techno_ai::building_missions` owns.
+    ///
+    /// [`BuildingDelayedFire`]: crate::sim::world::BuildingDelayedFire
     #[serde(default)]
-    pub pending_building_fire: Option<PendingBuildingFire>,
+    pub(crate) pending_building_fire: crate::sim::world::BuildingDelayedFire,
     /// The Prism master's recruited supporters (`BuildingClass+0x664`), a
     /// [`PrismSupport`] that `techno_ai::building_missions` owns.
     ///
@@ -830,9 +791,12 @@ pub struct GameEntity {
     /// results own the other. The Building LogicVector visit consumes expiry
     /// synchronously (`Simulation::tick_pending_building_detonation`) and
     /// keeps the marker, except a bridge repair hut's, which clears it.
-    /// IronCurtain/ForceShield entry cancels it; `None` means no shared latch.
+    /// IronCurtain/ForceShield entry cancels it. A [`C4Detonation`] that
+    /// `sim::c4_plant` owns.
+    ///
+    /// [`C4Detonation`]: crate::sim::c4_plant::C4Detonation
     #[serde(default)]
-    pub pending_c4_detonation: Option<PendingC4Detonation>,
+    pub(crate) pending_c4_detonation: crate::sim::c4_plant::C4Detonation,
     /// A building's HasBeenCaptured byte (`BuildingClass+0x6E3`), a
     /// [`HasBeenCaptured`] that `crew_survival` owns.
     ///
@@ -1516,7 +1480,7 @@ impl GameEntity {
             setter_force_reassign: false,
             chrono_warp_delay: 0,
             attack_target: TarCom::default(),
-            pending_building_fire: None,
+            pending_building_fire: Default::default(),
             prism_support_count: Default::default(),
             current_weapon_number: 0,
             current_turret_index: -1,
@@ -1586,7 +1550,7 @@ impl GameEntity {
             passenger_role: PassengerRole::default(),
             display_type_override: None,
             capture_infantry_type_index: -1,
-            pending_c4_detonation: None,
+            pending_c4_detonation: Default::default(),
             has_been_captured: Default::default(),
             bunker_occupant: None,
             bunker_link: BunkerLink::None,
@@ -2092,7 +2056,7 @@ mod tests {
             .remove("pending_building_fire");
 
         let restored: GameEntity = serde_json::from_value(value).expect("deserialize entity");
-        assert!(restored.pending_building_fire.is_none());
+        assert!(restored.pending_building_fire.pending().is_none());
     }
 
     #[test]

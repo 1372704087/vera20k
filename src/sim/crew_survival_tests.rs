@@ -510,10 +510,11 @@ fn survivors_of_a_c4_charged_building_attack_an_enemy_planter() {
                 .entities
                 .get_mut(plant)
                 .unwrap()
-                .pending_c4_detonation = Some(crate::sim::components::PendingC4Detonation {
-                timer: crate::sim::timer::CdTimer::started(0, 100),
-                source_entity_id: Some(planter),
-            });
+                .pending_c4_detonation
+                .set_for_test(Some(crate::sim::c4_plant::PendingC4Detonation::new(
+                    crate::sim::timer::CdTimer::started(0, 100),
+                    Some(planter),
+                )));
             let before = sim.substrate.entities.keys_sorted();
             let mut replay = sim.scenario_rng.clone();
             let mut marks = Vec::new();

@@ -187,7 +187,7 @@ pub(crate) fn sell_back(
                 // Get_Mission (`vt+0x184`): the current mission, else the
                 // queued one.
                 entity.mission.effective().known() == Some(MissionType::Selling),
-                entity.pending_c4_detonation.is_some(),
+                entity.pending_c4_detonation.pending().is_some(),
             ))
         })
     else {

@@ -9,7 +9,6 @@ use crate::rules::art_data::ArtRegistry;
 use crate::rules::ini_parser::IniFile;
 use crate::rules::retail_ini_fixture::{RetailBattleRules, retail_battle_rules_for_map};
 use crate::rules::ruleset::RuleSet;
-use crate::sim::game_entity::{DelayedFire, PendingBuildingFire};
 use crate::sim::house_state::HouseState;
 use crate::sim::mission::state::MissionTestFixture;
 use crate::sim::mission::{MissionDispatchTimer, MissionId, MissionType};
@@ -17,7 +16,7 @@ use crate::sim::native_identity::NativeUniqueIdCursor;
 use crate::sim::projectile::ProjectileCoord;
 use crate::sim::rng::SimRng;
 use crate::sim::timer::CdTimer;
-use crate::sim::world::{LifecycleOutput, Simulation, TickLane};
+use crate::sim::world::{DelayedFire, LifecycleOutput, PendingBuildingFire, Simulation, TickLane};
 use serde_json::{Value, json};
 
 fn native() -> &'static Value {
@@ -497,10 +496,12 @@ fn delayed_building_fire_skips_spark_after_bullet_compaction_until_the_next_pass
     restore_rng(&mut sim, &row["rng_before"]);
     let now = sim.session.binary_frame as i32;
     let entity = sim.substrate.entities.get_mut(source).unwrap();
-    entity.pending_building_fire = Some(PendingBuildingFire {
-        remaining_ticks: 1,
-        fire: DelayedFire::Weapon(WeaponSlot::Primary),
-    });
+    entity
+        .pending_building_fire
+        .set_for_test(Some(PendingBuildingFire::new(
+            1,
+            DelayedFire::Weapon(WeaponSlot::Primary),
+        )));
     entity.rearm_timer.set_for_test(CdTimer::started(100, 0));
     entity.mission_leaf.set_building_ready_latch(1);
     entity.mission.apply_test_fixture(MissionTestFixture {
@@ -607,6 +608,7 @@ fn delayed_building_fire_skips_spark_after_bullet_compaction_until_the_next_pass
             .get(source)
             .unwrap()
             .pending_building_fire
+            .pending()
             .is_none()
     );
 
@@ -781,10 +783,12 @@ fn natural_charge_expiry_preserves_native_bullet_and_spark_visit_order() {
             "{name}"
         );
         let entity = sim.substrate.entities.get_mut(source).unwrap();
-        entity.pending_building_fire = Some(PendingBuildingFire {
-            remaining_ticks: 1,
-            fire: DelayedFire::Weapon(WeaponSlot::Primary),
-        });
+        entity
+            .pending_building_fire
+            .set_for_test(Some(PendingBuildingFire::new(
+                1,
+                DelayedFire::Weapon(WeaponSlot::Primary),
+            )));
         entity
             .rearm_timer
             .set_for_test(CdTimer::started(sim.session.binary_frame as i32, 0));

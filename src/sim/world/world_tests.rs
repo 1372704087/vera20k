@@ -2859,7 +2859,7 @@ fn gsi_04_15_active_tube_leaf_preempts_unit_and_infantry_mission_host() {
                     sim.substrate
                         .entities
                         .get(2)
-                        .is_some_and(|building| building.pending_c4_detonation.is_none()),
+                        .is_some_and(|building| building.pending_c4_detonation.pending().is_none()),
                     "Tube final returns before Mission_Enter; no C4 claim is made"
                 );
             }

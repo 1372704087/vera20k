@@ -4596,10 +4596,11 @@ fn gsi_04_07_damage_postmortem_stock_barrel_delay_and_nested_order() {
         .entities
         .get_mut(edge)
         .unwrap()
-        .pending_c4_detonation = Some(crate::sim::components::PendingC4Detonation {
-        timer: crate::sim::timer::CdTimer::started(0, 40),
-        source_entity_id: Some(center),
-    });
+        .pending_c4_detonation
+        .set_for_test(Some(crate::sim::c4_plant::PendingC4Detonation::new(
+            crate::sim::timer::CdTimer::started(0, 40),
+            Some(center),
+        )));
     sim.overlay_grid = Some(OverlayGrid::new(20, 12));
     sim.resolved_terrain = Some(crate::sim::tiberium::test_support::flat_terrain(20, 12));
     sim.overlay_grid.as_mut().unwrap().place_overlay(8, 5, 0, 0);
@@ -4620,14 +4621,14 @@ fn gsi_04_07_damage_postmortem_stock_barrel_delay_and_nested_order() {
         sim.substrate
             .entities
             .get(id)
-            .and_then(|entity| entity.pending_c4_detonation)
+            .and_then(|entity| entity.pending_c4_detonation.pending())
             .expect("qualifying fatal barrel becomes PostMortem")
     };
-    assert_eq!(pending(&sim, center).timer.duration(), 5);
-    assert_eq!(pending(&sim, middle).timer.duration(), 20);
-    assert_eq!(pending(&sim, edge).timer.duration(), 35);
+    assert_eq!(pending(&sim, center).timer().duration(), 5);
+    assert_eq!(pending(&sim, middle).timer().duration(), 20);
+    assert_eq!(pending(&sim, edge).timer().duration(), 35);
     assert_eq!(
-        pending(&sim, edge).source_entity_id,
+        pending(&sim, edge).source_entity_id(),
         None,
         "center's exact-zero Destroy notification expires the retained source pointer"
     );
@@ -4654,6 +4655,7 @@ fn gsi_04_07_damage_postmortem_stock_barrel_delay_and_nested_order() {
             .get(middle)
             .unwrap()
             .pending_c4_detonation
+            .pending()
             .is_none()
     );
 
@@ -4780,10 +4782,11 @@ fn gsi_04_07_damage_postmortem_exact_zero_callbacks_precede_restore() {
         .get(target_id)
         .unwrap()
         .pending_c4_detonation
+        .pending()
         .expect("PostMortem arms the shared timer after callbacks");
-    assert_eq!(pending.timer.start_frame(), 0);
-    assert_eq!(pending.timer.duration(), 5);
-    assert_eq!(pending.source_entity_id, None);
+    assert_eq!(pending.timer().start_frame(), 0);
+    assert_eq!(pending.timer().duration(), 5);
+    assert_eq!(pending.source_entity_id(), None);
     let target = sim.substrate.entities.get(target_id).unwrap();
     assert_eq!(target.health.current(), 1);
     assert!(target.lifecycle.object_alive() && !target.lifecycle.in_limbo());
@@ -4882,7 +4885,10 @@ fn gsi_04_07_damage_postmortem_exact_zero_callbacks_precede_restore() {
     hit(&mut sim);
     let target = sim.substrate.entities.get(target_id).unwrap();
     assert_eq!(target.health.current(), 1);
-    assert_eq!(target.pending_c4_detonation, Some(original_pending));
+    assert_eq!(
+        target.pending_c4_detonation.pending(),
+        Some(original_pending)
+    );
     assert!(target.lifecycle.object_alive() && target.in_logic_vector.is_member());
     assert!(sim.substrate.occupancy.contains_entity(8, 5, target_id));
     assert!(!sim.substrate.pending_delete.contains_object(&target_id));

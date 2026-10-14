@@ -3824,8 +3824,9 @@ impl Simulation {
                 .is_some_and(|miner| miner.reserved_refinery == Some(expired_id))
             || listener
                 .pending_c4_detonation
+                .pending()
                 .as_ref()
-                .is_some_and(|pending| pending.source_entity_id == Some(expired_id))
+                .is_some_and(|pending| pending.source_entity_id() == Some(expired_id))
             || listener.spawn_manager.is_some()
             || listener.capture_manager.is_some()
             || listener.temporal.has_link()
@@ -4325,8 +4326,9 @@ impl Simulation {
                     || self.object_placement_scope_active()));
         let clear_c4_source = listener
             .pending_c4_detonation
+            .pending()
             .as_ref()
-            .is_some_and(|pending| pending.source_entity_id == Some(expired_id));
+            .is_some_and(|pending| pending.source_entity_id() == Some(expired_id));
         // `0x004D9AC9..0x004D9B43`, on either control: an attack-move's
         // MegaTarget becomes a MegaDestination at its GetCoords cell, and its
         // MegaDestination is dropped.
@@ -4386,8 +4388,8 @@ impl Simulation {
         if clear_passenger_role {
             listener.passenger_role.clear_carrier_relation();
         }
-        if clear_c4_source && let Some(pending) = listener.pending_c4_detonation.as_mut() {
-            pending.source_entity_id = None;
+        if clear_c4_source {
+            listener.pending_c4_detonation.forget_source();
         }
         if expire_mega_pointer {
             listener

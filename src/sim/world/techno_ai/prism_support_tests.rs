@@ -127,16 +127,12 @@ fn mission_of(name: &str) -> MissionId {
 
 /// A delayed fire's mode (`+0x704`) and countdown (`+0x714`).
 fn delayed_fire(entity: &crate::sim::game_entity::GameEntity) -> (i64, i32) {
-    match entity.pending_building_fire {
+    match entity.pending_building_fire.pending() {
         None => (0, 0),
-        Some(PendingBuildingFire {
-            remaining_ticks,
-            fire: DelayedFire::Weapon(_),
-        }) => (1, remaining_ticks),
-        Some(PendingBuildingFire {
-            remaining_ticks,
-            fire: DelayedFire::SupportBeam { .. },
-        }) => (2, remaining_ticks),
+        Some(pending) => match pending.fire() {
+            DelayedFire::Weapon(_) => (1, pending.remaining_ticks()),
+            DelayedFire::SupportBeam { .. } => (2, pending.remaining_ticks()),
+        },
     }
 }
 
@@ -314,31 +310,33 @@ impl Fixture {
         }
         let countdown = state["countdown"].as_i64().unwrap_or(0) as i32;
         let payload = |axis: usize| state["payload"][axis].as_i64().unwrap_or(0) as i32;
-        entity.pending_building_fire = match state["mode"].as_i64().unwrap_or(0) {
-            0 if countdown == 0 => None,
-            0 => {
-                self.mode_unheld.insert(id);
-                Some(PendingBuildingFire {
-                    remaining_ticks: countdown,
-                    fire: DelayedFire::Weapon(WeaponSlot::Primary),
-                })
-            }
-            1 => Some(PendingBuildingFire {
-                remaining_ticks: countdown,
-                fire: DelayedFire::Weapon(if payload(0) == 1 {
-                    WeaponSlot::Secondary
-                } else {
-                    WeaponSlot::Primary
-                }),
-            }),
-            2 => Some(PendingBuildingFire {
-                remaining_ticks: countdown,
-                fire: DelayedFire::SupportBeam {
-                    to: ProjectileCoord::new(payload(0), payload(1), payload(2)),
-                },
-            }),
-            other => panic!("mode {other} has no VERA state"),
-        };
+        entity
+            .pending_building_fire
+            .set_for_test(match state["mode"].as_i64().unwrap_or(0) {
+                0 if countdown == 0 => None,
+                0 => {
+                    self.mode_unheld.insert(id);
+                    Some(PendingBuildingFire::new(
+                        countdown,
+                        DelayedFire::Weapon(WeaponSlot::Primary),
+                    ))
+                }
+                1 => Some(PendingBuildingFire::new(
+                    countdown,
+                    DelayedFire::Weapon(if payload(0) == 1 {
+                        WeaponSlot::Secondary
+                    } else {
+                        WeaponSlot::Primary
+                    }),
+                )),
+                2 => Some(PendingBuildingFire::new(
+                    countdown,
+                    DelayedFire::SupportBeam {
+                        to: ProjectileCoord::new(payload(0), payload(1), payload(2)),
+                    },
+                )),
+                other => panic!("mode {other} has no VERA state"),
+            });
     }
 
     /// The target's Location `east` leptons east of [`ORIGIN`].
@@ -489,7 +487,7 @@ fn prism_recruitment_matches_the_original() {
             .values()
             .map(|&id| {
                 let entity = fixture.sim.substrate.entities.get(id).unwrap();
-                (id, entity.pending_building_fire)
+                (id, entity.pending_building_fire.pending())
             })
             .collect();
         let target = TargetKind::Entity(fixture.target);
@@ -516,7 +514,7 @@ fn prism_recruitment_matches_the_original() {
 
         let armed_now = |id: u64| {
             let entity = fixture.sim.substrate.entities.get(id).unwrap();
-            let pending = entity.pending_building_fire;
+            let pending = entity.pending_building_fire.pending();
             pending.filter(|_| pending != pending_before[&id])
         };
         let recruited: Vec<&str> = fixture
@@ -538,10 +536,10 @@ fn prism_recruitment_matches_the_original() {
         );
         assert_eq!(
             armed_now(master)
-                == Some(PendingBuildingFire {
-                    remaining_ticks: DELAY,
-                    fire: DelayedFire::Weapon(WeaponSlot::Primary),
-                }),
+                == Some(PendingBuildingFire::new(
+                    DELAY,
+                    DelayedFire::Weapon(WeaponSlot::Primary)
+                )),
             row["armed"].as_bool().unwrap(),
             "{name} armed"
         );
@@ -567,7 +565,7 @@ fn prism_recruitment_matches_the_original() {
             .coord;
             let supporter = fixture.sim.substrate.entities.get(supporter).unwrap();
             assert_eq!(
-                supporter.pending_building_fire.unwrap().fire,
+                supporter.pending_building_fire.pending().unwrap().fire,
                 DelayedFire::SupportBeam { to: flh },
                 "{name} beam point"
             );
@@ -812,7 +810,7 @@ fn pending_fires(fixture: &Fixture) -> BTreeMap<u64, Option<PendingBuildingFire>
         .values()
         .map(|&id| {
             let entity = fixture.sim.substrate.entities.get(id).unwrap();
-            (id, entity.pending_building_fire)
+            (id, entity.pending_building_fire.pending())
         })
         .collect()
 }
@@ -956,23 +954,17 @@ fn prism_cadence_matches_the_original() {
                 );
                 let arm = armed.contains(&(
                     id,
-                    PendingBuildingFire {
-                        remaining_ticks: DELAY,
-                        fire: DelayedFire::Weapon(WeaponSlot::Primary),
-                    },
+                    PendingBuildingFire::new(DELAY, DelayedFire::Weapon(WeaponSlot::Primary)),
                 ));
                 assert_eq!(arm, native_event("arm").is_some(), "{at} arm");
                 recruits += usize::from(recruit.is_some());
                 arms += usize::from(arm);
 
                 ready_commence(&mut fixture.sim, id, false);
-                let beaming = matches!(
-                    pending_after[&id],
-                    Some(PendingBuildingFire {
-                        remaining_ticks: ..=1,
-                        fire: DelayedFire::SupportBeam { .. },
-                    })
-                );
+                let beaming = pending_after[&id].is_some_and(|pending| {
+                    pending.remaining_ticks() <= 1
+                        && matches!(pending.fire(), DelayedFire::SupportBeam { .. })
+                });
                 let (_, calls) = with_building_fire_stub(Some(ROF), || {
                     process_delayed_fire(
                         &mut fixture.sim,

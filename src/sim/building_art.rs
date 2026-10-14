@@ -43,8 +43,17 @@ pub(crate) struct BuildingArt {
     /// Building+5B0: effect slots marked for replay by4547C0, cleared by4545D0.
     anim_effect_replay: [bool; 21],
     /// Retained raw StorageClass slots and last refinery animation tier.
+    /// Only the tier (+6F0) is art. The amounts are TechnoClass+0x33C, whose
+    /// native writers are economy code (the sale payout 44A232,
+    /// DestructionEffects 441B30, House spend and transfer); no Rust code
+    /// writes them yet, and the art reads them. Porting such a writer moves
+    /// the amounts to its owner.
     storage: BuildingStorage,
     /// Building+6EA, constructor43B996 true; distinct from operational6C8.
+    /// Its other native writers (ChangeOwner 4484C6, ReadScenarioBuildings
+    /// 44FC80, GoOnline 452260, EnableStuff 452410, DisableStuff 452480) also
+    /// switch lights, cloak and gap generators and laser fences; only their
+    /// animation loop is ported here.
     stuff_enabled: bool,
     /// Building+6E4: OnConstructionComplete's one-time allocation guard.
     actually_placed: bool,

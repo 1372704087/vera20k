@@ -284,6 +284,15 @@ impl Simulation {
             return Ok(false);
         }
         let destination = track_destination(actor).ok_or("no-queue arm without destination")?;
+        // A batched request waits for the next frame's batch as if the timer
+        // still ran (`path_batch`, a proposed deviation). A retry recursion
+        // (0x4B397F, 0x4B4480, 0x4B4552) runs at once: its timer was just
+        // expired, and native searches there with the retry spent.
+        if call.args == ProcessMovementArgs::OUTER
+            && self.defer_path_search(id, super::path_batch::WaitingRequest::NoQueue)
+        {
+            return Ok(false);
+        }
         let request = self.track_path_request(call, destination, 0)?;
         match self.run_track_path_request(
             &request,
@@ -549,11 +558,11 @@ impl Simulation {
         //4B36BC..4B36EF / 4B39D1..4B3A0E: urgency 2 once the latched
         //blockage timer expired, else 1; Find_Path(cell(destination), 0, u).
         let urgency = runtime.code2_urgency(frame);
-        let destination = super::repath_batch::code2_ladder_destination(actor)
+        let destination = super::path_batch::code2_ladder_destination(actor)
             .ok_or("Drive/Ship code-2 ladder without destination")?;
         // A batched re-path waits for the next frame's batch as if the timer
-        // still ran (`repath_batch`, a proposed deviation).
-        if self.defer_code2_search(id) {
+        // still ran (`path_batch`, a proposed deviation).
+        if self.defer_path_search(id, super::path_batch::WaitingRequest::Code2Ladder) {
             self.track_first_rejected_tail(id);
             return Ok(false);
         }

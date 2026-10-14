@@ -112,7 +112,7 @@ pub(super) struct BridgeMarkerMover {
     pub type_ref: InternedId,
     pub speed: i32,
     /// The mover's id while Mark0 has not lifted it off its cell (a batched
-    /// re-path search, `foot_path::MoverLift::Emulated`): the object lists
+    /// path search, `foot_path::MoverLift::Emulated`): the object lists
     /// skip it, as they would after Mark0 unlinked it.
     pub unlisted: Option<u64>,
 }

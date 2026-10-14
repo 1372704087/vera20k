@@ -207,8 +207,14 @@ impl FootPathRequest {
         &self.visit.snap
     }
 
+    /// Whether this is the Walk admission retry's recursive Process(0)
+    /// request (75B714/75BAB9/75BC02), which may not retry again.
+    pub(super) fn is_retry_recursion(&self) -> bool {
+        !self.visit.walk_retry_allowed
+    }
+
     /// Find_Path's core search (`Simulation::foot_core_search`) calls this
-    /// between its Mark0/Mark1, or before Mark0 for a batched re-path search
+    /// between its Mark0/Mark1, or before Mark0 for a batched path search
     /// whose `foot_entry` emulates the lift (`foot_path::MoverLift`). The
     /// context's blocker plane is current; this reuses the single existing
     /// search. `foot_entry` answers every class question and walks every
@@ -447,13 +453,19 @@ fn advance_ordinary_mover(
     {
         let entity = entities.get(entity_id).expect("same mover request");
         //Walk75AF3C..55 observes a frame-anchored exact-zero remainder. No
-        //search, debt, occupancy preparation or second mover visit on this wait.
+        //search, debt, occupancy preparation or second mover visit on this
+        //wait: 75AF57..75AF66 calls the owner's vt+0x548 and returns.
         if !entity
             .navigation
             .path_runtime
             .movement_timer
             .expired(native_frame as i32)
         {
+            if let Some(entity) =
+                entities.get_mut_if(entity_id, super::walk_admission::walk_doing_to_clear)
+            {
+                super::walk_admission::clear_walk_doing(entity);
+            }
             return;
         }
         debug_assert!(

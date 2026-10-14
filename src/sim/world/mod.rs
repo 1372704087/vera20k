@@ -1179,9 +1179,9 @@ pub struct Simulation {
     /// Rebuilt from state on demand; never serialized or hashed.
     #[serde(skip)]
     pub(crate) movement_pass_cache: crate::sim::movement::movement_tick::MovementPassCache,
-    /// Batched code-2 re-path searches (`movement::repath_batch`); `None`
+    /// Batched path searches (`movement::path_batch`); `None`
     /// searches in native order. Its registrations wait across a save.
-    pub(crate) repath_batch: Option<crate::sim::movement::repath_batch::RepathBatch>,
+    pub(crate) path_batch: Option<crate::sim::movement::path_batch::PathBatch>,
     /// Retained native navigation base plane/raw movement rows plus the live
     /// derived hierarchy. ZoneGrid saves only its own retained base state;
     /// LoadContent67E8CD rebuilds hierarchy after bound Cell/object restoration.
@@ -3280,7 +3280,7 @@ impl Simulation {
         let seed = session.seed;
         let mut out = Self {
             movement_pass_cache: Default::default(),
-            repath_batch: None,
+            path_batch: None,
             interner: crate::sim::intern::StringInterner::new(),
             type_handles: crate::sim::type_handle_table::TypeHandleTable::default(),
             rule_handles: None,

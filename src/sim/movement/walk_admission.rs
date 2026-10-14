@@ -261,27 +261,26 @@ impl Simulation {
     ///75B6A3 then+548: Infantry521B20 clears Doing3/6/17 only; Unit4DBA30
     ///returns without writes. This is independent of locomotor IsMoving+34.
     fn walk_refused_animation(&mut self, id: u64) -> Result<(), String> {
-        let actor = self
-            .substrate
+        self.substrate
             .entities
             .get_mut(id)
-            .ok_or("retired Walk refusal owner")?;
-        actor
+            .ok_or("retired Walk refusal owner")?
             .locomotor
             .as_mut()
             .ok_or("Walk refusal requires locomotor")?
             .stop_movement_animation();
-        if actor.category == EntityCategory::Infantry
-            && actor
-                .mission_leaf
-                .as_infantry()
-                .is_some_and(|leaf| matches!(leaf.doing(), 3 | 6 | 17))
-        {
-            actor
-                .mission_leaf
-                .set_infantry_doing_verified(-1)
-                .map_err(|error| format!("{error:?}"))?;
-        }
+        self.walk_owner_clear_doing(id)
+    }
+
+    /// The Walk owner's vt+0x548: Infantry 0x521B20 clears Doing 3/6/17
+    /// only; Unit 0x4DBA30 returns without writes.
+    pub(super) fn walk_owner_clear_doing(&mut self, id: u64) -> Result<(), String> {
+        let actor = self
+            .substrate
+            .entities
+            .get_mut(id)
+            .ok_or("retired Walk owner")?;
+        clear_walk_doing(actor);
         Ok(())
     }
 
@@ -350,11 +349,11 @@ impl Simulation {
         ) else {
             return Ok(());
         };
-        let destination = super::repath_batch::code2_ladder_destination(actor)
+        let destination = super::path_batch::code2_ladder_destination(actor)
             .unwrap_or(DriveCoord { x: 0, y: 0, z: 0 });
         // A batched re-path waits for the next frame's batch as if the +640
-        // timer still ran (`repath_batch`, a proposed deviation).
-        if self.defer_code2_search(id) {
+        // timer still ran (`path_batch`, a proposed deviation).
+        if self.defer_path_search(id, super::path_batch::WaitingRequest::Code2Ladder) {
             return Ok(());
         }
         let request = request.into_path_request(destination, urgency);
@@ -602,6 +601,27 @@ fn walk_code2_gate(
         return None;
     }
     Some(runtime.code2_urgency(frame))
+}
+
+/// Whether the Walk owner's vt+0x548 changes `actor`; see
+/// [`Simulation::walk_owner_clear_doing`].
+pub(super) fn walk_doing_to_clear(actor: &crate::sim::game_entity::GameEntity) -> bool {
+    actor.category == EntityCategory::Infantry
+        && actor
+            .mission_leaf
+            .as_infantry()
+            .is_some_and(|leaf| matches!(leaf.doing(), 3 | 6 | 17))
+}
+
+/// The Walk owner's vt+0x548 on `actor`; see
+/// [`Simulation::walk_owner_clear_doing`].
+pub(super) fn clear_walk_doing(actor: &mut crate::sim::game_entity::GameEntity) {
+    if walk_doing_to_clear(actor) {
+        actor
+            .mission_leaf
+            .set_infantry_doing_verified(-1)
+            .expect("-1 is in the Doing table");
+    }
 }
 
 #[cfg(test)]

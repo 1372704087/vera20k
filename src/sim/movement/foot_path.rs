@@ -65,7 +65,7 @@ struct FootSearchEntry<'a> {
 pub(super) enum MoverLift {
     /// Find_Path's own order: Mark0 (0x4D3E11) ran before the search.
     Marked,
-    /// A batched re-path search ([`super::repath_batch`]) runs before Mark0,
+    /// A batched path search ([`super::path_batch`]) runs before Mark0,
     /// which unlinks the mover from its cell's lists, clears its raw
     /// occupation bits and vehicle mark there and recalculates that cell.
     /// The search skips the mover in cell lists and reports whether it asked
@@ -396,6 +396,20 @@ impl Simulation {
         registry: Option<&OverlayTypeRegistry>,
         frame_effects: FrameEffects<'_>,
     ) -> Result<FootPathOutcome, String> {
+        // A batched request waits for the next frame's batch as if the +640
+        // timer still ran (`path_batch`, a proposed deviation): 75AF4B..75AF66
+        // calls the owner's vt+0x548 and returns. The admission retry's
+        // recursion runs at once: its +640 was just expired, and native
+        // searches there with the retry spent.
+        if !request.is_retry_recursion()
+            && self.defer_path_search(
+                request.entity_id,
+                super::path_batch::WaitingRequest::NoQueue,
+            )
+        {
+            self.walk_owner_clear_doing(request.entity_id)?;
+            return Ok(FootPathOutcome::Returned);
+        }
         self.run_walk_path_request(request, rules, registry, frame_effects)
             .map(|resumed| {
                 if resumed {

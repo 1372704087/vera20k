@@ -1370,7 +1370,6 @@ mod tests {
                 entity_id: hawk,
                 target_rx: landing.0,
                 target_ry: landing.1,
-                queue: false,
             },
         )];
         let mut frames = 0;
@@ -1409,7 +1408,6 @@ mod tests {
                 entity_id: tank,
                 target_rx: x + 12,
                 target_ry: y,
-                queue: false,
             },
         )];
         let mut frames = 0;

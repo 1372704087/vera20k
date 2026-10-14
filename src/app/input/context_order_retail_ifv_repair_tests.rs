@@ -87,6 +87,7 @@ fn repair_click(sim: &Simulation, rules: &RuleSet, ifv: u64, tank: u64) -> Comma
         owner,
         OrderModifier::Normal,
         OrderMode::Move,
+        false,
     );
     assert!(dispatch.consumed && !dispatch.select_fallback);
     assert_eq!(dispatch.receivers, [ifv].into_iter().collect());
@@ -279,7 +280,7 @@ fn retail_repair_click_preserves_native_modifier_and_target_controls() {
         (OrderModifier::ForceFire, "ctrl_friend"),
         (OrderModifier::ForceMove, "alt_friend"),
         (OrderModifier::GuardArea, "ctrl_alt_friend"),
-        (OrderModifier::Queue, "shift_friend"),
+        (OrderModifier::Shift, "shift_friend"),
     ] {
         let native = packet["repair_rows"]
             .as_array()
@@ -296,6 +297,7 @@ fn retail_repair_click_preserves_native_modifier_and_target_controls() {
             owner,
             modifier,
             OrderMode::Move,
+            false,
         );
         let native_orders: Vec<_> = native["trace"]
             .as_array()
@@ -333,7 +335,8 @@ fn retail_repair_click_preserves_native_modifier_and_target_controls() {
             &hover,
             owner,
             OrderModifier::Normal,
-            OrderMode::Move
+            OrderMode::Move,
+            false
         )
         .commands
         .is_empty()
@@ -360,6 +363,7 @@ fn retail_repair_click_preserves_native_modifier_and_target_controls() {
         owner,
         OrderModifier::Normal,
         OrderMode::Move,
+        false,
     );
     assert_eq!(move_dispatch.commands.len(), 1);
     assert!(

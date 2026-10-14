@@ -100,13 +100,11 @@ mod tests {
                     entity_id: id,
                     target_rx: 8,
                     target_ry: 4,
-                    queue: false,
                 },
                 2 => Command::AttackMove {
                     entity_id: id,
                     target_rx: 8,
                     target_ry: 4,
-                    queue: false,
                 },
                 _ => Command::Guard {
                     entity_id: id,

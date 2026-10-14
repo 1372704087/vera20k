@@ -1081,7 +1081,6 @@ fn retail_defence_guards_attacks_and_returns(
                 entity_id: truck,
                 target_rx: x + 17,
                 target_ry: y,
-                queue: false,
             },
         )],
     );

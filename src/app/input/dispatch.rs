@@ -854,7 +854,6 @@ mod item83_click_route_tests {
                     9,
                     20,
                     20,
-                    true,
                 ))
             },
         );
@@ -876,7 +875,6 @@ mod item83_click_route_tests {
                     entity_id: 1,
                     target_rx: 14,
                     target_ry: 15,
-                    queue: false,
                 })
             },
         );

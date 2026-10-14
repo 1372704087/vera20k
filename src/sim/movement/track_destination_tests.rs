@@ -378,7 +378,6 @@ fn command_move_destinations_match_native_unit_setter() {
                 entity_id: 1,
                 target_rx: 11,
                 target_ry: 10,
-                queue: false,
             },
             Some(&rules),
         ));
@@ -478,7 +477,6 @@ fn repeated_move_orders_keep_the_stamp_but_sample_live_native_speed() {
                     entity_id: 1,
                     target_rx: 11,
                     target_ry: 10,
-                    queue: false,
                 },
                 Some(&rules),
             ));
@@ -594,7 +592,6 @@ fn command_move_matches_native_action_line_destination_inputs() {
                 entity_id: 1,
                 target_rx: 11,
                 target_ry: 10,
-                queue: false,
             },
             Some(&rules),
         ));

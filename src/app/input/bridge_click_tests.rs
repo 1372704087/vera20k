@@ -5,7 +5,7 @@
 
 use std::collections::BTreeMap;
 
-use crate::app::input::commands::{MoveClick, roundtrip_ordinary_local_megamission};
+use crate::app::input::commands::roundtrip_ordinary_local_megamission;
 use crate::app::match_runtime::sim_tick::{screen_point_to_world_with_camera, world_point_to_cell};
 use crate::map::terrain::TacticalBridgeCell;
 use crate::sim::command::{Command, CommandEnvelope};
@@ -41,7 +41,6 @@ fn ordinary_move(
             entity_id,
             target_rx: goal.0,
             target_ry: goal.1,
-            queue: false,
         },
     );
     // The active ordinary-click path calls this in context_order::finish_order.
@@ -312,16 +311,14 @@ fn follow_clicked_goal(
         owner,
         entity_id,
         goal,
-        MoveClick::Cell,
         false,
     )
     .expect("retail ordinary Cell input must admit the bridge destination");
     assert_eq!(
-        admitted.cell, goal,
+        admitted, goal,
         "retail click must keep the intended bridge/ground Cell"
     );
-    assert!(!admitted.queue);
-    let order = ordinary_move(scenario.sim(), owner, entity_id, admitted.cell);
+    let order = ordinary_move(scenario.sim(), owner, entity_id, admitted);
     scenario.runtime.simulation.queue_command(order);
     let mut arrived = false;
     for frame in 0..2_000 {
@@ -458,17 +455,9 @@ fn shift_walk_cell_input_uses_ordinary_resolver_and_move_record() {
     let (sim, rules, actor) = Simulation::walk_cell_input_test_scene(false);
     let owner = sim.interner.get("Local").unwrap();
     let clicked = (11, 5);
-    let ordinary = super::commands::ordinary_cell_move_goal(
-        &sim,
-        &rules,
-        None,
-        owner,
-        actor,
-        clicked,
-        MoveClick::Cell,
-        false,
-    )
-    .unwrap();
+    let ordinary =
+        super::commands::ordinary_cell_move_goal(&sim, &rules, None, owner, actor, clicked, false)
+            .unwrap();
     let modifier = super::context_order::resolve_order_modifiers(false, true, false);
     let shifted = super::commands::ordinary_cell_move_goal(
         &sim,
@@ -477,47 +466,24 @@ fn shift_walk_cell_input_uses_ordinary_resolver_and_move_record() {
         owner,
         actor,
         clicked,
-        MoveClick::Cell,
-        modifier == super::context_order::OrderModifier::Queue,
+        modifier == super::context_order::OrderModifier::Shift,
     )
     .unwrap();
-    assert!(
-        !shifted.queue,
-        "Shift Cell Move must enter the ordinary codec"
-    );
-    assert_eq!(shifted.cell, ordinary.cell);
-    assert_ne!(
-        shifted.cell, clicked,
-        "the resolver must choose the near bank"
-    );
+    assert_eq!(shifted, ordinary);
+    assert_ne!(shifted, clicked, "the resolver must choose the near bank");
     let issued = CommandEnvelope::new(
         owner,
         sim.session.tick,
         Command::Move {
             entity_id: actor,
-            target_rx: shifted.cell.0,
-            target_ry: shifted.cell.1,
-            queue: shifted.queue,
+            target_rx: shifted.0,
+            target_ry: shifted.1,
         },
     );
     assert_eq!(
         roundtrip_ordinary_local_megamission(&sim, issued.clone()).unwrap(),
-        ordinary_move(&sim, owner, actor, ordinary.cell)
+        ordinary_move(&sim, owner, actor, ordinary)
     );
-
-    // Only a Move over an object keeps the queue-flag adapter.
-    let object = super::commands::ordinary_cell_move_goal(
-        &sim,
-        &rules,
-        None,
-        owner,
-        actor,
-        clicked,
-        MoveClick::Object,
-        true,
-    )
-    .unwrap();
-    assert!(object.queue);
 }
 
 #[test]
@@ -527,17 +493,9 @@ fn ordinary_walk_cell_input_reaches_near_bank_and_valid_high_bridge() {
         let owner = sim.interner.get("Local").unwrap();
         let clicked = if bridge { (9, 6) } else { (11, 5) };
         let chosen = super::commands::ordinary_cell_move_goal(
-            &sim,
-            &rules,
-            None,
-            owner,
-            actor,
-            clicked,
-            MoveClick::Cell,
-            false,
+            &sim, &rules, None, owner, actor, clicked, false,
         )
-        .unwrap()
-        .cell;
+        .unwrap();
         if bridge {
             assert_eq!(chosen, clicked);
         } else {
@@ -586,18 +544,9 @@ fn encoded_walk_destination_survives_topology_change_before_due_frame() {
     let (mut sim, rules, actor) = Simulation::walk_cell_input_test_scene(true);
     let owner = sim.interner.get("Local").unwrap();
     let clicked = (9, 6);
-    let chosen = super::commands::ordinary_cell_move_goal(
-        &sim,
-        &rules,
-        None,
-        owner,
-        actor,
-        clicked,
-        MoveClick::Cell,
-        false,
-    )
-    .unwrap()
-    .cell;
+    let chosen =
+        super::commands::ordinary_cell_move_goal(&sim, &rules, None, owner, actor, clicked, false)
+            .unwrap();
     assert_eq!(chosen, clicked);
     let mut order = ordinary_move(&sim, owner, actor, chosen);
     // The scheduler drains commands for the NEXT frame. Leave one full
@@ -606,17 +555,7 @@ fn encoded_walk_destination_survives_topology_change_before_due_frame() {
     sim.queue_command(order.clone());
     sim.close_walk_input_test_bridge(&rules);
     assert_ne!(
-        super::commands::ordinary_cell_move_goal(
-            &sim,
-            &rules,
-            None,
-            owner,
-            actor,
-            clicked,
-            MoveClick::Cell,
-            false
-        )
-        .map(|goal| goal.cell),
+        super::commands::ordinary_cell_move_goal(&sim, &rules, None, owner, actor, clicked, false),
         Some(clicked),
         "the later input query must discriminate the changed topology"
     );
@@ -642,17 +581,7 @@ fn direct_simulation_walk_move_is_an_already_resolved_destination() {
     let (mut sim, rules, actor) = Simulation::walk_cell_input_test_scene(false);
     let owner = sim.interner.get("Local").unwrap();
     assert_ne!(
-        super::commands::ordinary_cell_move_goal(
-            &sim,
-            &rules,
-            None,
-            owner,
-            actor,
-            (9, 5),
-            MoveClick::Cell,
-            false
-        )
-        .map(|goal| goal.cell),
+        super::commands::ordinary_cell_move_goal(&sim, &rules, None, owner, actor, (9, 5), false),
         Some((9, 5))
     );
     sim.queue_command(CommandEnvelope::new(
@@ -662,7 +591,6 @@ fn direct_simulation_walk_move_is_an_already_resolved_destination() {
             entity_id: actor,
             target_rx: 9,
             target_ry: 5,
-            queue: false,
         },
     ));
     advance_input_fixture(&mut sim, &rules);

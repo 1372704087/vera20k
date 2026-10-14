@@ -139,7 +139,6 @@ fn walk_destination_search_observes_route_opened_before_process() {
             entity_id: actor,
             target_rx: 14,
             target_ry: 10,
-            queue: false,
         },
         Some(&rules),
         None,
@@ -213,7 +212,6 @@ fn walk_cell_order_defers_queue_publication_and_first_head_motion() {
             entity_id: actor,
             target_rx: 14,
             target_ry: 10,
-            queue: false,
         },
     );
     let entity = sim.substrate.entities.get(actor).unwrap();
@@ -367,7 +365,6 @@ fn walk_attack_range_entry_finishes_paid_head_then_accepts_new_move() {
             entity_id: actor,
             target_rx: from.0,
             target_ry: from.1 + 4,
-            queue: false,
         },
     );
     let next_head = wait_for_walk_head(&mut sim, &rules, actor);
@@ -390,7 +387,6 @@ fn ordered_walk_attack_nulls_destination_but_preserves_paid_head_and_queues() {
                 entity_id: actor,
                 target_rx: 20,
                 target_ry: 10,
-                queue: false,
             },
         );
         let head = wait_for_walk_head(&mut sim, &rules, actor);
@@ -479,7 +475,6 @@ fn owner_change_finishes_the_paid_walk_head() {
             entity_id: actor,
             target_rx: 20,
             target_ry: 10,
-            queue: false,
         },
     );
     let head = wait_for_walk_head(&mut sim, &rules, actor);
@@ -536,7 +531,6 @@ fn area_guard_nulls_the_walk_destination() {
             entity_id: actor,
             target_rx: 20,
             target_ry: 10,
-            queue: false,
         },
     );
     let head = wait_for_walk_head(&mut sim, &rules, actor);

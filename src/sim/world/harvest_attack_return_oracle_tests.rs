@@ -324,7 +324,6 @@ impl Replay {
                                 entity_id: s.miner,
                                 target_rx,
                                 target_ry,
-                                queue: false,
                             }
                         }
                         other => panic!("{context}: command {other}"),

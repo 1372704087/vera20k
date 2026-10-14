@@ -380,7 +380,6 @@ fn replay_hash_stable_through_slice6() {
                 entity_id: 1,
                 target_rx: 10,
                 target_ry: 10,
-                queue: false,
             },
         ),
         (
@@ -389,7 +388,6 @@ fn replay_hash_stable_through_slice6() {
                 entity_id: 1,
                 target_rx: 15,
                 target_ry: 3,
-                queue: false,
             },
         ),
         (
@@ -667,7 +665,6 @@ fn slice6_move_command_retasks_via_mission_substrate_and_clears_state() {
             entity_id: 1,
             target_rx: 10,
             target_ry: 10,
-            queue: false,
         },
         Some(&rules),
     );

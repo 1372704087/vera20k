@@ -6,9 +6,9 @@
 //! every object to attack-move to the opposite house's home. It then times
 //! each `SimRuntime` frame and prints the distribution.
 //!
-//! `--queue-at T` also gives every object a queued attack-move back home from
-//! tick T, spread like the first orders, so movers already under way take a
-//! new destination at scale.
+//! `--queue-at T` also gives every object a second attack-move, back home,
+//! from tick T, spread like the first orders, so movers already under way
+//! take a new destination at scale.
 //!
 //! The run is deterministic for a given map, seed and arguments: the final
 //! `Simulation::state_hash` (and the optional periodic hashes, taken outside
@@ -251,14 +251,14 @@ fn main() -> Result<(), String> {
     );
 
     // Each army marches in formation to the opposite house's home, and with
-    // --queue-at later queues a march back to its own.
+    // --queue-at later marches back to its own.
     let first_tick = runtime.simulation.session.tick + 1;
     let mut orders: Vec<Vec<CommandEnvelope>> = Vec::new();
     let clamp = |base: u16, delta: i32| (i32::from(base) + delta).clamp(0, 511) as u16;
-    let waves = [(0, false, args.houses / 2)]
+    let waves = [(0, args.houses / 2)]
         .into_iter()
-        .chain(args.queue_at.map(|at| (at, true, 0)));
-    for (start, queue, house_shift) in waves {
+        .chain(args.queue_at.map(|at| (at, 0)));
+    for (start, house_shift) in waves {
         for (index, unit) in spawned.iter().enumerate() {
             let target_home = homes[(unit.house + house_shift) % args.houses];
             let slot = start + index as u64 % args.order_spread;
@@ -272,7 +272,6 @@ fn main() -> Result<(), String> {
                     entity_id: unit.id,
                     target_rx: clamp(target_home.0, unit.offset.0),
                     target_ry: clamp(target_home.1, unit.offset.1),
-                    queue,
                 },
             ));
         }

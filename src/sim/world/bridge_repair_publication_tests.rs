@@ -398,7 +398,6 @@ fn walk_boundary_relinks_current_xyz_and_leaves_the_raw_bit_on_the_head() {
             entity_id: id,
             target_rx: 17,
             target_ry: 15,
-            queue: false,
         },
         Some(&rules),
     ));
@@ -490,7 +489,6 @@ fn diagonal_walk_relinks_the_first_actual_side_cell_before_reaching_its_head() {
             entity_id: id,
             target_rx: 16,
             target_ry: 16,
-            queue: false,
         },
         Some(&rules),
     ));
@@ -561,7 +559,6 @@ fn refused_fresh_walk_head_restores_the_current_raw_occupation() {
             entity_id: id,
             target_rx: 16,
             target_ry: 15,
-            queue: false,
         },
         Some(&rules),
     ));
@@ -640,7 +637,6 @@ fn production_fresh_head_and_raw_history_match_original_walk_producer() {
                 entity_id: id,
                 target_rx: 10,
                 target_ry: 10,
-                queue: false,
             },
             Some(&rules),
         ));
@@ -1216,7 +1212,6 @@ fn walk_stop_and_retarget_finish_a_same_cell_committed_head() {
                 entity_id: id,
                 target_rx: 18,
                 target_ry: 15,
-                queue: false,
             },
             Some(&rules),
         ));
@@ -1251,7 +1246,6 @@ fn walk_stop_and_retarget_finish_a_same_cell_committed_head() {
                 entity_id: id,
                 target_rx: 18,
                 target_ry: 16,
-                queue: false,
             }
         };
         assert!(sim.apply_command("Americans", &order, Some(&rules),));
@@ -1611,7 +1605,6 @@ fn repair_queries_unrelated_rocketeer_after_move_and_snapshot_restore() {
                     entity_id: rocketeer,
                     target_rx: 20,
                     target_ry: 15,
-                    queue: false,
                 },
                 Some(&rules),
                 Some(&registry),

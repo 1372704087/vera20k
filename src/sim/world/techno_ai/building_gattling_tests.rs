@@ -937,7 +937,6 @@ fn retail_dustbowl_gattling_cannon_spins_up_and_winds_down() {
                 entity_id: truck,
                 target_rx: x + 17,
                 target_ry: y,
-                queue: false,
             },
         )],
     );

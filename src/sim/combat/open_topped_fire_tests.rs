@@ -957,7 +957,6 @@ fn retail_battle_fortress_chrono_rider_freezes_releases_and_erases() {
                                 entity_id: fortress.bfrt,
                                 target_rx: x - 2,
                                 target_ry: y,
-                                queue: false,
                             },
                         ));
                         move_issued = true;

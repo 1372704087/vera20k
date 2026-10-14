@@ -178,7 +178,6 @@ fn retail_dustbowl_rocketeer_flies_hovers_and_fires_in_its_airborne_poses() {
             entity_id: rocketeer,
             target_rx: x + 8,
             target_ry: y,
-            queue: false,
         },
     );
     let mut orders = vec![order];
@@ -342,7 +341,6 @@ fn retail_dustbowl_parked_rocketeer_engages_nearby_enemies() {
             entity_id: rocketeer,
             target_rx: x + 8,
             target_ry: y,
-            queue: false,
         },
     );
     let mut orders = vec![park];
@@ -443,7 +441,6 @@ fn a_parked_rocketeer_scans_and_fires_on_move() {
             entity_id: 1,
             target_rx: 56,
             target_ry: 52,
-            queue: false,
         },
     );
     let mut orders = vec![order];
@@ -605,7 +602,6 @@ fn retail_dustbowl_shot_down_rocketeer_falls_and_leaves_no_body() {
             entity_id: rocketeer,
             target_rx: x + 8,
             target_ry: y,
-            queue: false,
         },
     );
     let mut orders = vec![hold];
@@ -1171,7 +1167,6 @@ fn a_rocketeer_lifting_off_clears_his_sub_cell() {
             entity_id: 1,
             target_rx: 60,
             target_ry: 52,
-            queue: false,
         },
         Some(&rules),
     ));
@@ -1202,7 +1197,6 @@ fn a_rocketeer_lifting_off_leaves_his_cell_list_at_two_levels() {
             entity_id: 1,
             target_rx: 60,
             target_ry: 52,
-            queue: false,
         },
         Some(&rules),
     ));
@@ -1619,7 +1613,6 @@ fn a_grounded_rocketeers_move_order_survives_its_first_mission_visit() {
             entity_id: 1,
             target_rx: 60,
             target_ry: 52,
-            queue: false,
         },
     );
     sim.advance_tick(&[order], Some(&rules), Some(&grid), None, 67);
@@ -1653,7 +1646,6 @@ fn a_rocketeer_taken_over_in_flight_stops_over_his_cell() {
             entity_id: 1,
             target_rx: 64,
             target_ry: 52,
-            queue: false,
         },
         Some(&rules),
     ));

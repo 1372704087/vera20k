@@ -693,7 +693,6 @@ fn move_order_cancels_a_running_unload() {
         entity_id: bfrt,
         target_rx: 30,
         target_ry: 30,
-        queue: false,
     }));
     for _ in 0..80 {
         fx.tick();
@@ -1181,7 +1180,6 @@ fn jumpjet_transport_ordered_to_unload_in_flight_lands_first() {
         entity_id: hind,
         target_rx: 36,
         target_ry: 20,
-        queue: false,
     }));
     let altitude = |fx: &Fixture| {
         fx.sim
@@ -1230,7 +1228,6 @@ fn unload_order_stops_a_driving_transport_where_it_is() {
         entity_id: bfrt,
         target_rx: 36,
         target_ry: 20,
-        queue: false,
     }));
     for _ in 0..40 {
         fx.tick();

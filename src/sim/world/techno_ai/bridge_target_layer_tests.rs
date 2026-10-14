@@ -395,7 +395,6 @@ fn move_retail_fv(
             entity_id: id,
             target_rx: destination.0,
             target_ry: destination.1,
-            queue: false,
         },
     );
     let mut stop_sent = false;

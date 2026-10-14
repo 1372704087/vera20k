@@ -852,23 +852,7 @@ pub(super) fn schedule_command_in_sim(
     Some(execute_tick)
 }
 
-/// A Cell-click destination and the Move semantics chosen by its producer.
-pub(crate) struct CellMoveGoal {
-    pub(crate) cell: (u16, u16),
-    pub(crate) queue: bool,
-}
-
-/// What a Move click is over.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum MoveClick {
-    /// A Move or attack-move click on a Cell.
-    Cell,
-    /// A Move over an object, toward the object's own Cell: force-move onto
-    /// it, or a healer's Move over an enemy.
-    Object,
-}
-
-/// Move-click producer only. A click on a Cell resolves each receiver's own
+/// Move-click producer for a click on a Cell. Each receiver resolves its own
 /// Cell ([`Simulation::cell_click_destination`]) before event encoding;
 /// synchronized/replay/internal Move payloads are already resolved. Original
 /// initialized GI and MTNK Shift0x10 still execute that resolver and emit
@@ -884,47 +868,43 @@ pub(crate) fn ordinary_cell_move_goal(
     viewer: InternedId,
     entity_id: u64,
     clicked: (u16, u16),
-    click: MoveClick,
     shift: bool,
-) -> Option<CellMoveGoal> {
-    if click != MoveClick::Object {
-        return match sim.cell_click_destination(viewer, entity_id, clicked, shift, rules, registry)
-        {
-            Ok(cell) => cell.map(|cell| CellMoveGoal { cell, queue: false }),
-            Err(cause) => {
-                log::warn!("Cell click input: {cause}");
-                None
-            }
-        };
-    }
-    if sim.object_move_click_refused(entity_id, rules) {
-        return None;
-    }
-    //Existing compatibility adapter for a Move over an object: it snaps an
-    //unwalkable Cell to a nearby walkable one rather than running the object
-    //receiver 4D74E0 (#689). Its queue flag only keeps a queued command out of
-    //the MegaMission codec; the sim takes it as an ordinary Move.
-    let mut goal = clicked;
-    if let Some(grid) = sim.path_grid()
-        && !crate::app::match_runtime::sim_tick::is_any_layer_walkable(grid, goal.0, goal.1)
-        && let Some(nearest) =
-            crate::app::match_runtime::sim_tick::nearest_walkable_cell_layered(grid, goal, 12)
-    {
-        goal = nearest;
-    }
-    Some(CellMoveGoal {
-        cell: goal,
-        queue: shift,
-    })
+) -> Option<(u16, u16)> {
+    sim.cell_click_destination(viewer, entity_id, clicked, shift, rules, registry)
+        .unwrap_or_else(|cause| {
+            log::warn!("Cell click input: {cause}");
+            None
+        })
+}
+
+/// Move-click producer for a click over an object: the object, or a Cell
+/// near it ([`Simulation::object_move_click`]).
+///
+/// [`Simulation::object_move_click`]: crate::sim::world::Simulation::object_move_click
+pub(crate) fn object_move_destination(
+    sim: &crate::sim::world::Simulation,
+    rules: &crate::rules::ruleset::RuleSet,
+    viewer: InternedId,
+    entity_id: u64,
+    target_id: u64,
+    action: crate::sim::world::MoveAction,
+    force_move_key: bool,
+) -> Option<crate::sim::combat::TargetKind> {
+    sim.object_move_click(viewer, entity_id, target_id, action, force_move_key, rules)
+        .unwrap_or_else(|cause| {
+            log::warn!("Move click over an object: {cause}");
+            None
+        })
 }
 
 /// Make ordinary local Move and AreaGuard bytes authoritative at issue time.
 ///
-/// Active YR routes a cell click through `ClickedAction` (`0x004D7D50`) to
+/// Active YR routes a cell click through `ClickedAction` (`0x004D7D50`), and a
+/// Move over an object through `0x004D74E0`, to
 /// `EventClass__BuildMegaMissionEnvelope` (`0x004C6860`). Guard key730D60
-/// reaches the same producer through QueueMegaMission6FFBE0. Queue-false Move
-/// and AreaGuard share this codec; queued/planning and other semantic commands
-/// pass through until their native record is established.
+/// reaches the same producer through QueueMegaMission6FFBE0. Move, to a Cell
+/// or an object, and AreaGuard share this codec; other semantic commands pass
+/// through until their native record is established.
 pub(crate) fn roundtrip_ordinary_local_megamission(
     sim: &crate::sim::world::Simulation,
     envelope: CommandEnvelope,
@@ -935,7 +915,7 @@ pub(crate) fn roundtrip_ordinary_local_megamission(
         payload,
     } = envelope;
     match payload {
-        Command::Move { queue: false, .. } | Command::Guard { .. } => {
+        Command::Move { .. } | Command::MoveToObject { .. } | Command::Guard { .. } => {
             let record = sim.encode_megamission_record(owner, &payload)?;
             SynchronizedCommand::opaque(record).decode_for_simulation(sim, execute_tick)
         }
@@ -1279,7 +1259,6 @@ mod tests {
                     entity_id: 42,
                     target_rx: u16::MAX,
                     target_ry: 12,
-                    queue: false,
                 },
             ),
             None
@@ -1294,7 +1273,6 @@ mod tests {
                     entity_id: 42,
                     target_rx: 34,
                     target_ry: 12,
-                    queue: false,
                 },
             ),
             Some(123)
@@ -1308,7 +1286,6 @@ mod tests {
                     entity_id: 42,
                     target_rx: 34,
                     target_ry: 12,
-                    queue: false,
                 }
             ),
             "an ordinary Move keeps its cell through its Megamission bytes"
@@ -1317,18 +1294,20 @@ mod tests {
         schedule_command_in_sim(
             &mut sim,
             "Local",
-            Command::Move {
+            Command::MoveToObject {
                 entity_id: 42,
-                target_rx: 35,
-                target_ry: 12,
-                queue: true,
+                target_id: 7,
             },
         )
         .unwrap();
-        assert!(matches!(
+        assert_eq!(
             sim.pending_command_snapshot()[1].payload,
-            Command::Move { queue: true, .. }
-        ));
+            Command::MoveToObject {
+                entity_id: 42,
+                target_id: 7,
+            },
+            "a Move onto an object keeps it through its Megamission bytes"
+        );
     }
 
     #[test]

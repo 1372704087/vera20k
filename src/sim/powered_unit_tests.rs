@@ -269,7 +269,6 @@ fn order_move(sim: &mut Simulation, id: u64, target: (u16, u16)) {
             entity_id: id,
             target_rx: target.0,
             target_ry: target.1,
-            queue: false,
         },
     ));
 }

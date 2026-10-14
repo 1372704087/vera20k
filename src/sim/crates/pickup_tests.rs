@@ -803,7 +803,6 @@ fn a_moving_tank_picks_up_the_crate_on_its_path() {
             entity_id: actor,
             target_rx: 25,
             target_ry: 22,
-            queue: false,
         },
     );
     sim.advance_tick(&[order], Some(&rules), grid.as_deref(), Some(&registry), 22);
@@ -876,7 +875,6 @@ fn a_walking_soldier_picks_up_the_crate_on_his_path() {
             entity_id: soldier,
             target_rx: 15,
             target_ry: 10,
-            queue: false,
         },
     );
     sim.advance_tick(&[order], Some(&rules), grid.as_deref(), Some(&registry), 22);

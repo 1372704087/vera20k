@@ -608,7 +608,6 @@ fn bridge_script() -> Vec<(u64, Command)> {
             entity_id: TANK_ID,
             target_rx: APPROACH_B_X,
             target_ry: SPAN_Y,
-            queue: false,
         },
     )]
 }

@@ -254,7 +254,7 @@ pub(crate) fn current_cursor_feedback_kind(state: &AppState) -> Option<CursorFee
 
     // Unit73FD7C post-processes the base Ctrl/Alt action too; only Shift and
     // the single-object self action precede that arm. Ctrl+Alt also repairs.
-    if modifier != crate::app::input::context_order::OrderModifier::Queue
+    if modifier != crate::app::input::context_order::OrderModifier::Shift
         && let Some(kind) = hover.as_ref().and_then(|hover| {
             unit_repair_feedback(sim, &selected, best_id, hover, state.rules(), owner_id)
         })
@@ -300,7 +300,7 @@ pub(crate) fn current_cursor_feedback_kind(state: &AppState) -> Option<CursorFee
     }
     if let Some(hover) = hover.as_ref() {
         // Shift's native action8 returns before Unit's healing override.
-        if modifier == crate::app::input::context_order::OrderModifier::Queue
+        if modifier == crate::app::input::context_order::OrderModifier::Shift
             && unit_repair_feedback(sim, &selected, best_id, hover, state.rules(), owner_id)
                 .is_some()
         {
@@ -359,11 +359,11 @@ fn empty_cell_cursor(
     modifier: crate::app::input::context_order::OrderModifier,
     order_mode: crate::app::presentation::render::OrderMode,
 ) -> CursorFeedbackKind {
-    use crate::sim::world::CellMoveAction;
+    use crate::sim::world::MoveAction;
     match what_action_on_cell(sim, viewer, best_id, cell, modifier, rules) {
-        CellMoveAction::None => return CursorFeedbackKind::Default,
-        CellMoveAction::NoMove => return CursorFeedbackKind::Invalid,
-        CellMoveAction::Move => {}
+        MoveAction::None => return CursorFeedbackKind::Default,
+        MoveAction::NoMove => return CursorFeedbackKind::Invalid,
+        MoveAction::Move => {}
     }
 
     // Ore/gem harvest hangs off the cell action: UnitClass only substitutes the
@@ -413,25 +413,25 @@ fn what_action_on_cell(
     cell: (u16, u16),
     modifier: crate::app::input::context_order::OrderModifier,
     rules: Option<&crate::rules::ruleset::RuleSet>,
-) -> crate::sim::world::CellMoveAction {
-    use crate::sim::world::{CellActionQuery, CellMoveAction};
+) -> crate::sim::world::MoveAction {
+    use crate::sim::world::{CellActionQuery, MoveAction};
     let (Some(viewer), Some(id), Some(rules)) = (viewer, best_id, rules) else {
-        return CellMoveAction::Move;
+        return MoveAction::Move;
     };
     if sim
         .entities()
         .get(id)
         .is_none_or(|entity| entity.category == crate::map::entities::EntityCategory::Structure)
     {
-        return CellMoveAction::Move;
+        return MoveAction::Move;
     }
     let query = CellActionQuery {
         mouse_over: true,
-        shift: modifier == crate::app::input::context_order::OrderModifier::Queue,
+        shift: modifier == crate::app::input::context_order::OrderModifier::Shift,
     };
     // The mouse-over query reads no overlay type: it never asks Can_Enter_Cell.
     sim.cell_move_action(viewer, id, cell, query, rules, None)
-        .unwrap_or(CellMoveAction::Move)
+        .unwrap_or(MoveAction::Move)
 }
 
 /// Determine the cursor feedback kind for a hover target, checking ObjectType
@@ -2233,7 +2233,7 @@ Verses=100%,100%,100%,100%,100%,100%,100%,100%,100%,100%,100%
     #[test]
     fn the_cursor_shows_move_where_the_click_redirects() {
         use crate::app::input::context_order::OrderModifier;
-        use crate::sim::world::CellMoveAction;
+        use crate::sim::world::MoveAction;
         let Some(battle) = crate::rules::retail_ini_fixture::retail_battle_rules() else {
             return;
         };
@@ -2251,8 +2251,8 @@ Verses=100%,100%,100%,100%,100%,100%,100%,100%,100%,100%,100%
                 Some(&rules),
             )
         };
-        assert_eq!(cursor(OrderModifier::Normal), CellMoveAction::Move);
-        assert_eq!(cursor(OrderModifier::ForceMove), CellMoveAction::Move);
+        assert_eq!(cursor(OrderModifier::Normal), MoveAction::Move);
+        assert_eq!(cursor(OrderModifier::ForceMove), MoveAction::Move);
         let goal = sim
             .cell_click_destination(owner, tank, (9, 5), false, &rules, None)
             .unwrap()

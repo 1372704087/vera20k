@@ -1230,7 +1230,6 @@ fn walk_move(
             entity_id: id,
             target_rx: to.0,
             target_ry: to.1,
-            queue: false,
         },
         Some(rules),
         None,

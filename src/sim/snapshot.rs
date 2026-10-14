@@ -1006,7 +1006,9 @@ use crate::sim::world::Simulation;
 // tokens, and MegaDestination may name an object.
 // 347 -> 348: the Simulation retains whether it batches code-2 re-path
 // searches and the Foots waiting for the next frame's batch.
-const SNAPSHOT_VERSION: u32 = 348;
+// 348 -> 349: the move-order adapter (`MovementTarget`) is gone (#689); Foot's
+// NavCom and the locomotor own every order. Version 348 records carry it.
+const SNAPSHOT_VERSION: u32 = 349;
 
 const SNAPSHOT_PRODUCT_MAGIC: [u8; 8] = *b"VERA20K\0";
 const SNAPSHOT_ENVELOPE_VERSION: u32 = 1;
@@ -4392,7 +4394,8 @@ mod tests {
         // 345 -> 346: Move commands without the queue flag, and MoveToObject.
         // 346 -> 347: AttackMove tokens and an object MegaDestination.
         // 347 -> 348: the batched re-path setting and its waiting Foots.
-        assert_eq!(super::SNAPSHOT_VERSION, 348);
+        // 348 -> 349: no move-order adapter (`MovementTarget`).
+        assert_eq!(super::SNAPSHOT_VERSION, 349);
     }
 
     #[test]

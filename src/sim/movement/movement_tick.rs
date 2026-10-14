@@ -2,8 +2,8 @@
 //!
 //! Prepares and resumes one production object visit: rotation, speed inputs
 //! and fresh head selection.
-//! Retained Drive/Ship tracks, including tracks without a MovementTarget,
-//! execute through track_host. The batch entry points are test adapters.
+//! Retained Drive/Ship tracks execute through track_host. The batch entry
+//! points are test adapters.
 //!
 //! Pass preparation is separate from ordinary mover advancement: entry work
 //! executes once and returns owned scheduling/cache state. Point callbacks need
@@ -268,7 +268,7 @@ impl FootPathRequest {
     /// Foot+5E0 direction queue, and 4D4003 records the current Cell as its
     /// reference. Foot timer/latch/retry state has its own lifetime.
     ///
-    /// Every Foot reads only that queue; the order adapter keeps no cells.
+    /// Every Foot reads only that queue.
     pub(super) fn install_route(
         &self,
         actor: &mut crate::sim::game_entity::GameEntity,
@@ -289,7 +289,6 @@ impl FootPathRequest {
 #[derive(Default)]
 struct MovementPassEffects {
     stats: MovementTickStats,
-    finished_entities: Vec<u64>,
     scatters: super::scatter::ScatterRequests,
     native_track: Option<super::track_process::TrackInvocation>,
     walk_per_cell: Option<(u64, crate::sim::components::DriveCoord)>,
@@ -356,7 +355,6 @@ fn advance_ordinary_mover(
     } = grids;
     let MovementPassEffects {
         stats,
-        finished_entities,
         native_track,
         walk_per_cell,
         walk_boundary,
@@ -371,8 +369,8 @@ fn advance_ordinary_mover(
             .is_some_and(|entity| super::track_head::active_track_family(entity).is_some());
         if continuation {
             // Drive4B055A..0576 dispatches an active descriptor directly to
-            // Process_Track. A MovementTarget or exhausted route cannot route
-            // it back through fresh selection/rotation and strand its cursor.
+            // Process_Track. An exhausted route cannot route it back through
+            // fresh selection/rotation and strand its cursor.
             let entity = entities.get(entity_id).expect("live retained track");
             *native_track = Some(super::track_process::TrackInvocation {
                 entity_id,
@@ -444,19 +442,6 @@ fn advance_ordinary_mover(
             walk_retry_allowed: true,
         }
     };
-    if !resumed_path_request
-        && let Some(entity) = entities.get_mut(entity_id)
-        && entity
-            .locomotor
-            .as_ref()
-            .is_some_and(|l| l.step_head().is_none() && l.walk_destination().is_none())
-    {
-        //Walk75AEC3..75AF10: no head and no destination is the idle tail
-        //(75BCE3); the empty route adapter retires with it.
-        super::walk_step::finish_idle(entity);
-        finished_entities.push(entity_id);
-        return;
-    }
     if !resumed_path_request
         && let Some(destination) = entities.get(entity_id).and_then(no_queue_path_request)
     {
@@ -824,30 +809,23 @@ fn prepare_movement_visit(
     // Walk75AEC0 is the Process of every live Foot (FootClass::AI
     // 0x004DA806..0x004DA877) and branches on its own head (+0x28) and
     // destination (+0x1C): either one runs its step, neither the idle tail
-    // 75BCE3. An order adapter does not decide it, so a caller that drops
-    // the adapter beside a null setter (owner change, parasite release,
-    // Temporal freeze) still finishes the paid head.
+    // 75BCE3 (Walk75AEC3..75AF10).
     let walk_route = entity.locomotor.as_ref().is_some_and(|loco| {
         loco.kind == LocomotorKind::Walk
             && (loco.step_head().is_some() || loco.walk_destination().is_some())
     });
-    if entity.is_active() && entity.movement_target.is_none() && !walk_route {
+    if entity.is_active() && !walk_route {
         super::walk_step::finish_idle(entity);
     }
     // A Drive or Ship got here through the outer Process gates
     // (`track_turn`: Drive 0x4B08D1..0x4B0A69 / Ship 0x69FF98..0x6A0131),
     // which admit Process_Movement (0x4B0A79 / 0x6A0142) for a moving class
-    // or a live path word whatever adapter it has: a Chrono Warp's
-    // Force_Track leaves +34 in the Unit's own cell with none.
+    // or a live path word.
     let track_route = entity
         .locomotor
         .as_ref()
         .is_some_and(|loco| super::track_process::TrackFamily::from_kind(loco.kind).is_some());
-    if entity.movement_target.is_none()
-        && !walk_route
-        && !track_route
-        && super::track_head::active_track_family(entity).is_none()
-    {
+    if !walk_route && !track_route {
         return false;
     }
     let layer = entity.movement_layer_or_ground();
@@ -1019,25 +997,6 @@ impl PendingMovementPass {
         self.effects.walk_per_cell.take()
     }
 
-    /// PerCell may retire this Foot or install another order. Finalization
-    /// must use the surviving live path, never the pre-callback finished list.
-    pub(crate) fn retain_walk_completion(&mut self, id: u64, entities: &EntityStore) {
-        let complete = entities.get(id).is_some_and(|e| {
-            e.lifecycle.object_alive
-                && !e.lifecycle.in_limbo
-                && !e.is_falling_down()
-                && e.locomotor.as_ref().is_some_and(|loco| {
-                    loco.walk_destination().is_none() && loco.step_head().is_none()
-                })
-                && e.movement_target.is_some()
-        });
-        self.effects
-            .finished_entities
-            .retain(|candidate| *candidate != id);
-        if complete {
-            self.effects.finished_entities.push(id);
-        }
-    }
     pub(crate) fn take_native_track(&mut self) -> Option<super::track_process::TrackInvocation> {
         self.effects.native_track.take()
     }
@@ -1104,33 +1063,8 @@ pub(crate) fn begin_movement(
     PendingMovementPass { effects }
 }
 
-pub(crate) fn finish_movement_pass(
-    pending: PendingMovementPass,
-    entities: &mut EntityStore,
-) -> MovementTickStats {
-    let PendingMovementPass { effects } = pending;
-    let MovementPassEffects {
-        stats,
-        finished_entities,
-        ..
-    } = effects;
-
-    finalize_finished_entities(entities, &finished_entities);
-    stats
-}
-
-// ---------------------------------------------------------------------------
-// Post-loop helpers — extracted from tick_movement_with_grids
-// ---------------------------------------------------------------------------
-
-/// Retire the scheduling adapter of each Walk whose Process found neither a
-/// head nor a destination. Walk's arrival (75BE42) already ran in its Process.
-fn finalize_finished_entities(entities: &mut EntityStore, finished: &[u64]) {
-    for &entity_id in finished {
-        if let Some(entity) = entities.get_mut(entity_id) {
-            entity.movement_target = None;
-        }
-    }
+pub(crate) fn finish_movement_pass(pending: PendingMovementPass) -> MovementTickStats {
+    pending.effects.stats
 }
 
 #[cfg(test)]

@@ -338,7 +338,12 @@ fn unit(owner: &str, type_id: &str, cx: u16, cy: u16, cat: EntityCategory) -> Ma
 // as per-House and per-entity digests, cell grids and footprint lists
 // fold as packed byte records, and the edge cache also covers
 // uninitialized cells: code that writes no simulation state.
-const SLICE6_BASELINE_HASH: u64 = 0xA729_2F39_E67E_51D9;
+// Snapshot349 drops the move-order adapter (`MovementTarget`, #689), whose
+// presence and speed stamp every entity's fold hashed. Hash composition
+// only: a control binary (main with a hash that skips only that fold)
+// gives this value in the same test, with every tripwire above green.
+// Control removed. Previous: 0xA729_2F39_E67E_51D9.
+const SLICE6_BASELINE_HASH: u64 = 0xE3F1_10CD_1C40_81A1;
 
 #[test]
 fn replay_hash_stable_through_slice6() {

@@ -9,7 +9,7 @@ use crate::rules::locomotor_type::LocomotorKind;
 use crate::rules::ruleset::RuleSet;
 use crate::sim::animation::*;
 use crate::sim::combat::AttackTarget;
-use crate::sim::components::{DriveCoord, MovementTarget};
+use crate::sim::components::DriveCoord;
 use crate::sim::game_entity::GameEntity;
 use crate::sim::game_options::GameOptions;
 use crate::sim::intern::StringInterner;
@@ -260,7 +260,6 @@ fn gsi_13_06_active_shp_unit(type_name: &str, kind: LocomotorKind) -> GameEntity
         }
         _ => unreachable!("stock SHP vehicle fixture uses Drive or Ship"),
     }
-    entity.movement_target = Some(make_movement_target());
     entity
 }
 
@@ -492,15 +491,14 @@ fn gsi_13_06_positive_fraction_below_get_current_speed_threshold_is_idle() {
 }
 
 #[test]
-fn gsi_13_06_shp_movement_predicates_ignore_path_execution_surrogates() {
+fn gsi_13_06_shp_movement_predicates_read_the_locomotor() {
     let speed = Gsi1306Speed::new();
     for kind in [LocomotorKind::Drive, LocomotorKind::Ship] {
         let mut entity = gsi_13_06_active_shp_unit("DRON", kind);
         let owner = DriveCoord::cell(5, 5, 0);
 
-        // A live MovementTarget is not either native class coordinate. With a
-        // null destination and an equal-X/Y head, both slots answer false even
-        // though the execution adapter still reports a positive speed.
+        // With a null destination and an equal-X/Y head, both slots answer
+        // false even with a positive speed fraction.
         match kind {
             LocomotorKind::Drive => {
                 entity.foot_speed.set_speed_fraction(SimFixed::from_num(1));
@@ -538,10 +536,8 @@ fn gsi_13_06_shp_movement_predicates_ignore_path_execution_surrogates() {
             4
         ));
 
-        // Conversely, locomotor-owned state alone is sufficient; no
-        // MovementTarget is needed by either draw or cadence. The live
-        // GetCurrentSpeed reads DRON's type speed.
-        entity.movement_target = None;
+        // Conversely, locomotor-owned state alone is sufficient for both
+        // draw and cadence. The live GetCurrentSpeed reads DRON's type speed.
         let head = DriveCoord::cell(6, 5, 0);
         match kind {
             LocomotorKind::Drive => {
@@ -892,17 +888,9 @@ fn infantry_action_fixture(
     (sim, rules, id)
 }
 
-fn make_movement_target() -> MovementTarget {
-    MovementTarget {
-        speed: SimFixed::from_num(512),
-        ..Default::default()
-    }
-}
-
 /// Install the retained Walk +0x36 byte that `Is_Really_Moving_Now` answers
 /// (`0x0075CB20`): a moving man's head went through Process `0x0075BD25`; a
-/// stopped man was Stopped with no head (`0x0075ADEC`). A MovementTarget
-/// alone cannot select the Infantry locomotion action.
+/// stopped man was Stopped with no head (`0x0075ADEC`).
 fn set_infantry_walk_motion(sim: &mut crate::sim::world::Simulation, id: u64, moving: bool) {
     let actor = sim.substrate.entities.get_mut(id).unwrap();
     let locomotor = actor.locomotor.as_mut().unwrap();
@@ -943,7 +931,6 @@ fn assert_infantry_pose(
 #[test]
 fn infantry_walk_action_uses_retained_locomotor_motion() {
     let (mut sim, rules, id) = infantry_action_fixture(Some("S"));
-    sim.substrate.entities.get_mut(id).unwrap().movement_target = Some(make_movement_target());
     sim.infantry_movement_actions(id, &rules, None, crate::sim::world::FrameEffects::default());
     assert_infantry_pose(&sim, id, 0, SequenceKind::Stand, 0);
 
@@ -1296,7 +1283,6 @@ fn presentation_skips_dying_infantry_without_changing_its_stage_or_action() {
     let actor = sim.substrate.entities.get_mut(id).unwrap();
     actor.dying = true;
     actor.health.current = 0;
-    actor.movement_target = Some(make_movement_target());
     actor.set_native_stage_value(14);
     let dead = tick_animations(
         &mut sim.substrate.entities,
@@ -1498,14 +1484,9 @@ fn mirage_voxel_unit_shp_layout_does_not_create_a_second_stand_walk_clock() {
     let id = sim
         .spawn_object_limbo_at_height("ACTOR", "Americans", 3, 3, 0, 0, &rules)
         .unwrap();
-    // Neither an order nor its absence switches the generic sequence: the
-    // Unit SHP draw asks Is_Moving itself.
-    for (sequence, moving) in [
-        (SequenceKind::Stand, false),
-        (SequenceKind::Stand, true),
-        (SequenceKind::Walk, false),
-        (SequenceKind::Walk, true),
-    ] {
+    // Nothing switches the generic sequence: the Unit SHP draw asks
+    // Is_Moving itself.
+    for sequence in [SequenceKind::Stand, SequenceKind::Walk] {
         let actor = sim.substrate.entities.get_mut(id).unwrap();
         assert!(actor.is_voxel);
         actor.body_frame_counter = 17;
@@ -1515,7 +1496,6 @@ fn mirage_voxel_unit_shp_layout_does_not_create_a_second_stand_walk_clock() {
             elapsed_frames: 2,
             finished: false,
         });
-        actor.movement_target = moving.then(make_movement_target);
         for now in [0, 4, 100] {
             assert!(
                 tick_animations(

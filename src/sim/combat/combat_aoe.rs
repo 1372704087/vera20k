@@ -3554,9 +3554,8 @@ mod tests {
                     .expect("Infantry runtime")
                     .fear_level,
                 destination: victim
-                    .movement_target
+                    .locomotor
                     .as_ref()
-                    .and(victim.locomotor.as_ref())
                     .and_then(|l| l.walk_destination_cell()),
                 queued_mission: victim.mission.queued(),
                 rng_changed: world.scenario_rng.state() != before_rng,

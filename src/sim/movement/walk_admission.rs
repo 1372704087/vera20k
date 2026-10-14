@@ -208,7 +208,6 @@ impl Simulation {
                     .ok_or("Walk stop owner retired during its callback")?;
                 //75BB84/75BB90: both override/Stop exits clear the byte.
                 actor.navigation.path_runtime.clear_scold_latch();
-                super::retain_committed_movement(actor);
                 Ok(None)
             }
             6 => {
@@ -383,13 +382,6 @@ impl Simulation {
             } else {
                 self.assign_null_destination(id, Some(rules), None, frame_effects);
             }
-            if let Some(actor) = self.substrate.entities.get_mut(id)
-                && actor.locomotor.as_ref().is_some_and(|loco| {
-                    loco.walk_destination().is_none() && loco.step_head().is_none()
-                })
-            {
-                actor.movement_target = None;
-            }
         } else {
             self.walk_short_path_receiver(id, rules)?;
         }
@@ -440,9 +432,6 @@ impl Simulation {
                 .set_speed_fraction(SIM_ZERO);
             self.assign_null_destination(id, Some(rules), None, frame_effects);
             self.clear_walk_admission_path(id)?;
-            if let Some(actor) = self.substrate.entities.get_mut(id) {
-                super::retain_committed_movement(actor);
-            }
             return Ok(());
         }
         let terrain = self

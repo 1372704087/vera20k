@@ -1616,13 +1616,6 @@ fn hash_entity(entity: &GameEntity, frame: u32, hasher: &mut StateHasher) {
         entity.gap_generator.hash(hasher);
     }
 
-    if let Some(ref movement) = entity.movement_target {
-        1u8.hash(hasher);
-        movement.speed.hash(hasher);
-    } else {
-        0u8.hash(hasher);
-    }
-
     {
         // Preserve schema160's original four-field order. Deriving
         // the fold from the expanded struct would alter every prior
@@ -1658,7 +1651,7 @@ fn hash_entity(entity: &GameEntity, frame: u32, hasher: &mut StateHasher) {
     entity.navigation.nav_com.hash(hasher);
     entity.navigation.suspended_nav_com.hash(hasher);
     entity.navigation.nav_queue.hash(hasher);
-    entity.navigation.pending_arrival_clear.hash(hasher);
+    entity.navigation.pending_destination_setter.hash(hasher);
 
     entity.foot_speed.applied_fraction().hash(hasher);
     if entity.flight_attitude != Default::default() {
@@ -1711,10 +1704,10 @@ fn hash_entity(entity: &GameEntity, frame: u32, hasher: &mut StateHasher) {
         1u8.hash(hasher);
         hash_locomotor(loco, hasher);
         // Mission readiness inputs are NOT hashed: they are derived at
-        // the gate from state already hashed above (and from position,
-        // facing and movement target, likewise hashed). Hashing a
-        // derived predicate would pin a projection of the same state
-        // twice, and it cannot diverge independently of its inputs.
+        // the gate from state already hashed above (and from position and
+        // facing, likewise hashed). Hashing a derived predicate would pin a
+        // projection of the same state twice, and it cannot diverge
+        // independently of its inputs.
     } else {
         0u8.hash(hasher);
     }
@@ -3915,7 +3908,7 @@ mod infantry_hash_tests {
             .unwrap()
             .sim;
         let actor = loaded.entities().get(1).unwrap();
-        assert!(actor.movement_target.is_none());
+        assert!(crate::sim::movement::motion_query::is_moving(&actor) != Some(true));
         assert_eq!(actor.navigation.path_runtime, retained);
     }
 
@@ -4082,7 +4075,7 @@ mod infantry_hash_tests {
                 .unwrap()
                 .sim;
             let actor = restored.substrate.entities.get(1).unwrap();
-            assert!(actor.movement_target.is_none());
+            assert!(crate::sim::movement::motion_query::is_moving(&actor) != Some(true));
             assert_eq!(
                 u64::from(actor.navigation.path_runtime.scold_latch_raw()),
                 row["after_original_noinit_constructor"].as_u64().unwrap()

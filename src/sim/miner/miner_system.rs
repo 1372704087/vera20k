@@ -1932,7 +1932,7 @@ mod harvest_scan_dispatch_tests {
             Some(crate::sim::components::NavTargetRef::cell(10, 14))
         );
         assert!(
-            entity.movement_target.is_some(),
+            crate::sim::movement::motion_query::is_moving(&entity) == Some(true),
             "gamemd sets the destination inside the scan dispatch"
         );
         assert_ne!(
@@ -1964,7 +1964,10 @@ mod harvest_scan_dispatch_tests {
         tick_miners(&mut sim, &rules, &config);
 
         let entity = sim.substrate.entities.get(MINER_ID).expect("miner");
-        assert!(entity.movement_target.is_none(), "nothing to drive to");
+        assert!(
+            crate::sim::movement::motion_query::is_moving(&entity) != Some(true),
+            "nothing to drive to"
+        );
         assert_eq!(
             sim.rng_state().scenario,
             scenario_before,
@@ -1996,7 +1999,10 @@ mod harvest_scan_dispatch_tests {
             entity.navigation.nav_com, None,
             "no whole-map fallback target"
         );
-        assert!(entity.movement_target.is_none(), "no cross-map drive");
+        assert!(
+            crate::sim::movement::motion_query::is_moving(&entity) != Some(true),
+            "no cross-map drive"
+        );
         assert_eq!(entity.mission.dispatch_timer().delay(), NO_ORE_DELAY);
         assert_eq!(
             sim.rng_state().scenario,
@@ -2047,7 +2053,7 @@ mod harvest_scan_dispatch_tests {
         );
         assert_eq!(entity.navigation.nav_com, None);
         assert!(
-            entity.movement_target.is_none(),
+            crate::sim::movement::motion_query::is_moving(&entity) != Some(true),
             "not on a refinery cell: no exit drive"
         );
         assert_ne!(
@@ -2069,7 +2075,7 @@ mod harvest_scan_dispatch_tests {
         let entity = sim.substrate.entities.get(MINER_ID).expect("miner");
         assert_eq!(entity.mission.current().known(), Some(MissionType::Guard));
         assert_eq!(entity.navigation.nav_com, None);
-        assert!(entity.movement_target.is_none());
+        assert!(crate::sim::movement::motion_query::is_moving(&entity) != Some(true));
         assert!(
             sim.houses[&owner].harvester_no_ore,
             "no clearing writer exists for House+0x242"
@@ -2436,7 +2442,7 @@ mod harvest_scan_dispatch_tests {
         let entity = sim.substrate.entities.get(MINER_ID).expect("miner");
         assert_eq!(entity.miner_state(), Some(MinerState::ReturnToRefinery));
         assert!(
-            entity.movement_target.is_none(),
+            crate::sim::movement::motion_query::is_moving(&entity) != Some(true),
             "`CMP EAX,0x300; JG` not taken"
         );
 

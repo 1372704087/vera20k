@@ -21,8 +21,8 @@ use crate::sim::cloak_disguise::{CloakRuntime, DisguiseRuntime};
 use crate::sim::combat::combat_weapon::WeaponSlot;
 use crate::sim::combat::{AttackTarget, TargetKind};
 use crate::sim::components::{
-    HarvestOverlay, Health, MovementTarget, NavigationState, PendingC4Detonation, Position,
-    RockingState, VoxelAnimation,
+    HarvestOverlay, Health, NavigationState, PendingC4Detonation, Position, RockingState,
+    VoxelAnimation,
 };
 use crate::sim::debug_event_log::{DebugEventKind, DebugEventLog};
 use crate::sim::docking::aircraft_dock::AircraftAmmo;
@@ -633,13 +633,10 @@ pub struct GameEntity {
     /// Locomotor state — present on moving types and on zero-speed Foot
     /// Drive/Ship types whose native class-local payload still exists.
     pub locomotor: Option<LocomotorState>,
-    /// Move-order scheduling adapter, present while an order's move is
-    /// under way (#689); it keeps no goal or route.
-    pub movement_target: Option<MovementTarget>,
     /// FootClass-style owner navigation destination state.
     ///
     /// Native `NavCom` is distinct from the active execution path, so this can
-    /// remain visible after a `MovementTarget` or DriveTrack segment has cleared.
+    /// remain visible after a DriveTrack segment has cleared.
     #[serde(default)]
     pub navigation: NavigationState,
     /// Live Foot-owned applied speed; survives active locomotor replacement.
@@ -1826,7 +1823,6 @@ impl GameEntity {
             destruction_recorded: false,
             foot_air: foot_air::FootAirState::new(stable_id),
             locomotor: None,
-            movement_target: None,
             navigation: NavigationState::at_frame(construction_frame),
             foot_speed: crate::sim::components::FootSpeedState::default(),
             flight_attitude: Default::default(),
@@ -2409,7 +2405,6 @@ mod tests {
         assert!(!e.selected);
         assert!(!e.repairing);
         assert!(e.locomotor.is_none());
-        assert!(e.movement_target.is_none());
         assert!(e.attack_target.is_none());
         assert!(e.radio_contacts.is_empty());
         assert_eq!(e.rally_cell(), None);

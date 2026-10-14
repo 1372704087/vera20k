@@ -359,15 +359,15 @@ fn a_restored_destination_warps_at_the_teleport_process_entry() {
     let mover = sim.substrate.entities.get_mut(1).unwrap();
     mover.install_teleport_state_for_test(None);
     represented_assign_destination(mover, Some(NavTargetRef::cell(8, 9)));
-    mover.navigation.pending_arrival_clear = true;
+    mover.navigation.pending_destination_setter = true;
 
     sim.advance_live_object_turn(1, Some(&rules), techno_ai::ObjectAiCtx::default())
         .unwrap();
 
     let mover = sim.substrate.entities.get(1).unwrap();
     assert_eq!((mover.position.rx, mover.position.ry), (8, 9));
-    assert!(!mover.navigation.pending_arrival_clear);
-    assert!(mover.movement_target.is_none());
+    assert!(!mover.navigation.pending_destination_setter);
+    assert!(crate::sim::movement::motion_query::is_moving(&mover) != Some(true));
 }
 
 /// Supplied Clear-overlay inputs exercise the production callback context,
@@ -484,7 +484,6 @@ fn a_ground_order_arms_the_warp() {
     .unwrap();
 
     let mover = sim.substrate.entities.get(1).unwrap();
-    assert!(mover.movement_target.is_none());
     let warp = mover.teleport_state().expect("armed warp");
     assert_eq!(warp.target_cell().unwrap(), (12, 7));
 }

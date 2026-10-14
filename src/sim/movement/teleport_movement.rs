@@ -123,9 +123,8 @@ pub enum TeleportPhase {
 
 /// Per-frame result returned by the special locomotor Process adapters.
 ///
-/// The native Process vtable slot owns the completion return; keeping that
-/// result explicit prevents callers from inferring completion from an absent
-/// movement target.
+/// The native Process vtable slot owns the completion return; callers read
+/// completion from it, not from other state.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SpecialMovementOutcome {
     Continue,
@@ -850,9 +849,6 @@ fn arm_teleport(
     } else {
         compute_chrono_delay(rules, distance_leptons)
     };
-
-    // Remove any existing ground movement.
-    entity.movement_target = None;
 
     // Attach the teleport state machine — starts in Relocate (instant).
     let teleport_state = TeleportState {

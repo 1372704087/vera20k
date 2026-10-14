@@ -727,7 +727,6 @@ impl Simulation {
         if let Some((id, head)) = pending_movement.take_walk_per_cell() {
             outcome.bridge_state_changed |=
                 sim.run_completed_walk_step(id, head, rules, overlay_registry, effects)?;
-            pending_movement.retain_walk_completion(id, &sim.substrate.entities);
         }
         if let Some((id, coord)) = pending_movement.take_walk_boundary() {
             sim.run_walk_boundary(id, coord, rules, overlay_registry, effects);
@@ -738,7 +737,6 @@ impl Simulation {
             .movement
             .merge(movement::movement_tick::finish_movement_pass(
                 pending_movement,
-                &mut sim.substrate.entities,
             ));
         if let Some(tube_active) = movement_before {
             // Tube exits Unit73603F / Infantry51BA9B call vt+0x18C(2).

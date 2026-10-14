@@ -908,7 +908,6 @@ pub(crate) fn process_boarding_passenger(
         if let Some(pax) = sim.substrate.entities.get_mut(pax_id) {
             pax.passenger_role
                 .set_inside_transport(transport_id, transport_open_topped);
-            pax.movement_target = None;
             if !transport_open_topped {
                 pax.attack_target = None;
                 pax.passively_acquired_target = false;
@@ -1016,7 +1015,6 @@ pub(crate) fn add_garrison_occupant(
     };
     if let Some(pax) = sim.substrate.entities.get_mut(pax_id) {
         pax.passenger_role.set_inside_transport(building_id, false);
-        pax.movement_target = None;
         pax.attack_target = None;
         pax.passively_acquired_target = false;
     }

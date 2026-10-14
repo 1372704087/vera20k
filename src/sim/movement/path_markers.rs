@@ -351,8 +351,6 @@ fn remaining_path_from_entity(
 ) -> ((i16, i16), Vec<u8>) {
     let queue = &entity.navigation.path_replay;
     // Foot+558 and its retained direction queue are the native source.
-    // MovementTarget is a scheduling adapter and must not synthesize a peer
-    // path after its native queue has been exhausted or invalidated.
     let reference = queue
         .reference_cell
         .unwrap_or((entity.position.rx as i16, entity.position.ry as i16));
@@ -1011,17 +1009,14 @@ mod tests {
     }
 
     #[test]
-    fn exhausted_native_peer_queue_is_not_rebuilt_from_scheduling_path() {
-        //42ACF0 reads Foot+5E0 directly. A stale MovementTarget adapter must
-        //not supply a different direction list after the queue reaches -1.
+    fn exhausted_native_peer_queue_supplies_no_directions() {
+        //42ACF0 reads Foot+5E0 directly: no direction list after the queue
+        //reaches -1.
         let mut peer =
             crate::sim::game_entity::GameEntity::test_default(2, "PEER", "Americans", 4, 3);
         peer.navigation.path_replay.reference_cell = Some((5, 4));
         peer.navigation.path_replay.directions = vec![2, 2];
         peer.navigation.path_replay.cursor = 2;
-        peer.movement_target = Some(crate::sim::components::MovementTarget {
-            ..Default::default()
-        });
         assert_eq!(remaining_path_from_entity(&peer), ((5, 4), vec![]));
         peer.navigation.path_replay.reference_cell = None;
         assert_eq!(remaining_path_from_entity(&peer), ((4, 3), vec![]));

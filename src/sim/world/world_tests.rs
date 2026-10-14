@@ -23,7 +23,7 @@ use crate::rules::ruleset::RuleSet;
 use crate::sim::bridge_state::{BridgeDamageEvent, BridgeRuntimeState};
 use crate::sim::combat::AttackTarget;
 use crate::sim::command::{Command, CommandEnvelope};
-use crate::sim::components::{DriveCoord, MovementTarget};
+use crate::sim::components::DriveCoord;
 use crate::sim::game_entity::GameEntity;
 use crate::sim::mission::{MissionId, MissionType};
 use crate::sim::movement::FacingClass;
@@ -2762,7 +2762,7 @@ fn gsi_04_15_active_tube_leaf_preempts_unit_and_infantry_mission_host() {
             if category == EntityCategory::Unit {
                 assert!(entity.attack_target.is_none());
                 assert!(!entity.passively_acquired_target);
-                assert!(entity.movement_target.is_none());
+                assert!(crate::sim::movement::motion_query::is_moving(&entity) != Some(true));
                 assert_eq!(
                     entity.mega_mission.destination(),
                     Some(crate::sim::combat::TargetKind::Cell(2, 0))
@@ -2780,7 +2780,7 @@ fn gsi_04_15_active_tube_leaf_preempts_unit_and_infantry_mission_host() {
                     "Tube final retains the authoritative building destination"
                 );
                 assert!(
-                    entity.movement_target.is_none(),
+                    crate::sim::movement::motion_query::is_moving(&entity) != Some(true),
                     "Tube final does not walk into the adjacent building"
                 );
                 assert_eq!(
@@ -4884,7 +4884,7 @@ fn test_destroyed_bridge_arms_fall_when_ground_exists() {
         MovementLayer::Bridge,
         "DropAsBomb preserves locomotor state"
     );
-    assert!(e.movement_target.is_none());
+    assert!(crate::sim::movement::motion_query::is_moving(&e) != Some(true));
 }
 
 /// Structural47DD70 relayers its deck member and starts DropAsBomb while
@@ -4953,7 +4953,7 @@ fn test_destroyed_bridge_arms_fall_over_water_below() {
         MovementLayer::Bridge,
         "DropAsBomb preserves locomotor state"
     );
-    assert!(e.movement_target.is_none());
+    assert!(crate::sim::movement::motion_query::is_moving(&e) != Some(true));
 }
 
 /// Same fall admission over an overlay-blocked ground cell.
@@ -5228,7 +5228,7 @@ fn test_bridge_collapse_kills_ground_unit_under_destroyed_cell() {
     assert_eq!(e.health.current, 0, "kill_ground_occupants_at zeroed HP");
     assert!(e.dying, "direct receiver completed death before returning");
     assert!(e.attack_target.is_none());
-    assert!(e.movement_target.is_none());
+    assert!(crate::sim::movement::motion_query::is_moving(&e) != Some(true));
 }
 
 fn concrete_damage_fixture_coord(row: &serde_json::Value) -> (u16, u16) {
@@ -5486,7 +5486,6 @@ fn test_structural_bridge_collapse_preserves_dynamic_navigation_and_snapshot() {
         // Move_To before any frame-final projection rebuild; its Process
         // searches the live grid.
         let unit = sim.substrate.entities.get_mut(2).unwrap();
-        unit.movement_target = None;
         unit.mega_mission = crate::sim::mission::mega_mission::MegaMission::attack_move(Some(
             crate::sim::combat::TargetKind::Cell(6, 3),
         ));
@@ -5815,7 +5814,7 @@ fn test_real_ship_locomotor_move_command_crosses_water_cells() {
             .substrate
             .entities
             .get(ship_id)
-            .is_some_and(|ship| ship.movement_target.is_none())
+            .is_some_and(|ship| crate::sim::movement::motion_query::is_moving(&ship) != Some(true))
         {
             break;
         }
@@ -5832,7 +5831,7 @@ fn test_real_ship_locomotor_move_command_crosses_water_cells() {
         "real Ship locomotor should complete a simple move command over water"
     );
     assert!(
-        ship.movement_target.is_none(),
+        crate::sim::movement::motion_query::is_moving(&ship) != Some(true),
         "real Ship locomotor should finish its move command"
     );
 }
@@ -5878,7 +5877,7 @@ fn test_real_ship_locomotor_crosses_water_surface_cells_with_non_water_land_type
             .substrate
             .entities
             .get(ship_id)
-            .is_some_and(|ship| ship.movement_target.is_none())
+            .is_some_and(|ship| crate::sim::movement::motion_query::is_moving(&ship) != Some(true))
         {
             break;
         }
@@ -5895,7 +5894,7 @@ fn test_real_ship_locomotor_crosses_water_surface_cells_with_non_water_land_type
         "real Ship locomotor should treat water-surface cells as navigable even when land_type is not the pure water column"
     );
     assert!(
-        ship.movement_target.is_none(),
+        crate::sim::movement::motion_query::is_moving(&ship) != Some(true),
         "real Ship locomotor should finish its move command on water-surface cells"
     );
 }
@@ -6087,7 +6086,7 @@ fn a_ship_order_routes_around_an_island_through_the_live_search() {
             ship.locomotor.as_ref().map(|loco| loco.layer),
             Some(MovementLayer::Ground)
         );
-        if ship.movement_target.is_none() {
+        if crate::sim::movement::motion_query::is_moving(&ship) != Some(true) {
             break;
         }
     }
@@ -6509,7 +6508,7 @@ fn phase14_drive_move_command_preserves_fractions_until_scheduled_visit() {
             Some(&rules),
         ));
 
-        let movement_speed = {
+        {
             let entity = sim
                 .substrate
                 .entities
@@ -6523,12 +6522,7 @@ fn phase14_drive_move_command_preserves_fractions_until_scheduled_visit() {
                 .expect("drive state");
             assert_eq!(drive.target_speed_fraction(), SimFixed::lit("0.4"));
             assert_eq!(entity.foot_speed.applied_fraction(), SimFixed::lit("0.25"));
-            let movement = entity
-                .movement_target
-                .as_ref()
-                .expect("Move command installs movement target");
-            movement.speed
-        };
+        }
 
         let _ = sim.advance_tick(&[], Some(&rules), Some(&grid), None, 100);
 
@@ -6550,7 +6544,9 @@ fn phase14_drive_move_command_preserves_fractions_until_scheduled_visit() {
         };
         assert_eq!(drive.target_speed_fraction(), SIM_ONE);
         assert_eq!(entity.foot_speed.applied_fraction(), expected_current);
-        let raw_stage = (movement_speed / SimFixed::from_num(15)).to_num::<i32>();
+        let raw_stage = crate::util::fixed_math::ra2_speed_to_leptons_per_frame(
+            rules.object("DRIVE").unwrap().speed,
+        );
         let expected_owner = (SimFixed::from_num(raw_stage) * expected_current).to_num::<i32>();
         assert_eq!(
             sim.current_speed_for_test(entity_id, &rules),
@@ -6645,29 +6641,30 @@ fn test_stop_command_clears_move_and_attack_intent() {
     if let Some(e) = sim.substrate.entities.get_mut(1) {
         // A Drive tank moving to a NavCom: the Unit setter (0x00741970)
         // writes nothing without one (0x00741A80).
-        e.locomotor = Some(
-            crate::sim::movement::locomotor::LocomotorState::for_test_kind(
-                crate::rules::locomotor_type::LocomotorKind::Drive,
-            ),
+        let mut locomotor = crate::sim::movement::locomotor::LocomotorState::for_test_kind(
+            crate::rules::locomotor_type::LocomotorKind::Drive,
         );
+        assert!(locomotor.install_drive_state_for_test(
+            Some(
+                crate::sim::movement::DriveLocomotionRuntime::default().with_destination_for_test(
+                    Some(crate::sim::components::DriveCoord::cell(9, 4, 0))
+                )
+            )
+        ));
+        e.locomotor = Some(locomotor);
         e.navigation.nav_com = Some(crate::sim::components::NavTargetRef::cell(9, 4));
-        e.movement_target = Some(MovementTarget {
-            speed: SimFixed::from_num(1024),
-            ..Default::default()
-        });
         e.attack_target = Some(AttackTarget::new(1));
+        assert_eq!(crate::sim::movement::motion_query::is_moving(e), Some(true));
     }
 
-    let cmd = cmd_envelope(&sim, "Americans", 1, Command::Stop { entity_id: 1 });
-    let _ = sim.advance_tick(&[cmd], None, None, None, 33);
-    assert!(
-        sim.substrate
-            .entities
-            .get(1)
-            .unwrap()
-            .movement_target
-            .is_none(),
-        "movement target should be cleared by Stop"
+    // The command alone, without a rules-less Process after it.
+    assert!(sim.apply_command("Americans", &Command::Stop { entity_id: 1 }, None));
+    let e = sim.substrate.entities.get(1).unwrap();
+    assert_eq!(e.navigation.nav_com, None, "Stop clears NavCom");
+    assert_eq!(
+        crate::sim::movement::motion_query::is_moving(e),
+        Some(false),
+        "Stop leaves the Drive still"
     );
     assert!(
         sim.substrate
@@ -6773,7 +6770,7 @@ fn gsi_04_05_stop_preserves_committed_drive_until_reserved_head_finishes() {
     assert!(sim.apply_command("Americans", &Command::Stop { entity_id: 1 }, None,));
     let stopped = sim.substrate.entities.get(1).unwrap();
     assert_eq!(stopped.navigation.nav_com, None);
-    assert!(stopped.movement_target.is_some());
+    assert!(crate::sim::movement::motion_query::is_moving(&stopped) == Some(true));
     // The route is cut at the committed head: Stop retires every Foot+5E0
     // word beyond it and the head stays the committed track head.
     assert!(
@@ -6857,13 +6854,8 @@ fn gsi_04_05_stop_preserves_committed_drive_until_reserved_head_finishes() {
     );
 
     for _ in 0..192 {
-        if sim
-            .substrate
-            .entities
-            .get(1)
-            .unwrap()
-            .movement_target
-            .is_none()
+        if crate::sim::movement::motion_query::is_moving(sim.substrate.entities.get(1).unwrap())
+            != Some(true)
         {
             break;
         }
@@ -6875,7 +6867,7 @@ fn gsi_04_05_stop_preserves_committed_drive_until_reserved_head_finishes() {
         (entity.position.rx, entity.position.ry),
         (committed_head.rx, committed_head.ry)
     );
-    assert!(entity.movement_target.is_none());
+    assert!(crate::sim::movement::motion_query::is_moving(&entity) != Some(true));
     let drive = entity
         .locomotor
         .as_ref()
@@ -6922,7 +6914,7 @@ fn gsi_04_05_stop_preserves_committed_drive_until_reserved_head_finishes() {
         (committed_head.rx, committed_head.ry),
         "Stop must remain parked at the committed head after the old route is gone"
     );
-    assert!(parked.movement_target.is_none());
+    assert!(crate::sim::movement::motion_query::is_moving(&parked) != Some(true));
     let drive = parked
         .locomotor
         .as_ref()
@@ -7025,7 +7017,7 @@ fn gsi_13_06_stop_preserves_committed_ship_segment_and_speed_state() {
 
     let stopped = sim.substrate.entities.get(1).unwrap();
     assert!(
-        stopped.movement_target.is_some(),
+        crate::sim::movement::motion_query::is_moving(&stopped) == Some(true),
         "committed Ship segment survives Stop"
     );
     // Stop retires every Foot+5E0 word beyond the committed head; the head
@@ -7115,7 +7107,8 @@ fn test_move_command_rejects_non_owned_entity() {
         sim.substrate
             .entities
             .get(1)
-            .is_some_and(|e| e.movement_target.is_none())
+            .is_some_and(|e| e.navigation.nav_com.is_none()),
+        "another house's Move is refused"
     );
 }
 
@@ -7139,12 +7132,12 @@ fn test_move_command_chrono_miner_uses_ground_path() {
     );
 
     let _ = sim.advance_tick(&[cmd], Some(&rules), Some(&grid), None, 33);
-    assert!(
+    assert_eq!(
         sim.substrate
             .entities
             .get(entity)
-            .and_then(|e| e.movement_target.as_ref())
-            .is_some(),
+            .and_then(crate::sim::movement::motion_query::is_moving),
+        Some(true),
         "Chrono Miner should path like a ground unit on normal move orders"
     );
     assert!(
@@ -7294,7 +7287,7 @@ fn the_infantry_setter_moves_a_teleport_infantryman() {
         .spawn_object("CLEG", "Americans", 2, 2, 64, &rules)
         .expect("spawn legionnaire");
     assert_eq!(
-        sim.set_infantry_destination(
+        sim.assign_infantry_destination(
             id,
             crate::sim::components::NavTargetRef::cell(8, 2),
             &rules,
@@ -7331,12 +7324,12 @@ fn test_attack_move_command_chrono_miner_uses_ground_path() {
     );
 
     let _ = sim.advance_tick(&[cmd], Some(&rules), Some(&grid), None, 33);
-    assert!(
+    assert_eq!(
         sim.substrate
             .entities
             .get(entity)
-            .and_then(|e| e.movement_target.as_ref())
-            .is_some(),
+            .and_then(crate::sim::movement::motion_query::is_moving),
+        Some(true),
         "Chrono Miner should path on attack-move instead of teleporting"
     );
     // No `Primary=` refuses the attack-move (`0x00711E90`), so
@@ -8085,7 +8078,6 @@ fn test_area_guard_keeps_its_post_when_displaced_inside_the_native_leash() {
     if let Some(e) = sim.substrate.entities.get_mut(1) {
         e.position.rx = 5;
         e.position.ry = 2;
-        e.movement_target = None;
         e.attack_target = None;
         e.navigation.nav_com = None;
     }
@@ -8846,7 +8838,10 @@ fn crusher_does_not_freeze_in_front_of_infantry() {
                 break;
             };
             let cell = (e.position.rx, e.position.ry);
-            series.push((e.movement_target.is_some(), cell));
+            series.push((
+                crate::sim::movement::motion_query::is_moving(&e) == Some(true),
+                cell,
+            ));
             if cell == (10, 10) && entered_blocker_cell.is_none() {
                 entered_blocker_cell = Some(tick);
             }
@@ -8956,7 +8951,10 @@ fn turning_mover_with_an_occupied_endpoint_still_makes_progress() {
             break;
         };
         let cell = (e.position.rx, e.position.ry);
-        series.push((e.movement_target.is_some(), cell));
+        series.push((
+            crate::sim::movement::motion_query::is_moving(&e) == Some(true),
+            cell,
+        ));
         if cell == (10, 4) && arrived_at.is_none() {
             arrived_at = Some(tick);
         }
@@ -9106,7 +9104,10 @@ fn parked_friendly_on_the_route_is_scattered_out_of_the_way() {
             break;
         };
         let cell = (m.position.rx, m.position.ry);
-        series.push((m.movement_target.is_some(), cell));
+        series.push((
+            crate::sim::movement::motion_query::is_moving(&m) == Some(true),
+            cell,
+        ));
         if cell == DESTINATION && arrived_at.is_none() {
             arrived_at = Some(tick);
         }
@@ -9200,7 +9201,9 @@ fn unit_route_beside_building(
 /// Foot+5E0 words it wrote (consumed ones included), or empty when the
 /// object has no order or no installed words.
 fn found_route(e: &GameEntity, start: (u16, u16)) -> Vec<(u16, u16)> {
-    if e.movement_target.is_none() || e.navigation.path_replay.directions.is_empty() {
+    if crate::sim::movement::motion_query::is_moving(&e) != Some(true)
+        || e.navigation.path_replay.directions.is_empty()
+    {
         return Vec::new();
     }
     e.navigation.path_replay.installed_cells(start)
@@ -9307,12 +9310,12 @@ fn stacking_motion_state(sim: &Simulation, id: u64) -> String {
     let Some(e) = sim.substrate.entities.get(id) else {
         return "<gone>".to_string();
     };
-    let adapter = match e.movement_target.as_ref() {
-        None => format!(
-            "id={id} at ({},{}) sub=({},{}) movement_target=None",
+    let motion = match crate::sim::movement::motion_query::is_moving(e) {
+        Some(false) | None => format!(
+            "id={id} at ({},{}) sub=({},{}) stopped",
             e.position.rx, e.position.ry, e.position.sub_x, e.position.sub_y
         ),
-        Some(_) => format!(
+        Some(true) => format!(
             "id={id} at ({},{}) sub=({},{}) route_ahead={:?} words_left={} goal={:?}",
             e.position.rx,
             e.position.ry,
@@ -9324,7 +9327,7 @@ fn stacking_motion_state(sim: &Simulation, id: u64) -> String {
         ),
     };
     format!(
-        "{adapter} nav={:?} drive={:?} foot={:?} mission={:?} marked={} occupation={}",
+        "{motion} nav={:?} drive={:?} foot={:?} mission={:?} marked={} occupation={}",
         e.navigation.nav_com,
         e.locomotor
             .as_ref()
@@ -10155,7 +10158,7 @@ fn repro_two_moving_vehicles_pass_through_each_other() {
         sim.substrate
             .entities
             .get(id)
-            .filter(|e| e.movement_target.is_some())
+            .filter(|e| crate::sim::movement::motion_query::is_moving(&e) == Some(true))
             .map(|e| e.navigation.path_replay.route_cells())
             .unwrap_or_default()
     };

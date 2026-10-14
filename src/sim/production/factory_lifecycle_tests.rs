@@ -857,7 +857,7 @@ fn a_produced_slave_miner_hunts_instead_of_taking_the_rally_point() {
         let entity = sim.substrate.entities.get(produced).unwrap();
         assert!(!entity.lifecycle.in_limbo, "{unit_type} delivered");
         assert_eq!(
-            entity.movement_target.is_some(),
+            crate::sim::movement::motion_query::is_moving(&entity) == Some(true),
             !hunts,
             "{unit_type}: the rally move"
         );

@@ -118,7 +118,10 @@ fn assert_native_in_range_result(sim: &Simulation, row: &Value) {
         "the range branch only authorizes the next mission state"
     );
     assert_eq!(aircraft.aircraft_ammo.as_ref().unwrap().current, 2);
-    assert!(aircraft.movement_target.is_none(), "{row}");
+    assert!(
+        crate::sim::movement::motion_query::is_moving(&aircraft) != Some(true),
+        "{row}"
+    );
     assert!(sim.projectiles.is_empty());
 }
 

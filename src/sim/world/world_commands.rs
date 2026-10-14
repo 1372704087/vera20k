@@ -12,8 +12,6 @@ use std::collections::BTreeSet;
 use super::{SimSoundEvent, Simulation, SimulationWallRuntimeHost};
 use crate::map::entities::EntityCategory;
 use crate::map::houses::are_houses_friendly;
-#[cfg(test)]
-use crate::rules::locomotor_type::MovementZone;
 use crate::rules::ruleset::RuleSet;
 use crate::sim::cell_rect::canonical_cell_coord;
 use crate::sim::combat;
@@ -25,8 +23,6 @@ use crate::sim::command::{
     MegaMissionRecord, MegaMissionTarget, ScatterRecord, SellWallAtCellRecord,
 };
 use crate::sim::mission::MissionType;
-#[cfg(test)]
-use crate::sim::movement;
 use crate::sim::overlay_grid::{
     OverlayRecalcOutcome, RecomputeResult, runtime_wall_cleanup_visit_at,
 };
@@ -34,36 +30,6 @@ use crate::sim::passenger;
 use crate::sim::pathfinding::PathGrid;
 use crate::sim::pathfinding::zone_incremental::ZoneRepairKind;
 use crate::sim::production;
-use crate::util::fixed_math::SimFixed;
-
-/// Read-only snapshot of entity + rules data the destination setters schedule
-/// motion with. Captured once to avoid repeated entity lookups.
-///
-/// `pub(crate)` so the setters outside `world` (the track path and the track
-/// continuation) take the same order speed.
-pub(crate) struct MoveInfo {
-    pub(crate) speed: SimFixed,
-    pub(crate) is_harvester: bool,
-    #[cfg(test)]
-    pub(crate) movement_zone: MovementZone,
-    #[cfg(test)]
-    pub(crate) regular_crusher: bool,
-    #[cfg(test)]
-    pub(crate) omni_crusher: bool,
-    #[cfg(test)]
-    pub(crate) drive_accelerates: bool,
-}
-
-#[cfg(test)]
-impl MoveInfo {
-    pub(crate) fn crush_capability(&self) -> movement::bump_crush::CrushCapability {
-        movement::bump_crush::CrushCapability::new(self.regular_crusher, self.omni_crusher)
-    }
-
-    pub(crate) fn can_crush_units(&self) -> bool {
-        self.crush_capability().can_crush_units()
-    }
-}
 
 #[cfg(test)]
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -641,30 +607,6 @@ impl Simulation {
             self.path_grid = Some(std::sync::Arc::new(tail_grid));
         }
         true
-    }
-
-    /// Snapshot entity + rules data needed for movement dispatch in one lookup.
-    pub(crate) fn resolve_move_info(
-        &self,
-        entity_id: u64,
-        rules: Option<&RuleSet>,
-    ) -> Option<MoveInfo> {
-        let e = self.substrate.entities.get(entity_id)?;
-        let obj = rules.and_then(|r| self.object_type(e.type_ref(), r));
-        let speed = crate::sim::movement::order_speed(e, obj, rules, &self.houses);
-
-        Some(MoveInfo {
-            speed,
-            is_harvester: obj.is_some_and(|o| o.harvester),
-            #[cfg(test)]
-            movement_zone: obj.map_or(MovementZone::Normal, |o| o.movement_zone),
-            #[cfg(test)]
-            regular_crusher: e.regular_crusher,
-            #[cfg(test)]
-            omni_crusher: e.omni_crusher,
-            #[cfg(test)]
-            drive_accelerates: e.drive_accelerates,
-        })
     }
 
     /// Dispatch a single command, returning true if it was successfully applied.
@@ -1306,8 +1248,6 @@ impl Simulation {
                 if let Some(refinery_id) = explicit_refinery {
                     miner.reserved_refinery = Some(refinery_id);
                 }
-                // Clear any in-progress movement — the miner system will path to refinery.
-                e.movement_target = None;
                 // Commit the Harvest mission and the ForcedReturn cursor of
                 // record. Assign resets the handler state and dispatch timer
                 // (prompt redispatch); the cursor write lands after it.
@@ -2601,7 +2541,7 @@ mod tests {
     use crate::sim::miner::{Miner, MinerConfig, MinerKind, MinerState};
     use crate::sim::mission::MissionId;
     use crate::sim::movement::locomotor::LocomotorState;
-    use crate::util::fixed_math::ra2_speed_to_leptons_per_second;
+    use crate::util::fixed_math::{SIM_ONE, ra2_speed_to_leptons_per_frame};
 
     fn amcv_move_rules() -> RuleSet {
         let ini = IniFile::from_str(
@@ -2914,56 +2854,21 @@ mod tests {
     }
 
     #[test]
-    fn resolve_move_info_uses_stock_amcv_speed_without_deployable_multiplier() {
+    fn stock_amcv_moves_at_its_type_speed_without_a_deployable_multiplier() {
         let rules = amcv_move_rules();
         let mut sim = Simulation::new();
         spawn_rule_backed_unit(&mut sim, 1, "AMCV", &rules);
+        sim.substrate
+            .entities
+            .get_mut(1)
+            .unwrap()
+            .foot_speed
+            .set_speed_fraction(SIM_ONE);
 
-        let info = sim.resolve_move_info(1, Some(&rules)).expect("move info");
-
-        assert_eq!(info.speed, ra2_speed_to_leptons_per_second(4));
-    }
-
-    #[test]
-    fn resolve_move_info_carries_regular_crusher() {
-        let rules = amcv_move_rules();
-        let mut sim = Simulation::new();
-        spawn_rule_backed_unit(&mut sim, 1, "AMCV", &rules);
-
-        let info = sim.resolve_move_info(1, Some(&rules)).expect("move info");
-
-        assert!(info.regular_crusher);
-        assert!(!info.omni_crusher);
-        assert_eq!(info.movement_zone, MovementZone::Normal);
-        assert!(info.can_crush_units());
         assert_eq!(
-            info.crush_capability(),
-            movement::bump_crush::CrushCapability::new(true, false)
+            sim.current_speed_for_test(1, &rules),
+            ra2_speed_to_leptons_per_frame(4)
         );
-    }
-
-    #[test]
-    fn resolve_move_info_carries_accelerates_flag() {
-        let ini = IniFile::from_str(
-            "[InfantryTypes]\n\
-             [VehicleTypes]\n\
-             0=AMCV\n\
-             [AircraftTypes]\n\
-             [BuildingTypes]\n\
-             [AMCV]\n\
-             Strength=1000\n\
-             Speed=4\n\
-             Locomotor={4A582741-9839-11d1-B709-00A024DDAFD1}\n\
-             MovementZone=Normal\n\
-             Accelerates=false\n",
-        );
-        let rules = RuleSet::from_ini(&ini).expect("amcv rules");
-        let mut sim = Simulation::new();
-        spawn_rule_backed_unit(&mut sim, 1, "AMCV", &rules);
-
-        let info = sim.resolve_move_info(1, Some(&rules)).expect("move info");
-
-        assert!(!info.drive_accelerates);
     }
 
     /// The Drive order accepts without a search (Unit741970); the first
@@ -3017,12 +2922,8 @@ mod tests {
             Some(&rules),
         ));
         assert!(
-            sim.substrate
-                .entities
-                .get(1)
-                .unwrap()
-                .movement_target
-                .is_some()
+            crate::sim::movement::motion_query::is_moving(sim.substrate.entities.get(1).unwrap())
+                == Some(true)
         );
     }
 
@@ -3177,12 +3078,8 @@ mod tests {
             Some(&rules),
         ));
         assert!(
-            sim.substrate
-                .entities
-                .get(1)
-                .unwrap()
-                .movement_target
-                .is_some()
+            crate::sim::movement::motion_query::is_moving(sim.substrate.entities.get(1).unwrap())
+                == Some(true)
         );
 
         assert!(!sim.apply_command(
@@ -3194,12 +3091,8 @@ mod tests {
             Some(&rules),
         ));
         assert!(
-            sim.substrate
-                .entities
-                .get(1)
-                .unwrap()
-                .movement_target
-                .is_some(),
+            crate::sim::movement::motion_query::is_moving(sim.substrate.entities.get(1).unwrap())
+                == Some(true),
             "the refused guard must not have stopped the unit"
         );
     }
@@ -3368,7 +3261,7 @@ mod tests {
             Some(&rules),
         ));
         let actor = sim.substrate.entities.get(1).unwrap();
-        assert!(actor.movement_target.is_none());
+        assert!(crate::sim::movement::motion_query::is_moving(&actor) != Some(true));
         assert_eq!(actor.mission.queued(), MissionId::NONE);
     }
 
@@ -3399,12 +3292,9 @@ mod tests {
                 Some(&rules),
             ));
             assert!(
-                sim.substrate
-                    .entities
-                    .get(1)
-                    .unwrap()
-                    .movement_target
-                    .is_none()
+                crate::sim::movement::motion_query::is_moving(
+                    sim.substrate.entities.get(1).unwrap()
+                ) != Some(true)
             );
         }
     }
@@ -4189,7 +4079,7 @@ mod tests {
             let unit = sim.substrate.entities.get(1).unwrap();
             if (unit.position.rx, unit.position.ry) == exit
                 && crate::sim::movement::track_head::committed_track_head(unit).is_none()
-                && unit.movement_target.is_none()
+                && crate::sim::movement::motion_query::is_moving(&unit) != Some(true)
             {
                 break;
             }
@@ -4197,7 +4087,7 @@ mod tests {
         let unit = sim.substrate.entities.get(1).unwrap();
         assert_eq!((unit.position.rx, unit.position.ry), exit);
         assert!(crate::sim::movement::track_head::committed_track_head(unit).is_none());
-        assert!(unit.movement_target.is_none());
+        assert!(crate::sim::movement::motion_query::is_moving(&unit) != Some(true));
         assert_eq!(unit.bunker_link, BunkerLink::None);
         assert_eq!(
             sim.substrate

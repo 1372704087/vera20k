@@ -1,7 +1,7 @@
 use super::*;
 use crate::map::entities::EntityCategory;
 use crate::rules::ini_parser::IniFile;
-use crate::sim::components::{DriveCoord, MovementTarget, NavTargetRef};
+use crate::sim::components::{DriveCoord, NavTargetRef};
 use crate::sim::game_entity::GameEntity;
 use crate::sim::house_state::HouseState;
 use crate::sim::movement::locomotor::LocomotorState;
@@ -250,7 +250,7 @@ fn forced_gates_and_draw_match_original_hut_caller() {
 /// arguments, through the production fact reads: Walk
 /// (tools/infantry_scatter_oracle.py) and Jumpjet
 /// (tools/spatial_oracle/jumpjet_scatter_gates.py) Is_Moving. Neither gate
-/// draws RNG or writes the man; a path-execution adapter changes nothing.
+/// draws RNG or writes the man.
 #[test]
 fn forced_no_kidding_gates_match_native_walk_and_jumpjet_rows() {
     let walk: serde_json::Value = serde_json::from_str(crate::test_fixture::text(
@@ -300,33 +300,29 @@ fn forced_no_kidding_gates_match_native_walk_and_jumpjet_rows() {
                 loco.set_walk_destination(flag("moving").then(|| DriveCoord::cell(6, 5, 0)));
             }
             man.locomotor = Some(loco);
-            for adapter in [false, true] {
-                let mut man = man.clone();
-                man.movement_target = adapter.then(MovementTarget::default);
-                let before = serde_json::to_value(&man).unwrap();
-                let mut sim = sim_with(man);
-                let rng = sim.scenario_rng.state();
-                let flags = ScatterFlags::new(flag("first_bool"), flag("second_bool"));
-                let admitted = sim
-                    .infantry_scatter_admitted(
-                        1,
-                        flags,
-                        &rules,
-                        crate::sim::world::FrameEffects::default(),
-                    )
-                    .unwrap();
-                assert_eq!(admitted, flag("gate_admitted"), "{row} adapter={adapter}");
-                assert_eq!(sim.scenario_rng.state(), rng, "{row}");
-                assert_eq!(
-                    serde_json::to_value(sim.substrate.entities.get(1).unwrap()).unwrap(),
-                    before,
-                    "{row}"
-                );
-                checked += 1;
-            }
+            let before = serde_json::to_value(&man).unwrap();
+            let mut sim = sim_with(man);
+            let rng = sim.scenario_rng.state();
+            let flags = ScatterFlags::new(flag("first_bool"), flag("second_bool"));
+            let admitted = sim
+                .infantry_scatter_admitted(
+                    1,
+                    flags,
+                    &rules,
+                    crate::sim::world::FrameEffects::default(),
+                )
+                .unwrap();
+            assert_eq!(admitted, flag("gate_admitted"), "{row}");
+            assert_eq!(sim.scenario_rng.state(), rng, "{row}");
+            assert_eq!(
+                serde_json::to_value(sim.substrate.entities.get(1).unwrap()).unwrap(),
+                before,
+                "{row}"
+            );
+            checked += 1;
         }
     }
-    assert_eq!(checked, 256);
+    assert_eq!(checked, 128);
 }
 
 /// The gates of ReceiveDamage's two Scatter calls against their original

@@ -615,7 +615,12 @@ const FINAL_STREAM_STATES: (u64, u64, u64) = (
 // as per-House and per-entity digests, cell grids and footprint lists
 // fold as packed byte records, and the edge cache also covers
 // uninitialized cells: code that writes no simulation state.
-const GLOBAL_HARNESS_FINAL_HASH: u64 = 0x6F38_B6BF_3787_953B;
+// Snapshot349 drops the move-order adapter (`MovementTarget`, #689), whose
+// presence and speed stamp every entity's fold hashed. Hash composition
+// only: a control binary (main with a hash that skips only that fold)
+// gives this value in the same test, with every tripwire above green.
+// Control removed. Previous: 0x6F38_B6BF_3787_953B.
+const GLOBAL_HARNESS_FINAL_HASH: u64 = 0xE527_F567_DC13_C55E;
 
 fn harness_ini() -> IniFile {
     // Multi-faction vehicles + infantry + buildings (war factory, refinery) plus a

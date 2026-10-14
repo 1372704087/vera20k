@@ -561,7 +561,10 @@ fn retail_chrono_warp_forces_a_sailing_ships_track_to_its_landing() {
         if ended {
             assert_eq!(track(&sim), Some((-1, at_landing, None)), "frame {frame}");
             let entity = sim.substrate.entities.get(ship).unwrap();
-            assert!(entity.movement_target.is_none(), "frame {frame}");
+            assert!(
+                crate::sim::movement::motion_query::is_moving(&entity) != Some(true),
+                "frame {frame}"
+            );
             assert_eq!(cell(&sim, ship), landing, "frame {frame}");
         }
     }
@@ -672,7 +675,10 @@ fn retail_destination_while_warping_in_is_refused_by_the_drive() {
     );
     let entity = sim.substrate.entities.get(miner).unwrap();
     assert!(entity.chrono_warp().is_none() && !entity.is_warping_in());
-    assert!(entity.navigation.nav_com.is_none() && entity.movement_target.is_none());
+    assert!(
+        entity.navigation.nav_com.is_none()
+            && crate::sim::movement::motion_query::is_moving(&entity) != Some(true)
+    );
 }
 
 /// A Foot standing on the destination is killed when the warp tests the

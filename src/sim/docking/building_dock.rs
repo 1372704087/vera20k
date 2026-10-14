@@ -2714,7 +2714,6 @@ mod tests {
             None,
             crate::sim::world::FrameEffects::default(),
         );
-        sim.substrate.entities.get_mut(1).unwrap().movement_target = None;
         for _ in 0..100 {
             tick_units(&mut sim, &rules);
             let unit = sim.substrate.entities.get(1).unwrap();

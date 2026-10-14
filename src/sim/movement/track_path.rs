@@ -49,7 +49,6 @@ use crate::sim::movement::locomotor::MovementLayer;
 use crate::sim::world::FrameEffects;
 use crate::sim::world::Simulation;
 use crate::util::direction::DIRECTION_DELTAS;
-use crate::util::fixed_math::SimFixed;
 use crate::util::lepton::GROUND_LEVEL_HEIGHT_LEPTONS;
 use crate::util::native_x87::distance_3d_leptons;
 
@@ -190,18 +189,14 @@ impl Simulation {
         if self.substrate.entities.get(id).is_none() {
             return Ok(FootPathOutcome::Deleted);
         }
-        let outcome = match found {
+        match found {
             FindPathResult::Route => {
-                self.finish_found_track_path(id, rules, registry, frame_effects)?
+                self.finish_found_track_path(id, rules, registry, frame_effects)
             }
             FindPathResult::Failed => {
-                self.finish_failed_track_path(id, rules, registry, frame_effects)?
+                self.finish_failed_track_path(id, rules, registry, frame_effects)
             }
-        };
-        if outcome == FootPathOutcome::Returned {
-            self.retire_idle_track_adapter(id);
         }
-        Ok(outcome)
     }
 
     /// 0x4B2F45..0x4B32A1 / 0x6A2595..0x6A28F1 after a found route.
@@ -589,7 +584,6 @@ impl Simulation {
             super::navcom::foot_stop_moving(actor);
             self.unit_enter_idle_mode(id, rules, false, frame_effects);
         }
-        self.retire_idle_track_adapter(id);
     }
 
     /// The outer Process zone drop (0x4B09EC..0x4B0A68 / 0x6A00B5..0x6A0131):
@@ -601,7 +595,6 @@ impl Simulation {
         frame_effects: FrameEffects<'_>,
     ) {
         self.stop_or_take_next_waypoint(id, rules, frame_effects);
-        self.retire_idle_track_adapter(id);
     }
 
     /// Foot+90 as Drive re-reads it after a synchronous setter.
@@ -612,57 +605,40 @@ impl Simulation {
             .is_some_and(|e| e.lifecycle.object_alive)
     }
 
-    /// Retire the MovementTarget scheduling adapter once the Drive/Ship
-    /// locomotor is not moving (Is_Moving: no destination, and no head away
-    /// from the owner, which a refused own-cell search leaves) and has no
-    /// active track (no Process_Track work left).
-    fn retire_idle_track_adapter(&mut self, id: u64) {
-        let Some(actor) = self.substrate.entities.get_mut(id) else {
-            return;
-        };
-        let track = actor
-            .locomotor
-            .as_ref()
-            .is_some_and(|loco| super::track_process::TrackFamily::from_kind(loco.kind).is_some());
-        if track
-            && super::motion_query::is_moving(actor) == Some(false)
-            && super::track_head::active_track_family(actor).is_none()
-        {
-            actor.movement_target = None;
-        }
-    }
-
     /// The one completion of a class-setter call Rust deferred (the
-    /// `pending_arrival_clear` flag), before the locomotor Process or, after a
-    /// track end, before the same-call continuation's gates
-    /// (`track_continuation`), where natively the setter already ran. Its
-    /// producers:
-    /// - Enter_Idle_Mode took a NavQueue waypoint at an arrival (its true
-    ///   return ended that Process, 0x4B2273);
-    /// - a mission restore represents `Assign_Destination(saved, 1)`
-    ///   (`FootClass::Restore_Mission`, call at 0x004D8F99) by NavCom alone
-    ///   (`mission::authority`).
+    /// `pending_destination_setter` flag): a mission restore's
+    /// `Assign_Destination(saved, 1)` (`FootClass::Restore_Mission`, call at
+    /// `0x004D8F99`), which `mission::authority` represents by NavCom alone
+    /// where the setter cannot run. It runs at the object's next Process entry
+    /// or, after a track end, before the same-call continuation's gates
+    /// (`track_continuation`), where natively the setter already ran.
     ///
-    /// By active locomotor:
-    /// - Drive and Ship: the destination is NavCom's live coordinate (an
-    ///   object's too), else the first queued waypoint through the Foot
-    ///   setter, else the NULL clear. +34 may still hold an older order (a
-    ///   firing cell). A +34 naming NavCom's cell only lacks its scheduling
-    ///   adapter; the no-queue arm (Drive 0x4B281C / Ship 0x6A1E75) requests
-    ///   the route, gated by Foot+640. Native NavCom and +34 never disagree
-    ///   after the setter, so a missing or disagreeing +34 takes the Drive or
-    ///   Ship Move_To toward NavCom. Before Process the Foot is then moving, as
-    ///   native, and the Guard/Unload tail (0x4B08D1) cannot strand it.
-    ///   RESIDUAL: this arm runs the locomotor's Move_To without Unit
-    ///   0x741970's own admission (the same-NavCom return, the deployment
-    ///   refusal, the UnitRepair and Teleporter arms). Trigger: a cell target
-    ///   expiring under a suspended mission of a Drive or Ship Unit, or
-    ///   Enter_Idle_Mode's NavQueue arm (NavQueue has no production writer).
-    ///   Frequency: rare. Risk: a deployed or docking unit can be sent toward
-    ///   its restored order. The arm waits on the MovementTarget adapter and
-    ///   goes with it (#689).
-    /// - Any other: vt+0x480(NavCom, 1) through the class setters
-    ///   ([`Self::finish_setter_destination`]).
+    /// It makes the call through the class setters
+    /// ([`Self::assign_destination_represented`]) when one takes it
+    /// ([`Self::destination_setter_available`]); otherwise the receiver keeps
+    /// the represented NavCom. NavCom is cleared first, so the Unit setter's
+    /// unchanged-NavCom return cannot swallow the call: the NavCom the native
+    /// call sees is the override's (Override_Mission saved NavCom at
+    /// `0x004D8F5B` and set its own at `0x004D8F6D`), not the saved one.
+    ///
+    /// Residual: native Restore runs this setter inside the restore; VERA runs
+    /// it at the object's next Process entry, without the override's NavCom.
+    /// Trigger: an AoE cell target expiring under a suspended mission
+    /// (`restore_entity_after_target_expiry`, whose broadcast holds only the
+    /// entity store), or a Restore made without rules. Effects:
+    /// - the setter's timers, NavQueue clear, Move_To and admission effects
+    ///   (the deployment refusal's NavCom clear, the UnitRepair radio arm, the
+    ///   Teleporter arm's locomotor swap) land up to one frame late, inside the
+    ///   Process host chosen before the call;
+    /// - an override NavCom equal to the saved one takes the whole setter,
+    ///   where native's unchanged-NavCom return (`0x00741A80`) writes nothing;
+    /// - a setter that refuses before the Foot tail leaves NavCom and
+    ///   NavComAux empty, where native keeps the override's.
+    ///
+    /// Frequency: rare. Risk: timing, plus the rare same-NavCom and refusal
+    /// cases. The Teleporter swap needs a `Teleporter=` Unit holding a cell
+    /// target; a text search of retail `rulesmd.ini` finds only the unarmed
+    /// CMIN among Units.
     pub(crate) fn complete_pending_order(
         &mut self,
         id: u64,
@@ -670,105 +646,16 @@ impl Simulation {
         registry: Option<&OverlayTypeRegistry>,
         frame_effects: FrameEffects<'_>,
     ) {
-        let Some(actor) = self.substrate.entities.get(id) else {
+        let Some(rules) = rules else {
             return;
         };
-        let Some(kind) = actor.locomotor.as_ref().map(|loco| loco.active_kind()) else {
-            return;
-        };
-        let track = matches!(kind, LocomotorKind::Drive | LocomotorKind::Ship);
-        if let (true, Some(rules), false) = (actor.navigation.pending_arrival_clear, rules, track) {
-            self.finish_setter_destination(id, rules, registry, frame_effects);
-            return;
-        }
-        if !actor.navigation.pending_arrival_clear
-            || !track
-            || actor.movement_target.is_some()
-            || super::track_head::active_track_family(actor).is_some()
-        {
-            return;
-        }
-        let nav = actor.navigation.nav_com.and_then(|target| {
-            super::navcom::nav_target_coordinate(
-                target,
-                Some(id),
-                &self.substrate.entities,
-                self.resolved_terrain.as_ref(),
-                rules.map(|rules| (rules, &self.interner)),
-            )
-            .ok()
-            .map(|coord| (target, coord))
-        });
-        let info = self.resolve_move_info(id, rules);
-        let timing = super::DestinationTiming::from_rules(self.session.binary_frame, rules);
-        let terrain = self.resolved_terrain.as_ref();
         let Some(actor) = self.substrate.entities.get_mut(id) else {
             return;
         };
-        actor.navigation.pending_arrival_clear = false;
-        let speed = info.as_ref().map_or(SimFixed::lit("25"), |info| info.speed);
-        let cell = |coord: DriveCoord| ((coord.x / 256) as u16, (coord.y / 256) as u16);
-        let retained = actor.locomotor.as_ref().and_then(|loco| {
-            loco.track_destination(super::track_process::TrackFamily::from_kind(kind)?)
-        });
-        let agrees =
-            |destination: DriveCoord| nav.is_none_or(|(_, coord)| cell(coord) == cell(destination));
-        if retained.is_some_and(agrees) {
-            super::movement_commands::schedule_track_process(actor, speed);
-        } else if let Some((target, coord)) = nav {
-            let object = (!matches!(target, NavTargetRef::Cell { .. })).then_some((target, coord));
-            super::movement_commands::prepare_track_destination(
-                actor,
-                cell(coord),
-                object,
-                speed,
-                terrain,
-                timing,
-            );
-        } else if let Some(NavTargetRef::Cell { rx, ry }) =
-            actor.navigation.nav_queue.first().copied()
-        {
-            actor.navigation.nav_queue.remove(0);
-            super::navcom::set_destination_internal_cell(
-                actor,
-                (rx, ry),
-                terrain,
-                timing.binary_frame,
-            );
-            timing.accept(actor);
-            super::movement_commands::schedule_track_process(actor, speed);
-        } else {
-            self.assign_null_destination(id, rules, registry, frame_effects);
-        }
-    }
-
-    /// [`Self::complete_pending_order`]'s class-setter arm: Restore's
-    /// `Assign_Destination(saved, 1)` through the class setters
-    /// ([`Self::assign_destination_represented`]) when one takes it
-    /// ([`Self::destination_setter_available`]); otherwise the receiver keeps
-    /// the represented NavCom. NavCom is cleared first, so the Unit setter's
-    /// unchanged-NavCom return cannot swallow the call (the restore's NavCom
-    /// natively is the override's order, not the saved one).
-    ///
-    /// Residual: native Restore (0x004D8F99) runs this setter inside the
-    /// restore; VERA runs it at the object's next Process entry. Trigger: the
-    /// entity-local target-expiry Restore (`restore_entity_after_target_expiry`,
-    /// an AoE cell target expiring under a suspended mission) or a receiver
-    /// without a represented setter. Effect: the setter's timers, NavQueue
-    /// clear and Move_To land up to one frame later. Frequency: cell-target
-    /// expiry under a suspended mission of an object off a track. Risk:
-    /// timing only.
-    fn finish_setter_destination(
-        &mut self,
-        id: u64,
-        rules: &RuleSet,
-        registry: Option<&OverlayTypeRegistry>,
-        frame_effects: FrameEffects<'_>,
-    ) {
-        let Some(actor) = self.substrate.entities.get_mut(id) else {
+        if !actor.navigation.pending_destination_setter {
             return;
-        };
-        actor.navigation.pending_arrival_clear = false;
+        }
+        actor.navigation.pending_destination_setter = false;
         // A NavCom cleared after the restore (a Stop) leaves nothing owed.
         let Some(requested) = actor.navigation.nav_com else {
             return;
@@ -799,13 +686,10 @@ impl Simulation {
     /// (vtables 0x7F5C70, 0x7EB058 and 0x7E22A4, whatever the locomotor) ends
     /// in Foot's null arm ([`Self::foot_null_destination`]) and so in its
     /// active locomotor's Stop_Moving:
-    /// - a Unit takes Unit 0x741970 ([`Self::set_unit_null_destination`]),
-    ///   which trims the scheduling adapter itself;
+    /// - a Unit takes Unit 0x741970 ([`Self::set_unit_null_destination`]);
     /// - an Infantry takes Infantry 0x51AA40
     ///   ([`Self::set_infantry_null_destination`]), which may refuse a human
-    ///   deploy action before any write; the adapter keeps only a committed
-    ///   Walk head, so a Jumpjet or Teleport man drops it and his locomotor
-    ///   flies its Stop alone;
+    ///   deploy action before any write;
     /// - an Aircraft's null arm (0x41AA8B -> 0x41ADAC) is Foot's own, whose
     ///   Fly Stop re-targets a moving aircraft (`Simulation::fly_stop_moving`).
     ///
@@ -826,11 +710,7 @@ impl Simulation {
                 self.set_unit_null_destination(id, rules, registry, frame_effects);
             }
             EntityCategory::Infantry => {
-                if self.set_infantry_null_destination(id, rules, registry, frame_effects)
-                    && let Some(actor) = self.substrate.entities.get_mut(id)
-                {
-                    super::retain_committed_movement(actor);
-                }
+                self.set_infantry_null_destination(id, rules, registry, frame_effects);
             }
             EntityCategory::Aircraft => {
                 self.foot_null_destination(id, rules, registry, frame_effects)
@@ -869,7 +749,7 @@ impl Simulation {
     ///   (tools/spatial_oracle/track_destination.json `same_nav` rows).
     /// - A `Teleporter=` type runs its arm ([`Self::unit_teleporter_arm`]).
     /// - The Foot tail (0x4D94B0) writes NavCom and calls the active
-    ///   locomotor's Move_To — Drive/Ship ([`prepare_track_destination`]),
+    ///   locomotor's Move_To — Drive/Ship ([`set_destination_internal_coord`]),
     ///   Teleport ([`teleport_move_to`]), Jumpjet
     ///   ([`Self::jumpjet_move_to`]), Hover ([`hover_move_to`]) or Walk
     ///   ([`set_walk_destination_coord`]) — unless Foot+0x6AC skips it once.
@@ -878,7 +758,7 @@ impl Simulation {
     /// refused destination. Foot4D9628 calls the destination's +4C coordinate
     /// virtual for both Cell and Object targets before Jumpjet54B1C0.
     ///
-    /// [`prepare_track_destination`]: super::movement_commands::prepare_track_destination
+    /// [`set_destination_internal_coord`]: super::navcom::set_destination_internal_coord
     /// [`teleport_move_to`]: super::teleport_movement::teleport_move_to
     /// [`hover_move_to`]: super::hover::hover_move_to
     /// [`set_walk_destination_coord`]: super::navcom::set_walk_destination_coord
@@ -923,9 +803,12 @@ impl Simulation {
             super::navcom::foot_stop_moving(actor);
             return false;
         }
-        let Some(info) = self.resolve_move_info(id, Some(rules)) else {
-            return false;
-        };
+        let is_harvester = self
+            .substrate
+            .entities
+            .get(id)
+            .and_then(|actor| self.object_type(actor.type_ref(), rules))
+            .is_some_and(|object| object.harvester);
         {
             let actor = self
                 .substrate
@@ -1080,9 +963,6 @@ impl Simulation {
             }
             self.unit_destination_power_on(id, Some(rules));
             self.foot_null_destination(id, Some(rules), None, frame_effects);
-            if let Some(actor) = self.substrate.entities.get_mut(id) {
-                super::retain_committed_movement(actor);
-            }
             return true;
         };
         // 7424B1..7424F0 casts the requested receiver to CellClass. A Foot
@@ -1113,7 +993,7 @@ impl Simulation {
             )
             .unwrap_or_else(|cause| panic!("Unit destination for {id}: {cause}"))
         });
-        let adapter_route = if skip_move_to {
+        let jumpjet_accepted = if skip_move_to {
             None
         } else if jumpjet {
             let actor = self.substrate.entities.get_mut(id).expect("same Jumpjet");
@@ -1124,7 +1004,6 @@ impl Simulation {
                 let accepted = self
                     .jumpjet_move_to(id, coord.expect("captured destination +4C"), Some(rules))
                     .is_some();
-                self.publish_jumpjet_order_adapter(id, info.speed);
                 Some(accepted)
             } else {
                 Some(false)
@@ -1138,7 +1017,7 @@ impl Simulation {
             .entities
             .get_mut(id)
             .expect("same setter actor");
-        let accepted = if let Some(accepted) = adapter_route {
+        let accepted = if let Some(accepted) = jumpjet_accepted {
             accepted
         } else if skip_move_to {
             super::navcom::publish_nav_com(actor, requested);
@@ -1155,7 +1034,6 @@ impl Simulation {
                     super::navcom::set_destination_internal_coord(
                         actor, requested, coord, terrain, frame,
                     );
-                    super::movement_commands::prepare_destination_execution(actor, info.speed);
                     true
                 }
                 Some(LocomotorKind::Teleport) => {
@@ -1167,7 +1045,7 @@ impl Simulation {
                     let cell =
                         requested_cell.unwrap_or(((coord.x / 256) as u16, (coord.y / 256) as u16));
                     let point = super::navcom::target_cell_coord(cell.0, cell.1, None);
-                    self.teleport_move_to(id, point, rules, info.is_harvester, None, frame_effects)
+                    self.teleport_move_to(id, point, rules, is_harvester, None, frame_effects)
                         .unwrap_or_else(|error| {
                             log::debug!("Unit Teleport MoveTo {id}: {error}");
                             false
@@ -1387,8 +1265,7 @@ impl Simulation {
     /// A Jumpjet Stop's failed search retains the caller's overlay context
     /// for synchronous damage; callers without that context retain their
     /// existing damage-closure limitation.
-    /// Returns whether Foot 0x4D94B0 ran; the Rust scheduling adapter is then
-    /// trimmed to the committed head.
+    /// Returns whether Foot 0x4D94B0 ran.
     pub(crate) fn set_unit_null_destination(
         &mut self,
         id: u64,
@@ -1444,12 +1321,6 @@ impl Simulation {
         actor.navigation.nav_queue.clear();
         self.unit_destination_power_on(id, rules);
         self.foot_null_destination(id, rules, registry, frame_effects);
-        // The scheduling adapter keeps only the committed head step: the
-        // locomotor Stop keeps the head, so the running track still finishes,
-        // and its terminal then retires the adapter.
-        if let Some(actor) = self.substrate.entities.get_mut(id) {
-            super::retain_committed_movement(actor);
-        }
         true
     }
 

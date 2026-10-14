@@ -778,7 +778,7 @@ impl Simulation {
             }
             EntityCategory::Infantry => {
                 // With no head and no destination left, the next Walk
-                // Process takes its idle tail and retires the adapter.
+                // Process takes its idle tail.
                 self.set_infantry_null_destination(id, Some(rules), registry, effects);
             }
             _ => {}

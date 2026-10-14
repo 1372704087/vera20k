@@ -6,7 +6,7 @@
 use super::{AttackTarget, TargetKind, install_cell_attack_target_for_test};
 use crate::rules::ini_parser::IniFile;
 use crate::rules::ruleset::RuleSet;
-use crate::sim::components::{Health, MovementTarget};
+use crate::sim::components::Health;
 use crate::sim::entity_store::EntityStore;
 use crate::sim::game_entity::GameEntity;
 use crate::sim::intern::test_interner;
@@ -68,20 +68,6 @@ fn issue_attack_cell_rejects_unarmed_attacker() {
 
     assert!(!ok, "ForceAttackCell on unarmed unit must return false");
     assert!(store.get(1).unwrap().attack_target.is_none());
-}
-
-#[test]
-fn issue_attack_cell_clears_movement_target() {
-    let mut store = EntityStore::new();
-    store.insert(make_unit(1, "MTNK", 5, 5, 300));
-    store.get_mut(1).unwrap().movement_target = Some(MovementTarget::default());
-    let interner = test_interner();
-    let rules = ff_rules();
-
-    let ok = install_cell_attack_target_for_test(&mut store, 1, 50, 50, Some(&rules), &interner);
-
-    assert!(ok);
-    assert!(store.get(1).unwrap().movement_target.is_none());
 }
 
 #[test]
@@ -249,7 +235,7 @@ fn force_fire_cell_approach_then_fire_integration() {
         "the command tail sets attack_target"
     );
     assert!(
-        entity.movement_target.is_none(),
+        crate::sim::movement::motion_query::is_moving(&entity) != Some(true),
         "the completed object walk cannot observe a tail-dispatched command"
     );
 
@@ -259,7 +245,7 @@ fn force_fire_cell_approach_then_fire_integration() {
         sim.substrate
             .entities
             .get(1)
-            .is_some_and(|e| e.movement_target.is_some()),
+            .is_some_and(|e| crate::sim::movement::motion_query::is_moving(&e) == Some(true)),
         "the following frame approaches the out-of-range target"
     );
 

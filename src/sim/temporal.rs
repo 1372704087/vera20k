@@ -1237,12 +1237,6 @@ impl Simulation {
         if clears_destination {
             self.assign_null_destination(id, Some(rules), registry, ctx.effects);
         }
-        // VERA's scheduling adapter (#689) goes with the freeze.
-        if category != EntityCategory::Structure
-            && let Some(entity) = self.substrate.entities.get_mut(id)
-        {
-            entity.movement_target = None;
-        }
         true
     }
 

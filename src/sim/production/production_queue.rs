@@ -503,7 +503,7 @@ pub(in crate::sim) fn exit_produced_object(
                             sim.session.binary_frame,
                             &crate::sim::mission::authority::EntityReadyInputProvider,
                         );
-                        if let Err(cause) = sim.set_infantry_destination(
+                        if let Err(cause) = sim.assign_infantry_destination(
                             spawned,
                             crate::sim::components::NavTargetRef::cell(exit_cell.0, exit_cell.1),
                             rules,

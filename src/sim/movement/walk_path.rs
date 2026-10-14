@@ -273,20 +273,7 @@ impl Simulation {
         actor
             .foot_speed
             .set_speed_fraction(crate::util::fixed_math::SIM_ZERO);
-        self.walk_stop_moving(id, Some(rules), frame_effects)?;
-        let actor = self
-            .substrate
-            .entities
-            .get_mut(id)
-            .ok_or("failed Walk actor retired during Stop callback")?;
-        if actor
-            .locomotor
-            .as_ref()
-            .is_some_and(|l| l.walk_destination().is_none() && l.step_head().is_none())
-        {
-            actor.movement_target = None;
-        }
-        Ok(())
+        self.walk_stop_moving(id, Some(rules), frame_effects)
     }
 
     ///75B085..75B2BA, reached only with a preexisting zero retry count.

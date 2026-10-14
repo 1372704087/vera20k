@@ -710,7 +710,6 @@ mod tests {
         let loco = unit.locomotor.as_mut().unwrap();
         assert!(loco.store_track_head(movement::track_process::TrackFamily::Drive, None));
         assert!(loco.store_track_destination(movement::track_process::TrackFamily::Drive, None));
-        unit.movement_target = None;
         tick_bunker_install(
             &mut sim,
             &rules,
@@ -805,7 +804,6 @@ mod tests {
                 movement::track_process::TrackFamily::Drive,
                 Some(crate::sim::components::DriveCoord::cell(10, 10, 0)),
             ));
-            assert!(unit.movement_target.is_none(), "no order adapter");
             tick(&mut sim);
             assert_eq!(rt(&sim, 2).state, waiting, "still moving");
 
@@ -891,7 +889,6 @@ mod tests {
         {
             let b = sim.substrate.entities.get_mut(3).unwrap();
             b.position.rx = 20;
-            b.movement_target = None;
         }
 
         // Footprint clear now → advance.

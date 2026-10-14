@@ -10,7 +10,7 @@ use crate::rules::overlay_types::OverlayTypeRegistry;
 use crate::rules::ruleset::RuleSet;
 use crate::sim::cloak_disguise::CloakRuntime;
 use crate::sim::combat::TargetKind;
-use crate::sim::components::{DriveCoord, MovementTarget, NavTargetRef};
+use crate::sim::components::{DriveCoord, NavTargetRef};
 use crate::sim::mission::{MissionDispatchTimer, MissionId, state::MissionTestFixture};
 use crate::sim::movement::fresh_oracle_seam::{self, FreshCallRecord, SuppliedPath};
 use crate::sim::movement::locomotor::MovementLayer;
@@ -204,7 +204,6 @@ fn fixture(row: &Value) -> (Simulation, RuleSet, OverlayTypeRegistry, u64, Optio
     p.path_blocked = before["blocked"] == 1;
     p.retries_left = before["retries"].as_i64().unwrap() as u32;
     p.set_scold_latch_for_test(before["flag68a"].as_u64().unwrap() as u8);
-    e.movement_target = Some(MovementTarget::default());
     if input["radio"] == true {
         e.radio_contacts.insert(999);
     }

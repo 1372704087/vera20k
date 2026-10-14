@@ -4995,11 +4995,8 @@ impl Simulation {
                     .is_some_and(|object| object.is_simple_deployer);
             let _ = self.assign_target_represented(stable_id, None, Some(rules), registry, effects);
             self.assign_null_destination(stable_id, Some(rules), None, effects);
-            if let Some(entity) = self.substrate.entities.get_mut(stable_id) {
-                entity.movement_target = None;
-                if !unit_deploying {
-                    entity.set_archive_target(None);
-                }
+            if !unit_deploying && let Some(entity) = self.substrate.entities.get_mut(stable_id) {
+                entity.set_archive_target(None);
             }
             if current != Some(MissionType::Selling) && !simple_deployer_unloading {
                 // `Queue_Mission(Guard, 1)`: the queue write, then Ready_To_Commence
@@ -5353,9 +5350,6 @@ impl Simulation {
             return;
         }
         self.assign_null_destination(stable_id, Some(rules), None, effects);
-        if let Some(entity) = self.substrate.entities.get_mut(stable_id) {
-            entity.movement_target = None;
-        }
         let _ = self.assign_target_represented(stable_id, None, Some(rules), None, effects);
         enter_idle_mode(self, stable_id, rules, None, effects);
     }

@@ -116,7 +116,7 @@ fn first_track_process_route(
 ) -> Option<Vec<(u16, u16)>> {
     let entity = sim.substrate.entities.get(id).expect("fixture mover");
     assert!(
-        entity.movement_target.is_some(),
+        crate::sim::movement::motion_query::is_moving(&entity) == Some(true),
         "the order scheduled a Process"
     );
     assert!(
@@ -142,7 +142,7 @@ fn first_track_process_route(
     sim.process_ground_locomotor_for_test(id, rules, Some(grid), None)
         .expect("the first Process completes");
     let entity = sim.substrate.entities.get(id)?;
-    entity.movement_target.as_ref()?;
+    entity.navigation.nav_com?;
     Some(installed_route(entity, start))
 }
 
@@ -1112,7 +1112,7 @@ fn gsi_04_12_interaction_order_entry_threads_exact_blocker_counts() {
         Some(NavTargetRef::building(target_id))
     );
     assert!(
-        engineer.movement_target.is_some(),
+        crate::sim::movement::motion_query::is_moving(&engineer) == Some(true),
         "accepted Capture request"
     );
     assert_eq!(
@@ -1384,7 +1384,7 @@ fn gsi_04_12_drive_pending_continuation_keeps_hierarchy_context_and_raw_route() 
             .install_drive_state_for_test(Some(Default::default()))
     );
     mover.navigation.nav_com = Some(NavTargetRef::cell(3, 0));
-    mover.navigation.pending_arrival_clear = true;
+    mover.navigation.pending_destination_setter = true;
     let blocker = gsi_04_12_cell_listed_entity(2, "MTNK", "Russians", 2, 0);
 
     // The pending pass on the production Simulation host, with the fixture's
@@ -1418,9 +1418,9 @@ fn gsi_04_12_drive_pending_continuation_keeps_hierarchy_context_and_raw_route() 
         .get(1)
         .expect("continued Drive mover");
     assert_eq!(continued.navigation.nav_com, Some(NavTargetRef::cell(3, 0)));
-    assert!(!continued.navigation.pending_arrival_clear);
+    assert!(!continued.navigation.pending_destination_setter);
     assert!(
-        continued.movement_target.is_some(),
+        crate::sim::movement::motion_query::is_moving(&continued) == Some(true),
         "pending Drive continuation should rebuild the hierarchy route"
     );
     let route = installed_route(continued, (1, 0));

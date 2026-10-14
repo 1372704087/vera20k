@@ -1706,7 +1706,11 @@ fn a_released_mover_does_not_resume_its_order() {
     for _ in 0..40 {
         step(&mut sim);
     }
-    assert!(entity(&sim, tank).movement_target.is_some(), "under way");
+    assert_eq!(
+        crate::sim::movement::motion_query::is_moving(entity(&sim, tank)),
+        Some(true),
+        "under way"
+    );
     sim.temporal_initiate_warp(
         cleg,
         Some(tank),
@@ -1717,9 +1721,10 @@ fn a_released_mover_does_not_resume_its_order() {
     for _ in 0..10 {
         step(&mut sim);
     }
-    assert!(
-        entity(&sim, tank).movement_target.is_none(),
-        "the path ends"
+    assert_eq!(
+        entity(&sim, tank).navigation.nav_com,
+        None,
+        "the order ends"
     );
     let frozen_at = entity(&sim, tank).position.rx;
     sim.temporal_let_go(cleg);
@@ -1727,7 +1732,10 @@ fn a_released_mover_does_not_resume_its_order() {
         step(&mut sim);
     }
     let tank_entity = entity(&sim, tank);
-    assert!(tank_entity.movement_target.is_none(), "no order resumed");
+    assert!(
+        crate::sim::movement::motion_query::is_moving(&tank_entity) != Some(true),
+        "no order resumed"
+    );
     assert!(
         tank_entity.position.rx <= frozen_at + 1,
         "it finishes at most its current track: {} from {frozen_at}",
@@ -1738,11 +1746,10 @@ fn a_released_mover_does_not_resume_its_order() {
 /// The freeze calls `Set_Destination(0, 1)` only for a non-NULL NavCom
 /// (Unit `0x00736337..0x0073634D`). Without one, a warped tank whose
 /// Techno+0x1F8 override would make the Unit setter run anyway (`0x00741A88`)
-/// keeps that override and the NavQueue the setter would clear, whatever
-/// order adapter it carries.
+/// keeps that override and the NavQueue the setter would clear.
 #[test]
 fn a_warped_foot_without_a_navcom_skips_the_null_setter() {
-    use crate::sim::components::{MovementTarget, NavTargetRef};
+    use crate::sim::components::NavTargetRef;
     let rules = rules();
     let (mut sim, _grid) = arena(10, &rules);
     let tank = spawn(&mut sim, &rules, "HTNK", "Americans", 12, 10);
@@ -1759,7 +1766,6 @@ fn a_warped_foot_without_a_navcom_skips_the_null_setter() {
         assert!(tank.navigation.nav_com.is_none());
         tank.navigation.nav_queue.push(NavTargetRef::cell(9, 16));
         tank.setter_force_reassign = true;
-        tank.movement_target = Some(MovementTarget::default());
     }
     assert!(
         sim.temporal_ai_prologue(
@@ -1773,19 +1779,15 @@ fn a_warped_foot_without_a_navcom_skips_the_null_setter() {
     let tank = entity(&sim, tank);
     assert!(tank.setter_force_reassign, "no setter call");
     assert_eq!(tank.navigation.nav_queue, vec![NavTargetRef::cell(9, 16)]);
-    assert!(
-        tank.movement_target.is_none(),
-        "the adapter goes with the freeze"
-    );
 }
 
-/// The Infantry setter's null arm has no NavCom early return, so before the
-/// native gate (Infantry `0x0051BBF5`) a warped infantryman holding only an
-/// order adapter lost his Walk destination to the locomotor Stop. Without a
-/// NavCom the freeze makes no setter call and the destination stays.
+/// The Infantry setter's null arm has no NavCom early return, so only the
+/// freeze's gate (Infantry `0x0051BBF5`) keeps a warped infantryman's Walk
+/// destination from the locomotor Stop: without a NavCom the freeze makes no
+/// setter call and the destination stays.
 #[test]
 fn a_warped_infantryman_without_a_navcom_keeps_his_walk_destination() {
-    use crate::sim::components::{DriveCoord, MovementTarget};
+    use crate::sim::components::DriveCoord;
     let rules = rules();
     let (mut sim, _grid) = arena(10, &rules);
     let gi = spawn(&mut sim, &rules, "E1", "Americans", 12, 10);
@@ -1805,7 +1807,6 @@ fn a_warped_infantryman_without_a_navcom_keeps_his_walk_destination() {
             .as_mut()
             .unwrap()
             .set_walk_destination(Some(destination));
-        gi.movement_target = Some(MovementTarget::default());
     }
     assert!(
         sim.temporal_ai_prologue(
@@ -1821,7 +1822,6 @@ fn a_warped_infantryman_without_a_navcom_keeps_his_walk_destination() {
         gi.locomotor.as_ref().unwrap().walk_destination(),
         Some(destination)
     );
-    assert!(gi.movement_target.is_none());
 }
 
 /// InfantryClass::PerCellProcess turns an engineer away from a building

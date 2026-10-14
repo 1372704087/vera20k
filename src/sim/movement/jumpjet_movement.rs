@@ -21,7 +21,6 @@ pub mod jumpjet_flight;
 
 use crate::sim::components::DriveCoord;
 use crate::sim::world::Simulation;
-use crate::util::fixed_math::{SIM_ZERO, SimFixed};
 use crate::util::lepton::lepton_to_cell_packed;
 use jumpjet_flight::{FlightOwnerKind, STATE_ASCEND, STATE_DESCEND};
 
@@ -811,41 +810,6 @@ impl Simulation {
         true
     }
 
-    /// The speed stamp an order attaches with its adapter: the running
-    /// order's, else the owner's move speed.
-    pub(crate) fn jumpjet_order_speed(
-        &self,
-        id: u64,
-        rules: Option<&crate::rules::ruleset::RuleSet>,
-    ) -> SimFixed {
-        self.substrate
-            .entities
-            .get(id)
-            .and_then(|entity| entity.movement_target.as_ref().map(|target| target.speed))
-            .or_else(|| self.resolve_move_info(id, rules).map(|info| info.speed))
-            .unwrap_or(SIM_ZERO)
-    }
-
-    /// The movement adapter for an order the locomotor accepted: attached
-    /// while its moving byte is set, with the order's speed stamp. The goal
-    /// stays with the locomotor destination and Foot's NavCom. The orders do
-    /// not reconstruct Foot timers or retries; their accepted-destination
-    /// caller publishes Foot's tail.
-    pub(crate) fn publish_jumpjet_order_adapter(&mut self, id: u64, speed: SimFixed) {
-        use crate::sim::components::MovementTarget;
-        let Some(entity) = self.substrate.entities.get_mut(id) else {
-            return;
-        };
-        if entity
-            .locomotor
-            .as_ref()
-            .and_then(|locomotor| locomotor.jumpjet_runtime())
-            .is_some_and(|runtime| runtime.moving)
-        {
-            entity.movement_target = Some(MovementTarget { speed });
-        }
-    }
-
     /// Foot's setter (`0x004D94B0`) after the Infantry setter's prelude, for a
     /// Jumpjet infantryman whose admission (`begin_foot_destination`) passed:
     /// the NavCom at `0x004D9510`, then the Jumpjet `Move_To` at `0x004D965D`
@@ -857,7 +821,6 @@ impl Simulation {
         &mut self,
         id: u64,
         requested: crate::sim::components::NavTargetRef,
-        speed: SimFixed,
         rules: &crate::rules::ruleset::RuleSet,
     ) -> bool {
         let Some(terrain) = self.resolved_terrain.as_ref() else {
@@ -881,7 +844,6 @@ impl Simulation {
         if self.jumpjet_move_to(id, input, Some(rules)).is_none() {
             return false;
         }
-        self.publish_jumpjet_order_adapter(id, speed);
         if let Some(entity) = self.substrate.entities.get_mut(id) {
             // Infantry51B1D2 returns through Foot4D96C2 after the locomotor's
             // Move_To; the Move_To inside Stop cannot own this.

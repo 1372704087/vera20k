@@ -1492,7 +1492,10 @@ fn naval_rally_destination_and_move_survive_beyond_the_path_grid() {
         "ExitObject queues the native deferred Move mission"
     );
     // Unit741970 -> Ship69F450 installs no route; the first Process asks.
-    assert!(produced.movement_target.is_some(), "scheduled Process");
+    assert!(
+        crate::sim::movement::motion_query::is_moving(&produced) == Some(true),
+        "scheduled Process"
+    );
     assert!(
         produced
             .navigation

@@ -469,16 +469,6 @@ fn ground_command_fixture(
             .set_speed_fraction_native_bits(ground_command_double_bits(
                 &state["speed_fraction_bits"],
             ));
-        if ground_command_optional_coordinate(&drive["head"]).is_some() {
-            actor.movement_target = Some(crate::sim::components::MovementTarget {
-                speed: crate::sim::movement::order_speed(
-                    actor,
-                    Some(object),
-                    Some(&rules),
-                    &sim.houses,
-                ),
-            });
-        }
     } else {
         loco.set_step_head(ground_command_optional_coordinate(&state["walk"]["head"]));
         loco.set_walk_destination(ground_command_optional_coordinate(
@@ -1659,7 +1649,7 @@ fn initialized_gi_deploy_class_contexts_match_original_returns() {
             ground_command_cell_reference(&call["before"], call["args"][0].as_u64().unwrap())
                 .unwrap();
         let _ = sim
-            .set_infantry_destination(
+            .assign_infantry_destination(
                 id,
                 requested,
                 &rules,

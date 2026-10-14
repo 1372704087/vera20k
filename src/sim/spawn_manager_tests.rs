@@ -949,9 +949,8 @@ fn a_moving_launcher_holds_its_missile() {
 }
 
 /// The missile slot's stationary gate asks the parent's locomotor, Is_Moving
-/// (`0x006B731E`) and Is_Moving_Now (`0x006B7349`), not its order: a V3 whose
-/// Drive still has a destination holds its missile, and one with an order but
-/// a still Drive launches.
+/// (`0x006B731E`) and Is_Moving_Now (`0x006B7349`): a V3 whose Drive still
+/// has a destination holds its missile.
 #[test]
 fn a_launcher_asks_its_locomotor_whether_it_is_moving() {
     assert!(
@@ -966,12 +965,6 @@ fn a_launcher_asks_its_locomotor_whether_it_is_moving() {
             };
         }),
         "a Drive with a destination holds the missile"
-    );
-    assert!(
-        !missile_held_after(|entity, _| {
-            entity.movement_target = Some(crate::sim::components::MovementTarget::default());
-        }),
-        "an order alone does not"
     );
 }
 

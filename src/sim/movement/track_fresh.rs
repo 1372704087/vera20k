@@ -1061,9 +1061,7 @@ impl Simulation {
             .unwrap_or(DriveCoord { x: 0, y: 0, z: 0 })
     }
 
-    /// Foot+5E0 = -1 on the live path word. The scheduling adapter's route is
-    /// a cache of the same words, so it empties with them; otherwise the next
-    /// visit would read the Foot as a Rust route adapter.
+    /// Foot+5E0 = -1 on the live path word.
     fn clear_path_head(&mut self, id: u64) {
         if let Some(actor) = self.substrate.entities.get_mut(id) {
             actor.clear_live_path_head();

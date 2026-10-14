@@ -420,7 +420,7 @@ fn retail_dustbowl_battle_fortress_orders_reach_its_riders() {
             .entities
             .get(bfrt)
             .unwrap();
-        let moving = transport.movement_target.is_some();
+        let moving = crate::sim::movement::motion_query::is_moving(&transport) == Some(true);
         moved |= moving;
         passed_own_range |= moving && now < 1408;
         if moved && !moving {

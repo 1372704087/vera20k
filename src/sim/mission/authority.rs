@@ -71,7 +71,7 @@ pub(crate) fn restore_entity_after_target_expiry(
     if category != EntityCategory::Structure {
         represented_assign_destination(entity, saved_destination);
         if saved_destination.is_some() {
-            entity.navigation.pending_arrival_clear = true;
+            entity.navigation.pending_destination_setter = true;
         }
     }
     true
@@ -351,27 +351,25 @@ fn evaluate_ready(
                         // Root cause is upstream of here: the dominant deferral
                         // reads `effective=Move, current=NONE, queued=Move,
                         // bypass_latch=0, moving=true` — a unit already moving
-                        // with no commenced mission at all. Our command path
-                        // sets `movement_target` directly AND queues the
-                        // mission, so movement precedes commencement and the
-                        // gate then refuses to commence because the unit is
-                        // moving. Native runs it the other way: the order
-                        // queues, the unit is not yet moving, the gate
-                        // commences, and the mission handler starts the move.
+                        // with no commenced mission at all. The order's class
+                        // destination setter starts the locomotor in the same
+                        // MEGAMISSION call that queues the mission, natively
+                        // too (`0x004C747C`), so movement precedes
+                        // commencement there as well; what lets native
+                        // commence such a unit is not established.
                         // `set_movement_bypass_after_verified_queue` — native's
                         // escape hatch for exactly this — is called only by the
                         // refinery and jumpjet completion paths here, never by
                         // the general queue an ordinary Move uses.
                         //
-                        // So this stays `None` until the command path stops
-                        // starting movement ahead of commencement. Until then
-                        // `ready_to_commence_answer` maps the resulting error
-                        // to ready and the Unit moving-defer branch is inert — which is
-                        // why none of the Drive/Ship readiness mapping can
-                        // affect vehicle behaviour yet.
+                        // So this stays `None` until that is established. Until
+                        // then `ready_to_commence_answer` maps the resulting
+                        // error to ready and the Unit moving-defer branch is
+                        // inert — which is why none of the Drive/Ship readiness
+                        // mapping can affect vehicle behaviour yet.
                         // MCV Event9 stops before queuing Unload, so this route
-                        // can supply native GetHeight without the existing Move
-                        // adapter's start-before-Commence dependency cycle.
+                        // can supply native GetHeight without a Move's
+                        // start-before-Commence cycle.
                         signed_height: (mission.queued()
                             == MissionId::from_known(super::MissionType::Unload)
                             && crate::sim::mcv_deploy::is_mcv(sim, entity, rules))
@@ -1051,7 +1049,7 @@ impl Simulation {
                 // restored object holds its order and never moves toward it,
                 // which is exactly the state a blocked-step Override leaves it
                 // in.
-                entity.navigation.pending_arrival_clear = true;
+                entity.navigation.pending_destination_setter = true;
             }
         }
         Ok(true)
@@ -1403,7 +1401,7 @@ mod tests {
     fn native_e1_override_callers_keep_target_action_and_destination_refusal_order() {
         use crate::rules::ini_parser::IniFile;
         use crate::rules::native_processing::{RulesLayerKind, RulesLayerStack};
-        use crate::sim::components::{Health, MovementTarget};
+        use crate::sim::components::Health;
         use crate::sim::house_state::HouseState;
         use crate::sim::movement::locomotor::LocomotorState;
         use crate::sim::rng::SimRng;
@@ -1520,7 +1518,6 @@ mod tests {
                 actor.navigation.nav_com = Some(NavTargetRef::cell(12, 10));
                 actor.navigation.path_replay.directions =
                     vec![before["path_field"].as_u64().unwrap() as u8, 2, 3];
-                actor.movement_target = Some(MovementTarget::default());
                 actor.locomotor = Some(LocomotorState::for_test_kind(
                     crate::rules::locomotor_type::LocomotorKind::Walk,
                 ));
@@ -1630,11 +1627,6 @@ mod tests {
                     destination["nav"].as_bool().unwrap(),
                     "{name}",
                 );
-                assert_eq!(
-                    actor.movement_target.is_some(),
-                    destination["nav"].as_bool().unwrap() && after["path_field"] != -1,
-                    "only a retained path head can keep its derived movement adapter: {name}",
-                );
                 let expected_head = (after["path_field"] != -1)
                     .then(|| after["path_field"].as_u64().unwrap() as u8);
                 assert_eq!(
@@ -1725,7 +1717,7 @@ mod tests {
         unit.weapon_burst.complete_shot(4);
         unit.attack_target = Some(active_target);
         unit.navigation.nav_com = Some(NavTargetRef::cell(1, 2));
-        unit.navigation.pending_arrival_clear = true;
+        unit.navigation.pending_destination_setter = true;
         let mut sim = sim_with(unit);
         let mut effects = RecordingConcreteMissionEffects::available();
 
@@ -1791,7 +1783,7 @@ mod tests {
                 .get(1)
                 .unwrap()
                 .navigation
-                .pending_arrival_clear
+                .pending_destination_setter
         );
     }
 

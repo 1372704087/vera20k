@@ -345,13 +345,12 @@ fn follow_clicked_goal(
         if frame == 0 {
             assert!(output.tick.executed_commands > 0);
             assert!(
-                entity.movement_target.is_some(),
-                "clicked goal {goal:?} must become a movement target after command admission"
+                crate::sim::movement::motion_query::is_moving(&entity) == Some(true),
+                "clicked goal {goal:?} must set the mover moving after command admission"
             );
             assert_eq!(
                 entity.locomotor.as_ref().and_then(|locomotor| {
-                    // Walk and Drive own their installed destination; the
-                    // scheduling adapter retains no ground goal copy.
+                    // Walk and Drive own their installed destination.
                     locomotor.walk_destination_cell().or_else(|| {
                         locomotor
                             .track_destination(
@@ -371,7 +370,9 @@ fn follow_clicked_goal(
                 "each chained retail command must also publish its exact NavCom"
             );
         }
-        if (entity.position.rx, entity.position.ry) == goal && entity.movement_target.is_none() {
+        if (entity.position.rx, entity.position.ry) == goal
+            && crate::sim::movement::motion_query::is_moving(&entity) != Some(true)
+        {
             // Body Cell entry can precede paid-head retirement by several
             // frames. Check the state used by the next actual Move order.
             assert_eq!(

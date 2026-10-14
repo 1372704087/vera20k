@@ -2,8 +2,8 @@
 //!
 //! Native-frame visits execute the retained locomotor state: Drive/Ship use
 //! their track hosts and Walk pays a polar step toward its accepted head.
-//! Other locomotors retain their class-specific movement adapters. Coordinate
-//! and occupation transactions publish the resulting whole-cell crossings.
+//! Other locomotors run their own Process hosts. Coordinate and occupation
+//! transactions publish the resulting whole-cell crossings.
 //!
 //! ## Coordinate update
 //! Movement advances `rx`/`ry`/`sub_x`/`sub_y` only. Screen position is not
@@ -19,8 +19,8 @@
 //! byte readers take its high byte.
 //!
 //! ## Sub-modules
-//! - `movement_commands` — the class setters' shared Move_To tails and the
-//!   MovementTarget scheduling adapter; no order searches a route
+//! - `movement_commands` — the class setters' shared Move_To tails; no order
+//!   searches a route
 //! - `foot_path` — the shared `FootClass::Find_Path` (0x4D3920) owner that a
 //!   Walk or Drive/Ship no-queue Process request runs at Simulation level
 //! - `walk_path` / `track_path` — the Walk and Drive/Ship continuations after
@@ -145,13 +145,11 @@ pub(crate) use drive_locomotion::{DriveLocomotionRuntime, ShipLocomotionRuntime}
 #[cfg(test)]
 pub(crate) use foot_speed::owner_current_speed_from_fraction;
 pub(crate) use foot_speed::owner_speed_bonus;
-pub(crate) use foot_speed::{SpeedRules, order_speed, owner_current_speed};
+pub(crate) use foot_speed::{SpeedRules, owner_current_speed};
 
 pub use movement_commands::DestinationTiming;
-#[cfg(test)]
-pub(crate) use movement_commands::prepare_track_destination;
 pub(crate) use movement_commands::{
-    can_accept_destination, movement_goal_cell, prepare_walk_destination, retain_committed_movement,
+    can_accept_destination, movement_goal_cell, prepare_walk_destination,
 };
 #[cfg(test)]
 pub(crate) use movement_path::{
@@ -310,10 +308,7 @@ pub fn facing_from_delta(dx: i32, dy: i32) -> u8 {
 // Tick entry points (thin wrappers)
 // ---------------------------------------------------------------------------
 
-/// Advance all entities with MovementTarget along their paths.
-///
-/// Called once per admitted native gameplay frame.
-/// Entities that reach their destination have MovementTarget removed automatically.
+/// Run one ground movement visit for every entity, in id order.
 #[cfg(test)]
 pub(crate) fn tick_movement(
     entities: &mut EntityStore,

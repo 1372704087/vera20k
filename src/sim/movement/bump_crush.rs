@@ -898,24 +898,6 @@ pub const POST_SCATTER_WAIT_FRAMES: i32 = 10;
 // the original scatters the man's OWN cell on arrival rather than the
 // destination cell of a blocked step.
 
-/// Normal speed shared by blocked-cell and damage-triggered displacement.
-pub(super) fn scatter_movement_speed(
-    entity: &GameEntity,
-    rules: Option<&crate::rules::ruleset::RuleSet>,
-    interner: &crate::sim::intern::StringInterner,
-    houses: &std::collections::BTreeMap<
-        crate::sim::intern::InternedId,
-        crate::sim::house_state::HouseState,
-    >,
-) -> SimFixed {
-    // Scatter installs a destination; the walking process still calls
-    // InfantryClass::GetCurrentSpeed (0x00521D80), delegating to
-    // FootClass::GetCurrentSpeed (0x004DB1A0), so it stamps an ordinary Move's
-    // speed.
-    let obj = rules.and_then(|r| r.object(interner.resolve(entity.type_ref())));
-    super::order_speed(entity, obj, rules, houses)
-}
-
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
@@ -1810,37 +1792,6 @@ mod tests {
             fixture.enemy(),
         );
         assert_eq!(victims, vec![1]);
-    }
-
-    // -- scatter speed --
-
-    #[test]
-    fn damage_scatter_uses_the_same_normal_type_speed() {
-        let rules = scatter_rules(true);
-        let mut civilian = infantry(1, 5, 5, 2);
-        let interner = crate::sim::intern::test_interner();
-        civilian.locomotor = Some(
-            crate::sim::movement::locomotor::LocomotorState::from_object_type(
-                rules.object("E1").unwrap(),
-                0,
-            ),
-        );
-        assert_eq!(
-            scatter_movement_speed(
-                &civilian,
-                Some(&rules),
-                &interner,
-                &std::collections::BTreeMap::new(),
-            ),
-            crate::util::fixed_math::ra2_speed_to_leptons_per_second(4)
-        );
-    }
-
-    fn scatter_rules(fraidycat: bool) -> crate::rules::ruleset::RuleSet {
-        let ini = crate::rules::ini_parser::IniFile::from_str(&format!(
-            "[InfantryTypes]\n0=E1\n[VehicleTypes]\n0=MTNK\n[E1]\nSpeed=4\nFraidycat={fraidycat}\n[MTNK]\nSpeed=6\n[Move]\nRate=.016\n[Sleep]\nScatter=no\n"
-        ));
-        crate::rules::ruleset::RuleSet::from_ini(&ini).unwrap()
     }
 
     // -- quadrant detection tests --

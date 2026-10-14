@@ -1229,16 +1229,14 @@ impl Simulation {
         registry: Option<&OverlayTypeRegistry>,
         frame_effects: FrameEffects<'_>,
     ) {
-        match self.set_infantry_destination(
+        if let Err(cause) = self.assign_destination_represented(
             slave,
-            crate::sim::components::NavTargetRef::cell(cell.0, cell.1),
-            rules,
+            Some(crate::sim::components::NavTargetRef::cell(cell.0, cell.1)),
+            Some(rules),
             registry,
             frame_effects,
         ) {
-            Ok(true) => {}
-            Ok(false) => log::debug!("slave {slave} has no Walk setter for {cell:?}"),
-            Err(cause) => log::debug!("slave {slave} could not be sent to {cell:?}: {cause}"),
+            log::debug!("slave {slave} could not be sent to {cell:?}: {cause}");
         }
         self.queue_slave_mission(slave, MissionType::Move);
     }

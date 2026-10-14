@@ -560,21 +560,14 @@ impl Simulation {
         // object) is taken (vt+0x480 with 0), leaves the queue and is the
         // answer.
         if let Some(entry) = actor.navigation.nav_queue.first().copied() {
-            if actor.category == EntityCategory::Unit {
-                self.set_unit_destination(id, entry, rules, false, frame_effects);
-            } else {
-                //4D5A64 passes flag0. Infantry51AA40 forwards the flag,
-                // but Foot4D94B0 never reads it; original ordinary CLEG
-                // Cell-setter flag0/1 controls have equal state and RNG.
-                self.assign_destination_represented(
-                    id,
-                    Some(entry),
-                    Some(rules),
-                    registry,
-                    frame_effects,
-                )
-                .map_err(|e| format!("Approach queued destination: {e}"))?;
-            }
+            self.assign_destination_keeping_queue(
+                id,
+                Some(entry),
+                Some(rules),
+                registry,
+                frame_effects,
+            )
+            .map_err(|e| format!("Approach queued destination: {e}"))?;
             let queue = &mut self
                 .substrate
                 .entities

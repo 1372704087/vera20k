@@ -504,19 +504,17 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn test_issue_air_move_command() {
+    fn fly_move_to_a_cell_retains_its_centre_and_ascends() {
         let mut sim = crate::sim::world::Simulation::with_seed(0);
         let mut entity = GameEntity::test_default(1, "ORCA", "Americans", 10, 10);
         entity.locomotor = Some(make_fly_loco());
         sim.substrate.entities.insert(entity);
 
-        let ok = sim.issue_air_cell_destination(
+        let ok = sim.move_air_coordinate(
             1,
-            (20, 15),
-            SimFixed::from_num(10),
+            crate::sim::movement::target_cell_coord(20, 15, None),
             None,
             None,
-            crate::sim::world::FrameEffects::default(),
         );
         assert!(ok);
 
@@ -561,14 +559,14 @@ pub(crate) mod tests {
             .spawn_object("SHAD", "Americans", 10, 10, 0, &rules)
             .expect("Jumpjet Unit");
 
-        assert!(sim.issue_air_cell_destination(
+        sim.assign_destination_represented(
             id,
-            (20, 15),
-            SimFixed::from_num(10),
+            Some(crate::sim::components::NavTargetRef::cell(20, 15)),
             Some(&rules),
             None,
             crate::sim::world::FrameEffects::default(),
-        ));
+        )
+        .expect("the Unit setter takes the cell");
 
         let e = sim.substrate.entities.get(id).expect("has entity");
         assert!(e.movement_target.is_some(), "the order itself is accepted");
@@ -597,19 +595,17 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn test_issue_air_move_already_at_target() {
+    fn fly_move_to_its_own_cell_still_moves() {
         let mut sim = crate::sim::world::Simulation::with_seed(0);
         let mut entity = GameEntity::test_default(1, "ORCA", "Americans", 10, 10);
         entity.locomotor = Some(make_fly_loco());
         sim.substrate.entities.insert(entity);
 
-        let ok = sim.issue_air_cell_destination(
+        let ok = sim.move_air_coordinate(
             1,
-            (10, 10),
-            SimFixed::from_num(10),
+            crate::sim::movement::target_cell_coord(10, 10, None),
             None,
             None,
-            crate::sim::world::FrameEffects::default(),
         );
         assert!(ok);
         // Native MoveTo accepts a nonnull destination even at the owner cell.

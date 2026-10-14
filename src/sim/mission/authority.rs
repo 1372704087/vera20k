@@ -30,7 +30,7 @@ use crate::sim::world::Simulation;
 use super::concrete_effects::UnavailableConcreteMissionEffects;
 use super::concrete_effects::{
     AuthorityUnavailable, ConcreteMissionEffects, ConcreteSetterRequest,
-    RepresentedConcreteMissionEffects, represented_assign_destination_mode_one,
+    RepresentedConcreteMissionEffects, represented_assign_destination,
     represented_assign_target_admitted,
 };
 use super::readiness::{
@@ -69,7 +69,7 @@ pub(crate) fn restore_entity_after_target_expiry(
     debug_assert!(restored);
     represented_assign_target_admitted(entity, saved_target, saved_target_commits);
     if category != EntityCategory::Structure {
-        represented_assign_destination_mode_one(entity, saved_destination);
+        represented_assign_destination(entity, saved_destination);
         if saved_destination.is_some() {
             entity.navigation.pending_arrival_clear = true;
         }
@@ -699,8 +699,9 @@ impl Simulation {
     }
 
     /// Dispatch the same concrete destination owner used by Override/Restore,
-    /// without changing a mission or its Target. AreaGuard and Rescue require
-    /// its synchronous Move_To/path/timer effects before their cadence tail.
+    /// without changing a mission or its Target: vt+0x480(requested, 1).
+    /// AreaGuard and Rescue require its synchronous Move_To/path/timer effects
+    /// before their cadence tail.
     pub(crate) fn assign_destination_represented(
         &mut self,
         receiver: u64,
@@ -709,17 +710,48 @@ impl Simulation {
         overlay_registry: Option<&crate::rules::overlay_types::OverlayTypeRegistry>,
         frame_effects: FrameEffects<'_>,
     ) -> Result<(), MissionAuthorityError> {
+        self.assign_destination_through(
+            RepresentedConcreteMissionEffects::new(rules, overlay_registry, frame_effects),
+            receiver,
+            requested,
+        )
+    }
+
+    /// [`Self::assign_destination_represented`] with vt+0x480's mode 0, which
+    /// keeps NavQueue: Enter_Idle_Mode (`0x004D8395`), Foot Approach
+    /// (`0x004D5A6A`) and Mission_Enter (`0x004D939A`) pass it when they take
+    /// NavQueue[0].
+    pub(crate) fn assign_destination_keeping_queue(
+        &mut self,
+        receiver: u64,
+        requested: Option<NavTargetRef>,
+        rules: Option<&RuleSet>,
+        overlay_registry: Option<&crate::rules::overlay_types::OverlayTypeRegistry>,
+        frame_effects: FrameEffects<'_>,
+    ) -> Result<(), MissionAuthorityError> {
+        self.assign_destination_through(
+            RepresentedConcreteMissionEffects::new(rules, overlay_registry, frame_effects)
+                .keeping_queue(),
+            receiver,
+            requested,
+        )
+    }
+
+    fn assign_destination_through(
+        &mut self,
+        mut effects: RepresentedConcreteMissionEffects<'_>,
+        receiver: u64,
+        requested: Option<NavTargetRef>,
+    ) -> Result<(), MissionAuthorityError> {
         if !self.substrate.entities.contains(receiver) {
             return Err(MissionAuthorityError::MissingReceiver(receiver));
         }
-        let mut effects =
-            RepresentedConcreteMissionEffects::new(rules, overlay_registry, frame_effects);
         let prepared = effects.preflight(
             self,
             receiver,
             ConcreteSetterRequest::Destination { requested },
         )?;
-        effects.apply_destination_mode_one(self, &prepared, requested);
+        effects.apply_destination(self, &prepared, requested);
         Ok(())
     }
 
@@ -960,7 +992,7 @@ impl Simulation {
                 .map(|entity| entity.category),
             Some(EntityCategory::Structure)
         ) {
-            effects.apply_destination_mode_one(self, &prepared, packet.destination);
+            effects.apply_destination(self, &prepared, packet.destination);
         }
         Ok(true)
     }
@@ -1005,7 +1037,7 @@ impl Simulation {
         debug_assert!(restored);
         effects.apply_target(self, &prepared, saved_target);
         if category != EntityCategory::Structure {
-            let setter_ran = effects.apply_destination_mode_one(self, &prepared, saved_destination);
+            let setter_ran = effects.apply_destination(self, &prepared, saved_destination);
             if saved_destination.is_some()
                 && !setter_ran
                 && let Some(entity) = self.substrate.entities.get_mut(receiver)

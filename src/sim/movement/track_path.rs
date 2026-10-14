@@ -643,27 +643,26 @@ impl Simulation {
     ///   (`FootClass::Restore_Mission`, call at 0x004D8F99) by NavCom alone
     ///   (`mission::authority`).
     ///
-    /// The destination is NavCom's live coordinate (an object's too), else the
-    /// first queued waypoint through the Foot setter, else the NULL clear. By
-    /// active locomotor:
-    /// - Drive and Ship: +34 may still hold an older order (a firing cell).
-    ///   A +34 naming NavCom's cell only lacks its scheduling adapter; the
-    ///   no-queue arm (Drive 0x4B281C / Ship 0x6A1E75) requests the route,
-    ///   gated by Foot+640. Native NavCom and +34 never disagree after the
-    ///   setter, so a missing or disagreeing +34 completes the class setter
-    ///   toward NavCom. Before Process the Foot is then moving, as native, and
-    ///   the Guard/Unload tail (0x4B08D1) cannot strand it.
-    /// - Fly: the air setter `issue_air_cell_destination` with the cell.
-    ///   NavCom is cleared first, as the native setter finds it (the
-    ///   restore's NavCom is the override's order, not the saved one).
-    /// - Any other Unit or Infantry: the object's class setter with NavCom's
-    ///   target, `clear_queue` = 1 as Restore passes it (only the Unit setter
-    ///   reads it; Infantry 0x0051AA40 and the Foot tail never touch
-    ///   NavQueue): Infantry [`Self::set_infantry_destination`] whatever his
-    ///   locomotor, Unit [`Self::set_unit_destination`]. NavCom is cleared
-    ///   first, so the Unit setter's unchanged-NavCom return cannot swallow
-    ///   the call. A receiver without a represented class setter keeps the
-    ///   represented NavCom.
+    /// By active locomotor:
+    /// - Drive and Ship: the destination is NavCom's live coordinate (an
+    ///   object's too), else the first queued waypoint through the Foot
+    ///   setter, else the NULL clear. +34 may still hold an older order (a
+    ///   firing cell). A +34 naming NavCom's cell only lacks its scheduling
+    ///   adapter; the no-queue arm (Drive 0x4B281C / Ship 0x6A1E75) requests
+    ///   the route, gated by Foot+640. Native NavCom and +34 never disagree
+    ///   after the setter, so a missing or disagreeing +34 takes the Drive or
+    ///   Ship Move_To toward NavCom. Before Process the Foot is then moving, as
+    ///   native, and the Guard/Unload tail (0x4B08D1) cannot strand it.
+    ///   RESIDUAL: this arm runs the locomotor's Move_To without Unit
+    ///   0x741970's own admission (the same-NavCom return, the deployment
+    ///   refusal, the UnitRepair and Teleporter arms). Trigger: a cell target
+    ///   expiring under a suspended mission of a Drive or Ship Unit, or
+    ///   Enter_Idle_Mode's NavQueue arm (NavQueue has no production writer).
+    ///   Frequency: rare. Risk: a deployed or docking unit can be sent toward
+    ///   its restored order. The arm waits on the MovementTarget adapter and
+    ///   goes with it (#689).
+    /// - Any other: vt+0x480(NavCom, 1) through the class setters
+    ///   ([`Self::finish_setter_destination`]).
     pub(crate) fn complete_pending_order(
         &mut self,
         id: u64,
@@ -678,24 +677,14 @@ impl Simulation {
             return;
         };
         let track = matches!(kind, LocomotorKind::Drive | LocomotorKind::Ship);
-        let fly = kind == LocomotorKind::Fly;
-        let class_setter = !track
-            && !fly
-            && matches!(
-                actor.category,
-                EntityCategory::Unit | EntityCategory::Infantry
-            );
-        if let (true, Some(rules), true) =
-            (actor.navigation.pending_arrival_clear, rules, class_setter)
-        {
+        if let (true, Some(rules), false) = (actor.navigation.pending_arrival_clear, rules, track) {
             self.finish_setter_destination(id, rules, registry, frame_effects);
             return;
         }
         if !actor.navigation.pending_arrival_clear
-            || !(track || (fly && rules.is_some()))
-            || (track
-                && (actor.movement_target.is_some()
-                    || super::track_head::active_track_family(actor).is_some()))
+            || !track
+            || actor.movement_target.is_some()
+            || super::track_head::active_track_family(actor).is_some()
         {
             return;
         }
@@ -727,10 +716,6 @@ impl Simulation {
         if retained.is_some_and(agrees) {
             super::movement_commands::schedule_track_process(actor, speed);
         } else if let Some((target, coord)) = nav {
-            if fly {
-                self.finish_fly_destination(id, cell(coord), speed, rules, registry, frame_effects);
-                return;
-            }
             let object = (!matches!(target, NavTargetRef::Cell { .. })).then_some((target, coord));
             super::movement_commands::prepare_track_destination(
                 actor,
@@ -744,10 +729,6 @@ impl Simulation {
             actor.navigation.nav_queue.first().copied()
         {
             actor.navigation.nav_queue.remove(0);
-            if fly {
-                self.finish_fly_destination(id, (rx, ry), speed, rules, registry, frame_effects);
-                return;
-            }
             super::navcom::set_destination_internal_cell(
                 actor,
                 (rx, ry),
@@ -762,9 +743,12 @@ impl Simulation {
     }
 
     /// [`Self::complete_pending_order`]'s class-setter arm: Restore's
-    /// `Assign_Destination(saved, 1)` through the object's class setter, with
-    /// the Restore preflight's input checks (`concrete_effects`); a receiver
-    /// whose inputs are missing keeps the represented NavCom.
+    /// `Assign_Destination(saved, 1)` through the class setters
+    /// ([`Self::assign_destination_represented`]) when one takes it
+    /// ([`Self::destination_setter_available`]); otherwise the receiver keeps
+    /// the represented NavCom. NavCom is cleared first, so the Unit setter's
+    /// unchanged-NavCom return cannot swallow the call (the restore's NavCom
+    /// natively is the override's order, not the saved one).
     ///
     /// Residual: native Restore (0x004D8F99) runs this setter inside the
     /// restore; VERA runs it at the object's next Process entry. Trigger: the
@@ -772,8 +756,8 @@ impl Simulation {
     /// an AoE cell target expiring under a suspended mission) or a receiver
     /// without a represented setter. Effect: the setter's timers, NavQueue
     /// clear and Move_To land up to one frame later. Frequency: cell-target
-    /// expiry under a suspended mission of a Unit or Infantry off a track.
-    /// Risk: timing only.
+    /// expiry under a suspended mission of an object off a track. Risk:
+    /// timing only.
     fn finish_setter_destination(
         &mut self,
         id: u64,
@@ -785,59 +769,24 @@ impl Simulation {
             return;
         };
         actor.navigation.pending_arrival_clear = false;
-        let category = actor.category;
         // A NavCom cleared after the restore (a Stop) leaves nothing owed.
         let Some(requested) = actor.navigation.nav_com else {
             return;
         };
-        let available = match category {
-            EntityCategory::Unit => {
-                self.unit_setter_receiver(id, Some(rules))
-                    && (matches!(requested, NavTargetRef::Cell { .. })
-                        || super::navcom::nav_target_coordinate(
-                            requested,
-                            Some(id),
-                            &self.substrate.entities,
-                            self.resolved_terrain.as_ref(),
-                            Some((rules, &self.interner)),
-                        )
-                        .is_ok())
-            }
-            EntityCategory::Infantry => {
-                self.infantry_setter_receiver(id, rules)
-                    && self.infantry_destination_inputs_available(id, requested, rules, registry)
-            }
-            _ => false,
-        };
-        if !available {
+        if !self.destination_setter_available(id, requested, rules, registry) {
             return;
         }
         if let Some(actor) = self.substrate.entities.get_mut(id) {
             super::navcom::foot_stop_moving(actor);
         }
-        if category == EntityCategory::Unit {
-            self.set_unit_destination(id, requested, rules, true, frame_effects);
-        } else {
-            self.set_infantry_destination(id, requested, rules, registry, frame_effects)
-                .expect("checked Infantry destination inputs");
-        }
-    }
-
-    /// [`Self::complete_pending_order`]'s Fly arm: the air setter with the
-    /// cell, NavCom cleared first as the native setter finds it.
-    fn finish_fly_destination(
-        &mut self,
-        id: u64,
-        cell: (u16, u16),
-        speed: SimFixed,
-        rules: Option<&RuleSet>,
-        registry: Option<&OverlayTypeRegistry>,
-        frame_effects: FrameEffects<'_>,
-    ) {
-        if let Some(actor) = self.substrate.entities.get_mut(id) {
-            super::navcom::foot_stop_moving(actor);
-        }
-        self.issue_air_cell_destination(id, cell, speed, rules, registry, frame_effects);
+        self.assign_destination_represented(
+            id,
+            Some(requested),
+            Some(rules),
+            registry,
+            frame_effects,
+        )
+        .expect("checked deferred destination setter");
     }
 
     /// The class setter vt+0x480 with a NULL destination from outside the
@@ -918,12 +867,15 @@ impl Simulation {
         })
     }
 
-    /// Unit 0x741970(target, clear_queue) from a class caller: the radio MOVE_HERE (Foot
-    /// 0x004D91EB), Mission_Harvest's staging destination (0x0073EDB5),
-    /// Mission_Enter's Teleporter re-assign (0x004D941D), the Scatter
-    /// receiver's null arm (0x00744070) and the ReceiveDamage crush charge
-    /// (0x00738593).
-    /// These callers pass true; Foot Approach's NavQueue arm passes false.
+    /// Unit 0x741970(target, clear_queue). Calls whose receiver may be of any
+    /// class reach it through the class-setter dispatcher
+    /// ([`Self::assign_destination_represented`], mode 1, and
+    /// [`Self::assign_destination_keeping_queue`], mode 0: the NavQueue arms
+    /// of Enter_Idle_Mode 0x004D8395, Foot Approach 0x004D5A6A and
+    /// Mission_Enter 0x004D939A). Unit code calls it directly: Mission_Harvest's
+    /// staging destination (0x0073EDB5), the Scatter receiver's null arm
+    /// (0x00744070) and the ReceiveDamage crush charge (0x00738593), all with
+    /// true.
     /// - 0x741A80..0x741A9C: an unchanged NavCom returns before any write
     ///   unless the Techno+0x1F8 override is up; the call then clears it. So
     ///   the refinery's repeated MOVE_HERE leaves a running drive alone

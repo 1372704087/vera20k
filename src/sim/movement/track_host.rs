@@ -1133,18 +1133,11 @@ impl Simulation {
                     | crate::rules::locomotor_type::LocomotorKind::Ship
             )
         });
-        let category = entity.category;
         let setter_now = queued_cell.is_some_and(|(rx, ry)| {
             !track
-                && rules.is_some_and(|rules| match category {
-                    EntityCategory::Unit => self.unit_setter_receiver(id, Some(rules)),
-                    EntityCategory::Infantry => {
-                        let target = crate::sim::components::NavTargetRef::cell(rx, ry);
-                        self.infantry_setter_receiver(id, rules)
-                            && self
-                                .infantry_destination_inputs_available(id, target, rules, registry)
-                    }
-                    _ => false,
+                && rules.is_some_and(|rules| {
+                    let target = crate::sim::components::NavTargetRef::cell(rx, ry);
+                    self.destination_setter_available(id, target, rules, registry)
                 })
         });
         let entity = self
@@ -1162,16 +1155,10 @@ impl Simulation {
             entity.navigation.nav_queue.remove(0);
             entity.navigation.pending_arrival_clear = true;
         }
-        if let (Some((rx, ry)), Some(rules)) = (queued_cell.filter(|_| setter_now), rules) {
+        if let Some((rx, ry)) = queued_cell.filter(|_| setter_now) {
             let target = crate::sim::components::NavTargetRef::cell(rx, ry);
-            if category == EntityCategory::Infantry {
-                // Infantry51AA40 does not read the queue-clear flag; its
-                // shared setter supplies the same receiver for mode0/1.
-                self.set_infantry_destination(id, target, rules, registry, effects)
-                    .expect("checked Infantry NavQueue destination inputs");
-            } else {
-                self.set_unit_destination(id, target, rules, false, effects);
-            }
+            self.assign_destination_keeping_queue(id, Some(target), rules, registry, effects)
+                .expect("checked NavQueue destination setter");
             let entity = self
                 .substrate
                 .entities

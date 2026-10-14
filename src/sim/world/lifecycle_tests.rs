@@ -8419,14 +8419,12 @@ fn fly_cross_level_move_lands_on_destination_surface_after_restore() {
         let fly = loco.fly_runtime_mut().unwrap();
         fly.current_speed = SIM_ONE;
         fly.target_speed = SIM_ONE;
-        assert!(sim.issue_air_cell_destination(
-            1,
-            (2, 2),
-            SimFixed::from_num(3840),
-            Some(&rules),
-            None,
-            crate::sim::world::FrameEffects::default()
-        ));
+        let cells = sim
+            .resolved_terrain
+            .as_ref()
+            .map(crate::map::resolved_terrain::NativeCellQuery::canonical);
+        let coordinate = crate::sim::movement::target_cell_coord(2, 2, cells.as_ref());
+        assert!(sim.move_air_coordinate(1, coordinate, None, Some(&rules)));
         sim.tick_air_movement_with_cell_lists_one(
             1,
             Some(&rules),

@@ -1902,19 +1902,18 @@ fn jumpjet_query_fields_hash_and_restore_as_one_suspended_instance() {
 
 #[test]
 fn jumpjet_stop_command_keeps_native_moving_and_selected_coordinate() {
-    use crate::util::fixed_math::SimFixed;
     let (mut sim, rules, registry, _) = ready_repair_fixture(None);
     let id = sim
         .spawn_object("JUMPJET", "Americans", 19, 15, 0, &rules)
         .unwrap();
-    assert!(sim.issue_air_cell_destination(
+    sim.assign_destination_represented(
         id,
-        (20, 15),
-        SimFixed::from_num(9),
+        Some(crate::sim::components::NavTargetRef::cell(20, 15)),
         Some(&rules),
         None,
-        crate::sim::world::FrameEffects::default()
-    ));
+        crate::sim::world::FrameEffects::default(),
+    )
+    .expect("the Unit setter takes the cell");
     let before = sim
         .substrate
         .entities

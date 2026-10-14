@@ -352,13 +352,13 @@ fn the_warp_drops_attack_locks_on_its_owner() {
 #[test]
 fn a_restored_destination_warps_at_the_teleport_process_entry() {
     use crate::sim::components::NavTargetRef;
-    use crate::sim::mission::concrete_effects::represented_assign_destination_mode_one;
+    use crate::sim::mission::concrete_effects::represented_assign_destination;
     let rules = rules(false);
     let mut sim = relocating_legionnaire((8, 9));
     install_destination_cells(&mut sim, &rules);
     let mover = sim.substrate.entities.get_mut(1).unwrap();
     mover.install_teleport_state_for_test(None);
-    represented_assign_destination_mode_one(mover, Some(NavTargetRef::cell(8, 9)));
+    represented_assign_destination(mover, Some(NavTargetRef::cell(8, 9)));
     mover.navigation.pending_arrival_clear = true;
 
     sim.advance_live_object_turn(1, Some(&rules), techno_ai::ObjectAiCtx::default())

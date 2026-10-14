@@ -1187,14 +1187,14 @@ fn a_shot_down_balloon_jumpjet_bombs_its_impact_cell() {
 #[test]
 fn a_jumpjet_shot_down_after_its_null_destination_reaches_the_ground() {
     let (mut sim, rules, _, shooter) = jumpjet_fixture(false);
-    assert!(sim.issue_air_cell_destination(
+    sim.assign_destination_represented(
         1,
-        (60, 52),
-        SimFixed::from_num(30),
+        Some(crate::sim::components::NavTargetRef::cell(60, 52)),
         Some(&rules),
         None,
-        crate::sim::world::FrameEffects::default()
-    ));
+        crate::sim::world::FrameEffects::default(),
+    )
+    .expect("the Unit setter takes the cell");
     // Cruise until the owner has left the hover cell.
     let mut frame = 1001;
     while sim

@@ -403,14 +403,12 @@ fn assert_native_move_takeoff(sim: &mut Simulation, rules: &RuleSet, row: &serde
         "{row}"
     );
     let before_rng = sim.scenario_rng.logical_state();
-    assert!(sim.issue_air_cell_destination(
-        1,
-        (12, 10),
-        SimFixed::from_num(10),
-        Some(rules),
-        None,
-        crate::sim::world::FrameEffects::default()
-    ));
+    let cells = sim
+        .resolved_terrain
+        .as_ref()
+        .map(crate::map::resolved_terrain::NativeCellQuery::canonical);
+    let coordinate = crate::sim::movement::target_cell_coord(12, 10, cells.as_ref());
+    assert!(sim.move_air_coordinate(1, coordinate, None, Some(rules)));
     let entity = sim.substrate.entities.get(1).unwrap();
     assert_eq!(
         entity.locomotor.as_ref().unwrap().fly_target_height(),
@@ -625,14 +623,12 @@ fn fly_cell_orders_resolve_ground_before_retaining_the_coordinate() {
         .find(|r| r["input"]["name"] == "ground_3_4")
         .unwrap();
     let (mut sim, rules) = destination_fixture(&row);
-    assert!(sim.issue_air_cell_destination(
-        1,
-        (64, 64),
-        SimFixed::from_num(10),
-        Some(&rules),
-        None,
-        crate::sim::world::FrameEffects::default()
-    ));
+    let cells = sim
+        .resolved_terrain
+        .as_ref()
+        .map(crate::map::resolved_terrain::NativeCellQuery::canonical);
+    let coordinate = crate::sim::movement::target_cell_coord(64, 64, cells.as_ref());
+    assert!(sim.move_air_coordinate(1, coordinate, None, Some(&rules)));
     let destination = sim
         .substrate
         .entities

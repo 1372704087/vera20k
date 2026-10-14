@@ -13,6 +13,14 @@ pub(crate) fn map<T: Sync, R: Send>(items: &[T], work: impl Fn(&T) -> R + Sync) 
     items.par_iter().map(&work).collect()
 }
 
+/// The indices below `len` that `keep` selects, in ascending order.
+pub(crate) fn select_indices(len: usize, keep: impl Fn(usize) -> bool + Sync) -> Vec<usize> {
+    (0..len)
+        .into_par_iter()
+        .filter(|&index| keep(index))
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     #[test]
@@ -24,5 +32,9 @@ mod tests {
             items.iter().map(|item| item * item).collect::<Vec<_>>()
         );
         assert!(super::map(&[] as &[u64], |item| *item).is_empty());
+        assert_eq!(
+            super::select_indices(1000, |index| index % 7 == 3),
+            (0..1000).filter(|index| index % 7 == 3).collect::<Vec<_>>()
+        );
     }
 }

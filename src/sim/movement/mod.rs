@@ -95,6 +95,7 @@ mod path_markers;
 #[cfg(test)]
 pub(crate) use path_markers::fixture_path_replay;
 mod per_cell;
+pub(crate) mod repath_batch;
 pub(crate) use per_cell::PerCellReason;
 pub(crate) mod ready_producer;
 mod scatter;

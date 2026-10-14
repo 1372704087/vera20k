@@ -1004,7 +1004,9 @@ use crate::sim::world::Simulation;
 // schema.
 // 346 -> 347: a pending AttackMove carries the event's target and destination
 // tokens, and MegaDestination may name an object.
-const SNAPSHOT_VERSION: u32 = 347;
+// 347 -> 348: the Simulation retains whether it batches code-2 re-path
+// searches and the Foots waiting for the next frame's batch.
+const SNAPSHOT_VERSION: u32 = 348;
 
 const SNAPSHOT_PRODUCT_MAGIC: [u8; 8] = *b"VERA20K\0";
 const SNAPSHOT_ENVELOPE_VERSION: u32 = 1;
@@ -4389,7 +4391,8 @@ mod tests {
         // 344 -> 345: Smoke scalars and individual Particle AIR identities.
         // 345 -> 346: Move commands without the queue flag, and MoveToObject.
         // 346 -> 347: AttackMove tokens and an object MegaDestination.
-        assert_eq!(super::SNAPSHOT_VERSION, 347);
+        // 347 -> 348: the batched re-path setting and its waiting Foots.
+        assert_eq!(super::SNAPSHOT_VERSION, 348);
     }
 
     #[test]

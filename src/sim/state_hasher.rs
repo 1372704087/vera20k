@@ -2,7 +2,6 @@
 //! hashing a 20,000-unit world cheap.
 
 use std::hash::{Hash, Hasher};
-use std::sync::atomic::{AtomicUsize, Ordering};
 
 /// A pinned, portable 64-bit hasher for the simulation state hash.
 ///
@@ -79,45 +78,11 @@ pub(crate) fn digests<T: Sync>(
         fold(item, &mut hasher);
         hasher.finish()
     };
-    // At least two workers, so a single-core host still runs this path.
-    let threads = if parallel {
-        std::thread::available_parallelism()
-            .map_or(2, |count| count.get().max(2))
-            .min(items.len())
+    if parallel {
+        crate::sim::parallel::map(items, digest)
     } else {
-        1
-    };
-    if threads <= 1 {
-        return items.iter().map(digest).collect();
+        items.iter().map(digest).collect()
     }
-    // Workers claim the next block as they finish one, so slower cores
-    // (efficiency cores, a busy host) take fewer items.
-    let block = (items.len() / (threads * 8)).max(1);
-    let next = AtomicUsize::new(0);
-    let mut out = vec![0; items.len()];
-    std::thread::scope(|scope| {
-        let workers: Vec<_> = (0..threads)
-            .map(|_| {
-                scope.spawn(|| {
-                    let mut done = Vec::new();
-                    loop {
-                        let start = next.fetch_add(block, Ordering::Relaxed);
-                        if start >= items.len() {
-                            break done;
-                        }
-                        let end = (start + block).min(items.len());
-                        done.extend((start..end).map(|index| (index, digest(&items[index]))));
-                    }
-                })
-            })
-            .collect();
-        for worker in workers {
-            for (index, value) in worker.join().expect("state digest worker panicked") {
-                out[index] = value;
-            }
-        }
-    });
-    out
 }
 
 impl Hasher for StateHasher {

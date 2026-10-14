@@ -876,8 +876,8 @@ struct PrecheckScratch {
 }
 
 thread_local! {
-    /// Precheck scratch reused across calls; the sim thread runs one precheck
-    /// at a time and a precheck never starts another.
+    /// Precheck scratch reused across calls; each thread runs one precheck at
+    /// a time and a precheck never starts another.
     static PRECHECK_SCRATCH: std::cell::RefCell<PrecheckScratch> =
         std::cell::RefCell::new(PrecheckScratch::default());
 }

@@ -821,6 +821,7 @@ fn hills_same_type_marker_downgrade_reaches_live_foot_search_and_cleanup() {
                 sim.astar_code2_chain_jams(
                     peer_cell,
                     crate::sim::movement::locomotor::MovementLayer::Ground,
+                    None,
                 )
             })
             .unwrap();
@@ -882,7 +883,15 @@ fn hills_same_type_marker_downgrade_reaches_live_foot_search_and_cleanup() {
                 playfield_bounds: sim.playfield_bounds,
             }
             .reading(&sim.substrate.entities, &sim.substrate.raw_cell_occupation);
-            let search = context.build(&sim.substrate.occupancy, mover, source, 0, false, urgency);
+            let search = context.build(
+                &sim.substrate.occupancy,
+                mover,
+                source,
+                0,
+                false,
+                urgency,
+                None,
+            );
             let transactions = case["marker_transactions"].as_array().unwrap();
             let expected_urgency = transactions.first().map_or(urgency, |transaction| {
                 transaction["effective_urgency"].as_u64().unwrap() as u8

@@ -548,13 +548,15 @@ impl Simulation {
         }
         //4B36BC..4B36EF / 4B39D1..4B3A0E: urgency 2 once the latched
         //blockage timer expired, else 1; Find_Path(cell(destination), 0, u).
-        let urgency = if runtime.path_blocked && runtime.blocked_timer.expired(frame as i32) {
-            2
-        } else {
-            1
-        };
-        let destination =
-            track_destination(actor).ok_or("Drive/Ship code-2 ladder without destination")?;
+        let urgency = runtime.code2_urgency(frame);
+        let destination = super::repath_batch::code2_ladder_destination(actor)
+            .ok_or("Drive/Ship code-2 ladder without destination")?;
+        // A batched re-path waits for the next frame's batch as if the timer
+        // still ran (`repath_batch`, a proposed deviation).
+        if self.defer_code2_search(id) {
+            self.track_first_rejected_tail(id);
+            return Ok(false);
+        }
         let request = self.track_path_request(call, destination, urgency)?;
         let found = self.foot_find_path(&request, rules, call.registry, call.frame_effects)?;
         //4B3A13..4B3A2A: a vanished Foot sets the out byte.

@@ -58,6 +58,7 @@ pub(crate) mod powered_unit; // Robot Tanks offline without a PowersUnit= buildi
 pub(crate) mod light_sources;
 pub mod multiplayer_checksum;
 pub(crate) mod native_identity;
+pub(crate) mod parallel; // order-preserving work over scoped threads
 pub(crate) mod radiation_light;
 pub mod rng;
 pub(crate) mod scenario_bootstrap;

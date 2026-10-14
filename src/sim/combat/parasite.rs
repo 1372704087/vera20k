@@ -613,8 +613,8 @@ impl Simulation {
             raw.wrapping_sub(0x3FFF)
         };
         let victim_cell = (
-            victim_entity.position.rx as i16,
-            victim_entity.position.ry as i16,
+            victim_entity.position.rx() as i16,
+            victim_entity.position.ry() as i16,
         );
         if !naval && suppressed {
             // 0x0062A89B: the owner dies with its host.
@@ -820,8 +820,8 @@ impl Simulation {
         let frame = self.session.binary_frame;
         let raw = victim_entity.body_facing_current(frame);
         let victim_cell = (
-            victim_entity.position.rx as i16,
-            victim_entity.position.ry as i16,
+            victim_entity.position.rx() as i16,
+            victim_entity.position.ry() as i16,
         );
         let (dx, dy) = CELL_DELTAS[dir8(raw)];
         let adjacent = (
@@ -903,8 +903,8 @@ impl Simulation {
             return false;
         }
         let cell = (
-            victim_entity.position.rx as i16,
-            victim_entity.position.ry as i16,
+            victim_entity.position.rx() as i16,
+            victim_entity.position.ry() as i16,
         );
         let owner_entity = self.substrate.entities.get(owner);
         let naval = owner_entity
@@ -1090,14 +1090,7 @@ impl Simulation {
             self.try_reveal_entity_with_context(
                 owner,
                 crate::sim::world::RevealRequest {
-                    position: crate::sim::world::RevealPosition {
-                        exact_z_leptons: None,
-                        rx,
-                        ry,
-                        z,
-                        sub_x,
-                        sub_y,
-                    },
+                    position: crate::sim::world::RevealPosition::new(rx, ry, z, None, sub_x, sub_y),
                     placement: crate::sim::world::PlacementEvidence::MarkSucceeded,
                     logic_eligible: true,
                 },

@@ -232,10 +232,9 @@ fn deploy_mcv_uses_gamemd_large_foundation_origin_offset() {
         .get("GACNST")
         .expect("GACNST should be interned after deploy");
     assert!(
-        sim.substrate
-            .entities
-            .values()
-            .any(|e| { e.type_ref() == gacnst_id && e.position.rx == 19 && e.position.ry == 21 })
+        sim.substrate.entities.values().any(|e| {
+            e.type_ref() == gacnst_id && e.position.rx() == 19 && e.position.ry() == 21
+        })
     );
 }
 
@@ -302,7 +301,7 @@ fn deploy_then_undeploy_returns_the_mcv_to_its_original_cell() {
         .entities
         .values()
         .find(|e| e.type_ref() == amcv_id)
-        .map(|e| (e.position.rx, e.position.ry))
+        .map(|e| (e.position.rx(), e.position.ry()))
         .expect("MCV should exist again after undeploy");
     assert_eq!(
         landed, start,
@@ -405,10 +404,9 @@ fn deploy_mcv_accepts_mixed_height_clear_foundation() {
         .get("GACNST")
         .expect("GACNST should be interned after deploy");
     assert!(
-        sim.substrate
-            .entities
-            .values()
-            .any(|e| { e.type_ref() == gacnst_id && e.position.rx == 19 && e.position.ry == 21 }),
+        sim.substrate.entities.values().any(|e| {
+            e.type_ref() == gacnst_id && e.position.rx() == 19 && e.position.ry() == 21
+        }),
         "Construction Yard should spawn at gamemd's deploy foundation origin"
     );
 }
@@ -695,7 +693,7 @@ fn base_plan_recalc_deploy_generates_and_anchors_nonhuman_conyard() {
     ));
 
     let yard = deployed_type(&sim, "GACNST");
-    assert_eq!((yard.position.rx, yard.position.ry), (19, 21));
+    assert_eq!((yard.position.rx(), yard.position.ry()), (19, 21));
     assert!(yard.building_up());
     assert!(
         yard.ai_sell_repair.ai_repairable(),
@@ -1169,11 +1167,11 @@ fn supplied_world_position(
     use crate::util::fixed_math::SimFixed;
     let x = xyz[0].as_i64().unwrap() as i32;
     let y = xyz[1].as_i64().unwrap() as i32;
-    position.rx = (x / 256).clamp(0, i32::from(u16::MAX)) as u16;
-    position.ry = (y / 256).clamp(0, i32::from(u16::MAX)) as u16;
-    position.sub_x = SimFixed::from_num(x - i32::from(position.rx) * 256);
-    position.sub_y = SimFixed::from_num(y - i32::from(position.ry) * 256);
-    position.exact_z_leptons = Some(xyz[2].as_i64().unwrap() as i32);
+    position.set_rx((x / 256).clamp(0, i32::from(u16::MAX)) as u16);
+    position.set_ry((y / 256).clamp(0, i32::from(u16::MAX)) as u16);
+    position.set_sub_x(SimFixed::from_num(x - i32::from(position.rx()) * 256));
+    position.set_sub_y(SimFixed::from_num(y - i32::from(position.ry()) * 256));
+    position.set_exact_z_leptons(Some(xyz[2].as_i64().unwrap() as i32));
 }
 
 pub(crate) fn native_deploy_fixture(row: &serde_json::Value) -> (Simulation, RuleSet, u64) {
@@ -1223,9 +1221,9 @@ pub(crate) fn native_deploy_fixture(row: &serde_json::Value) -> (Simulation, Rul
     actor
         .health
         .set_for_test(input["health"].as_i64().unwrap_or(100) as i32);
-    actor.position.sub_x = SimFixed::from_num(128);
-    actor.position.sub_y = SimFixed::from_num(128);
-    actor.position.exact_z_leptons = Some(0);
+    actor.position.set_sub_x(SimFixed::from_num(128));
+    actor.position.set_sub_y(SimFixed::from_num(128));
+    actor.position.set_exact_z_leptons(Some(0));
     if input["position"].is_array() {
         supplied_world_position(&mut actor.position, &input["position"]);
     }

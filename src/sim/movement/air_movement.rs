@@ -301,7 +301,7 @@ fn queried_flight_height(
     entity: &crate::sim::game_entity::GameEntity,
     cells: Option<&crate::map::resolved_terrain::NativeCellQuery<'_>>,
 ) -> i32 {
-    let Some(z) = entity.position.exact_z_leptons else {
+    let Some(z) = entity.position.exact_z_leptons() else {
         return 0;
     };
     let ground = cells
@@ -479,7 +479,7 @@ pub(crate) fn update_fly_height(
             is_dropship: object.is_some_and(|o| o.is_dropship),
             flight_level,
         });
-    entity.position.exact_z_leptons = Some(output.world_z);
+    entity.position.set_exact_z_leptons(Some(output.world_z));
     entity.set_on_bridge(output.on_bridge);
     output
 }

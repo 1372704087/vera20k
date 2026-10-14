@@ -183,7 +183,7 @@ fn retail_legionnaire_attacks_distant_object_after_teleport_recovery() {
             if actor.temporal.warp_target() == Some(target) {
                 assert!(!actor.is_warping_in(), "cannot fire before recovery");
                 assert_ne!(
-                    (actor.position.rx, actor.position.ry),
+                    (actor.position.rx(), actor.position.ry()),
                     (target_x, 10),
                     "approach must choose a firing position, not the occupied target cell"
                 );

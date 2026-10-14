@@ -271,16 +271,16 @@ fn command_repair_fixture(with_aircraft: bool, with_team: bool) {
             trace.push(format!(
                 "frame{} cell{},{} sub{},{} head{:?} nav{:?} mission{:?} alive{}",
                 sim.session.binary_frame,
-                e.position.rx,
-                e.position.ry,
-                e.position.sub_x,
-                e.position.sub_y,
+                e.position.rx(),
+                e.position.ry(),
+                e.position.sub_x(),
+                e.position.sub_y(),
                 e.locomotor.as_ref().unwrap().step_head(),
                 e.navigation.nav_com(),
                 e.mission.current(),
                 e.lifecycle.object_alive()
             ));
-            if e.position.rx == 16 && e.locomotor.as_ref().unwrap().step_head().is_some() {
+            if e.position.rx() == 16 && e.locomotor.as_ref().unwrap().step_head().is_some() {
                 assert!(!changed, "crossing alone must not emit PerCell repair");
                 if !saw_boundary_before_completion {
                     // The boundary's Mark pair leaves an Infantry's raw
@@ -302,7 +302,7 @@ fn command_repair_fixture(with_aircraft: bool, with_team: bool) {
                         SimFixed::from_num(head.y % 256),
                     );
                     let current_mask =
-                        infantry_raw_occupation_mask(e.position.sub_x, e.position.sub_y);
+                        infantry_raw_occupation_mask(e.position.sub_x(), e.position.sub_y());
                     assert_ne!(current_mask, head_mask);
                     assert_eq!(
                         bits((head.x / 256) as u16, (head.y / 256) as u16) & head_mask,
@@ -310,7 +310,7 @@ fn command_repair_fixture(with_aircraft: bool, with_team: bool) {
                         "the head stays reserved across the boundary: {trace:#?}"
                     );
                     assert_eq!(
-                        bits(e.position.rx, e.position.ry) & current_mask,
+                        bits(e.position.rx(), e.position.ry()) & current_mask,
                         0,
                         "the boundary marks no current XYZ: {trace:#?}"
                     );
@@ -408,8 +408,8 @@ fn walk_boundary_relinks_current_xyz_and_leaves_the_raw_bit_on_the_head() {
     };
     let (owner, queue) = {
         let e = sim.substrate.entities.get_mut(id).unwrap();
-        e.position.sub_x = SimFixed::from_num(192);
-        e.position.sub_y = SimFixed::from_num(64);
+        e.position.set_sub_x(SimFixed::from_num(192));
+        e.position.set_sub_y(SimFixed::from_num(64));
         e.locomotor.as_mut().unwrap().set_step_head(Some(head));
         (e.owner(), e.navigation.path_replay.clone())
     };
@@ -478,8 +478,8 @@ fn diagonal_walk_relinks_the_first_actual_side_cell_before_reaching_its_head() {
         .unwrap();
     {
         let e = sim.substrate.entities.get_mut(id).unwrap();
-        e.position.sub_x = SimFixed::from_num(192);
-        e.position.sub_y = SimFixed::from_num(64);
+        e.position.set_sub_x(SimFixed::from_num(192));
+        e.position.set_sub_y(SimFixed::from_num(64));
     }
     let grid = sim.path_grid_snapshot();
     assert!(sim.apply_command(
@@ -499,7 +499,7 @@ fn diagonal_walk_relinks_the_first_actual_side_cell_before_reaching_its_head() {
         let xy = ground_pose::position_world_xy(&e.position);
         if xy[0] >= 16 * 256 {
             assert!(xy[1] < 16 * 256, "unequal offsets must cross X first");
-            assert_eq!((e.position.rx, e.position.ry), (16, 15));
+            assert_eq!((e.position.rx(), e.position.ry()), (16, 15));
             let head = e.locomotor.as_ref().unwrap().step_head().unwrap();
             assert_eq!((head.x / 256, head.y / 256), (16, 16));
             assert!(sim.substrate.occupancy.contains_entity(16, 15, id));
@@ -507,8 +507,8 @@ fn diagonal_walk_relinks_the_first_actual_side_cell_before_reaching_its_head() {
             // The side cell lists him, but Mark skips his raw receiver
             // (`0x0047E9EA`): his bit stays on the head sub-cell.
             let mask = crate::sim::occupancy::infantry_raw_occupation_mask(
-                e.position.sub_x,
-                e.position.sub_y,
+                e.position.sub_x(),
+                e.position.sub_y(),
             );
             assert_eq!(
                 sim.substrate.raw_cell_occupation.ground_bits(16, 15) & mask,
@@ -537,8 +537,8 @@ fn refused_fresh_walk_head_restores_the_current_raw_occupation() {
         .unwrap();
     let owner = {
         let e = sim.substrate.entities.get_mut(id).unwrap();
-        e.position.sub_x = SimFixed::from_num(192);
-        e.position.sub_y = SimFixed::from_num(64);
+        e.position.set_sub_x(SimFixed::from_num(192));
+        e.position.set_sub_y(SimFixed::from_num(64));
         e.owner()
     };
     sim.substrate
@@ -565,7 +565,7 @@ fn refused_fresh_walk_head_restores_the_current_raw_occupation() {
     let grid = sim.path_grid_snapshot();
     sim.advance_tick(&[], Some(&rules), grid.as_deref(), Some(&registry), 67);
     let e = sim.substrate.entities.get(id).unwrap();
-    assert_eq!((e.position.rx, e.position.ry), (15, 15));
+    assert_eq!((e.position.rx(), e.position.ry()), (15, 15));
     assert_eq!(e.locomotor.as_ref().unwrap().step_head(), None);
     assert_eq!(
         sim.substrate.raw_cell_occupation.ground_bits(15, 15) & 0x1c,
@@ -613,10 +613,10 @@ fn production_fresh_head_and_raw_history_match_original_walk_producer() {
         )));
         let owner = {
             let e = sim.substrate.entities.get_mut(id).unwrap();
-            e.position.sub_x = SimFixed::from_num(192);
-            e.position.sub_y = SimFixed::from_num(64);
-            e.position.z = 2;
-            e.position.exact_z_leptons = Some(260);
+            e.position.set_sub_x(SimFixed::from_num(192));
+            e.position.set_sub_y(SimFixed::from_num(64));
+            e.position.set_z(2);
+            e.position.set_exact_z_leptons(Some(260));
             e.owner()
         };
         sim.substrate
@@ -1237,7 +1237,7 @@ fn walk_stop_and_retarget_finish_a_same_cell_committed_head() {
             let e = sim.substrate.entities.get(id).unwrap();
             if let Some(head) = e.locomotor.as_ref().unwrap().step_head()
                 && (head.x / 256, head.y / 256)
-                    == (i32::from(e.position.rx), i32::from(e.position.ry))
+                    == (i32::from(e.position.rx()), i32::from(e.position.ry()))
                 && crate::util::native_x87::distance_3d_leptons(
                     {
                         let c = ground_pose::position_world_coord(&e.position);
@@ -1314,7 +1314,7 @@ fn walk_stop_and_retarget_finish_a_same_cell_committed_head() {
         if stop {
             assert_eq!(ground_pose::position_world_coord(&e.position), head);
         } else {
-            assert_eq!((e.position.rx, e.position.ry), (18, 16));
+            assert_eq!((e.position.rx(), e.position.ry()), (18, 16));
         }
     }
 }

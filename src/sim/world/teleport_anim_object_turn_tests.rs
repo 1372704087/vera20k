@@ -96,8 +96,12 @@ fn relocating_owner(category: EntityCategory, type_name: &str, target: (u16, u16
     // also the centre. An Infantry constructor starts in slot2, so name the
     // supplied centre premise rather than accidentally changing the old test.
     if category == EntityCategory::Infantry {
-        entity.position.sub_x = crate::util::lepton::CELL_CENTER_LEPTON;
-        entity.position.sub_y = crate::util::lepton::CELL_CENTER_LEPTON;
+        entity
+            .position
+            .set_sub_x(crate::util::lepton::CELL_CENTER_LEPTON);
+        entity
+            .position
+            .set_sub_y(crate::util::lepton::CELL_CENTER_LEPTON);
         entity.set_sub_cell(Some(0));
     }
     entity.locomotor = Some(LocomotorState::for_test_kind(LocomotorKind::Teleport));
@@ -164,7 +168,7 @@ fn unbound_warp_art_relocates_without_an_anim() {
         .unwrap();
 
     let mover = sim.substrate.entities.get(1).unwrap();
-    assert_eq!((mover.position.rx, mover.position.ry), (8, 9));
+    assert_eq!((mover.position.rx(), mover.position.ry()), (8, 9));
     assert_eq!(sim.substrate.anims.len(), 0);
 }
 
@@ -331,8 +335,8 @@ fn the_warp_drops_attack_locks_on_its_owner() {
 
     assert_eq!(
         (
-            sim.substrate.entities.get(1).unwrap().position.rx,
-            sim.substrate.entities.get(1).unwrap().position.ry
+            sim.substrate.entities.get(1).unwrap().position.rx(),
+            sim.substrate.entities.get(1).unwrap().position.ry()
         ),
         (8, 9)
     );
@@ -411,7 +415,7 @@ fn a_restored_destination_warps_at_the_teleport_process_entry() {
         .unwrap();
 
     let mover = sim.substrate.entities.get(1).unwrap();
-    assert_eq!((mover.position.rx, mover.position.ry), (8, 9));
+    assert_eq!((mover.position.rx(), mover.position.ry()), (8, 9));
     assert!(!mover.navigation.pending_destination_setter());
     assert!(crate::sim::movement::motion_query::is_moving(&mover) != Some(true));
 }
@@ -503,7 +507,7 @@ fn restoration_callbacks_forward_overlay_inputs_before_any_destination_write() {
         Some(true)
     );
     assert_eq!(mover.teleport_state().unwrap().target_cell(), Some((12, 7)));
-    assert_eq!((mover.position.rx, mover.position.ry), (5, 5));
+    assert_eq!((mover.position.rx(), mover.position.ry()), (5, 5));
     assert_ne!(raw_bits(&sim, (12, 7)), 0, "the restored Cell is reserved");
 }
 
@@ -554,7 +558,7 @@ fn an_armed_warp_waits_while_a_drive_piggyback_is_active() {
     sim.advance_live_object_turn(1, Some(&rules), techno_ai::ObjectAiCtx::default())
         .unwrap();
     let mover = sim.substrate.entities.get_mut(1).unwrap();
-    assert_eq!((mover.position.rx, mover.position.ry), (5, 5));
+    assert_eq!((mover.position.rx(), mover.position.ry()), (5, 5));
     assert_eq!(
         mover.teleport_state().map(|state| state.phase()),
         Some(TeleportPhase::Relocate)
@@ -567,5 +571,5 @@ fn an_armed_warp_waits_while_a_drive_piggyback_is_active() {
     sim.advance_live_object_turn(1, Some(&rules), techno_ai::ObjectAiCtx::default())
         .unwrap();
     let mover = sim.substrate.entities.get(1).unwrap();
-    assert_eq!((mover.position.rx, mover.position.ry), (8, 9));
+    assert_eq!((mover.position.rx(), mover.position.ry()), (8, 9));
 }

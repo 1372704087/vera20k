@@ -304,9 +304,9 @@ fn walk_attack_range_entry_finishes_paid_head_then_accepts_new_move() {
     sim.remove_entity_occupancy(victim);
     {
         let e = sim.substrate.entities.get_mut(victim).unwrap();
-        e.position.rx = (head.x / 256 + 2) as u16;
-        e.position.ry = (head.y / 256) as u16;
-        e.position.exact_z_leptons = Some(0);
+        e.position.set_rx((head.x / 256 + 2) as u16);
+        e.position.set_ry((head.y / 256) as u16);
+        e.position.set_exact_z_leptons(Some(0));
     }
     sim.add_entity_occupancy(victim);
     assert!(sim.owns_foot_approach(actor, &rules));
@@ -340,10 +340,10 @@ fn walk_attack_range_entry_finishes_paid_head_then_accepts_new_move() {
     );
     assert!(e.navigation.nav_com().is_none());
     assert_eq!(
-        (e.position.rx, e.position.ry),
+        (e.position.rx(), e.position.ry()),
         ((head.x / 256) as u16, (head.y / 256) as u16)
     );
-    let from = (e.position.rx, e.position.ry);
+    let from = (e.position.rx(), e.position.ry());
     let raw_bits: u32 = sim
         .substrate
         .raw_cell_occupation
@@ -447,7 +447,7 @@ fn ordered_walk_attack_nulls_destination_but_preserves_paid_head_and_queues() {
             "null destination still finishes its paid step"
         );
         assert_eq!(
-            (e.position.rx, e.position.ry),
+            (e.position.rx(), e.position.ry()),
             ((head.x / 256) as u16, (head.y / 256) as u16)
         );
         assert_eq!(e.navigation.nav_queue(), queued);
@@ -504,7 +504,7 @@ fn owner_change_finishes_the_paid_walk_head() {
         "paid head stalls"
     );
     assert_eq!(
-        (e.position.rx, e.position.ry),
+        (e.position.rx(), e.position.ry()),
         ((head.x / 256) as u16, (head.y / 256) as u16)
     );
 }

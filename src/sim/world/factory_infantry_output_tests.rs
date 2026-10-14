@@ -1799,7 +1799,7 @@ fn local_state(sim: &Simulation, id: u64) -> Value {
     let walk = entity.locomotor.as_ref().unwrap();
     json!({
         "location": [p.x, p.y, p.z],
-        "cell": [entity.position.rx, entity.position.ry],
+        "cell": [entity.position.rx(), entity.position.ry()],
         "health": entity.health.current(),
         "mission": entity.mission.current().raw(),
         "queued": entity.mission.queued().raw(),
@@ -2129,8 +2129,8 @@ fn joined_two_paid_gi(route: OutputRoute) {
             let context = format!("{route:?} GI[{index}]={} frame={frame}", progress.id);
             assert!(entity.lifecycle.cell_marked() && entity.in_logic_vector.is_member());
             assert!(sim.substrate.occupancy.contains_entity(
-                entity.position.rx,
-                entity.position.ry,
+                entity.position.rx(),
+                entity.position.ry(),
                 progress.id
             ));
             let transmissions = pair_radio(&log, producer, progress.id);
@@ -2284,7 +2284,8 @@ fn joined_two_paid_gi(route: OutputRoute) {
             }
             if progress.settled_frame.is_none()
                 && progress.release_frame.is_some()
-                && rally_cell.is_none_or(|cell| (entity.position.rx, entity.position.ry) == cell)
+                && rally_cell
+                    .is_none_or(|cell| (entity.position.rx(), entity.position.ry()) == cell)
                 && entity.navigation.nav_com().is_none()
                 && entity.archive_target().is_none()
                 && entity.locomotor.as_ref().unwrap().walk_is_moving() == Some(false)

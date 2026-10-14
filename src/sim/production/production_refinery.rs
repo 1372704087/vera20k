@@ -60,8 +60,8 @@ pub(crate) fn spawn_building_free_unit(
             Some((
                 entity.owner(),
                 entity.type_ref(),
-                entity.position.rx,
-                entity.position.ry,
+                entity.position.rx(),
+                entity.position.ry(),
                 width,
                 height,
             ))

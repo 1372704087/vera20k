@@ -363,10 +363,10 @@ fn infantry_terminal_same_frame_firer_death_keeps_electric_consequences() {
             5,
             crate::util::lepton::CELL_CENTER_LEPTON,
             crate::util::lepton::CELL_CENTER_LEPTON,
-            target_position.rx,
-            target_position.ry,
-            target_position.sub_x,
-            target_position.sub_y,
+            target_position.rx(),
+            target_position.ry(),
+            target_position.sub_x(),
+            target_position.sub_y(),
         ) >> 8) as u8;
         let tesla = sim
             .spawn_object_at_height("TESLA", "Russians", 6, 5, tesla_facing, 0, &rules)
@@ -596,7 +596,7 @@ fn genetic_converter_command_uses_selected_bridge_membership() {
                     z: 416,
                 },
             );
-            actor.position.z = 4;
+            actor.position.set_z(4);
             actor.set_on_bridge(true);
         }
         assert!(matches!(
@@ -763,7 +763,7 @@ fn iron_curtain_command_selects_deck_members_and_overlapping_foundation() {
                 z: 416,
             },
         );
-        actor.position.z = 4;
+        actor.position.set_z(4);
         actor.set_on_bridge(true);
     }
     sim.reveal(deck);
@@ -802,7 +802,7 @@ fn iron_curtain_command_selects_deck_members_and_overlapping_foundation() {
             .any(|member| member.entity_id == deck)
     );
     assert!(sim.substrate.occupancy.contains_entity(4, 4, big));
-    assert_eq!(sim.substrate.entities.get(big).unwrap().position.rx, 2);
+    assert_eq!(sim.substrate.entities.get(big).unwrap().position.rx(), 2);
     launch_command(&mut sim, &rules, "IC", 5, 5);
     for id in [deck, big] {
         assert!(
@@ -983,7 +983,7 @@ fn iron_curtain_command_observes_native_deck_order_after_nested_bridge_drop_in()
                 z: 728,
             },
         );
-        actor.position.z = 7;
+        actor.position.set_z(7);
         actor.set_on_bridge(true);
     }
     sim.reveal(tank);
@@ -1016,7 +1016,7 @@ fn iron_curtain_command_observes_native_deck_order_after_nested_bridge_drop_in()
                 z: 728,
             },
         );
-        actor.position.z = 7;
+        actor.position.set_z(7);
         actor.set_on_bridge(true);
     }
     sim.reveal(boomer);
@@ -1050,7 +1050,7 @@ fn iron_curtain_command_observes_native_deck_order_after_nested_bridge_drop_in()
                 z: 728,
             },
         );
-        actor.position.z = 7;
+        actor.position.set_z(7);
         actor.set_on_bridge(true);
     }
     launch_command(&mut sim, &rules, "IC", 5, 5);
@@ -1075,7 +1075,8 @@ fn iron_curtain_command_observes_native_deck_order_after_nested_bridge_drop_in()
     let twin = sim.substrate.entities.get(unmarked).unwrap();
     assert!(twin.on_bridge() && twin.lifecycle.in_limbo() && !twin.lifecycle.cell_marked());
     assert_eq!(
-        twin.position.z, 7,
+        twin.position.z(),
+        7,
         "unmarked deck coordinate is not a DropIn recipient"
     );
     assert_eq!(

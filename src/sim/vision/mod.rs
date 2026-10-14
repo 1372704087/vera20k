@@ -176,11 +176,11 @@ fn entity_height_leptons(
         .as_ref()
         .is_some_and(|loco| loco.active_kind() == LocomotorKind::Rocket);
     if (rocket || entity.is_falling_down())
-        && let Some(z) = entity.position.exact_z_leptons
+        && let Some(z) = entity.position.exact_z_leptons()
     {
         return z;
     }
-    let level: i32 = i32::from(entity.position.z) * LEPTONS_PER_HEIGHT_LEVEL;
+    let level: i32 = i32::from(entity.position.z()) * LEPTONS_PER_HEIGHT_LEVEL;
     let above_ground: i32 = match entity.locomotor.as_ref() {
         Some(loco) if loco.layer() == MovementLayer::Air && !rocket => {
             crate::sim::movement::air_movement::current_fly_height(entity, terrain)
@@ -2100,7 +2100,7 @@ fn entity_sight_geometry(
         .min(MAX_SIGHT_RANGE);
     SightGeometry {
         owner: revealer,
-        origin: (entity.position.rx, entity.position.ry, height_leptons),
+        origin: (entity.position.rx(), entity.position.ry(), height_leptons),
         radius: effective,
     }
 }
@@ -2201,8 +2201,8 @@ fn resolve_bounds(entities: &EntityStore, path_grid: Option<&PathGrid>) -> (u16,
             continue;
         }
         found = true;
-        max_x = max_x.max(entity.position.rx);
-        max_y = max_y.max(entity.position.ry);
+        max_x = max_x.max(entity.position.rx());
+        max_y = max_y.max(entity.position.ry());
     }
     if found {
         (max_x.saturating_add(1), max_y.saturating_add(1))

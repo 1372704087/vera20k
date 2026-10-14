@@ -342,8 +342,8 @@ mod tests {
         slave.set_owner_for_test(owner);
         slave.set_type_ref_for_test(interner.intern("SLAV"));
         slave.set_category_for_test(EntityCategory::Infantry);
-        slave.position.sub_x = SimFixed::from_num(192);
-        slave.position.sub_y = SimFixed::from_num(64);
+        slave.position.set_sub_x(SimFixed::from_num(192));
+        slave.position.set_sub_y(SimFixed::from_num(64));
         slave.locomotor = Some(LocomotorState::for_test_kind(LocomotorKind::Walk));
         slave.navigation.path_replay =
             crate::sim::components::FootPathQueue::for_test(vec![2], 0, Some((3, 4)));
@@ -659,9 +659,13 @@ mod tests {
                 entity.body_facing = super::super::FacingClass::new(0, 0);
             }
             entity.set_owner_for_test(InternedId::from_index(41));
-            entity.position.sub_x = SimFixed::from_num(input["sub"][0].as_i64().unwrap());
-            entity.position.sub_y = SimFixed::from_num(input["sub"][1].as_i64().unwrap());
-            entity.position.exact_z_leptons = Some(260);
+            entity
+                .position
+                .set_sub_x(SimFixed::from_num(input["sub"][0].as_i64().unwrap()));
+            entity
+                .position
+                .set_sub_y(SimFixed::from_num(input["sub"][1].as_i64().unwrap()));
+            entity.position.set_exact_z_leptons(Some(260));
             entity.locomotor = Some(super::super::locomotor::LocomotorState::for_test_kind(
                 crate::rules::locomotor_type::LocomotorKind::Walk,
             ));

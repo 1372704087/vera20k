@@ -479,8 +479,9 @@ fn low_dropped_bombs_use_class_water_splashes_without_debris() {
         let entity = sim.substrate.entities.get_mut(id).unwrap();
         // Two ground levels exercise a raw world Z rather than a floor-Z
         // substitute. Native GetHeight still sees the table's 0/10/11.
-        entity.position.exact_z_leptons =
-            Some(2 * crate::util::lepton::GROUND_LEVEL_HEIGHT_LEPTONS + height);
+        entity.position.set_exact_z_leptons(Some(
+            2 * crate::util::lepton::GROUND_LEVEL_HEIGHT_LEPTONS + height,
+        ));
         if bomb {
             entity.begin_bomb_fall();
             entity.finish_fall();
@@ -938,7 +939,7 @@ fn a_heavy_ship_dying_on_water_sinks_without_its_explosion() {
                 .get_mut(ship)
                 .unwrap()
                 .position
-                .exact_z_leptons = Some(-400);
+                .set_exact_z_leptons(Some(-400));
             assert!(sim.tick_ship_sinking(
                 ship,
                 &rules,
@@ -1132,7 +1133,7 @@ fn retail_dustbowl_death_anims_use_the_types_lists() {
                 .collect::<Vec<_>>()
         );
         let entity = sim.substrate.entities.get(plant).unwrap();
-        let (rx, ry) = (entity.position.rx, entity.position.ry);
+        let (rx, ry) = (entity.position.rx(), entity.position.ry());
         let location = position_world_coord(&entity.position);
         assert_eq!(
             vec![location.x, location.y, location.z]

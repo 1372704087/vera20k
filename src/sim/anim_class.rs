@@ -2193,11 +2193,11 @@ impl Simulation {
                 let fire_type = self.interner.intern(fire_name);
                 let descriptor = AnimClassSpawnDescriptor {
                     type_name: fire_type,
-                    rx: position.rx,
-                    ry: position.ry,
-                    sub_x: position.sub_x,
-                    sub_y: position.sub_y,
-                    z: position.z,
+                    rx: position.rx(),
+                    ry: position.ry(),
+                    sub_x: position.sub_x(),
+                    sub_y: position.sub_y(),
+                    z: position.z(),
                     delay: 0,
                     loop_count: 1,
                     draw_flags: TRAILER_DRAW_FLAGS,
@@ -3249,9 +3249,9 @@ mod tests {
                 5,
                 false,
             );
-            owner.position.sub_x = SimFixed::from_num(128);
-            owner.position.sub_y = SimFixed::from_num(128);
-            owner.position.exact_z_leptons = Some(0);
+            owner.position.set_sub_x(SimFixed::from_num(128));
+            owner.position.set_sub_y(SimFixed::from_num(128));
+            owner.position.set_exact_z_leptons(Some(0));
             sim.substrate.entities.insert(owner);
             let type_id = sim.interner.intern("A");
             let id = sim
@@ -3284,11 +3284,11 @@ mod tests {
                     }
                     "move_owner" => {
                         let owner = sim.substrate.entities.get_mut(owner_id).unwrap();
-                        owner.position.rx = 3000 / 256;
-                        owner.position.ry = 3100 / 256;
-                        owner.position.sub_x = SimFixed::from_num(3000 % 256);
-                        owner.position.sub_y = SimFixed::from_num(3100 % 256);
-                        owner.position.exact_z_leptons = Some(700);
+                        owner.position.set_rx(3000 / 256);
+                        owner.position.set_ry(3100 / 256);
+                        owner.position.set_sub_x(SimFixed::from_num(3000 % 256));
+                        owner.position.set_sub_y(SimFixed::from_num(3100 % 256));
+                        owner.position.set_exact_z_leptons(Some(700));
                     }
                     "expire" => {
                         assert!(sim.expire_anim_owner_reference(id, owner_id));
@@ -3577,7 +3577,7 @@ mod tests {
         sim.set_anim_owner_object(id, Some(owner_id), &rules);
         let entity = sim.substrate.entities.get_mut(owner_id).unwrap();
         entity.retain_deploy_anim(id);
-        entity.position.rx += 1;
+        entity.position.set_rx(entity.position.rx() + 1);
         let absolute = sim.anim_absolute_coord(id).unwrap();
         assert_ne!(sim.anim(id).unwrap().world_coord, absolute);
 
@@ -5079,8 +5079,8 @@ mod tests {
         // Move the owner one cell east and one cell south.
         {
             let owner = sim.substrate.entities.get_mut(building_id).unwrap();
-            owner.position.rx += 1;
-            owner.position.ry += 1;
+            owner.position.set_rx(owner.position.rx() + 1);
+            owner.position.set_ry(owner.position.ry() + 1);
         }
 
         assert_eq!(
@@ -5177,7 +5177,7 @@ mod tests {
             .get_mut(building_id)
             .unwrap()
             .position
-            .exact_z_leptons = Some(before.z + 250);
+            .set_exact_z_leptons(Some(before.z + 250));
 
         assert_eq!(
             sim.anim_absolute_coord(anim_id).unwrap(),

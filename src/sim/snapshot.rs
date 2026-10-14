@@ -6204,8 +6204,8 @@ mod tests {
         entity.lifecycle.set_in_limbo_for_test(false);
         entity.lifecycle.set_cell_marked(false);
         entity.in_logic_vector.set_for_test(true);
-        entity.position.z = 3;
-        entity.position.exact_z_leptons = Some(-37);
+        entity.position.set_z(3);
+        entity.position.set_exact_z_leptons(Some(-37));
         entity.low_bridge_tube_state = Some(LowBridgeTubeMovementState::for_test(
             TubeId(9),
             2,
@@ -6242,8 +6242,8 @@ mod tests {
             .entities
             .get(entity_id)
             .expect("tube mover restored");
-        assert_eq!(restored_entity.position.z, 3);
-        assert_eq!(restored_entity.position.exact_z_leptons, Some(-37));
+        assert_eq!(restored_entity.position.z(), 3);
+        assert_eq!(restored_entity.position.exact_z_leptons(), Some(-37));
         assert_eq!(
             restored_entity.low_bridge_tube_state,
             Some(LowBridgeTubeMovementState::for_test(

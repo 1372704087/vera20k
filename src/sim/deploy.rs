@@ -61,7 +61,7 @@ pub(crate) fn issue_order(
     // foundation scan stands in), so an MCV still leaving its factory stays.
     let (rx, ry) = {
         let entity = sim.substrate.entities.get(id).unwrap();
-        (entity.position.rx, entity.position.ry)
+        (entity.position.rx(), entity.position.ry())
     };
     if crate::sim::credit_income::building_at_cell(sim, rx, ry)
         .and_then(|building| sim.substrate.entities.get(building))
@@ -115,7 +115,7 @@ impl Simulation {
         let Some(sound) = sound else {
             return Ok(());
         };
-        let (rx, ry) = (actor.position.rx, actor.position.ry);
+        let (rx, ry) = (actor.position.rx(), actor.position.ry());
         let sound_id = self.interner.intern(sound);
         self.sound_events.push(if requested == 27 {
             SimSoundEvent::EntityDeployed {

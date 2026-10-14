@@ -571,7 +571,11 @@ impl Simulation {
             let level = cells.ground_fields(entered).0;
             if let Some(entity) = self.substrate.entities.get_mut(id) {
                 entity.set_on_bridge(on_bridge);
-                entity.position.z = super::super::movement_bridge::stored_level(level, on_bridge);
+                entity
+                    .position
+                    .set_z(super::super::movement_bridge::stored_level(
+                        level, on_bridge,
+                    ));
             }
         }
         self.foot_mark_put(id, Some(rules), registry, effects);
@@ -1364,7 +1368,9 @@ mod tests {
             cell.land_type = input["land"].as_u64().unwrap_or(2) as u8;
             cell.yr_cell_land_type = cell.land_type;
             let mut entity = GameEntity::test_default(1, "ROBO", "Americans", 10, 10);
-            entity.position.exact_z_leptons = Some(input["z"].as_i64().unwrap() as i32);
+            entity
+                .position
+                .set_exact_z_leptons(Some(input["z"].as_i64().unwrap() as i32));
             let mut loco = crate::sim::movement::locomotor::LocomotorState::for_test_kind(
                 crate::rules::locomotor_type::LocomotorKind::Hover,
             );

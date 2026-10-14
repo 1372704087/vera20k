@@ -1274,7 +1274,7 @@ fn same_frame_success_then_failure_clears_backup_in_both_building_orders() {
         assert_saved_matches_native(&fixture, native);
         let placed = fixture.sim.entities().get(first_id).unwrap();
         assert!(!placed.lifecycle.in_limbo());
-        assert_eq!((placed.position.rx, placed.position.ry), (8, 4));
+        assert_eq!((placed.position.rx(), placed.position.ry()), (8, 4));
         assert_eq!(ready_product(&fixture, orders[1].0), second_id);
         assert!(
             fixture

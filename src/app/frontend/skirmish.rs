@@ -672,7 +672,7 @@ mod tests {
     fn entity_position_for_owner(sim: &Simulation, owner: &str) -> Option<(u16, u16)> {
         sim.entities().values().find_map(|entity| {
             (sim.interner.resolve(entity.owner()) == owner)
-                .then_some((entity.position.rx, entity.position.ry))
+                .then_some((entity.position.rx(), entity.position.ry()))
         })
     }
 
@@ -2605,7 +2605,7 @@ mod tests {
             .map(|entity| {
                 (
                     sim.interner.resolve(entity.owner()).to_string(),
-                    (entity.position.rx, entity.position.ry),
+                    (entity.position.rx(), entity.position.ry()),
                 )
             })
             .collect();

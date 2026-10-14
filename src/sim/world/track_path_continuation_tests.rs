@@ -523,7 +523,7 @@ fn ordered_attack_null_destination_stops_a_moving_tank_after_its_track() {
         );
         assert!(!e.navigation.pending_destination_setter());
         assert_eq!(
-            (e.position.rx, e.position.ry),
+            (e.position.rx(), e.position.ry()),
             ((head.x / 256) as u16, (head.y / 256) as u16),
             "the tank stopped at its running track's head"
         );
@@ -593,7 +593,7 @@ fn depot_release_and_pad_entry_route_through_find_path() {
         sim.advance_tick(&[], Some(&rules), None, Some(&registry), 67);
         for tank in [first, waiter] {
             let e = sim.substrate.entities.get(tank).unwrap();
-            let at = (e.position.rx, e.position.ry);
+            let at = (e.position.rx(), e.position.ry());
             assert!(
                 !footprint(at) || at.0 > 16,
                 "tank {tank} entered the impassable west column at {at:?}"
@@ -614,13 +614,13 @@ fn depot_release_and_pad_entry_route_through_find_path() {
                 a.navigation.nav_com(),
                 Some(NavTargetRef::cell(exit.0, exit.1))
             );
-            assert_eq!((a.position.rx, a.position.ry), pad);
+            assert_eq!((a.position.rx(), a.position.ry()), pad);
         }
         let a = sim.substrate.entities.get(first).unwrap();
-        first_exited |= first_released && (a.position.rx, a.position.ry) == exit;
+        first_exited |= first_released && (a.position.rx(), a.position.ry()) == exit;
         if first_exited && depot_is_servicing(&sim, depot, waiter) {
             let e = sim.substrate.entities.get(waiter).unwrap();
-            assert_eq!((e.position.rx, e.position.ry), pad);
+            assert_eq!((e.position.rx(), e.position.ry()), pad);
             waiter_on_pad = true;
             break;
         }
@@ -630,7 +630,7 @@ fn depot_release_and_pad_entry_route_through_find_path() {
         first_exited && waiter_on_pad,
         "released {first_released} exited {first_exited}: waiter at {:?} pending {:?} nav {:?} \
          mission {:?}",
-        (e.position.rx, e.position.ry),
+        (e.position.rx(), e.position.ry()),
         e.pending_entry(),
         e.navigation.nav_com(),
         e.mission.current(),
@@ -692,7 +692,8 @@ fn a_teleporter_is_repaired_at_a_depot_and_drives_off() {
         sim.advance_tick(&[], Some(&rules), None, Some(&registry), 67);
         let e = sim.substrate.entities.get(miner).unwrap();
         serviced |= depot_is_servicing(&sim, depot, miner);
-        let on_footprint = (16..19).contains(&e.position.rx) && (9..12).contains(&e.position.ry);
+        let on_footprint =
+            (16..19).contains(&e.position.rx()) && (9..12).contains(&e.position.ry());
         let teleport = e.locomotor.as_ref().is_some_and(|loco| {
             loco.active_kind() == crate::rules::locomotor_type::LocomotorKind::Teleport
         });
@@ -705,7 +706,7 @@ fn a_teleporter_is_repaired_at_a_depot_and_drives_off() {
     assert!(
         serviced && left,
         "serviced {serviced}: cell {:?} pending {:?} nav {:?} loco {:?}",
-        (e.position.rx, e.position.ry),
+        (e.position.rx(), e.position.ry()),
         e.pending_entry(),
         e.navigation.nav_com(),
         e.locomotor.as_ref().map(|loco| loco.active_kind()),
@@ -787,7 +788,7 @@ fn three_depot_waiters_are_repaired_in_turn_without_pad_intrusion() {
             for &tank in &tanks {
                 let e = sim.substrate.entities.get(tank).unwrap();
                 assert!(
-                    (e.position.rx, e.position.ry) != pad
+                    (e.position.rx(), e.position.ry()) != pad
                         || e.health.current() == 300
                         || e.radio_contacts.contains(depot),
                     "{arrival}: tank {tank} on the pad without the slot at frame {}",
@@ -818,7 +819,7 @@ fn three_depot_waiters_are_repaired_in_turn_without_pad_intrusion() {
                 e.health.current(),
                 300,
                 "{arrival}: tank {tank} at {:?} pending {:?} nav {:?} serviced {serviced:?}",
-                (e.position.rx, e.position.ry),
+                (e.position.rx(), e.position.ry()),
                 e.pending_entry(),
                 e.navigation.nav_com(),
             );
@@ -913,16 +914,20 @@ fn track_end_selects_the_next_head_in_the_same_process() {
             match committed_track_head(e) {
                 Some(head) if heads.last() != Some(&head) => heads.push(head),
                 Some(_) => {}
-                None if (e.position.rx, e.position.ry) == (16, 10) => break,
+                None if (e.position.rx(), e.position.ry()) == (16, 10) => break,
                 None => assert!(
                     heads.is_empty(),
                     "{family}: frame {frame} left the unit without a head at {:?}",
-                    (e.position.rx, e.position.ry)
+                    (e.position.rx(), e.position.ry())
                 ),
             }
         }
         let e = sim.substrate.entities.get(id).unwrap();
-        assert_eq!((e.position.rx, e.position.ry), (16, 10), "{family} arrives");
+        assert_eq!(
+            (e.position.rx(), e.position.ry()),
+            (16, 10),
+            "{family} arrives"
+        );
         assert!(heads.len() >= 3, "{family}: {heads:?}");
     }
 }
@@ -1032,13 +1037,13 @@ fn forced_track_end_requests_its_own_cell_in_the_same_process() {
             crate::sim::movement::motion_query::is_moving(&e) != Some(true),
             "nothing schedules it again"
         );
-        let cell = (e.position.rx, e.position.ry);
+        let cell = (e.position.rx(), e.position.ry());
         for later in frame + 1..frame + 10 {
             visit(&mut sim, &rules, &registry, id, later);
             let e = sim.substrate.entities.get(id).unwrap();
             let timer = e.navigation.path_runtime.movement_timer();
             assert_eq!(timer.start_frame(), frame as i32, "frame {later} searched");
-            assert_eq!((e.position.rx, e.position.ry), cell);
+            assert_eq!((e.position.rx(), e.position.ry()), cell);
         }
         return;
     }
@@ -1319,7 +1324,7 @@ fn retaliation_mid_track_stops_the_tank_at_its_track_end() {
         "nothing re-armed the old destination"
     );
     assert_eq!(
-        (e.position.rx, e.position.ry),
+        (e.position.rx(), e.position.ry()),
         ((head.x / 256) as u16, (head.y / 256) as u16),
         "the tank stopped at the head of its running track"
     );
@@ -1369,7 +1374,7 @@ fn owner_change_mid_track_stops_the_tank_at_its_track_end() {
             .is_none()
     );
     assert_eq!(
-        (e.position.rx, e.position.ry),
+        (e.position.rx(), e.position.ry()),
         ((head.x / 256) as u16, (head.y / 256) as u16),
         "the tank stopped at the head of its running track"
     );
@@ -1550,7 +1555,7 @@ fn track_end_frame_spends_one_speed_budget() {
             }
             previous_speed = Some(speed);
             let e = sim.substrate.entities.get(id).unwrap();
-            if (e.position.rx, e.position.ry) == (20, 10) && head_after.is_none() {
+            if (e.position.rx(), e.position.ry()) == (20, 10) && head_after.is_none() {
                 break;
             }
         }
@@ -1589,7 +1594,7 @@ fn queued_waypoint_arrival_returns_before_the_continuation() {
         if e.navigation.nav_com() != Some(NavTargetRef::cell(14, 10)) {
             continue;
         }
-        assert_eq!((e.position.rx, e.position.ry), (12, 10));
+        assert_eq!((e.position.rx(), e.position.ry()), (12, 10));
         assert!(!e.navigation.pending_destination_setter(), "the setter ran");
         let destination = e
             .locomotor
@@ -1667,7 +1672,7 @@ fn damaged_hover_unit_reaches_a_free_depot_pad() {
     let e = sim.substrate.entities.get(hov).unwrap();
     panic!(
         "hover never docked: at {:?}, pending {:?}",
-        (e.position.rx, e.position.ry),
+        (e.position.rx(), e.position.ry()),
         e.pending_entry()
     );
 }
@@ -1698,11 +1703,14 @@ fn advance_until_order_ends(
         sim.advance_tick(&[], Some(rules), None, Some(registry), 67);
         let e = sim.substrate.entities.get(id).unwrap();
         if e.navigation.nav_com().is_none() {
-            return (e.position.rx, e.position.ry);
+            return (e.position.rx(), e.position.ry());
         }
     }
     let e = sim.substrate.entities.get(id).unwrap();
-    panic!("order never ended: at {:?}", (e.position.rx, e.position.ry));
+    panic!(
+        "order never ended: at {:?}",
+        (e.position.rx(), e.position.ry())
+    );
 }
 
 /// A restore that could not reach the class setter (the entity-local target
@@ -1811,10 +1819,10 @@ fn hover_unit_drives_to_its_destination_cell_and_stops() {
     for _ in 0..600 {
         sim.advance_tick(&[], Some(&rules), None, Some(&registry), 67);
         let e = sim.substrate.entities.get(id).unwrap();
-        moved |= (e.position.rx, e.position.ry) != (10, 10);
+        moved |= (e.position.rx(), e.position.ry()) != (10, 10);
         if e.navigation.nav_com().is_none() {
             assert!(moved, "the order ended before the unit moved");
-            assert_eq!((e.position.rx, e.position.ry), (14, 12));
+            assert_eq!((e.position.rx(), e.position.ry()), (14, 12));
             assert!(crate::sim::movement::motion_query::is_moving(&e) != Some(true));
             assert!(
                 e.locomotor
@@ -1829,6 +1837,6 @@ fn hover_unit_drives_to_its_destination_cell_and_stops() {
     let e = sim.substrate.entities.get(id).unwrap();
     panic!(
         "hover never arrived: at {:?}",
-        (e.position.rx, e.position.ry)
+        (e.position.rx(), e.position.ry())
     );
 }

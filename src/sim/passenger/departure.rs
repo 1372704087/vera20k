@@ -218,14 +218,7 @@ pub(crate) fn reveal_unloaded_passenger(
     let outcome = sim.try_reveal_entity_with_context(
         passenger_id,
         RevealRequest {
-            position: RevealPosition {
-                exact_z_leptons: None,
-                rx,
-                ry,
-                z,
-                sub_x,
-                sub_y,
-            },
+            position: RevealPosition::new(rx, ry, z, None, sub_x, sub_y),
             // The caller already selected an unoccupied exit cell. The
             // still-blocked native admission oracle is not fabricated here.
             placement: PlacementEvidence::MarkSucceeded,

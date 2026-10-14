@@ -203,14 +203,7 @@ fn place_garrison_passenger_at_cell(
     let reveal = sim.try_reveal_entity_with_context(
         passenger_id,
         RevealRequest {
-            position: RevealPosition {
-                exact_z_leptons: None,
-                rx,
-                ry,
-                z,
-                sub_x,
-                sub_y,
-            },
+            position: RevealPosition::new(rx, ry, z, None, sub_x, sub_y),
             // The selected exit/fallback is this caller's bounded admission
             // evidence; the exact native placement oracle remains separate.
             placement: PlacementEvidence::MarkSucceeded,
@@ -342,9 +335,9 @@ pub(crate) fn eject_garrison_occupants(
         };
         let (fw, fh) = foundation_dimensions(&obj.foundation);
         (
-            entity.position.rx,
-            entity.position.ry,
-            entity.position.z,
+            entity.position.rx(),
+            entity.position.ry(),
+            entity.position.z(),
             fw,
             fh,
             cargo.passengers.clone(),
@@ -479,9 +472,9 @@ pub(crate) fn sell_building_occupants(
         }
         let (fw, fh) = foundation_dimensions(&obj.foundation);
         (
-            entity.position.rx,
-            entity.position.ry,
-            entity.position.z,
+            entity.position.rx(),
+            entity.position.ry(),
+            entity.position.z(),
             fw,
             fh,
             entity.owner(),
@@ -881,15 +874,15 @@ pub(crate) mod tests {
                 .get(pax_id)
                 .expect("passenger should remain");
             assert_eq!(
-                (pax.position.rx, pax.position.ry),
+                (pax.position.rx(), pax.position.ry()),
                 expected_cell,
                 "destroyed garrison should reuse the one chosen SellBuilding exit coordinate"
             );
             assert!(
-                pax.position.rx < 10
-                    || pax.position.rx > 11
-                    || pax.position.ry < 10
-                    || pax.position.ry > 11,
+                pax.position.rx() < 10
+                    || pax.position.rx() > 11
+                    || pax.position.ry() < 10
+                    || pax.position.ry() > 11,
                 "destroyed garrison should not place passengers inside the foundation"
             );
             assert_eq!(
@@ -993,7 +986,7 @@ pub(crate) mod tests {
             .entities
             .get(passenger_id)
             .expect("player-sell no-exit passenger should remain");
-        assert_eq!((passenger.position.rx, passenger.position.ry), (11, 11));
+        assert_eq!((passenger.position.rx(), passenger.position.ry()), (11, 11));
         assert!(!passenger.death.is_dying());
         assert!(passenger.passenger_role.is_none());
         assert_eq!(sim.scenario_rng.state(), rng_before);

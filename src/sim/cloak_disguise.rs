@@ -542,7 +542,7 @@ pub(crate) fn object_disguised_to(
         disguise.disguised,
         allied(object.owner(), observer),
         fog.is_some_and(|fog| {
-            fog.detects_disguise_for_house(observer, object.position.rx, object.position.ry)
+            fog.detects_disguise_for_house(observer, object.position.rx(), object.position.ry())
         }),
         disguise
             .disguised_as_house

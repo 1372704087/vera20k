@@ -496,7 +496,7 @@ impl Simulation {
         let location = super::ground_pose::position_world_coord(&actor.position);
         Some(FootSearchKey {
             location: (location.x, location.y, location.z),
-            start: (actor.position.rx, actor.position.ry),
+            start: (actor.position.rx(), actor.position.ry()),
             on_bridge: actor.on_bridge(),
             facing: actor.body_facing.current(self.session.binary_frame),
             goal: (goal.x, goal.y, goal.z),

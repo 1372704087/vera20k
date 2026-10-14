@@ -85,10 +85,10 @@ pub(crate) fn facing_toward_target(
 ) -> Option<u16> {
     let (trx, try_, tsx, tsy) = crate::sim::combat::resolve_target_coords(target, entities)?;
     Some(facing_toward_lepton(
-        entity.position.rx,
-        entity.position.ry,
-        entity.position.sub_x,
-        entity.position.sub_y,
+        entity.position.rx(),
+        entity.position.ry(),
+        entity.position.sub_x(),
+        entity.position.sub_y(),
         trx,
         try_,
         tsx,

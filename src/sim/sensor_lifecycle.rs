@@ -293,7 +293,7 @@ impl Simulation {
                 let object = rules.object(self.interner.resolve(entity.type_ref()))?;
                 Some((
                     entity.owner(),
-                    (entity.position.rx, entity.position.ry),
+                    (entity.position.rx(), entity.position.ry()),
                     unit_sensor_radius(entity.category(), object)?,
                     entity.lifecycle.in_limbo(),
                 ))
@@ -353,7 +353,7 @@ impl Simulation {
                 }
                 Some((
                     entity.owner(),
-                    (entity.position.rx, entity.position.ry),
+                    (entity.position.rx(), entity.position.ry()),
                     sight,
                     object.cloak_radius_in_cells,
                     detect_radius,
@@ -553,7 +553,12 @@ mod tests {
             "the overlapping second deposit remains positive"
         );
 
-        sim.substrate.entities.get_mut(second).unwrap().position.rx = 50;
+        sim.substrate
+            .entities
+            .get_mut(second)
+            .unwrap()
+            .position
+            .set_rx(50);
         sim.refresh_unit_sensor_at_per_cell(second, &rules);
         assert!(!sim.fog.has_sensor_for_house(americans, 33, 30));
         assert!(sim.fog.has_sensor_for_house(americans, 57, 30));
@@ -573,8 +578,8 @@ mod tests {
         {
             let entity = sim.substrate.entities.get_mut(second).unwrap();
             entity.set_owner_for_test(neutral);
-            entity.position.rx = 5;
-            entity.position.ry = 5;
+            entity.position.set_rx(5);
+            entity.position.set_ry(5);
         }
         sim.techno_limbo_with_rules(second, &rules, None);
         assert!(

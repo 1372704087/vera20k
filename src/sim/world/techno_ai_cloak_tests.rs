@@ -75,10 +75,10 @@ fn stock_cloak_producer_healthy_trace_uses_type_speed_and_no_rng() {
             sub_y,
             world_z_leptons: 0,
         }] if sound_id == "NavalUnitEmerge"
-            && *rx == entity.position.rx
-            && *ry == entity.position.ry
-            && *sub_x == entity.position.sub_x
-            && *sub_y == entity.position.sub_y
+            && *rx == entity.position.rx()
+            && *ry == entity.position.ry()
+            && *sub_x == entity.position.sub_x()
+            && *sub_y == entity.position.sub_y()
     ));
     assert_eq!(
         sim.interner.get("NavalUnitEmerge"),
@@ -259,7 +259,7 @@ fn fully_cloaked_sub_holding_a_target_does_not_surface() {
         .substrate
         .entities
         .get(id)
-        .map(|entity| (entity.position.rx, entity.position.ry))
+        .map(|entity| (entity.position.rx(), entity.position.ry()))
         .unwrap();
     sim.fog.mark_visible_for_owner(owner, rx, ry);
     tick_stock_cloak_producer(
@@ -329,7 +329,7 @@ fn stock_cloak_producer_honors_rank_selected_cloak_ability() {
         .substrate
         .entities
         .get(sub)
-        .map(|entity| (entity.position.rx, entity.position.ry))
+        .map(|entity| (entity.position.rx(), entity.position.ry()))
         .unwrap();
     let ranked = sim
         .spawn_object_at_height("RANKED", "Soviet", rx, ry, 0, 0, &rules)
@@ -391,7 +391,7 @@ fn sensor_deposit_alone_never_force_cloaks_an_eligible_unit() {
         .substrate
         .entities
         .get(cloaker)
-        .map(|entity| ((entity.position.rx, entity.position.ry), entity.owner()))
+        .map(|entity| ((entity.position.rx(), entity.position.ry()), entity.owner()))
         .unwrap();
     sim.fog.mark_visible_for_owner(owner, cell.0, cell.1);
 
@@ -420,7 +420,7 @@ fn sensor_callback_reassigns_admitted_targeters_in_forward_techno_registration_o
         .substrate
         .entities
         .get(cloaker)
-        .map(|entity| ((entity.position.rx, entity.position.ry), entity.owner()))
+        .map(|entity| ((entity.position.rx(), entity.position.ry()), entity.owner()))
         .unwrap();
     arm_cloak_field_for(&mut sim, cloaker_owner, cell);
 
@@ -520,7 +520,7 @@ fn already_cloaked_object_is_refused_by_can_auto_cloak_step_two() {
         .substrate
         .entities
         .get(cloaker)
-        .map(|entity| ((entity.position.rx, entity.position.ry), entity.owner()))
+        .map(|entity| ((entity.position.rx(), entity.position.ry()), entity.owner()))
         .unwrap();
     sim.substrate
         .entities
@@ -683,7 +683,7 @@ fn a_non_allied_sensors_neighbour_surfaces_a_cloaked_mover_on_cell_entry() {
         .substrate
         .entities
         .get(id)
-        .map(|entity| (entity.position.rx, entity.position.ry))
+        .map(|entity| (entity.position.rx(), entity.position.ry()))
         .unwrap();
     sim.substrate
         .entities
@@ -744,7 +744,7 @@ fn a_sensors_neighbour_asks_its_own_house_about_the_mover() {
         .substrate
         .entities
         .get(id)
-        .map(|entity| (entity.position.rx, entity.position.ry))
+        .map(|entity| (entity.position.rx(), entity.position.ry()))
         .unwrap();
     sim.substrate
         .entities
@@ -783,7 +783,7 @@ fn start_cloaking_drops_every_targeter_whose_house_cannot_sense_the_cell() {
         .substrate
         .entities
         .get(cloaker)
-        .map(|entity| (entity.position.rx, entity.position.ry))
+        .map(|entity| (entity.position.rx(), entity.position.ry()))
         .unwrap();
     let sensing = sim
         .spawn_object_at_height("DEST", "Americans", cell.0 + 1, cell.1, 0, 0, &rules)
@@ -912,7 +912,7 @@ fn a_dive_reaches_every_registered_object_but_leaves_radio_contacts_intact() {
         .substrate
         .entities
         .get(cloaker)
-        .map(|entity| (entity.position.rx, entity.position.ry))
+        .map(|entity| (entity.position.rx(), entity.position.ry()))
         .unwrap();
     let bystander = sim
         .spawn_object_at_height("RANKED", "Neutral", cell.0 + 2, cell.1, 0, 0, &rules)
@@ -971,7 +971,7 @@ fn a_sensing_house_keeps_both_target_and_destination_across_a_dive() {
         .substrate
         .entities
         .get(cloaker)
-        .map(|entity| (entity.position.rx, entity.position.ry))
+        .map(|entity| (entity.position.rx(), entity.position.ry()))
         .unwrap();
     let sensing = sim
         .spawn_object_at_height("DEST", "Americans", cell.0 + 1, cell.1, 0, 0, &rules)
@@ -1053,7 +1053,7 @@ fn a_limboed_entity_on_the_cell_no_longer_shadows_the_sensors_neighbour() {
         .substrate
         .entities
         .get(id)
-        .map(|entity| (entity.position.rx, entity.position.ry))
+        .map(|entity| (entity.position.rx(), entity.position.ry()))
         .unwrap();
     sim.substrate
         .entities
@@ -1074,7 +1074,7 @@ fn a_limboed_entity_on_the_cell_no_longer_shadows_the_sensors_neighbour() {
     assert!(stale < dest);
     sim.techno_limbo_with_rules(stale, &rules, None);
     assert_eq!(
-        sim.substrate.entities.get(stale).unwrap().position.rx,
+        sim.substrate.entities.get(stale).unwrap().position.rx(),
         cell.0 + 1,
         "limbo leaves the stale map position in place, which is why the raw scan was wrong"
     );
@@ -1097,7 +1097,7 @@ fn the_sensors_neighbour_pick_is_nearest_to_the_cell_origin_not_lowest_id() {
             .substrate
             .entities
             .get(id)
-            .map(|entity| (entity.position.rx, entity.position.ry))
+            .map(|entity| (entity.position.rx(), entity.position.ry()))
             .unwrap();
         sim.substrate
             .entities
@@ -1121,8 +1121,8 @@ fn the_sensors_neighbour_pick_is_nearest_to_the_cell_origin_not_lowest_id() {
         };
         for (entity_id, offset) in [(near, 10i32), (far, 200i32)] {
             let entity = sim.substrate.entities.get_mut(entity_id).unwrap();
-            entity.position.sub_x = SimFixed::from_num(offset);
-            entity.position.sub_y = SimFixed::from_num(offset);
+            entity.position.set_sub_x(SimFixed::from_num(offset));
+            entity.position.set_sub_y(SimFixed::from_num(offset));
         }
 
         assert_eq!(

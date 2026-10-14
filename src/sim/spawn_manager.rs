@@ -1242,7 +1242,10 @@ impl SpawnHost for WorldSpawn<'_, '_> {
             .entities
             .get(self.owner_id)
             .map_or((-1, -1), |owner| {
-                (i32::from(owner.position.rx), i32::from(owner.position.ry))
+                (
+                    i32::from(owner.position.rx()),
+                    i32::from(owner.position.ry()),
+                )
             })
     }
 
@@ -1306,7 +1309,10 @@ impl SpawnHost for WorldSpawn<'_, '_> {
             .entities
             .get(child)
             .map_or((-2, -2), |child| {
-                (i32::from(child.position.rx), i32::from(child.position.ry))
+                (
+                    i32::from(child.position.rx()),
+                    i32::from(child.position.ry()),
+                )
             })
     }
 
@@ -1332,7 +1338,7 @@ impl SpawnHost for WorldSpawn<'_, '_> {
         let Some(owner) = self.sim.substrate.entities.get(self.owner_id) else {
             return;
         };
-        let owner_level = owner.position.z;
+        let owner_level = owner.position.z();
         // The Unlimbo direction: the owner's PrimaryFacing `Current()` rounded
         // to a DirType (`0x006B74E9..0x006B74FC`).
         let launch_dir = owner.body_facing_dir(frame);
@@ -1346,7 +1352,7 @@ impl SpawnHost for WorldSpawn<'_, '_> {
         // level stays the owner's. The original ignores its answer.
         if let Some(child) = self.sim.substrate.entities.get_mut(child) {
             crate::sim::movement::ground_pose::put_location(&mut child.position, launch);
-            child.position.z = owner_level;
+            child.position.set_z(owner_level);
             child.body_facing.snap(u16::from(launch_dir) << 8, frame);
         }
         let _ = self.sim.reveal_entity_with_rules(child, rules);
@@ -1400,7 +1406,7 @@ impl SpawnHost for WorldSpawn<'_, '_> {
                 let Some(owner) = self.sim.substrate.entities.get(self.owner_id) else {
                     return;
                 };
-                let (rx, ry) = adjacent_cell(owner.position.rx, owner.position.ry, direction);
+                let (rx, ry) = adjacent_cell(owner.position.rx(), owner.position.ry(), direction);
                 Some(crate::sim::components::NavTargetRef::cell(rx, ry))
             }
             // The NavCom is the owner itself, so the child heads for the
@@ -1465,7 +1471,7 @@ impl SpawnHost for WorldSpawn<'_, '_> {
         let spawn_type = self.manager().spawn_type;
         let owner = self.sim.substrate.entities.get(self.owner_id)?;
         let house = self.sim.interner.resolve(owner.owner()).to_string();
-        let (rx, ry, z) = (owner.position.rx, owner.position.ry, owner.position.z);
+        let (rx, ry, z) = (owner.position.rx(), owner.position.ry(), owner.position.z());
         let facing = owner.body_facing_byte(self.sim.session.binary_frame);
         let type_name = self.sim.interner.resolve(spawn_type).to_string();
         self.sim.construct_object_limbo_at_height(

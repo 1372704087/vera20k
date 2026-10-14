@@ -625,9 +625,13 @@ impl SuppliedFootFixture {
                 object.sight as u16,
                 !infantry,
             );
-            entity.position.sub_x = SimFixed::from_num(placed[0] % 256);
-            entity.position.sub_y = SimFixed::from_num(placed[1] % 256);
-            entity.position.exact_z_leptons = Some(placed[2]);
+            entity
+                .position
+                .set_sub_x(SimFixed::from_num(placed[0] % 256));
+            entity
+                .position
+                .set_sub_y(SimFixed::from_num(placed[1] % 256));
+            entity.position.set_exact_z_leptons(Some(placed[2]));
             entity
                 .lifecycle
                 .set_in_limbo_for_test(if pointer == &setup["candidate"] {
@@ -879,11 +883,11 @@ impl SuppliedFootFixture {
         // particular a NullCoord archive keeps its original Display slot.
         for (id, pose) in supplied_poses {
             let entity = sim.substrate.entities.get_mut(id).unwrap();
-            entity.position.rx = (pose[0] / 256) as u16;
-            entity.position.ry = (pose[1] / 256) as u16;
-            entity.position.sub_x = SimFixed::from_num(pose[0] % 256);
-            entity.position.sub_y = SimFixed::from_num(pose[1] % 256);
-            entity.position.exact_z_leptons = Some(pose[2]);
+            entity.position.set_rx((pose[0] / 256) as u16);
+            entity.position.set_ry((pose[1] / 256) as u16);
+            entity.position.set_sub_x(SimFixed::from_num(pose[0] % 256));
+            entity.position.set_sub_y(SimFixed::from_num(pose[1] % 256));
+            entity.position.set_exact_z_leptons(Some(pose[2]));
             if id == actor {
                 entity.set_on_bridge(row["before"]["on_bridge"] != 0);
             }

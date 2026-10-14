@@ -125,7 +125,7 @@ fn retail_atlas_refresh_costs() {
         .entities()
         .values()
         .find(|entity| sim.interner.resolve(entity.owner()) == owner)
-        .map(|entity| (entity.position.rx, entity.position.ry))
+        .map(|entity| (entity.position.rx(), entity.position.ry()))
         .expect("owned anchor");
     // Place `type_id` on the first free cell of growing rings around the
     // player's first object, two cells apart.

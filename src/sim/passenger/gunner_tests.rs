@@ -119,8 +119,8 @@ fn assert_boarded(sim: &Simulation, ifv: u64, passenger: u64) {
 
 fn unload_at_clear_exit(sim: &mut Simulation, rules: &RuleSet, ifv: u64, passenger: u64) {
     let exit = (
-        entity(sim, ifv).position.rx,
-        entity(sim, ifv).position.ry + 1,
+        entity(sim, ifv).position.rx(),
+        entity(sim, ifv).position.ry() + 1,
     );
     assert_eq!(
         depart_cargo_head(
@@ -159,7 +159,7 @@ fn unload_at_clear_exit(sim: &mut Simulation, rules: &RuleSet, ifv: u64, passeng
     let pax = entity(sim, passenger);
     assert!(pax.passenger_role.is_none());
     assert!(!pax.lifecycle.in_limbo());
-    assert_eq!((pax.position.rx, pax.position.ry), exit);
+    assert_eq!((pax.position.rx(), pax.position.ry()), exit);
     assert_eq!(
         sim.live_object_order_snapshot()
             .iter()

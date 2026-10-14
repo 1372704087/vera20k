@@ -227,7 +227,7 @@ pub(crate) fn build_shp_instances(
                 anchor
             }
         };
-        let interp_z = pos.z;
+        let interp_z = pos.z();
         // The lift `screen_position` drew this body with. A building's draw
         // cancels exactly that for its sort row and per-pixel Z seed
         // (`NormalZAdjust - AdjustForZ(Z)`), so its body, bib, anims and
@@ -449,14 +449,14 @@ pub(crate) fn build_shp_instances(
         });
         let tint = shp_body_tint(
             state.match_state.match_presentation.lighting.grid(),
-            (pos.rx, pos.ry),
+            (pos.rx(), pos.ry()),
             entity.category(),
             extra_light,
         );
         let selected_palette_light = crate::app::presentation::lighting::body_palette_light(
             state.match_state.match_presentation.lighting.grid(),
             &sim.session.lighting,
-            (pos.rx, pos.ry),
+            (pos.rx(), pos.ry()),
             extra_light,
         );
         let palette_light = if entity.category() == EntityCategory::Structure {
@@ -468,7 +468,7 @@ pub(crate) fn build_shp_instances(
             crate::app::presentation::lighting::building_palette_light(
                 state.match_state.match_presentation.lighting.grid(),
                 &sim.session.lighting,
-                (pos.rx, pos.ry),
+                (pos.rx(), pos.ry()),
                 art,
                 is_building_up || is_building_down,
             )
@@ -1016,7 +1016,7 @@ pub(super) fn build_building_anim_instances(
             continue;
         }
         let draw_state = material.state;
-        let cell = (building.position.rx, building.position.ry);
+        let cell = (building.position.rx(), building.position.ry());
         let tint = grid.building_body_tint_at(cell);
         let extra_light =
             crate::app::presentation::lighting::body_extra_light(building, rules, sim, terrain);
@@ -1329,7 +1329,7 @@ fn emit_unit_terrain_body(
     let depth = compute_sprite_depth(
         state,
         ground_sort_row(entity, point[1] + body.offset_y + body.pixel_size[1]),
-        entity.position.z,
+        entity.position.z(),
     );
     let bridge_fudge = super::foot_depth::shp_unit_bridge_fudge(state, entity);
     let body_z =
@@ -1456,7 +1456,7 @@ pub(crate) fn resolve_object_shp_frame(
         // live map land; it does not depend on the separate Infantry6E8 byte.
         let selected = if doing == -1 {
             let water = cells.is_some_and(|cells| {
-                let cell = cells.lookup((entity.position.rx as i16, entity.position.ry as i16));
+                let cell = cells.lookup((entity.position.rx() as i16, entity.position.ry() as i16));
                 cells.land_type(cell) == 2
             });
             if water && !entity.on_bridge() { 16 } else { 0 }

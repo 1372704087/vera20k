@@ -390,8 +390,8 @@ fn unload_orders_each_loaded_transport_off_buildings() {
     f.spawn("GAPOWR", 8, 20);
     {
         let entity = f.sim.substrate.entities.get_mut(parked).unwrap();
-        entity.position.rx = 9;
-        entity.position.ry = 21;
+        entity.position.set_rx(9);
+        entity.position.set_ry(21);
     }
     let before = ordered(f.entity(parked));
     let team = f.team(&[parked]);
@@ -1084,13 +1084,16 @@ fn deploy_matches_the_original() {
             let id = team.members[index];
             let entity = team.sim.substrate.entities.get(id).unwrap();
             let at = format!("case {case} member {index}");
-            let cell = [i64::from(entity.position.rx), i64::from(entity.position.ry)];
+            let cell = [
+                i64::from(entity.position.rx()),
+                i64::from(entity.position.ry()),
+            ];
             match kind {
                 "mark" => assert!(
                     entity.lifecycle.cell_marked()
                         && team.sim.substrate.occupancy.contains_entity(
-                            entity.position.rx,
-                            entity.position.ry,
+                            entity.position.rx(),
+                            entity.position.ry(),
                             id
                         ),
                     "{at}: put back"

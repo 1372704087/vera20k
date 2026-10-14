@@ -3050,7 +3050,7 @@ impl TacticalCaptureSession {
                             "spatial_bucket": entity.air_spatial_bucket(),
                             "spatial_enter_order": entity.air_spatial_enter_order(),
                             "current_cell_slot_holder": sim.substrate.air_slots.holder(
-                                entity.position.rx, entity.position.ry),
+                                entity.position.rx(), entity.position.ry()),
                             "tracker_cell_slot_holder": sim.substrate.air_slots.holder(
                                 tracker_cell.0 as u16, tracker_cell.1 as u16),
                             "slot_cell_slot_holder": sim.substrate.air_slots.holder(
@@ -3153,7 +3153,7 @@ impl TacticalCaptureSession {
                 let mut observation = json!({
                     "stable_id": id, "owner": owner,
                     "type_id": type_name, "category": entity.category(),
-                    "cell": [entity.position.rx, entity.position.ry],
+                    "cell": [entity.position.rx(), entity.position.ry()],
                     "physical_leptons": [coord.x, coord.y, coord.z], "on_bridge": entity.on_bridge(),
                     "health": entity.health.current(), "active": entity.is_active(),
                     "veterancy_raw_bits": entity.veterancy.raw().bits(),

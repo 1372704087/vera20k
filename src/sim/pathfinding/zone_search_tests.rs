@@ -127,7 +127,7 @@ fn first_track_process_route(
             .is_empty(),
         "the order installs no route"
     );
-    let start = (entity.position.rx, entity.position.ry);
+    let start = (entity.position.rx(), entity.position.ry());
     // Its Foot precheck reads Map Size and the playfield; an unbounded
     // fixture's Map Size is its cell grid, inside generous LocalSize bounds.
     if sim.playfield_bounds.is_none() {
@@ -932,7 +932,7 @@ fn gsi_04_12_completed_ground_unit_clearance_rally_threads_exact_blocker_counts(
         .values()
         .find(|entity| entity.owner() == owner && entity.type_ref() == produced_type)
         .expect("completed MTNK should exist");
-    assert_eq!((produced.position.rx, produced.position.ry), (1, 0));
+    assert_eq!((produced.position.rx(), produced.position.ry()), (1, 0));
     let locomotor = produced.locomotor.as_ref().expect("produced locomotor");
     assert_eq!(
         locomotor.active_kind(),

@@ -118,9 +118,9 @@ pub(super) fn cmin_rules(input: &Value) -> (RuleSet, IniFile) {
 /// refinery's foundation cells).
 fn place(s: &mut Scene, id: u64, to: (u16, u16)) {
     let entity = s.sim.substrate.entities.get_mut(id).unwrap();
-    let from = (entity.position.rx, entity.position.ry);
-    entity.position.rx = to.0;
-    entity.position.ry = to.1;
+    let from = (entity.position.rx(), entity.position.ry());
+    entity.position.set_rx(to.0);
+    entity.position.set_ry(to.1);
     let layer = s
         .sim
         .substrate
@@ -189,8 +189,8 @@ pub(super) fn dress_cmin(s: &mut Scene, input: &Value) {
         let miner = s.miner;
         place(s, miner, ((exact.x >> 8) as u16, (exact.y >> 8) as u16));
         let position = &mut s.sim.substrate.entities.get_mut(miner).unwrap().position;
-        position.sub_x = crate::util::fixed_math::SimFixed::from_num(exact.x & 0xFF);
-        position.sub_y = crate::util::fixed_math::SimFixed::from_num(exact.y & 0xFF);
+        position.set_sub_x(crate::util::fixed_math::SimFixed::from_num(exact.x & 0xFF));
+        position.set_sub_y(crate::util::fixed_math::SimFixed::from_num(exact.y & 0xFF));
     }
     let nav = input.get("nav").filter(|n| !n.is_null()).map(cell);
     let terrain = s.sim.resolved_terrain.clone();
@@ -539,7 +539,7 @@ fn teleport_warp_matches_the_original_process() {
         }
         let origin = {
             let entity = s.sim.substrate.entities.get(s.miner).unwrap();
-            (entity.position.rx, entity.position.ry)
+            (entity.position.rx(), entity.position.ry())
         };
         let warp_out = s.sim.interner.intern("WARPOUT");
         let ticks = row["ticks"].as_array().unwrap();
@@ -608,7 +608,7 @@ fn teleport_warp_matches_the_original_process() {
                 assert_eq!(anims, expected_anims, "{context}: WarpOut animations");
                 if expected_anims.is_empty() {
                     let entity = s.sim.substrate.entities.get(s.miner).unwrap();
-                    assert_eq!((entity.position.rx, entity.position.ry), origin);
+                    assert_eq!((entity.position.rx(), entity.position.ry()), origin);
                 }
             }
             let state = &tick["state"];

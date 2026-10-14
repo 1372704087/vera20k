@@ -56,8 +56,8 @@ fn fixture(kind: LocomotorKind) -> Simulation {
         5,
         false,
     );
-    entity.position.sub_x = SimFixed::from_num(128);
-    entity.position.sub_y = SimFixed::from_num(128);
+    entity.position.set_sub_x(SimFixed::from_num(128));
+    entity.position.set_sub_y(SimFixed::from_num(128));
     entity.lifecycle.set_object_alive_for_test(true);
     entity.lifecycle.set_in_limbo_for_test(false);
     entity.lifecycle.set_cell_marked(true);
@@ -340,7 +340,7 @@ fn paid_walk_progress_clears_only_blocked_latch_and_retains_timer_words() {
         "paid Walk step reached"
     );
     assert_eq!(
-        (entity.position.rx, entity.position.ry),
+        (entity.position.rx(), entity.position.ry()),
         (8, 8),
         "no boundary receiver needed"
     );

@@ -47,7 +47,7 @@ fn frame(s: &mut Scene) -> Sample {
     let miner = s.sim.substrate.entities.get(s.miner).unwrap();
     let state = miner.miner.as_ref().unwrap();
     Sample {
-        cell: (miner.position.rx, miner.position.ry),
+        cell: (miner.position.rx(), miner.position.ry()),
         mission: miner.mission.current(),
         contact: miner.radio_contacts.slot(0),
         tethered: miner.tether.partner().is_some(),
@@ -102,7 +102,7 @@ fn returning_input(cell: (u16, u16)) -> serde_json::Value {
 fn assert_whole_visit(s: &mut Scene, drives: bool) -> Vec<Sample> {
     let start = {
         let position = &s.sim.substrate.entities.get(s.miner).unwrap().position;
-        (position.rx, position.ry)
+        (position.rx(), position.ry())
     };
     let mut samples = Vec::new();
     for _ in 0..1500 {
@@ -494,7 +494,7 @@ fn selling_the_refinery_mid_unload_hands_the_chrono_miner_to_harvest() {
         miner.mission.current(),
         MissionId::from_known(MissionType::Harvest)
     );
-    assert_eq!((miner.position.rx, miner.position.ry), PAD);
+    assert_eq!((miner.position.rx(), miner.position.ry()), PAD);
     assert_eq!(
         miner.locomotor.as_ref().unwrap().active_kind(),
         LocomotorKind::Teleport

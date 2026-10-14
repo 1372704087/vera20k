@@ -1096,8 +1096,8 @@ mod retail_construction_tests {
                             format!(
                                 "{}@({},{}) m{} aims away {}",
                                 sim.interner.resolve(entity.type_ref()),
-                                entity.position.rx,
-                                entity.position.ry,
+                                entity.position.rx(),
+                                entity.position.ry(),
                                 entity.mission.effective().raw(),
                                 aims_at_another_house(sim, entity),
                             )
@@ -1287,8 +1287,8 @@ mod retail_construction_tests {
                             format!(
                                 "{}@({},{}) hp{} m{} {} nav {:?}{}",
                                 sim.interner.resolve(entity.type_ref()),
-                                entity.position.rx,
-                                entity.position.ry,
+                                entity.position.rx(),
+                                entity.position.ry(),
                                 entity.health.current(),
                                 entity.mission.effective().raw(),
                                 match sim.team_script_vm.team_for_member(id) {
@@ -1426,7 +1426,10 @@ mod retail_construction_tests {
                 .expect("the local Construction Yard");
             let at = |sim: &Simulation, id| {
                 let entity = sim.entities().get(id).expect("spawned");
-                (i32::from(entity.position.rx), i32::from(entity.position.ry))
+                (
+                    i32::from(entity.position.rx()),
+                    i32::from(entity.position.ry()),
+                )
             };
             let (yx, yy) = at(sim, yard);
             let russians = house_of(sim, "Russians");
@@ -1799,7 +1802,7 @@ mod retail_construction_tests {
             .filter_map(|&id| sim.entities().get(id))
             .map(|entity| {
                 (
-                    (entity.position.rx, entity.position.ry),
+                    (entity.position.rx(), entity.position.ry()),
                     entity.navigation.nav_com(),
                 )
             })
@@ -2163,7 +2166,7 @@ mod retail_construction_tests {
         let rhino = spawned[0];
         let start = {
             let entity = sim.entities().get(rhino).expect("the Rhino");
-            (entity.position.rx, entity.position.ry)
+            (entity.position.rx(), entity.position.ry())
         };
         let america = house_of(sim, "Americans");
         let gi = spawn_on_free_cells(
@@ -2206,7 +2209,7 @@ mod retail_construction_tests {
             }
             if charged.is_some()
                 && moved.is_none()
-                && (entity.position.rx, entity.position.ry) != start
+                && (entity.position.rx(), entity.position.ry()) != start
             {
                 moved = Some(frame);
             }
@@ -2215,7 +2218,7 @@ mod retail_construction_tests {
                 .get(gi)
                 .filter(|gi| !gi.death.is_dying() && gi.health.current() > 0)
             {
-                Some(gi) => gi_cell = Some((gi.position.rx, gi.position.ry)),
+                Some(gi) => gi_cell = Some((gi.position.rx(), gi.position.ry())),
                 None => {
                     died = Some(frame);
                     // The per-cell crush plays the victim's `CrushSound=` at
@@ -2266,7 +2269,7 @@ mod retail_construction_tests {
         let rhino = spawned[0];
         let start = {
             let entity = sim.entities().get(rhino).expect("the Rhino");
-            (entity.position.rx, entity.position.ry)
+            (entity.position.rx(), entity.position.ry())
         };
         let america = house_of(sim, "Americans");
         let gi = spawn_on_free_cells(
@@ -2301,7 +2304,7 @@ mod retail_construction_tests {
                 .get(gi)
                 .filter(|gi| !gi.death.is_dying() && gi.health.current() > 0)
             {
-                Some(gi) => gi_cell = Some((gi.position.rx, gi.position.ry)),
+                Some(gi) => gi_cell = Some((gi.position.rx(), gi.position.ry())),
                 None => {
                     died = Some(frame);
                     crushed = output.sound_events.iter().any(|event| {
@@ -2363,7 +2366,10 @@ mod retail_construction_tests {
         let (sim, rules) = (&mut runtime.simulation, &runtime.resources.rules);
         let at = {
             let entity = sim.entities().get(reactor).expect("the reactor stands");
-            (i32::from(entity.position.rx), i32::from(entity.position.ry))
+            (
+                i32::from(entity.position.rx()),
+                i32::from(entity.position.ry()),
+            )
         };
         let america = house_of(sim, "Americans");
         let cells = cells_nearest(at)
@@ -2441,7 +2447,10 @@ mod retail_construction_tests {
         let america = house_of(sim, "Americans");
         let at = |sim: &Simulation, id| {
             let entity = sim.entities().get(id).expect("spawned");
-            (i32::from(entity.position.rx), i32::from(entity.position.ry))
+            (
+                i32::from(entity.position.rx()),
+                i32::from(entity.position.ry()),
+            )
         };
         let mcv = sim
             .substrate
@@ -2567,7 +2576,10 @@ mod retail_construction_tests {
         let america = house_of(sim, "Americans");
         let at = |sim: &Simulation, id| {
             let entity = sim.entities().get(id).expect("spawned");
-            (i32::from(entity.position.rx), i32::from(entity.position.ry))
+            (
+                i32::from(entity.position.rx()),
+                i32::from(entity.position.ry()),
+            )
         };
         let mcv_of = |sim: &Simulation, house| {
             sim.substrate
@@ -2694,7 +2706,10 @@ mod retail_construction_tests {
         let at = {
             let entity = sim.substrate.entities.get_mut(miner).unwrap();
             entity.health.set_for_test(strength / 2);
-            (i32::from(entity.position.rx), i32::from(entity.position.ry))
+            (
+                i32::from(entity.position.rx()),
+                i32::from(entity.position.ry()),
+            )
         };
         let america = house_of(sim, "Americans");
         let cells = cells_nearest(at)

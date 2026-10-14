@@ -801,8 +801,8 @@ mod tests {
         let mut entity = GameEntity::test_default(1, "JUMPJETUNIT", "Americans", 10, 10);
         entity.set_category_for_test(EntityCategory::Unit);
         entity.body_facing.snap(u16::from(body_facing) << 8, 0);
-        entity.position.sub_x = SimFixed::from_num(128);
-        entity.position.sub_y = SimFixed::from_num(128);
+        entity.position.set_sub_x(SimFixed::from_num(128));
+        entity.position.set_sub_y(SimFixed::from_num(128));
         let mut locomotor = LocomotorState::for_test_kind(LocomotorKind::Jumpjet);
         locomotor
             .jumpjet_runtime_mut()
@@ -902,7 +902,7 @@ mod tests {
         {
             let entity = sim.substrate.entities.get_mut(1).expect("jumpjet");
             entity.set_foot_occupation_enabled(true);
-            entity.position.exact_z_leptons = Some(0);
+            entity.position.set_exact_z_leptons(Some(0));
             let locomotor = entity.locomotor.as_mut().expect("locomotor");
             let runtime = locomotor.jumpjet_runtime_mut().expect("runtime");
             *runtime = runtime
@@ -925,8 +925,8 @@ mod tests {
             );
         }
         let entity = sim.substrate.entities.get(1).expect("jumpjet");
-        assert!(entity.position.exact_z_leptons.unwrap() >= 208);
-        let here = (entity.position.rx, entity.position.ry);
+        assert!(entity.position.exact_z_leptons().unwrap() >= 208);
+        let here = (entity.position.rx(), entity.position.ry());
         for (rx, ry) in [(10, 10), here] {
             assert!(!sim.substrate.occupancy.contains_entity(rx, ry, 1));
             assert_eq!(sim.substrate.raw_cell_occupation.ground_bits(rx, ry), 0);
@@ -954,7 +954,7 @@ mod tests {
             locomotor.jumpjet_runtime().map(|runtime| runtime.phase()),
             Some(jumpjet_flight::STATE_GROUND)
         );
-        assert_eq!((entity.position.rx, entity.position.ry), (10, 10));
+        assert_eq!((entity.position.rx(), entity.position.ry()), (10, 10));
     }
 
     /// Re-opening a cruise must not leave a claim behind on the cell the owner
@@ -1025,7 +1025,7 @@ mod tests {
             locomotor.jumpjet_runtime().map(|runtime| runtime.phase()),
             Some(STATE_HOLD)
         );
-        assert_eq!((entity.position.rx, entity.position.ry), (10, 10));
+        assert_eq!((entity.position.rx(), entity.position.ry()), (10, 10));
     }
 
     /// Fly a native row through the production air tick, comparing the owner
@@ -1147,7 +1147,7 @@ mod tests {
         );
         let entity = sim.substrate.entities.get_mut(1).expect("jumpjet");
         assert!(entity.navigation.nav_com().is_some());
-        let here = (entity.position.rx, entity.position.ry);
+        let here = (entity.position.rx(), entity.position.ry());
         assert!(here.0 < 16, "still on its way");
         sim.assign_null_destination(1, None, None, crate::sim::world::FrameEffects::default());
 
@@ -1184,8 +1184,8 @@ mod tests {
         assert_eq!(landed.phase(), jumpjet_flight::STATE_GROUND);
         assert!(!landed.moving());
         let entity = sim.substrate.entities.get(1).expect("jumpjet");
-        assert_eq!((entity.position.rx, entity.position.ry), here);
-        assert_eq!(entity.position.exact_z_leptons, Some(0));
+        assert_eq!((entity.position.rx(), entity.position.ry()), here);
+        assert_eq!(entity.position.exact_z_leptons(), Some(0));
     }
 
     /// State 4 admits a landing through the owner's own `Can_Enter_Cell`
@@ -1323,7 +1323,7 @@ mod tests {
                 .entities
                 .get(id)
                 .expect("live");
-            (entity.position.rx, entity.position.ry)
+            (entity.position.rx(), entity.position.ry())
         };
         let phase = |scenario: &HeadlessScenario, id: u64| {
             scenario

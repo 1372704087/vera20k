@@ -191,8 +191,8 @@ fn constructed_depot_waiters_take_the_freed_slot_in_live_logic_order() {
                 unit.health.current() == rules.object("MTNK").unwrap().strength
                     && unit.pending_entry().is_none()
                     && !linked(&sim, depot, *tank)
-                    && !((10..13).contains(&unit.position.rx)
-                        && (10..13).contains(&unit.position.ry))
+                    && !((10..13).contains(&unit.position.rx())
+                        && (10..13).contains(&unit.position.ry()))
                     && unit
                         .locomotor
                         .as_ref()

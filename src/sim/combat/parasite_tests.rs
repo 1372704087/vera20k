@@ -228,7 +228,7 @@ impl Arena {
 
     fn cell(&self, id: u64) -> (u16, u16) {
         let e = self.sim.substrate.entities.get(id).unwrap();
-        (e.position.rx, e.position.ry)
+        (e.position.rx(), e.position.ry())
     }
 
     /// Infect `victim` through a real launch and detonation.
@@ -290,7 +290,7 @@ fn dog_bite_kills_the_infantry_and_releases_the_dog_where_it_stood() {
     let dog_entity = arena.sim.substrate.entities.get(dog).unwrap();
     assert!(dog_entity.health.current() > 0, "the dog survives its kill");
     assert_eq!(
-        (dog_entity.position.rx, dog_entity.position.ry),
+        (dog_entity.position.rx(), dog_entity.position.ry()),
         (11, 10),
         "PointerExpired unlimboes the dog at the victim's cell"
     );
@@ -428,7 +428,7 @@ fn drone_bites_on_its_weapon_rate_until_the_host_dies_then_drops_off() {
     let drone_entity = arena.sim.substrate.entities.get(drone).unwrap();
     assert!(drone_entity.health.current() > 0);
     assert_eq!(
-        (drone_entity.position.rx, drone_entity.position.ry),
+        (drone_entity.position.rx(), drone_entity.position.ry()),
         (11, 10)
     );
     assert_eq!(drone_entity.category(), EntityCategory::Unit);
@@ -958,8 +958,8 @@ fn a_dog_released_on_a_bridge_deck_stays_on_the_deck() {
         arena.sim.remove_entity_occupancy(id);
         let entity = arena.sim.substrate.entities.get_mut(id).unwrap();
         entity.set_on_bridge(true);
-        entity.position.z = 4;
-        entity.position.exact_z_leptons = Some(deck);
+        entity.position.set_z(4);
+        entity.position.set_exact_z_leptons(Some(deck));
         arena.sim.add_entity_occupancy(id);
     }
     arena.attack(dog, gi);
@@ -1028,7 +1028,7 @@ fn a_parasite_is_placed_at_a_falling_victim_below_the_air_line() {
             .get_mut(victim)
             .unwrap()
             .position
-            .exact_z_leptons = Some(height);
+            .set_exact_z_leptons(Some(height));
         arena
             .sim
             .parasite_can_place_at_victim(drone, victim, &rules)
@@ -1078,7 +1078,7 @@ fn naval_owner_water_gate_matches_original_can_infect() {
                 .get_mut(victim)
                 .unwrap()
                 .position
-                .rx = 200;
+                .set_rx(200);
         }
         assert_eq!(
             arena.sim.parasite_can_infect(owner, Some(victim), &rules),

@@ -71,8 +71,8 @@ fn fixture_with_first(first_type: &str) -> (Simulation, RuleSet, u64, u64) {
             .rearm_timer
             .set_for_test(crate::sim::timer::CdTimer::started(10, 0));
         entity.attack_target.set_for_test(Some(TargetKind::Cell(
-            entity.position.rx,
-            entity.position.ry - 3,
+            entity.position.rx(),
+            entity.position.ry() - 3,
         )));
     }
     (sim, rules, first, second)
@@ -80,7 +80,7 @@ fn fixture_with_first(first_type: &str) -> (Simulation, RuleSet, u64, u64) {
 
 fn install_paid_track(sim: &mut Simulation, id: u64) {
     let entity = sim.substrate.entities.get_mut(id).unwrap();
-    let (x, y) = (entity.position.rx, entity.position.ry);
+    let (x, y) = (entity.position.rx(), entity.position.ry());
     entity.mover_facts.set_drive_accelerates_for_test(false);
     assert!(
         entity
@@ -107,9 +107,9 @@ fn install_paid_track(sim: &mut Simulation, id: u64) {
 fn position(sim: &Simulation, id: u64) -> ProjectileCoord {
     let entity = sim.substrate.entities.get(id).unwrap();
     ProjectileCoord::new(
-        i32::from(entity.position.rx) * 256 + entity.position.sub_x.to_num::<i32>(),
-        i32::from(entity.position.ry) * 256 + entity.position.sub_y.to_num::<i32>(),
-        entity.position.exact_z_leptons.unwrap_or(0),
+        i32::from(entity.position.rx()) * 256 + entity.position.sub_x().to_num::<i32>(),
+        i32::from(entity.position.ry()) * 256 + entity.position.sub_y().to_num::<i32>(),
+        entity.position.exact_z_leptons().unwrap_or(0),
     )
 }
 

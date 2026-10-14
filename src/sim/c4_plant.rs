@@ -225,8 +225,8 @@ impl Simulation {
             .substrate
             .occupancy
             .first_building_on_layer(
-                infantry.position.rx,
-                infantry.position.ry,
+                infantry.position.rx(),
+                infantry.position.ry(),
                 MovementLayer::Ground,
             )
             .filter(|&building| heading_for == Some(building))

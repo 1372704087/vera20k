@@ -38,9 +38,9 @@ fn fixture(selector: i32) -> Simulation {
         GameEntity::test_default(1, "MTNK", "Americans", (x / 256) as u16, (y / 256) as u16);
     entity.set_owner_for_test(sim.intern("Americans"));
     entity.set_type_ref_for_test(sim.intern("MTNK"));
-    entity.position.sub_x = SimFixed::from_num(x % 256);
-    entity.position.sub_y = SimFixed::from_num(y % 256);
-    entity.position.exact_z_leptons = Some(0);
+    entity.position.set_sub_x(SimFixed::from_num(x % 256));
+    entity.position.set_sub_y(SimFixed::from_num(y % 256));
+    entity.position.set_exact_z_leptons(Some(0));
     entity.body_facing.snap(u16::from(facing) << 8, 0);
     entity.mover_facts.set_drive_accelerates_for_test(false);
     entity.set_is_voxel_for_test(false);

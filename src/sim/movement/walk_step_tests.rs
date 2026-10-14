@@ -27,9 +27,13 @@ fn paid_walk_matches_original_numeric_facing_and_boundary_vectors() {
             (current.y / 256) as u16,
         );
         entity.set_category_for_test(EntityCategory::Infantry);
-        entity.position.sub_x = SimFixed::from_num(current.x % 256);
-        entity.position.sub_y = SimFixed::from_num(current.y % 256);
-        entity.position.exact_z_leptons = Some(current.z);
+        entity
+            .position
+            .set_sub_x(SimFixed::from_num(current.x % 256));
+        entity
+            .position
+            .set_sub_y(SimFixed::from_num(current.y % 256));
+        entity.position.set_exact_z_leptons(Some(current.z));
         let mut loco = LocomotorState::for_test_kind(LocomotorKind::Walk);
         loco.set_step_head(Some(coord("head")));
         entity.locomotor = Some(loco);
@@ -156,9 +160,9 @@ fn same_cell_paid_walk_scold_clear_matches_original_commit_tail() {
         }
         let mut actor = GameEntity::test_default(1, "E1", "Americans", 9, 10);
         actor.set_category_for_test(EntityCategory::Infantry);
-        actor.position.sub_x = SimFixed::from_num(186);
-        actor.position.sub_y = SimFixed::from_num(64);
-        actor.position.exact_z_leptons = Some(104);
+        actor.position.set_sub_x(SimFixed::from_num(186));
+        actor.position.set_sub_y(SimFixed::from_num(64));
+        actor.position.set_exact_z_leptons(Some(104));
         actor.locomotor = Some(LocomotorState::for_test_kind(LocomotorKind::Walk));
         actor
             .locomotor

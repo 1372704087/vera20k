@@ -658,7 +658,11 @@ fn war_miner_does_not_teleport() {
         .expect("entity")
         .position;
     // War miner should NOT have teleported — still at (30, 30).
-    assert_eq!((pos.rx, pos.ry), (30, 30), "War Miner should not teleport");
+    assert_eq!(
+        (pos.rx(), pos.ry()),
+        (30, 30),
+        "War Miner should not teleport"
+    );
 }
 
 // ==========================================================================

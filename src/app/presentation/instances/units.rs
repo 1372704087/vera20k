@@ -179,8 +179,8 @@ fn unit_render_slope_state(
 
     UnitRenderSlopeState::Stable(terrain_slope_for_render(
         state,
-        entity.position.rx,
-        entity.position.ry,
+        entity.position.rx(),
+        entity.position.ry(),
     ))
 }
 
@@ -367,21 +367,21 @@ pub(crate) fn build_unit_instances(
         let Some([sx, sy]) = unit_draw_anchor(entity, [cam_x, cam_y], viewport) else {
             continue;
         };
-        let interp_z = pos.z;
+        let interp_z = pos.z();
         let draw_state = draw_decision.state;
         let extra_light = state.rules().map_or(0, |rules| {
             crate::app::presentation::lighting::body_extra_light(entity, rules, sim, terrain)
         });
         let tint = vxl_body_tint(
             state.match_state.match_presentation.lighting.grid(),
-            (pos.rx, pos.ry),
+            (pos.rx(), pos.ry()),
             entity.category(),
             extra_light,
         );
         let palette_light = crate::app::presentation::lighting::body_palette_light(
             state.match_state.match_presentation.lighting.grid(),
             &sim.session.lighting,
-            (pos.rx, pos.ry),
+            (pos.rx(), pos.ry()),
             extra_light,
         );
         // UnitClass::DrawVoxelBody's curtain arm (`0x0073BF9C..0x0073BFB8`):
@@ -430,8 +430,8 @@ pub(crate) fn build_unit_instances(
                 .substrate
                 .occupancy
                 .first_building_on_layer(
-                    pos.rx,
-                    pos.ry,
+                    pos.rx(),
+                    pos.ry(),
                     crate::sim::movement::locomotor::MovementLayer::Ground,
                 )
                 .is_some()
@@ -634,7 +634,7 @@ pub(crate) fn build_unit_instances(
                 ho,
                 center_x,
                 center_y,
-                pos.z,
+                pos.z(),
                 tint,
                 palette_light.brightness(),
                 draw_state,

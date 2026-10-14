@@ -311,10 +311,12 @@ fn move_target_to_x_distance(sim: &mut Simulation, target_id: u64, distance_lept
         .entities
         .get_mut(target_id)
         .expect("target remains live before manager update");
-    target.position.rx = world_x.div_euclid(256) as u16;
-    target.position.ry = 10;
-    target.position.sub_x = SimFixed::from_num(world_x.rem_euclid(256));
-    target.position.sub_y = SimFixed::from_num(128);
+    target.position.set_rx(world_x.div_euclid(256) as u16);
+    target.position.set_ry(10);
+    target
+        .position
+        .set_sub_x(SimFixed::from_num(world_x.rem_euclid(256)));
+    target.position.set_sub_y(SimFixed::from_num(128));
 }
 
 #[test]
@@ -536,7 +538,7 @@ fn gsi_05_08_idle_legality_uses_effective_3d_distance() {
         .get_mut(target)
         .expect("target remains live")
         .position
-        .exact_z_leptons = Some(TARGET_Z_LEPTONS);
+        .set_exact_z_leptons(Some(TARGET_Z_LEPTONS));
     spawn_manager_ai(
         &mut sim,
         &rules,
@@ -1003,14 +1005,14 @@ fn missile_impact_kills_through_the_shared_death_pipeline() {
     let _ = sim.try_reveal_entity(
         child_id,
         crate::sim::world::RevealRequest {
-            position: crate::sim::world::RevealPosition {
-                exact_z_leptons: Some(0),
-                rx: 20,
-                ry: 20,
-                z: 0,
-                sub_x: SimFixed::from_num(128),
-                sub_y: SimFixed::from_num(128),
-            },
+            position: crate::sim::world::RevealPosition::new(
+                20,
+                20,
+                0,
+                Some(0),
+                SimFixed::from_num(128),
+                SimFixed::from_num(128),
+            ),
             placement: crate::sim::world::PlacementEvidence::MarkSucceeded,
             logic_eligible: true,
         },
@@ -1852,7 +1854,7 @@ fn a_dead_carriers_airborne_hornet_crashes() {
         .expect("a Hornet is off the deck");
     // Airborne over the flat level-0 map.
     let entity = sim.substrate.entities.get_mut(hornet).unwrap();
-    entity.position.exact_z_leptons = Some(600);
+    entity.position.set_exact_z_leptons(Some(600));
 
     sim.uninit_with_rules(carrier, &rules);
 
@@ -1940,7 +1942,7 @@ fn a_dead_carriers_hornets_crash_from_the_last_slot() {
     assert!(wing.len() >= 2, "two Hornets off the deck: {wing:?}");
     for &(_, hornet) in &wing {
         let entity = sim.substrate.entities.get_mut(hornet).unwrap();
-        entity.position.exact_z_leptons = Some(600);
+        entity.position.set_exact_z_leptons(Some(600));
     }
     // The three draws each crash takes, in the order they are taken.
     let mut rng = sim.scenario_rng.clone();
@@ -2042,8 +2044,8 @@ fn a_hornet_docks_by_its_z_above_the_carrier() {
         // height over the carrier.
         let deck = {
             let owner = sim.substrate.entities.get_mut(carrier).unwrap();
-            let z = owner.position.exact_z_leptons.expect("revealed carrier") + 100;
-            owner.position.exact_z_leptons = Some(z);
+            let z = owner.position.exact_z_leptons().expect("revealed carrier") + 100;
+            owner.position.set_exact_z_leptons(Some(z));
             owner.position
         };
         {
@@ -2060,7 +2062,9 @@ fn a_hornet_docks_by_its_z_above_the_carrier() {
         {
             let child = sim.substrate.entities.get_mut(hornet).unwrap();
             child.position = deck;
-            child.position.exact_z_leptons = deck.exact_z_leptons.map(|z| z + above_owner);
+            child
+                .position
+                .set_exact_z_leptons(deck.exact_z_leptons().map(|z| z + above_owner));
         }
         tick(&mut sim);
 
@@ -2936,7 +2940,7 @@ fn retail_launches(
             child,
             RetailLaunch {
                 missile: position_world_coord(&missile.position),
-                missile_exact_z: missile.position.exact_z_leptons,
+                missile_exact_z: missile.position.exact_z_leptons(),
                 missile_height: crate::sim::movement::air_movement::current_fly_height(
                     missile,
                     sim.resolved_terrain.as_ref(),

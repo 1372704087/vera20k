@@ -261,7 +261,7 @@ pub(crate) fn draw_debug_panel(ctx: &egui::Context, state: &AppState) {
             {
                 let mut found: Vec<String> = Vec::new();
                 for entity in sim.entities().values() {
-                    if entity.position.rx == cursor_rx && entity.position.ry == cursor_ry {
+                    if entity.position.rx() == cursor_rx && entity.position.ry() == cursor_ry {
                         let cat_str = match entity.category() {
                             EntityCategory::Unit => "Unit",
                             EntityCategory::Infantry => "Inf",
@@ -303,8 +303,8 @@ pub(crate) fn draw_debug_panel(ctx: &egui::Context, state: &AppState) {
                             .map(|obj| obj.foundation.as_str())
                             .unwrap_or("1x1");
                         let (fw, fh) = crate::rules::foundation::foundation_dimensions(foundation);
-                        let ex: u16 = entity.position.rx;
-                        let ey: u16 = entity.position.ry;
+                        let ex: u16 = entity.position.rx();
+                        let ey: u16 = entity.position.ry();
                         // Check if cursor is within this building's footprint.
                         if cursor_rx >= ex
                             && cursor_rx < ex + fw
@@ -350,10 +350,10 @@ pub(crate) fn draw_debug_panel(ctx: &egui::Context, state: &AppState) {
                             ui.label(format!(
                                 "Sel: {} @ ({},{}) sub=({},{})",
                                 sim.interner.resolve(entity.type_ref()),
-                                entity.position.rx,
-                                entity.position.ry,
-                                entity.position.sub_x,
-                                entity.position.sub_y,
+                                entity.position.rx(),
+                                entity.position.ry(),
+                                entity.position.sub_x(),
+                                entity.position.sub_y(),
                             ));
                             if crate::sim::movement::motion_query::is_moving(entity) == Some(true) {
                                 // The Foot+5E0 words from the reference cell.

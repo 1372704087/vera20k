@@ -32,7 +32,7 @@ fn export_scene(scene: &HeadlessScenario, phase: &str) {
     let entities: Vec<Value> = sim
         .entities()
         .values()
-        .filter(|e| (110..=121).contains(&e.position.rx) && (50..=68).contains(&e.position.ry))
+        .filter(|e| (110..=121).contains(&e.position.rx()) && (50..=68).contains(&e.position.ry()))
         .map(|e| json!({"type":sim.resolve(e.type_ref()), "entity":e}))
         .collect();
     let result = json!({
@@ -83,7 +83,7 @@ fn retail_shrapnel_engineer_repairs_authored_water_gap() {
         .values()
         .find_map(|entity| {
             (runtime.simulation.resolve(entity.type_ref()) == "CABHUT"
-                && (entity.position.rx, entity.position.ry) == (117, 56))
+                && (entity.position.rx(), entity.position.ry()) == (117, 56))
                 .then_some(entity.stable_id())
         })
         .unwrap();
@@ -240,12 +240,12 @@ fn cross_repaired_road(scene: &mut HeadlessScenario) {
             "low road must not create raised-deck occupation"
         );
         assert!(actor.low_bridge_tube_state.is_none());
-        crossed_gap |= (114..=116).contains(&actor.position.rx) && actor.position.ry == 59;
-        if (actor.position.rx, actor.position.ry) == (115, 63)
+        crossed_gap |= (114..=116).contains(&actor.position.rx()) && actor.position.ry() == 59;
+        if (actor.position.rx(), actor.position.ry()) == (115, 63)
             && crate::sim::movement::motion_query::is_moving(&actor) != Some(true)
         {
             assert!(crossed_gap, "the FV must physically cross the repaired row");
-            assert_eq!(actor.position.exact_z_leptons, Some(208));
+            assert_eq!(actor.position.exact_z_leptons(), Some(208));
             assert!(
                 runtime
                     .simulation
@@ -318,7 +318,7 @@ fn retail_shrapnel_repair_reaches_moving_water_neighbor() {
         .values()
         .find_map(|entity| {
             (runtime.simulation.resolve(entity.type_ref()) == "CABHUT"
-                && (entity.position.rx, entity.position.ry) == (117, 56))
+                && (entity.position.rx(), entity.position.ry()) == (117, 56))
                 .then_some(entity.stable_id())
         })
         .unwrap();
@@ -414,7 +414,7 @@ fn retail_shrapnel_repair_reaches_moving_water_neighbor() {
             let coord = crate::sim::movement::ground_pose::position_world_coord(&actor.position);
             assert_eq!(u64::from(visit_frame), head_input["order_frame"]);
             assert_eq!(
-                json!([actor.position.rx, actor.position.ry]),
+                json!([actor.position.rx(), actor.position.ry()]),
                 head_input["source_cell"]
             );
             assert_eq!(json!([coord.x, coord.y, coord.z]), head_input["source_xyz"]);

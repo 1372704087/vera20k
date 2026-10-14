@@ -599,8 +599,8 @@ impl Simulation {
                             .is_some_and(|object| object.weapons_factory)
                 }) && crate::sim::credit_income::building_at_cell(
                     self,
-                    entity.position.rx,
-                    entity.position.ry,
+                    entity.position.rx(),
+                    entity.position.ry(),
                 ) == Some(contact)
             })
     }
@@ -759,8 +759,8 @@ impl Simulation {
             && let Some(event) = crate::sim::combat::death_announcement_event(
                 object,
                 category,
-                entity.position.rx,
-                entity.position.ry,
+                entity.position.rx(),
+                entity.position.ry(),
                 entity.owner(),
             )
         {

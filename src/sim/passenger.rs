@@ -772,7 +772,7 @@ fn garrison_parts<'a>(
 fn passenger_stands_on_garrison(passenger_cell: (u16, u16), building: &GameEntity) -> bool {
     let (width, height) =
         crate::rules::foundation::foundation_dimensions(building.type_facts.foundation());
-    let (rx, ry) = (building.position.rx, building.position.ry);
+    let (rx, ry) = (building.position.rx(), building.position.ry());
     passenger_cell.0 >= rx
         && u32::from(passenger_cell.0) < u32::from(rx) + u32::from(width)
         && passenger_cell.1 >= ry
@@ -945,7 +945,7 @@ pub(crate) fn process_boarding_passenger(
     }
 
     let (pax_rx, pax_ry) = match sim.substrate.entities.get(pax_id) {
-        Some(e) => (e.position.rx, e.position.ry),
+        Some(e) => (e.position.rx(), e.position.ry()),
         None => return BoardingOutcome::Waiting,
     };
     let arrived = match sim.substrate.entities.get(transport_id) {
@@ -955,7 +955,7 @@ pub(crate) fn process_boarding_passenger(
         Some(e) => {
             // Infantry51A3C0..51A3D4 and Unit73A692..73A6A3 require equal
             // GetMapCoords before radio CanEnter. Being adjacent is not arrival.
-            (pax_rx, pax_ry) == (e.position.rx, e.position.ry)
+            (pax_rx, pax_ry) == (e.position.rx(), e.position.ry())
         }
         None => return BoardingOutcome::Waiting,
     };
@@ -1201,7 +1201,7 @@ pub(crate) fn add_garrison_occupant(
         return false;
     };
     let owner = pax.owner();
-    let (rx, ry) = (pax.position.rx, pax.position.ry);
+    let (rx, ry) = (pax.position.rx(), pax.position.ry());
     let Some(pax_size) = sim
         .object_type(pax.type_ref(), rules)
         .filter(|object| object.occupier)
@@ -1470,8 +1470,8 @@ pub(crate) fn reconcile_civilian_garrison_owner_for_building(
                 owner: current_owner,
                 radar: crate::sim::radar::RadarEventRequest::new(
                     crate::sim::radar::RadarEventType::StructureAbandoned,
-                    building.position.rx,
-                    building.position.ry,
+                    building.position.rx(),
+                    building.position.ry(),
                 ),
             });
         }
@@ -2473,7 +2473,7 @@ ConditionYellow=50%
             .expect("occupant should still exist");
         assert!(passenger.passenger_role.is_none());
         assert!(!passenger.death.is_dying());
-        assert_eq!((passenger.position.rx, passenger.position.ry), (12, 12));
+        assert_eq!((passenger.position.rx(), passenger.position.ry()), (12, 12));
 
         assert!(sim.sound_events.iter().any(|event| {
             matches!(
@@ -3358,9 +3358,9 @@ ConditionYellow=50%
             crate::sim::passenger::garrison_eject::DestroyedGarrisonBuilding {
                 building_id,
                 owner: bldg.owner(),
-                rx: bldg.position.rx,
-                ry: bldg.position.ry,
-                z: bldg.position.z,
+                rx: bldg.position.rx(),
+                ry: bldg.position.ry(),
+                z: bldg.position.z(),
                 foundation_w,
                 foundation_h,
                 passenger_ids: cargo.passengers.clone(),
@@ -3408,7 +3408,7 @@ ConditionYellow=50%
                 "occupant {pid} should retain garrisoning owner"
             );
             assert_eq!(
-                (pax.position.rx, pax.position.ry),
+                (pax.position.rx(), pax.position.ry()),
                 expected_position,
                 "occupant {pid} should reuse the one SellBuilding exit coordinate"
             );
@@ -3448,8 +3448,11 @@ ConditionYellow=50%
                 blocker.set_owner_for_test(owner_id);
                 blocker.set_type_ref_for_test(sim.interner.intern("E1"));
                 blocker.set_sub_cell(Some(subcell));
-                (blocker.position.sub_x, blocker.position.sub_y) =
-                    lepton::subcell_lepton_offset(Some(subcell));
+                {
+                    let (sub_x, sub_y) = lepton::subcell_lepton_offset(Some(subcell));
+                    blocker.position.set_sub_x(sub_x);
+                    blocker.position.set_sub_y(sub_y);
+                }
                 sim.substrate.entities.insert(blocker);
                 assert!(matches!(
                     sim.reveal(blocker_id),

@@ -268,14 +268,14 @@ fn live_bridge_constructor_side_cells_restore_deck_without_overlay_sprites() {
                     sim.try_reveal_entity(
                         id,
                         RevealRequest {
-                            position: RevealPosition {
-                                exact_z_leptons: None,
-                                rx: x,
-                                ry: y,
-                                z: 10,
-                                sub_x: SimFixed::from_num(128),
-                                sub_y: SimFixed::from_num(128),
-                            },
+                            position: RevealPosition::new(
+                                x,
+                                y,
+                                10,
+                                None,
+                                SimFixed::from_num(128),
+                                SimFixed::from_num(128)
+                            ),
                             placement: PlacementEvidence::MarkSucceeded,
                             logic_eligible: true,
                         }
@@ -392,10 +392,10 @@ fn constructor_side_admission_matches_original_foot_receiver() {
         actor.set_owner_for_test(sim.intern("Americans"));
         actor.set_type_ref_for_test(sim.intern("ENGINEER"));
         actor.set_category_for_test(EntityCategory::Infantry);
-        actor.position.sub_x = SimFixed::from_num(x % 256);
-        actor.position.sub_y = SimFixed::from_num(y % 256);
-        actor.position.z = (z / 104) as u8;
-        actor.position.exact_z_leptons = Some(z);
+        actor.position.set_sub_x(SimFixed::from_num(x % 256));
+        actor.position.set_sub_y(SimFixed::from_num(y % 256));
+        actor.position.set_z((z / 104) as u8);
+        actor.position.set_exact_z_leptons(Some(z));
         actor.set_on_bridge(native["on_bridge"].as_bool().unwrap());
         actor.set_in_playfield(native["in_playfield"].as_bool().unwrap());
         sim.substrate.entities.insert(actor);

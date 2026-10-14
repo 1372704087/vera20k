@@ -50,7 +50,7 @@ fn offline_sparks_match_original_execution() {
             &mut entity.position,
             [location[0], location[1]],
         );
-        entity.position.exact_z_leptons = Some(location[2]);
+        entity.position.set_exact_z_leptons(Some(location[2]));
         entity.set_native_unique_id_for_test(int(&row["id"]));
         entity
             .deactivated
@@ -255,7 +255,7 @@ fn destroy(sim: &mut Simulation, rules: &RuleSet, id: u64) {
 /// The object's cell.
 fn cell(sim: &Simulation, id: u64) -> (u16, u16) {
     let entity = sim.substrate.entities.get(id).unwrap();
-    (entity.position.rx, entity.position.ry)
+    (entity.position.rx(), entity.position.ry())
 }
 
 /// The object's height above the ground (GetHeight).
@@ -528,7 +528,7 @@ fn a_robot_tank_without_a_powered_center_goes_offline_when_it_moves() {
         &mut events,
         |sim| height(sim, tank) >= rules.general.hover_height / 2
     ));
-    let start_x = sim.substrate.entities.get(tank).unwrap().position.sub_x;
+    let start_x = sim.substrate.entities.get(tank).unwrap().position.sub_x();
     order_move(&mut sim, tank, (16, 16));
     assert!(run_until(
         &mut sim,
@@ -546,12 +546,12 @@ fn a_robot_tank_without_a_powered_center_goes_offline_when_it_moves() {
     let rest = sim.substrate.entities.get(tank).unwrap().position;
     assert_eq!(height(&sim, tank), 0);
     assert_eq!(cell(&sim, tank), (10, 16));
-    assert!(rest.sub_x > start_x, "it drifted toward its head, east");
+    assert!(rest.sub_x() > start_x, "it drifted toward its head, east");
     run_until(&mut sim, &rules, &grid, 120, &mut events, |_| false);
     let now = sim.substrate.entities.get(tank).unwrap().position;
     assert_eq!(
-        (now.rx, now.ry, now.sub_x, now.sub_y),
-        (rest.rx, rest.ry, rest.sub_x, rest.sub_y)
+        (now.rx(), now.ry(), now.sub_x(), now.sub_y()),
+        (rest.rx(), rest.ry(), rest.sub_x(), rest.sub_y())
     );
     assert!(offline(&sim, tank));
     assert_eq!(sounds(&events, "RobotTankOffline"), 1);

@@ -36,10 +36,10 @@ fn fixture(relative_z: i32) -> (Simulation, RuleSet, u64) {
     entity.health.set_for_test(0);
     entity.lifecycle.set_in_limbo_for_test(false);
     entity.lifecycle.set_cell_marked(false);
-    entity.position.sub_x = SimFixed::from_num(128);
-    entity.position.sub_y = SimFixed::from_num(128);
-    entity.position.z = 2;
-    entity.position.exact_z_leptons = Some(208 + relative_z);
+    entity.position.set_sub_x(SimFixed::from_num(128));
+    entity.position.set_sub_y(SimFixed::from_num(128));
+    entity.position.set_z(2);
+    entity.position.set_exact_z_leptons(Some(208 + relative_z));
     sim.substrate.entities.insert(entity);
     sim.begin_receiver_kill_record(id);
     sim.record_destruction_once(id);
@@ -431,8 +431,8 @@ fn retained_health_one_ship_is_illegal_as_firer_and_target() {
     firer.set_owner_for_test(sim.interner.intern("Russians"));
     firer.lifecycle.set_in_limbo_for_test(false);
     firer.health.set_for_test(800);
-    firer.position.z = 2;
-    firer.position.exact_z_leptons = Some(208);
+    firer.position.set_z(2);
+    firer.position.set_exact_z_leptons(Some(208));
     sim.substrate.entities.insert(firer);
     sim.resolve_type_handles(&rules);
     let query = |sim: &Simulation| {
@@ -539,7 +539,7 @@ fn retained_ship_skips_process_but_keeps_its_head_and_runs_sinking_ai() {
         slope_before
     );
     assert_eq!(position_world_coord(&hull.position).z, 203);
-    assert_eq!((hull.position.rx, hull.position.ry), (113, 59));
+    assert_eq!((hull.position.rx(), hull.position.ry()), (113, 59));
     assert_eq!(hull.body_frame_counter.get(), 0);
     assert!(hull.sinking.sound_edge_seen());
 }

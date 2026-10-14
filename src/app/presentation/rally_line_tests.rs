@@ -440,7 +440,10 @@ fn retail_gapile_house_color_and_production_crop_match_original_rally_and_no_tar
         let sim = simulation_fixture_for_type(row, type_name, &object.foundation, owner, id);
         let entity = sim.entities().get(id).unwrap();
         assert_eq!(
-            [i32::from(entity.position.rx), i32::from(entity.position.ry)],
+            [
+                i32::from(entity.position.rx()),
+                i32::from(entity.position.ry())
+            ],
             point(&input["production_cell"])
         );
         assert_eq!(entity.archive_target().is_none(), no_target);
@@ -809,8 +812,12 @@ fn production_rally_workload_timing() {
         for &id in &ledger {
             let mut entity = template.clone();
             entity.set_stable_id_for_test(id);
-            entity.position.rx += (id % 8) as u16;
-            entity.position.ry += (id % 5) as u16;
+            entity
+                .position
+                .set_rx(entity.position.rx() + (id % 8) as u16);
+            entity
+                .position
+                .set_ry(entity.position.ry() + (id % 5) as u16);
             sim.entities_mut().insert(entity);
         }
         let mut samples = Vec::new();

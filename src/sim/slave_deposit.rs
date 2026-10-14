@@ -174,8 +174,8 @@ mod tests {
                 e.slave = SlaveLink::for_test(Some(1), Vec::new());
             }
             if id == 3 {
-                e.position.sub_x = SimFixed::from_num(32);
-                e.position.sub_y = SimFixed::from_num(32);
+                e.position.set_sub_x(SimFixed::from_num(32));
+                e.position.set_sub_y(SimFixed::from_num(32));
             }
             entities.insert(e);
         }

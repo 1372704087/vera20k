@@ -541,7 +541,7 @@ fn unit_null_arm_moves_hover_and_jumpjet_units() {
         unit.navigation.nav_com(),
         Some(crate::sim::components::NavTargetRef::cell(cell.0, cell.1))
     );
-    assert_eq!((unit.position.rx, unit.position.ry), (10, 10));
+    assert_eq!((unit.position.rx(), unit.position.ry()), (10, 10));
     let cell = sim.scatter_nearby_cell(jumpjet, &rules).unwrap();
     assert!(
         !sim.scatter(

@@ -381,10 +381,10 @@ pub(crate) fn resolved_unit_in_range(
                 return false;
             };
             (
-                target.position.rx,
-                target.position.ry,
-                target.position.sub_x,
-                target.position.sub_y,
+                target.position.rx(),
+                target.position.ry(),
+                target.position.sub_x(),
+                target.position.sub_y(),
             )
         }
         TargetKind::Cell(rx, ry) => (
@@ -395,10 +395,10 @@ pub(crate) fn resolved_unit_in_range(
         ),
     };
     let distance = crate::sim::combat::lepton_distance_sq_raw(
-        actor.position.rx,
-        actor.position.ry,
-        actor.position.sub_x,
-        actor.position.sub_y,
+        actor.position.rx(),
+        actor.position.ry(),
+        actor.position.sub_x(),
+        actor.position.sub_y(),
         rx,
         ry,
         sub_x,

@@ -386,11 +386,11 @@ pub(crate) fn place_production_with_overlays(
         // a tile above this (render's building render-coordinate lift); this is
         // a debug log, and sim/ cannot call render/ to apply it.
         let screen = crate::util::lepton::lepton_to_screen(
-            ge.position.rx,
-            ge.position.ry,
-            ge.position.sub_x,
-            ge.position.sub_y,
-            ge.position.z,
+            ge.position.rx(),
+            ge.position.ry(),
+            ge.position.sub_x(),
+            ge.position.sub_y(),
+            ge.position.z(),
         );
         log::info!(
             "  → spawned sid={} screen=({:.0},{:.0}) foundation_cells: ({},{})..({},{})",
@@ -543,7 +543,10 @@ fn evaluate_building_placement(
                 let bn = rules.object(type_str).is_some_and(|o| o.base_normal);
                 format!(
                     "{}@({},{}) bn={}",
-                    type_str, e.position.rx, e.position.ry, bn
+                    type_str,
+                    e.position.rx(),
+                    e.position.ry(),
+                    bn
                 )
             })
             .collect();
@@ -626,8 +629,8 @@ fn is_within_build_area(
         if provider_intersects_build_area_ring(
             (rx, ry, width, height),
             (
-                e.position.rx,
-                e.position.ry,
+                e.position.rx(),
+                e.position.ry(),
                 provider_width,
                 provider_height,
             ),

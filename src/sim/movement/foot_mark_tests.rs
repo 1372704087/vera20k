@@ -13,7 +13,7 @@ fn actor(id: u64, category: EntityCategory, kind: LocomotorKind) -> GameEntity {
     entity.lifecycle.set_cell_marked(false);
     entity.set_foot_occupation_enabled(true);
     entity.locomotor = Some(LocomotorState::for_test_kind(kind));
-    entity.position.exact_z_leptons = Some(0);
+    entity.position.set_exact_z_leptons(Some(0));
     entity
 }
 
@@ -210,7 +210,7 @@ fn cruising_jumpjet() -> Simulation {
             deviation: 40,
             no_wobbles: false,
         });
-    entity.position.exact_z_leptons = Some(500);
+    entity.position.set_exact_z_leptons(Some(500));
     sim
 }
 
@@ -264,7 +264,7 @@ fn an_airborne_fly_object_is_marked_without_joining_its_cell() {
         .get_mut(1)
         .unwrap()
         .position
-        .exact_z_leptons = Some(600);
+        .set_exact_z_leptons(Some(600));
     assert!(sim.foot_mark_put(1, None, None, crate::sim::world::FrameEffects::default()));
     assert!(
         sim.substrate

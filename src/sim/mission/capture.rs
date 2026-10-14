@@ -95,8 +95,8 @@ pub(crate) fn mission_capture(
             sim.substrate
                 .occupancy
                 .first_building_on_layer(
-                    entity.position.rx,
-                    entity.position.ry,
+                    entity.position.rx(),
+                    entity.position.ry(),
                     MovementLayer::Ground,
                 )
                 .is_some()

@@ -280,7 +280,7 @@ fn fixture(row: &Value, rules: &RuleSet) -> (Simulation, u64, InternedId) {
         } else {
             MovementLayer::Ground
         };
-        let cell = (vehicle.position.rx, vehicle.position.ry);
+        let cell = (vehicle.position.rx(), vehicle.position.ry());
         if transport["cell_content"].as_bool().unwrap() {
             sim.substrate.occupancy.add(
                 cell.0,

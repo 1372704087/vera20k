@@ -226,7 +226,7 @@ fn test_shp_vehicle_non_eight_facings_draws_slot_zero() {
 fn gsi_13_06_active_shp_unit(type_name: &str, kind: LocomotorKind) -> GameEntity {
     let mut entity = GameEntity::test_default(13_006, type_name, "Soviet", 5, 5);
     entity.is_voxel = false;
-    entity.lifecycle.in_limbo = false;
+    entity.lifecycle.set_in_limbo_for_test(false);
     entity.locomotor = Some(LocomotorState::for_test_kind(kind));
     let head = DriveCoord::cell(6, 5, 0);
     match kind {
@@ -387,10 +387,10 @@ fn gsi_13_06_counter_suppressions_hold_the_persistent_value() {
     let mut variants = Vec::new();
 
     let mut in_limbo = base.clone();
-    in_limbo.lifecycle.in_limbo = true;
+    in_limbo.lifecycle.set_in_limbo_for_test(true);
     variants.push(("in limbo", in_limbo));
     let mut dead = base.clone();
-    dead.lifecycle.object_alive = false;
+    dead.lifecycle.set_object_alive_for_test(false);
     variants.push(("not native-alive", dead));
     let mut dying = base.clone();
     dying.dying = true;
@@ -878,7 +878,7 @@ fn infantry_action_fixture(
         .get_mut(id)
         .unwrap()
         .lifecycle
-        .in_limbo = false;
+        .set_in_limbo_for_test(false);
     assert!(
         sim.infantry_do_action(
             id,
@@ -1318,8 +1318,8 @@ fn completed_infantry_death_is_removed_by_the_class_sequencer() {
     actor.set_native_stage_value(15);
     assert!(sim.infantry_sequencer(id, &rules, crate::sim::world::FrameEffects::default()));
     let retired = sim.substrate.entities.get(id).unwrap();
-    assert!(!retired.lifecycle.object_alive);
-    assert!(retired.lifecycle.in_limbo);
+    assert!(!retired.lifecycle.object_alive());
+    assert!(retired.lifecycle.in_limbo());
     assert!(sim.substrate.pending_delete.contains_object(&id));
     sim.process_pending_delete_with(
         Some(&rules),
@@ -1372,8 +1372,8 @@ fn infantry_death_finishes_at_its_sequence_count_and_not_one_frame_early() {
         .set_native_stage_value(15);
     assert!(sim.infantry_sequencer(id, &rules, crate::sim::world::FrameEffects::default()));
     let retired = sim.substrate.entities.get(id).unwrap();
-    assert!(!retired.lifecycle.object_alive);
-    assert!(retired.lifecycle.in_limbo);
+    assert!(!retired.lifecycle.object_alive());
+    assert!(retired.lifecycle.in_limbo());
     assert!(sim.substrate.pending_delete.contains_object(&id));
     sim.process_pending_delete_with(
         Some(&rules),

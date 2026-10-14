@@ -47,7 +47,7 @@ fn spawn(
     let mut entity = GameEntity::test_default(id, type_name, owner, at.0, at.1);
     entity.set_category_for_test(category);
     entity.health.set_for_test(300);
-    entity.lifecycle.in_limbo = false;
+    entity.lifecycle.set_in_limbo_for_test(false);
     store.insert(entity);
 }
 

@@ -186,7 +186,7 @@ fn constructor_complete_foot_destructors_match_native_team_gate_and_rng() {
             )
         }));
         let actor = sim.entities().get(member).unwrap();
-        assert!(actor.lifecycle.object_alive && actor.lifecycle.in_limbo);
+        assert!(actor.lifecycle.object_alive() && actor.lifecycle.in_limbo());
         assert_eq!(row["prior"]["alive"], 1);
         assert_eq!(row["prior"]["limbo"], 1);
         assert_eq!(row["prior"]["type_present"], true);
@@ -475,7 +475,7 @@ fn receiver_fatal_limbo_clears_elevated_ground_occupation() {
 
     commit_receiver_authority_lethal_hit(&mut sim, 1);
 
-    assert!(sim.substrate.entities.get(1).unwrap().lifecycle.in_limbo);
+    assert!(sim.substrate.entities.get(1).unwrap().lifecycle.in_limbo());
     assert_eq!(
         sim.substrate.raw_cell_occupation.ground_bits(3, 4),
         0,
@@ -505,7 +505,7 @@ fn receiver_fatal_limbo_clears_sparse_map_dummy_reservation() {
 
     commit_receiver_authority_lethal_hit(&mut sim, 41);
 
-    assert!(sim.substrate.entities.get(41).unwrap().lifecycle.in_limbo);
+    assert!(sim.substrate.entities.get(41).unwrap().lifecycle.in_limbo());
     assert_eq!(
         sim.substrate.base_reservations.dummy_mask(),
         0,
@@ -607,8 +607,8 @@ fn receiver_garrison_survivor_keeps_height_aware_playfield_membership() {
     );
 
     let passenger = sim.substrate.entities.get(passenger_id).unwrap();
-    assert!(passenger.lifecycle.object_alive);
-    assert!(!passenger.lifecycle.in_limbo);
+    assert!(passenger.lifecycle.object_alive());
+    assert!(!passenger.lifecycle.in_limbo());
     assert_eq!(
         (
             passenger.position.rx,
@@ -642,7 +642,7 @@ fn uninit_clears_aircraft_bridge_occupation() {
     // starts a crash and does not immediately UnInit.
     sim.uninit_with_context(1, super::UninitContext::default());
 
-    assert!(sim.substrate.entities.get(1).unwrap().lifecycle.in_limbo);
+    assert!(sim.substrate.entities.get(1).unwrap().lifecycle.in_limbo());
     assert_eq!(sim.substrate.raw_cell_occupation.ground_bits(3, 4), 0);
     assert_eq!(sim.substrate.raw_cell_occupation.deck_bits(3, 4), 0);
 }
@@ -2288,7 +2288,7 @@ fn lifecycle_authority_reveal_commits_coords_then_marks_then_registers() {
     );
     assert_eq!(entity.position.sub_x, SimFixed::from_num(128));
     assert_eq!(entity.position.sub_y, SimFixed::from_num(64));
-    assert!(!entity.lifecycle.in_limbo);
+    assert!(!entity.lifecycle.in_limbo());
     assert!(entity.lifecycle.cell_marked);
     assert!(entity.in_logic_vector);
     assert!(sim.substrate.occupancy.contains_entity(10, 20, 1));
@@ -2317,7 +2317,7 @@ fn reveal_stops_after_mark_when_object_is_not_alive() {
         .get_mut(1)
         .unwrap()
         .lifecycle
-        .object_alive = false;
+        .set_object_alive_for_test(false);
 
     assert_eq!(
         sim.try_reveal_entity(1, request(10, 20, PlacementEvidence::MarkSucceeded)),
@@ -2326,7 +2326,7 @@ fn reveal_stops_after_mark_when_object_is_not_alive() {
         }
     );
     let entity = sim.substrate.entities.get(1).unwrap();
-    assert!(!entity.lifecycle.in_limbo);
+    assert!(!entity.lifecycle.in_limbo());
     assert!(entity.lifecycle.cell_marked);
     assert!(!entity.in_logic_vector);
     assert!(sim.lifecycle_outputs.is_empty());
@@ -2346,8 +2346,8 @@ fn lifecycle_authority_reveal_mark_failure_keeps_adjusted_coords_alive_limbo() {
         (entity.position.rx, entity.position.ry, entity.position.z),
         (10, 20, 2)
     );
-    assert!(entity.lifecycle.object_alive);
-    assert!(entity.lifecycle.in_limbo);
+    assert!(entity.lifecycle.object_alive());
+    assert!(entity.lifecycle.in_limbo());
     assert!(!entity.lifecycle.cell_marked);
     assert!(!entity.in_logic_vector);
     assert_eq!(
@@ -2375,7 +2375,7 @@ fn lifecycle_authority_reveal_early_reject_commits_nothing() {
         (entity.position.rx, entity.position.ry),
         (before.rx, before.ry)
     );
-    assert!(entity.lifecycle.in_limbo);
+    assert!(entity.lifecycle.in_limbo());
     assert!(sim.lifecycle_test_events.is_empty());
 }
 
@@ -2400,7 +2400,7 @@ fn lifecycle_authority_reveal_rejects_an_already_marked_limbo_object() {
         (entity.position.rx, entity.position.ry),
         (before.rx, before.ry)
     );
-    assert!(entity.lifecycle.in_limbo);
+    assert!(entity.lifecycle.in_limbo());
     assert!(entity.lifecycle.cell_marked);
     assert!(sim.lifecycle_test_events.is_empty());
 }
@@ -2418,7 +2418,7 @@ fn lifecycle_authority_reveal_logic_failure_keeps_successful_mark() {
         }
     );
     let entity = sim.substrate.entities.get(1).unwrap();
-    assert!(!entity.lifecycle.in_limbo);
+    assert!(!entity.lifecycle.in_limbo());
     assert!(entity.lifecycle.cell_marked);
     assert!(!entity.in_logic_vector);
     assert!(sim.substrate.occupancy.contains_entity(10, 20, 1));
@@ -2542,8 +2542,8 @@ fn open_topped_direct_registration_keeps_hidden_passenger_live() {
 
     assert!(sim.register_open_topped_passenger(1));
     let passenger = sim.substrate.entities.get(1).unwrap();
-    assert!(passenger.lifecycle.object_alive);
-    assert!(passenger.lifecycle.in_limbo);
+    assert!(passenger.lifecycle.object_alive());
+    assert!(passenger.lifecycle.in_limbo());
     assert!(!passenger.lifecycle.cell_marked);
     assert!(passenger.in_logic_vector);
     assert_eq!(sim.live_object_order_snapshot(), vec![2, 1]);
@@ -2639,8 +2639,8 @@ fn lifecycle_authority_conceal_dirty_eligibility_emits_dirty_before_drawn_clear(
         ]
     );
     let entity = sim.substrate.entities.get(1).unwrap();
-    assert!(entity.lifecycle.object_alive);
-    assert!(entity.lifecycle.in_limbo);
+    assert!(entity.lifecycle.object_alive());
+    assert!(entity.lifecycle.in_limbo());
     assert!(!entity.lifecycle.cell_marked);
     assert!(!entity.in_logic_vector);
 }
@@ -2689,7 +2689,7 @@ fn lifecycle_authority_conceal_deselects_unmarks_unregisters_then_sets_limbo() {
     assert!(!entity.selected);
     assert!(!entity.lifecycle.cell_marked);
     assert!(!entity.in_logic_vector);
-    assert!(entity.lifecycle.in_limbo);
+    assert!(entity.lifecycle.in_limbo());
 }
 
 #[test]
@@ -2840,8 +2840,8 @@ fn lifecycle_authority_conceal_keeps_object_alive() {
 
     let _ = sim.object_conceal(1);
     let entity = sim.substrate.entities.get(1).unwrap();
-    assert!(entity.lifecycle.object_alive);
-    assert!(entity.lifecycle.in_limbo);
+    assert!(entity.lifecycle.object_alive());
+    assert!(entity.lifecycle.in_limbo());
     assert!(!entity.dying);
     assert!(!sim.substrate.pending_delete.contains_object(&1));
 }
@@ -2942,8 +2942,8 @@ fn lifecycle_authority_uninit_limbos_while_alive_then_clears_alive_then_queues()
 
     sim.uninit(1);
     let entity = sim.substrate.entities.get(1).unwrap();
-    assert!(!entity.lifecycle.object_alive);
-    assert!(entity.lifecycle.in_limbo);
+    assert!(!entity.lifecycle.object_alive());
+    assert!(entity.lifecycle.in_limbo());
     assert!(!entity.lifecycle.cell_marked);
     assert!(entity.dying);
     assert_eq!(sim.substrate.pending_delete.object_ids(), vec![1]);
@@ -3044,7 +3044,7 @@ fn gsi_05_03_conceal_destroy_and_uninit_broadcast_before_unmark() {
             .get(1)
             .unwrap()
             .lifecycle
-            .object_alive
+            .object_alive()
     );
 
     let mut uninit = Simulation::new();
@@ -3112,8 +3112,8 @@ fn gsi_05_03_dead_nonlimbo_stored_object_still_runs_conceal() {
     let _ = sim.reveal(1);
     {
         let entity = sim.substrate.entities.get_mut(1).unwrap();
-        entity.lifecycle.object_alive = false;
-        assert!(!entity.lifecycle.in_limbo);
+        entity.lifecycle.set_object_alive_for_test(false);
+        assert!(!entity.lifecycle.in_limbo());
         assert!(entity.lifecycle.cell_marked);
     }
     sim.lifecycle_test_events.clear();
@@ -3145,8 +3145,8 @@ fn gsi_05_03_dead_nonlimbo_stored_object_still_runs_conceal() {
     assert!(destroy < unmark && unmark < limbo_set);
 
     let entity = sim.substrate.entities.get(1).unwrap();
-    assert!(!entity.lifecycle.object_alive);
-    assert!(entity.lifecycle.in_limbo);
+    assert!(!entity.lifecycle.object_alive());
+    assert!(entity.lifecycle.in_limbo());
     assert!(!entity.lifecycle.cell_marked);
     assert!(!entity.in_logic_vector);
 }
@@ -3163,8 +3163,8 @@ fn lifecycle_authority_uninit_dead_limbo_remains_resolvable_until_drain() {
         .entities
         .get(1)
         .expect("dead object remains stored until the ordinary drain");
-    assert!(!entity.lifecycle.object_alive);
-    assert!(entity.lifecycle.in_limbo);
+    assert!(!entity.lifecycle.object_alive());
+    assert!(entity.lifecycle.in_limbo());
     assert!(!entity.lifecycle.cell_marked);
     assert!(!entity.in_logic_vector);
     assert_eq!(sim.substrate.pending_delete.object_ids(), vec![1]);
@@ -3259,7 +3259,7 @@ fn nested_transport_uninit_keeps_inner_cargo_until_its_recursive_transaction() {
     assert_eq!(sim.substrate.pending_delete.object_ids(), vec![3, 2, 1]);
     for id in [1, 2, 3] {
         let entity = sim.substrate.entities.get(id).unwrap();
-        assert!(!entity.lifecycle.object_alive);
+        assert!(!entity.lifecycle.object_alive());
         assert_eq!(entity.passenger_role.inside_transport_id(), None);
     }
     for id in [1, 2] {
@@ -3301,7 +3301,7 @@ fn nested_transport_parent_expiry_preserves_its_independent_cargo() {
             let _ = sim.reveal(1);
             let _ = sim.reveal(2);
             let parent = sim.substrate.entities.get_mut(1).unwrap();
-            parent.lifecycle.object_alive = alive;
+            parent.lifecycle.set_object_alive_for_test(alive);
             parent.health.set_for_test(health);
             let mut cargo = PassengerCargo::new(5, 2);
             cargo.board_forced(3, 1);
@@ -4698,8 +4698,8 @@ fn lifecycle_authority_animated_death_stays_represented_until_uninit() {
     );
     let entity = sim.substrate.entities.get(1).unwrap();
     assert!(!entity.destruction_recorded);
-    assert!(entity.lifecycle.object_alive);
-    assert!(!entity.lifecycle.in_limbo);
+    assert!(entity.lifecycle.object_alive());
+    assert!(!entity.lifecycle.in_limbo());
     assert!(entity.lifecycle.cell_marked);
     assert!(entity.in_logic_vector);
 
@@ -4715,7 +4715,7 @@ fn lifecycle_authority_animated_death_stays_represented_until_uninit() {
             .get(1)
             .unwrap()
             .lifecycle
-            .object_alive
+            .object_alive()
     );
     assert!(!sim.substrate.entities.get(1).unwrap().in_logic_vector);
 }
@@ -5938,8 +5938,8 @@ fn gsi_05_04_combat_fatal_expiry_keeps_authoritative_cell_target() {
         .entities
         .get(victim_id)
         .expect("fatal target remains resolvable before the common drain");
-    assert!(!victim.lifecycle.object_alive);
-    assert!(victim.lifecycle.in_limbo);
+    assert!(!victim.lifecycle.object_alive());
+    assert!(victim.lifecycle.in_limbo());
     assert!(sim.substrate.pending_delete.contains_object(&victim_id));
     assert_eq!(
         sim.projectiles.get(listener_id).unwrap().target,
@@ -6079,8 +6079,8 @@ fn gsi_05_04_combat_fatal_garrison_recursion_keeps_cell_target() {
         .entities
         .get(passenger_id)
         .expect("no-exit occupant remains resolvable before common drain");
-    assert!(!passenger.lifecycle.object_alive);
-    assert!(passenger.lifecycle.in_limbo);
+    assert!(!passenger.lifecycle.object_alive());
+    assert!(passenger.lifecycle.in_limbo());
     assert!(sim.substrate.pending_delete.contains_object(&passenger_id));
     assert_eq!(
         sim.projectiles.get(listener_id).unwrap().target,
@@ -6712,8 +6712,8 @@ fn gsi_01_05_lethal_bullet_commits_receiver_before_retirement_and_double_compact
         .entities
         .get(victim_id)
         .expect("fatal receiver remains resolvable until common drain");
-    assert!(!victim.lifecycle.object_alive);
-    assert!(victim.lifecycle.in_limbo);
+    assert!(!victim.lifecycle.object_alive());
+    assert!(victim.lifecycle.in_limbo());
     assert_eq!(victim.mission.ai_counter(), 0);
     assert_eq!(
         sim.substrate
@@ -7871,8 +7871,8 @@ fn gsi_01_05_wave_reselects_live_cell_list_after_fatal_receiver_unmark() {
         "fatal UnInit from the first cell removes the 2x1 foundation entry before the second recorded cell selects its current occupants"
     );
     let building = sim.substrate.entities.get(building_id).unwrap();
-    assert!(!building.lifecycle.object_alive);
-    assert!(building.lifecycle.in_limbo);
+    assert!(!building.lifecycle.object_alive());
+    assert!(building.lifecycle.in_limbo());
     assert!(!sim.substrate.occupancy.contains_entity(4, 5, building_id));
     assert!(!sim.substrate.occupancy.contains_entity(5, 5, building_id));
     assert_eq!(
@@ -8866,7 +8866,7 @@ fn jumpjet_process_compares_live_layer_queries_not_cached_registration() {
     // The native tail's alive gate prevents another submission after death.
     let before = sim.entity_display_layer(id, None).unwrap();
     let entity = sim.substrate.entities.get_mut(id).unwrap();
-    entity.lifecycle.object_alive = false;
+    entity.lifecycle.set_object_alive_for_test(false);
     entity.position.exact_z_leptons = Some(0);
     sim.complete_jumpjet_display_process(id, before, None);
     assert_eq!(sim.substrate.display.layer_of(id), Some(DisplayLayer::TOP));
@@ -8884,7 +8884,7 @@ fn display_registration_expires_with_a_resubmitted_uninit_owner() {
     insert_entity(&mut sim, id, EntityCategory::Unit);
     sim.try_reveal_entity(id, common_raw_request(3, 3, 0, 128, 128));
     sim.uninit(id);
-    assert!(sim.substrate.entities.get(id).unwrap().lifecycle.in_limbo);
+    assert!(sim.substrate.entities.get(id).unwrap().lifecycle.in_limbo());
     sim.submit_entity_display(id, None, None);
     assert_eq!(
         sim.substrate.display.layer_of(id),

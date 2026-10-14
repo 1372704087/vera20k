@@ -599,7 +599,7 @@ impl Simulation {
             let Some(entity) = self.substrate.entities.get(member) else {
                 continue;
             };
-            if !entity.lifecycle.object_alive {
+            if !entity.lifecycle.object_alive() {
                 continue;
             }
             self.team_member_join_up(team_id, member, rules, registry, frame_effects);
@@ -2013,7 +2013,7 @@ impl Simulation {
                 self.team_member_initiated(team_id, member),
                 self.object_placement_scope_active(),
             ) {
-                busy |= droppod && entity.lifecycle.in_limbo;
+                busy |= droppod && entity.lifecycle.in_limbo();
                 continue;
             }
             let infiltrates = || {

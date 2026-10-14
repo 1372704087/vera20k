@@ -364,7 +364,7 @@ fn crash_fall_matches_native_frames_to_the_impact() {
                     5,
                     true,
                 );
-                entity.lifecycle.in_limbo = true;
+                entity.lifecycle.set_in_limbo_for_test(true);
                 sim.substrate.entities.insert(entity);
                 assert!(matches!(
                     sim.try_reveal_entity(
@@ -403,7 +403,7 @@ fn crash_fall_matches_native_frames_to_the_impact() {
                     sim.substrate
                         .entities
                         .get(1)
-                        .is_none_or(|e| !e.lifecycle.object_alive),
+                        .is_none_or(|e| !e.lifecycle.object_alive()),
                     "{name}: UnInit at the impact"
                 );
                 assert_eq!(
@@ -564,7 +564,7 @@ fn a_shot_down_aircraft_falls_and_detonates_through_advance_tick() {
         5,
         true,
     );
-    entity.lifecycle.in_limbo = true;
+    entity.lifecycle.set_in_limbo_for_test(true);
     sim.substrate.entities.insert(entity);
     assert!(matches!(
         sim.try_reveal_entity(
@@ -598,7 +598,7 @@ fn a_shot_down_aircraft_falls_and_detonates_through_advance_tick() {
         .entities
         .get(1)
         .expect("a crashing aircraft stays represented");
-    assert!(entity.crashing && entity.lifecycle.object_alive && !entity.dying);
+    assert!(entity.crashing && entity.lifecycle.object_alive() && !entity.dying);
     assert_eq!(entity.health.current(), 0);
     assert_eq!(entity.killed_by, Some(soviets));
     assert!(
@@ -617,7 +617,7 @@ fn a_shot_down_aircraft_falls_and_detonates_through_advance_tick() {
         .substrate
         .entities
         .get(1)
-        .is_some_and(|e| e.lifecycle.object_alive)
+        .is_some_and(|e| e.lifecycle.object_alive())
     {
         frames += 1;
         assert!(frames < 60, "the fall must reach the ground");
@@ -703,7 +703,7 @@ fn a_crash_saved_in_mid_fall_lands_like_the_original() {
         sim.substrate
             .entities
             .get(1)
-            .is_some_and(|entity| entity.lifecycle.object_alive)
+            .is_some_and(|entity| entity.lifecycle.object_alive())
     };
     let mut frames = 0;
     while alive(&sim) {
@@ -927,7 +927,7 @@ fn jumpjet_fixture(balloon: bool) -> (Simulation, RuleSet, u64, u64) {
             5,
             true,
         );
-        entity.lifecycle.in_limbo = true;
+        entity.lifecycle.set_in_limbo_for_test(true);
         sim.substrate.entities.insert(entity);
         reveal(sim, id, rx, ry);
         id
@@ -985,7 +985,7 @@ fn fall_to_the_impact(sim: &mut Simulation, rules: &RuleSet) -> JumpjetFall {
             })
             .count();
         match sim.substrate.entities.get(1) {
-            Some(entity) if entity.lifecycle.object_alive => {
+            Some(entity) if entity.lifecycle.object_alive() => {
                 assert!(entity.crashing && entity.health.current() == 0);
                 fall.heights
                     .push(entity.position.exact_z_leptons.expect("exact Z"));
@@ -1049,7 +1049,7 @@ fn a_shot_down_jumpjet_crashes_through_the_production_receiver() {
         .entities
         .get(1)
         .expect("a crashing unit stays");
-    assert!(entity.crashing && entity.lifecycle.object_alive && !entity.dying);
+    assert!(entity.crashing && entity.lifecycle.object_alive() && !entity.dying);
     assert_eq!(entity.health.current(), 0);
     assert!(
         entity
@@ -1067,7 +1067,7 @@ fn a_shot_down_jumpjet_crashes_through_the_production_receiver() {
             sim.substrate
                 .entities
                 .get(rider)
-                .is_none_or(|rider| !rider.lifecycle.object_alive),
+                .is_none_or(|rider| !rider.lifecycle.object_alive()),
             "rider {rider} died with the transport"
         );
     }
@@ -1338,7 +1338,7 @@ fn a_jumpjet_wreck_scans_only_on_its_committed_guard() {
             5,
             true,
         );
-        entity.lifecycle.in_limbo = true;
+        entity.lifecycle.set_in_limbo_for_test(true);
         sim.substrate.entities.insert(entity);
         assert!(matches!(
             sim.try_reveal_entity(
@@ -1367,7 +1367,7 @@ fn a_jumpjet_wreck_scans_only_on_its_committed_guard() {
                 .substrate
                 .entities
                 .get(1)
-                .filter(|wreck| wreck.lifecycle.object_alive)
+                .filter(|wreck| wreck.lifecycle.object_alive())
             else {
                 break;
             };
@@ -1401,7 +1401,7 @@ fn a_landed_jumpjet_dies_where_it_stands() {
         sim.substrate
             .entities
             .get(1)
-            .is_none_or(|entity| !entity.lifecycle.object_alive),
+            .is_none_or(|entity| !entity.lifecycle.object_alive()),
         "no crash on the ground"
     );
 }
@@ -1571,7 +1571,7 @@ fn retail_dustbowl_flak_shoots_a_harrier_down() {
             .substrate
             .entities
             .get(harrier)
-            .filter(|entity| entity.lifecycle.object_alive)
+            .filter(|entity| entity.lifecycle.object_alive())
         else {
             assert!(crash_frame.is_some(), "the Harrier left before crashing");
             impact_frame = Some(frame);
@@ -1885,7 +1885,7 @@ fn retail_dustbowl_flak_shoots_down_a_nighthawk_and_a_kirov() {
                 .substrate
                 .entities
                 .get(id)
-                .filter(|entity| entity.lifecycle.object_alive)
+                .filter(|entity| entity.lifecycle.object_alive())
             else {
                 assert!(wreck.crash_frame.is_some(), "{id} left before crashing");
                 wreck.impact_frame = Some(frame);
@@ -1931,7 +1931,7 @@ fn retail_dustbowl_flak_shoots_down_a_nighthawk_and_a_kirov() {
             sim.substrate
                 .entities
                 .get(*rider)
-                .is_none_or(|rider| !rider.lifecycle.object_alive)
+                .is_none_or(|rider| !rider.lifecycle.object_alive())
         );
     }
     assert!(

@@ -244,14 +244,14 @@ fn assert_retained_roles(sim: &Simulation, parent_id: u64, upgrade_id: u64, held
             .cell_marked
     );
     let upgrade = sim.substrate.entities.get(upgrade_id).unwrap();
-    assert!(!upgrade.lifecycle.in_limbo && !upgrade.lifecycle.cell_marked);
+    assert!(!upgrade.lifecycle.in_limbo() && !upgrade.lifecycle.cell_marked);
     assert!(
         upgrade
             .structure_upgrade_link
             .is_some_and(|link| link.parent_stable_id == parent_id)
     );
     let held = sim.substrate.entities.get(held_id).unwrap();
-    assert!(held.lifecycle.in_limbo && !held.lifecycle.cell_marked);
+    assert!(held.lifecycle.in_limbo() && !held.lifecycle.cell_marked);
     assert_eq!(
         sim.production
             .factories
@@ -303,7 +303,7 @@ fn held_factory_and_attached_upgrade_stay_off_navigation_through_frame_and_resto
         .values()
         .find(|entity| entity.structure_upgrade_link.is_some())
         .unwrap();
-    assert!(!upgrade.lifecycle.in_limbo && !upgrade.lifecycle.cell_marked);
+    assert!(!upgrade.lifecycle.in_limbo() && !upgrade.lifecycle.cell_marked);
     let upgrade_id = upgrade.stable_id();
     assert!(enqueue_by_type(
         &mut sim,
@@ -323,7 +323,7 @@ fn held_factory_and_attached_upgrade_stay_off_navigation_through_frame_and_resto
         .entity_id
         .unwrap();
     let held = sim.substrate.entities.get(held_id).unwrap();
-    assert!(held.lifecycle.in_limbo && !held.lifecycle.cell_marked);
+    assert!(held.lifecycle.in_limbo() && !held.lifecycle.cell_marked);
     assert_eq!((held.position.rx, held.position.ry), (0, 0));
 
     assert!(sim.rebuild_dynamic_navigation(&rules));
@@ -368,7 +368,7 @@ fn held_factory_and_attached_upgrade_stay_off_navigation_through_frame_and_resto
             .get(held_id)
             .unwrap()
             .lifecycle
-            .in_limbo
+            .in_limbo()
     );
     assert_only_marked_foundation(&restored);
     assert_retained_roles(&restored, parent_id, upgrade_id, held_id);

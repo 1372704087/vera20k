@@ -903,7 +903,7 @@ fn a_battle_bunker_team_member_garrisons_the_bunker() {
     assert_eq!(occupants(&sim, bunker), [infantry]);
     assert!(sim.team_script_vm.team(team).is_none());
     let foot = entity(&sim, infantry);
-    assert!(foot.lifecycle.in_limbo);
+    assert!(foot.lifecycle.in_limbo());
     assert!(foot.building_entry.should_enter_occupiable());
 }
 
@@ -1019,7 +1019,7 @@ fn an_occupier_turned_away_at_a_full_bunker_gives_up() {
         !entity(sim, infantry).building_entry.seeking()
     }));
     let foot = entity(&sim, infantry);
-    assert!(!foot.lifecycle.in_limbo);
+    assert!(!foot.lifecycle.in_limbo());
     assert!(matches!(foot.passenger_role, PassengerRole::None));
     assert_ne!(
         foot.mission.current(),

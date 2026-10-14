@@ -152,7 +152,7 @@ fn spawn_infantry(sim: &mut Simulation, type_str: &str, owner: &str, rx: u16, ry
     );
     // A directly-inserted GameEntity keeps the constructed `in_limbo` byte;
     // production spawns clear it through Reveal, and order admission reads it.
-    e.lifecycle.in_limbo = false;
+    e.lifecycle.set_in_limbo_for_test(false);
     sim.substrate.entities.insert(e);
     id
 }

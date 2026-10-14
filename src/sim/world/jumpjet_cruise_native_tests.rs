@@ -247,7 +247,7 @@ fn supplied_world(
         .expect("stock SHAD constructor");
     {
         let actor = sim.substrate.entities.get_mut(id).unwrap();
-        actor.lifecycle.in_limbo = false;
+        actor.lifecycle.set_in_limbo_for_test(false);
         actor.health.set_for_test(signed(&state["health"]));
         actor.on_bridge = state["on_bridge"].as_bool().unwrap();
         // make_fixture supplies zeroed Unit storage, retaining Foot+6B6=0.
@@ -327,7 +327,7 @@ fn supplied_world(
             .expect("foreign supplied SHAD identity");
         {
             let foreign = sim.substrate.entities.get_mut(other).unwrap();
-            foreign.lifecycle.in_limbo = false;
+            foreign.lifecycle.set_in_limbo_for_test(false);
             foreign
                 .health
                 .set_for_test(signed(&state["other"]["health"]));
@@ -408,7 +408,7 @@ fn assert_motion_boundary(sim: &Simulation, id: u64, control: &Value, boundary: 
         "{label}: marked"
     );
     assert_eq!(
-        actor.lifecycle.object_alive,
+        actor.lifecycle.object_alive(),
         signed(&state["alive"]) != 0,
         "{label}: alive"
     );
@@ -581,7 +581,7 @@ fn assert_world_boundary(
             "{label}: foreign marked"
         );
         assert_eq!(
-            entity.lifecycle.object_alive,
+            entity.lifecycle.object_alive(),
             signed(&native["alive"]) != 0,
             "{label}: foreign alive"
         );

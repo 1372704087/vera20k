@@ -2270,8 +2270,8 @@ ConditionYellow=50%
             "boarded passenger leaves the active order"
         );
         let passenger = sim.substrate.entities.get(pax).unwrap();
-        assert!(passenger.lifecycle.object_alive);
-        assert!(passenger.lifecycle.in_limbo);
+        assert!(passenger.lifecycle.object_alive());
+        assert!(passenger.lifecycle.in_limbo());
         assert!(!passenger.lifecycle.cell_marked);
         assert!(!passenger.in_logic_vector);
         assert!(
@@ -2342,7 +2342,7 @@ ConditionYellow=50%
             passenger_entity.passenger_role,
             PassengerRole::Inside { transport_id, .. } if transport_id == transport
         ));
-        assert!(passenger_entity.lifecycle.in_limbo);
+        assert!(passenger_entity.lifecycle.in_limbo());
         assert!(!passenger_entity.lifecycle.cell_marked);
         assert!(passenger_entity.in_logic_vector);
         assert_eq!(
@@ -2927,8 +2927,8 @@ ConditionYellow=50%
         //repair/power and before any later object's visit.
         assert_eq!(owner_name(&sim, bldg), "Neutral");
         let unloaded = sim.substrate.entities.get(pax).unwrap();
-        assert!(unloaded.lifecycle.object_alive);
-        assert!(!unloaded.lifecycle.in_limbo);
+        assert!(unloaded.lifecycle.object_alive());
+        assert!(!unloaded.lifecycle.in_limbo());
         assert!(unloaded.lifecycle.cell_marked);
         assert!(unloaded.in_logic_vector);
 

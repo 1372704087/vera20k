@@ -152,7 +152,7 @@ fn fixture(row: &Value) -> (Simulation, RuleSet, OverlayTypeRegistry, u64, Optio
     e.position.exact_z_leptons = Some(current.z);
     e.on_bridge = false;
     e.in_playfield = input["in_playfield"].as_bool().unwrap_or(false);
-    e.lifecycle.object_alive = true;
+    e.lifecycle.set_object_alive_for_test(true);
     e.lifecycle.cell_marked = true;
     e.dock_entered_with = input["tethered"].as_bool().unwrap_or(false).then_some(999);
     e.mission.apply_test_fixture(MissionTestFixture {
@@ -227,7 +227,8 @@ fn fixture(row: &Value) -> (Simulation, RuleSet, OverlayTypeRegistry, u64, Optio
         e.position.sub_x = SimFixed::from_num(current.x % 256);
         e.position.sub_y = SimFixed::from_num(current.y % 256);
         e.position.exact_z_leptons = Some(current.z);
-        e.lifecycle.object_alive = input["obstacle_alive"].as_bool().unwrap_or(true);
+        e.lifecycle
+            .set_object_alive_for_test(input["obstacle_alive"].as_bool().unwrap_or(true));
         e.lifecycle.cell_marked = true;
         e.on_bridge = input["obstacle_deck"] == true;
         let mut cloak = CloakRuntime::new(0);

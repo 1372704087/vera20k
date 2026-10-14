@@ -2006,7 +2006,7 @@ Verses=100%,100%,100%,100%,100%,100%,100%,100%,100%,100%,100%
                 open_topped: false,
             };
             let occupant = sim.entities().get(gi).unwrap();
-            assert!(occupant.lifecycle.in_limbo);
+            assert!(occupant.lifecycle.in_limbo());
             assert!(!occupant.lifecycle.cell_marked);
             assert!(!occupant.in_logic_vector);
             assert!(!sim.live_object_order_snapshot().contains(&gi));
@@ -2054,8 +2054,8 @@ Verses=100%,100%,100%,100%,100%,100%,100%,100%,100%,100%,100%
                     actor.passive_scan_timer,
                     actor.passively_acquired_target,
                     actor.ai_frozen(),
-                    actor.lifecycle.object_alive,
-                    actor.lifecycle.in_limbo,
+                    actor.lifecycle.object_alive(),
+                    actor.lifecycle.in_limbo(),
                     actor.in_logic_vector,
                     actor.health.current(),
                     sim.building_operational_state(house, &rules),

@@ -1919,7 +1919,7 @@ mod tests {
         let type_ref = sim.intern("GAPILE");
         let building = sim.substrate.entities.get_mut(2).unwrap();
         building.set_type_ref_for_test(type_ref);
-        building.lifecycle.in_limbo = false;
+        building.lifecycle.set_in_limbo_for_test(false);
         building.lifecycle.cell_marked = true;
         let owner = sim.intern("Americans");
         let type_ref = sim.intern("E1");
@@ -1937,7 +1937,7 @@ mod tests {
             5,
             false,
         );
-        infantry.lifecycle.in_limbo = false;
+        infantry.lifecycle.set_in_limbo_for_test(false);
         infantry.lifecycle.cell_marked = true;
         infantry.radio_contacts.set_capacity(3);
         sim.substrate.entities.insert(infantry);

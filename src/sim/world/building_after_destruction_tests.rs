@@ -195,7 +195,7 @@ fn a_destroyed_leave_rubble_building_leaves_rubble_on_its_foundation() {
         sim.substrate
             .entities
             .get(ruin)
-            .is_none_or(|entity| !entity.lifecycle.object_alive),
+            .is_none_or(|entity| !entity.lifecycle.object_alive()),
         "the building is gone"
     );
     let ruin_type = sim.interner.get("RUIN").expect("interned type");

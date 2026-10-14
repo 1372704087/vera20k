@@ -249,7 +249,7 @@ mod tests {
         }
         let head = sim.substrate.entities.get(terror).unwrap();
         assert!(head.infantry_terminal.is_none());
-        assert!(!head.lifecycle.object_alive);
+        assert!(!head.lifecycle.object_alive());
         assert!(head.destruction_recorded);
         assert!(!sim.live_object_order_snapshot().contains(&terror));
         assert_eq!(sim.houses[&owner].stats.units_lost(), 2);
@@ -319,7 +319,7 @@ mod tests {
                 .get(building)
                 .unwrap()
                 .lifecycle
-                .object_alive
+                .object_alive()
         );
         assert!(sim.substrate.pending_delete.is_empty());
     }
@@ -372,7 +372,7 @@ mod tests {
         assert_eq!(object.mission_leaf.as_infantry().unwrap().doing(), 11);
         assert_eq!(object.native_stage().value(), 0);
         assert!(object.infantry_terminal.is_none());
-        assert!(!object.lifecycle.object_alive);
+        assert!(!object.lifecycle.object_alive());
         assert!(!sim.live_object_order_snapshot().contains(&gi));
         assert_eq!(sim.substrate.pending_delete, pending);
     }

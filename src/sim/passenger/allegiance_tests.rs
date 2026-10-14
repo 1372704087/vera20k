@@ -136,7 +136,7 @@ fn fixture(input: &Value) -> (Simulation, RuleSet, u64, Vec<InternedId>) {
             transport_id: id,
             open_topped: false,
         };
-        passenger.lifecycle.in_limbo = true;
+        passenger.lifecycle.set_in_limbo_for_test(true);
         passenger.locomotor = Some(
             crate::sim::movement::locomotor::LocomotorState::for_test_kind(
                 crate::rules::locomotor_type::LocomotorKind::Walk,
@@ -315,7 +315,7 @@ fn building_ai_caller_admission_matches_native_unwarped_gates() {
             .get_mut(id)
             .unwrap()
             .lifecycle
-            .object_alive = input["alive"].as_bool().unwrap();
+            .set_object_alive_for_test(input["alive"].as_bool().unwrap());
         rules.general.condition_red = -1.0; // no ejection or death dependency
         let old_owner = sim.substrate.entities.get(id).unwrap().owner();
         sim.object_ai_visit_one(id, Some(&rules), ObjectAiCtx::default());

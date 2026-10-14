@@ -696,7 +696,7 @@ pub(crate) fn build_bomb_clock_instances(
         let Some(bomb) = entity.bomb else {
             continue;
         };
-        if entity.lifecycle.in_limbo
+        if entity.lifecycle.in_limbo()
             || entity.passenger_role.is_inside_transport()
             || entity.sinking.is_active()
         {
@@ -796,7 +796,7 @@ pub(crate) fn build_repair_wrench_instances(
     for entity in sim.entities().values() {
         if entity.category() != EntityCategory::Structure
             || !entity.repairing
-            || entity.lifecycle.in_limbo
+            || entity.lifecycle.in_limbo()
         {
             continue;
         }

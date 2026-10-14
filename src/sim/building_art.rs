@@ -1114,7 +1114,7 @@ mod slot_tests {
         // This synthetic owner has never been marked; enter through the real
         // coordinate commit and verify its already retained slot moves in place.
         let entity = sim.entities_mut().get_mut(id).unwrap();
-        entity.lifecycle.in_limbo = true;
+        entity.lifecycle.set_in_limbo_for_test(true);
         entity.lifecycle.cell_marked = false;
         let outcome = sim.try_reveal_entity_with_context(
             id,
@@ -1381,8 +1381,8 @@ mod slot_tests {
         sim.uninit_with_rules(id, &rules);
 
         let building = sim.entities().get(id).expect("deferred Building");
-        assert!(!building.lifecycle.object_alive);
-        assert!(building.lifecycle.in_limbo);
+        assert!(!building.lifecycle.object_alive());
+        assert!(building.lifecycle.in_limbo());
         assert_eq!(building.building_art.anim_slots[3], Some(anim_id));
         let anim = sim.anim(anim_id).expect("slot survives Building UnInit");
         assert_eq!(anim.owner_entity, None);

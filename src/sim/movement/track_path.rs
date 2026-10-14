@@ -602,7 +602,7 @@ impl Simulation {
         self.substrate
             .entities
             .get(id)
-            .is_some_and(|e| e.lifecycle.object_alive)
+            .is_some_and(|e| e.lifecycle.object_alive())
     }
 
     /// The one completion of a class-setter call Rust deferred (the

@@ -14,8 +14,8 @@ fn fixture(family: TrackFamily, budget: i32) -> (Simulation, TrackInvocation, i3
             crate::rules::locomotor_type::LocomotorKind::Ship
         },
     ));
-    entity.lifecycle.object_alive = true;
-    entity.lifecycle.in_limbo = false;
+    entity.lifecycle.set_object_alive_for_test(true);
+    entity.lifecycle.set_in_limbo_for_test(false);
     entity.lifecycle.cell_marked = true;
     let head = DriveCoord {
         x: 10 * 256 + 128,
@@ -393,7 +393,7 @@ fn production_host_lifecycle_exit_does_not_store_call_local_residual() {
                 .get_mut(id)
                 .unwrap()
                 .lifecycle
-                .object_alive = false;
+                .set_object_alive_for_test(false);
         }
     });
     let state = progress(sim.substrate.entities.get(1).unwrap(), TrackFamily::Drive).unwrap();
@@ -476,7 +476,7 @@ fn nonterminal_limbo_and_falling_do_not_add_an_early_survival_gate() {
         sim.run_track_points_observed(invocation, budget, None, None, &mut |sim, id, event| {
             if event == TrackWorldEvent::SetCoords {
                 let entity = sim.substrate.entities.get_mut(id).unwrap();
-                entity.lifecycle.in_limbo = true;
+                entity.lifecycle.set_in_limbo_for_test(true);
                 entity.set_falling_down_for_test(true);
             }
         });
@@ -524,7 +524,7 @@ fn terminal_per_cell_limbo_keeps_retained_residual_and_navcom() {
                 assert!(entity.navigation.nav_com.is_some());
                 assert_eq!(head(entity, family), DriveCoord { x: 0, y: 0, z: 0 });
                 assert!(!valid(entity, family));
-                entity.lifecycle.in_limbo = true;
+                entity.lifecycle.set_in_limbo_for_test(true);
             }
         });
         let entity = sim.substrate.entities.get(1).unwrap();
@@ -684,7 +684,7 @@ fn accepted_chain_preserves_call_budget_and_reloads_callback_queue_once() {
                         .foot_speed
                         .set_speed_fraction(SimFixed::from_num(0.25));
                     if retire_in_callback {
-                        entity.lifecycle.in_limbo = true;
+                        entity.lifecycle.set_in_limbo_for_test(true);
                     }
                 }
             },
@@ -945,7 +945,7 @@ fn repeated_foot_limbo_does_not_clear_a_new_raw_head_claim() {
         let supplied = head(sim.substrate.entities.get(1).unwrap(), family);
         sim.track_apply_occupation(1, family, true);
         sim.techno_limbo(1);
-        assert!(sim.substrate.entities.get(1).unwrap().lifecycle.in_limbo);
+        assert!(sim.substrate.entities.get(1).unwrap().lifecycle.in_limbo());
         let at = cell(supplied);
         assert_eq!(
             sim.substrate.raw_cell_occupation.ground_bits(at.0, at.1) & 0x20,
@@ -1127,8 +1127,8 @@ fn factory_per_cell_fixture(
     producer.set_owner_for_test(owner);
     producer.foundation = "1x1".into();
     producer.on_bridge = producer_on_bridge;
-    producer.lifecycle.object_alive = true;
-    producer.lifecycle.in_limbo = false;
+    producer.lifecycle.set_object_alive_for_test(true);
+    producer.lifecycle.set_in_limbo_for_test(false);
     producer.lifecycle.cell_marked = true;
     producer.mission.apply_test_fixture(guard);
     sim.substrate.entities.insert(producer);
@@ -2137,8 +2137,8 @@ fn idle_base_fixture(category: EntityCategory) -> Simulation {
     // Original fixture end=none, +687=0 and no planning/Archive work. No
     // active controller or class tail is supplied by this comparison.
     actor.locomotor = None;
-    actor.lifecycle.object_alive = true;
-    actor.lifecycle.in_limbo = false;
+    actor.lifecycle.set_object_alive_for_test(true);
+    actor.lifecycle.set_in_limbo_for_test(false);
     actor.lifecycle.cell_marked = false;
     sim.substrate.entities.insert(actor);
     sim.substrate.next_stable_object_id = 2;

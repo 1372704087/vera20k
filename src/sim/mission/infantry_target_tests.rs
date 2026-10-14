@@ -159,7 +159,7 @@ fn compare_original_infantry_target_rows(consumer: TargetConsumer) {
             0,
             false,
         );
-        actor.lifecycle.in_limbo = false;
+        actor.lifecycle.set_in_limbo_for_test(false);
         let doing = before["doing"].as_i64().unwrap() as i32;
         actor
             .mission_leaf
@@ -211,7 +211,7 @@ fn compare_original_infantry_target_rows(consumer: TargetConsumer) {
                 // The event admits only out-of-limbo object tokens. This
                 // additional caller premise does not change the represented
                 // class setter's alive-target results.
-                recipient.lifecycle.in_limbo = false;
+                recipient.lifecycle.set_in_limbo_for_test(false);
             }
             sim.substrate.entities.insert(recipient);
         }

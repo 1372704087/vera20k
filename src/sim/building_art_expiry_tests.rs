@@ -231,7 +231,9 @@ fn scene(golden: &Value, row: &Value) -> (Simulation, RuleSet, u64, u64) {
             case["completion"].as_i64().unwrap_or(0) != 0,
         );
     let entity = sim.substrate.entities.get_mut(id).unwrap();
-    entity.lifecycle.object_alive = case["alive"].as_i64().unwrap_or(1) != 0;
+    entity
+        .lifecycle
+        .set_object_alive_for_test(case["alive"].as_i64().unwrap_or(1) != 0);
     if let Some(health) = case["callback_health"].as_i64() {
         entity.health.set_for_test(health as i32);
     }

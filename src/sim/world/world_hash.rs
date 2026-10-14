@@ -1467,8 +1467,8 @@ fn hash_entity(entity: &GameEntity, frame: u32, hasher: &mut StateHasher) {
     }
     // Independent lifecycle axes and deterministic Rust bookkeeping.
     // Keep this order fixed: it is part of the lockstep hash contract.
-    entity.lifecycle.object_alive.hash(hasher);
-    entity.lifecycle.in_limbo.hash(hasher);
+    entity.lifecycle.object_alive().hash(hasher);
+    entity.lifecycle.in_limbo().hash(hasher);
     entity.lifecycle.cell_marked.hash(hasher);
     entity.dying.hash(hasher);
     entity.dirty_rect_eligible.hash(hasher);
@@ -2425,10 +2425,14 @@ mod lifecycle_hash_tests {
     #[test]
     fn lifecycle_authority_each_axis_changes_state_hash() {
         assert_entity_mutation_changes_hash(|entity| {
-            entity.lifecycle.object_alive = !entity.lifecycle.object_alive;
+            entity
+                .lifecycle
+                .set_object_alive_for_test(!entity.lifecycle.object_alive());
         });
         assert_entity_mutation_changes_hash(|entity| {
-            entity.lifecycle.in_limbo = !entity.lifecycle.in_limbo;
+            entity
+                .lifecycle
+                .set_in_limbo_for_test(!entity.lifecycle.in_limbo());
         });
         assert_entity_mutation_changes_hash(|entity| {
             entity.lifecycle.cell_marked = !entity.lifecycle.cell_marked;

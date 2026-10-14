@@ -666,8 +666,16 @@ mod tests {
             e.set_category_for_test(EntityCategory::Infantry);
             store.insert(e);
         }
-        store.get_mut(1).unwrap().lifecycle.object_alive = false;
-        store.get_mut(1).unwrap().lifecycle.in_limbo = true;
+        store
+            .get_mut(1)
+            .unwrap()
+            .lifecycle
+            .set_object_alive_for_test(false);
+        store
+            .get_mut(1)
+            .unwrap()
+            .lifecycle
+            .set_in_limbo_for_test(true);
         assert_eq!(store.infantry_registry_at(0), Some(1));
         store.remove(1);
         // A caller that just visited index0 next reads index1, skipping2.

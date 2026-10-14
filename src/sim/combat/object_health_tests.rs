@@ -18,7 +18,9 @@ fn actual_signed_object_commit_matches_original_packet_results_and_callbacks() {
         let output = &row["output"];
         let mut entity = GameEntity::test_default(1, "X", "Americans", 2, 2);
         entity.health.current = input["current"].as_i64().unwrap() as i32;
-        entity.lifecycle.object_alive = input["alive"] == 1;
+        entity
+            .lifecycle
+            .set_object_alive_for_test(input["alive"] == 1);
         entity.estimated_health =
             crate::sim::estimated_health::EstimatedHealth::from_raw(-987654321);
         let mut packet = input["damage"].as_i64().unwrap() as i32;
@@ -43,7 +45,7 @@ fn actual_signed_object_commit_matches_original_packet_results_and_callbacks() {
                     HealthCallback::Destroy => 1,
                 };
                 let before = entity.health.current;
-                let alive_before = u8::from(entity.lifecycle.object_alive);
+                let alive_before = u8::from(entity.lifecycle.object_alive());
                 let mode = input["callback"].as_str().unwrap();
                 let mutation = match (callback, mode) {
                     (HealthCallback::Changed, "heal_zero") => Some(0),
@@ -63,12 +65,12 @@ fn actual_signed_object_commit_matches_original_packet_results_and_callbacks() {
                         | (HealthCallback::Destroy, "destroy_clear_alive")
                         | (HealthCallback::Kill, "kill_clear_alive")
                 ) {
-                    entity.lifecycle.object_alive = false;
+                    entity.lifecycle.set_object_alive_for_test(false);
                     writes.push(json!({"field":"alive", "value":0}));
                 }
                 callbacks.push(json!({"slot":slot,"argument":argument,"health_before":before,
                     "alive_before":alive_before,"supplied_writes":writes,"health_after":entity.health.current,
-                    "alive_after":u8::from(entity.lifecycle.object_alive)}));
+                    "alive_after":u8::from(entity.lifecycle.object_alive())}));
             },
         );
         assert_eq!(
@@ -88,7 +90,7 @@ fn actual_signed_object_commit_matches_original_packet_results_and_callbacks() {
             "{input}"
         );
         assert_eq!(
-            u8::from(entity.lifecycle.object_alive),
+            u8::from(entity.lifecycle.object_alive()),
             output["alive"].as_u64().unwrap() as u8,
             "{input}"
         );
@@ -128,7 +130,7 @@ fn receiver_commit_keeps_negative_heal_on_exact_zero_techno_tail_and_wide_hits()
         entity.set_type_ref_for_test(interner.intern("X"));
         entity.set_owner_for_test(interner.intern("Americans"));
         entity.health.current = hp;
-        entity.lifecycle.object_alive = alive;
+        entity.lifecycle.set_object_alive_for_test(alive);
         entity.estimated_health = crate::sim::estimated_health::EstimatedHealth::from_raw(-123);
         entities.insert(entity);
         let event =

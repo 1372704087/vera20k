@@ -98,8 +98,8 @@ fn combatant_selection_ingress_precedes_destroy_and_is_not_replayed_at_tail() {
     infantry.set_owner_for_test(owner);
     infantry.set_type_ref_for_test(sim.interner.intern("E1"));
     infantry.set_category_for_test(EntityCategory::Infantry);
-    infantry.lifecycle.object_alive = true;
-    infantry.lifecycle.in_limbo = false;
+    infantry.lifecycle.set_object_alive_for_test(true);
+    infantry.lifecycle.set_in_limbo_for_test(false);
     infantry.selected = false;
     sim.substrate.entities.insert(infantry);
     let commands = [CommandEnvelope::new(
@@ -141,7 +141,7 @@ fn combatant_selection_ingress_precedes_destroy_and_is_not_replayed_at_tail() {
     assert!(selected_before_logic, "local Select commits before Logic");
     assert_eq!((ingress_count, tail_count, spawned), (1, 0, false));
     assert!(sim.entities().get(1).unwrap().is_object_alive());
-    assert!(!sim.entities().get(1).unwrap().lifecycle.in_limbo);
+    assert!(!sim.entities().get(1).unwrap().lifecycle.in_limbo());
     // A distinct later real P remains admitted, as the executed native
     // infantry_health_zero_alive_true control pins. Do not add a health gate.
     assert!(sim.try_select_object(1, None));
@@ -1128,7 +1128,7 @@ fn idle_squid_body_counter_starts_move_sound() {
     let mut sim = Simulation::with_seed(0x1020_3040);
     let mut entity = GameEntity::test_default(1, "SQD", "Americans", 4, 4);
     entity.set_type_ref_for_test(sim.interner.intern("SQD"));
-    entity.lifecycle.in_limbo = false;
+    entity.lifecycle.set_in_limbo_for_test(false);
     entity.locomotor = Some(LocomotorState::for_test_kind(LocomotorKind::Ship));
     sim.substrate.entities.insert(entity);
     let before = sim.substrate.entities.get(1).unwrap().body_frame_counter;
@@ -2093,7 +2093,7 @@ fn gsi_04_07_damage_fatal_transport_lifecycle_brackets_nested_death_weapon() {
     for id in [11, 31, 10] {
         let entity = fatal.substrate.entities.get(id).unwrap();
         assert_eq!(entity.health.current(), 0);
-        assert!(!entity.lifecycle.object_alive);
+        assert!(!entity.lifecycle.object_alive());
         assert!(!entity.in_logic_vector);
     }
     let listener = fatal.substrate.entities.get(30).unwrap();
@@ -2662,7 +2662,7 @@ fn gsi_04_15_active_tube_leaf_preempts_unit_and_infantry_mission_host() {
             5,
             true,
         );
-        entity.lifecycle.in_limbo = false;
+        entity.lifecycle.set_in_limbo_for_test(false);
         entity.lifecycle.cell_marked = false;
         if category == EntityCategory::Unit {
             entity.mega_mission = crate::sim::mission::mega_mission::MegaMission::attack_move(
@@ -2718,7 +2718,7 @@ fn gsi_04_15_active_tube_leaf_preempts_unit_and_infantry_mission_host() {
             5,
             true,
         );
-        building.lifecycle.in_limbo = false;
+        building.lifecycle.set_in_limbo_for_test(false);
         sim.substrate.entities.insert(building);
         sim.add_entity_occupancy(2);
         sim.fog = crate::sim::vision::FogState::new(3, 1);
@@ -7593,7 +7593,7 @@ fn test_attack_move_lethal_hit_expires_the_target_at_the_kill() {
         .expect("animated victim remains stored through its death sequence");
     assert_eq!(victim.health.current(), 0);
     assert!(victim.dying);
-    assert!(victim.lifecycle.object_alive);
+    assert!(victim.lifecycle.object_alive());
 
     let attacker = sim.substrate.entities.get(1).expect("attacker exists");
     assert!(
@@ -7964,7 +7964,7 @@ fn test_lethal_hit_restore_refuses_the_dying_archived_target() {
         .get(2)
         .expect("the corpse stays stored for its die sequence");
     assert_eq!(victim.health.current(), 0);
-    assert!(victim.lifecycle.object_alive);
+    assert!(victim.lifecycle.object_alive());
     let tank = sim.substrate.entities.get(1).expect("the killer survives");
     assert!(
         tank.attack_target.is_none(),
@@ -8056,7 +8056,7 @@ fn test_lethal_hit_stuns_the_dying_infantry() {
         .get(1)
         .expect("the corpse stays stored for its die sequence");
     assert_eq!(gi.health.current(), 0);
-    assert!(gi.lifecycle.object_alive);
+    assert!(gi.lifecycle.object_alive());
     assert!(
         gi.attack_target.is_none(),
         "TechnoClass::Stun Assign_Target(NULL)"
@@ -8156,7 +8156,7 @@ fn test_fog_revealed_persists_after_unit_moves_away() {
         1,
         false,
     );
-    ge.lifecycle.in_limbo = false;
+    ge.lifecycle.set_in_limbo_for_test(false);
     sim.substrate.entities.insert(ge);
 
     let grid = PathGrid::new(8, 8);

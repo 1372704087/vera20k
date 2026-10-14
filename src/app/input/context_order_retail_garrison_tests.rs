@@ -194,7 +194,7 @@ fn retail_gi_group_boards_a_4x4_garrison_from_its_far_side() {
             occupant.passenger_role,
             PassengerRole::Inside { transport_id, .. } if transport_id == castle
         ));
-        assert!(occupant.lifecycle.in_limbo);
+        assert!(occupant.lifecycle.in_limbo());
         assert!(!occupant.lifecycle.cell_marked);
         assert!(!occupant.in_logic_vector);
         assert!(!sim.live_object_order_snapshot().contains(&gi));
@@ -293,7 +293,7 @@ fn retail_capture_walk_rechecks_admission_and_respects_a_replacement_order() {
             advance_garrison_frame(runtime);
             let actor = runtime.simulation.entities().get(gi).unwrap();
             assert!(
-                !actor.lifecycle.in_limbo,
+                !actor.lifecycle.in_limbo(),
                 "{control}: refused GI stays visible"
             );
             assert!(

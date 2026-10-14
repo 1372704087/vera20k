@@ -471,7 +471,7 @@ fn the_overrides_match_native() {
                 (int(&timer[0]), int(&timer[1])),
                 "{row}"
             );
-            assert!(!entity.lifecycle.object_alive, "{row}");
+            assert!(!entity.lifecycle.object_alive(), "{row}");
             assert_eq!(
                 sim.substrate.entities.get(victim).unwrap().parasite.eater(),
                 None

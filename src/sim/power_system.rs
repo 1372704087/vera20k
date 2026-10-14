@@ -260,7 +260,7 @@ pub(crate) fn is_operational_for_output(
 fn participates_in_power_accounting(entity: &GameEntity) -> bool {
     entity.category() == EntityCategory::Structure
         && !entity.dying
-        && !entity.lifecycle.in_limbo
+        && !entity.lifecycle.in_limbo()
         && entity.lifecycle.cell_marked
 }
 
@@ -468,7 +468,7 @@ fn radar_provider_available(
             continue;
         };
         if entity.owner() != owner
-            || entity.lifecycle.in_limbo
+            || entity.lifecycle.in_limbo()
             || !entity.lifecycle.cell_marked
             || entity.dying
             || !entity.building_online()
@@ -605,7 +605,9 @@ mod tests {
             entity
                 .drain
                 .set_draining_me_for_test(row["draining"].as_bool().unwrap().then_some(99));
-            entity.lifecycle.in_limbo = row["limbo"].as_bool().unwrap();
+            entity
+                .lifecycle
+                .set_in_limbo_for_test(row["limbo"].as_bool().unwrap());
             entity.lifecycle.cell_marked = row["marked"].as_bool().unwrap();
             let mut entities = EntityStore::default();
             entities.insert(entity);
@@ -706,7 +708,7 @@ mod tests {
             EntityCategory::Structure,
         );
         e.health = Health::new(hp);
-        e.lifecycle.in_limbo = false;
+        e.lifecycle.set_in_limbo_for_test(false);
         e.lifecycle.cell_marked = true;
         e
     }
@@ -838,8 +840,12 @@ BuildSpeed=0.02
             let mut store = EntityStore::new();
             let mut plant = make_building(1, "GAPOWR", "Allies", 600);
             plant.lifecycle.cell_marked = input["marked"].as_bool().unwrap();
-            plant.lifecycle.object_alive = input["alive"].as_bool().unwrap();
-            plant.lifecycle.in_limbo = input["limbo"].as_bool().unwrap();
+            plant
+                .lifecycle
+                .set_object_alive_for_test(input["alive"].as_bool().unwrap());
+            plant
+                .lifecycle
+                .set_in_limbo_for_test(input["limbo"].as_bool().unwrap());
             store.insert(plant);
             let owner = intern::test_intern("Allies");
             let mut state = PowerState::default();
@@ -870,7 +876,9 @@ BuildSpeed=0.02
             match input["member"].as_str().unwrap() {
                 "unmarked" | "limbo" => {
                     let mut plant = make_building(1, "GAPOWR", "Allies", 600);
-                    plant.lifecycle.in_limbo = input["member"] == "limbo";
+                    plant
+                        .lifecycle
+                        .set_in_limbo_for_test(input["member"] == "limbo");
                     plant.lifecycle.cell_marked = input["member"] == "limbo";
                     store.insert(plant);
                 }

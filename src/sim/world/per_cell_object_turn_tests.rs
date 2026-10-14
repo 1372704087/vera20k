@@ -35,7 +35,7 @@ fn output_arrival_fixture() -> (Simulation, RuleSet) {
             GameEntity::test_default_of_category(id, name, "Americans", cell.0, cell.1, category);
         entity.set_owner_for_test(sim.intern("Americans"));
         entity.set_type_ref_for_test(sim.intern(name));
-        entity.lifecycle.in_limbo = false;
+        entity.lifecycle.set_in_limbo_for_test(false);
         entity.lifecycle.cell_marked = true;
         if category == EntityCategory::Infantry {
             entity.locomotor = Some(LocomotorState::for_test_kind(LocomotorKind::Walk));

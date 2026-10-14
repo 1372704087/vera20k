@@ -967,7 +967,7 @@ fn retail_dustbowl_the_computer_yard_places_its_planned_buildings() {
                 .values()
                 .filter(|e| {
                     !e.dying
-                        && !e.lifecycle.in_limbo
+                        && !e.lifecycle.in_limbo()
                         && e.owner() == owner
                         && e.category() == crate::map::entities::EntityCategory::Structure
                         && sim.interner.resolve(e.type_ref()) != "NACNST"
@@ -1044,7 +1044,7 @@ fn retail_dustbowl_the_computer_yard_places_a_base_defense() {
             .values()
             .filter(|e| {
                 !e.dying
-                    && !e.lifecycle.in_limbo
+                    && !e.lifecycle.in_limbo()
                     && e.owner() == owner
                     && e.category() == crate::map::entities::EntityCategory::Structure
             })
@@ -1300,7 +1300,7 @@ fn retail_dustbowl_a_computer_without_its_yard_sells_off_and_hunts() {
             sim.substrate
                 .entities
                 .get(id)
-                .is_some_and(|b| b.is_ai_alive() && !b.lifecycle.in_limbo)
+                .is_some_and(|b| b.is_ai_alive() && !b.lifecycle.in_limbo())
         })
         .collect();
     assert!(!left.is_empty(), "something to sell");

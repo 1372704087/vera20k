@@ -2486,7 +2486,7 @@ mod harvester_guard_override_tests {
             5,
             false,
         );
-        ge.lifecycle.in_limbo = false;
+        ge.lifecycle.set_in_limbo_for_test(false);
         sim.substrate.entities.insert(ge);
         // The class constructor's `Add_Tracking`, which a direct insert skips.
         sim.update_house_tracking(

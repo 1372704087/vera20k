@@ -121,7 +121,7 @@ fn wallet_survives_prepared_load_and_active_cancellation() {
         5,
         false,
     );
-    producer.lifecycle.in_limbo = false;
+    producer.lifecycle.set_in_limbo_for_test(false);
     producer.in_playfield = true;
     producer.finish_building_construction_for_test();
     producer.building_art.set_actually_placed_for_test(true);
@@ -505,15 +505,13 @@ fn factory_restore_rejects_inconsistent_roots() {
                     .unwrap()
                     .entity_id = Some(parent);
             }
-            "revealed-root" => {
-                saved
-                    .substrate
-                    .entities
-                    .get_mut(parent)
-                    .unwrap()
-                    .lifecycle
-                    .in_limbo = false
-            }
+            "revealed-root" => saved
+                .substrate
+                .entities
+                .get_mut(parent)
+                .unwrap()
+                .lifecycle
+                .set_in_limbo_for_test(false),
             "marked-root" => {
                 let entity = saved.substrate.entities.get_mut(parent).unwrap();
                 entity.lifecycle.cell_marked = true;

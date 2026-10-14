@@ -224,7 +224,7 @@ fn erased(sim: &Simulation, id: u64) -> bool {
     sim.substrate
         .entities
         .get(id)
-        .is_none_or(|entity| !entity.lifecycle.object_alive)
+        .is_none_or(|entity| !entity.lifecycle.object_alive())
 }
 
 /// Link the attackers onto `target` in chain order (the first is the head),

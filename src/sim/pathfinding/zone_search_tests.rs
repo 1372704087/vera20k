@@ -78,7 +78,7 @@ fn gsi_04_12_cell_listed_entity(
     ry: u16,
 ) -> GameEntity {
     let mut entity = GameEntity::test_default(stable_id, type_ref, owner, rx, ry);
-    entity.lifecycle.in_limbo = false;
+    entity.lifecycle.set_in_limbo_for_test(false);
     entity.lifecycle.cell_marked = true;
     entity
 }

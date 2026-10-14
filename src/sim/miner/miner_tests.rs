@@ -173,7 +173,7 @@ fn spawn_miner(sim: &mut Simulation, sid: u64, kind: MinerKind, rx: u16, ry: u16
         MinerKind::Slave => {}
     }
     ge.miner = Some(Miner::new(kind, &MinerConfig::default(), 0));
-    ge.lifecycle.in_limbo = false;
+    ge.lifecycle.set_in_limbo_for_test(false);
     sim.substrate.entities.insert(ge);
     if kind != MinerKind::Slave {
         // Direct insertion skips stock miner Unlimbo's idle/Commence. Supply
@@ -222,7 +222,7 @@ fn spawn_refinery(sim: &mut Simulation, sid: u64, rx: u16, ry: u16) {
         false,
     );
     // Placed in its cells' lists: on the map, out of limbo and marked.
-    ge.lifecycle.in_limbo = false;
+    ge.lifecycle.set_in_limbo_for_test(false);
     ge.lifecycle.cell_marked = true;
     // Construction stamps the type's `Foundation=4x3`.
     ge.foundation = "4x3".to_string();
@@ -274,7 +274,7 @@ fn spawn_structure_owned(
         5,
         false,
     );
-    ge.lifecycle.in_limbo = false;
+    ge.lifecycle.set_in_limbo_for_test(false);
     sim.substrate.entities.insert(ge);
     occupy_structure_cells(sim, sid, rx, ry, 1, 1);
     join_house_list(sim, sid, owner_id);
@@ -308,7 +308,7 @@ fn spawn_inert_dock_instance(sim: &mut Simulation) {
         5,
         false,
     );
-    ge.lifecycle.in_limbo = false;
+    ge.lifecycle.set_in_limbo_for_test(false);
     sim.substrate.entities.insert(ge);
     sim.houses
         .entry(owner_id)
@@ -2555,7 +2555,7 @@ fn stop_commits_guard_and_takes_a_harvesting_miner_off_the_loop() {
         .get_mut(miner_id)
         .expect("miner present")
         .lifecycle
-        .in_limbo = false;
+        .set_in_limbo_for_test(false);
     sim.mission_assign_exact(miner_id, MissionId::from_known(MissionType::Harvest), 0)
         .expect("miner exists");
     let owner = sim.interner.get("Americans").expect("owner interned");
@@ -2628,7 +2628,7 @@ fn stop_does_not_force_guard_on_a_non_miner() {
         true,
     );
     tank.miner = None;
-    tank.lifecycle.in_limbo = false;
+    tank.lifecycle.set_in_limbo_for_test(false);
     sim.substrate.entities.insert(tank);
     sim.substrate.next_stable_object_id = 8;
     sim.mission_assign_exact(7, MissionId::from_known(MissionType::Move), 0)
@@ -2744,7 +2744,7 @@ fn occupy_refinery(sim: &mut Simulation, refinery_sid: u64, occupant_sid: u64) {
         5,
         true,
     );
-    ge.lifecycle.in_limbo = false;
+    ge.lifecycle.set_in_limbo_for_test(false);
     sim.substrate.entities.insert(ge);
     if sim.substrate.next_stable_object_id <= occupant_sid {
         sim.substrate.next_stable_object_id = occupant_sid + 1;
@@ -3857,7 +3857,7 @@ fn captured_harvesting_miner_requeues_harvest_for_the_new_owner() {
         .get_mut(miner_id)
         .unwrap()
         .lifecycle
-        .in_limbo = true;
+        .set_in_limbo_for_test(true);
     assert!(matches!(
         sim.reveal_entity_with_rules(miner_id, &rules),
         crate::sim::world::RevealOutcome::Revealed { .. }
@@ -3931,7 +3931,7 @@ fn captured_miner_off_ore_under_a_human_house_parks_on_guard() {
         .get_mut(miner_id)
         .unwrap()
         .lifecycle
-        .in_limbo = true;
+        .set_in_limbo_for_test(true);
     assert!(matches!(
         sim.reveal_entity_with_rules(miner_id, &rules),
         crate::sim::world::RevealOutcome::Revealed { .. }
@@ -3983,7 +3983,7 @@ fn captured_miner_off_ore_under_an_ai_house_requeues_harvest() {
         .get_mut(miner_id)
         .unwrap()
         .lifecycle
-        .in_limbo = true;
+        .set_in_limbo_for_test(true);
     assert!(matches!(
         sim.reveal_entity_with_rules(miner_id, &rules),
         crate::sim::world::RevealOutcome::Revealed { .. }
@@ -4037,7 +4037,7 @@ fn captured_miner_in_radio_contact_gets_only_the_forced_guard() {
         .get_mut(miner_id)
         .unwrap()
         .lifecycle
-        .in_limbo = true;
+        .set_in_limbo_for_test(true);
     assert!(matches!(
         sim.reveal_entity_with_rules(miner_id, &rules),
         crate::sim::world::RevealOutcome::Revealed { .. }

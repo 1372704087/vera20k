@@ -71,7 +71,7 @@ fn response_world(frame: u32, attacker_at: (u16, u16)) -> Simulation {
     sim.substrate.entities.insert(victim);
     let mut attacker =
         GameEntity::test_default(2, "ATTACKER", "Enemy", attacker_at.0, attacker_at.1);
-    attacker.lifecycle.in_limbo = false;
+    attacker.lifecycle.set_in_limbo_for_test(false);
     attacker.lifecycle.cell_marked = true;
     sim.substrate.entities.insert(attacker);
     sim

@@ -549,7 +549,7 @@ impl Simulation {
             return;
         };
         // `0x00414DAA`: an aircraft its own FootClass::AI removed never gets here.
-        if entity.category() != EntityCategory::Aircraft || !entity.lifecycle.object_alive {
+        if entity.category() != EntityCategory::Aircraft || !entity.lifecycle.object_alive() {
             return;
         }
         let Some(object) = self.object_type(entity.type_ref(), rules) else {

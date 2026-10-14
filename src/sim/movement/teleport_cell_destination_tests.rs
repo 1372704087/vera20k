@@ -154,7 +154,7 @@ fn fixture(row: &Value, rules: &RuleSet) -> (Simulation, u64, InternedId) {
         actor.locomotor.as_ref().unwrap().active_kind(),
         LocomotorKind::Teleport
     );
-    actor.lifecycle.in_limbo = false;
+    actor.lifecycle.set_in_limbo_for_test(false);
     actor.lifecycle.cell_marked = true;
     super::super::ground_pose::put_location(&mut actor.position, coord(&before["actor"]["coords"]));
     actor.on_bridge = signed(&before["actor"]["on_bridge"]) != 0;
@@ -233,7 +233,7 @@ fn fixture(row: &Value, rules: &RuleSet) -> (Simulation, u64, InternedId) {
             .unwrap();
         let supplied = coord(&transport["coords"]);
         let vehicle = sim.substrate.entities.get_mut(target).unwrap();
-        vehicle.lifecycle.in_limbo = false;
+        vehicle.lifecycle.set_in_limbo_for_test(false);
         vehicle.lifecycle.cell_marked = true;
         super::super::ground_pose::put_location(&mut vehicle.position, supplied);
         vehicle.health.set_for_test(signed(&transport["health"]));

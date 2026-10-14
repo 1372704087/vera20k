@@ -2243,7 +2243,7 @@ pub(crate) fn tick_combat(
                         actor.category(),
                         EntityCategory::Unit | EntityCategory::Infantry
                     ) && actor.is_ai_alive()
-                        && !actor.lifecycle.in_limbo
+                        && !actor.lifecycle.in_limbo()
                 }))
             .then_some(Visit::Foot(id))
         }));

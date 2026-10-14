@@ -238,7 +238,7 @@ fn retail_dustbowl_battle_fortress_riders_fire_from_its_ports() {
                     open_topped: true,
                 } if transport_id == bfrt
             ));
-            assert!(gi.lifecycle.in_limbo);
+            assert!(gi.lifecycle.in_limbo());
             assert_eq!(gi.mission.current().known(), Some(MissionType::Guard));
             assert!(gi.attack_target.is_none());
             // Native51A441..51A46E preserves the arrival subcell; a later
@@ -295,7 +295,7 @@ fn retail_dustbowl_battle_fortress_riders_fire_from_its_ports() {
         if first_volley.is_none() && !output.fire_events.is_empty() {
             first_volley = Some((output.fire_events.len(), 200 - target.health.current()));
         }
-        if target.health.current() == 0 || !target.lifecycle.object_alive {
+        if target.health.current() == 0 || !target.lifecycle.object_alive() {
             break;
         }
     }
@@ -344,7 +344,7 @@ fn retail_dustbowl_battle_fortress_riders_fire_from_its_ports() {
         sim.substrate
             .entities
             .get(enemy)
-            .is_none_or(|target| !target.lifecycle.object_alive || target.health.current() == 0),
+            .is_none_or(|target| !target.lifecycle.object_alive() || target.health.current() == 0),
         "the riders kill Tanya"
     );
     // The experience (`+0x150`), not yet a rank: Tanya's 1000 over the
@@ -630,7 +630,7 @@ fn retail_dustbowl_battle_fortress_rider_walks_in_and_stays_put() {
         let [rider, transport] =
             [gi, bfrt].map(|id| sim.substrate.entities.get(id).expect("object lives"));
         assert!(inside(&fortress), "frame {frame}: still inside");
-        assert!(rider.lifecycle.in_limbo, "frame {frame}: in limbo");
+        assert!(rider.lifecycle.in_limbo(), "frame {frame}: in limbo");
         assert_eq!(
             position_world_coord(&rider.position),
             arrival,
@@ -976,7 +976,7 @@ fn retail_battle_fortress_chrono_rider_freezes_releases_and_erases() {
                 .substrate
                 .entities
                 .get(target)
-                .is_none_or(|victim| !victim.lifecycle.object_alive)
+                .is_none_or(|victim| !victim.lifecycle.object_alive())
             {
                 assert!(
                     !release_by_moving,

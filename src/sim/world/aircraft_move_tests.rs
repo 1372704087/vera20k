@@ -57,8 +57,8 @@ fn insert(sim: &mut Simulation, id: u64, name: &str, category: EntityCategory, p
     entity.position.sub_x = SimFixed::from_num(point[0] % 256);
     entity.position.sub_y = SimFixed::from_num(point[1] % 256);
     entity.position.exact_z_leptons = Some(point[2]);
-    entity.lifecycle.object_alive = true;
-    entity.lifecycle.in_limbo = false;
+    entity.lifecycle.set_object_alive_for_test(true);
+    entity.lifecycle.set_in_limbo_for_test(false);
     sim.substrate.entities.insert(entity);
     sim.substrate.next_stable_object_id = sim.substrate.next_stable_object_id.max(id + 1);
 }

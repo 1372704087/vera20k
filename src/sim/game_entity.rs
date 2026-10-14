@@ -34,6 +34,7 @@ use crate::sim::passenger::PassengerRole;
 use crate::sim::radio::Contacts;
 use crate::sim::superweapon::invulnerability::InvulnerabilityState;
 use crate::sim::timer::CdTimer;
+use crate::sim::world::ObjectLifecycle;
 use crate::util::native_x87::NativeF64Bits;
 
 mod foot_air;
@@ -206,33 +207,6 @@ pub(crate) use crate::sim::gate_runtime::BuildingGateRuntime;
 pub struct BuildingLightRuntime {
     pub behavior: u8,
     pub target_id: Option<u64>,
-}
-
-/// Independent ObjectClass lifecycle facts.
-///
-/// These bytes deliberately do not derive from health, store presence, cell
-/// occupancy, LogicVector membership, or the Rust death-sequence state. Active
-/// gamemd keeps those concerns independent, including alive objects that are in
-/// limbo, active objects that are temporarily off-cell, and dead-limbo objects
-/// that remain resolvable until the pending-delete drain.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
-pub struct ObjectLifecycle {
-    /// ObjectClass native-alive state (`ObjectClass+0x90` analogue).
-    pub object_alive: bool,
-    /// ObjectClass InLimbo state. This is independent of LogicVector membership.
-    pub in_limbo: bool,
-    /// Whether Mark/cell-list insertion currently owns cell membership.
-    pub cell_marked: bool,
-}
-
-impl Default for ObjectLifecycle {
-    fn default() -> Self {
-        Self {
-            object_alive: true,
-            in_limbo: true,
-            cell_marked: false,
-        }
-    }
 }
 
 /// Accepted Psychedelic-warhead state owned by TechnoClass.
@@ -558,9 +532,10 @@ pub struct GameEntity {
     /// native save/load reconstruction remains unverified.
     #[serde(skip)]
     pub in_logic_vector: bool,
-    /// Independent, serialized ObjectClass lifecycle facts.
+    /// Independent, serialized ObjectClass lifecycle facts, an
+    /// [`ObjectLifecycle`] that `world::lifecycle` owns.
     #[serde(default)]
-    pub lifecycle: ObjectLifecycle,
+    pub(crate) lifecycle: ObjectLifecycle,
     /// Canonical TechnoClass playfield-membership byte (`TechnoClass+0x3D5`).
     ///
     /// gamemd-derived: the constructor clears it at `0x006F2F5B`, Unlimbo
@@ -2117,7 +2092,7 @@ impl GameEntity {
     /// Whether ObjectClass native-alive state is set. This is intentionally
     /// independent from health and the Rust death-sequence state.
     pub fn is_object_alive(&self) -> bool {
-        self.lifecycle.object_alive
+        self.lifecycle.object_alive()
     }
 
     /// Transitional Rust system gate until ordinary Infantry lifecycle authority
@@ -2125,7 +2100,7 @@ impl GameEntity {
     /// `is_object_alive()`; death-sequence state still suppresses current raw-store
     /// consumers even while ObjectClass native-alive remains set.
     pub fn is_active(&self) -> bool {
-        self.lifecycle.object_alive && !self.dying
+        self.lifecycle.object_alive() && !self.dying
     }
 
     /// ObjectClass IsAlive (`+0x90`) as the per-object AI and a Unit's fire
@@ -2405,8 +2380,8 @@ mod lifecycle_tests {
 
         // Exercise every combination without deriving one fact from another.
         for bits in 0u8..64 {
-            e.lifecycle.object_alive = bits & 0b00_0001 != 0;
-            e.lifecycle.in_limbo = bits & 0b00_0010 != 0;
+            e.lifecycle.set_object_alive_for_test(bits & 0b00_0001 != 0);
+            e.lifecycle.set_in_limbo_for_test(bits & 0b00_0010 != 0);
             e.lifecycle.cell_marked = bits & 0b00_0100 != 0;
             e.in_logic_vector = bits & 0b00_1000 != 0;
             e.dying = bits & 0b01_0000 != 0;
@@ -2414,12 +2389,12 @@ mod lifecycle_tests {
                 .set_for_test(if bits & 0b10_0000 != 0 { 1 } else { 0 });
 
             assert_eq!(e.is_object_alive(), bits & 0b00_0001 != 0);
-            assert_eq!(e.lifecycle.in_limbo, bits & 0b00_0010 != 0);
+            assert_eq!(e.lifecycle.in_limbo(), bits & 0b00_0010 != 0);
             assert_eq!(e.lifecycle.cell_marked, bits & 0b00_0100 != 0);
             assert_eq!(e.in_logic_vector, bits & 0b00_1000 != 0);
             assert_eq!(e.dying, bits & 0b01_0000 != 0);
             assert_eq!(e.is_alive(), bits & 0b10_0000 != 0);
-            assert_eq!(e.is_active(), e.lifecycle.object_alive && !e.dying,);
+            assert_eq!(e.is_active(), e.lifecycle.object_alive() && !e.dying,);
         }
     }
 }

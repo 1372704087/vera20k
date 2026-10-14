@@ -1471,7 +1471,7 @@ fn scan_docking_type(
             continue;
         };
         let e_type = sim.interner.resolve(entity.type_ref());
-        if !e_type.eq_ignore_ascii_case(dock_type) || entity.lifecycle.in_limbo {
+        if !e_type.eq_ignore_ascii_case(dock_type) || entity.lifecycle.in_limbo() {
             continue;
         }
         // gamemd removes a dead building from the house list through
@@ -1688,7 +1688,7 @@ pub(crate) fn counts_as_purifier(
     // its deposit bonus until the end-of-tick drain; a limbo'd one already
     // took the native Limbo `DEC`.
     !e.dying
-        && !e.lifecycle.in_limbo
+        && !e.lifecycle.in_limbo()
         && !e.building_up()
         && e.category() == EntityCategory::Structure
         && sim
@@ -1807,7 +1807,7 @@ mod harvest_scan_dispatch_tests {
             5,
             false,
         );
-        ge.lifecycle.in_limbo = false;
+        ge.lifecycle.set_in_limbo_for_test(false);
         // Construction stamps the type's `Foundation=4x3`.
         ge.foundation = "4x3".to_string();
         sim.substrate.entities.insert(ge);
@@ -1858,7 +1858,7 @@ mod harvest_scan_dispatch_tests {
         );
         // This prepared Harvest scene represents an Unlimboed actor; the
         // player re-order check takes native actor admission before retasking.
-        ge.lifecycle.in_limbo = false;
+        ge.lifecycle.set_in_limbo_for_test(false);
         ge.locomotor = Some(
             crate::sim::movement::locomotor::LocomotorState::for_test_kind(
                 crate::rules::locomotor_type::LocomotorKind::Drive,
@@ -2374,7 +2374,7 @@ mod harvest_scan_dispatch_tests {
             5,
             true,
         );
-        ge.lifecycle.in_limbo = false;
+        ge.lifecycle.set_in_limbo_for_test(false);
         sim.substrate.entities.insert(ge);
         assert!(
             crate::sim::miner::miner_dock::test_support::dock_test_hello(

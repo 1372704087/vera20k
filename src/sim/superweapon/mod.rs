@@ -912,7 +912,7 @@ fn owned_live_buildings(
         .filter(move |building| {
             building.category() == crate::map::entities::EntityCategory::Structure
                 && !building.dying
-                && !building.lifecycle.in_limbo
+                && !building.lifecycle.in_limbo()
                 && building.owner() == owner
         })
 }

@@ -213,7 +213,7 @@ impl Simulation {
             let Some(entity) = self.substrate.entities.get(id) else {
                 continue;
             };
-            if entity.owner() != owner || !entity.is_ai_alive() || entity.lifecycle.in_limbo {
+            if entity.owner() != owner || !entity.is_ai_alive() || entity.lifecycle.in_limbo() {
                 continue;
             }
             let Some(TargetKind::Entity(target)) =

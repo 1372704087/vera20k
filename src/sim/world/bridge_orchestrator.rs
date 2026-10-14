@@ -1006,7 +1006,7 @@ mod tests {
             true,
         );
         entity.on_bridge = true;
-        entity.lifecycle.in_limbo = false;
+        entity.lifecycle.set_in_limbo_for_test(false);
         entity.lifecycle.cell_marked = true;
         entity.locomotor = Some(drive_loco_on_bridge());
         sim.substrate.entities.insert(entity);
@@ -1727,7 +1727,7 @@ mod tests {
             "[VehicleTypes]\n0=MTNK\n[MTNK]\nStrength=256\nArmor=heavy\n[Warheads]\n0=Super\n[Super]\nInfDeath=1\n",
         )).unwrap();
         let ground = sim.substrate.entities.get_mut(1).unwrap();
-        ground.lifecycle.in_limbo = false;
+        ground.lifecycle.set_in_limbo_for_test(false);
         ground.lifecycle.cell_marked = true;
         sim.substrate.occupancy.add(
             5,
@@ -1752,7 +1752,7 @@ mod tests {
             100,
             "unlinked retired object is not a ground receiver"
         );
-        assert!(!retired.lifecycle.object_alive);
+        assert!(!retired.lifecycle.object_alive());
         assert!(retired.infantry_terminal.is_none());
         assert_eq!(sim.substrate.pending_delete.object_ids(), vec![3, 1]);
 
@@ -1816,7 +1816,7 @@ mod tests {
 
         for id in 1..=3 {
             let unit = sim.substrate.entities.get_mut(id).unwrap();
-            unit.lifecycle.in_limbo = false;
+            unit.lifecycle.set_in_limbo_for_test(false);
             unit.lifecycle.cell_marked = true;
             sim.substrate.occupancy.add(
                 5,

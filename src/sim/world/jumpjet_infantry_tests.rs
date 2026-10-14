@@ -658,7 +658,7 @@ fn retail_dustbowl_shot_down_rocketeer_falls_and_leaves_no_body() {
             .substrate
             .entities
             .get(rocketeer)
-            .filter(|entity| entity.lifecycle.object_alive);
+            .filter(|entity| entity.lifecycle.object_alive());
         frames.push(Fall {
             pose: entity.map(|_| pose(sim, rocketeer)),
             health: entity.map_or(0, |entity| entity.health.current()),
@@ -864,7 +864,7 @@ fn rocketeer_crash_fixture(
         5,
         false,
     );
-    rocketeer.lifecycle.in_limbo = true;
+    rocketeer.lifecycle.set_in_limbo_for_test(true);
     sim.substrate.entities.insert(rocketeer);
     {
         let entity = sim.substrate.entities.get_mut(1).unwrap();
@@ -943,7 +943,7 @@ fn rocketeer_crash_fixture(
         5,
         true,
     );
-    entity.lifecycle.in_limbo = true;
+    entity.lifecycle.set_in_limbo_for_test(true);
     sim.substrate.entities.insert(entity);
     reveal(&mut sim, shooter, 40, 40);
     sim.resolve_type_handles(&rules);
@@ -1044,7 +1044,7 @@ fn a_shot_down_rocketeer_falls_like_the_native_crash() {
         if !accepted {
             // A refused crash: InfantryExplode, then UnInit.
             assert!(
-                entity.is_none_or(|entity| !entity.lifecycle.object_alive),
+                entity.is_none_or(|entity| !entity.lifecycle.object_alive()),
                 "{name}: refused crash removes it"
             );
             continue;
@@ -1092,7 +1092,7 @@ fn a_shot_down_rocketeer_falls_like_the_native_crash() {
                 .substrate
                 .entities
                 .get(1)
-                .filter(|e| e.lifecycle.object_alive);
+                .filter(|e| e.lifecycle.object_alive());
             if removed {
                 assert!(entity.is_none(), "{name}: removed on frame {index}");
                 break;

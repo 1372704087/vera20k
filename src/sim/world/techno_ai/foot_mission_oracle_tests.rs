@@ -628,13 +628,15 @@ impl SuppliedFootFixture {
             entity.position.sub_x = SimFixed::from_num(placed[0] % 256);
             entity.position.sub_y = SimFixed::from_num(placed[1] % 256);
             entity.position.exact_z_leptons = Some(placed[2]);
-            entity.lifecycle.in_limbo = if pointer == &setup["candidate"] {
-                input["candidate_live"] != true
-            } else if let Some(extra) = extra {
-                input["greatest_threat"]["extra_live"][extra["label"].as_str().unwrap()] != true
-            } else {
-                false
-            };
+            entity
+                .lifecycle
+                .set_in_limbo_for_test(if pointer == &setup["candidate"] {
+                    input["candidate_live"] != true
+                } else if let Some(extra) = extra {
+                    input["greatest_threat"]["extra_live"][extra["label"].as_str().unwrap()] != true
+                } else {
+                    false
+                });
             if let Some(control) =
                 row["inactive_candidate_readback"]
                     .as_array()
@@ -647,8 +649,12 @@ impl SuppliedFootFixture {
                 // Preserve both explicitly supplied lifecycle bytes. Native
                 //6F7D98 rejects InLimbo; the earlier scratch observation of
                 //a limbo-only hit came from prototype_restore, not this row.
-                entity.lifecycle.in_limbo = control["limbo"] != 0;
-                entity.lifecycle.object_alive = control["alive"] != 0;
+                entity
+                    .lifecycle
+                    .set_in_limbo_for_test(control["limbo"] != 0);
+                entity
+                    .lifecycle
+                    .set_object_alive_for_test(control["alive"] != 0);
             }
             if let Some(control) = supplied_lifecycle {
                 assert_eq!(
@@ -659,8 +665,12 @@ impl SuppliedFootFixture {
                 // These receipts occur after prototype_restore and the row's
                 // explicit controls. Do not infer extra-candidate liveness
                 // from the earlier scan arrays or outside-row scratch writes.
-                entity.lifecycle.in_limbo = control["limbo"] != 0;
-                entity.lifecycle.object_alive = control["alive"] != 0;
+                entity
+                    .lifecycle
+                    .set_in_limbo_for_test(control["limbo"] != 0);
+                entity
+                    .lifecycle
+                    .set_object_alive_for_test(control["alive"] != 0);
             }
             entity.lifecycle.cell_marked = true;
             entity.in_playfield = true;

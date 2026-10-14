@@ -1094,7 +1094,8 @@ fn after_active_rows_gate_the_same_call_continuation() {
             (NavTargetRef::Entity { id: target }, coord)
         });
         let e = sim.substrate.entities.get_mut(id).unwrap();
-        e.lifecycle.object_alive = int(input, "active_alive", 1) != 0;
+        e.lifecycle
+            .set_object_alive_for_test(int(input, "active_alive", 1) != 0);
         let selector = if input["active_retires"] == false {
             0
         } else {

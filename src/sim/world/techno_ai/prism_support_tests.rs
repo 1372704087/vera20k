@@ -268,7 +268,7 @@ impl Fixture {
         let target = self.target;
         let entity = self.sim.substrate.entities.get_mut(id).unwrap();
         if state["alive"] == false {
-            entity.lifecycle.object_alive = false;
+            entity.lifecycle.set_object_alive_for_test(false);
         }
         if let Some(health) = state["health"].as_u64() {
             entity.health.set_for_test(health as i32);

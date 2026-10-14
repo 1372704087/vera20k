@@ -258,7 +258,7 @@ fn retail_tank_let_go_over_clear_ground_lands_and_drives_again() {
         climb(&mut sim, &rules, &grid, tank);
         if death {
             kill(&mut sim, &rules, magnetron, tank);
-            assert!(!entity(&sim, magnetron).lifecycle.object_alive);
+            assert!(!entity(&sim, magnetron).lifecycle.object_alive());
         } else {
             move_away(&mut sim, magnetron);
             assert!(
@@ -325,7 +325,7 @@ fn retail_tank_killed_in_the_air_is_uninit_at_once() {
         }
         kill(&mut sim, &rules, tank, magnetron);
         assert!(
-            !entity(&sim, tank).lifecycle.object_alive,
+            !entity(&sim, tank).lifecycle.object_alive(),
             "dropped {dropped}"
         );
         assert_eq!(

@@ -831,7 +831,7 @@ fn techno_ai_shell(
                 // AI tail, before repair/power and factory work. Earlier
                 // native returns admit only a live, nonzero-health building.
                 if sim.substrate.entities.get(id).is_some_and(|entity| {
-                    entity.lifecycle.object_alive
+                    entity.lifecycle.object_alive()
                         && entity.health.current() != 0
                         && !entity.is_warped_out()
                         && !entity.is_warping_in()
@@ -2068,7 +2068,7 @@ mod tests {
                 EntityCategory::Infantry,
             );
             // Supply placed, ordinary AI boundaries; id7 remains off Logic.
-            entity.lifecycle.in_limbo = false;
+            entity.lifecycle.set_in_limbo_for_test(false);
             register_entity(&mut sim, entity);
         }
         sim.set_logic_order_for_test(vec![9, 5, 3]);
@@ -4291,7 +4291,7 @@ mod tests {
         // On the map: TechnoClass::AI's 16-frame check drops a target in limbo
         // (GetFireError T12).
         let mut target = entity_of(2, EntityCategory::Unit);
-        target.lifecycle.in_limbo = false;
+        target.lifecycle.set_in_limbo_for_test(false);
         register_entity(&mut sim, target);
         // An enemy: a computer house drops an allied target every frame
         // (`0x006FA30C`).
@@ -4730,7 +4730,7 @@ mod tests {
                 entity.set_category_for_test(EntityCategory::Infantry);
                 entity.mission_leaf =
                     MissionLeafState::for_entity_category(EntityCategory::Infantry);
-                entity.lifecycle.in_limbo = false;
+                entity.lifecycle.set_in_limbo_for_test(false);
                 entity.set_owner_for_test(sim.interner.intern(owner));
                 entity.set_type_ref_for_test(sim.interner.intern(type_name));
                 sim.substrate.entities.insert(entity);
@@ -5177,7 +5177,7 @@ mod tests {
         attacker.set_type_ref_for_test(sim.interner.intern("SHORTVEH"));
         sim.substrate.entities.insert(attacker);
         let mut target = entity_of(2, EntityCategory::Unit);
-        target.lifecycle.in_limbo = false;
+        target.lifecycle.set_in_limbo_for_test(false);
         register_entity(&mut sim, target);
         let soviet = sim.interner.intern("Soviet");
         sim.substrate
@@ -7361,7 +7361,7 @@ MinLowPowerProductionSpeed=0.4\nMaxLowPowerProductionSpeed=0.85\n\n\
         // Out of limbo, where `FootClass::AI` admits a Process (`0x004DA86E`).
         // The ground corridor's Walk Process takes its idle tail (Walk75BCE3)
         // on the first Process.
-        e.lifecycle.in_limbo = false;
+        e.lifecycle.set_in_limbo_for_test(false);
         e.locomotor = Some(
             crate::sim::movement::locomotor::LocomotorState::for_test_kind(
                 crate::rules::locomotor_type::LocomotorKind::Walk,

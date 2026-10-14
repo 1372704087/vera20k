@@ -235,7 +235,7 @@ impl Fixture {
             .substrate
             .entities
             .get(id)
-            .is_some_and(|e| !e.lifecycle.in_limbo)
+            .is_some_and(|e| !e.lifecycle.in_limbo())
     }
 
     fn cargo_ids(&self, transport: u64) -> Vec<u64> {
@@ -1497,7 +1497,7 @@ fn cargo_departure_ground_reveal_rejection_preserves_route_retry_state() {
             );
             let pax = fx.sim.substrate.entities.get(passenger).unwrap();
             assert_eq!(pax.passenger_role.inside_transport_id(), Some(transport));
-            assert!(pax.lifecycle.in_limbo);
+            assert!(pax.lifecycle.in_limbo());
             assert_eq!(pax.lifecycle.cell_marked, !already_revealed);
             assert!(!pax.in_logic_vector);
             assert_eq!(pax.locomotor.as_ref().unwrap().layer, MovementLayer::Ground);

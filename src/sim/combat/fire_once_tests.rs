@@ -102,8 +102,12 @@ fn fixture(row: &Value, rules: &RuleSet) -> (Simulation, Vec<u64>, [u64; 2], Opt
             actor.position.sub_y = SimFixed::from_num(integer(&xyz[1]) & 255);
             actor.position.exact_z_leptons = Some(integer(&xyz[2]));
             actor.health.set_for_test(integer(&before["health"]));
-            actor.lifecycle.object_alive = integer(&before["alive"]) != 0;
-            actor.lifecycle.in_limbo = integer(&before["limbo"]) != 0;
+            actor
+                .lifecycle
+                .set_object_alive_for_test(integer(&before["alive"]) != 0);
+            actor
+                .lifecycle
+                .set_in_limbo_for_test(integer(&before["limbo"]) != 0);
             actor
                 .mission
                 .set_handler_state(integer(&before["status"]) as u32);

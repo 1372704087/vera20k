@@ -124,7 +124,7 @@ fn removal_past_the_map_matches_native() {
             .get(1)
             .unwrap()
             .lifecycle
-            .object_alive;
+            .object_alive();
         assert_eq!(alive, !removed, "{row}");
         assert_eq!(
             sim.substrate.pending_delete.contains_object(&1),
@@ -154,7 +154,7 @@ fn no_map_removes_nothing() {
             .get(1)
             .unwrap()
             .lifecycle
-            .object_alive
+            .object_alive()
     );
 }
 

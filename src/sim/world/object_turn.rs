@@ -136,8 +136,8 @@ impl Simulation {
             return Ok(false);
         };
         if infantry.category() != EntityCategory::Infantry
-            || !infantry.lifecycle.object_alive
-            || infantry.lifecycle.in_limbo
+            || !infantry.lifecycle.object_alive()
+            || infantry.lifecycle.in_limbo()
             || !matches!(
                 infantry.mission.effective().known(),
                 Some(MissionType::Guard | MissionType::AreaGuard)
@@ -231,7 +231,7 @@ impl Simulation {
                 .map_or((None, false), |entity| {
                     let sinking = entity.sinking.is_active();
                     let admitted = entity.locomotor.as_ref().and_then(|locomotor| {
-                        (!sinking && !entity.is_falling_down() && !entity.lifecycle.in_limbo)
+                        (!sinking && !entity.is_falling_down() && !entity.lifecycle.in_limbo())
                             .then(|| locomotor.active_kind())
                     });
                     (admitted, sinking)
@@ -665,7 +665,7 @@ impl Simulation {
                         .substrate
                         .entities
                         .get(id)
-                        .is_some_and(|entity| entity.lifecycle.object_alive)
+                        .is_some_and(|entity| entity.lifecycle.object_alive())
                 {
                     pending_movement.record_native_track(
                         movement::track_process::TrackInvocation::after_process_movement(
@@ -681,7 +681,7 @@ impl Simulation {
                     sim.substrate
                         .entities
                         .get(invocation.entity_id)
-                        .is_some_and(|entity| entity.lifecycle.object_alive)
+                        .is_some_and(|entity| entity.lifecycle.object_alive())
                 })
             else {
                 break;
@@ -845,7 +845,7 @@ impl Simulation {
                         entity.category(),
                         EntityCategory::Unit | EntityCategory::Infantry | EntityCategory::Aircraft
                     )
-                    && !entity.lifecycle.object_alive)
+                    && !entity.lifecycle.object_alive())
         }) {
             // Foot4DA53E..548 reloads Object+90 after TechnoAI and returns
             // before locomotor Process when false. Health and the Rust dying
@@ -930,7 +930,7 @@ impl Simulation {
                 .substrate
                 .entities
                 .get(stable_id)
-                .is_none_or(|e| e.dying || !e.lifecycle.object_alive)
+                .is_none_or(|e| e.dying || !e.lifecycle.object_alive())
         {
             return Ok(outcome);
         }

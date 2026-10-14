@@ -140,8 +140,8 @@ fn fixture(input: &serde_json::Value) -> (Simulation, RuleSet) {
     assert_eq!(sim.allocate_stable_id(), AIRCRAFT);
     insert_entity(&mut sim, AIRCRAFT, EntityCategory::Aircraft);
     let entity = sim.substrate.entities.get_mut(AIRCRAFT).unwrap();
-    entity.lifecycle.object_alive = true;
-    entity.lifecycle.in_limbo = false;
+    entity.lifecycle.set_object_alive_for_test(true);
+    entity.lifecycle.set_in_limbo_for_test(false);
     entity.position.rx = x as u16;
     entity.position.ry = y as u16;
     entity.position.sub_x = SimFixed::from_num(128);
@@ -231,7 +231,7 @@ fn fixture(input: &serde_json::Value) -> (Simulation, RuleSet) {
             5,
             true,
         );
-        target.lifecycle.object_alive = true;
+        target.lifecycle.set_object_alive_for_test(true);
         target.position.sub_x = SimFixed::from_num(tx % 256);
         target.position.sub_y = SimFixed::from_num(ty % 256);
         target.position.exact_z_leptons = Some(tz);
@@ -255,7 +255,7 @@ fn fixture(input: &serde_json::Value) -> (Simulation, RuleSet) {
             5,
             true,
         );
-        building.lifecycle.object_alive = true;
+        building.lifecycle.set_object_alive_for_test(true);
         building.foundation = format!("{width}x{height}");
         building.position.exact_z_leptons = Some(0);
         building
@@ -325,8 +325,9 @@ fn stop_fixture(input: &serde_json::Value) -> (Simulation, RuleSet) {
             5,
             true,
         );
-        unit.lifecycle.object_alive = true;
-        unit.lifecycle.in_limbo = flag(techno, "limbo", false);
+        unit.lifecycle.set_object_alive_for_test(true);
+        unit.lifecycle
+            .set_in_limbo_for_test(flag(techno, "limbo", false));
         unit.position.sub_x = SimFixed::from_num(x % 256);
         unit.position.sub_y = SimFixed::from_num(y % 256);
         unit.position.exact_z_leptons = Some(z);
@@ -361,7 +362,7 @@ fn stop_fixture(input: &serde_json::Value) -> (Simulation, RuleSet) {
             5,
             true,
         );
-        structure.lifecycle.object_alive = true;
+        structure.lifecycle.set_object_alive_for_test(true);
         structure.foundation = format!("{width}x{height}");
         structure.position.exact_z_leptons = Some(0);
         sim.substrate.entities.insert(structure);
@@ -371,7 +372,7 @@ fn stop_fixture(input: &serde_json::Value) -> (Simulation, RuleSet) {
                 .get_mut(id)
                 .unwrap()
                 .lifecycle
-                .in_limbo = true;
+                .set_in_limbo_for_test(true);
         } else {
             sim.add_entity_occupancy(id);
         }
@@ -605,7 +606,7 @@ fn fly_map_edge_gate_matches_native_rows() {
                 5,
                 true,
             );
-            target.lifecycle.object_alive = true;
+            target.lifecycle.set_object_alive_for_test(true);
             sim.substrate.entities.insert(target);
         }
         assert_eq!(

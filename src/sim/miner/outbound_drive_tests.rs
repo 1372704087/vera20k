@@ -286,8 +286,8 @@ fn spawn_stock_miner(
         .spawn_object(type_id, "Americans", START.0, START.1, 0, &oracle.rules)
         .unwrap_or_else(|| panic!("spawn {type_id}"));
     let entity = sim.substrate.entities.get(id).expect("spawned miner");
-    assert!(entity.lifecycle.object_alive);
-    assert!(!entity.lifecycle.in_limbo);
+    assert!(entity.lifecycle.object_alive());
+    assert!(!entity.lifecycle.in_limbo());
     assert!(entity.lifecycle.cell_marked);
     assert!(entity.in_logic_vector);
     assert!(sim.live_object_order_snapshot().contains(&id));
@@ -327,7 +327,7 @@ fn spawn_inert_dock_instance(sim: &mut Simulation) {
         5,
         false,
     );
-    ge.lifecycle.in_limbo = false;
+    ge.lifecycle.set_in_limbo_for_test(false);
     sim.substrate.entities.insert(ge);
     // The house counts the instance (a fixture without one gets a human
     // house, as the miner code treats a missing House); the class
@@ -363,8 +363,8 @@ fn spawn_stock_refinery(
         .spawn_object("GAREFN", "Americans", anchor.0, anchor.1, 0, &oracle.rules)
         .expect("spawn GAREFN");
     let entity = sim.substrate.entities.get(id).expect("spawned refinery");
-    assert!(entity.lifecycle.object_alive);
-    assert!(!entity.lifecycle.in_limbo);
+    assert!(entity.lifecycle.object_alive());
+    assert!(!entity.lifecycle.in_limbo());
     assert!(entity.lifecycle.cell_marked);
     assert!(entity.in_logic_vector);
     assert!(sim.live_object_order_snapshot().contains(&id));

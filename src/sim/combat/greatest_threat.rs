@@ -1692,7 +1692,7 @@ fn evaluate_candidate(
     // G6 — `InLimbo`/`Health == 0`. Actual retained Cell lists and separate
     // airborne registrations are not filtered or reconstructed from these
     // facts; eligibility belongs to this receiver.
-    if candidate.health.current() == 0 || candidate.dying || candidate.lifecycle.in_limbo {
+    if candidate.health.current() == 0 || candidate.dying || candidate.lifecycle.in_limbo() {
         return None;
     }
 
@@ -2308,7 +2308,7 @@ mod tests {
     ) {
         let mut entity = GameEntity::test_default(id, type_id, owner, rx, ry);
         entity.set_category_for_test(category);
-        entity.lifecycle.in_limbo = false;
+        entity.lifecycle.set_in_limbo_for_test(false);
         entity.lifecycle.cell_marked = true;
         if category == EntityCategory::Structure {
             entity.foundation = "1x1".to_string();

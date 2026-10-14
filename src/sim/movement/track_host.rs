@@ -179,10 +179,10 @@ impl Simulation {
             .substrate
             .entities
             .get(id)
-            .is_some_and(|entity| received && !entity.lifecycle.in_limbo);
+            .is_some_and(|entity| received && !entity.lifecycle.in_limbo());
         if !survives {
             if let Some(entity) = self.substrate.entities.get_mut(id)
-                && entity.lifecycle.object_alive
+                && entity.lifecycle.object_alive()
                 && let Some(loco) = entity.locomotor.as_mut()
             {
                 loco.store_track_head(family, None);
@@ -266,7 +266,9 @@ impl Simulation {
 
     pub(super) fn track_survives(&self, id: u64) -> bool {
         self.substrate.entities.get(id).is_some_and(|entity| {
-            entity.lifecycle.object_alive && !entity.lifecycle.in_limbo && !entity.is_falling_down()
+            entity.lifecycle.object_alive()
+                && !entity.lifecycle.in_limbo()
+                && !entity.is_falling_down()
         })
     }
 
@@ -425,7 +427,7 @@ impl Simulation {
                     .substrate
                     .entities
                     .get(id)
-                    .is_some_and(|e| e.lifecycle.object_alive)
+                    .is_some_and(|e| e.lifecycle.object_alive())
                 {
                     return Ok(TrackPass::paid(moved));
                 }
@@ -490,7 +492,7 @@ impl Simulation {
                 .substrate
                 .entities
                 .get(id)
-                .is_some_and(|entity| entity.lifecycle.object_alive)
+                .is_some_and(|entity| entity.lifecycle.object_alive())
             {
                 return Ok(TrackPass::paid(moved));
             }
@@ -841,7 +843,7 @@ impl Simulation {
         let family = self.substrate.entities.get(id).and_then(|entity| {
             // Foot4DB266..26E skips Apply0 when already in limbo. A second
             // conceal must not destructively clear a newer owner's raw claim.
-            if entity.lifecycle.in_limbo {
+            if entity.lifecycle.in_limbo() {
                 return None;
             }
             match entity.locomotor.as_ref()?.kind {
@@ -1000,8 +1002,8 @@ impl Simulation {
         let Some(entity) = self.substrate.entities.get_mut(id) else {
             return Ok(true);
         };
-        if !(picked && !entity.lifecycle.in_limbo) {
-            if entity.lifecycle.object_alive {
+        if !(picked && !entity.lifecycle.in_limbo()) {
+            if entity.lifecycle.object_alive() {
                 set_head(entity, family, None);
                 set_track_valid(entity, family, false);
             }

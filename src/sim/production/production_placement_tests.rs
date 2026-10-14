@@ -707,7 +707,14 @@ fn an_unfinished_building_is_refused_until_its_factory_completes() {
         super::lifecycle_tests::held_id(&sim, americans, ProductionCategory::Building),
         held
     );
-    assert!(sim.substrate.entities.get(held).unwrap().lifecycle.in_limbo);
+    assert!(
+        sim.substrate
+            .entities
+            .get(held)
+            .unwrap()
+            .lifecycle
+            .in_limbo()
+    );
 
     assert!(
         sim.production
@@ -725,7 +732,7 @@ fn an_unfinished_building_is_refused_until_its_factory_completes() {
     assert!(place(&mut sim));
     let placed = sim.substrate.entities.get(held).unwrap();
     assert_eq!((placed.position.rx, placed.position.ry), (12, 10));
-    assert!(!placed.lifecycle.in_limbo);
+    assert!(!placed.lifecycle.in_limbo());
 }
 
 /// `Main_Tick` steps the factories (`LogicClass::PerTickUpdate` at
@@ -780,7 +787,7 @@ fn a_place_executing_in_the_completion_frame_is_admitted() {
     assert!(tick.spawned_entities);
     let placed = sim.substrate.entities.get(held).unwrap();
     assert_eq!((placed.position.rx, placed.position.ry), (12, 10));
-    assert!(!placed.lifecycle.in_limbo);
+    assert!(!placed.lifecycle.in_limbo());
     assert!(ready_buildings_for_owner(&sim, &rules, "Americans").is_empty());
 }
 
@@ -851,7 +858,7 @@ fn place_ready_building_spawns_and_consumes_ready_item() {
         .get(held_id)
         .expect("same held identity placed");
     assert_eq!((placed.position.rx, placed.position.ry), (20, 20));
-    assert!(!placed.lifecycle.in_limbo);
+    assert!(!placed.lifecycle.in_limbo());
     let successor = super::lifecycle_tests::held_id(&sim, americans, ProductionCategory::Building);
     assert!(successor > held_id);
     assert_eq!(
@@ -868,7 +875,7 @@ fn place_ready_building_spawns_and_consumes_ready_item() {
             .get(successor)
             .unwrap()
             .lifecycle
-            .in_limbo
+            .in_limbo()
     );
     assert_eq!(
         sim.production
@@ -3468,7 +3475,7 @@ fn stock_war_factory_initial_exit_has_no_nearest_cell_fallback() {
         (12, 11),
         "native factory scope bypasses class admission without choosing a nearby coordinate"
     );
-    assert!(produced.lifecycle.cell_marked && !produced.lifecycle.in_limbo);
+    assert!(produced.lifecycle.cell_marked && !produced.lifecycle.in_limbo());
 }
 
 #[test]
@@ -3520,7 +3527,7 @@ fn stock_war_factory_clear_exitcoord_succeeds() {
         (12, 11),
         "stock land war factory initial spawn uses ExitCoord=512,256,0"
     );
-    assert!(produced.lifecycle.cell_marked && !produced.lifecycle.in_limbo);
+    assert!(produced.lifecycle.cell_marked && !produced.lifecycle.in_limbo());
 }
 
 #[test]
@@ -3798,7 +3805,7 @@ fn sell_player_built_garrisoned_building_demolishes_and_ejects_alive() {
         .get_mut(30)
         .unwrap()
         .lifecycle
-        .in_limbo = true;
+        .set_in_limbo_for_test(true);
     assert!(matches!(
         sim.reveal_entity_with_rules(30, &rules),
         crate::sim::world::RevealOutcome::Revealed { .. }
@@ -4003,7 +4010,7 @@ fn a_placed_slave_refinery_waits_out_its_build_up_in_the_deployed_state() {
                 .get(slave)
                 .unwrap()
                 .lifecycle
-                .in_limbo
+                .in_limbo()
         );
     }
 }
@@ -4271,7 +4278,7 @@ fn an_airfield_puts_each_aircraft_it_builds_on_its_own_pad() {
             &mut sim, &rules, None
         ));
         let plane = sim.substrate.entities.get(built).unwrap();
-        assert!(!plane.lifecycle.in_limbo, "slot {slot}: placed");
+        assert!(!plane.lifecycle.in_limbo(), "slot {slot}: placed");
         let at = ground_pose::position_world_coord(&plane.position);
         assert_eq!(
             [at.x, at.y],

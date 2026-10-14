@@ -264,8 +264,8 @@ pub(crate) fn tick_unit_body_frame_counter(
 ) {
     if entity.category() != crate::map::entities::EntityCategory::Unit
         || entity.dying
-        || !entity.lifecycle.object_alive
-        || entity.lifecycle.in_limbo
+        || !entity.lifecycle.object_alive()
+        || entity.lifecycle.in_limbo()
         || entity.is_falling_down()
     {
         return;

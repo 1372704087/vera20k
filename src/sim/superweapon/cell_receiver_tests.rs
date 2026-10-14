@@ -160,7 +160,14 @@ fn held_infantry_survives_launch(name: &str) {
             .lifecycle
             .cell_marked
     );
-    assert!(sim.substrate.entities.get(held).unwrap().lifecycle.in_limbo);
+    assert!(
+        sim.substrate
+            .entities
+            .get(held)
+            .unwrap()
+            .lifecycle
+            .in_limbo()
+    );
     assert!(!sim.substrate.occupancy.contains_entity(0, 0, held));
     assert!(!sim.substrate.occupancy.contains_entity(0, 0, twin));
     assert!(
@@ -192,7 +199,7 @@ fn held_infantry_survives_launch(name: &str) {
         );
         assert!(!object.dying);
         assert!(
-            object.lifecycle.in_limbo && !object.lifecycle.cell_marked && !object.in_logic_vector
+            object.lifecycle.in_limbo() && !object.lifecycle.cell_marked && !object.in_logic_vector
         );
     }
     assert!(
@@ -255,7 +262,7 @@ fn animated_mutation_victim_retires(explosion: bool) {
         sim.substrate
             .entities
             .get(victim)
-            .is_none_or(|object| !object.lifecycle.object_alive)
+            .is_none_or(|object| !object.lifecycle.object_alive())
     );
     assert!(!sim.substrate.occupancy.contains_entity(5, 5, victim));
     assert!(!sim.live_object_order_snapshot().contains(&victim));
@@ -294,7 +301,7 @@ fn infantry_terminal_effect_only_cleanup_follows_recursive_deaths() {
     assert_eq!(uninit_order, [child, parent]);
     for id in [parent, child] {
         let entity = sim.substrate.entities.get(id).unwrap();
-        assert!(entity.lifecycle.in_limbo && !entity.in_logic_vector);
+        assert!(entity.lifecycle.in_limbo() && !entity.in_logic_vector);
         assert!(entity.infantry_terminal.is_none());
     }
     sim.advance_tick(&[], Some(&rules), None, None, 100);
@@ -583,7 +590,7 @@ fn genetic_converter_command_uses_selected_bridge_membership() {
             sim.substrate
                 .entities
                 .get(id)
-                .is_none_or(|object| !object.lifecycle.object_alive)
+                .is_none_or(|object| !object.lifecycle.object_alive())
         );
         assert!(!sim.substrate.occupancy.contains_entity(5, 5, id));
     }
@@ -802,7 +809,7 @@ fn command_uses_packed_aliases_and_stamps_missing_cells(name: &str, object_type:
                 sim.substrate
                     .entities
                     .get(victim)
-                    .is_none_or(|object| !object.lifecycle.object_alive)
+                    .is_none_or(|object| !object.lifecycle.object_alive())
             );
             assert!(!sim.substrate.occupancy.contains_entity(0, 2, victim));
         } else {
@@ -974,7 +981,7 @@ fn iron_curtain_command_observes_native_deck_order_after_nested_bridge_drop_in()
         .snapshot_layer(MovementLayer::Ground);
     assert_eq!(ground, vec![tank, boomer]);
     let twin = sim.substrate.entities.get(unmarked).unwrap();
-    assert!(twin.on_bridge && twin.lifecycle.in_limbo && !twin.lifecycle.cell_marked);
+    assert!(twin.on_bridge && twin.lifecycle.in_limbo() && !twin.lifecycle.cell_marked);
     assert_eq!(
         twin.position.z, 7,
         "unmarked deck coordinate is not a DropIn recipient"

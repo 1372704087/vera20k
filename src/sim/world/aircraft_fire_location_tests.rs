@@ -40,8 +40,8 @@ fn insert(
     entity.position.sub_x = SimFixed::from_num(point[0] % 256);
     entity.position.sub_y = SimFixed::from_num(point[1] % 256);
     entity.position.exact_z_leptons = Some(point[2]);
-    entity.lifecycle.object_alive = marked;
-    entity.lifecycle.in_limbo = false;
+    entity.lifecycle.set_object_alive_for_test(marked);
+    entity.lifecycle.set_in_limbo_for_test(false);
     sim.substrate.entities.insert(entity);
     sim.substrate.next_stable_object_id = sim.substrate.next_stable_object_id.max(id + 1);
 }
@@ -222,7 +222,8 @@ fn fixture(input: &Value) -> (Simulation, RuleSet) {
                 input["reservation_marked"].as_bool().unwrap_or(true),
             );
             let e = sim.substrate.entities.get_mut(id).unwrap();
-            e.lifecycle.in_limbo = input["reservation_limbo"].as_bool().unwrap_or(false);
+            e.lifecycle
+                .set_in_limbo_for_test(input["reservation_limbo"].as_bool().unwrap_or(false));
             e.navigation.nav_com = Some(NavTargetRef::cell(
                 cell[0].as_u64().unwrap() as u16,
                 cell[1].as_u64().unwrap() as u16,
@@ -241,7 +242,7 @@ fn fixture(input: &Value) -> (Simulation, RuleSet) {
             true,
         );
         let e = sim.substrate.entities.get_mut(id).unwrap();
-        e.lifecycle.in_limbo = true;
+        e.lifecycle.set_in_limbo_for_test(true);
         e.veterancy
             .set_rank_for_test((passenger["veterancy"].as_u64().unwrap_or(0) * 100) as u16);
         e.set_gunner_selection_for_test(passenger["current"].as_i64().unwrap_or(0) as i32, -1);

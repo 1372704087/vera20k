@@ -1034,9 +1034,10 @@ pub struct GameEntity {
     pub(crate) sinking: crate::sim::world::SinkingState,
 
     // --- Passenger/transport system ---
-    /// Combined passenger/transport role — replaces separate passenger_cargo,
-    /// transport_id, and boarding_state fields. See `PassengerRole` variants.
-    pub passenger_role: PassengerRole,
+    /// The passenger relation and cargo hold (`TechnoClass+0x114` CargoClass,
+    /// `+0x11C` Transporter, `+0x82` InOpenToppedTransport), a
+    /// [`PassengerRole`] that `sim::passenger` owns.
+    pub(crate) passenger_role: PassengerRole,
     /// Temporary VXL model override for visual-only state changes.
     /// When Some, the renderer should use this type's VXL model instead of `type_ref`.
     /// Set during refinery unloading (UnloadingClass= from rules.ini).
@@ -1820,7 +1821,7 @@ impl GameEntity {
             move_sound: crate::sim::world::MoveSoundState::default(),
             crash: crate::sim::world::CrashLatch::default(),
             sinking: crate::sim::world::SinkingState::default(),
-            passenger_role: PassengerRole::None,
+            passenger_role: PassengerRole::default(),
             display_type_override: None,
             capture_infantry_type_index: -1,
             pending_c4_detonation: None,

@@ -767,7 +767,7 @@ pub(crate) fn unit_can_enter_radio(
     let occupied = transport
         .passenger_role
         .cargo()
-        .map_or(0, |cargo| cargo.total_size);
+        .map_or(0, |cargo| cargo.total_size());
     if i64::from(occupied) + i64::from(passenger_type.size) > i64::from(transport_type.passengers)
         || passenger_type.size > transport_type.size_limit
     {
@@ -2742,7 +2742,7 @@ mod tests {
             for (index, entry) in input["cargo_sizes"].as_array().unwrap().iter().enumerate() {
                 cargo.board_forced(10 + index as u64, entry.as_u64().unwrap() as u32);
             }
-            carrier.passenger_role = PassengerRole::Transport { cargo };
+            carrier.passenger_role = PassengerRole::transport(cargo);
             if input["warped"].as_bool().unwrap_or(false) {
                 carrier.temporal = crate::sim::temporal::TemporalState::warped_by_for_test(99);
             }

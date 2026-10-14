@@ -83,12 +83,12 @@ fn coefficients(object: Option<&ObjectType>) -> FootDepthCoefficients {
 
 fn world_xy(entity: &GameEntity) -> [i32; 2] {
     [
-        i32::from(entity.position.rx)
+        i32::from(entity.position.rx())
             .wrapping_mul(256)
-            .wrapping_add(entity.position.sub_x.to_num::<i32>()),
-        i32::from(entity.position.ry)
+            .wrapping_add(entity.position.sub_x().to_num::<i32>()),
+        i32::from(entity.position.ry())
             .wrapping_mul(256)
-            .wrapping_add(entity.position.sub_y.to_num::<i32>()),
+            .wrapping_add(entity.position.sub_y().to_num::<i32>()),
     ]
 }
 
@@ -260,11 +260,11 @@ fn shp_z_adjust_in_runtime(
     // independent-altitude inputs can still lack that coordinate; retain their
     // semantic altitude for the grounded gate. Exact coordinates use the full
     // native GetHeight subtraction without a second render-side terrain snap.
-    let height_above_ground = if entity.position.exact_z_leptons.is_some() {
+    let height_above_ground = if entity.position.exact_z_leptons().is_some() {
         world_z.wrapping_sub(surface)
     } else {
         world_z.wrapping_sub(
-            i32::from(entity.position.z as i8) * crate::util::lepton::GROUND_LEVEL_HEIGHT_LEPTONS,
+            i32::from(entity.position.z() as i8) * crate::util::lepton::GROUND_LEVEL_HEIGHT_LEPTONS,
         )
     };
     if height_above_ground == 0 {

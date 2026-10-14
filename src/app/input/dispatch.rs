@@ -3022,8 +3022,8 @@ fn center_camera_on_group(state: &mut AppState, group: &[u64]) {
             .filter_map(|id| sim.entities().get(*id))
             .map(|e| {
                 (
-                    e.position.rx as i64 * LEPTONS_PER_CELL + e.position.sub_x.to_num::<i64>(),
-                    e.position.ry as i64 * LEPTONS_PER_CELL + e.position.sub_y.to_num::<i64>(),
+                    e.position.rx() as i64 * LEPTONS_PER_CELL + e.position.sub_x().to_num::<i64>(),
+                    e.position.ry() as i64 * LEPTONS_PER_CELL + e.position.sub_y().to_num::<i64>(),
                 )
             })
             .collect()
@@ -3188,10 +3188,10 @@ fn jump_camera_to_base(state: &mut AppState) {
                 log::info!(
                     "H: jumping to ConYard {} at ({}, {})",
                     sim.interner.resolve(entity.type_ref()),
-                    entity.position.rx,
-                    entity.position.ry
+                    entity.position.rx(),
+                    entity.position.ry()
                 );
-                return Some((entity.position.rx, entity.position.ry));
+                return Some((entity.position.rx(), entity.position.ry()));
             }
             // Second pass: look for an MCV (unit with DeploysInto=).
             let mcv = sim.entities().values().find(|e| {
@@ -3206,10 +3206,10 @@ fn jump_camera_to_base(state: &mut AppState) {
                 log::info!(
                     "H: jumping to MCV {} at ({}, {})",
                     sim.interner.resolve(entity.type_ref()),
-                    entity.position.rx,
-                    entity.position.ry
+                    entity.position.rx(),
+                    entity.position.ry()
                 );
-                return Some((entity.position.rx, entity.position.ry));
+                return Some((entity.position.rx(), entity.position.ry()));
             }
             log::info!(
                 "H: no ConYard/MCV found (owner={:?}, entities={}, rules={})",

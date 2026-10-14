@@ -914,8 +914,8 @@ fn a_blocked_bio_reactor_restores_and_retries_its_cargo_head() {
     // Mission_Unload's scan uses the building Location (`vt+0x1B8`),
     // distinct from GetCoords' foundation center used by its sound tail.
     let base = (
-        entity(&sim, reactor).position.rx,
-        entity(&sim, reactor).position.ry,
+        entity(&sim, reactor).position.rx(),
+        entity(&sim, reactor).position.ry(),
     );
     let directions = crate::util::direction_tables::CELL_DELTAS;
     let neighbor = |from: (u16, u16), direction: (i32, i32)| {
@@ -1194,8 +1194,8 @@ fn a_bio_reactor_scan_uses_location_cell_on_a_multi_cell_foundation() {
     );
     assert_eq!(
         (
-            entity(&sim, passenger).position.rx,
-            entity(&sim, passenger).position.ry
+            entity(&sim, passenger).position.rx(),
+            entity(&sim, passenger).position.ry()
         ),
         north,
         "the only eligible exit is the native Location-cell north neighbor"
@@ -1241,8 +1241,8 @@ fn a_bio_reactor_scan_uses_infantry_cell_entry_with_building_height() {
 
     assert_eq!(
         (
-            entity(&sim, passenger).position.rx,
-            entity(&sim, passenger).position.ry
+            entity(&sim, passenger).position.rx(),
+            entity(&sim, passenger).position.ry()
         ),
         (15, 11),
         "the south pair fails Infantry51BF90's height check; southwest is flat"
@@ -1326,8 +1326,8 @@ fn a_bio_reactor_relaxed_scan_wraps_from_octant_seven() {
     );
     assert_eq!(
         (
-            entity(&sim, passenger).position.rx,
-            entity(&sim, passenger).position.ry
+            entity(&sim, passenger).position.rx(),
+            entity(&sim, passenger).position.ry()
         ),
         north
     );
@@ -2285,7 +2285,7 @@ fn nearest_occupiable_production_matches_native_controls() {
                 &mut entity.position,
                 [coord[0], coord[1]],
             );
-            entity.position.exact_z_leptons = Some(coord[2]);
+            entity.position.set_exact_z_leptons(Some(coord[2]));
         }
         let buildings: Vec<_> = row["bunkers"]
             .as_array()
@@ -2313,7 +2313,7 @@ fn nearest_occupiable_production_matches_native_controls() {
                     &mut entity.position,
                     [coord[0], coord[1]],
                 );
-                entity.position.exact_z_leptons = Some(coord[2]);
+                entity.position.set_exact_z_leptons(Some(coord[2]));
                 building
             })
             .collect();
@@ -2421,7 +2421,7 @@ fn nearest_occupiable_uses_native_playfield_instead_of_navigation_rectangle() {
     let (mut sim, grid) = arena(&rules);
     let building = spawn(&mut sim, &rules, "CAGAS01", "YuriCountry", 16, 10);
     let occupier = spawn(&mut sim, &rules, "E1", "YuriCountry", 10, 10);
-    assert!(entity(&sim, building).position.rx < grid.width());
+    assert!(entity(&sim, building).position.rx() < grid.width());
     assert!(whole_map_garrison_seek(&mut sim, &rules, occupier));
     sim.playfield_bounds = Some(crate::sim::cell_rect::PlayfieldBounds {
         base: 1,

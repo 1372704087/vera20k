@@ -215,7 +215,7 @@ fn scene(input: &Value) -> Scene {
                 z: floor + if on_bridge { 416 } else { 0 } + height,
             },
         );
-        unit.position.z = if on_bridge { 4 } else { 0 };
+        unit.position.set_z(if on_bridge { 4 } else { 0 });
         unit.set_on_bridge(on_bridge);
         // The Unit's FacingClass (`+0x388`), settled on the row's facing.
         let mut body = crate::sim::movement::FacingClass::new(facing, 0);
@@ -310,14 +310,14 @@ fn scene(input: &Value) -> Scene {
         let outcome = sim.try_reveal_entity_with_context(
             id,
             RevealRequest {
-                position: RevealPosition {
-                    exact_z_leptons: None,
-                    rx: x,
-                    ry: y,
-                    z: 0,
-                    sub_x: SimFixed::from_num(dx),
-                    sub_y: SimFixed::from_num(dy),
-                },
+                position: RevealPosition::new(
+                    x,
+                    y,
+                    0,
+                    None,
+                    SimFixed::from_num(dx),
+                    SimFixed::from_num(dy),
+                ),
                 placement: PlacementEvidence::MarkSucceeded,
                 logic_eligible: true,
             },

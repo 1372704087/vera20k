@@ -406,7 +406,7 @@ fn the_mutation_arm_matches_native() {
                 &mut entity.position,
                 DriveCoord { x, y, z },
             );
-            entity.position.z = level;
+            entity.position.set_z(level);
         }
         assert!(matches!(
             sim.reveal(victim),
@@ -747,7 +747,7 @@ fn brutes(sim: &Simulation) -> Vec<(u64, InternedId, (u16, u16))> {
             (
                 entity.stable_id(),
                 entity.owner(),
-                (entity.position.rx, entity.position.ry),
+                (entity.position.rx(), entity.position.ry()),
             )
         })
         .collect()
@@ -785,7 +785,7 @@ fn retail_mutator_turns_conscripts_into_the_players_brutes() {
         .iter()
         .map(|&id| {
             let entity = sim.substrate.entities.get(id).unwrap();
-            (entity.position.rx, entity.position.ry)
+            (entity.position.rx(), entity.position.ry())
         })
         .collect();
     charge_super(&mut sim, americans, MUTATOR);

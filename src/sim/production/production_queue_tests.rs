@@ -821,7 +821,7 @@ fn busy_factory_exit_original_rows_compare_receiver_archive_restoration_and_rng(
                 cell[0].as_u64().unwrap() as u16,
                 cell[1].as_u64().unwrap() as u16,
             );
-            assert_eq!(json!([placed.position.rx, placed.position.ry]), *cell);
+            assert_eq!(json!([placed.position.rx(), placed.position.ry()]), *cell);
             let plane = &control["actual_cell"]["plane_after"];
             assert_eq!(
                 json!(sim.substrate.raw_cell_occupation.ground_bits(rx, ry)),

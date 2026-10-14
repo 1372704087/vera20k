@@ -122,8 +122,8 @@ fn completed_corner_keeps_heading_until_next_head_is_accepted() {
     };
     let body = FacingClass::new(0x3FFF, 0);
     let actor = sim.substrate.entities.get_mut(id).unwrap();
-    actor.position.sub_x = SimFixed::from_num(184);
-    actor.position.sub_y = SimFixed::from_num(64);
+    actor.position.set_sub_x(SimFixed::from_num(184));
+    actor.position.set_sub_y(SimFixed::from_num(64));
     actor.body_facing = body;
     actor.navigation.set_nav_com(Some(NavTargetRef::cell(6, 6)));
     actor.navigation.path_replay = FootPathQueue::for_test(vec![2, 4], 0, Some((5, 5)));
@@ -228,11 +228,19 @@ fn post_percell_completion_matches_original_setter_refusal_and_stop_order() {
         // Keep signed/aliased full XYZ in the existing physical coordinate owner.
         // The query must compare the native truncated low16 cell words.
         let current = coord(&input["current"]);
-        actor.position.rx = (current.x / 256).clamp(0, i32::from(u16::MAX)) as u16;
-        actor.position.ry = (current.y / 256).clamp(0, i32::from(u16::MAX)) as u16;
-        actor.position.sub_x = SimFixed::from_num(current.x - i32::from(actor.position.rx) * 256);
-        actor.position.sub_y = SimFixed::from_num(current.y - i32::from(actor.position.ry) * 256);
-        actor.position.exact_z_leptons = Some(current.z);
+        actor
+            .position
+            .set_rx((current.x / 256).clamp(0, i32::from(u16::MAX)) as u16);
+        actor
+            .position
+            .set_ry((current.y / 256).clamp(0, i32::from(u16::MAX)) as u16);
+        actor.position.set_sub_x(SimFixed::from_num(
+            current.x - i32::from(actor.position.rx()) * 256,
+        ));
+        actor.position.set_sub_y(SimFixed::from_num(
+            current.y - i32::from(actor.position.ry()) * 256,
+        ));
+        actor.position.set_exact_z_leptons(Some(current.z));
         assert_eq!(
             crate::sim::movement::ground_pose::position_world_coord(&actor.position),
             current

@@ -503,7 +503,7 @@ impl Simulation {
         let water = self
             .resolved_terrain
             .as_ref()
-            .and_then(|terrain| terrain.cell(entity.position.rx, entity.position.ry))
+            .and_then(|terrain| terrain.cell(entity.position.rx(), entity.position.ry()))
             .is_some_and(|cell| {
                 cell.yr_cell_land_type == crate::rules::terrain_rules::LandType::Water.as_index()
             });
@@ -703,10 +703,10 @@ fn voc_at(
     super::SimSoundEvent::VocAt {
         sound_id,
         audible_to,
-        rx: entity.position.rx,
-        ry: entity.position.ry,
-        sub_x: entity.position.sub_x,
-        sub_y: entity.position.sub_y,
+        rx: entity.position.rx(),
+        ry: entity.position.ry(),
+        sub_x: entity.position.sub_x(),
+        sub_y: entity.position.sub_y(),
         world_z_leptons: location.z,
     }
 }

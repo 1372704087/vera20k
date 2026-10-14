@@ -738,7 +738,7 @@ fn bridge_crossing_replay_is_deterministic_and_baseline_stable() {
         {
             order_accepted_path = Some(entity.navigation.path_replay.directions().len() + 1);
         }
-        let cell = (entity.position.rx, entity.position.ry);
+        let cell = (entity.position.rx(), entity.position.ry());
         let facts = grid
             .cell(cell.0, cell.1)
             .copied()
@@ -746,7 +746,7 @@ fn bridge_crossing_replay_is_deterministic_and_baseline_stable() {
         frames.push(CrossingFrame {
             tick,
             cell,
-            z: entity.position.z,
+            z: entity.position.z(),
             on_bridge: entity.on_bridge(),
             terrain_level: facts.signed_level(),
             structural: facts.has_structural_bridge(),

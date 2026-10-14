@@ -1848,8 +1848,8 @@ fn fixture(inputs: &Inputs, selected: &[u64]) -> (Simulation, RuleSet) {
             let building_type = sim.interner.intern("DOCKBUILDING");
             let mut building = GameEntity::new_at_frame_zero_for_test(
                 1000 + actor.id,
-                entity.position.rx,
-                entity.position.ry,
+                entity.position.rx(),
+                entity.position.ry(),
                 0,
                 0,
                 owner,

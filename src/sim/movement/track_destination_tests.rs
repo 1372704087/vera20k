@@ -172,8 +172,8 @@ fn terrain(bridge: bool) -> ResolvedTerrainGrid {
 fn actor(input: &Value) -> GameEntity {
     let mut e = GameEntity::test_default(1, "MOVER", "Americans", 10, 10);
     e.set_category_for_test(crate::map::entities::EntityCategory::Unit);
-    e.position.sub_x = SimFixed::from_num(128);
-    e.position.sub_y = SimFixed::from_num(128);
+    e.position.set_sub_x(SimFixed::from_num(128));
+    e.position.set_sub_y(SimFixed::from_num(128));
     let kind = if input["family"] == "drive" {
         LocomotorKind::Drive
     } else {
@@ -912,9 +912,9 @@ fn destination_receipt_actor(
         family != "E1",
     );
     actor.lifecycle.set_in_limbo_for_test(false);
-    actor.position.sub_x = SimFixed::from_num(xyz.x % 256);
-    actor.position.sub_y = SimFixed::from_num(xyz.y % 256);
-    actor.position.exact_z_leptons = Some(xyz.z);
+    actor.position.set_sub_x(SimFixed::from_num(xyz.x % 256));
+    actor.position.set_sub_y(SimFixed::from_num(xyz.y % 256));
+    actor.position.set_exact_z_leptons(Some(xyz.z));
     actor.set_on_bridge(before["on_bridge"].as_u64().unwrap() != 0);
     actor.locomotor = Some(LocomotorState::from_object_type(
         object,

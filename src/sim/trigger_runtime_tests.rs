@@ -566,7 +566,7 @@ fn create_building_type10_reaches_placement_and_house_publication() {
         .find(|entity| entity.category() == EntityCategory::Structure && entity.owner() == owner)
         .expect("CreateBuilding must publish the building, not silently reject an empty type");
     assert_eq!(sim.resolve(building.type_ref()), "GTGCAN");
-    assert_eq!((building.position.rx, building.position.ry), (10, 10));
+    assert_eq!((building.position.rx(), building.position.ry()), (10, 10));
     assert!(building.lifecycle.object_alive() && building.lifecycle.cell_marked());
     assert!(!building.lifecycle.in_limbo());
     assert!(

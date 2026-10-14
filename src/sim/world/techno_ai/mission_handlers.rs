@@ -2111,7 +2111,10 @@ fn harvester_guard_override_requeues_harvest(sim: &Simulation, id: u64, rules: &
     if !unit_type.teleporter {
         return false;
     }
-    let (rx, ry) = (i32::from(entity.position.rx), i32::from(entity.position.ry));
+    let (rx, ry) = (
+        i32::from(entity.position.rx()),
+        i32::from(entity.position.ry()),
+    );
     for (dx, dy) in CELL_DELTAS {
         let (Ok(cx), Ok(cy)) = (u16::try_from(rx + dx), u16::try_from(ry + dy)) else {
             continue;
@@ -2309,8 +2312,8 @@ fn native_distance_is_in_cadence_band(
     let lepton = |cell: u16, sub: crate::util::fixed_math::SimFixed| -> i64 {
         cell as i64 * 256 + sub.to_num::<i64>()
     };
-    let dx = lepton(from.rx, from.sub_x) - lepton(to.rx, to.sub_x);
-    let dy = lepton(from.ry, from.sub_y) - lepton(to.ry, to.sub_y);
+    let dx = lepton(from.rx(), from.sub_x()) - lepton(to.rx(), to.sub_x());
+    let dy = lepton(from.ry(), from.sub_y()) - lepton(to.ry(), to.sub_y());
     let (Ok(dx), Ok(dy)) = (i32::try_from(dx), i32::try_from(dy)) else {
         // Native holds both differences in 32-bit registers; a map large
         // enough to overflow one cannot exist.

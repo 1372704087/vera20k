@@ -385,8 +385,8 @@ mod muzzle_anim_tests {
         // The firer drives one cell east and climbs: the flash goes with it.
         {
             let firer = sim.substrate.entities.get_mut(tank).unwrap();
-            firer.position.rx += 1;
-            firer.position.exact_z_leptons = Some(70);
+            firer.position.set_rx(firer.position.rx() + 1);
+            firer.position.set_exact_z_leptons(Some(70));
         }
         assert_eq!(
             sim.anim_absolute_coord(id),

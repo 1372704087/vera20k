@@ -497,8 +497,8 @@ fn retail_dustbowl_gapowr_blocked_then_valid_placement_oracle() {
         .values()
         .find(|entity| {
             entity.type_ref() == gapowr_id
-                && entity.position.rx == fixture.valid.0
-                && entity.position.ry == fixture.valid.1
+                && entity.position.rx() == fixture.valid.0
+                && entity.position.ry() == fixture.valid.1
         })
         .expect("accepted command spawned stock GAPOWR");
     assert_eq!(placed.category(), EntityCategory::Structure);

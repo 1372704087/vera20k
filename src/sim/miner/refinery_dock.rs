@@ -359,10 +359,10 @@ pub(crate) fn clear_unload_latch(sim: &mut Simulation, id: u64) -> bool {
 /// (`AdjacentCell[W]`, `0x0089F6A0`): the refinery for a miner on its pad.
 fn unload_building(sim: &Simulation, id: u64) -> Option<u64> {
     let entity = sim.substrate.entities.get(id)?;
-    let x = (entity.position.rx as i16).wrapping_sub(1) as u16;
+    let x = (entity.position.rx() as i16).wrapping_sub(1) as u16;
     sim.substrate
         .occupancy
-        .first_building_on_layer(x, entity.position.ry, MovementLayer::Ground)
+        .first_building_on_layer(x, entity.position.ry(), MovementLayer::Ground)
 }
 
 /// `0x0073E539` / `0x0073E1F0`: a NavCom and a queued mission other than

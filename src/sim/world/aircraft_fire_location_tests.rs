@@ -37,9 +37,13 @@ fn insert(
         5,
         true,
     );
-    entity.position.sub_x = SimFixed::from_num(point[0] % 256);
-    entity.position.sub_y = SimFixed::from_num(point[1] % 256);
-    entity.position.exact_z_leptons = Some(point[2]);
+    entity
+        .position
+        .set_sub_x(SimFixed::from_num(point[0] % 256));
+    entity
+        .position
+        .set_sub_y(SimFixed::from_num(point[1] % 256));
+    entity.position.set_exact_z_leptons(Some(point[2]));
     entity.lifecycle.set_object_alive_for_test(marked);
     entity.lifecycle.set_in_limbo_for_test(false);
     sim.substrate.entities.insert(entity);

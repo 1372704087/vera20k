@@ -544,8 +544,8 @@ fn airborne_index(
     let mut ordered: Vec<&GameEntity> = entities
         .values()
         .filter(|entity| {
-            let x = i32::from(entity.position.rx);
-            let y = i32::from(entity.position.ry);
+            let x = i32::from(entity.position.rx());
+            let y = i32::from(entity.position.ry());
             entity.air_spatial_bucket().is_some()
                 && x >= min.0
                 && x <= max.0
@@ -557,7 +557,7 @@ fn airborne_index(
     let mut airborne: BTreeMap<(u16, u16), Vec<u64>> = BTreeMap::new();
     for entity in ordered {
         airborne
-            .entry((entity.position.rx, entity.position.ry))
+            .entry((entity.position.rx(), entity.position.ry()))
             .or_default()
             .push(entity.stable_id());
     }
@@ -1858,10 +1858,10 @@ fn evaluate_candidate(
                     ctx.attacker.pos_ry,
                     ctx.attacker.sub_x,
                     ctx.attacker.sub_y,
-                    candidate.position.rx,
-                    candidate.position.ry,
-                    candidate.position.sub_x,
-                    candidate.position.sub_y,
+                    candidate.position.rx(),
+                    candidate.position.ry(),
+                    candidate.position.sub_x(),
+                    candidate.position.sub_y(),
                 ),
                 selected.weapon.range,
             ),
@@ -3129,7 +3129,7 @@ mod tests {
                 11,
                 EntityCategory::Unit,
             );
-            entities.get_mut(2).unwrap().position.z = level;
+            entities.get_mut(2).unwrap().position.set_z(level);
             assert_eq!(
                 pick_with_mask(&entities, &rules, 1, super::super::ScanMission::AreaGuard),
                 expected,

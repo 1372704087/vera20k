@@ -412,7 +412,7 @@ fn a_shroud_reset_shows_a_computer_superweapon_still_building_up() {
         Some(id)
     );
     let building = sim.substrate.entities.get(id).unwrap();
-    assert_eq!((building.position.rx, building.position.ry), SITE);
+    assert_eq!((building.position.rx(), building.position.ry()), SITE);
     assert!(building.building_up());
     assert!(!building.building_art.actually_placed());
     assert!(sim.fog.alternate_sight_admissions.is_empty());

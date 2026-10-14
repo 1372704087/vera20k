@@ -249,8 +249,10 @@ fn two_paid_rocketeers(rally: Option<(u16, u16)>) {
             // State1 holds for one frame at cruise height before the
             // translate; the hover that counts is over his own destination.
             let destination = runtime.destination();
-            let at_destination = (i32::from(entity.position.rx), i32::from(entity.position.ry))
-                == (destination.x / 256, destination.y / 256);
+            let at_destination = (
+                i32::from(entity.position.rx()),
+                i32::from(entity.position.ry()),
+            ) == (destination.x / 256, destination.y / 256);
             if product.hold_frame.is_none()
                 && product.release_frame.is_some()
                 && runtime.phase() == STATE_HOLD
@@ -259,7 +261,7 @@ fn two_paid_rocketeers(rally: Option<(u16, u16)>) {
                 if let Some((rx, ry)) = rally {
                     // The first takes the rally's air slot; the next finds it
                     // taken and steps to a random neighbour (claim_or_scatter).
-                    let here = (entity.position.rx, entity.position.ry);
+                    let here = (entity.position.rx(), entity.position.ry());
                     if index == 0 {
                         assert_eq!(here, (rx, ry), "{context}");
                     } else {

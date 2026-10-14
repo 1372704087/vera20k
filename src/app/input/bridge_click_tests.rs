@@ -370,7 +370,7 @@ fn follow_clicked_goal(
                 "each chained retail command must also publish its exact NavCom"
             );
         }
-        if (entity.position.rx, entity.position.ry) == goal
+        if (entity.position.rx(), entity.position.ry()) == goal
             && crate::sim::movement::motion_query::is_moving(&entity) != Some(true)
         {
             // Body Cell entry can precede paid-head retirement by several
@@ -525,14 +525,18 @@ fn ordinary_walk_cell_input_reaches_near_bank_and_valid_high_bridge() {
         for _ in 0..250 {
             advance_input_fixture(&mut sim, &rules);
             let e = sim.entities().get(actor).unwrap();
-            if (e.position.rx, e.position.ry) == chosen
+            if (e.position.rx(), e.position.ry()) == chosen
                 && e.locomotor.as_ref().unwrap().step_head().is_none()
             {
                 break;
             }
         }
         let e = sim.entities().get(actor).unwrap();
-        assert_eq!((e.position.rx, e.position.ry), chosen, "bridge={bridge}");
+        assert_eq!(
+            (e.position.rx(), e.position.ry()),
+            chosen,
+            "bridge={bridge}"
+        );
         assert_eq!(e.on_bridge(), bridge);
         assert!(
             e.locomotor.as_ref().unwrap().step_head().is_none(),

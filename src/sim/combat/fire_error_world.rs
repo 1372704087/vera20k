@@ -534,10 +534,10 @@ impl FireQuery for WorldQuery<'_, '_> {
             }),
             None => super::is_within_range_leptons(
                 super::lepton_distance_sq_raw(
-                    firer.position.rx,
-                    firer.position.ry,
-                    firer.position.sub_x,
-                    firer.position.sub_y,
+                    firer.position.rx(),
+                    firer.position.ry(),
+                    firer.position.sub_x(),
+                    firer.position.sub_y(),
                     rx,
                     ry,
                     sub_x,
@@ -578,8 +578,8 @@ impl FireQuery for WorldQuery<'_, '_> {
         let sensed = subject.fog.is_some_and(|fog| {
             fog.has_sensor_for_house(
                 subject.firer.owner(),
-                target.position.rx,
-                target.position.ry,
+                target.position.rx(),
+                target.position.ry(),
             )
         });
         i32::from(target.visual_character(
@@ -829,10 +829,10 @@ impl WorldQuery<'_, '_> {
         }
         subject.target_point().map_or(0, |(rx, ry, sub_x, sub_y)| {
             crate::sim::movement::turret::facing_toward_lepton(
-                firer.position.rx,
-                firer.position.ry,
-                firer.position.sub_x,
-                firer.position.sub_y,
+                firer.position.rx(),
+                firer.position.ry(),
+                firer.position.sub_x(),
+                firer.position.sub_y(),
                 rx,
                 ry,
                 sub_x,

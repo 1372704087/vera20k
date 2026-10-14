@@ -218,7 +218,7 @@ pub(crate) fn try_to_deploy(
     let Some((yard, cell, owner)) = sim.substrate.entities.get(id).and_then(|entity| {
         Some((
             deploys_into(sim, entity, rules)?,
-            (entity.position.rx as i16, entity.position.ry as i16),
+            (entity.position.rx() as i16, entity.position.ry() as i16),
             entity.owner(),
         ))
     }) else {

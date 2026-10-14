@@ -225,8 +225,8 @@ impl Simulation {
         let source = vision::GapGeneratorSource {
             stable_id: id,
             owner: entity.owner(),
-            rx: entity.position.rx,
-            ry: entity.position.ry,
+            rx: entity.position.rx(),
+            ry: entity.position.ry(),
             radius,
         };
         self.fog.alliances = self.house_alliances.clone();
@@ -359,8 +359,8 @@ impl Simulation {
                 reentry.push(vision::GapGeneratorSource {
                     stable_id: id,
                     owner: entity.owner(),
-                    rx: entity.position.rx,
-                    ry: entity.position.ry,
+                    rx: entity.position.rx(),
+                    ry: entity.position.ry(),
                     radius,
                 });
             }

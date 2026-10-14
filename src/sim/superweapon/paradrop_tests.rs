@@ -209,7 +209,7 @@ fn plane_at(sim: &mut Simulation, rules: &RuleSet, at: (u16, u16), passengers: u
         .get_mut(id)
         .unwrap()
         .position
-        .exact_z_leptons = Some(1500);
+        .set_exact_z_leptons(Some(1500));
     id
 }
 
@@ -224,8 +224,11 @@ fn fill_spots(sim: &mut Simulation, cell: (u16, u16)) {
         blocker.set_category_for_test(EntityCategory::Infantry);
         blocker.set_is_voxel_for_test(false);
         blocker.set_sub_cell(Some(spot));
-        (blocker.position.sub_x, blocker.position.sub_y) =
-            lepton::subcell_lepton_offset(Some(spot));
+        {
+            let (sub_x, sub_y) = lepton::subcell_lepton_offset(Some(spot));
+            blocker.position.set_sub_x(sub_x);
+            blocker.position.set_sub_y(sub_y);
+        }
         sim.substrate.entities.insert(blocker);
         assert!(matches!(sim.reveal(id), RevealOutcome::Revealed { .. }));
     }
@@ -610,9 +613,13 @@ fn send_paradrop_planes_matches_native() {
             Some(TargetKind::Cell(TARGET.0, TARGET.1))
         );
         assert_eq!(entity.navigation.nav_com(), None);
-        assert_eq!((entity.position.rx, entity.position.ry), expected, "{row}");
         assert_eq!(
-            (entity.position.sub_x, entity.position.sub_y),
+            (entity.position.rx(), entity.position.ry()),
+            expected,
+            "{row}"
+        );
+        assert_eq!(
+            (entity.position.sub_x(), entity.position.sub_y()),
             (SimFixed::from_num(128), SimFixed::from_num(128))
         );
         assert_eq!(entity.body_facing_current(sim.session.binary_frame), 0);
@@ -669,10 +676,10 @@ fn mission_plane(sim: &mut Simulation, rules: &RuleSet, row: &Value, target: (u1
         for dx in (distance - 4).max(0)..distance + 8 {
             let (x, y) = (centre(target.0) + dx, centre(target.1) + dy);
             let plane = sim.substrate.entities.get_mut(id).unwrap();
-            plane.position.rx = (x / 256) as u16;
-            plane.position.ry = (y / 256) as u16;
-            plane.position.sub_x = SimFixed::from_num(x % 256);
-            plane.position.sub_y = SimFixed::from_num(y % 256);
+            plane.position.set_rx((x / 256) as u16);
+            plane.position.set_ry((y / 256) as u16);
+            plane.position.set_sub_x(SimFixed::from_num(x % 256));
+            plane.position.set_sub_y(SimFixed::from_num(y % 256));
             let entities = &sim.substrate.entities;
             let plane = entities.get(id).unwrap();
             if crate::sim::combat::object_distance_to(plane, &goal, entities) == Some(distance) {
@@ -1108,10 +1115,10 @@ fn assert_landed(
         assert!(!entity.lifecycle.in_limbo() && !entity.is_falling_down());
         let off = |at: u16, centre: u16| (i32::from(at) - i32::from(centre)).abs();
         assert!(
-            off(entity.position.rx, around.0) <= 5 && off(entity.position.ry, around.1) <= 5,
+            off(entity.position.rx(), around.0) <= 5 && off(entity.position.ry(), around.1) <= 5,
             "{id} landed at ({}, {})",
-            entity.position.rx,
-            entity.position.ry
+            entity.position.rx(),
+            entity.position.ry()
         );
         let (queued, current) = missions.expect("left the plane");
         assert!(
@@ -1155,7 +1162,7 @@ fn retail_paradrops_land_their_lists_around_the_target() {
             entity.attack_target.target(),
             Some(TargetKind::Cell(TARGET.0, TARGET.1))
         );
-        assert_eq!(entity.position.rx + entity.position.ry, 36);
+        assert_eq!(entity.position.rx() + entity.position.ry(), 36);
         let passengers = cargo(&sim, plane);
         assert_eq!(passengers.len(), count, "{name}");
         for &id in &passengers {

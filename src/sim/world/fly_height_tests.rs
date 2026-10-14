@@ -68,14 +68,14 @@ fn fixture(row: &serde_json::Value) -> (Simulation, RuleSet) {
         sim.try_reveal_entity(
             1,
             RevealRequest {
-                position: RevealPosition {
-                    exact_z_leptons: None,
-                    rx: 10,
-                    ry: 10,
-                    z: integer("level", 0) as u8,
-                    sub_x: SimFixed::from_num(128),
-                    sub_y: SimFixed::from_num(128)
-                },
+                position: RevealPosition::new(
+                    10,
+                    10,
+                    integer("level", 0) as u8,
+                    None,
+                    SimFixed::from_num(128),
+                    SimFixed::from_num(128)
+                ),
                 placement: PlacementEvidence::MarkSucceeded,
                 logic_eligible: true,
             }
@@ -93,7 +93,7 @@ fn fixture(row: &serde_json::Value) -> (Simulation, RuleSet) {
         sim.substrate.entities.get_mut(1).unwrap().passenger_role = PassengerRole::transport(cargo);
     }
     let entity = sim.substrate.entities.get_mut(1).unwrap();
-    entity.position.exact_z_leptons = Some(integer("z", 0));
+    entity.position.set_exact_z_leptons(Some(integer("z", 0)));
     entity.set_on_bridge(flag("on_bridge"));
     entity.health.set_for_test(integer("health", 100));
     let loco = entity.locomotor.as_mut().unwrap();
@@ -134,7 +134,7 @@ fn healthy_native_height_vectors_reach_production_coordinates() {
         let expected_z = row["z"].as_i64().unwrap() as i32;
         let expected_height = row["height"].as_i64().unwrap() as i32;
         assert_eq!(
-            entity.position.exact_z_leptons,
+            entity.position.exact_z_leptons(),
             Some(expected_z),
             "{}",
             row["input"]
@@ -228,7 +228,7 @@ fn fly_integer_target_flags_and_cargo_survive_save_and_continuation() {
                         .get(1)
                         .unwrap()
                         .position
-                        .exact_z_leptons,
+                        .exact_z_leptons(),
                     Some(row["z"].as_i64().unwrap() as i32)
                 );
             }
@@ -525,8 +525,8 @@ fn destination_fixture(row: &serde_json::Value) -> (Simulation, RuleSet) {
     target_cell.level = input["level"].as_u64().unwrap_or(0) as u8;
     target_cell.slope_type = input["slope"].as_u64().unwrap_or(0) as u8;
     let entity = sim.substrate.entities.get_mut(1).unwrap();
-    entity.position.rx = 40;
-    entity.position.ry = 64;
+    entity.position.set_rx(40);
+    entity.position.set_ry(64);
     entity.aircraft_ammo = Some(AircraftAmmo::new(input["ammo"].as_i64().unwrap_or(2) as i32));
     entity.attack_target.set_for_test(
         input["target"]
@@ -658,10 +658,10 @@ fn fly_retained_destination_drives_subcell_arrival_after_save_and_restore() {
     assert!(issue_coordinate(&mut sim, &rules, [16519, 16523, 333]));
     sim.remove_entity_occupancy(1);
     let entity = sim.substrate.entities.get_mut(1).unwrap();
-    entity.position.rx = 64;
-    entity.position.ry = 64;
-    entity.position.sub_x = SimFixed::from_num(135);
-    entity.position.sub_y = SimFixed::from_num(139);
+    entity.position.set_rx(64);
+    entity.position.set_ry(64);
+    entity.position.set_sub_x(SimFixed::from_num(135));
+    entity.position.set_sub_y(SimFixed::from_num(139));
     sim.add_entity_occupancy(1);
     sim.scenario_rng = crate::sim::rng::SimRng::new(0);
     let bytes = GameSnapshot::save(&sim, 0, 0, "Fly retained destination", 0);
@@ -1003,7 +1003,7 @@ fn fly_nonlandable_production_tick_replaces_landing_target_and_restores() {
     );
     let entity = sim.substrate.entities.get(1).unwrap();
     assert_eq!(
-        entity.position.exact_z_leptons,
+        entity.position.exact_z_leptons(),
         Some(855),
         "movement precedes phase override"
     );
@@ -1033,7 +1033,7 @@ fn fly_nonlandable_production_tick_replaces_landing_target_and_restores() {
                     .get(1)
                     .unwrap()
                     .position
-                    .exact_z_leptons,
+                    .exact_z_leptons(),
                 Some(855 + (frame as i32 - 100) * 20)
             );
         }
@@ -1336,10 +1336,14 @@ fn fly_paid_step_matches_native_math_and_production_type_speed() {
         }}));
         sim.remove_entity_occupancy(1);
         let entity = sim.substrate.entities.get_mut(1).unwrap();
-        entity.position.rx = (current[0] / 256) as u16;
-        entity.position.ry = (current[1] / 256) as u16;
-        entity.position.sub_x = SimFixed::from_num(current[0] % 256);
-        entity.position.sub_y = SimFixed::from_num(current[1] % 256);
+        entity.position.set_rx((current[0] / 256) as u16);
+        entity.position.set_ry((current[1] / 256) as u16);
+        entity
+            .position
+            .set_sub_x(SimFixed::from_num(current[0] % 256));
+        entity
+            .position
+            .set_sub_y(SimFixed::from_num(current[1] % 256));
         entity.body_facing = primary;
         entity.veterancy.set_rank_for_test(2); // Fly's getter bypasses Foot's FASTER path
         sim.add_entity_occupancy(1);

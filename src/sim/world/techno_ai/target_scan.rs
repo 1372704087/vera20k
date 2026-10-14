@@ -444,8 +444,8 @@ fn parked_on_move(
 ) -> Option<bool> {
     let on_own_cell = entity.navigation.nav_com()
         == Some(crate::sim::components::NavTargetRef::cell(
-            entity.position.rx,
-            entity.position.ry,
+            entity.position.rx(),
+            entity.position.ry(),
         ));
     if obj.balloon_hover {
         if !is_foot {

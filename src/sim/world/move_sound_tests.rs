@@ -72,10 +72,10 @@ fn scene(input: &Value, before: &Value, rules: &RuleSet) -> (Simulation, u64) {
     actor.set_owner_for_test(owner);
     actor.set_type_ref_for_test(sim.interner.intern("SQD"));
     actor.set_category_for_test(EntityCategory::Unit);
-    actor.position.sub_x = SimFixed::from_num(xyz[0] % 256);
-    actor.position.sub_y = SimFixed::from_num(xyz[1] % 256);
-    actor.position.z = (xyz[2] / 104) as u8;
-    actor.position.exact_z_leptons = Some(xyz[2]);
+    actor.position.set_sub_x(SimFixed::from_num(xyz[0] % 256));
+    actor.position.set_sub_y(SimFixed::from_num(xyz[1] % 256));
+    actor.position.set_z((xyz[2] / 104) as u8);
+    actor.position.set_exact_z_leptons(Some(xyz[2]));
     actor
         .lifecycle
         .set_in_limbo_for_test(input["limbo"].as_u64().unwrap_or(0) != 0);
@@ -490,10 +490,10 @@ fn assert_retail_idle_timeline(retail_dir: &std::path::Path, row: &Value) {
             step["after"]["rng"]["main"].as_str().unwrap()
         );
         let actor = sim.substrate.entities.get(id).unwrap();
-        assert_eq!(actor.position.rx, position.rx);
-        assert_eq!(actor.position.ry, position.ry);
-        assert_eq!(actor.position.sub_x, position.sub_x);
-        assert_eq!(actor.position.sub_y, position.sub_y);
+        assert_eq!(actor.position.rx(), position.rx());
+        assert_eq!(actor.position.ry(), position.ry());
+        assert_eq!(actor.position.sub_x(), position.sub_x());
+        assert_eq!(actor.position.sub_y(), position.sub_y());
         assert!(actor.navigation.nav_com().is_none());
     }
 }

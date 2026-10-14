@@ -869,19 +869,21 @@ impl Simulation {
         use crate::sim::movement::ground_pose::ground_surface_z_at;
 
         let xy = [
-            i32::from(position.rx)
+            i32::from(position.rx())
                 .wrapping_mul(256)
-                .wrapping_add(position.sub_x.to_num::<i32>()),
-            i32::from(position.ry)
+                .wrapping_add(position.sub_x().to_num::<i32>()),
+            i32::from(position.ry())
                 .wrapping_mul(256)
-                .wrapping_add(position.sub_y.to_num::<i32>()),
+                .wrapping_add(position.sub_y().to_num::<i32>()),
         ];
         let entity = self.substrate.entities.get(stable_id)?;
         if entity.is_falling_down() {
             // Paradrop's Unlimbo coordinate is the drop coordinate, which
             // SetLocation then commits whole (`0x005F5A50`): the falling
             // object keeps the Z its drop gave it.
-            return position.exact_z_leptons.or(entity.position.exact_z_leptons);
+            return position
+                .exact_z_leptons()
+                .or(entity.position.exact_z_leptons());
         }
         if entity.low_bridge_tube_state.is_some() {
             return None;
@@ -891,7 +893,9 @@ impl Simulation {
             .filter(|_| entity.category() == EntityCategory::Aircraft)
             .and_then(|rules| rules.object(self.interner.resolve(entity.type_ref())));
         if aircraft_type.is_some_and(|object| object.missile_spawn) {
-            return position.exact_z_leptons.or(entity.position.exact_z_leptons);
+            return position
+                .exact_z_leptons()
+                .or(entity.position.exact_z_leptons());
         }
         let terrain = context.terrain().or(self.resolved_terrain.as_ref())?;
         let ground_z = ground_surface_z_at(xy, false, Some(terrain), None)?;
@@ -918,14 +922,14 @@ impl Simulation {
                 || terrain.shared_cell_dummy().snapshot().level,
                 |index| terrain.cells()[index].level as i8,
             );
-        let input_z = if let Some(input_z) = position.exact_z_leptons {
+        let input_z = if let Some(input_z) = position.exact_z_leptons() {
             input_z
-        } else if entity.on_bridge() && i32::from(position.z as i8) == i32::from(level) + 4 {
+        } else if entity.on_bridge() && i32::from(position.z() as i8) == i32::from(level) + 4 {
             // VERA input adapter: retain the ramp remainder that the existing
             // coarse bridge-level API cannot carry. Native clamp remains max.
             ground_z.wrapping_add(BRIDGE_DECK_HEIGHT_LEPTONS)
         } else {
-            i32::from(position.z as i8).wrapping_mul(LEPTONS_PER_LEVEL as i32)
+            i32::from(position.z() as i8).wrapping_mul(LEPTONS_PER_LEVEL as i32)
         };
         Some(input_z.max(ground_z))
     }
@@ -1079,12 +1083,12 @@ impl Simulation {
         // riders. Frequency: none known in retail. Effect: the riders keep
         // their old Location.
         if let Some(entity) = self.substrate.entities.get_mut(stable_id) {
-            entity.position.rx = position.rx;
-            entity.position.ry = position.ry;
-            entity.position.z = position.z;
-            entity.position.exact_z_leptons = exact_z;
-            entity.position.sub_x = position.sub_x;
-            entity.position.sub_y = position.sub_y;
+            entity.position.set_rx(position.rx());
+            entity.position.set_ry(position.ry());
+            entity.position.set_z(position.z());
+            entity.position.set_exact_z_leptons(exact_z);
+            entity.position.set_sub_x(position.sub_x());
+            entity.position.set_sub_y(position.sub_y());
         }
         if let Some(rules) = context.rules {
             self.reposition_building_anim_slots(stable_id, rules);
@@ -1207,7 +1211,7 @@ impl Simulation {
             context
                 .terrain()
                 .or(self.resolved_terrain.as_ref())?
-                .cell(entity.position.rx, entity.position.ry)
+                .cell(entity.position.rx(), entity.position.ry())
                 .map(|cell| cell.slope_type)
         });
         if let Some(sampled_slope) = reveal_slope
@@ -1680,8 +1684,8 @@ impl Simulation {
                         entity.owner(),
                         entity.type_facts.base_plan_type_index(),
                         crate::sim::base_plan::pack_base_plan_cell(
-                            i32::from(entity.position.rx),
-                            i32::from(entity.position.ry),
+                            i32::from(entity.position.rx()),
+                            i32::from(entity.position.ry()),
                         ),
                         entity.type_facts.base_plan_has_undeploy_target(),
                     ))
@@ -1719,8 +1723,8 @@ impl Simulation {
                         entity.owner(),
                         entity.type_facts.base_plan_type_index(),
                         crate::sim::base_plan::pack_base_plan_cell(
-                            i32::from(entity.position.rx),
-                            i32::from(entity.position.ry),
+                            i32::from(entity.position.rx()),
+                            i32::from(entity.position.ry()),
                         ),
                         entity.type_facts.base_plan_is_defense(),
                         entity.lifecycle.in_limbo,
@@ -1754,7 +1758,7 @@ impl Simulation {
                 && entity.lifecycle.object_alive
                 && !entity.lifecycle.in_limbo
                 && entity.lifecycle.cell_marked)
-                .then_some((entity.owner(), (entity.position.rx, entity.position.ry)))
+                .then_some((entity.owner(), (entity.position.rx(), entity.position.ry())))
         }) else {
             return;
         };
@@ -1791,7 +1795,7 @@ impl Simulation {
         let insertion = CellListInsertion::from_category(entity.category());
         let foundation = entity.type_facts.foundation().to_owned();
         let hidden_profile = entity.type_facts.building_hidden_occupancy();
-        let current_cell = (entity.position.rx, entity.position.ry);
+        let current_cell = (entity.position.rx(), entity.position.ry());
         let (width, height) = crate::rules::foundation::foundation_dimensions(&foundation);
         let mut intersections = Vec::with_capacity(usize::from(width) * usize::from(height));
         for dy in 0..height {
@@ -1869,7 +1873,7 @@ impl Simulation {
             return true;
         };
         crate::sim::cell_rect::cell_is_in_playfield_height_aware(
-            (i32::from(position.rx), i32::from(position.ry)),
+            (i32::from(position.rx()), i32::from(position.ry())),
             Some(bounds),
             context.terrain().or(self.resolved_terrain.as_ref()),
         )
@@ -2021,8 +2025,8 @@ impl Simulation {
             (
                 entity.owner(),
                 building_base_reservation_rect(
-                    entity.position.rx,
-                    entity.position.ry,
+                    entity.position.rx(),
+                    entity.position.ry(),
                     entity.type_facts.foundation(),
                     spacing,
                 ),
@@ -2052,16 +2056,16 @@ impl Simulation {
         }
         let owner = entity.owner();
         let rect = building_base_reservation_rect(
-            entity.position.rx,
-            entity.position.ry,
+            entity.position.rx(),
+            entity.position.ry(),
             entity.type_facts.foundation(),
             spacing,
         );
         let (foundation_width, foundation_height) =
             crate::rules::foundation::foundation_dimensions(entity.type_facts.foundation());
         let repair_rect = building_base_reservation_repair_rect(
-            entity.position.rx,
-            entity.position.ry,
+            entity.position.rx(),
+            entity.position.ry(),
             foundation_width,
             foundation_height,
             spacing,
@@ -2135,7 +2139,7 @@ impl Simulation {
         );
         let foundation = entity.type_facts.foundation().to_owned();
         let hidden_profile = entity.type_facts.building_hidden_occupancy();
-        let current_cell = (entity.position.rx, entity.position.ry);
+        let current_cell = (entity.position.rx(), entity.position.ry());
         if let Some(layer) = layer {
             for &(rx, ry) in &cells {
                 self.substrate
@@ -2235,7 +2239,7 @@ impl Simulation {
             .get_mut(stable_id)
             .expect("member remains represented");
         entity.set_on_bridge(false);
-        entity.position.exact_z_leptons = Some(world_z);
+        entity.position.set_exact_z_leptons(Some(world_z));
         self.submit_entity_display(stable_id, rules, None);
         if foot {
             self.foot_mark_put(stable_id, rules, context.registry, context.effects);
@@ -5574,14 +5578,14 @@ mod base_plan_lifecycle_tests {
         let outcome = sim.try_reveal_entity(
             1,
             RevealRequest {
-                position: RevealPosition {
-                    exact_z_leptons: None,
-                    rx: 10,
-                    ry: 11,
-                    z: 0,
-                    sub_x: SimFixed::from_num(0),
-                    sub_y: SimFixed::from_num(0),
-                },
+                position: RevealPosition::new(
+                    10,
+                    11,
+                    0,
+                    None,
+                    SimFixed::from_num(0),
+                    SimFixed::from_num(0),
+                ),
                 placement: PlacementEvidence::AttachedUpgrade,
                 logic_eligible: true,
             },

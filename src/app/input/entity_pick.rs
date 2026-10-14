@@ -145,8 +145,8 @@ pub(crate) fn hover_target_at_point(
             if !click_hits_foundation(
                 world_x,
                 world_y,
-                entity.position.rx,
-                entity.position.ry,
+                entity.position.rx(),
+                entity.position.ry(),
                 foundation,
                 height_map,
                 bridge_cells,
@@ -166,14 +166,15 @@ pub(crate) fn hover_target_at_point(
         let dist_sq = dx * dx + dy * dy;
         let is_friendly = sim.fog.is_friendly(local_owner, owner_str);
         let is_visible = ignore_visibility
-            || (sim
-                .fog
-                .is_cell_revealed(local_owner_id, entity.position.rx, entity.position.ry)
-                && !sim.fog.is_cell_gap_covered(
-                    local_owner_id,
-                    entity.position.rx,
-                    entity.position.ry,
-                ));
+            || (sim.fog.is_cell_revealed(
+                local_owner_id,
+                entity.position.rx(),
+                entity.position.ry(),
+            ) && !sim.fog.is_cell_gap_covered(
+                local_owner_id,
+                entity.position.rx(),
+                entity.position.ry(),
+            ));
         let kind = if is_friendly {
             if is_structure {
                 HoverTargetKind::FriendlyStructure
@@ -466,7 +467,7 @@ pub(crate) fn pick_admits_object(
             .cloak
             .as_ref()
             .is_some_and(|cloak| cloak.is_fully_cloaked())
-        || fog.has_sensor_for_house(player, entity.position.rx, entity.position.ry)
+        || fog.has_sensor_for_house(player, entity.position.rx(), entity.position.ry())
 }
 
 /// Would the local player see this object drawn right now?
@@ -493,8 +494,8 @@ fn is_drawn_for_local_owner(
     }
     let owner_id = local_owner_id.unwrap_or_default();
     let pos = &entity.position;
-    fog.is_cell_revealed(owner_id, pos.rx, pos.ry)
-        && !fog.is_cell_gap_covered(owner_id, pos.rx, pos.ry)
+    fog.is_cell_revealed(owner_id, pos.rx(), pos.ry())
+        && !fog.is_cell_gap_covered(owner_id, pos.rx(), pos.ry())
 }
 
 /// Resolve a band-box release into the selection snapshot to commit.
@@ -1116,8 +1117,8 @@ pub(crate) fn selection_dynamic_prefix(
             entities,
             rules,
             interner,
-            entity.position.rx,
-            entity.position.ry,
+            entity.position.rx(),
+            entity.position.ry(),
         )
     {
         return false;
@@ -1177,8 +1178,8 @@ fn building_covers_cell(
             .map(|o| o.foundation.as_str())
             .unwrap_or("1x1");
         let (fw, fh) = crate::rules::foundation::foundation_dimensions(foundation);
-        let brx = candidate.position.rx;
-        let bry = candidate.position.ry;
+        let brx = candidate.position.rx();
+        let bry = candidate.position.ry();
         rx >= brx && rx < brx.saturating_add(fw) && ry >= bry && ry < bry.saturating_add(fh)
     })
 }
@@ -1286,8 +1287,8 @@ pub(crate) fn pick_entity_at_point(
         click_hits_foundation(
             world_x,
             world_y,
-            entity.position.rx,
-            entity.position.ry,
+            entity.position.rx(),
+            entity.position.ry(),
             foundation,
             height_map,
             bridge_cells,
@@ -1989,9 +1990,9 @@ mod tests {
                 category,
                 false,
             );
-            entity.position.sub_x = SimFixed::from_num(xyz[0] % 256);
-            entity.position.sub_y = SimFixed::from_num(xyz[1] % 256);
-            entity.position.exact_z_leptons = Some(xyz[2]);
+            entity.position.set_sub_x(SimFixed::from_num(xyz[0] % 256));
+            entity.position.set_sub_y(SimFixed::from_num(xyz[1] % 256));
+            entity.position.set_exact_z_leptons(Some(xyz[2]));
             entity.set_in_playfield(true);
             sim.entities_mut().insert(entity);
         };

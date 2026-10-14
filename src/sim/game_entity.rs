@@ -154,7 +154,7 @@ pub struct GameEntity {
     /// ([`Self::link_structure_upgrade`]).
     structure_upgrade_link: Option<StructureUpgradeLink>,
     /// World position in isometric cell coordinates + cached screen position.
-    pub position: Position,
+    pub(crate) position: Position,
     /// The body heading, `TechnoClass+0x388` (PrimaryFacing), and its only
     /// copy: every class has one (the TechnoClass constructor builds it at
     /// `0x006F2EEB`), a building included — its `+0x388` is what its turret
@@ -473,13 +473,13 @@ pub struct GameEntity {
     building_power_health_sample: i32,
     /// Sale route metadata, never a second mission, ready byte or timer.
     building_sale: Option<crate::sim::building_construction::BuildingDown>,
-    /// `BuildingClass+0x550..+0x558`, the wait before the building's
-    /// computer factory tries its finished object again. The constructor
-    /// starts it with no duration (`0x0043B7A7`, `0x0043B7AD`); a placement
-    /// that must wait restarts it for `[General] PlacementDelay=`
-    /// (`0x004501CB..0x004501F7`); only `production::factory_ai` reads it.
+    /// The wait before the building's computer factory tries its finished
+    /// object again, an [`AiPlacementTimer`] that `production::factory_ai`
+    /// owns.
+    ///
+    /// [`AiPlacementTimer`]: crate::sim::production::AiPlacementTimer
     #[serde(default)]
-    pub(crate) ai_placement_timer: crate::sim::timer::CdTimer,
+    pub(crate) ai_placement_timer: crate::sim::production::AiPlacementTimer,
     /// The Building's animation art: its AnimClass slots, their replay
     /// marks, the damaged-art flag, its StorageClass art, the Stuff flag and
     /// the Grand_Opening guard. `sim::building_art` owns it.
@@ -1370,14 +1370,7 @@ impl GameEntity {
             stage: crate::sim::stage::StageClass::constructed(construction_frame as i32),
             discovery: Default::default(),
             structure_upgrade_link: None,
-            position: Position {
-                rx,
-                ry,
-                z,
-                exact_z_leptons: None,
-                sub_x: init_sub_x,
-                sub_y: init_sub_y,
-            },
+            position: Position::new(rx, ry, z, None, init_sub_x, init_sub_y),
             // The Unlimbo direction; the class constructor supplies the rate.
             body_facing: crate::sim::movement::FacingClass::new(u16::from(facing) << 8, 0),
             // Unlimbo's type-derived initialization arms the turret loop latch.
@@ -1443,7 +1436,7 @@ impl GameEntity {
             building_body: (category == EntityCategory::Structure).then(Default::default),
             building_power_health_sample: 0,
             building_sale: None,
-            ai_placement_timer: crate::sim::timer::CdTimer::default(),
+            ai_placement_timer: Default::default(),
             building_art: Default::default(),
             building_last_operational: Default::default(),
             building_powered_center: Default::default(),
@@ -1615,7 +1608,7 @@ impl GameEntity {
 
     /// Paradrop5F5940 raises +84/+8D and resets +2C before placement.
     pub(crate) fn begin_parachute_fall(&mut self, z: i32) {
-        self.position.exact_z_leptons = Some(z);
+        self.position.set_exact_z_leptons(Some(z));
         self.fall.parachuted = true;
         self.fall.falling = true;
         self.fall.rate = 0;
@@ -1961,9 +1954,9 @@ mod tests {
         assert_eq!(e.stable_id, 1);
         assert_eq!(e.type_ref, crate::sim::intern::test_intern("HTNK"));
         assert_eq!(e.owner, crate::sim::intern::test_intern("Americans"));
-        assert_eq!(e.position.rx, 30);
-        assert_eq!(e.position.ry, 40);
-        assert_eq!(e.position.z, 0);
+        assert_eq!(e.position.rx(), 30);
+        assert_eq!(e.position.ry(), 40);
+        assert_eq!(e.position.z(), 0);
         assert_eq!(e.body_facing_current(0), 0);
         assert_eq!(e.health.current(), 100);
         assert_eq!(e.category, EntityCategory::Unit);

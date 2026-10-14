@@ -105,10 +105,10 @@ impl Simulation {
                 self.sound_events.push(SimSoundEvent::VocAt {
                     sound_id,
                     audible_to: None,
-                    rx: entity.position.rx,
-                    ry: entity.position.ry,
-                    sub_x: entity.position.sub_x,
-                    sub_y: entity.position.sub_y,
+                    rx: entity.position.rx(),
+                    ry: entity.position.ry(),
+                    sub_x: entity.position.sub_x(),
+                    sub_y: entity.position.sub_y(),
                     world_z_leptons: coord.z,
                 });
             }

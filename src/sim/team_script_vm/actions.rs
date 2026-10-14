@@ -193,8 +193,8 @@ fn tarcom_names(entity: &GameEntity, target: TeamTarget) -> bool {
 /// The cell holding a member's Location (`vt+0x1BC`), as a team target.
 fn member_cell(entity: &GameEntity) -> TeamTarget {
     TeamTarget::Cell {
-        x: entity.position.rx as i16,
-        y: entity.position.ry as i16,
+        x: entity.position.rx() as i16,
+        y: entity.position.ry() as i16,
     }
 }
 
@@ -1230,7 +1230,7 @@ impl Simulation {
                 || (entity.category() == EntityCategory::Infantry && object.deployer);
             let unloading =
                 entity.mission.effective() == MissionId::from_known(MissionType::Unload);
-            let cell = (entity.position.rx as i16, entity.position.ry as i16);
+            let cell = (entity.position.rx() as i16, entity.position.ry() as i16);
             let owner = entity.owner();
             if let Some(building) = building {
                 deployed = false;

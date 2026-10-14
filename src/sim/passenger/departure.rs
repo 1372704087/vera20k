@@ -200,14 +200,7 @@ pub(crate) fn exit_cell_position(
         .get(passenger_id)
         .and_then(|passenger| passenger.sub_cell());
     let (sub_x, sub_y) = lepton::subcell_lepton_offset(sub_cell);
-    RevealPosition {
-        exact_z_leptons: None,
-        rx,
-        ry,
-        z,
-        sub_x,
-        sub_y,
-    }
+    RevealPosition::new(rx, ry, z, None, sub_x, sub_y)
 }
 
 /// Reveal a cargo passenger at `position` under the caller's Unlimbo

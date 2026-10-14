@@ -406,7 +406,12 @@ fn position_tuple(sim: &Simulation, entity_id: u64) -> (u16, u16, SimFixed, SimF
         .get(entity_id)
         .expect("entity")
         .position;
-    (position.rx, position.ry, position.sub_x, position.sub_y)
+    (
+        position.rx(),
+        position.ry(),
+        position.sub_x(),
+        position.sub_y(),
+    )
 }
 
 fn assert_ore_intact(sim: &Simulation, oracle: &OutboundContractOracle, target: (u16, u16)) {
@@ -1388,7 +1393,7 @@ fn production_cmin_arrival_clears_navcom_same_tick_and_releases_drive() {
         advance(&mut sim, &oracle, &grid);
         let entity = sim.substrate.entities.get(entity_id).expect("CMIN");
         assert!(entity.teleport_state().is_none());
-        if (entity.position.rx, entity.position.ry) == target
+        if (entity.position.rx(), entity.position.ry()) == target
             && crate::sim::movement::motion_query::is_moving(&entity) != Some(true)
         {
             arrived = true;
@@ -1491,7 +1496,7 @@ fn cmin_full_close_return_warps_onto_the_pad_and_deposits() {
         let sounds_before = sim.sound_events.len();
         advance(&mut sim, &oracle, &grid);
         let e = sim.substrate.entities.get(entity_id).expect("miner");
-        if warped_at.is_none() && (e.position.rx, e.position.ry) == pad {
+        if warped_at.is_none() && (e.position.rx(), e.position.ry()) == pad {
             warped_at = Some(tick);
             assert_eq!(
                 (before.0, before.1),

@@ -2239,8 +2239,8 @@ impl MapLoadInitial {
                     .entities()
                     .values()
                     .find(|entity| {
-                        entity.position.rx == map_entity.cell_x
-                            && entity.position.ry == map_entity.cell_y
+                        entity.position.rx() == map_entity.cell_x
+                            && entity.position.ry() == map_entity.cell_y
                             && simulation
                                 .interner
                                 .resolve(entity.type_ref())
@@ -3389,7 +3389,7 @@ pub(crate) fn load_map_from_initial(
                 .into_iter()
                 .filter_map(|id| sim.substrate.entities.get(id))
                 .find(|e| e.owner() == owner_id)
-                .map(|e| (e.position.rx, e.position.ry))
+                .map(|e| (e.position.rx(), e.position.ry()))
         });
     let (camera_anchor_x, camera_anchor_y): (f32, f32) =
         if let Some((rx, ry)) = opening_view_cell.or(local_start_cell) {

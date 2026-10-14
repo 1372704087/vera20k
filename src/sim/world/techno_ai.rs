@@ -961,7 +961,7 @@ fn veterancy_promotion_step(sim: &mut Simulation, id: u64, rules: &RuleSet) {
         return;
     };
     let owner = entity.owner();
-    let (rx, ry) = (entity.position.rx, entity.position.ry);
+    let (rx, ry) = (entity.position.rx(), entity.position.ry());
     let (sound, elite) = match promotion {
         crate::sim::combat::veterancy::Promotion::Elite => {
             (rules.general.upgrade_elite_sound.as_deref(), true)
@@ -1172,7 +1172,7 @@ fn drop_unsensed_cloaked_target_step(sim: &mut Simulation, id: u64) {
     {
         return;
     }
-    let target_cell = (target.position.rx, target.position.ry);
+    let target_cell = (target.position.rx(), target.position.ry());
     if sim
         .fog
         .is_friendly(&owner_str, sim.interner.resolve(target.owner()))
@@ -2863,7 +2863,7 @@ mod tests {
             .substrate
             .entities
             .get(2)
-            .map(|e| (e.position.rx, e.position.ry))
+            .map(|e| (e.position.rx(), e.position.ry()))
             .expect("soviet tank present");
 
         // Let the Soviet tank acquire the parked scout.
@@ -2896,12 +2896,12 @@ mod tests {
         }
         let scout = sim.substrate.entities.get(1).expect("scout present");
         assert!(
-            scout.position.rx >= 27, // beyond Range=6 of the tank at 20
+            scout.position.rx() >= 27, // beyond Range=6 of the tank at 20
             "precondition: the scout actually ran out of the tank's weapon range"
         );
         let soviet = sim.substrate.entities.get(2).expect("soviet tank present");
         assert_eq!(
-            (soviet.position.rx, soviet.position.ry),
+            (soviet.position.rx(), soviet.position.ry()),
             start,
             "a passively-acquired target must never be pursued — the unit holds its ground"
         );
@@ -4064,14 +4064,14 @@ mod tests {
         }
         let scout = sim.substrate.entities.get(1).expect("scout present");
         assert!(
-            scout.position.rx >= 27,
+            scout.position.rx() >= 27,
             "precondition: the scout actually left the defence's Range=6"
         );
         assert!(
             sim.fog.is_cell_visible(
                 sim.interner.get("Americans").expect("Americans interned"),
-                scout.position.rx,
-                scout.position.ry,
+                scout.position.rx(),
+                scout.position.ry(),
             ),
             "precondition: the scout is still in sight, so only a rescan can release it"
         );
@@ -4362,7 +4362,7 @@ mod tests {
             fixture.dispatch_timer = MissionDispatchTimer::at_frame(0);
         });
         // 512 leptons from the target at (5, 5) — inside the 282..=768 band.
-        attacker.position.rx = 7;
+        attacker.position.set_rx(7);
         attacker.set_owner_for_test(sim.interner.intern("Americans"));
         attacker.set_type_ref_for_test(sim.interner.intern(type_name));
         sim.substrate.entities.insert(attacker);
@@ -5169,7 +5169,7 @@ mod tests {
             let hunter = sim.substrate.entities.get(1).expect("hunter present");
             if hunter.attack_target.target().is_some() {
                 acquired = Some((
-                    28u16.saturating_sub(hunter.position.rx),
+                    28u16.saturating_sub(hunter.position.rx()),
                     hunter.passive_scan.acquired(),
                 ));
                 break;
@@ -5261,8 +5261,10 @@ mod tests {
         // Target sits at (5, 5); 3 cells east is exactly 768 leptons, and the
         // 30-lepton north/south offset pushes d² past 768² without pushing the
         // truncated root past 768.
-        attacker.position.rx = 8;
-        attacker.position.sub_y += crate::util::fixed_math::SimFixed::from_num(30);
+        attacker.position.set_rx(8);
+        attacker
+            .position
+            .set_sub_y(attacker.position.sub_y() + crate::util::fixed_math::SimFixed::from_num(30));
         attacker.set_owner_for_test(sim.interner.intern("Americans"));
         attacker.set_type_ref_for_test(sim.interner.intern("SHORTVEH"));
         sim.substrate.entities.insert(attacker);

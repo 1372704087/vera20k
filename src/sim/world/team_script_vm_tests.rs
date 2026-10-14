@@ -533,7 +533,7 @@ fn a_computer_aircraft_team_flies_to_its_gathering_cell() {
                 entity.navigation.nav_com(),
                 Some(crate::sim::components::NavTargetRef::Cell { rx, ry }) if near_seed(rx, ry)
             );
-            arrived[n] |= near_seed(entity.position.rx, entity.position.ry);
+            arrived[n] |= near_seed(entity.position.rx(), entity.position.ry());
         }
         if sim.team_script_vm.team(team_id).is_none() {
             break;
@@ -804,7 +804,7 @@ fn a_computer_team_chronoshifts_onto_the_enemy_power_plant() {
     let (mut sim, rules, team_id, members, [_, bigger]) = super_team_fixture("0=57,9\n1=49,0");
     let fires = super_fires(&mut sim, &rules, team_id);
     let plant = sim.entities().get(bigger).expect("plant");
-    let plant_cell = (plant.position.rx, plant.position.ry);
+    let plant_cell = (plant.position.rx(), plant.position.ry());
     assert_eq!(
         fires,
         vec![
@@ -830,7 +830,7 @@ fn a_computer_team_chronoshifts_onto_the_enemy_power_plant() {
     for (member, cell) in members.into_iter().zip(expected) {
         let entity = sim.entities().get(member).expect("member");
         assert_eq!(
-            (entity.position.rx, entity.position.ry),
+            (entity.position.rx(), entity.position.ry()),
             cell,
             "member {member} arrived beside the plant"
         );

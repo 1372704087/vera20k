@@ -1272,9 +1272,15 @@ mod tests {
                 false,
             );
             actor.lifecycle.set_in_limbo_for_test(false);
-            actor.position.sub_x = SimFixed::from_num(signed(&before["position"][0]) % 256);
-            actor.position.sub_y = SimFixed::from_num(signed(&before["position"][1]) % 256);
-            actor.position.exact_z_leptons = Some(signed(&before["position"][2]));
+            actor
+                .position
+                .set_sub_x(SimFixed::from_num(signed(&before["position"][0]) % 256));
+            actor
+                .position
+                .set_sub_y(SimFixed::from_num(signed(&before["position"][1]) % 256));
+            actor
+                .position
+                .set_exact_z_leptons(Some(signed(&before["position"][2])));
             actor.set_on_bridge(before["on_bridge"] != 0);
             let object = rules.object("E1").unwrap();
             let mut loco = LocomotorState::from_object_type(object, 1);

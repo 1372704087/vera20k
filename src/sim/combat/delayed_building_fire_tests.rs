@@ -157,8 +157,9 @@ fn gsi_05_10_expiry_reads_live_target_but_keeps_saved_weapon_slot() {
     // arm the ground primary instead. It flies as the Fly host leaves it: its
     // Location Z two levels above the mapless ground.
     let flying = sim.substrate.entities.get_mut(air).expect("AIR spawned");
-    flying.position.exact_z_leptons =
-        Some(crate::util::lepton::HIGH_FLIGHT_THRESHOLD_LEPTONS as i32);
+    flying.position.set_exact_z_leptons(Some(
+        crate::util::lepton::HIGH_FLIGHT_THRESHOLD_LEPTONS as i32,
+    ));
     assert!(install_entity_attack_target_for_test(
         &mut sim.substrate.entities,
         tower,

@@ -813,7 +813,7 @@ impl TacticalCaptureSession {
                 stable_id: entity.stable_id(),
                 owner: sim.interner.resolve(entity.owner()).to_owned(),
                 type_id: sim.interner.resolve(entity.type_ref()).to_owned(),
-                cell: (entity.position.rx, entity.position.ry),
+                cell: (entity.position.rx(), entity.position.ry()),
                 facing: entity.body_facing_byte(sim.session.binary_frame),
                 active: entity.is_active(),
                 dying: entity.death.is_dying(),
@@ -1177,7 +1177,7 @@ impl TacticalCaptureSession {
                     .interner
                     .resolve(entity.type_ref())
                     .eq_ignore_ascii_case(&binding.type_id)
-                || (entity.position.rx, entity.position.ry) != binding.cell
+                || (entity.position.rx(), entity.position.ry()) != binding.cell
             {
                 return Ok(false);
             }

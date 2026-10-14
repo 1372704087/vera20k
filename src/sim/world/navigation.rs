@@ -39,8 +39,8 @@ pub(super) fn marked_structure_movement_cells(
         .unwrap_or("1x1");
     let has_bib = object_type.is_some_and(|object| object.bib);
     let foundation_cells = crate::sim::production::building_base_foundation_cells(
-        entity.position.rx,
-        entity.position.ry,
+        entity.position.rx(),
+        entity.position.ry(),
         foundation,
     );
     crate::sim::production::building_movement_blocking_cells(&foundation_cells, has_bib)

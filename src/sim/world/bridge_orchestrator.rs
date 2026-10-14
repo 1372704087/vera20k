@@ -1095,7 +1095,7 @@ mod tests {
             .entities
             .get(id)
             .expect("deck entity remains until the landing receiver");
-        assert_eq!(e.position.z, 3, "Location is retained");
+        assert_eq!(e.position.z(), 3, "Location is retained");
         assert!(e.was_dropped_as_bomb() && e.is_falling_down());
         assert!(!e.on_bridge(), "OnBridge cleared by DropIn");
         assert_eq!(
@@ -1127,7 +1127,7 @@ mod tests {
         sim.resolved_terrain = Some(water_below_bridge_terrain(3));
         let id = spawn_deck_unit(&mut sim);
         let entity = sim.substrate.entities.get_mut(id).unwrap();
-        entity.position.exact_z_leptons = Some(1000);
+        entity.position.set_exact_z_leptons(Some(1000));
         entity.set_falling_down_for_test(true);
         sim.substrate.occupancy.add(
             5,
@@ -1143,7 +1143,7 @@ mod tests {
         let e = sim.substrate.entities.get(id).unwrap();
         assert!(!e.on_bridge());
         assert!(e.is_falling_down());
-        assert_eq!(e.position.exact_z_leptons, Some(1000));
+        assert_eq!(e.position.exact_z_leptons(), Some(1000));
         let mut frames = 0;
         while !sim.advance_fall(
             id,
@@ -1161,7 +1161,7 @@ mod tests {
                 .get(id)
                 .unwrap()
                 .position
-                .exact_z_leptons,
+                .exact_z_leptons(),
             Some(0)
         );
     }
@@ -1588,7 +1588,8 @@ mod tests {
             let sim = &scene.runtime.simulation;
             assert!(
                 sim.entities().values().any(|e| {
-                    (e.position.rx, e.position.ry) == hut && sim.resolve(e.type_ref()) == "CABHUT"
+                    (e.position.rx(), e.position.ry()) == hut
+                        && sim.resolve(e.type_ref()) == "CABHUT"
                 }),
                 "{map}: a CABHUT stands at {hut:?}"
             );

@@ -293,8 +293,8 @@ fn retail_far_repair_click_drives_into_range_and_heals_without_ctrl() {
     }
     let current = sim.entities().get(ifv).unwrap().position;
     assert_ne!(
-        (current.rx, current.ry),
-        (start.rx, start.ry),
+        (current.rx(), current.ry()),
+        (start.rx(), start.ry()),
         "the ordered repair must approach a distant ally"
     );
     assert!(

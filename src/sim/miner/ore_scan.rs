@@ -94,7 +94,7 @@ pub(crate) fn search_for_tiberium_and_move(
     if entity.navigation.nav_com().is_some() {
         return false;
     }
-    let own = (entity.position.rx, entity.position.ry);
+    let own = (entity.position.rx(), entity.position.ry());
     let Some(cell) = scan_for_tiberium(sim, rules, overlay_registry, id, range) else {
         return false;
     };
@@ -144,7 +144,7 @@ fn foot_scan_for_tiberium(
     range: i32,
 ) -> Option<(u16, u16)> {
     let entity = sim.substrate.entities.get(id)?;
-    let own = (entity.position.rx, entity.position.ry);
+    let own = (entity.position.rx(), entity.position.ry());
     if cell_is_tiberium_land(sim, overlay_registry, own) {
         return Some(own);
     }

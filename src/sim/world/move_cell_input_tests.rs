@@ -513,7 +513,8 @@ fn a_move_onto_a_tank_walks_the_gi_beside_it() {
     let distance = |sim: &Simulation| {
         let a = sim.entities().get(gi).unwrap().position;
         let b = sim.entities().get(target).unwrap().position;
-        (i32::from(a.rx) - i32::from(b.rx)).abs() + (i32::from(a.ry) - i32::from(b.ry)).abs()
+        (i32::from(a.rx()) - i32::from(b.rx())).abs()
+            + (i32::from(a.ry()) - i32::from(b.ry())).abs()
     };
     let start = distance(&sim);
     sim.queue_command(crate::sim::command::CommandEnvelope::new(
@@ -536,7 +537,9 @@ fn a_move_onto_a_tank_walks_the_gi_beside_it() {
         panic!("Find_Path retargets the GI to a Cell");
     };
     assert!(
-        rx.abs_diff(tank.rx) <= 1 && ry.abs_diff(tank.ry) <= 1 && (rx, ry) != (tank.rx, tank.ry),
+        rx.abs_diff(tank.rx()) <= 1
+            && ry.abs_diff(tank.ry()) <= 1
+            && (rx, ry) != (tank.rx(), tank.ry()),
         "({rx}, {ry})"
     );
     assert!(distance(&sim) < start, "{} -> {}", start, distance(&sim));

@@ -499,7 +499,7 @@ impl Simulation {
             .substrate
             .entities
             .get(building_id)
-            .map(|e| (e.owner(), e.type_ref(), e.position.rx, e.position.ry))
+            .map(|e| (e.owner(), e.type_ref(), e.position.rx(), e.position.ry()))
         else {
             return;
         };
@@ -576,7 +576,7 @@ impl Simulation {
         {
             return InfantryPerCellBuildingAdmission::UndeployBuilding;
         }
-        let cell = (infantry.position.rx, infantry.position.ry);
+        let cell = (infantry.position.rx(), infantry.position.ry());
         let Some(building_id) =
             self.substrate
                 .occupancy
@@ -638,7 +638,7 @@ impl Simulation {
                 frame_effects,
             );
         }
-        let cell = (engineer.position.rx, engineer.position.ry);
+        let cell = (engineer.position.rx(), engineer.position.ry());
         let owner = engineer.owner();
         let Some(building) = self.substrate.entities.get(building_id) else {
             return Ok(BuildingEntryResult::default());
@@ -725,7 +725,7 @@ impl Simulation {
                 return_before_foot: true,
             });
         }
-        let building_cell = (building.position.rx, building.position.ry);
+        let building_cell = (building.position.rx(), building.position.ry());
         //519BB6 supplies the ENGINEER cell;519C02 supplies building XYZ.
         //519B90/50B6F0 gates insertion itself, including radar dedup state.
         self.announce_bridge_repair(owner, cell, building_cell);
@@ -898,7 +898,7 @@ impl Simulation {
                     pending,
                     building.health.current(),
                     object.bridge_repair_hut,
-                    (building.position.rx, building.position.ry),
+                    (building.position.rx(), building.position.ry()),
                 ))
             })
         else {

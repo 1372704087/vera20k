@@ -59,9 +59,9 @@ fn world(row: &Value) -> Simulation {
         ry,
         EntityCategory::Aircraft,
     );
-    plane.position.sub_x = SimFixed::from_num(128);
-    plane.position.sub_y = SimFixed::from_num(128);
-    plane.position.exact_z_leptons = Some(1500);
+    plane.position.set_sub_x(SimFixed::from_num(128));
+    plane.position.set_sub_y(SimFixed::from_num(128));
+    plane.position.set_exact_z_leptons(Some(1500));
     if flag(row, "target") {
         plane
             .attack_target

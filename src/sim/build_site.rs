@@ -252,7 +252,7 @@ pub(crate) fn flush_for_placement(
         }
         scattered = true;
         let own_cell =
-            crate::sim::components::NavTargetRef::cell(object.position.rx, object.position.ry);
+            crate::sim::components::NavTargetRef::cell(object.position.rx(), object.position.ry());
         if object
             .navigation
             .nav_com()

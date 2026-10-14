@@ -51,7 +51,9 @@ fn mark_all_occupation_bits_matches_original_head_and_raw_plane_controls() {
             cell
         }));
         let mut entity = GameEntity::test_default(1, "YHVR", "Confederation", 9, 10);
-        entity.position.exact_z_leptons = Some(int(&input["location"][2]));
+        entity
+            .position
+            .set_exact_z_leptons(Some(int(&input["location"][2])));
         entity.lifecycle.set_in_limbo_for_test(false);
         entity.set_foot_occupation_enabled(false);
         entity.set_on_bridge(input["on_bridge"].as_bool().unwrap());
@@ -340,7 +342,9 @@ fn power_off_matches_original_execution() {
             }),
         );
         entity.locomotor = Some(locomotor);
-        entity.position.exact_z_leptons = Some(int(&row["height"]));
+        entity
+            .position
+            .set_exact_z_leptons(Some(int(&row["height"])));
         entity.mission.set_current_for_test(
             crate::sim::mission::MissionId::from_raw(int(&row["mission"])),
             0,

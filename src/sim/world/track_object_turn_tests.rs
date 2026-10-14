@@ -393,11 +393,16 @@ fn terminal_sensor_receiver_finishes_before_shp_and_is_not_deferred_to_cell_chan
     // Install a real sensor deposit at the old recorded center, then supply
     // the terminal in the current cell. PerCell2 must remove/add even though
     // this object's cell is unchanged during its movement visit.
-    sim.substrate.entities.get_mut(1).unwrap().position.rx = 5;
+    sim.substrate
+        .entities
+        .get_mut(1)
+        .unwrap()
+        .position
+        .set_rx(5);
     sim.add_unit_sensor_after_unlimbo(1, &rules);
     let owner = sim.substrate.entities.get(1).unwrap().owner();
     let entity = sim.substrate.entities.get_mut(1).unwrap();
-    entity.position.rx = 10;
+    entity.position.set_rx(10);
     entity
         .navigation
         .set_nav_com(Some(NavTargetRef::cell(10, 10)));
@@ -837,7 +842,7 @@ fn bridge_terminal_uses_owner_height_to_reach_ground_navcom_target() {
     sim.advance_live_object_turn(1, Some(&rules), techno_ai::ObjectAiCtx::default())
         .expect("fixture object turn must complete");
     let entity = sim.substrate.entities.get(1).unwrap();
-    assert_eq!(entity.position.exact_z_leptons, Some(416));
+    assert_eq!(entity.position.exact_z_leptons(), Some(416));
     assert!(entity.navigation.nav_com().is_none());
     assert!(
         entity

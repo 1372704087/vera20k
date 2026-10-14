@@ -28,7 +28,7 @@ fn frame(s: &mut Scene) -> Sample {
     let miner = s.sim.substrate.entities.get(s.miner).unwrap();
     let state = miner.miner.as_ref().unwrap();
     Sample {
-        cell: (miner.position.rx, miner.position.ry),
+        cell: (miner.position.rx(), miner.position.ry()),
         state: miner.miner_state(),
         bales: state.cargo().len(),
         harvesting: state.harvesting(),
@@ -188,8 +188,8 @@ fn war_miner_cuts_the_cell_it_drove_onto_from_every_side() {
         let miner = s.sim.substrate.entities.get(s.miner).unwrap();
         assert_eq!(
             (
-                miner.position.sub_x.to_num::<i32>(),
-                miner.position.sub_y.to_num::<i32>()
+                miner.position.sub_x().to_num::<i32>(),
+                miner.position.sub_y().to_num::<i32>()
             ),
             (128, 128),
             "{label}: at the cell centre"

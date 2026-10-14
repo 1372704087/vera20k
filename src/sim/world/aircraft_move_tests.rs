@@ -54,9 +54,13 @@ fn insert(sim: &mut Simulation, id: u64, name: &str, category: EntityCategory, p
         5,
         true,
     );
-    entity.position.sub_x = SimFixed::from_num(point[0] % 256);
-    entity.position.sub_y = SimFixed::from_num(point[1] % 256);
-    entity.position.exact_z_leptons = Some(point[2]);
+    entity
+        .position
+        .set_sub_x(SimFixed::from_num(point[0] % 256));
+    entity
+        .position
+        .set_sub_y(SimFixed::from_num(point[1] % 256));
+    entity.position.set_exact_z_leptons(Some(point[2]));
     entity.lifecycle.set_object_alive_for_test(true);
     entity.lifecycle.set_in_limbo_for_test(false);
     sim.substrate.entities.insert(entity);
@@ -432,7 +436,7 @@ fn retail_harrier_sent_onto_a_tank_stops_beside_it_and_crashes_without_an_airfie
             navs.push((frame, nav));
         }
         if entity.health.current() == 0 {
-            crashed.get_or_insert((frame, (entity.position.rx, entity.position.ry)));
+            crashed.get_or_insert((frame, (entity.position.rx(), entity.position.ry())));
             continue;
         }
         // The order queues Move; Ready_To_Commence starts it.
@@ -442,7 +446,11 @@ fn retail_harrier_sent_onto_a_tank_stops_beside_it_and_crashes_without_an_airfie
         }
         let sub_state = crate::sim::aircraft::handler_state(entity);
         if moves.last().is_none_or(|&(_, last, _)| last != sub_state) {
-            moves.push((frame, sub_state, (entity.position.rx, entity.position.ry)));
+            moves.push((
+                frame,
+                sub_state,
+                (entity.position.rx(), entity.position.ry()),
+            ));
         }
     }
     println!(
@@ -592,7 +600,7 @@ fn mission_move_idle_mode_on_the_ground_and_in_flight() {
                 0,
             ),
         );
-        plane.position.exact_z_leptons = Some(z);
+        plane.position.set_exact_z_leptons(Some(z));
         plane
             .mission
             .set_current_for_test(MissionId::from_known(MissionType::Move), 0);

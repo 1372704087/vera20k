@@ -191,9 +191,9 @@ fn fresh_retry_terminal_retains_raw_head_for_both_track_families() {
             y: 10 * 256 + 153,
             z: 731,
         };
-        entity.position.sub_x = SimFixed::from_num(85);
-        entity.position.sub_y = SimFixed::from_num(154);
-        entity.position.exact_z_leptons = Some(104);
+        entity.position.set_sub_x(SimFixed::from_num(85));
+        entity.position.set_sub_y(SimFixed::from_num(154));
+        entity.position.set_exact_z_leptons(Some(104));
         let track = TrackProgress {
             turn_index: 0,
             // The zero-XY sentinel is paid separately after all real points.
@@ -281,7 +281,7 @@ fn gsi_04_05_paid_track_point_clears_current_before_same_cell_coordinate_commit(
         if event == TrackWorldEvent::SetCoords {
             paid_commits += 1;
             let entity = sim.substrate.entities.get(id).unwrap();
-            assert_eq!((entity.position.rx, entity.position.ry), (10, 10));
+            assert_eq!((entity.position.rx(), entity.position.ry()), (10, 10));
             assert_eq!(
                 sim.substrate
                     .cell_occupation

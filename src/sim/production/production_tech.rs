@@ -223,8 +223,8 @@ pub fn producer_candidates_for_owner_category(
         if !require_matching_factory || is_match {
             preferred_factories.push((
                 e.stable_id(),
-                e.position.rx,
-                e.position.ry,
+                e.position.rx(),
+                e.position.ry(),
                 type_ref_str.to_string(),
             ));
         }

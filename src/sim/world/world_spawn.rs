@@ -1082,7 +1082,7 @@ impl Simulation {
     ) -> Option<u64> {
         let mut position = self.substrate.entities.get(stable_id)?.position;
         crate::sim::movement::ground_pose::put_location(&mut position, coord);
-        position.z = (coord.z / crate::util::lepton::GROUND_LEVEL_HEIGHT_LEPTONS) as u8;
+        position.set_z((coord.z / crate::util::lepton::GROUND_LEVEL_HEIGHT_LEPTONS) as u8);
         self.reveal_constructed_object(
             stable_id,
             position,
@@ -1106,17 +1106,16 @@ impl Simulation {
         overlay_registry: Option<&crate::rules::overlay_types::OverlayTypeRegistry>,
         frame_effects: FrameEffects<'_>,
     ) -> Option<u64> {
-        let requested_position = RevealPosition {
-            exact_z_leptons: None,
+        let requested_position = RevealPosition::new(
             rx,
             ry,
             z,
-            // This compatibility API supplies a cell-center coordinate. Held
+            None, // This compatibility API supplies a cell-center coordinate. Held
             // constructor Location is zero; exact-coordinate callers use the
             // coordinate entry point above instead of borrowing that pose.
-            sub_x: SimFixed::from_num(128),
-            sub_y: SimFixed::from_num(128),
-        };
+            SimFixed::from_num(128),
+            SimFixed::from_num(128),
+        );
         self.reveal_constructed_object(
             stable_id,
             requested_position,
@@ -1444,7 +1443,7 @@ impl Simulation {
         let key = self
             .resolved_terrain
             .as_ref()
-            .map_or(RawCellKey::Real(position.rx, position.ry), |terrain| {
+            .map_or(RawCellKey::Real(position.rx(), position.ry()), |terrain| {
                 RawCellKey::from_native(terrain, terrain.native_cell_identity(packed_cell))
             });
         //481298..481313 reaches the live ground Gate only after ordinary
@@ -1489,7 +1488,7 @@ impl Simulation {
             &mut ge.position,
             crate::sim::components::DriveCoord { x: 0, y: 0, z: 0 },
         );
-        ge.position.z = 0;
+        ge.position.set_z(0);
 
         // This boundary receives newly constructed objects. Make those constructor
         // facts explicit so storage can never imply cell or logic presence.
@@ -1767,8 +1766,8 @@ impl Simulation {
             && let Some(entity) = self.substrate.entities.get_mut(stable_id)
         {
             entity.set_sub_cell(Some(crate::sim::movement::bump_crush::priority_sub_cell(
-                position.sub_x,
-                position.sub_y,
+                position.sub_x(),
+                position.sub_y(),
             )));
         }
         Some((position, placement))
@@ -2013,14 +2012,14 @@ impl Simulation {
             let type_str = self.interner.resolve(entity.type_ref());
             let yard_obj = crate::sim::mcv_deploy::deploys_into(self, entity, rules)?;
             let origin = deploy_origin_from_unit_cell(
-                entity.position.rx,
-                entity.position.ry,
+                entity.position.rx(),
+                entity.position.ry(),
                 &yard_obj.foundation,
             );
             Some((
                 entity.owner(),
                 origin,
-                entity.position.z,
+                entity.position.z(),
                 yard_obj.id.clone(),
                 yard_obj.deploy_facing,
                 (
@@ -2035,7 +2034,7 @@ impl Simulation {
                     .object(type_str)
                     .and_then(|obj| obj.deploy_sound.clone())
                     .filter(|sound| !sound.is_empty())
-                    .map(|sound| (sound, entity.position.rx, entity.position.ry)),
+                    .map(|sound| (sound, entity.position.rx(), entity.position.ry())),
                 rules
                     .object(type_str)
                     .is_some_and(|obj| obj.resource_gatherer),
@@ -2464,8 +2463,8 @@ impl Simulation {
                 let type_str = self.interner.resolve(entity.type_ref());
                 let unit_type = production::undeploy_target(rules, type_str)?;
                 let (rx, ry) = undeploy_unit_cell(
-                    entity.position.rx,
-                    entity.position.ry,
+                    entity.position.rx(),
+                    entity.position.ry(),
                     &rules.object(type_str)?.foundation,
                 );
                 Some((
@@ -2473,7 +2472,7 @@ impl Simulation {
                     entity.owner(),
                     rx,
                     ry,
-                    entity.position.z,
+                    entity.position.z(),
                     entity.selection.is_selected(),
                 ))
             })

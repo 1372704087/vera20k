@@ -47,15 +47,14 @@ fn infantry_unlimbo_placement_matches_original_coordinate_and_rng_controls() {
         let native_requested = &row["class_requested_coordinate"];
         let x = native_requested[0].as_i64().unwrap() as i32;
         let y = native_requested[1].as_i64().unwrap() as i32;
-        let requested = RevealPosition {
-            // The104 control proves the coarse input's raw-Z comparison too.
-            exact_z_leptons: (raw_z != 104).then_some(raw_z),
-            rx: (x / 256) as u16,
-            ry: (y / 256) as u16,
-            z: raw_z.div_euclid(crate::util::lepton::GROUND_LEVEL_HEIGHT_LEPTONS) as u8,
-            sub_x: crate::util::fixed_math::SimFixed::from_num(x % 256),
-            sub_y: crate::util::fixed_math::SimFixed::from_num(y % 256),
-        };
+        let requested = RevealPosition::new(
+            (x / 256) as u16,
+            (y / 256) as u16,
+            raw_z.div_euclid(crate::util::lepton::GROUND_LEVEL_HEIGHT_LEPTONS) as u8, // The104 control proves the coarse input's raw-Z comparison too.
+            (raw_z != 104).then_some(raw_z),
+            crate::util::fixed_math::SimFixed::from_num(x % 256),
+            crate::util::fixed_math::SimFixed::from_num(y % 256),
+        );
         let result = if input["priority"].as_u64() == Some(0) {
             sim.infantry_unlimbo_position(requested, Some(&rules))
         } else {
@@ -76,8 +75,8 @@ fn infantry_unlimbo_placement_matches_original_coordinate_and_rng_controls() {
         if let (Some(position), Some(foot)) = (result, foot) {
             assert_eq!(
                 serde_json::json!([
-                    i32::from(position.rx) * 256 + position.sub_x.to_num::<i32>(),
-                    i32::from(position.ry) * 256 + position.sub_y.to_num::<i32>(),
+                    i32::from(position.rx()) * 256 + position.sub_x().to_num::<i32>(),
+                    i32::from(position.ry()) * 256 + position.sub_y().to_num::<i32>(),
                     raw_z,
                 ]),
                 foot[2],
@@ -226,14 +225,14 @@ fn infantry_unlimbo_matches_native_gate_incoming_membership_and_signed_xy() {
         sim.mapgen_rng =
             SimRng::from_native_state_hex_for_test(row["rng_before"]["mapgen"].as_str().unwrap());
         let xyz = &row["requested_xyz"];
-        let mut requested = RevealPosition {
-            exact_z_leptons: Some(xyz[2].as_i64().unwrap() as i32),
-            rx: 0,
-            ry: 0,
-            z: 0,
-            sub_x: SimFixed::ZERO,
-            sub_y: SimFixed::ZERO,
-        };
+        let mut requested = RevealPosition::new(
+            0,
+            0,
+            0,
+            Some(xyz[2].as_i64().unwrap() as i32),
+            SimFixed::ZERO,
+            SimFixed::ZERO,
+        );
         ground_pose::set_position_world_xy(
             &mut requested,
             [
@@ -303,14 +302,14 @@ fn constructed_infantry_commits_raw_z_and_facing_before_idle() {
             .unwrap();
         sim.clear_lifecycle_test_events_for_test();
         let request = RevealRequest {
-            position: RevealPosition {
-                exact_z_leptons: Some(raw_z),
-                rx: 15,
-                ry: 15,
-                z: 0,
-                sub_x: crate::util::lepton::CELL_CENTER_LEPTON,
-                sub_y: crate::util::lepton::CELL_CENTER_LEPTON,
-            },
+            position: RevealPosition::new(
+                15,
+                15,
+                0,
+                Some(raw_z),
+                crate::util::lepton::CELL_CENTER_LEPTON,
+                crate::util::lepton::CELL_CENTER_LEPTON,
+            ),
             placement: PlacementEvidence::MarkSucceeded,
             logic_eligible: true,
         };
@@ -324,7 +323,7 @@ fn constructed_infantry_commits_raw_z_and_facing_before_idle() {
         assert!(matches!(outcome, RevealOutcome::Revealed { .. }));
         let entity = sim.substrate.entities.get(id).unwrap();
         assert_eq!(
-            entity.position.exact_z_leptons,
+            entity.position.exact_z_leptons(),
             Some(row["type_clamped_coordinate"][2].as_i64().unwrap() as i32)
         );
         assert_eq!(entity.body_facing.current(sim.session.binary_frame), 0x8000);
@@ -1465,11 +1464,14 @@ fn techno_constructor_live_overlay_context_admits_ore_and_structural_bridge() {
         2,
     );
     let authored = sim.substrate.entities.get(1).unwrap();
-    assert_eq!((authored.position.rx, authored.position.ry), ore_authored);
+    assert_eq!(
+        (authored.position.rx(), authored.position.ry()),
+        ore_authored
+    );
     assert!(!authored.on_bridge());
     let bridge = sim.substrate.entities.get(2).unwrap();
-    assert_eq!((bridge.position.rx, bridge.position.ry), bridge_cell);
-    assert_eq!(bridge.position.z, 7);
+    assert_eq!((bridge.position.rx(), bridge.position.ry()), bridge_cell);
+    assert_eq!(bridge.position.z(), 7);
     assert!(bridge.on_bridge());
     assert_ne!(
         sim.substrate
@@ -1492,8 +1494,8 @@ fn techno_constructor_live_overlay_context_admits_ore_and_structural_bridge() {
         .expect("non-wall overlay must not veto runtime Unit Unlimbo");
     assert_eq!(
         (
-            sim.substrate.entities.get(runtime).unwrap().position.rx,
-            sim.substrate.entities.get(runtime).unwrap().position.ry
+            sim.substrate.entities.get(runtime).unwrap().position.rx(),
+            sim.substrate.entities.get(runtime).unwrap().position.ry()
         ),
         ore_runtime
     );
@@ -1562,9 +1564,9 @@ fn techno_constructor_wall_rejection_precedes_mutation_and_keeps_graph_draws_spe
     let rejected = sim.substrate.entities.get(parent_id).unwrap();
     assert_eq!(
         (
-            rejected.position.rx,
-            rejected.position.ry,
-            rejected.position.z
+            rejected.position.rx(),
+            rejected.position.ry(),
+            rejected.position.z()
         ),
         (0, 0, 0)
     );
@@ -1688,7 +1690,7 @@ fn techno_constructor_routes_preserve_components_and_authored_overrides() {
                             assert_ne!(Some(sub_cell), resident.sub_cell());
                         }
                         let (x, y) = crate::util::lepton::subcell_lepton_offset(Some(sub_cell));
-                        assert_eq!((entity.position.sub_x, entity.position.sub_y), (x, y));
+                        assert_eq!((entity.position.sub_x(), entity.position.sub_y()), (x, y));
                     }
                 }
                 "SHIP" => {
@@ -2170,7 +2172,7 @@ fn techno_constructor_fixed_map_uses_native_category_order_after_prior_mark_draw
         .collect();
     assert_eq!(actual_words, expected_words);
     let outside = sim.substrate.entities.get(5).unwrap();
-    assert_eq!((outside.position.rx, outside.position.ry), (1, 1));
+    assert_eq!((outside.position.rx(), outside.position.ry()), (1, 1));
     assert!(!outside.in_playfield());
     assert!(outside.lifecycle.object_alive());
     assert!(outside.lifecycle.cell_marked() && !outside.lifecycle.in_limbo());
@@ -2378,7 +2380,7 @@ fn techno_constructor_authored_upgrades_are_distinct_attached_live_entities_with
         assert!(!upgrade.lifecycle.in_limbo());
         assert!(!upgrade.lifecycle.cell_marked());
         assert!(upgrade.in_logic_vector.is_member());
-        assert_eq!((upgrade.position.rx, upgrade.position.ry), (10, 12));
+        assert_eq!((upgrade.position.rx(), upgrade.position.ry()), (10, 12));
     }
     assert_eq!(sim.scenario_rng.logical_state(), expected.logical_state());
     assert_eq!(

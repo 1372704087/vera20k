@@ -1114,7 +1114,7 @@ fn retail_land_factory_delivery_matches_original_unit_unlimbo_suffix() {
         {
             let producer = sim.substrate.entities.get_mut(producer_id).unwrap();
             ground_pose::put_location(&mut producer.position, producer_coord);
-            producer.position.z = 4;
+            producer.position.set_z(4);
         }
         sim.mission_assign_exact(producer_id, MissionId::from_known(MissionType::Guard), 0)
             .unwrap();

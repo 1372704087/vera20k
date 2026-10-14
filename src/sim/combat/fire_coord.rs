@@ -122,12 +122,12 @@ impl FireSource {
         Self {
             stable_id: entity.stable_id(),
             category: entity.category(),
-            rx: entity.position.rx,
-            ry: entity.position.ry,
-            sub_x: entity.position.sub_x,
-            sub_y: entity.position.sub_y,
-            level: entity.position.z,
-            exact_z_leptons: entity.position.exact_z_leptons,
+            rx: entity.position.rx(),
+            ry: entity.position.ry(),
+            sub_x: entity.position.sub_x(),
+            sub_y: entity.position.sub_y(),
+            level: entity.position.z(),
+            exact_z_leptons: entity.position.exact_z_leptons(),
             hull_facing: entity.body_facing,
             barrel_facing: entity.barrel_facing,
             veterancy: entity.veterancy.rank(),
@@ -933,7 +933,7 @@ mod tests {
         let id = world.allocate_stable_id();
         let mut gi =
             crate::sim::game_entity::GameEntity::test_default(id, "E1", "Americans", 10, 11);
-        gi.position.exact_z_leptons = Some(333);
+        gi.position.set_exact_z_leptons(Some(333));
         world.substrate.entities.insert(gi);
         let mut shooter = source(EntityCategory::Infantry);
         shooter.stable_id = id;

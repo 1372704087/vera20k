@@ -261,11 +261,15 @@ const PLACE_ORIGIN: i32 = 16 * 256;
 fn place(sim: &mut Simulation, id: u64, coord: [i32; 3]) {
     let entity = sim.substrate.entities.get_mut(id).unwrap();
     let (x, y) = (coord[0] + PLACE_ORIGIN, coord[1] + PLACE_ORIGIN);
-    entity.position.rx = (x / 256) as u16;
-    entity.position.ry = (y / 256) as u16;
-    entity.position.sub_x = crate::util::fixed_math::SimFixed::from_num(x % 256);
-    entity.position.sub_y = crate::util::fixed_math::SimFixed::from_num(y % 256);
-    entity.position.exact_z_leptons = Some(coord[2]);
+    entity.position.set_rx((x / 256) as u16);
+    entity.position.set_ry((y / 256) as u16);
+    entity
+        .position
+        .set_sub_x(crate::util::fixed_math::SimFixed::from_num(x % 256));
+    entity
+        .position
+        .set_sub_y(crate::util::fixed_math::SimFixed::from_num(y % 256));
+    entity.position.set_exact_z_leptons(Some(coord[2]));
 }
 
 fn set_elite(sim: &mut Simulation, id: u64) {
@@ -1762,7 +1766,7 @@ fn a_released_mover_does_not_resume_its_order() {
         None,
         "the order ends"
     );
-    let frozen_at = entity(&sim, tank).position.rx;
+    let frozen_at = entity(&sim, tank).position.rx();
     sim.temporal_let_go(cleg);
     for _ in 0..150 {
         step(&mut sim);
@@ -1773,9 +1777,9 @@ fn a_released_mover_does_not_resume_its_order() {
         "no order resumed"
     );
     assert!(
-        tank_entity.position.rx <= frozen_at + 1,
+        tank_entity.position.rx() <= frozen_at + 1,
         "it finishes at most its current track: {} from {frozen_at}",
-        tank_entity.position.rx
+        tank_entity.position.rx()
     );
 }
 
@@ -2121,8 +2125,8 @@ fn native_initiate_warp_corpus() {
             if factory["in_cell"].as_bool().unwrap_or(true) {
                 // Footprint over the target's cell (Look_up_building_in_cell).
                 let building = sim.substrate.entities.get_mut(factory_id).unwrap();
-                building.position.rx = 19;
-                building.position.ry = 19;
+                building.position.set_rx(19);
+                building.position.set_ry(19);
             }
             let contacts = &mut sim
                 .substrate
@@ -2336,7 +2340,7 @@ fn a_landing_aircraft_is_not_warped() {
                 crate::rules::locomotor_type::LocomotorKind::Fly,
             ),
         );
-        entity.position.exact_z_leptons = Some(height);
+        entity.position.set_exact_z_leptons(Some(height));
         sim.temporal_detonation(
             cleg,
             TemporalShotTarget::Object(plane),

@@ -797,7 +797,7 @@ fn naval_factory_spawn_uses_water_exit_cells() {
     let produced = sim.substrate.entities.get(produced).unwrap();
 
     assert_eq!(
-        (produced.position.rx, produced.position.ry),
+        (produced.position.rx(), produced.position.ry()),
         (22, 22),
         "4x4 yard fallback starts at BuildingClass::GetCoords foundation centre"
     );
@@ -970,7 +970,7 @@ fn mixed_land_and_naval_factories_bind_independent_vehicle_and_ship_slots() {
                     .eq_ignore_ascii_case("DEST")
         })
         .expect("GAYARD delivered DEST through naval FNPC/Unlimbo");
-    assert_eq!((destroyer.position.rx, destroyer.position.ry), (22, 22));
+    assert_eq!((destroyer.position.rx(), destroyer.position.ry()), (22, 22));
     assert!(destroyer.lifecycle.cell_marked() && !destroyer.lifecycle.in_limbo());
     assert_eq!(
         sim.production
@@ -1308,7 +1308,7 @@ fn naval_delivery_success_uses_producer_rally_then_move_and_recentres() {
         })
         .expect("naval Unit delivered");
     assert_eq!(
-        (produced.position.rx, produced.position.ry),
+        (produced.position.rx(), produced.position.ry()),
         (14, 12),
         "rally fast path walks east out of the 4x4 producer and bypasses FNPC"
     );
@@ -1340,7 +1340,7 @@ fn naval_delivery_success_uses_producer_rally_then_move_and_recentres() {
         "ExitObject queues Move with commence argument zero after assigning the target"
     );
     assert_eq!(
-        (produced.position.sub_x, produced.position.sub_y),
+        (produced.position.sub_x(), produced.position.sub_y()),
         (
             crate::util::lepton::CELL_CENTER_LEPTON,
             crate::util::lepton::CELL_CENTER_LEPTON,
@@ -1491,7 +1491,7 @@ fn naval_rally_destination_and_move_survive_beyond_the_path_grid() {
                     .eq_ignore_ascii_case("DEST")
         })
         .expect("naval Unit delivers toward a rally beyond the path grid");
-    assert_eq!((produced.position.rx, produced.position.ry), (14, 14));
+    assert_eq!((produced.position.rx(), produced.position.ry()), (14, 14));
     assert_eq!(
         produced.navigation.nav_com(),
         Some(crate::sim::components::NavTargetRef::cell(39, 39)),
@@ -1572,7 +1572,7 @@ fn harvester_moves_to_ore_and_back_with_path_grid() {
             .substrate
             .entities
             .get(harvester_sid)
-            .map(|e| (e.position.rx, e.position.ry))
+            .map(|e| (e.position.rx(), e.position.ry()))
             .expect("harvester position");
         if pos != (10, 10) {
             moved = true;

@@ -571,7 +571,7 @@ fn densest_spread_cell<'a>(
             continue;
         }
         let layer = list(centre);
-        let at = (centre.position.rx as i16, centre.position.ry as i16);
+        let at = (centre.position.rx() as i16, centre.position.ry() as i16);
         let mut total = 0usize;
         for &(dx, dy) in crate::sim::combat::cell_spread::inclusive_sweep(band) {
             let looked = cells.lookup((at.0.wrapping_add(dx), at.1.wrapping_add(dy)));

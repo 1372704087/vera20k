@@ -806,10 +806,10 @@ impl SimSoundEvent {
     pub(crate) fn cloak_sound(sound_id: String, position: &Position) -> Self {
         Self::CloakSound {
             sound_id,
-            rx: position.rx,
-            ry: position.ry,
-            sub_x: position.sub_x,
-            sub_y: position.sub_y,
+            rx: position.rx(),
+            ry: position.ry(),
+            sub_x: position.sub_x(),
+            sub_y: position.sub_y(),
             world_z_leptons: Self::world_z_leptons(position),
         }
     }
@@ -817,10 +817,10 @@ impl SimSoundEvent {
     pub(crate) fn wall_crushed(sound_id: String, position: &Position) -> Self {
         Self::WallCrushed {
             sound_id,
-            rx: position.rx,
-            ry: position.ry,
-            sub_x: position.sub_x,
-            sub_y: position.sub_y,
+            rx: position.rx(),
+            ry: position.ry(),
+            sub_x: position.sub_x(),
+            sub_y: position.sub_y(),
             world_z_leptons: Self::world_z_leptons(position),
         }
     }
@@ -837,10 +837,10 @@ impl SimSoundEvent {
         Self::VocAt {
             sound_id,
             audible_to,
-            rx: position.rx,
-            ry: position.ry,
-            sub_x: position.sub_x,
-            sub_y: position.sub_y,
+            rx: position.rx(),
+            ry: position.ry(),
+            sub_x: position.sub_x(),
+            sub_y: position.sub_y(),
             world_z_leptons: Self::world_z_leptons(position),
         }
     }
@@ -1863,9 +1863,9 @@ impl Simulation {
                         crate::sim::passenger::garrison_eject::DestroyedGarrisonBuilding {
                             building_id: stable_id,
                             owner: entity.owner(),
-                            rx: entity.position.rx,
-                            ry: entity.position.ry,
-                            z: entity.position.z,
+                            rx: entity.position.rx(),
+                            ry: entity.position.ry(),
+                            z: entity.position.z(),
                             foundation_w,
                             foundation_h,
                             passenger_ids,
@@ -1944,7 +1944,7 @@ impl Simulation {
                     .map(|building| {
                         (
                             building.type_ref(),
-                            (building.position.rx, building.position.ry),
+                            (building.position.rx(), building.position.ry()),
                         )
                     });
                 self.uninit_with_context(stable_id, uninit_context);
@@ -3919,7 +3919,10 @@ impl Simulation {
             .filter_map(|stable_id| {
                 let entity = self.substrate.entities.get(stable_id)?;
                 let member = crate::sim::cell_rect::cell_is_in_playfield_height_aware(
-                    (i32::from(entity.position.rx), i32::from(entity.position.ry)),
+                    (
+                        i32::from(entity.position.rx()),
+                        i32::from(entity.position.ry()),
+                    ),
                     Some(bounds),
                     self.resolved_terrain.as_ref(),
                 );
@@ -3993,7 +3996,10 @@ impl Simulation {
         let bounds = self.playfield_bounds?;
         let entity = self.substrate.entities.get(stable_id)?;
         Some(crate::sim::cell_rect::cell_is_in_playfield_height_aware(
-            (i32::from(entity.position.rx), i32::from(entity.position.ry)),
+            (
+                i32::from(entity.position.rx()),
+                i32::from(entity.position.ry()),
+            ),
             Some(bounds),
             terrain,
         ))
@@ -5886,7 +5892,7 @@ impl Simulation {
             if !e.mover_facts.regular_crusher() || !e.is_active() {
                 continue;
             }
-            let (rx, ry) = (e.position.rx, e.position.ry);
+            let (rx, ry) = (e.position.rx(), e.position.ry());
             let Some(flags) = grid
                 .cell(rx, ry)
                 .overlay_id
@@ -6013,8 +6019,8 @@ impl Simulation {
                     vision::GapGeneratorSource {
                         stable_id: entity.stable_id(),
                         owner: entity.owner(),
-                        rx: entity.position.rx,
-                        ry: entity.position.ry,
+                        rx: entity.position.rx(),
+                        ry: entity.position.ry(),
                         radius: deposit.radius(),
                     },
                 );
@@ -6144,10 +6150,10 @@ impl Simulation {
                     .entry(self.interner.resolve(entity.owner()).to_string())
                     .or_insert((0, u16::MAX, u16::MAX, 0, 0));
                 entry.0 += 1;
-                entry.1 = entry.1.min(entity.position.rx);
-                entry.2 = entry.2.min(entity.position.ry);
-                entry.3 = entry.3.max(entity.position.rx);
-                entry.4 = entry.4.max(entity.position.ry);
+                entry.1 = entry.1.min(entity.position.rx());
+                entry.2 = entry.2.min(entity.position.ry());
+                entry.3 = entry.3.max(entity.position.rx());
+                entry.4 = entry.4.max(entity.position.ry());
             }
             for (owner, (count, min_rx, min_ry, max_rx, max_ry)) in &entity_stats {
                 log::info!(
@@ -7122,16 +7128,16 @@ pub(crate) fn wake_anchor_for(
     if entity.is_on_bridge_layer() {
         return None;
     }
-    let cell = terrain?.cell(entity.position.rx, entity.position.ry)?;
+    let cell = terrain?.cell(entity.position.rx(), entity.position.ry())?;
     if cell.yr_cell_land_type != crate::rules::terrain_rules::LandType::Water.as_index() {
         return None;
     }
     Some((
-        entity.position.rx,
-        entity.position.ry,
-        entity.position.sub_x,
-        entity.position.sub_y,
-        entity.position.z,
+        entity.position.rx(),
+        entity.position.ry(),
+        entity.position.sub_x(),
+        entity.position.sub_y(),
+        entity.position.z(),
     ))
 }
 

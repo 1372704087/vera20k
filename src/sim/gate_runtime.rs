@@ -114,8 +114,8 @@ fn footprint_has_other_object(sim: &Simulation, id: u64, foundation: &str) -> bo
         return false;
     };
     crate::sim::production::building_base_foundation_cells(
-        gate.position.rx,
-        gate.position.ry,
+        gate.position.rx(),
+        gate.position.ry(),
         foundation,
     )
     .into_iter()

@@ -1175,12 +1175,12 @@ pub(crate) fn commit_entities(
                 .flatten()
                 .map(|attacker| {
                     (
-                        i32::from(attacker.position.rx)
+                        i32::from(attacker.position.rx())
                             .wrapping_mul(256)
-                            .wrapping_add(attacker.position.sub_x.to_num::<i32>()),
-                        i32::from(attacker.position.ry)
+                            .wrapping_add(attacker.position.sub_x().to_num::<i32>()),
+                        i32::from(attacker.position.ry())
                             .wrapping_mul(256)
-                            .wrapping_add(attacker.position.sub_y.to_num::<i32>()),
+                            .wrapping_add(attacker.position.sub_y().to_num::<i32>()),
                     )
                 });
             // FootClass (`0x004D746D..0x004D74C7`): a teamless Foot hit by a
@@ -1284,8 +1284,8 @@ pub(crate) fn commit_entities(
                         .is_some_and(|obj| obj.harvester)
                 {
                     under_attack_events.push(UnderAttackEvent {
-                        rx: target.position.rx,
-                        ry: target.position.ry,
+                        rx: target.position.rx(),
+                        ry: target.position.ry(),
                         owner: target.owner(),
                         miner: true,
                         structure: false,
@@ -1403,8 +1403,8 @@ pub(crate) fn handle_death(
             let world_z_leptons = object_world_z_leptons(e, world.resolved_terrain.as_ref());
             (
                 e.type_ref(),
-                e.position.rx,
-                e.position.ry,
+                e.position.rx(),
+                e.position.ry(),
                 world_z_leptons,
                 e.owner(),
                 e.category(),
@@ -1618,8 +1618,8 @@ fn finish_concrete_death(
     let (type_id, owner, rx, ry, has_animation) = (
         entity.type_ref(),
         entity.owner(),
-        entity.position.rx,
-        entity.position.ry,
+        entity.position.rx(),
+        entity.position.ry(),
         entity.animation.is_some(),
     );
     let mut concrete_smudge_plans = Vec::new();

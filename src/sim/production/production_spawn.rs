@@ -1360,7 +1360,7 @@ mod tests {
         // Original Foot4D9C60 changes only caller-local query outputs;
         // initialized native bridge_clear_ground_input retains OnBridge0.
         assert!(!entity.on_bridge());
-        assert_eq!(entity.position.exact_z_leptons, Some(312));
+        assert_eq!(entity.position.exact_z_leptons(), Some(312));
         assert_eq!(
             sim.substrate.raw_cell_occupation.ground_bits(8, 8) & 0x20,
             0x20

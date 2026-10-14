@@ -140,7 +140,7 @@ fn scene(rules: &RuleSet, input: &Value) -> (Simulation, u64, u64) {
             .unwrap();
         let entity = sim.substrate.entities.get_mut(id).unwrap();
         crate::sim::movement::ground_pose::set_position_world_xy(&mut entity.position, [x, y]);
-        entity.position.exact_z_leptons = Some(z);
+        entity.position.set_exact_z_leptons(Some(z));
         id
     };
     let source = place("TESLA", "Russians", &input["location"]);
@@ -412,7 +412,7 @@ fn fatal_coil_bolt_releases_navigation_before_the_next_logic_reader() {
     sim.resolve_type_handles(rules);
     let victim = sim.substrate.entities.get_mut(target).unwrap();
     victim.health.set_for_test(1);
-    let anchor = (victim.position.rx, victim.position.ry);
+    let anchor = (victim.position.rx(), victim.position.ry());
     assert!(sim.rebuild_dynamic_navigation(rules));
     let blocked_before = sim.path_grid_snapshot().unwrap();
     let cells: Vec<_> = crate::sim::production::building_base_foundation_cells(

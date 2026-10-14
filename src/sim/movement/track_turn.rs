@@ -77,7 +77,7 @@ impl Simulation {
         // current cell stops (or takes the next waypoint) and Process returns
         // before the turn observation, Process_Movement and Process_Track.
         if matches!(entity.navigation.nav_com(), Some(NavTargetRef::Cell { rx, ry })
-            if (rx, ry) == (entity.position.rx, entity.position.ry))
+            if (rx, ry) == (entity.position.rx(), entity.position.ry()))
         {
             self.track_navcom_stop(id, rules, effects);
             return false;

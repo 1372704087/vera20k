@@ -19,35 +19,14 @@
 //! - sim/ NEVER depends on render/, ui/, audio/, net/.
 
 use std::collections::{BTreeMap, HashMap};
-use std::hash::{BuildHasherDefault, Hasher};
 
 use crate::sim::game_entity::GameEntity;
 use crate::sim::touch_log::{TouchLog, Touched};
+use crate::util::lookup_hash::LookupMap;
 
 /// Only this module can authorize a live indexed-owner write.
 /// Payload consumers can read owner identity but cannot construct this capability.
 pub(crate) struct OwnerChangeAuthority(());
-
-/// Hashes a stable id for the slot index (FxHash's multiply). The index is
-/// only looked up, never iterated, so its order cannot reach a result.
-#[derive(Default)]
-struct IdHasher(u64);
-
-impl Hasher for IdHasher {
-    fn write(&mut self, bytes: &[u8]) {
-        for &byte in bytes {
-            self.write_u64(u64::from(byte));
-        }
-    }
-
-    fn write_u64(&mut self, id: u64) {
-        self.0 = (self.0.rotate_left(5) ^ id).wrapping_mul(0x51_7c_c1_b7_27_22_0a_95);
-    }
-
-    fn finish(&self) -> u64 {
-        self.0
-    }
-}
 
 /// Container for all game entities, keyed by stable_id.
 ///
@@ -66,8 +45,9 @@ pub struct EntityStore {
     /// remove and compaction move pointers, not entities. serde writes a
     /// `Box<T>` as its `T`.
     entities: Vec<Option<Box<GameEntity>>>,
-    /// stable_id -> slot, for every slot that holds an entity.
-    slot_of: HashMap<u64, u32, BuildHasherDefault<IdHasher>>,
+    /// stable_id -> slot, for every slot that holds an entity. Only looked
+    /// up, never iterated, so its order cannot reach a result.
+    slot_of: LookupMap<u64, u32>,
     /// Derived InfantryClass registry, in monotonic construction-ID order.
     /// Uninit retains an entry; remove compacts it. Class/category is immutable
     /// while stored, like indexed identity (replace through remove/insert).
@@ -544,7 +524,10 @@ mod tests {
         // Nothing has been derived from a fresh store yet.
         assert_eq!(store.take_touched(TouchReader::BlockerPlane), Touched::All);
         assert_eq!(store.take_touched(TouchReader::GroundKeys), Touched::All);
-        store.get_mut(2).unwrap().position.rx += 1;
+        {
+            let position = &mut store.get_mut(2).unwrap().position;
+            position.set_rx(position.rx() + 1);
+        }
         store.get_mut(3);
         assert_eq!(
             store.take_touched(TouchReader::BlockerPlane),
@@ -594,7 +577,7 @@ mod tests {
                 0..=4 if !removing => {
                     newest += 1 + next(3);
                     let mut entity = make_entity(newest);
-                    entity.position.rx = step as u16;
+                    entity.position.set_rx(step as u16);
                     store.insert(entity);
                     model.insert(newest, step as u16);
                 }
@@ -602,7 +585,7 @@ mod tests {
                 5 => {
                     let id = next(newest + 1);
                     let mut entity = make_entity(id);
-                    entity.position.rx = step as u16;
+                    entity.position.set_rx(step as u16);
                     store.insert(entity);
                     model.insert(id, step as u16);
                 }
@@ -613,12 +596,12 @@ mod tests {
                     } else {
                         next(newest + 1)
                     };
-                    assert_eq!(store.remove(id).map(|e| e.position.rx), model.remove(&id));
+                    assert_eq!(store.remove(id).map(|e| e.position.rx()), model.remove(&id));
                 }
                 _ => {
                     let id = next(newest + 1);
                     if let Some(entity) = store.get_mut(id) {
-                        entity.position.rx = step as u16;
+                        entity.position.set_rx(step as u16);
                     }
                     if let Some(rx) = model.get_mut(&id) {
                         *rx = step as u16;
@@ -632,7 +615,7 @@ mod tests {
             let probe = next(newest + 1);
             assert_eq!(store.contains(probe), model.contains_key(&probe));
             assert_eq!(
-                store.get(probe).map(|e| e.position.rx),
+                store.get(probe).map(|e| e.position.rx()),
                 model.get(&probe).copied()
             );
             if step % 97 == 0 {
@@ -649,7 +632,7 @@ mod tests {
                 let stored: Vec<(u64, u16)> = store
                     .iter_sorted()
                     .rev()
-                    .map(|(id, e)| (id, e.position.rx))
+                    .map(|(id, e)| (id, e.position.rx()))
                     .collect();
                 let expected: Vec<(u64, u16)> = model.iter().rev().map(|(&k, &v)| (k, v)).collect();
                 assert_eq!(stored, expected);
@@ -931,13 +914,13 @@ mod tests {
     fn test_cross_entity_read_pattern() {
         let mut store = EntityStore::new();
         let mut e1 = make_entity(1);
-        e1.position.rx = 10;
-        e1.position.ry = 20;
+        e1.position.set_rx(10);
+        e1.position.set_ry(20);
         store.insert(e1);
 
         let mut e2 = make_entity(2);
-        e2.position.rx = 30;
-        e2.position.ry = 40;
+        e2.position.set_rx(30);
+        e2.position.set_ry(40);
         store.insert(e2);
 
         // Read target position first (immutable borrow ends).
@@ -945,7 +928,7 @@ mod tests {
         // Then mutate attacker (no conflict).
         if let (Some(attacker), Some(pos)) = (store.get_mut(1), target_pos) {
             // In real code: compute firing direction, apply cooldown, etc.
-            assert_eq!(pos.rx, 30);
+            assert_eq!(pos.rx(), 30);
             attacker.body_facing.snap(0x8000, 0); // face toward target
         }
 

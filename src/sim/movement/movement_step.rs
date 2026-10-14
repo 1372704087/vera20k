@@ -63,6 +63,6 @@ pub(super) fn walk_boundary_crossing(
     position: &Position,
 ) -> Option<crate::sim::components::DriveCoord> {
     let [x, y] = super::ground_pose::position_world_xy(position);
-    (((x / 256) as u16, (y / 256) as u16) != (position.rx, position.ry))
+    (((x / 256) as u16, (y / 256) as u16) != (position.rx(), position.ry()))
         .then(|| super::ground_pose::position_world_coord(position))
 }

@@ -908,7 +908,7 @@ fn reveal_on_fire(world: &mut Simulation, rules: &RuleSet, firer_id: u64, target
             }
             None => !world
                 .fog
-                .is_cell_revealed(house, firer.position.rx, firer.position.ry),
+                .is_cell_revealed(house, firer.position.rx(), firer.position.ry()),
         };
         if !shrouded {
             return;
@@ -2435,7 +2435,7 @@ pub(crate) fn tick_combat(
                     continue;
                 }
                 let level = rad.damaging_level(
-                    (entity.position.rx, entity.position.ry),
+                    (entity.position.rx(), entity.position.ry()),
                     rules.radiation.level_max,
                 );
                 if level <= 0 {

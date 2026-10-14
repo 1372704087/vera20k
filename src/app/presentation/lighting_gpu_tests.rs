@@ -41,10 +41,10 @@ fn stock_lamp_loaded_by_scenario_changes_actual_terrain_pixels() {
                 .interner
                 .resolve(entity.type_ref())
                 .eq_ignore_ascii_case("GALITE")
-                && (entity.position.rx, entity.position.ry) == (53, 113)
+                && (entity.position.rx(), entity.position.ry()) == (53, 113)
         })
         .expect("authored stock GALITE must survive normal scenario construction");
-    let (id, rx, ry) = (lamp.stable_id(), lamp.position.rx, lamp.position.ry);
+    let (id, rx, ry) = (lamp.stable_id(), lamp.position.rx(), lamp.position.ry());
     assert!(
         lamp.lifecycle.object_alive() && !lamp.lifecycle.in_limbo() && lamp.lifecycle.cell_marked()
     );

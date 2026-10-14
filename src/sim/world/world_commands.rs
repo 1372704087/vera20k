@@ -3853,7 +3853,7 @@ mod tests {
         );
         // Force starts at the retained pose; the SW exit is a destination.
         let unit = sim.substrate.entities.get(1).unwrap();
-        assert_eq!((unit.position.rx, unit.position.ry), (14, 14));
+        assert_eq!((unit.position.rx(), unit.position.ry()), (14, 14));
         assert_eq!(
             unit.navigation.nav_com(),
             Some(crate::sim::components::NavTargetRef::cell(9, 11))
@@ -4105,7 +4105,7 @@ mod tests {
             );
             sim.session.binary_frame += 1;
             let unit = sim.substrate.entities.get(1).unwrap();
-            if (unit.position.rx, unit.position.ry) == exit
+            if (unit.position.rx(), unit.position.ry()) == exit
                 && crate::sim::movement::track_head::committed_track_head(unit).is_none()
                 && crate::sim::movement::motion_query::is_moving(&unit) != Some(true)
             {
@@ -4113,7 +4113,7 @@ mod tests {
             }
         }
         let unit = sim.substrate.entities.get(1).unwrap();
-        assert_eq!((unit.position.rx, unit.position.ry), exit);
+        assert_eq!((unit.position.rx(), unit.position.ry()), exit);
         assert!(crate::sim::movement::track_head::committed_track_head(unit).is_none());
         assert!(crate::sim::movement::motion_query::is_moving(&unit) != Some(true));
         assert_eq!(unit.bunker.link(), BunkerLink::None);

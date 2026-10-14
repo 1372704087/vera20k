@@ -296,7 +296,7 @@ impl Simulation {
             entity,
             self.resolved_terrain.as_ref(),
         )?;
-        let cell = (entity.position.rx, entity.position.ry);
+        let cell = (entity.position.rx(), entity.position.ry());
         if self.resolved_terrain.as_ref().is_some_and(|terrain| {
             terrain
                 .native_fixed_cell_index(cell.0 as i16, cell.1 as i16)

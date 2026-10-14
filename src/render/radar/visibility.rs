@@ -97,7 +97,7 @@ fn radar_get_height_leptons(
             crate::util::lepton::ground_height_leptons(cell.level, cell.slope_type, x, y).ok()
         })
         .unwrap_or_else(|| {
-            i32::from(entity.position.z as i8)
+            i32::from(entity.position.z() as i8)
                 .wrapping_mul(crate::util::lepton::GROUND_LEVEL_HEIGHT_LEPTONS)
         });
     let mut height = crate::sim::movement::ground_pose::object_world_z_leptons(entity, None)
@@ -115,9 +115,9 @@ fn radar_building_both_corners_shrouded(
     foundation: (u32, u32),
 ) -> bool {
     let origin_shrouded =
-        !fog.is_cell_revealed(local_owner, entity.position.rx, entity.position.ry);
-    let far_x = i32::from(entity.position.rx).wrapping_add((foundation.0 as i32).wrapping_sub(1));
-    let far_y = i32::from(entity.position.ry).wrapping_add((foundation.1 as i32).wrapping_sub(1));
+        !fog.is_cell_revealed(local_owner, entity.position.rx(), entity.position.ry());
+    let far_x = i32::from(entity.position.rx()).wrapping_add((foundation.0 as i32).wrapping_sub(1));
+    let far_y = i32::from(entity.position.ry()).wrapping_add((foundation.1 as i32).wrapping_sub(1));
     let far_shrouded =
         far_x < 0 || far_y < 0 || !fog.is_cell_revealed(local_owner, far_x as u16, far_y as u16);
     origin_shrouded && far_shrouded
@@ -504,8 +504,12 @@ mod tests {
         .expect("wide generated surface");
         let mut entity =
             crate::sim::game_entity::GameEntity::test_default(1, "MTNK", "Enemy", 120, 30);
-        entity.position.sub_x = crate::util::fixed_math::SimFixed::from_num(0);
-        entity.position.sub_y = crate::util::fixed_math::SimFixed::from_num(0);
+        entity
+            .position
+            .set_sub_x(crate::util::fixed_math::SimFixed::from_num(0));
+        entity
+            .position
+            .set_sub_y(crate::util::fixed_math::SimFixed::from_num(0));
         let mut projection = visibility_projection();
         projection.native_surface = Some(surface);
         let update = build_radar_object_update(
@@ -826,8 +830,8 @@ mod tests {
             Some(&terrain),
         ));
         entity.set_in_playfield(true);
-        entity.position.rx = 2;
-        entity.position.ry = 2;
+        entity.position.set_rx(2);
+        entity.position.set_ry(2);
         assert!(!radar_fresh_mode_one_membership(
             &entity,
             Some(bounds),

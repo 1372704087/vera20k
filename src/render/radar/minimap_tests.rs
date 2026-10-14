@@ -217,14 +217,14 @@ fn test_minimap_entity_visible_for_allied_owner() {
 
     let mut fog = FogState::new(64, 64);
     fog.alliances = alliances;
-    let pos = Position {
-        rx: 10,
-        ry: 12,
-        z: 0,
-        exact_z_leptons: None,
-        sub_x: crate::util::lepton::CELL_CENTER_LEPTON,
-        sub_y: crate::util::lepton::CELL_CENTER_LEPTON,
-    };
+    let pos = Position::new(
+        10,
+        12,
+        0,
+        None,
+        crate::util::lepton::CELL_CENTER_LEPTON,
+        crate::util::lepton::CELL_CENTER_LEPTON,
+    );
     assert!(minimap_entity_visible(
         test_intern("Americans"),
         &fog,

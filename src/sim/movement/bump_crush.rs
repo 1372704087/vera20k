@@ -174,7 +174,7 @@ pub(crate) fn blocker_plane_source(
     {
         return None;
     }
-    let pos = (entity.position.rx, entity.position.ry);
+    let pos = (entity.position.rx(), entity.position.ry());
     if entity.category() == EntityCategory::Structure {
         let size = rules
             .and_then(|r| r.object(interner.resolve(entity.type_ref())))
@@ -533,8 +533,8 @@ pub fn within_crush_distance_sq(crusher: (i32, i32), victim: (i32, i32)) -> bool
 
 fn entity_crush_coord(entity: &GameEntity) -> (i32, i32) {
     (
-        i32::from(entity.position.rx) * 256 + entity.position.sub_x.to_num::<i32>(),
-        i32::from(entity.position.ry) * 256 + entity.position.sub_y.to_num::<i32>(),
+        i32::from(entity.position.rx()) * 256 + entity.position.sub_x().to_num::<i32>(),
+        i32::from(entity.position.ry()) * 256 + entity.position.sub_y().to_num::<i32>(),
     )
 }
 
@@ -720,7 +720,10 @@ pub fn emit_crush_kill_sounds(
 ) {
     emit_crush_kill_sounds_at(
         victim,
-        (i32::from(victim.position.rx), i32::from(victim.position.ry)),
+        (
+            i32::from(victim.position.rx()),
+            i32::from(victim.position.ry()),
+        ),
         rules,
         interner,
         sound_events,

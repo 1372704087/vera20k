@@ -860,9 +860,13 @@ mod tests {
         // The signed-current stress row uses retained negative subcoordinates
         // at unsigned cell0; position_world_coord reconstructs its raw leptons.
         // This is an explicit nonretail physical input, not placement evidence.
-        actor.position.sub_x = SimFixed::from_num(current[0] - i32::from(rx) * 256);
-        actor.position.sub_y = SimFixed::from_num(current[1] - i32::from(ry) * 256);
-        actor.position.exact_z_leptons = Some(current[2]);
+        actor
+            .position
+            .set_sub_x(SimFixed::from_num(current[0] - i32::from(rx) * 256));
+        actor
+            .position
+            .set_sub_y(SimFixed::from_num(current[1] - i32::from(ry) * 256));
+        actor.position.set_exact_z_leptons(Some(current[2]));
         actor.set_on_bridge(input["on_bridge"].as_bool().unwrap_or(false));
         sim.substrate.entities.insert(actor);
         sim.scenario_rng = crate::sim::rng::SimRng::new(input["seed"].as_u64().unwrap());
@@ -1135,9 +1139,9 @@ mod tests {
                     false,
                 );
                 entity.lifecycle.set_in_limbo_for_test(limbo);
-                entity.position.sub_x = SimFixed::from_num(xyz[0] % 256);
-                entity.position.sub_y = SimFixed::from_num(xyz[1] % 256);
-                entity.position.exact_z_leptons = Some(xyz[2]);
+                entity.position.set_sub_x(SimFixed::from_num(xyz[0] % 256));
+                entity.position.set_sub_y(SimFixed::from_num(xyz[1] % 256));
+                entity.position.set_exact_z_leptons(Some(xyz[2]));
                 sim.substrate.entities.insert(entity);
                 ids.push(id);
             }
@@ -1299,14 +1303,14 @@ mod tests {
             let result = sim.try_reveal_entity_with_context(
                 id,
                 RevealRequest {
-                    position: RevealPosition {
-                        exact_z_leptons: None,
-                        rx: cell.0,
-                        ry: cell.1,
-                        z: 0,
-                        sub_x: SimFixed::from_num(128),
-                        sub_y: SimFixed::from_num(128),
-                    },
+                    position: RevealPosition::new(
+                        cell.0,
+                        cell.1,
+                        0,
+                        None,
+                        SimFixed::from_num(128),
+                        SimFixed::from_num(128),
+                    ),
                     placement,
                     logic_eligible: true,
                 },

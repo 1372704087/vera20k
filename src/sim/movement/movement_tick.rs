@@ -486,66 +486,57 @@ fn advance_ordinary_mover(
         prone_crawls,
         walk_retry_allowed,
     } = visit;
-    // The mover is lifted out of the store for each scope below; the Walk head
-    // preparation between them needs the whole store.
-    {
-        let Some(mut turn) = entities.take_turn(entity_id) else {
-            return;
-        };
-        let entity = turn.entity();
-        if entity
-            .locomotor
-            .as_ref()
-            .is_some_and(|l| l.step_head().is_none())
-        {
-            if let Some(tube_id) = tube_movement::pending_path_tube_id(
-                &entity.navigation.path_replay,
-                &entity.position,
-                entity.movement_layer_or_ground(),
-                resolved_terrain,
-            ) {
-                let terrain = resolved_terrain.expect("tube admission resolved terrain");
-                if tube_movement::begin_path_tube_step(
-                    &mut entity.foot_occupation_enabled,
-                    &mut entity.navigation.path_replay,
-                    entity_id,
-                    entity.category,
-                    &mut entity.position,
-                    &mut entity.locomotor,
-                    &mut entity.low_bridge_tube_state,
-                    &mut entity.lifecycle.cell_marked,
-                    tube_id,
-                    terrain,
-                    occupancy,
-                    cell_occupation,
-                    raw_cell_occupation,
-                )
-                .is_ok()
-                {
-                    return;
-                }
-            }
-            //75B690 requires the whole live Foot owner. Suspending here
-            //releases this entity's mutable borrow before any admission
-            //query. Canonical Clear goes straight to75C240, never through
-            //the grid/cliff/occupancy adapters below.
-            debug_assert!(walk_admission_request.is_none());
-            *walk_admission_request = Some(WalkAdmissionRequest {
-                entity_id,
-                visit: OrdinaryMoverVisit {
-                    snap,
-                    walk_position_before_step,
-                    prone_crawls,
-                    walk_retry_allowed,
-                },
-            });
-            return;
-        }
-    } // Release the admission borrow before live head/priority queries.
-    let Some(mut turn) = entities.take_turn(entity_id) else {
+    let Some(entity) = entities.get_mut(entity_id) else {
         return;
     };
-    let entity = turn.entity();
+    if entity
+        .locomotor
+        .as_ref()
+        .is_some_and(|l| l.step_head().is_none())
+    {
+        if let Some(tube_id) = tube_movement::pending_path_tube_id(
+            &entity.navigation.path_replay,
+            &entity.position,
+            entity.movement_layer_or_ground(),
+            resolved_terrain,
+        ) {
+            let terrain = resolved_terrain.expect("tube admission resolved terrain");
+            if tube_movement::begin_path_tube_step(
+                &mut entity.foot_occupation_enabled,
+                &mut entity.navigation.path_replay,
+                entity_id,
+                entity.category,
+                &mut entity.position,
+                &mut entity.locomotor,
+                &mut entity.low_bridge_tube_state,
+                &mut entity.lifecycle.cell_marked,
+                tube_id,
+                terrain,
+                occupancy,
+                cell_occupation,
+                raw_cell_occupation,
+            )
+            .is_ok()
+            {
+                return;
+            }
+        }
+        //75B690 requires the whole live Foot owner. Suspending here
+        //releases this entity's mutable borrow before any admission
+        //query. Canonical Clear goes straight to75C240, never through
+        //the grid/cliff/occupancy adapters below.
+        debug_assert!(walk_admission_request.is_none());
+        *walk_admission_request = Some(WalkAdmissionRequest {
+            entity_id,
+            visit: OrdinaryMoverVisit {
+                snap,
+                walk_position_before_step,
+                prone_crawls,
+                walk_retry_allowed,
+            },
+        });
+        return;
+    }
 
     // Steering / rotation: rotate in place, then move. ROT=0 means an
     // instant turn.

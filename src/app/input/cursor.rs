@@ -1300,7 +1300,7 @@ pub(crate) fn super_weapon_cursor_id(action: &str) -> Option<CursorId> {
 #[cfg(test)]
 mod tests {
     use super::{
-        ActionDistanceTarget, capability_cursor_for_hover, force_fire_feedback,
+        ActionDistanceTarget, capability_cursor_for_hover, empty_cell_cursor, force_fire_feedback,
         select_best_for_action, super_weapon_cursor_id, what_action_on_cell,
     };
     use crate::app::input::entity_pick::HoverTargetKindWithId;

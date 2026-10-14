@@ -1045,6 +1045,28 @@ impl FogState {
         self.view_generation
     }
 
+    /// Store a recorded native `Cell+0x12C` ground byte for `owner`: its
+    /// `0x08`/`0x10` in [`GROUND_VISIBLE`]/[`GROUND_OPEN`], and its `0x08` as
+    /// the mapped knowledge that [`cell_ground_mapped`] reads.
+    #[cfg(test)]
+    pub(crate) fn set_ground_bits_for_test(
+        &mut self,
+        owner: InternedId,
+        rx: u16,
+        ry: u16,
+        bits: u8,
+    ) {
+        let (width, height) = (self.width, self.height);
+        let vis = self
+            .by_owner
+            .entry(owner)
+            .or_insert_with(|| OwnerVisibility::new(width, height));
+        let index = vis.index(rx, ry).expect("ground byte cell in bounds");
+        vis.ground_flags[index] = bits & (GROUND_VISIBLE | GROUND_OPEN);
+        vis.shroud_knowledge[index].open = bits & GROUND_VISIBLE != 0;
+        vis.publish_knowledge(index);
+    }
+
     /// The ground-visible bit (`Cell+0x12C & 0x08`) as [`GROUND_VISIBLE`]
     /// holds it, for checking what the cell writers stored.
     #[cfg(test)]

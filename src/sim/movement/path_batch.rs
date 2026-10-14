@@ -9,18 +9,18 @@
 //! 0x4B3607..0x4B3A94, Walk 0x0075B8A9..0x0075B9F9) whenever that timer has
 //! run out. With batching on, either registers the Foot and takes the
 //! timer-still-running branch instead. At the start of the next frame's live
-//! object pass every registration is searched on worker threads against the
-//! world as it stands, and the Foot's request then runs its Find_Path with
-//! the answer.
+//! object pass the registrations are searched on worker threads against the
+//! world as it stands, up to a cap (below), and the Foot's request then runs
+//! its Find_Path with the answer.
 //!
 //! Proposed sim-scale deviation from native order (update order and
 //! same-frame effects), pending side-by-side play: a Foot's path search runs
-//! one frame later, from the world at the start of the pass rather than at
-//! its own turn, so a Foot starts along a new route one frame later, and its
-//! movement timer (PathDelay) is armed one frame later, which shifts its
-//! later requests too. A Foot that does not repeat its request that next
-//! frame does not search at all: a blocked Foot whose blocker moved on keeps
-//! its route; a no-queue request whose destination cleared is dropped. Two
+//! a frame later (more under the cap below), from the world at the start of
+//! the pass rather than at its own turn, so a Foot starts along a new route
+//! that much later, and its movement timer (PathDelay) is armed that much
+//! later, which shifts its later requests too. A Foot that stops repeating
+//! its request does not search at all: a blocked Foot whose blocker moved on
+//! keeps its route; a no-queue request whose destination cleared is dropped. Two
 //! visible cases: Infantry Scatter's immediate Process (0x51D478) waits, so
 //! scattered infantry leave a frame later; a Drive/Ship Foot whose track
 //! ends with no path left loses that frame's movement where native's timer
@@ -39,6 +39,21 @@
 //! movement. Each search reads only that frame-start world, so no result
 //! depends on the thread count. Simulations start without batching; real
 //! matches and sim-bench turn it on ([`Simulation::batch_path_searches`]).
+//!
+//! A second proposed sim-scale deviation (update order), pending side-by-side
+//! play, caps the work: a pass answers at most [`SEARCHES_PER_PASS`]
+//! registrations, taking them in ascending Foot id from where the last
+//! capped pass stopped and wrapping round. The others have no answer, so
+//! their requests that frame register again, as any Foot's without one do,
+//! and they wait another frame, standing as they do while their timer runs.
+//! The cap binds only when more Foots than that wait in one frame: an order
+//! given to that many at once, or a jam where that many re-path within one
+//! PathDelay (8 frames in the retail rules). Then the last of N waiting Foots
+//! waits about N / [`SEARCHES_PER_PASS`] frames, one sweep of the turn; Foots
+//! start their routes in bands of ascending id; and the cap is shared, so
+//! one House's mass order delays every House's requests. A code-2 re-path
+//! that waits past its latched blockage timer searches at urgency 2, around
+//! all blockage, where native searched at urgency 1.
 //!
 //! The batch runs Find_Path's own steps up to its redirect
 //! ([`Simulation::find_path_target_answer`]) and the core search, without
@@ -82,11 +97,20 @@ use crate::sim::pathfinding::{BlockerNeighborCounts, PathGrid};
 use crate::sim::radio::Contacts;
 use crate::sim::world::Simulation;
 
+/// The most registrations one live object pass answers; see the module docs.
+/// Ordinary battles stay under it, and a pass of this many searches leaves
+/// most of a frame's budget for the rest of the frame at the contract's
+/// scale.
+const SEARCHES_PER_PASS: usize = 256;
+
 /// The path searches waiting for the next frame, and this frame's answers.
 #[derive(Debug, Default, serde::Serialize, serde::Deserialize)]
 pub(crate) struct PathBatch {
     /// Foots whose request waited this frame, and which request each repeats.
     pending: Vec<(u64, WaitingRequest)>,
+    /// The lowest Foot id the next capped pass answers first; see
+    /// [`take_turn`].
+    next_turn: u64,
     /// This live object pass's answers by Foot. Empty outside the pass, so a
     /// request made between passes waits whether or not the game was saved
     /// in between.
@@ -103,15 +127,45 @@ pub(crate) struct PathBatch {
 }
 
 impl std::hash::Hash for PathBatch {
-    /// The registrations, which carry into the next frame; answers live
-    /// within one.
+    /// The registrations and the next capped turn, which carry into the next
+    /// frame; answers live within one. A cap that never bound leaves the
+    /// turn at zero, which folds nothing.
     fn hash<H: std::hash::Hasher>(&self, hasher: &mut H) {
         (self.pending.len() as u64).hash(hasher);
         for &(id, request) in &self.pending {
             id.hash(hasher);
             (request as u8).hash(hasher);
         }
+        if self.next_turn != 0 {
+            self.next_turn.hash(hasher);
+        }
     }
+}
+
+/// The registrations a pass answers, one per Foot in ascending id: all of
+/// them, or, when there are more than `limit`, the first `limit` from
+/// `next_turn` on, wrapping round to the lowest ids; `next_turn` then moves
+/// past the last one taken.
+fn take_turn(
+    pending: Vec<(u64, WaitingRequest)>,
+    next_turn: &mut u64,
+    limit: usize,
+) -> Vec<(u64, WaitingRequest)> {
+    if pending.len() <= limit {
+        return pending;
+    }
+    let split = pending.partition_point(|&(id, _)| id < *next_turn);
+    let mut turn: Vec<_> = pending[split..]
+        .iter()
+        .chain(&pending[..split])
+        .take(limit)
+        .copied()
+        .collect();
+    if let Some(&(last, _)) = turn.last() {
+        *next_turn = last + 1;
+    }
+    turn.sort_unstable_by_key(|&(id, _)| id);
+    turn
 }
 
 /// The Find_Path request a waiting Foot repeats at its next frame's turn.
@@ -245,7 +299,7 @@ impl Simulation {
     }
 
     /// The start of the live object pass: search for the Foots registered
-    /// last frame.
+    /// last frame, at most [`SEARCHES_PER_PASS`] of them.
     pub(crate) fn answer_batched_path_searches(
         &mut self,
         rules: Option<&RuleSet>,
@@ -268,6 +322,7 @@ impl Simulation {
             .collect::<BTreeMap<_, _>>()
             .into_iter()
             .collect();
+        let pending = take_turn(pending, &mut batch.next_turn, SEARCHES_PER_PASS);
         let answers = match (rules, self.path_grid_snapshot()) {
             (Some(rules), Some(grid))
                 if self.overlay_grid.is_some() && self.resolved_terrain.is_some() =>

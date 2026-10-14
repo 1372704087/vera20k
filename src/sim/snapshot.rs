@@ -5017,7 +5017,8 @@ mod tests {
             .entities
             .get_mut(9)
             .unwrap()
-            .build_const_eligible = true;
+            .type_facts
+            .set_build_const_eligible_for_test(true);
 
         let ordered_hash = sim.state_hash();
         assert_ne!(ordered_hash, default_hash);
@@ -5041,7 +5042,8 @@ mod tests {
             .entities
             .get_mut(9)
             .unwrap()
-            .build_const_eligible = false;
+            .type_facts
+            .set_build_const_eligible_for_test(false);
         assert_ne!(
             sim.state_hash(),
             ordered_hash,
@@ -5051,7 +5053,8 @@ mod tests {
             .entities
             .get_mut(9)
             .unwrap()
-            .build_const_eligible = true;
+            .type_facts
+            .set_build_const_eligible_for_test(true);
         assert_eq!(sim.state_hash(), ordered_hash);
 
         let bytes = GameSnapshot::save(&sim, 0, 0, "naval-build-const", 0);
@@ -5068,7 +5071,8 @@ mod tests {
                 .entities
                 .get(9)
                 .unwrap()
-                .build_const_eligible
+                .type_facts
+                .build_const_eligible()
         );
         assert_eq!(restored.state_hash(), ordered_hash);
     }
@@ -5110,9 +5114,11 @@ mod tests {
             5,
             false,
         );
-        entity.base_plan_type_index = 2;
-        entity.base_plan_is_defense = true;
-        entity.base_plan_has_undeploy_target = true;
+        entity.type_facts.set_base_plan_type_index_for_test(2);
+        entity.type_facts.set_base_plan_is_defense_for_test(true);
+        entity
+            .type_facts
+            .set_base_plan_has_undeploy_target_for_test(true);
         sim.substrate.entities.insert(entity);
         sim.scenario_rng = crate::sim::rng::SimRng::new(0);
         let expected_hash = sim.state_hash();
@@ -5127,9 +5133,9 @@ mod tests {
         assert_eq!(restored.houses[&owner].base_plan.nodes.len(), 2);
         assert_eq!(restored.houses[&owner].base_plan.nodes[0].retry_count, -8);
         let restored_entity = restored.substrate.entities.get(1).unwrap();
-        assert_eq!(restored_entity.base_plan_type_index, 2);
-        assert!(restored_entity.base_plan_is_defense);
-        assert!(restored_entity.base_plan_has_undeploy_target);
+        assert_eq!(restored_entity.type_facts.base_plan_type_index(), 2);
+        assert!(restored_entity.type_facts.base_plan_is_defense());
+        assert!(restored_entity.type_facts.base_plan_has_undeploy_target());
         assert_eq!(restored.state_hash(), expected_hash);
     }
 
@@ -6940,12 +6946,16 @@ mod tests {
             10,
             EntityCategory::Structure,
         );
-        building.foundation = "4x3".to_string();
+        building
+            .type_facts
+            .set_foundation_for_test("4x3".to_string());
         let mut profile = crate::rules::object_type::BuildingHiddenOccupancyProfile::default();
         profile.add_occupy[0] = Some((-1, 0));
         profile.add_occupy[1] = Some((-1, -1));
         profile.remove_occupy[0] = Some((3, 1));
-        building.building_hidden_occupancy = Some(profile);
+        building
+            .type_facts
+            .set_building_hidden_occupancy_for_test(Some(profile));
         sim.substrate.entities.insert(building);
         sim.add_entity_occupancy(entity_id);
 
@@ -6960,23 +6970,22 @@ mod tests {
         sim.substrate
             .hidden_occupation
             .enter_building((10, 10), "4x3", profile, Some((32, 32)));
+        let mut stored = profile;
+        stored.occupy_height = 4;
         sim.substrate
             .entities
             .get_mut(entity_id)
             .unwrap()
-            .building_hidden_occupancy
-            .as_mut()
-            .unwrap()
-            .occupy_height = 4;
+            .type_facts
+            .set_building_hidden_occupancy_for_test(Some(stored));
         assert_ne!(sim.state_hash(), expected_hash);
+        stored.occupy_height = 2;
         sim.substrate
             .entities
             .get_mut(entity_id)
             .unwrap()
-            .building_hidden_occupancy
-            .as_mut()
-            .unwrap()
-            .occupy_height = 2;
+            .type_facts
+            .set_building_hidden_occupancy_for_test(Some(stored));
         assert_eq!(sim.state_hash(), expected_hash);
 
         let bytes = GameSnapshot::save(&sim, 0, 0, "gsi_04_05_hidden", 0);
@@ -6993,7 +7002,8 @@ mod tests {
                 .entities
                 .get(entity_id)
                 .unwrap()
-                .building_hidden_occupancy,
+                .type_facts
+                .building_hidden_occupancy(),
             Some(profile)
         );
         assert_eq!(restored.state_hash(), expected_hash);
@@ -7023,7 +7033,8 @@ mod tests {
             .entities
             .get_mut(entity_id)
             .unwrap()
-            .determines_waypoint_edge = true;
+            .type_facts
+            .set_determines_waypoint_edge_for_test(true);
         let expected_hash = sim.state_hash();
         assert_ne!(expected_hash, without_profile);
 
@@ -7039,7 +7050,8 @@ mod tests {
                 .entities
                 .get(entity_id)
                 .unwrap()
-                .determines_waypoint_edge
+                .type_facts
+                .determines_waypoint_edge()
         );
         assert_eq!(restored.state_hash(), expected_hash);
     }
@@ -7064,7 +7076,9 @@ mod tests {
             crate::map::entities::EntityCategory::Structure,
         );
         building.set_owner_for_test(owner);
-        building.base_reservation_spacing = Some(-3);
+        building
+            .type_facts
+            .set_base_reservation_spacing_for_test(Some(-3));
         sim.substrate.entities.insert(building);
         let mut reservation_terrain = flat_terrain(4, 5);
         reservation_terrain.test_set_native_allocated_cells(&[(3, 4)]);
@@ -7109,7 +7123,8 @@ mod tests {
             .entities
             .get_mut(entity_id)
             .unwrap()
-            .base_reservation_spacing = Some(9);
+            .type_facts
+            .set_base_reservation_spacing_for_test(Some(9));
         assert_ne!(
             sim.state_hash(),
             expected_hash,
@@ -7119,7 +7134,8 @@ mod tests {
             .entities
             .get_mut(entity_id)
             .unwrap()
-            .base_reservation_spacing = Some(-3);
+            .type_facts
+            .set_base_reservation_spacing_for_test(Some(-3));
         assert_eq!(sim.state_hash(), expected_hash);
 
         let bytes = GameSnapshot::save(&sim, 0, 0, "gsi_04_05_reservation", 0);
@@ -7152,7 +7168,8 @@ mod tests {
                 .entities
                 .get(entity_id)
                 .unwrap()
-                .base_reservation_spacing,
+                .type_facts
+                .base_reservation_spacing(),
             Some(-3)
         );
         assert_eq!(restored.state_hash(), expected_loaded_hash);

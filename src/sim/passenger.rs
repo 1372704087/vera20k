@@ -709,7 +709,8 @@ fn garrison_parts<'a>(
 /// it. Vehicle transports take the other arm (`0x0051A3A0..0x0051A3DF`, same
 /// cell as the transport's `GetMapCoords`).
 fn passenger_stands_on_garrison(passenger_cell: (u16, u16), building: &GameEntity) -> bool {
-    let (width, height) = crate::rules::foundation::foundation_dimensions(&building.foundation);
+    let (width, height) =
+        crate::rules::foundation::foundation_dimensions(building.type_facts.foundation());
     let (rx, ry) = (building.position.rx, building.position.ry);
     passenger_cell.0 >= rx
         && u32::from(passenger_cell.0) < u32::from(rx) + u32::from(width)
@@ -1645,7 +1646,8 @@ ConditionYellow=50%
         ge.set_owner_for_test(owner_id);
         ge.set_type_ref_for_test(type_id);
         let obj = rules.object(type_ref).expect("type exists");
-        ge.foundation = obj.foundation.clone();
+        ge.type_facts
+            .set_foundation_for_test(obj.foundation.clone());
         ge.health.set_for_test(obj.strength);
         ge.estimated_health = crate::sim::estimated_health::EstimatedHealth::from_raw(obj.strength);
         ge.passenger_role =

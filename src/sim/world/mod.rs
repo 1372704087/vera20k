@@ -158,7 +158,7 @@ pub(crate) use object_entry::FootEntryReceiver;
 pub(crate) use substrate::DeferredDeleteQueue;
 pub use substrate::EnterOrderCounter;
 pub(crate) use substrate::{DeferredDeleteTicket, ObjectSubstrate};
-pub(crate) use world_spawn::{GeneratedTechnoInitError, GeneratedTechnoInitTable};
+pub(crate) use world_spawn::{GeneratedTechnoInitError, GeneratedTechnoInitTable, TypeFacts};
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
@@ -4833,7 +4833,7 @@ impl Simulation {
     pub(crate) fn append_live_build_const(&mut self, stable_id: u64) {
         let Some(owner) = self.substrate.entities.get(stable_id).and_then(|entity| {
             (entity.category() == EntityCategory::Structure
-                && entity.build_const_eligible
+                && entity.type_facts.build_const_eligible()
                 && entity.lifecycle.object_alive()
                 && !entity.lifecycle.in_limbo()
                 && entity.lifecycle.cell_marked)
@@ -4865,7 +4865,7 @@ impl Simulation {
             .substrate
             .entities
             .get(stable_id)
-            .map(|entity| (entity.owner(), entity.build_const_eligible))
+            .map(|entity| (entity.owner(), entity.type_facts.build_const_eligible()))
         else {
             return;
         };
@@ -4914,7 +4914,7 @@ impl Simulation {
                     entity.owner(),
                     entity.category(),
                     entity.spawn_manager.is_some(),
-                    entity.build_const_eligible,
+                    entity.type_facts.build_const_eligible(),
                 )
             })
         else {

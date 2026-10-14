@@ -101,10 +101,6 @@ fn default_true() -> bool {
     true
 }
 
-fn default_foundation() -> String {
-    "1x1".to_string()
-}
-
 /// `TechnoClass::Constructor @ 0x006F2B9C` seeds `+0x120` with `-100`, so a
 /// freshly built object is already past the idle-turret dwell on frame 0.
 pub(crate) const NATIVE_LAST_FIRE_FRAME_INIT: i64 = -100;
@@ -125,10 +121,6 @@ pub(crate) fn unlimbo_barrel_target(fire_angle: i32) -> u16 {
 
 fn default_last_fire_frame() -> i64 {
     NATIVE_LAST_FIRE_FRAME_INIT
-}
-
-fn default_base_plan_type_index() -> i32 {
-    -1
 }
 
 /// Persistent TechnoClass state used by the active House base-defence
@@ -419,43 +411,11 @@ pub struct GameEntity {
     /// The concrete class (`AbstractClass::What_Am_I`): Unit, Infantry,
     /// Aircraft or Structure. Fixed at construction.
     category: EntityCategory,
-    /// Rules foundation string for structure footprint occupancy.
+    /// Facts the object's type fixes (its foundation and a building's base
+    /// and cell-list inputs), a [`TypeFacts`] that construction stamps.
     ///
-    /// Native CellClass list membership is removed from every foundation cell
-    /// during ExitCell/Unlimbo-style lifecycle paths. Storing the parsed source
-    /// string here lets `Simulation::uninit` perform that cleanup without a
-    /// RuleSet borrow.
-    #[serde(default = "default_foundation")]
-    pub foundation: String,
-    /// Immutable type inputs needed to reverse this building's hidden-counter
-    /// contribution during cell-list exit without a RuleSet borrow.
-    #[serde(default)]
-    pub building_hidden_occupancy:
-        Option<crate::rules::object_type::BuildingHiddenOccupancyProfile>,
-    /// Immutable writer-profile snapshot for CellClass house base reservations.
-    /// `None` is the exact native BuildingType eligibility gate.
-    #[serde(default)]
-    pub base_reservation_spacing: Option<i32>,
-    /// Immutable BuildingType profile for the House edge refresh callback.
-    /// True only when the parsed type has `Factory=BuildingType`.
-    #[serde(default)]
-    pub determines_waypoint_edge: bool,
-    /// Immutable resolved membership in `[AI] BuildConst=`
-    /// (`RulesClass__ReadAI @ 0x00672AE0`, binding
-    /// `0x00672B14..0x00672C01`). Lifecycle authority copies this from
-    /// BuildingType so rule-less Limbo and owner transfer paths can maintain
-    /// native acquisition order exactly.
-    #[serde(default)]
-    pub build_const_eligible: bool,
-    /// Immutable native BuildingType registry index for BasePlan lifecycle writers.
-    #[serde(default = "default_base_plan_type_index")]
-    pub base_plan_type_index: i32,
-    /// Immutable BuildingType `IsBaseDefense=` fact.
-    #[serde(default)]
-    pub base_plan_is_defense: bool,
-    /// Immutable non-null `UndeploysInto` fact used by successful Unlimbo fallback.
-    #[serde(default)]
-    pub base_plan_has_undeploy_target: bool,
+    /// [`TypeFacts`]: crate::sim::world::TypeFacts
+    pub(crate) type_facts: crate::sim::world::TypeFacts,
     /// The object's veterancy: the running accumulator every rank is sampled
     /// from, and the rank last announced. `combat::veterancy` owns it.
     #[serde(default)]
@@ -1718,15 +1678,7 @@ impl GameEntity {
             ),
             type_ref,
             category,
-            foundation: default_foundation(),
-            building_hidden_occupancy: (category == EntityCategory::Structure)
-                .then(crate::rules::object_type::BuildingHiddenOccupancyProfile::default),
-            base_reservation_spacing: None,
-            determines_waypoint_edge: false,
-            build_const_eligible: false,
-            base_plan_type_index: -1,
-            base_plan_is_defense: false,
-            base_plan_has_undeploy_target: false,
+            type_facts: crate::sim::world::TypeFacts::new(category),
             veterancy: crate::sim::combat::veterancy::Veterancy::new(veterancy),
             flashing: Default::default(),
             armor_multiplier: NativeF64Bits::ONE,

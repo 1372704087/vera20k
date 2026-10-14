@@ -2569,13 +2569,13 @@ fn shot_is_illegal(
     let infiltrate_arm = sim
         .entities()
         .get(actor_id)
-        .filter(|actor| actor.category == EntityCategory::Infantry)
+        .filter(|actor| actor.category() == EntityCategory::Infantry)
         .and_then(|actor| rules.object(sim.interner.resolve(actor.type_ref())))
         .filter(|infantry| infantry.infiltrate)
         .zip(
             sim.entities()
                 .get(target_id)
-                .filter(|object| object.category == EntityCategory::Structure)
+                .filter(|object| object.category() == EntityCategory::Structure)
                 .and_then(|object| rules.object(sim.interner.resolve(object.type_ref()))),
         )
         .is_some_and(|(infantry, building)| {

@@ -511,7 +511,7 @@ impl Simulation {
         // Legacy raw coordinate scans can revisit an UnInit'd object before
         // pending deletion drains it. Preserve their HP write, but never give
         // a completed lifetime another scheduled terminal action.
-        if !entity.lifecycle.object_alive {
+        if !entity.lifecycle.object_alive() {
             return true;
         }
         entity.infantry_terminal = Some(InfantryTerminal::RetireNextVisit);
@@ -542,7 +542,7 @@ impl Simulation {
         };
         debug_assert_eq!(entity.category(), EntityCategory::Infantry);
         entity.dying = true;
-        if entity.lifecycle.object_alive {
+        if entity.lifecycle.object_alive() {
             entity.infantry_terminal = Some(InfantryTerminal::Sequence(sequence));
         }
     }

@@ -24,6 +24,76 @@ use super::display_layers::DisplayLayer;
 use super::substrate::{DeferredDeleteTicket, ObjectKind};
 use super::{FrameEffects, Simulation};
 
+/// Independent ObjectClass lifecycle facts.
+///
+/// These bytes deliberately do not derive from health, store presence, cell
+/// occupancy, LogicVector membership, or the Rust death-sequence state. Active
+/// gamemd keeps those concerns independent, including alive objects that are in
+/// limbo, active objects that are temporarily off-cell, and dead-limbo objects
+/// that remain resolvable until the pending-delete drain.
+///
+/// IsAlive and InLimbo are private to this module, whose Reveal, Limbo and
+/// UnInit write them. The ObjectClass constructor sets both
+/// (`0x005F392A`, `0x005F3930`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+pub struct ObjectLifecycle {
+    /// `ObjectClass+0x90`, IsAlive. UnInit clears it (`0x005F6625`).
+    object_alive: bool,
+    /// `ObjectClass+0x81`, InLimbo: Limbo sets it (`0x005F4E9E`) and Unlimbo
+    /// clears it (`0x005F4F4E`). Independent of LogicVector membership.
+    in_limbo: bool,
+    /// Whether Mark/cell-list insertion currently owns cell membership.
+    pub cell_marked: bool,
+}
+
+impl Default for ObjectLifecycle {
+    fn default() -> Self {
+        Self {
+            object_alive: true,
+            in_limbo: true,
+            cell_marked: false,
+        }
+    }
+}
+
+impl ObjectLifecycle {
+    /// `ObjectClass+0x90`, IsAlive.
+    pub const fn object_alive(self) -> bool {
+        self.object_alive
+    }
+
+    /// `ObjectClass+0x81`, InLimbo.
+    pub const fn in_limbo(self) -> bool {
+        self.in_limbo
+    }
+
+    /// The constructor's facts for a newly built object: alive and in limbo
+    /// (`0x005F392A`, `0x005F3930`).
+    pub(crate) fn reset_constructed(&mut self) {
+        self.object_alive = true;
+        self.in_limbo = true;
+    }
+
+    /// IsAlive set again on an object that took a lethal hit: PostMortem's
+    /// restore (`0x00701F60`) and a ship that starts sinking (Unit
+    /// `0x00737E4A`). Each also stores Health 1.
+    pub(crate) fn restore_alive(&mut self) {
+        self.object_alive = true;
+    }
+
+    /// Install a fixture's IsAlive.
+    #[cfg(test)]
+    pub(crate) fn set_object_alive_for_test(&mut self, alive: bool) {
+        self.object_alive = alive;
+    }
+
+    /// Install a fixture's InLimbo.
+    #[cfg(test)]
+    pub(crate) fn set_in_limbo_for_test(&mut self, in_limbo: bool) {
+        self.in_limbo = in_limbo;
+    }
+}
+
 /// The control value `DispatchPointerExpiredCleanup @ 0x007258D0` forwards to
 /// every listener's `PointerExpired` slot (`vt+0x28`), i.e. the third argument
 /// of `TechnoClass::PointerExpired @ 0x007077C0`.

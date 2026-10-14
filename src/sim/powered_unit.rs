@@ -215,7 +215,7 @@ impl Simulation {
                     .interner
                     .resolve(entity.type_ref())
                     .eq_ignore_ascii_case(unit_type)
-                || entity.lifecycle.in_limbo
+                || entity.lifecycle.in_limbo()
             {
                 continue;
             }

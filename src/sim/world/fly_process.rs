@@ -207,7 +207,7 @@ impl Simulation {
         else {
             return stats;
         };
-        if !entity.lifecycle.object_alive {
+        if !entity.lifecycle.object_alive() {
             return stats;
         }
         let destination = state.destination();
@@ -426,7 +426,7 @@ impl Simulation {
             .substrate
             .entities
             .get(id)
-            .is_some_and(|entity| entity.lifecycle.object_alive && !entity.lifecycle.in_limbo)
+            .is_some_and(|entity| entity.lifecycle.object_alive() && !entity.lifecycle.in_limbo())
         {
             self.foot_mark_put(id, rules, registry, frame_effects);
         }

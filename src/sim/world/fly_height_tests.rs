@@ -1048,7 +1048,7 @@ fn fly_phase_outer_health_power_and_life_gates_precede_nonlandable_override() {
         match gate {
             "health" => entity.health.set_for_test(0),
             "power" => entity.locomotor.as_mut().unwrap().powered = false,
-            "life" => entity.lifecycle.object_alive = false,
+            "life" => entity.lifecycle.set_object_alive_for_test(false),
             _ => unreachable!(),
         }
         let before = sim.state_hash();

@@ -765,12 +765,12 @@ impl Fixture {
             "{boundary}: sampled health"
         );
         assert_eq!(
-            entity.lifecycle.object_alive,
+            entity.lifecycle.object_alive(),
             native["alive"] == 1,
             "{boundary}: alive"
         );
         assert_eq!(
-            entity.lifecycle.in_limbo,
+            entity.lifecycle.in_limbo(),
             native["limbo"] == 1,
             "{boundary}: limbo"
         );

@@ -680,7 +680,7 @@ impl Simulation {
         self.substrate
             .entities
             .get(id)
-            .is_some_and(|entity| entity.lifecycle.object_alive)
+            .is_some_and(|entity| entity.lifecycle.object_alive())
     }
 
     /// `FootClass::Per_Cell_Process @ 0x004D85D0` for reason 2, ending in the

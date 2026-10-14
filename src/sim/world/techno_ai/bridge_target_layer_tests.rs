@@ -117,7 +117,7 @@ fn supplied_world(rules: &RuleSet, case: &Value) -> Simulation {
             6,
             true,
         );
-        entity.lifecycle.in_limbo = false;
+        entity.lifecycle.set_in_limbo_for_test(false);
         entity.lifecycle.cell_marked = true;
         entity.in_playfield = true;
         entity.locomotor = Some(LocomotorState::from_object_type(obj, 0));
@@ -497,8 +497,11 @@ fn assert_retail_target_state_restored(live: &Simulation, restored: &Simulation,
             );
             assert_eq!(before.estimated_health, after.estimated_health);
             assert_eq!(before.health.current(), after.health.current());
-            assert_eq!(before.lifecycle.object_alive, after.lifecycle.object_alive);
-            assert_eq!(before.lifecycle.in_limbo, after.lifecycle.in_limbo);
+            assert_eq!(
+                before.lifecycle.object_alive(),
+                after.lifecycle.object_alive()
+            );
+            assert_eq!(before.lifecycle.in_limbo(), after.lifecycle.in_limbo());
             assert_eq!(before.dying, after.dying);
         }
     }

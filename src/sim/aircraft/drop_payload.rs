@@ -216,7 +216,7 @@ fn drop_passenger(
 ) -> Result<DriveCoord, DepartureFailure> {
     match sim.substrate.entities.get(passenger) {
         None => return Err(DepartureFailure::MissingPassenger),
-        Some(rider) if !(rider.lifecycle.object_alive && rider.lifecycle.in_limbo) => {
+        Some(rider) if !(rider.lifecycle.object_alive() && rider.lifecycle.in_limbo()) => {
             return Err(DepartureFailure::NotReady);
         }
         Some(_) => {}
@@ -796,12 +796,12 @@ mod tests {
             let passenger = sim.substrate.entities.get(2).unwrap();
             if blocked {
                 assert_eq!(cargo(&sim, 1), vec![2]);
-                assert!(passenger.lifecycle.in_limbo);
+                assert!(passenger.lifecycle.in_limbo());
                 assert!(!passenger.is_falling_down());
             } else {
                 assert!(cargo(&sim, 1).is_empty());
                 assert_eq!((passenger.position.rx, passenger.position.ry), native_cell);
-                assert!(!passenger.lifecycle.in_limbo);
+                assert!(!passenger.lifecycle.in_limbo());
             }
         }
     }
@@ -957,7 +957,7 @@ mod tests {
             sim.substrate
                 .entities
                 .get(passenger_id)
-                .is_none_or(|passenger| !passenger.lifecycle.object_alive),
+                .is_none_or(|passenger| !passenger.lifecycle.object_alive()),
             "UnInit at the hit"
         );
         let explode = sim.interner.get("S_BANG34").expect("InfantryExplode built");
@@ -1196,8 +1196,8 @@ mod tests {
         );
         assert_eq!(ammo(&sim, aircraft_id), 3);
         let passenger = sim.substrate.entities.get(passenger_id).unwrap();
-        assert!(passenger.lifecycle.object_alive);
-        assert!(!passenger.lifecycle.in_limbo);
+        assert!(passenger.lifecycle.object_alive());
+        assert!(!passenger.lifecycle.in_limbo());
         assert!(passenger.lifecycle.cell_marked);
         assert!(passenger.in_logic_vector);
         assert_eq!((passenger.position.rx, passenger.position.ry), (51, 20));
@@ -1278,7 +1278,7 @@ mod tests {
                 PassengerRole::Inside { transport_id, .. } if transport_id == aircraft_id
             ));
             assert!(!passenger.is_falling_down());
-            assert!(passenger.lifecycle.object_alive && passenger.lifecycle.in_limbo);
+            assert!(passenger.lifecycle.object_alive() && passenger.lifecycle.in_limbo());
             assert!(!passenger.lifecycle.cell_marked && !passenger.in_logic_vector);
             assert_eq!(passenger.discovery.discovered_by_current_house, human);
             assert!(
@@ -1347,7 +1347,7 @@ mod tests {
             {
                 let passenger = sim.substrate.entities.get_mut(2).unwrap();
                 passenger.locomotor = Some(loco);
-                passenger.lifecycle.object_alive = post_attach;
+                passenger.lifecycle.set_object_alive_for_test(post_attach);
                 passenger.lifecycle.cell_marked = post_attach;
             }
             let mut peer = GameEntity::test_default(9, "E1", "Americans", 30, 30);
@@ -1390,7 +1390,7 @@ mod tests {
             assert_eq!(ammo(&sim, 1), 4);
             let passenger = sim.substrate.entities.get(2).unwrap();
             assert_eq!(passenger.passenger_role.inside_transport_id(), Some(1));
-            assert!(passenger.lifecycle.in_limbo);
+            assert!(passenger.lifecycle.in_limbo());
             assert_eq!(passenger.lifecycle.cell_marked, post_attach);
             assert!(!passenger.in_logic_vector);
             assert!(!passenger.is_falling_down());

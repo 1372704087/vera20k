@@ -164,8 +164,8 @@ fn track(entity: &GameEntity) -> crate::sim::components::TrackProgress {
 fn insert(sim: &mut Simulation, mut entity: GameEntity) {
     // This fixture inserts a live object-list entry, so its lifecycle mark
     // must agree. Forced terminal relinking intentionally respects this flag.
-    entity.lifecycle.object_alive = true;
-    entity.lifecycle.in_limbo = false;
+    entity.lifecycle.set_object_alive_for_test(true);
+    entity.lifecycle.set_in_limbo_for_test(false);
     entity.lifecycle.cell_marked = true;
     sim.substrate.occupancy.add(
         entity.position.rx,
@@ -1285,7 +1285,7 @@ fn two_marked_units() -> Simulation {
     sim.interner = crate::sim::intern::test_interner();
     for id in [1, 2] {
         let mut entity = GameEntity::test_default(id, "ACTOR", "Americans", 4, 4);
-        entity.lifecycle.in_limbo = false;
+        entity.lifecycle.set_in_limbo_for_test(false);
         entity.lifecycle.cell_marked = false;
         entity.locomotor = Some(LocomotorState::for_test_kind(LocomotorKind::Drive));
         entity.position.exact_z_leptons = Some(0);

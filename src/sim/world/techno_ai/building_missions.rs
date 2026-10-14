@@ -1111,7 +1111,7 @@ fn prism_supporter(
         let Some(candidate) = sim.substrate.entities.get(candidate_id) else {
             continue;
         };
-        let admitted = candidate.lifecycle.object_alive
+        let admitted = candidate.lifecycle.object_alive()
             && candidate.type_ref() == master.type_ref()
             && candidate.rearm_timer.remaining(now) == 0
             && candidate

@@ -942,8 +942,8 @@ mod item83_click_route_tests {
                 5,
                 true,
             );
-            entity.lifecycle.object_alive = true;
-            entity.lifecycle.in_limbo = false;
+            entity.lifecycle.set_object_alive_for_test(true);
+            entity.lifecycle.set_in_limbo_for_test(false);
             entities.insert(entity);
         }
 
@@ -2138,7 +2138,7 @@ pub(crate) fn selection_order_for_world(
                 .filter(|id| {
                     sim.entities()
                         .get(*id)
-                        .is_some_and(|entity| entity.lifecycle.object_alive)
+                        .is_some_and(|entity| entity.lifecycle.object_alive())
                 })
                 .collect(),
             true,

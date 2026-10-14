@@ -1131,7 +1131,7 @@ fn native_overload_update_corpus() {
             .substrate
             .entities
             .get(mind)
-            .is_some_and(|entity| entity.lifecycle.object_alive);
+            .is_some_and(|entity| entity.lifecycle.object_alive());
         assert_eq!(alive, final_state["alive"] != 0, "{name}");
         if alive {
             let manager = sim
@@ -1831,6 +1831,6 @@ fn a_killing_overload_frees_the_captives_before_the_sparks() {
         sim.substrate
             .entities
             .get(mind)
-            .is_none_or(|entity| !entity.lifecycle.object_alive)
+            .is_none_or(|entity| !entity.lifecycle.object_alive())
     );
 }

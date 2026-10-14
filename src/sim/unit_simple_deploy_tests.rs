@@ -316,22 +316,20 @@ fn synchronized_deploy_obeys_native_event9_actor_guards() {
     ] {
         let (mut sim, rules, id) = fixture(&json!({}));
         match case {
-            "not_alive" => {
-                sim.substrate
-                    .entities
-                    .get_mut(id)
-                    .unwrap()
-                    .lifecycle
-                    .object_alive = false
-            }
-            "limbo" => {
-                sim.substrate
-                    .entities
-                    .get_mut(id)
-                    .unwrap()
-                    .lifecycle
-                    .in_limbo = true
-            }
+            "not_alive" => sim
+                .substrate
+                .entities
+                .get_mut(id)
+                .unwrap()
+                .lifecycle
+                .set_object_alive_for_test(false),
+            "limbo" => sim
+                .substrate
+                .entities
+                .get_mut(id)
+                .unwrap()
+                .lifecycle
+                .set_in_limbo_for_test(true),
             "tethered" => {
                 let partner = sim
                     .spawn_object("SCHP", "Russians", 12, 10, 64, &rules)

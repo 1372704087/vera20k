@@ -1492,7 +1492,7 @@ mod tests {
                     0,
                     false,
                 );
-                actor.lifecycle.in_limbo = false;
+                actor.lifecycle.set_in_limbo_for_test(false);
                 actor.mission.apply_test_fixture(MissionTestFixture {
                     current: MOVE,
                     suspended: MissionId::NONE,

@@ -199,7 +199,7 @@ fn retail_legionnaire_attacks_distant_object_after_teleport_recovery() {
             }
             if stop_issued && !actor.temporal.is_warping_someone() {
                 let victim = sim.substrate.entities.get(target).unwrap();
-                assert!(victim.lifecycle.object_alive);
+                assert!(victim.lifecycle.object_alive());
                 assert!(!victim.ai_frozen());
                 assert_eq!(victim.health.current(), original_health);
                 assert!(actor.attack_target.is_none());
@@ -210,7 +210,7 @@ fn retail_legionnaire_attacks_distant_object_after_teleport_recovery() {
                 .substrate
                 .entities
                 .get(target)
-                .is_none_or(|t| !t.lifecycle.object_alive)
+                .is_none_or(|t| !t.lifecycle.object_alive())
             {
                 assert!(
                     !actor.temporal.is_warping_someone(),

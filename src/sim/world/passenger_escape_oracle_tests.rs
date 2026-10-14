@@ -445,7 +445,7 @@ fn compare(row: &Value) {
         }
         let entity = sim.substrate.entities.get(id).unwrap();
         assert_eq!(
-            u64::from(entity.lifecycle.in_limbo),
+            u64::from(entity.lifecycle.in_limbo()),
             expected["limbo"].as_u64().unwrap(),
             "{context}: limbo"
         );

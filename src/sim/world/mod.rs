@@ -145,8 +145,8 @@ mod team_script_vm_tests;
 
 pub(crate) use display_registry::entity_layer;
 pub(crate) use lifecycle::{
-    ConcealOutcome, LifecycleOutput, PlacementEvidence, RevealOutcome, RevealPosition,
-    RevealRequest, UninitContext,
+    ConcealOutcome, LifecycleOutput, ObjectLifecycle, PlacementEvidence, RevealOutcome,
+    RevealPosition, RevealRequest, UninitContext,
 };
 #[cfg(test)]
 pub(crate) use lifecycle::{LifecycleTestEvent, RevealFailure};
@@ -2363,8 +2363,8 @@ impl Simulation {
                                         |entity| {
                                             entity.is_alive()
                                                 && !entity.dying
-                                                && !entity.lifecycle.in_limbo
-                                                && entity.lifecycle.object_alive
+                                                && !entity.lifecycle.in_limbo()
+                                                && entity.lifecycle.object_alive()
                                         },
                                     );
                             if !eligible {
@@ -3916,8 +3916,8 @@ impl Simulation {
                 );
                 let reveal = !entity.in_playfield
                     && member
-                    && entity.lifecycle.object_alive
-                    && !entity.lifecycle.in_limbo
+                    && entity.lifecycle.object_alive()
+                    && !entity.lifecycle.in_limbo()
                     && !entity.dying
                     && entity.health.current() > 0
                     && entity.category() != EntityCategory::Structure
@@ -4351,9 +4351,9 @@ impl Simulation {
     #[cfg(debug_assertions)]
     pub(crate) fn debug_assert_lifecycle_consistent(&self) {
         for entity in self.substrate.entities.values() {
-            if !entity.lifecycle.object_alive {
+            if !entity.lifecycle.object_alive() {
                 debug_assert!(
-                    entity.lifecycle.in_limbo,
+                    entity.lifecycle.in_limbo(),
                     "dead entity {} must have completed Conceal before alive clear",
                     entity.stable_id()
                 );
@@ -4824,8 +4824,8 @@ impl Simulation {
         let Some(owner) = self.substrate.entities.get(stable_id).and_then(|entity| {
             (entity.category() == EntityCategory::Structure
                 && entity.build_const_eligible
-                && entity.lifecycle.object_alive
-                && !entity.lifecycle.in_limbo
+                && entity.lifecycle.object_alive()
+                && !entity.lifecycle.in_limbo()
                 && entity.lifecycle.cell_marked)
                 .then_some(entity.owner())
         }) else {
@@ -5032,7 +5032,7 @@ impl Simulation {
             .substrate
             .entities
             .get(stable_id)
-            .is_some_and(|entity| !entity.lifecycle.in_limbo);
+            .is_some_and(|entity| !entity.lifecycle.in_limbo());
         if on_map {
             self.house_removed_from_game(stable_id, rules, effects);
         }
@@ -5322,7 +5322,7 @@ impl Simulation {
         let factory_unloading = category == EntityCategory::Structure
             && current == Some(MissionType::Unload)
             && object.is_some_and(|object| object.weapons_factory);
-        let in_limbo = entity.lifecycle.in_limbo;
+        let in_limbo = entity.lifecycle.in_limbo();
         let now = self.session.binary_frame;
         let rescue = self.substrate.entities.get(stable_id).is_some_and(|e| {
             e.mission.current().known() == Some(MissionType::Rescue)
@@ -5943,7 +5943,7 @@ impl Simulation {
                 let Some(entity) = self.substrate.entities.get(stable_id) else {
                     continue;
                 };
-                let coarse_candidate = !entity.lifecycle.in_limbo
+                let coarse_candidate = !entity.lifecycle.in_limbo()
                     && entity.lifecycle.cell_marked
                     && entity.mission.current() != selling
                     && entity.mission.queued() != selling
@@ -6190,7 +6190,7 @@ impl Simulation {
                     != Some(crate::sim::mission::MissionType::Selling)
                 || entity.ai_frozen()
                 || !entity.is_ai_alive()
-                || entity.lifecycle.in_limbo
+                || entity.lifecycle.in_limbo()
             {
                 return;
             }

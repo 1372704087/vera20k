@@ -454,8 +454,9 @@ fn native_world(input: &serde_json::Value, rules: &RuleSet) -> NativeWorld {
                     .into_iter()
                     .flatten()
                     .any(|listed| listed.as_u64() == Some(n as u64));
-            entity.lifecycle.in_limbo =
-                techno["in_limbo"].as_bool() == Some(true) || unlisted_detector;
+            entity.lifecycle.set_in_limbo_for_test(
+                techno["in_limbo"].as_bool() == Some(true) || unlisted_detector,
+            );
             id
         })
         .collect();
@@ -876,7 +877,7 @@ fn the_fuse_waits_while_the_carrier_is_in_limbo() {
         .get_mut(tank)
         .unwrap()
         .lifecycle
-        .in_limbo = true;
+        .set_in_limbo_for_test(true);
     sim.bomb_fuse_step(
         tank,
         &rules,
@@ -889,7 +890,7 @@ fn the_fuse_waits_while_the_carrier_is_in_limbo() {
         .get_mut(tank)
         .unwrap()
         .lifecycle
-        .in_limbo = false;
+        .set_in_limbo_for_test(false);
     sim.bomb_fuse_step(
         tank,
         &rules,
@@ -1277,7 +1278,7 @@ fn the_ticking_loop_follows_the_carrier() {
         .get_mut(tank)
         .unwrap()
         .lifecycle
-        .in_limbo = true;
+        .set_in_limbo_for_test(true);
     assert_eq!(
         sim.looping_sound_owner_coord(owner),
         None,

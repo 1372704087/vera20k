@@ -117,7 +117,7 @@ impl Simulation {
                 continue;
             };
             let unit = self.substrate.entities.get(unit_id).expect("listed unit");
-            if unit.lifecycle.in_limbo {
+            if unit.lifecycle.in_limbo() {
                 continue;
             }
             let owner = unit.owner();

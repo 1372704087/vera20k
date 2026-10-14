@@ -1535,7 +1535,7 @@ TurretAnimIsVoxel={}\n\n\
             5,
             crate::map::entities::EntityCategory::Structure,
         );
-        tower.lifecycle.in_limbo = false;
+        tower.lifecycle.set_in_limbo_for_test(false);
         tower.body_facing = FacingClass::new(facing_from_5_5_to_5_9().wrapping_add(offset), rot);
         tower.attack_target = Some(AttackTarget::new(2));
         sim.substrate.entities.insert(tower);

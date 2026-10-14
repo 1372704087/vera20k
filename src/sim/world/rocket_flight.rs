@@ -466,7 +466,7 @@ pub(super) mod retail_tests {
                     impact = last_location;
                     break;
                 };
-                if entity.lifecycle.in_limbo {
+                if entity.lifecycle.in_limbo() {
                     continue;
                 }
                 launched.get_or_insert(frame);
@@ -761,7 +761,7 @@ pub(super) mod retail_tests {
                     .substrate
                     .entities
                     .get(missile)
-                    .is_some_and(|e| !e.lifecycle.in_limbo);
+                    .is_some_and(|e| !e.lifecycle.in_limbo());
                 if out && !flying.contains_key(&missile) && !landed.contains_key(&missile) {
                     launches.push((frame, slot, missile));
                     flying.insert(missile, None);

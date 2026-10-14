@@ -158,8 +158,8 @@ fn assert_actor(sim: &Simulation, id: u64, native: &Value, name: &str) {
         "{name}: Location"
     );
     for (label, actual) in [
-        ("alive", u8::from(actor.lifecycle.object_alive)),
-        ("limbo", u8::from(actor.lifecycle.in_limbo)),
+        ("alive", u8::from(actor.lifecycle.object_alive())),
+        ("limbo", u8::from(actor.lifecycle.in_limbo())),
         ("marked", u8::from(actor.lifecycle.cell_marked)),
         ("logic_registered", u8::from(actor.in_logic_vector)),
     ] {
@@ -337,8 +337,8 @@ fn assert_radio_pair(sim: &Simulation, ids: (u64, u64), native: &Value, name: &s
             "{name}: {role} tether owner"
         );
         for (label, actual) in [
-            ("alive", i32::from(endpoint.lifecycle.object_alive)),
-            ("limbo", i32::from(endpoint.lifecycle.in_limbo)),
+            ("alive", i32::from(endpoint.lifecycle.object_alive())),
+            ("limbo", i32::from(endpoint.lifecycle.in_limbo())),
             ("marked", i32::from(endpoint.lifecycle.cell_marked)),
             ("in_playfield", i32::from(endpoint.in_playfield)),
             ("health", endpoint.health.current()),

@@ -267,7 +267,7 @@ fn the_lost_building_follows_owner_changes_and_expiry() {
         sim.substrate
             .entities
             .get(plant)
-            .is_none_or(|entity| !entity.lifecycle.object_alive)
+            .is_none_or(|entity| !entity.lifecycle.object_alive())
     );
     assert_eq!(lost_building(&sim, "Russians"), None);
 }

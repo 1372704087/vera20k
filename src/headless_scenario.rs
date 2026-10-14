@@ -2342,7 +2342,7 @@ mod retail_construction_tests {
                 .find(|entity| {
                     entity.owner() == soviet
                         && !entity.dying
-                        && !entity.lifecycle.in_limbo
+                        && !entity.lifecycle.in_limbo()
                         && sim.interner.resolve(entity.type_ref()) == "NAPOWR"
                 })
                 .map(|entity| entity.stable_id());
@@ -2758,7 +2758,7 @@ mod retail_construction_tests {
                 .values()
                 .filter(|entity| {
                     !entity.dying
-                        && (limbo || !entity.lifecycle.in_limbo)
+                        && (limbo || !entity.lifecycle.in_limbo())
                         && entity.owner() == soviet
                         && sim.interner.resolve(entity.type_ref()) == name
                 })

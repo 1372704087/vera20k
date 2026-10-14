@@ -604,7 +604,9 @@ fn native_pending_entry_and_radio_lifecycle_use_shared_command_owners() {
         }
         {
             let contact = scene.sim.substrate.entities.get_mut(scene.depot).unwrap();
-            contact.lifecycle.object_alive = case["contact_alive"] != false;
+            contact
+                .lifecycle
+                .set_object_alive_for_test(case["contact_alive"] != false);
             if let Some(health) = case["contact_health"].as_u64() {
                 contact.health.set_for_test(health as i32);
             }

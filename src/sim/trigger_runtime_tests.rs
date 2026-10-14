@@ -618,8 +618,8 @@ fn techno_playfield_action_40_exact_recompute_and_mobile_reveal_callback() {
         1,
         true,
     );
-    mobile.lifecycle.object_alive = true;
-    mobile.lifecycle.in_limbo = false;
+    mobile.lifecycle.set_object_alive_for_test(true);
+    mobile.lifecycle.set_in_limbo_for_test(false);
     let mut building = GameEntity::new_at_frame_zero_for_test(
         2,
         building_cell.0,
@@ -634,8 +634,8 @@ fn techno_playfield_action_40_exact_recompute_and_mobile_reveal_callback() {
         1,
         false,
     );
-    building.lifecycle.object_alive = true;
-    building.lifecycle.in_limbo = false;
+    building.lifecycle.set_object_alive_for_test(true);
+    building.lifecycle.set_in_limbo_for_test(false);
     sim.substrate.entities.insert(mobile);
     sim.substrate.entities.insert(building);
     sim.resolved_terrain = Some(flat_trigger_playfield_terrain(100, 100));

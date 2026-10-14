@@ -205,7 +205,7 @@ fn infantry_unlimbo_matches_native_gate_incoming_membership_and_signed_xy() {
                 ai_counter: 0,
                 dispatch_timer: MissionDispatchTimer::from_raw(0, 0),
             });
-            gate.lifecycle.in_limbo = false;
+            gate.lifecycle.set_in_limbo_for_test(false);
             gate.lifecycle.cell_marked = true;
             gate.in_playfield = true;
             sim.substrate.entities.insert(gate);
@@ -909,7 +909,7 @@ fn outside_reentry_clears_current_discovery_only_after_successful_alive_mark() {
             .get_mut(id)
             .unwrap()
             .lifecycle
-            .object_alive = alive;
+            .set_object_alive_for_test(alive);
         // Caller-supplied successful Mark admits an outside cell, as existing
         // release callers can. Techno6F6CB8 returns after failed Object Mark
         // before the membership writer6F6CFE, retaining the prior true byte.
@@ -1502,7 +1502,7 @@ fn techno_constructor_wall_rejection_precedes_mutation_and_keeps_graph_draws_spe
         (0, 0, 0)
     );
     assert_eq!(rejected.body_facing.destination(), 9 << 8);
-    assert!(rejected.lifecycle.in_limbo && !rejected.lifecycle.cell_marked);
+    assert!(rejected.lifecycle.in_limbo() && !rejected.lifecycle.cell_marked);
     assert!(
         child_ids
             .iter()
@@ -1578,7 +1578,7 @@ fn techno_constructor_routes_preserve_components_and_authored_overrides() {
             assert!(entity.dont_score);
             assert_eq!(entity.health.current(), if route == 0 { 100 } else { 200 });
             assert_eq!(entity.veterancy.rank(), if route == 0 { 100 } else { 0 });
-            assert_eq!(entity.lifecycle.in_limbo, route == 2);
+            assert_eq!(entity.lifecycle.in_limbo(), route == 2);
             if route == 0 {
                 assert!(!entity.base_defense_response.recruitable_a);
                 assert!(!entity.base_defense_response.recruitable_b);
@@ -1779,7 +1779,7 @@ fn techno_constructor_runtime_fresh_paths_draw_once_after_type_resolution() {
         .expect("limbo runtime Techno");
     let limbo_entity = sim.substrate.entities.get(limbo).unwrap();
     assert_eq!(limbo_entity.techno_ctor_random_word(), limbo_word);
-    assert!(limbo_entity.lifecycle.in_limbo);
+    assert!(limbo_entity.lifecycle.in_limbo());
     assert_eq!(sim.scenario_rng.logical_state(), expected.logical_state());
 }
 
@@ -1816,7 +1816,7 @@ fn techno_constructor_spawn_manager_pool_draws_parent_then_children_and_cancels_
         let child = sim.substrate.entities.get(child_id).expect("spawn child");
         assert_eq!(child.techno_ctor_random_word(), words[index + 1]);
         assert_eq!(child.spawn_owner_id, Some(parent_id));
-        assert!(child.lifecycle.in_limbo && !child.lifecycle.cell_marked);
+        assert!(child.lifecycle.in_limbo() && !child.lifecycle.cell_marked);
     }
     assert_eq!(sim.scenario_rng.logical_state(), expected.logical_state());
 
@@ -1865,7 +1865,7 @@ fn techno_constructor_slave_manager_pool_draws_parent_then_children_and_cancels_
         let slave = sim.substrate.entities.get(slave_id).expect("slave child");
         assert_eq!(slave.techno_ctor_random_word(), words[index + 1]);
         assert_eq!(slave.slave.owner(), Some(parent_id));
-        assert!(slave.lifecycle.in_limbo && !slave.lifecycle.cell_marked);
+        assert!(slave.lifecycle.in_limbo() && !slave.lifecycle.cell_marked);
     }
     assert_eq!(sim.scenario_rng.logical_state(), expected.logical_state());
 
@@ -2024,7 +2024,7 @@ fn techno_constructor_unit_can_enter_rejection_discards_eager_pool_without_refun
     assert_eq!(sim.substrate.next_stable_object_id, 6);
     assert_eq!(sim.substrate.entities.len(), 1);
     let blocker = sim.substrate.entities.get(blocker_id).unwrap();
-    assert!(blocker.lifecycle.cell_marked && !blocker.lifecycle.in_limbo);
+    assert!(blocker.lifecycle.cell_marked && !blocker.lifecycle.in_limbo());
     assert!(
         sim.substrate.entities.values().all(|entity| {
             !matches!(sim.interner.resolve(entity.type_ref()), "CARRIER" | "HORN")
@@ -2070,8 +2070,8 @@ fn techno_constructor_fixed_map_uses_native_category_order_after_prior_mark_draw
     let outside = sim.substrate.entities.get(5).unwrap();
     assert_eq!((outside.position.rx, outside.position.ry), (1, 1));
     assert!(!outside.in_playfield);
-    assert!(outside.lifecycle.object_alive);
-    assert!(outside.lifecycle.cell_marked && !outside.lifecycle.in_limbo);
+    assert!(outside.lifecycle.object_alive());
+    assert!(outside.lifecycle.cell_marked && !outside.lifecycle.in_limbo());
     assert_eq!(sim.scenario_rng.logical_state(), expected.logical_state());
 }
 
@@ -2274,7 +2274,7 @@ fn techno_constructor_authored_upgrades_are_distinct_attached_live_entities_with
                 slot: slot as u8,
             })
         );
-        assert!(!upgrade.lifecycle.in_limbo);
+        assert!(!upgrade.lifecycle.in_limbo());
         assert!(!upgrade.lifecycle.cell_marked);
         assert!(upgrade.in_logic_vector);
         assert_eq!((upgrade.position.rx, upgrade.position.ry), (10, 12));
@@ -2314,7 +2314,7 @@ fn techno_constructor_failed_reveal_keeps_one_draw_and_reuses_identity() {
         .is_none()
     );
     let held = sim.substrate.entities.get(stable_id).unwrap();
-    assert!(held.lifecycle.in_limbo);
+    assert!(held.lifecycle.in_limbo());
     assert_eq!(held.techno_ctor_random_word(), word);
     assert_eq!(held.native_unique_id(), 1001);
     assert_eq!(sim.native_unique_ids.as_ref().unwrap().current_raw(), 1001);
@@ -2603,7 +2603,7 @@ fn authored_unlimbo_preserves_scenario_scope_and_applies_native_class_health() {
             native["output"]["estimated"].as_i64().unwrap() as i32,
             "{kind}"
         );
-        assert!(!admitted.lifecycle.in_limbo);
+        assert!(!admitted.lifecycle.in_limbo());
     }
 }
 

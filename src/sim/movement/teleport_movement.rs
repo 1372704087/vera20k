@@ -795,7 +795,7 @@ impl crate::sim::world::Simulation {
     /// (`0x0047EAFE`).
     pub(crate) fn release_teleport_occupation_before_foot_limbo(&mut self, id: u64) {
         let Some(coord) = self.substrate.entities.get(id).and_then(|entity| {
-            (!entity.lifecycle.in_limbo && teleport_process_active(entity))
+            (!entity.lifecycle.in_limbo() && teleport_process_active(entity))
                 .then(|| super::ground_pose::position_world_coord(&entity.position))
         }) else {
             return;
@@ -1179,7 +1179,9 @@ mod tests {
             let mut sim = crate::sim::world::Simulation::new();
             let mut actor = teleport_owner(1, "CLEG", 5, 5);
             actor.set_category_for_test(crate::map::entities::EntityCategory::Infantry);
-            actor.lifecycle.in_limbo = input["in_limbo"].as_bool().unwrap();
+            actor
+                .lifecycle
+                .set_in_limbo_for_test(input["in_limbo"].as_bool().unwrap());
             if input["in_open_transport"].as_bool().unwrap() {
                 actor.passenger_role = crate::sim::passenger::PassengerRole::Inside {
                     transport_id: 3,
@@ -1218,7 +1220,7 @@ mod tests {
             );
             assert_eq!((actor.position.rx, actor.position.ry), (5, 5));
             assert_eq!(
-                actor.lifecycle.in_limbo,
+                actor.lifecycle.in_limbo(),
                 input["in_limbo"].as_bool().unwrap()
             );
             assert!(!bridge_changed);

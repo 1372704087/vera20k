@@ -255,7 +255,7 @@ fn destination_fixture(
     crate::rules::ruleset::RuleSet,
 ) {
     let mut entity = actor(input);
-    entity.lifecycle.in_limbo = false;
+    entity.lifecycle.set_in_limbo_for_test(false);
     let mut sim = crate::sim::world::Simulation::new();
     sim.interner = crate::sim::intern::test_interner();
     sim.session.binary_frame = 100;
@@ -888,7 +888,7 @@ fn destination_receipt_actor(
         0,
         family != "E1",
     );
-    actor.lifecycle.in_limbo = false;
+    actor.lifecycle.set_in_limbo_for_test(false);
     actor.position.sub_x = SimFixed::from_num(xyz.x % 256);
     actor.position.sub_y = SimFixed::from_num(xyz.y % 256);
     actor.position.exact_z_leptons = Some(xyz.z);

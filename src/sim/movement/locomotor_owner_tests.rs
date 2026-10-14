@@ -47,7 +47,7 @@ fn fixture() -> (Simulation, RuleSet) {
         rules.object("CMIN").expect("CMIN type"),
         0,
     ));
-    entity.lifecycle.in_limbo = false;
+    entity.lifecycle.set_in_limbo_for_test(false);
     sim.substrate.entities.insert(entity);
     (sim, rules)
 }

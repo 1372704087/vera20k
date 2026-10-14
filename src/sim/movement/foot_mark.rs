@@ -174,7 +174,7 @@ impl Simulation {
         let Some(entity) = self.substrate.entities.get_mut(id) else {
             return false;
         };
-        if entity.lifecycle.in_limbo || !entity.lifecycle.cell_marked {
+        if entity.lifecycle.in_limbo() || !entity.lifecycle.cell_marked {
             return false;
         }
         entity.lifecycle.cell_marked = false;
@@ -232,7 +232,7 @@ impl Simulation {
         let Some(entity) = self.substrate.entities.get_mut(id) else {
             return false;
         };
-        if entity.lifecycle.in_limbo || entity.lifecycle.cell_marked {
+        if entity.lifecycle.in_limbo() || entity.lifecycle.cell_marked {
             return false;
         }
         entity.lifecycle.cell_marked = true;

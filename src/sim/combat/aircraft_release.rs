@@ -67,7 +67,7 @@ fn live_shot<'r>(
             .substrate
             .entities
             .get(id)
-            .filter(|target| !target.lifecycle.in_limbo)
+            .filter(|target| !target.lifecycle.in_limbo())
             .map(|target| (target_coords(target), target.type_ref())),
         Some(TargetKind::Cell(rx, ry)) => Some((cell_center_coords(rx, ry), entity.type_ref())),
         None => None,

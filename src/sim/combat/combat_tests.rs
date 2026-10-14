@@ -299,7 +299,7 @@ fn align_attackers_to_targets(store: &mut EntityStore) {
 fn make_entity(id: u64, type_ref: &str, rx: u16, ry: u16, hp: i32) -> GameEntity {
     let mut e = GameEntity::test_default(id, type_ref, "Test", rx, ry);
     e.health = Health::new(hp);
-    e.lifecycle.in_limbo = false;
+    e.lifecycle.set_in_limbo_for_test(false);
     e
 }
 
@@ -313,7 +313,7 @@ fn make_entity_owned(
 ) -> GameEntity {
     let mut e = GameEntity::test_default(id, type_ref, owner, rx, ry);
     e.health = Health::new(hp);
-    e.lifecycle.in_limbo = false;
+    e.lifecycle.set_in_limbo_for_test(false);
     e
 }
 
@@ -1664,7 +1664,7 @@ fn lifecycle_authority_immediate_combat_death_reaches_uninit_without_precleanup(
     dead.attack_target = Some(AttackTarget::new(2));
     dead.navigation.nav_com = Some(crate::sim::components::NavTargetRef::cell(9, 9));
     dead.in_logic_vector = true;
-    dead.lifecycle.in_limbo = false;
+    dead.lifecycle.set_in_limbo_for_test(false);
     dead.lifecycle.cell_marked = true;
     dead.radio_contacts.insert(2);
     store.insert(dead);
@@ -1693,8 +1693,8 @@ fn lifecycle_authority_immediate_combat_death_reaches_uninit_without_precleanup(
         "UnInit owns movement cleanup"
     );
     assert!(dead.in_logic_vector, "UnInit owns LogicVector removal");
-    assert!(dead.lifecycle.object_alive);
-    assert!(!dead.lifecycle.in_limbo);
+    assert!(dead.lifecycle.object_alive());
+    assert!(!dead.lifecycle.in_limbo());
     assert!(dead.lifecycle.cell_marked);
     assert!(dead.radio_contacts.contains(2), "Techno Limbo owns BREAK");
     assert!(
@@ -1760,7 +1760,7 @@ fn lifecycle_authority_animated_combat_handoff_changes_only_dying_and_sequence()
     dead.attack_target = Some(AttackTarget::new(2));
     dead.navigation.nav_com = Some(crate::sim::components::NavTargetRef::cell(9, 9));
     dead.in_logic_vector = true;
-    dead.lifecycle.in_limbo = false;
+    dead.lifecycle.set_in_limbo_for_test(false);
     dead.lifecycle.cell_marked = true;
     dead.radio_contacts.insert(2);
     store.insert(dead);
@@ -1784,8 +1784,8 @@ fn lifecycle_authority_animated_combat_handoff_changes_only_dying_and_sequence()
     assert!(dead.attack_target.is_some());
     assert!(dead.navigation.nav_com.is_some());
     assert!(dead.in_logic_vector);
-    assert!(dead.lifecycle.object_alive);
-    assert!(!dead.lifecycle.in_limbo);
+    assert!(dead.lifecycle.object_alive());
+    assert!(!dead.lifecycle.in_limbo());
     assert!(dead.lifecycle.cell_marked);
     assert!(dead.radio_contacts.contains(2));
     assert!(!dead.destruction_recorded);
@@ -2994,7 +2994,7 @@ fn retaliation_gate_world(
         entity.set_type_ref_for_test(sim.interner.intern(type_name));
         entity.set_category_for_test(category);
         entity.health.set_for_test(health);
-        entity.lifecycle.in_limbo = false;
+        entity.lifecycle.set_in_limbo_for_test(false);
         entity.lifecycle.cell_marked = true;
         entity.mission.apply_test_fixture(MissionTestFixture {
             current: MissionId::from_known(MissionType::Guard),
@@ -3197,7 +3197,7 @@ fn gsi_04_07_damage_retaliation_is_receiver_synchronous_and_uses_mission_overrid
         let mut source = make_entity(1, "SOURCE", 6, 5, 200);
         source.set_owner_for_test(source_owner);
         source.set_type_ref_for_test(source_type);
-        source.lifecycle.in_limbo = false;
+        source.lifecycle.set_in_limbo_for_test(false);
         source.lifecycle.cell_marked = true;
         entities.insert(source);
 
@@ -3205,7 +3205,7 @@ fn gsi_04_07_damage_retaliation_is_receiver_synchronous_and_uses_mission_overrid
         victim.set_owner_for_test(victim_owner);
         victim.set_type_ref_for_test(victim_type);
         victim.health.set_for_test(victim_health);
-        victim.lifecycle.in_limbo = false;
+        victim.lifecycle.set_in_limbo_for_test(false);
         victim.lifecycle.cell_marked = true;
         victim.mission.apply_test_fixture(MissionTestFixture {
             current: MissionId::from_known(mission),
@@ -3402,14 +3402,14 @@ fn gsi_04_07_damage_retaliation_peek_rejects_limbo_attacker() {
         let mut source = make_entity(1, "SOURCE", 6, 5, 200);
         source.set_owner_for_test(source_owner);
         source.set_type_ref_for_test(source_type);
-        source.lifecycle.in_limbo = attacker_in_limbo;
+        source.lifecycle.set_in_limbo_for_test(attacker_in_limbo);
         source.lifecycle.cell_marked = !attacker_in_limbo;
         entities.insert(source);
 
         let mut victim = make_entity(2, "VICTIM", 8, 5, 100);
         victim.set_owner_for_test(victim_owner);
         victim.set_type_ref_for_test(victim_type);
-        victim.lifecycle.in_limbo = false;
+        victim.lifecycle.set_in_limbo_for_test(false);
         victim.lifecycle.cell_marked = true;
         victim.mission.apply_test_fixture(MissionTestFixture {
             current: MissionId::from_known(MissionType::Guard),
@@ -3849,7 +3849,7 @@ fn gsi_04_07_damage_ai_retaliation_keeps_higher_scored_current_target() {
         let mut victim = make_entity(10, "HTNK", 8, 5, 400);
         victim.set_owner_for_test(ai_owner);
         victim.set_type_ref_for_test(htnk_type);
-        victim.lifecycle.in_limbo = false;
+        victim.lifecycle.set_in_limbo_for_test(false);
         victim.lifecycle.cell_marked = true;
         victim.attack_target = Some(AttackTarget::new(current_id));
         victim.navigation.nav_com = Some(crate::sim::components::NavTargetRef::cell(9, 5));
@@ -3869,7 +3869,7 @@ fn gsi_04_07_damage_ai_retaliation_keeps_higher_scored_current_target() {
         tanya.set_owner_for_test(tanya_owner);
         tanya.set_type_ref_for_test(tanya_type);
         tanya.set_category_for_test(EntityCategory::Infantry);
-        tanya.lifecycle.in_limbo = false;
+        tanya.lifecycle.set_in_limbo_for_test(false);
         tanya.lifecycle.cell_marked = true;
         entities.insert(tanya);
 
@@ -3877,7 +3877,7 @@ fn gsi_04_07_damage_ai_retaliation_keeps_higher_scored_current_target() {
         gi.set_owner_for_test(gi_owner);
         gi.set_type_ref_for_test(gi_type);
         gi.set_category_for_test(EntityCategory::Infantry);
-        gi.lifecycle.in_limbo = false;
+        gi.lifecycle.set_in_limbo_for_test(false);
         gi.lifecycle.cell_marked = true;
         entities.insert(gi);
 
@@ -4031,14 +4031,14 @@ fn gsi_04_07_damage_spawn_and_slave_managers_block_retaliation() {
         let mut source = make_entity(1, "SOURCE", 6, 5, 100);
         source.set_owner_for_test(source_owner);
         source.set_type_ref_for_test(source_type);
-        source.lifecycle.in_limbo = false;
+        source.lifecycle.set_in_limbo_for_test(false);
         source.lifecycle.cell_marked = true;
         entities.insert(source);
 
         let mut victim = make_entity(2, victim_type_name, 8, 5, 100);
         victim.set_owner_for_test(victim_owner);
         victim.set_type_ref_for_test(victim_type);
-        victim.lifecycle.in_limbo = false;
+        victim.lifecycle.set_in_limbo_for_test(false);
         victim.lifecycle.cell_marked = true;
         victim.mission.apply_test_fixture(MissionTestFixture {
             current: MissionId::from_known(MissionType::Guard),
@@ -4164,14 +4164,14 @@ fn gsi_04_07_damage_full_capture_manager_blocks_retaliation() {
         let mut source = make_entity(1, "SOURCE", 6, 5, 100);
         source.set_owner_for_test(source_owner);
         source.set_type_ref_for_test(source_type);
-        source.lifecycle.in_limbo = false;
+        source.lifecycle.set_in_limbo_for_test(false);
         source.lifecycle.cell_marked = true;
         entities.insert(source);
 
         let mut victim = make_structure_entity(2, "YAPSYT", 8, 5, 100, 100);
         victim.set_owner_for_test(victim_owner);
         victim.set_type_ref_for_test(victim_type);
-        victim.lifecycle.in_limbo = false;
+        victim.lifecycle.set_in_limbo_for_test(false);
         victim.lifecycle.cell_marked = true;
         victim.mission.apply_test_fixture(MissionTestFixture {
             current: MissionId::from_known(MissionType::Guard),
@@ -4190,7 +4190,7 @@ fn gsi_04_07_damage_full_capture_manager_blocks_retaliation() {
             controlled.set_type_ref_for_test(link_type);
             controlled.mind_control =
                 crate::sim::capture_manager::MindControlLink::controlled_by_for_test(2);
-            controlled.lifecycle.in_limbo = false;
+            controlled.lifecycle.set_in_limbo_for_test(false);
             controlled.lifecycle.cell_marked = true;
             entities.insert(controlled);
         }
@@ -4413,13 +4413,13 @@ fn gsi_04_07_damage_receiver_updates_grudge_before_retaliation() {
     .expect("anger feedback rules parse");
     let mut entities = EntityStore::new();
     let mut source = make_entity_owned(1, "SOURCE", 7, 5, 1000, "B");
-    source.lifecycle.in_limbo = false;
+    source.lifecycle.set_in_limbo_for_test(false);
     entities.insert(source);
     let mut damaged = make_entity_owned(2, "TARGET", 5, 5, 1000, "A");
-    damaged.lifecycle.in_limbo = false;
+    damaged.lifecycle.set_in_limbo_for_test(false);
     entities.insert(damaged);
     let mut zero = make_entity_owned(3, "ZERO", 6, 5, 1000, "A");
-    zero.lifecycle.in_limbo = false;
+    zero.lifecycle.set_in_limbo_for_test(false);
     entities.insert(zero);
 
     // `GameEntity::test_default` interns through the thread-local test
@@ -4625,7 +4625,7 @@ fn gsi_04_07_damage_postmortem_stock_barrel_delay_and_nested_order() {
     for id in [center, middle, edge] {
         let barrel = sim.substrate.entities.get(id).unwrap();
         assert_eq!(barrel.health.current(), 1);
-        assert!(barrel.lifecycle.object_alive && !barrel.dying);
+        assert!(barrel.lifecycle.object_alive() && !barrel.dying);
     }
     assert_eq!(
         sim.overlay_grid.as_ref().unwrap().cell(8, 5).overlay_id,
@@ -4674,7 +4674,7 @@ fn gsi_04_07_damage_postmortem_stock_barrel_delay_and_nested_order() {
         .get(center)
         .expect("UnInit keeps physical storage until the pending-delete drain");
     assert_eq!(expired.health.current(), 0);
-    assert!(expired.dying && !expired.lifecycle.object_alive);
+    assert!(expired.dying && !expired.lifecycle.object_alive());
     assert!(!expired.in_logic_vector);
     assert!(!sim.substrate.occupancy.contains_entity(8, 5, center));
     assert!(sim.substrate.pending_delete.contains_object(&center));
@@ -4770,7 +4770,7 @@ fn gsi_04_07_damage_postmortem_exact_zero_callbacks_precede_restore() {
     assert_eq!(pending.source_entity_id, None);
     let target = sim.substrate.entities.get(target_id).unwrap();
     assert_eq!(target.health.current(), 1);
-    assert!(target.lifecycle.object_alive && !target.lifecycle.in_limbo);
+    assert!(target.lifecycle.object_alive() && !target.lifecycle.in_limbo());
     assert!(target.in_logic_vector && target.lifecycle.cell_marked);
     assert!(
         !target.selected,
@@ -4866,7 +4866,7 @@ fn gsi_04_07_damage_postmortem_exact_zero_callbacks_precede_restore() {
     let target = sim.substrate.entities.get(target_id).unwrap();
     assert_eq!(target.health.current(), 1);
     assert_eq!(target.pending_c4_detonation, Some(original_pending));
-    assert!(target.lifecycle.object_alive && target.in_logic_vector);
+    assert!(target.lifecycle.object_alive() && target.in_logic_vector);
     assert!(sim.substrate.occupancy.contains_entity(8, 5, target_id));
     assert!(!sim.substrate.pending_delete.contains_object(&target_id));
     assert_eq!(sim.houses[&victim_owner].stats.buildings_lost(), 2);
@@ -5393,14 +5393,14 @@ fn a_struck_building_sounds_the_global_damage_cue_only_on_a_state_crossing() {
         // clone happens to hold at that index.
         let mut entities = EntityStore::new();
         let mut attacker = GameEntity::test_default(1, "MTNK", "Americans", 10, 10);
-        attacker.lifecycle.in_limbo = false;
+        attacker.lifecycle.set_in_limbo_for_test(false);
         attacker.in_playfield = true;
         entities.insert(attacker);
         let mut victim = GameEntity::test_default(2, victim_type, "Soviet", 4, 7);
         victim.set_category_for_test(victim_category);
         victim.health = Health::new(100);
         crate::sim::movement::ground_pose::put_location(&mut victim.position, coordinate);
-        victim.lifecycle.in_limbo = false;
+        victim.lifecycle.set_in_limbo_for_test(false);
         victim.in_playfield = true;
         entities.insert(victim);
 
@@ -5581,13 +5581,13 @@ fn a_techno_speaks_its_voice_feedback_only_on_the_half_strength_crossing() {
      -> (Vec<SimSoundEvent>, i32) {
         let mut entities = EntityStore::new();
         let mut attacker = GameEntity::test_default(1, "MTNK", "Americans", 10, 10);
-        attacker.lifecycle.in_limbo = false;
+        attacker.lifecycle.set_in_limbo_for_test(false);
         attacker.in_playfield = true;
         entities.insert(attacker);
         let mut victim = GameEntity::test_default(2, victim_type, "Soviet", 4, 7);
         victim.set_category_for_test(victim_category);
         victim.health = Health::new(100);
-        victim.lifecycle.in_limbo = false;
+        victim.lifecycle.set_in_limbo_for_test(false);
         victim.in_playfield = true;
         entities.insert(victim);
 

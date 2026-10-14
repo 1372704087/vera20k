@@ -25,7 +25,7 @@ fn unit(id: u64, name: &str, cell: (u16, u16), sub: (i32, i32)) -> GameEntity {
     unit.set_category_for_test(EntityCategory::Unit);
     unit.position.sub_x = SimFixed::from_num(sub.0);
     unit.position.sub_y = SimFixed::from_num(sub.1);
-    unit.lifecycle.in_limbo = false;
+    unit.lifecycle.set_in_limbo_for_test(false);
     unit
 }
 

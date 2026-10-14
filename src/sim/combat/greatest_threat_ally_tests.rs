@@ -172,7 +172,7 @@ fn place(
 ) {
     let mut entity =
         GameEntity::test_default_of_category(id, type_id, owner, cell.0, cell.1, category);
-    entity.lifecycle.in_limbo = false;
+    entity.lifecycle.set_in_limbo_for_test(false);
     entity.lifecycle.cell_marked = true;
     entity.health.set_for_test(health);
     if category == EntityCategory::Structure {

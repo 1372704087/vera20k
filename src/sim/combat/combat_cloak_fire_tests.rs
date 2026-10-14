@@ -38,7 +38,7 @@ fn entities(target_type: &str) -> EntityStore {
     store.insert(bsub);
     // On the map: GetFireError refuses a target in limbo (T12, `0x006FC1BE`).
     let mut target = GameEntity::test_default(2, target_type, "Americans", 11, 10);
-    target.lifecycle.in_limbo = false;
+    target.lifecycle.set_in_limbo_for_test(false);
     store.insert(target);
     store
 }

@@ -338,7 +338,7 @@ impl<'a> FireSubject<'a> {
                             EntityCategory::Structure => FireTargetKind::Building,
                         },
                         bomb: entity.bomb.is_some(),
-                        in_limbo: entity.lifecycle.in_limbo,
+                        in_limbo: entity.lifecycle.in_limbo(),
                         sinking: entity.sinking.is_active(),
                         on_bridge: entity.on_bridge,
                         z: self.terrain().map_or(0, |terrain| {

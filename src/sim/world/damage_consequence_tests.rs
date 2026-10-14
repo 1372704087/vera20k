@@ -257,7 +257,7 @@ fn immediate_bullet_commits_before_return_with_its_original_sound_order() {
             .get(victim)
             .unwrap()
             .lifecycle
-            .object_alive
+            .object_alive()
     );
     assert_eq!(
         delivery_sounds(&sim),

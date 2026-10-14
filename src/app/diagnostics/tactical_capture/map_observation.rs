@@ -3159,7 +3159,7 @@ impl TacticalCaptureSession {
                     "veterancy_rank_cache": entity.veterancy.rank_cache(),
                     "elite_flash_frames": entity.flashing.frames(),
                     "object_alive": entity.is_object_alive(),
-                    "in_limbo": entity.lifecycle.in_limbo, "dying": entity.dying,
+                    "in_limbo": entity.lifecycle.in_limbo(), "dying": entity.dying,
                     // Techno +0x1C8, the offline latch (`sim::powered_unit`).
                     "deactivated": entity.deactivated,
                     // Mark and Logic membership are independent retained facts.
@@ -5583,7 +5583,7 @@ mod tests {
                 4,
                 true,
             );
-            entity.lifecycle.in_limbo = false;
+            entity.lifecycle.set_in_limbo_for_test(false);
             sim.entities_mut().insert(entity);
         }
         let [attack, launch] = profile.commands() else {

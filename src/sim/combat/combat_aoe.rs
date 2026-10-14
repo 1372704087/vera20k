@@ -619,7 +619,7 @@ pub(crate) fn apply_aoe_damage_with_terrain_and_scenario<O: Into<AoEDamageOrigin
     }
 
     for entity in entities.values() {
-        if entity.lifecycle.in_limbo
+        if entity.lifecycle.in_limbo()
             || crate::sim::occupancy::cell_list_layer_for_entity(
                 entity,
                 layer_context.terrain.as_deref(),
@@ -1362,7 +1362,7 @@ mod tests {
             air.health.set_for_test(1000);
             // Ordinary Aircraft41B920 reaches Object5F6B90: Object+74 must
             // be marked before the physical GetHeight threshold is queried.
-            air.lifecycle.in_limbo = false;
+            air.lifecycle.set_in_limbo_for_test(false);
             air.lifecycle.cell_marked = true;
             air.position.exact_z_leptons = Some(altitude);
             let mut locomotor = crate::sim::movement::locomotor::LocomotorState::from_object_type(
@@ -1664,7 +1664,7 @@ mod tests {
             vulnerable.set_owner_for_test(victim_owner);
             vulnerable.position.sub_x = CELL_CENTER_LEPTON;
             vulnerable.position.sub_y = CELL_CENTER_LEPTON;
-            vulnerable.lifecycle.in_limbo = false;
+            vulnerable.lifecycle.set_in_limbo_for_test(false);
             vulnerable.lifecycle.cell_marked = true;
             entities.insert(vulnerable);
 
@@ -1677,7 +1677,7 @@ mod tests {
                     .wrapping_add(protected_distance),
             );
             protected.position.sub_y = CELL_CENTER_LEPTON;
-            protected.lifecycle.in_limbo = false;
+            protected.lifecycle.set_in_limbo_for_test(false);
             protected.lifecycle.cell_marked = true;
             protected.invulnerability = Some(InvulnerabilityState::new(
                 crate::sim::timer::CdTimer::started(0, 100),
@@ -1833,7 +1833,7 @@ mod tests {
             let make_air = |stable_id, rx, enter_order| {
                 let mut air = GameEntity::test_default(stable_id, "AIRBOMB", "Soviet", rx, 5);
                 air.set_category_for_test(EntityCategory::Aircraft);
-                air.lifecycle.in_limbo = false;
+                air.lifecycle.set_in_limbo_for_test(false);
                 air.health.set_for_test(hp);
                 air.position.z = 0;
                 let mut air_locomotor =
@@ -1856,10 +1856,10 @@ mod tests {
             let air_perimeter = make_air(5, 3, 3);
 
             let mut center = GameEntity::test_default(20, "GROUNDBOMB", "Soviet", 5, 5);
-            center.lifecycle.in_limbo = false;
+            center.lifecycle.set_in_limbo_for_test(false);
             center.health.set_for_test(hp);
             let mut east = GameEntity::test_default(10, "GROUNDBOMB", "Soviet", 7, 5);
-            east.lifecycle.in_limbo = false;
+            east.lifecycle.set_in_limbo_for_test(false);
             east.health.set_for_test(hp);
 
             let mut entities = EntityStore::new();

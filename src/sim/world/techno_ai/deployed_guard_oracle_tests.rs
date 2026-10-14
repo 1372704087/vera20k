@@ -236,8 +236,8 @@ fn supplied_fixture(row: &Value) -> (Simulation, RuleSet, u64) {
     }
     let actor = sim.substrate.entities.get_mut(id).unwrap();
     actor.health.set_for_test(100);
-    actor.lifecycle.in_limbo = false;
-    actor.lifecycle.object_alive = true;
+    actor.lifecycle.set_in_limbo_for_test(false);
+    actor.lifecycle.set_object_alive_for_test(true);
     // The companion supplies a post-constructor Location at Cell10,10;
     // transport the complete saved XYZ through the existing coordinate owner.
     ground_pose::put_location(&mut actor.position, coordinate(&before["position"]));

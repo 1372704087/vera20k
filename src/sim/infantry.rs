@@ -505,7 +505,7 @@ pub(crate) fn tick_idle_actions(
         let Some(entity) = entities.get_mut(id) else {
             continue;
         };
-        if (entity.lifecycle.in_limbo && !entity.passenger_role.in_open_transport())
+        if (entity.lifecycle.in_limbo() && !entity.passenger_role.in_open_transport())
             || !entity.is_active()
             || entity.ai_frozen()
         {
@@ -598,7 +598,7 @@ mod tests {
         // Supply the standing post-Unlimbo boundary this leaf fixture skips:
         // Techno 0x006F6E2A..0x006F6E4F enters idle and commences Guard.
         // The constructor itself correctly leaves the committed selector at NONE.
-        e.lifecycle.in_limbo = false;
+        e.lifecycle.set_in_limbo_for_test(false);
         e.mission.apply_test_fixture(MissionTestFixture {
             current: MissionId::from_known(MissionType::Guard),
             suspended: MissionId::NONE,
@@ -784,7 +784,7 @@ mod tests {
             5,
             false,
         );
-        actor.lifecycle.in_limbo = false;
+        actor.lifecycle.set_in_limbo_for_test(false);
         actor.set_falling_down_for_test(input["object_is_falling_down"].as_bool().unwrap_or(false));
         actor
             .mission_leaf
@@ -1163,7 +1163,7 @@ mod tests {
                 0,
                 false,
             );
-            actor.lifecycle.in_limbo = false;
+            actor.lifecycle.set_in_limbo_for_test(false);
             actor.position.sub_x = SimFixed::from_num(signed(&before["position"][0]) % 256);
             actor.position.sub_y = SimFixed::from_num(signed(&before["position"][1]) % 256);
             actor.position.exact_z_leptons = Some(signed(&before["position"][2]));

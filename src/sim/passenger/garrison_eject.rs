@@ -898,7 +898,7 @@ pub(crate) mod tests {
             );
             assert!(matches!(pax.passenger_role, PassengerRole::None));
             assert!(!pax.dying);
-            assert!(!pax.lifecycle.in_limbo);
+            assert!(!pax.lifecycle.in_limbo());
             assert!(pax.lifecycle.cell_marked);
             assert!(pax.in_logic_vector);
         }
@@ -953,9 +953,9 @@ pub(crate) mod tests {
             .entities
             .get(passenger_id)
             .expect("detached occupant must survive the building UnInit");
-        assert!(passenger.lifecycle.object_alive);
+        assert!(passenger.lifecycle.object_alive());
         assert!(passenger.is_alive());
-        assert!(!passenger.lifecycle.in_limbo);
+        assert!(!passenger.lifecycle.in_limbo());
     }
 
     #[test]
@@ -1081,8 +1081,8 @@ pub(crate) mod tests {
         assert_eq!(passenger.health.current(), 0);
         assert!(passenger.dying);
         assert!(matches!(passenger.passenger_role, PassengerRole::None));
-        assert!(!passenger.lifecycle.object_alive);
-        assert!(passenger.lifecycle.in_limbo);
+        assert!(!passenger.lifecycle.object_alive());
+        assert!(passenger.lifecycle.in_limbo());
         assert!(sim.substrate.pending_delete.contains_object(&passenger_id));
 
         sim.flush_pending_delete();

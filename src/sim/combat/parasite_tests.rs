@@ -175,7 +175,7 @@ impl Arena {
             .substrate
             .entities
             .get(id)
-            .is_some_and(|e| e.lifecycle.in_limbo)
+            .is_some_and(|e| e.lifecycle.in_limbo())
     }
 
     fn health(&self, id: u64) -> Option<i32> {
@@ -192,7 +192,7 @@ impl Arena {
             .substrate
             .entities
             .get(id)
-            .is_none_or(|e| !e.lifecycle.object_alive)
+            .is_none_or(|e| !e.lifecycle.object_alive())
     }
 
     /// One direct ReceiveDamage call at distance zero.
@@ -270,7 +270,7 @@ fn dog_bite_kills_the_infantry_and_releases_the_dog_where_it_stood() {
         sim.substrate
             .entities
             .get(dog)
-            .is_some_and(|d| d.lifecycle.in_limbo)
+            .is_some_and(|d| d.lifecycle.in_limbo())
     });
     // TechnoClass::Fire LimboLaunch: the dog rides its bullet.
     assert!(arena.in_limbo(dog));
@@ -287,7 +287,7 @@ fn dog_bite_kills_the_infantry_and_releases_the_dog_where_it_stood() {
         sim.substrate
             .entities
             .get(dog)
-            .is_some_and(|d| !d.lifecycle.in_limbo)
+            .is_some_and(|d| !d.lifecycle.in_limbo())
     });
     let dog_entity = arena.sim.substrate.entities.get(dog).unwrap();
     assert!(dog_entity.health.current() > 0, "the dog survives its kill");
@@ -331,7 +331,7 @@ fn team_dog_jumps(rules: &RuleSet, arena: &mut Arena) -> (u64, u64, u64) {
         sim.substrate
             .entities
             .get(dog)
-            .is_some_and(|d| d.lifecycle.in_limbo)
+            .is_some_and(|d| d.lifecycle.in_limbo())
     });
     // TechnoClass::Fire 0x006FF7A3..0x006FF7E9 keeps the team (+0x434); the
     // jump's Limbo takes the dog off it (0x004D9744).
@@ -349,7 +349,7 @@ fn a_team_dog_rejoins_its_team_when_its_kill_releases_it() {
         sim.substrate
             .entities
             .get(dog)
-            .is_some_and(|d| !d.lifecycle.in_limbo)
+            .is_some_and(|d| !d.lifecycle.in_limbo())
     });
     // PointerExpired's release re-adds it (0x0062A3AD..0x0062A3BC).
     assert_eq!(
@@ -374,7 +374,7 @@ fn a_dog_whose_team_died_while_it_was_away_stays_teamless() {
         sim.substrate
             .entities
             .get(dog)
-            .is_some_and(|d| !d.lifecycle.in_limbo)
+            .is_some_and(|d| !d.lifecycle.in_limbo())
     });
     assert!(arena.sim.team_script_vm.team(team).is_none());
     assert_eq!(arena.sim.team_script_vm.team_to_rejoin(dog), None);
@@ -425,7 +425,7 @@ fn drone_bites_on_its_weapon_rate_until_the_host_dies_then_drops_off() {
         sim.substrate
             .entities
             .get(drone)
-            .is_some_and(|d| !d.lifecycle.in_limbo)
+            .is_some_and(|d| !d.lifecycle.in_limbo())
     });
     let drone_entity = arena.sim.substrate.entities.get(drone).unwrap();
     assert!(drone_entity.health.current() > 0);
@@ -571,7 +571,7 @@ fn a_sonic_hit_ejects_the_drone_alive_beside_its_host_and_drops_the_shooter_targ
 
     let frame = arena.frame();
     let released = arena.sim.substrate.entities.get(drone).unwrap();
-    assert!(!released.lifecycle.in_limbo && released.lifecycle.object_alive);
+    assert!(!released.lifecycle.in_limbo() && released.lifecycle.object_alive());
     assert_eq!(released.health.current(), 100);
     assert_eq!(host_facing, 0);
     assert_eq!(
@@ -683,7 +683,7 @@ fn a_teleport_warp_ejects_the_drone_before_the_host_relocates() {
     assert_eq!(arena.cell(tank), (20, 20));
     assert_eq!(arena.eater_of(tank), None);
     let released = arena.sim.substrate.entities.get(drone).unwrap();
-    assert!(!released.lifecycle.in_limbo && released.lifecycle.object_alive);
+    assert!(!released.lifecycle.in_limbo() && released.lifecycle.object_alive());
     assert!(released.parasite.is_paralyzed(arena.frame()));
     let (rx, ry) = arena.cell(drone);
     assert!(rx.abs_diff(11) <= 1 && ry.abs_diff(10) <= 1);
@@ -711,7 +711,7 @@ fn a_host_lost_in_flight_returns_the_drone_to_its_launch_cell() {
         sim.substrate
             .entities
             .get(drone)
-            .is_some_and(|d| d.lifecycle.in_limbo)
+            .is_some_and(|d| d.lifecycle.in_limbo())
     });
     // Attack's ordinary MegaMission first clears Archive through70C610
     // (4C73EF's mission!=11 branch,4C7448..4C7451). Supply this component
@@ -725,7 +725,7 @@ fn a_host_lost_in_flight_returns_the_drone_to_its_launch_cell() {
         sim.substrate
             .entities
             .get(drone)
-            .is_some_and(|d| !d.lifecycle.in_limbo)
+            .is_some_and(|d| !d.lifecycle.in_limbo())
     });
     let returned = arena.sim.substrate.entities.get(drone).unwrap();
     assert_eq!(arena.cell(drone), (10, 10));
@@ -848,7 +848,7 @@ fn a_load_keeps_the_infection_and_restarts_both_parasite_timers() {
         assert_eq!(left.parasite.eater, right.parasite.eater);
         assert_eq!(left.parasite.launch_lock, right.parasite.launch_lock);
         assert_eq!(left.parasite.paralysis, right.parasite.paralysis);
-        assert_eq!(left.lifecycle.in_limbo, right.lifecycle.in_limbo);
+        assert_eq!(left.lifecycle.in_limbo(), right.lifecycle.in_limbo());
     }
 
     arena.step(&rules);
@@ -899,7 +899,7 @@ fn the_reselect_memo_stays_out_of_the_peer_hash() {
             sim.substrate
                 .entities
                 .get(dog)
-                .is_some_and(|d| d.lifecycle.in_limbo)
+                .is_some_and(|d| d.lifecycle.in_limbo())
         });
         let memo = arena
             .sim
@@ -964,7 +964,7 @@ fn a_dog_released_on_a_bridge_deck_stays_on_the_deck() {
         sim.substrate
             .entities
             .get(dog)
-            .is_some_and(|d| !d.lifecycle.in_limbo)
+            .is_some_and(|d| !d.lifecycle.in_limbo())
     });
     let released = arena.sim.substrate.entities.get(dog).unwrap();
     assert!(released.on_bridge);

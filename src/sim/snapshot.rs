@@ -2419,14 +2419,14 @@ impl Simulation {
             if (entity.infantry_terminal.is_some()
                 && (!infantry
                     || !entity.dying
-                    || !entity.lifecycle.object_alive
-                    || (!entity.lifecycle.in_limbo
+                    || !entity.lifecycle.object_alive()
+                    || (!entity.lifecycle.in_limbo()
                         && !terminal_logic_members.contains(&object_id))))
                 || entity.infantry_terminal
                     == Some(crate::sim::world::InfantryTerminal::AwaitingConsequences)
                 || (infantry
                     && entity.dying
-                    && entity.lifecycle.object_alive
+                    && entity.lifecycle.object_alive()
                     && entity.infantry_terminal.is_none())
             {
                 return Err(SnapshotRestoreError::InvalidInfantryTerminalState { object_id });
@@ -2994,7 +2994,7 @@ mod tests {
                 5,
                 true,
             );
-            entity.lifecycle.in_limbo = false;
+            entity.lifecycle.set_in_limbo_for_test(false);
             entity.in_logic_vector = true;
             entity.on_bridge = on_bridge;
             sim.substrate.entities.insert(entity);
@@ -4570,8 +4570,8 @@ mod tests {
             let mut entity = GameEntity::test_default(1, "E1", "Americans", 5, 5);
             entity.set_category_for_test(category);
             entity.dying = dying;
-            entity.lifecycle.object_alive = object_alive;
-            entity.lifecycle.in_limbo = in_limbo;
+            entity.lifecycle.set_object_alive_for_test(object_alive);
+            entity.lifecycle.set_in_limbo_for_test(in_limbo);
             entity.infantry_terminal = terminal;
             sim.substrate.entities.insert(entity);
             let bytes = GameSnapshot::save(&sim, 0, 0, "test_map", 0);
@@ -6185,7 +6185,7 @@ mod tests {
         let mut sim = Simulation::new();
         let entity_id = sim.allocate_stable_id();
         let mut entity = GameEntity::test_default(entity_id, "MTNK", "Americans", 5, 7);
-        entity.lifecycle.in_limbo = false;
+        entity.lifecycle.set_in_limbo_for_test(false);
         entity.lifecycle.cell_marked = false;
         entity.in_logic_vector = true;
         entity.position.z = 3;
@@ -6814,8 +6814,8 @@ mod tests {
             .restore_after_snapshot_load()
             .expect("restore retired Foot before drain");
         let actor = restored.substrate.entities.get(1).unwrap();
-        assert!(!actor.lifecycle.object_alive);
-        assert!(actor.lifecycle.in_limbo);
+        assert!(!actor.lifecycle.object_alive());
+        assert!(actor.lifecycle.in_limbo());
         assert_eq!(actor.air_tracker_cell(), (0, 0));
         assert_eq!(actor.air_slot_cell(), (10, 10));
         assert_eq!(restored.substrate.air_slots.holder(10, 10), Some(1));
@@ -8487,8 +8487,8 @@ mod tests {
 
         let mut sim = Simulation::new();
         let mut entity = GameEntity::test_default(7, "MTNK", "Americans", 5, 5);
-        entity.lifecycle.object_alive = false;
-        entity.lifecycle.in_limbo = true;
+        entity.lifecycle.set_object_alive_for_test(false);
+        entity.lifecycle.set_in_limbo_for_test(true);
         entity.lifecycle.cell_marked = false;
         entity.in_logic_vector = false;
         entity.dying = true;
@@ -8507,8 +8507,8 @@ mod tests {
         let restored = GameSnapshot::load(&bytes).expect("load should succeed").sim;
         let restored_entity = restored.substrate.entities.get(7).expect("entity restored");
 
-        assert!(!restored_entity.lifecycle.object_alive);
-        assert!(restored_entity.lifecycle.in_limbo);
+        assert!(!restored_entity.lifecycle.object_alive());
+        assert!(restored_entity.lifecycle.in_limbo());
         assert!(!restored_entity.lifecycle.cell_marked);
         assert!(!restored_entity.in_logic_vector);
         assert!(restored_entity.dying);
@@ -8527,7 +8527,7 @@ mod tests {
 
         let mut sim = Simulation::new();
         let mut off_cell_member = GameEntity::test_default(1, "MTNK", "Americans", 5, 5);
-        off_cell_member.lifecycle.in_limbo = false;
+        off_cell_member.lifecycle.set_in_limbo_for_test(false);
         off_cell_member.lifecycle.cell_marked = false;
         sim.substrate.entities.insert(off_cell_member);
         sim.substrate
@@ -8536,7 +8536,7 @@ mod tests {
             .expect("logic fixture append");
 
         let mut marked_non_member = GameEntity::test_default(2, "MTNK", "Americans", 6, 6);
-        marked_non_member.lifecycle.in_limbo = false;
+        marked_non_member.lifecycle.set_in_limbo_for_test(false);
         marked_non_member.lifecycle.cell_marked = true;
         sim.substrate.entities.insert(marked_non_member);
 
@@ -8546,7 +8546,7 @@ mod tests {
 
         let member = restored.substrate.entities.get(1).expect("member restored");
         assert!(member.in_logic_vector);
-        assert!(!member.lifecycle.in_limbo);
+        assert!(!member.lifecycle.in_limbo());
         assert!(!member.lifecycle.cell_marked);
 
         let non_member = restored
@@ -8555,7 +8555,7 @@ mod tests {
             .get(2)
             .expect("non-member restored");
         assert!(!non_member.in_logic_vector);
-        assert!(!non_member.lifecycle.in_limbo);
+        assert!(!non_member.lifecycle.in_limbo());
         assert!(non_member.lifecycle.cell_marked);
     }
 
@@ -9028,7 +9028,7 @@ mod tests {
 
         let e = sim.substrate.entities.get(id).expect("entity in store");
         assert!(e.in_logic_vector, "must be in the active order");
-        assert!(!e.lifecycle.in_limbo);
+        assert!(!e.lifecycle.in_limbo());
         assert!(e.lifecycle.cell_marked);
         assert_eq!(sim.live_object_order_snapshot(), vec![id]);
         assert!(
@@ -9053,7 +9053,7 @@ mod tests {
 
         let e = sim.substrate.entities.get(id).expect("entity in store");
         assert!(!e.in_logic_vector, "limbo object is not an active member");
-        assert!(e.lifecycle.in_limbo);
+        assert!(e.lifecycle.in_limbo());
         assert!(!e.lifecycle.cell_marked);
         assert!(sim.live_object_order_snapshot().is_empty());
         assert!(
@@ -9272,7 +9272,7 @@ mod tests {
             let id = sim.allocate_stable_id();
             let mut entity = GameEntity::test_default(id, "E1", "Americans", 5, 5);
             entity.set_category_for_test(EntityCategory::Infantry);
-            entity.lifecycle.in_limbo = false;
+            entity.lifecycle.set_in_limbo_for_test(false);
             sim.substrate.entities.insert(entity);
             sim.add_entity_occupancy(id);
         }

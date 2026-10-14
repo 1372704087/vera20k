@@ -419,7 +419,7 @@ fn unloaded_passengers_rejoin_the_team() {
     assert!(f.cargo(apc).is_empty());
     assert_eq!(f.members(team), [passengers[0], passengers[1], apc]);
     for &passenger in &passengers {
-        assert!(!f.entity(passenger).lifecycle.in_limbo);
+        assert!(!f.entity(passenger).lifecycle.in_limbo());
     }
 }
 
@@ -830,9 +830,13 @@ impl OracleTeam {
                 );
             }
             let entity = sim.substrate.entities.get_mut(id).unwrap();
-            entity.lifecycle.object_alive = flag(&member["active"]);
+            entity
+                .lifecycle
+                .set_object_alive_for_test(flag(&member["active"]));
             entity.health.set_for_test(int(&member["health"]));
-            entity.lifecycle.in_limbo = flag(&member["limbo"]);
+            entity
+                .lifecycle
+                .set_in_limbo_for_test(flag(&member["limbo"]));
             let count = usize::try_from(int(&member["count"])).unwrap();
             if count > 0 {
                 let mut cargo = crate::sim::passenger::PassengerCargo::new(

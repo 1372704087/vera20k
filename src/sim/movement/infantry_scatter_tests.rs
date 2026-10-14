@@ -78,8 +78,10 @@ fn player_scatter_event_gates_and_rng_prefix_match_native_gi() {
             man.mission_leaf
                 .set_infantry_doing_verified(actor["doing"].as_i64().unwrap() as i32)
                 .unwrap();
-            man.lifecycle.object_alive = actor["alive"].as_u64().unwrap() != 0;
-            man.lifecycle.in_limbo = actor["limbo"].as_u64().unwrap() != 0;
+            man.lifecycle
+                .set_object_alive_for_test(actor["alive"].as_u64().unwrap() != 0);
+            man.lifecycle
+                .set_in_limbo_for_test(actor["limbo"].as_u64().unwrap() != 0);
             man.dock_entered_with = (actor["tether"].as_u64().unwrap() != 0).then_some(9);
             let mut loco = LocomotorState::for_test_kind(LocomotorKind::Walk);
             loco.set_walk_destination(
@@ -163,7 +165,7 @@ fn armed_teleport_destination_requires_the_current_cell_inputs() {
         .construct_object_limbo_at_height("CLEG", "Americans", 10, 10, 0, 0, &rules)
         .unwrap();
     let actor = sim.substrate.entities.get_mut(id).unwrap();
-    actor.lifecycle.in_limbo = false;
+    actor.lifecycle.set_in_limbo_for_test(false);
     set_mission(actor, MissionType::Guard);
     assert!(
         actor.infantry.is_some(),

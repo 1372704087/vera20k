@@ -615,7 +615,7 @@ fn send_paradrop_planes_matches_native() {
         assert_eq!(infantry.len(), int(&row["cargo"][0]) as usize, "{row}");
         for &passenger in &infantry {
             let passenger = sim.substrate.entities.get(passenger).unwrap();
-            assert!(passenger.lifecycle.in_limbo);
+            assert!(passenger.lifecycle.in_limbo());
             assert_eq!(passenger.passenger_role.inside_transport_id(), Some(plane));
         }
         replayed += 1;
@@ -1051,7 +1051,7 @@ fn fly_out(
             sim.substrate
                 .entities
                 .get(id)
-                .is_some_and(|entity| entity.lifecycle.in_limbo || entity.is_falling_down())
+                .is_some_and(|entity| entity.lifecycle.in_limbo() || entity.is_falling_down())
         })
     };
     let mut frames = 0;
@@ -1062,7 +1062,7 @@ fn fly_out(
         chutes += chute_sounds(sim).len();
         for (n, &id) in passengers.iter().enumerate() {
             if let Some(entity) = sim.substrate.entities.get(id)
-                && !entity.lifecycle.in_limbo
+                && !entity.lifecycle.in_limbo()
                 && missions[n].is_none()
             {
                 missions[n] = Some((entity.mission.queued(), entity.mission.current()));
@@ -1085,7 +1085,7 @@ fn assert_landed(
     let mission = MissionId::from_known(mission);
     for (&id, missions) in passengers.iter().zip(missions) {
         let entity = sim.substrate.entities.get(id).expect("landed");
-        assert!(!entity.lifecycle.in_limbo && !entity.is_falling_down());
+        assert!(!entity.lifecycle.in_limbo() && !entity.is_falling_down());
         let off = |at: u16, centre: u16| (i32::from(at) - i32::from(centre)).abs();
         assert!(
             off(entity.position.rx, around.0) <= 5 && off(entity.position.ry, around.1) <= 5,

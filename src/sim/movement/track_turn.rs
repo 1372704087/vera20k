@@ -177,8 +177,9 @@ impl Simulation {
                     && entity.movement_target.is_none()
                     && let Some(speed) = speed
                 {
-                    // The empty-route adapter for its readers; the next
-                    // visit's Process_Movement follows +34 without it.
+                    // The empty-route adapter for the movement pass's own
+                    // gates; the next visit's Process_Movement follows +34
+                    // without it.
                     super::movement_commands::schedule_track_process(entity, speed);
                 }
             }

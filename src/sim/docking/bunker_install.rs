@@ -768,55 +768,57 @@ mod tests {
         );
     }
 
-    /// UpdateBunker state 0 waits on the locomotor's Is_Moving
-    /// (`0x00458EE4`), not on an order: a Drive with a destination waits in
-    /// the bunker cell, and stopped, it proceeds. Outside the bunker's cell
-    /// (`0x00458EBC..0x00458EC3`) it waits too.
+    /// UpdateBunker states 0 and 3 wait on the locomotor's Is_Moving
+    /// (`0x00458EE4`, `0x0045920B`), not on an order: a Drive with a
+    /// destination waits in the bunker cell, and stopped, it proceeds. Outside
+    /// the bunker's cell (`0x00458EBC..0x00458EC3`, `0x004591E3..0x004591EA`)
+    /// it waits too.
     #[test]
     fn arrival_waits_for_the_bunker_cell_and_a_stopped_locomotor() {
-        let mut sim = Simulation::new();
         let rules = rules();
-        spawn_bunker(&mut sim, 2);
-        spawn_tank_on(&mut sim, 1, 9, 10);
-        assert!(matches!(sim.reveal(2), RevealOutcome::Revealed { .. }));
-        assert!(matches!(sim.reveal(1), RevealOutcome::Revealed { .. }));
-        sim.substrate.entities.get_mut(1).unwrap().bunker_link = BunkerLink::Approaching(2);
-        set_state(&mut sim, 2, BunkerState::ArriveWait, Some(1));
-        let tick = |sim: &mut Simulation| {
-            tick_bunker_install(
-                sim,
-                &rules,
-                None,
-                crate::sim::world::FrameEffects::default(),
-            )
-        };
+        for (waiting, next) in [
+            (BunkerState::ArriveWait, BunkerState::ClearWait),
+            (BunkerState::TrackStep, BunkerState::TurnSouth),
+        ] {
+            let mut sim = Simulation::new();
+            spawn_bunker(&mut sim, 2);
+            spawn_tank_on(&mut sim, 1, 9, 10);
+            assert!(matches!(sim.reveal(2), RevealOutcome::Revealed { .. }));
+            assert!(matches!(sim.reveal(1), RevealOutcome::Revealed { .. }));
+            sim.substrate.entities.get_mut(1).unwrap().bunker_link = BunkerLink::Approaching(2);
+            set_state(&mut sim, 2, waiting, Some(1));
+            let tick = |sim: &mut Simulation| {
+                tick_bunker_install(
+                    sim,
+                    &rules,
+                    None,
+                    crate::sim::world::FrameEffects::default(),
+                )
+            };
 
-        tick(&mut sim);
-        assert_eq!(
-            rt(&sim, 2).state,
-            BunkerState::ArriveWait,
-            "not in its cell"
-        );
+            tick(&mut sim);
+            assert_eq!(rt(&sim, 2).state, waiting, "not in its cell");
 
-        let unit = sim.substrate.entities.get_mut(1).unwrap();
-        unit.position.rx = 10;
-        assert!(unit.locomotor.as_mut().unwrap().store_track_destination(
-            movement::track_process::TrackFamily::Drive,
-            Some(crate::sim::components::DriveCoord::cell(10, 10, 0)),
-        ));
-        assert!(unit.movement_target.is_none(), "no order adapter");
-        tick(&mut sim);
-        assert_eq!(rt(&sim, 2).state, BunkerState::ArriveWait, "still moving");
+            let unit = sim.substrate.entities.get_mut(1).unwrap();
+            unit.position.rx = 10;
+            assert!(unit.locomotor.as_mut().unwrap().store_track_destination(
+                movement::track_process::TrackFamily::Drive,
+                Some(crate::sim::components::DriveCoord::cell(10, 10, 0)),
+            ));
+            assert!(unit.movement_target.is_none(), "no order adapter");
+            tick(&mut sim);
+            assert_eq!(rt(&sim, 2).state, waiting, "still moving");
 
-        let unit = sim.substrate.entities.get_mut(1).unwrap();
-        assert!(
-            unit.locomotor
-                .as_mut()
-                .unwrap()
-                .store_track_destination(movement::track_process::TrackFamily::Drive, None)
-        );
-        tick(&mut sim);
-        assert_eq!(rt(&sim, 2).state, BunkerState::ClearWait);
+            let unit = sim.substrate.entities.get_mut(1).unwrap();
+            assert!(
+                unit.locomotor
+                    .as_mut()
+                    .unwrap()
+                    .store_track_destination(movement::track_process::TrackFamily::Drive, None)
+            );
+            tick(&mut sim);
+            assert_eq!(rt(&sim, 2).state, next);
+        }
     }
 
     #[test]

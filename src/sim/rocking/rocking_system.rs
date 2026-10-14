@@ -66,17 +66,19 @@ pub const APPLY_AREA_FORCE_FLOOR: SimFixed = SimFixed::lit("0.3");
 ///   5. Deadband snap — `|angle| <= TILT_DEADBAND` clears both fields.
 ///
 /// `direct_rocker_linked` is the DirectRocker link (`Techno+0x2A8`), which
-/// skips the clamp (`0x0070B76C`, `0x0070B7A4`) and scales the in-range damper
-/// by FallBackCoefficient (`Rules+0x18B8`, `0x0070B7FA`). The body never asks
-/// the locomotor whether the object moves.
+/// skips the clamp (sideways `0x0070B76C`, `0x0070B7A4`; forwards `0x0070BA30`,
+/// `0x0070BA66`) and scales the in-range damper by FallBackCoefficient
+/// (`Rules+0x18B8`, `0x0070B7FA`). The body never asks the locomotor whether
+/// the object moves.
 ///
 /// DRIFT, unported while the ordinary rocker has no producer (`sim::rocking`):
 /// - native picks the damper's direction by whether the angle before the step
 ///   is above the deadband (`0x0070B7DD`), not by the velocity's sign;
-/// - in range and unlinked, the sideways damper uses 0.005, not 0.002, when
-///   the velocity is zero or already has the damper's sign (`0x0070B868`,
-///   `0x0070B90D`), and the forwards damper always does (`0x0070BB3D`,
-///   `0x0070BBCD`);
+/// - in range and unlinked, native changes the sideways velocity by 0.005
+///   when it is zero or already has the damper's sign (`0x0070B868`,
+///   `0x0070B90D`) and the forwards velocity by 0.005 always (`0x0070BB3D`,
+///   `0x0070BBCD`); VERA changes a non-zero velocity by 0.002 and leaves the
+///   zero velocity a clamp writes unchanged;
 /// - the range flag tests the angle before the step (`0x0070B700..0x0070B72A`);
 /// - the deadband compares the angles before and after the step: it clears
 ///   an angle that came down through +2e-5 or up through -2e-5, past zero
@@ -192,8 +194,8 @@ pub fn tick(
         // Read whole-entity properties before borrowing rocking mutably.
         // RESIDUAL: VERA keeps no DirectRocker link (`Techno+0x2A8`). Only the
         // DirectRocker detonation arm sets it (`0x004699AD..0x004699B9`), whose
-        // effect `sim::projectile` does not perform, and no stock warhead sets
-        // `DirectRocker=`, so the link is NULL in stock play.
+        // effect `sim::projectile` does not perform, and no warhead in retail
+        // `rulesmd.ini` sets `DirectRocker=`.
         let direct_rocker_linked = false;
         let supports_ship_rock = entity_type_supports_ship_rocking(entity);
         let fallback = rules.general.fallback_coefficient;

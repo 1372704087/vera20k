@@ -314,9 +314,10 @@ impl Simulation {
     }
 
     /// The `movement_target` a Hover order installs
-    /// (`prepare_destination_execution`) tells its readers that the Foot
-    /// moves; it drops once Is_Moving (0x00514C30) is false, with the
-    /// waypoints the corridor lane dropped at arrival (#689 residual).
+    /// (`prepare_destination_execution`), which only the movement pass's own
+    /// gates and the state hash read, drops once Is_Moving (0x00514C30) is
+    /// false, with the waypoints the corridor lane dropped at arrival (#689
+    /// residual).
     fn retire_hover_adapter(&mut self, id: u64) {
         if let Some(entity) = self.substrate.entities.get_mut(id)
             && runtime(entity).is_some_and(|hover| !hover.is_moving())

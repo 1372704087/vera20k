@@ -1779,6 +1779,51 @@ fn a_warped_foot_without_a_navcom_skips_the_null_setter() {
     );
 }
 
+/// The Infantry setter's null arm has no NavCom early return, so before the
+/// native gate (Infantry `0x0051BBF5`) a warped infantryman holding only an
+/// order adapter lost his Walk destination to the locomotor Stop. Without a
+/// NavCom the freeze makes no setter call and the destination stays.
+#[test]
+fn a_warped_infantryman_without_a_navcom_keeps_his_walk_destination() {
+    use crate::sim::components::{DriveCoord, MovementTarget};
+    let rules = rules();
+    let (mut sim, _grid) = arena(10, &rules);
+    let gi = spawn(&mut sim, &rules, "E1", "Americans", 12, 10);
+    let cleg = spawn(&mut sim, &rules, "CLEG", "Russians", 10, 10);
+    sim.temporal_initiate_warp(
+        cleg,
+        Some(gi),
+        &rules,
+        None,
+        crate::sim::world::FrameEffects::default(),
+    );
+    let destination = DriveCoord::cell(14, 10, 0);
+    {
+        let gi = sim.substrate.entities.get_mut(gi).unwrap();
+        assert!(gi.navigation.nav_com.is_none());
+        gi.locomotor
+            .as_mut()
+            .unwrap()
+            .set_walk_destination(Some(destination));
+        gi.movement_target = Some(MovementTarget::default());
+    }
+    assert!(
+        sim.temporal_ai_prologue(
+            gi,
+            &rules,
+            crate::sim::world::ObjectAiCtx::default(),
+            &mut false,
+        ),
+        "frozen"
+    );
+    let gi = entity(&sim, gi);
+    assert_eq!(
+        gi.locomotor.as_ref().unwrap().walk_destination(),
+        Some(destination)
+    );
+    assert!(gi.movement_target.is_none());
+}
+
 /// InfantryClass::PerCellProcess turns an engineer away from a building
 /// being warped (`0x00519EF2`); released, the building can be captured.
 #[test]

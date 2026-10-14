@@ -221,8 +221,8 @@ pub(crate) fn clear_destination_path_head(entity: &mut GameEntity) {
 
 /// Install the empty-route scheduling adapter for a Drive/Ship Foot whose
 /// locomotor destination was set outside the ordinary setter (the outer
-/// Process NavCom reissue). Process_Movement follows +34 without it; the
-/// adapter's readers (the bunker install) see the Foot as moving.
+/// Process NavCom reissue). Process_Movement follows +34 without it; only the
+/// movement pass's own adapter gates read it.
 pub(super) fn schedule_track_process(entity: &mut GameEntity, speed: SimFixed) {
     prepare_destination_execution(entity, speed);
 }

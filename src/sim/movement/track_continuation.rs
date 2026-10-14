@@ -154,8 +154,8 @@ impl Simulation {
     /// MovementTarget adapter without a deferred order: Force_Track writes +34
     /// directly (0x4B0D3F), and a NavCom object's pointer expiry clears NavCom
     /// but not +34 (0x4D9ABD). Process_Movement does not need the adapter (the
-    /// outer gates in `track_turn` admit a moving Drive/Ship); its readers
-    /// that treat it as "moving" do, such as the bunker install.
+    /// outer gates in `track_turn` admit a moving Drive/Ship); only the
+    /// movement pass's own adapter gates read it.
     fn ensure_track_scheduling_adapter(&mut self, id: u64, rules: Option<&RuleSet>) {
         let destination = self.substrate.entities.get(id).and_then(|entity| {
             if entity.movement_target.is_some() {

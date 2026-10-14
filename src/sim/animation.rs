@@ -3,7 +3,7 @@
 //! Manages animation sequences (stand, walk, attack, die) for SHP sprite entities.
 //! Each entity with an `Animation` component has a current sequence, frame index,
 //! and reached-frame counter. The `tick_animations()` function advances frames and
-//! handles auto-transitions (e.g., stand ↔ walk based on MovementTarget).
+//! follows each completed sequence's transition.
 //!
 //! ## SHP frame layout
 //! Infantry SHP files pack multiple sequences contiguously:
@@ -18,14 +18,15 @@
 //!   `shp_frame = start + frame_within_sequence`
 //!
 //! ## Auto-transitions
-//! - Entity gains MovementTarget → switch to Walk
-//! - Entity loses MovementTarget → switch back to Stand
 //! - Attack sequence finishes → switch to Stand (TransitionTo)
 //! - Die sequence finishes → hold last frame (HoldLast)
 //!
+//! Motion switches no sequence: Infantry's Doing/Stage owns its own, and the
+//! Unit SHP draw picks Walk or Stand by the locomotor's Is_Moving.
+//!
 //! ## Dependency rules
-//! - Part of sim/ — depends on sim/components (MovementTarget, TypeRef) and
-//!   re-exports the rules-owned sequence vocabulary below.
+//! - Part of sim/ — reads entity, movement and rules state, and re-exports the
+//!   rules-owned sequence vocabulary below.
 //! - sim/ NEVER depends on render/, ui/, audio/, net/.
 
 use std::collections::BTreeMap;

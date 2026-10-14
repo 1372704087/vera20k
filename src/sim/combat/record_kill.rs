@@ -166,11 +166,8 @@ fn record_the_kill(
             interner.resolve(victim_owner),
         )
     });
-    let points = super::veterancy::kill_award_points(
-        victim_cost,
-        victim.veterancy.rank_kind(),
-        allied,
-    );
+    let points =
+        super::veterancy::kill_award_points(victim_cost, victim.veterancy.rank_kind(), allied);
     if let Some(killer_id) = killer_id {
         award_kill_experience(
             entities,

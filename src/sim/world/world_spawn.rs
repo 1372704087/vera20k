@@ -2192,7 +2192,11 @@ impl Simulation {
                     rules.object(self.interner.resolve(unit_type_id))?,
                     crate::sim::conversion_health::ConversionKind::Building,
                 );
-                Some((health, building.archive_target(), building.veterancy.clone()))
+                Some((
+                    health,
+                    building.archive_target(),
+                    building.veterancy.clone(),
+                ))
             })
         else {
             return;

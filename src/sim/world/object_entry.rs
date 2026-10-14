@@ -16,7 +16,7 @@ use crate::rules::{
     object_type::ObjectType,
 };
 use crate::sim::combat::combat_weapon;
-use crate::sim::combat::veterancy::{has_weapon_ability, rank_from_u16};
+use crate::sim::combat::veterancy::has_weapon_ability;
 use crate::sim::movement::bump_crush::{self, CrushCapability, CrushTarget};
 use crate::sim::movement::motion_query::is_moving;
 use crate::sim::{components::NavTargetRef, game_entity::GameEntity, intern::InternedId};
@@ -503,8 +503,8 @@ impl<'a> EntryMover<'a> {
     fn new(live: &EntryReadContext<'a>, id: u64, e: &'a GameEntity, obj: &'a ObjectType) -> Self {
         let weapon0 = combat_weapon::weapon_for_index(obj, e.veterancy.rank(), 0)
             .and_then(|(name, _)| live.rules.weapon(name));
-        let crusher = obj.crusher
-            || has_weapon_ability(e.veterancy.rank_kind(), obj, Ability::Crusher);
+        let crusher =
+            obj.crusher || has_weapon_ability(e.veterancy.rank_kind(), obj, Ability::Crusher);
         Self {
             id,
             e,

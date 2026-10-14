@@ -145,7 +145,7 @@ impl ScatterTechno {
         houses: &BTreeMap<InternedId, HouseState>,
         interner: &StringInterner,
     ) -> Self {
-        use crate::sim::combat::veterancy::{has_weapon_ability, rank_from_u16};
+        use crate::sim::combat::veterancy::has_weapon_ability;
         Self {
             has_scatter_ability: rules
                 .and_then(|rules| rules.object(interner.resolve(entity.type_ref())))

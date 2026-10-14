@@ -30,11 +30,7 @@ fn stock_cloak_tick_facts(
         return None;
     }
     let object = rules.object(sim.interner.resolve(entity.type_ref()))?;
-    let rank_cloak = has_weapon_ability(
-        entity.veterancy.rank_kind(),
-        object,
-        Ability::Cloak,
-    );
+    let rank_cloak = has_weapon_ability(entity.veterancy.rank_kind(), object, Ability::Cloak);
     if !object.cloakable && !rank_cloak {
         return None;
     }

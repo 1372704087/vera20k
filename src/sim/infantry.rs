@@ -28,7 +28,7 @@
 //! It reads NavCom and the actual locomotor motion query independently.
 
 use crate::rules::object_type::{Ability, ObjectType};
-use crate::sim::combat::veterancy::{has_weapon_ability, rank_from_u16};
+use crate::sim::combat::veterancy::has_weapon_ability;
 use crate::sim::game_entity::GameEntity;
 use crate::sim::world::FrameEffects;
 use crate::util::fixed_math::{SIM_ZERO, SimFixed};
@@ -50,12 +50,7 @@ const REPEATED_GREEN_ADD: u16 = 12;
 const PRONE_THRESHOLD: u16 = 50;
 
 pub fn is_fear_application_blocked(obj: &ObjectType, entity: &GameEntity) -> bool {
-    obj.fearless
-        || has_weapon_ability(
-            entity.veterancy.rank_kind(),
-            obj,
-            Ability::Fearless,
-        )
+    obj.fearless || has_weapon_ability(entity.veterancy.rank_kind(), obj, Ability::Fearless)
 }
 
 pub fn can_decay_fear(obj: &ObjectType) -> bool {

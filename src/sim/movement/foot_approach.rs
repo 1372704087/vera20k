@@ -17,7 +17,7 @@ use crate::rules::object_type::Ability;
 use crate::rules::overlay_types::OverlayTypeRegistry;
 use crate::rules::ruleset::RuleSet;
 use crate::sim::cell_rect::{self, CellRect, CellRectPassabilityContext};
-use crate::sim::combat::veterancy::{has_weapon_ability, rank_from_u16};
+use crate::sim::combat::veterancy::has_weapon_ability;
 use crate::sim::combat::{self, TargetKind, in_range};
 use crate::sim::components::{DriveCoord, NavTargetRef};
 use crate::sim::mission::MissionType;
@@ -120,11 +120,7 @@ impl Simulation {
         }
         let object = self.object_type(actor.type_ref(), rules)?;
         let crusher = object.crusher
-            || has_weapon_ability(
-                actor.veterancy.rank_kind(),
-                object,
-                Ability::Crusher,
-            );
+            || has_weapon_ability(actor.veterancy.rank_kind(), object, Ability::Crusher);
         // Every Approach asks this; most units crush nothing.
         if !crusher && !object.omni_crusher {
             return None;

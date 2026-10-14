@@ -8,7 +8,7 @@ use std::collections::BTreeMap;
 use crate::map::entities::EntityCategory;
 use crate::rules::object_type::Ability;
 use crate::rules::ruleset::RuleSet;
-use crate::sim::combat::veterancy::{has_weapon_ability, rank_of};
+use crate::sim::combat::veterancy::has_weapon_ability;
 use crate::sim::intern::InternedId;
 use crate::sim::vision::FogState;
 

@@ -7,7 +7,7 @@ use serde_json::Value;
 use crate::rules::ini_parser::IniFile;
 use crate::rules::ruleset::RuleSet;
 use crate::sim::combat::TargetKind;
-use crate::sim::combat::veterancy::{VeterancyRank, rank_of};
+use crate::sim::combat::veterancy::VeterancyRank;
 use crate::sim::command::{Command, CommandEnvelope};
 use crate::sim::house_state::HouseState;
 use crate::sim::intern::InternedId;

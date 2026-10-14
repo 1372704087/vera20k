@@ -298,8 +298,7 @@ pub(crate) fn unit_turret_anim_advances(
 
 /// `TechnoClass::IsElite @ 0x00750010`, which picks the elite thresholds.
 pub(crate) fn is_elite(entity: &crate::sim::game_entity::GameEntity) -> bool {
-    entity.veterancy.rank_kind()
-        == crate::sim::combat::veterancy::VeterancyRank::Elite
+    entity.veterancy.rank_kind() == crate::sim::combat::veterancy::VeterancyRank::Elite
 }
 
 /// The loop-handle owner of a techno's gattling report (`TechnoClass+0x4A4`):

@@ -506,7 +506,6 @@ pub enum Promotion {
     Elite,
 }
 
-
 /// `ftol(Rules.RepairRate * 900.0)` — the self-heal pulse period
 /// (`FUN_0070BE80` at `0x0070BEFE..0x0070BF0A`; the 900.0 constant lives at
 /// `0x007E27F8`).
@@ -629,7 +628,6 @@ pub fn accumulate(
     };
     X87Chop53::store_f32_masked_chop(stored)
 }
-
 
 #[cfg(test)]
 mod tests {

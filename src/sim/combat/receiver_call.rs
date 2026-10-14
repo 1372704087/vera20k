@@ -351,7 +351,7 @@ pub(super) fn resolve_receive_damage(
         house_type_armor: crate::util::native_x87::NativeF32Bits::from_bits(
             house_type_armor.to_bits(),
         ),
-        unit_armor: target.armor_multiplier,
+        unit_armor: target.crate_multipliers.armor(),
         rank_armor,
     };
     // `arg6` stays on the ordered call: its Unit-class consumer is the crew

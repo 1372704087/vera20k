@@ -941,7 +941,7 @@ impl Simulation {
         self.substrate
             .entities
             .values()
-            .filter(|entity| entity.owner() == owner && !entity.destruction_recorded)
+            .filter(|entity| entity.owner() == owner && !entity.kill_record.is_recorded())
             .fold((0, 0), |(buildings, others), entity| {
                 if entity.category() == crate::map::entities::EntityCategory::Structure {
                     (buildings + 1, others)
@@ -1604,8 +1604,8 @@ fn hash_entity(entity: &GameEntity, frame: u32, hasher: &mut StateHasher) {
     entity.lifecycle.in_limbo().hash(hasher);
     entity.lifecycle.cell_marked.hash(hasher);
     entity.death.is_dying().hash(hasher);
-    entity.dirty_rect_eligible.hash(hasher);
-    entity.destruction_recorded.hash(hasher);
+    entity.removal_facts.dirty_rect_eligible().hash(hasher);
+    entity.kill_record.is_recorded().hash(hasher);
     entity.death.infantry_terminal().hash(hasher);
     // TechnoClass+0x3D5 is mutable admission state, not a derived
     // position query: ordinary movement is promote-only while
@@ -1640,7 +1640,7 @@ fn hash_entity(entity: &GameEntity, frame: u32, hasher: &mut StateHasher) {
         b"barrel-elevation-v1".hash(hasher);
         entity.barrel_elevation().hash(hasher);
     }
-    entity.body_frame_counter.hash(hasher);
+    entity.body_frame_counter.get().hash(hasher);
     // Building+6E6 is retained transition state, independent of HP.
     if entity.building_art.damage_state_active() {
         b"building-damage-state-v1".hash(hasher);
@@ -1717,12 +1717,12 @@ fn hash_entity(entity: &GameEntity, frame: u32, hasher: &mut StateHasher) {
         b"elite-flash-v1".hash(hasher);
         entity.flashing.frames().hash(hasher);
     }
-    entity.armor_multiplier.bits().hash(hasher);
+    entity.crate_multipliers.armor().bits().hash(hasher);
     // Folded only once a Firepower crate changed it, so the legacy
     // hash stream of every untouched object is preserved.
-    if entity.firepower_multiplier != crate::util::native_x87::NativeF64Bits::ONE {
+    if entity.crate_multipliers.firepower() != crate::util::native_x87::NativeF64Bits::ONE {
         b"firepower-mult-v1".hash(hasher);
-        entity.firepower_multiplier.bits().hash(hasher);
+        entity.crate_multipliers.firepower().bits().hash(hasher);
     }
     entity.berserk.hash(hasher);
     entity.ai_sell_repair.was_attacked_by_enemy().hash(hasher);
@@ -2173,7 +2173,7 @@ fn hash_entity(entity: &GameEntity, frame: u32, hasher: &mut StateHasher) {
 
     hash_mission_com(&entity.mission, hasher);
     hash_mission_leaf(&entity.mission_leaf, hasher);
-    entity.occupier.hash(hasher);
+    entity.removal_facts.occupier().hash(hasher);
     entity.passive_scan.timer().hash(hasher);
     // Passive-acquire bookkeeping. `passively_acquired_target` gates
     // the stale-target drop and the off-mission clear, so a
@@ -2573,13 +2573,19 @@ mod lifecycle_hash_tests {
             entity.death.set_dying_for_test(!entity.death.is_dying());
         });
         assert_entity_mutation_changes_hash(|entity| {
-            entity.dirty_rect_eligible = !entity.dirty_rect_eligible;
+            entity
+                .removal_facts
+                .set_dirty_rect_eligible_for_test(!entity.removal_facts.dirty_rect_eligible());
         });
         assert_entity_mutation_changes_hash(|entity| {
-            entity.destruction_recorded = !entity.destruction_recorded;
+            entity
+                .kill_record
+                .set_destruction_recorded_for_test(!entity.kill_record.is_recorded());
         });
         assert_entity_mutation_changes_hash(|entity| {
-            entity.occupier = !entity.occupier;
+            entity
+                .removal_facts
+                .set_occupier_for_test(!entity.removal_facts.occupier());
         });
         assert_entity_mutation_changes_hash(|entity| {
             entity.in_playfield = !entity.in_playfield;

@@ -75,6 +75,52 @@ impl BuildingLight {
     }
 }
 
+/// Two type facts the removal paths read, copied onto the object:
+/// - `ObjectClass::Limbo` (`0x005F4D30`) dirties the tactical rect of the
+///   object's extent when the type's `+0xAC` pointer is set
+///   ([`LifecycleOutput::DirtyTacticalRect`]). VERA keeps the fact false
+///   unless a caller has positive evidence and never infers it from category
+///   or render representation; no production path sets it.
+/// - `Occupier=`, which `FootClass::PointerExpired` (`0x004D9960`) tests to
+///   keep a capturing infantryman's NavCom on an expiring target.
+///   Construction stamps it ([`Self::stamp_occupier`]).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub(crate) struct RemovalFacts {
+    #[serde(default)]
+    dirty_rect_eligible: bool,
+    #[serde(default)]
+    occupier: bool,
+}
+
+impl RemovalFacts {
+    /// Limbo dirties the object's rect.
+    pub(crate) const fn dirty_rect_eligible(self) -> bool {
+        self.dirty_rect_eligible
+    }
+
+    /// `Occupier=`.
+    pub(crate) const fn occupier(self) -> bool {
+        self.occupier
+    }
+
+    /// Construction's copy of `Occupier=`.
+    pub(crate) fn stamp_occupier(&mut self, occupier: bool) {
+        self.occupier = occupier;
+    }
+
+    /// Install a fixture's dirty-rect fact.
+    #[cfg(test)]
+    pub(crate) fn set_dirty_rect_eligible_for_test(&mut self, value: bool) {
+        self.dirty_rect_eligible = value;
+    }
+
+    /// Install a fixture's `Occupier=`.
+    #[cfg(test)]
+    pub(crate) fn set_occupier_for_test(&mut self, value: bool) {
+        self.occupier = value;
+    }
+}
+
 /// Independent ObjectClass lifecycle facts.
 ///
 /// These bytes deliberately do not derive from health, store presence, cell
@@ -2890,7 +2936,7 @@ impl Simulation {
             .substrate
             .entities
             .get(stable_id)
-            .is_some_and(|entity| entity.dirty_rect_eligible);
+            .is_some_and(|entity| entity.removal_facts.dirty_rect_eligible());
         if dirty_rect_eligible {
             self.lifecycle_outputs
                 .push(LifecycleOutput::DirtyTacticalRect { stable_id });
@@ -3203,13 +3249,13 @@ impl Simulation {
                 (
                     entity.owner(),
                     entity.category(),
-                    entity.destruction_recorded,
+                    entity.kill_record.is_recorded(),
                     // A Temporal erase leaves at full health with its kill
                     // already booked (`combat::record_kill::record_kill_credit`);
                     // a crashing infantryman falls at Health 1 (`0x0051BC57`)
                     // after the kill that booked its loss.
                     entity.health.current() == 0
-                        || entity.killed_by.is_some()
+                        || entity.kill_record.killer().is_some()
                         || entity.crash.is_crashing(),
                     entity.tracking_facts.dont_score(),
                 )
@@ -3221,7 +3267,7 @@ impl Simulation {
             return;
         }
         if let Some(entity) = self.substrate.entities.get_mut(stable_id) {
-            entity.destruction_recorded = true;
+            entity.kill_record.mark_fallback_recorded();
         }
         if destroyed
             && !dont_score
@@ -3239,8 +3285,7 @@ impl Simulation {
     pub(crate) fn begin_receiver_kill_record(&mut self, id: u64) {
         if let Some(entity) = self.substrate.entities.get_mut(id) {
             debug_assert_eq!(entity.health.current(), 0);
-            entity.destruction_recorded = false;
-            entity.killed_by = None;
+            entity.kill_record.clear();
         }
     }
 
@@ -4161,7 +4206,7 @@ impl Simulation {
             .is_some_and(|target| Self::nav_ref_targets_expired(target, expired_id));
         let retain_capture_nav = current_nav_matches
             && listener.category() == EntityCategory::Infantry
-            && listener.occupier
+            && listener.removal_facts.occupier()
             && listener.mission.current().known()
                 == Some(crate::sim::mission::MissionType::Capture)
             && expired_object_alive

@@ -236,7 +236,7 @@ fn multiplayer_eligible_slot(
         // this module's residual).
         POWERUP_CLOAK => !object.is_some_and(|object| object.cloakable),
         // `0x00481C69`: an actor already armoured.
-        POWERUP_ARMOR => actor.armor_multiplier == NativeF64Bits::ONE,
+        POWERUP_ARMOR => actor.crate_multipliers.armor() == NativeF64Bits::ONE,
         // `0x00481CDE`: an actor already sped up, or an Aircraft.
         POWERUP_SPEED => {
             actor.foot_speed.crate_multiplier() == NativeF64Bits::ONE
@@ -244,7 +244,7 @@ fn multiplayer_eligible_slot(
         }
         // `0x00481D0B`: an actor already boosted, or unarmed (`Is_Armed`).
         POWERUP_FIREPOWER => {
-            actor.firepower_multiplier == NativeF64Bits::ONE
+            actor.crate_multipliers.firepower() == NativeF64Bits::ONE
                 && object.is_some_and(|object| {
                     crate::sim::combat::combat_weapon::is_armed(actor, object)
                 })

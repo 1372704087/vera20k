@@ -30,6 +30,7 @@ mod runtime;
 mod speed;
 mod state;
 
+pub(crate) use effects::CrateMultipliers;
 pub(crate) use pickup::pickup_crate;
 pub(crate) use runtime::tick_crate_regeneration;
 pub use state::{CrateAuthority, CrateSlot};

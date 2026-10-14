@@ -1124,7 +1124,7 @@ fn a_killing_hit_lets_the_passengers_out() {
             assert!(passenger.lifecycle.object_alive() && !passenger.lifecycle.in_limbo());
             assert!(passenger.passenger_role.is_none());
             assert_eq!((passenger.position.rx, passenger.position.ry), (10, 10));
-            assert_eq!(passenger.killed_by, None);
+            assert_eq!(passenger.kill_record.killer(), None);
             assert!(!passenger.selected);
             assert_eq!(queued(&sim, id), mission, "{owner}");
             assert!(!sim.substrate.pending_delete.contains_object(&id));
@@ -1156,7 +1156,7 @@ fn an_ignore_defenses_kill_takes_the_passengers_along() {
         let passenger = sim.substrate.entities.get(id).unwrap();
         assert!(sim.substrate.pending_delete.contains_object(&id));
         assert!(!passenger.lifecycle.object_alive());
-        assert_eq!(passenger.killed_by, Some(russians));
+        assert_eq!(passenger.kill_record.killer(), Some(russians));
     }
 }
 
@@ -1181,7 +1181,7 @@ fn an_exploding_transport_kills_its_passengers_first() {
     assert!(order[0] < order[1] && order[1] < order[2], "{deleted:?}");
     for id in passengers {
         assert_eq!(
-            sim.substrate.entities.get(id).unwrap().killed_by,
+            sim.substrate.entities.get(id).unwrap().kill_record.killer(),
             Some(russians)
         );
     }
@@ -1219,10 +1219,10 @@ fn a_gunner_transport_on_its_suicide_weapon_explodes() {
             < 200;
         if explodes {
             assert!(!passenger.lifecycle.object_alive());
-            assert_eq!(passenger.killed_by, Some(russians));
+            assert_eq!(passenger.kill_record.killer(), Some(russians));
         } else {
             assert!(passenger.lifecycle.object_alive() && !passenger.lifecycle.in_limbo());
-            assert_eq!(passenger.killed_by, None);
+            assert_eq!(passenger.kill_record.killer(), None);
         }
         assert_eq!(bystander_hit, explodes, "IFVMode {ifv_mode}");
     }

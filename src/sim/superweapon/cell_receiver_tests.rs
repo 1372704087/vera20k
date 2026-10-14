@@ -698,7 +698,7 @@ fn iron_curtain_command_forces_authored_strength_and_attributes_retained_deaths(
     );
     assert!(dead.death.is_dying() && dead.lifecycle.cell_marked && dead.in_logic_vector);
     assert_eq!(dead.infantry_sprite_pose(), Some((12, 0)));
-    assert_eq!(dead.killed_by, Some(owner));
+    assert_eq!(dead.kill_record.killer(), Some(owner));
     // The ordinary sequence still owns the object; the existing shared UnInit
     // terminal owns score publication. Verify the attributed receipt survives it.
     sim.uninit_with_rules(wounded, &rules);

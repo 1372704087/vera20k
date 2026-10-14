@@ -1705,7 +1705,7 @@ fn lifecycle_authority_immediate_combat_death_reaches_uninit_without_precleanup(
     assert!(dead.lifecycle.cell_marked);
     assert!(dead.radio_contacts.contains(2), "Techno Limbo owns BREAK");
     assert!(
-        !dead.destruction_recorded,
+        !dead.kill_record.is_recorded(),
         "world lifecycle owns count release"
     );
     assert!(
@@ -1793,7 +1793,7 @@ fn lifecycle_authority_animated_combat_handoff_changes_only_dying_and_sequence()
     assert!(!dead.lifecycle.in_limbo());
     assert!(dead.lifecycle.cell_marked);
     assert!(dead.radio_contacts.contains(2));
-    assert!(!dead.destruction_recorded);
+    assert!(!dead.kill_record.is_recorded());
     assert!(
         store.get(2).unwrap().attack_target.target().is_some(),
         "selective removal listeners, not combat, own target invalidation"
@@ -4778,7 +4778,8 @@ fn gsi_04_07_damage_postmortem_exact_zero_callbacks_precede_restore() {
     assert!(sim.substrate.occupancy.contains_entity(8, 5, target_id));
     assert!(!sim.substrate.pending_delete.contains_object(&target_id));
     assert_eq!(
-        target.killed_by, None,
+        target.kill_record.killer(),
+        None,
         "the synchronous callback consumes attribution before HP1 restore"
     );
     let source = sim.substrate.entities.get(source_id).unwrap();
@@ -4951,7 +4952,7 @@ fn gsi_04_07_damage_postmortem_fresh_null_expiry_does_not_recredit_initial_kille
     for target_id in [expiry_target, later_target] {
         let target = sim.substrate.entities.get(target_id).unwrap();
         assert_eq!(target.health.current(), 1);
-        assert_eq!(target.killed_by, None);
+        assert_eq!(target.kill_record.killer(), None);
     }
 
     // A different ordinary fatal transaction after restoration must not be
@@ -4972,7 +4973,7 @@ fn gsi_04_07_damage_postmortem_fresh_null_expiry_does_not_recredit_initial_kille
     );
     let later = sim.substrate.entities.get(later_target).unwrap();
     assert_eq!(later.health.current(), 0);
-    assert_eq!(later.killed_by, Some(owner_b));
+    assert_eq!(later.kill_record.killer(), Some(owner_b));
     assert_eq!(sim.houses[&owner_b].stats.buildings_killed(), 1);
     assert_eq!(sim.houses[&owner_b].economy.score(), 700);
 
@@ -4989,7 +4990,7 @@ fn gsi_04_07_damage_postmortem_fresh_null_expiry_does_not_recredit_initial_kille
     );
     let expired = sim.substrate.entities.get(expiry_target).unwrap();
     assert_eq!(expired.health.current(), 0);
-    assert_eq!(expired.killed_by, None);
+    assert_eq!(expired.kill_record.killer(), None);
     assert!(sim.substrate.pending_delete.contains_object(&expiry_target));
     assert_eq!(
         (

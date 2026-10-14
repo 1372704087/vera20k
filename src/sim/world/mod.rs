@@ -152,7 +152,7 @@ pub(crate) use crash::CrashLatch;
 pub(crate) use display_registry::entity_layer;
 pub(crate) use lifecycle::{
     BuildingLight, ConcealOutcome, LifecycleOutput, ObjectLifecycle, PlacementEvidence,
-    RevealOutcome, RevealPosition, RevealRequest, UninitContext,
+    RemovalFacts, RevealOutcome, RevealPosition, RevealRequest, UninitContext,
 };
 #[cfg(test)]
 pub(crate) use lifecycle::{LifecycleTestEvent, RevealFailure};
@@ -4390,7 +4390,7 @@ impl Simulation {
                     entity.stable_id()
                 );
                 debug_assert!(
-                    entity.destruction_recorded,
+                    entity.kill_record.is_recorded(),
                     "dead entity {} must record its destruction exactly once before alive clear",
                     entity.stable_id()
                 );

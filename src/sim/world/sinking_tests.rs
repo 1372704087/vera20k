@@ -540,6 +540,6 @@ fn retained_ship_skips_process_but_keeps_its_head_and_runs_sinking_ai() {
     );
     assert_eq!(position_world_coord(&hull.position).z, 203);
     assert_eq!((hull.position.rx, hull.position.ry), (113, 59));
-    assert_eq!(hull.body_frame_counter, 0);
+    assert_eq!(hull.body_frame_counter.get(), 0);
     assert!(hull.sinking.sound_edge_seen());
 }

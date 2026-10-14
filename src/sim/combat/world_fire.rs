@@ -824,7 +824,9 @@ fn fireat_damage(
         house_firepower: firer
             .and_then(|firer| world.houses.get(&firer.owner()))
             .map_or(NativeF64Bits::ONE, |house| house.firepower_bias()),
-        unit_firepower: firer.map_or(NativeF64Bits::ONE, |firer| firer.firepower_multiplier),
+        unit_firepower: firer.map_or(NativeF64Bits::ONE, |firer| {
+            firer.crate_multipliers.firepower()
+        }),
         rank_firepower: self::veterancy::has_weapon_ability(
             self::veterancy::rank_from_u16(snap.veterancy),
             obj,
@@ -2722,7 +2724,7 @@ pub(crate) fn estimated_damage_on(
                 .houses
                 .get(&attacker.owner())
                 .map_or(NativeF64Bits::ONE, |house| house.firepower_bias()),
-            unit_firepower: attacker.firepower_multiplier,
+            unit_firepower: attacker.crate_multipliers.firepower(),
             rank_firepower,
             occupied: None,
             bunkered: None,
@@ -2730,7 +2732,7 @@ pub(crate) fn estimated_damage_on(
         },
         divisors: damage::DefenceDivisors {
             house_type_armor: NativeF32Bits::from_bits(house_type_armor.to_bits()),
-            unit_armor: attacker.armor_multiplier,
+            unit_armor: attacker.crate_multipliers.armor(),
             rank_armor,
         },
         warhead: warhead.map(|warhead| damage::estimate::EstimateWarhead {

@@ -18,7 +18,7 @@ use serde_json::{Value, json};
 fn actor_state(sim: &Simulation, id: u64) -> Value {
     let actor = sim.substrate.entities.get(id).unwrap();
     json!({
-        "body_counter": actor.body_frame_counter,
+        "body_counter": actor.body_frame_counter.get(),
         "active_raw": u8::from(actor.move_sound.is_active()),
         "countdown": actor.move_sound.countdown(),
     })
@@ -87,7 +87,9 @@ fn scene(input: &Value, before: &Value, rules: &RuleSet) -> (Simulation, u64) {
         rules.object("SQD").unwrap(),
         0,
     ));
-    actor.body_frame_counter = before["body_counter"].as_u64().unwrap() as u32;
+    actor
+        .body_frame_counter
+        .set_for_test(before["body_counter"].as_u64().unwrap() as u32);
     actor.move_sound = MoveSoundState::from_raw_for_test(
         before["active_raw"].as_u64().unwrap() != 0,
         before["countdown"].as_i64().unwrap() as i32,
@@ -157,7 +159,13 @@ fn visit(sim: &mut Simulation, rules: &RuleSet, id: u64, step: &Value, context: 
     assert_rng(sim, &step["before"], context);
     sim.session.binary_frame = step["frame"].as_u64().unwrap() as u32;
     sim.sound_events.clear();
-    let body_before = sim.substrate.entities.get(id).unwrap().body_frame_counter;
+    let body_before = sim
+        .substrate
+        .entities
+        .get(id)
+        .unwrap()
+        .body_frame_counter
+        .get();
     let object = rules.object("SQD").unwrap();
     let (_, draws) = crate::sim::rng::trace_draws(|| {
         crate::sim::animation::tick_unit_body_frame_counter(

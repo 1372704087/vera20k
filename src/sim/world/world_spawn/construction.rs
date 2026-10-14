@@ -170,7 +170,7 @@ impl Simulation {
         ge.initialize_voxel_recoil(obj.recoil);
         ge.crushable_facts = CrushableFacts::stamp(obj);
         ge.mover_facts = MoverFacts::stamp(obj);
-        ge.occupier = obj.occupier;
+        ge.removal_facts.stamp_occupier(obj.occupier);
         if category == EntityCategory::Structure && obj.gate {
             ge.building_gate = Some(crate::sim::game_entity::BuildingGateRuntime::at_frame(
                 self.session.binary_frame,

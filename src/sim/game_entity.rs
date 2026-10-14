@@ -35,7 +35,6 @@ use crate::sim::radio::Contacts;
 use crate::sim::superweapon::invulnerability::InvulnerabilityState;
 use crate::sim::timer::CdTimer;
 use crate::sim::world::ObjectLifecycle;
-use crate::util::native_x87::NativeF64Bits;
 
 mod foot_air;
 
@@ -129,10 +128,6 @@ impl Default for BaseDefenseResponseState {
             cooldown: CdTimer::from_raw(-1, 0),
         }
     }
-}
-
-fn default_techno_multiplier() -> NativeF64Bits {
-    NativeF64Bits::ONE
 }
 
 /// The unit side of the tank-bunker reciprocal link (the pre-install approach
@@ -363,12 +358,12 @@ pub struct GameEntity {
     /// `Set`s at `0x0044CEE2` and `0x0044CF7A`, an MCV deploy's `Set_Current`
     /// at `0x00739827`) and their readers are not ported.
     barrel_elevation: crate::sim::movement::FacingClass,
-    /// Persistent FootClass body-animation counter (`FootClass+0x538`).
-    /// Unit SHP and voxel drawing reduce this against the selected model's
-    /// frame count. It advances on absolute binary-frame cadence and never
-    /// resets on a visual transition or deployment.
+    /// The body-animation counter (`FootClass+0x538`), a
+    /// [`BodyFrameCounter`] that `sim::animation` owns.
+    ///
+    /// [`BodyFrameCounter`]: crate::sim::animation::BodyFrameCounter
     #[serde(default)]
-    pub body_frame_counter: u32,
+    pub(crate) body_frame_counter: crate::sim::animation::BodyFrameCounter,
     /// The owning house (`TechnoClass+0x21C`), interned.
     /// `TechnoClass::ChangeOwner @ 0x007014A0` moves it; here only the store's
     /// owner-change path does ([`Self::set_owner_from_store`]).
@@ -398,23 +393,12 @@ pub struct GameEntity {
     /// it.
     #[serde(default)]
     pub(crate) flashing: crate::sim::flashing::Flashing,
-    /// Mutable Techno instance armor multiplier (`Techno+0x158`). Native
-    /// construction seeds this double to 1.0; the Armor crate
-    /// (`crates::effects`) is its only writer, exactly once per object.
-    #[serde(default = "default_techno_multiplier")]
-    pub armor_multiplier: NativeF64Bits,
-    /// `Techno+0x160`, the firepower multiplier `FireAt`'s damage build folds
-    /// in (`0x006FE33D..0x006FE34D`). Seeded to 1.0; the Firepower crate is
-    /// its only writer, exactly once per object.
-    #[serde(default = "default_techno_multiplier")]
-    pub firepower_multiplier: NativeF64Bits,
-    /// House credited with destroying this object, captured at the instant its
-    /// health reached zero. gamemd's kill-record step receives the actual killer
-    /// at the moment of destruction; infantry linger in the logic vector through
-    /// a death animation, so this observation retains the actual callback's
-    /// attribution. It does not defer or suppress the native score callback.
-    #[serde(skip)]
-    pub killed_by: Option<InternedId>,
+    /// The armor and firepower crate multipliers (`Techno+0x158`, `+0x160`),
+    /// a [`CrateMultipliers`] that the crate arms own.
+    ///
+    /// [`CrateMultipliers`]: crate::sim::crates::CrateMultipliers
+    #[serde(default)]
+    pub(crate) crate_multipliers: crate::sim::crates::CrateMultipliers,
     /// The type facts the house counts and the score test (`DontScore=` and
     /// the rest), a [`TrackingFacts`](crate::sim::house_tracking::TrackingFacts)
     /// that construction stamps.
@@ -489,19 +473,18 @@ pub struct GameEntity {
     /// forced ObjectSelect5F4578 has a separate virtual+A0 prerequisite.
     #[serde(default)]
     mission_only: bool,
-    /// Explicit represented type fact for the native type `+0xAC` tactical-dirty
-    /// branch. False unless a caller has positive evidence; never inferred from
-    /// category or render representation.
+    /// The type facts the removal paths read (Limbo's dirty-rect branch and
+    /// `Occupier=`), a [`RemovalFacts`] that `world::lifecycle` owns.
+    ///
+    /// [`RemovalFacts`]: crate::sim::world::RemovalFacts
     #[serde(default)]
-    pub dirty_rect_eligible: bool,
-    /// Parsed InfantryType occupation capability used by capture-target expiry.
+    pub(crate) removal_facts: crate::sim::world::RemovalFacts,
+    /// The kill credit and the UnInit loss guard, a [`KillRecord`] that
+    /// `combat::record_kill` owns.
+    ///
+    /// [`KillRecord`]: crate::sim::combat::KillRecord
     #[serde(default)]
-    pub occupier: bool,
-    /// Rust guard suppressing extra UnInit accounting after an actual shared
-    /// RecordTheKill callback. Native callbacks themselves may record again.
-    /// This does not stand in for native-alive or `dying`.
-    #[serde(default)]
-    pub destruction_recorded: bool,
+    pub(crate) kill_record: crate::sim::combat::KillRecord,
     /// Foot's independent tracker Cell, slot-notification Cell and retained
     /// airborne-vector membership. Only the shared Foot air owner writes them.
     #[serde(default)]
@@ -1518,7 +1501,6 @@ impl GameEntity {
             )
         };
         Self {
-            killed_by: None,
             cached_spatial_threat: None,
             tracking_facts: Default::default(),
             house_tracking_latches: Default::default(),
@@ -1543,7 +1525,7 @@ impl GameEntity {
             turret_rotate_latch: Default::default(),
             suppress_deploy_voice: false,
             barrel_elevation: crate::sim::movement::FacingClass::new(0, BARREL_ELEVATION_ROT),
-            body_frame_counter: 0,
+            body_frame_counter: Default::default(),
             owner,
             health,
             estimated_health: crate::sim::estimated_health::EstimatedHealth::from_raw(
@@ -1554,8 +1536,7 @@ impl GameEntity {
             type_facts: crate::sim::world::TypeFacts::new(category),
             veterancy: crate::sim::combat::veterancy::Veterancy::new(veterancy),
             flashing: Default::default(),
-            armor_multiplier: NativeF64Bits::ONE,
-            firepower_multiplier: NativeF64Bits::ONE,
+            crate_multipliers: Default::default(),
             sight: crate::sim::vision::SightFacts::new(vision_range),
             sight_refresh_timers: crate::sim::vision::SightRefreshTimers::at_construction(
                 construction_frame,
@@ -1569,9 +1550,8 @@ impl GameEntity {
             lifecycle: ObjectLifecycle::default(),
             in_playfield: false,
             mission_only: false,
-            dirty_rect_eligible: false,
-            occupier: false,
-            destruction_recorded: false,
+            removal_facts: Default::default(),
+            kill_record: Default::default(),
             foot_air: foot_air::FootAirState::new(stable_id),
             locomotor: None,
             navigation: NavigationState::at_frame(construction_frame),
@@ -2158,7 +2138,7 @@ mod tests {
             .remove("body_frame_counter");
 
         let restored: GameEntity = serde_json::from_value(value).expect("deserialize entity");
-        assert_eq!(restored.body_frame_counter, 0);
+        assert_eq!(restored.body_frame_counter.get(), 0);
     }
 
     #[test]
@@ -2195,8 +2175,8 @@ mod lifecycle_tests {
         let mut e = GameEntity::test_default(1, "E1", "Americans", 3, 3);
         assert_eq!(e.lifecycle, ObjectLifecycle::default());
         assert!(!e.in_logic_vector);
-        assert!(!e.dirty_rect_eligible);
-        assert!(!e.destruction_recorded);
+        assert!(!e.removal_facts.dirty_rect_eligible());
+        assert!(!e.kill_record.is_recorded());
 
         // Exercise every combination without deriving one fact from another.
         for bits in 0u8..64 {

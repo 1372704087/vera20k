@@ -32,6 +32,59 @@ pub(super) enum Multiplier {
     Firepower,
 }
 
+/// The object's crate multipliers, `Techno+0x158` (armor) and `Techno+0x160`
+/// (firepower). The constructor seeds both doubles to 1.0; the Armor and
+/// Firepower arms ([`apply_multiplier_crate`]) are their only writers, and an
+/// arm skips a multiplier that is not exactly 1.0, so each changes at most
+/// once per object. The receiver's damage build reads the armor multiplier;
+/// `FireAt`'s damage build folds in the firepower one
+/// (`0x006FE33D..0x006FE34D`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub(crate) struct CrateMultipliers {
+    #[serde(default = "one")]
+    armor: NativeF64Bits,
+    #[serde(default = "one")]
+    firepower: NativeF64Bits,
+}
+
+fn one() -> NativeF64Bits {
+    NativeF64Bits::ONE
+}
+
+impl Default for CrateMultipliers {
+    /// The constructor's 1.0 seeds.
+    fn default() -> Self {
+        Self {
+            armor: NativeF64Bits::ONE,
+            firepower: NativeF64Bits::ONE,
+        }
+    }
+}
+
+impl CrateMultipliers {
+    /// `Techno+0x158`.
+    pub(crate) const fn armor(self) -> NativeF64Bits {
+        self.armor
+    }
+
+    /// `Techno+0x160`.
+    pub(crate) const fn firepower(self) -> NativeF64Bits {
+        self.firepower
+    }
+
+    /// Install a fixture's armor multiplier.
+    #[cfg(test)]
+    pub(crate) fn set_armor_multiplier_for_test(&mut self, value: NativeF64Bits) {
+        self.armor = value;
+    }
+
+    /// Install a fixture's firepower multiplier.
+    #[cfg(test)]
+    pub(crate) fn set_firepower_multiplier_for_test(&mut self, value: NativeF64Bits) {
+        self.firepower = value;
+    }
+}
+
 /// Ground-layer objects within `radius` of `center`, in layer order, with the
 /// native `Sqrt_Approx`/`ftol` distance and strict `<` (`0x00482E38..0x00482E51`).
 fn ground_members_in_radius(sim: &Simulation, center: DriveCoord, radius: i32) -> Vec<u64> {
@@ -70,8 +123,8 @@ pub(super) fn apply_multiplier_crate(
             continue;
         };
         let slot = match which {
-            Multiplier::Armor => &mut entity.armor_multiplier,
-            Multiplier::Firepower => &mut entity.firepower_multiplier,
+            Multiplier::Armor => &mut entity.crate_multipliers.armor,
+            Multiplier::Firepower => &mut entity.crate_multipliers.firepower,
         };
         if *slot != NativeF64Bits::ONE {
             continue;

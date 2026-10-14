@@ -176,16 +176,18 @@ fn damage_receiver_matches_original_packet_result_and_disguise_consequence() {
         target
             .veterancy
             .set_raw_for_test(NativeF32Bits::from_bits(word(&input["veterancy_bits"])));
-        target.armor_multiplier = NativeF64Bits::from_bits(
-            u64::from_str_radix(
-                input["armor_multiplier_bits"]
-                    .as_str()
-                    .unwrap()
-                    .trim_start_matches("0x"),
-                16,
-            )
-            .unwrap(),
-        );
+        target
+            .crate_multipliers
+            .set_armor_multiplier_for_test(NativeF64Bits::from_bits(
+                u64::from_str_radix(
+                    input["armor_multiplier_bits"]
+                        .as_str()
+                        .unwrap()
+                        .trim_start_matches("0x"),
+                    16,
+                )
+                .unwrap(),
+            ));
         crate::sim::movement::ground_pose::put_location(
             &mut target.position,
             DriveCoord {

@@ -106,7 +106,10 @@ pub(crate) enum AttackAction {
 /// rung is a human player's (`0x007003ED`), for an armed actor (`Is_Armed`,
 /// vt+0x2AC) or an `Infiltrate=` infantryman (`0x00700444..0x00700474`), and
 /// asks its control capability (vt+0xA0) or its selected weapon's range
-/// (`0x0070047A..0x0070049A`). Failing that, the tail
+/// (`0x0070047A..0x0070049A`). Unless `forced`, a shot ILLEGAL to the actor
+/// leaves the rung as well ([`shot_is_illegal`]); `forced` is the force-fire
+/// key, which What_Action reads itself (`0x00700048..0x00700072`): Ctrl,
+/// alone or in the Ctrl+Alt chord. Off the rung, the tail
 /// (`0x0070056C..0x007005E6`) answers 0 when an armed human player's object
 /// points at another house's object, or for a loaner (`+0x3D4`) the player
 /// owns (`+0x41A`); otherwise Select for an object the player may select
@@ -115,27 +118,19 @@ pub(crate) enum AttackAction {
 ///
 /// Cell target (`TechnoClass::What_Action_OnCell @ 0x00700600`): the rung is
 /// a human player's too (`0x007008A6..0x007008B3`), and the caller has asked
-/// the weapon ([`force_fire_action`]); control or range answers Attack
+/// the weapon ([`armed_action`]); control or range answers Attack
 /// (`0x007009F3..0x00700A44`), else 0. Any other house's object answers 0
 /// there (`0x00700AB7..0x00700AC4`).
 ///
-/// This asks no ROF, reload or GetFireError: the rung's ILLEGAL test
-/// (`0x00700548`) is the click's ([`click_attack_refused`]). The class
-/// post-processing follows below. See the original DetermineAction/Unit/
-/// Foot/Techno and Display action corpus in
-/// tools/spatial_oracle/bunker_attack_action.json.
-///
-/// RESIDUAL: the cursor asks the ILLEGAL test only for a Crazy Ivan
-/// ([`crate::app::input::cursor`]), which then shows Select. Trigger:
-/// hovering another house's object with an armed object whose shot is
-/// ILLEGAL, such as an attack dog over a tank or an Ivan over a target that
-/// carries a bomb. Effect: the cursor shows Attack, or Select for the Ivan,
-/// where native shows NoMove, which the click orders. Frequent.
+/// This asks no ROF or reload. The class post-processing follows below. See
+/// the original DetermineAction/Unit/Foot/Techno and Display action corpus
+/// in tools/spatial_oracle/bunker_attack_action.json.
 pub(crate) fn attack_action(
     sim: &crate::sim::world::Simulation,
     rules: &crate::rules::ruleset::RuleSet,
     actor_id: u64,
     target: &TargetKind,
+    forced: bool,
     overlay_registry: Option<&crate::rules::overlay_types::OverlayTypeRegistry>,
 ) -> AttackAction {
     let Some(actor) = sim.entities().get(actor_id) else {
@@ -161,7 +156,9 @@ pub(crate) fn attack_action(
                 sim.resolved_terrain.as_ref(),
                 overlay_registry,
                 Some(target),
-            )) {
+            ))
+        && (forced || !shot_is_illegal(sim, rules, actor_id, target, overlay_registry))
+    {
         AttackAction::Attack
     } else if let TargetKind::Entity(target_id) = *target
         && let Some(object) = sim.entities().get(target_id)
@@ -264,14 +261,17 @@ pub(crate) fn attack_action(
     action
 }
 
-/// The armed Ctrl branch. Unarmed receivers retain their existing ordinary
-/// action paths. Cell7008BD reads GetCurrentWeapon, which also resolves an
-/// occupied building's firing occupant; Object700468 asks virtual IsArmed.
-pub(crate) fn force_fire_action(
+/// [`attack_action`] for an armed actor: the Ctrl branch (`forced`), and a
+/// building's unforced one. An unarmed receiver answers `None` and keeps its
+/// ordinary action paths. Cell7008BD reads GetCurrentWeapon, which also
+/// resolves an occupied building's firing occupant; Object700468 asks
+/// virtual IsArmed.
+pub(crate) fn armed_action(
     sim: &crate::sim::world::Simulation,
     rules: &crate::rules::ruleset::RuleSet,
     actor_id: u64,
     target: &TargetKind,
+    forced: bool,
     overlay_registry: Option<&crate::rules::overlay_types::OverlayTypeRegistry>,
 ) -> Option<AttackAction> {
     let actor = sim.entities().get(actor_id)?;
@@ -287,7 +287,7 @@ pub(crate) fn force_fire_action(
         .is_some(),
         TargetKind::Entity(_) => crate::sim::combat::combat_weapon::is_armed(actor, object),
     };
-    armed.then(|| attack_action(sim, rules, actor_id, target, overlay_registry))
+    armed.then(|| attack_action(sim, rules, actor_id, target, forced, overlay_registry))
 }
 
 /// Display4AB51B asks CanFireAtTarget6F7780: ONE SelectWeapon result, not
@@ -525,9 +525,14 @@ fn attack_branch_orders(
             consumed_attack_action = true;
             continue;
         }
-        let Some(action) =
-            force_fire_action(sim, rules, id, &attack_target, Some(overlay_registry))
-        else {
+        let Some(action) = armed_action(
+            sim,
+            rules,
+            id,
+            &attack_target,
+            force_fire,
+            Some(overlay_registry),
+        ) else {
             continue;
         };
         if action == AttackAction::Rally {
@@ -550,15 +555,10 @@ fn attack_branch_orders(
                         attacker_id: id,
                         target_id,
                     },
-                    TargetKind::Entity(target_id) => {
-                        if click_attack_refused(sim, rules, overlay_registry, id, target_id) {
-                            continue;
-                        }
-                        Command::Attack {
-                            attacker_id: id,
-                            target_id,
-                        }
-                    }
+                    TargetKind::Entity(target_id) => Command::Attack {
+                        attacker_id: id,
+                        target_id,
+                    },
                 };
                 queued.push(payload);
             }
@@ -976,10 +976,10 @@ pub(crate) fn object_click_payload(
 ///
 /// Attack, and any action under force fire, orders
 /// [`object_click_payload`]. What_Action decides Attack before
-/// ClickedMission promotes it to attack-move, so a shot its ILLEGAL test
-/// refuses ([`click_attack_refused`]) leaves no Attack to promote: the armed
-/// receiver's What_Action then answers 0 for the object
-/// (`0x0070056C..0x0070059B`), which the class tails may turn into NoMove.
+/// ClickedMission promotes it to attack-move, so an unforced shot ILLEGAL to
+/// the receiver leaves no Attack to promote: its tail answers 0 or Select
+/// there ([`attack_action`]). A Crazy Ivan's Attack over an object he cannot
+/// bomb is NoIvanBomb (`0x0051EB24`), which orders nothing.
 ///
 /// RESIDUAL (#605): force fire orders the payload whatever the receiver.
 /// Trigger: Ctrl over an object with an unarmed receiver. Effect: VERA
@@ -1019,13 +1019,23 @@ fn object_attack_click_command(
         ))
     };
     if modifier != OrderModifier::ForceFire {
+        // The Ctrl+Alt chord holds the force-fire key too.
         match attack_action(
             sim,
             rules,
             attacker_id,
             &TargetKind::Entity(target_id),
+            modifier == OrderModifier::GuardArea,
             Some(overlay_registry),
         ) {
+            // NoIvanBomb is an Attack action's; native answers the Ctrl+Alt
+            // chord's Guard before the rung (`0x007001BC..0x007001DD`).
+            AttackAction::Attack
+                if modifier != OrderModifier::GuardArea
+                    && ivan_cannot_bomb(sim, rules, attacker_id, target_id) =>
+            {
+                return None;
+            }
             AttackAction::Attack => {}
             // The legacy Ctrl+Alt classifier (#605) keeps its Guard path.
             AttackAction::NoMove if modifier != OrderModifier::GuardArea => {
@@ -1037,25 +1047,13 @@ fn object_attack_click_command(
             | AttackAction::Rally => return None,
         }
     }
-    let payload = object_click_payload(
+    Some(object_click_payload(
         order_mode,
         modifier,
         entity_can_attack_move(sim, Some(rules), attacker_id),
         attacker_id,
         target_id,
-    );
-    let attack = matches!(
-        payload,
-        Command::Attack { .. }
-            | Command::AttackMove {
-                target: Some(_),
-                ..
-            }
-    );
-    if !attack || !click_attack_refused(sim, rules, overlay_registry, attacker_id, target_id) {
-        return Some(payload);
-    }
-    move_near(crate::sim::world::MoveAction::None)
+    ))
 }
 
 /// What `DisplayClass::BandBox_LeftUp @ 0x004AB9B0` does with the action
@@ -2012,22 +2010,6 @@ pub(crate) fn try_queue_context_order_at_screen_point(
                 consumed_attack_action = true;
             }
             for stable_id in selected_units {
-                // NoIvanBomb needs the Attack action, which a shot ILLEGAL to
-                // the Ivan never reaches: a bombed target is ILLEGAL first
-                // (`0x006FCBAD`), and that click takes the class tail in
-                // `object_attack_click_command` instead.
-                if let Some(target_id) = attack_target
-                    && ivan_cannot_bomb(sim, &resources.rules, stable_id, target_id)
-                    && !click_attack_refused(
-                        sim,
-                        &resources.rules,
-                        &resources.overlay_registry,
-                        stable_id,
-                        target_id,
-                    )
-                {
-                    continue;
-                }
                 let payload = if let Some(target_id) = attack_target {
                     let Some(payload) = object_attack_click_command(
                         sim,
@@ -2436,6 +2418,7 @@ fn object_click_release(
         rules,
         best,
         &TargetKind::Entity(target_id),
+        false,
         Some(overlay_registry),
     );
     left_release(sim, rules, action.into(), Some(target_id))
@@ -2502,9 +2485,8 @@ fn object_attack_order(attacker_id: u64, target_id: u64, friendly: bool) -> Comm
 /// a bomb (`+0x38`) or is `Bombable=no`), which
 /// `FootClass::ClickedAction_Object` (0x004D74E0) ignores. An unforced click
 /// on a bombed target never gets that far: its GetFireError is ILLEGAL
-/// (`0x006FCBAD`), which [`click_attack_refused`] answers, so the Ivan's
-/// What_Action answers 0 and its class tail decides
-/// ([`object_attack_click_command`]).
+/// (`0x006FCBAD`, [`shot_is_illegal`]), so the Ivan's What_Action answers 0
+/// or Select there ([`attack_action`]).
 fn ivan_cannot_bomb(
     sim: &crate::sim::world::Simulation,
     rules: &crate::rules::ruleset::RuleSet,
@@ -2525,28 +2507,57 @@ fn ivan_cannot_bomb(
         })
 }
 
-/// `TechnoClass::What_Action_OnObject @ 0x00700548`: an unforced click on
-/// an object stays Attack only while the object's GetFireError for it
-/// ([`Simulation::selected_weapon_fire_error`]) is not ILLEGAL. Otherwise the
-/// action is None or Select (`0x0070056C`); [`object_attack_click_command`]
-/// asks the class tails what a 0 becomes.
+/// The ILLEGAL test of `TechnoClass::What_Action_OnObject`'s attack rung
+/// (`0x00700536..0x0070055B`): GetFireError (vt+0x3C0, with the selected
+/// weapon and range asked; [`Simulation::selected_weapon_fire_error`])
+/// answers ILLEGAL (5) for the object. The Infiltrate arm
+/// (`0x007004A0..0x00700531`) keeps the rung for an `Infiltrate=`
+/// infantryman over a building that is `Capturable=` when he is not
+/// `Agent=`, `Spyable=` when he is, or `CanC4=` when he is `C4=`. A Cell
+/// target asks no such test.
 ///
-/// The Infiltrate arm (`0x007004A0..0x00700531`) keeps Attack despite
-/// ILLEGAL for an `Infiltrate=` infantryman over a building its flags admit;
-/// the capture, infiltration and C4 orders take those clicks before this.
-fn click_attack_refused(
+/// Input asks it with the Dummy's coordinate word detached
+/// ([`SharedCellDummy::detached`]), so GetFireError's missing-cell lookups
+/// stamp a private copy and a cursor or click leaves the simulation's
+/// retained Dummy as it was. [`resolved_unit_in_range`] isolates its query
+/// for the same reason.
+///
+/// [`Simulation::selected_weapon_fire_error`]: crate::sim::world::Simulation::selected_weapon_fire_error
+/// [`SharedCellDummy::detached`]: crate::map::resolved_terrain::SharedCellDummy::detached
+fn shot_is_illegal(
     sim: &crate::sim::world::Simulation,
     rules: &crate::rules::ruleset::RuleSet,
-    overlay_registry: &crate::rules::overlay_types::OverlayTypeRegistry,
     actor_id: u64,
-    target_id: u64,
+    target: &TargetKind,
+    overlay_registry: Option<&crate::rules::overlay_types::OverlayTypeRegistry>,
 ) -> bool {
-    sim.selected_weapon_fire_error(
-        rules,
-        actor_id,
-        crate::sim::combat::TargetKind::Entity(target_id),
-        Some(overlay_registry),
-    ) == crate::sim::combat::fire_error::FireError::Illegal
+    let TargetKind::Entity(target_id) = *target else {
+        return false;
+    };
+    let infiltrate_arm = sim
+        .entities()
+        .get(actor_id)
+        .filter(|actor| actor.category == EntityCategory::Infantry)
+        .and_then(|actor| rules.object(sim.interner.resolve(actor.type_ref())))
+        .filter(|infantry| infantry.infiltrate)
+        .zip(
+            sim.entities()
+                .get(target_id)
+                .filter(|object| object.category == EntityCategory::Structure)
+                .and_then(|object| rules.object(sim.interner.resolve(object.type_ref()))),
+        )
+        .is_some_and(|(infantry, building)| {
+            (if infantry.agent {
+                building.spyable
+            } else {
+                building.capturable
+            }) || (infantry.c4 && building.can_c4)
+        });
+    !infiltrate_arm
+        && sim
+            .effective_shared_cell_dummy()
+            .detached(|| sim.selected_weapon_fire_error(rules, actor_id, *target, overlay_registry))
+            == crate::sim::combat::fire_error::FireError::Illegal
 }
 
 fn selected_rally_producer_ids(
@@ -2703,12 +2714,14 @@ mod tests {
         assert_eq!(selected, [spy]);
     }
 
-    /// `TechnoClass::What_Action_OnObject @ 0x00700548`: an unforced click
-    /// orders Attack only to the objects whose GetFireError for the target is
-    /// not ILLEGAL. Out of range is RANGE (T61, the last test), not ILLEGAL.
-    /// A Crazy Ivan's bombed target is ILLEGAL at any distance (T55,
+    /// `TechnoClass::What_Action_OnObject @ 0x00700548`: unforced, the
+    /// attack rung answers Attack only while the actor's GetFireError for the
+    /// object is not ILLEGAL; otherwise the tail answers, and a player's
+    /// Infantry turns its 0 into NoMove. Force fire keeps the rung
+    /// (`0x00700555`). Out of range is RANGE (T61, the last test), not
+    /// ILLEGAL. A Crazy Ivan's bombed target is ILLEGAL at any distance (T55,
     /// `0x006FCBAD`, comes first). ClickedMission promotes only an Attack
-    /// that passed, so the test refuses an attack-move click too.
+    /// that passed, so an attack-move click needs it too.
     #[test]
     fn an_unforced_click_refuses_only_an_illegal_shot() {
         let rules =
@@ -2745,14 +2758,30 @@ mod tests {
         let near = spawn("HTNK", "Soviets", 6);
         let far = spawn("HTNK", "Soviets", 20);
         let overlays = crate::rules::overlay_types::OverlayTypeRegistry::empty();
-        let refused = |sim: &Simulation, actor: u64, target: u64| {
-            click_attack_refused(sim, &rules, &overlays, actor, target)
+        let action = |sim: &Simulation, actor: u64, target: u64, forced: bool| {
+            attack_action(
+                sim,
+                &rules,
+                actor,
+                &TargetKind::Entity(target),
+                forced,
+                Some(&overlays),
+            )
         };
 
-        assert!(refused(&sim, gi, near), "0% Verses against heavy armour");
-        assert!(!refused(&sim, tank, near));
-        assert!(!refused(&sim, tank, far), "out of range");
-        assert!(!refused(&sim, ivan, near));
+        assert_eq!(
+            action(&sim, gi, near, false),
+            AttackAction::NoMove,
+            "0% Verses against heavy armour"
+        );
+        assert_eq!(action(&sim, gi, near, true), AttackAction::Attack);
+        assert_eq!(action(&sim, tank, near, false), AttackAction::Attack);
+        assert_eq!(
+            action(&sim, tank, far, false),
+            AttackAction::Attack,
+            "out of range"
+        );
+        assert_eq!(action(&sim, ivan, near, false), AttackAction::Attack);
         let americans = sim.interner.get("Americans").unwrap();
         assert_eq!(
             object_attack_click_command(
@@ -2775,19 +2804,86 @@ mod tests {
 
         sim.bomb_attach(ivan, Some(near), &rules);
         sim.bomb_attach(ivan, Some(far), &rules);
-        assert!(refused(&sim, ivan, near), "a bombed target");
-        assert!(
-            refused(&sim, ivan, far),
+        assert_eq!(
+            action(&sim, ivan, near, false),
+            AttackAction::NoMove,
+            "a bombed target"
+        );
+        assert_eq!(
+            action(&sim, ivan, far, false),
+            AttackAction::NoMove,
             "the bomb gate precedes the range test"
         );
+    }
+
+    /// The Infiltrate arm keeps an unforced ILLEGAL shot on the rung
+    /// (`0x007004A0..0x00700531`): an `Agent=` infantryman over a `Spyable=`
+    /// building, another over a `Capturable=` one, and a `C4=` one over a
+    /// building that is `CanC4=` (a building's default). Any other building
+    /// takes the tail.
+    #[test]
+    fn the_infiltrate_arm_keeps_an_illegal_shot_on_the_rung() {
+        let rules =
+            crate::rules::ruleset::RuleSet::from_ini(&crate::rules::ini_parser::IniFile::from_str(
+                "[InfantryTypes]\n0=SPY\n1=ENGI\n2=SEAL\n\
+                 [BuildingTypes]\n0=LAB\n1=DEPOT\n2=BUNK\n\
+                 [SPY]\nStrength=100\nInfiltrate=yes\nAgent=yes\nPrimary=Pea\n\
+                 [ENGI]\nStrength=100\nInfiltrate=yes\nPrimary=Pea\n\
+                 [SEAL]\nStrength=100\nInfiltrate=yes\nC4=yes\nPrimary=Pea\n\
+                 [LAB]\nStrength=750\nArmor=heavy\nSpyable=yes\n\
+                 [DEPOT]\nStrength=750\nArmor=heavy\nCapturable=yes\n\
+                 [BUNK]\nStrength=750\nArmor=heavy\nCanC4=no\n\
+                 [Pea]\nDamage=10\nRange=5\nProjectile=Invisible\nWarhead=Soft\n\
+                 [Invisible]\nInviso=yes\n\
+                 [Soft]\nVerses=100%,100%,100%,100%,100%,0%,100%,100%,100%,100%,100%\n",
+            ))
+            .unwrap();
+        let mut sim = Simulation::new();
+        sim.resolve_type_handles(&rules);
+        for (house, human) in [("Americans", true), ("Soviets", false)] {
+            let id = sim.interner.intern(house);
+            sim.houses.insert(
+                id,
+                crate::sim::house_state::HouseState::new(id, 0, None, human, 0, 10),
+            );
+            sim.session.house_order.push(id);
+        }
+        sim.session.game_mode_nonzero = true;
+        sim.session.current_house = sim.interner.get("Americans");
+        let mut spawn = |kind: &str, owner: &str, rx: u16, ry: u16| {
+            sim.spawn_object(kind, owner, rx, ry, 0, &rules).unwrap()
+        };
+        let spy = spawn("SPY", "Americans", 4, 5);
+        let engineer = spawn("ENGI", "Americans", 5, 5);
+        let seal = spawn("SEAL", "Americans", 5, 8);
+        let lab = spawn("LAB", "Soviets", 7, 5);
+        let depot = spawn("DEPOT", "Soviets", 7, 8);
+        let bunker = spawn("BUNK", "Soviets", 10, 8);
+        let overlays = crate::rules::overlay_types::OverlayTypeRegistry::empty();
+        let action = |actor, target| {
+            attack_action(
+                &sim,
+                &rules,
+                actor,
+                &TargetKind::Entity(target),
+                false,
+                Some(&overlays),
+            )
+        };
+        assert_eq!(action(spy, lab), AttackAction::Attack);
+        assert_eq!(action(spy, depot), AttackAction::NoMove);
+        assert_eq!(action(engineer, depot), AttackAction::Attack);
+        assert_eq!(action(engineer, lab), AttackAction::NoMove);
+        assert_eq!(action(seal, lab), AttackAction::Attack);
+        assert_eq!(action(seal, bunker), AttackAction::NoMove);
     }
 
     /// A shot ILLEGAL to an armed receiver leaves its What_Action 0
     /// (`0x0070056C..0x007005E6`), which a player's Infantry or Unit it may
     /// control turns into NoMove (`0x0051F05E..0x0051F08B`,
     /// `0x007403EB..0x00740414`): the click moves it near the object, as an
-    /// attack-move under the chord. A retail Crazy Ivan's bombed target is
-    /// ILLEGAL to him (`0x006FCBAD`).
+    /// attack-move under the chord, and the cursor shows NoMove. A retail
+    /// Crazy Ivan's bombed target is ILLEGAL to him (`0x006FCBAD`).
     #[test]
     fn a_refused_shot_moves_the_receiver_near_the_object() {
         let Some(retail) = crate::rules::retail_ini_fixture::retail_battle_rules() else {
@@ -2803,7 +2899,32 @@ mod tests {
             .reveal_cells_for_owner(owner, (0..16).flat_map(|y| (0..16).map(move |x| (x, y))));
         sim.bomb_attach(ivan, Some(tank), &rules);
         let overlays = crate::rules::overlay_types::OverlayTypeRegistry::empty();
-        assert!(click_attack_refused(&sim, &rules, &overlays, ivan, tank));
+        assert_eq!(
+            attack_action(
+                &sim,
+                &rules,
+                ivan,
+                &TargetKind::Entity(tank),
+                false,
+                Some(&overlays)
+            ),
+            AttackAction::NoMove
+        );
+        // The cursor shows that NoMove too, not Select.
+        assert_eq!(
+            crate::app::input::cursor::capability_cursor_for_hover(
+                &sim,
+                &[ivan],
+                Some(ivan),
+                &HoverTargetKindWithId {
+                    kind: HoverTargetKind::EnemyUnit,
+                    stable_id: tank,
+                },
+                Some(&rules),
+                None,
+            ),
+            crate::app::types::CursorFeedbackKind::Invalid
+        );
         let click = |order_mode| {
             object_attack_click_command(
                 &sim,
@@ -2876,7 +2997,7 @@ mod tests {
             .reveal_cells_for_owner(owner, (0..16).flat_map(|y| (0..16).map(move |x| (x, y))));
         let overlays = crate::rules::overlay_types::OverlayTypeRegistry::empty();
         let action = |sim: &Simulation, actor| {
-            attack_action(sim, &rules, actor, &TargetKind::Entity(enemy), None)
+            attack_action(sim, &rules, actor, &TargetKind::Entity(enemy), false, None)
         };
         let release = |sim: &Simulation, selection: &[u64]| {
             object_click_release(sim, &rules, selection, selection, enemy, &overlays)
@@ -2963,7 +3084,7 @@ mod tests {
         assert_eq!(action(&sim, mcv), AttackAction::NoMove);
 
         assert_eq!(
-            attack_action(&sim, &rules, enemy, &TargetKind::Entity(tank), None),
+            attack_action(&sim, &rules, enemy, &TargetKind::Entity(tank), false, None),
             AttackAction::Select
         );
     }
@@ -2982,7 +3103,7 @@ mod tests {
         let enemy = sim.spawn_object("MTNK", "Enemy", 6, 5, 0, &rules).unwrap();
         sim.resolve_type_handles(&rules);
         let over_cell =
-            |actor| force_fire_action(&sim, &rules, actor, &TargetKind::Cell(5, 6), None);
+            |actor| armed_action(&sim, &rules, actor, &TargetKind::Cell(5, 6), true, None);
         assert_eq!(over_cell(tank), Some(AttackAction::Attack));
         assert_eq!(over_cell(enemy), Some(AttackAction::None));
     }
@@ -3019,7 +3140,7 @@ mod tests {
             .spawn_object("MTNK", "Russians", 6, 5, 0, &rules)
             .unwrap();
         assert_eq!(
-            attack_action(&sim, &rules, agent, &TargetKind::Entity(tank), None),
+            attack_action(&sim, &rules, agent, &TargetKind::Entity(tank), false, None),
             AttackAction::NoMove
         );
     }

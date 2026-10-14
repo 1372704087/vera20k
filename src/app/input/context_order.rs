@@ -113,8 +113,11 @@ pub(crate) enum AttackAction {
 /// (vt+0x138) that is neither selected (`+0x83`) nor warped out (vt+0x1D4),
 /// and 0 for any other.
 ///
-/// Cell target (`0x007009F3..0x00700A44`): the caller has asked the weapon
-/// ([`force_fire_action`]); control or range answers Attack, else 0.
+/// Cell target (`TechnoClass::What_Action_OnCell @ 0x00700600`): the rung is
+/// a human player's too (`0x007008A6..0x007008B3`), and the caller has asked
+/// the weapon ([`force_fire_action`]); control or range answers Attack
+/// (`0x007009F3..0x00700A44`), else 0. Any other house's object answers 0
+/// there (`0x00700AB7..0x00700AC4`).
 ///
 /// This asks no ROF, reload or GetFireError: the rung's ILLEGAL test
 /// (`0x00700548`) is the click's ([`click_attack_refused`]). The class
@@ -122,11 +125,12 @@ pub(crate) enum AttackAction {
 /// Foot/Techno and Display action corpus in
 /// tools/spatial_oracle/bunker_attack_action.json.
 ///
-/// RESIDUAL: the cursor does not ask the ILLEGAL test, except for a Crazy
-/// Ivan ([`crate::app::input::cursor`]). Trigger: hovering another house's
-/// object with an armed object whose shot is ILLEGAL, such as an attack dog
-/// over a tank. Effect: the cursor shows Attack where native shows NoMove,
-/// which the click orders. Frequent.
+/// RESIDUAL: the cursor asks the ILLEGAL test only for a Crazy Ivan
+/// ([`crate::app::input::cursor`]), which then shows Select. Trigger:
+/// hovering another house's object with an armed object whose shot is
+/// ILLEGAL, such as an attack dog over a tank or an Ivan over a target that
+/// carries a bomb. Effect: the cursor shows Attack, or Select for the Ivan,
+/// where native shows NoMove, which the click orders. Frequent.
 pub(crate) fn attack_action(
     sim: &crate::sim::world::Simulation,
     rules: &crate::rules::ruleset::RuleSet,
@@ -145,7 +149,7 @@ pub(crate) fn attack_action(
     let infiltrator = actor.category == EntityCategory::Infantry && kind.infiltrate;
     let admitted = match target {
         TargetKind::Entity(_) => human && (armed || infiltrator),
-        TargetKind::Cell(..) => true,
+        TargetKind::Cell(..) => human,
     };
     let mut action = if admitted
         && (sim.techno_player_controllable(actor_id, rules)
@@ -979,9 +983,10 @@ pub(crate) fn object_click_payload(
 ///
 /// RESIDUAL (#605): force fire orders the payload whatever the receiver.
 /// Trigger: Ctrl over an object with an unarmed receiver. Effect: VERA
-/// queues ForceAttack where native, whose attack rung admits no unarmed
-/// receiver under Ctrl either (`0x00700464..0x00700474`), selects the object
-/// or moves the receiver near it. Rare.
+/// queues ForceAttack where native, whose attack rung admits an unarmed
+/// receiver under Ctrl too only as an `Infiltrate=` infantryman
+/// (`0x00700444..0x00700474`), selects the object or moves the receiver near
+/// it. Rare.
 ///
 /// [`Simulation::object_move_click`]: crate::sim::world::Simulation::object_move_click
 fn object_attack_click_command(
@@ -1053,16 +1058,66 @@ fn object_attack_click_command(
     move_near(crate::sim::world::MoveAction::None)
 }
 
-/// What a left release does when every selected object is berserk.
+/// What `DisplayClass::BandBox_LeftUp @ 0x004AB9B0` does with the action
+/// DetermineAction answered ([`left_release`]).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum BerserkSelectionClick {
-    /// An action that dispatches: every ClickedAction refuses, and the
-    /// action-line timer still starts (`0x004ABFA9`).
+enum LeftRelease {
+    /// Every selected object gets the action (`0x004ABE88`); one whose
+    /// ClickedAction refuses sends nothing, and the action-line timer still
+    /// starts (`0x004ABFA9`).
     Dispatch,
-    /// Action 0 on the ground: nothing (`0x004AC294`).
+    /// Nothing (`0x004AC294`).
     Nothing,
-    /// Select, or action 0 over an object: the ordinary selection click.
+    /// The ordinary selection click on the object under the cursor
+    /// (`0x004ABE18`).
     Select,
+}
+
+/// The part of DetermineAction's action that [`left_release`] tells apart.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ReleaseAction {
+    Select,
+    Zero,
+    Other,
+}
+
+impl From<AttackAction> for ReleaseAction {
+    fn from(action: AttackAction) -> Self {
+        match action {
+            AttackAction::Select => Self::Select,
+            AttackAction::None => Self::Zero,
+            AttackAction::Attack | AttackAction::NoMove | AttackAction::Rally => Self::Other,
+        }
+    }
+}
+
+/// `DisplayClass::BandBox_LeftUp @ 0x004AB9B0` for `action`, with `target`
+/// the object under the cursor: Select selects it (`0x004ABDD3..0x004ABDDA`),
+/// and 0 selects an object the player may select (vt+0x138) and has not
+/// (`+0x83`) (`0x004ABDE1..0x004ABE11`); otherwise both do nothing. Every
+/// other action dispatches.
+fn left_release(
+    sim: &crate::sim::world::Simulation,
+    rules: &crate::rules::ruleset::RuleSet,
+    action: ReleaseAction,
+    target: Option<u64>,
+) -> LeftRelease {
+    let selects = match action {
+        ReleaseAction::Other => return LeftRelease::Dispatch,
+        ReleaseAction::Select => target.is_some(),
+        ReleaseAction::Zero => target.is_some_and(|id| {
+            sim.object_is_selectable(id, Some(rules))
+                && sim
+                    .entities()
+                    .get(id)
+                    .is_some_and(|object| !object.selected)
+        }),
+    };
+    if selects {
+        LeftRelease::Select
+    } else {
+        LeftRelease::Nothing
+    }
 }
 
 /// The left release for a selection whose every object is berserk.
@@ -1075,6 +1130,8 @@ enum BerserkSelectionClick {
 ///   (`0x007404B0`). A healer's repair arm still runs (`0x0073FD7C`), so a
 ///   berserk repair IFV may answer Select or Repair.
 /// - Aircraft: 0, over an object through its cell action (`0x00417D7C`).
+///
+/// [`left_release`] then decides what the release does.
 fn berserk_selection_click(
     sim: &crate::sim::world::Simulation,
     rules: &crate::rules::ruleset::RuleSet,
@@ -1082,7 +1139,7 @@ fn berserk_selection_click(
     hover: Option<&HoverTargetKindWithId>,
     cell: (u16, u16),
     issuing_house: InternedId,
-) -> BerserkSelectionClick {
+) -> LeftRelease {
     use crate::app::input::cursor::ActionDistanceTarget;
     let target = hover.map_or(ActionDistanceTarget::CellCentre(cell.0, cell.1), |target| {
         ActionDistanceTarget::Object(target.stable_id)
@@ -1094,7 +1151,7 @@ fn berserk_selection_click(
         Some(rules),
     )
     .and_then(|id| Some((id, sim.entities().get(id)?))) else {
-        return BerserkSelectionClick::Dispatch;
+        return LeftRelease::Dispatch;
     };
     let action_zero = match best.category {
         EntityCategory::Aircraft => true,
@@ -1107,22 +1164,17 @@ fn berserk_selection_click(
         }
         EntityCategory::Structure => false,
     };
-    if action_zero {
-        return if hover.is_some() {
-            BerserkSelectionClick::Select
-        } else {
-            BerserkSelectionClick::Nothing
-        };
-    }
-    let repair_select = hover.is_some_and(|target| {
+    let action = if action_zero {
+        ReleaseAction::Zero
+    } else if hover.is_some_and(|target| {
         sim.unit_repair_action(best_id, target.stable_id, issuing_house, rules)
             == Some(crate::sim::world::UnitRepairAction::Select)
-    });
-    if repair_select {
-        BerserkSelectionClick::Select
+    }) {
+        ReleaseAction::Select
     } else {
-        BerserkSelectionClick::Dispatch
-    }
+        ReleaseAction::Other
+    };
+    left_release(sim, rules, action, hover.map(|target| target.stable_id))
 }
 
 /// Attempt to issue a context-sensitive order at the given screen point.
@@ -1285,9 +1337,9 @@ pub(crate) fn try_queue_context_order_at_screen_point(
                 (target_rx, target_ry),
                 owner_id,
             ) {
-                BerserkSelectionClick::Dispatch => finish_order(state, queued, speaker_id),
-                BerserkSelectionClick::Nothing => true,
-                BerserkSelectionClick::Select => false,
+                LeftRelease::Dispatch => finish_order(state, queued, speaker_id),
+                LeftRelease::Nothing => true,
+                LeftRelease::Select => false,
             };
         }
 
@@ -1940,18 +1992,24 @@ pub(crate) fn try_queue_context_order_at_screen_point(
                 false
             };
 
-            if let Some(target_id) = attack_target
-                && matches!(modifier, OrderModifier::Normal | OrderModifier::AttackMove)
-                && object_click_selects(
-                    sim,
-                    &resources.rules,
-                    &current_objects,
-                    &selected_units,
-                    target_id,
-                    &resources.overlay_registry,
-                )
-            {
-                return false;
+            if let Some(target_id) = attack_target {
+                if matches!(modifier, OrderModifier::Normal | OrderModifier::AttackMove) {
+                    match object_click_release(
+                        sim,
+                        &resources.rules,
+                        &current_objects,
+                        &selected_units,
+                        target_id,
+                        &resources.overlay_registry,
+                    ) {
+                        LeftRelease::Select => return false,
+                        LeftRelease::Nothing => return true,
+                        LeftRelease::Dispatch => {}
+                    }
+                }
+                // A dispatched release selects nothing, whatever each
+                // receiver sends (`0x004ABE88`).
+                consumed_attack_action = true;
             }
             for stable_id in selected_units {
                 // NoIvanBomb needs the Attack action, which a shot ILLEGAL to
@@ -2337,42 +2395,50 @@ fn cursor_owner(
     )
 }
 
-/// Whether a left release over another house's object selects it instead of
-/// ordering anyone: the object that owns the cursor ([`cursor_owner`])
-/// answers Select there, or 0 over an object the player may select and has
-/// not (`DisplayClass::BandBox_LeftUp` `0x004ABDD3..0x004ABE11`). Only the
-/// receivers the capability arms left answer [`attack_action`]; an object
-/// they took answered its own action, which dispatches.
-fn object_click_selects(
+/// The left release over another house's object: [`left_release`] of the
+/// [`attack_action`] of the object that owns the cursor ([`cursor_owner`]),
+/// when it is one of the `receivers` the capability arms left. An owner
+/// those arms took answered there, receiver by receiver, so the release
+/// dispatches.
+///
+/// RESIDUAL (#605): `attack_branch_orders` decides each receiver's release
+/// itself, and consumes a 0 where native selects an object the player may
+/// select and has not. Trigger: a selected armed building alone, over
+/// another house's object out of its range. Effect: VERA does nothing where
+/// native selects the object. Rare.
+///
+/// RESIDUAL: a release that selects hands the click to the selection
+/// picker, which picks again. Both pickers admit what
+/// `Tactical::PickObjectAtScreenPoint` admits
+/// ([`crate::app::input::entity_pick::pick_admits_object`]), but they break
+/// ties apart, and only the selection picker refuses a click on a shrouded
+/// cell (`DisplayClass::ProcessClickCoords`, IsShrouded at `0x00692480`
+/// returns no object at `0x006924FC..0x006924FF`).
+/// Trigger: two objects under the click point, or a click just inside the
+/// shroud. Effect: the selection takes the other object, or is cleared,
+/// where native selects the object DetermineAction saw (one pick for both,
+/// `0x00693271` → `0x0069328B`). Rare.
+fn object_click_release(
     sim: &crate::sim::world::Simulation,
     rules: &crate::rules::ruleset::RuleSet,
     current_objects: &[u64],
     receivers: &[u64],
     target_id: u64,
     overlay_registry: &crate::rules::overlay_types::OverlayTypeRegistry,
-) -> bool {
+) -> LeftRelease {
     let Some(best) = cursor_owner(sim, rules, current_objects, target_id)
         .filter(|best| receivers.contains(best))
     else {
-        return false;
+        return LeftRelease::Dispatch;
     };
-    match attack_action(
+    let action = attack_action(
         sim,
         rules,
         best,
         &TargetKind::Entity(target_id),
         Some(overlay_registry),
-    ) {
-        AttackAction::Select => true,
-        AttackAction::None => {
-            sim.object_is_selectable(target_id, Some(rules))
-                && sim
-                    .entities()
-                    .get(target_id)
-                    .is_some_and(|object| !object.selected)
-        }
-        AttackAction::Attack | AttackAction::NoMove | AttackAction::Rally => false,
-    }
+    );
+    left_release(sim, rules, action.into(), Some(target_id))
 }
 
 /// The selected Crazy Ivans whose click on the own or allied `target` plants a
@@ -2514,7 +2580,7 @@ mod tests {
     /// (`0x00417D7C`). The best is the nearest berserk object.
     #[test]
     fn an_all_berserk_click_follows_the_best_objects_class() {
-        use BerserkSelectionClick::{Dispatch, Nothing, Select};
+        use LeftRelease::{Dispatch, Nothing, Select};
         let rules =
             crate::rules::ruleset::RuleSet::from_ini(&crate::rules::ini_parser::IniFile::from_str(
                 "[InfantryTypes]\n0=GI\n1=JUMPJET\n[VehicleTypes]\n0=MTNK\n\
@@ -2555,6 +2621,12 @@ mod tests {
         // Equal rank 0: the object nearer the clicked cell decides.
         assert_eq!(click(&[tank, gi], None, (3, 5)), Dispatch);
         assert_eq!(click(&[gi, tank], None, (6, 5)), Nothing);
+        // 0 over an object already selected does nothing (`0x004ABE0B`).
+        sim.entities_mut().get_mut(friend).unwrap().selected = true;
+        assert_eq!(
+            berserk_selection_click(&sim, &rules, &[orca], Some(&over_friend), (3, 5), owner),
+            Nothing
+        );
     }
 
     /// The Ivan's self-bomb gate counts the whole selection (`[0xA8ECC8]`):
@@ -2806,8 +2878,8 @@ mod tests {
         let action = |sim: &Simulation, actor| {
             attack_action(sim, &rules, actor, &TargetKind::Entity(enemy), None)
         };
-        let selects = |sim: &Simulation, selection: &[u64]| {
-            object_click_selects(sim, &rules, selection, selection, enemy, &overlays)
+        let release = |sim: &Simulation, selection: &[u64]| {
+            object_click_release(sim, &rules, selection, selection, enemy, &overlays)
         };
         let click = |sim: &Simulation, actor| {
             object_attack_click_command(
@@ -2843,13 +2915,15 @@ mod tests {
             cursor(&sim, miner),
             crate::app::types::CursorFeedbackKind::FriendlyUnit
         );
-        assert!(selects(&sim, &[miner, mcv]));
-        assert!(
-            !selects(&sim, &[miner, tank]),
+        assert_eq!(release(&sim, &[miner, mcv]), LeftRelease::Select);
+        assert_eq!(
+            release(&sim, &[miner, tank]),
+            LeftRelease::Dispatch,
             "the armed tank owns the cursor"
         );
-        assert!(
-            !object_click_selects(&sim, &rules, &[mcv], &[], enemy, &overlays),
+        assert_eq!(
+            object_click_release(&sim, &rules, &[mcv], &[], enemy, &overlays),
+            LeftRelease::Dispatch,
             "a capability arm took the object that owns the cursor"
         );
         assert_eq!(click(&sim, mcv), None);
@@ -2860,7 +2934,7 @@ mod tests {
             cursor(&sim, mcv),
             crate::app::types::CursorFeedbackKind::Invalid
         );
-        assert!(!selects(&sim, &[mcv]));
+        assert_eq!(release(&sim, &[mcv]), LeftRelease::Dispatch);
         let near = crate::app::input::commands::object_move_destination(
             &sim,
             &rules,
@@ -2892,6 +2966,25 @@ mod tests {
             attack_action(&sim, &rules, enemy, &TargetKind::Entity(tank), None),
             AttackAction::Select
         );
+    }
+
+    /// What_Action_OnCell's force-fire rung is a human player's too
+    /// (`0x007008A6..0x007008B3`): another house's armed object, which the
+    /// player may select to inspect, answers 0 over a cell in its range
+    /// (`0x00700AB7..0x00700AC4`), where the player's answers Attack.
+    #[test]
+    fn force_fire_on_a_cell_is_a_human_players() {
+        let Some(retail) = crate::rules::retail_ini_fixture::retail_battle_rules() else {
+            return;
+        };
+        let (mut sim, rules, _) = Simulation::walk_cell_input_test_scene_with(retail.rules, false);
+        let tank = sim.spawn_object("MTNK", "Local", 4, 4, 0, &rules).unwrap();
+        let enemy = sim.spawn_object("MTNK", "Enemy", 6, 5, 0, &rules).unwrap();
+        sim.resolve_type_handles(&rules);
+        let over_cell =
+            |actor| force_fire_action(&sim, &rules, actor, &TargetKind::Cell(5, 6), None);
+        assert_eq!(over_cell(tank), Some(AttackAction::Attack));
+        assert_eq!(over_cell(enemy), Some(AttackAction::None));
     }
 
     /// An unarmed `Infiltrate=` infantryman keeps the attack rung

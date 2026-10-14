@@ -808,11 +808,15 @@ fn unit_repair_feedback(
 /// Unforced, the base action stays Attack only while the Ivan's GetFireError
 /// for the target is not ILLEGAL (`refused`, [`click_refused`]), and a bombed
 /// target is ILLEGAL to him at any distance (`0x006FCBAD`). An ILLEGAL action
-/// falls back to None over another house's object and to Select over his own
-/// (`TechnoClass::What_Action_OnObject`, `0x0070056C..0x007005E9`).
+/// falls to the Techno tail (`TechnoClass::What_Action_OnObject`,
+/// `0x0070056C..0x007005E6`), which answers 0 over another house's object
+/// and Select over his own house's object the player may select; the
+/// Infantry tail turns that 0 into NoMove (`0x0051F05E..0x0051F08B`).
 ///
-/// RESIDUAL: VERA shows Select for both; over another house's object retail
-/// shows the plain arrow of None.
+/// RESIDUAL: VERA shows Select for both. Trigger: an Ivan over another
+/// house's object that carries a bomb or that his shot cannot hit. Effect:
+/// the Select cursor where native shows NoMove, which the click orders.
+/// Occasional.
 fn ivan_attack_feedback(
     kind: CursorFeedbackKind,
     selector_is_ivan: bool,

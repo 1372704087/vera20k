@@ -349,7 +349,9 @@ impl Simulation {
                 entity.mission.clear_suspended();
                 entity.navigation.suspended_nav_com = None;
                 entity.suspended_attack_target = None;
-                entity.lifecycle.object_alive() && !entity.crashing && !entity.lifecycle.in_limbo()
+                entity.lifecycle.object_alive()
+                    && !entity.crash.is_crashing()
+                    && !entity.lifecycle.in_limbo()
             });
         if idles
             && !no_idle

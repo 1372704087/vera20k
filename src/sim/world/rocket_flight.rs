@@ -1179,7 +1179,10 @@ pub(super) mod retail_tests {
             if entity.health.current() == 0 && killed.is_none() {
                 killed = Some(frame);
                 death_anims = new_anims;
-                assert!(entity.crashing, "Crash keeps the dead rocket alive");
+                assert!(
+                    entity.crash.is_crashing(),
+                    "Crash keeps the dead rocket alive"
+                );
                 assert!(
                     flak.iter().all(|&id| sim
                         .substrate

@@ -242,7 +242,7 @@ fn record_kill_credit(
     if callback == KillCallback::Terminal
         || victim.health.current() == 0
         || killer_owner.is_some()
-        || victim.crashing
+        || victim.crash.is_crashing()
     {
         victim.destruction_recorded = true;
     }

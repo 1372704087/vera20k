@@ -3145,7 +3145,9 @@ impl Simulation {
                     // already booked (`combat::record_kill::record_kill_credit`);
                     // a crashing infantryman falls at Health 1 (`0x0051BC57`)
                     // after the kill that booked its loss.
-                    entity.health.current() == 0 || entity.killed_by.is_some() || entity.crashing,
+                    entity.health.current() == 0
+                        || entity.killed_by.is_some()
+                        || entity.crash.is_crashing(),
                     entity.dont_score,
                 )
             })

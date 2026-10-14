@@ -527,7 +527,10 @@ fn low_dropped_bombs_use_class_water_splashes_without_debris() {
             }
             if kind == "ROCKET" && height > 0 {
                 let entity = sim.substrate.entities.get(id).unwrap();
-                assert!(entity.crashing, "common Crashable tail follows splash");
+                assert!(
+                    entity.crash.is_crashing(),
+                    "common Crashable tail follows splash"
+                );
                 assert!(entity.lifecycle.object_alive());
                 assert_eq!(entity.health.current(), 0);
                 assert!(entity.infantry_terminal.is_none());

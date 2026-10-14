@@ -1479,8 +1479,8 @@ fn hash_entity(entity: &GameEntity, frame: u32, hasher: &mut StateHasher) {
     // teleport and Set_Clipped_LocalSize own exact demotions.
     entity.in_playfield.hash(hasher);
     entity.move_sound.is_active().hash(hasher);
-    entity.crashing.hash(hasher);
-    entity.crashing_seen.hash(hasher);
+    entity.crash.is_crashing().hash(hasher);
+    entity.crash.seen().hash(hasher);
     if !entity.sinking.is_default() {
         b"techno-sinking-v1".hash(hasher);
         entity.sinking.hash(hasher);

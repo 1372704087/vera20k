@@ -462,13 +462,13 @@ impl JumpjetFlightHost for CruiseHost<'_> {
         let owner = self.sim.substrate.entities.get_mut(id).unwrap();
         owner.lift_may_end = true;
         owner.being_manipulated = false;
-        owner.crashing = false;
+        owner.crash.lower();
         if deploy_to_land {
             owner.set_landing_for_deploy(false);
         }
     }
     fn crashing(&self) -> bool {
-        self.owner().crashing
+        self.owner().crash.is_crashing()
     }
     fn in_bounds(&self, cell: (i16, i16)) -> bool {
         self.sim.map_size_diamond().is_some_and(|(width, height)| {

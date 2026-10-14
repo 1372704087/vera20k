@@ -143,6 +143,7 @@ pub(crate) use lifecycle_tests::common_raw_terrain_cell as common_raw_test_terra
 #[cfg(test)]
 mod team_script_vm_tests;
 
+pub(crate) use crash::CrashLatch;
 pub(crate) use display_registry::entity_layer;
 pub(crate) use lifecycle::{
     ConcealOutcome, LifecycleOutput, ObjectLifecycle, PlacementEvidence, RevealOutcome,
@@ -1895,7 +1896,7 @@ impl Simulation {
                 // Unit's receiver retains a `Crashable=` type its Crash(0)
                 // latched (`0x00738475`) and any other type's sinking hull
                 // (`0x00738493`); their own AI terminal calls UnInit. A
-                // Magnetron's drop latches `crashing` too, and keeps nothing.
+                // Magnetron's drop raises the crash latch too, and keeps nothing.
                 if self
                     .substrate
                     .entities
@@ -1905,7 +1906,7 @@ impl Simulation {
                             .object_type(entity.type_ref(), rules)
                             .is_some_and(|object| object.crashable)
                         {
-                            entity.crashing
+                            entity.crash.is_crashing()
                         } else {
                             entity.sinking.is_active()
                         }

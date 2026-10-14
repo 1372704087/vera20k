@@ -161,7 +161,10 @@ fn assert_actor(sim: &Simulation, id: u64, native: &Value, name: &str) {
         ("alive", u8::from(actor.lifecycle.object_alive())),
         ("limbo", u8::from(actor.lifecycle.in_limbo())),
         ("marked", u8::from(actor.lifecycle.cell_marked)),
-        ("logic_registered", u8::from(actor.in_logic_vector)),
+        (
+            "logic_registered",
+            u8::from(actor.in_logic_vector.is_member()),
+        ),
     ] {
         assert_eq!(json!(actual), native[label], "{name}: {label}");
     }

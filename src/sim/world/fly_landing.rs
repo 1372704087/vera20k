@@ -808,7 +808,8 @@ mod tests {
             let (mut sim, _) = fixture(&supplied);
             sim.session.game_mode_nonzero = input["game_mode"].as_u64().unwrap_or(0) != 0;
             let e = sim.substrate.entities.get_mut(1).unwrap();
-            e.discovery.owned_by_current_house = input["owned"].as_bool().unwrap_or(true);
+            e.discovery
+                .set_owned_by_current_house_for_test(input["owned"].as_bool().unwrap_or(true));
             if input["mission_only"].as_bool().unwrap_or(false) {
                 e.mark_mission_only();
             }

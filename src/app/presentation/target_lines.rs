@@ -310,7 +310,7 @@ pub(crate) fn build_factory_rally_line_instances(
         let Some(entity) = sim.entities().get(id) else {
             continue;
         };
-        if !entity.selected
+        if !entity.selection.is_selected()
             || !entity.is_object_alive()
             || entity.category() != EntityCategory::Structure
         {
@@ -364,7 +364,7 @@ fn selected_action_line_for_entity(
     rules: Option<&RuleSet>,
     cells: Option<&NativeCellQuery<'_>>,
 ) -> Option<SelectedActionLine> {
-    if !entity.selected
+    if !entity.selection.is_selected()
         || entity.category() == EntityCategory::Structure
         || !sim.house_is_human_player(entity.owner())
     {
@@ -617,7 +617,7 @@ mod tests {
         let mut unit = GameEntity::test_default(1, "MTNK", "Americans", 10, 10);
         unit.set_owner_for_test(sim.interner.intern("Americans"));
         unit.set_type_ref_for_test(sim.interner.intern("MTNK"));
-        unit.selected = true;
+        unit.selection.set_selected_for_test(true);
         sim.session.game_mode_nonzero = true;
         sim.session.current_house = Some(unit.owner());
         unit.navigation.nav_com = Some(NavTargetRef::cell(25, 25));
@@ -649,7 +649,7 @@ mod tests {
             5,
             false,
         );
-        factory.selected = true;
+        factory.selection.set_selected_for_test(true);
         factory.set_archive_target(Some(crate::sim::combat::TargetKind::Cell(16, 10)));
         let mut power = factory.clone();
         power.set_stable_id_for_test(11);

@@ -513,7 +513,7 @@ impl Simulation {
         self.temporal_release_if_warping(target);
         // 0x0071B16D: ObjectClass::Deselect.
         if let Some(entity) = self.substrate.entities.get_mut(target) {
-            entity.selected = false;
+            entity.selection.deselect();
         }
     }
 

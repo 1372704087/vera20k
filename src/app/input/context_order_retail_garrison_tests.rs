@@ -192,7 +192,7 @@ fn retail_gi_group_boards_a_4x4_garrison_from_its_far_side() {
         assert_eq!(occupant.passenger_role.inside_transport_id(), Some(castle));
         assert!(occupant.lifecycle.in_limbo());
         assert!(!occupant.lifecycle.cell_marked);
-        assert!(!occupant.in_logic_vector);
+        assert!(!occupant.in_logic_vector.is_member());
         assert!(!sim.live_object_order_snapshot().contains(&gi));
     }
     let castle_entity = sim.entities().get(castle).unwrap();
@@ -309,7 +309,7 @@ fn retail_capture_walk_rechecks_admission_and_respects_a_replacement_order() {
             actor.position, actor.navigation.nav_com
         );
         assert!(
-            actor.lifecycle.cell_marked && actor.in_logic_vector,
+            actor.lifecycle.cell_marked && actor.in_logic_vector.is_member(),
             "{control}"
         );
         assert!(

@@ -1996,7 +1996,7 @@ impl Simulation {
             if !requested.contains(&id)
                 && let Some(e) = self.substrate.entities.get_mut(id)
             {
-                e.selected = false;
+                e.selection.deselect();
             }
         }
         // Iterate the original payload, not the membership set: source order is
@@ -2066,13 +2066,13 @@ impl Simulation {
                 .substrate
                 .entities
                 .get(stable_id)
-                .is_some_and(|e| e.selected)
+                .is_some_and(|e| e.selection.is_selected())
         {
             return false;
         }
         match self.substrate.entities.get_mut(stable_id) {
             Some(entity) => {
-                entity.selected = true;
+                entity.selection.select();
                 true
             }
             None => false,
@@ -4014,7 +4014,7 @@ mod tests {
         let unit = sim.substrate.entities.get(1).unwrap();
         assert_eq!(unit.bunker_link, BunkerLink::Installed(2));
         assert!(
-            unit.in_logic_vector,
+            unit.in_logic_vector.is_member(),
             "install preserves LogicVector membership"
         );
         assert!(!unit.lifecycle.in_limbo());
@@ -4050,7 +4050,10 @@ mod tests {
         assert_eq!(sim.substrate.entities.get(2).unwrap().bunker_occupant, None);
         let unit = sim.substrate.entities.get(1).unwrap();
         assert_eq!(unit.bunker_link, BunkerLink::None);
-        assert!(unit.in_logic_vector, "occupant stays active on eject");
+        assert!(
+            unit.in_logic_vector.is_member(),
+            "occupant stays active on eject"
+        );
         assert!(!unit.lifecycle.in_limbo());
         assert_eq!(
             crate::sim::movement::ground_pose::object_get_coords(

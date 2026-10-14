@@ -446,7 +446,7 @@ impl Simulation {
             && current.is_some_and(|house| house == entity.owner())
         {
             entity.parasite.limbo_reselect = false;
-            entity.selected = true;
+            entity.selection.select();
         }
     }
 
@@ -1139,7 +1139,7 @@ impl Simulation {
         // 0x006FF763..0x006FF79C: ReselectIfLimboed memo for a selected,
         // locally controlled firer jumping an Infantry target.
         let reselect = object.reselect_if_limboed
-            && entity.selected
+            && entity.selection.is_selected()
             && self.session.current_house == Some(entity.owner())
             && target_infantry;
         if reselect {

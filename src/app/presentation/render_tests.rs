@@ -32,7 +32,7 @@ fn spawn_mobile(store: &mut EntityStore, sid: u64, rx: u16, ry: u16, owner: &str
         5,
         false,
     );
-    entity.selected = selected;
+    entity.selection.set_selected_for_test(selected);
     // Revealed onto the map — the picker refuses limbo objects.
     entity.lifecycle.set_in_limbo_for_test(false);
     store.insert(entity);
@@ -50,7 +50,7 @@ fn encounter_order(store: &EntityStore) -> Vec<u64> {
 fn selected_order(store: &EntityStore) -> Vec<u64> {
     store
         .values()
-        .filter(|entity| entity.selected)
+        .filter(|entity| entity.selection.is_selected())
         .map(|entity| entity.stable_id())
         .collect()
 }

@@ -528,7 +528,7 @@ fn ground_command_fixture(
         assert_eq!(target_actor.lifecycle.cell_marked, ambient["marked"] != 0);
         assert_eq!(target_actor.on_bridge, ambient["on_bridge"] != 0);
         assert_eq!(
-            target_actor.in_logic_vector,
+            target_actor.in_logic_vector.is_member(),
             ambient["logic_registered"] != 0
         );
         assert_eq!(
@@ -2077,7 +2077,7 @@ fn joined_two_paid_gi(route: OutputRoute) {
             if view.complete_object().is_some() && progress.completed_frame.is_none() {
                 progress.completed_frame = Some(frame);
                 let entity = sim.substrate.entities.get(held).unwrap();
-                assert!(entity.lifecycle.in_limbo() && !entity.in_logic_vector);
+                assert!(entity.lifecycle.in_limbo() && !entity.in_logic_vector.is_member());
                 assert!(
                     !sim.pending_command_snapshot().iter().any(|command| {
                         matches!(command.payload, Command::PlaceProducedMobile { .. })
@@ -2089,13 +2089,13 @@ fn joined_two_paid_gi(route: OutputRoute) {
         for (index, progress) in products.iter_mut().enumerate() {
             let entity = sim.substrate.entities.get(progress.id).unwrap();
             if entity.lifecycle.in_limbo() {
-                assert!(!entity.in_logic_vector && !entity.lifecycle.cell_marked);
+                assert!(!entity.in_logic_vector.is_member() && !entity.lifecycle.cell_marked);
                 continue;
             }
             let golden = &native_products[index];
             let state = local_state(&sim, progress.id);
             let context = format!("{route:?} GI[{index}]={} frame={frame}", progress.id);
-            assert!(entity.lifecycle.cell_marked && entity.in_logic_vector);
+            assert!(entity.lifecycle.cell_marked && entity.in_logic_vector.is_member());
             assert!(sim.substrate.occupancy.contains_entity(
                 entity.position.rx,
                 entity.position.ry,

@@ -162,7 +162,7 @@ fn sell_release_uses_building_center_preserves_pose_and_orders_links_after_speed
         (0x47, 0, 971)
     );
     assert!(drive.track().reversed);
-    assert!(!unit.lifecycle.in_limbo() && unit.in_logic_vector);
+    assert!(!unit.lifecycle.in_limbo() && unit.in_logic_vector.is_member());
     assert!(!unit.radio_contacts.contains(2));
     assert!(
         !sim.substrate

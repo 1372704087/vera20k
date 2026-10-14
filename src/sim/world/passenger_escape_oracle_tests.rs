@@ -520,7 +520,7 @@ fn compare(row: &Value) {
         };
         assert_eq!(nav, expected["nav"], "{context}: NavCom");
         assert_eq!(
-            entity.selected,
+            entity.selection.is_selected(),
             of("select").is_some(),
             "{context}: selected"
         );

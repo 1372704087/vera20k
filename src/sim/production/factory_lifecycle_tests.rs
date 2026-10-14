@@ -1619,7 +1619,7 @@ fn occupied_barracks_radio_refunds_discards_and_promotes_one_gi() {
     ));
     assert!(sim.pending_command_snapshot().is_empty());
     let first_entity = sim.substrate.entities.get(first).unwrap();
-    assert!(!first_entity.lifecycle.in_limbo() && first_entity.in_logic_vector);
+    assert!(!first_entity.lifecycle.in_limbo() && first_entity.in_logic_vector.is_member());
     let first_contacts = first_entity.radio_contacts.clone();
     assert_eq!(first_contacts.slot(0), Some(producer));
     assert_eq!(first_entity.tether.partner(), Some(producer));
@@ -1734,7 +1734,7 @@ fn occupied_barracks_radio_refunds_discards_and_promotes_one_gi() {
     );
     let successor_entity = sim.substrate.entities.get(successor).unwrap();
     assert!(successor_entity.lifecycle.in_limbo() && !successor_entity.lifecycle.cell_marked);
-    assert!(!successor_entity.in_logic_vector);
+    assert!(!successor_entity.in_logic_vector.is_member());
     let first_entity = sim.substrate.entities.get(first).unwrap();
     assert_eq!(first_entity.radio_contacts, first_contacts);
     assert_eq!(first_entity.tether.partner(), Some(producer));

@@ -62,7 +62,7 @@ pub(crate) fn resolve_debug_speed_type(state: &AppState) -> SpeedType {
         .and_then(|sim| {
             sim.entities()
                 .values()
-                .find(|e| e.selected)
+                .find(|e| e.selection.is_selected())
                 .and_then(|e| e.locomotor.as_ref())
                 .map(|l| l.speed_type)
         })
@@ -345,7 +345,7 @@ pub(crate) fn build_path_overlay_instances(
     const PATH_DEPTH: f32 = 0.0002;
 
     for entity in sim.entities().values() {
-        if !entity.selected {
+        if !entity.selection.is_selected() {
             continue;
         }
         if crate::sim::movement::motion_query::is_moving(entity) != Some(true) {

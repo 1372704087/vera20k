@@ -339,7 +339,7 @@ pub(crate) fn draw_debug_panel(ctx: &egui::Context, state: &AppState) {
                 let selected: Vec<u64> = sim
                     .entities()
                     .values()
-                    .filter(|e| e.selected)
+                    .filter(|e| e.selection.is_selected())
                     .map(|e| e.stable_id())
                     .collect();
                 if selected.is_empty() {
@@ -410,7 +410,11 @@ pub(crate) fn draw_debug_panel(ctx: &egui::Context, state: &AppState) {
                 .as_ref()
                 .map(|rt| &rt.simulation)
             {
-                for entity in sim.entities().values().filter(|e| e.selected) {
+                for entity in sim
+                    .entities()
+                    .values()
+                    .filter(|e| e.selection.is_selected())
+                {
                     let Some(ref miner) = entity.miner else {
                         continue;
                     };
@@ -508,7 +512,11 @@ pub(crate) fn draw_event_history_panel(ctx: &egui::Context, state: &AppState) {
         .show(ctx, |ui| {
             apply_light_text(ui);
 
-            let selected: Vec<_> = sim.entities().values().filter(|e| e.selected).collect();
+            let selected: Vec<_> = sim
+                .entities()
+                .values()
+                .filter(|e| e.selection.is_selected())
+                .collect();
             if selected.is_empty() {
                 ui.label(
                     egui::RichText::new("Select a unit to inspect")

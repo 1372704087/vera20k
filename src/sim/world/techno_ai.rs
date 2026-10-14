@@ -7057,7 +7057,8 @@ MinLowPowerProductionSpeed=0.4\nMaxLowPowerProductionSpeed=0.85\n\n\
             .entities
             .get_mut(id)
             .expect("fixture entity")
-            .in_logic_vector = true;
+            .in_logic_vector
+            .set_for_test(true);
     }
 
     /// Supply the retained Walk byte/head and shared Foot fraction read by

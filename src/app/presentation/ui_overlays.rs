@@ -141,8 +141,10 @@ fn unit_status_drawable(
     local_owner_id: Option<crate::sim::intern::InternedId>,
     ignore_visibility: bool,
 ) -> bool {
-    let (_, draw_pips) =
-        unit_status_visibility(entity.selected, hovered_unit_id == Some(entity.stable_id()));
+    let (_, draw_pips) = unit_status_visibility(
+        entity.selection.is_selected(),
+        hovered_unit_id == Some(entity.stable_id()),
+    );
     draw_pips
         && status_entity_visible_plain(
             local_owner_id,
@@ -282,7 +284,7 @@ pub(crate) fn build_building_status_instances(
         if e.category() != EntityCategory::Structure {
             continue;
         }
-        if !e.selected && hovered_structure_id != Some(e.stable_id()) {
+        if !e.selection.is_selected() && hovered_structure_id != Some(e.stable_id()) {
             continue;
         }
         let health = &e.health;
@@ -494,7 +496,7 @@ pub(crate) fn build_occupant_pip_instances(
         if e.category() != EntityCategory::Structure {
             continue;
         }
-        if !e.selected && hovered_structure_id != Some(e.stable_id()) {
+        if !e.selection.is_selected() && hovered_structure_id != Some(e.stable_id()) {
             continue;
         }
         let type_str = sim.interner.resolve(e.type_ref());
@@ -865,8 +867,10 @@ pub(crate) fn build_unit_status_bg_instances(
         if e.passenger_role.is_inside_transport() {
             continue;
         }
-        let (draw_background, _) =
-            unit_status_visibility(e.selected, hovered_unit_id == Some(e.stable_id()));
+        let (draw_background, _) = unit_status_visibility(
+            e.selection.is_selected(),
+            hovered_unit_id == Some(e.stable_id()),
+        );
         if !draw_background {
             continue;
         }
@@ -1199,7 +1203,7 @@ pub(crate) fn build_cargo_pip_instances(state: &AppState, sw: f32, sh: f32) -> V
         if e.passenger_role.is_inside_transport() {
             continue;
         }
-        if !e.selected {
+        if !e.selection.is_selected() {
             continue;
         }
         let obj = state
@@ -1322,7 +1326,7 @@ pub(crate) fn build_cargo_pip_instances(state: &AppState, sw: f32, sh: f32) -> V
             instances.len(),
             sim.entities()
                 .values()
-                .filter(|e| e.selected && e.miner.is_some())
+                .filter(|e| e.selection.is_selected() && e.miner.is_some())
                 .count(),
             pip_size,
             pip_uv_size,
@@ -1354,7 +1358,7 @@ pub(crate) fn build_building_radius_ring_instances(
     let mut instances = Vec::new();
 
     for e in sim.entities().values() {
-        if e.category() != EntityCategory::Structure || !e.selected {
+        if e.category() != EntityCategory::Structure || !e.selection.is_selected() {
             continue;
         }
         if !status_entity_visible_plain(

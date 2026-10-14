@@ -1662,10 +1662,10 @@ fn lifecycle_authority_immediate_combat_death_reaches_uninit_without_precleanup(
     let mut store = EntityStore::new();
 
     let mut dead = make_entity(1, "MTNK", 5, 5, 0);
-    dead.selected = true;
+    dead.selection.set_selected_for_test(true);
     dead.attack_target.set_for_test(Some(TargetKind::Entity(2)));
     dead.navigation.nav_com = Some(crate::sim::components::NavTargetRef::cell(9, 9));
-    dead.in_logic_vector = true;
+    dead.in_logic_vector.set_for_test(true);
     dead.lifecycle.set_in_limbo_for_test(false);
     dead.lifecycle.cell_marked = true;
     dead.radio_contacts.insert(2);
@@ -1690,7 +1690,7 @@ fn lifecycle_authority_immediate_combat_death_reaches_uninit_without_precleanup(
         !dead.death.is_dying(),
         "immediate UnInit, not combat, owns the death gate"
     );
-    assert!(dead.selected, "UnInit owns deselection");
+    assert!(dead.selection.is_selected(), "UnInit owns deselection");
     assert!(
         dead.attack_target.target().is_some(),
         "UnInit owns attack cleanup"
@@ -1699,7 +1699,10 @@ fn lifecycle_authority_immediate_combat_death_reaches_uninit_without_precleanup(
         dead.navigation.nav_com.is_some(),
         "UnInit owns movement cleanup"
     );
-    assert!(dead.in_logic_vector, "UnInit owns LogicVector removal");
+    assert!(
+        dead.in_logic_vector.is_member(),
+        "UnInit owns LogicVector removal"
+    );
     assert!(dead.lifecycle.object_alive());
     assert!(!dead.lifecycle.in_limbo());
     assert!(dead.lifecycle.cell_marked);
@@ -1727,7 +1730,7 @@ fn lifecycle_authority_combat_leaves_transport_cargo_for_carrier_uninit() {
 
     let mut passenger = make_infantry_entity(2, "E1", 5, 5, 125);
     passenger.passenger_role = crate::sim::passenger::PassengerRole::inside_for_test(1, false);
-    passenger.selected = true;
+    passenger.selection.set_selected_for_test(true);
     passenger
         .attack_target
         .set_for_test(Some(TargetKind::Entity(3)));
@@ -1748,7 +1751,7 @@ fn lifecycle_authority_combat_leaves_transport_cargo_for_carrier_uninit() {
     assert_eq!(passenger.health.current(), 125);
     assert!(!passenger.death.is_dying());
     assert_eq!(passenger.passenger_role.inside_transport_id(), Some(1));
-    assert!(passenger.selected);
+    assert!(passenger.selection.is_selected());
     assert!(passenger.attack_target.target().is_some());
     assert!(passenger.navigation.nav_com.is_some());
 }
@@ -1759,10 +1762,10 @@ fn lifecycle_authority_animated_combat_handoff_changes_only_dying_and_sequence()
     let mut store = EntityStore::new();
 
     let mut dead = make_infantry_entity(1, "E1", 5, 5, 0);
-    dead.selected = true;
+    dead.selection.set_selected_for_test(true);
     dead.attack_target.set_for_test(Some(TargetKind::Entity(2)));
     dead.navigation.nav_com = Some(crate::sim::components::NavTargetRef::cell(9, 9));
-    dead.in_logic_vector = true;
+    dead.in_logic_vector.set_for_test(true);
     dead.lifecycle.set_in_limbo_for_test(false);
     dead.lifecycle.cell_marked = true;
     dead.radio_contacts.insert(2);
@@ -1785,10 +1788,10 @@ fn lifecycle_authority_animated_combat_handoff_changes_only_dying_and_sequence()
     assert_eq!(dead.mission_leaf.as_infantry().unwrap().doing(), 11);
     assert_eq!(dead.native_stage().value(), 0);
     assert_eq!(dead.infantry_sprite_pose(), Some((11, 0)));
-    assert!(dead.selected);
+    assert!(dead.selection.is_selected());
     assert!(dead.attack_target.target().is_some());
     assert!(dead.navigation.nav_com.is_some());
-    assert!(dead.in_logic_vector);
+    assert!(dead.in_logic_vector.is_member());
     assert!(dead.lifecycle.object_alive());
     assert!(!dead.lifecycle.in_limbo());
     assert!(dead.lifecycle.cell_marked);
@@ -4676,7 +4679,7 @@ fn gsi_04_07_damage_postmortem_stock_barrel_delay_and_nested_order() {
         .expect("UnInit keeps physical storage until the pending-delete drain");
     assert_eq!(expired.health.current(), 0);
     assert!(expired.death.is_dying() && !expired.lifecycle.object_alive());
-    assert!(!expired.in_logic_vector);
+    assert!(!expired.in_logic_vector.is_member());
     assert!(!sim.substrate.occupancy.contains_entity(8, 5, center));
     assert!(sim.substrate.pending_delete.contains_object(&center));
     assert_eq!(
@@ -4741,7 +4744,12 @@ fn gsi_04_07_damage_postmortem_exact_zero_callbacks_precede_restore() {
             .set_for_test(Some(TargetKind::Entity(target_id)));
     };
     arm_source_target(&mut sim);
-    sim.substrate.entities.get_mut(target_id).unwrap().selected = true;
+    sim.substrate
+        .entities
+        .get_mut(target_id)
+        .unwrap()
+        .selection
+        .set_selected_for_test(true);
     let delay_wh = sim.interner.intern("DelayWH");
 
     let hit = |sim: &mut crate::sim::world::Simulation| {
@@ -4774,9 +4782,9 @@ fn gsi_04_07_damage_postmortem_exact_zero_callbacks_precede_restore() {
     let target = sim.substrate.entities.get(target_id).unwrap();
     assert_eq!(target.health.current(), 1);
     assert!(target.lifecycle.object_alive() && !target.lifecycle.in_limbo());
-    assert!(target.in_logic_vector && target.lifecycle.cell_marked);
+    assert!(target.in_logic_vector.is_member() && target.lifecycle.cell_marked);
     assert!(
-        !target.selected,
+        !target.selection.is_selected(),
         "ObjectClass::Detach_All(1) deselects before detach"
     );
     assert!(sim.substrate.occupancy.contains_entity(8, 5, target_id));
@@ -4870,7 +4878,7 @@ fn gsi_04_07_damage_postmortem_exact_zero_callbacks_precede_restore() {
     let target = sim.substrate.entities.get(target_id).unwrap();
     assert_eq!(target.health.current(), 1);
     assert_eq!(target.pending_c4_detonation, Some(original_pending));
-    assert!(target.lifecycle.object_alive() && target.in_logic_vector);
+    assert!(target.lifecycle.object_alive() && target.in_logic_vector.is_member());
     assert!(sim.substrate.occupancy.contains_entity(8, 5, target_id));
     assert!(!sim.substrate.pending_delete.contains_object(&target_id));
     assert_eq!(sim.houses[&victim_owner].stats.buildings_lost(), 2);

@@ -310,7 +310,7 @@ impl Simulation {
         let foot = entity.category().is_foot();
         self.reset_orders_to_guard(id, rules, effects);
         if let Some(entity) = self.substrate.entities.get_mut(id) {
-            entity.selected = false;
+            entity.selection.deselect();
         }
         if foot {
             self.locomotor_power_off(id);

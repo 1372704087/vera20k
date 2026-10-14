@@ -762,11 +762,11 @@ fn discovery_owner_entry_and_lifetime_match_original_history_blocks() {
             row["input"]["foreign_constructor"] == true && row["input"]["repeat_entry"] == true
         })
         .unwrap();
-    let bytes = |history: crate::sim::game_entity::TechnoDiscoveryHistory| {
+    let bytes = |history: crate::sim::world::TechnoDiscoveryHistory| {
         [
-            u8::from(history.owned_by_current_house),
-            u8::from(history.discovered_by_current_house),
-            u8::from(history.discovered_by_other_house),
+            u8::from(history.owned_by_current_house()),
+            u8::from(history.discovered_by_current_house()),
+            u8::from(history.discovered_by_other_house()),
         ]
     };
     for sight in [8, 0] {
@@ -828,7 +828,7 @@ fn discovery_owner_entry_and_lifetime_match_original_history_blocks() {
                 .get(id)
                 .unwrap()
                 .discovery
-                .discovered_by_current_house,
+                .discovered_by_current_house(),
             "human Conceal retains the actual observation"
         );
         assert!(
@@ -927,7 +927,7 @@ fn outside_reentry_clears_current_discovery_only_after_successful_alive_mark() {
                 .get(id)
                 .unwrap()
                 .discovery
-                .discovered_by_current_house
+                .discovered_by_current_house()
         );
         sim.change_owner(id, other);
         sim.object_conceal(id);
@@ -937,7 +937,7 @@ fn outside_reentry_clears_current_discovery_only_after_successful_alive_mark() {
                 .get(id)
                 .unwrap()
                 .discovery
-                .discovered_by_current_house,
+                .discovered_by_current_house(),
             "other human Conceal retains historical B"
         );
         sim.substrate
@@ -966,9 +966,9 @@ fn outside_reentry_clears_current_discovery_only_after_successful_alive_mark() {
             entity.in_playfield,
             placement == PlacementEvidence::MarkFailed
         );
-        assert!(!entity.discovery.owned_by_current_house);
-        assert_eq!(entity.discovery.discovered_by_current_house, expected_b);
-        assert_eq!(entity.discovery.discovered_by_other_house, expected_c);
+        assert!(!entity.discovery.owned_by_current_house());
+        assert_eq!(entity.discovery.discovered_by_current_house(), expected_b);
+        assert_eq!(entity.discovery.discovered_by_other_house(), expected_c);
         assert_eq!(
             sim.substrate.occupancy.contains_entity(5, 5, id),
             placement != PlacementEvidence::MarkFailed
@@ -1033,7 +1033,7 @@ fn first_nonhuman_owner_entry_queues_hunt_from_ambush_but_repeat_does_not() {
         .is_some()
     );
     let entity = sim.substrate.entities.get(id).unwrap();
-    assert!(entity.discovery.discovered_by_other_house);
+    assert!(entity.discovery.discovered_by_other_house());
     assert_eq!(entity.mission.current(), guard);
     assert_eq!(entity.mission.queued(), MissionId::NONE);
     // The discovery arm itself (`TechnoClass 0x006F4960`, reached again when
@@ -1041,7 +1041,9 @@ fn first_nonhuman_owner_entry_queues_hunt_from_ambush_but_repeat_does_not() {
     // house's object turns to Hunt on the first entry only.
     for first in [true, false] {
         let entity = sim.substrate.entities.get_mut(id).unwrap();
-        entity.discovery.discovered_by_other_house = !first;
+        entity
+            .discovery
+            .set_discovered_by_other_house_for_test(!first);
         entity
             .mission
             .apply_test_fixture(crate::sim::mission::state::MissionTestFixture {
@@ -1058,7 +1060,7 @@ fn first_nonhuman_owner_entry_queues_hunt_from_ambush_but_repeat_does_not() {
         assert_eq!(entity.mission.effective(), ambush);
         sim.discover_techno(id, other, crate::sim::world::UninitContext::default());
         let entity = sim.substrate.entities.get(id).unwrap();
-        assert!(entity.discovery.discovered_by_other_house);
+        assert!(entity.discovery.discovered_by_other_house());
         assert_eq!(entity.mission.queued(), if first { hunt } else { ambush });
         assert_eq!(
             entity.mission.current(),
@@ -1148,7 +1150,7 @@ fn exact_sight_zero_survives_save_and_rules_less_reentry() {
                 .get(id)
                 .unwrap()
                 .discovery
-                .discovered_by_current_house,
+                .discovered_by_current_house(),
             sight != 0,
             "raw Sight={sight}"
         );
@@ -1194,7 +1196,7 @@ fn infantry_owner_discovery_leaves_building_power_radar_and_spysat_inputs_unchan
             .get(id)
             .unwrap()
             .discovery
-            .discovered_by_current_house
+            .discovered_by_current_house()
     );
     sim.advance_tick(&[], Some(&rules), None, None, 66);
     let after = (
@@ -2372,7 +2374,7 @@ fn techno_constructor_authored_upgrades_are_distinct_attached_live_entities_with
         );
         assert!(!upgrade.lifecycle.in_limbo());
         assert!(!upgrade.lifecycle.cell_marked);
-        assert!(upgrade.in_logic_vector);
+        assert!(upgrade.in_logic_vector.is_member());
         assert_eq!((upgrade.position.rx, upgrade.position.ry), (10, 12));
     }
     assert_eq!(sim.scenario_rng.logical_state(), expected.logical_state());

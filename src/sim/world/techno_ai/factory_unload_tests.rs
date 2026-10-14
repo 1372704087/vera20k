@@ -413,7 +413,9 @@ fn actor_input(actor: &mut GameEntity, native: &Value) {
         .set_object_alive_for_test(native["alive"] == 1);
     actor.lifecycle.set_in_limbo_for_test(native["limbo"] == 1);
     actor.lifecycle.cell_marked = native["marked"] == 1;
-    actor.in_logic_vector = native["logic_registered"] == 1;
+    actor
+        .in_logic_vector
+        .set_for_test(native["logic_registered"] == 1);
     actor.in_playfield = native["in_playfield"] == 1;
     actor.on_bridge = native["on_bridge"] == 1;
     actor.health.set_for_test(int(&native["health"]));
@@ -567,7 +569,7 @@ fn assert_actor(actor: &GameEntity, native: &Value, name: &str) {
         ("alive", actor.lifecycle.object_alive()),
         ("limbo", actor.lifecycle.in_limbo()),
         ("marked", actor.lifecycle.cell_marked),
-        ("logic_registered", actor.in_logic_vector),
+        ("logic_registered", actor.in_logic_vector.is_member()),
         ("in_playfield", actor.in_playfield),
         ("on_bridge", actor.on_bridge),
     ] {

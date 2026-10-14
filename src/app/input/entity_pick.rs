@@ -1137,7 +1137,7 @@ pub(crate) fn is_local_player_selectable_object(
         && !entity.lifecycle.in_limbo()
         && entity.in_playfield
         && entity.category() != EntityCategory::Structure
-        && entity.discovery.discovered_by_current_house
+        && entity.discovery.discovered_by_current_house()
         && type_is_selectable(sim.interner.resolve(entity.type_ref()), rules)
         && sim.house_is_human_player(entity.owner())
 }
@@ -1446,7 +1446,7 @@ mod tests {
         );
         entity.lifecycle.set_object_alive_for_test(true);
         entity.lifecycle.set_in_limbo_for_test(false);
-        entity.selected = selected;
+        entity.selection.set_selected_for_test(selected);
         entity
     }
 

@@ -1195,7 +1195,7 @@ mod tests {
         assert!(passenger.lifecycle.object_alive());
         assert!(!passenger.lifecycle.in_limbo());
         assert!(passenger.lifecycle.cell_marked);
-        assert!(passenger.in_logic_vector);
+        assert!(passenger.in_logic_vector.is_member());
         assert_eq!((passenger.position.rx, passenger.position.ry), (51, 20));
         let sub_cell = passenger
             .sub_cell
@@ -1241,7 +1241,7 @@ mod tests {
                 .get_mut(passenger_id)
                 .unwrap()
                 .discovery
-                .discovered_by_current_house = true;
+                .set_discovered_by_current_house_for_test(true);
             sim.substrate
                 .entities
                 .get_mut(aircraft_id)
@@ -1281,8 +1281,8 @@ mod tests {
             );
             assert!(!passenger.is_falling_down());
             assert!(passenger.lifecycle.object_alive() && passenger.lifecycle.in_limbo());
-            assert!(!passenger.lifecycle.cell_marked && !passenger.in_logic_vector);
-            assert_eq!(passenger.discovery.discovered_by_current_house, human);
+            assert!(!passenger.lifecycle.cell_marked && !passenger.in_logic_vector.is_member());
+            assert_eq!(passenger.discovery.discovered_by_current_house(), human);
             assert!(
                 !sim.substrate
                     .occupancy
@@ -1394,7 +1394,7 @@ mod tests {
             assert_eq!(passenger.passenger_role.inside_transport_id(), Some(1));
             assert!(passenger.lifecycle.in_limbo());
             assert_eq!(passenger.lifecycle.cell_marked, post_attach);
-            assert!(!passenger.in_logic_vector);
+            assert!(!passenger.in_logic_vector.is_member());
             assert!(!passenger.is_falling_down());
             assert_eq!(
                 passenger.locomotor.as_ref().unwrap().layer,
@@ -1453,7 +1453,7 @@ mod tests {
                 assert_eq!(cargo.total_size(), 3);
                 let passenger = sim.substrate.entities.get(2).unwrap();
                 assert!(passenger.is_falling_down());
-                assert!(passenger.lifecycle.cell_marked && passenger.in_logic_vector);
+                assert!(passenger.lifecycle.cell_marked && passenger.in_logic_vector.is_member());
                 assert!(!passenger.passenger_role.is_inside_transport());
                 assert_eq!(chute_sounds(&sim).len(), 1);
             }

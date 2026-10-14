@@ -158,7 +158,9 @@ fn crew_scene(input: &Value) -> (SlaveScene, Vec<u64>) {
     building
         .has_been_captured
         .set_for_test(input["captured"] == true);
-    building.selected = input["selected"] == true;
+    building
+        .selection
+        .set_selected_for_test(input["selected"] == true);
     let mut passengers = Vec::new();
     if let Some(names) = input["passengers"].as_array() {
         building.passenger_role = PassengerRole::transport(PassengerCargo::new(5, 0));

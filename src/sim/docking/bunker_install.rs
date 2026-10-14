@@ -234,7 +234,7 @@ fn footprint_clear_of_others(sim: &Simulation, building_id: u64, unit_id: u64) -
     !sim.substrate.entities.iter_sorted().any(|(id, e)| {
         id != unit_id
             && id != building_id
-            && e.in_logic_vector
+            && e.in_logic_vector.is_member()
             && matches!(
                 e.category(),
                 EntityCategory::Unit | EntityCategory::Infantry
@@ -277,7 +277,7 @@ fn shove_footprint_blockers(
         .filter(|(id, e)| {
             *id != unit_id
                 && *id != building_id
-                && e.in_logic_vector
+                && e.in_logic_vector.is_member()
                 && matches!(
                     e.category(),
                     EntityCategory::Unit | EntityCategory::Infantry
@@ -765,7 +765,12 @@ mod tests {
             BunkerLink::Installed(2)
         );
         assert!(
-            sim.substrate.entities.get(1).unwrap().in_logic_vector,
+            sim.substrate
+                .entities
+                .get(1)
+                .unwrap()
+                .in_logic_vector
+                .is_member(),
             "installed unit remains in LogicVector"
         );
         let installed = sim.substrate.entities.get(1).unwrap();

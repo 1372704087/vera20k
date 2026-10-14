@@ -45,8 +45,8 @@ use super::{
 /// admitted cases. This protects the shared gate used by Foot and Building.
 #[test]
 fn native_trigger_reveal_cell_put_discovers_unshrouded_campaign_resident() {
-    use crate::sim::game_entity::TechnoDiscoveryHistory;
     use crate::sim::vision::{FogState, OwnerVisibility};
+    use crate::sim::world::TechnoDiscoveryHistory;
 
     for (game_mode_nonzero, revealed, discovered) in [
         (false, false, false),
@@ -89,11 +89,7 @@ fn native_trigger_reveal_cell_put_discovers_unshrouded_campaign_resident() {
             false,
             0,
         );
-        actor.discovery = TechnoDiscoveryHistory {
-            owned_by_current_house: false,
-            discovered_by_current_house: false,
-            discovered_by_other_house: true,
-        };
+        actor.discovery = TechnoDiscoveryHistory::for_test(false, false, true);
         let id = sim.substrate.entities.insert(actor);
         let scenario = sim.scenario_rng.native_state_hex();
         let main = sim.main_rng.native_state_hex();
@@ -101,10 +97,11 @@ fn native_trigger_reveal_cell_put_discovers_unshrouded_campaign_resident() {
         sim.discover_cell_put_object(id, (10, 10), super::UninitContext::default());
         let history = sim.substrate.entities.get(id).unwrap().discovery;
         assert_eq!(
-            history.discovered_by_current_house, discovered,
+            history.discovered_by_current_house(),
+            discovered,
             "mode_nonzero={game_mode_nonzero}, revealed={revealed}"
         );
-        assert!(!history.owned_by_current_house && history.discovered_by_other_house);
+        assert!(!history.owned_by_current_house() && history.discovered_by_other_house());
         assert_eq!(sim.houses[&owner].discovered_by_current_house(), discovered);
         assert_eq!(sim.scenario_rng.native_state_hex(), scenario);
         assert_eq!(sim.main_rng.native_state_hex(), main);
@@ -2394,7 +2391,7 @@ fn lifecycle_authority_reveal_commits_coords_then_marks_then_registers() {
     assert_eq!(entity.position.sub_y, SimFixed::from_num(64));
     assert!(!entity.lifecycle.in_limbo());
     assert!(entity.lifecycle.cell_marked);
-    assert!(entity.in_logic_vector);
+    assert!(entity.in_logic_vector.is_member());
     assert!(sim.substrate.occupancy.contains_entity(10, 20, 1));
     assert_eq!(sim.live_object_order_snapshot(), vec![1]);
 
@@ -2432,7 +2429,7 @@ fn reveal_stops_after_mark_when_object_is_not_alive() {
     let entity = sim.substrate.entities.get(1).unwrap();
     assert!(!entity.lifecycle.in_limbo());
     assert!(entity.lifecycle.cell_marked);
-    assert!(!entity.in_logic_vector);
+    assert!(!entity.in_logic_vector.is_member());
     assert!(sim.lifecycle_outputs.is_empty());
 }
 
@@ -2453,7 +2450,7 @@ fn lifecycle_authority_reveal_mark_failure_keeps_adjusted_coords_alive_limbo() {
     assert!(entity.lifecycle.object_alive());
     assert!(entity.lifecycle.in_limbo());
     assert!(!entity.lifecycle.cell_marked);
-    assert!(!entity.in_logic_vector);
+    assert!(!entity.in_logic_vector.is_member());
     assert_eq!(
         sim.lifecycle_test_events,
         vec![
@@ -2524,7 +2521,7 @@ fn lifecycle_authority_reveal_logic_failure_keeps_successful_mark() {
     let entity = sim.substrate.entities.get(1).unwrap();
     assert!(!entity.lifecycle.in_limbo());
     assert!(entity.lifecycle.cell_marked);
-    assert!(!entity.in_logic_vector);
+    assert!(!entity.in_logic_vector.is_member());
     assert!(sim.substrate.occupancy.contains_entity(10, 20, 1));
 }
 
@@ -2535,7 +2532,14 @@ fn lifecycle_authority_logic_flag_sets_after_append() {
 
     sim.register_live_object(1);
     assert_eq!(sim.live_object_order_snapshot(), vec![1]);
-    assert!(sim.substrate.entities.get(1).unwrap().in_logic_vector);
+    assert!(
+        sim.substrate
+            .entities
+            .get(1)
+            .unwrap()
+            .in_logic_vector
+            .is_member()
+    );
     assert_eq!(
         sim.lifecycle_test_events,
         vec![
@@ -2553,7 +2557,14 @@ fn lifecycle_authority_logic_append_failure_leaves_flag_clear() {
 
     sim.register_live_object(1);
     assert!(sim.live_object_order_snapshot().is_empty());
-    assert!(!sim.substrate.entities.get(1).unwrap().in_logic_vector);
+    assert!(
+        !sim.substrate
+            .entities
+            .get(1)
+            .unwrap()
+            .in_logic_vector
+            .is_member()
+    );
     assert!(sim.lifecycle_test_events.is_empty());
 }
 
@@ -2569,21 +2580,54 @@ fn lifecycle_authority_logic_remove_compacts_then_clears_flag() {
 
     sim.unregister_live_object(2);
     assert_eq!(sim.live_object_order_snapshot(), vec![1, 3]);
-    assert!(sim.substrate.entities.get(1).unwrap().in_logic_vector);
-    assert!(!sim.substrate.entities.get(2).unwrap().in_logic_vector);
-    assert!(sim.substrate.entities.get(3).unwrap().in_logic_vector);
+    assert!(
+        sim.substrate
+            .entities
+            .get(1)
+            .unwrap()
+            .in_logic_vector
+            .is_member()
+    );
+    assert!(
+        !sim.substrate
+            .entities
+            .get(2)
+            .unwrap()
+            .in_logic_vector
+            .is_member()
+    );
+    assert!(
+        sim.substrate
+            .entities
+            .get(3)
+            .unwrap()
+            .in_logic_vector
+            .is_member()
+    );
 }
 
 #[test]
 fn lifecycle_authority_flagged_missing_remove_still_clears_flag() {
     let mut sim = Simulation::new();
     insert_entity(&mut sim, 1, EntityCategory::Unit);
-    sim.substrate.entities.get_mut(1).unwrap().in_logic_vector = true;
+    sim.substrate
+        .entities
+        .get_mut(1)
+        .unwrap()
+        .in_logic_vector
+        .set_for_test(true);
     assert!(sim.live_object_order_snapshot().is_empty());
 
     sim.unregister_live_object(1);
     assert!(sim.live_object_order_snapshot().is_empty());
-    assert!(!sim.substrate.entities.get(1).unwrap().in_logic_vector);
+    assert!(
+        !sim.substrate
+            .entities
+            .get(1)
+            .unwrap()
+            .in_logic_vector
+            .is_member()
+    );
 }
 
 #[test]
@@ -2647,7 +2691,7 @@ fn open_topped_direct_registration_keeps_hidden_passenger_live() {
     assert!(passenger.lifecycle.object_alive());
     assert!(passenger.lifecycle.in_limbo());
     assert!(!passenger.lifecycle.cell_marked);
-    assert!(passenger.in_logic_vector);
+    assert!(passenger.in_logic_vector.is_member());
     assert_eq!(sim.live_object_order_snapshot(), vec![2, 1]);
 
     assert!(sim.register_open_topped_passenger(1));
@@ -2745,7 +2789,7 @@ fn lifecycle_authority_conceal_dirty_eligibility_emits_dirty_before_drawn_clear(
     assert!(entity.lifecycle.object_alive());
     assert!(entity.lifecycle.in_limbo());
     assert!(!entity.lifecycle.cell_marked);
-    assert!(!entity.in_logic_vector);
+    assert!(!entity.in_logic_vector.is_member());
 }
 
 #[test]
@@ -2754,7 +2798,7 @@ fn lifecycle_authority_conceal_deselects_unmarks_unregisters_then_sets_limbo() {
     insert_entity(&mut sim, 1, EntityCategory::Unit);
     let _ = sim.reveal(1);
     let entity = sim.substrate.entities.get_mut(1).unwrap();
-    entity.selected = true;
+    entity.selection.set_selected_for_test(true);
     entity.removal_facts.set_dirty_rect_eligible_for_test(true);
     sim.lifecycle_test_events.clear();
 
@@ -2789,9 +2833,9 @@ fn lifecycle_authority_conceal_deselects_unmarks_unregisters_then_sets_limbo() {
         ]
     );
     let entity = sim.substrate.entities.get(1).unwrap();
-    assert!(!entity.selected);
+    assert!(!entity.selection.is_selected());
     assert!(!entity.lifecycle.cell_marked);
-    assert!(!entity.in_logic_vector);
+    assert!(!entity.in_logic_vector.is_member());
     assert!(entity.lifecycle.in_limbo());
 }
 
@@ -3252,7 +3296,7 @@ fn gsi_05_03_dead_nonlimbo_stored_object_still_runs_conceal() {
     assert!(!entity.lifecycle.object_alive());
     assert!(entity.lifecycle.in_limbo());
     assert!(!entity.lifecycle.cell_marked);
-    assert!(!entity.in_logic_vector);
+    assert!(!entity.in_logic_vector.is_member());
 }
 
 #[test]
@@ -3270,7 +3314,7 @@ fn lifecycle_authority_uninit_dead_limbo_remains_resolvable_until_drain() {
     assert!(!entity.lifecycle.object_alive());
     assert!(entity.lifecycle.in_limbo());
     assert!(!entity.lifecycle.cell_marked);
-    assert!(!entity.in_logic_vector);
+    assert!(!entity.in_logic_vector.is_member());
     assert_eq!(sim.substrate.pending_delete.object_ids(), vec![1]);
 
     sim.process_pending_delete();
@@ -4826,7 +4870,7 @@ fn lifecycle_authority_animated_death_stays_represented_until_uninit() {
     assert!(entity.lifecycle.object_alive());
     assert!(!entity.lifecycle.in_limbo());
     assert!(entity.lifecycle.cell_marked);
-    assert!(entity.in_logic_vector);
+    assert!(entity.in_logic_vector.is_member());
 
     sim.uninit(1);
     let tracking = &sim.houses.get(&owner).unwrap().tracking;
@@ -4842,7 +4886,14 @@ fn lifecycle_authority_animated_death_stays_represented_until_uninit() {
             .lifecycle
             .object_alive()
     );
-    assert!(!sim.substrate.entities.get(1).unwrap().in_logic_vector);
+    assert!(
+        !sim.substrate
+            .entities
+            .get(1)
+            .unwrap()
+            .in_logic_vector
+            .is_member()
+    );
 }
 
 #[test]
@@ -4958,8 +5009,22 @@ fn lifecycle_authority_set_logic_order_for_test_synchronizes_all_membership_flag
             .unwrap()
             .in_logic_vector
     );
-    assert!(sim.substrate.entities.get(1).unwrap().in_logic_vector);
-    assert!(!sim.substrate.entities.get(2).unwrap().in_logic_vector);
+    assert!(
+        sim.substrate
+            .entities
+            .get(1)
+            .unwrap()
+            .in_logic_vector
+            .is_member()
+    );
+    assert!(
+        !sim.substrate
+            .entities
+            .get(2)
+            .unwrap()
+            .in_logic_vector
+            .is_member()
+    );
     sim.debug_assert_logic_membership_consistent();
 
     sim.set_logic_order_for_test(vec![2]);
@@ -4972,8 +5037,22 @@ fn lifecycle_authority_set_logic_order_for_test_synchronizes_all_membership_flag
             .unwrap()
             .in_logic_vector
     );
-    assert!(!sim.substrate.entities.get(1).unwrap().in_logic_vector);
-    assert!(sim.substrate.entities.get(2).unwrap().in_logic_vector);
+    assert!(
+        !sim.substrate
+            .entities
+            .get(1)
+            .unwrap()
+            .in_logic_vector
+            .is_member()
+    );
+    assert!(
+        sim.substrate
+            .entities
+            .get(2)
+            .unwrap()
+            .in_logic_vector
+            .is_member()
+    );
     sim.debug_assert_logic_membership_consistent();
 }
 
@@ -5432,6 +5511,7 @@ fn gsi_05_02_mixed_six_family_order_roundtrips_and_dispatches_every_slot() {
             .get(mixed[1])
             .unwrap()
             .in_logic_vector
+            .is_member()
     );
     assert!(restored.waves.get(mixed[2]).unwrap().in_logic_vector);
     assert!(
@@ -5514,6 +5594,7 @@ fn substrate_registration_and_removal_dispatch_is_order_identical() {
             .get(entity_id)
             .unwrap()
             .in_logic_vector
+            .is_member()
     );
     assert!(sim.substrate.anims.get(anim_id).unwrap().in_logic_vector);
     assert!(sim.projectiles.get(projectile_id).unwrap().in_logic_vector);

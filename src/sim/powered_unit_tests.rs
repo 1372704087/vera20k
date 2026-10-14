@@ -318,7 +318,12 @@ fn losing_and_regaining_the_last_powered_center_switches_robot_tanks() {
     assert_eq!(lines(&events, americans, EVA_ROBOT_TANKS_BACK_ONLINE), 1);
     assert_eq!(lines(&events, russians, EVA_ROBOT_TANKS_BACK_ONLINE), 1);
     assert_eq!(sounds(&events, "RobotTankOnline"), 0);
-    sim.substrate.entities.get_mut(tanks[0]).unwrap().selected = true;
+    sim.substrate
+        .entities
+        .get_mut(tanks[0])
+        .unwrap()
+        .selection
+        .set_selected_for_test(true);
 
     events.clear();
     destroy(&mut sim, &rules, plant);
@@ -336,7 +341,7 @@ fn losing_and_regaining_the_last_powered_center_switches_robot_tanks() {
     let guard = MissionId::from_known(MissionType::Guard);
     for id in tanks {
         let tank = sim.substrate.entities.get(id).unwrap();
-        assert!(!tank.selected);
+        assert!(!tank.selection.is_selected());
         assert!([tank.mission.current(), tank.mission.queued()].contains(&guard));
         assert!(!sim.techno_player_controllable(id, &rules));
         assert!(!sim.techno_is_active(id, &rules));

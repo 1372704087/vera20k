@@ -44,7 +44,12 @@ fn structural_fallout_retires_effect_only_ground_victim() {
         0xD4,
     );
     assert!(!sim.substrate.entities.get(victim).unwrap().on_bridge);
-    sim.substrate.entities.get_mut(victim).unwrap().selected = true;
+    sim.substrate
+        .entities
+        .get_mut(victim)
+        .unwrap()
+        .selection
+        .set_selected_for_test(true);
     // Supplied structural47DD70 callback. Concrete ground overlays205..232
     // do not call this owner; the former hut fixture invented that dependency.
     blow_up_bridge_cell_fallout(
@@ -58,7 +63,7 @@ fn structural_fallout_retires_effect_only_ground_victim() {
     let object = sim.substrate.entities.get(victim).unwrap();
     assert!(object.death.infantry_terminal().is_none());
     assert!(!object.lifecycle.object_alive());
-    assert!(object.death.is_dying() && !object.selected);
+    assert!(object.death.is_dying() && !object.selection.is_selected());
     assert!(!sim.substrate.occupancy.contains_entity(4, 4, victim));
     assert!(!sim.live_object_order_snapshot().contains(&victim));
     assert_eq!(

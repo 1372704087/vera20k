@@ -390,9 +390,10 @@ impl Fixture {
         // coherent ownership indexes, never after the compared arrival.
         let history = &before["discovery"];
         let discovery = &mut sim.substrate.entities.get_mut(building).unwrap().discovery;
-        discovery.owned_by_current_house = history["owned_by_current_house"] == 1;
-        discovery.discovered_by_current_house = history["discovered_by_current_house"] == 1;
-        discovery.discovered_by_other_house = history["discovered_by_other_house"] == 1;
+        discovery.set_owned_by_current_house_for_test(history["owned_by_current_house"] == 1);
+        discovery
+            .set_discovered_by_current_house_for_test(history["discovered_by_current_house"] == 1);
+        discovery.set_discovered_by_other_house_for_test(history["discovered_by_other_house"] == 1);
         sim.sound_events.clear();
         Self {
             sim,
@@ -443,17 +444,17 @@ impl Fixture {
         );
         let history = &native["discovery"];
         assert_eq!(
-            entity.discovery.owned_by_current_house,
+            entity.discovery.owned_by_current_house(),
             history["owned_by_current_house"] == 1,
             "{boundary}: native41A owner classification"
         );
         assert_eq!(
-            entity.discovery.discovered_by_current_house,
+            entity.discovery.discovered_by_current_house(),
             history["discovered_by_current_house"] == 1,
             "{boundary}: native41B current-viewer history"
         );
         assert_eq!(
-            entity.discovery.discovered_by_other_house,
+            entity.discovery.discovered_by_other_house(),
             history["discovered_by_other_house"] == 1,
             "{boundary}: native41C other-viewer history"
         );

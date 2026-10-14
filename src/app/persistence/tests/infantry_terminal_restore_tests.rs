@@ -53,7 +53,7 @@ fn infantry_terminal_held_factory_restore_waits_for_release_before_retiring() {
     // the raw handoff directly, not a bridge-dispatch reachability fixture.
     assert!(saved.begin_raw_infantry_death(held));
     let object = saved.substrate.entities.get(held).unwrap();
-    assert!(object.lifecycle.in_limbo() && !object.in_logic_vector);
+    assert!(object.lifecycle.in_limbo() && !object.in_logic_vector.is_member());
     saved.scenario_rng = crate::sim::rng::SimRng::new(0);
     let bytes = snapshot_bytes(&saved, &rules);
     let registry = OverlayTypeRegistry::empty();
@@ -68,7 +68,7 @@ fn infantry_terminal_held_factory_restore_waits_for_release_before_retiring() {
     .expect("retained terminal policy has a factory release owner")
     .simulation;
     let object = restored.substrate.entities.get(held).unwrap();
-    assert!(object.lifecycle.in_limbo() && !object.in_logic_vector);
+    assert!(object.lifecycle.in_limbo() && !object.in_logic_vector.is_member());
     assert_eq!(
         object.death.infantry_terminal(),
         Some(InfantryTerminal::RetireNextVisit)
@@ -79,7 +79,7 @@ fn infantry_terminal_held_factory_restore_waits_for_release_before_retiring() {
         .entities
         .get(held)
         .expect("held lifetime waits for release");
-    assert!(object.lifecycle.in_limbo() && !object.in_logic_vector);
+    assert!(object.lifecycle.in_limbo() && !object.in_logic_vector.is_member());
     assert_eq!(
         object.death.infantry_terminal(),
         Some(InfantryTerminal::RetireNextVisit)
@@ -107,7 +107,7 @@ fn infantry_terminal_held_factory_restore_waits_for_release_before_retiring() {
         .entities
         .get(held)
         .expect("release retains the identity");
-    assert!(!object.lifecycle.in_limbo() && object.in_logic_vector);
+    assert!(!object.lifecycle.in_limbo() && object.in_logic_vector.is_member());
     assert_eq!(
         object.death.infantry_terminal(),
         Some(InfantryTerminal::RetireNextVisit)
@@ -187,7 +187,7 @@ fn infantry_terminal_fatal_frame_exit_preserves_delivered_cleanup_through_load()
     assert!(
         object.death.is_dying() && object.lifecycle.in_limbo() && !object.lifecycle.object_alive()
     );
-    assert!(object.death.infantry_terminal().is_none() && !object.in_logic_vector);
+    assert!(object.death.infantry_terminal().is_none() && !object.in_logic_vector.is_member());
     assert!(!saved.substrate.occupancy.contains_entity(2, 1, victim));
     assert_eq!(
         saved

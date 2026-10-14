@@ -885,7 +885,7 @@ fn reveal_on_fire(world: &mut Simulation, rules: &RuleSet, firer_id: u64, target
     let owned = firer.owner() == house;
     let discovered = world.session.game_mode_nonzero
         || (world.session.current_house == Some(house)
-            && firer.discovery.discovered_by_current_house);
+            && firer.discovery.discovered_by_current_house());
     if owned || discovered {
         if owned && firer.category() == EntityCategory::Aircraft {
             return;

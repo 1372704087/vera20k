@@ -3164,7 +3164,7 @@ impl TacticalCaptureSession {
                     "deactivated": entity.deactivated,
                     // Mark and Logic membership are independent retained facts.
                     "cell_marked": entity.lifecycle.cell_marked,
-                    "in_logic_vector": entity.in_logic_vector,
+                    "in_logic_vector": entity.in_logic_vector.is_member(),
                     "mission": {"current": entity.mission.current().raw(),
                         "queued": entity.mission.queued().raw(), "suspended": entity.mission.suspended().raw(),
                         "effective": entity.mission.effective().raw(), "handler_state": entity.mission.handler_state(),

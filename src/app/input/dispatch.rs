@@ -1393,7 +1393,7 @@ pub(crate) fn report_black_cell_causes(state: &mut AppState) {
     }
 }
 
-#[cfg_attr(not(feature = "dev-overlays"), allow(dead_code))]
+#[cfg(feature = "dev-overlays")]
 pub(crate) fn toggle_unit_inspector(state: &mut AppState) {
     state.diag.debug_unit_inspector = !state.diag.debug_unit_inspector;
     if let Some(sim) = state
@@ -1421,7 +1421,7 @@ pub(crate) fn toggle_unit_inspector(state: &mut AppState) {
 /// SpeedType override to None when the overlay turns off, so reopening
 /// the overlay defaults back to "auto from selected unit". Called by both
 /// the F9/P hotkey and the dev overlay checkbox.
-#[cfg_attr(not(feature = "dev-overlays"), allow(dead_code))]
+#[cfg(feature = "dev-overlays")]
 pub(crate) fn toggle_pathgrid_overlay(state: &mut AppState) {
     state.diag.debug_show_pathgrid = !state.diag.debug_show_pathgrid;
     if !state.diag.debug_show_pathgrid {
@@ -1437,13 +1437,11 @@ pub(crate) fn toggle_pathgrid_overlay(state: &mut AppState) {
     );
 }
 
-// Kept compiled without `dev-overlays` so its unit tests still run; unreachable
-// there because no release path toggles the debug pause.
-#[cfg_attr(not(feature = "dev-overlays"), allow(dead_code))]
 /// Toggle debug pause (J hotkey / dev overlay).
 ///
 /// On resume, local frame admission is re-anchored so elapsed modal time
 /// cannot cause a catch-up frame.
+#[cfg(feature = "dev-overlays")]
 pub(crate) fn toggle_debug_pause(state: &mut AppState) {
     state.match_state.debug_pause = !state.match_state.paused();
     if !state.match_state.paused() {
@@ -1560,9 +1558,6 @@ fn execute_type_select_tap(state: &mut AppState) {
     apply_selection_action_line_policy(state, TYPE_SELECT_TAP_ACTION_LINE_POLICY);
 }
 
-// `physical_code` only reaches the dev chord, which `dev-overlays` compiles out;
-// keep the signature stable instead of renaming per feature.
-#[cfg_attr(not(feature = "dev-overlays"), allow(unused_variables))]
 pub(crate) fn handle_hotkey_pressed(
     state: &mut AppState,
     resolution: HotkeyResolution,
@@ -1591,6 +1586,9 @@ pub(crate) fn handle_hotkey_pressed(
             {
                 handle_dev_hotkey_pressed(state, physical_code);
             }
+            // Builds without `dev-overlays` (release) carry no dev chord.
+            #[cfg(not(feature = "dev-overlays"))]
+            let _ = physical_code;
         }
     }
     crate::app::presentation::sidebar_render::refresh_sidebar_projection(state);
@@ -1987,9 +1985,8 @@ pub(crate) struct KeyModifiers {
     pub(crate) alt: bool,
 }
 
-// `dev_chord` gates the dev chord; without `dev-overlays` nothing calls it.
-#[cfg_attr(not(feature = "dev-overlays"), allow(dead_code))]
 impl KeyModifiers {
+    #[cfg(feature = "dev-overlays")]
     fn from_modifiers_state(modifiers: winit::keyboard::ModifiersState) -> Self {
         Self {
             shift: modifiers.shift_key(),
@@ -2021,6 +2018,7 @@ impl KeyModifiers {
 
     /// The VERA-internal dev chord. Stock binds nothing to Ctrl+Shift, so it
     /// collides with no retail hotkey.
+    #[cfg(any(feature = "dev-overlays", test))]
     pub(crate) fn dev_chord(self) -> bool {
         self.ctrl && self.shift && !self.alt
     }

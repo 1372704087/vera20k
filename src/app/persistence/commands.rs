@@ -23,9 +23,7 @@ pub(crate) enum SaveCommandError {
     Write(#[from] crate::app::persistence::SaveWriteError),
 }
 
-// Quicksave/quickload are bound to the dev chord, so they are unreachable in a
-// release build. Kept compiled (not cfg'd out) so their tests still run.
-#[cfg_attr(not(feature = "dev-overlays"), allow(dead_code))]
+#[cfg(feature = "dev-overlays")]
 pub(crate) fn quicksave(state: &mut AppState) {
     log_save_result("Quicksave", save(state, None, None));
 }
@@ -173,7 +171,7 @@ fn save(
     result.map_err(Into::into)
 }
 
-#[cfg_attr(not(feature = "dev-overlays"), allow(dead_code))]
+#[cfg(feature = "dev-overlays")]
 fn log_save_result(label: &str, result: Result<PathBuf, SaveCommandError>) {
     match result {
         Ok(path) => log::info!("{label}: saved game to {}", path.display()),
@@ -210,7 +208,7 @@ fn sanitize_save_name(raw: &str) -> String {
     out
 }
 
-#[cfg_attr(not(feature = "dev-overlays"), allow(dead_code))]
+#[cfg(feature = "dev-overlays")]
 pub(crate) fn quickload(state: &mut AppState) {
     let path = match state
         .persistence
@@ -229,8 +227,8 @@ pub(crate) fn quickload(state: &mut AppState) {
     load_save_file(state, &path);
 }
 
-#[cfg_attr(not(feature = "dev-overlays"), allow(dead_code))]
 /// Load a save file by path. Used by both quickload and the save/load panel.
+#[cfg(feature = "dev-overlays")]
 pub(crate) fn load_save_file(state: &mut AppState, path: &std::path::Path) {
     if let Err(error) = try_load_save_file(state, path) {
         log_prepared_load_error(path, &error);
@@ -315,7 +313,7 @@ pub(crate) fn try_load_save_file(
     Ok(())
 }
 
-#[cfg_attr(not(feature = "dev-overlays"), allow(dead_code))]
+#[cfg(feature = "dev-overlays")]
 fn log_prepared_load_error(
     path: &std::path::Path,
     error: &crate::app::persistence::PreparedLoadError,

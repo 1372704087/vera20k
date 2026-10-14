@@ -278,6 +278,17 @@ impl FootPathRuntime {
         }
     }
 
+    /// Find_Path's urgency on the code-2 ladders (Walk 0x0075B979, Drive/Ship
+    /// 0x4B36BC..0x4B36EF): 2 once the latched blockage timer has expired,
+    /// else 1.
+    pub(crate) fn code2_urgency(&self, frame: u32) -> u8 {
+        if self.path_blocked && self.blocked_timer.expired(frame as i32) {
+            2
+        } else {
+            1
+        }
+    }
+
     /// Native Foot checksum 0x004DBCFE reads the byte without normalizing it.
     pub(crate) const fn scold_latch_raw(&self) -> u8 {
         self.scold_latch

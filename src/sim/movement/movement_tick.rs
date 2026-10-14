@@ -202,10 +202,17 @@ impl FootPathRequest {
         })
     }
 
-    /// The Simulation wrapper calls this only between its real Mark0/Mark1.
-    /// The context's blocker plane is brought current after the actor left
-    /// its cell; this reuses the single existing search. `foot_entry` answers
-    /// every class question and walks every code-2 chain.
+    /// The mover facts this request's search reads, as snapshotted.
+    pub(super) fn snapshot(&self) -> &MoverSnapshot {
+        &self.visit.snap
+    }
+
+    /// Find_Path's core search (`Simulation::foot_core_search`) calls this
+    /// between its Mark0/Mark1, or before Mark0 for a batched re-path search
+    /// whose `foot_entry` emulates the lift (`foot_path::MoverLift`). The
+    /// context's blocker plane is current; this reuses the single existing
+    /// search. `foot_entry` answers every class question and walks every
+    /// code-2 chain.
     pub(super) fn search(
         &self,
         goal: crate::sim::components::DriveCoord,

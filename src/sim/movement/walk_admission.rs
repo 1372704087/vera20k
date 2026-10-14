@@ -351,11 +351,13 @@ impl Simulation {
         ) else {
             return Ok(());
         };
-        let destination = actor
-            .locomotor
-            .as_ref()
-            .and_then(|loco| loco.walk_destination())
+        let destination = super::repath_batch::code2_ladder_destination(actor)
             .unwrap_or(DriveCoord { x: 0, y: 0, z: 0 });
+        // A batched re-path waits for the next frame's batch as if the +640
+        // timer still ran (`repath_batch`, a proposed deviation).
+        if self.defer_code2_search(id) {
+            return Ok(());
+        }
         let request = request.into_path_request(destination, urgency);
         let found = self.foot_find_path(&request, rules, registry, frame_effects)?;
         self.substrate
@@ -610,13 +612,7 @@ fn walk_code2_gate(
     if !runtime.movement_timer.expired(frame as i32) {
         return None;
     }
-    Some(
-        if runtime.path_blocked && runtime.blocked_timer.expired(frame as i32) {
-            2
-        } else {
-            1
-        },
-    )
+    Some(runtime.code2_urgency(frame))
 }
 
 #[cfg(test)]

@@ -111,6 +111,10 @@ pub(super) struct BridgeMarkerMover {
     pub on_bridge: bool,
     pub type_ref: InternedId,
     pub speed: i32,
+    /// The mover's id while Mark0 has not lifted it off its cell (a batched
+    /// re-path search, `foot_path::MoverLift::Emulated`): the object lists
+    /// skip it, as they would after Mark0 unlinked it.
+    pub unlisted: Option<u64>,
 }
 
 #[derive(Debug, Default)]
@@ -181,6 +185,7 @@ impl BridgeMarkerContext<'_> {
         facing: u16,
         on_bridge: bool,
         requested_urgency: u8,
+        unlisted: Option<u64>,
     ) -> BridgeMarkerSearch {
         let Some(mover) = self.peers.peer(entity_id) else {
             return BridgeMarkerSearch {
@@ -202,6 +207,7 @@ impl BridgeMarkerContext<'_> {
                 on_bridge,
                 type_ref: mover.type_ref,
                 speed: mover.speed,
+                unlisted,
             },
             requested_urgency,
         )
@@ -219,6 +225,7 @@ pub(super) struct DeferredBridgeMarkerSearch<'a> {
     facing: u16,
     on_bridge: bool,
     urgency: u8,
+    unlisted: Option<u64>,
     search: std::cell::RefCell<Option<BridgeMarkerSearch>>,
 }
 
@@ -231,6 +238,7 @@ impl<'a> BridgeMarkerContext<'a> {
         facing: u16,
         on_bridge: bool,
         urgency: u8,
+        unlisted: Option<u64>,
     ) -> DeferredBridgeMarkerSearch<'a> {
         DeferredBridgeMarkerSearch {
             context: self,
@@ -240,6 +248,7 @@ impl<'a> BridgeMarkerContext<'a> {
             facing,
             on_bridge,
             urgency,
+            unlisted,
             search: std::cell::RefCell::new(None),
         }
     }
@@ -255,6 +264,7 @@ impl DeferredBridgeMarkerSearch<'_> {
                 self.facing,
                 self.on_bridge,
                 self.urgency,
+                self.unlisted,
             );
             *self.search.borrow_mut() = Some(search);
         }
@@ -428,7 +438,13 @@ fn has_structural_bridge(grid: &PathGrid, cell: (i16, i16)) -> bool {
         .is_some_and(|cell| cell.has_structural_bridge())
 }
 
-fn list_ids(occupancy: &OccupancyGrid, cell: (i16, i16), layer: MovementLayer) -> Vec<u64> {
+/// The ids on `cell`'s `layer` list, in list order, without `unlisted`.
+fn list_ids(
+    occupancy: &OccupancyGrid,
+    cell: (i16, i16),
+    layer: MovementLayer,
+    unlisted: Option<u64>,
+) -> Vec<u64> {
     let cell = unsigned_cell(cell);
     occupancy
         .get(cell.0, cell.1)
@@ -436,6 +452,7 @@ fn list_ids(occupancy: &OccupancyGrid, cell: (i16, i16), layer: MovementLayer) -
             occupancy
                 .iter_layer(layer)
                 .map(|occupant| occupant.entity_id)
+                .filter(|&id| Some(id) != unlisted)
                 .collect()
         })
         .unwrap_or_default()
@@ -447,6 +464,7 @@ fn find_nearby_bridge_peer_suffix(
     grid: &PathGrid,
     probe: (i16, i16),
     requested_height: i16,
+    unlisted: Option<u64>,
 ) -> Vec<u64> {
     //42B08A..0AB: sign-extend cell words, shift8, add128, multiply
     //requested height by the native level step. For negative cells the
@@ -475,7 +493,7 @@ fn find_nearby_bridge_peer_suffix(
             } else {
                 MovementLayer::Ground
             };
-            let list = list_ids(occupancy, candidate, layer);
+            let list = list_ids(occupancy, candidate, layer, unlisted);
             for (index, entity_id) in list.iter().copied().enumerate() {
                 let Some(peer) = peers.peer(entity_id) else {
                     continue;
@@ -550,10 +568,16 @@ pub(super) fn build_bridge_passability_search(
         MovementLayer::Ground
     };
     let requested_height = probe_level + if direct_deck { 4 } else { 0 };
-    let mut selected_list = list_ids(occupancy, probe, direct_layer);
+    let mut selected_list = list_ids(occupancy, probe, direct_layer, mover.unlisted);
     if selected_list.is_empty() {
-        selected_list =
-            find_nearby_bridge_peer_suffix(peers, occupancy, grid, probe, requested_height);
+        selected_list = find_nearby_bridge_peer_suffix(
+            peers,
+            occupancy,
+            grid,
+            probe,
+            requested_height,
+            mover.unlisted,
+        );
     }
 
     let mut overlay = SearchMarkerOverlay::new();
@@ -666,6 +690,7 @@ mod tests {
             on_bridge: false,
             type_ref,
             speed: 8,
+            unlisted: None,
         }
     }
 
@@ -852,7 +877,14 @@ mod tests {
             .unwrap();
         let expected = if native { vec![2] } else { vec![] };
         assert_eq!(
-            find_nearby_bridge_peer_suffix(&peers, &occupancy, &PathGrid::new(12, 12), probe, 0),
+            find_nearby_bridge_peer_suffix(
+                &peers,
+                &occupancy,
+                &PathGrid::new(12, 12),
+                probe,
+                0,
+                None
+            ),
             expected,
             "{name}: marker must use the original complete Is_At_Coord decision"
         );
@@ -1172,7 +1204,7 @@ mod tests {
         assert_eq!(peer.at_coord.unwrap().cells().1, (5, 4));
         assert_eq!(peer.at_coord.unwrap().head_z(), 120);
         assert!(
-            find_nearby_bridge_peer_suffix(&above_tolerance, &occupancy, &grid, (5, 4), 0,)
+            find_nearby_bridge_peer_suffix(&above_tolerance, &occupancy, &grid, (5, 4), 0, None)
                 .is_empty(),
             "120-lepton idle hover height exceeds the 104-lepton tolerance"
         );
@@ -1186,7 +1218,7 @@ mod tests {
             .altitude = crate::util::fixed_math::SimFixed::from_num(104);
         let inclusive_boundary = snapshot_bridge_marker_peers(&entities, None, &interner);
         assert_eq!(
-            find_nearby_bridge_peer_suffix(&inclusive_boundary, &occupancy, &grid, (5, 4), 0,),
+            find_nearby_bridge_peer_suffix(&inclusive_boundary, &occupancy, &grid, (5, 4), 0, None),
             vec![2],
             "the native 104-lepton boundary is inclusive"
         );

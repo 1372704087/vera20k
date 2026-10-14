@@ -378,9 +378,13 @@ fn send_spy_planes_matches_native() {
             Some(TargetKind::Cell(TARGET.0, TARGET.1))
         );
         assert_eq!(plane.navigation.nav_com(), None);
-        assert_eq!((plane.position.rx, plane.position.ry), expected, "{row}");
         assert_eq!(
-            (plane.position.sub_x, plane.position.sub_y),
+            (plane.position.rx(), plane.position.ry()),
+            expected,
+            "{row}"
+        );
+        assert_eq!(
+            (plane.position.sub_x(), plane.position.sub_y()),
             (SimFixed::from_num(128), SimFixed::from_num(128))
         );
         assert_eq!(plane.body_facing_current(sim.session.binary_frame), 0);
@@ -457,11 +461,11 @@ fn mission_plane(sim: &mut Simulation, rules: &RuleSet, row: &Value) -> u64 {
             let x = i32::from(PLANE_TARGET.0) * 256 + 128 + dx;
             let y = y + dy;
             let plane = sim.substrate.entities.get_mut(id).unwrap();
-            plane.position.rx = (x / 256) as u16;
-            plane.position.ry = (y / 256) as u16;
-            plane.position.sub_x = SimFixed::from_num(x % 256);
-            plane.position.sub_y = SimFixed::from_num(y % 256);
-            plane.position.exact_z_leptons = Some(1500);
+            plane.position.set_rx((x / 256) as u16);
+            plane.position.set_ry((y / 256) as u16);
+            plane.position.set_sub_x(SimFixed::from_num(x % 256));
+            plane.position.set_sub_y(SimFixed::from_num(y % 256));
+            plane.position.set_exact_z_leptons(Some(1500));
             let entities = &sim.substrate.entities;
             let plane = entities.get(id).unwrap();
             if crate::sim::combat::object_distance_to(plane, &target, entities) == Some(distance) {
@@ -638,7 +642,7 @@ fn retail_spy_plane_photographs_the_target_and_leaves() {
         entity.attack_target.target(),
         Some(TargetKind::Cell(TARGET.0, TARGET.1))
     );
-    assert_eq!(entity.position.rx + entity.position.ry, 36);
+    assert_eq!(entity.position.rx() + entity.position.ry(), 36);
 
     let revealed = |sim: &Simulation| {
         (0..64u16)

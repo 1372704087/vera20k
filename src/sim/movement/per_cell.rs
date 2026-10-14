@@ -135,7 +135,7 @@ impl Simulation {
         let Some(contact) = entity.radio_contacts.slot(0) else {
             return false;
         };
-        let (x, y) = (entity.position.rx, entity.position.ry);
+        let (x, y) = (entity.position.rx(), entity.position.ry());
         let north = self.substrate.occupancy.first_building_on_layer(
             x,
             (y as i16).wrapping_sub(1) as u16,
@@ -218,7 +218,7 @@ impl Simulation {
         let Some(entity) = self.substrate.entities.get(id) else {
             return;
         };
-        let at = (entity.position.rx, entity.position.ry);
+        let at = (entity.position.rx(), entity.position.ry());
         let layer = if entity.on_bridge() {
             MovementLayer::Bridge
         } else {
@@ -659,7 +659,7 @@ impl Simulation {
         }) else {
             return Ok(false);
         };
-        let (rx, ry) = (infantry.position.rx, infantry.position.ry);
+        let (rx, ry) = (infantry.position.rx(), infantry.position.ry());
         if self
             .substrate
             .occupancy

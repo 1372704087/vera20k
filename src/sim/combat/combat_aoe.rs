@@ -641,9 +641,9 @@ pub(crate) fn apply_aoe_damage_with_terrain_and_scenario<O: Into<AoEDamageOrigin
             entity.stable_id(),
             impact_rx,
             impact_ry,
-            entity.position.rx,
-            entity.position.ry,
-            entity.position.rx == impact_rx && entity.position.ry == impact_ry,
+            entity.position.rx(),
+            entity.position.ry(),
+            entity.position.rx() == impact_rx && entity.position.ry() == impact_ry,
             exact_impact,
             layer_context.terrain.as_deref(),
             spread_leptons,
@@ -874,12 +874,12 @@ fn push_airborne_aoe_damage(
     let impact_y = i32::from(impact_ry)
         .wrapping_mul(256)
         .wrapping_add(impact.sub_y.to_num::<i32>());
-    let target_x = i32::from(entity.position.rx)
+    let target_x = i32::from(entity.position.rx())
         .wrapping_mul(256)
-        .wrapping_add(entity.position.sub_x.to_num::<i32>());
-    let target_y = i32::from(entity.position.ry)
+        .wrapping_add(entity.position.sub_x().to_num::<i32>());
+    let target_y = i32::from(entity.position.ry())
         .wrapping_mul(256)
-        .wrapping_add(entity.position.sub_y.to_num::<i32>());
+        .wrapping_add(entity.position.sub_y().to_num::<i32>());
     let raw_distance_leptons = distance_3d_leptons(
         [impact_x, impact_y, impact.z_leptons],
         [target_x, target_y, target_z],
@@ -978,15 +978,17 @@ fn push_entity_aoe_damage(
         let z = terrain
             .and_then(|terrain| terrain.cell(scan_rx, scan_ry))
             .and_then(|cell| ground_height_leptons(cell.level, cell.slope_type, x, y).ok())
-            .unwrap_or_else(|| i32::from(entity.position.z).wrapping_mul(LEPTONS_PER_LEVEL as i32));
+            .unwrap_or_else(|| {
+                i32::from(entity.position.z()).wrapping_mul(LEPTONS_PER_LEVEL as i32)
+            });
         [x, y, z]
     } else {
-        let x = i32::from(entity.position.rx)
+        let x = i32::from(entity.position.rx())
             .wrapping_mul(256)
-            .wrapping_add(entity.position.sub_x.to_num::<i32>());
-        let y = i32::from(entity.position.ry)
+            .wrapping_add(entity.position.sub_x().to_num::<i32>());
+        let y = i32::from(entity.position.ry())
             .wrapping_mul(256)
-            .wrapping_add(entity.position.sub_y.to_num::<i32>());
+            .wrapping_add(entity.position.sub_y().to_num::<i32>());
         let z = crate::sim::movement::ground_pose::object_world_z_leptons(entity, terrain);
         [x, y, z]
     };
@@ -1358,7 +1360,7 @@ mod tests {
             // be marked before the physical GetHeight threshold is queried.
             air.lifecycle.set_in_limbo_for_test(false);
             air.lifecycle.set_cell_marked(true);
-            air.position.exact_z_leptons = Some(altitude);
+            air.position.set_exact_z_leptons(Some(altitude));
             let mut locomotor = crate::sim::movement::locomotor::LocomotorState::from_object_type(
                 rules.object(type_id).unwrap(),
                 0,
@@ -1448,8 +1450,8 @@ mod tests {
         let mut entities = EntityStore::new();
         for (stable_id, rx, sub_x) in [(320, 11, 192), (384, 12, 0), (385, 12, 1), (386, 12, 2)] {
             let mut target = GameEntity::test_default(stable_id, "MTNK", "Soviet", rx, 10);
-            target.position.sub_x = SimFixed::from_num(sub_x);
-            target.position.sub_y = CELL_CENTER_LEPTON;
+            target.position.set_sub_x(SimFixed::from_num(sub_x));
+            target.position.set_sub_y(CELL_CENTER_LEPTON);
             target.health.set_for_test(300);
             entities.insert(target);
         }
@@ -1656,8 +1658,8 @@ mod tests {
             let mut vulnerable = GameEntity::test_default(1, "TARGET", "Victim", 5, 5);
             vulnerable.set_type_ref_for_test(target_ref);
             vulnerable.set_owner_for_test(victim_owner);
-            vulnerable.position.sub_x = CELL_CENTER_LEPTON;
-            vulnerable.position.sub_y = CELL_CENTER_LEPTON;
+            vulnerable.position.set_sub_x(CELL_CENTER_LEPTON);
+            vulnerable.position.set_sub_y(CELL_CENTER_LEPTON);
             vulnerable.lifecycle.set_in_limbo_for_test(false);
             vulnerable.lifecycle.set_cell_marked(true);
             entities.insert(vulnerable);
@@ -1665,12 +1667,12 @@ mod tests {
             let mut protected = GameEntity::test_default(2, "TARGET", "Victim", 5, 5);
             protected.set_type_ref_for_test(target_ref);
             protected.set_owner_for_test(victim_owner);
-            protected.position.sub_x = SimFixed::from_num(
+            protected.position.set_sub_x(SimFixed::from_num(
                 CELL_CENTER_LEPTON
                     .to_num::<i32>()
                     .wrapping_add(protected_distance),
-            );
-            protected.position.sub_y = CELL_CENTER_LEPTON;
+            ));
+            protected.position.set_sub_y(CELL_CENTER_LEPTON);
             protected.lifecycle.set_in_limbo_for_test(false);
             protected.lifecycle.set_cell_marked(true);
             protected.invulnerability = Some(InvulnerabilityState::new(
@@ -1829,7 +1831,7 @@ mod tests {
                 air.set_category_for_test(EntityCategory::Aircraft);
                 air.lifecycle.set_in_limbo_for_test(false);
                 air.health.set_for_test(hp);
-                air.position.z = 0;
+                air.position.set_z(0);
                 let mut air_locomotor =
                     crate::sim::movement::locomotor::LocomotorState::from_object_type(
                         rules.object("AIRBOMB").unwrap(),
@@ -1837,7 +1839,7 @@ mod tests {
                     );
                 air_locomotor.set_layer(MovementLayer::Air);
                 air.locomotor = Some(air_locomotor);
-                air.position.exact_z_leptons = Some(1);
+                air.position.set_exact_z_leptons(Some(1));
                 air = air
                     .with_air_spatial_membership_for_test(Some(rx + 5 * 20), enter_order)
                     .with_air_tracker_cell_for_test((rx as i16, 5));
@@ -2031,8 +2033,8 @@ mod tests {
 
         let make_ground = |stable_id, rx, ry, sub_x, sub_y, hp| {
             let mut entity = GameEntity::test_default(stable_id, "TESTUNIT", "Soviet", rx, ry);
-            entity.position.sub_x = SimFixed::from_num(sub_x);
-            entity.position.sub_y = SimFixed::from_num(sub_y);
+            entity.position.set_sub_x(SimFixed::from_num(sub_x));
+            entity.position.set_sub_y(SimFixed::from_num(sub_y));
             entity.health.set_for_test(hp);
             entity
         };
@@ -3830,7 +3832,7 @@ mod tests {
         let ground = GameEntity::test_default(1, "MTNK", "Soviet", 5, 5);
         let mut bridge = GameEntity::test_default(2, "MTNK", "Soviet", 5, 5);
         bridge.set_on_bridge(true);
-        bridge.position.z = 4;
+        bridge.position.set_z(4);
 
         let mut entities = EntityStore::new();
         entities.insert(ground);
@@ -3906,8 +3908,8 @@ mod tests {
 
         let mut entities = EntityStore::new();
         let mut unit = GameEntity::test_default(20, "UNIT", "Americans", 5, 5);
-        unit.position.sub_x = CELL_CENTER_LEPTON;
-        unit.position.sub_y = CELL_CENTER_LEPTON;
+        unit.position.set_sub_x(CELL_CENTER_LEPTON);
+        unit.position.set_sub_y(CELL_CENTER_LEPTON);
         entities.insert(unit);
 
         let building = GameEntity::test_default_of_category(
@@ -3922,15 +3924,15 @@ mod tests {
 
         let mut air = GameEntity::test_default(10, "AIR", "Americans", 5, 5);
         air.set_category_for_test(EntityCategory::Aircraft);
-        air.position.sub_x = CELL_CENTER_LEPTON;
-        air.position.sub_y = CELL_CENTER_LEPTON;
+        air.position.set_sub_x(CELL_CENTER_LEPTON);
+        air.position.set_sub_y(CELL_CENTER_LEPTON);
         let mut air_locomotor = crate::sim::movement::locomotor::LocomotorState::from_object_type(
             rules.object("AIR").expect("air type"),
             0,
         );
         air_locomotor.set_layer(MovementLayer::Air);
         air.locomotor = Some(air_locomotor);
-        air.position.exact_z_leptons = Some(1);
+        air.position.set_exact_z_leptons(Some(1));
         air = air
             .with_air_spatial_membership_for_test(Some(5 + 5 * 20), 1)
             .with_air_tracker_cell_for_test((5, 5));

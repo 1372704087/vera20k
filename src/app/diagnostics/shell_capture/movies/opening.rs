@@ -425,7 +425,7 @@ fn opening_observation(state: &AppState) -> Result<Value> {
             building_receivers.push(json!({
                 "id": entity.stable_id(), "type": name,
                 "owner": sim.interner.resolve(entity.owner()),
-                "cell": [entity.position.rx, entity.position.ry],
+                "cell": [entity.position.rx(), entity.position.ry()],
                 "health": entity.health.current(),
                 "estimated_health": entity.estimated_health.get(),
                 "sampled_power_health": entity.building_power_health_sample(),
@@ -447,7 +447,7 @@ fn opening_observation(state: &AppState) -> Result<Value> {
             }));
         }
         if entity.flashing.flashed() {
-            let cell = (entity.position.rx, entity.position.ry);
+            let cell = (entity.position.rx(), entity.position.ry());
             flashing.push(json!({"id": entity.stable_id(), "type": name,
                 "cell": cell, "cell_shrouded": cell_shrouded(cell)}));
         }

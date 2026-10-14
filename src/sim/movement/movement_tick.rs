@@ -221,7 +221,7 @@ impl FootPathRequest {
     ) -> Result<Vec<(u16, u16)>, super::movement_path::MovePathFailure> {
         let snap = &self.visit.snap;
         let actor = entities.get(self.entity_id).expect("live suspended mover");
-        let start = (actor.position.rx, actor.position.ry);
+        let start = (actor.position.rx(), actor.position.ry());
         // AStar 0x00429A90 takes the start height from the Foot's OnBridge
         // byte (+0x8C): the cell level, +4 on a bridge. No path layer.
         let layer = if actor.on_bridge() {
@@ -270,7 +270,7 @@ impl FootPathRequest {
         actor: &mut crate::sim::game_entity::GameEntity,
         path: Vec<(u16, u16)>,
     ) {
-        let current = (actor.position.rx, actor.position.ry);
+        let current = (actor.position.rx(), actor.position.ry());
         super::path_markers::install_path_replay(
             &mut actor.navigation.path_replay,
             current,
@@ -1106,7 +1106,7 @@ mod pass_cache_tests {
             1,
             "do not double-count live Foot positions"
         );
-        entities.get_mut(7).unwrap().position.rx = 4;
+        entities.get_mut(7).unwrap().position.set_rx(4);
         assert_eq!(
             cache
                 .blocker_plane(
@@ -1302,7 +1302,10 @@ Foundation=2x2
                 edit => {
                     if let Some(entity) = entities.get_mut(id) {
                         match edit {
-                            3 => (entity.position.rx, entity.position.ry) = cell,
+                            3 => {
+                                entity.position.set_rx(cell.0);
+                                entity.position.set_ry(cell.1);
+                            }
                             4 => entity.death.set_dying_for_test(!entity.death.is_dying()),
                             _ => entity
                                 .lifecycle

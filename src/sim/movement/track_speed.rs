@@ -389,7 +389,7 @@ mod tests {
                 &mut mover.position,
                 [current[0], current[1]],
             );
-            mover.position.exact_z_leptons = Some(current[2]);
+            mover.position.set_exact_z_leptons(Some(current[2]));
             let destination = crate::sim::components::DriveCoord {
                 x: destination[0],
                 y: destination[1],

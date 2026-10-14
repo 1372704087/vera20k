@@ -351,7 +351,7 @@ fn assert_actor(actor: &GameEntity, expected: &Value, row: &Value, rearm: bool) 
         "queued": actor.mission.queued().raw(), "handler_state": actor.mission.handler_state(),
         "mission_start": actor.mission.mission_start_frame(),
         "on_bridge": u8::from(actor.on_bridge()),
-        "position": [i32::from(actor.position.rx)*256+actor.position.sub_x.to_num::<i32>(), i32::from(actor.position.ry)*256+actor.position.sub_y.to_num::<i32>(), actor.position.exact_z_leptons.unwrap()],
+        "position": [i32::from(actor.position.rx())*256+actor.position.sub_x().to_num::<i32>(), i32::from(actor.position.ry())*256+actor.position.sub_y().to_num::<i32>(), actor.position.exact_z_leptons().unwrap()],
         "moving": u8::from(loco.walk_is_moving().unwrap()), "motion": u8::from(loco.walk_animation_moving().unwrap()),
     });
     for (key, value) in actual.as_object().unwrap() {

@@ -284,7 +284,7 @@ impl crate::sim::world::Simulation {
             self.unmark_entity_remove(stable_id, context);
         }
         if let Some(entity) = self.substrate.entities.get_mut(stable_id) {
-            entity.position.exact_z_leptons = Some(z);
+            entity.position.set_exact_z_leptons(Some(z));
         }
         if marked {
             self.mark_entity_put(stable_id, context);
@@ -346,13 +346,17 @@ mod tests {
     fn test_begin_attaches_state_at_the_drop_z_and_keeps_locomotor_identity() {
         let mut entities = EntityStore::new();
         let id = insert_test_infantry(&mut entities, 1);
-        entities.get_mut(id).unwrap().position.exact_z_leptons = Some(52);
+        entities
+            .get_mut(id)
+            .unwrap()
+            .position
+            .set_exact_z_leptons(Some(52));
 
         assert!(begin_parachute_descent(&mut entities, id, 1200));
 
         let entity = entities.get(id).expect("should exist");
         assert_eq!(
-            entity.position.exact_z_leptons,
+            entity.position.exact_z_leptons(),
             Some(1200),
             "the drop coordinate's Z replaces the passenger's old one"
         );
@@ -451,7 +455,7 @@ mod tests {
             .get(id)
             .unwrap()
             .position
-            .exact_z_leptons
+            .exact_z_leptons()
             .expect("a falling object keeps its Location Z")
     }
 
@@ -546,7 +550,7 @@ mod tests {
         assert!(fall(&mut sim, id), "the overshooting tick lands");
         let entity = sim.substrate.entities.get(id).expect("alive");
         assert!(!entity.is_falling_down());
-        assert_eq!(entity.position.exact_z_leptons, Some(0), "SetHeight(0)");
+        assert_eq!(entity.position.exact_z_leptons(), Some(0), "SetHeight(0)");
     }
 
     #[test]

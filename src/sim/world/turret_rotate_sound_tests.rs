@@ -563,7 +563,7 @@ fn turret_rotate_sound_matches_native_control_corpus() {
         let z = coord[2].as_i64().unwrap() as i32;
         let entity = sim.substrate.entities.get_mut(id).unwrap();
         crate::sim::movement::ground_pose::set_position_world_xy(&mut entity.position, xy);
-        entity.position.exact_z_leptons = Some(z);
+        entity.position.set_exact_z_leptons(Some(z));
         sim.substrate
             .entities
             .get_mut(id)

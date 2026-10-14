@@ -375,7 +375,7 @@ pub(crate) fn sell_stage_zero(
                 .object_type(entity.type_ref(), rules)?
                 .deploy_sound
                 .clone()?;
-            Some((sound, entity.position.rx, entity.position.ry))
+            Some((sound, entity.position.rx(), entity.position.ry()))
         });
         if let Some((sound, rx, ry)) = sound {
             let deploy_sound_id = sim.interner.intern(&sound);
@@ -463,8 +463,8 @@ fn sale_survivors(
         Some((
             sale_archive(entity) && undeploys(rules, object),
             crate::sim::crew_survival::foundation_cells(
-                entity.position.rx,
-                entity.position.ry,
+                entity.position.rx(),
+                entity.position.ry(),
                 &object.foundation,
             ),
         ))
@@ -712,10 +712,10 @@ mod tests {
         assert!(passenger.passenger_role.is_none());
         assert!(!passenger.death.is_dying());
         assert!(
-            passenger.position.rx < 10
-                || passenger.position.rx > 11
-                || passenger.position.ry < 10
-                || passenger.position.ry > 11,
+            passenger.position.rx() < 10
+                || passenger.position.rx() > 11
+                || passenger.position.ry() < 10
+                || passenger.position.ry() > 11,
             "passenger should be ejected outside the 2x2 foundation"
         );
 

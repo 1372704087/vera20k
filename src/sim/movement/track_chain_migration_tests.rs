@@ -78,10 +78,10 @@ fn chain_fixture(passive: bool) -> (Simulation, RuleSet, TrackInvocation) {
     // outside these chain-dispatch fixtures.
     let point = super::super::drive_track::raw_track_points(3)[37];
     let xy = [head.x + i32::from(point.x), head.y + i32::from(point.y)];
-    mover.position.rx = (xy[0] / 256) as u16;
-    mover.position.ry = (xy[1] / 256) as u16;
-    mover.position.sub_x = SimFixed::from_num(xy[0] % 256);
-    mover.position.sub_y = SimFixed::from_num(xy[1] % 256);
+    mover.position.set_rx((xy[0] / 256) as u16);
+    mover.position.set_ry((xy[1] / 256) as u16);
+    mover.position.set_sub_x(SimFixed::from_num(xy[0] % 256));
+    mover.position.set_sub_y(SimFixed::from_num(xy[1] % 256));
     sim.substrate.entities.insert(mover);
     sim.interner = test_interner();
     sim.substrate.occupancy = OccupancyGrid::rebuild(&sim.substrate.entities);
@@ -314,7 +314,8 @@ fn accepted_chain_per_cell_crush_finishes_lifecycle_in_list_order_before_continu
         .set_regular_crusher_for_test(true);
     // Two victims prove the saved list successor survives removal of the first.
     for id in [20, 10] {
-        let mut victim = GameEntity::test_default(id, "E1", "Soviets", position.rx, position.ry);
+        let mut victim =
+            GameEntity::test_default(id, "E1", "Soviets", position.rx(), position.ry());
         victim.set_category_for_test(EntityCategory::Infantry);
         victim.mission_leaf = crate::sim::mission::leaf::MissionLeafState::for_entity_category(
             EntityCategory::Infantry,
@@ -333,7 +334,7 @@ fn accepted_chain_per_cell_crush_finishes_lifecycle_in_list_order_before_continu
     let expected = sim
         .substrate
         .occupancy
-        .get(position.rx, position.ry)
+        .get(position.rx(), position.ry())
         .unwrap()
         .iter_layer(MovementLayer::Ground)
         .map(|entry| entry.entity_id)
@@ -356,7 +357,7 @@ fn accepted_chain_per_cell_crush_finishes_lifecycle_in_list_order_before_continu
                 assert!(
                     !sim.substrate
                         .occupancy
-                        .contains_entity(position.rx, position.ry, id)
+                        .contains_entity(position.rx(), position.ry(), id)
                 );
                 assert!(sim.substrate.pending_delete.contains_object(&id));
             }

@@ -49,8 +49,8 @@ fn prone_mover() -> GameEntity {
         5,
         false,
     );
-    entity.position.sub_x = SimFixed::from_num(128);
-    entity.position.sub_y = SimFixed::from_num(128);
+    entity.position.set_sub_x(SimFixed::from_num(128));
+    entity.position.set_sub_y(SimFixed::from_num(128));
     entity
         .infantry
         .as_mut()
@@ -113,7 +113,7 @@ fn advance_prone_mover(crawls: bool) -> SimFixed {
         10
     );
 
-    entities.get(1).expect("entity exists").position.sub_x
+    entities.get(1).expect("entity exists").position.sub_x()
 }
 
 #[test]

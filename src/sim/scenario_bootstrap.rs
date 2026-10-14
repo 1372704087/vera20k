@@ -3248,7 +3248,10 @@ mod tests {
         .expect("exact PostMap placement");
         let exact_entity = exact.substrate.entities.get(exact_id).unwrap();
         assert_eq!(exact_entity.techno_ctor_random_word(), exact_word);
-        assert_eq!((exact_entity.position.rx, exact_entity.position.ry), (6, 5));
+        assert_eq!(
+            (exact_entity.position.rx(), exact_entity.position.ry()),
+            (6, 5)
+        );
         assert_eq!(
             exact.scenario_rng.logical_state(),
             exact_expected.logical_state()
@@ -3288,7 +3291,7 @@ mod tests {
         let fallback_entity = fallback.substrate.entities.get(fallback_id).unwrap();
         assert_eq!(fallback_entity.techno_ctor_random_word(), fallback_word);
         assert_ne!(
-            (fallback_entity.position.rx, fallback_entity.position.ry),
+            (fallback_entity.position.rx(), fallback_entity.position.ry()),
             (6, 5)
         );
         assert_eq!(
@@ -3385,7 +3388,7 @@ mod tests {
 
         let placed = sim.substrate.entities.get(stable_id).unwrap();
         assert_eq!(placed.techno_ctor_random_word(), expected_word);
-        assert_ne!((placed.position.rx, placed.position.ry), base);
+        assert_ne!((placed.position.rx(), placed.position.ry()), base);
         assert_eq!(stable_id, 1, "fallback must retain the first identity");
         assert_eq!(sim.scenario_rng.logical_state(), expected.logical_state());
     }
@@ -3441,7 +3444,7 @@ mod tests {
         let entity = sim.substrate.entities.get(2).unwrap();
         assert_eq!(sim.interner.resolve(entity.type_ref()), expected_type);
         assert_eq!(entity.techno_ctor_random_word(), expected_word);
-        assert_ne!((entity.position.rx, entity.position.ry), (6, 5));
+        assert_ne!((entity.position.rx(), entity.position.ry()), (6, 5));
         assert_eq!(sim.scenario_rng.logical_state(), expected.logical_state());
     }
 

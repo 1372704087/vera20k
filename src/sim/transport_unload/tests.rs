@@ -166,7 +166,7 @@ impl Fixture {
                 .rules
                 .object(self.sim.interner.resolve(t.type_ref()))
                 .is_some_and(|object| object.open_topped);
-            (t.position.rx, t.position.ry, open_topped)
+            (t.position.rx(), t.position.ry(), open_topped)
         };
         let mut ids = Vec::new();
         for i in 0..count {
@@ -278,7 +278,7 @@ impl Fixture {
 
     fn cell(&self, id: u64) -> (u16, u16) {
         let e = self.sim.substrate.entities.get(id).expect("entity");
-        (e.position.rx, e.position.ry)
+        (e.position.rx(), e.position.ry())
     }
 
     /// Tick until every id is revealed, recording the frame each surfaced and
@@ -477,7 +477,10 @@ fn vehicle_unload_republishes_threat_and_foot_coefficient_before_movement() {
     assert!(fx.cargo_ids(transport).is_empty());
 
     let passenger = fx.sim.substrate.entities.get(passenger).unwrap();
-    let cell = (passenger.position.rx as i16, passenger.position.ry as i16);
+    let cell = (
+        passenger.position.rx() as i16,
+        passenger.position.ry() as i16,
+    );
     let center = crate::sim::house_threat::HouseSpatialThreat::index(cell);
     let actual_slots: Vec<_> = adjustment["offsets"]
         .as_array()

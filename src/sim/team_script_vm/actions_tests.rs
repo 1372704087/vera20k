@@ -1199,7 +1199,7 @@ impl DeployTeam {
             .filter(|entity| {
                 !entity.death.is_dying() && self.sim.interner.resolve(entity.type_ref()) == "YARD"
             })
-            .map(|entity| (entity.position.rx, entity.position.ry))
+            .map(|entity| (entity.position.rx(), entity.position.ry()))
             .collect()
     }
 

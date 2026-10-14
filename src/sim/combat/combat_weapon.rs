@@ -227,11 +227,13 @@ impl ParasiteVictimFacts {
         target_obj: &ObjectType,
         terrain: Option<&ResolvedTerrainGrid>,
     ) -> Self {
-        let on_water_set = terrain.is_none_or(|grid| {
-            grid.native_cell_is_water_set_tile(
-                grid.native_cell_identity((target.position.rx as i16, target.position.ry as i16)),
-            )
-        });
+        let on_water_set =
+            terrain.is_none_or(|grid| {
+                grid.native_cell_is_water_set_tile(grid.native_cell_identity((
+                    target.position.rx() as i16,
+                    target.position.ry() as i16,
+                )))
+            });
         Self {
             infectable: matches!(
                 target.category(),
@@ -982,7 +984,7 @@ pub(crate) fn techno_target_facts<'a>(
     rules: &'a RuleSet,
     interner: &'a StringInterner,
 ) -> TargetFacts<'a> {
-    let cell = terrain.and_then(|grid| grid.cell(target.position.rx, target.position.ry));
+    let cell = terrain.and_then(|grid| grid.cell(target.position.rx(), target.position.ry()));
     let cell_land_type = cell
         .map(|cell| cell.yr_cell_land_type)
         .unwrap_or(LandType::Clear.as_index());

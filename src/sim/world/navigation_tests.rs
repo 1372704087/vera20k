@@ -323,7 +323,7 @@ fn held_factory_and_attached_upgrade_stay_off_navigation_through_frame_and_resto
         .unwrap();
     let held = sim.substrate.entities.get(held_id).unwrap();
     assert!(held.lifecycle.in_limbo() && !held.lifecycle.cell_marked());
-    assert_eq!((held.position.rx, held.position.ry), (0, 0));
+    assert_eq!((held.position.rx(), held.position.ry()), (0, 0));
 
     assert!(sim.rebuild_dynamic_navigation(&rules));
     assert_only_marked_foundation(&sim);

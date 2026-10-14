@@ -114,8 +114,8 @@ fn prime(scene: &mut HeadlessScenario, input: &Value, initial: &Value, rng: &Val
         sim.remove_entity_occupancy(primary);
         sim.remove_entity_occupancy(second);
         let entity = sim.substrate.entities.get_mut(second).unwrap();
-        entity.position.rx = current.0;
-        entity.position.ry = current.1;
+        entity.position.set_rx(current.0);
+        entity.position.set_ry(current.1);
         sim.add_entity_occupancy(second);
         sim.add_entity_occupancy(primary);
         actors.push(second);
@@ -230,7 +230,7 @@ fn snapshot(
             "object_next":object_name(sim.next_cell_object(CellObjectMember::Entity(id)),actors),
             "target":target_name(member.attack_target.target().as_ref())})
     });
-    let current = (actor.position.rx, actor.position.ry);
+    let current = (actor.position.rx(), actor.position.ry());
     let terrain = sim.resolved_terrain.as_ref().unwrap();
     let xyz = position_world_coord(&actor.position);
     let head = actor

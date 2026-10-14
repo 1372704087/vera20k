@@ -285,7 +285,7 @@ pub(crate) fn engineer_repair(sim: &mut Simulation, rules: &RuleSet, id: u64) ->
         );
         let mut position = entity.position;
         crate::sim::movement::ground_pose::set_position_world_xy(&mut position, [coord.x, coord.y]);
-        position.exact_z_leptons = Some(coord.z);
+        position.set_exact_z_leptons(Some(coord.z));
         sim.sound_events
             .push(SimSoundEvent::voc_at(sound, &position));
     }

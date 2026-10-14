@@ -808,7 +808,7 @@ mod palette_producer_tests {
                 10,
                 category,
             );
-            entity.position.exact_z_leptons = Some(1500);
+            entity.position.set_exact_z_leptons(Some(1500));
             body_extra_light(&entity, &rules, sim, None)
         };
         assert_eq!(extra(&sim, EntityCategory::Unit), 100);

@@ -369,7 +369,7 @@ impl Simulation {
             return;
         };
         let owner = entity.owner();
-        let origin = (entity.position.rx, entity.position.ry);
+        let origin = (entity.position.rx(), entity.position.ry());
         let captured = entity.has_been_captured.is_set();
         let cells = foundation_cells(origin.0, origin.1, &object.foundation);
         // C4AppliedBy (+0x540); the pointer-expiry broadcast clears it when
@@ -589,7 +589,7 @@ impl Simulation {
             };
             let sub_cell = infantry.then(|| {
                 let position = positioned.unwrap_or(requested);
-                bump_crush::priority_sub_cell(position.sub_x, position.sub_y)
+                bump_crush::priority_sub_cell(position.sub_x(), position.sub_y())
             });
             // The dying building's expiry broadcast already cleared the
             // passenger's transporter link; the cargo list still held it.
@@ -687,25 +687,25 @@ impl Simulation {
         );
         let off_floor = on_bridge
             || position
-                .exact_z_leptons
+                .exact_z_leptons()
                 .zip(floor)
                 .is_some_and(|(z, floor)| z != floor);
         let unlimbo = if off_floor {
             CrewUnlimbo::Exact {
-                rx: position.rx,
-                ry: position.ry,
-                z: position.z,
-                raw_z: position.exact_z_leptons,
-                sub_x: position.sub_x,
-                sub_y: position.sub_y,
+                rx: position.rx(),
+                ry: position.ry(),
+                z: position.z(),
+                raw_z: position.exact_z_leptons(),
+                sub_x: position.sub_x(),
+                sub_y: position.sub_y(),
                 on_bridge,
             }
         } else {
             CrewUnlimbo::Place {
-                cell: (position.rx, position.ry),
-                z: position.z,
-                raw_z: position.exact_z_leptons,
-                request: (position.sub_x, position.sub_y),
+                cell: (position.rx(), position.ry()),
+                z: position.z(),
+                raw_z: position.exact_z_leptons(),
+                request: (position.sub_x(), position.sub_y()),
                 caller_places_first: false,
             }
         };
@@ -824,8 +824,8 @@ impl Simulation {
         let unit_owner = unit.owner();
         let on_bridge = unit.on_bridge();
         let dropped_as_bomb = unit.was_dropped_as_bomb();
-        let (rx, ry, unit_z) = (unit.position.rx, unit.position.ry, unit.position.z);
-        let (sub_x, sub_y) = (unit.position.sub_x, unit.position.sub_y);
+        let (rx, ry, unit_z) = (unit.position.rx(), unit.position.ry(), unit.position.z());
+        let (sub_x, sub_y) = (unit.position.sub_x(), unit.position.sub_y());
         let location = position_world_coord(&unit.position);
         // `0x007380C5..0x007380E6`: FacingClass::Current (`0x004C93D0`) as a
         // rounded DirType.
@@ -1044,25 +1044,18 @@ impl Simulation {
                 // class51DFF0 floor/priority/placement owner is shared with
                 // ordinary constructors, factory output and slaves.
                 let Some(position) = self.infantry_unlimbo_position(
-                    RevealPosition {
-                        exact_z_leptons: requested_z,
-                        rx: cell.0,
-                        ry: cell.1,
-                        z,
-                        sub_x: request.0,
-                        sub_y: request.1,
-                    },
+                    RevealPosition::new(cell.0, cell.1, z, requested_z, request.0, request.1),
                     Some(rules),
                 ) else {
                     return false;
                 };
                 (
                     Some(bump_crush::priority_sub_cell(
-                        position.sub_x,
-                        position.sub_y,
+                        position.sub_x(),
+                        position.sub_y(),
                     )),
-                    position.sub_x,
-                    position.sub_y,
+                    position.sub_x(),
+                    position.sub_y(),
                     false,
                 )
             }
@@ -1091,14 +1084,7 @@ impl Simulation {
         let outcome = self.try_reveal_entity_with_context(
             id,
             RevealRequest {
-                position: RevealPosition {
-                    exact_z_leptons: requested_z,
-                    rx,
-                    ry,
-                    z,
-                    sub_x,
-                    sub_y,
-                },
+                position: RevealPosition::new(rx, ry, z, requested_z, sub_x, sub_y),
                 placement: PlacementEvidence::MarkSucceeded,
                 logic_eligible: true,
             },

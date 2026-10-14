@@ -102,7 +102,7 @@ fn one_command_turns_and_converts_all_stock_mcv_types() {
                 .values()
                 .find(|e| !e.death.is_dying() && e.category() == EntityCategory::Structure)
                 .unwrap();
-            assert_eq!((yard.position.rx, yard.position.ry), (19, 21));
+            assert_eq!((yard.position.rx(), yard.position.ry()), (19, 21));
         }
     }
 }
@@ -318,9 +318,9 @@ fn moving_mcv_finishes_committed_segment_then_deploys_once() {
         .values()
         .find(|e| !e.death.is_dying() && e.category() == EntityCategory::Structure)
         .unwrap();
-    assert!(yard.position.rx < 29, "must abandon the old destination");
+    assert!(yard.position.rx() < 29, "must abandon the old destination");
     assert!(
-        yard.position.rx.abs_diff(position.rx) <= 3,
+        yard.position.rx().abs_diff(position.rx()) <= 3,
         "finish the committed segment only"
     );
 }
@@ -718,7 +718,7 @@ fn yard_cells(sim: &Simulation) -> Vec<(u16, u16)> {
         .entities
         .values()
         .filter(|e| !e.death.is_dying() && sim.interner.resolve(e.type_ref()) == "YARD")
-        .map(|e| (e.position.rx, e.position.ry))
+        .map(|e| (e.position.rx(), e.position.ry()))
         .collect()
 }
 
@@ -909,7 +909,7 @@ fn retail_dustbowl_computer_mcv() -> (
                 })
             });
             let alone = sim.substrate.entities.values().all(|entity| {
-                entity.position.rx.abs_diff(x) > 5 || entity.position.ry.abs_diff(y) > 5
+                entity.position.rx().abs_diff(x) > 5 || entity.position.ry().abs_diff(y) > 5
             });
             if !site || !alone {
                 return None;
@@ -940,7 +940,7 @@ fn retail_yard_at(scenario: &crate::headless_scenario::HeadlessScenario) -> Opti
         .entities
         .values()
         .find(|e| !e.death.is_dying() && sim.interner.resolve(e.type_ref()) == "NACNST")
-        .map(|e| (e.position.rx, e.position.ry))
+        .map(|e| (e.position.rx(), e.position.ry()))
 }
 
 /// A computer house's MCV on retail Dustbowl through the production frame.
@@ -1007,7 +1007,7 @@ fn retail_dustbowl_the_computer_yard_places_its_planned_buildings() {
                     (
                         e.stable_id(),
                         sim.interner.resolve(e.type_ref()).to_string(),
-                        (e.position.rx, e.position.ry),
+                        (e.position.rx(), e.position.ry()),
                     )
                 })
                 .collect();
@@ -1082,7 +1082,7 @@ fn retail_dustbowl_the_computer_yard_places_a_base_defense() {
             .map(|e| {
                 (
                     sim.interner.resolve(e.type_ref()).to_string(),
-                    (e.position.rx, e.position.ry),
+                    (e.position.rx(), e.position.ry()),
                 )
             })
             .find(|(name, _)| defenses.iter().any(|id| id.eq_ignore_ascii_case(name)))

@@ -224,7 +224,7 @@ impl UnitReadyWorld for LiveUnitWorld<'_> {
         &self,
         _unit_position: ReadyLeptonPoint,
     ) -> Result<Option<UnitReadyBuilding>, ReadyUnavailable> {
-        let (rx, ry) = (self.entity.position.rx, self.entity.position.ry);
+        let (rx, ry) = (self.entity.position.rx(), self.entity.position.ry());
         let Some(cell) = self.sim.substrate.occupancy.get(rx, ry) else {
             return Ok(None);
         };
@@ -244,10 +244,10 @@ impl UnitReadyWorld for LiveUnitWorld<'_> {
             // multi-cell foundations; the affected branch is the narrow
             // no-contact factory-cell hold.
             let anchor = ReadyLeptonPoint::new(
-                i32::from(entity.position.rx)
+                i32::from(entity.position.rx())
                     .wrapping_mul(256)
                     .wrapping_add(128),
-                i32::from(entity.position.ry)
+                i32::from(entity.position.ry())
                     .wrapping_mul(256)
                     .wrapping_add(128),
             );
@@ -348,12 +348,12 @@ fn evaluate_ready(
                     .as_unit()
                     .ok_or(ReadyUnavailable::WorldLookup)?;
                 let position = ReadyLeptonPoint::new(
-                    i32::from(entity.position.rx)
+                    i32::from(entity.position.rx())
                         .wrapping_mul(256)
-                        .wrapping_add(entity.position.sub_x.to_num::<i32>()),
-                    i32::from(entity.position.ry)
+                        .wrapping_add(entity.position.sub_x().to_num::<i32>()),
+                    i32::from(entity.position.ry())
                         .wrapping_mul(256)
-                        .wrapping_add(entity.position.sub_y.to_num::<i32>()),
+                        .wrapping_add(entity.position.sub_y().to_num::<i32>()),
                 );
                 let unload_active = entity
                     .miner

@@ -1143,8 +1143,8 @@ mod tests {
     #[test]
     fn gsi_06_12_drive_is_moving_compares_head_to_against_the_owner_position() {
         let mut entity = drive_entity_at(3, 3);
-        entity.position.sub_x = SimFixed::from_num(128);
-        entity.position.sub_y = SimFixed::from_num(128);
+        entity.position.set_sub_x(SimFixed::from_num(128));
+        entity.position.set_sub_y(SimFixed::from_num(128));
 
         assert!(
             entity

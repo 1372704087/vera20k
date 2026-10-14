@@ -410,7 +410,7 @@ impl Replay {
                 }
                 let e = s.sim.substrate.entities.get(victim).unwrap();
                 let (at, alive, health, owner) = (
-                    (e.position.rx, e.position.ry),
+                    (e.position.rx(), e.position.ry()),
                     e.is_object_alive(),
                     e.health.current(),
                     e.owner(),

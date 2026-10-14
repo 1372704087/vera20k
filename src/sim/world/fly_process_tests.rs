@@ -141,11 +141,13 @@ fn fixture(input: &serde_json::Value) -> (Simulation, RuleSet) {
     let entity = sim.substrate.entities.get_mut(AIRCRAFT).unwrap();
     entity.lifecycle.set_object_alive_for_test(true);
     entity.lifecycle.set_in_limbo_for_test(false);
-    entity.position.rx = x as u16;
-    entity.position.ry = y as u16;
-    entity.position.sub_x = SimFixed::from_num(128);
-    entity.position.sub_y = SimFixed::from_num(128);
-    entity.position.exact_z_leptons = Some(int(input, "z", 1500) as i32);
+    entity.position.set_rx(x as u16);
+    entity.position.set_ry(y as u16);
+    entity.position.set_sub_x(SimFixed::from_num(128));
+    entity.position.set_sub_y(SimFixed::from_num(128));
+    entity
+        .position
+        .set_exact_z_leptons(Some(int(input, "z", 1500) as i32));
     entity.health.set_for_test(int(input, "health", 150) as i32);
     let facing = int(input, "facing", 0x4000) as u16;
     let rot = int(input, "rot", 3) as i32;
@@ -231,9 +233,9 @@ fn fixture(input: &serde_json::Value) -> (Simulation, RuleSet) {
             true,
         );
         target.lifecycle.set_object_alive_for_test(true);
-        target.position.sub_x = SimFixed::from_num(tx % 256);
-        target.position.sub_y = SimFixed::from_num(ty % 256);
-        target.position.exact_z_leptons = Some(tz);
+        target.position.set_sub_x(SimFixed::from_num(tx % 256));
+        target.position.set_sub_y(SimFixed::from_num(ty % 256));
+        target.position.set_exact_z_leptons(Some(tz));
         sim.substrate.entities.insert(target);
     }
     let dock = &input["dock"];
@@ -258,7 +260,7 @@ fn fixture(input: &serde_json::Value) -> (Simulation, RuleSet) {
         building
             .type_facts
             .set_foundation_for_test(format!("{width}x{height}"));
-        building.position.exact_z_leptons = Some(0);
+        building.position.set_exact_z_leptons(Some(0));
         building
             .radio_contacts
             .set_capacity(dock_offsets(dock).len());
@@ -294,11 +296,15 @@ fn stop_fixture(input: &serde_json::Value) -> (Simulation, RuleSet) {
     }
     if input["location"].is_array() {
         let [x, y, z] = ints(&input["location"], [0; 3]);
-        entity.position.rx = (x.div_euclid(256)).max(0) as u16;
-        entity.position.ry = (y.div_euclid(256)).max(0) as u16;
-        entity.position.sub_x = SimFixed::from_num(x - i32::from(entity.position.rx) * 256);
-        entity.position.sub_y = SimFixed::from_num(y - i32::from(entity.position.ry) * 256);
-        entity.position.exact_z_leptons = Some(z);
+        entity.position.set_rx((x.div_euclid(256)).max(0) as u16);
+        entity.position.set_ry((y.div_euclid(256)).max(0) as u16);
+        entity.position.set_sub_x(SimFixed::from_num(
+            x - i32::from(entity.position.rx()) * 256,
+        ));
+        entity.position.set_sub_y(SimFixed::from_num(
+            y - i32::from(entity.position.ry()) * 256,
+        ));
+        entity.position.set_exact_z_leptons(Some(z));
     }
     let empty = Vec::new();
     for (n, techno) in input["technos"]
@@ -329,9 +335,9 @@ fn stop_fixture(input: &serde_json::Value) -> (Simulation, RuleSet) {
         unit.lifecycle.set_object_alive_for_test(true);
         unit.lifecycle
             .set_in_limbo_for_test(flag(techno, "limbo", false));
-        unit.position.sub_x = SimFixed::from_num(x % 256);
-        unit.position.sub_y = SimFixed::from_num(y % 256);
-        unit.position.exact_z_leptons = Some(z);
+        unit.position.set_sub_x(SimFixed::from_num(x % 256));
+        unit.position.set_sub_y(SimFixed::from_num(y % 256));
+        unit.position.set_exact_z_leptons(Some(z));
         sim.substrate.entities.insert(unit);
     }
     let mut list = Vec::new();
@@ -367,7 +373,7 @@ fn stop_fixture(input: &serde_json::Value) -> (Simulation, RuleSet) {
         structure
             .type_facts
             .set_foundation_for_test(format!("{width}x{height}"));
-        structure.position.exact_z_leptons = Some(0);
+        structure.position.set_exact_z_leptons(Some(0));
         sim.substrate.entities.insert(structure);
         if flag(building, "limbo", false) {
             sim.substrate

@@ -207,7 +207,7 @@ fn nested_death_bridge_continuation_finishes_before_parent_area_returns() {
                         z: 624,
                     },
                 );
-                actor.position.z = 6;
+                actor.position.set_z(6);
                 actor.set_on_bridge(true);
             }
             sim.reveal_entity_with_rules(id, &rules);

@@ -1541,8 +1541,8 @@ pub(crate) fn mission_repair(
                     owner: building.owner(),
                     radar: crate::sim::radar::RadarEventRequest::new(
                         crate::sim::radar::RadarEventType::UnitRepaired,
-                        building.position.rx,
-                        building.position.ry,
+                        building.position.rx(),
+                        building.position.ry(),
                     ),
                 });
                 idle_service_art(sim, rules, depot, true);
@@ -1746,8 +1746,18 @@ mod tests {
     #[test]
     fn shared_exit_uses_native_size_diamond_before_class_lookup() {
         let (mut sim, rules) = factory_exit_fixture("GDIBarracks=no\n");
-        sim.substrate.entities.get_mut(DEPOT).unwrap().position.rx = 0;
-        sim.substrate.entities.get_mut(DEPOT).unwrap().position.ry = 0;
+        sim.substrate
+            .entities
+            .get_mut(DEPOT)
+            .unwrap()
+            .position
+            .set_rx(0);
+        sim.substrate
+            .entities
+            .get_mut(DEPOT)
+            .unwrap()
+            .position
+            .set_ry(0);
         assert_eq!(
             building_dock_cell(&sim, DEPOT, 1, (0, 0), &rules, None),
             None
@@ -2529,7 +2539,7 @@ mod tests {
 
     fn pos(sim: &Simulation, tank: u64) -> (u16, u16) {
         let e = sim.substrate.entities.get(tank).unwrap();
-        (e.position.rx, e.position.ry)
+        (e.position.rx(), e.position.ry())
     }
 
     /// Production path: the RepairAtDepot command queues Enter and runs the

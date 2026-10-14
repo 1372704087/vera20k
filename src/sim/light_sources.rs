@@ -90,8 +90,8 @@ impl Simulation {
             return;
         };
         let Some(source) = point_light_from_object(
-            entity.position.rx,
-            entity.position.ry,
+            entity.position.rx(),
+            entity.position.ry(),
             object.light_visibility,
             object.light_intensity,
             [

@@ -925,7 +925,7 @@ fn classify_foot_entry<'a>(
                     checked_building_id: blocker_id,
                     candidate_building_id: first_building(),
                     candidate_x: p.0 as u16,
-                    building_origin_x: b.position.rx,
+                    building_origin_x: b.position.rx(),
                     number_impassable_rows: bt.number_impassable_rows,
                     is_unit_repair: bt.unit_repair,
                     is_bunker: bt.bunker,
@@ -991,7 +991,7 @@ fn classify_foot_entry<'a>(
                         checked_building_id: blocker_id,
                         candidate_building_id: first_building(),
                         candidate_x: p.0 as u16,
-                        building_origin_x: b.position.rx,
+                        building_origin_x: b.position.rx(),
                         number_impassable_rows: bt.number_impassable_rows,
                         is_unit_repair: bt.unit_repair,
                         is_bunker: bt.bunker,
@@ -1900,8 +1900,12 @@ mod tests {
                 // Construction stamps the type's `Foundation=2x2`.
                 entity.type_facts.set_foundation_for_test("2x2".to_string());
             }
-            entity.position.sub_x = crate::util::fixed_math::SimFixed::from_num(128);
-            entity.position.sub_y = crate::util::fixed_math::SimFixed::from_num(128);
+            entity
+                .position
+                .set_sub_x(crate::util::fixed_math::SimFixed::from_num(128));
+            entity
+                .position
+                .set_sub_y(crate::util::fixed_math::SimFixed::from_num(128));
             sim.substrate.entities.insert(entity);
         }
         for (id, insertion) in [
@@ -2021,8 +2025,8 @@ mod tests {
         //(62,62). Attack-target identity is deliberately evaluated last.
         for (id, p) in [(72, (60, 60)), (71, (61, 61))] {
             let position = &mut sim.substrate.entities.get_mut(id).unwrap().position;
-            position.rx = p.0;
-            position.ry = p.1;
+            position.set_rx(p.0);
+            position.set_ry(p.1);
         }
         assert_eq!(probe(&mut sim, 72), InfantryTargetAdmission::SkipCurrent);
         assert_eq!(
@@ -2044,8 +2048,18 @@ mod tests {
             .spawn_object("ENGINEER", "Americans", 15, 15, 0, &rules)
             .unwrap();
         // Supplied query coordinates isolate the effectful51C3B1 boundary.
-        sim.substrate.entities.get_mut(hut).unwrap().position.rx = 60;
-        sim.substrate.entities.get_mut(hut).unwrap().position.ry = 60;
+        sim.substrate
+            .entities
+            .get_mut(hut)
+            .unwrap()
+            .position
+            .set_rx(60);
+        sim.substrate
+            .entities
+            .get_mut(hut)
+            .unwrap()
+            .position
+            .set_ry(60);
         let probe = |sim: &mut Simulation| {
             let live = EntryReadContext {
                 sim,

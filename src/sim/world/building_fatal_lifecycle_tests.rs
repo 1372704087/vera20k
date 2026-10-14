@@ -298,8 +298,8 @@ impl Fixture {
             // Supply that declared input only here. Main retains real Mark.
             let entity = sim.substrate.entities.get(building).unwrap();
             for (rx, ry) in crate::sim::crew_survival::foundation_cells(
-                entity.position.rx,
-                entity.position.ry,
+                entity.position.rx(),
+                entity.position.ry(),
                 entity.type_facts.foundation(),
             ) {
                 sim.substrate.raw_cell_occupation.clear_ground(

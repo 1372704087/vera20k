@@ -429,9 +429,9 @@ impl Simulation {
                     object.slave_regen_rate,
                     object.slave_reload_rate,
                     self.interner.resolve(parent.owner()).to_string(),
-                    (parent.position.rx, parent.position.ry),
+                    (parent.position.rx(), parent.position.ry()),
                     parent.body_facing_byte(self.session.binary_frame),
-                    parent.position.z,
+                    parent.position.z(),
                 ))
             })
         else {
@@ -553,7 +553,7 @@ impl Simulation {
                 let Some(entity) = self.substrate.entities.get(slave) else {
                     return;
                 };
-                let cell = (entity.position.rx, entity.position.ry);
+                let cell = (entity.position.rx(), entity.position.ry());
                 let driving = entity.navigation.nav_com().is_some();
                 // 0x006AF7F8: Tiberium land under the slave (0x00487DF0).
                 if crate::sim::miner::ore_scan::cell_is_tiberium_land(self, registry, cell) {
@@ -568,7 +568,7 @@ impl Simulation {
                 let Some(entity) = self.substrate.entities.get(slave) else {
                     return;
                 };
-                let cell = (entity.position.rx, entity.position.ry);
+                let cell = (entity.position.rx(), entity.position.ry());
                 // 0x00522FC0: Get_Mission (vt+0x184 = 0x005B3040, the current
                 // mission, else the queued one) is Harvest.
                 let harvesting = entity.mission.effective().known() == Some(MissionType::Harvest);
@@ -641,7 +641,7 @@ impl Simulation {
         let Some(entity) = self.substrate.entities.get(slave) else {
             return;
         };
-        let cell = (entity.position.rx, entity.position.ry);
+        let cell = (entity.position.rx(), entity.position.ry());
         let nav_com = entity.navigation.nav_com();
         // 0x006AFA94..0x006AFB1B: a NavCom whose cell lies more than
         // ApproachTargetResetMultiplier cells from the drop cell is re-issued.
@@ -947,7 +947,7 @@ impl Simulation {
         let Some(owner) = self.substrate.entities.get(master) else {
             return false;
         };
-        let cell = (owner.position.rx, owner.position.ry);
+        let cell = (owner.position.rx(), owner.position.ry());
         if !self
             .houses
             .get(&owner.owner())
@@ -1374,22 +1374,15 @@ impl Simulation {
         // deploy_slaves. The subsequent Infantry51DFF0 call owns this second
         // placement, using the same floor/priority owner as ordinary infantry.
         let Some(position) = self.infantry_unlimbo_position(
-            RevealPosition {
-                exact_z_leptons: None,
-                rx: cell.0,
-                ry: cell.1,
-                z,
-                sub_x: request.0,
-                sub_y: request.1,
-            },
+            RevealPosition::new(cell.0, cell.1, z, None, request.0, request.1),
             Some(rules),
         ) else {
             return false;
         };
         if let Some(entity) = self.substrate.entities.get_mut(slave) {
             entity.set_sub_cell(Some(bump_crush::priority_sub_cell(
-                position.sub_x,
-                position.sub_y,
+                position.sub_x(),
+                position.sub_y(),
             )));
             entity.set_on_bridge(false);
         }
@@ -1439,8 +1432,8 @@ impl Simulation {
                 Some((
                     self.interner.resolve(manager.slave_type).to_string(),
                     self.interner.resolve(m.owner()).to_string(),
-                    (m.position.rx, m.position.ry),
-                    m.position.z,
+                    (m.position.rx(), m.position.ry()),
+                    m.position.z(),
                 ))
             })
         else {
@@ -1490,7 +1483,7 @@ impl Simulation {
         };
         let storage = object.storage;
         let harvest_rate = object.harvest_rate;
-        let cell = (entity.position.rx, entity.position.ry);
+        let cell = (entity.position.rx(), entity.position.ry());
         let doing = entity.mission_leaf.as_infantry().map(|leaf| leaf.doing());
         if storage != 0
             && crate::sim::miner::ore_scan::cell_is_tiberium_land(self, registry, cell)
@@ -1874,7 +1867,7 @@ mod tests {
         assert!(!entity.lifecycle.in_limbo());
         assert_eq!(entity.sub_cell(), Some(0));
         assert_eq!(
-            (entity.position.sub_x, entity.position.sub_y),
+            (entity.position.sub_x(), entity.position.sub_y()),
             (centre, centre)
         );
         assert_eq!(entity.body_facing.current(0), 0);

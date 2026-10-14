@@ -800,7 +800,12 @@ fn bridge_placement_retains_selected_cell_but_reads_fresh_world_attributes() {
                 grid.set_cell_for_test(10, 10, 4, false, false);
                 grid.set_cell_for_test(10, 9, 0, true, false);
                 sim.path_grid = Some(std::sync::Arc::new(grid));
-                sim.substrate.entities.get_mut(id).unwrap().position.rx = 20;
+                sim.substrate
+                    .entities
+                    .get_mut(id)
+                    .unwrap()
+                    .position
+                    .set_rx(20);
             }
         },
         crate::sim::world::FrameEffects::default(),
@@ -1975,11 +1980,13 @@ fn native_depot_arrival_uses_the_original_terminal_handoff() {
             z: integer(&at[2]),
         };
         let unit = sim.substrate.entities.get_mut(tank).unwrap();
-        unit.position.rx = (coordinate.x / 256) as u16;
-        unit.position.ry = (coordinate.y / 256) as u16;
-        unit.position.sub_x = SimFixed::from_num(coordinate.x % 256);
-        unit.position.sub_y = SimFixed::from_num(coordinate.y % 256);
-        unit.position.exact_z_leptons = Some(coordinate.z);
+        unit.position.set_rx((coordinate.x / 256) as u16);
+        unit.position.set_ry((coordinate.y / 256) as u16);
+        unit.position
+            .set_sub_x(SimFixed::from_num(coordinate.x % 256));
+        unit.position
+            .set_sub_y(SimFixed::from_num(coordinate.y % 256));
+        unit.position.set_exact_z_leptons(Some(coordinate.z));
         unit.health.set_for_test(integer(&before["health"]));
         unit.estimated_health = EstimatedHealth::from_raw(integer(&before["estimate"]));
         unit.navigation.set_nav_com(

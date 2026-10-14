@@ -73,7 +73,7 @@ fn engineer_family_selector_matches_original_boundary_and_dummy() {
                     z: 1040,
                 },
             );
-            actor.position.z = 10;
+            actor.position.set_z(10);
         }
         sim.resolved_terrain
             .as_ref()

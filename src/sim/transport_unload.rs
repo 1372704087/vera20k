@@ -205,7 +205,7 @@ fn octant_cell_open(sim: &Simulation, cell: (u16, u16), transport_owner: &str) -
 /// the key and it is not parsed.
 fn pick_exit_octant(sim: &Simulation, entity: &GameEntity) -> Option<((u16, u16), usize)> {
     let owner = sim.interner.resolve(entity.owner());
-    let base = (entity.position.rx, entity.position.ry);
+    let base = (entity.position.rx(), entity.position.ry());
     // `0x00740B9F..BAD`: the body's `Current()` (`+0x388`), full 16 bits.
     let facing16 = entity.body_facing_current(sim.session.binary_frame);
     let rear16 = facing16.wrapping_add(0x7FFF);
@@ -407,10 +407,10 @@ fn eject_head_passenger(
                     .expect("transport resolved before the head pop");
                 let obj = sim.object_type(transport.type_ref(), rules);
                 (
-                    (transport.position.rx, transport.position.ry),
+                    (transport.position.rx(), transport.position.ry()),
                     // `0x0073D8E0..D8F4`: the hull's `Current()`, full 16 bits.
                     transport.body_facing_current(now),
-                    transport.position.z,
+                    transport.position.z(),
                     obj.and_then(|o| o.leave_transport_sound.clone()),
                 )
             };
@@ -635,7 +635,7 @@ pub(crate) fn building_mission_unload_absorber(
             // Native 0x44D92D calls Building+0x1B8 (GetMapCoords) and scans
             // outward from its Location cell. The sound tail separately uses
             // +0x48 GetCoords (the foundation center).
-            let base = (building.position.rx, building.position.ry);
+            let base = (building.position.rx(), building.position.ry());
             let height = sim
                 .resolved_terrain
                 .as_ref()
@@ -782,7 +782,7 @@ pub(crate) fn building_mission_unload_absorber(
                 .substrate
                 .entities
                 .get(id)
-                .map_or(0, |building| building.position.z);
+                .map_or(0, |building| building.position.z());
             let z = cell_level_or(sim, adjacent, fallback_z);
             reveal_unloaded_passenger(
                 sim,
@@ -874,7 +874,7 @@ pub(crate) fn unit_mission_unload(
             let on_water = sim
                 .resolved_terrain
                 .as_ref()
-                .and_then(|terrain| terrain.cell(entity.position.rx, entity.position.ry))
+                .and_then(|terrain| terrain.cell(entity.position.rx(), entity.position.ry()))
                 .is_some_and(|cell| cell.yr_cell_land_type == LandType::Water.as_index());
             if entity.navigation.nav_com().is_none() && on_water {
                 // `PUSH 0x2` at `0x0073D790`: the search runs for speed-type
@@ -887,7 +887,10 @@ pub(crate) fn unit_mission_unload(
                 // passes, native still sets the destination to the null cell
                 // (`0x0073D7B5..0x0073D7D1`); VERA sets none and waits. That
                 // needs no Wheel ground within 32 rings of the transport.
-                let seed = (i32::from(entity.position.rx), i32::from(entity.position.ry));
+                let seed = (
+                    i32::from(entity.position.rx()),
+                    i32::from(entity.position.ry()),
+                );
                 let wheel_land = PassabilityArgs {
                     speed_type: SpeedType::Wheel,
                     required_zone_id: None,
@@ -1185,10 +1188,10 @@ fn eject_from_aircraft(
             picked_up = true;
             let (cell, z, sub_x, sub_y) = match sim.substrate.entities.get(aircraft_id) {
                 Some(aircraft) => (
-                    (aircraft.position.rx, aircraft.position.ry),
-                    aircraft.position.z,
-                    aircraft.position.sub_x,
-                    aircraft.position.sub_y,
+                    (aircraft.position.rx(), aircraft.position.ry()),
+                    aircraft.position.z(),
+                    aircraft.position.sub_x(),
+                    aircraft.position.sub_y(),
                 ),
                 None => unreachable!("aircraft resolved before cargo departure"),
             };

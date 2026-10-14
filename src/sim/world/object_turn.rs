@@ -473,7 +473,7 @@ impl Simulation {
                 .substrate
                 .entities
                 .get(stable_id)
-                .map(|entity| (entity.position.rx as i16, entity.position.ry as i16));
+                .map(|entity| (entity.position.rx() as i16, entity.position.ry() as i16));
             if let Some(cell) = cell {
                 let _ = sim.pickup_crate_at(stable_id, cell, rules, overlay_registry, ctx.effects);
             }
@@ -572,7 +572,7 @@ impl Simulation {
             && entity.low_bridge_tube_state.is_none()
             && let Some(slope) = sim.resolved_terrain.as_ref().and_then(|terrain| {
                 terrain
-                    .cell(entity.position.rx, entity.position.ry)
+                    .cell(entity.position.rx(), entity.position.ry())
                     .map(|cell| cell.slope_type)
             })
         {
@@ -904,7 +904,7 @@ impl Simulation {
             .substrate
             .entities
             .get(stable_id)
-            .map(|entity| (entity.position.rx, entity.position.ry));
+            .map(|entity| (entity.position.rx(), entity.position.ry()));
         let walk_process_owned = sim
             .substrate
             .entities
@@ -1041,7 +1041,7 @@ impl Simulation {
             .substrate
             .entities
             .get(stable_id)
-            .map(|entity| (entity.position.rx, entity.position.ry));
+            .map(|entity| (entity.position.rx(), entity.position.ry()));
         // A mover whose Process has no ported `Per_Cell_Process` call (Fly,
         // a cruising Jumpjet, Rocket) takes
         // VERA's cell-change stand-in for the Foot body's sensor, uncloak,

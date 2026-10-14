@@ -165,12 +165,16 @@ fn stand_in(sim: &mut Simulation, id: u64, building: u64) {
         .substrate
         .entities
         .get(building)
-        .map(|building| (building.position.rx, building.position.ry))
+        .map(|building| (building.position.rx(), building.position.ry()))
         .unwrap();
     let now = sim.session.binary_frame;
     sim.mission_assign_exact(id, SABOTAGE, now).unwrap();
     let planter = sim.substrate.entities.get_mut(id).unwrap();
-    (planter.position.rx, planter.position.ry) = anchor;
+    {
+        let (rx, ry) = anchor;
+        planter.position.set_rx(rx);
+        planter.position.set_ry(ry);
+    }
     planter
         .navigation
         .set_nav_com(Some(NavTargetRef::building(building)));
@@ -332,7 +336,7 @@ fn a_tanya_ordered_to_sabotage_walks_in_and_plants_the_charge() {
     assert!((3..=5).contains(&planter.rearm_timer.duration()));
     assert_eq!(planter.navigation.nav_com(), None, "the planter stopped");
     assert!(
-        (16..18).contains(&planter.position.rx) && (10..12).contains(&planter.position.ry),
+        (16..18).contains(&planter.position.rx()) && (10..12).contains(&planter.position.ry()),
         "the planter did not scatter at the plant"
     );
 

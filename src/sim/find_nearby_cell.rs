@@ -719,7 +719,10 @@ impl crate::sim::world::Simulation {
             object.speed_type
         };
         let seed = match anchor {
-            None => (i32::from(entity.position.rx), i32::from(entity.position.ry)),
+            None => (
+                i32::from(entity.position.rx()),
+                i32::from(entity.position.ry()),
+            ),
             Some(anchor) => {
                 let [x, y] = crate::sim::movement::ground_pose::object_center_xy(
                     self.substrate.entities.get(anchor)?,

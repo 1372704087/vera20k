@@ -627,7 +627,7 @@ fn drive_across_high_bridge_with_order(
             .expect("spawned tank present");
         println!(
             "spawned {unit_type} id={entity_id} at {start_cell:?} z={} on_bridge={}",
-            entity.position.z,
+            entity.position.z(),
             entity.on_bridge()
         );
     }
@@ -694,7 +694,7 @@ fn drive_across_high_bridge_with_order(
         let Some(entity) = sim.entities().get(entity_id) else {
             panic!("the tank vanished mid-crossing");
         };
-        let cell = (entity.position.rx, entity.position.ry);
+        let cell = (entity.position.rx(), entity.position.ry());
         let facts = sim
             .path_grid()
             .and_then(|grid| grid.cell(cell.0, cell.1))
@@ -706,7 +706,7 @@ fn drive_across_high_bridge_with_order(
         rows.push(TickRow {
             tick: sim.session.tick,
             cell,
-            z: entity.position.z,
+            z: entity.position.z(),
             on_bridge: entity.on_bridge(),
             terrain_level: facts.ground_level,
             structural: facts.bridge_structural,
@@ -753,7 +753,7 @@ fn drive_across_high_bridge_with_order(
         for _ in 0..300 {
             scenario.tick();
             if let Some(entity) = scenario.sim().entities().get(entity_id) {
-                let cell = (entity.position.rx, entity.position.ry);
+                let cell = (entity.position.rx(), entity.position.ry());
                 if control_cells.last() != Some(&cell) {
                     control_cells.push(cell);
                 }
@@ -1346,7 +1346,7 @@ fn drive_across_low_bridge(map_file: &str, unit_type: &str) {
             .expect("spawned mover has a locomotor");
         println!(
             "spawned {unit_type} id={entity_id} at {start_cell:?} z={} on_bridge={} zone={zone:?}",
-            entity.position.z,
+            entity.position.z(),
             entity.on_bridge()
         );
         zone
@@ -1416,7 +1416,7 @@ fn drive_across_low_bridge(map_file: &str, unit_type: &str) {
         let Some(entity) = sim.entities().get(entity_id) else {
             panic!("the mover vanished mid-crossing");
         };
-        let cell = (entity.position.rx, entity.position.ry);
+        let cell = (entity.position.rx(), entity.position.ry());
         let facts = sim
             .path_grid()
             .and_then(|grid| grid.cell(cell.0, cell.1))
@@ -1428,7 +1428,7 @@ fn drive_across_low_bridge(map_file: &str, unit_type: &str) {
         rows.push(TickRow {
             tick: sim.session.tick,
             cell,
-            z: entity.position.z,
+            z: entity.position.z(),
             on_bridge: entity.on_bridge(),
             terrain_level: facts.ground_level,
             structural: facts.bridge_structural,
@@ -2066,7 +2066,7 @@ fn tank_repathing_around_a_deck_blocker_stays_on_the_bridge_layer() {
         let Some(entity) = sim.entities().get(crosser) else {
             panic!("the crosser vanished");
         };
-        let cell = (entity.position.rx, entity.position.ry);
+        let cell = (entity.position.rx(), entity.position.ry());
         let Some(facts) = sim
             .path_grid()
             .and_then(|grid| grid.cell(cell.0, cell.1))
@@ -2078,7 +2078,7 @@ fn tank_repathing_around_a_deck_blocker_stays_on_the_bridge_layer() {
         let row = TickRow {
             tick: sim.session.tick,
             cell,
-            z: entity.position.z,
+            z: entity.position.z(),
             on_bridge: entity.on_bridge(),
             terrain_level: facts.ground_level,
             structural: facts.bridge_structural,
@@ -2092,7 +2092,7 @@ fn tank_repathing_around_a_deck_blocker_stays_on_the_bridge_layer() {
         rows.push(row);
         if blocker_parked.is_none()
             && let Some(parked) = sim.entities().get(blocker).filter(|parked| {
-                (parked.position.rx, parked.position.ry) == park_cell
+                (parked.position.rx(), parked.position.ry()) == park_cell
                     && crate::sim::movement::motion_query::is_moving(&parked) != Some(true)
             })
         {
@@ -2103,7 +2103,7 @@ fn tank_repathing_around_a_deck_blocker_stays_on_the_bridge_layer() {
                 .expect("the park cell is on the path grid");
             blocker_parked = Some((
                 sim.session.tick,
-                parked.position.z,
+                parked.position.z(),
                 parked.on_bridge(),
                 deck.bridge_structural,
                 deck.ground_level,
@@ -3176,7 +3176,7 @@ fn record_until(
         let Some(entity) = sim.entities().get(entity_id) else {
             panic!("the mover vanished mid-run");
         };
-        let cell = (entity.position.rx, entity.position.ry);
+        let cell = (entity.position.rx(), entity.position.ry());
         let Some(facts) = sim
             .path_grid()
             .and_then(|grid| grid.cell(cell.0, cell.1))
@@ -3207,7 +3207,7 @@ fn record_until(
             assert_eq!(loco_layer, MovementLayer::Ground);
             let world_xy = super::ground_pose::position_world_xy(&entity.position);
             assert_eq!(
-                entity.position.exact_z_leptons,
+                entity.position.exact_z_leptons(),
                 Some(
                     crate::util::lepton::ground_height_leptons(
                         facts.ground_level,
@@ -3223,7 +3223,7 @@ fn record_until(
         rows.push(TickRow {
             tick: sim.session.tick,
             cell,
-            z: entity.position.z,
+            z: entity.position.z(),
             on_bridge: entity.on_bridge(),
             terrain_level: facts.ground_level,
             structural: facts.bridge_structural,
@@ -3340,7 +3340,7 @@ fn order_under_high_span(map_file: &str, unit_type: &str) -> Option<UnderSpanRun
             .expect("spawned mover present");
         println!(
             "spawned {unit_type} id={entity_id} at {start_cell:?} z={} on_bridge={}",
-            entity.position.z,
+            entity.position.z(),
             entity.on_bridge()
         );
     }
@@ -3770,7 +3770,7 @@ fn deck_and_ground_under_one_high_bridge_cell_are_separate_occupancy_planes() {
             .entities()
             .get(under_id)
             .expect("under mover present");
-        (entity.position.z, entity.on_bridge())
+        (entity.position.z(), entity.on_bridge())
     };
     println!("under mover placed on {shared:?}: z={under_z} on_bridge={under_on_bridge}");
 
@@ -3781,7 +3781,7 @@ fn deck_and_ground_under_one_high_bridge_cell_are_separate_occupancy_planes() {
         .get(deck_id)
         .expect("deck mover still present");
     assert_eq!(
-        (deck_still.position.rx, deck_still.position.ry),
+        (deck_still.position.rx(), deck_still.position.ry()),
         shared,
         "placing a mover under the deck displaced the mover on it"
     );
@@ -3796,7 +3796,8 @@ fn deck_and_ground_under_one_high_bridge_cell_are_separate_occupancy_planes() {
     );
     assert!(!under_on_bridge, "the under mover carries on_bridge");
     assert_ne!(
-        under_z, deck_still.position.z,
+        under_z,
+        deck_still.position.z(),
         "the two movers share one height on one cell"
     );
 
@@ -3837,13 +3838,13 @@ fn deck_and_ground_under_one_high_bridge_cell_are_separate_occupancy_planes() {
         .expect("deck mover survived the under mover's drive");
     println!(
         "deck mover after the under drive: cell ({},{}) z={} on_bridge={}",
-        deck_end.position.rx,
-        deck_end.position.ry,
-        deck_end.position.z,
+        deck_end.position.rx(),
+        deck_end.position.ry(),
+        deck_end.position.z(),
         deck_end.on_bridge()
     );
     assert_eq!(
-        (deck_end.position.rx, deck_end.position.ry),
+        (deck_end.position.rx(), deck_end.position.ry()),
         shared,
         "the deck mover moved while a unit drove out from underneath it"
     );
@@ -3981,7 +3982,7 @@ fn scale_benchmark_many_movers_on_hills() {
                 .sim()
                 .entities()
                 .get(id)
-                .is_some_and(|entity| (entity.position.rx, entity.position.ry) != (rx, ry))
+                .is_some_and(|entity| (entity.position.rx(), entity.position.ry()) != (rx, ry))
         })
         .count();
     println!(

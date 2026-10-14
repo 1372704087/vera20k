@@ -228,8 +228,8 @@ fn building_crew_keeps_distinct_native_caller_placement_and_rng() {
         .unwrap();
     assert_eq!(
         serde_json::json!([
-            i32::from(entity.position.rx) * 256 + entity.position.sub_x.to_num::<i32>(),
-            i32::from(entity.position.ry) * 256 + entity.position.sub_y.to_num::<i32>(),
+            i32::from(entity.position.rx()) * 256 + entity.position.sub_x().to_num::<i32>(),
+            i32::from(entity.position.ry()) * 256 + entity.position.sub_y().to_num::<i32>(),
             0,
         ]),
         foot[2]
@@ -418,7 +418,7 @@ fn phase_b_interleaves_each_cells_roll_with_its_mark() {
                 assert!(entity.sub_cell().is_some() && !entity.lifecycle.in_limbo());
                 (
                     type_name(&sim, id),
-                    (entity.position.rx, entity.position.ry),
+                    (entity.position.rx(), entity.position.ry()),
                     entity.health.current(),
                 )
             })
@@ -673,7 +673,7 @@ fn a_bio_reactor_releases_its_absorbed_infantry_before_its_crew() {
         let passenger = sim.substrate.entities.get(id).expect("released alive");
         assert!(passenger.passenger_role.is_none());
         assert!(!passenger.lifecycle.in_limbo());
-        assert_eq!((passenger.position.rx, passenger.position.ry), (10, 10));
+        assert_eq!((passenger.position.rx(), passenger.position.ry()), (10, 10));
         assert_eq!(queued(&sim, id), MissionId::from_known(MissionType::Hunt));
     }
 }
@@ -757,7 +757,7 @@ fn a_crewed_vehicle_rolls_crew_escape_then_places_its_crewman() {
                     let crewman = sim.substrate.entities.get(crew[0]).unwrap();
                     assert_eq!(type_name(&sim, crew[0]), "E1");
                     assert_eq!(crewman.health.current(), health);
-                    assert_eq!((crewman.position.rx, crewman.position.ry), (10, 10));
+                    assert_eq!((crewman.position.rx(), crewman.position.ry()), (10, 10));
                     // Unlimbo commits Guard (`0x006F6E2A`); the crew Queue
                     // then queues Hunt, or leaves Guard alone
                     // (`Queue_Mission 0x005B3601..0x005B3612`).
@@ -795,8 +795,8 @@ fn a_crewman_leaving_a_bridge_deck_keeps_the_vehicle_coordinate() {
         {
             let unit = sim.substrate.entities.get_mut(mcv).unwrap();
             unit.set_on_bridge(true);
-            unit.position.sub_x = sub_x;
-            unit.position.sub_y = sub_y;
+            unit.position.set_sub_x(sub_x);
+            unit.position.set_sub_y(sub_y);
         }
         sim.foot_mark_remove(
             mcv,
@@ -826,9 +826,9 @@ fn a_crewman_leaving_a_bridge_deck_keeps_the_vehicle_coordinate() {
         if escapes {
             let crewman = sim.substrate.entities.get(crew[0]).unwrap();
             assert!(crewman.on_bridge());
-            assert_eq!((crewman.position.rx, crewman.position.ry), (10, 10));
+            assert_eq!((crewman.position.rx(), crewman.position.ry()), (10, 10));
             assert_eq!(
-                (crewman.position.sub_x, crewman.position.sub_y),
+                (crewman.position.sub_x(), crewman.position.sub_y()),
                 (sub_x, sub_y)
             );
             assert_eq!(crewman.sub_cell(), Some(3), "the SW spot of its coordinate");
@@ -1002,7 +1002,7 @@ fn a_killing_hit_lets_the_vehicle_crew_out_unless_arg6() {
             for id in &crew {
                 let crewman = sim.substrate.entities.get(*id).unwrap();
                 assert_eq!(type_name(&sim, *id), "E1");
-                assert_eq!((crewman.position.rx, crewman.position.ry), (10, 10));
+                assert_eq!((crewman.position.rx(), crewman.position.ry()), (10, 10));
                 assert!((5..=62).contains(&crewman.health.current()));
             }
             escaped += crew.len();
@@ -1041,7 +1041,7 @@ fn load_passengers(
         let open_topped = rules
             .object(sim.interner.resolve(entity.type_ref()))
             .is_some_and(|object| object.open_topped);
-        (entity.position.rx, entity.position.ry, open_topped)
+        (entity.position.rx(), entity.position.ry(), open_topped)
     };
     let passengers: Vec<u64> = (0..count)
         .map(|_| {
@@ -1133,7 +1133,7 @@ fn a_killing_hit_lets_the_passengers_out() {
             let passenger = sim.substrate.entities.get(id).expect("escaped");
             assert!(passenger.lifecycle.object_alive() && !passenger.lifecycle.in_limbo());
             assert!(passenger.passenger_role.is_none());
-            assert_eq!((passenger.position.rx, passenger.position.ry), (10, 10));
+            assert_eq!((passenger.position.rx(), passenger.position.ry()), (10, 10));
             assert_eq!(passenger.kill_record.killer(), None);
             assert!(!passenger.selection.is_selected());
             assert_eq!(queued(&sim, id), mission, "{owner}");
@@ -1384,7 +1384,7 @@ fn retail_rules_crew_the_power_plant_and_the_mcv() {
                 continue;
             }
             assert_eq!(type_name(&sim, id), "E1");
-            match (entity.position.rx, entity.position.ry) {
+            match (entity.position.rx(), entity.position.ry()) {
                 (10..=11, 10..=11) => {
                     assert!((5..=125).contains(&entity.health.current()));
                     plant_crew += 1;
@@ -1487,7 +1487,7 @@ fn retail_dustbowl_crews_scatter_off_their_wrecks() {
         let (plant_cell, mcv_cell) = [plant, mcv]
             .map(|id| {
                 let entity = sim.substrate.entities.get(id).unwrap();
-                (entity.position.rx, entity.position.ry)
+                (entity.position.rx(), entity.position.ry())
             })
             .into();
         let guard = keep_undefeated(sim, resources, mcv_cell);
@@ -1503,7 +1503,7 @@ fn retail_dustbowl_crews_scatter_off_their_wrecks() {
             })
             .map(|id| {
                 let entity = sim.substrate.entities.get(id).unwrap();
-                let spawn = (entity.position.rx, entity.position.ry);
+                let spawn = (entity.position.rx(), entity.position.ry());
                 (id, spawn != mcv_cell, spawn, entity.navigation.nav_com())
             })
             .collect();
@@ -1519,7 +1519,7 @@ fn retail_dustbowl_crews_scatter_off_their_wrecks() {
                 .entities
                 .get(id)
                 .expect("crewman lives");
-            let cell = (entity.position.rx, entity.position.ry);
+            let cell = (entity.position.rx(), entity.position.ry());
             println!(
                 "seed {seed:#x}: {} crewman {id} {} spawned {spawn:?} (plant {plant_cell:?}, MCV {mcv_cell:?}), Scatter to {destination:?}, at {cell:?} after 45 frames, health {}",
                 if from_plant { "plant" } else { "MCV" },
@@ -1678,7 +1678,7 @@ fn retail_dustbowl_passengers_leave_their_destroyed_transports() {
             );
             assert!(gi.passenger_role.is_none());
             assert_eq!(
-                (gi.position.rx, gi.position.ry),
+                (gi.position.rx(), gi.position.ry()),
                 *cell,
                 "{kind}: out on its cell"
             );
@@ -1702,7 +1702,7 @@ fn retail_dustbowl_passengers_leave_their_destroyed_transports() {
                 .entities
                 .get(*id)
                 .expect("GI lives");
-            left[index] |= (gi.position.rx, gi.position.ry) != *wreck;
+            left[index] |= (gi.position.rx(), gi.position.ry()) != *wreck;
         }
     }
     assert!(scenario.sim().substrate.entities.get(guard).is_some());

@@ -254,8 +254,8 @@ fn is_turning(sim: &Simulation, unit_id: u64) -> bool {
 fn arrived_and_stopped(sim: &Simulation, building_id: u64, unit_id: u64) -> bool {
     sim.substrate.entities.get(unit_id).is_some_and(|unit| {
         sim.substrate.occupancy.first_building_on_layer(
-            unit.position.rx,
-            unit.position.ry,
+            unit.position.rx(),
+            unit.position.ry(),
             movement::locomotor::MovementLayer::Ground,
         ) == Some(building_id)
             && movement::motion_query::is_moving(unit) != Some(true)
@@ -278,7 +278,7 @@ fn footprint_clear_of_others(sim: &Simulation, building_id: u64, unit_id: u64) -
             )
             && footprint
                 .iter()
-                .any(|&(cx, cy)| cx == e.position.rx && cy == e.position.ry)
+                .any(|&(cx, cy)| cx == e.position.rx() && cy == e.position.ry())
     })
 }
 
@@ -321,7 +321,7 @@ fn shove_footprint_blockers(
                 )
                 && footprint
                     .iter()
-                    .any(|&(cx, cy)| cx == e.position.rx && cy == e.position.ry)
+                    .any(|&(cx, cy)| cx == e.position.rx() && cy == e.position.ry())
         })
         .map(|(id, _)| id)
         .collect();
@@ -656,8 +656,12 @@ mod tests {
         spawn_tank_on(&mut sim, 1, 9, 10);
         {
             let building = sim.substrate.entities.get_mut(2).unwrap();
-            building.position.sub_x = crate::util::fixed_math::SimFixed::from_num(96);
-            building.position.sub_y = crate::util::fixed_math::SimFixed::from_num(160);
+            building
+                .position
+                .set_sub_x(crate::util::fixed_math::SimFixed::from_num(96));
+            building
+                .position
+                .set_sub_y(crate::util::fixed_math::SimFixed::from_num(160));
         }
         assert!(matches!(sim.reveal(1), RevealOutcome::Revealed { .. }));
 
@@ -864,7 +868,7 @@ mod tests {
             assert_eq!(rt(&sim, 2).state, waiting, "not in its cell");
 
             let unit = sim.substrate.entities.get_mut(1).unwrap();
-            unit.position.rx = 10;
+            unit.position.set_rx(10);
             assert!(unit.locomotor.as_mut().unwrap().store_track_destination(
                 movement::track_process::TrackFamily::Drive,
                 Some(crate::sim::components::DriveCoord::cell(10, 10, 0)),
@@ -958,7 +962,7 @@ mod tests {
         // Simulate the blocker physically leaving the footprint cell.
         {
             let b = sim.substrate.entities.get_mut(3).unwrap();
-            b.position.rx = 20;
+            b.position.set_rx(20);
         }
 
         // Footprint clear now → advance.

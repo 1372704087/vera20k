@@ -269,8 +269,8 @@ pub(super) fn scene_with(input: &Value, rules: RuleSet, ini: &IniFile) -> Scene 
         .expect("miner");
     if relocate {
         let entity = sim.substrate.entities.get_mut(miner).unwrap();
-        entity.position.rx = x;
-        entity.position.ry = y;
+        entity.position.set_rx(x);
+        entity.position.set_ry(y);
         let layer = sim
             .substrate
             .occupancy

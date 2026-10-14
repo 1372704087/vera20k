@@ -679,11 +679,11 @@ Rate=120
     // Exact lepton position, not the cell centre (native `PositionCoord`).
     let boat = sim.substrate.entities.get(boat_id).expect("boat");
     let expected = crate::sim::anim_class::AnimWorldCoord::from_cell_sub_z(
-        boat.position.rx,
-        boat.position.ry,
-        boat.position.sub_x,
-        boat.position.sub_y,
-        boat.position.z,
+        boat.position.rx(),
+        boat.position.ry(),
+        boat.position.sub_x(),
+        boat.position.sub_y(),
+        boat.position.z(),
     );
     assert_eq!(
         (wake.world_coord.x, wake.world_coord.y),
@@ -3309,12 +3309,12 @@ fn sonic_constructor_dead_pointer_link_lives_until_deferred_delete_at_239() {
     let mut firer = GameEntity::test_default(firer_id, "DLPH", "Americans", 0, 0);
     firer.set_owner_for_test(owner);
     firer.set_type_ref_for_test(firer_type);
-    firer.position.sub_x = SimFixed::from_num(0);
-    firer.position.sub_y = SimFixed::from_num(0);
+    firer.position.set_sub_x(SimFixed::from_num(0));
+    firer.position.set_sub_y(SimFixed::from_num(0));
     let mut target = GameEntity::test_default(target_id, "TARGET", "Russians", 0, 0);
     target.set_type_ref_for_test(target_type);
-    target.position.sub_x = SimFixed::from_num(239);
-    target.position.sub_y = SimFixed::from_num(0);
+    target.position.set_sub_x(SimFixed::from_num(239));
+    target.position.set_sub_y(SimFixed::from_num(0));
     sim.substrate.entities.insert(firer);
     sim.substrate.entities.insert(target);
     let event = sonic_fire_event(&mut sim, firer_id, target_id);
@@ -3394,12 +3394,12 @@ fn sonic_constructor_at_240_registers_then_runs_at_same_pass_tail() {
     let mut firer = GameEntity::test_default(firer_id, "DLPH", "Americans", 0, 0);
     firer.set_owner_for_test(owner);
     firer.set_type_ref_for_test(firer_type);
-    firer.position.sub_x = SimFixed::from_num(0);
-    firer.position.sub_y = SimFixed::from_num(0);
+    firer.position.set_sub_x(SimFixed::from_num(0));
+    firer.position.set_sub_y(SimFixed::from_num(0));
     let mut target = GameEntity::test_default(target_id, "TARGET", "Russians", 0, 0);
     target.set_type_ref_for_test(target_type);
-    target.position.sub_x = SimFixed::from_num(240);
-    target.position.sub_y = SimFixed::from_num(0);
+    target.position.set_sub_x(SimFixed::from_num(240));
+    target.position.set_sub_y(SimFixed::from_num(0));
     sim.substrate.entities.insert(firer);
     sim.substrate.entities.insert(target);
     let event = sonic_fire_event(&mut sim, firer_id, target_id);
@@ -3445,8 +3445,8 @@ fn sonic_cell_target_uses_persistent_dummy_gettargetcoords_on_create_and_refresh
     let mut firer = GameEntity::test_default(firer_id, "DLPH", "Americans", 0, 0);
     firer.set_owner_for_test(owner);
     firer.set_type_ref_for_test(firer_type);
-    firer.position.sub_x = SimFixed::from_num(0);
-    firer.position.sub_y = SimFixed::from_num(0);
+    firer.position.set_sub_x(SimFixed::from_num(0));
+    firer.position.set_sub_y(SimFixed::from_num(0));
     firer
         .attack_target
         .set_for_test(Some(TargetKind::Cell(u16::MAX, 7)));
@@ -3836,7 +3836,7 @@ fn sonic_cell_fire_wave_damage_selects_level_two_bridge_plane() {
             sim.resolved_terrain.as_ref(),
             None,
         );
-        assert_eq!(entity.position.exact_z_leptons, Some(624));
+        assert_eq!(entity.position.exact_z_leptons(), Some(624));
         sim.add_entity_occupancy(id);
     }
     assert!(crate::sim::combat::install_cell_attack_target_for_test(
@@ -4568,8 +4568,8 @@ fn test_spawn_sets_position_and_facing() {
     sim.spawn_from_map(&entities, None);
 
     for e in sim.substrate.entities.values() {
-        assert_eq!(e.position.rx, 30);
-        assert_eq!(e.position.ry, 40);
+        assert_eq!(e.position.rx(), 30);
+        assert_eq!(e.position.ry(), 40);
         assert_eq!(e.body_facing.destination(), 0x4000);
         assert_eq!(sim.interner.resolve(e.type_ref()), "HTNK");
         // The diamond-centre screen projection of this spawn is asserted on
@@ -4612,8 +4612,8 @@ fn test_spawn_from_map_high_unit_uses_native_ground_plus_bridge_height() {
     // ReadUnits7434F3..743510 uses HIGH and ground+B1D0AC, independent
     // of the navigation fixture's cached deck level3. Original controls:
     // anytown_damage/unit_unlimbo.json authored_rows.
-    assert_eq!(e.position.z, 4);
-    assert_eq!(e.position.exact_z_leptons, Some(416));
+    assert_eq!(e.position.z(), 4);
+    assert_eq!(e.position.exact_z_leptons(), Some(416));
     assert!(e.on_bridge());
     let loco = e.locomotor.as_ref().expect("loco");
     assert_eq!(loco.layer(), MovementLayer::Bridge);
@@ -4649,7 +4649,7 @@ fn spawn_object_reads_the_live_terrain_level() {
     let id = sim
         .spawn_object("E1", "Americans", 3, 3, 64, &rules)
         .expect("GI spawns");
-    assert_eq!(sim.entities().get(id).unwrap().position.z, 4);
+    assert_eq!(sim.entities().get(id).unwrap().position.z(), 4);
 }
 
 #[test]
@@ -4698,8 +4698,8 @@ fn test_spawn_from_map_high_without_bridge_retains_native_caller_pose() {
     // Native7434F3 writes OnBridge from HIGH, even without HasBridge;
     // the caller supplies ground+B1D0AC. Authored native controls compare
     // both HasBridge values through the same original virtual Unlimbo.
-    assert_eq!(e.position.z, 5);
-    assert_eq!(e.position.exact_z_leptons, Some(520));
+    assert_eq!(e.position.z(), 5);
+    assert_eq!(e.position.exact_z_leptons(), Some(520));
     assert!(e.on_bridge());
     let loco = e.locomotor.as_ref().expect("loco");
     assert_eq!(loco.layer(), MovementLayer::Bridge);
@@ -4925,7 +4925,7 @@ fn test_destroyed_bridge_arms_fall_when_ground_exists() {
         .entities
         .get(1)
         .expect("surviving bridge unit");
-    assert_eq!(e.position.z, 5);
+    assert_eq!(e.position.z(), 5);
     assert!(e.was_dropped_as_bomb() && e.is_falling_down());
     assert!(!e.on_bridge());
     let loco = e.locomotor.as_ref().expect("locomotor");
@@ -4995,7 +4995,7 @@ fn test_destroyed_bridge_arms_fall_over_water_below() {
         300,
         "DropIn never harms — authored full health uses MTNK Strength300"
     );
-    assert_eq!(e.position.z, 4, "Location remains at deck height");
+    assert_eq!(e.position.z(), 4, "Location remains at deck height");
     assert!(e.was_dropped_as_bomb() && e.is_falling_down());
     assert!(!e.on_bridge());
     let loco = e.locomotor.as_ref().expect("locomotor");
@@ -5061,7 +5061,7 @@ fn test_destroyed_bridge_arms_fall_over_overlay_blocked() {
         .get(1)
         .expect("deck unit remains until landing");
     assert_eq!(e.health.current(), 300, "DropIn never harms");
-    assert_eq!(e.position.z, 4);
+    assert_eq!(e.position.z(), 4);
     assert!(e.was_dropped_as_bomb() && e.is_falling_down());
     assert!(!e.on_bridge());
 }
@@ -5120,7 +5120,7 @@ fn test_destroyed_bridge_arms_fall_over_terrain_object_blocked() {
         .get(1)
         .expect("deck unit remains until landing");
     assert_eq!(e.health.current(), 300, "DropIn never harms");
-    assert_eq!(e.position.z, 4);
+    assert_eq!(e.position.z(), 4);
     assert!(e.was_dropped_as_bomb() && e.is_falling_down());
     assert!(!e.on_bridge());
 }
@@ -5772,7 +5772,7 @@ fn drive_water_mover(
     for _ in 0..600 {
         let _ = sim.advance_tick(&[], Some(rules), Some(grid), Some(&registry), 67);
         let mover = sim.substrate.entities.get(id).expect("mover");
-        let here = (mover.position.rx, mover.position.ry, mover.on_bridge());
+        let here = (mover.position.rx(), mover.position.ry(), mover.on_bridge());
         if visited.last() != Some(&here) {
             visited.push(here);
         }
@@ -5877,7 +5877,7 @@ fn test_real_ship_locomotor_move_command_crosses_water_cells() {
         .get(ship_id)
         .expect("ship still exists");
     assert_eq!(
-        (ship.position.rx, ship.position.ry),
+        (ship.position.rx(), ship.position.ry()),
         (3, 1),
         "real Ship locomotor should complete a simple move command over water"
     );
@@ -5932,7 +5932,7 @@ fn test_real_ship_locomotor_crosses_water_surface_cells_with_non_water_land_type
         .get(ship_id)
         .expect("ship still exists");
     assert_eq!(
-        (ship.position.rx, ship.position.ry),
+        (ship.position.rx(), ship.position.ry()),
         (3, 1),
         "real Ship locomotor should treat water-surface cells as navigable even when land_type is not the pure water column"
     );
@@ -6003,7 +6003,7 @@ fn test_real_ship_move_command_can_path_under_bridge_when_too_big() {
         .get(ship_id)
         .expect("ship still exists");
     assert_eq!(
-        (ship.position.rx, ship.position.ry),
+        (ship.position.rx(), ship.position.ry()),
         (4, 1),
         "Naval ships should still complete move commands when the straight route passes under a bridge"
     );
@@ -6124,7 +6124,7 @@ fn a_ship_order_routes_around_an_island_through_the_live_search() {
         }
     }
     let ship = sim.substrate.entities.get(ship_id).expect("ship");
-    assert_eq!((ship.position.rx, ship.position.ry), (7, 3));
+    assert_eq!((ship.position.rx(), ship.position.ry()), (7, 3));
 }
 
 #[test]
@@ -6547,7 +6547,7 @@ fn test_deploy_mcv_replaces_vehicle_with_conyard() {
         sim.substrate
             .entities
             .values()
-            .any(|e| e.type_ref() == gacnst_id && e.position.rx == 19 && e.position.ry == 21),
+            .any(|e| e.type_ref() == gacnst_id && e.position.rx() == 19 && e.position.ry() == 21),
         "Construction yard should spawn at gamemd's deploy foundation origin"
     );
 }
@@ -6971,7 +6971,7 @@ fn gsi_04_05_stop_preserves_committed_drive_until_reserved_head_finishes() {
 
     let entity = sim.substrate.entities.get(1).unwrap();
     assert_eq!(
-        (entity.position.rx, entity.position.ry),
+        (entity.position.rx(), entity.position.ry()),
         (committed_head.rx, committed_head.ry)
     );
     assert!(crate::sim::movement::motion_query::is_moving(&entity) != Some(true));
@@ -7017,7 +7017,7 @@ fn gsi_04_05_stop_preserves_committed_drive_until_reserved_head_finishes() {
     }
     let parked = sim.substrate.entities.get(1).unwrap();
     assert_eq!(
-        (parked.position.rx, parked.position.ry),
+        (parked.position.rx(), parked.position.ry()),
         (committed_head.rx, committed_head.ry),
         "Stop must remain parked at the committed head after the old route is gone"
     );
@@ -7351,7 +7351,7 @@ fn a_paralyzed_or_warping_in_teleport_infantryman_refuses_a_move_order() {
     assert!(entity.teleport_state().is_some());
     tick(&mut sim, &[]);
     let entity = sim.substrate.entities.get(id).unwrap();
-    assert_eq!((entity.position.rx, entity.position.ry), (8, 2));
+    assert_eq!((entity.position.rx(), entity.position.ry()), (8, 2));
     assert!(entity.is_warping_in());
     assert_eq!(entity.navigation.nav_com(), None);
 
@@ -7359,7 +7359,7 @@ fn a_paralyzed_or_warping_in_teleport_infantryman_refuses_a_move_order() {
     tick(&mut sim, &[order(id, 12)]);
     tick(&mut sim, &[]);
     let entity = sim.substrate.entities.get(id).unwrap();
-    assert_eq!((entity.position.rx, entity.position.ry), (8, 2));
+    assert_eq!((entity.position.rx(), entity.position.ry()), (8, 2));
     assert_eq!(entity.navigation.nav_com(), None);
     assert!(entity.is_warping_in());
 
@@ -7381,7 +7381,7 @@ fn a_paralyzed_or_warping_in_teleport_infantryman_refuses_a_move_order() {
     tick(&mut sim, &[order(id, 8)]);
     tick(&mut sim, &[]);
     let entity = sim.substrate.entities.get(id).unwrap();
-    assert_eq!((entity.position.rx, entity.position.ry), (2, 2));
+    assert_eq!((entity.position.rx(), entity.position.ry()), (2, 2));
     assert!(entity.teleport_state().is_none());
     assert_eq!(entity.navigation.nav_com(), None);
 }
@@ -7954,7 +7954,7 @@ fn test_infantry_attack_move_kills_on_the_way_and_walks_on() {
             .get(2)
             .is_none_or(|victim| victim.health.current() == 0);
         if victim_dead
-            && (attacker.position.rx, attacker.position.ry) == (30, 20)
+            && (attacker.position.rx(), attacker.position.ry()) == (30, 20)
             && attacker.navigation.nav_com().is_none()
             && !attacker.mega_mission.is_attack_move()
         {
@@ -8214,8 +8214,8 @@ fn test_area_guard_keeps_its_post_when_displaced_inside_the_native_leash() {
 
     sim.remove_entity_occupancy(1);
     if let Some(e) = sim.substrate.entities.get_mut(1) {
-        e.position.rx = 5;
-        e.position.ry = 2;
+        e.position.set_rx(5);
+        e.position.set_ry(2);
         e.attack_target.set_for_test(None);
         e.navigation.set_nav_com(None);
     }
@@ -8275,8 +8275,8 @@ fn test_fog_revealed_persists_after_unit_moves_away() {
     let _ = (sx, sy); // suppress unused warning
     // Far enough that (1,1) leaves a Sight=1 reveal disc entirely.
     if let Some(e) = sim.substrate.entities.get_mut(1) {
-        e.position.rx = 6;
-        e.position.ry = 1;
+        e.position.set_rx(6);
+        e.position.set_ry(1);
     }
     let _ = sim.advance_tick(&[], None, Some(&grid), None, 33);
     assert!(!sim.fog.is_cell_visible(americans, 1, 1));
@@ -8366,7 +8366,7 @@ fn test_undeploy_conyard_spawns_mcv() {
         .entities
         .values()
         .filter(|e| e.type_ref() == amcv_id)
-        .map(|e| (e.position.rx, e.position.ry, e.selection.is_selected()))
+        .map(|e| (e.position.rx(), e.position.ry(), e.selection.is_selected()))
         .collect();
     assert_eq!(mcvs.len(), 1, "Exactly one MCV should exist after undeploy");
     let (rx, ry, selected) = mcvs[0];
@@ -8947,7 +8947,7 @@ fn crusher_does_not_freeze_in_front_of_infantry() {
             let Some(e) = sim.substrate.entities.get(tank) else {
                 break;
             };
-            let cell = (e.position.rx, e.position.ry);
+            let cell = (e.position.rx(), e.position.ry());
             series.push((
                 crate::sim::movement::motion_query::is_moving(&e) == Some(true),
                 cell,
@@ -9060,7 +9060,7 @@ fn turning_mover_with_an_occupied_endpoint_still_makes_progress() {
         let Some(e) = sim.substrate.entities.get(mover) else {
             break;
         };
-        let cell = (e.position.rx, e.position.ry);
+        let cell = (e.position.rx(), e.position.ry());
         series.push((
             crate::sim::movement::motion_query::is_moving(&e) == Some(true),
             cell,
@@ -9092,8 +9092,8 @@ fn turning_mover_with_an_occupied_endpoint_still_makes_progress() {
     let m = sim.substrate.entities.get(mover).expect("mover alive");
     let p = sim.substrate.entities.get(parked).expect("parked alive");
     assert_ne!(
-        (m.position.rx, m.position.ry),
-        (p.position.rx, p.position.ry),
+        (m.position.rx(), m.position.ry()),
+        (p.position.rx(), p.position.ry()),
         "two ground vehicles must never rest on the same cell"
     );
 }
@@ -9205,7 +9205,7 @@ fn parked_friendly_on_the_route_is_scattered_out_of_the_way() {
     for tick in 0..400u64 {
         let _ = sim.advance_tick(&[], Some(&rules), Some(&grid), None, 100);
         if let Some(b) = sim.substrate.entities.get(parked)
-            && (b.position.rx, b.position.ry) != PARKED_AT
+            && (b.position.rx(), b.position.ry()) != PARKED_AT
             && blocker_left_at.is_none()
         {
             blocker_left_at = Some(tick);
@@ -9213,7 +9213,7 @@ fn parked_friendly_on_the_route_is_scattered_out_of_the_way() {
         let Some(m) = sim.substrate.entities.get(mover) else {
             break;
         };
-        let cell = (m.position.rx, m.position.ry);
+        let cell = (m.position.rx(), m.position.ry());
         series.push((
             crate::sim::movement::motion_query::is_moving(&m) == Some(true),
             cell,
@@ -9378,7 +9378,7 @@ fn stacking_cells(sim: &Simulation, ids: &[u64]) -> Vec<(u64, u16, u16)> {
             sim.substrate
                 .entities
                 .get(id)
-                .map(|e| (id, e.position.rx, e.position.ry))
+                .map(|e| (id, e.position.rx(), e.position.ry()))
         })
         .collect()
 }
@@ -9423,14 +9423,17 @@ fn stacking_motion_state(sim: &Simulation, id: u64) -> String {
     let motion = match crate::sim::movement::motion_query::is_moving(e) {
         Some(false) | None => format!(
             "id={id} at ({},{}) sub=({},{}) stopped",
-            e.position.rx, e.position.ry, e.position.sub_x, e.position.sub_y
+            e.position.rx(),
+            e.position.ry(),
+            e.position.sub_x(),
+            e.position.sub_y()
         ),
         Some(true) => format!(
             "id={id} at ({},{}) sub=({},{}) route_ahead={:?} words_left={} goal={:?}",
-            e.position.rx,
-            e.position.ry,
-            e.position.sub_x,
-            e.position.sub_y,
+            e.position.rx(),
+            e.position.ry(),
+            e.position.sub_x(),
+            e.position.sub_y(),
             e.navigation.path_replay.route_cells(),
             e.navigation.path_replay.remaining_directions().len(),
             crate::sim::movement::movement_goal_cell(e)
@@ -9459,8 +9462,8 @@ fn stacking_motion_state(sim: &Simulation, id: u64) -> String {
 fn stacking_lepton_pos(sim: &Simulation, id: u64) -> Option<(i64, i64)> {
     sim.substrate.entities.get(id).map(|e| {
         (
-            i64::from(e.position.rx) * 256 + i64::from(e.position.sub_x.to_num::<i32>()),
-            i64::from(e.position.ry) * 256 + i64::from(e.position.sub_y.to_num::<i32>()),
+            i64::from(e.position.rx()) * 256 + i64::from(e.position.sub_x().to_num::<i32>()),
+            i64::from(e.position.ry()) * 256 + i64::from(e.position.sub_y().to_num::<i32>()),
         )
     })
 }
@@ -9776,8 +9779,8 @@ fn repro_second_vehicle_ordered_onto_an_occupied_cell() {
     let b = sim.substrate.entities.get(blocker).expect("blocker alive");
     let m = sim.substrate.entities.get(mover).expect("mover alive");
     assert_ne!(
-        (b.position.rx, b.position.ry),
-        (m.position.rx, m.position.ry),
+        (b.position.rx(), b.position.ry()),
+        (m.position.rx(), m.position.ry()),
         "two ground vehicles must never rest on the same cell"
     );
     // RECORDED RESIDUAL: this is STRICTER than retail. gamemd genuinely lets two
@@ -10444,10 +10447,10 @@ fn stacking_reservation_state(sim: &Simulation, id: u64) -> String {
     };
     format!(
         "{id}@({},{})sub({},{}) head_to={:?} cur_cleared={}",
-        e.position.rx,
-        e.position.ry,
-        e.position.sub_x,
-        e.position.sub_y,
+        e.position.rx(),
+        e.position.ry(),
+        e.position.sub_x(),
+        e.position.sub_y(),
         d.occupation_head_to().map(|f| (f.rx, f.ry)),
         !e.foot_occupation_enabled(),
     )
@@ -10554,12 +10557,12 @@ fn repro_two_moving_vehicles_reservation_trace() {
         .substrate
         .entities
         .get(west)
-        .is_some_and(|e| (e.position.rx, e.position.ry) != (5, 10));
+        .is_some_and(|e| (e.position.rx(), e.position.ry()) != (5, 10));
     let east_moved = sim
         .substrate
         .entities
         .get(east)
-        .is_some_and(|e| (e.position.rx, e.position.ry) != (15, 10));
+        .is_some_and(|e| (e.position.rx(), e.position.ry()) != (15, 10));
     assert!(
         west_moved && east_moved,
         "the reservation check is vacuous unless both movers actually moved;          west_moved={west_moved} east_moved={east_moved} — {} | {}",
@@ -10639,10 +10642,10 @@ fn head_on_pair_resolves_without_deadlock() {
         let _ = sim.advance_tick(&[], Some(&rules), Some(&grid), None, 100);
         let w = sim.substrate.entities.get(west).expect("west alive");
         let e = sim.substrate.entities.get(east).expect("east alive");
-        if west_done_at.is_none() && (w.position.rx, w.position.ry) == (16, 10) {
+        if west_done_at.is_none() && (w.position.rx(), w.position.ry()) == (16, 10) {
             west_done_at = Some(tick);
         }
-        if east_done_at.is_none() && (e.position.rx, e.position.ry) == (4, 10) {
+        if east_done_at.is_none() && (e.position.rx(), e.position.ry()) == (4, 10) {
             east_done_at = Some(tick);
         }
         if west_done_at.is_some() && east_done_at.is_some() {
@@ -10725,7 +10728,7 @@ fn column_of_vehicles_all_arrive_without_stacking() {
             .substrate
             .entities
             .get(id)
-            .is_some_and(|e| (e.position.rx, e.position.ry) == goal);
+            .is_some_and(|e| (e.position.rx(), e.position.ry()) == goal);
         if !at_goal {
             stalled.push(format!(
                 "{} (wanted {goal:?})",
@@ -10867,8 +10870,8 @@ fn group_move_never_draws_two_hulls_on_one_spot() {
     fn lepton_pos(sim: &Simulation, id: u64) -> Option<(i64, i64)> {
         sim.substrate.entities.get(id).map(|e| {
             (
-                i64::from(e.position.rx) * 256 + i64::from(e.position.sub_x.to_num::<i32>()),
-                i64::from(e.position.ry) * 256 + i64::from(e.position.sub_y.to_num::<i32>()),
+                i64::from(e.position.rx()) * 256 + i64::from(e.position.sub_x().to_num::<i32>()),
+                i64::from(e.position.ry()) * 256 + i64::from(e.position.sub_y().to_num::<i32>()),
             )
         })
     }
@@ -11360,7 +11363,7 @@ fn engineer_capture_of_an_ordinary_building_requests_the_radar_event() {
         .get_mut(2)
         .expect("second plant")
         .position
-        .rx = 11;
+        .set_rx(11);
 
     sim.announce_engineer_capture(1, player, &rules);
     assert_eq!(

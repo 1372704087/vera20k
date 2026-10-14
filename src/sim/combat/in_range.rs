@@ -792,7 +792,7 @@ pub(crate) fn is_on_bridge_for_firing(entity: &GameEntity, terrain: &ResolvedTer
     if entity.on_bridge() {
         return false;
     }
-    let (rx, ry) = (entity.position.rx, entity.position.ry);
+    let (rx, ry) = (entity.position.rx(), entity.position.ry());
     let flags = |dx: i32, dy: i32| {
         let x = u16::try_from(i32::from(rx) + dx).ok()?;
         let y = u16::try_from(i32::from(ry) + dy).ok()?;
@@ -1010,7 +1010,7 @@ mod tests {
 
     fn ground_entity_at_level(level: u8) -> GameEntity {
         let mut e = GameEntity::test_default(1, "MTNK", "Test", 10, 10);
-        e.position.z = level;
+        e.position.set_z(level);
         e.set_category_for_test(EntityCategory::Unit);
         e.lifecycle.set_cell_marked(true);
         e
@@ -1021,7 +1021,7 @@ mod tests {
         let mut e = GameEntity::test_default(2, "ORCA", "Test", 10, 10);
         e.set_category_for_test(EntityCategory::Aircraft);
         e.lifecycle.set_cell_marked(true);
-        e.position.exact_z_leptons = Some(altitude_lep as i32);
+        e.position.set_exact_z_leptons(Some(altitude_lep as i32));
         let mut loco = LocomotorState::for_test_kind(LocomotorKind::Fly);
         loco.set_speed_type_for_test(SpeedType::Winged);
         loco.set_movement_zone_for_test(MovementZone::Fly);
@@ -1043,8 +1043,8 @@ mod tests {
     #[test]
     fn gsi_04_03b_world_z_uses_exact_sloped_subcell() {
         let mut entity = ground_entity_at_level(2);
-        entity.position.sub_x = SimFixed::from_num(64);
-        entity.position.sub_y = SimFixed::from_num(192);
+        entity.position.set_sub_x(SimFixed::from_num(64));
+        entity.position.set_sub_y(SimFixed::from_num(192));
         let mut terrain = flat_terrain(16, 16);
         let cell = &mut terrain.cells[10 * 16 + 10];
         cell.level = 2;
@@ -1075,10 +1075,10 @@ mod tests {
     #[test]
     fn gsi_04_15_world_z_prefers_exact_signed_world_coordinate() {
         let mut entity = aircraft_at_altitude(1500);
-        entity.position.rx = 600;
-        entity.position.ry = 600;
-        entity.position.z = 9;
-        entity.position.exact_z_leptons = Some(-137);
+        entity.position.set_rx(600);
+        entity.position.set_ry(600);
+        entity.position.set_z(9);
+        entity.position.set_exact_z_leptons(Some(-137));
         entity.set_on_bridge(true);
 
         let terrain = flat_terrain(1, 1);
@@ -1309,9 +1309,9 @@ mod tests {
                     crate::sim::docking::bunker_link::BunkerLink::Installed(3),
                 );
             }
-            actor.position.sub_x = SimFixed::from_num(x % 256);
-            actor.position.sub_y = SimFixed::from_num(y % 256);
-            actor.position.exact_z_leptons = Some(z);
+            actor.position.set_sub_x(SimFixed::from_num(x % 256));
+            actor.position.set_sub_y(SimFixed::from_num(y % 256));
+            actor.position.set_exact_z_leptons(Some(z));
             actor
                 .lifecycle
                 .set_cell_marked(input["marked"].as_bool().unwrap_or(false));
@@ -1369,9 +1369,9 @@ mod tests {
                     (at(1) / 256) as u16,
                 );
                 target.set_category_for_test(EntityCategory::Infantry);
-                target.position.sub_x = SimFixed::from_num(at(0) % 256);
-                target.position.sub_y = SimFixed::from_num(at(1) % 256);
-                target.position.exact_z_leptons = Some(at(2));
+                target.position.set_sub_x(SimFixed::from_num(at(0) % 256));
+                target.position.set_sub_y(SimFixed::from_num(at(1) % 256));
+                target.position.set_exact_z_leptons(Some(at(2)));
                 target
                     .lifecycle
                     .set_cell_marked(object["marked"].as_bool().unwrap_or(true));
@@ -1539,7 +1539,7 @@ mod tests {
 
     fn ground_attacker(rx: u16, ry: u16, level: u8, type_ref: &str) -> GameEntity {
         let mut e = GameEntity::test_default(100, type_ref, "Attackers", rx, ry);
-        e.position.z = level;
+        e.position.set_z(level);
         e.set_category_for_test(EntityCategory::Unit);
         e.lifecycle.set_cell_marked(true);
         e
@@ -1547,7 +1547,7 @@ mod tests {
 
     fn ground_target(rx: u16, ry: u16, level: u8, type_ref: &str) -> GameEntity {
         let mut e = GameEntity::test_default(200, type_ref, "Defenders", rx, ry);
-        e.position.z = level;
+        e.position.set_z(level);
         e.set_category_for_test(EntityCategory::Unit);
         e.lifecycle.set_cell_marked(true);
         e
@@ -1555,7 +1555,7 @@ mod tests {
 
     fn building_target(rx: u16, ry: u16, type_ref: &str) -> GameEntity {
         let mut e = GameEntity::test_default(300, type_ref, "Defenders", rx, ry);
-        e.position.z = 0;
+        e.position.set_z(0);
         e.set_category_for_test(EntityCategory::Structure);
         e.lifecycle.set_cell_marked(true);
         e
@@ -1570,9 +1570,9 @@ mod tests {
     ) -> GameEntity {
         let mut e = aircraft_at_altitude(altitude_lep);
         e.set_stable_id_for_test(200);
-        e.position.rx = rx;
-        e.position.ry = ry;
-        e.position.z = level;
+        e.position.set_rx(rx);
+        e.position.set_ry(ry);
+        e.position.set_z(level);
         e.set_type_ref_for_test(crate::sim::intern::test_intern(type_ref));
         e
     }
@@ -1650,7 +1650,7 @@ mod tests {
 
         // Now move target 1 lepton further (rx=4, sub_x=129 → total = 1024+1 lep horizontal).
         let mut over = ground_target(4, 0, 0, "TGT");
-        over.position.sub_x = SimFixed::from_num(129);
+        over.position.set_sub_x(SimFixed::from_num(129));
         let mut entities2 = EntityStore::new();
         entities2.insert(over);
         let one_past = compute_in_range(
@@ -1667,7 +1667,11 @@ mod tests {
         // Original full InRange: range_ties.json, limit1024 distances1024..1026.
         // Approximate sqrt truncates1025 to1024; the following lepton fails.
         assert!(one_past, "native approximate distance admits 1025 leptons");
-        entities2.get_mut(200).unwrap().position.sub_x = SimFixed::from_num(130);
+        entities2
+            .get_mut(200)
+            .unwrap()
+            .position
+            .set_sub_x(SimFixed::from_num(130));
         assert!(!compute_in_range(
             &attacker,
             src_at_cell(0, 0, 0),
@@ -1716,7 +1720,7 @@ mod tests {
 
         // 1 lepton inside min (rx=1, sub_x=128+255=383 → 1*256+255=511 lep): strict — false.
         let mut inside = ground_target(1, 0, 0, "TGT");
-        inside.position.sub_x = SimFixed::from_num(255);
+        inside.position.set_sub_x(SimFixed::from_num(255));
         let mut entities2 = EntityStore::new();
         entities2.insert(inside);
         let inside_min = compute_in_range(
@@ -1815,8 +1819,8 @@ mod tests {
     fn gsi_04_03b_low_flight_snap_uses_exact_target_subcell() {
         let rules = rules_with_weapon("Damage=1\nROF=20\nRange=4\nWarhead=WH", "", "");
         let mut target = aircraft_target(4, 0, 0, HIGH_FLIGHT_THRESHOLD_LEPTONS - 1, "TGT");
-        target.position.sub_x = SimFixed::from_num(3);
-        target.position.sub_y = SIM_ZERO;
+        target.position.set_sub_x(SimFixed::from_num(3));
+        target.position.set_sub_y(SIM_ZERO);
         let mut entities = EntityStore::new();
         entities.insert(target);
         // Snapshot after the target has interned its Aircraft type identity.
@@ -2111,8 +2115,8 @@ mod tests {
     fn kirov_at(rx: u16, ry: u16, altitude_lep: i64) -> GameEntity {
         let mut e = jumpjet_unit_at_altitude(altitude_lep);
         e.set_stable_id_for_test(100);
-        e.position.rx = rx;
-        e.position.ry = ry;
+        e.position.set_rx(rx);
+        e.position.set_ry(ry);
         e.set_type_ref_for_test(crate::sim::intern::test_intern("ZEP"));
         e
     }
@@ -2170,20 +2174,20 @@ mod tests {
         // 384 away. Native's shared approximate distance also admits385;
         // original full InRange controls are in fv_cell_attack/range_ties.json.
         let mut at_reach = ground_target(7, 5, 0, "TGT");
-        at_reach.position.sub_x = SIM_ZERO;
+        at_reach.position.set_sub_x(SIM_ZERO);
         assert!(
             kirov_can_engage(&rules, &kirov, at_reach),
             "384 leptons of separation is inside 384 leptons of reach"
         );
 
         let mut past_reach = ground_target(7, 5, 0, "TGT");
-        past_reach.position.sub_x = SimFixed::from_num(1);
+        past_reach.position.set_sub_x(SimFixed::from_num(1));
         assert!(
             kirov_can_engage(&rules, &kirov, past_reach),
             "385 leptons truncates to384 in native's shared distance owner"
         );
         let mut past_reach = ground_target(7, 5, 0, "TGT");
-        past_reach.position.sub_x = SimFixed::from_num(2);
+        past_reach.position.set_sub_x(SimFixed::from_num(2));
         assert!(!kirov_can_engage(&rules, &kirov, past_reach));
     }
 
@@ -2199,10 +2203,10 @@ mod tests {
         let target = TargetKind::Cell(9, 9);
 
         let mut low = jumpjet_unit_at_altitude(HIGH_FLIGHT_THRESHOLD_LEPTONS - 8);
-        low.position.rx = 5;
-        low.position.ry = 5;
-        low.position.sub_x = SimFixed::from_num(3);
-        low.position.sub_y = SimFixed::from_num(250);
+        low.position.set_rx(5);
+        low.position.set_ry(5);
+        low.position.set_sub_x(SimFixed::from_num(3));
+        low.position.set_sub_y(SimFixed::from_num(250));
 
         let without = kirov_rules("");
         assert_eq!(
@@ -2249,8 +2253,8 @@ mod tests {
         let target = TargetKind::Cell(9, 9);
 
         let mut ground = jumpjet_unit_at_altitude(0);
-        ground.position.rx = 5;
-        ground.position.ry = 5;
+        ground.position.set_rx(5);
+        ground.position.set_ry(5);
         assert_eq!(
             fire_source_coords(
                 &ground,
@@ -2807,7 +2811,9 @@ mod tests {
         let mut entities = EntityStore::new();
         let mut target = ground_target(6, 5, 0, "TGT");
         target.set_on_bridge(true);
-        target.position.exact_z_leptons = Some(BRIDGE_DECK_HEIGHT_LEPTONS);
+        target
+            .position
+            .set_exact_z_leptons(Some(BRIDGE_DECK_HEIGHT_LEPTONS));
         entities.insert(target);
         // Marked Object+50 snaps to the live target-cell surface. Both source
         // and target must have a structural span for this exact-deck test;

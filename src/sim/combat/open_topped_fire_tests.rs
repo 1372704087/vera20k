@@ -237,8 +237,8 @@ fn retail_dustbowl_battle_fortress_riders_fire_from_its_ports() {
             // Native51A441..51A46E preserves the arrival subcell; a later
             // carrier SetLocation copies its coordinate through4DB88A/7104F0.
             assert_eq!(
-                (gi.position.rx, gi.position.ry),
-                (transport.position.rx, transport.position.ry),
+                (gi.position.rx(), gi.position.ry()),
+                (transport.position.rx(), transport.position.ry()),
                 "GI {id} boards in the Fortress's cell"
             );
         }

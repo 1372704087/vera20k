@@ -687,7 +687,7 @@ impl Simulation {
         let Some(entity) = self.substrate.entities.get(id) else {
             return;
         };
-        let old = (entity.position.rx, entity.position.ry);
+        let old = (entity.position.rx(), entity.position.ry());
         let selected_cell = cell(coord);
         let crossing = old != selected_cell;
         if crossing {
@@ -736,8 +736,10 @@ impl Simulation {
             {
                 // The terminal point skips the bridge predicate but still
                 // enters a new cell.
-                entity.position.z =
-                    super::movement_bridge::stored_level(entered.ground_level, entity.on_bridge());
+                entity.position.set_z(super::movement_bridge::stored_level(
+                    entered.ground_level,
+                    entity.on_bridge(),
+                ));
             }
         }
         if terminal && let Some(entity) = self.substrate.entities.get_mut(id) {
@@ -1372,7 +1374,8 @@ fn harvester_idle_selection(
     } else {
         crate::rules::terrain_rules::LandType::Tiberium
     };
-    let land_matches = cell_land_type_is(sim, entity.position.rx, entity.position.ry, wanted_land);
+    let land_matches =
+        cell_land_type_is(sim, entity.position.rx(), entity.position.ry(), wanted_land);
     Some(if human && !land_matches {
         MissionType::Guard
     } else {

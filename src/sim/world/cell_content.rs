@@ -62,7 +62,7 @@ impl Simulation {
         match object {
             CellObjectMember::Entity(id) => {
                 let entity = self.substrate.entities.get(id)?;
-                let cell = (entity.position.rx, entity.position.ry);
+                let cell = (entity.position.rx(), entity.position.ry());
                 // Object+30 links the list the object's Mark put it in, which
                 // follows the object's own layer query, not its path layer:
                 // a landed Jumpjet is listed on the ground.

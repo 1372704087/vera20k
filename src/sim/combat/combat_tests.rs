@@ -1947,7 +1947,9 @@ fn considered_aircraft_infantry_is_air_only_while_high_flying() {
                 .entities
                 .get_mut(target)
                 .expect("target should exist");
-            rocketeer.position.exact_z_leptons = Some(altitude_leptons as i32);
+            rocketeer
+                .position
+                .set_exact_z_leptons(Some(altitude_leptons as i32));
         }
 
         install_entity_attack_target_for_test(&mut sim.substrate.entities, attacker, target);
@@ -2750,7 +2752,11 @@ fn retaliates(case: RetaliationCase) -> bool {
     let mut source = make_entity(1, "SOURCE", source_rx, 5, case.source_health);
     source.set_owner_for_test(source_owner);
     source.set_type_ref_for_test(interner.intern("SOURCE"));
-    source.position.sub_x = crate::util::fixed_math::SimFixed::from_num(case.source_sub_x);
+    source
+        .position
+        .set_sub_x(crate::util::fixed_math::SimFixed::from_num(
+            case.source_sub_x,
+        ));
     source.lifecycle.set_cell_marked(true);
     entities.insert(source);
     let mut victim = make_entity(2, "VICTIM", victim_rx, 5, 100);
@@ -8190,12 +8196,12 @@ fn gsi_04_11_persistent_projectile_keeps_exact_lepton_z() {
     );
     let mut entities = EntityStore::new();
     let mut shooter = make_entity(1, "SHOOTER", 5, 5, 300);
-    shooter.position.z = 7;
-    shooter.position.exact_z_leptons = Some(733);
+    shooter.position.set_z(7);
+    shooter.position.set_exact_z_leptons(Some(733));
     entities.insert(shooter);
     let mut target = make_entity(2, "TARGET", 8, 5, 500);
-    target.position.z = 11;
-    target.position.exact_z_leptons = Some(1_177);
+    target.position.set_z(11);
+    target.position.set_exact_z_leptons(Some(1_177));
     entities.insert(target);
     let mut interner = test_interner();
     install_entity_attack_target_for_test(&mut entities, 1, 2);
@@ -8369,10 +8375,10 @@ fn inviso_scatter_uses_scenario_rng_only_for_effect_and_paired_smudge() {
     let mut interner = test_interner();
     install_entity_attack_target_for_test(&mut store, 1, 2);
     let target_coord = (
-        store.get(2).unwrap().position.rx,
-        store.get(2).unwrap().position.ry,
-        store.get(2).unwrap().position.sub_x,
-        store.get(2).unwrap().position.sub_y,
+        store.get(2).unwrap().position.rx(),
+        store.get(2).unwrap().position.ry(),
+        store.get(2).unwrap().position.sub_x(),
+        store.get(2).unwrap().position.sub_y(),
     );
 
     let mut scenario_rng = SimRng::new(1);
@@ -8433,7 +8439,7 @@ fn a_flak_burst_goes_off_where_fire_moved_it() {
     let mut store = EntityStore::new();
     store.insert(make_entity(1, "SHOOTER", 5, 5, 300));
     let mut aircraft = make_entity(2, "TARGET", 8, 5, 500);
-    aircraft.position.exact_z_leptons = Some(altitude);
+    aircraft.position.set_exact_z_leptons(Some(altitude));
     store.insert(aircraft);
     let mut interner = test_interner();
     install_entity_attack_target_for_test(&mut store, 1, 2);
@@ -8536,10 +8542,10 @@ fn gsi_08_05_non_inviso_projectile_advances_scenario_rng_by_the_reload_jitter() 
     let mut interner = test_interner();
     install_entity_attack_target_for_test(&mut store, 1, 2);
     let target_coord = (
-        store.get(2).unwrap().position.rx,
-        store.get(2).unwrap().position.ry,
-        store.get(2).unwrap().position.sub_x,
-        store.get(2).unwrap().position.sub_y,
+        store.get(2).unwrap().position.rx(),
+        store.get(2).unwrap().position.ry(),
+        store.get(2).unwrap().position.sub_x(),
+        store.get(2).unwrap().position.sub_y(),
     );
 
     let mut scenario_rng = SimRng::new(1);
@@ -8594,10 +8600,10 @@ fn two_inviso_attackers_fire_in_live_order_and_the_second_bullet_waits_a_frame()
     install_entity_attack_target_for_test(&mut store, 2, 3);
     let target = store.get(3).unwrap();
     let target_coord = (
-        target.position.rx,
-        target.position.ry,
-        target.position.sub_x,
-        target.position.sub_y,
+        target.position.rx(),
+        target.position.ry(),
+        target.position.sub_x(),
+        target.position.sub_y(),
     );
 
     let mut scenario_rng = SimRng::new(1);
@@ -8678,10 +8684,10 @@ fn inviso_special_arms_claim_the_impact_and_keep_the_shared_tail() {
         install_entity_attack_target_for_test(&mut store, 1, 2);
         let target = store.get(2).unwrap();
         let target_coord = (
-            target.position.rx,
-            target.position.ry,
-            target.position.sub_x,
-            target.position.sub_y,
+            target.position.rx(),
+            target.position.ry(),
+            target.position.sub_x(),
+            target.position.sub_y(),
         );
         let mut scenario_rng = SimRng::new(1);
         let mut expected_rng = scenario_rng.clone();
@@ -9151,7 +9157,7 @@ fn radiation_skips_only_objects_in_the_air() {
     let hover = spawn("MTNK", 4);
     for (id, height) in [(high, 208), (low, 207)] {
         let paratrooper = sim.substrate.entities.get_mut(id).unwrap();
-        paratrooper.position.exact_z_leptons = Some(height);
+        paratrooper.position.set_exact_z_leptons(Some(height));
         paratrooper.set_falling_down_for_test(true);
         paratrooper.set_fall_rate_for_test(-3);
     }
@@ -10085,8 +10091,8 @@ fn projectile_shrapnel_aims_at_a_building_foundation_center() {
     // 0x00447AC0: Location + ((w - 1) * 128, (h - 1) * 128) for a 2x2.
     let hq = entities.get(2).unwrap();
     let center = crate::sim::projectile::ProjectileCoord::new(
-        i32::from(hq.position.rx) * 256 + hq.position.sub_x.to_num::<i32>() + 128,
-        i32::from(hq.position.ry) * 256 + hq.position.sub_y.to_num::<i32>() + 128,
+        i32::from(hq.position.rx()) * 256 + hq.position.sub_x().to_num::<i32>() + 128,
+        i32::from(hq.position.ry()) * 256 + hq.position.sub_y().to_num::<i32>() + 128,
         0,
     );
     assert_eq!(child.initial_target_position, center);
@@ -11439,10 +11445,10 @@ fn gsi_08_04_projectile_spawns_at_the_muzzle_not_the_hull_centre() {
         .projectile_spawns
         .first()
         .expect("the shot creates a tracked projectile");
-    let hull_x = i32::from(store.get(1).unwrap().position.rx) * 256
-        + store.get(1).unwrap().position.sub_x.to_num::<i32>();
-    let hull_y = i32::from(store.get(1).unwrap().position.ry) * 256
-        + store.get(1).unwrap().position.sub_y.to_num::<i32>();
+    let hull_x = i32::from(store.get(1).unwrap().position.rx()) * 256
+        + store.get(1).unwrap().position.sub_x().to_num::<i32>();
+    let hull_y = i32::from(store.get(1).unwrap().position.ry()) * 256
+        + store.get(1).unwrap().position.sub_y().to_num::<i32>();
     assert_eq!(
         (spawn.origin.x - hull_x, spawn.origin.y - hull_y),
         (189, -25),
@@ -11493,8 +11499,8 @@ fn gsi_08_04_a_dropping_shell_leaves_the_hull_centre() {
         .expect("the shot creates a tracked projectile");
     let shooter = store.get(1).unwrap();
     let hull = (
-        i32::from(shooter.position.rx) * 256 + shooter.position.sub_x.to_num::<i32>(),
-        i32::from(shooter.position.ry) * 256 + shooter.position.sub_y.to_num::<i32>(),
+        i32::from(shooter.position.rx()) * 256 + shooter.position.sub_x().to_num::<i32>(),
+        i32::from(shooter.position.ry()) * 256 + shooter.position.sub_y().to_num::<i32>(),
     );
     assert_eq!((spawn.origin.x, spawn.origin.y), hull);
 }
@@ -11833,7 +11839,9 @@ fn gsi_08_08_kirov_vertical_bomb_falls_and_detonates() {
         "`JumpjetHeight=750` must reach the locomotor's hover target; a 500 here \
          means the rules->locomotor hop is broken, not the flight model"
     );
-    kirov.position.exact_z_leptons = Some(locomotor.jumpjet_runtime().unwrap().params().height);
+    kirov
+        .position
+        .set_exact_z_leptons(Some(locomotor.jumpjet_runtime().unwrap().params().height));
     kirov.locomotor = Some(locomotor);
     store.insert(kirov);
     let _ = test_intern("HTNK");
@@ -12077,8 +12085,8 @@ fn a_dying_buildings_debris_leaves_from_its_centre() {
         .type_facts
         .set_foundation_for_test("3x3".to_string());
     let location = (
-        8 * 256 + building.position.sub_x.to_num::<i32>(),
-        5 * 256 + building.position.sub_y.to_num::<i32>(),
+        8 * 256 + building.position.sub_x().to_num::<i32>(),
+        5 * 256 + building.position.sub_y().to_num::<i32>(),
     );
     store.insert(building);
     let mut interner = test_interner();

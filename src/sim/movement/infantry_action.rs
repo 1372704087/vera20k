@@ -310,10 +310,10 @@ impl Simulation {
                     .push(crate::sim::world::SimSoundEvent::VocAt {
                         sound_id: sound_id.clone(),
                         audible_to: None,
-                        rx: actor.position.rx,
-                        ry: actor.position.ry,
-                        sub_x: actor.position.sub_x,
-                        sub_y: actor.position.sub_y,
+                        rx: actor.position.rx(),
+                        ry: actor.position.ry(),
+                        sub_x: actor.position.sub_x(),
+                        sub_y: actor.position.sub_y(),
                         world_z_leptons: location.z,
                     });
             }

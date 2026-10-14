@@ -351,7 +351,7 @@ fn remaining_path_from_entity(
     // Foot+558 and its retained direction queue are the native source.
     let reference = queue
         .reference_cell()
-        .unwrap_or((entity.position.rx as i16, entity.position.ry as i16));
+        .unwrap_or((entity.position.rx() as i16, entity.position.ry() as i16));
     (reference, queue.remaining_directions().to_vec())
 }
 
@@ -1038,7 +1038,7 @@ mod tests {
         peer.locomotor = Some(
             crate::sim::movement::locomotor::LocomotorState::for_test_kind(LocomotorKind::Drive),
         );
-        peer.position.z = 4;
+        peer.position.set_z(4);
         peer.set_on_bridge(true);
         let loco = peer.locomotor.as_mut().unwrap();
         loco.ensure_installed_track_state();
@@ -1107,7 +1107,7 @@ mod tests {
         let mut peer =
             crate::sim::game_entity::GameEntity::test_default(2, "HOVER", "Americans", 4, 3);
         peer.set_type_ref_for_test(hover_type);
-        peer.position.z = 7;
+        peer.position.set_z(7);
         peer.locomotor = Some(
             crate::sim::movement::locomotor::LocomotorState::for_test_kind(LocomotorKind::Hover),
         );
@@ -1191,7 +1191,7 @@ mod tests {
         peer.locomotor = Some(
             crate::sim::movement::locomotor::LocomotorState::for_test_kind(LocomotorKind::Hover),
         );
-        peer.position.exact_z_leptons = Some(120);
+        peer.position.set_exact_z_leptons(Some(120));
         entities.insert(peer);
 
         let mut occupancy = OccupancyGrid::new();
@@ -1214,7 +1214,11 @@ mod tests {
             "120-lepton idle hover height exceeds the 104-lepton tolerance"
         );
 
-        entities.get_mut(2).unwrap().position.exact_z_leptons = Some(104);
+        entities
+            .get_mut(2)
+            .unwrap()
+            .position
+            .set_exact_z_leptons(Some(104));
         let inclusive_boundary = snapshot_bridge_marker_peers(&entities, None, &interner);
         assert_eq!(
             find_nearby_bridge_peer_suffix(&inclusive_boundary, &occupancy, &grid, (5, 4), 0, None),

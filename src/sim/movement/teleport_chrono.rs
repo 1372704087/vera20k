@@ -298,12 +298,12 @@ impl Simulation {
     /// Location (vt+0x1B8) outside `MapClass::IsCellInPlayfield(cell, 1)`
     /// clears `+0x3D5`; inside, the byte stays as it was.
     fn chrono_playfield_check(&mut self, id: u64) {
-        let Some(cell) = self
-            .substrate
-            .entities
-            .get(id)
-            .map(|entity| (i32::from(entity.position.rx), i32::from(entity.position.ry)))
-        else {
+        let Some(cell) = self.substrate.entities.get(id).map(|entity| {
+            (
+                i32::from(entity.position.rx()),
+                i32::from(entity.position.ry()),
+            )
+        }) else {
             return;
         };
         if !crate::sim::cell_rect::cell_is_in_playfield_height_aware(

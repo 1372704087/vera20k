@@ -1079,7 +1079,7 @@ fn global_skirmish_replay_is_deterministic_and_baseline_stable() {
                     .contains(&rx)
                     && (13 + HARNESS_COORD_SHIFT..=14 + HARNESS_COORD_SHIFT).contains(&ry);
             }
-            miner_moved |= (harvester.position.rx, harvester.position.ry)
+            miner_moved |= (harvester.position.rx(), harvester.position.ry())
                 != (8 + HARNESS_COORD_SHIFT, 12 + HARNESS_COORD_SHIFT);
             miner_cut_ore |= harvester
                 .miner
@@ -1621,10 +1621,10 @@ fn s2_dense_scenario_position_fingerprint_stable() {
         for (id, e) in sim.substrate.entities.iter_sorted() {
             (
                 id,
-                e.position.rx,
-                e.position.ry,
-                e.position.sub_x,
-                e.position.sub_y,
+                e.position.rx(),
+                e.position.ry(),
+                e.position.sub_x(),
+                e.position.sub_y(),
             )
                 .hash(&mut h);
         }

@@ -357,7 +357,7 @@ fn c4_order_from_a_distance_reaches_the_building_while_moving_or_idle() {
             assert!(
                 planted,
                 "{building} moving={moving}: SEAL stopped at {:?} nav={:?} mission={:?}",
-                (e.position.rx, e.position.ry),
+                (e.position.rx(), e.position.ry()),
                 e.navigation.nav_com(),
                 e.mission.current()
             );

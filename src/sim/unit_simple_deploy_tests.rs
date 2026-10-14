@@ -89,7 +89,7 @@ fn native_fixture(input: &Value, before: &Value) -> (Simulation, RuleSet, u64) {
     entity.set_landing_for_deploy(before["landing"].as_u64().unwrap() != 0);
     entity.install_native_stage_fixture(native_stage(before));
     let height = input["height"].as_i64().unwrap_or(0) as i32;
-    entity.position.exact_z_leptons = Some(height);
+    entity.position.set_exact_z_leptons(Some(height));
     let locomotor = entity.locomotor.as_mut().expect("production Jumpjet");
     if height > 0 {
         locomotor.set_layer(crate::sim::movement::locomotor::MovementLayer::Air);
@@ -495,7 +495,7 @@ fn begin_landing_cycle() -> (Simulation, RuleSet, u64) {
         "flight at the ordinary move destination",
         |sim| {
             let entity = sim.substrate.entities.get(id).unwrap();
-            altitude(sim, id) == 500 && (entity.position.rx, entity.position.ry) == (12, 12)
+            altitude(sim, id) == 500 && (entity.position.rx(), entity.position.ry()) == (12, 12)
         },
     );
     // Event9 itself clears the previous destination; no test-only Stop, height

@@ -933,8 +933,8 @@ fn a_brute_takes_a_spot_beyond_his_reach_under_307_leptons_from_the_tank() {
     let mut sim = arena(&rules);
     let tank = spawn(&mut sim, &rules, "MTNK", "Russians", (17, 16));
     let position = &mut sim.substrate.entities.get_mut(tank).unwrap().position;
-    position.sub_x = crate::util::fixed_math::SimFixed::from_num(110);
-    position.sub_y = crate::util::fixed_math::SimFixed::from_num(192);
+    position.set_sub_x(crate::util::fixed_math::SimFixed::from_num(110));
+    position.set_sub_y(crate::util::fixed_math::SimFixed::from_num(192));
     let brute = spawn(&mut sim, &rules, "BRUTE", "Americans", (11, 16));
     target(&mut sim, brute, tank);
     start_mission(&mut sim, brute, MissionType::Attack);

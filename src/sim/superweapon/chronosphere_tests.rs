@@ -185,7 +185,7 @@ pub(crate) fn place(
             z: i32::from(level + deck) * 104,
         },
     );
-    entity.position.z = level + deck;
+    entity.position.set_z(level + deck);
     entity.set_on_bridge(bridge);
     if latch {
         entity
@@ -265,7 +265,7 @@ pub(crate) fn click(
 
 fn cell(sim: &Simulation, id: u64) -> (u16, u16) {
     let entity = sim.substrate.entities.get(id).expect("alive");
-    (entity.position.rx, entity.position.ry)
+    (entity.position.rx(), entity.position.ry())
 }
 
 fn locomotors(sim: &Simulation, id: u64) -> (LocomotorKind, Option<LocomotorKind>) {

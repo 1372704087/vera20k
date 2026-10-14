@@ -147,7 +147,7 @@ fn structural_drop_in_owns_order_footprints_and_restore_without_teardown_side_ef
             );
             // The unmarked twin retains the supplied legacy level as well as
             // exact Location; it deliberately never enters Unlimbo below.
-            actor.position.z = 4;
+            actor.position.set_z(4);
             actor.set_on_bridge(true);
         }
         if marked {
@@ -270,11 +270,12 @@ fn structural_drop_in_owns_order_footprints_and_restore_without_teardown_side_ef
         let object = sim.substrate.entities.get(id).unwrap();
         assert!(!object.on_bridge() && object.lifecycle.cell_marked());
         assert_eq!(
-            object.position.z, 4,
+            object.position.z(),
+            4,
             "DropAsBomb retains the stored Location level"
         );
         assert_eq!(
-            object.position.exact_z_leptons,
+            object.position.exact_z_leptons(),
             Some(if id == building { 0 } else { 416 })
         );
         assert!(object.was_dropped_as_bomb() && object.is_falling_down());
@@ -282,7 +283,7 @@ fn structural_drop_in_owns_order_footprints_and_restore_without_teardown_side_ef
     assert_eq!(sim.substrate.next_air_tracker_order.current(), next_order);
     let twin = sim.substrate.entities.get(unmarked).unwrap();
     assert!(twin.on_bridge() && twin.lifecycle.in_limbo() && !twin.lifecycle.cell_marked());
-    assert_eq!(twin.position.z, 4);
+    assert_eq!(twin.position.z(), 4);
     assert_ne!(
         sim.substrate.raw_cell_occupation, raw_before,
         "the stationary Unit's raw receiver clears its old deck occupation"

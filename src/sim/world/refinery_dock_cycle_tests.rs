@@ -24,7 +24,7 @@ fn sample(s: &Scene, id: u64) -> Sample {
     let miner = s.sim.substrate.entities.get(id).unwrap();
     let state = miner.miner.as_ref().unwrap();
     Sample {
-        cell: (miner.position.rx, miner.position.ry),
+        cell: (miner.position.rx(), miner.position.ry()),
         mission: miner.mission.current(),
         contact: miner.radio_contacts.slot(0),
         tethered: miner.tether.partner().is_some(),

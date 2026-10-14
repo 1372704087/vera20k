@@ -850,7 +850,7 @@ pub(crate) fn node_building(
         .occupancy
         .first_building_on_layer(rx, ry, MovementLayer::Ground)?;
     let building = sim.substrate.entities.get(id)?;
-    ((building.position.rx, building.position.ry) == (rx, ry)
+    ((building.position.rx(), building.position.ry()) == (rx, ry)
         && building.owner() == owner
         && building.type_facts.base_plan_type_index() == node.type_or_control)
         .then_some(id)
@@ -945,7 +945,7 @@ fn build_walls(sim: &mut Simulation, rules: &RuleSet, owner: InternedId, index: 
         let ty = sim.object_type(building.type_ref(), rules)?;
         ty.protect_with_wall.then(|| {
             (
-                (building.position.rx as i16, building.position.ry as i16),
+                (building.position.rx() as i16, building.position.ry() as i16),
                 crate::sim::ai_base_site::foundation_size(ty),
             )
         })

@@ -117,14 +117,14 @@ fn fixture(input: &serde_json::Value) -> (Simulation, RuleSet) {
         sim.try_reveal_entity(
             1,
             RevealRequest {
-                position: RevealPosition {
-                    exact_z_leptons: None,
-                    rx: 52,
-                    ry: 52,
-                    z: level,
-                    sub_x: SimFixed::from_num(128),
-                    sub_y: SimFixed::from_num(128)
-                },
+                position: RevealPosition::new(
+                    52,
+                    52,
+                    level,
+                    None,
+                    SimFixed::from_num(128),
+                    SimFixed::from_num(128)
+                ),
                 placement: PlacementEvidence::MarkSucceeded,
                 logic_eligible: true,
             }
@@ -138,7 +138,7 @@ fn fixture(input: &serde_json::Value) -> (Simulation, RuleSet) {
     assert_eq!((xyz[0], xyz[1]), (START, START));
     let frame = sim.session.binary_frame;
     let entity = sim.substrate.entities.get_mut(1).unwrap();
-    entity.position.exact_z_leptons = Some(xyz[2]);
+    entity.position.set_exact_z_leptons(Some(xyz[2]));
     entity.health.set_for_test(int(input, "health", 0) as i32);
     entity
         .crash
@@ -372,14 +372,14 @@ fn crash_fall_matches_native_frames_to_the_impact() {
                     sim.try_reveal_entity(
                         victim,
                         RevealRequest {
-                            position: RevealPosition {
-                                exact_z_leptons: None,
-                                rx: (expected[0] / 256) as u16,
-                                ry: (expected[1] / 256) as u16,
-                                z: int(input, "level", 0) as u8,
-                                sub_x: SimFixed::from_num(expected[0] % 256),
-                                sub_y: SimFixed::from_num(expected[1] % 256),
-                            },
+                            position: RevealPosition::new(
+                                (expected[0] / 256) as u16,
+                                (expected[1] / 256) as u16,
+                                int(input, "level", 0) as u8,
+                                None,
+                                SimFixed::from_num(expected[0] % 256),
+                                SimFixed::from_num(expected[1] % 256)
+                            ),
                             placement: PlacementEvidence::MarkSucceeded,
                             logic_eligible: true,
                         }
@@ -438,7 +438,7 @@ fn crash_fall_matches_native_frames_to_the_impact() {
                 let entity = sim.substrate.entities.get(1).unwrap();
                 let xy = crate::sim::movement::ground_pose::position_world_xy(&entity.position);
                 assert_eq!(
-                    [xy[0], xy[1], entity.position.exact_z_leptons.unwrap()],
+                    [xy[0], xy[1], entity.position.exact_z_leptons().unwrap()],
                     [expected[0], expected[1], expected[2]],
                     "{name} frame {n}"
                 );
@@ -484,14 +484,14 @@ fn a_crash_fall_lists_the_wreck_in_its_impact_cell() {
         sim.try_reveal_entity(
             bystander,
             RevealRequest {
-                position: RevealPosition {
-                    exact_z_leptons: None,
-                    rx: cell.0,
-                    ry: cell.1,
-                    z: 0,
-                    sub_x: SimFixed::from_num(128),
-                    sub_y: SimFixed::from_num(128),
-                },
+                position: RevealPosition::new(
+                    cell.0,
+                    cell.1,
+                    0,
+                    None,
+                    SimFixed::from_num(128),
+                    SimFixed::from_num(128)
+                ),
                 placement: PlacementEvidence::MarkSucceeded,
                 logic_eligible: true,
             }
@@ -511,7 +511,7 @@ fn a_crash_fall_lists_the_wreck_in_its_impact_cell() {
     }
     let wreck = sim.substrate.entities.get(1).unwrap();
     assert!(wreck.lifecycle.cell_marked());
-    assert_eq!((wreck.position.rx, wreck.position.ry), cell);
+    assert_eq!((wreck.position.rx(), wreck.position.ry()), cell);
     assert!(sim.substrate.occupancy.contains_entity(cell.0, cell.1, 1));
     assert_eq!(sim.next_cell_object(Entity(1)), Some(Entity(bystander)));
 }
@@ -572,14 +572,14 @@ fn a_shot_down_aircraft_falls_and_detonates_through_advance_tick() {
         sim.try_reveal_entity(
             shooter,
             RevealRequest {
-                position: RevealPosition {
-                    exact_z_leptons: None,
-                    rx: 40,
-                    ry: 40,
-                    z: 0,
-                    sub_x: SimFixed::from_num(128),
-                    sub_y: SimFixed::from_num(128),
-                },
+                position: RevealPosition::new(
+                    40,
+                    40,
+                    0,
+                    None,
+                    SimFixed::from_num(128),
+                    SimFixed::from_num(128)
+                ),
                 placement: PlacementEvidence::MarkSucceeded,
                 logic_eligible: true,
             }
@@ -840,14 +840,14 @@ fn jumpjet_fixture(balloon: bool) -> (Simulation, RuleSet, u64, u64) {
             sim.try_reveal_entity(
                 id,
                 RevealRequest {
-                    position: RevealPosition {
-                        exact_z_leptons: None,
+                    position: RevealPosition::new(
                         rx,
                         ry,
-                        z: 0,
-                        sub_x: SimFixed::from_num(128),
-                        sub_y: SimFixed::from_num(128),
-                    },
+                        0,
+                        None,
+                        SimFixed::from_num(128),
+                        SimFixed::from_num(128)
+                    ),
                     placement: PlacementEvidence::MarkSucceeded,
                     logic_eligible: true,
                 }
@@ -866,7 +866,7 @@ fn jumpjet_fixture(balloon: bool) -> (Simulation, RuleSet, u64, u64) {
     {
         let entity = sim.substrate.entities.get_mut(1).unwrap();
         entity.health.set_for_test(300);
-        entity.position.exact_z_leptons = Some(500);
+        entity.position.set_exact_z_leptons(Some(500));
         entity.body_facing = FacingClass::new(0x4000, 5);
         let loco = entity.locomotor.as_mut().unwrap();
         let runtime = loco.jumpjet_runtime_mut().unwrap();
@@ -996,7 +996,7 @@ fn fall_to_the_impact(sim: &mut Simulation, rules: &RuleSet) -> JumpjetFall {
             Some(entity) if entity.lifecycle.object_alive() => {
                 assert!(entity.crash.is_crashing() && entity.health.current() == 0);
                 fall.heights
-                    .push(entity.position.exact_z_leptons.expect("exact Z"));
+                    .push(entity.position.exact_z_leptons().expect("exact Z"));
             }
             _ => {
                 fall.impact_frame = frame;
@@ -1215,7 +1215,7 @@ fn a_jumpjet_shot_down_after_its_null_destination_reaches_the_ground() {
         .substrate
         .entities
         .get(1)
-        .is_some_and(|entity| (entity.position.rx, entity.position.ry) == (52, 52))
+        .is_some_and(|entity| (entity.position.rx(), entity.position.ry()) == (52, 52))
     {
         assert!(frame < 1200, "the cruise never left the hover cell");
         sim.session.binary_frame = frame;
@@ -1241,7 +1241,7 @@ fn a_jumpjet_shot_down_after_its_null_destination_reaches_the_ground() {
         crate::sim::movement::jumpjet_movement::jumpjet_flight::STATE_TRANSLATE
     );
     let entity = sim.substrate.entities.get_mut(1).unwrap();
-    let here = (entity.position.rx, entity.position.ry);
+    let here = (entity.position.rx(), entity.position.ry());
     sim.assign_null_destination(
         1,
         Some(&rules),
@@ -1281,7 +1281,7 @@ fn a_jumpjet_shot_down_touching_down_still_crashes() {
     let (mut sim, rules, _, shooter) = jumpjet_fixture(false);
     {
         let entity = sim.substrate.entities.get_mut(1).unwrap();
-        entity.position.exact_z_leptons = Some(10);
+        entity.position.set_exact_z_leptons(Some(10));
         let loco = entity.locomotor.as_mut().unwrap();
         let runtime = loco.jumpjet_runtime_mut().unwrap();
         let mut flight = runtime.flight();
@@ -1359,14 +1359,14 @@ fn a_jumpjet_wreck_scans_only_on_its_committed_guard() {
             sim.try_reveal_entity(
                 enemy,
                 RevealRequest {
-                    position: RevealPosition {
-                        exact_z_leptons: None,
-                        rx: 54,
-                        ry: 52,
-                        z: 0,
-                        sub_x: SimFixed::from_num(128),
-                        sub_y: SimFixed::from_num(128),
-                    },
+                    position: RevealPosition::new(
+                        54,
+                        52,
+                        0,
+                        None,
+                        SimFixed::from_num(128),
+                        SimFixed::from_num(128)
+                    ),
                     placement: PlacementEvidence::MarkSucceeded,
                     logic_eligible: true,
                 }
@@ -1404,7 +1404,7 @@ fn a_landed_jumpjet_dies_where_it_stands() {
     let (mut sim, rules, _, shooter) = jumpjet_fixture(false);
     {
         let entity = sim.substrate.entities.get_mut(1).unwrap();
-        entity.position.exact_z_leptons = Some(0);
+        entity.position.set_exact_z_leptons(Some(0));
         let loco = entity.locomotor.as_mut().unwrap();
         let runtime = loco.jumpjet_runtime_mut().unwrap();
         *runtime = runtime.clone().with_phase_for_test(

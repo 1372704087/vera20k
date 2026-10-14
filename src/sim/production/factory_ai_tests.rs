@@ -88,7 +88,7 @@ impl Fixture {
                     && !e.lifecycle.in_limbo()
                     && self.sim.interner.resolve(e.type_ref()) == "PLAIN"
             })
-            .map(|e| (e.position.rx, e.position.ry))
+            .map(|e| (e.position.rx(), e.position.ry()))
     }
 
     fn node(&self) -> ((i16, i16), i32) {

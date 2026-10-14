@@ -348,7 +348,7 @@ fn paradrop(
         .map(|rider| rider.position)
         .ok_or(DepartureFailure::MissingPassenger)?;
     ground_pose::set_position_world_xy(&mut position, [landing.x, landing.y]);
-    let (rx, ry) = (position.rx, position.ry);
+    let (rx, ry) = (position.rx(), position.ry());
     let flags = sim.resolved_terrain.as_ref().map_or(0, |terrain| {
         terrain.native_cell_flags(
             NativeCellQuery::canonical(terrain).lookup_world(landing.x, landing.y),
@@ -456,14 +456,7 @@ fn paradrop(
     let outcome = sim.try_reveal_entity_with_context(
         passenger,
         RevealRequest {
-            position: RevealPosition {
-                exact_z_leptons: None,
-                rx,
-                ry,
-                z: level,
-                sub_x: position.sub_x,
-                sub_y: position.sub_y,
-            },
+            position: RevealPosition::new(rx, ry, level, None, position.sub_x(), position.sub_y()),
             placement: PlacementEvidence::MarkSucceeded,
             logic_eligible: true,
         },
@@ -496,8 +489,8 @@ fn land_tail(
         observe(Observed::PlayAt([location.x, location.y, location.z]));
     }
     sim.sound_events.push(SimSoundEvent::ChuteSound {
-        rx: plane_entity.position.rx,
-        ry: plane_entity.position.ry,
+        rx: plane_entity.position.rx(),
+        ry: plane_entity.position.ry(),
     });
     #[cfg(test)]
     observe(Observed::CellAt([landing.x, landing.y, landing.z]));
@@ -656,8 +649,11 @@ mod tests {
             blocker.set_category_for_test(EntityCategory::Infantry);
             blocker.set_is_voxel_for_test(false);
             blocker.set_sub_cell(Some(subcell));
-            (blocker.position.sub_x, blocker.position.sub_y) =
-                lepton::subcell_lepton_offset(Some(subcell));
+            {
+                let (sub_x, sub_y) = lepton::subcell_lepton_offset(Some(subcell));
+                blocker.position.set_sub_x(sub_x);
+                blocker.position.set_sub_y(sub_y);
+            }
             sim.substrate.entities.insert(blocker);
             assert!(matches!(sim.reveal(id), RevealOutcome::Revealed { .. }));
         }
@@ -702,7 +698,7 @@ mod tests {
                 assert!(cargo(&sim, 1).is_empty(), "native row={row}");
                 let passenger = sim.substrate.entities.get(2).unwrap();
                 assert_eq!(
-                    (passenger.position.rx, passenger.position.ry),
+                    (passenger.position.rx(), passenger.position.ry()),
                     expected_cell,
                     "native row={row}, post_count={}",
                     sweep["post_count"],
@@ -794,7 +790,10 @@ mod tests {
                 assert!(!passenger.is_falling_down());
             } else {
                 assert!(cargo(&sim, 1).is_empty());
-                assert_eq!((passenger.position.rx, passenger.position.ry), native_cell);
+                assert_eq!(
+                    (passenger.position.rx(), passenger.position.ry()),
+                    native_cell
+                );
                 assert!(!passenger.lifecycle.in_limbo());
             }
         }
@@ -904,7 +903,7 @@ mod tests {
             .get_mut(aircraft_id)
             .unwrap()
             .position
-            .exact_z_leptons = Some(1500);
+            .set_exact_z_leptons(Some(1500));
         drop_payload(
             &mut sim,
             aircraft_id,
@@ -1014,7 +1013,7 @@ mod tests {
         // In flight 1500 leptons over its level-2 cell, as the Fly host keeps it.
         let plane_z = 2 * 104 + 1500;
         let plane = sim.substrate.entities.get_mut(aircraft_id).unwrap();
-        plane.position.exact_z_leptons = Some(plane_z);
+        plane.position.set_exact_z_leptons(Some(plane_z));
         plane.locomotor = Some(LocomotorState::for_test_kind(LocomotorKind::Fly));
 
         drop_payload(
@@ -1026,12 +1025,12 @@ mod tests {
         );
         let passenger = sim.substrate.entities.get(passenger_id).unwrap();
         assert_eq!(
-            (passenger.position.rx, passenger.position.ry),
+            (passenger.position.rx(), passenger.position.ry()),
             (51, 20),
             "the landing cell is at level 0"
         );
         assert!(passenger.is_falling_down());
-        assert_eq!(passenger.position.exact_z_leptons, Some(plane_z));
+        assert_eq!(passenger.position.exact_z_leptons(), Some(plane_z));
     }
 
     /// Over a structural bridge cell (`+0x140 & 0x100`) Paradrop sets OnBridge
@@ -1117,7 +1116,7 @@ mod tests {
         let (plane, passenger) = (1, 2);
         insert_loaded_paradrop_pair(&mut sim, plane, passenger);
         let plane_entity = sim.substrate.entities.get_mut(plane).unwrap();
-        plane_entity.position.exact_z_leptons = Some(1500);
+        plane_entity.position.set_exact_z_leptons(Some(1500));
         plane_entity.locomotor = Some(LocomotorState::for_test_kind(LocomotorKind::Fly));
         let effects = crate::sim::world::FrameEffects::default();
 
@@ -1134,7 +1133,7 @@ mod tests {
         );
         drop_payload(&mut sim, plane, &rules, None, effects);
         let rider = sim.substrate.entities.get(passenger).unwrap();
-        assert_eq!((rider.position.rx, rider.position.ry), (51, 24));
+        assert_eq!((rider.position.rx(), rider.position.ry()), (51, 24));
         assert!(rider.on_bridge());
 
         let max_fall_rate = rules.general.parachute_max_fall_rate;
@@ -1196,13 +1195,13 @@ mod tests {
         assert!(!passenger.lifecycle.in_limbo());
         assert!(passenger.lifecycle.cell_marked());
         assert!(passenger.in_logic_vector.is_member());
-        assert_eq!((passenger.position.rx, passenger.position.ry), (51, 20));
+        assert_eq!((passenger.position.rx(), passenger.position.ry()), (51, 20));
         let sub_cell = passenger
             .sub_cell()
             .expect("placed infantry should have a subcell");
         assert!(crate::sim::movement::bump_crush::FUNCTIONAL_SUB_CELLS.contains(&sub_cell));
         assert_eq!(
-            (passenger.position.sub_x, passenger.position.sub_y),
+            (passenger.position.sub_x(), passenger.position.sub_y()),
             lepton::subcell_lepton_offset(Some(sub_cell))
         );
         // Unlimbo faces it south (`0x005F5A35`).

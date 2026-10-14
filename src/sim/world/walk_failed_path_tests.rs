@@ -117,8 +117,8 @@ fn far_failure_stops_walk_clears_target_and_queues_guard_for_a_human_house() {
     assert_eq!(e.navigation.path_runtime.retries_left(), retries_before);
     // The NULL setter's Set_Destination_Internal tail rewrote +640 to duration 0.
     assert_eq!(e.navigation.path_runtime.movement_timer().duration(), 0);
-    assert_eq!(e.position.rx, 10);
-    assert_eq!(e.position.ry, 10);
+    assert_eq!(e.position.rx(), 10);
+    assert_eq!(e.position.ry(), 10);
 }
 
 #[test]
@@ -142,15 +142,16 @@ fn building_target_redirects_to_a_nearby_cell_and_the_walk_completes_there() {
     // Code 7 with a Building (0x47C520) redirected the Find_Path target to an
     // FNPC cell beside the hut; no failure tail ran.
     assert_ne!(
-        (e.position.rx, e.position.ry),
+        (e.position.rx(), e.position.ry()),
         (10, 10),
         "the engineer walked"
     );
-    assert_ne!((e.position.rx, e.position.ry), (13, 10));
+    assert_ne!((e.position.rx(), e.position.ry()), (13, 10));
     assert!(
-        (i32::from(e.position.rx) - 13).abs() <= 1 && (i32::from(e.position.ry) - 10).abs() <= 1,
+        (i32::from(e.position.rx()) - 13).abs() <= 1
+            && (i32::from(e.position.ry()) - 10).abs() <= 1,
         "ended at {:?}",
-        (e.position.rx, e.position.ry)
+        (e.position.rx(), e.position.ry())
     );
     // Successful stopped-Move arrival also enters Infantry idle:
     //520F8C ->51CBA0(0,1) ->51CD6E/51CD96 queues human Guard.
@@ -270,7 +271,7 @@ fn own_cell_destination_fails_and_clears_the_order() {
         e.mission.current(),
         MissionId::from_known(MissionType::Move)
     );
-    assert_eq!((e.position.rx, e.position.ry), (10, 10));
+    assert_eq!((e.position.rx(), e.position.ry()), (10, 10));
     // The NULL setter's Set_Destination_Internal tail rewrote +640 to
     // duration 0.
     assert_eq!(e.navigation.path_runtime.movement_timer().duration(), 0);
@@ -495,7 +496,7 @@ fn infantry_damage_scatter_reaches_the_ordinary_walk_process() {
         }
     }
     let e = sim.substrate.entities.get(victim).unwrap();
-    assert_eq!((e.position.rx, e.position.ry), (rx, ry));
+    assert_eq!((e.position.rx(), e.position.ry()), (rx, ry));
     assert!(e.navigation.nav_com().is_none());
     assert!(e.locomotor.as_ref().unwrap().walk_destination().is_none());
 }

@@ -1632,18 +1632,18 @@ fn hash_entity(entity: &GameEntity, frame: u32, hasher: &mut StateHasher) {
     }
     entity.is_mission_only().hash(hasher);
     entity.move_sound.countdown().hash(hasher);
-    entity.position.rx.hash(hasher);
-    entity.position.ry.hash(hasher);
-    entity.position.z.hash(hasher);
+    entity.position.rx().hash(hasher);
+    entity.position.ry().hash(hasher);
+    entity.position.z().hash(hasher);
     // Most objects have no exact coordinate-Z override. Preserve their
     // pre-v62 hash stream while making TubeMovement's signed lepton Z
     // authoritative whenever it is present.
-    if let Some(exact_z_leptons) = entity.position.exact_z_leptons {
+    if let Some(exact_z_leptons) = entity.position.exact_z_leptons() {
         b"exact-object-z-leptons-v1".hash(hasher);
         exact_z_leptons.hash(hasher);
     }
-    entity.position.sub_x.hash(hasher);
-    entity.position.sub_y.hash(hasher);
+    entity.position.sub_x().hash(hasher);
+    entity.position.sub_y().hash(hasher);
     // The body FacingClass (`+0x388`), each Techno's one heading.
     entity.body_facing.hash(hasher);
     // The barrel elevation (`+0x370`), tagged, once an Unlimbo moved
@@ -3741,10 +3741,10 @@ mod tube_movement_hash_tests {
         let default_hash = hash_entity(fixture.clone());
 
         let mut exact_z = fixture.clone();
-        exact_z.position.exact_z_leptons = Some(-37);
+        exact_z.position.set_exact_z_leptons(Some(-37));
         let exact_z_hash = hash_entity(exact_z.clone());
         assert_ne!(default_hash, exact_z_hash);
-        exact_z.position.exact_z_leptons = Some(-36);
+        exact_z.position.set_exact_z_leptons(Some(-36));
         assert_ne!(exact_z_hash, hash_entity(exact_z));
 
         let state = LowBridgeTubeMovementState::for_test(
@@ -3757,7 +3757,7 @@ mod tube_movement_hash_tests {
             },
         );
         let mut active = fixture;
-        active.position.exact_z_leptons = Some(-37);
+        active.position.set_exact_z_leptons(Some(-37));
         active.low_bridge_tube_state = Some(state);
         let active_hash = hash_entity(active.clone());
         assert_ne!(exact_z_hash, active_hash);

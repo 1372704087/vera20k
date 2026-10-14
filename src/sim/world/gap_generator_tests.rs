@@ -59,7 +59,7 @@ fn insert(sim: &mut Simulation, id: u64, owner: InternedId, name: &str, x: u16, 
     if name == "SIGHT" {
         let mut loco = LocomotorState::for_test_kind(LocomotorKind::Jumpjet);
         loco.set_layer(MovementLayer::Air);
-        entity.position.exact_z_leptons = Some(208);
+        entity.position.set_exact_z_leptons(Some(208));
 
         // The kernel target height is left unset on purpose: the corpus outcome
         // below holds only while the kernel is not holding the unit at 208.

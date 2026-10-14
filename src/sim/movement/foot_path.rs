@@ -217,7 +217,7 @@ impl Simulation {
                 dir_from_facing16(foot.body_facing_current(frame))
             };
             let (dx, dy) = CELL_DELTAS[usize::from(direction)];
-            let own = (foot.position.rx as i16, foot.position.ry as i16);
+            let own = (foot.position.rx() as i16, foot.position.ry() as i16);
             let next = terrain.native_cell_identity((
                 own.0.wrapping_add(dx as i16),
                 own.1.wrapping_add(dy as i16),
@@ -689,7 +689,7 @@ impl Simulation {
             .entities
             .get(id)
             .expect("live path requester");
-        let own_cell = (actor.position.rx, actor.position.ry);
+        let own_cell = (actor.position.rx(), actor.position.ry());
         let unlisted = (lift == MoverLift::Emulated).then_some(id);
         let marker_search = marker_context.defer_search(
             &self.substrate.occupancy,

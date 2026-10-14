@@ -611,8 +611,8 @@ fn compare_rows(json: &str, expected_count: usize, repair_projection: bool) {
                         };
                         (c.x != 0 || c.y != 0 || c.z != 0).then_some(c)
                     };
-                    blocker.position.sub_x = SimFixed::from_num(128);
-                    blocker.position.sub_y = SimFixed::from_num(128);
+                    blocker.position.set_sub_x(SimFixed::from_num(128));
+                    blocker.position.set_sub_y(SimFixed::from_num(128));
                     let head = state.get("head").and_then(coordinate);
                     match state["family"].as_str().unwrap() {
                         "drive" => {

@@ -129,8 +129,8 @@ fn unit_parked_on_its_head_to_reports_not_moving() {
             .unwrap()
             .install_drive_state_for_test(Some(
                 DriveLocomotionRuntime::default().with_head_to_for_test(Some(DriveCoord {
-                    x: 5 * 256 + i32::from(entity.position.sub_x.to_num::<i32>() as i16),
-                    y: 5 * 256 + i32::from(entity.position.sub_y.to_num::<i32>() as i16),
+                    x: 5 * 256 + i32::from(entity.position.sub_x().to_num::<i32>() as i16),
+                    y: 5 * 256 + i32::from(entity.position.sub_y().to_num::<i32>() as i16),
                     z: 0,
                 }))
             ))
@@ -315,10 +315,14 @@ fn retained_motion_and_walk_readiness_match_original_queries() {
         };
         let mut entity = entity_with(kind);
         let current = coord(&input["current"]);
-        entity.position.rx = (current.x / 256) as u16;
-        entity.position.ry = (current.y / 256) as u16;
-        entity.position.sub_x = SimFixed::from_num(current.x % 256);
-        entity.position.sub_y = SimFixed::from_num(current.y % 256);
+        entity.position.set_rx((current.x / 256) as u16);
+        entity.position.set_ry((current.y / 256) as u16);
+        entity
+            .position
+            .set_sub_x(SimFixed::from_num(current.x % 256));
+        entity
+            .position
+            .set_sub_y(SimFixed::from_num(current.y % 256));
         let head = optional(coord(&input["head"]));
         match kind {
             LocomotorKind::Drive => {

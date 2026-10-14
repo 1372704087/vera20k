@@ -300,8 +300,8 @@ impl Simulation {
         if entity.tether.partner().is_some()
             && let Some(contact) = entity.radio_contacts.slot(0)
             && self.substrate.occupancy.first_building_on_layer(
-                entity.position.rx,
-                entity.position.ry,
+                entity.position.rx(),
+                entity.position.ry(),
                 MovementLayer::Ground,
             ) == Some(contact)
         {
@@ -396,8 +396,8 @@ impl Simulation {
                 .substrate
                 .occupancy
                 .first_building_on_layer(
-                    entity.position.rx,
-                    entity.position.ry,
+                    entity.position.rx(),
+                    entity.position.ry(),
                     MovementLayer::Ground,
                 )
                 .is_some()

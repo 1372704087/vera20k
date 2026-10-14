@@ -247,7 +247,7 @@ impl Simulation {
         };
         let first_opening = !entity.building_art.actually_placed;
         let owner = entity.owner();
-        let cell = (entity.position.rx, entity.position.ry);
+        let cell = (entity.position.rx(), entity.position.ry());
         let refinery = object.refinery;
         let powered = object.powered;
         let damaged = requested_damage_state(
@@ -1120,14 +1120,14 @@ mod slot_tests {
         let outcome = sim.try_reveal_entity_with_context(
             id,
             RevealRequest {
-                position: RevealPosition {
-                    exact_z_leptons: None,
-                    rx: 3,
-                    ry: 4,
-                    z: 0,
-                    sub_x: crate::util::fixed_math::SimFixed::from_num(128),
-                    sub_y: crate::util::fixed_math::SimFixed::from_num(128),
-                },
+                position: RevealPosition::new(
+                    3,
+                    4,
+                    0,
+                    None,
+                    crate::util::fixed_math::SimFixed::from_num(128),
+                    crate::util::fixed_math::SimFixed::from_num(128),
+                ),
                 placement: PlacementEvidence::MarkSucceeded,
                 logic_eligible: true,
             },

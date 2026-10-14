@@ -708,7 +708,7 @@ pub(crate) fn build_bomb_clock_instances(
             let Some(local) = local else {
                 continue;
             };
-            let (rx, ry) = (entity.position.rx, entity.position.ry);
+            let (rx, ry) = (entity.position.rx(), entity.position.ry());
             if !sim.bomb_seen_by(carrier, local)
                 || !sim.fog.is_cell_revealed(local, rx, ry)
                 || sim.fog.is_cell_gap_covered(local, rx, ry)
@@ -806,7 +806,7 @@ pub(crate) fn build_repair_wrench_instances(
             let Some(local) = local else {
                 continue;
             };
-            let (rx, ry) = (entity.position.rx, entity.position.ry);
+            let (rx, ry) = (entity.position.rx(), entity.position.ry());
             if !sim.fog.is_cell_revealed(local, rx, ry)
                 || sim.fog.is_cell_gap_covered(local, rx, ry)
             {
@@ -1575,8 +1575,8 @@ fn status_entity_visible_plain(
     if local_owner == entity_owner {
         return true;
     }
-    fog.is_cell_revealed(local_owner, pos.rx, pos.ry)
-        && !fog.is_cell_gap_covered(local_owner, pos.rx, pos.ry)
+    fog.is_cell_revealed(local_owner, pos.rx(), pos.ry())
+        && !fog.is_cell_gap_covered(local_owner, pos.rx(), pos.ry())
 }
 
 pub(crate) fn health_fill_color(ratio: f32, condition_yellow: f32, condition_red: f32) -> [f32; 3] {

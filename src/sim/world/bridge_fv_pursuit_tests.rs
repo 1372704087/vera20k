@@ -38,9 +38,9 @@ fn spawn_fv(scene: &mut HeadlessScenario, xyz: [i32; 3]) -> u64 {
     // Declared native Unlimbo coordinate input within this already admitted
     // Cell. The stock map and production placement/membership remain intact.
     let actor = runtime.simulation.substrate.entities.get_mut(id).unwrap();
-    actor.position.sub_x = SimFixed::from_num(xyz[0] % 256);
-    actor.position.sub_y = SimFixed::from_num(xyz[1] % 256);
-    actor.position.exact_z_leptons = Some(xyz[2]);
+    actor.position.set_sub_x(SimFixed::from_num(xyz[0] % 256));
+    actor.position.set_sub_y(SimFixed::from_num(xyz[1] % 256));
+    actor.position.set_exact_z_leptons(Some(xyz[2]));
     id
 }
 
@@ -726,9 +726,9 @@ fn retail_fv_approaches_a_firing_cell_before_its_first_paid_step() {
     // Supplied native starting XYZ, in the same already-admitted Cell. Map
     // membership, rules, graph construction, command and AI remain production.
     let actor = runtime.simulation.substrate.entities.get_mut(id).unwrap();
-    actor.position.sub_x = SimFixed::from_num(xyz[0] % 256);
-    actor.position.sub_y = SimFixed::from_num(xyz[1] % 256);
-    actor.position.exact_z_leptons = Some(xyz[2]);
+    actor.position.set_sub_x(SimFixed::from_num(xyz[0] % 256));
+    actor.position.set_sub_y(SimFixed::from_num(xyz[1] % 256));
+    actor.position.set_exact_z_leptons(Some(xyz[2]));
     let command = CommandEnvelope::new(
         owner,
         runtime.simulation.session.tick + 1,
@@ -765,7 +765,7 @@ fn retail_fv_approaches_a_firing_cell_before_its_first_paid_step() {
         crate::sim::combat::TargetKind::Cell(87, 54)
     );
     assert!(
-        actor.position.sub_y > SimFixed::from_num(xyz[1] % 256),
+        actor.position.sub_y() > SimFixed::from_num(xyz[1] % 256),
         "Drive must pay movement during the first Attack object visit"
     );
 }

@@ -115,8 +115,12 @@ fn stock_cloak_tick_facts(
     // none, so this reads false in every ordinary skirmish. VERA previously
     // substituted `fog.is_cell_visible(owner, ...)` here, which is true for an
     // owner standing on its own cell — inverting both gates below.
-    let cloaked_by_own_house =
-        owner_cloak_field_bit(sim, entity.owner(), entity.position.rx, entity.position.ry);
+    let cloaked_by_own_house = owner_cloak_field_bit(
+        sim,
+        entity.owner(),
+        entity.position.rx(),
+        entity.position.ry(),
+    );
 
     // `TechnoClass::CanAutoCloak @ 0x006FBDC0`, in native step order.
     //
@@ -252,7 +256,7 @@ fn sensor_targeters_in_native_dispatch_order(sim: &Simulation, cloaker_id: u64) 
         return Vec::new();
     };
     let cloaker_owner = cloaker.owner();
-    let cloaker_cell = (cloaker.position.rx, cloaker.position.ry);
+    let cloaker_cell = (cloaker.position.rx(), cloaker.position.ry());
 
     // TechnoClass+0x420 @ 0x006F4EB0 reverse-scans g_TechnoClass_Array,
     // appends admitted targeters, then reverse-dispatches the saved vector.
@@ -309,7 +313,12 @@ pub(crate) fn sensor_reevaluate_stock_cloak(
         return SensorCloakReevaluation::default();
     };
     let inside_friendly_cloak_field = sim.substrate.entities.get(id).is_some_and(|entity| {
-        owner_cloak_field_bit(sim, entity.owner(), entity.position.rx, entity.position.ry)
+        owner_cloak_field_bit(
+            sim,
+            entity.owner(),
+            entity.position.rx(),
+            entity.position.ry(),
+        )
     });
     if !inside_friendly_cloak_field || !facts.can_auto_cloak {
         return SensorCloakReevaluation::default();
@@ -437,7 +446,10 @@ pub(crate) fn uncloak_on_sensor_neighbour_after_cell_entry(
         return false;
     }
     let owner = mover.owner();
-    let (rx, ry) = (i32::from(mover.position.rx), i32::from(mover.position.ry));
+    let (rx, ry) = (
+        i32::from(mover.position.rx()),
+        i32::from(mover.position.ry()),
+    );
 
     let mut triggered = false;
     for (dx, dy) in CELL_DELTAS {

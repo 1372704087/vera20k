@@ -141,8 +141,8 @@ impl Simulation {
                         .is_some_and(|object| object.weapons_factory)
             })
             && self.substrate.occupancy.first_building_on_layer(
-                unit.position.rx,
-                unit.position.ry,
+                unit.position.rx(),
+                unit.position.ry(),
                 MovementLayer::Ground,
             ) == Some(factory)
     }

@@ -271,10 +271,11 @@ fn a_slave_miner_sets_out_deploys_at_a_field_and_lets_its_slaves_out() {
     );
     let at = sim.substrate.entities.get(refinery).unwrap();
     assert!(
-        (i32::from(at.position.rx) - 22).abs() <= 3 && (i32::from(at.position.ry) - 15).abs() <= 3,
+        (i32::from(at.position.rx()) - 22).abs() <= 3
+            && (i32::from(at.position.ry()) - 15).abs() <= 3,
         "deployed beside the field: ({}, {})",
-        at.position.rx,
-        at.position.ry
+        at.position.rx(),
+        at.position.ry()
     );
     for &slave in &slaves {
         let entity = sim.substrate.entities.get(slave).unwrap();
@@ -359,10 +360,11 @@ fn a_harvest_order_sends_the_slave_miner_to_deploy_beside_the_field() {
     let refinery = refinery.expect("the ordered Slave Miner deploys");
     let at = s.scene.sim.substrate.entities.get(refinery).unwrap();
     assert!(
-        (i32::from(at.position.rx) - 24).abs() <= 3 && (i32::from(at.position.ry) - 20).abs() <= 3,
+        (i32::from(at.position.rx()) - 24).abs() <= 3
+            && (i32::from(at.position.ry()) - 20).abs() <= 3,
         "deployed beside the clicked field: ({}, {})",
-        at.position.rx,
-        at.position.ry
+        at.position.rx(),
+        at.position.ry()
     );
 }
 
@@ -525,7 +527,7 @@ fn a_destroyed_refinery_frees_its_slaves_to_the_killer() {
     assert!(sim.sound_events.iter().any(|event| matches!(
         event,
         SimSoundEvent::VocAt { sound_id, rx, ry, .. }
-            if sound_id == "SlavesFreed" && (*rx, *ry) == (freed.position.rx, freed.position.ry)
+            if sound_id == "SlavesFreed" && (*rx, *ry) == (freed.position.rx(), freed.position.ry())
     )));
 
     // The Cheer cannot be interrupted: a Move order given during it walks the
@@ -919,10 +921,11 @@ fn a_refinery_whose_ore_runs_out_packs_up_and_moves_to_the_next_field() {
     let at = sim.substrate.entities.get(relocated).unwrap();
     assert_eq!(sim.interner.resolve(at.type_ref()), "YAREFN");
     assert!(
-        (i32::from(at.position.rx) - 24).abs() <= 3 && (i32::from(at.position.ry) - 13).abs() <= 3,
+        (i32::from(at.position.rx()) - 24).abs() <= 3
+            && (i32::from(at.position.ry()) - 13).abs() <= 3,
         "redeployed beside the field: ({}, {})",
-        at.position.rx,
-        at.position.ry
+        at.position.rx(),
+        at.position.ry()
     );
     for &slave in &slaves {
         assert_eq!(

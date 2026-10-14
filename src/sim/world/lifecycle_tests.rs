@@ -392,14 +392,14 @@ fn insert_reservation_building(
 
 fn request(rx: u16, ry: u16, placement: PlacementEvidence) -> RevealRequest {
     RevealRequest {
-        position: RevealPosition {
-            exact_z_leptons: None,
+        position: RevealPosition::new(
             rx,
             ry,
-            z: 2,
-            sub_x: SimFixed::from_num(128),
-            sub_y: SimFixed::from_num(64),
-        },
+            2,
+            None,
+            SimFixed::from_num(128),
+            SimFixed::from_num(64),
+        ),
         placement,
         logic_eligible: true,
     }
@@ -619,9 +619,9 @@ fn receiver_garrison_survivor_keeps_height_aware_playfield_membership() {
     assert!(!passenger.lifecycle.in_limbo());
     assert_eq!(
         (
-            passenger.position.rx,
-            passenger.position.ry,
-            passenger.position.z
+            passenger.position.rx(),
+            passenger.position.ry(),
+            passenger.position.z()
         ),
         (15, 15, 4)
     );
@@ -738,14 +738,14 @@ fn gsi_04_16_dustbowl_bounds() -> crate::sim::cell_rect::PlayfieldBounds {
 
 fn common_raw_request(rx: u16, ry: u16, z: u8, sub_x: i32, sub_y: i32) -> RevealRequest {
     RevealRequest {
-        position: RevealPosition {
-            exact_z_leptons: None,
+        position: RevealPosition::new(
             rx,
             ry,
             z,
-            sub_x: SimFixed::from_num(sub_x),
-            sub_y: SimFixed::from_num(sub_y),
-        },
+            None,
+            SimFixed::from_num(sub_x),
+            SimFixed::from_num(sub_y),
+        ),
         placement: PlacementEvidence::MarkSucceeded,
         logic_eligible: true,
     }
@@ -844,7 +844,7 @@ fn grounded_ramp_reveal_commits_native_height_before_occupation() {
                     .get(1)
                     .unwrap()
                     .position
-                    .exact_z_leptons,
+                    .exact_z_leptons(),
                 Some(expected_z),
                 "{kind:?} bridge={on_bridge} level={requested_level}"
             );
@@ -889,7 +889,7 @@ fn a_revealed_building_takes_the_floor_at_its_location_as_its_z() {
         ));
         let building = sim.substrate.entities.get(1).unwrap();
         assert_eq!(
-            building.position.exact_z_leptons,
+            building.position.exact_z_leptons(),
             Some(52),
             "bridge={on_bridge} level={requested_level}"
         );
@@ -931,7 +931,7 @@ fn every_unit_locomotor_takes_the_floor_clamp_at_unlimbo() {
             RevealOutcome::Revealed { .. }
         ));
         let unit = sim.substrate.entities.get(1).unwrap();
-        assert_eq!(unit.position.exact_z_leptons, Some(52), "{kind:?}");
+        assert_eq!(unit.position.exact_z_leptons(), Some(52), "{kind:?}");
         assert_eq!(
             crate::sim::movement::air_movement::current_fly_height(
                 unit,
@@ -961,7 +961,7 @@ fn grounded_reveal_keeps_headless_inputs_and_the_drop_z() {
             .get(1)
             .unwrap()
             .position
-            .exact_z_leptons,
+            .exact_z_leptons(),
         None
     );
 
@@ -972,7 +972,7 @@ fn grounded_reveal_keeps_headless_inputs_and_the_drop_z() {
     insert_entity(&mut sim, 2, EntityCategory::Infantry);
     let entity = sim.substrate.entities.get_mut(2).unwrap();
     entity.locomotor = Some(LocomotorState::for_test_kind(LocomotorKind::Walk));
-    entity.position.exact_z_leptons = Some(52);
+    entity.position.set_exact_z_leptons(Some(52));
     assert!(
         crate::sim::movement::parachute_descent::begin_parachute_descent(
             &mut sim.substrate.entities,
@@ -985,7 +985,7 @@ fn grounded_reveal_keeps_headless_inputs_and_the_drop_z() {
         RevealOutcome::Revealed { .. }
     ));
     let entity = sim.substrate.entities.get(2).unwrap();
-    assert_eq!(entity.position.exact_z_leptons, Some(1200));
+    assert_eq!(entity.position.exact_z_leptons(), Some(1200));
     assert!(entity.is_falling_down());
 }
 
@@ -1030,7 +1030,7 @@ fn grounded_ramp_position_survives_snapshot_and_idle_continuation() {
             .get(1)
             .unwrap()
             .position
-            .exact_z_leptons,
+            .exact_z_leptons(),
         Some(52)
     );
     for _ in 0..3 {
@@ -1043,7 +1043,7 @@ fn grounded_ramp_position_survives_snapshot_and_idle_continuation() {
                 .get(1)
                 .unwrap()
                 .position
-                .exact_z_leptons,
+                .exact_z_leptons(),
             Some(52)
         );
         assert_eq!(restored.state_hash(), sim.state_hash());
@@ -1094,7 +1094,7 @@ fn drive_ship_slope_production_spawn_unlimbo_snaps_without_manual_rocking_state(
         let entity = sim.substrate.entities.get(stable_id).unwrap();
         // Original-code ramp_{5,9,12}_sub_128_128 fixtures; this reaches the
         // production constructor and Reveal, with no preloaded exact pose.
-        assert_eq!(entity.position.exact_z_leptons, Some(native_z));
+        assert_eq!(entity.position.exact_z_leptons(), Some(native_z));
         assert!(
             entity.rocking.is_none(),
             "slope state is not manually injected"
@@ -1309,8 +1309,18 @@ fn techno_playfield_ctor_unlimbo_and_movement_hysteresis() {
         .set_in_playfield(false);
     sim.promote_entity_playfield_membership_after_move(1);
     assert!(sim.substrate.entities.get(1).unwrap().in_playfield());
-    sim.substrate.entities.get_mut(1).unwrap().position.rx = outside.0;
-    sim.substrate.entities.get_mut(1).unwrap().position.ry = outside.1;
+    sim.substrate
+        .entities
+        .get_mut(1)
+        .unwrap()
+        .position
+        .set_rx(outside.0);
+    sim.substrate
+        .entities
+        .get_mut(1)
+        .unwrap()
+        .position
+        .set_ry(outside.1);
     sim.promote_entity_playfield_membership_after_move(1);
     assert!(
         sim.substrate.entities.get(1).unwrap().in_playfield(),
@@ -2036,7 +2046,7 @@ fn gsi_04_12_object_raw_occupation_production_fly_tick_unmarks_takeoff_and_marks
         .get_mut(1)
         .unwrap()
         .position
-        .exact_z_leptons = Some(1);
+        .set_exact_z_leptons(Some(1));
     sim.tick_air_movement_with_cell_lists_one(
         1,
         None,
@@ -2095,7 +2105,7 @@ fn gsi_05_05_fly_takeoff_commits_absolute_z_after_remove_process() {
         sim.resolved_terrain.as_ref(),
     );
     assert!(altitude > 0);
-    assert_eq!(aircraft.position.exact_z_leptons, Some(208 + altitude));
+    assert_eq!(aircraft.position.exact_z_leptons(), Some(208 + altitude));
     assert!(!sim.substrate.occupancy.contains_entity(3, 4, 1));
     assert_eq!(sim.substrate.raw_cell_occupation.ground_bits(3, 4), 0);
     assert_eq!(sim.substrate.raw_cell_occupation.deck_bits(3, 4), 0);
@@ -2144,7 +2154,7 @@ fn gsi_05_05_fly_landing_on_bridge_uses_absolute_z_for_deck_put() {
         ),
         0
     );
-    assert_eq!(aircraft.position.exact_z_leptons, Some(416));
+    assert_eq!(aircraft.position.exact_z_leptons(), Some(416));
     assert_eq!(
         sim.substrate
             .occupancy
@@ -2181,8 +2191,8 @@ fn gsi_05_05_object_raw_occupation_uses_exact_sloped_ground_z_for_put_and_remove
     // distinguish the two sides of the inclusive 416-lepton threshold.
     {
         let aircraft = sim.substrate.entities.get_mut(1).unwrap();
-        aircraft.position.z = 0x7f;
-        aircraft.position.exact_z_leptons = Some(130 + 415);
+        aircraft.position.set_z(0x7f);
+        aircraft.position.set_exact_z_leptons(Some(130 + 415));
     }
     sim.add_entity_occupancy(1);
     assert_eq!(sim.substrate.raw_cell_occupation.ground_bits(3, 4), 0x40);
@@ -2195,7 +2205,7 @@ fn gsi_05_05_object_raw_occupation_uses_exact_sloped_ground_z_for_put_and_remove
         .get_mut(1)
         .unwrap()
         .position
-        .exact_z_leptons = Some(130 + 416);
+        .set_exact_z_leptons(Some(130 + 416));
     sim.add_entity_occupancy(1);
     assert_eq!(sim.substrate.raw_cell_occupation.ground_bits(3, 4), 0);
     assert_eq!(sim.substrate.raw_cell_occupation.deck_bits(3, 4), 0x40);
@@ -2222,7 +2232,7 @@ fn gsi_05_05_mapless_fly_uses_dummy_ground_then_bridge_height() {
             .get(1)
             .unwrap()
             .position
-            .exact_z_leptons,
+            .exact_z_leptons(),
         Some(416 + 100)
     );
 
@@ -2239,7 +2249,7 @@ fn gsi_05_05_mapless_fly_uses_dummy_ground_then_bridge_height() {
             .get(1)
             .unwrap()
             .position
-            .exact_z_leptons,
+            .exact_z_leptons(),
         Some(416 + 100),
         "Fly's GetHeight reads the same dummy ground back, so level flight writes nothing"
     );
@@ -2302,7 +2312,7 @@ fn gsi_04_07_damage_air_spatial_entry_crossing_and_exit_keep_vector_order() {
     // The tracker follows a cell change of a Fly whose current speed is not
     // zero (`0x004CD60E..0x004CD65F`); without a type Speed it stays put.
     let aircraft = sim.substrate.entities.get_mut(20).unwrap();
-    aircraft.position.rx = 12;
+    aircraft.position.set_rx(12);
     aircraft
         .locomotor
         .as_mut()
@@ -2416,11 +2426,15 @@ fn lifecycle_authority_reveal_commits_coords_then_marks_then_registers() {
     );
     let entity = sim.substrate.entities.get(1).unwrap();
     assert_eq!(
-        (entity.position.rx, entity.position.ry, entity.position.z),
+        (
+            entity.position.rx(),
+            entity.position.ry(),
+            entity.position.z()
+        ),
         (10, 20, 2)
     );
-    assert_eq!(entity.position.sub_x, SimFixed::from_num(128));
-    assert_eq!(entity.position.sub_y, SimFixed::from_num(64));
+    assert_eq!(entity.position.sub_x(), SimFixed::from_num(128));
+    assert_eq!(entity.position.sub_y(), SimFixed::from_num(64));
     assert!(!entity.lifecycle.in_limbo());
     assert!(entity.lifecycle.cell_marked());
     assert!(entity.in_logic_vector.is_member());
@@ -2476,7 +2490,11 @@ fn lifecycle_authority_reveal_mark_failure_keeps_adjusted_coords_alive_limbo() {
     );
     let entity = sim.substrate.entities.get(1).unwrap();
     assert_eq!(
-        (entity.position.rx, entity.position.ry, entity.position.z),
+        (
+            entity.position.rx(),
+            entity.position.ry(),
+            entity.position.z()
+        ),
         (10, 20, 2)
     );
     assert!(entity.lifecycle.object_alive());
@@ -2505,8 +2523,8 @@ fn lifecycle_authority_reveal_early_reject_commits_nothing() {
     );
     let entity = sim.substrate.entities.get(1).unwrap();
     assert_eq!(
-        (entity.position.rx, entity.position.ry),
-        (before.rx, before.ry)
+        (entity.position.rx(), entity.position.ry()),
+        (before.rx(), before.ry())
     );
     assert!(entity.lifecycle.in_limbo());
     assert!(sim.lifecycle_test_events.is_empty());
@@ -2530,8 +2548,8 @@ fn lifecycle_authority_reveal_rejects_an_already_marked_limbo_object() {
     );
     let entity = sim.substrate.entities.get(1).unwrap();
     assert_eq!(
-        (entity.position.rx, entity.position.ry),
-        (before.rx, before.ry)
+        (entity.position.rx(), entity.position.ry()),
+        (before.rx(), before.ry())
     );
     assert!(entity.lifecycle.in_limbo());
     assert!(entity.lifecycle.cell_marked());
@@ -2751,18 +2769,18 @@ fn lifecycle_authority_second_reveal_is_idempotent() {
     let entity = sim.substrate.entities.get(1).unwrap();
     assert_eq!(
         (
-            entity.position.rx,
-            entity.position.ry,
-            entity.position.z,
-            entity.position.sub_x,
-            entity.position.sub_y,
+            entity.position.rx(),
+            entity.position.ry(),
+            entity.position.z(),
+            entity.position.sub_x(),
+            entity.position.sub_y(),
         ),
         (
-            first_position.rx,
-            first_position.ry,
-            first_position.z,
-            first_position.sub_x,
-            first_position.sub_y,
+            first_position.rx(),
+            first_position.ry(),
+            first_position.z(),
+            first_position.sub_x(),
+            first_position.sub_y(),
         )
     );
     assert!(sim.substrate.occupancy.contains_entity(10, 20, 1));
@@ -2879,7 +2897,7 @@ fn gsi_04_05_conceal_removes_only_selected_object_list_layer() {
 
     let (rx, ry) = {
         let entity = sim.substrate.entities.get(1).unwrap();
-        (entity.position.rx, entity.position.ry)
+        (entity.position.rx(), entity.position.ry())
     };
     sim.substrate.occupancy.add(
         rx,
@@ -2935,7 +2953,7 @@ fn gsi_04_05_hard_limbo_clears_pending_then_current_vehicle_occupation() {
     let _ = sim.reveal(1);
     let current = {
         let entity = sim.substrate.entities.get(1).unwrap();
-        (entity.position.rx, entity.position.ry)
+        (entity.position.rx(), entity.position.ry())
     };
     let head = (current.0 + 1, current.1);
     {
@@ -6740,16 +6758,16 @@ fn wave_pointer_expiry_target_survives_dying_then_uninit_starts_decay_tail() {
     insert_entity(&mut sim, target_id, EntityCategory::Unit);
     {
         let owner = sim.substrate.entities.get_mut(owner_id).unwrap();
-        owner.position.rx = 0;
-        owner.position.ry = 0;
+        owner.position.set_rx(0);
+        owner.position.set_ry(0);
         owner
             .attack_target
             .set_for_test(Some(TargetKind::Entity(target_id)));
     }
     {
         let target = sim.substrate.entities.get_mut(target_id).unwrap();
-        target.position.rx = 4;
-        target.position.ry = 0;
+        target.position.set_rx(4);
+        target.position.set_ry(0);
         target.health.set_for_test(0);
         target.death.set_dying_for_test(true);
     }
@@ -8679,10 +8697,10 @@ fn production_air_wrapper_keeps_fly_exact_producer_and_reads_live_dummy() {
         .test_set_dummy_cell_level_slope(3, 1);
     install_fly_aircraft(&mut sim, 1, SimFixed::from_num(125));
     let e = sim.substrate.entities.get_mut(1).unwrap();
-    e.position.sub_x = SimFixed::from_num(64);
-    e.position.sub_y = SimFixed::from_num(192);
-    e.position.z = 99;
-    e.position.exact_z_leptons = Some(731);
+    e.position.set_sub_x(SimFixed::from_num(64));
+    e.position.set_sub_y(SimFixed::from_num(192));
+    e.position.set_z(99);
+    e.position.set_exact_z_leptons(Some(731));
     e.set_on_bridge(true);
     let xy = crate::sim::movement::ground_pose::position_world_xy(&e.position);
     let ground = crate::util::lepton::ground_height_leptons(3, 1, xy[0], xy[1]).unwrap();
@@ -8698,7 +8716,7 @@ fn production_air_wrapper_keeps_fly_exact_producer_and_reads_live_dummy() {
         crate::sim::world::FrameEffects::default(),
     );
     let e = sim.substrate.entities.get(1).unwrap();
-    assert_eq!(e.position.exact_z_leptons, Some(731));
+    assert_eq!(e.position.exact_z_leptons(), Some(731));
     assert_eq!(sim.foot_navigation_coordinate(1).unwrap().z, 731);
     let dummy = sim
         .resolved_terrain
@@ -8717,7 +8735,7 @@ fn production_air_wrapper_retains_native_jumpjet_result_below_the_ground() {
         install_common_raw_terrain(&mut sim, 8, 8, 2, None);
         insert_entity(&mut sim, 1, EntityCategory::Unit);
         let e = sim.substrate.entities.get_mut(1).unwrap();
-        e.position.exact_z_leptons = Some(-37);
+        e.position.set_exact_z_leptons(Some(-37));
         let mut loco = LocomotorState::for_test_kind(LocomotorKind::Jumpjet);
         loco.set_balloon_hover_for_test(true);
         let runtime = loco.jumpjet_runtime_mut().unwrap();
@@ -8740,7 +8758,7 @@ fn production_air_wrapper_retains_native_jumpjet_result_below_the_ground() {
         .get(1)
         .unwrap()
         .position
-        .exact_z_leptons;
+        .exact_z_leptons();
     assert_eq!(
         expected,
         Some(-37),
@@ -8760,7 +8778,7 @@ fn production_air_wrapper_retains_native_jumpjet_result_below_the_ground() {
             .get(1)
             .unwrap()
             .position
-            .exact_z_leptons,
+            .exact_z_leptons(),
         expected
     );
     assert_eq!(wrapped.foot_navigation_coordinate(1).unwrap().z, -37);
@@ -8796,7 +8814,7 @@ fn fly_cross_level_move_lands_on_destination_surface_after_restore() {
         let origin_z = i32::from(origin_level) * 104 + 600;
         let destination_ground = i32::from(destination_level) * 104;
         let entity = sim.substrate.entities.get_mut(1).unwrap();
-        entity.position.exact_z_leptons = Some(origin_z);
+        entity.position.set_exact_z_leptons(Some(origin_z));
         entity.body_facing.snap(0x0000, 0);
         let loco = entity.locomotor.as_mut().unwrap();
         loco.set_fly_target_height(600);
@@ -8817,8 +8835,8 @@ fn fly_cross_level_move_lands_on_destination_surface_after_restore() {
             crate::sim::world::FrameEffects::default(),
         );
         let entity = sim.substrate.entities.get_mut(1).unwrap();
-        assert_eq!((entity.position.rx, entity.position.ry), (2, 2));
-        let moved_z = entity.position.exact_z_leptons.unwrap();
+        assert_eq!((entity.position.rx(), entity.position.ry()), (2, 2));
+        let moved_z = entity.position.exact_z_leptons().unwrap();
         // Crossing itself does not add the ground delta. Only one bounded
         // vertical rate step adjusts the physical coordinate.
         assert!((moved_z - origin_z).abs() <= 21);
@@ -8867,7 +8885,7 @@ fn fly_cross_level_move_lands_on_destination_surface_after_restore() {
                 sim.resolved_terrain.as_ref(),
             );
             if entity.locomotor.as_ref().unwrap().air_phase(height) == AirMovePhase::Landed {
-                assert_eq!(entity.position.exact_z_leptons, Some(destination_ground));
+                assert_eq!(entity.position.exact_z_leptons(), Some(destination_ground));
                 assert_eq!(
                     sim.foot_navigation_coordinate(1).unwrap().z,
                     destination_ground
@@ -8902,7 +8920,12 @@ fn display_lifecycle_is_independent_of_logic_and_survives_production_save() {
     // Coordinates change without resubmitting. MainTick's single adjacent
     // pass has a different result from either Logic order or a full sort.
     for id in 1..=4 {
-        sim.substrate.entities.get_mut(id).unwrap().position.rx = 7 - id as u16;
+        sim.substrate
+            .entities
+            .get_mut(id)
+            .unwrap()
+            .position
+            .set_rx(7 - id as u16);
     }
     let before_sort = sim.state_hash();
     sim.sort_display_ground(None);
@@ -8983,11 +9006,11 @@ fn mixed_display_lifecycle_matches_original_sequences_and_save_restore() {
                     };
                     insert_entity(&mut sim, id, category);
                     let entity = sim.substrate.entities.get_mut(id).unwrap();
-                    entity.position.rx = (xyz[0] / 256) as u16;
-                    entity.position.ry = (xyz[1] / 256) as u16;
-                    entity.position.sub_x = SimFixed::from_num(xyz[0] % 256);
-                    entity.position.sub_y = SimFixed::from_num(xyz[1] % 256);
-                    entity.position.exact_z_leptons = Some(xyz[2]);
+                    entity.position.set_rx((xyz[0] / 256) as u16);
+                    entity.position.set_ry((xyz[1] / 256) as u16);
+                    entity.position.set_sub_x(SimFixed::from_num(xyz[0] % 256));
+                    entity.position.set_sub_y(SimFixed::from_num(xyz[1] % 256));
+                    entity.position.set_exact_z_leptons(Some(xyz[2]));
                 }
                 "particle" => {
                     insert_particle_system(&mut sim, id);
@@ -9080,10 +9103,10 @@ fn mixed_display_lifecycle_matches_original_sequences_and_save_restore() {
                     let xyz: [i32; 3] =
                         std::array::from_fn(|i| step["xyz"][i].as_i64().unwrap() as i32);
                     if let Some(entity) = sim.substrate.entities.get_mut(id) {
-                        entity.position.rx = (xyz[0] / 256) as u16;
-                        entity.position.ry = (xyz[1] / 256) as u16;
-                        entity.position.sub_x = SimFixed::from_num(xyz[0] % 256);
-                        entity.position.sub_y = SimFixed::from_num(xyz[1] % 256);
+                        entity.position.set_rx((xyz[0] / 256) as u16);
+                        entity.position.set_ry((xyz[1] / 256) as u16);
+                        entity.position.set_sub_x(SimFixed::from_num(xyz[0] % 256));
+                        entity.position.set_sub_y(SimFixed::from_num(xyz[1] % 256));
                     } else {
                         sim.substrate.particle_systems.get_mut(id).unwrap().coords =
                             IVec3::from_array(xyz);
@@ -9158,14 +9181,14 @@ fn jumpjet_process_compares_live_layer_queries_not_cached_registration() {
         .get_mut(id)
         .unwrap()
         .position
-        .exact_z_leptons = Some(600);
+        .set_exact_z_leptons(Some(600));
     sim.complete_jumpjet_display_process(id, before, None);
     assert_eq!(sim.substrate.display.layer_of(id), Some(DisplayLayer::TOP));
     // The native tail's alive gate prevents another submission after death.
     let before = sim.entity_display_layer(id, None).unwrap();
     let entity = sim.substrate.entities.get_mut(id).unwrap();
     entity.lifecycle.set_object_alive_for_test(false);
-    entity.position.exact_z_leptons = Some(0);
+    entity.position.set_exact_z_leptons(Some(0));
     sim.complete_jumpjet_display_process(id, before, None);
     assert_eq!(sim.substrate.display.layer_of(id), Some(DisplayLayer::TOP));
 }
@@ -9291,7 +9314,7 @@ fn a_missile_is_tracked_in_the_cell_its_flight_step_reached() {
         .get_mut(1)
         .unwrap()
         .position
-        .exact_z_leptons = Some(512);
+        .set_exact_z_leptons(Some(512));
     sim.rocket_move_to(
         1,
         crate::sim::components::DriveCoord::cell(25, 12, 0),
@@ -9326,7 +9349,7 @@ fn a_missile_is_tracked_in_the_cell_its_flight_step_reached() {
         .unwrap();
 
     let missile = sim.substrate.entities.get(1).unwrap();
-    let cell = (missile.position.rx, missile.position.ry);
+    let cell = (missile.position.rx(), missile.position.ry());
     assert_eq!(cell, (13, 12), "the flight step left the launch cell");
     assert_eq!(missile.air_spatial_bucket(), Some(bucket(&sim, cell)));
 }

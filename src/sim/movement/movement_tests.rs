@@ -130,7 +130,7 @@ fn ordinary_drive_retires_selector_before_entering_an_explicit_tube() {
                     .turn_index,
                 -1
             );
-            assert_eq!((entity.position.rx, entity.position.ry), (1, 0));
+            assert_eq!((entity.position.rx(), entity.position.ry()), (1, 0));
             assert_eq!(tube.cursor(), 0);
             assert_eq!(entity.navigation.path_replay.cursor(), 2);
             assert_eq!(entity.navigation.path_replay.reference_cell(), Some((1, 0)));
@@ -173,7 +173,7 @@ fn ordinary_drive_retires_selector_before_entering_an_explicit_tube() {
             "the curve cannot retire without the same Process entering the tube"
         );
         assert!(
-            entity.position.rx <= 1,
+            entity.position.rx() <= 1,
             "tube steps cannot become ordinary ground curves"
         );
     }
@@ -517,7 +517,12 @@ fn drive_ship_slope_process_samples_stationary_retargets_and_keeps_rng() {
             "equal stationary Process is a complete no-write"
         );
 
-        sim.substrate.entities.get_mut(1).unwrap().position.rx = 1;
+        sim.substrate
+            .entities
+            .get_mut(1)
+            .unwrap()
+            .position
+            .set_rx(1);
         drive_ship_slope_process_tick(&mut sim, &terrain, 12);
         assert_eq!(
             crate::sim::movement::slope_transition::state_for_entity(
@@ -592,7 +597,7 @@ fn drive_slope_boundary_is_detected_on_process_after_forced_track_crossing() {
             sim.session.binary_frame = *frame;
             sim.process_ground_locomotor_for_test(1, Some(&rules), None, None)
                 .unwrap();
-            sim.substrate.entities.get(1).unwrap().position.ry == 1
+            sim.substrate.entities.get(1).unwrap().position.ry() == 1
         })
         .expect("forced track crosses into the adjacent cell");
     assert_eq!(
@@ -798,7 +803,7 @@ fn walk_arrival_keeps_list_order_and_snapshot_continuation() {
             );
         }
         let entity = sim.substrate.entities.get(walker).unwrap();
-        let cell = (entity.position.rx, entity.position.ry);
+        let cell = (entity.position.rx(), entity.position.ry());
         assert!(sim.substrate.occupancy.contains_entity(2, 1, resident));
         if cell != previous_cell {
             assert!(!sim.substrate.occupancy.contains_entity(
@@ -1005,7 +1010,7 @@ fn forced_track_object_turn_relinks_each_committed_cell() {
                     .remaining_directions()
                     .is_empty()
         );
-        let current_cell = (entity.position.rx, entity.position.ry);
+        let current_cell = (entity.position.rx(), entity.position.ry());
         assert!(
             sim.substrate
                 .occupancy
@@ -1027,9 +1032,9 @@ fn forced_track_object_turn_relinks_each_committed_cell() {
     assert!(crossed);
     let entity = sim.substrate.entities.get(1).unwrap();
     assert!(committed_track_head(entity).is_none());
-    assert_eq!((entity.position.rx, entity.position.ry), (13, 12));
+    assert_eq!((entity.position.rx(), entity.position.ry()), (13, 12));
     assert_eq!(
-        (entity.position.sub_x, entity.position.sub_y),
+        (entity.position.sub_x(), entity.position.sub_y()),
         (SIM_ZERO, SIM_ZERO)
     );
     let drive = entity
@@ -1283,7 +1288,7 @@ fn walk_infantry_corridor(
     for _ in 0..400 {
         walk_frame(&mut sim, &rules);
         let e = sim.substrate.entities.get(id).unwrap();
-        let cell = (e.position.rx, e.position.ry);
+        let cell = (e.position.rx(), e.position.ry());
         if visited.last() != Some(&cell) {
             visited.push(cell);
         }
@@ -1380,7 +1385,7 @@ fn gsi_04_10_crusher_and_omnicrusher_never_enter_or_crush_a_terrain_object_cell(
             assert!(lifecycle_requests.is_empty());
             let p = &entities.get(1).expect("tank exists").position;
             assert_ne!(
-                (p.rx, p.ry),
+                (p.rx(), p.ry()),
                 (1, 0),
                 "{movement_zone:?} must never enter a Terrain-object cell",
             );
@@ -1579,10 +1584,10 @@ fn group_gis_do_not_jump_or_lose_their_goal() {
                 let e = sim.substrate.entities.get(id).unwrap();
                 let p = &e.position;
                 let old = &previous[n];
-                let dx = (i32::from(p.rx) - i32::from(old.rx)) * 256
-                    + (p.sub_x - old.sub_x).to_num::<i32>();
-                let dy = (i32::from(p.ry) - i32::from(old.ry)) * 256
-                    + (p.sub_y - old.sub_y).to_num::<i32>();
+                let dx = (i32::from(p.rx()) - i32::from(old.rx())) * 256
+                    + (p.sub_x() - old.sub_x()).to_num::<i32>();
+                let dy = (i32::from(p.ry()) - i32::from(old.ry())) * 256
+                    + (p.sub_y() - old.sub_y()).to_num::<i32>();
                 assert!(
                     dx * dx + dy * dy <= 32 * 32,
                     "unexpected jump seed={seed} tick={tick} GI={id} delta=({dx},{dy})"
@@ -1590,8 +1595,8 @@ fn group_gis_do_not_jump_or_lose_their_goal() {
                 if crate::sim::movement::motion_query::is_moving(&e) == Some(true)
                     && e.locomotor.as_ref().unwrap().walk_destination_cell() != Some((3, 3))
                 {
-                    let dx = i32::from(p.rx) - 3;
-                    let dy = i32::from(p.ry) - 3;
+                    let dx = i32::from(p.rx()) - 3;
+                    let dy = i32::from(p.ry()) - 3;
                     assert!(
                         dx * dx + dy * dy <= 9,
                         "only a GI that reached the destination may be scattered: seed={seed} tick={tick} id={id}"
@@ -1608,8 +1613,8 @@ fn group_gis_do_not_jump_or_lose_their_goal() {
         }
         for &id in &ids {
             let e = sim.substrate.entities.get(id).unwrap();
-            let dx = i32::from(e.position.rx) - 3;
-            let dy = i32::from(e.position.ry) - 3;
+            let dx = i32::from(e.position.rx()) - 3;
+            let dy = i32::from(e.position.ry()) - 3;
             if dx * dx + dy * dy <= 9 {
                 reached += 1;
             }

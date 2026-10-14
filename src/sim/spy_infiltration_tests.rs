@@ -442,7 +442,7 @@ fn a_spy_sent_into_an_enemy_power_plant_blacks_it_out() {
         .collect();
     let plant_cell = {
         let plant = sim.entities().get(plant).unwrap();
-        (plant.position.rx, plant.position.ry)
+        (plant.position.rx(), plant.position.ry())
     };
     assert_eq!(
         infiltrations,
@@ -532,7 +532,7 @@ fn an_infiltrator_that_is_no_agent_is_scattered_from_the_building() {
     let mut events = Vec::new();
     let footprint = |sim: &Simulation, id: u64| {
         let entity = sim.entities().get(id).unwrap();
-        (entity.position.rx, entity.position.ry)
+        (entity.position.rx(), entity.position.ry())
     };
     let mut entered = false;
     run_until(&mut sim, &rules, &grid, 300, &mut events, |sim| {

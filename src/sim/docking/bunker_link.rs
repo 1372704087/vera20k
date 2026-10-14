@@ -170,7 +170,7 @@ pub(crate) fn begin_entry(
         .substrate
         .entities
         .get(bunker_id)
-        .map(|bunker| (bunker.position.rx, bunker.position.ry));
+        .map(|bunker| (bunker.position.rx(), bunker.position.ry()));
     if let Some((brx, bry)) = bunker_cell
         && let Err(cause) = sim.assign_destination_represented(
             unit_id,
@@ -261,7 +261,7 @@ pub(crate) fn emit_bunker_wall_sound(sim: &mut Simulation, building_id: u64, up:
     let Some(b) = sim.substrate.entities.get(building_id) else {
         return;
     };
-    let (rx, ry) = (b.position.rx, b.position.ry);
+    let (rx, ry) = (b.position.rx(), b.position.ry());
     sim.sound_events.push(if up {
         SimSoundEvent::BunkerWallsUp { rx, ry }
     } else {
@@ -552,8 +552,8 @@ fn reset_bunker_idle(sim: &mut Simulation, building_id: u64) {
 /// the anchor cell when no path grid is available (headless tests).
 fn bunker_exit_cell(sim: &Simulation, building_id: u64) -> Option<(u16, u16)> {
     let b = sim.substrate.entities.get(building_id)?;
-    let ax = b.position.rx as i32 - 1;
-    let ay = b.position.ry as i32 + 1;
+    let ax = b.position.rx() as i32 - 1;
+    let ay = b.position.ry() as i32 + 1;
     match sim.path_grid() {
         Some(g) => crate::sim::miner::find_nearby_passable_cell_with_index(
             ax,
@@ -564,7 +564,7 @@ fn bunker_exit_cell(sim: &Simulation, building_id: u64) -> Option<(u16, u16)> {
             sim.session.binary_frame as u64,
         ),
         None if ax >= 0 && ay >= 0 => Some((ax as u16, ay as u16)),
-        None => Some((b.position.rx, b.position.ry)),
+        None => Some((b.position.rx(), b.position.ry())),
     }
 }
 
@@ -868,7 +868,7 @@ mod tests {
         assert!(unit.lifecycle.object_alive());
         assert!(!unit.lifecycle.in_limbo());
         assert!(unit.lifecycle.cell_marked());
-        assert_eq!((unit.position.rx, unit.position.ry), (12, 12));
+        assert_eq!((unit.position.rx(), unit.position.ry()), (12, 12));
         // The existing exit-search adapter supplies NavCom; Force moves later.
         assert_eq!(
             unit.navigation.nav_com(),
@@ -906,7 +906,7 @@ mod tests {
         assert!(unit.lifecycle.object_alive());
         assert!(!unit.lifecycle.in_limbo());
         assert!(unit.lifecycle.cell_marked());
-        assert_eq!((unit.position.rx, unit.position.ry), (12, 12));
+        assert_eq!((unit.position.rx(), unit.position.ry()), (12, 12));
         assert_eq!(unit.body_facing.destination(), 0);
         assert_eq!(
             unit.locomotor
@@ -945,7 +945,7 @@ mod tests {
         assert!(!unit.lifecycle.in_limbo());
         assert!(unit.lifecycle.cell_marked());
         assert_eq!(
-            (unit.position.rx, unit.position.ry),
+            (unit.position.rx(), unit.position.ry()),
             (12, 12),
             "not repositioned"
         );
@@ -1075,7 +1075,7 @@ mod tests {
             unit.in_logic_vector.is_member(),
             "occupant remains active after sell"
         );
-        assert_eq!((unit.position.rx, unit.position.ry), (12, 12));
+        assert_eq!((unit.position.rx(), unit.position.ry()), (12, 12));
         assert_eq!(
             unit.locomotor
                 .as_ref()

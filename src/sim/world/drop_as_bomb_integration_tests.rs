@@ -55,13 +55,13 @@ fn boarded_transport(sim: &mut Simulation, rules: &RuleSet, kind: &str) -> (u64,
         "board failed: passenger={:?} transport={:?} admitted={}",
         sim.substrate.entities.get(passenger).map(|e| (
             e.is_deployed(),
-            e.position.rx,
-            e.position.ry,
+            e.position.rx(),
+            e.position.ry(),
             e.lifecycle.in_limbo()
         )),
         sim.substrate.entities.get(carrier).map(|e| (
-            e.position.rx,
-            e.position.ry,
+            e.position.rx(),
+            e.position.ry(),
             e.lifecycle.in_limbo()
         )),
         crate::sim::passenger::can_enter_transport(sim, rules, passenger, carrier)
@@ -135,7 +135,7 @@ fn put_on_deck(sim: &mut Simulation, rules: &RuleSet, id: u64, water: bool) {
     let entity = sim.substrate.entities.get_mut(id).unwrap();
     let at = ground_pose::position_world_coord(&entity.position);
     entity.set_on_bridge(true);
-    entity.position.z = 4;
+    entity.position.set_z(4);
     ground_pose::put_location(
         &mut entity.position,
         DriveCoord {
@@ -353,7 +353,7 @@ fn vanished_structural_deck_per_cell_arms_the_same_object_fall() {
         "percell state: on_bridge={} marked={} z={:?} layer={:?}",
         entity.on_bridge(),
         entity.lifecycle.cell_marked(),
-        entity.position.exact_z_leptons,
+        entity.position.exact_z_leptons(),
         entity.locomotor.as_ref().map(|l| l.layer())
     );
     assert!(!entity.on_bridge());

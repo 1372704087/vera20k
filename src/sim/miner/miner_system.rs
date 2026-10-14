@@ -67,8 +67,8 @@ fn return_exceeds_too_far_threshold(
         return None;
     }
 
-    let miner_x = i64::from(miner.position.rx) * 256 + miner.position.sub_x.to_num::<i64>();
-    let miner_y = i64::from(miner.position.ry) * 256 + miner.position.sub_y.to_num::<i64>();
+    let miner_x = i64::from(miner.position.rx()) * 256 + miner.position.sub_x().to_num::<i64>();
+    let miner_y = i64::from(miner.position.ry()) * 256 + miner.position.sub_y().to_num::<i64>();
     // Both GetCoords (vt+0x48): the refinery's foundation centre
     // (`0x00447AC0`) at its Location's Z.
     let terrain = sim.resolved_terrain.as_ref();
@@ -158,12 +158,12 @@ mod gsi_04_03b_tests {
     fn too_far_threshold_follows_sqrt_approx_table_edge() {
         let mut sim = Simulation::new();
         let mut refinery = GameEntity::test_default(2, "GAREFN", "Allies", 0, 0);
-        refinery.position.sub_x = SimFixed::from_num(0);
-        refinery.position.sub_y = SimFixed::from_num(0);
+        refinery.position.set_sub_x(SimFixed::from_num(0));
+        refinery.position.set_sub_y(SimFixed::from_num(0));
         sim.substrate.entities.insert(refinery);
         let mut miner = GameEntity::test_default(1, "HARV", "Allies", 5, 0);
-        miner.position.sub_x = SimFixed::from_num(1);
-        miner.position.sub_y = SimFixed::from_num(0);
+        miner.position.set_sub_x(SimFixed::from_num(1));
+        miner.position.set_sub_y(SimFixed::from_num(0));
         sim.substrate.entities.insert(miner);
 
         assert_eq!(
@@ -171,7 +171,12 @@ mod gsi_04_03b_tests {
             Some(false),
             "d = 1281 leptons: Sqrt_Approx yields 1280.9995, ftol 1280, close"
         );
-        sim.substrate.entities.get_mut(1).unwrap().position.sub_x = SimFixed::from_num(2);
+        sim.substrate
+            .entities
+            .get_mut(1)
+            .unwrap()
+            .position
+            .set_sub_x(SimFixed::from_num(2));
         assert_eq!(
             return_exceeds_too_far_threshold(&sim, 1, 2, 5),
             Some(true),
@@ -194,9 +199,9 @@ mod gsi_04_03b_tests {
     fn gsi_04_03b_miner_return_distance_uses_terrain_bridge_and_altitude_z() {
         let mut sim = Simulation::new();
         let mut miner = GameEntity::test_default(1, "CMIN", "Allies", 0, 0);
-        miner.position.sub_x = SimFixed::from_num(0);
+        miner.position.set_sub_x(SimFixed::from_num(0));
         let mut refinery = GameEntity::test_default(2, "GAOREP", "Allies", 0, 0);
-        refinery.position.sub_x = SimFixed::from_num(255);
+        refinery.position.set_sub_x(SimFixed::from_num(255));
         sim.substrate.entities.insert(miner);
         sim.substrate.entities.insert(refinery);
         sim.resolved_terrain = Some(ResolvedTerrainGrid::from_cells(1, 1, vec![sloped_cell()]));
@@ -207,8 +212,18 @@ mod gsi_04_03b_tests {
             "255 horizontal leptons plus the slope Z delta exceeds one cell"
         );
 
-        sim.substrate.entities.get_mut(1).unwrap().position.sub_x = SimFixed::from_num(0);
-        sim.substrate.entities.get_mut(2).unwrap().position.sub_x = SimFixed::from_num(0);
+        sim.substrate
+            .entities
+            .get_mut(1)
+            .unwrap()
+            .position
+            .set_sub_x(SimFixed::from_num(0));
+        sim.substrate
+            .entities
+            .get_mut(2)
+            .unwrap()
+            .position
+            .set_sub_x(SimFixed::from_num(0));
         assert_eq!(return_exceeds_too_far_threshold(&sim, 1, 2, 1), Some(false));
 
         sim.substrate
@@ -237,11 +252,11 @@ mod gsi_04_03b_tests {
     fn gsi_04_03b_miner_return_distance_falls_back_to_level_z_without_resolved_terrain() {
         let mut sim = Simulation::new();
         let mut miner = GameEntity::test_default(1, "CMIN", "Allies", 0, 0);
-        miner.position.sub_x = SimFixed::from_num(0);
-        miner.position.z = 0;
+        miner.position.set_sub_x(SimFixed::from_num(0));
+        miner.position.set_z(0);
         let mut refinery = GameEntity::test_default(2, "GAOREP", "Allies", 0, 0);
-        refinery.position.sub_x = SimFixed::from_num(255);
-        refinery.position.z = 0;
+        refinery.position.set_sub_x(SimFixed::from_num(255));
+        refinery.position.set_z(0);
         sim.substrate.entities.insert(miner);
         sim.substrate.entities.insert(refinery);
         assert!(sim.resolved_terrain.is_none());
@@ -252,7 +267,7 @@ mod gsi_04_03b_tests {
         // cell — and the decision is still made rather than refused.
         assert_eq!(return_exceeds_too_far_threshold(&sim, 1, 2, 1), Some(false));
 
-        sim.substrate.entities.get_mut(2).unwrap().position.z = 3;
+        sim.substrate.entities.get_mut(2).unwrap().position.set_z(3);
         assert_eq!(
             return_exceeds_too_far_threshold(&sim, 1, 2, 1),
             Some(true),
@@ -440,8 +455,8 @@ pub(super) fn build_miner_snapshot(sim: &Simulation, id: u64) -> Option<MinerSna
         entity_id: id,
         owner: entity.owner(),
         type_id: entity.type_ref(),
-        rx: entity.position.rx,
-        ry: entity.position.ry,
+        rx: entity.position.rx(),
+        ry: entity.position.ry(),
         miner: miner.clone(),
         state: cursor.unwrap_or(MinerState::SearchOre),
         dispatch_delay: DISPATCH_NEXT_FRAME,
@@ -1067,8 +1082,8 @@ fn refinery_staging_cell(sim: &Simulation, rules: &RuleSet, bay: u64) -> Option<
         .object_type(building.type_ref(), rules)
         .map_or([0, 0], |object| object.queueing_cell);
     let seed = (
-        i32::from((building.position.rx as i16).wrapping_add(queueing[0] as i16)),
-        i32::from((building.position.ry as i16).wrapping_add(queueing[1] as i16)),
+        i32::from((building.position.rx() as i16).wrapping_add(queueing[0] as i16)),
+        i32::from((building.position.ry() as i16).wrapping_add(queueing[1] as i16)),
     );
     let (width, height) = sim
         .playfield_bounds
@@ -1440,7 +1455,7 @@ fn scan_docking_type(
             entity.owner(),
             coords.x,
             coords.y,
-            (entity.position.rx, entity.position.ry),
+            (entity.position.rx(), entity.position.ry()),
             entity
                 .locomotor
                 .as_ref()
@@ -1483,7 +1498,7 @@ fn scan_docking_type(
             continue;
         }
         if !aircraft {
-            let dock = refinery_dock_cell(entity.position.rx, entity.position.ry);
+            let dock = refinery_dock_cell(entity.position.rx(), entity.position.ry());
             if !refinery_zone_reachable(
                 sim,
                 sim.substrate.entities.get(requester)?,
@@ -2342,12 +2357,12 @@ mod harvest_scan_dispatch_tests {
             crate::sim::miner::miner_dock::has_contact(&sim, REFINERY_ID, MINER_ID),
             "HELLO accepted on the same dispatch"
         );
-        assert_eq!((entity.position.rx, entity.position.ry), (16, 11));
+        assert_eq!((entity.position.rx(), entity.position.ry()), (16, 11));
         let pad = sim
             .substrate
             .entities
             .get(REFINERY_ID)
-            .map(|refinery| refinery_dock_cell(refinery.position.rx, refinery.position.ry))
+            .map(|refinery| refinery_dock_cell(refinery.position.rx(), refinery.position.ry()))
             .unwrap();
         assert!(
             pad.0.abs_diff(16) > 1,

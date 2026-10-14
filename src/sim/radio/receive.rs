@@ -434,7 +434,7 @@ fn building_docking(
         .expect("docking retains type");
     let pad_dock = object.dock_unload || object.weeder;
     let helipad = object.helipad;
-    let (rx, ry) = (building.position.rx, building.position.ry);
+    let (rx, ry) = (building.position.rx(), building.position.ry());
     // 0x0043C8A4..0x0043C8CC: a sender that is not a contact is HELLOed back
     // when a slot is free or already its own.
     if !building.radio_contacts.contains(from) && building.radio_contacts.has_free_or(from) {
@@ -1639,8 +1639,8 @@ fn radio_receive(
                     (
                         entity.lifecycle.cell_marked(),
                         sim.substrate.occupancy.contains_entity(
-                            entity.position.rx,
-                            entity.position.ry,
+                            entity.position.rx(),
+                            entity.position.ry(),
                             entity.stable_id(),
                         ),
                     )

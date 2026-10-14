@@ -182,8 +182,8 @@ fn retail_magnetron_pulls_a_tank_beside_itself_and_lets_go() {
         "the release clears its target"
     );
     let offset = (
-        i32::from(dropped.position.rx) - i32::from(holder.position.rx),
-        i32::from(dropped.position.ry) - i32::from(holder.position.ry),
+        i32::from(dropped.position.rx()) - i32::from(holder.position.rx()),
+        i32::from(dropped.position.ry()) - i32::from(holder.position.ry()),
     );
     assert_eq!(
         offset.0.abs().max(offset.1.abs()),
@@ -220,7 +220,7 @@ fn retail_tank_let_go_over_a_unit_crashes_onto_it() {
     assert!(
         run_until(&mut sim, &rules, &grid, 600, |sim| {
             let held = entity(sim, tank);
-            (held.position.rx, held.position.ry) == (13, 16)
+            (held.position.rx(), held.position.ry()) == (13, 16)
         }),
         "the tank is pulled over the Unit"
     );

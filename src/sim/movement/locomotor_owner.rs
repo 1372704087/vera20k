@@ -142,7 +142,7 @@ fn end_piggyback(entity: &mut GameEntity) -> PiggybackEnd {
         .is_some_and(|locomotor| locomotor.end_piggyback());
     if restored {
         // END transfers the controller without moving Object+9C.
-        entity.position.exact_z_leptons = Some(physical.z);
+        entity.position.set_exact_z_leptons(Some(physical.z));
     }
     PiggybackEnd {
         restored,

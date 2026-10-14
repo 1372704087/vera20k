@@ -183,14 +183,14 @@ fn play_crate_sound(
     let (Ok(rx), Ok(ry)) = (u16::try_from(cell.0), u16::try_from(cell.1)) else {
         return;
     };
-    let position = Position {
+    let position = Position::new(
         rx,
         ry,
-        z: u8::try_from(center.z / crate::util::lepton::GROUND_LEVEL_HEIGHT_LEPTONS).unwrap_or(0),
-        exact_z_leptons: Some(center.z),
-        sub_x: SimFixed::from_num(128),
-        sub_y: SimFixed::from_num(128),
-    };
+        u8::try_from(center.z / crate::util::lepton::GROUND_LEVEL_HEIGHT_LEPTONS).unwrap_or(0),
+        Some(center.z),
+        SimFixed::from_num(128),
+        SimFixed::from_num(128),
+    );
     sim.sound_events.push(SimSoundEvent::voc_at_for(
         sound.to_owned(),
         heard_by.map(|owner| [owner, owner]),

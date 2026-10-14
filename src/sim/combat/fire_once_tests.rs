@@ -98,9 +98,13 @@ fn fixture(row: &Value, rules: &RuleSet) -> (Simulation, Vec<u64>, [u64; 2], Opt
             assert_eq!(before["scan"], 0);
             assert_eq!(before["nav_queue_count"], 0);
             let actor = sim.substrate.entities.get_mut(id).unwrap();
-            actor.position.sub_x = SimFixed::from_num(integer(&xyz[0]) & 255);
-            actor.position.sub_y = SimFixed::from_num(integer(&xyz[1]) & 255);
-            actor.position.exact_z_leptons = Some(integer(&xyz[2]));
+            actor
+                .position
+                .set_sub_x(SimFixed::from_num(integer(&xyz[0]) & 255));
+            actor
+                .position
+                .set_sub_y(SimFixed::from_num(integer(&xyz[1]) & 255));
+            actor.position.set_exact_z_leptons(Some(integer(&xyz[2])));
             actor.health.set_for_test(integer(&before["health"]));
             actor
                 .lifecycle

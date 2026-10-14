@@ -555,17 +555,19 @@ fn step(s: &mut Scene, step: &Value, context: &str) {
         "arrival" => {
             let (rx, ry) = cell(&step["returned"]["supplied_arrival_cell"]);
             let e = s.sim.substrate.entities.get_mut(s.miner).unwrap();
-            let old = (e.position.rx, e.position.ry);
+            let old = (e.position.rx(), e.position.ry());
             let layer = s
                 .sim
                 .substrate
                 .occupancy
                 .listed_layer(old.0, old.1, s.miner)
                 .unwrap();
-            e.position.rx = rx;
-            e.position.ry = ry;
-            e.position.sub_x = crate::util::fixed_math::SimFixed::from_num(128);
-            e.position.sub_y = crate::util::fixed_math::SimFixed::from_num(128);
+            e.position.set_rx(rx);
+            e.position.set_ry(ry);
+            e.position
+                .set_sub_x(crate::util::fixed_math::SimFixed::from_num(128));
+            e.position
+                .set_sub_y(crate::util::fixed_math::SimFixed::from_num(128));
             let drive = e.locomotor.as_mut().unwrap();
             assert!(drive.store_track_destination(
                 crate::sim::movement::track_process::TrackFamily::Drive,

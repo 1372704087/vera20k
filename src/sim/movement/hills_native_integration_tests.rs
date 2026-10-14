@@ -292,10 +292,10 @@ fn await_ordinary_route(
             crate::sim::movement::motion_query::is_moving(&actor) == Some(true),
             "Move remains scheduled before Find_Path"
         );
-        let start = (actor.position.rx, actor.position.ry);
+        let start = (actor.position.rx(), actor.position.ry());
         let facts = sim.path_grid().unwrap().cell(start.0, start.1).unwrap();
         assert_eq!(
-            actor.position.z,
+            actor.position.z(),
             facts.ground_level + if actor.on_bridge() { 4 } else { 0 }
         );
         scenario.tick();
@@ -324,12 +324,12 @@ fn await_stopped_deck_pose(
         let sim = scenario.sim();
         let actor = sim.entities().get(id).expect("live stopped deck receiver");
         assert_eq!(
-            (actor.position.rx, actor.position.ry),
+            (actor.position.rx(), actor.position.ry()),
             cell,
             "paid Stop head changed the native fixture cell"
         );
         assert!(actor.on_bridge());
-        assert_eq!(actor.position.z, 6);
+        assert_eq!(actor.position.z(), 6);
         assert!(
             actor.navigation.nav_com().is_none(),
             "accepted Stop clears NavCom"
@@ -356,7 +356,7 @@ fn hills_native_fields_and_mtnk_admission_feed_an_ordinary_ramp_move() {
     let sim = scenario.sim();
     let terrain = sim.resolved_terrain.as_ref().unwrap();
     let actor = sim.entities().get(id).unwrap();
-    assert_eq!(actor.position.z, 6);
+    assert_eq!(actor.position.z(), 6);
     assert!(!actor.on_bridge());
     for row in native["movement_admissions"].as_array().unwrap() {
         let coord = (
@@ -506,7 +506,7 @@ fn hills_stationary_friendly_deck_blocker_matches_original_repath() {
     );
     for entity in [parked, actor] {
         assert!(entity.on_bridge());
-        assert_eq!(entity.position.z, 6);
+        assert_eq!(entity.position.z(), 6);
         assert!(entity.navigation.nav_com().is_none());
     }
     assert!(!parked.body_facing.is_rotating(sim.session.binary_frame));
@@ -578,7 +578,7 @@ fn hills_opposing_ordinary_moves_repath_on_the_deck() {
         let sim = scenario.sim();
         let actor = sim.entities().get(forward).unwrap();
         let other = sim.entities().get(reverse).unwrap();
-        let cell = (actor.position.rx, actor.position.ry);
+        let cell = (actor.position.rx(), actor.position.ry());
         let facts = sim.path_grid().unwrap().cell(cell.0, cell.1).unwrap();
         if facts.bridge_structural {
             assert!(
@@ -586,10 +586,10 @@ fn hills_opposing_ordinary_moves_repath_on_the_deck() {
                 "blocked mover fell beneath its deck at {cell:?}"
             );
             assert_eq!(actor.movement_layer_or_ground(), MovementLayer::Bridge);
-            assert_eq!(actor.position.z, facts.ground_level + 4);
+            assert_eq!(actor.position.z(), facts.ground_level + 4);
             met_on_deck |= other.on_bridge()
-                && actor.position.rx.abs_diff(other.position.rx) <= 2
-                && actor.position.ry.abs_diff(other.position.ry) <= 1;
+                && actor.position.rx().abs_diff(other.position.rx()) <= 2
+                && actor.position.ry().abs_diff(other.position.ry()) <= 1;
         }
         if crate::sim::movement::motion_query::is_moving(&actor) == Some(true) {
             let queue = &actor.navigation.path_replay;
@@ -692,7 +692,7 @@ fn hills_same_type_marker_downgrade_reaches_live_foot_search_and_cleanup() {
                 .unwrap();
             let actor = sim.substrate.entities.get(id).unwrap();
             assert!(!actor.on_bridge());
-            assert_eq!(actor.position.z, case["height"].as_u64().unwrap() as u8);
+            assert_eq!(actor.position.z(), case["height"].as_u64().unwrap() as u8);
             assert!(actor.navigation.nav_com().is_none());
             assert!(actor.foot_occupation_enabled());
             assert_eq!(
@@ -939,7 +939,7 @@ fn hills_same_type_marker_downgrade_reaches_live_foot_search_and_cleanup() {
         assert_eq!(queue.cursor(), 0, "Find_Path installs an unconsumed queue");
         assert_original_route(
             case,
-            &queue.installed_cells((actor.position.rx, actor.position.ry)),
+            &queue.installed_cells((actor.position.rx(), actor.position.ry())),
         );
         assert_eq!(case["rng_before"], case["rng_after"]);
         assert_eq!(
@@ -951,8 +951,8 @@ fn hills_same_type_marker_downgrade_reaches_live_foot_search_and_cleanup() {
             let actor = sim.substrate.entities.get(id).unwrap();
             assert!(actor.lifecycle.cell_marked());
             assert!(sim.substrate.occupancy.contains_entity(
-                actor.position.rx,
-                actor.position.ry,
+                actor.position.rx(),
+                actor.position.ry(),
                 id
             ));
         }

@@ -79,7 +79,7 @@ impl Simulation {
             .substrate
             .entities
             .get(id)
-            .map(|e| (e.position.rx, e.position.ry))
+            .map(|e| (e.position.rx(), e.position.ry()))
         else {
             return;
         };
@@ -95,7 +95,7 @@ impl Simulation {
         let Some(e) = self.substrate.entities.get_mut(id) else {
             return;
         };
-        let cell = (e.position.rx, e.position.ry);
+        let cell = (e.position.rx(), e.position.ry());
         // Recalc may replace the canonical PathGrid. Read its current cell
         // flags after REMOVE, then SetHeight samples current resolved terrain.
         let mut on_bridge = e.on_bridge();
@@ -163,7 +163,7 @@ impl Simulation {
         };
         e.navigation
             .path_replay
-            .set_reference_cell(Some((e.position.rx as i16, e.position.ry as i16)));
+            .set_reference_cell(Some((e.position.rx() as i16, e.position.ry() as i16)));
         //Infantry+1CC=5F5FA0; marked is already false, so the SetHeight0
         //receiver samples current ground+OnBridge without nested Mark calls.
         let on_bridge = e.on_bridge();
@@ -177,8 +177,8 @@ impl Simulation {
         //75BE11 clears only the paid-step latch before head retirement/PerCell.
         e.navigation.path_runtime.set_path_blocked(false);
         e.set_sub_cell(Some(super::bump_crush::priority_sub_cell(
-            e.position.sub_x,
-            e.position.sub_y,
+            e.position.sub_x(),
+            e.position.sub_y(),
         )));
         //75BE18: FindSubCellDest(null) retires the head, clearing its raw
         //bits and marking the Foot's own.
